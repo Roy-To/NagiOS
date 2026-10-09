@@ -5,11 +5,12 @@
 //! orchestration fixture only: its vectors are meaningless and NOTHING here
 //! counts as real-inference evidence (see `real_inference.rs`).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use nagi_embedding_provider::{
-    space_id_for, to_semantic, Clock, E5Provider, ModelError, ProviderConfig, ProviderError,
-    E5_SMALL_NEMB_SHA256,
+    space_id_for, to_semantic, CancelFlag, CancelSignal, Checkpoint, Clock, E5Provider, ModelError,
+    ProviderConfig, ProviderError, DEFAULT_INFERENCE_BUDGET_NANOS, E5_SMALL_NEMB_SHA256,
 };
 use nagi_model::ObjectId;
 use nagi_search::{
@@ -328,6 +329,7 @@ fn invalid_config_is_rejected() {
         },
         ProviderConfig {
             max_inference_nanos: Some(10),
+            clock: None,
             ..unpinned()
         },
     ] {
@@ -358,7 +360,7 @@ impl Clock for StepClock {
 }
 
 #[test]
-fn deadline_is_enforced_between_layers() {
+fn deadline_is_enforced_from_call_entry() {
     let config = ProviderConfig {
         max_inference_nanos: Some(500),
         clock: Some(Box::new(StepClock(AtomicU64::new(0)))),
@@ -366,7 +368,15 @@ fn deadline_is_enforced_between_layers() {
     };
     let p = E5Provider::from_artifact(tiny_artifact(1), config).unwrap();
     let error = p.try_embed(EmbeddingPurpose::Query, "ab").unwrap_err();
-    assert_eq!(error, ProviderError::DeadlineExceeded { budget_nanos: 500 });
+    // The budget starts at call entry; the first poll (`Start`, before
+    // tokenization) already observes the expiry.
+    assert_eq!(
+        error,
+        ProviderError::DeadlineExceeded {
+            budget_nanos: 500,
+            at: Checkpoint::Start
+        }
+    );
     assert_eq!(
         to_semantic(EmbeddingPurpose::Query, &error),
         SemanticError::ProviderUnavailable
@@ -485,4 +495,242 @@ fn literal_special_token_text_cannot_inject_control_ids() {
     assert!(ids[1..ids.len() - 1]
         .iter()
         .all(|id| ![0, 1, 2].contains(id)));
+}
+
+/// Cancels on the `fire_at`-th poll (1-based) and counts polls.
+struct CancelAt {
+    polls: AtomicUsize,
+    fire_at: usize,
+}
+
+impl CancelSignal for CancelAt {
+    fn is_cancelled(&self) -> bool {
+        self.polls.fetch_add(1, Ordering::SeqCst) + 1 >= self.fire_at
+    }
+}
+
+/// Every checkpoint of one call on the tiny model, in poll order.
+fn checkpoint_sequence(p: &E5Provider, text: &str) -> Vec<Checkpoint> {
+    let mut sequence = Vec::new();
+    for fire_at in 1..100 {
+        let cancel = CancelAt {
+            polls: AtomicUsize::new(0),
+            fire_at,
+        };
+        match p.try_embed_cancellable(EmbeddingPurpose::Query, text, &cancel) {
+            Err(ProviderError::Cancelled { at }) => sequence.push(at),
+            Ok(_) => return sequence,
+            Err(other) => panic!("unexpected error {other:?}"),
+        }
+    }
+    panic!("call never completed");
+}
+
+#[test]
+fn default_config_enables_the_deadline_with_the_host_clock() {
+    let config = ProviderConfig::default();
+    assert_eq!(
+        config.max_inference_nanos,
+        Some(DEFAULT_INFERENCE_BUDGET_NANOS)
+    );
+    assert!(config.clock.is_some());
+    // Default byte caps and the pinned checksum are unchanged.
+    assert_eq!(config.expected_artifact_sha256, Some(E5_SMALL_NEMB_SHA256));
+    assert_eq!(
+        config.max_query_bytes,
+        nagi_search::MAX_SEMANTIC_QUERY_BYTES
+    );
+    assert_eq!(
+        config.max_passage_bytes,
+        nagi_search::MAX_SEMANTIC_CHUNK_BYTES
+    );
+    // A deadline without a clock is rejected instead of silently disabled.
+    let no_clock = ProviderConfig {
+        clock: None,
+        ..unpinned()
+    };
+    assert!(matches!(
+        E5Provider::from_artifact(tiny_artifact(1), no_clock),
+        Err(ProviderError::InvalidConfig("clock"))
+    ));
+    // Explicit opt-out is allowed.
+    let opt_out = ProviderConfig {
+        clock: None,
+        max_inference_nanos: None,
+        ..unpinned()
+    };
+    let p = E5Provider::from_artifact(tiny_artifact(1), opt_out).unwrap();
+    assert!(p.try_embed(EmbeddingPurpose::Query, "ab").is_ok());
+}
+
+#[test]
+fn checkpoints_cover_tokenization_every_layer_and_pooling_in_order() {
+    let p = tiny_provider(1);
+    let sequence = checkpoint_sequence(&p, "ab ab");
+    // "query: ab ab" pre-tokenizes into three words.
+    assert_eq!(
+        sequence,
+        vec![
+            Checkpoint::Start,
+            Checkpoint::Tokenizing,
+            Checkpoint::Tokenizing,
+            Checkpoint::Tokenizing,
+            Checkpoint::Tokenized,
+            Checkpoint::LayerStart(0),
+            Checkpoint::LayerMid(0),
+            Checkpoint::Encoded,
+            Checkpoint::Pooled,
+        ]
+    );
+}
+
+#[test]
+fn cancel_flag_stops_before_tokenization_and_can_be_reset() {
+    let p = tiny_provider(1);
+    let flag = CancelFlag::new();
+    flag.cancel();
+    let error = p
+        .try_embed_cancellable(EmbeddingPurpose::Passage, "ab", &flag)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        ProviderError::Cancelled {
+            at: Checkpoint::Start
+        }
+    );
+    assert_eq!(
+        to_semantic(EmbeddingPurpose::Passage, &error),
+        SemanticError::ProviderUnavailable
+    );
+    flag.reset();
+    let v = p
+        .try_embed_cancellable(EmbeddingPurpose::Passage, "ab", &flag)
+        .unwrap();
+    assert_eq!(v.space_id(), Some(p.space_id()));
+    // Input validation runs before the first checkpoint.
+    flag.cancel();
+    assert!(matches!(
+        p.try_embed_cancellable(EmbeddingPurpose::Query, " ", &flag),
+        Err(ProviderError::EmptyInput)
+    ));
+}
+
+/// Returns `0` for the first `live` reads, then `expired` forever.
+struct ExpireAfter {
+    reads: AtomicUsize,
+    live: usize,
+    expired: u64,
+}
+
+impl Clock for ExpireAfter {
+    fn now_nanos(&self) -> u64 {
+        if self.reads.fetch_add(1, Ordering::SeqCst) < self.live {
+            0
+        } else {
+            self.expired
+        }
+    }
+}
+
+fn expiring(live: usize, budget: u64, expired: u64) -> E5Provider {
+    let config = ProviderConfig {
+        max_inference_nanos: Some(budget),
+        clock: Some(Box::new(ExpireAfter {
+            reads: AtomicUsize::new(0),
+            live,
+            expired,
+        })),
+        ..unpinned()
+    };
+    E5Provider::from_artifact(tiny_artifact(1), config).unwrap()
+}
+
+#[test]
+fn deadline_is_observed_at_every_checkpoint() {
+    let sequence = checkpoint_sequence(&tiny_provider(1), "ab ab");
+    // Read 0 fixes the deadline; read k (k >= 1) is the k-th checkpoint.
+    for (index, expected) in sequence.iter().enumerate() {
+        let p = expiring(index + 1, 100, 100);
+        assert_eq!(
+            p.try_embed(EmbeddingPurpose::Query, "ab ab").unwrap_err(),
+            ProviderError::DeadlineExceeded {
+                budget_nanos: 100,
+                at: *expected
+            },
+            "expiry before checkpoint {index}"
+        );
+    }
+    // Expiring only after the last checkpoint (`Pooled`) still succeeds.
+    let p = expiring(sequence.len() + 1, 100, 100);
+    assert!(p.try_embed(EmbeddingPurpose::Query, "ab ab").is_ok());
+}
+
+#[test]
+fn deadline_boundary_is_inclusive() {
+    // now == start + budget is expired ...
+    let p = expiring(1, 100, 100);
+    assert!(matches!(
+        p.try_embed(EmbeddingPurpose::Query, "ab"),
+        Err(ProviderError::DeadlineExceeded {
+            at: Checkpoint::Start,
+            ..
+        })
+    ));
+    // ... one nanosecond earlier is not.
+    let p = expiring(1, 100, 99);
+    assert!(p.try_embed(EmbeddingPurpose::Query, "ab").is_ok());
+    // A budget near u64::MAX saturates instead of wrapping into the past.
+    let p = expiring(1, u64::MAX, u64::MAX - 1);
+    assert!(p.try_embed(EmbeddingPurpose::Query, "ab").is_ok());
+}
+
+#[test]
+fn cancellation_takes_precedence_over_an_expired_deadline() {
+    let p = expiring(1, 100, 100);
+    let flag = Arc::new(CancelFlag::new());
+    flag.cancel();
+    assert_eq!(
+        p.try_embed_cancellable(EmbeddingPurpose::Query, "ab", flag.as_ref())
+            .unwrap_err(),
+        ProviderError::Cancelled {
+            at: Checkpoint::Start
+        }
+    );
+}
+
+#[test]
+fn cancel_from_another_thread_is_observed() {
+    struct Gate(AtomicBool, CancelFlag);
+    impl CancelSignal for Gate {
+        fn is_cancelled(&self) -> bool {
+            // Signal the first poll, then wait until the other thread cancels.
+            if !self.0.swap(true, Ordering::SeqCst) {
+                while !self.1.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                return false;
+            }
+            self.1.is_cancelled()
+        }
+    }
+    let p = tiny_provider(1);
+    let gate = Arc::new(Gate(AtomicBool::new(false), CancelFlag::new()));
+    let remote = Arc::clone(&gate);
+    let canceller = std::thread::spawn(move || {
+        while !remote.0.load(Ordering::SeqCst) {
+            std::thread::yield_now();
+        }
+        remote.1.cancel();
+    });
+    let error = p
+        .try_embed_cancellable(EmbeddingPurpose::Query, "ab", gate.as_ref())
+        .unwrap_err();
+    canceller.join().unwrap();
+    // The first poll (`Start`) passed; the next one sees the cancel.
+    assert_eq!(
+        error,
+        ProviderError::Cancelled {
+            at: Checkpoint::Tokenizing
+        }
+    );
 }

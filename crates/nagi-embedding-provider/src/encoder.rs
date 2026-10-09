@@ -5,6 +5,7 @@
 use alloc::{string::String, vec, vec::Vec};
 
 use crate::container::{read_f32s, Header, ModelError, TensorRef};
+use crate::Checkpoint;
 
 struct Linear {
     weight: Vec<f32>, // [out, in], row-major
@@ -42,22 +43,15 @@ pub struct Encoder {
     layers: Vec<Layer>,
 }
 
-/// Callback polled between layers; returning `true` aborts inference.
+/// Callback polled at every encoder [`Checkpoint`]; returning `true` aborts
+/// inference at that checkpoint.
 pub trait Interrupt {
-    fn should_stop(&self) -> bool;
-}
-
-pub struct Never;
-
-impl Interrupt for Never {
-    fn should_stop(&self) -> bool {
-        false
-    }
+    fn should_stop(&self, at: Checkpoint) -> bool;
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum EncodeError {
-    Interrupted,
+    Interrupted(Checkpoint),
     InvalidToken,
     TooManyTokens,
 }
@@ -194,9 +188,9 @@ impl Encoder {
         let inter_width = self.layers.first().map_or(0, |l| l.intermediate.outputs);
         let mut inter = vec![0.0f32; n * inter_width];
 
-        for layer in &self.layers {
-            if interrupt.should_stop() {
-                return Err(EncodeError::Interrupted);
+        for (index, layer) in self.layers.iter().enumerate() {
+            if interrupt.should_stop(Checkpoint::LayerStart(index)) {
+                return Err(EncodeError::Interrupted(Checkpoint::LayerStart(index)));
             }
             layer.query.apply(&x, &mut q, n);
             layer.key.apply(&x, &mut k, n);
@@ -234,6 +228,9 @@ impl Encoder {
                 }
                 layer_norm(row, &layer.attention_norm, self.eps);
             }
+            if interrupt.should_stop(Checkpoint::LayerMid(index)) {
+                return Err(EncodeError::Interrupted(Checkpoint::LayerMid(index)));
+            }
             layer.intermediate.apply(&x, &mut inter, n);
             for value in inter.iter_mut() {
                 *value = gelu(*value);
@@ -248,11 +245,17 @@ impl Encoder {
             }
         }
 
+        if interrupt.should_stop(Checkpoint::Encoded) {
+            return Err(EncodeError::Interrupted(Checkpoint::Encoded));
+        }
         let mut pooled = vec![0.0f64; h];
         for t in 0..n {
             for (p, value) in pooled.iter_mut().zip(&x[t * h..(t + 1) * h]) {
                 *p += f64::from(*value);
             }
+        }
+        if interrupt.should_stop(Checkpoint::Pooled) {
+            return Err(EncodeError::Interrupted(Checkpoint::Pooled));
         }
         Ok(pooled.into_iter().map(|p| (p / n as f64) as f32).collect())
     }

@@ -336,12 +336,26 @@ impl Tokenizer {
 
     /// Token ids including `<s>` and `</s>`.
     pub fn encode(&self, text: &str) -> Vec<u32> {
+        self.encode_checked(text, &mut || false)
+            .expect("never interrupted")
+    }
+
+    /// Like [`Tokenizer::encode`], but polls `stop` after normalization and
+    /// before segmenting each pre-tokenized word; returns `None` as soon as
+    /// `stop` returns `true`. Polling is cooperative: the work between two
+    /// polls (normalizing the whole input, or one word's Viterbi pass) is not
+    /// interrupted.
+    pub fn encode_checked(&self, text: &str, stop: &mut dyn FnMut() -> bool) -> Option<Vec<u32>> {
+        let words = self.pre_tokenize(text);
         let mut ids = vec![self.bos_id];
-        for word in self.pre_tokenize(text) {
+        for word in words {
+            if stop() {
+                return None;
+            }
             self.segment(&word, &mut ids);
         }
         ids.push(self.eos_id);
-        ids
+        Some(ids)
     }
 }
 

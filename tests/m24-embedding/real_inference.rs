@@ -16,11 +16,15 @@
 
 use std::{
     path::PathBuf,
-    sync::OnceLock,
+    sync::atomic::{AtomicUsize, Ordering},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
-use nagi_embedding_provider::{E5Provider, ProviderConfig, ProviderError, StdClock};
+use nagi_embedding_provider::{
+    CancelFlag, CancelSignal, Checkpoint, Clock, E5Provider, ProviderConfig, ProviderError,
+    DEFAULT_INFERENCE_BUDGET_NANOS,
+};
 use nagi_model::ObjectId;
 use nagi_search::{
     chunk_text, BackendError, EmbeddingProvider, EmbeddingPurpose, IndexedChunk,
@@ -475,20 +479,152 @@ fn real_model_bounds_inputs() {
     ));
 }
 
-/// A deadline aborts inference between encoder layers.
+/// Host clock that records every read and can jump past any deadline from a
+/// chosen read onward.
+struct ProbeClock {
+    started: Instant,
+    reads: Mutex<Vec<u64>>,
+    expire_from_read: AtomicUsize,
+}
+
+impl ProbeClock {
+    fn reset(&self, expire_from_read: usize) {
+        self.reads.lock().unwrap().clear();
+        self.expire_from_read
+            .store(expire_from_read, Ordering::SeqCst);
+    }
+}
+
+struct SharedProbe(Arc<ProbeClock>);
+
+impl Clock for SharedProbe {
+    fn now_nanos(&self) -> u64 {
+        let probe = &self.0;
+        let now = probe.started.elapsed().as_nanos() as u64;
+        let mut reads = probe.reads.lock().unwrap();
+        reads.push(now);
+        if reads.len() > probe.expire_from_read.load(Ordering::SeqCst) {
+            now + 1_000_000_000_000
+        } else {
+            now
+        }
+    }
+}
+
+struct CancelAt {
+    polls: AtomicUsize,
+    fire_at: usize,
+}
+
+impl CancelSignal for CancelAt {
+    fn is_cancelled(&self) -> bool {
+        self.polls.fetch_add(1, Ordering::SeqCst) + 1 >= self.fire_at
+    }
+}
+
+/// Cooperative deadline / cancellation on the real 12-layer model: every
+/// boundary checkpoint fires, the gap between consecutive checkpoints is
+/// measured (the worst-case overrun after expiry), and a cancel raised from
+/// another thread is honoured within that gap.
 #[test]
 #[ignore = "requires NAGI_EMBEDDING_MODEL (pinned multilingual-e5-small .nemb)"]
-fn deadline_aborts_real_inference() {
+fn deadline_and_cancel_checkpoints_on_real_model() {
+    let clock = Arc::new(ProbeClock {
+        started: Instant::now(),
+        reads: Mutex::new(Vec::new()),
+        expire_from_read: AtomicUsize::new(usize::MAX),
+    });
     let config = ProviderConfig {
-        max_inference_nanos: Some(1),
-        clock: Some(Box::new(StdClock::default())),
+        max_inference_nanos: Some(DEFAULT_INFERENCE_BUDGET_NANOS),
+        clock: Some(Box::new(SharedProbe(Arc::clone(&clock)))),
         ..ProviderConfig::default()
     };
     let p = E5Provider::from_path(&model_path(), config).expect("load");
-    assert!(matches!(
-        p.try_embed(EmbeddingPurpose::Passage, "Servo is a browser engine."),
-        Err(ProviderError::DeadlineExceeded { .. })
-    ));
+    let long = "Servo is a web browser engine written in Rust. ".repeat(45);
+    for (label, text) in [("short", "東京の明日の天気"), ("long", long.as_str())] {
+        clock.reset(usize::MAX);
+        let tokens = p.tokenize(&format!("query: {text}")).len();
+        let begin = clock.started.elapsed().as_nanos() as u64;
+        p.try_embed(EmbeddingPurpose::Query, text).expect("embed");
+        let end = clock.started.elapsed().as_nanos() as u64;
+        let reads = clock.reads.lock().unwrap().clone();
+        // Read 0 fixes the deadline; reads 1.. are the checkpoints.
+        let checkpoints = reads.len() - 1;
+        let mut gaps: Vec<u64> = reads.windows(2).map(|w| w[1] - w[0]).collect();
+        gaps.push(end - reads[reads.len() - 1]);
+        let worst = *gaps.iter().max().unwrap();
+        eprintln!(
+            "m24 checkpoints: {label}: {tokens} tokens, {checkpoints} checkpoints, \
+             call {:?}, entry->first read {:?}, worst gap {:?}, last checkpoint->return {:?}",
+            Duration::from_nanos(end - begin),
+            Duration::from_nanos(reads[0] - begin),
+            Duration::from_nanos(worst),
+            Duration::from_nanos(end - reads[reads.len() - 1]),
+        );
+        assert!(tokens <= 512);
+        // 1 Start + words + 1 Tokenized + 2 per layer + Encoded + Pooled.
+        assert!(checkpoints >= 1 + 1 + 1 + 2 * 12 + 2);
+        assert!(worst < 5_000_000_000, "checkpoint gap {worst} ns");
+
+        if label == "long" {
+            // Expiry observed at the last three checkpoints.
+            for (from_end, expected) in [
+                (1, Checkpoint::Pooled),
+                (2, Checkpoint::Encoded),
+                (3, Checkpoint::LayerMid(11)),
+            ] {
+                clock.reset(reads.len() - from_end);
+                assert_eq!(
+                    p.try_embed(EmbeddingPurpose::Query, text).unwrap_err(),
+                    ProviderError::DeadlineExceeded {
+                        budget_nanos: DEFAULT_INFERENCE_BUDGET_NANOS,
+                        at: expected
+                    }
+                );
+            }
+            // Expiry right after entry stops before tokenization.
+            clock.reset(1);
+            assert!(matches!(
+                p.try_embed(EmbeddingPurpose::Query, text),
+                Err(ProviderError::DeadlineExceeded {
+                    at: Checkpoint::Start,
+                    ..
+                })
+            ));
+            // Cancellation at the first encoder layer.
+            clock.reset(usize::MAX);
+            let words = checkpoints - (1 + 1 + 2 * 12 + 2);
+            let cancel = CancelAt {
+                polls: AtomicUsize::new(0),
+                fire_at: 1 + words + 1 + 1,
+            };
+            assert_eq!(
+                p.try_embed_cancellable(EmbeddingPurpose::Query, text, &cancel)
+                    .unwrap_err(),
+                ProviderError::Cancelled {
+                    at: Checkpoint::LayerStart(0)
+                }
+            );
+            // Cancel from another thread mid-inference.
+            let flag = Arc::new(CancelFlag::new());
+            let remote = Arc::clone(&flag);
+            let delay = Duration::from_nanos((end - begin) / 3);
+            let canceller = std::thread::spawn(move || {
+                std::thread::sleep(delay);
+                remote.cancel();
+                Instant::now()
+            });
+            let error = p
+                .try_embed_cancellable(EmbeddingPurpose::Query, text, flag.as_ref())
+                .unwrap_err();
+            let returned = Instant::now();
+            let cancelled_at = canceller.join().unwrap();
+            let latency = returned.saturating_duration_since(cancelled_at);
+            eprintln!("m24 cancel: {error:?}; cancel->return {latency:?}");
+            assert!(matches!(error, ProviderError::Cancelled { .. }));
+            assert!(latency.as_nanos() as u64 <= worst * 2 + 50_000_000);
+        }
+    }
 }
 
 /// Latency evidence for 128-token and 512-token inputs (host, release-opt).

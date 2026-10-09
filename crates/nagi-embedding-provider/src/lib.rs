@@ -11,6 +11,47 @@
 //! prefixes the model was trained with, every vector is tagged with an
 //! [`EmbeddingSpaceId`] derived from the artifact digest and the
 //! pooling/prefix scheme, and every failure is bounded and explicit.
+//!
+//! # Deadline and cancellation guarantees
+//!
+//! Every embedding call is bounded by a **cooperative** deadline and an
+//! optional caller-owned [`CancelSignal`]. This is not strict preemption:
+//! the provider never interrupts a running computation, it polls between
+//! bounded units of work. Precisely:
+//!
+//! 1. The budget starts when [`E5Provider::try_embed`] (or
+//!    [`EmbeddingProvider::embed`]) is entered, before prefixing and
+//!    tokenization, so tokenization time counts against it.
+//! 2. The deadline and the cancel signal are polled at every [`Checkpoint`],
+//!    in this order: `Start` (before tokenization), `Tokenizing` (after
+//!    normalization, before each pre-tokenized word), `Tokenized` (after
+//!    tokenization and the token cap check), `LayerStart(i)` and
+//!    `LayerMid(i)` (before each encoder layer and between its attention and
+//!    feed-forward halves), `Encoded` (after the last layer, before pooling)
+//!    and `Pooled` (after pooling, before normalization and space tagging).
+//! 3. The deadline has passed when `clock.now_nanos() >= start + budget`.
+//!    The first checkpoint that observes this returns
+//!    [`ProviderError::DeadlineExceeded`]; a set cancel signal returns
+//!    [`ProviderError::Cancelled`]. Cancellation is checked before the
+//!    deadline at each checkpoint. Partial results are dropped; no vector is
+//!    returned and no state is kept between calls.
+//! 4. A successful result means the `Pooled` checkpoint was passed before
+//!    the deadline and without cancellation. Only L2 normalization and space
+//!    tagging (O(dimensions)) run after it.
+//! 5. The overrun after expiry is bounded by the longest uninterrupted unit:
+//!    normalizing the whole (byte-capped) input, one word's Viterbi pass, the
+//!    embedding lookup, or half an encoder layer at up to 512 tokens. The
+//!    host measurement is in `tests/m24-embedding/EVIDENCE.md`; guest timing
+//!    is not measured.
+//! 6. Loading ([`E5Provider::from_artifact`]) is not covered by the
+//!    deadline; it is bounded by the artifact size cap instead.
+//!
+//! The default configuration enables a deadline of
+//! [`DEFAULT_INFERENCE_BUDGET_NANOS`]. With the `std` feature the default
+//! also supplies the host monotonic clock; without it (Nagi guest builds)
+//! the caller must supply a [`Clock`] or explicitly set
+//! `max_inference_nanos: None`, otherwise loading fails with
+//! `InvalidConfig("clock")`. The deadline is never silently disabled.
 #![no_std]
 
 extern crate alloc;
@@ -23,6 +64,7 @@ pub mod tokenizer;
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::fmt;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use nagi_search::semantic::{
     Embedding, EmbeddingProvider, EmbeddingPurpose, EmbeddingSpaceId, SemanticError,
@@ -69,6 +111,68 @@ const fn hex32(text: &str) -> [u8; 32] {
     out
 }
 
+/// Default per-call inference budget (30 s). Host measurement: 490 tokens
+/// take 2.0-2.6 s single-threaded on aarch64 (`EVIDENCE.md`); the margin
+/// leaves room for slower targets without allowing unbounded calls.
+pub const DEFAULT_INFERENCE_BUDGET_NANOS: u64 = 30_000_000_000;
+
+/// Point in an embedding call where the deadline and cancel signal are polled.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Checkpoint {
+    /// Call entry, after the byte cap check and before tokenization.
+    Start,
+    /// During tokenization, before segmenting a pre-tokenized word.
+    Tokenizing,
+    /// After tokenization and the token cap check, before the encoder.
+    Tokenized,
+    /// Before encoder layer `i` (0-based).
+    LayerStart(usize),
+    /// Between the attention and feed-forward halves of layer `i`.
+    LayerMid(usize),
+    /// After the last encoder layer, before mean pooling.
+    Encoded,
+    /// After mean pooling, before L2 normalization and space tagging.
+    Pooled,
+}
+
+/// Caller-owned cooperative cancellation signal, polled at every
+/// [`Checkpoint`] of [`E5Provider::try_embed_cancellable`].
+pub trait CancelSignal: Sync {
+    fn is_cancelled(&self) -> bool;
+}
+
+/// Simple atomic [`CancelSignal`]; `cancel` may be called from any thread.
+#[derive(Debug, Default)]
+pub struct CancelFlag(AtomicBool);
+
+impl CancelFlag {
+    pub const fn new() -> Self {
+        Self(AtomicBool::new(false))
+    }
+
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+impl CancelSignal for CancelFlag {
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+struct NotCancelled;
+
+impl CancelSignal for NotCancelled {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+}
+
 /// Monotonic clock used to bound inference time.
 pub trait Clock: Send + Sync {
     fn now_nanos(&self) -> u64;
@@ -105,8 +209,12 @@ pub struct ProviderConfig {
     pub max_tokens: Option<usize>,
     pub max_query_bytes: usize,
     pub max_passage_bytes: usize,
-    /// Per-call compute budget, checked between encoder layers.
+    /// Per-call budget measured from call entry and polled at every
+    /// [`Checkpoint`]. Defaults to [`DEFAULT_INFERENCE_BUDGET_NANOS`];
+    /// `None` explicitly disables the deadline (cancellation still works).
     pub max_inference_nanos: Option<u64>,
+    /// Required whenever `max_inference_nanos` is set. Defaults to the host
+    /// monotonic clock with `std`; guest builds must supply one.
     pub clock: Option<Box<dyn Clock>>,
 }
 
@@ -119,10 +227,20 @@ impl Default for ProviderConfig {
             max_tokens: None,
             max_query_bytes: MAX_SEMANTIC_QUERY_BYTES,
             max_passage_bytes: MAX_SEMANTIC_CHUNK_BYTES,
-            max_inference_nanos: None,
-            clock: None,
+            max_inference_nanos: Some(DEFAULT_INFERENCE_BUDGET_NANOS),
+            clock: default_clock(),
         }
     }
+}
+
+#[cfg(feature = "std")]
+fn default_clock() -> Option<Box<dyn Clock>> {
+    Some(Box::new(StdClock::default()))
+}
+
+#[cfg(not(feature = "std"))]
+fn default_clock() -> Option<Box<dyn Clock>> {
+    None
 }
 
 /// Detailed provider error. [`EmbeddingProvider::embed`] maps it onto the
@@ -140,6 +258,10 @@ pub enum ProviderError {
     },
     DeadlineExceeded {
         budget_nanos: u64,
+        at: Checkpoint,
+    },
+    Cancelled {
+        at: Checkpoint,
     },
     SpaceMismatch {
         expected: EmbeddingSpaceId,
@@ -160,12 +282,13 @@ impl fmt::Display for ProviderError {
             Self::TooManyTokens { tokens, limit } => {
                 write!(f, "embedding input is {tokens} tokens (limit {limit})")
             }
-            Self::DeadlineExceeded { budget_nanos } => {
+            Self::DeadlineExceeded { budget_nanos, at } => {
                 write!(
                     f,
-                    "embedding inference exceeded its {budget_nanos} ns budget"
+                    "embedding inference exceeded its {budget_nanos} ns budget (at {at:?})"
                 )
             }
+            Self::Cancelled { at } => write!(f, "embedding inference was cancelled (at {at:?})"),
             Self::SpaceMismatch { .. } => {
                 write!(
                     f,
@@ -208,14 +331,41 @@ pub struct E5Provider {
     config: ProviderConfig,
 }
 
-struct DeadlineInterrupt<'a> {
-    clock: &'a dyn Clock,
-    deadline: u64,
+/// Per-call deadline + cancel state, polled at every [`Checkpoint`].
+struct Guard<'a> {
+    deadline: Option<(&'a dyn Clock, u64, u64)>,
+    cancel: &'a dyn CancelSignal,
 }
 
-impl Interrupt for DeadlineInterrupt<'_> {
-    fn should_stop(&self) -> bool {
-        self.clock.now_nanos() >= self.deadline
+impl Guard<'_> {
+    fn check(&self, at: Checkpoint) -> Result<(), ProviderError> {
+        if self.cancel.is_cancelled() {
+            return Err(ProviderError::Cancelled { at });
+        }
+        if let Some((clock, deadline, budget_nanos)) = self.deadline {
+            if clock.now_nanos() >= deadline {
+                return Err(ProviderError::DeadlineExceeded { budget_nanos, at });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Bridges the encoder's interrupt hook to [`Guard`], remembering why it stopped.
+struct GuardInterrupt<'a> {
+    guard: &'a Guard<'a>,
+    reason: core::cell::Cell<Option<ProviderError>>,
+}
+
+impl Interrupt for GuardInterrupt<'_> {
+    fn should_stop(&self, at: Checkpoint) -> bool {
+        match self.guard.check(at) {
+            Ok(()) => false,
+            Err(error) => {
+                self.reason.set(Some(error));
+                true
+            }
+        }
     }
 }
 
@@ -380,40 +530,76 @@ impl E5Provider {
         Ok(input)
     }
 
-    /// Embed with detailed errors.
+    /// Embed with detailed errors, bounded by the configured deadline.
     pub fn try_embed(
         &self,
         purpose: EmbeddingPurpose,
         text: &str,
     ) -> Result<Embedding, ProviderError> {
+        self.try_embed_cancellable(purpose, text, &NotCancelled)
+    }
+
+    /// Embed with detailed errors, bounded by the configured deadline and by
+    /// `cancel`. See the crate docs for the exact guarantees.
+    pub fn try_embed_cancellable(
+        &self,
+        purpose: EmbeddingPurpose,
+        text: &str,
+        cancel: &dyn CancelSignal,
+    ) -> Result<Embedding, ProviderError> {
+        let deadline = match (&self.config.clock, self.config.max_inference_nanos) {
+            (Some(clock), Some(budget)) => Some((
+                clock.as_ref(),
+                clock.now_nanos().saturating_add(budget),
+                budget,
+            )),
+            _ => None,
+        };
+        let guard = Guard { deadline, cancel };
         let input = self.prefixed(purpose, text)?;
-        let ids = self.tokenizer.encode(&input);
+        guard.check(Checkpoint::Start)?;
+        let mut stopped = None;
+        let ids = self.tokenizer.encode_checked(&input, &mut || match guard
+            .check(Checkpoint::Tokenizing)
+        {
+            Ok(()) => false,
+            Err(error) => {
+                stopped = Some(error);
+                true
+            }
+        });
+        let Some(ids) = ids else {
+            return Err(stopped.unwrap_or(ProviderError::Cancelled {
+                at: Checkpoint::Tokenizing,
+            }));
+        };
         if ids.len() > self.max_tokens {
             return Err(ProviderError::TooManyTokens {
                 tokens: ids.len(),
                 limit: self.max_tokens,
             });
         }
-        let result = match (&self.config.clock, self.config.max_inference_nanos) {
-            (Some(clock), Some(budget)) => {
-                let interrupt = DeadlineInterrupt {
-                    clock: clock.as_ref(),
-                    deadline: clock.now_nanos().saturating_add(budget),
-                };
-                self.encoder.encode(&self.artifact, &ids, &interrupt)
-            }
-            _ => self.encoder.encode(&self.artifact, &ids, &encoder::Never),
+        guard.check(Checkpoint::Tokenized)?;
+        let interrupt = GuardInterrupt {
+            guard: &guard,
+            reason: core::cell::Cell::new(None),
         };
-        let pooled = result.map_err(|error| match error {
-            EncodeError::Interrupted => ProviderError::DeadlineExceeded {
-                budget_nanos: self.config.max_inference_nanos.unwrap_or(0),
-            },
-            EncodeError::TooManyTokens => ProviderError::TooManyTokens {
-                tokens: ids.len(),
-                limit: self.encoder.max_positions(),
-            },
-            EncodeError::InvalidToken => ProviderError::Model(ModelError::Malformed("token_id")),
-        })?;
+        let pooled = self
+            .encoder
+            .encode(&self.artifact, &ids, &interrupt)
+            .map_err(|error| match error {
+                EncodeError::Interrupted(at) => interrupt
+                    .reason
+                    .take()
+                    .unwrap_or(ProviderError::Cancelled { at }),
+                EncodeError::TooManyTokens => ProviderError::TooManyTokens {
+                    tokens: ids.len(),
+                    limit: self.encoder.max_positions(),
+                },
+                EncodeError::InvalidToken => {
+                    ProviderError::Model(ModelError::Malformed("token_id"))
+                }
+            })?;
         Embedding::try_from_values_in_space(pooled, self.space)
             .map_err(|_| ProviderError::InvalidOutput)
     }
@@ -437,6 +623,7 @@ pub fn to_semantic(purpose: EmbeddingPurpose, error: &ProviderError) -> Semantic
         ProviderError::SpaceMismatch { .. } => SemanticError::EmbeddingSpaceMismatch,
         ProviderError::InvalidOutput => SemanticError::InvalidEmbedding,
         ProviderError::DeadlineExceeded { .. }
+        | ProviderError::Cancelled { .. }
         | ProviderError::InvalidConfig(_)
         | ProviderError::Model(_) => SemanticError::ProviderUnavailable,
     }
