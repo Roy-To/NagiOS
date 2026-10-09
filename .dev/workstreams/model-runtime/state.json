@@ -6,9 +6,9 @@
   "current_checkpoint": "lazy-resident-service-and-session-bound-guest-leaf",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "1e3d7cc86a38439e247bc712fe85d74769c17ef3",
-    "verified_at": "2026-10-09T00:22:28.485650+00:00",
-    "normal_state": "Model-service source unchanged from 2258b08; main f74f128 imports without conflicts. Rechecked in the merge working tree: 102 Model Manager/AI tests plus 3 Session-binding host tests PASS; manager Clippy, exact Nagi-target production/acceptance leaf Clippy, formatting and State validation PASS (30 registered workstreams, 23 State files). Dedicated real Granite backend regression passed in Nagi/QEMU at b64bbd4. Ordinary-session startup/feature/linking/Nagi Bar integration, isolation, terms persistence and normal-session guest acceptance remain pending. M20/M23/M26 remain PARTIAL.",
+    "commit_sha": "7a13250df856554ab8e02b2a8f037344a55a614e",
+    "verified_at": "2026-10-09T02:55:09.148857+00:00",
+    "normal_state": "Model-service source unchanged from 2258b08. Main ef217b3 (standalone Embedding/TTS additions) imports without conflicts into the existing dedicated branch. In that merge working tree, 102 Model Manager/AI tests plus 3 Session-binding host tests PASS; manager Clippy, exact Nagi-target production/acceptance leaf Clippy, formatting and State validation PASS (30 registered workstreams, 23 State files). Dedicated real Granite backend acceptance passed in Nagi/QEMU at b64bbd4, 1e3d7cc and 7a13250; b64bbd4 CI completed with every job PASS. Ordinary-session startup/feature/linking/Nagi Bar integration, isolation, terms persistence and normal-session guest acceptance remain pending. M20/M23/M26 remain PARTIAL.",
     "commands": [
       "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
       "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
@@ -97,6 +97,20 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "After conflict-free import of main f74f128: 105 host tests PASS, manager/target leaf Clippy and format PASS, State validation PASS (30/23). Source unchanged. Normal-session guest NOT RUN. Logs: .dev/workstreams/model-runtime/evidence/merge-main-f74-*.txt"
+      },
+      {
+        "name": "main-ef217b3-compatibility",
+        "command": "cargo test --locked --offline -p nagi-model-manager -p nagi-ai; cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml; focused target Clippy, format and State verification",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "After conflict-free import of main ef217b3: 105 host tests PASS, manager/target leaf Clippy and format PASS, State validation PASS (30/23). Model-service source unchanged. Normal-session guest NOT RUN. Logs: .dev/workstreams/model-runtime/evidence/merge-main-ef217b3-*.txt"
+      },
+      {
+        "name": "public-diff-whitespace",
+        "command": "git diff --cached origin/main --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Full PR delta checked against main ef217b3; removed trailing blank lines in owned evidence logs while preserving technical outcomes. Main additions are inherited unchanged. Log: .dev/workstreams/model-runtime/evidence/merge-main-ef217b3-whitespace.txt"
       }
     ],
     "ci_runs": [
@@ -104,21 +118,29 @@
         "run_id": 37857723296,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37857723296",
         "head_sha": "b64bbd49cf3563eb6d880c904464e4f9ec5fc120",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Draft PR #37 initial head b64bbd4: every Nagi CI job PASS, including Ubuntu, Windows, classification, target and real Granite inference. This verifies the dedicated acceptance backend, not ordinary-session service acceptance."
+      },
+      {
+        "run_id": 37866238829,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37866238829",
+        "head_sha": "7a13250df856554ab8e02b2a8f037344a55a614e",
         "status": "IN_PROGRESS",
         "conclusion": null,
-        "summary": "Draft PR #37: Ubuntu host, Windows launcher and target classification PASS. Nagi target and dedicated real Granite inference regression are running. This run precedes the production-only cooperative-sector-reader follow-up."
+        "summary": "Previous main-f74f128 merge head: Ubuntu host, Windows launcher, classification and dedicated real Granite inference PASS. Target job is in progress at M19 Search. Preserved this useful run while preparing the next main incorporation."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md and docs/implementation_status.md",
-    "last_checked_at": "2026-10-08T23:06:58.693897+00:00",
+    "last_checked_at": "2026-10-09T02:55:09.148857+00:00",
     "activation_requirement": "Nagi 0.1 ordinary-session model service requires shared startup/feature/archive linking, a guest worker, live Session and Nagi Bar integration, the verified pinned Granite artifact, and normal-session QEMU acceptance. M20/M23/M26 remain PARTIAL until applicable acceptance passes."
   },
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Normal-session guest acceptance awaits shared startup/feature/linking/Nagi Bar wiring and the verified Granite artifact. Latest dedicated CI is in progress.",
+    "summary": "Normal-session guest acceptance awaits shared startup/feature/linking/Nagi Bar wiring and the verified Granite artifact.",
     "reproduction_commands": [
       "See .dev/workstreams/model-runtime/handoff.md for normal-session integration proposal and acceptance sequence."
     ],
@@ -137,7 +159,7 @@
       "Keep target compilation distinct from final linking and normal-session guest acceptance."
     ]
   },
-  "next_action": "Inspect CI for the current-main merge head, fixing owned-leaf regressions. Complete shared startup/feature/archive linking and Nagi Bar integration, then verify real Granite responses in the ordinary signed-in QEMU session with cancellation, lock, pressure, missing artifact and resident reuse. M20/M23/M26 remain PARTIAL.",
+  "next_action": "Inspect CI for the published main-ef217b3 merge head, fixing owned-leaf regressions. Complete shared startup/feature/archive linking and Nagi Bar integration, then verify real Granite responses in the ordinary signed-in QEMU session with cancellation, lock, pressure, missing artifact and resident reuse. M20/M23/M26 remain PARTIAL.",
   "acceptance_criteria": [
     "Constructor performs no artifact reads or target library/model load.",
     "Declared capability/role selects the configured Granite model; unsupported manual preference fails.",

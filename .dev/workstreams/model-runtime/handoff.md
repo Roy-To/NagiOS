@@ -1,7 +1,7 @@
 # Ordinary-session Granite service handoff
 
 Status: PARTIAL. Branch: `codex/0.1-session-model-service`.
-Base: `f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9`.
+Base: `ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8`.
 
 ## Implemented API
 
@@ -115,7 +115,8 @@ commands.rs, desktop.rs, Files/Search leaves, and image generation are unchanged
 
 Draft PR: https://github.com/RT-NISH/NagiOS/pull/37.
 Current code commit: `2258b08c5b8b0e41718156ceeab331f866a0e496`.
-Latest CI: https://github.com/RT-NISH/NagiOS/actions/runs/37859329000.
+Backend regression CI: https://github.com/RT-NISH/NagiOS/actions/runs/37857723296 (all jobs PASS).
+The PR description tracks the current published head and its CI.
 
 The production sector reader yields before its first read and after at most
 128 sectors. This also covers FAT32 directory/cluster-chain walks inside a
@@ -124,7 +125,7 @@ yet. Exact Nagi-target leaf Clippy and init format passed again; guest latency
 remains unmeasured. The dedicated acceptance reader/backend is unchanged by
 this follow-up.
 
-## Current-main compatibility
+## Previous-main compatibility
 
 Main `f74f128` imports cleanly without source conflicts. After import, the
 102 Model Manager/AI host tests, 3 Session-binding tests, manager Clippy, exact
@@ -133,3 +134,18 @@ State validation reports 30 registered workstreams and 23 State files. Logs
 are in `evidence/merge-main-f74-*`. Model-service source is unchanged.
 The existing Granite backend regression passed in Nagi/QEMU; ordinary-session
 service acceptance still requires shared integration.
+
+## Latest-main compatibility
+
+Main `ef217b3` adds the independent Embedding and TTS foundations. It imports
+cleanly without modifying the model-service source or shared integration files.
+The 102 Model Manager/AI tests, 3 Session-binding tests, manager Clippy, exact
+Nagi-target leaf Clippy, formatting and State checks passed again in this merge
+working tree. State validation reports 30 registered workstreams and 23 State
+files. Technical logs are in `evidence/merge-main-ef217b3-*`.
+
+The initial Nagi CI run `37857723296` completed with all jobs PASS, including
+target and dedicated real Granite inference. The previous main merge head
+`7a13250` also passed host and dedicated Granite jobs; its target job is still
+running. These runs remain intact. Normal-session service acceptance and the
+new exact-head CI remain separate verification requirements.

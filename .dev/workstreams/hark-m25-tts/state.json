@@ -1,0 +1,188 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "hark-m25-tts",
+  "current_milestone": "M25 Voice - local Japanese TTS provider",
+  "current_checkpoint": "host-provider-nagi-target-rlib-and-dedicated-ci-green-guest-playback-not-run",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "0ca3f5067eabf18ff4892f61f15b5ca2cfc611f8",
+    "verified_at": "2026-10-09T11:05:00+09:00",
+    "normal_state": "Standalone crate crates/nagi-tts-provider (jpreprocess 0.15.0 + jbonsai 0.4.2, naist-jdic, HTS voice tohoku-f01 neutral) implements nagi_audio::speech::TextToSpeechProvider. Host evidence only (Linux aarch64 sandbox and Linux x86_64 GitHub-hosted runner): model-free tests, real-engine tests with pinned artifacts, and host measurements pass. Nagi target: no_std core check and engine-enabled check + release rlib build for x86_64-unknown-nagi-user via -Zbuild-std=std,panic_abort; nothing linked into nagi-init and nothing run in the guest. Guest playback through AudioServicePlaybackSink is NOT_RUN. Shared-file changes (registry, CI, models.lock, THIRD_PARTY_NOTICES, implementation_status, nagi-init feature) are proposals only. Dedicated workstream CI (.github/workflows/hark-m25-local-tts.yml) runs the model-free checks, Nagi target builds and the real-engine acceptance on hark/m25-local-tts; it is not owner registration and not part of ci.yml. A truncated .htsvoice is rejected as VoiceInvalid before jbonsai parses it (it previously panicked inside jbonsai 0.4.2).",
+    "commands": [
+      "tests/m25-tts/acceptance.sh out/tts-acceptance/final",
+      "cargo fmt --manifest-path crates/nagi-tts-provider/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-tts-provider/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo clippy --manifest-path crates/nagi-tts-provider/Cargo.toml --no-default-features --all-targets --locked -- -D warnings",
+      "cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --locked",
+      "cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --locked --test real_engine -- --ignored",
+      "tests/m25-tts/measure.sh out/tts-eval",
+      "cargo check --manifest-path crates/nagi-tts-provider/Cargo.toml --no-default-features --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo check --manifest-path crates/nagi-tts-provider/Cargo.toml --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --locked",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=out/rust-src/library cargo build --release --manifest-path crates/nagi-tts-provider/Cargo.toml --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --locked",
+      "(cd tools/tts/notices && sha256sum -c ../NOTICES.sha256)",
+      ".github/workflows/hark-m25-local-tts.yml (GitHub Actions, jobs model-free / nagi-target / real-engine)"
+    ],
+    "tests": [
+      {
+        "name": "Format and Clippy (engine on and no_std core)",
+        "command": "tests/m25-tts/acceptance.sh (fmt, clippy, clippy-core)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "tests/m25-tts/evidence/acceptance-final/{fmt,clippy,clippy-core}.txt; 4 warnings come from the patched third_party/libc dependency, not this crate."
+      },
+      {
+        "name": "Model-free unit tests",
+        "command": "cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "23 passed (20 + 3 voice-layout tests added in fb0a15c); the 12 real-engine tests are reported as ignored, not passed. Local sandbox and CI job A of run 37872530031."
+      },
+      {
+        "name": "Real-engine host synthesis tests",
+        "command": "cargo test --manifest-path crates/nagi-tts-provider/Cargo.toml --locked --test real_engine -- --ignored",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "12 passed with pinned voice and dictionary on Linux aarch64 host (tests/m25-tts/evidence/acceptance-final/real.txt) and on the x86_64 GitHub-hosted runner (CI job C, runs 37872530031/37872533571 at 0ca3f50); includes 4 truncated-voice lengths returning VoiceInvalid. Host evidence, not guest."
+      },
+      {
+        "name": "Real-engine suite fails closed without artifacts",
+        "command": "tests/m25-tts/acceptance.sh (missing-assets)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Real suite exits 101 with 'FAIL: NAGI_TTS_VOICE is not set' when artifacts are absent (tests/m25-tts/evidence/acceptance-final/missing-assets.txt). CI job C: unset env and a nonexistent voice path both exit 101 with 0 passed; 12 failed."
+      },
+      {
+        "name": "Host measurements",
+        "command": "tests/m25-tts/measure.sh out/tts-eval",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "tests/m25-tts/evidence/host-aarch64-20261009.txt and tests/m25-tts/MEASUREMENTS.md: RTF 0.013-0.017, first chunk 8-41 ms, ~86 MB RSS after load, ~118 MiB peak load, +~6 MB largest utterance, over-cap rejected at begin with no audio."
+      },
+      {
+        "name": "Nagi target no_std core check",
+        "command": "cargo check --manifest-path crates/nagi-tts-provider/Cargo.toml --no-default-features --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "tests/m25-tts/evidence/nagi-target-20261009.txt (check only, nothing linked or run)."
+      },
+      {
+        "name": "Nagi target engine-enabled check and release rlib build",
+        "command": "cargo check / cargo build --release --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "tests/m25-tts/evidence/nagi-target-20261009.txt: rlib produced with patched rust-src (0001-nagi-target-support.patch) and third_party/libc; not linked into nagi-init, not run in the guest."
+      },
+      {
+        "name": "Dedicated workstream CI (hark-m25-local-tts.yml)",
+        "command": "GitHub Actions workflow .github/workflows/hark-m25-local-tts.yml on hark/m25-local-tts (push and pull_request #40)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Runs 37872530031 (push) and 37872533571 (pull_request) at 0ca3f50: job A fmt/clippy/clippy-core/unit (23 passed, 12 ignored); job B no_std core check, engine-enabled check, release rlib (232346 bytes, not linked, not run); job C fetch.sh pins verified, notices manifest OK, 12 real-engine tests passed, missing-asset negatives exit 101, measure.sh RESULT=PASS, acceptance.sh all PASS. Not owner registration; guest playback still NOT_RUN."
+      },
+      {
+        "name": "Guest playback through AudioServicePlaybackSink",
+        "command": "not available: requires nagi-init m25-tts-std feature, Model Store registration and QEMU (shared-owner changes)",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Proposed in .dev/workstreams/hark-m25-tts/integration-proposal.md section 2f; no guest run exists."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37872530031,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872530031",
+        "head_sha": "0ca3f5067eabf18ff4892f61f15b5ca2cfc611f8",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), push: jobs A model-free, B nagi-target, C real-engine all success."
+      },
+      {
+        "run_id": 37872533571,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872533571",
+        "head_sha": "0ca3f5067eabf18ff4892f61f15b5ca2cfc611f8",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), pull_request #40: jobs A, B, C all success."
+      },
+      {
+        "run_id": 37872530048,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872530048",
+        "head_sha": "0ca3f5067eabf18ff4892f61f15b5ca2cfc611f8",
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Nagi CI (ci.yml, not owned by this stream), push at the same SHA; cancelled by its own cancel-in-progress when 1194bd3 was pushed. No result at this SHA."
+      },
+      {
+        "run_id": 37872955762,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872955762",
+        "head_sha": "1194bd30244aa6d6be0d38253613f438361b5662",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), push at 1194bd3 (state/proposal-only change): jobs A, B, C all success; artifact cache hit, fetch.sh re-verified cached files."
+      },
+      {
+        "run_id": 37872960339,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872960339",
+        "head_sha": "1194bd30244aa6d6be0d38253613f438361b5662",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), pull_request #40 at 1194bd3: jobs A, B, C all success."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "docs/workstreams/NagiOS_M25_Voice_Workstream.md (remaining blocker 3: concrete local TTS engine and real playback) and docs/implementation_status.md",
+    "last_checked_at": "2026-10-09T11:05:00+09:00",
+    "activation_requirement": "Host provider and evidence may be prepared on hark/m25-local-tts. Guest wiring, Model Store artifact registration, CI step, notices and implementation_status require the shared-file owner to apply integration-proposal.md; M25 TTS PASS requires real guest playback evidence."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not report host synthesis or a target rlib as guest PASS.",
+      "Do not accept VOICEVOX or other voice terms on the user's behalf.",
+      "Do not edit shared files (nagi-init, root Cargo, models.lock, sources.lock, THIRD_PARTY_NOTICES, implementation_status, ci.yml, registry, schema) from this stream.",
+      "Do not truncate over-cap audio and report success.",
+      "Do not count the dedicated workflow as owner registration or the no_std core check as engine target PASS."
+    ]
+  },
+  "next_action": "Shared owner reviews integration-proposal.md (registry entry, models.lock, THIRD_PARTY_NOTICES text, ci.yml step (the dedicated hark-m25-local-tts.yml workflow already runs on this branch), m25-tts-std nagi-init feature); then link the provider into nagi-init, load voice and dictionary through the Model Store as bytes, and run guest playback on QEMU measuring stack and memory.",
+  "acceptance_criteria": [
+    "A local Japanese engine implements TextToSpeechProvider with bounded input, bounded whole-frame S16LE output (stereo 48 kHz or mono 16 kHz), fail-closed cap, cancel and failure cleanup.",
+    "Real-engine host tests pass with pinned, checksummed artifacts and fail when artifacts are missing.",
+    "Licenses and notices for engine, dictionary and voice are recorded with exact upstream copies.",
+    "The provider builds for the Nagi user target.",
+    "Real Japanese speech plays through AudioServicePlaybackSink in the Nagi guest (NOT_RUN)."
+  ],
+  "deferred": [
+    "Guest playback on Nagi/QEMU (NOT_RUN).",
+    "Guest stack and memory measurement.",
+    "Removing memmap2 via upstream lindera default-features=false.",
+    "A provider-level UtteranceTooLong distinct from ProviderFailed (nagi-audio contract decision)."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Durable workstream state schema and registry (.dev/schemas/workstream-state.schema.json, .dev/workstreams.json)",
+      "version": "schema_version 1",
+      "status": "Consumed read-only; hark-m25-tts registry entry proposed, not applied."
+    },
+    {
+      "workstream_id": "model-runtime",
+      "contract": "Read-only Model Store delivery of pinned artifacts as bytes",
+      "version": "0.1",
+      "status": "Proposed models.lock entries only; not registered."
+    },
+    {
+      "workstream_id": "license-sbom",
+      "contract": "THIRD_PARTY_NOTICES and SBOM inclusion of engine, dictionary and voice notices",
+      "version": "0.1",
+      "status": "Proposed text only; review pending."
+    }
+  ]
+}

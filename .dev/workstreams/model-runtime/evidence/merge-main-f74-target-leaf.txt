@@ -69,4 +69,3 @@ warning: function `pipe` is never used
 
 warning: `nagi-posix` (lib) generated 8 warnings (run `cargo clippy --fix --lib -p nagi-posix` to apply 1 suggestion)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.56s
-
