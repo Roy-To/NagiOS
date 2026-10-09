@@ -1,0 +1,27 @@
+# Nagi target check/build of crates/nagi-tts-provider (out/nagi-target.sh, run 2026-10-09 ~10:20-10:35 JST).
+# Tree: 582e08a + the uncommitted crate changes committed as 4970523 (crate sources identical).
+# The sandbox clock printer shows the script start time. Check/build only: nothing linked, nothing run on Nagi/QEMU.
+date=2026-10-09T01:20:56+00:00
+commit=582e08a59ff73411dca5fa98d5b255beaacbd9b2 dirty=8
+rustc=rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)
+rust_src_root=out/rust-src/library (rust-src of the pinned toolchain + third_party/rust-std/patches/0001-nagi-target-support.patch)
+== 1 no_std core (engine disabled)
+$ nice -n 19 cargo check -j1 --manifest-path crates/nagi-tts-provider/Cargo.toml --no-default-features --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --target-dir out/target-nagi --locked
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+exit=0
+== 2 engine-enabled check (std via build-std)
+$ nice -n 19 cargo check -j1 --manifest-path crates/nagi-tts-provider/Cargo.toml --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --target-dir out/target-nagi-std --locked
+warning: constant `FD_CLOEXEC` is never used
+warning: `libc` (lib) generated 1 warning
+    Checking nagi-tts-provider v0.1.0 (<repo>/crates/nagi-tts-provider)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 39s
+exit=0
+== 3 engine-enabled release build (rlib only)
+$ nice -n 19 cargo build -j1 --release --manifest-path crates/nagi-tts-provider/Cargo.toml --lib --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --target-dir out/target-nagi-std --locked
+warning: constant `FD_CLOEXEC` is never used
+warning: `libc` (lib) generated 1 warning
+   Compiling nagi-tts-provider v0.1.0 (<repo>/crates/nagi-tts-provider)
+    Finished `release` profile [optimized] target(s) in 4m 09s
+exit=0
+rlib_bytes=223418
+NOTE: rlib only; nothing linked into nagi-init, nothing run on Nagi/QEMU.
