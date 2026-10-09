@@ -1,0 +1,228 @@
+# Dedicated CI for the M24 embedding provider (workstream hark-m24-embedding).
+#
+# The provider crate has its own [workspace] and is not a root member, so the
+# shared "Nagi CI" workflow neither builds nor tests it. This workflow is the
+# provider's own host evidence. It is NOT a substitute for registering the
+# workstream with its owner, and it never runs guest (Nagi/QEMU) inference:
+# M24 stays PARTIAL regardless of the result here.
+#
+# No secrets, no write tokens, no paid services: standard GitHub-hosted
+# ubuntu-24.04 runners (the same label the shared CI uses) on a public repo.
+# The only network access is the public, immutable Hugging Face revision below
+# and the hash-pinned PyPI wheels.
+
+name: M24 embedding provider (hark)
+
+on:
+  push:
+    branches:
+      - hark/m24-embedding
+    paths:
+      - crates/nagi-embedding-provider/**
+      - tools/embedding/**
+      - tests/m24-embedding/**
+      - .dev/workstreams/hark-m24-embedding/**
+      - .github/workflows/hark-m24-embedding.yml
+      # Inputs the crate builds against (read-only path dependencies, toolchain, target spec).
+      - user/nagi-search/**
+      - crates/nagi-model/**
+      - rust-toolchain.toml
+      - targets/x86_64-unknown-nagi-user.json
+  pull_request:
+    paths:
+      - crates/nagi-embedding-provider/**
+      - tools/embedding/**
+      - tests/m24-embedding/**
+      - .dev/workstreams/hark-m24-embedding/**
+      - .github/workflows/hark-m24-embedding.yml
+      - user/nagi-search/**
+      - crates/nagi-model/**
+      - rust-toolchain.toml
+      - targets/x86_64-unknown-nagi-user.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hark-m24-embedding-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TOOLCHAIN: nightly-2025-08-01
+  CARGO_TERM_COLOR: never
+  M24_MANIFEST: crates/nagi-embedding-provider/Cargo.toml
+  # Immutable upstream commit of intfloat/multilingual-e5-small (also pinned in
+  # tools/embedding/manifest.toml; the first step of job B checks they agree).
+  M24_REVISION: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+
+jobs:
+  m24-embedding-provider:
+    name: m24-embedding-provider (no model)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain (rustfmt, clippy, rust-src)
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy --component rust-src
+          rustup run "$TOOLCHAIN" rustc --version
+          rustup run "$TOOLCHAIN" cargo --version
+      - name: fmt --check
+        run: cargo "+$TOOLCHAIN" fmt --manifest-path "$M24_MANIFEST" -- --check
+      - name: clippy std (all targets, -D warnings)
+        run: cargo "+$TOOLCHAIN" clippy --manifest-path "$M24_MANIFEST" --all-targets --locked -- -D warnings
+      - name: clippy no_std (library only, -D warnings; not a std or target PASS)
+        run: cargo "+$TOOLCHAIN" clippy --manifest-path "$M24_MANIFEST" --lib --no-default-features --locked -- -D warnings
+      - name: Model-free tests (tokenizer units + contract suite; no model)
+        run: cargo "+$TOOLCHAIN" test --manifest-path "$M24_MANIFEST" --locked
+      - name: Nagi target build x86_64-unknown-nagi-user (build-std core,alloc; compile only, not executed)
+        working-directory: crates/nagi-embedding-provider
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/crates/nagi-embedding-provider/target/nagi-user
+        run: |
+          cargo "+$TOOLCHAIN" -Z build-std=core,alloc build --release --locked --no-default-features \
+            --target ../../targets/x86_64-unknown-nagi-user.json
+          ls -l "$CARGO_TARGET_DIR"/x86_64-unknown-nagi-user/release/*.rlib
+          echo "m24: Nagi user-target library build PASS (compile only, not executed; not guest evidence)"
+
+  m24-embedding-real-inference:
+    name: m24-embedding-real-inference (pinned model, host)
+    needs: m24-embedding-provider
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      NAGI_EMBEDDING_CACHE: ${{ github.workspace }}/.cache/nagi-embedding
+      NAGI_M24_EVIDENCE_DIR: ${{ runner.temp }}/m24-evidence
+      NAGI_M24_REGEN_DIR: ${{ runner.temp }}/m24-regen
+      PYTHON: python3.12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Check the pinned revision matches tools/embedding/manifest.toml
+        run: |
+          mkdir -p "$NAGI_M24_EVIDENCE_DIR"
+          got=$(python3 -c "import tomllib;print(tomllib.load(open('tools/embedding/manifest.toml','rb'))['model']['revision'])")
+          echo "manifest revision: $got"
+          test "$got" = "$M24_REVISION"
+      - name: Restore pinned model cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .cache/nagi-embedding/614241f622f53c4eeff9890bdc4f31cfecc418b3
+            .cache/nagi-embedding/multilingual-e5-small.nemb
+          key: m24-e5-small-614241f622f53c4eeff9890bdc4f31cfecc418b3-${{ hashFiles('tools/embedding/manifest.toml', 'tools/embedding/requirements-reference.txt', 'tools/embedding/convert_e5.py') }}
+      - name: Install pinned Rust toolchain (rustfmt, clippy, rust-src)
+        run: rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy --component rust-src
+      - name: Fetch pinned model files at the HF revision (size + SHA-256 of every file; mismatch or missing = FAIL)
+        run: |
+          set -o pipefail
+          tools/embedding/fetch.sh --with-reference 2>&1 | tee "$NAGI_M24_EVIDENCE_DIR/fetch.log"
+          dir="$NAGI_EMBEDDING_CACHE/$M24_REVISION"
+          for f in model.safetensors tokenizer.json config.json onnx/model.onnx; do
+            test -s "$dir/$f" || { echo "m24: missing pinned asset $f" >&2; exit 1; }
+            sha256sum "$dir/$f"
+          done | tee -a "$NAGI_M24_EVIDENCE_DIR/fetch.log"
+      - name: Convert to .nemb (deterministic; digest must equal the pin)
+        run: |
+          artifact="$NAGI_EMBEDDING_CACHE/multilingual-e5-small.nemb"
+          pinned=$(python3 -c "import tomllib;print(tomllib.load(open('tools/embedding/manifest.toml','rb'))['converted']['sha256'])")
+          if [[ -f "$artifact" && $(sha256sum "$artifact" | cut -d' ' -f1) == "$pinned" ]]; then
+            echo "m24: cached .nemb already matches the pin"
+          else
+            rm -f "$artifact"
+            python3 tools/embedding/convert_e5.py --input "$NAGI_EMBEDDING_CACHE/$M24_REVISION" --output "$artifact"
+          fi
+          actual=$(sha256sum "$artifact" | cut -d' ' -f1)
+          echo "m24: .nemb sha256 $actual (pinned $pinned)"
+          test "$actual" = "$pinned"
+      - name: Verify every pin (verify_pins.py)
+        run: |
+          set -o pipefail
+          python3 tools/embedding/verify_pins.py \
+            --artifact "$NAGI_EMBEDDING_CACHE/multilingual-e5-small.nemb" \
+            --input "$NAGI_EMBEDDING_CACHE/$M24_REVISION" \
+            --models-lock-proposal .dev/workstreams/hark-m24-embedding/integration-proposal.md \
+            2>&1 | tee "$NAGI_M24_EVIDENCE_DIR/verify-pins.log"
+      - name: Python reference deps (--require-hashes --only-binary :all:) and reference regeneration (byte-identical)
+        run: |
+          "$PYTHON" --version
+          if ! "$PYTHON" -c 'import ensurepip, venv' 2>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y python3.12-venv
+          fi
+          tools/embedding/regenerate_reference.sh
+      - name: run.sh (fetch/verify again, fmt, clippy, model-free tests, real inference 8/8, Nagi target build)
+        run: |
+          set -o pipefail
+          tests/m24-embedding/run.sh 2>&1 | tee "$NAGI_M24_EVIDENCE_DIR/run-sh.log"
+          grep -E '^test result: ok\. 8 passed; 0 failed' "$NAGI_M24_EVIDENCE_DIR/run-sh.log" \
+            || { echo "m24: real inference did not report 8 passed / 0 failed" >&2; exit 1; }
+      - name: Missing or mismatched asset must FAIL (negative checks)
+        run: |
+          set -u
+          expect_fail() {
+            local what=$1; shift
+            if "$@" >"$NAGI_M24_EVIDENCE_DIR/negative-$what.log" 2>&1; then
+              echo "m24: NEGATIVE CHECK BROKEN: '$what' succeeded but must fail" >&2
+              cat "$NAGI_M24_EVIDENCE_DIR/negative-$what.log" >&2
+              exit 1
+            fi
+            echo "m24: '$what' failed as required"
+            tail -n 3 "$NAGI_M24_EVIDENCE_DIR/negative-$what.log"
+          }
+          # 1. Real-inference tests with no model configured.
+          expect_fail real-inference-model-unset env -u NAGI_EMBEDDING_MODEL \
+            cargo "+$TOOLCHAIN" test --manifest-path "$M24_MANIFEST" --locked \
+            --test m24-embedding-real-inference -- --ignored --test-threads=1
+          # 2. Real-inference tests pointed at a missing artifact.
+          expect_fail real-inference-model-missing env NAGI_EMBEDDING_MODEL="$RUNNER_TEMP/does-not-exist.nemb" \
+            cargo "+$TOOLCHAIN" test --manifest-path "$M24_MANIFEST" --locked \
+            --test m24-embedding-real-inference -- --ignored --test-threads=1
+          # 3. verify_pins.py with a tampered upstream input (config.json altered).
+          bad="$RUNNER_TEMP/m24-bad-input"
+          rm -rf "$bad"; mkdir -p "$bad"
+          src="$NAGI_EMBEDDING_CACHE/$M24_REVISION"
+          ln -s "$src/model.safetensors" "$bad/model.safetensors"
+          ln -s "$src/tokenizer.json" "$bad/tokenizer.json"
+          { cat "$src/config.json"; printf ' '; } > "$bad/config.json"
+          expect_fail verify-pins-tampered-input python3 tools/embedding/verify_pins.py \
+            --artifact "$NAGI_EMBEDDING_CACHE/multilingual-e5-small.nemb" --input "$bad"
+          # 4. verify_pins.py with the upstream inputs missing.
+          rm -f "$bad/model.safetensors"
+          expect_fail verify-pins-missing-input python3 tools/embedding/verify_pins.py \
+            --artifact "$NAGI_EMBEDDING_CACHE/multilingual-e5-small.nemb" --input "$bad"
+          # 5. fetch.sh against a manifest whose config.json SHA-256 is wrong
+          #    (cached weights stay intact; only the 655-byte file is re-fetched and rejected).
+          tools_copy="$RUNNER_TEMP/m24-tools-copy"
+          rm -rf "$tools_copy"; cp -r tools/embedding "$tools_copy"
+          python3 - "$tools_copy/manifest.toml" <<'PY'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          old = "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959"
+          assert old in s
+          open(p, "w").write(s.replace(old, "0" * 64))
+          PY
+          expect_fail fetch-sha-mismatch "$tools_copy/fetch.sh"
+          # The real cache must be untouched by the negative checks.
+          sha256sum -c <<EOF
+          69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959  $NAGI_EMBEDDING_CACHE/$M24_REVISION/config.json
+          EOF
+      - name: Upload M24 logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m24-embedding-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m24-evidence/
+          if-no-files-found: warn
+          retention-days: 14
