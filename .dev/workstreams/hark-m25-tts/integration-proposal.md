@@ -216,6 +216,23 @@ build emits 4 `libc` warnings from the patched `third_party/libc`
 (unexpected `cfg` value `nagi` ×2, `setgroups` unused / redeclared); they are
 in the dependency, not this crate, and do not fail `-D warnings`.
 
+**Dedicated workstream CI (already on this branch, not owner registration).**
+`.github/workflows/hark-m25-local-tts.yml` is the one workflow file this
+stream owns. It triggers on pull_request/push touching the TTS paths (and
+`workflow_dispatch`), uses `permissions: contents: read`, SHA-pinned actions,
+`ubuntu-24.04` runners, no secrets, and only the public pinned downloads in
+`tools/tts/tts-artifacts.lock`. Jobs: (A) fmt, clippy engine and no_std core,
+model-free tests with the 12 real-engine tests asserted as ignored; (B)
+`x86_64-unknown-nagi-user` no_std core check, engine-enabled check and
+release rlib (build-std with the patched rust-src + crate-level libc), as
+separate steps, rlib only; (C) `fetch.sh` with a lock/fetch pin cross-check,
+notices manifest, the 12-test real-engine suite, fail-closed negatives
+(unset artifacts and a nonexistent voice path must exit non-zero with
+0 passed), `measure.sh` (no Whisper round trip) and `acceptance.sh`. It does
+not change `ci.yml`, does not make the provider PASS, and guest playback
+remains NOT_RUN. Whether 2d is still wanted in `ci.yml`, or the dedicated
+workflow is adopted/registered instead, is the CI owner's decision.
+
 The crate is not proposed as a root workspace member (root `Cargo.toml`
 untouched); it builds with its own lock file like `nagi-clipboard-core`.
 
