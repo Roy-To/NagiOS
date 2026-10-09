@@ -16,6 +16,16 @@ impl Fixture {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("installed/library")).unwrap();
+        // Git for Windows may default to core.autocrlf=true. This fixture
+        // tests exact LF bytes, so give git apply its own repository with an
+        // explicit attribute contract instead of inheriting host conversion.
+        let initialized = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(initialized.status.success());
+        fs::write(root.join(".gitattributes"), "* text eol=lf\n").unwrap();
         let source = root.join("installed");
         fs::write(
             source.join("library/Cargo.toml"),

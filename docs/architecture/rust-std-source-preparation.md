@@ -98,3 +98,9 @@ new unit regressions include a Unix literal-backslash filename that must
 not impersonate a missing nested source. Host Clippy with warnings denied
 and formatting checks pass. The prepared source tree is byte-, name-,
 type- and mode-identical to the old helper output (2,732 entries).
+
+The synthetic test fixture creates its own Git repository with an explicit
+`* text eol=lf` attribute. Its expected LF bytes therefore do not depend on
+host `core.autocrlf` or `core.eol` settings, including Git for Windows.
+The production helper retains the repository's existing patch behavior;
+all corruption checks still compare exact content bytes.
