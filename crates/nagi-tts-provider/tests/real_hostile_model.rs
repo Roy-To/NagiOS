@@ -3,7 +3,8 @@
 //! Each case keeps the `.htsvoice` structurally consistent (same PDF sizes,
 //! same tree references) and changes only values the upstream engine trusts:
 //! duration PDF means/variances (review finding 1) and `STREAM_WIN` rows
-//! (review finding 2b). Every case must be rejected at load time as
+//! (review finding 2b), plus `NUM_STREAMS` and spectrum `OPTION` edits.
+//! Every case must be rejected at load time as
 //! [`LoadError::VoiceInvalid`]; none may panic. In-range edits of the same
 //! values must still load and speak, so the checks do not over-reject.
 //!
@@ -150,6 +151,14 @@ fn duration_edit(voice: &[u8], at: usize, value: f32) -> Vec<u8> {
     out
 }
 
+fn replace_text(bytes: &[u8], from: &str, to: &str) -> Vec<u8> {
+    let at = bytes
+        .windows(from.len())
+        .position(|w| w == from.as_bytes())
+        .unwrap_or_else(|| panic!("{from}"));
+    [&bytes[..at], to.as_bytes(), &bytes[at + from.len()..]].concat()
+}
+
 /// Lists the first `STREAM_WIN[stream]` range `extra` more times.
 fn duplicate_window(voice: &[u8], stream: &str, extra: usize) -> Vec<u8> {
     let key = format!("STREAM_WIN[{stream}]:");
@@ -240,6 +249,34 @@ fn hostile_duration_pdfs_and_window_rows_fail_closed() {
         (
             "fourth log F0 window row",
             duplicate_window(&voice, "LF0", 1),
+        ),
+        // Header numbers jbonsai sizes or indexes condition arrays with.
+        // Only cases whose unvalidated failure is a catchable panic (not a
+        // real over-allocation) run in-process; the allocating ones run in
+        // a memory-limited child in the model-free unit tests.
+        (
+            "NUM_STREAMS 0",
+            replace_text(&voice, "NUM_STREAMS:3\n", "NUM_STREAMS:0\n"),
+        ),
+        (
+            "NUM_STREAMS 2",
+            replace_text(&voice, "NUM_STREAMS:3\n", "NUM_STREAMS:2\n"),
+        ),
+        (
+            "GAMMA 999999999999999999",
+            replace_text(
+                &voice,
+                "OPTION[MCP]:ALPHA=0.55\n",
+                "OPTION[MCP]:ALPHA=0.55,GAMMA=999999999999999999\n",
+            ),
+        ),
+        (
+            "ALPHA inf",
+            replace_text(
+                &voice,
+                "OPTION[MCP]:ALPHA=0.55\n",
+                "OPTION[MCP]:ALPHA=inf\n",
+            ),
         ),
     ];
     let mut misses = Vec::new();
