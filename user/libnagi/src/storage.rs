@@ -151,7 +151,11 @@ impl BlockDevice for SyscallBlockDevice {
         sector: u64,
         source: &[u8; SECTOR_SIZE],
     ) -> Result<(), StorageError> {
-        if block_write(self.capability, sector, source) {
+        // The block syscall currently requires a writable source mapping.
+        // Own the outgoing bytes so constant/readonly caller buffers are valid.
+        let mut outgoing = [0; SECTOR_SIZE];
+        outgoing.copy_from_slice(source);
+        if block_write(self.capability, sector, &outgoing) {
             Ok(())
         } else {
             Err(StorageError::Block)
