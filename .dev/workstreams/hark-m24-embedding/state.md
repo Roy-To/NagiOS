@@ -24,7 +24,8 @@ registry row in `registration-proposal.md`). This file is a short summary.
   AND worst max |diff| <= 1e-5, and the pinned artifacts and `.nemb` digest are
   unchanged. Fixed thresholds: beyond a bound = FAIL, investigate, never
   loosen. Reference match only; no other acceptance threshold changes.
-  x86_64 runs 37872411191 / 37872863618: worst max |diff| 1.0e-7 (PASS);
+  x86_64 runs 37872411191 / 37872863618 / 37876189901 / 37876190718: worst
+  cosine >= 0.99999999999954, worst max |diff| 1.0e-7 (PASS);
   record `tests/m24-embedding/evidence/x86_64-reference-tolerance-20261009.json`.
 - Deadline/cancel: cooperative checkpoints from call entry through pooling,
   30 s default budget; guarantees in the crate docs.
