@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap dev verify`
+PASS development state: 27 registered workstreams, 16 state files validated; branch claude/0.2-writer-core-01 at cd871f905bd06ef406ccaa9f80c484f19158209f

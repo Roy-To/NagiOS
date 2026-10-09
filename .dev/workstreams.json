@@ -938,6 +938,48 @@
       ],
       "activation_gate": "AUTHORIZED Stage 2 by current explicit user instruction, only after Stage 1 merge. Calendar C1-C5 host-only adoption, common-model dependency alignment and package-scoped host CI verification; no providers/guest/runtime/0.3 activation.",
       "merge_boundary": "Fresh branch from Stage 1 merged main b4f42ec91a533fc11691490c04d38c4cba0ae396. Source fb00ad7eab1a5c981cb53a019e938323e81da759; owner State imported immutably. Separate PR and latest applicable checks must PASS before authorized merge."
+    },
+    {
+      "id": "writer-sheets-core-adoption",
+      "owner": "Codex host Integration Owner",
+      "owner_branch": "codex/0.2-adopt-writer-sheets-core",
+      "recommended_worktree": "../NagiOS-adopt-writer-sheets",
+      "state_file": ".dev/workstreams/writer-sheets-core-adoption/state.json",
+      "dependencies": [
+        "development-foundation",
+        "app-sdk-contract",
+        "writer-core-01",
+        "sheets-calc-01",
+        "calendar-core-adoption"
+      ],
+      "allowed_paths": [
+        "crates/nagi-writer-core/**",
+        "crates/nagi-sheets-core/**",
+        "tests/writer-core/**",
+        "tests/sheets-core/**",
+        ".dev/workstreams/writer-core-01/**",
+        ".dev/workstreams/sheets-calc-01/**",
+        ".dev/workstreams/writer-sheets-core-adoption/**",
+        ".dev/workstreams.json",
+        ".github/workflows/0.2-host-integration.yml",
+        "docs/0.2/adoption/WRITER_SHEETS_CORE.md"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "tests/acceptance/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "docs/implementation_status.md",
+        ".dev/schemas/**",
+        ".github/workflows/ci.yml",
+        "crates/nagi-model/**",
+        "crates/nagi-calendar-core/**"
+      ],
+      "activation_gate": "WS-HOST-PREP-20261008: host-only adoption preparation and validation before M30, dedicated draft branch and Windows/Linux CI verification. No runtime/provider/GUI/0.3 activation; source owner States immutable.",
+      "merge_boundary": "Dedicated codex/0.2-adopt-writer-sheets-core only. Base main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 after PR #31. Main/owner branch writes and merge are outside this checkpoint. Require separate project merge approval and latest applicable CI/review."
     }
   ]
 }

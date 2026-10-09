@@ -1,0 +1,228 @@
+{
+  "result": "PASS",
+  "base_sha": "cb3f9f29552bdee3e9c99228cb2153d10a1634e9",
+  "registry_streams": 30,
+  "state_files": 23,
+  "changed_paths": [
+    ".dev/workstreams.json",
+    ".dev/workstreams/sheets-calc-01/evidence/clippy.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-resume.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-status.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-verify-initial.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/dev-verify.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/format.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/host-tests.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/ownership.json",
+    ".dev/workstreams/sheets-calc-01/evidence/performance.txt",
+    ".dev/workstreams/sheets-calc-01/evidence/rustdoc.txt",
+    ".dev/workstreams/sheets-calc-01/state.json",
+    ".dev/workstreams/writer-core-01/crlf-verification.json",
+    ".dev/workstreams/writer-core-01/dev-verification.txt",
+    ".dev/workstreams/writer-core-01/format-scope-verification.txt",
+    ".dev/workstreams/writer-core-01/host-cli-verification.txt",
+    ".dev/workstreams/writer-core-01/host-verification.txt",
+    ".dev/workstreams/writer-core-01/state.json",
+    ".dev/workstreams/writer-core-01/windows-ci-37787276404.json",
+    ".dev/workstreams/writer-sheets-core-adoption/adoption-audit.json",
+    ".dev/workstreams/writer-sheets-core-adoption/bootstrap-verification.json",
+    ".dev/workstreams/writer-sheets-core-adoption/checkpoint-proposal.json",
+    ".dev/workstreams/writer-sheets-core-adoption/state.json",
+    ".dev/workstreams/writer-sheets-core-adoption/verification.json",
+    ".dev/workstreams/writer-sheets-core-adoption/verify_adoption.py",
+    ".github/workflows/0.2-host-integration.yml",
+    "crates/nagi-sheets-core/Cargo.lock",
+    "crates/nagi-sheets-core/Cargo.toml",
+    "crates/nagi-sheets-core/README.md",
+    "crates/nagi-sheets-core/examples/measure.rs",
+    "crates/nagi-sheets-core/src/engine.rs",
+    "crates/nagi-sheets-core/src/lib.rs",
+    "crates/nagi-sheets-core/src/parser.rs",
+    "crates/nagi-sheets-core/src/workbook.rs",
+    "crates/nagi-writer-core/Cargo.lock",
+    "crates/nagi-writer-core/Cargo.toml",
+    "crates/nagi-writer-core/README.md",
+    "crates/nagi-writer-core/src/adapters.rs",
+    "crates/nagi-writer-core/src/formats.rs",
+    "crates/nagi-writer-core/src/lib.rs",
+    "crates/nagi-writer-core/src/model.rs",
+    "crates/nagi-writer-core/src/operations.rs",
+    "docs/0.2/adoption/WRITER_SHEETS_CORE.md",
+    "tests/sheets-core/acceptance.rs",
+    "tests/writer-core/acceptance.rs",
+    "tests/writer-core/fixtures/bilingual.md",
+    "tests/writer-core/verify.sh"
+  ],
+  "immutable_files": [
+    {
+      "path": ".dev/workstreams/writer-core-01/crlf-verification.json",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "90d6059519e1b16888fcd3bf4f626bf6786696e5f5f0081f08088d620a855461"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/dev-verification.txt",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "ce79eb92efeea7974342ea2bd87db3d9aaedf03f6f72aa4c4156d978cdd397fd"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/format-scope-verification.txt",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "0e24b5a2829589aa0ce106a707b3f8cbba3cad75766f2f914d38486ec53391e0"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/host-cli-verification.txt",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "54e1879d7e7e8ddc61134895222864e78593fdc55fb1a224058872480cfbe2eb"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/host-verification.txt",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "a06dbd41d4c977469af6b905e17b8e67b5d8312645ae11bf522d4832416174e2"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/state.json",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "23587e0a40839e906d1e79240a865132efc94d12a97c98f3b34f6f8448c60017"
+    },
+    {
+      "path": ".dev/workstreams/writer-core-01/windows-ci-37787276404.json",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "4d3f1554854a52c247f3f5dec4cc3cde02f7d1fbec01e77a414f19278a4dd831"
+    },
+    {
+      "path": "crates/nagi-writer-core/src/adapters.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "d41b783fca1666db57c12842a6ed24d6d3105785ef631fcd0ef69ba909997a2a"
+    },
+    {
+      "path": "crates/nagi-writer-core/src/formats.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "1aecaa398a8c9295a9bb9a3159254f11177814d3ac02dadc263ff5282e6f289e"
+    },
+    {
+      "path": "crates/nagi-writer-core/src/lib.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "cd2cb02e160ada743e60d3367f4c98c315238411e8acb7096b00f7b085214a43"
+    },
+    {
+      "path": "crates/nagi-writer-core/src/model.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "51949425ba3c11aa2d94ef95edee04e0e88f980b4aff2fe8062330f2f7fd1579"
+    },
+    {
+      "path": "crates/nagi-writer-core/src/operations.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "8b141f6f7e985894d055575c8f1dffcd6f599bb58eb18d4b1dc7ebe8c17b167c"
+    },
+    {
+      "path": "tests/writer-core/acceptance.rs",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "cfb199f45ff20569457902deb332cccff2dda67f04549226024c23621bacf34f"
+    },
+    {
+      "path": "tests/writer-core/fixtures/bilingual.md",
+      "source_sha": "8cc5c5da04f622be95c79152bf709edb61272c59",
+      "sha256": "acd5880a89411c190d75629c74c98ac479083679139642b88a737fb45ec1cff4"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/clippy.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "481a89d6eec38829b38ab0835a2d8031d2cb6c48edabf4cb7957e9b47d5eb72d"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/dev-resume.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "29c6bd12b93aa9e9ba0514ec67496e6de7350d43da38f2b9a6241a511b342ba3"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/dev-status.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "e25f9374b515ef1c151ca8b443c2e2140ec7edcc5cc092e79bfa0adffea08398"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/dev-verify-initial.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "a337b3aa6eae2ce704af84e6d1abf7a2d1a4f389036bde8c71cc5a122a7f9e2b"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/dev-verify.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "457b039e896777519b6d4f3254d57f807706664fde0cf8a7dbdfd1d75263aa90"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/format.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "800f7dee23b77d44115880eb55195555c8fff8d3340fe9dde946e583b33c68fb"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/host-tests.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "4b95e87a840edd5e4fe00d029180b70d1b43558ab682271ddd83882d722025a4"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/ownership.json",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "668ec0fe41d1e423fc2b1bf9503a7d9d472d524efe2a01ad8294ed15f56d3a08"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/performance.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "eb46026c626e569508ab7f772217ceb8b4d6059fad809b4d3c2cf52916a74968"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/evidence/rustdoc.txt",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "ff9323eb7dbfbe2fd6a00ebfc0cd1898c14ec3386d0067b8b0cf46f6535de271"
+    },
+    {
+      "path": ".dev/workstreams/sheets-calc-01/state.json",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "d5f80074ad9d41c403b9ed2181acf5d723b37cb64601cbbd3d854e50ec58c444"
+    },
+    {
+      "path": "crates/nagi-sheets-core/Cargo.lock",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "559f97a44f0ddb6d66256818a023154a3b3a2ae247045c840868c4f341229ce0"
+    },
+    {
+      "path": "crates/nagi-sheets-core/Cargo.toml",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "8e31d51cfb84b592ce2877a7555c9161dbde42fe3bb23ef5a8230523680bb29e"
+    },
+    {
+      "path": "crates/nagi-sheets-core/README.md",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "0d7bfd7a186c550cba8eec7ad78673f122cd8b676ac80933368560456652ced0"
+    },
+    {
+      "path": "crates/nagi-sheets-core/examples/measure.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "e3785caf75469c62264598926e09829370b8691e22ece1fa5e7513fb4c17dd0e"
+    },
+    {
+      "path": "crates/nagi-sheets-core/src/engine.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "7861f08f21361e67ecead456d38dc5100257d3ac00a9188885fc88a6dcd43401"
+    },
+    {
+      "path": "crates/nagi-sheets-core/src/lib.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "2c34a616fc25e1aaad6401a63f25c6b799ac580985ef6c5a8cf6f7cab6c7dc87"
+    },
+    {
+      "path": "crates/nagi-sheets-core/src/parser.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "ec9cb61860018e75fa86066e7325c574a2231d4585ea02fb564e97a53fa33771"
+    },
+    {
+      "path": "crates/nagi-sheets-core/src/workbook.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "5b96b443131665044e241ce4526ddddf9a6aea7d8804e98bb7910673c634685b"
+    },
+    {
+      "path": "tests/sheets-core/acceptance.rs",
+      "source_sha": "b6e6efe13018cae4f3de188bb387e0584994609f",
+      "sha256": "8dd3b7ec5b33a12ac567246ef6cddb5cb7c26c2e7e639917f80842fd940aefb4"
+    }
+  ],
+  "verified_source_sha": "e8003a2f9c6b74ce7e26d509abf4c8091434fef9"
+}
