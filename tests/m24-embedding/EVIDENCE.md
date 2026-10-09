@@ -26,10 +26,10 @@
 | Cross-lingual paraphrase (JA↔EN Rust ownership) vs unrelated JA | 0.8938 vs 0.7799 |
 | Known weakness (recorded, not hidden) | cross-lingual `"how to cook pumpkin"` → JA pumpkin recipe rank 2 (0.8026) behind EN bread recipe (0.8215); `"パンの焼き方"` → EN bread rank 2; `"how to write a patent specification"` → JA patent doc rank 2 |
 | Load (SHA-256 verify + parse + decode) | 1.7–2.2 s |
-| Latency (single thread, opt-level 3) | 11 tokens 33–51 ms; 138 tokens 0.43–0.54 s; 490 tokens 2.0–2.6 s |
+| Latency (single thread, opt-level 3) | 11 tokens 33–68 ms; 138 tokens 0.43–0.59 s; 490 tokens 2.0–3.2 s (upper values with the 2 vCPUs shared by another build) |
 | Peak RSS (load + one embedding) | 552 MiB |
 | Model-free contract tests (missing / not-pinned digest / every truncation / corrupt header fields / NaN weight / size cap / empty / over-limit bytes & tokens / invalid config / space mismatch at load and in index / special-token injection; deadline + cancel: default-on deadline, no-clock rejection, checkpoint order, expiry observed at every checkpoint, inclusive boundary, saturation, cancel precedence, cross-thread cancel) | 20/20 pass |
-| Real-inference deadline/cancel (`deadline_and_cancel_checkpoints_on_real_model`) | 501-token query: 435 checkpoints (Start, 408 Tokenizing, Tokenized, 24 layer, Encoded, Pooled), call 2.88 s, **worst gap between checkpoints 136 ms**, last checkpoint → return 16 µs; expiry observed at `Start`, `LayerMid(11)`, `Encoded`, `Pooled`; cancel at `LayerStart(0)`; cross-thread cancel honoured after 65 ms. 11-token query: 30 checkpoints, worst gap 5.3 ms |
+| Real-inference deadline/cancel (`deadline_and_cancel_checkpoints_on_real_model`) | 501-token query: 435 checkpoints (Start, 408 Tokenizing, Tokenized, 24 layer, Encoded, Pooled), call 2.64–2.88 s, **worst gap between checkpoints 136–143 ms** (two runs), last checkpoint → return 9–16 µs; expiry observed at `Start`, `LayerMid(11)`, `Encoded`, `Pooled`; cancel at `LayerStart(0)`; cross-thread cancel honoured after 51–65 ms. 11-token query: 30 checkpoints, worst gap 4.9–5.3 ms |
 | Tokenizer unit tests | 5/5 pass |
 | `cargo fmt --check`, `clippy --all-targets -D warnings`, `clippy --lib --no-default-features -D warnings` | pass |
 | `cargo -Z build-std=core,alloc build --release --no-default-features --target targets/x86_64-unknown-nagi-user.json` | pass (compile only) |
@@ -41,7 +41,7 @@ tokenization) and is polled with an optional `CancelSignal` at every
 checkpoint: `Start`, `Tokenizing` (each word), `Tokenized`,
 `LayerStart(i)`/`LayerMid(i)`, `Encoded` (after the last layer), `Pooled`
 (after pooling). The worst-case overrun after expiry is the longest gap
-between checkpoints — measured above on this host only (136 ms at 501
+between checkpoints — measured above on this host only (136–143 ms at 501
 tokens); guest timing is not measured. Default config: 30 s budget with the
 host clock (`std`); `no_std` builds must supply a clock or opt out
 explicitly. Full statement: crate docs in `src/lib.rs`.

@@ -23,7 +23,7 @@ integrator to apply.
 - `crates/nagi-embedding-provider/**` — standalone crate, own `[workspace]`, own `Cargo.lock`
 - `tools/embedding/**` — pinned download, checksum, conversion, reference scripts
 - `tests/m24-embedding/**` — acceptance runner, corpus, evidence
-- `.dev/workstreams/hark-m24-embedding/**` — this proposal, integration proposal, state
+- `.dev/workstreams/hark-m24-embedding/**` — this proposal, integration proposal, `state.json` (+ `state.md` summary)
 
 ## Forbidden paths (read-only or untouched)
 
@@ -84,6 +84,12 @@ Append one object to `workstreams` (keep-both resolution if other rows land firs
   "merge_boundary": "Draft PR from hark/m24-embedding to main; merge only by explicit owner decision."
 }
 ```
+
+`state_file` exists on this branch: `.dev/workstreams/hark-m24-embedding/state.json`
+conforms to `.dev/schemas/workstream-state.schema.json` (checked with a
+Draft 2020-12 validator plus the `nagi dev verify` rules for RFC 3339
+timestamps, 40-hex commit SHAs and registered dependency ids:
+`development-foundation`, `search-core-01`, `model-runtime`).
 
 Condition (AGENTS.md / registry convention): the shared CI test
 `dev_status_resume_and_verify_read_the_registered_workstream` requires the

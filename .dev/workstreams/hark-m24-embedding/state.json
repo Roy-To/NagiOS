@@ -1,0 +1,139 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "hark-m24-embedding",
+  "current_milestone": "Nagi OS 0.1 M24 — Embedding / Semantic AI (model-backed EmbeddingProvider slice)",
+  "current_checkpoint": "host-real-inference-provider-with-cooperative-deadline-and-pinned-artifact-chain",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "c1debcbb6432d3e06cdf6cdefd4614090776cfdf",
+    "verified_at": "2026-10-09T10:00:00+09:00",
+    "normal_state": "Standalone crate crates/nagi-embedding-provider (own workspace and Cargo.lock) implements nagi_search::semantic::EmbeddingProvider with intfloat/multilingual-e5-small at Hugging Face revision 614241f622f53c4eeff9890bdc4f31cfecc418b3 (MIT) through a Nagi-owned no_std + alloc BERT encoder and SentencePiece-Unigram tokenizer, reading the deterministic converted artifact multilingual-e5-small.nemb (474604256 bytes, SHA-256 7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287). Measured on the development HOST only (aarch64 Linux, 2 vCPU): token parity 788/788 vs Hugging Face tokenizers, vector parity worst cosine 0.999999949 vs the upstream ONNX export, 16/16 Japanese/English neighbor requirements, cooperative deadline/cancel checkpoints with a worst inter-checkpoint gap of 136-143 ms at 501 tokens. The x86_64-unknown-nagi-user library was compiled, not executed. NOT RUN: guest (Nagi/QEMU) inference, dedicated CI jobs (proposed, not registered), x86-64 reference-machine timing. The shared repository CI does not build this standalone crate and is not evidence for it. M24 stays PARTIAL. The branch is not registered in .dev/workstreams.json; the registry row is a proposal in registration-proposal.md.",
+    "commands": [
+      "cargo fmt --manifest-path crates/nagi-embedding-provider/Cargo.toml -- --check",
+      "cargo clippy --manifest-path crates/nagi-embedding-provider/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo clippy --manifest-path crates/nagi-embedding-provider/Cargo.toml --lib --no-default-features --locked -- -D warnings",
+      "cargo test --manifest-path crates/nagi-embedding-provider/Cargo.toml --locked",
+      "NAGI_EMBEDDING_MODEL=<cache>/multilingual-e5-small.nemb cargo test --manifest-path crates/nagi-embedding-provider/Cargo.toml --locked --test m24-embedding-real-inference -- --ignored --test-threads=1 --nocapture",
+      "(cd crates/nagi-embedding-provider && cargo -Z build-std=core,alloc build --release --locked --no-default-features --target ../../targets/x86_64-unknown-nagi-user.json)",
+      "python3 tools/embedding/verify_pins.py --artifact <cache>/multilingual-e5-small.nemb --input <cache>/614241f622f53c4eeff9890bdc4f31cfecc418b3 --models-lock-proposal .dev/workstreams/hark-m24-embedding/integration-proposal.md",
+      "tools/embedding/regenerate_reference.sh"
+    ],
+    "tests": [
+      {
+        "name": "Provider formatting and Clippy (std all-targets, no_std lib)",
+        "command": "cargo fmt -- --check; cargo clippy --all-targets --locked -- -D warnings; cargo clippy --lib --no-default-features --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "HOST. All three commands exited 0 at c1debcbb with warnings denied."
+      },
+      {
+        "name": "Model-free tests (tokenizer units + contract suite)",
+        "command": "cargo test --manifest-path crates/nagi-embedding-provider/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "HOST. 5/5 tokenizer unit tests and 20/20 contract tests on a synthetic artifact (missing/corrupt/oversized artifact, checksum pin, empty and over-limit input, invalid config, space mismatch, special-token injection, deadline and cancel boundaries). The synthetic artifact is an orchestration fixture, not inference evidence."
+      },
+      {
+        "name": "Real inference on the pinned model (host)",
+        "command": "NAGI_EMBEDDING_MODEL=<cache>/multilingual-e5-small.nemb cargo test --locked --test m24-embedding-real-inference -- --ignored --test-threads=1",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "HOST only, 8/8: tokenizer parity 788/788; vector parity worst cosine 0.999999949, worst max abs diff 1.42e-7 over 22 inputs vs onnx/model.onnx via onnxruntime 1.30.0; 16/16 JA/EN neighbor requirements; cross-lingual paraphrase 0.8938 vs unrelated 0.7799; deadline/cancel on the 12-layer model (501 tokens: 435 checkpoints, worst gap 142.96 ms, expiry at Start/LayerMid(11)/Encoded/Pooled, cross-thread cancel returned after 51.1 ms); latency 490 tokens 3.16 s on shared vCPUs. Tests fail, not skip, without the model."
+      },
+      {
+        "name": "Pin chain agreement",
+        "command": "python3 tools/embedding/verify_pins.py --artifact <nemb> --input <dir> --models-lock-proposal <proposal>",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "28/28 checks: .nemb header embeds model.safetensors SHA-256 1a55775f..., tokenizer.json SHA-256 0b44a9d7... and the revision; file size and SHA-256 equal manifest and lib.rs constants; upstream files and the models.lock proposal agree. Log: tests/m24-embedding/logs/verify-pins-20261009.txt."
+      },
+      {
+        "name": "Reference data regeneration with hash-pinned Python dependencies",
+        "command": "tools/embedding/regenerate_reference.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Fresh CPython 3.12.15 venv, 20 packages installed with --require-hashes --only-binary :all:; parity_reference.json and tokenizer_parity.json regenerated byte-identical. Run at d1457fb9 (reference tools and inputs unchanged since). Log: tests/m24-embedding/logs/reference-regeneration-20261009T004802Z.txt."
+      },
+      {
+        "name": "Nagi user-target library build",
+        "command": "cargo -Z build-std=core,alloc build --release --locked --no-default-features --target targets/x86_64-unknown-nagi-user.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Compile only (built at 50711326, crate sources unchanged at c1debcbb). Nothing was executed on the target."
+      },
+      {
+        "name": "Guest (Nagi/QEMU) real inference",
+        "command": "not available: requires Codex-owned nagi-init / model service / ModelStore wiring",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No guest wiring exists in owned paths; host results above are never presented as guest results."
+      },
+      {
+        "name": "Dedicated provider CI jobs",
+        "command": "m24-embedding-provider and m24-embedding-real-inference jobs proposed in integration-proposal.md section 3.5",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Not registered in .github/workflows/ci.yml (shared CI owner). The existing shared jobs do not build this crate."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md (M24 row) and .dev/workstreams/hark-m24-embedding/integration-proposal.md",
+    "last_checked_at": "2026-10-09T10:00:00+09:00",
+    "activation_requirement": "M24 stays PARTIAL until the provider runs real inference inside a Nagi guest (QEMU) through integration-owner wiring (nagi-init / model service / ModelStore placement of the pinned .nemb) and the remaining spec items (hybrid ranking, explanations, content-producer sync) land. Merge, ready-for-review and release changes need a separate user / integration-owner decision."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not present host inference or the Nagi target compile as guest inference.",
+      "Do not cite the shared repository CI as provider evidence; it does not build this standalone crate.",
+      "Do not edit shared files (registry, CI, models.lock, sources.lock, THIRD_PARTY_NOTICES, implementation_status) from this branch; propose diffs only.",
+      "Do not widen the shared branch schema to admit hark/m24-embedding.",
+      "Do not route this model through the pinned llama.cpp: its BertModel path builds a WordPiece vocab and cannot tokenize the XLM-R SentencePiece Unigram vocabulary."
+    ]
+  },
+  "next_action": "Integration / shared CI owner: apply the registry row (registration-proposal.md), the dedicated CI jobs and the models.lock / THIRD_PARTY_NOTICES / implementation_status diffs (integration-proposal.md section 3); then wire the provider into the guest and run real in-guest inference.",
+  "acceptance_criteria": [
+    "Implements nagi_search::semantic::EmbeddingProvider read-only by path, with query/passage prefixes and an EmbeddingSpaceId derived from the converted artifact digest and the pooling/normalization/prefix scheme.",
+    "Pinned immutable upstream revision, SHA-256 for weights, tokenizer, config and the converted artifact, all mutually consistent (verify_pins.py).",
+    "Bounded failures: empty input, byte caps, 512-token cap without silent truncation, artifact size cap, checksum pin, structural validation, no panics on malformed artifacts.",
+    "Cooperative end-to-end deadline and cancellation with documented checkpoints and guarantees; default budget enabled.",
+    "Token and vector parity with the upstream reference and Japanese/English neighbor tests on real inference.",
+    "Reference data reproducible from hash-pinned Python dependencies.",
+    "fmt, Clippy (std and no_std) and the Nagi user-target build pass.",
+    "Real inference inside a Nagi guest (not yet run)."
+  ],
+  "deferred": [
+    "Guest wiring: nagi-init / M19 runtime / model service / ModelStore placement of the .nemb (Codex-owned).",
+    "Hybrid ranking, match explanations, content-producer sync and stale-index invalidation.",
+    "x86-64 reference-machine and guest latency/memory measurement.",
+    "Dedicated CI registration and shared-file edits (owners)."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 registry and durable state contract (this file follows workstream-state.schema.json).",
+      "version": "nagi-dev-v1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "search-core-01",
+      "contract": "nagi_search::semantic EmbeddingProvider / EmbeddingSpaceId / PersistentVectorIndex, used read-only by path.",
+      "version": "edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4",
+      "status": "READ-ONLY DEPENDENCY"
+    },
+    {
+      "workstream_id": "model-runtime",
+      "contract": "ModelStore placement and model service routing for the converted artifact in the guest.",
+      "version": "not yet integrated",
+      "status": "PENDING (guest wiring not started)"
+    }
+  ]
+}

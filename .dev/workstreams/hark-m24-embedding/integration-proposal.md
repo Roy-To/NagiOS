@@ -94,7 +94,8 @@ repository's own `onnx/model.onnx` at the same revision, plus Hugging Face
   dropped. A successful result implies `Pooled` was reached in time; only
   O(384) normalization and space tagging run after it. Overrun after expiry
   is bounded by the longest uninterrupted unit (host: worst checkpoint gap
-  136 ms at 501 tokens, cancel-to-return 65 ms; guest not measured). Loading
+  136–143 ms at 501 tokens, cancel-to-return 51–65 ms; guest not
+  measured). Loading
   is bounded by the artifact size cap, not by the deadline. The default
   config enables a 30 s budget (`DEFAULT_INFERENCE_BUDGET_NANOS`) with the
   host monotonic clock under `std`; `no_std` (guest) builds must pass a Nagi
