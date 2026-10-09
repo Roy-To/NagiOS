@@ -6,8 +6,8 @@
   "current_checkpoint": "host-real-inference-provider-with-cooperative-deadline-and-pinned-artifact-chain",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "7a73ef9124be03f33714c2f11f5849a3109b6d5d",
-    "verified_at": "Fri 2026-10-09 12:02 PM JST (UTC+09:00)",
+    "commit_sha": "98c16aae51e2cefe5360e9f799bf266876833998",
+    "verified_at": "Fri 2026-10-09 12:10 PM JST (UTC+09:00)",
     "normal_state": "Standalone crate crates/nagi-embedding-provider (own workspace and Cargo.lock) implements nagi_search::semantic::EmbeddingProvider with intfloat/multilingual-e5-small at Hugging Face revision 614241f622f53c4eeff9890bdc4f31cfecc418b3 (MIT) through a Nagi-owned no_std + alloc BERT encoder and SentencePiece-Unigram tokenizer, reading the deterministic converted artifact multilingual-e5-small.nemb (474604256 bytes, SHA-256 7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287). Measured on the development HOST only (aarch64 Linux, 2 vCPU): token parity 788/788 vs Hugging Face tokenizers, vector parity worst cosine 0.999999949 vs the upstream ONNX export, 16/16 Japanese/English neighbor requirements, cooperative deadline/cancel checkpoints with a worst inter-checkpoint gap of 136-143 ms at 501 tokens. The x86_64-unknown-nagi-user library was compiled, not executed. The branch-local dedicated workflow .github/workflows/hark-m24-embedding.yml (GitHub-hosted ubuntu-24.04, x86_64) ran both jobs green at 1f30c30 (push run 37872411191): provider checks without a model, and real inference 8/8 on the pinned model fetched by revision with every SHA-256 verified. At 25384ad (workflow_dispatch run 37876189901) both jobs were green again and the regenerated onnxruntime reference vectors met the cross-architecture reference-match criterion on x86_64 (texts and token ids exact, tokenizer_parity.json byte-identical, worst cosine >= 0.999999 AND worst max |diff| <= 1e-5 with fixed thresholds, pinned artifacts and .nemb digest unchanged): worst cosine 0.9999999999995481, worst max |diff| 1.0000000000287557e-07. That workflow is host CI only; it is NOT a substitute for owner registration of the workstream, which is still missing. NOT RUN: guest (Nagi/QEMU) inference, x86-64 reference-machine timing. The shared repository CI does not build this standalone crate and is not evidence for it. M24 stays PARTIAL. The branch is not registered in .dev/workstreams.json; the registry row is a proposal in registration-proposal.md.",
     "commands": [
       "cargo fmt --manifest-path crates/nagi-embedding-provider/Cargo.toml -- --check",
@@ -82,7 +82,7 @@
         "command": "hark-m24-embedding.yml job m24-embedding-real-inference, step 'Python reference deps ... and reference regeneration': tools/embedding/regenerate_reference.sh then numeric comparison; writes x86_64-reference-tolerance.json to the evidence artifact",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Criterion (all must hold): texts and token ids exact for all 22 items; tokenizer_parity.json byte-identical; worst cosine >= 0.999999 AND worst max |diff| <= 1e-5; pinned upstream artifacts unchanged and .nemb conversion digest == 7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287. Thresholds fixed: a result beyond either bound is FAIL, investigate, never loosen; applies to this reference match only (semantic-ranking acceptance, model integrity and guest gates unchanged). Measured on GitHub-hosted ubuntu-24.04 x86_64, onnxruntime 1.30.0: run 37872411191 (1f30c30) and run 37872863618 (14fcbfd) both worst cosine 1.000000000 and worst max |diff| 1.00e-07 as logged (rounded; unrounded values not recorded by those runs). Run 37876189901 (workflow_dispatch at 25384ad, AMD EPYC 7763): worst cosine 0.9999999999995481, worst max |diff| 1.0000000000287557e-07; run 37876190718 (pull_request, PR #41 merge commit, AMD EPYC 9V74): worst cosine 0.9999999999995901, worst max |diff| 1.0000000000287557e-07. Run 37876499001 (workflow_dispatch at 7a73ef9, AMD EPYC 7763) reproduced 37876189901 exactly. The regenerated x86_64 file has two reproducible byte variants (EPYC 7763 vs EPYC 9V74 / Xeon Platinum 8573C), both within 1.0e-7 of the aarch64 copy. aarch64 host baseline (d1457fb, onnxruntime 1.30.0): byte-identical. Record: tests/m24-embedding/evidence/x86_64-reference-tolerance-20261009.json."
+        "evidence": "Criterion (all must hold): texts and token ids exact for all 22 items; tokenizer_parity.json byte-identical; worst cosine >= 0.999999 AND worst max |diff| <= 1e-5; pinned upstream artifacts unchanged and .nemb conversion digest == 7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287. Thresholds fixed: a result beyond either bound is FAIL, investigate, never loosen; applies to this reference match only (semantic-ranking acceptance, model integrity and guest gates unchanged). Measured on GitHub-hosted ubuntu-24.04 x86_64, onnxruntime 1.30.0: run 37872411191 (1f30c30) and run 37872863618 (14fcbfd) both worst cosine 1.000000000 and worst max |diff| 1.00e-07 as logged (rounded; unrounded values not recorded by those runs). Run 37876189901 (workflow_dispatch at 25384ad, AMD EPYC 7763): worst cosine 0.9999999999995481, worst max |diff| 1.0000000000287557e-07; run 37876190718 (pull_request, PR #41 merge commit, AMD EPYC 9V74): worst cosine 0.9999999999995901, worst max |diff| 1.0000000000287557e-07. Run 37876499001 (workflow_dispatch at 7a73ef9, AMD EPYC 7763) reproduced 37876189901 exactly. Run 37876970463 (workflow_dispatch at 98c16aa, AMD EPYC 9V74) also PASS with the same values. The regenerated x86_64 file has taken two byte variants across runs (cause not established; not tied to CPU model), both within 1.0e-7 of the aarch64 copy. aarch64 host baseline (d1457fb, onnxruntime 1.30.0): byte-identical. Record: tests/m24-embedding/evidence/x86_64-reference-tolerance-20261009.json."
       }
     ],
     "ci_runs": [
@@ -117,12 +117,20 @@
         "status": "COMPLETED",
         "conclusion": "success",
         "summary": "hark-m24-embedding.yml workflow_dispatch on hark/m24-embedding-tolerance-evidence (exact head): both jobs success; x86_64 (AMD EPYC 7763, onnxruntime 1.30.0) worst cosine 0.9999999999995481, worst max |diff| 1.0000000000287557e-07; .nemb digest equals the pin; real inference 8/8. Host CI only."
+      },
+      {
+        "run_id": 37876970463,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37876970463",
+        "head_sha": "98c16aae51e2cefe5360e9f799bf266876833998",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "hark-m24-embedding.yml workflow_dispatch on hark/m24-embedding-tolerance-evidence (exact head): both jobs success; x86_64 (AMD EPYC 9V74, onnxruntime 1.30.0) worst cosine 0.9999999999995481, worst max |diff| 1.0000000000287557e-07; .nemb digest equals the pin; real inference 8/8. Host CI only."
       }
     ]
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md (M24 row) and .dev/workstreams/hark-m24-embedding/integration-proposal.md",
-    "last_checked_at": "Fri 2026-10-09 12:02 PM JST (UTC+09:00)",
+    "last_checked_at": "Fri 2026-10-09 12:10 PM JST (UTC+09:00)",
     "activation_requirement": "M24 stays PARTIAL until the provider runs real inference inside a Nagi guest (QEMU) through integration-owner wiring (nagi-init / model service / ModelStore placement of the pinned .nemb) and the remaining spec items (hybrid ranking, explanations, content-producer sync) land. Merge, ready-for-review and release changes need a separate user / integration-owner decision."
   },
   "blocker": {

@@ -181,11 +181,61 @@
         "real_inference": "8 passed, 0 failed"
       },
       "result": "PASS"
+    },
+    {
+      "run_id": 37876970463,
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37876970463",
+      "event": "workflow_dispatch",
+      "commit_sha": "98c16aae51e2cefe5360e9f799bf266876833998",
+      "commit_note": "exact branch head",
+      "arch": "x86_64",
+      "runner_os": "Linux",
+      "runner_image": "ubuntu24 20261004.327.1",
+      "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "onnxruntime_version": "1.30.0",
+      "nemb_sha256": "7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287",
+      "texts_and_token_ids": "identical (22 items); tokenizer_parity.json byte-identical",
+      "regenerated_parity_reference_sha256": "d736f7a51349e5c681c737ef6c2de626569f02dc32e0fd1892f01765f40e87b2",
+      "worst_cosine": 0.9999999999995481,
+      "worst_max_abs_diff": 1.0000000000287557e-07,
+      "per_item_min_cosine": 0.9999999999995481,
+      "nagi_encoder_vs_onnx_reference": {
+        "worst_cosine": "0.999999949",
+        "worst_max_abs_diff": "1.42e-7",
+        "real_inference": "8 passed, 0 failed"
+      },
+      "result": "PASS"
+    },
+    {
+      "run_id": 37876975122,
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37876975122",
+      "event": "pull_request",
+      "commit_sha": "dde004b7584c322606acd10eb8b25dc510674fd1",
+      "commit_note": "pull_request merge commit of PR #41 (head 98c16aae51e2cefe5360e9f799bf266876833998 onto main 672d1c8)",
+      "arch": "x86_64",
+      "runner_os": "Linux",
+      "runner_image": "ubuntu24 20261004.327.1",
+      "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "onnxruntime_version": "1.30.0",
+      "nemb_sha256": "7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287",
+      "texts_and_token_ids": "identical (22 items); tokenizer_parity.json byte-identical",
+      "regenerated_parity_reference_sha256": "7084eca270121c0d019d595fe1e912d35e6d1fb36e1b45135d6b4ab07a896b88",
+      "worst_cosine": 0.9999999999995901,
+      "worst_max_abs_diff": 1.0000000000287557e-07,
+      "per_item_min_cosine": 0.9999999999995901,
+      "nagi_encoder_vs_onnx_reference": {
+        "worst_cosine": "0.999999949",
+        "worst_max_abs_diff": "1.42e-7",
+        "real_inference": "8 passed, 0 failed"
+      },
+      "result": "PASS"
     }
   ],
   "observations": [
-    "All six x86_64 runs are within the fixed bounds; worst max |diff| 1.0e-7 is two orders of magnitude below 1e-5 and worst cosine deviates from 1 by under 1e-12.",
-    "The regenerated x86_64 parity_reference.json took two reproducible byte variants: sha256 d736f7a5... on AMD EPYC 7763 (runs 37872411191 by digest, 37876189901, 37876499001) and 7084eca2... on AMD EPYC 9V74 (run 37876190718; run 37872863618 by digest) and Intel Xeon Platinum 8573C (run 37876502717). Likely different onnxruntime kernel paths by CPU feature set (inferred, not verified). Both variants stay within 1.0e-7 of the aarch64 copy.",
+    "All eight x86_64 runs are within the fixed bounds; worst max |diff| 1.0e-7 is two orders of magnitude below 1e-5 and worst cosine deviates from 1 by under 1e-12.",
+    "The regenerated x86_64 parity_reference.json has taken two byte variants: sha256 d736f7a5... (runs 37872411191, 37876189901, 37876499001, 37876970463) and 7084eca2... (runs 37872863618, 37876190718, 37876502717, 37876975122). The variant does not follow the CPU model (AMD EPYC 9V74 produced both); the cause is not established. Each variant maps to a single worst-value pair (0.9999999999995481 or 0.9999999999995901 cosine; 1.0000000000287557e-07 max |diff|), both well within the bounds.",
     "Runs 37872411191 and 37872863618 logged rounded values only; later runs recorded unrounded values via x86_64-reference-tolerance.json in their evidence artifacts."
   ]
 }
