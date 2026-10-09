@@ -5,7 +5,10 @@ Machine-readable durable state: `state.json` (follows
 registry row in `registration-proposal.md`). This file is a short summary.
 
 - Status: **PARTIAL** — host real inference implemented and measured; guest
-  (Nagi/QEMU) inference NOT RUN; dedicated CI proposed, NOT RUN.
+  (Nagi/QEMU) inference NOT RUN; branch-local dedicated CI
+  (`.github/workflows/hark-m24-embedding.yml`) green on x86_64 (push run
+  37872411191 at `1f30c30`) — host CI only, not a substitute for owner
+  registration (still missing).
 - Base: `edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4`; branch `hark/m24-embedding`.
 - Model: `intfloat/multilingual-e5-small` @ `614241f622f53c4eeff9890bdc4f31cfecc418b3`, MIT.
 - Runtime: Nagi-owned no_std Rust encoder + SentencePiece-Unigram tokenizer
@@ -30,8 +33,9 @@ for it.
 
 ## Open gates
 
-1. Registry row + dedicated CI jobs (integration / shared CI owner) —
-   `registration-proposal.md`, `integration-proposal.md` §3.5.
+1. Registry row (integration owner) — `registration-proposal.md`; keep or fold
+   the dedicated workflow into shared CI (shared CI owner) —
+   `integration-proposal.md` §3.5.
 2. `third_party/models.lock`, `THIRD_PARTY_NOTICES.md`,
    `docs/implementation_status.md` minimal diffs — `integration-proposal.md` §3.
 3. Guest inference wiring (nagi-init / M19 runtime / model service / ModelStore)

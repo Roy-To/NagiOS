@@ -186,55 +186,48 @@ Append to the M24 row (status stays `PARTIAL`):
   member, so the shared jobs neither compile it nor run its tests. A green
   shared run on PR #38 says nothing about this provider and is not cited as
   evidence for it.
-- Proposed dedicated CI registration, for the shared CI owner to add to
-  `.github/workflows/ci.yml` (nothing applied here). Both jobs use the
-  repository toolchain `nightly-2025-08-01`:
-
-```yaml
-  m24-embedding-provider:
-    name: M24 embedding provider (hark-m24-embedding)
-    runs-on: ubuntu-latest
-    env:
-      M: crates/nagi-embedding-provider/Cargo.toml
-    steps:
-      - uses: actions/checkout@v4
-      - name: Toolchain
-        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
-      - name: fmt
-        run: cargo +nightly-2025-08-01 fmt --manifest-path $M -- --check
-      - name: clippy (std, all targets)
-        run: cargo +nightly-2025-08-01 clippy --manifest-path $M --all-targets --locked -- -D warnings
-      - name: clippy (no_std library)
-        run: cargo +nightly-2025-08-01 clippy --manifest-path $M --lib --no-default-features --locked -- -D warnings
-      - name: model-free tests (tokenizer units + contract suite)
-        run: cargo +nightly-2025-08-01 test --manifest-path $M --locked
-      - name: Nagi user-target build (compile only, not executed)
-        working-directory: crates/nagi-embedding-provider
-        run: cargo +nightly-2025-08-01 -Z build-std=core,alloc build --release --locked --no-default-features --target ../../targets/x86_64-unknown-nagi-user.json
-
-  m24-embedding-real-inference:
-    name: M24 embedding real inference (host)
-    needs: m24-embedding-provider
-    runs-on: ubuntu-latest
-    env:
-      NAGI_EMBEDDING_CACHE: ${{ github.workspace }}/.cache/nagi-embedding
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: .cache/nagi-embedding
-          key: m24-e5-small-614241f622f53c4eeff9890bdc4f31cfecc418b3-${{ hashFiles('tools/embedding/manifest.toml') }}
-      - name: Toolchain
-        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
-      - name: Fetch (pinned, SHA-256 verified), convert, verify pins, real inference
-        run: tests/m24-embedding/run.sh
-```
-
-  The real-inference job downloads ~470 MB once (cache keyed by the immutable
-  revision and the manifest hash), fails rather than skips when the model is
-  absent, and is host evidence only. The registry row in
-  `registration-proposal.md` is a precondition for the shared
-  `dev_status_resume_and_verify_read_the_registered_workstream` check.
+- **Dedicated CI (branch-local, added by this workstream):**
+  `.github/workflows/hark-m24-embedding.yml`. It does not touch `ci.yml` or any
+  other workflow. `permissions: contents: read`, no secrets, no write tokens, no
+  paid services; GitHub-hosted `ubuntu-24.04` runners (the label the shared CI
+  already uses; the repository is public). Actions are pinned by commit SHA.
+  Triggers: `push` to `hark/m24-embedding` and `pull_request`, both filtered to
+  the crate, `tools/embedding/**`, `tests/m24-embedding/**`, this directory, the
+  workflow itself and the crate's read-only build inputs (`user/nagi-search/**`,
+  `crates/nagi-model/**`, `rust-toolchain.toml`, the target JSON); plus
+  `workflow_dispatch`. Toolchain `nightly-2025-08-01` with rust-src.
+  - Job `m24-embedding-provider` (no model), separate steps: fmt `--check`;
+    clippy std `--all-targets -D warnings`; clippy no_std `--lib
+    --no-default-features -D warnings` (never counted as a std or target PASS);
+    model-free tests (5 tokenizer units + 20 contract); `x86_64-unknown-nagi-user`
+    `-Z build-std=core,alloc` release build (compile only, not executed).
+  - Job `m24-embedding-real-inference` (needs the first job): checks the
+    workflow revision equals `manifest.toml`; restores `actions/cache` keyed
+    `m24-e5-small-614241f622f53c4eeff9890bdc4f31cfecc418b3-<hashFiles(manifest.toml,
+    requirements-reference.txt, convert_e5.py)>`; `fetch.sh --with-reference`
+    (size + SHA-256 of every file, cached or not); deterministic conversion whose
+    digest must equal the pin; `verify_pins.py`; reference regeneration in a
+    fresh venv installed with `--require-hashes --only-binary :all:`;
+    `tests/m24-embedding/run.sh` (must report `8 passed; 0 failed`); then
+    negative checks that must fail: real-inference tests with the model unset
+    and with a missing path, `verify_pins.py` with a tampered `config.json` and
+    with `model.safetensors` missing, and `fetch.sh` against a manifest with a
+    wrong SHA-256. Logs are uploaded as the `m24-embedding-evidence-*` artifact.
+  - A missing or mismatched asset fails the job; nothing is skipped.
+  - Cross-architecture note: the committed `parity_reference.json` was generated
+    on aarch64. On x86_64 runners onnxruntime produces vectors that are not
+    byte-identical (and differ between runner CPUs), so CI requires
+    `tokenizer_parity.json` byte-identical, texts and token ids identical, and
+    vectors within cosine >= 0.999999 and max |diff| <= 1e-5 of the committed
+    copy (observed 1.0e-7). The Rust parity test against the committed
+    reference is unchanged (worst cosine 0.999999949).
+  - First green run on this branch: push run 37872411191 at `1f30c30`
+    (both jobs success); recorded in `state.json` `ci_runs`.
+- **The dedicated workflow is not a substitute for owner registration.** The
+  workstream is still not registered in `.dev/workstreams.json`
+  (`registration-proposal.md`), guest inference has not run, and M24 stays
+  `PARTIAL`. Whether to keep this file or fold its two jobs into the shared CI
+  is the shared CI owner's decision.
 
 ## 4. Verification commands
 
@@ -268,7 +261,7 @@ reference-regeneration and pin-verification logs are committed under
 
 ## 6. Open gates
 
-1. Registry row + the two dedicated CI jobs in §3.5 (integration / shared CI owner).
+1. Registry row (integration owner); keep or fold the branch-local dedicated workflow in §3.5 (shared CI owner).
 2. models.lock / THIRD_PARTY_NOTICES / implementation_status edits (owners).
 3. Guest inference: wiring the provider into nagi-init / M19 runtime / model
    service and placing the `.nemb` in the ModelStore are Codex-owned; until a

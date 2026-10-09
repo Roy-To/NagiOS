@@ -50,9 +50,12 @@ explicitly. Full statement: crate docs in `src/lib.rs`.
 
 The shared repository CI (root workspace jobs) does **not** compile or test
 this standalone crate, so its status on PR #38 is not evidence for the
-provider. Dedicated jobs are proposed in
-`.dev/workstreams/hark-m24-embedding/integration-proposal.md` §3.5 and are not
-registered yet; every result in this file is from local host runs.
+provider. The branch-local workflow `.github/workflows/hark-m24-embedding.yml`
+(described in `.dev/workstreams/hark-m24-embedding/integration-proposal.md`
+§3.5) runs the provider checks and the pinned real inference on GitHub-hosted
+x86_64 runners; its first green run is push run 37872411191 at `1f30c30`. It is
+host CI only and does not replace owner registration (still missing). The
+measurements above are from local aarch64 host runs unless stated otherwise.
 
 Real-inference tests are `#[ignore]` by default and fail (not skip) when run
 with `--ignored` without `NAGI_EMBEDDING_MODEL`; no fixture vector is counted
