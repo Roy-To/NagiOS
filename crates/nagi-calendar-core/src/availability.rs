@@ -118,12 +118,18 @@ pub fn find_availability(
             .checked_sub(request.window.start().0)
             .ok_or(Error::Overflow)?;
         let steps = delta / request.step_micros + i64::from(delta % request.step_micros != 0);
-        let mut cursor = request.window.start().checked_add(
-            steps
-                .checked_mul(request.step_micros)
-                .ok_or(Error::Overflow)?,
-        )?;
-        loop {
+        // The request window spans at most i64::MAX, so a grid point whose offset
+        // or position is unrepresentable lies beyond this free window: no candidate.
+        let Some(mut cursor) = steps
+            .checked_mul(request.step_micros)
+            .and_then(|offset| request.window.start().0.checked_add(offset))
+            .map(Instant)
+        else {
+            continue;
+        };
+        // Durations are positive, so a start at or past the window end cannot fit.
+        // Stopping here is normal grid termination, not an arithmetic failure.
+        while cursor < window.end() {
             let end = cursor.checked_add(request.duration_micros)?;
             if end > window.end() {
                 break;
@@ -136,7 +142,11 @@ pub fn find_availability(
                 return Err(Error::OutputLimitExceeded);
             }
             slots.push(Interval::new(cursor, end)?);
-            cursor = cursor.checked_add(request.step_micros)?;
+            match cursor.0.checked_add(request.step_micros) {
+                Some(next) => cursor = Instant(next),
+                // The next grid point is past i64::MAX >= window end: grid exhausted.
+                None => break,
+            }
         }
     }
     Ok(slots)
@@ -169,4 +179,164 @@ pub fn busy_from_events(
 /// Convenience for fixture data on an arbitrary instant axis.
 pub fn interval(start: i64, end: i64) -> Result<Interval> {
     Interval::new(Instant(start), Instant(end))
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    const MAX: i64 = i64::MAX;
+
+    fn req(start: i64, end: i64, duration: i64, step: i64) -> AvailabilityRequest {
+        AvailabilityRequest {
+            window: interval(start, end).unwrap(),
+            duration_micros: duration,
+            step_micros: step,
+            buffer_before_micros: 0,
+            buffer_after_micros: 0,
+            max_scan: 100,
+            max_slots: 100,
+            participant_working_windows: vec![],
+        }
+    }
+    fn pairs(slots: Result<Vec<Interval>>) -> Result<Vec<(i64, i64)>> {
+        slots.map(|s| s.iter().map(|i| (i.start().0, i.end().0)).collect())
+    }
+
+    #[test]
+    fn final_candidate_ending_at_max_is_returned() {
+        let r = req(MAX - 1, MAX, 1, 1);
+        assert_eq!(pairs(find_availability(&r, &[])), Ok(vec![(MAX - 1, MAX)]));
+    }
+
+    #[test]
+    fn grid_stops_when_next_start_overflows() {
+        // Slots at MAX-4 and MAX-1; the next start (MAX+2) is unrepresentable.
+        let r = req(MAX - 4, MAX, 1, 3);
+        assert_eq!(
+            pairs(find_availability(&r, &[])),
+            Ok(vec![(MAX - 4, MAX - 3), (MAX - 1, MAX)])
+        );
+    }
+
+    #[test]
+    fn grid_stops_when_next_start_reaches_window_end_at_max() {
+        // Two exact-fit slots; the next start equals MAX == window end.
+        let r = req(MAX - 4, MAX, 2, 2);
+        assert_eq!(
+            pairs(find_availability(&r, &[])),
+            Ok(vec![(MAX - 4, MAX - 2), (MAX - 2, MAX)])
+        );
+    }
+
+    #[test]
+    fn maximal_duration_and_step_fill_widest_window_once() {
+        let r = req(0, MAX, MAX, MAX);
+        assert_eq!(pairs(find_availability(&r, &[])), Ok(vec![(0, MAX)]));
+    }
+
+    #[test]
+    fn huge_step_yields_only_first_candidate() {
+        let r = req(0, MAX, 1, MAX);
+        assert_eq!(pairs(find_availability(&r, &[])), Ok(vec![(0, 1)]));
+        let r = req(-10, 10, 1, MAX);
+        assert_eq!(pairs(find_availability(&r, &[])), Ok(vec![(-10, -9)]));
+    }
+
+    #[test]
+    fn aligned_first_candidate_beyond_free_window_is_skipped() {
+        // Grid anchored at MAX-10 with step 10: the next grid point is MAX,
+        // which is the window end, so free [MAX-5, MAX) has no candidate.
+        let r = req(MAX - 10, MAX, 1, 10);
+        let busy = [interval(MAX - 10, MAX - 5).unwrap()];
+        assert_eq!(pairs(find_availability(&r, &busy)), Ok(vec![]));
+    }
+
+    #[test]
+    fn aligned_first_candidate_unrepresentable_is_skipped() {
+        // Grid anchored at 1 with step MAX: next grid point 1+MAX overflows,
+        // so free [2, MAX) has no candidate.
+        let r = req(1, MAX, 1, MAX);
+        let busy = [interval(1, 2).unwrap()];
+        assert_eq!(pairs(find_availability(&r, &busy)), Ok(vec![]));
+    }
+
+    #[test]
+    fn half_open_exact_fit_and_endpoint_contact() {
+        // Exact fit: window length == duration.
+        assert_eq!(
+            pairs(find_availability(&req(0, 30, 30, 30), &[])),
+            Ok(vec![(0, 30)])
+        );
+        // A slot may end exactly where busy starts and start where busy ends.
+        let busy = [interval(30, 60).unwrap()];
+        assert_eq!(
+            pairs(find_availability(&req(0, 90, 30, 30), &busy)),
+            Ok(vec![(0, 30), (60, 90)])
+        );
+        // Window one micro shorter than duration: no slot.
+        assert_eq!(
+            pairs(find_availability(&req(0, 29, 30, 1), &[])),
+            Ok(vec![])
+        );
+    }
+
+    #[test]
+    fn empty_free_time_yields_no_slots() {
+        let r = req(MAX - 10, MAX, 1, 1);
+        assert_eq!(pairs(find_availability(&r, &[r.window])), Ok(vec![]));
+        let mut r = req(0, 100, 10, 10);
+        r.participant_working_windows = vec![Some(vec![])];
+        assert_eq!(pairs(find_availability(&r, &[])), Ok(vec![]));
+    }
+
+    #[test]
+    fn limits_still_enforced_at_max_boundary() {
+        let mut r = req(MAX - 3, MAX, 1, 1);
+        r.max_slots = 3;
+        r.max_scan = 3;
+        assert_eq!(
+            pairs(find_availability(&r, &[])),
+            Ok(vec![(MAX - 3, MAX - 2), (MAX - 2, MAX - 1), (MAX - 1, MAX)])
+        );
+        r.max_slots = 2;
+        assert_eq!(find_availability(&r, &[]), Err(Error::OutputLimitExceeded));
+        r.max_slots = 3;
+        r.max_scan = 2;
+        assert_eq!(find_availability(&r, &[]), Err(Error::ScanLimitExceeded));
+    }
+
+    #[test]
+    fn invalid_step_and_duration_contract_unchanged() {
+        for step in [0, -1, i64::MIN] {
+            assert_eq!(
+                find_availability(&req(0, 10, 1, step), &[]),
+                Err(Error::InvalidStep)
+            );
+        }
+        for duration in [0, -1, i64::MIN] {
+            assert_eq!(
+                find_availability(&req(0, 10, duration, 1), &[]),
+                Err(Error::InvalidRange)
+            );
+        }
+        let mut r = req(0, 10, 1, 1);
+        r.max_scan = 0;
+        assert_eq!(find_availability(&r, &[]), Err(Error::InvalidLimit));
+    }
+
+    #[test]
+    fn evaluated_candidate_end_overflow_still_errors() {
+        // Existing contract: the first in-window candidate's end overflows.
+        assert_eq!(
+            find_availability(&req(MAX - 10, MAX, 20, 1), &[]),
+            Err(Error::Overflow)
+        );
+        // An in-window candidate (MAX-4) whose end MAX+1 is unrepresentable
+        // must still be evaluated and still reports Overflow.
+        assert_eq!(
+            find_availability(&req(MAX - 10, MAX, 5, 3), &[]),
+            Err(Error::Overflow)
+        );
+    }
 }

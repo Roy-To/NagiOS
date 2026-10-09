@@ -77,6 +77,68 @@ fn count(v: CellValue) -> Result<usize, CellError> {
         Ok(n as usize)
     }
 }
+/// ROUNDUP (away from zero) / ROUNDDOWN (toward zero) at `digits` decimal
+/// places. Rounding is performed on the shortest round-trip decimal
+/// representation of `n`, so binary artefacts such as `1.1 * 100 =
+/// 110.00000000000001` never push ROUNDUP(1.1, 2) to 1.11. The result is
+/// parsed back with correct rounding; overflow yields NUMERIC_ERROR and
+/// -0 is normalised to 0.
+fn round_directed(n: f64, digits: i32, away: bool) -> Result<CellValue, CellError> {
+    if !n.is_finite() {
+        return Err(CellError::NumericError);
+    }
+    if n == 0.0 {
+        return Ok(CellValue::Number(0.0));
+    }
+    let repr = format!("{:e}", n.abs());
+    let (mantissa, exponent) = repr.split_once('e').ok_or(CellError::NumericError)?;
+    let exponent: i64 = exponent.parse().map_err(|_| CellError::NumericError)?;
+    let mut digit_bytes: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
+    // Value = 0.d1d2..dk * 10^(exponent + 1); keep digits whose place value is
+    // at least 10^-digits.
+    let keep = exponent + i64::from(digits) + 1;
+    if keep >= digit_bytes.len() as i64 {
+        return finite(n);
+    }
+    let negative = n < 0.0;
+    let magnitude = if keep <= 0 {
+        if !away {
+            return Ok(CellValue::Number(0.0));
+        }
+        // Every kept digit is zero and a nonzero digit was discarded.
+        format!("1e{}", -i64::from(digits))
+    } else {
+        let discarded_nonzero = digit_bytes[keep as usize..].iter().any(|&d| d != b'0');
+        digit_bytes.truncate(keep as usize);
+        if away && discarded_nonzero {
+            let mut carry = true;
+            for d in digit_bytes.iter_mut().rev() {
+                if *d == b'9' {
+                    *d = b'0';
+                } else {
+                    *d += 1;
+                    carry = false;
+                    break;
+                }
+            }
+            if carry {
+                // 99..9 rounded away from zero becomes 100..0 at the same scale.
+                digit_bytes.insert(0, b'1');
+            }
+        }
+        let scale = exponent - keep + 1;
+        let text = String::from_utf8(digit_bytes).map_err(|_| CellError::NumericError)?;
+        format!("{text}e{scale}")
+    };
+    signed(magnitude, negative)
+}
+fn signed(magnitude: String, negative: bool) -> Result<CellValue, CellError> {
+    let m: f64 = magnitude.parse().map_err(|_| CellError::NumericError)?;
+    if m == 0.0 {
+        return Ok(CellValue::Number(0.0));
+    }
+    finite(if negative { -m } else { m })
+}
 impl Formula {
     pub fn evaluate(&self, book: &Workbook) -> CellValue {
         match self.eval(self.ast.root, book).and_then(Value::scalar) {
@@ -162,7 +224,8 @@ impl Formula {
         use FunctionId::*;
         let valid = match f {
             If => args.len() == 3,
-            IfError | Round | Left | Right => args.len() == 2,
+            IfError | Round | RoundUp | RoundDown | Left | Right => args.len() == 2,
+            Ifs => args.len() >= 2 && args.len().is_multiple_of(2),
             Mid => args.len() == 3,
             Not | Len | Trim => args.len() == 1,
             _ => !args.is_empty(),
@@ -174,6 +237,16 @@ impl Formula {
             If => {
                 let cond = boolean(self.scalar(args[0], book)?)?;
                 self.scalar(args[if cond { 1 } else { 2 }], book)
+            }
+            Ifs => {
+                // Conditions are tested left to right; only the first true
+                // condition's value is evaluated. Later pairs stay unevaluated.
+                for pair in args.chunks_exact(2) {
+                    if boolean(self.scalar(pair[0], book)?)? {
+                        return self.scalar(pair[1], book);
+                    }
+                }
+                Err(CellError::NotAvailable)
             }
             IfError => match self.scalar(args[0], book) {
                 Ok(v) => Ok(v),
@@ -209,6 +282,14 @@ impl Formula {
                     (n / factor).round() * factor
                 };
                 finite(result)
+            }
+            RoundUp | RoundDown => {
+                let n = number(self.scalar(args[0], book)?)?;
+                let digits = number(self.scalar(args[1], book)?)?;
+                if digits.fract() != 0.0 || !(-308.0..=308.0).contains(&digits) {
+                    return Err(CellError::NumericError);
+                }
+                round_directed(n, digits as i32, f == RoundUp)
             }
             Left | Right | Mid | Len | Trim => {
                 let s = text(self.scalar(args[0], book)?)?;

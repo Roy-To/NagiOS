@@ -1020,6 +1020,60 @@
       ],
       "activation_gate": "Standalone host-only workbook dependency-bound preparation and inline tests. Guest/runtime/UI/provider activation is deferred.",
       "merge_boundary": "Dedicated Sheets workbook branch; only workbook.rs and its inline tests are implementation changes. Shared configuration and other source owners remain separate."
+    },
+    {
+      "id": "combined-host-foundations-ci",
+      "owner": "Codex shared host CI integration",
+      "owner_branch": "codex/0.2-combined-host-foundations-ci",
+      "recommended_worktree": "../NagiOS-combined-host-ci",
+      "state_file": ".dev/workstreams/combined-host-foundations-ci/state.json",
+      "dependencies": [
+        "development-foundation",
+        "ci-acceptance",
+        "sheets-bounded-updates",
+        "sheets-calc-01",
+        "writer-core-01",
+        "calendar-core-01"
+      ],
+      "allowed_paths": [
+        ".dev/workstreams/sheets-bounded-updates/state.json",
+        "crates/nagi-sheets-core/src/workbook.rs",
+        ".dev/workstreams/hark-sheets-functions/README.md",
+        ".dev/workstreams/hark-sheets-functions/evidence.json",
+        "crates/nagi-sheets-core/src/engine.rs",
+        "crates/nagi-sheets-core/src/parser.rs",
+        "tests/sheets-core/acceptance.rs",
+        "tests/sheets-core/ifs_round.rs",
+        ".dev/workstreams/hark-writer-list-numbering/README.md",
+        ".dev/workstreams/hark-writer-list-numbering/new-tests-on-unfixed-code.txt",
+        ".dev/workstreams/hark-writer-list-numbering/repro-before-fix.txt",
+        ".dev/workstreams/hark-writer-list-numbering/verify-after-fix.txt",
+        "crates/nagi-writer-core/src/formats.rs",
+        "tests/writer-core/acceptance.rs",
+        ".dev/workstreams/hark-calendar-availability-boundary/HANDOFF.md",
+        "crates/nagi-calendar-core/src/availability.rs",
+        ".dev/workstreams/combined-host-foundations-ci/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "tests/acceptance/**",
+        "tools/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "docs/**",
+        ".dev/schemas/**",
+        ".github/workflows/ci.yml",
+        "crates/nagi-model/**",
+        "crates/*/Cargo.toml",
+        "crates/*/Cargo.lock",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Host-only combined CI of immutable PR49, PR46, PR50 and PR51 source snapshots. Imported paths remain owned by their original authors; this registration grants no app implementation edits or guest/runtime/provider/product activation.",
+      "merge_boundary": "Dedicated combined CI candidate only. Preserve all existing registry rows and source-owner state snapshots. Main merge and release remain separate decisions."
     }
   ]
 }

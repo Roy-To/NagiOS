@@ -1151,3 +1151,206 @@ fn h10_review_and_batch_budgets_include_empty_table_cells_before_preview() {
     );
     assert_eq!(e.document(), &before);
 }
+fn md_roundtrip(input: &str) -> (ImportResult, String, ImportResult) {
+    let imported = import_text(Format::Markdown, input);
+    let output = export(Format::Markdown, &imported.document, Limits::default()).unwrap();
+    let reopened = import_text(Format::Markdown, &output.text);
+    assert_eq!(
+        kinds(&reopened.document),
+        kinds(&imported.document),
+        "import->export->import changed structure for {input:?} via {:?}",
+        output.text
+    );
+    assert!(reopened.warnings.is_empty(), "{:?}", reopened.warnings);
+    (imported, output.text, reopened)
+}
+fn warned_lines(doc: &ImportResult) -> Vec<usize> {
+    assert!(doc
+        .warnings
+        .iter()
+        .all(|w| w.kind == WarningKind::UnsupportedSyntax && w.object.is_none()));
+    doc.warnings.iter().map(|w| w.line.unwrap()).collect()
+}
+#[test]
+fn h09_ordered_list_non_one_start_is_kept_literally_not_renumbered() {
+    // Regression: "9. item" used to import as List{ordered} and export "1. item".
+    let (doc, text, reopened) = md_roundtrip("9. item");
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph("9. item".into())]
+    );
+    assert_eq!(warned_lines(&doc), vec![1]);
+    assert_eq!(text, "9\\. item");
+    assert_ne!(text, "1. item");
+    assert_eq!(
+        kinds(&reopened.document),
+        vec![BlockKind::Paragraph("9. item".into())]
+    );
+    for input in ["0. zero", "01. leading zero", "2. b\n3. c"] {
+        let doc = import_text(Format::Markdown, input);
+        assert_eq!(
+            kinds(&doc.document),
+            vec![BlockKind::Paragraph(input.into())]
+        );
+        assert_eq!(
+            warned_lines(&doc),
+            (1..=input.lines().count()).collect::<Vec<_>>()
+        );
+    }
+}
+#[test]
+fn h09_ordered_list_gaps_and_resumed_numbering_are_not_lost() {
+    let (doc, text, _) = md_roundtrip("1. a\n2. b\n4. c");
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph("1. a\n2. b\n4. c".into())]
+    );
+    assert_eq!(warned_lines(&doc), vec![1, 2, 3]);
+    assert!(text.contains("4\\. c"));
+    // A run resumed after a blank line would otherwise restart at "1.".
+    let (doc, text, _) = md_roundtrip("1. a\n\n2. b\n3. c");
+    assert_eq!(
+        kinds(&doc.document),
+        vec![
+            BlockKind::List {
+                ordered: true,
+                items: vec!["a".into()],
+            },
+            BlockKind::Paragraph("2. b\n3. c".into()),
+        ]
+    );
+    assert_eq!(warned_lines(&doc), vec![3, 4]);
+    assert_eq!(text, "1. a\n\n2\\. b\n3\\. c");
+}
+#[test]
+fn h08_canonical_ordered_lists_still_roundtrip_exactly() {
+    let input = (1..=12)
+        .map(|n| format!("{n}. item {n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (doc, text, _) = md_roundtrip(&input);
+    assert!(doc.warnings.is_empty());
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::List {
+            ordered: true,
+            items: (1..=12).map(|n| format!("item {n}")).collect(),
+        }]
+    );
+    assert_eq!(text, input);
+    // Inline-unsupported items in a canonical list keep exact line numbers.
+    let doc = import_text(Format::Markdown, "intro\n\n1. a\n2. **b**");
+    assert_eq!(warned_lines(&doc), vec![4]);
+}
+#[test]
+fn h10_huge_ordered_list_numbers_do_not_overflow_or_get_rewritten() {
+    let huge = "9".repeat(400);
+    for number in [
+        u64::MAX.to_string(),
+        (u128::from(u64::MAX) + 1).to_string(),
+        usize::MAX.to_string(),
+        huge,
+    ] {
+        let input = format!("{number}. 巨大\n1. next");
+        let (doc, text, _) = md_roundtrip(&input);
+        assert_eq!(
+            kinds(&doc.document),
+            vec![BlockKind::Paragraph(input.clone())]
+        );
+        assert_eq!(warned_lines(&doc), vec![1, 2]);
+        assert!(text.starts_with(&format!("{number}\\. ")));
+    }
+}
+#[test]
+fn h09_mixed_ordered_unordered_runs_keep_every_number() {
+    let input = "1. a\n- b\n2. c\n* d\n1. e\n2. f";
+    let (doc, text, _) = md_roundtrip(input);
+    assert_eq!(
+        kinds(&doc.document),
+        vec![
+            BlockKind::List {
+                ordered: true,
+                items: vec!["a".into()],
+            },
+            BlockKind::List {
+                ordered: false,
+                items: vec!["b".into()],
+            },
+            BlockKind::Paragraph("2. c".into()),
+            BlockKind::List {
+                ordered: false,
+                items: vec!["d".into()],
+            },
+            BlockKind::List {
+                ordered: true,
+                items: vec!["e".into(), "f".into()],
+            },
+        ]
+    );
+    assert_eq!(warned_lines(&doc), vec![3]);
+    assert_eq!(text, "1. a\n\n- b\n\n2\\. c\n\n- d\n\n1. e\n2. f");
+}
+#[test]
+fn h08_escaped_list_markers_are_text_not_lists() {
+    let (doc, text, _) = md_roundtrip("9\\. not a list");
+    assert!(doc.warnings.is_empty());
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph("9. not a list".into())]
+    );
+    assert_eq!(text, "9\\. not a list");
+    let (doc, text, _) = md_roundtrip("- 9\\. inside item\n- \\- dash");
+    assert!(doc.warnings.is_empty());
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::List {
+            ordered: false,
+            items: vec!["9. inside item".into(), "- dash".into()],
+        }]
+    );
+    assert_eq!(text, "- 9\\. inside item\n- \\- dash");
+}
+#[test]
+fn h10_japanese_ordered_items_keep_numbers() {
+    let (doc, text, _) = md_roundtrip("1. 日本語\n2. 項目🌊");
+    assert!(doc.warnings.is_empty());
+    assert_eq!(text, "1. 日本語\n2. 項目🌊");
+    let (doc, text, _) = md_roundtrip("3. 第三項目\n4. 続き");
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph("3. 第三項目\n4. 続き".into())]
+    );
+    assert_eq!(warned_lines(&doc), vec![1, 2]);
+    assert_eq!(text, "3\\. 第三項目\n4\\. 続き");
+    // Full-width digits are not list markers in the subset.
+    let (doc, _, _) = md_roundtrip("１. 全角");
+    assert!(doc.warnings.is_empty());
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph("１. 全角".into())]
+    );
+}
+#[test]
+fn h09_import_export_import_never_drops_an_ordered_number() {
+    for input in [
+        "5. a",
+        "1. a\n3. b",
+        "intro\n7. x",
+        "# 見出し\n\n10. 十\n11. 十一",
+        "1. a\n\n1. b",
+        "> quote\n\n42. answer **bold**",
+    ] {
+        let (doc, text, _) = md_roundtrip(input);
+        for line in input.lines() {
+            let n = line.bytes().take_while(u8::is_ascii_digit).count();
+            if n > 0 && line[n..].starts_with(". ") {
+                assert!(
+                    text.contains(&line[..n]),
+                    "number {} lost: {input:?} -> {text:?}",
+                    &line[..n]
+                );
+            }
+        }
+        assert!(!kinds(&doc.document).is_empty());
+    }
+}
