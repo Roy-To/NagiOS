@@ -552,6 +552,12 @@ fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m27-recovery", feature = "m27-ro-vfs-check")
+))]
+mod vfs_recovery;
+
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 
@@ -562,10 +568,19 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     #[cfg(feature = "m27-ro-vfs-check")]
     {
         let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-        let report = libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
-            &mut device,
-        )
-        .ok()?;
+        let report = match vfs_recovery::inspect(&mut device) {
+            Ok(vfs_recovery::Inspection::Clean(report)) => report,
+            Ok(vfs_recovery::Inspection::RecoveryRequired) => {
+                libnagi::console_write(
+                    b"Nagi M27 read-only VFS recovery REQUIRED; use Recovery recover (not formatted)\r\n",
+                );
+                return None;
+            }
+            Err(_) => {
+                libnagi::console_write(b"Nagi M27 read-only VFS check FAIL (not formatted)\r\n");
+                return None;
+            }
+        };
         if report.regular_files == 0
             || report.directories == 0
             || report.allocated_data_blocks == 0

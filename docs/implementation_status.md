@@ -51,6 +51,13 @@ or formatting by the recovered VFS; clean new mutations remained readable by
 the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
 before init. Normal guest UI/Search operations and Browser History acceptance
 remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
+**Recovery caller follow-up:** read-only inspection diagnoses pending supported
+VFS undo; an explicit Recovery-console `recover` operation performs no-format
+writable recovery and checks full integrity before exposing a mount. Six fresh
+synthetic caller tests pass, including unchanged diagnosis bytes/counters,
+create/rename restoration, rejected input, retry and unrelated corruption after
+journal repair. This is host evidence; normal guest Recovery acceptance remains
+unproven and no Recovery milestone is marked complete.
 **M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
 the shared User Data VFS snapshot adapter and starts a bounded SearchService
 when the owner signs in. It enumerates only regular files directly under

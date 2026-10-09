@@ -8,8 +8,10 @@ Publication branch: `codex/0.1-files-recovered`.
 Owned changes: `desktop.rs`, `m19_runtime.rs`, new Files/panel/test leaves,
 Files-only entries in the shared en-US/ja-JP guest catalogs, dedicated
 `tests/files-search`, ADR 0072 and M19 status/handoff/own state. The 0.2 Search State,
-Writer/Sheets, model and voice fixtures are untouched. No changes to main.rs,
-any shared Cargo/lock file, CLI, CI, acceptance Registry or image generation.
+Writer/Sheets, model and voice fixtures are untouched. The scoped main.rs
+follow-up only diagnoses pending VFS recovery before the existing M27 read-only
+diagnostic can reach mount-or-format. No shared Cargo/lock, CLI, CI, acceptance
+Registry or image-generation changes are made.
 
 ## Implemented seam
 
@@ -98,3 +100,10 @@ compatibility is claimed only for clean completed state.
 
 Native target compilation and normal guest UI/Search/restart acceptance remain
 blocked or unverified. Existing imported target/VM logs are historical evidence.
+
+Recovery startup and `check` report pending supported VFS undo without repairing
+it. The explicit console `recover` command uses the existing no-format writable
+mount and validates full integrity afterward. It does not format User Data or
+repair arbitrary corrupt metadata. Six synthetic caller tests cover read-only
+diagnosis, supported create/rename repair, rejected input, retry and failed
+post-recovery integrity; guest Recovery acceptance remains unproven.

@@ -2,7 +2,9 @@
 
 Status: recovered implementation with fresh host tests and compatibility checks passing; guest production remains PARTIAL.
 Scope: `user/libnagi/src/storage.rs` and its in-file tests, plus the Files leaves.
-No main/Cargo/CLI/CI/Registry/kernel/Browser/provider source changes.
+The caller follow-up additionally changes Recovery and the optional main.rs
+read-only diagnostic. No shared Cargo/CLI/CI/Registry/kernel/Browser/provider
+source changes are made.
 
 ## Original defects and correction
 
@@ -62,9 +64,10 @@ header before publishing geometry. Existing geometry and reserved allocations
 are validated before journal recovery.
 
 `check_existing` remains read-only. A valid pending journal returns the new
-`StorageError::RecoveryRequired`; it never repairs or flushes. Shared owner
-should account for this diagnostic in the optional `m27-ro-vfs-check` caller
-that currently checks before writable mount. This branch does not edit main.rs.
+`StorageError::RecoveryRequired`; it never repairs or flushes. Recovery and the
+optional `m27-ro-vfs-check` caller explicitly diagnose this state without repair.
+The physical-console `recover` operation performs the existing no-format
+writable recovery, then requires a full integrity check before exposing a mount.
 Recovery is limited to regular-file create and directory rename. Mkdir, remove,
 replace, and file resizing retain their prior durability limits. The protocol
 assumes atomic 512-byte sector writes and honored flush barriers; malformed

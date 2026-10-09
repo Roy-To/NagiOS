@@ -92,8 +92,17 @@ name = "nagi-files-search-tests"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-history",
  "nagi-model",
  "nagi-search",
+]
+
+[[package]]
+name = "nagi-history"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "sha2",
 ]
 
 [[package]]

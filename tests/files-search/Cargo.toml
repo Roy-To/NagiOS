@@ -10,11 +10,15 @@ publish = false
 m19-search = []
 desktop-login-acceptance = []
 m19-files-search-production = []
+m27-recovery = []
+m27-recovery-undo-acceptance = ["m27-recovery"]
 
 [dependencies]
 libnagi = { path = "../../user/libnagi" }
 nagi-model = { path = "../../crates/nagi-model" }
 nagi-search = { path = "../../user/nagi-search" }
+nagi-history = { path = "../../user/nagi-history" }
 
 [lints.rust]
 dead_code = "allow"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
