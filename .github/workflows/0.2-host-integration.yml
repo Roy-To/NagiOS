@@ -93,7 +93,7 @@ jobs:
               source_registry = dict(registry)
               source_registry['workstreams'] = [w for w in registry['workstreams']
                                                if w['id'] != row['id']]
-              if source_registry != prior_registry:
+              if source_registry != prior_registry and registry != prior_registry:
                   raise SystemExit('Sheets registration must preserve all existing registry rows')
           invalid = [p for p in changed if p not in registration_paths
                      if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])
