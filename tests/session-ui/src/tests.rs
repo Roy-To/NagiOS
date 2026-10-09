@@ -23,6 +23,7 @@ struct FakeServices {
     acknowledgements: VecDeque<Result<(), SubmitError>>,
     replies: VecDeque<Result<Reply, SubmitError>>,
     bindings: VecDeque<Result<(), SubmitError>>,
+    cancellations: VecDeque<Result<(), SubmitError>>,
 }
 
 impl Services for FakeServices {
@@ -43,7 +44,7 @@ impl Services for FakeServices {
 
     fn cancel_request(&mut self, session: &Session, id: u64) -> Result<(), SubmitError> {
         self.events.push(Event::Cancel(*session, id));
-        Ok(())
+        self.cancellations.pop_front().unwrap_or(Ok(()))
     }
 
     fn on_lock_or_signout(&mut self, session: &Session) {
@@ -723,4 +724,72 @@ fn worker_license_gate_requires_explicit_reacceptance_without_automatic_retry() 
     let count = fake.events.len();
     ui.tick(Some(&session), &mut fake);
     assert_eq!(fake.events.len(), count);
+}
+
+#[test]
+fn failed_cancel_still_hides_late_text_and_preserves_the_occupied_slot() {
+    for error in [SubmitError::Denied, SubmitError::WorkerUnavailable] {
+        let (session, _) = sessions();
+        let mut fake = FakeServices::default();
+        fake.cancellations.push_back(Err(error));
+        let mut ui = started(&session, &mut fake);
+        ui.cancel(&mut fake);
+        fake.replies.push_back(Ok(Reply::Pending));
+        ui.tick(Some(&session), &mut fake);
+        assert!(ui.is_busy());
+        assert!(!ui.request_submit());
+        assert_eq!(ui.output(), "");
+        fake.replies
+            .push_back(response(1, "late despite failed cancellation"));
+        ui.tick(Some(&session), &mut fake);
+        assert_eq!(ui.status(), Status::Cancelled);
+        assert_eq!(ui.output(), "");
+        assert!(!ui.is_busy());
+        assert!(ui.request_submit());
+        assert_eq!(ui.request_id(), Some(2));
+    }
+}
+
+#[test]
+fn new_login_token_for_same_account_clears_completed_text_and_accepted_terms() {
+    let mut accounts = AccountStore::new();
+    accounts
+        .add_account(b"owner", Role::Owner, b"password")
+        .unwrap();
+    let first = accounts.authenticate(b"owner", b"password").unwrap();
+    let second = accounts.authenticate(b"owner", b"password").unwrap();
+    assert_ne!(first.token(), second.token());
+    assert_eq!(first.role(), second.role());
+    let mut fake = FakeServices::default();
+    let mut ui = Controller::new();
+    ui.sign_in(&first, &mut fake);
+    ui.offer_terms("Model", "pinned-first-session");
+    ui.accept_request();
+    ui.tick(Some(&first), &mut fake);
+    ui.set_input("private first login input");
+    ui.request_submit();
+    ui.tick(Some(&first), &mut fake);
+    fake.replies
+        .push_back(response(1, "private first login reply"));
+    ui.tick(Some(&first), &mut fake);
+    assert_eq!(ui.output(), "private first login reply");
+    assert!(ui.terms().unwrap().acknowledged());
+    let before = fake.events.len();
+    ui.tick(Some(&second), &mut fake);
+    assert_eq!(
+        &fake.events[before..],
+        &[Event::Invalidated(first), Event::SignedIn(second)]
+    );
+    assert_eq!(ui.input(), "");
+    assert_eq!(ui.output(), "");
+    assert!(ui.terms().is_none());
+    assert!(!ui.is_busy());
+    ui.offer_terms("Model", "pinned-second-session");
+    ui.set_input("new login input");
+    assert!(!ui.request_submit());
+    assert_eq!(ui.status(), Status::TermsRequired);
+    ui.accept_request();
+    ui.tick(Some(&second), &mut fake);
+    assert!(ui.request_submit());
+    assert_eq!(ui.request_id(), Some(2));
 }

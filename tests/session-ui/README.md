@@ -19,6 +19,11 @@ The regressions exercise existing-account sign-in, F4 lock, identical initial
 unlock frames and relogin in both locales, failed readiness, and the retained
 legacy frame/login acceptance. These are host orchestration/render regressions,
 not guest or native-worker acceptance.
+Populated-state cases seed the controller through a test-only scripted transport
+and then use actual F4/Lock handlers and the real adapter to clear queued,
+in-flight and displayed Bar state. They compare the complete lock frame and
+reopen the Bar after relogin. Controller regressions also cover failed cancel
+calls and fresh tokens for the same account. The complete `run` loop is NOT_RUN.
 The legacy login unit configuration omits Files runtime because its inherited
 host tests do not initialize their acceptance-only fields. This does not alter
 any production feature dependency or Files source; full Files/guest acceptance

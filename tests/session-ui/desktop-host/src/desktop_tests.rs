@@ -126,3 +126,141 @@ fn login_acceptance_still_completes_after_successful_signin() {
         initial
     ));
 }
+
+// HOST orchestration only: seed the actual controller with display/pending
+// state. Desktop locking below uses its real Adapter, event handler and renderer.
+// This transport supplies no inference and never replaces production services.
+#[cfg(feature = "m20-model-service")]
+struct PresentationTransport {
+    reply: Option<nagi_model_manager::ModelResponse>,
+}
+#[cfg(feature = "m20-model-service")]
+impl session_ui::Services for PresentationTransport {
+    fn on_signed_in(
+        &mut self,
+        _: &libnagi::security::Session,
+    ) -> Result<(), session_ui::SubmitError> {
+        Ok(())
+    }
+    fn submit_text(
+        &mut self,
+        _: &libnagi::security::Session,
+        _: u64,
+        _: &str,
+    ) -> Result<(), session_ui::SubmitError> {
+        Ok(())
+    }
+    fn poll_reply(
+        &mut self,
+        _: &libnagi::security::Session,
+        _: u64,
+    ) -> Result<session_ui::Reply, session_ui::SubmitError> {
+        Ok(self
+            .reply
+            .take()
+            .map_or(session_ui::Reply::Pending, session_ui::Reply::Ready))
+    }
+    fn cancel_request(
+        &mut self,
+        _: &libnagi::security::Session,
+        _: u64,
+    ) -> Result<(), session_ui::SubmitError> {
+        Ok(())
+    }
+    fn on_lock_or_signout(&mut self, _: &libnagi::security::Session) {}
+    fn acknowledge_model_terms(
+        &mut self,
+        _: &libnagi::security::Session,
+        _: &str,
+    ) -> Result<(), session_ui::SubmitError> {
+        Ok(())
+    }
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn actual_lock_handlers_erase_populated_bar_state_before_lock_and_relogin_render() {
+    use nagi_model_manager::{BackendId, ModelId, ModelResponse, ProviderId, TokenUsage};
+    for locale in [Locale::EnUs, Locale::JaJp] {
+        for stage in 0..3 {
+            // queued submit, in-flight submit, displayed completion
+            libnagi::set_readiness(true);
+            let (mut desktop, mut volume, mut surface, initial) = existing_account(locale);
+            unlock(&mut desktop, &mut volume);
+            let session = desktop.session.unwrap();
+            desktop.model_services = Some(bar_adapter::Adapter::new(42));
+            let mut transport = PresentationTransport {
+                reply: Some(ModelResponse {
+                    request_id: 1,
+                    model_id: ModelId::new("host-ui-model").unwrap(),
+                    provider_id: ProviderId::new("host-ui-provider").unwrap(),
+                    backend_id: BackendId::new("host-ui-backend").unwrap(),
+                    text: "HOST ONLY private presentation".into(),
+                    usage: TokenUsage {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                    },
+                }),
+            };
+            let ui = &mut desktop.bar.controller;
+            ui.sign_in(&session, &mut transport);
+            ui.offer_terms("Host UI", "host-ui-test-terms");
+            assert!(ui.accept_request());
+            ui.tick(Some(&session), &mut transport);
+            assert!(ui.terms().unwrap().acknowledged());
+            assert!(ui.set_input("HOST ONLY private input"));
+            assert!(ui.request_submit());
+            if stage >= 1 {
+                ui.tick(Some(&session), &mut transport);
+            }
+            if stage == 2 {
+                ui.tick(Some(&session), &mut transport);
+                assert_eq!(ui.output(), "HOST ONLY private presentation");
+            } else {
+                assert!(ui.is_busy());
+            }
+            assert!(desktop.handle_event(key(61), &mut volume)); // Actual F3.
+            desktop.bar.cancel_requested = true;
+            desktop.render(&mut surface);
+            assert_ne!(frame_hash(&surface), initial);
+            if stage == 2 {
+                desktop.pointer_x = bar_panel::LOCK_BUTTON.x + 2;
+                desktop.pointer_y = bar_panel::LOCK_BUTTON.y + 2;
+                assert!(desktop.handle_event(key(libnagi::INPUT_KEY_LEFT), &mut volume));
+            } else {
+                assert!(desktop.handle_event(key(62), &mut volume));
+            }
+            assert!(desktop.lock_requested);
+            assert!(desktop.session.is_none());
+            assert!(!desktop.model_services_ready);
+            assert!(!desktop.bar.open);
+            assert!(!desktop.bar.cancel_requested);
+            let ui = &desktop.bar.controller;
+            assert_eq!(ui.session(), None);
+            assert_eq!(ui.status(), session_ui::Status::SignedOut);
+            assert_eq!(ui.input(), "");
+            assert_eq!(ui.output(), "");
+            assert!(ui.terms().is_none());
+            assert!(!ui.is_busy());
+            desktop.render(&mut surface);
+            assert_eq!(
+                frame_hash(&surface),
+                initial,
+                "full unlock frame contains no stale pixels"
+            );
+            unlock(&mut desktop, &mut volume);
+            assert!(desktop.handle_event(key(61), &mut volume));
+            assert_eq!(desktop.bar.controller.input(), "");
+            assert_eq!(desktop.bar.controller.output(), "");
+            assert!(desktop.bar.controller.terms().is_none());
+            desktop.render(&mut surface);
+            assert_ne!(frame_hash(&surface), initial);
+            // Even the bootstrap login's reused token cannot reuse request IDs.
+            let new_session = desktop.session.unwrap();
+            desktop.bar.controller.sign_in(&new_session, &mut transport);
+            assert!(desktop.bar.controller.set_input("fresh input"));
+            assert!(desktop.bar.controller.request_submit());
+            assert_eq!(desktop.bar.controller.request_id(), Some(2));
+        }
+    }
+}

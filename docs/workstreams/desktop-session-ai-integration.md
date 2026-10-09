@@ -90,9 +90,9 @@ PASS, release, security setting or license-gate relaxation is claimed.
 
 ## Validation (cloud Linux x86_64, pinned nightly-2025-08-01)
 
-- `tests/session-ui/check.sh`: PASS. 36 host orchestration tests (25 UI/adapter
+- `tests/session-ui/check.sh`: PASS. 38 host orchestration tests (27 UI/adapter
   and 11 inherited bridge tests), host warnings-denied Clippy and formatting.
-- Real Desktop regressions: PASS, three production and two legacy acceptance
+- Real Desktop regressions: PASS, four production and two legacy acceptance
   host tests. The pre-fix production run failed all three checks, including an
   exact initial/locked frame collision in the real renderer. The fixed run
   covers both locales, lock/relogin, failed readiness and preserved login
@@ -104,6 +104,14 @@ PASS, release, security setting or license-gate relaxation is claimed.
   feature dependency or Files source is altered to accommodate this harness.
   A separate host compile-only check of the full legacy login/Files acceptance
   source also passes; it does not execute the inherited acceptance fixtures.
+- Additional privacy regressions: PASS. Failed cancellation keeps the occupied
+  slot and hides late text. A fresh login token for the same account clears
+  completed output and requires explicit terms acceptance again. Actual F4 and
+  Lock-button handlers clear queued, in-flight and completed Bar state in both
+  locales before rendering the initial unlock frame and reopening after relogin.
+  The Desktop presentation states are seeded through a test-only scripted
+  controller transport; locking uses the real adapter/handler/renderer. This
+  does not exercise a native model worker or the complete `run` loop.
 - Actual Nagi service/worker/controller/adapter leaves: warnings-denied Clippy
   PASS for `targets/x86_64-unknown-nagi-user.json`, using build-std core/alloc.
 - Actual Desktop/login/Files source check with `desktop-check`: compile-only
