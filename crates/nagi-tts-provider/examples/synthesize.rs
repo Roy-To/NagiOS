@@ -8,9 +8,14 @@
 //! Prints load time, synthesis wall time, audio duration, and real-time
 //! factor. Run under `/usr/bin/time -v` for peak RSS and CPU time. This is
 //! host evidence only; it does not run on Nagi.
+//!
+//! Exit status: 0 every utterance synthesized and the WAV written; 3 an
+//! utterance was rejected or failed (bounded provider error, reported as
+//! `result=error`); no WAV is written in that case. 1 usage/load error.
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Instant;
 
 use nagi_audio::speech::{
@@ -20,7 +25,7 @@ use nagi_audio::speech::{
 use nagi_audio::PcmFormat;
 use nagi_tts_provider::jbonsai_backend::load_provider;
 
-fn main() {
+fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let usage = "usage: synthesize VOICE DICT OUT.wav [stereo48k|mono16k] TEXT...";
     let voice = PathBuf::from(args.next().expect(usage));
@@ -49,7 +54,13 @@ fn main() {
     let mut chunk = vec![0u8; MAX_SPEECH_PCM_CHUNK_BYTES];
     for (index, text) in texts.iter().enumerate() {
         let start = Instant::now();
-        provider.begin(text, options).expect("begin");
+        if let Err(error) = provider.begin(text, options) {
+            println!(
+                "utterance={index} text_bytes={} result=error stage=begin error={error:?}",
+                text.len()
+            );
+            return ExitCode::from(3);
+        }
         let mut first_chunk_seconds = None;
         let mut pcm = Vec::new();
         loop {
@@ -59,13 +70,20 @@ fn main() {
                     pcm.extend_from_slice(&chunk[..n]);
                 }
                 Ok(SynthesisPcmChunk::End) => break,
-                Err(error) => panic!("utterance {index} failed: {error:?}"),
+                Err(error) => {
+                    println!(
+                        "utterance={index} text_bytes={} result=error stage=stream error={error:?} pcm_bytes={}",
+                        text.len(),
+                        pcm.len()
+                    );
+                    return ExitCode::from(3);
+                }
             }
         }
         let wall = start.elapsed().as_secs_f64();
         let audio = pcm.len() as f64 / bytes_per_second;
         println!(
-            "utterance={index} text_bytes={} pcm_bytes={} audio_seconds={audio:.3} \
+            "utterance={index} text_bytes={} result=ok pcm_bytes={} audio_seconds={audio:.3} \
              first_chunk_seconds={:.4} synth_seconds={wall:.4} rtf={:.4}",
             text.len(),
             pcm.len(),
@@ -76,6 +94,7 @@ fn main() {
     }
     write_wav(&out, format, &all_pcm);
     println!("wav={} format={format_name}", out.display());
+    ExitCode::SUCCESS
 }
 
 fn write_wav(path: &PathBuf, format: PcmFormat, pcm: &[u8]) {

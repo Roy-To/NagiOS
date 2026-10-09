@@ -16,10 +16,59 @@ use lindera_dictionary::dictionary::prefix_dictionary::PrefixDictionary;
 use lindera_dictionary::dictionary::unknown_dictionary::UnknownDictionary;
 use nagi_audio::speech::SpeechSynthesisLanguage;
 
+use jbonsai::duration::DurationEstimator;
+use jbonsai::label::ToLabels;
+use jbonsai::model::Models;
+
 use crate::{
-    BackendError, FrameSource, LocalTtsProvider, SilenceTrim, SilenceTrimmer, SynthesisBackend,
-    ENGINE_SAMPLE_RATE, MAX_ENGINE_FRAME_SAMPLES,
+    BackendError, FrameSource, LocalTtsProvider, SynthesisBackend, ENGINE_SAMPLE_RATE,
+    MAX_ENGINE_FRAME_SAMPLES,
 };
+
+/// Edge-silence trimming, in engine frames. Frames belonging to the leading
+/// and trailing silence labels (`sil`/`pau`) are vocoded (the vocoder filter
+/// state must advance) but not emitted, except `pad_frames` next to speech.
+/// Internal pauses are kept. Because trimming is decided from the predicted
+/// per-label durations, the emitted length is known before synthesis.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SilenceTrim {
+    pub enabled: bool,
+    pub pad_frames: usize,
+}
+
+impl SilenceTrim {
+    /// 50 ms of padding at 5 ms HTS frames.
+    pub const HTS_48K: Self = Self {
+        enabled: true,
+        pad_frames: 10,
+    };
+    /// Emit every frame.
+    pub const DISABLED: Self = Self {
+        enabled: false,
+        pad_frames: 0,
+    };
+}
+
+/// Length prediction made by [`JbonsaiBackend::plan`] from the label
+/// durations, before any acoustic parameters are generated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UtterancePlan {
+    /// Number of full-context labels from the text front end.
+    pub labels: usize,
+    /// Frames the engine will vocode.
+    pub total_frames: usize,
+    /// First emitted frame index.
+    pub first_frame: usize,
+    /// One past the last emitted frame index.
+    pub end_frame: usize,
+}
+
+impl UtterancePlan {
+    /// Frames the provider will emit.
+    pub fn emitted_frames(&self) -> usize {
+        self.end_frame - self.first_frame
+    }
+}
 
 /// Reasons a voice or dictionary could not be loaded.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -167,17 +216,44 @@ struct Loaded {
     frontend: JPreprocess<DefaultTokenizer>,
 }
 
-/// One utterance being vocoded frame by frame.
+/// One utterance being vocoded frame by frame. Only frames in
+/// `[first_frame, end_frame)` are emitted.
 pub struct JbonsaiSource {
     generator: SpeechGenerator,
+    next: usize,
+    first_frame: usize,
+    end_frame: usize,
+    total_frames: usize,
 }
 
 impl FrameSource for JbonsaiSource {
     fn next_frame(&mut self, out: &mut [f64]) -> Result<usize, BackendError> {
-        if out.len() < self.generator.fperiod() {
+        let frame = self.generator.fperiod();
+        if out.len() < frame {
             return Err(BackendError::Failed);
         }
-        Ok(self.generator.generate_step(out))
+        while self.next < self.end_frame {
+            let produced = self.generator.generate_step(&mut out[..frame]);
+            if produced == 0 {
+                // The generator disagrees with the duration plan.
+                return Err(BackendError::Failed);
+            }
+            let index = self.next;
+            self.next += 1;
+            if index >= self.first_frame {
+                return Ok(produced);
+            }
+        }
+        // Remaining trailing-silence frames are not emitted. The generator
+        // must not hold more frames than planned.
+        if self.next == self.end_frame && self.end_frame == self.total_frames {
+            let mut scratch = [0.0f64; MAX_ENGINE_FRAME_SAMPLES];
+            if self.generator.generate_step(&mut scratch[..frame]) != 0 {
+                return Err(BackendError::Failed);
+            }
+        }
+        out[..frame].fill(0.0);
+        Ok(0)
     }
 }
 
@@ -215,6 +291,72 @@ impl JbonsaiBackend {
             frame_len,
             trim: SilenceTrim::HTS_48K,
         })
+    }
+
+    /// Runs the text front end and the duration model only, and predicts the
+    /// emitted length. `Ok(None)` means nothing speakable.
+    pub fn plan(
+        &self,
+        text: &str,
+    ) -> Result<Option<(UtterancePlan, Vec<jlabel::Label>)>, BackendError> {
+        let loaded = self.loaded.as_ref().ok_or(BackendError::Unavailable)?;
+        let labels = loaded
+            .frontend
+            .extract_fullcontext(text)
+            .map_err(|_| BackendError::Failed)?;
+        if labels.iter().all(is_silence) {
+            return Ok(None);
+        }
+        let condition = &loaded.engine.condition;
+        if condition.get_phoneme_alignment_flag() {
+            // Alignment comes from label times, which text labels do not carry.
+            return Err(BackendError::Failed);
+        }
+        let parsed = labels
+            .clone()
+            .to_labels(condition)
+            .map_err(|_| BackendError::Failed)?;
+        let models = Models::new(
+            parsed.labels(),
+            &loaded.engine.voices,
+            condition.get_interporation_weight(),
+        );
+        let nstate = models.nstate();
+        let durations =
+            DurationEstimator::new(models.duration(), nstate).create(condition.get_speed());
+        if nstate == 0 || durations.len() != labels.len() * nstate {
+            return Err(BackendError::Failed);
+        }
+        let per_label: Vec<usize> = durations.chunks(nstate).map(|d| d.iter().sum()).collect();
+        let total_frames: usize = per_label.iter().sum();
+        let (mut first_frame, mut end_frame) = (0, total_frames);
+        if self.trim.enabled {
+            let leading: usize = labels
+                .iter()
+                .zip(&per_label)
+                .take_while(|(label, _)| is_silence(label))
+                .map(|(_, frames)| frames)
+                .sum();
+            let trailing: usize = labels
+                .iter()
+                .zip(&per_label)
+                .rev()
+                .take_while(|(label, _)| is_silence(label))
+                .map(|(_, frames)| frames)
+                .sum();
+            first_frame = leading.saturating_sub(self.trim.pad_frames);
+            end_frame = (total_frames - trailing + self.trim.pad_frames).min(total_frames);
+        }
+        if first_frame >= end_frame {
+            return Ok(None);
+        }
+        let plan = UtterancePlan {
+            labels: labels.len(),
+            total_frames,
+            first_frame,
+            end_frame,
+        };
+        Ok(Some((plan, labels)))
     }
 
     /// Sets edge-silence trimming. The default, [`SilenceTrim::HTS_48K`],
@@ -269,7 +411,7 @@ fn is_silence(label: &jlabel::Label) -> bool {
 }
 
 impl SynthesisBackend for JbonsaiBackend {
-    type Source = SilenceTrimmer<JbonsaiSource>;
+    type Source = JbonsaiSource;
 
     fn sample_rate(&self) -> u32 {
         ENGINE_SAMPLE_RATE
@@ -287,6 +429,7 @@ impl SynthesisBackend for JbonsaiBackend {
         &mut self,
         text: &str,
         language: SpeechSynthesisLanguage,
+        max_frames: usize,
     ) -> Result<Option<Self::Source>, BackendError> {
         match language {
             SpeechSynthesisLanguage::Japanese | SpeechSynthesisLanguage::Auto => {}
@@ -294,14 +437,15 @@ impl SynthesisBackend for JbonsaiBackend {
             // English with it.
             SpeechSynthesisLanguage::English => return Err(BackendError::UnsupportedLanguage),
         }
-        let loaded = self.loaded.as_ref().ok_or(BackendError::Unavailable)?;
-        let labels = loaded
-            .frontend
-            .extract_fullcontext(text)
-            .map_err(|_| BackendError::Failed)?;
-        if labels.iter().all(is_silence) {
+        let Some((plan, labels)) = self.plan(text)? else {
             return Ok(None);
+        };
+        if plan.emitted_frames() > max_frames {
+            // Rejected before parameter generation: no audio is produced and
+            // no per-frame acoustic parameters are allocated.
+            return Err(BackendError::TooLong);
         }
+        let loaded = self.loaded.as_ref().ok_or(BackendError::Unavailable)?;
         let generator = loaded
             .engine
             .generator(labels)
@@ -309,11 +453,13 @@ impl SynthesisBackend for JbonsaiBackend {
         if generator.fperiod() != self.frame_len {
             return Err(BackendError::Failed);
         }
-        Ok(Some(SilenceTrimmer::new(
-            JbonsaiSource { generator },
-            self.frame_len,
-            self.trim,
-        )))
+        Ok(Some(JbonsaiSource {
+            generator,
+            next: 0,
+            first_frame: plan.first_frame,
+            end_frame: plan.end_frame,
+            total_frames: plan.total_frames,
+        }))
     }
 }
 

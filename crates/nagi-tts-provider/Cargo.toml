@@ -24,8 +24,17 @@ lindera-dictionary = { version = "=3.0.7", optional = true, default-features = f
 name = "synthesize"
 required-features = ["engine-jbonsai"]
 
+[[example]]
+name = "worst_case"
+required-features = ["engine-jbonsai"]
+
 [profile.release]
 codegen-units = 1
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
+
+# The Nagi target needs the Nagi-aware libc (target_os = "nagi"); memmap2 is
+# the only libc user in this graph. Same source the Nagi std patch uses.
+[patch.crates-io]
+libc = { path = "../../third_party/libc" }
