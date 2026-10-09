@@ -154,14 +154,49 @@ jobs:
             --input "$NAGI_EMBEDDING_CACHE/$M24_REVISION" \
             --models-lock-proposal .dev/workstreams/hark-m24-embedding/integration-proposal.md \
             2>&1 | tee "$NAGI_M24_EVIDENCE_DIR/verify-pins.log"
-      - name: Python reference deps (--require-hashes --only-binary :all:) and reference regeneration (byte-identical)
+      - name: Python reference deps (--require-hashes --only-binary :all:) and reference regeneration (tokens byte-identical, vectors within tolerance)
         run: |
           "$PYTHON" --version
           if ! "$PYTHON" -c 'import ensurepip, venv' 2>/dev/null; then
             sudo apt-get update
             sudo apt-get install --no-install-recommends -y python3.12-venv
           fi
-          tools/embedding/regenerate_reference.sh
+          # The committed reference was generated on aarch64. onnxruntime float
+          # kernels differ per architecture, so on x86_64 the vector file is not
+          # expected to be byte-identical; it is compared numerically below.
+          # Installation or generation failures leave no regenerated files and FAIL.
+          rc=0
+          tools/embedding/regenerate_reference.sh || rc=$?
+          echo "regenerate_reference.sh exit status: $rc"
+          python3 - "$NAGI_M24_REGEN_DIR" tests/m24-embedding <<'PY'
+          import hashlib, json, math, os, sys
+          new_dir, old_dir = sys.argv[1], sys.argv[2]
+          def sha(p):
+              return hashlib.sha256(open(p, "rb").read()).hexdigest()
+          for name in ("tokenizer_parity.json", "parity_reference.json"):
+              if not os.path.isfile(os.path.join(new_dir, name)):
+                  sys.exit(f"m24 reference: regenerated {name} missing (install or generation failed)")
+          if sha(os.path.join(new_dir, "tokenizer_parity.json")) != sha(os.path.join(old_dir, "tokenizer_parity.json")):
+              sys.exit("m24 reference: tokenizer_parity.json is not byte-identical")
+          print("m24 reference: tokenizer_parity.json byte-identical")
+          new = json.load(open(os.path.join(new_dir, "parity_reference.json")))
+          old = json.load(open(os.path.join(old_dir, "parity_reference.json")))
+          assert new["reference"] == old["reference"] and new["revision"] == old["revision"], "reference/revision differ"
+          assert len(new["items"]) == len(old["items"]) == 22, "item count differs"
+          worst_cos, worst_abs = 1.0, 0.0
+          for a, b in zip(new["items"], old["items"]):
+              assert a["text"] == b["text"] and a["ids"] == b["ids"], f"text/ids differ for {b['text']!r}"
+              x, y = a["embedding"], b["embedding"]
+              assert len(x) == len(y) == 384
+              cos = sum(p * q for p, q in zip(x, y)) / math.sqrt(sum(p * p for p in x) * sum(q * q for q in y))
+              worst_cos = min(worst_cos, cos)
+              worst_abs = max(worst_abs, max(abs(p - q) for p, q in zip(x, y)))
+          print(f"m24 reference: parity_reference.json 22 items, texts and token ids identical; "
+                f"vectors vs committed aarch64 copy: worst cosine {worst_cos:.9f}, worst max |diff| {worst_abs:.2e}")
+          if worst_cos < 0.999999 or worst_abs > 1e-5:
+              sys.exit("m24 reference: vectors outside tolerance (cosine >= 0.999999, max |diff| <= 1e-5)")
+          print("m24 reference: PASS (tokens byte-identical; vectors within tolerance, not byte-identical across architectures)")
+          PY
       - name: run.sh (fetch/verify again, fmt, clippy, model-free tests, real inference 8/8, Nagi target build)
         run: |
           set -o pipefail
