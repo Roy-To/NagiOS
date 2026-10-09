@@ -57,5 +57,45 @@
     "cargo fmt with --all on this manifest also rewrites third_party/relibc/src/nagi_locale.rs; the CI form without --all is used and that file is untouched.",
     "Nagi CI (ci.yml) does not run the nagi-sheets-core suite; the 0.2-host-integration.yml job is gated to listed owner branches and is skipped for this branch. CI therefore proves no regression elsewhere, not the Sheets tests."
   ],
-  "ci": "pending"
+  "ci": {
+    "verified_head": "12f7b1b25a69e89e1b76fe7a6baa978451a12580",
+    "runs": [
+      {
+        "workflow": "Nagi CI (ci.yml)",
+        "event": "push",
+        "run_id": 37904625970,
+        "conclusion": "success",
+        "jobs": {
+          "target_classification": "success",
+          "ubuntu-host": "success",
+          "windows-launcher": "success",
+          "nagi-target": "skipped",
+          "nagi-m20-inference": "skipped"
+        }
+      },
+      {
+        "workflow": "Nagi CI (ci.yml)",
+        "event": "pull_request",
+        "run_id": 37904683644,
+        "conclusion": "success",
+        "jobs": {
+          "target_classification": "success",
+          "ubuntu-host": "success",
+          "windows-launcher": "success",
+          "nagi-target": "skipped",
+          "nagi-m20-inference": "skipped"
+        }
+      },
+      {
+        "workflow": "Nagi 0.2 host foundations (0.2-host-integration.yml)",
+        "event": "pull_request",
+        "run_id": 37904683607,
+        "conclusion": "skipped",
+        "note": "job gated to listed owner branches"
+      }
+    ],
+    "note": "nagi-target / nagi-m20-inference skipped by target classification; no target or guest PASS is claimed. This metadata-only commit follows the verified head."
+  },
+  "evidence_commit": "12f7b1b25a69e89e1b76fe7a6baa978451a12580",
+  "pull_request": 46
 }
