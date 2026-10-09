@@ -95,6 +95,15 @@ fn run_clip(session: &mut Session, clip: &Clip) -> Result<Utterance, SpeechProvi
     })
 }
 
+/// Which `WhisperSession` value(s) a real-engine check exercised.
+fn session_scope(name: &str) -> &'static str {
+    if name.starts_with("unload_then_new_session") {
+        "unload on the first session; failed load and reload on a new session"
+    } else {
+        "same session (first session, one context)"
+    }
+}
+
 fn check(checks: &mut Vec<(String, bool, String)>, name: &str, pass: bool, detail: String) {
     eprintln!("[{}] {name}: {detail}", if pass { "PASS" } else { "FAIL" });
     checks.push((name.to_string(), pass, detail));
@@ -252,8 +261,10 @@ fn main() {
         format!("output_too_small={too_small}; context_kept={still_loaded}; {detail}"),
     );
 
-    // 5. Unload releases memory; a real model-read failure during reload is
-    // reported; the following reload succeeds and transcribes identically.
+    // 5. Unload releases memory. The reload half runs in a NEW
+    // `WhisperSession` (the loader is owned by the session, so the injected
+    // read failure needs a fresh loader); it is not a same-session reload.
+    // Same-session unload/reload is covered only by the scripted tests.
     let (rss_before_unload, _) = rss();
     session.unload();
     let (rss_after_unload, _) = rss();
@@ -279,7 +290,7 @@ fn main() {
     };
     check(
         &mut checks,
-        "unload_failed_load_reload",
+        "unload_then_new_session_failed_load_reload",
         unloaded && failed_load && reloaded && same,
         format!(
             "unloaded={unloaded}; rss_kib {rss_before_unload}->{rss_after_unload}; injected_read_failure_reported={failed_load}; rss_after_failed_load_kib={rss_after_failed_load}; reload_ok={reloaded} in {reload_seconds:.2}s; {detail}"
@@ -322,8 +333,9 @@ fn main() {
         let comma = if index + 1 == checks.len() { "" } else { "," };
         let _ = writeln!(
             report,
-            "    {{\"name\": {}, \"pass\": {pass}, \"detail\": {}}}{comma}",
+            "    {{\"name\": {}, \"engine\": \"real whisper.cpp (host)\", \"session_scope\": {}, \"pass\": {pass}, \"detail\": {}}}{comma}",
             json_string(name),
+            json_string(session_scope(name)),
             json_string(detail)
         );
     }

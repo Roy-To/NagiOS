@@ -10,6 +10,19 @@
 // The session keeps the existing single-threaded design: inference runs
 // synchronously inside `finish`, and the engine is used by one utterance at a
 // time.
+//
+// Cancellation limit: `cancel` only discards an utterance that is still being
+// captured (between `begin` and `finish`). `finish` runs whisper.cpp to
+// completion on the calling thread; there is no abort callback, so an
+// inference that has started cannot be cancelled and `cancel` called after it
+// returns has nothing to discard. Production cancellation of in-flight
+// inference is not implemented.
+//
+// PCM buffer memory: capacity grows geometrically but is capped at
+// `MAX_WHISPER_SAMPLES` f32 values (2 MiB). `cancel`, `finish`, a failed
+// utterance and `begin` zero and clear the buffer but keep its allocation for
+// the next utterance; `unload`, the automatic release after repeated engine
+// failures, and drop free it together with the engine context.
 
 use alloc::vec::Vec;
 
@@ -166,12 +179,10 @@ impl<L: WhisperEngineLoader> WhisperSession<L> {
         }
     }
 
-    /// Cancels any utterance in progress and releases the engine context.
+    /// Cancels any utterance in progress, releases the engine context, and
+    /// frees the PCM buffer allocation.
     pub fn unload(&mut self) {
-        self.discard_utterance();
-        if self.engine.take().is_some() {
-            self.stats.unloads = self.stats.unloads.saturating_add(1);
-        }
+        self.release_engine();
     }
 
     pub fn is_loaded(&self) -> bool {
@@ -195,7 +206,8 @@ impl<L: WhisperEngineLoader> WhisperSession<L> {
         self.samples.len()
     }
 
-    /// Capacity retained between utterances; bounded by `MAX_WHISPER_SAMPLES`.
+    /// PCM capacity in samples. Never exceeds `MAX_WHISPER_SAMPLES`; kept
+    /// (zeroed) between utterances while loaded, zero after `unload`.
     pub fn retained_sample_capacity(&self) -> usize {
         self.samples.capacity()
     }
@@ -208,6 +220,33 @@ impl<L: WhisperEngineLoader> WhisperSession<L> {
         self.samples.fill(0.0);
         self.samples.clear();
         self.capturing = false;
+    }
+
+    /// Drops the engine context and frees the PCM allocation.
+    fn release_engine(&mut self) {
+        self.discard_utterance();
+        self.samples = Vec::new();
+        if self.engine.take().is_some() {
+            self.stats.unloads = self.stats.unloads.saturating_add(1);
+        }
+    }
+
+    /// Ensures room for `next_len` samples without letting capacity exceed
+    /// `MAX_WHISPER_SAMPLES`: geometric growth for few reallocations, but
+    /// requested exactly and capped (plain `try_reserve` may round a request
+    /// near the limit up to twice the old capacity).
+    fn reserve_samples(&mut self, next_len: usize) -> Result<(), ()> {
+        let capacity = self.samples.capacity();
+        if next_len <= capacity {
+            return Ok(());
+        }
+        let target = capacity
+            .saturating_mul(2)
+            .max(next_len)
+            .min(MAX_WHISPER_SAMPLES);
+        self.samples
+            .try_reserve_exact(target - self.samples.len())
+            .map_err(|_| ())
     }
 
     fn fail_utterance(&mut self) {
@@ -225,9 +264,9 @@ impl<L: WhisperEngineLoader> WhisperSession<L> {
         self.stats.consecutive_engine_failures =
             self.stats.consecutive_engine_failures.saturating_add(1);
         if self.stats.consecutive_engine_failures >= MAX_CONSECUTIVE_ENGINE_FAILURES
-            && self.engine.take().is_some()
+            && self.engine.is_some()
         {
-            self.stats.unloads = self.stats.unloads.saturating_add(1);
+            self.release_engine();
         }
     }
 }
@@ -288,11 +327,7 @@ impl<L: WhisperEngineLoader> SpeechToTextProvider for WhisperSession<L> {
             self.fail_utterance();
             return Err(SpeechProviderError::Failed);
         };
-        if self
-            .samples
-            .try_reserve(next_len - self.samples.len())
-            .is_err()
-        {
+        if self.reserve_samples(next_len).is_err() {
             self.fail_utterance();
             return Err(SpeechProviderError::Unavailable);
         }
@@ -350,6 +385,8 @@ impl<L: WhisperEngineLoader> SpeechToTextProvider for WhisperSession<L> {
         Ok(trimmed)
     }
 
+    /// Discards an utterance still being captured. Does not abort inference:
+    /// `finish` is synchronous and runs to completion (see module notes).
     fn cancel(&mut self) {
         if self.capturing {
             self.stats.utterances_cancelled = self.stats.utterances_cancelled.saturating_add(1);
@@ -361,6 +398,7 @@ impl<L: WhisperEngineLoader> SpeechToTextProvider for WhisperSession<L> {
 impl<L: WhisperEngineLoader> Drop for WhisperSession<L> {
     fn drop(&mut self) {
         self.discard_utterance();
+        self.samples = Vec::new();
         self.engine = None;
     }
 }

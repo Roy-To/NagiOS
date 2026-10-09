@@ -1,6 +1,15 @@
 //! Orchestration-only tests of the shared provider lifecycle. The engine here
 //! is a scripted test double: these tests verify buffering, cancel, unload,
 //! and failure recovery, not speech recognition.
+//!
+//! Scope label: SCRIPTED ENGINE, SAME SESSION. Every unload/reload here
+//! reloads the same `WhisperSession` value. The real-engine evaluation binary
+//! (`src/bin/m25-whisper-eval.rs`) instead reloads in a NEW session after an
+//! injected model-read failure; the two are not interchangeable evidence.
+//!
+//! Cancellation scope: `cancel` discards capture only. `finish` is
+//! synchronous with no inference abort, so these tests do not (and cannot)
+//! show cancellation of in-flight inference.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -169,7 +178,7 @@ fn cancel_discards_pcm_and_next_utterance_is_independent() {
 }
 
 #[test]
-fn unload_releases_context_and_reload_resumes() {
+fn scripted_same_session_unload_releases_context_and_reload_resumes() {
     let (mut session, script) = session(&[Ok(b"a"), Ok(b"b")], 0);
     session.load().unwrap();
     let mut out = [0_u8; 16];
@@ -260,7 +269,7 @@ fn output_too_small_keeps_context_and_next_utterance_succeeds() {
 }
 
 #[test]
-fn repeated_engine_failures_release_context_until_reload() {
+fn scripted_same_session_repeated_engine_failures_release_context_until_reload() {
     let (mut session, script) = session(
         &[
             Err(WhisperEngineError::InferenceFailed),
@@ -397,4 +406,20 @@ fn engine_status_codes_match_adapter() {
         WhisperEngineError::from_status(-1),
         Some(WhisperEngineError::Unknown)
     );
+}
+
+#[test]
+fn cancel_only_affects_capture_not_completed_inference() {
+    // Documents the limit: there is no abort path into the engine. `finish`
+    // runs the engine to completion; a later `cancel` is a no-op on an idle
+    // session and is not counted as a cancelled utterance.
+    let (mut session, script) = session(&[Ok(b"done")], 0);
+    session.load().unwrap();
+    let mut out = [0_u8; 16];
+    assert_eq!(utterance(&mut session, 500, &mut out), Ok(4));
+    session.cancel();
+    assert_eq!(script.borrow().seen_samples, vec![500]);
+    assert_eq!(session.stats().utterances_cancelled, 0);
+    assert_eq!(session.stats().utterances_completed, 1);
+    assert_eq!(session.state(), WhisperSessionState::Idle);
 }
