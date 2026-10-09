@@ -12,6 +12,94 @@ const SEMANTIC_STORE_ROOT: &[u8] = b"/var/lib/nagi-search-semantic";
 
 const _: [(); BLOCK_SIZE] = [(); GUEST_FILE_BYTES];
 
+// Callers supply fixed stage and error tokens only, never paths or record data.
+pub(super) fn trace_error(stage: &'static [u8], error: &'static [u8]) {
+    #[cfg(feature = "desktop-login-acceptance")]
+    {
+        let tokens = [
+            b"Nagi storage diagnostic stage=".as_slice(),
+            stage,
+            b" error=",
+            error,
+            b"\r\n",
+        ];
+        let mut line = [0u8; 192];
+        if tokens.iter().map(|token| token.len()).sum::<usize>() > line.len() {
+            return;
+        }
+        let mut length = 0;
+        for token in tokens {
+            line[length..length + token.len()].copy_from_slice(token);
+            length += token.len();
+        }
+        libnagi::console_write(&line[..length]);
+    }
+    #[cfg(not(feature = "desktop-login-acceptance"))]
+    let _ = (stage, error);
+}
+
+pub(super) fn trace_storage(stage: &'static [u8], error: StorageError) -> StorageError {
+    #[cfg(feature = "desktop-login-acceptance")]
+    trace_error(
+        stage,
+        match error {
+            StorageError::Block => b"StorageError.Block",
+            StorageError::Corrupt => b"StorageError.Corrupt",
+            StorageError::NameTooLong => b"StorageError.NameTooLong",
+            StorageError::InvalidName => b"StorageError.InvalidName",
+            StorageError::NotFound => b"StorageError.NotFound",
+            StorageError::AlreadyExists => b"StorageError.AlreadyExists",
+            StorageError::NotDirectory => b"StorageError.NotDirectory",
+            StorageError::IsDirectory => b"StorageError.IsDirectory",
+            StorageError::DirectoryNotEmpty => b"StorageError.DirectoryNotEmpty",
+            StorageError::DirectoryFull => b"StorageError.DirectoryFull",
+            StorageError::InvalidHandle => b"StorageError.InvalidHandle",
+            StorageError::FileTooLarge => b"StorageError.FileTooLarge",
+            StorageError::BufferTooSmall => b"StorageError.BufferTooSmall",
+            StorageError::Capacity => b"StorageError.Capacity",
+            StorageError::RecoveryRequired => b"StorageError.RecoveryRequired",
+        },
+    );
+    #[cfg(not(feature = "desktop-login-acceptance"))]
+    let _ = stage;
+    error
+}
+
+pub(super) fn trace_search(
+    stage: &'static [u8],
+    error: nagi_search::MetadataStoreError,
+) -> nagi_search::MetadataStoreError {
+    #[cfg(feature = "desktop-login-acceptance")]
+    trace_error(
+        stage,
+        match error {
+            nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io) => {
+                b"MetadataStoreError.Backend.Io"
+            }
+            nagi_search::MetadataStoreError::Backend(
+                nagi_search::BackendError::SnapshotTooLarge,
+            ) => b"MetadataStoreError.Backend.SnapshotTooLarge",
+            nagi_search::MetadataStoreError::CorruptSnapshot => {
+                b"MetadataStoreError.CorruptSnapshot"
+            }
+            nagi_search::MetadataStoreError::UnsupportedVersion(_) => {
+                b"MetadataStoreError.UnsupportedVersion"
+            }
+            nagi_search::MetadataStoreError::Capacity => b"MetadataStoreError.Capacity",
+            nagi_search::MetadataStoreError::InvalidRecord(_) => {
+                b"MetadataStoreError.InvalidRecord"
+            }
+            nagi_search::MetadataStoreError::ObjectNotFound => b"MetadataStoreError.ObjectNotFound",
+            nagi_search::MetadataStoreError::WorkspaceNotFound => {
+                b"MetadataStoreError.WorkspaceNotFound"
+            }
+        },
+    );
+    #[cfg(not(feature = "desktop-login-acceptance"))]
+    let _ = stage;
+    error
+}
+
 pub(super) struct VfsSnapshotFiles<D: BlockDevice> {
     volume: Vfs<D>,
     namespace: SnapshotNamespace,
@@ -36,8 +124,17 @@ impl<D: BlockDevice> VfsSnapshotFiles<D> {
         };
         volume
             .ensure_directory_path(b"/var")
-            .and_then(|()| volume.ensure_directory_path(b"/var/lib"))
-            .and_then(|()| volume.ensure_directory_path(root))
+            .map_err(|error| trace_storage(b"search.ensure-base", error))
+            .and_then(|()| {
+                volume
+                    .ensure_directory_path(b"/var/lib")
+                    .map_err(|error| trace_storage(b"search.ensure-parent", error))
+            })
+            .and_then(|()| {
+                volume
+                    .ensure_directory_path(root)
+                    .map_err(|error| trace_storage(b"search.ensure-store", error))
+            })
             .map_err(|_| nagi_search::BackendError::Io)?;
         Ok(Self { volume, namespace })
     }
@@ -130,12 +227,15 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         let handle = match self.volume.open_path(path) {
             Ok(handle) => handle,
             Err(StorageError::NotFound) => return Ok(None),
-            Err(_) => return Err(nagi_search::BackendError::Io),
+            Err(error) => {
+                trace_storage(b"search.snapshot.open", error);
+                return Err(nagi_search::BackendError::Io);
+            }
         };
-        let length = self
-            .volume
-            .read(handle, buffer)
-            .map_err(|_| nagi_search::BackendError::Io)?;
+        let length = self.volume.read(handle, buffer).map_err(|error| {
+            trace_storage(b"search.snapshot.read", error);
+            nagi_search::BackendError::Io
+        })?;
         Ok(Some(length))
     }
 
@@ -148,18 +248,21 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
         let handle = match self.volume.open_path(path) {
             Ok(handle) => handle,
-            Err(StorageError::NotFound) => self
-                .volume
-                .create_path(path)
-                .map_err(|_| nagi_search::BackendError::Io)?,
-            Err(_) => return Err(nagi_search::BackendError::Io),
+            Err(StorageError::NotFound) => self.volume.create_path(path).map_err(|error| {
+                trace_storage(b"search.snapshot.create", error);
+                nagi_search::BackendError::Io
+            })?,
+            Err(error) => {
+                trace_storage(b"search.snapshot.open", error);
+                return Err(nagi_search::BackendError::Io);
+            }
         };
-        self.volume
-            .write(handle, bytes)
-            .map_err(|error| match error {
+        self.volume.write(handle, bytes).map_err(|error| {
+            match trace_storage(b"search.snapshot.write", error) {
                 StorageError::FileTooLarge => nagi_search::BackendError::SnapshotTooLarge,
                 _ => nagi_search::BackendError::Io,
-            })
+            }
+        })
     }
 
     fn remove_file(
@@ -170,14 +273,18 @@ impl<D: BlockDevice> SnapshotFileStore for VfsSnapshotFiles<D> {
         let path = self.path(slot, file).ok_or(nagi_search::BackendError::Io)?;
         match self.volume.remove_path(path) {
             Ok(()) | Err(StorageError::NotFound) => Ok(()),
-            Err(_) => Err(nagi_search::BackendError::Io),
+            Err(error) => {
+                trace_storage(b"search.snapshot.remove", error);
+                Err(nagi_search::BackendError::Io)
+            }
         }
     }
 
     fn flush(&mut self) -> Result<(), nagi_search::BackendError> {
-        self.volume
-            .flush()
-            .map_err(|_| nagi_search::BackendError::Io)
+        self.volume.flush().map_err(|error| {
+            trace_storage(b"search.snapshot.flush", error);
+            nagi_search::BackendError::Io
+        })
     }
 }
 
@@ -190,8 +297,12 @@ pub(super) fn open_search_with_visibility<V: VisibilityFilter>(
 > {
     let volume = Vfs::mount_or_format(SyscallBlockDevice::new(block_capability))
         .map(|(volume, _)| volume)
-        .map_err(|_| nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io))?;
+        .map_err(|error| {
+            trace_storage(b"search.mount", error);
+            nagi_search::MetadataStoreError::Backend(nagi_search::BackendError::Io)
+        })?;
     let files = VfsSnapshotFiles::new(volume, SnapshotNamespace::Metadata)
         .map_err(nagi_search::MetadataStoreError::Backend)?;
     SearchService::open(GuestSnapshotBackend::new(files), visibility)
+        .map_err(|error| trace_search(b"search.service-open", error))
 }
