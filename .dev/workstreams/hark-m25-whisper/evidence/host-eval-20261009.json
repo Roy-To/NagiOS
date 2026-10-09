@@ -1,0 +1,214 @@
+{
+  "environment": {
+    "kind": "HOST measurement (not a guest/QEMU result)",
+    "date": "2026-10-09",
+    "cpu": "aarch64 Neoverse-V2, 2 vCPU shared sandbox (other builds running concurrently at higher priority); process run under nice -n 19",
+    "os": "Debian Linux (development host)",
+    "compiler": "gcc 14.2.0 (whisper.cpp), rustc nightly-2025-08-01",
+    "whisper_cpp": "927cfce34f31707e17f2bff35c349632fb9e2c3a + third_party/whisper-cpp-patches 0001-0003, Release, GGML_NATIVE=OFF, GGML_OPENMP=OFF, CPU backend only (tools/whisper/build-host-eval.sh)",
+    "model": "third_party/models.lock whisper_small_multilingual, 487601967 bytes, sha256 1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b (verified by run-eval.sh)",
+    "threads": 1,
+    "audio_ctx": "tools/whisper/nagi-provider-adapter.cpp sample-derived context (ADR 0042), unchanged",
+    "rss_method": "/proc/self/status VmRSS/VmHWM; peak reset via /proc/self/clear_refs=5 before each phase",
+    "command": "tests/m25-whisper/run-eval.sh"
+  },
+  "kind": "host-unseen-eval",
+  "counts_as_guest_result": false,
+  "dataset": "google/fleurs ja_jp validation (CC BY 4.0), see tests/m25-whisper/eval/fleurs-ja-validation.json",
+  "threads": 1,
+  "clips": 12,
+  "audio_seconds": 134.7,
+  "inference_seconds": 207.261,
+  "aggregate_rtf": 1.539,
+  "aggregate_cer": 0.1025,
+  "edits": 50,
+  "reference_chars": 488,
+  "model_load_seconds": 0.29,
+  "rss_kib": {
+    "before_load": 5048,
+    "after_load": 576048,
+    "peak_during_load": 576048,
+    "peak_during_any_utterance": 791300,
+    "before_unload": 791188,
+    "after_unload": 26876,
+    "after_failed_load": 36044
+  },
+  "session_stats": {
+    "first_session": "WhisperSessionStats { loads: 1, load_failures: 0, unloads: 1, utterances_completed: 15, utterances_cancelled: 1, utterances_failed: 2, consecutive_engine_failures: 0, last_engine_error: Some(OutputTooSmall) }",
+    "reload_session": "WhisperSessionStats { loads: 1, load_failures: 1, unloads: 0, utterances_completed: 1, utterances_cancelled: 0, utterances_failed: 0, consecutive_engine_failures: 0, last_engine_error: None }"
+  },
+  "lifecycle_checks": [
+    {
+      "name": "consecutive_utterances",
+      "pass": true,
+      "detail": "12/12 utterances on one context, loads=1"
+    },
+    {
+      "name": "cancel_then_next_utterance",
+      "pass": true,
+      "detail": "idle_after_cancel=true; rerun of fleurs-ja-val-02-1607 identical=true"
+    },
+    {
+      "name": "resume_after_malformed_pcm",
+      "pass": true,
+      "detail": "rejected=true; rerun of fleurs-ja-val-03-1634 identical=true"
+    },
+    {
+      "name": "resume_after_output_too_small",
+      "pass": true,
+      "detail": "output_too_small=true; context_kept=true; rerun of fleurs-ja-val-05-1572 identical=true"
+    },
+    {
+      "name": "unload_failed_load_reload",
+      "pass": true,
+      "detail": "unloaded=true; rss_kib 791188->26876; injected_read_failure_reported=true; rss_after_failed_load_kib=36044; reload_ok=true in 1.19s; rerun of fleurs-ja-val-00-1519 identical=true"
+    }
+  ],
+  "lifecycle_pass": true,
+  "utterances": [
+    {
+      "id": "fleurs-ja-val-00-1519",
+      "audio_seconds": 11.1,
+      "inference_seconds": 17.673,
+      "rtf": 1.592,
+      "edits": 4,
+      "reference_chars": 46,
+      "cer": 0.087,
+      "peak_rss_kib": 634360,
+      "reference": "多くの場合、海外のギャップイヤーコースに入学することで、帰国後に実際に大学に進学しやすくなります。",
+      "hypothesis": "多くの場合海外のギャップイヤーコースに入学することで、企画を実際に大学に進学しやすくなります。"
+    },
+    {
+      "id": "fleurs-ja-val-02-1607",
+      "audio_seconds": 7.98,
+      "inference_seconds": 15.469,
+      "rtf": 1.939,
+      "edits": 4,
+      "reference_chars": 28,
+      "cer": 0.1429,
+      "peak_rss_kib": 636420,
+      "reference": "興味をそそられる村を30分ほど散策するのは価値があります。",
+      "hypothesis": "興味を注られる村を30分ほど散策するのは賢があります"
+    },
+    {
+      "id": "fleurs-ja-val-03-1634",
+      "audio_seconds": 12.12,
+      "inference_seconds": 19.872,
+      "rtf": 1.64,
+      "edits": 0,
+      "reference_chars": 43,
+      "cer": 0.0,
+      "peak_rss_kib": 641772,
+      "reference": "日本には約7,000の島々があり、その最大は本州列島で、世界で7番目に大きい島とされています。",
+      "hypothesis": "日本には約7000の島々があり、その最大は本州列島で、世界で7番目に大きい島とされています。"
+    },
+    {
+      "id": "fleurs-ja-val-05-1572",
+      "audio_seconds": 9.12,
+      "inference_seconds": 13.938,
+      "rtf": 1.528,
+      "edits": 2,
+      "reference_chars": 33,
+      "cer": 0.0606,
+      "peak_rss_kib": 644008,
+      "reference": "その後2時間のうちに、さらに3つの爆弾が官庁施設の付近で爆発しました。",
+      "hypothesis": "その後、2時間のうちにさらに3つの爆弾が、感染施設の付近で爆発しました。"
+    },
+    {
+      "id": "fleurs-ja-val-06-1604",
+      "audio_seconds": 29.52,
+      "inference_seconds": 46.64,
+      "rtf": 1.58,
+      "edits": 10,
+      "reference_chars": 107,
+      "cer": 0.0935,
+      "peak_rss_kib": 791300,
+      "reference": "NSAとしてカーターを補佐し、1978年のキャンプ・デイビッド合意、1970年代後半の米中関係の正常化、1979年のイラン人質事件につながったイラン革命、1979年のソビエトのアフガニスタン侵攻など、世界問題を外交的に処理した。",
+      "hypothesis": "NSAとしてカウターをホサし1978年のキャンプ・デイビット合意1970年代後半の米中関係の正常化1979年のイラン1市時期につながったイラン革命1979年のソビエトのアフガニスタン進行など世界問題を外交的に処理した"
+    },
+    {
+      "id": "fleurs-ja-val-10-1598",
+      "audio_seconds": 9.24,
+      "inference_seconds": 13.066,
+      "rtf": 1.414,
+      "edits": 2,
+      "reference_chars": 30,
+      "cer": 0.0667,
+      "peak_rss_kib": 791300,
+      "reference": "車の衝突時には３人が家の中にいましたが、怪我人はいませんでした。",
+      "hypothesis": "車の正途時には3人が家の中にいましたが、怪我人はいませんでした。"
+    },
+    {
+      "id": "fleurs-ja-val-17-1513",
+      "audio_seconds": 8.46,
+      "inference_seconds": 11.341,
+      "rtf": 1.341,
+      "edits": 5,
+      "reference_chars": 35,
+      "cer": 0.1429,
+      "peak_rss_kib": 791300,
+      "reference": "アルゼンチンは、世界最高のポロチームとポロ競技選手を擁することで有名です。",
+      "hypothesis": "アルゼンチンは世界最高のポロチームとポロ教育戦士を要することで有名です"
+    },
+    {
+      "id": "fleurs-ja-val-22-1582",
+      "audio_seconds": 7.5,
+      "inference_seconds": 9.808,
+      "rtf": 1.308,
+      "edits": 2,
+      "reference_chars": 23,
+      "cer": 0.087,
+      "peak_rss_kib": 791300,
+      "reference": "ヘブライ人家族はほとんど戸外で暮らしていました。",
+      "hypothesis": "ヒブライ人家族はほとんど都外で暮らしていました"
+    },
+    {
+      "id": "fleurs-ja-val-25-1599",
+      "audio_seconds": 9.96,
+      "inference_seconds": 13.4,
+      "rtf": 1.345,
+      "edits": 1,
+      "reference_chars": 35,
+      "cer": 0.0286,
+      "peak_rss_kib": 791300,
+      "reference": "元の集団は全く変わっておらず、今でも昔と同じように適応を必要としています。",
+      "hypothesis": "元の集団は全く変わっておらず、今でも昔と同じように適用を必要としています。"
+    },
+    {
+      "id": "fleurs-ja-val-27-1547",
+      "audio_seconds": 10.62,
+      "inference_seconds": 14.584,
+      "rtf": 1.373,
+      "edits": 11,
+      "reference_chars": 35,
+      "cer": 0.3143,
+      "peak_rss_kib": 791300,
+      "reference": "また、NHKは新潟県の柏崎刈羽原発が正常に稼働していると報道していました。",
+      "hypothesis": "またNHKはニーガタ県の歌手和月狩りは原発が正常に稼働していると報道していました。"
+    },
+    {
+      "id": "fleurs-ja-val-30-1523",
+      "audio_seconds": 10.92,
+      "inference_seconds": 15.64,
+      "rtf": 1.432,
+      "edits": 3,
+      "reference_chars": 41,
+      "cer": 0.0732,
+      "peak_rss_kib": 791300,
+      "reference": "最終スコア21対20の1点差勝利で、オールブラックスの15連勝に終止符が打たれました。",
+      "hypothesis": "最終スコア21対20の1点差勝利で、オールブラックスの15連勝に集支付が打たれました。"
+    },
+    {
+      "id": "fleurs-ja-val-34-1612",
+      "audio_seconds": 8.16,
+      "inference_seconds": 15.831,
+      "rtf": 1.94,
+      "edits": 6,
+      "reference_chars": 32,
+      "cer": 0.1875,
+      "peak_rss_kib": 791188,
+      "reference": "水は幅100フィートの範囲にわたって堤防の上にこぼれ落ちています。",
+      "hypothesis": "水は幅100フィートの範囲に渡って、 平坊の上にこぼれ追っています。"
+    }
+  ]
+}
