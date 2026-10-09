@@ -7,6 +7,7 @@ on:
       - codex/0.2-adopt-host-foundations
       - codex/0.2-adopt-calendar-core
       - codex/0.2-adopt-writer-sheets-core
+      - codex/0.2-sheets-bounded-updates
       - codex/0.2-calendar-core-01
       - claude/0.2-writer-core-01
       - claude/0.2-sheets-calc-01
@@ -40,7 +41,7 @@ concurrency:
 
 jobs:
   host-foundations:
-    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-adopt-writer-sheets-core", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
+    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-adopt-writer-sheets-core", "codex/0.2-sheets-bounded-updates", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +66,7 @@ jobs:
           row = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)
           if row is None:
               raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')
-          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption']:
+          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption', 'sheets-bounded-updates']:
               # Audit the adoption delta against its current release-line base;
               # unrelated already-main changes are not this checkpoint's edits.
               baseline = subprocess.check_output(
@@ -77,7 +78,24 @@ jobs:
           changed = subprocess.check_output(['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines()
           protected = ['kernel/**', 'loader/**', 'user/**', 'third_party/**', 'tests/acceptance/**',
                        'Cargo.toml', 'Cargo.lock', 'docs/implementation_status.md']
-          invalid = [p for p in changed
+          registration_paths = set()
+          if row['id'] == 'sheets-bounded-updates':
+              # The CI/registry owner registers this branch here. Workbook source
+              # ownership stays narrow; these two exact shared paths are separate.
+              registration_paths = {'.dev/workstreams.json',
+                                    '.github/workflows/0.2-host-integration.yml'}
+              expected_source_paths = ['crates/nagi-sheets-core/src/workbook.rs',
+                                       '.dev/workstreams/sheets-bounded-updates/**']
+              if row['allowed_paths'] != expected_source_paths:
+                  raise SystemExit('Sheets source ownership must remain workbook-only')
+              prior_registry = json.loads(subprocess.check_output(
+                  ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))
+              source_registry = dict(registry)
+              source_registry['workstreams'] = [w for w in registry['workstreams']
+                                               if w['id'] != row['id']]
+              if source_registry != prior_registry:
+                  raise SystemExit('Sheets registration must preserve all existing registry rows')
+          invalid = [p for p in changed if p not in registration_paths
                      if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])
                      or not any(fnmatch.fnmatchcase(p, g) for g in row['allowed_paths'])]
           if invalid:

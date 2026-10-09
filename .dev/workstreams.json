@@ -980,6 +980,46 @@
       ],
       "activation_gate": "WS-HOST-PREP-20261008: host-only adoption preparation and validation before M30, dedicated draft branch and Windows/Linux CI verification. No runtime/provider/GUI/0.3 activation; source owner States immutable.",
       "merge_boundary": "Dedicated codex/0.2-adopt-writer-sheets-core only. Base main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 after PR #31. Main/owner branch writes and merge are outside this checkpoint. Require separate project merge approval and latest applicable CI/review."
+    },
+    {
+      "id": "sheets-bounded-updates",
+      "owner": "Codex Sheets workbook",
+      "owner_branch": "codex/0.2-sheets-bounded-updates",
+      "recommended_worktree": "../NagiOS-sheets-bounded-updates",
+      "state_file": ".dev/workstreams/sheets-bounded-updates/state.json",
+      "dependencies": [
+        "development-foundation",
+        "app-sdk-contract",
+        "sheets-calc-01",
+        "writer-sheets-core-adoption"
+      ],
+      "allowed_paths": [
+        "crates/nagi-sheets-core/src/workbook.rs",
+        ".dev/workstreams/sheets-bounded-updates/**"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "third_party/**",
+        "tests/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "crates/nagi-sheets-core/Cargo.lock",
+        "crates/nagi-sheets-core/src/parser.rs",
+        "crates/nagi-sheets-core/src/engine.rs",
+        "crates/nagi-sheets-core/src/lib.rs",
+        "crates/nagi-model/**",
+        ".dev/workstreams.json",
+        ".dev/schemas/**",
+        ".github/workflows/**",
+        "docs/implementation_status.md",
+        "out/**",
+        "target/**"
+      ],
+      "activation_gate": "Standalone host-only workbook dependency-bound preparation and inline tests. Guest/runtime/UI/provider activation is deferred.",
+      "merge_boundary": "Dedicated Sheets workbook branch; only workbook.rs and its inline tests are implementation changes. Shared configuration and other source owners remain separate."
     }
   ]
 }
