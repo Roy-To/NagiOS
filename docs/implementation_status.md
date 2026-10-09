@@ -19,6 +19,16 @@ host, `cargo test -p nagi-cli -p nagi-search-ipc`, host clippy for
 release build, and a Nagi-target `cargo check` of `nagi-init` with
 `desktop-password-change-acceptance,m19-files-search-production` passed. The
 `./nagi login` guest acceptance was not run there; CI is the next evidence.
+**Ordinary-session integration foundation:** the shared bridge implements one
+bounded guest-worker request slot, live Session binding, cancellation, late-reply
+rejection and safe retired-worker lifetime rules. Model-service/backend leaves
+and ordinary-session image/release gates are included. Host tests and target
+leaf checks validate contracts and compilation only. Desktop AI consumption,
+durable terms persistence, a real guest worker/Granite reply and complete
+same-image acceptance remain unverified. Formal M30 is `BLOCKED`; the existing
+disk-layout fixture remains separately available as `m30-layout`. Embedding and
+TTS are standalone `PARTIAL` foundations. No milestone is promoted.
+
 **M18 acceptance closure, 2026-10-07:** `origin/main` commit
 `7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
 [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).

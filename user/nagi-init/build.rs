@@ -303,11 +303,14 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=nagi-init={}", output.display());
     }
 
+    let model_runtime = env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some()
+        || env::var_os("CARGO_FEATURE_M20_MODEL_SERVICE").is_some();
+
     // ADR 0058: guest llama inference links the target-built libc++ archive.
     // The Nagi runtime then provides only the Itanium ABI boundary that
     // libc++ is configured without, so their definitions never overlap.
     println!("cargo:rerun-if-env-changed=NAGI_LIBCXX_ARCHIVE");
-    let libcxx_archive = if env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some() {
+    let libcxx_archive = if model_runtime {
         let archive = env::var_os("NAGI_LIBCXX_ARCHIVE")
             .map(PathBuf::from)
             .expect("NAGI_LIBCXX_ARCHIVE must point to the Nagi-target libc++.a (tools/libcxx)");
@@ -352,9 +355,7 @@ fn main() {
         cxx_output.display()
     );
 
-    if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some()
-        || env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some()
-    {
+    if env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some() || model_runtime {
         let llama_build = env::var_os("NAGI_LLAMA_BUILD")
             .map(PathBuf::from)
             .expect("NAGI_LLAMA_BUILD must point to the Nagi-target llama.cpp build");
@@ -415,39 +416,38 @@ fn main() {
         } else {
             None
         };
-        let provider_object =
-            if env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some() {
-                let provider_source = repository_root.join("tools/llama/nagi-provider-adapter.cpp");
-                println!("cargo:rerun-if-changed={}", provider_source.display());
-                let provider_object = out_dir.join("nagi-llama-provider-adapter.o");
-                let status = Command::new("bash")
-                    .arg(&target_cc_wrapper)
-                    .args([
-                        "-x",
-                        "c++",
-                        "-fno-asynchronous-unwind-tables",
-                        "-fno-exceptions",
-                        "-fno-rtti",
-                        "-c",
-                    ])
-                    .arg("-I")
-                    .arg(generated_source.join("include"))
-                    .arg("-I")
-                    .arg(generated_source.join("ggml/include"))
-                    .arg(&provider_source)
-                    .arg("-o")
-                    .arg(&provider_object)
-                    .status()
-                    .unwrap_or_else(|error| {
-                        panic!("failed to compile Nagi llama provider adapter: {error}")
-                    });
-                if !status.success() {
-                    panic!("Nagi llama provider adapter compilation failed with {status}");
-                }
-                Some(provider_object)
-            } else {
-                None
-            };
+        let provider_object = if model_runtime {
+            let provider_source = repository_root.join("tools/llama/nagi-provider-adapter.cpp");
+            println!("cargo:rerun-if-changed={}", provider_source.display());
+            let provider_object = out_dir.join("nagi-llama-provider-adapter.o");
+            let status = Command::new("bash")
+                .arg(&target_cc_wrapper)
+                .args([
+                    "-x",
+                    "c++",
+                    "-fno-asynchronous-unwind-tables",
+                    "-fno-exceptions",
+                    "-fno-rtti",
+                    "-c",
+                ])
+                .arg("-I")
+                .arg(generated_source.join("include"))
+                .arg("-I")
+                .arg(generated_source.join("ggml/include"))
+                .arg(&provider_source)
+                .arg("-o")
+                .arg(&provider_object)
+                .status()
+                .unwrap_or_else(|error| {
+                    panic!("failed to compile Nagi llama provider adapter: {error}")
+                });
+            if !status.success() {
+                panic!("Nagi llama provider adapter compilation failed with {status}");
+            }
+            Some(provider_object)
+        } else {
+            None
+        };
         // llama.cpp's real CPU backend reaches C/POSIX and math functions from
         // the target relibc archive. Root only those implemented providers so
         // rust-lld extracts them before scanning the static C++ archives.
@@ -540,6 +540,22 @@ fn main() {
                 "cargo:rustc-link-arg-bin=nagi-init={}",
                 cxx_abi_object.display()
             );
+        }
+
+        if env::var_os("CARGO_FEATURE_M20_MODEL_SERVICE").is_some() {
+            // Keep real provider entry points in the normal init even before
+            // Desktop submits its first request; a discarded adapter is not
+            // evidence that native inference can link.
+            for symbol in [
+                "nagi_session_services_worker_entry",
+                "nagi_m20_llama_backend_initialize",
+                "nagi_m20_llama_load_from_fd",
+                "nagi_m20_llama_generate",
+                "nagi_m20_llama_free",
+                "nagi_m20_llama_set_cancel_callback",
+            ] {
+                println!("cargo:rustc-link-arg-bin=nagi-init=--undefined={symbol}");
+            }
         }
 
         if let Some(provider_object) = provider_object {

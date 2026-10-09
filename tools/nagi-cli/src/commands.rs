@@ -322,6 +322,11 @@ pub enum Command {
     M25,
     M27,
     M30,
+    M30Layout,
+    SessionAiLink,
+    SessionImage,
+    SessionNativeImage,
+    SessionAcceptance,
     M30Update,
     IsolatedProcess,
     Consent,
@@ -540,6 +545,11 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "m30-layout" => Command::M30Layout,
+        "session-ai-link" => Command::SessionAiLink,
+        "session-image" => Command::SessionImage,
+        "session-native-image" => Command::SessionNativeImage,
+        "session-acceptance" => Command::SessionAcceptance,
         "m30-update" => Command::M30Update,
         "isolated-process" => Command::IsolatedProcess,
         "consent" => Command::Consent,
@@ -585,6 +595,9 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::Dev => args.len() >= 2,
         Command::Test => args.len() == 1,
         Command::Acceptance => args.len() >= 2,
+        Command::SessionImage | Command::SessionNativeImage => matches!(args.len(), 1 | 2),
+        Command::SessionAiLink => args.len() == 1,
+        Command::SessionAcceptance => args.len() == 3,
         Command::M20Granite => args.len() == 2,
         Command::M20GraniteInference => args.len() == 2,
         Command::M20LlamaSmoke => args.len() == 1,
@@ -616,6 +629,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M25
         | Command::M27
         | Command::M30
+        | Command::M30Layout
         | Command::M30Update
         | Command::IsolatedProcess
         | Command::Consent
@@ -797,6 +811,11 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
+        Command::M30Layout => execute_m30_layout(root, probe),
+        Command::SessionImage => execute_session_image(&args[1..], root),
+        Command::SessionNativeImage => execute_session_native_image(&args[1..], root),
+        Command::SessionAiLink => execute_session_ai_link(root),
+        Command::SessionAcceptance => execute_session_acceptance(&args[1..], root),
         Command::M30Update => execute_m30_update(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
         Command::M20GraniteInference => execute_m20_granite_inference(&args[1..], root, probe),
@@ -4060,33 +4079,390 @@ fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, Str
     Ok(lines)
 }
 
-fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let host = match resolve_qemu_host(root, probe, "m30") {
+fn execute_session_acceptance(args: &[String], root: &Path) -> CommandResult {
+    let output = ProcessCommand::new("python3")
+        .arg(root.join("tools/nagi-release/session_acceptance.py"))
+        .arg("--root")
+        .arg(root)
+        .arg("--evidence")
+        .arg(root.join(&args[0]))
+        .arg("--image")
+        .arg(root.join(&args[1]))
+        .current_dir(root)
+        .output();
+    match output {
+        Ok(output) => CommandResult {
+            exit_code: output.status.code().unwrap_or(EXIT_CONFIG_ERROR),
+            lines: command_output(&output).lines().map(str::to_owned).collect(),
+        },
+        Err(error) => failure(EXIT_CONFIG_ERROR, format!("session-acceptance: {error}")),
+    }
+}
+
+const SESSION_INIT_FEATURES: &str = "production-session";
+
+/// Link the real target provider without running an acceptance boot path or
+/// claiming that the Desktop has submitted a model request.
+fn execute_session_ai_link(root: &Path) -> CommandResult {
+    let revision = match m30_clean_source_revision(root) {
+        Ok(revision) => revision,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {error}")),
+    };
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {error}")),
+    };
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out/evidence").join(format!("session-ai-link-{run_id}")),
+    ) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {error}")),
+    };
+    let native = match prepare_session_native_archives(root, &evidence) {
+        Ok(native) => native,
+        Err(error) => return error,
+    };
+    let package = match build_m19_files_search_product(root) {
+        Ok(package) => package,
+        Err(error) => return error,
+    };
+    let mut env: Vec<_> = native
+        .iter()
+        .map(|(key, path)| (*key, path.as_path()))
+        .collect();
+    env.push(("NAGI_FILES_SEARCH_PACKAGE", package.as_path()));
+    let args = m30_update_init_args("production-session,m20-model-service");
+    let result = run_cargo_with_env(root, "ordinary model-service init link", &args, &env);
+    if result.exit_code != EXIT_SUCCESS {
+        return result;
+    }
+    let current_revision = match m30_clean_source_revision(root) {
+        Ok(revision) => revision,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {error}")),
+    };
+    if current_revision != revision {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            "session-ai-link: source changed during build",
+        );
+    }
+    let init = root.join("target/x86_64-unknown-nagi-user/release/nagi-init");
+    let digest = match m30_image_sha256(&init) {
+        Ok(digest) => digest,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {error}")),
+    };
+    let receipt = format!("source_revision={revision}\ninit_sha256={digest}\ninit_features=production-session,m20-model-service\nimage_kernel_feature_required=m20-llama-memory\nscope=native-init-link-only\nnormal_session_inference=NOT_EVALUATED\nM30=BLOCKED\n");
+    if let Err(error) = fs::write(evidence.join("link-info"), receipt) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("session-ai-link: write evidence: {error}"),
+        );
+    }
+    CommandResult { exit_code: EXIT_SUCCESS, lines: vec![format!("Linked ordinary model-service init with real target libc++/llama provider ({}; evidence {}); guest startup, live Session worker and inference are NOT_EVALUATED; images require matching kernel m20-llama-memory", init.display(), evidence.display())] }
+}
+
+fn prepare_session_native_archives(
+    root: &Path,
+    evidence: &Path,
+) -> Result<Vec<(&'static str, PathBuf)>, CommandResult> {
+    let fail = |message: String| failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {message}"));
+    let source = ensure_llama_cpp_checkout(root).map_err(fail)?;
+    let clang = resolve_m20_target_clang().map_err(fail)?;
+    let llvm_bin = clang.parent().unwrap_or_else(|| Path::new("."));
+    let ar = resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin).map_err(fail)?;
+    let ranlib =
+        resolve_m20_llvm_tool("NAGI_LLVM_RANLIB", "llvm-ranlib", llvm_bin).map_err(fail)?;
+    let libcxx_source = crate::llvm_libcxx::ensure_libcxx_source(root).map_err(fail)?;
+    let libcxx_out = ensure_owned_directory(root, "out/m20-libcxx").map_err(fail)?;
+    run_session_native_script(
+        root,
+        "tools/libcxx/build-nagi-target.sh",
+        &evidence.join("libcxx-build.log"),
+        &[
+            ("NAGI_LIBCXX_SOURCE", libcxx_source.as_path()),
+            ("NAGI_LIBCXX_OUT", libcxx_out.as_path()),
+            ("NAGI_TARGET_CLANG", clang.as_path()),
+            ("NAGI_LLVM_AR", ar.as_path()),
+            ("NAGI_LLVM_RANLIB", ranlib.as_path()),
+        ],
+    )?;
+    let headers = libcxx_out.join("build/include/c++/v1");
+    let archive = libcxx_out.join("build/lib/libc++.a");
+    let relibc = libcxx_out.join("relibc-target/x86_64-unknown-nagi-user/include");
+    let build = ensure_owned_directory(root, "out/session-llama-target").map_err(fail)?;
+    run_session_native_script(
+        root,
+        "tools/llama/build-nagi-target.sh",
+        &evidence.join("llama-build.log"),
+        &[
+            ("NAGI_LLAMA_BUILD", build.as_path()),
+            ("NAGI_TARGET_CLANG", clang.as_path()),
+            ("NAGI_CXX_HEADERS", headers.as_path()),
+            ("NAGI_RELIBC_HEADERS", relibc.as_path()),
+            ("NAGI_LLVM_AR", ar.as_path()),
+            ("NAGI_LLVM_RANLIB", ranlib.as_path()),
+        ],
+    )?;
+    Ok(vec![
+        ("NAGI_LLAMA_BUILD", build),
+        ("NAGI_LLAMA_SOURCE", source),
+        ("NAGI_TARGET_CLANG", clang),
+        ("NAGI_CXX_HEADERS", headers),
+        ("NAGI_RELIBC_HEADERS", relibc),
+        ("NAGI_LLVM_AR", ar),
+        ("NAGI_LLVM_RANLIB", ranlib),
+        ("NAGI_LIBCXX_ARCHIVE", archive),
+    ])
+}
+
+fn run_session_native_script(
+    root: &Path,
+    script: &str,
+    log: &Path,
+    env: &[(&str, &Path)],
+) -> Result<(), CommandResult> {
+    let fail = |message| failure(EXIT_CONFIG_ERROR, format!("session-ai-link: {message}"));
+    let mut command = ProcessCommand::new("bash");
+    command.arg(script).current_dir(root);
+    for (key, value) in env {
+        command.env(key, value);
+    }
+    let output = command
+        .output()
+        .map_err(|error| fail(format!("start {script}: {error}")))?;
+    fs::write(log, command_output(&output))
+        .map_err(|error| fail(format!("write {}: {error}", log.display())))?;
+    if !output.status.success() {
+        return Err(fail(format!(
+            "{script} failed ({}); log {}",
+            output.status,
+            log.display()
+        )));
+    }
+    Ok(())
+}
+const SESSION_IMAGE_PROFILE: &str = "signed-in-files-v1";
+
+/// This builds ordinary login/Files, not an acceptance init. A verified model
+/// may be present in its read-only Model Store before a resident AI consumer
+/// is available. Record the actual profile rather than claiming full 0.1.
+fn execute_session_image(args: &[String], root: &Path) -> CommandResult {
+    match build_session_image(args, root, false) {
+        Ok(path) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines: vec![format!(
+                "Built partial signed-in product session {} (profile {SESSION_IMAGE_PROFILE}; Servo/resident AI/voice/History/stress acceptance still required; M30 not evaluated)",
+                path.display()
+            )],
+        },
+        Err(result) => result,
+    }
+}
+
+fn execute_session_native_image(args: &[String], root: &Path) -> CommandResult {
+    match build_session_image(args, root, true) {
+        Ok(path) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines: vec![format!(
+                "Built partial native-provider session {} (real target provider and matching kernel/init memory; Desktop worker/input and ordinary inference NOT_EVALUATED; M30 BLOCKED)",
+                path.display()
+            )],
+        },
+        Err(result) => result,
+    }
+}
+
+fn build_session_image(
+    args: &[String],
+    root: &Path,
+    native_model: bool,
+) -> Result<PathBuf, CommandResult> {
+    let revision = m30_clean_source_revision(root)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    let manifest = pinned_granite_manifest(root)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    let integrity = manifest.artifact.integrity.as_ref().ok_or_else(|| {
+        failure(
+            EXIT_CONFIG_ERROR,
+            "session-image: missing model integrity pin",
+        )
+    })?;
+    let size = manifest
+        .artifact
+        .size_bytes
+        .ok_or_else(|| failure(EXIT_CONFIG_ERROR, "session-image: missing model size pin"))?;
+    let artifact_path = args.first().map(|path| root.join(path));
+    if let Some(path) = artifact_path.as_ref() {
+        verify_external_artifact(path, size, &integrity.digest)
+            .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    }
+    let artifact_id = nagi_model_manager::ArtifactId::new(manifest.model_id.as_str())
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    let short = nagi_model_manager::model_store_short_name(&artifact_id);
+    let model_name = format!(
+        "{}.{}",
+        String::from_utf8_lossy(&short[..8]),
+        String::from_utf8_lossy(&short[8..])
+    );
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?
+        .as_nanos();
+    let image_name = if native_model {
+        format!("Nagi-OS-0.1-session-native-{run_id}.qcow2")
+    } else {
+        format!("Nagi-OS-0.1-session-{run_id}.qcow2")
+    };
+    // Read Recovery bytes before the product init overwrites the shared build
+    // output. Neither init inherits the other's feature chain.
+    let recovery_args = m30_update_init_args("m27-recovery");
+    let recovery_build = run_cargo(root, "session Recovery init", &recovery_args);
+    if recovery_build.exit_code != EXIT_SUCCESS {
+        return Err(recovery_build);
+    }
+    let recovery = fs::read(root.join("target/x86_64-unknown-nagi-user/release/nagi-init"))
+        .map_err(|error| {
+            failure(
+                EXIT_CONFIG_ERROR,
+                format!("session-image: Recovery: {error}"),
+            )
+        })?;
+    let package = build_m19_files_search_product(root)?;
+    let native = if native_model {
+        let evidence = ensure_owned_directory(
+            root,
+            Path::new("out/evidence").join(format!("session-native-image-{run_id}")),
+        )
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+        prepare_session_native_archives(root, &evidence)?
+    } else {
+        Vec::new()
+    };
+    let mut cargo_env: Vec<_> = native
+        .iter()
+        .map(|(key, path)| (*key, path.as_path()))
+        .collect();
+    cargo_env.push(("NAGI_FILES_SEARCH_PACKAGE", package.as_path()));
+    let init_args = m30_update_init_args(if native_model {
+        "production-session,m20-model-service"
+    } else {
+        SESSION_INIT_FEATURES
+    });
+    let result = execute_image_with_init_build_env_using_writer_and_recovery(
+        root,
+        &init_args,
+        None,
+        ImageBuildRequest {
+            image_name: &image_name,
+            cargo_env: &cargo_env,
+            recovery_init: Some(&recovery),
+            image_writer: write_reference_disk_qcow2,
+            external_model_store_file: artifact_path
+                .as_ref()
+                .map(|path| (model_name.as_str(), path.as_path())),
+            build_features: ImageBuildFeatures {
+                kernel: if native_model {
+                    &["m20-llama-memory"]
+                } else {
+                    &[]
+                },
+                loader: &["m27-ab-slot-boot-control"],
+            },
+        },
+    );
+    if result.exit_code != EXIT_SUCCESS {
+        return Err(result);
+    }
+    // Check the input again before issuing provenance; a source changed during
+    // image construction must not leave an apparently verified image record.
+    if let Some(path) = artifact_path.as_ref() {
+        verify_external_artifact(path, size, &integrity.digest)
+            .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    }
+    let current_revision = m30_clean_source_revision(root)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    if current_revision != revision {
+        return Err(failure(
+            EXIT_CONFIG_ERROR,
+            "session-image: source revision changed during build",
+        ));
+    }
+    let path = root.join("out/artifacts").join(image_name);
+    let digest = m30_image_sha256(&path)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    let model_digest = if artifact_path.is_some() {
+        integrity.digest.as_str()
+    } else {
+        "none"
+    };
+    let info = if native_model {
+        session_native_image_build_info(&revision, &digest, model_digest)
+    } else {
+        session_image_build_info(&revision, &digest, model_digest)
+    };
+    let info_path = m30_image_build_info_path(&path)
+        .map_err(|error| failure(EXIT_CONFIG_ERROR, format!("session-image: {error}")))?;
+    fs::write(info_path, info).map_err(|error| {
+        failure(
+            EXIT_CONFIG_ERROR,
+            format!("session-image: provenance: {error}"),
+        )
+    })?;
+    Ok(path)
+}
+
+fn session_image_build_info(revision: &str, digest: &str, model_digest: &str) -> String {
+    format!(
+        "format_version=2\nsource_revision={revision}\nimage_sha256={digest}\nprofile={SESSION_IMAGE_PROFILE}\ninit_features={SESSION_INIT_FEATURES}\ncomponents=login,files,search\nmodel_store_sha256={model_digest}\n"
+    )
+}
+
+fn session_native_image_build_info(revision: &str, digest: &str, model_digest: &str) -> String {
+    format!(
+        "format_version=2\nsource_revision={revision}\nimage_sha256={digest}\nprofile=native-provider-session-v1\ninit_features=production-session,m20-model-service\nkernel_features=m20-llama-memory\ncomponents=login,files,search,native-model-provider\nmodel_store_sha256={model_digest}\nnormal_session_inference=NOT_EVALUATED\n"
+    )
+}
+
+fn execute_m30(_root: &Path, _probe: &dyn HostProbe) -> CommandResult {
+    failure(
+        EXIT_NOT_IMPLEMENTED,
+        "M30 BLOCKED: formal 0.1 acceptance needs a single ordinary signed-in session with Files/Search, resident local AI, Servo, History/Undo, voice, and stress evidence, plus complete distribution inputs. `nagi session-image [Granite.gguf]` builds the current partial product session; `nagi m30-layout` checks isolated GPT/Recovery fixtures. Neither establishes formal release acceptance.",
+    )
+}
+
+fn execute_m30_layout(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    let host = match resolve_qemu_host(root, probe, "m30-layout") {
         Ok(host) => host,
         Err(error) => return failure(EXIT_CONFIG_ERROR, error),
     };
     let source_revision = match m30_clean_source_revision(root) {
         Ok(revision) => revision,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30-layout: {error}")),
     };
     let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_nanos().to_string(),
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: system clock: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m30-layout: system clock: {error}"),
+            )
+        }
     };
     let artifacts = match ensure_owned_directory(root, Path::new("out").join("artifacts")) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30-layout: {error}")),
     };
     let evidence = match ensure_owned_directory(
         root,
         Path::new("out")
             .join("evidence")
-            .join(format!("m30-release-{run_id}")),
+            .join(format!("m30-layout-{run_id}")),
     ) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30: {error}")),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m30-layout: {error}")),
     };
-    let image_name = "Nagi-OS-0.1-devpreview.qcow2";
+    let image_name = "Nagi-OS-0.1-layout-fixture.qcow2";
     let image_path = artifacts.join(image_name);
     let vars_copy = artifacts.join(format!("nagi-0.1-m30-vars-{run_id}.fd"));
     let image_is_new = match fs::symlink_metadata(&image_path) {
@@ -4094,14 +4470,14 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             if let Err(error) = validate_reference_disk_qcow2(&image_path) {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m30: existing release image is invalid: {error}"),
+                    format!("m30-layout: existing layout-fixture image is invalid: {error}"),
                 );
             }
             if let Err(error) = verify_m30_image_build_info(&image_path, &source_revision) {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m30: refusing to accept an image without matching current-source provenance ({error}); preserve the existing image, move it and its `.build-info` file out of `out/artifacts`, then rerun `./nagi m30`"
+                        "m30-layout: refusing to accept an image without matching current-source provenance ({error}); preserve the existing image, move it and its `.build-info` file out of `out/artifacts`, then rerun `./nagi m30-layout`"
                     ),
                 );
             }
@@ -4111,7 +4487,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: release image path is not a regular file: {}",
+                    "m30-layout: layout-fixture image path is not a regular file: {}",
                     image_path.display()
                 ),
             );
@@ -4121,7 +4497,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: cannot inspect release image {}: {error}",
+                    "m30-layout: cannot inspect layout-fixture image {}: {error}",
                     image_path.display()
                 ),
             );
@@ -4155,7 +4531,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+                    format!(
+                        "m30-layout: cannot read {}: {error}",
+                        recovery_init_path.display()
+                    ),
                 );
             }
         };
@@ -4200,7 +4579,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         if let Err(error) = write_m30_image_build_info(&image_path, &source_revision) {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot write current-source image provenance: {error}"),
+                format!("m30-layout: cannot write current-source image provenance: {error}"),
             );
         }
     }
@@ -4210,7 +4589,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: cannot create QEMU acceptance copy {} from {}: {error}",
+                "m30-layout: cannot create QEMU acceptance copy {} from {}: {error}",
                 qemu_test_image.display(),
                 image_path.display()
             ),
@@ -4237,7 +4616,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: initial QEMU boot: {error}"),
+                format!("m30-layout: initial QEMU boot: {error}"),
             );
         }
     };
@@ -4246,7 +4625,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", first_log.display()),
+                format!("m30-layout: cannot read {}: {error}", first_log.display()),
             );
         }
     };
@@ -4262,7 +4641,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: initial boot did not print `{marker}` (QEMU exit {first_status}; log {})",
+                    "m30-layout: initial boot did not print `{marker}` (QEMU exit {first_status}; log {})",
                     first_log.display()
                 ),
             );
@@ -4274,7 +4653,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m30: User Data bootstrap did not print `{marker}` (log {})",
+                        "m30-layout: User Data bootstrap did not print `{marker}` (log {})",
                         first_log.display()
                     ),
                 );
@@ -4284,7 +4663,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: existing User Data did not print the persistent read marker (log {})",
+                "m30-layout: existing User Data did not print the persistent read marker (log {})",
                 first_log.display()
             ),
         );
@@ -4301,7 +4680,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: persistent restart boot: {error}"),
+                format!("m30-layout: persistent restart boot: {error}"),
             );
         }
     };
@@ -4310,7 +4689,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", serial_log.display()),
+                format!("m30-layout: cannot read {}: {error}", serial_log.display()),
             );
         }
     };
@@ -4339,7 +4718,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: release guest did not print `{marker}` (QEMU exit {qemu_status}; log {})",
+                    "m30-layout: release guest did not print `{marker}` (QEMU exit {qemu_status}; log {})",
                     serial_log.display()
                 ),
             );
@@ -4364,7 +4743,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: Recovery QEMU boot: {error}"),
+                format!("m30-layout: Recovery QEMU boot: {error}"),
             );
         }
     };
@@ -4373,7 +4752,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", recovery_log.display()),
+                format!(
+                    "m30-layout: cannot read {}: {error}",
+                    recovery_log.display()
+                ),
             );
         }
     };
@@ -4389,7 +4771,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
+                    "m30-layout: Recovery boot did not print `{marker}` (QEMU exit {recovery_status}; log {})",
                     recovery_log.display()
                 ),
             );
@@ -4401,7 +4783,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: Recovery changed the A/B boot decision or reported trial readiness (log {})",
+                "m30-layout: Recovery changed the A/B boot decision or reported trial readiness (log {})",
                 recovery_log.display()
             ),
         );
@@ -4422,7 +4804,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: unstaged System B selection QEMU: {error}"),
+                format!("m30-layout: unstaged System B selection QEMU: {error}"),
             );
         }
     };
@@ -4431,7 +4813,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", unstaged_b_log.display()),
+                format!(
+                    "m30-layout: cannot read {}: {error}",
+                    unstaged_b_log.display()
+                ),
             );
         }
     };
@@ -4446,7 +4831,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: unstaged System B selection did not print `{marker}` (QEMU exit {unstaged_b_status}; log {})",
+                    "m30-layout: unstaged System B selection did not print `{marker}` (QEMU exit {unstaged_b_status}; log {})",
                     unstaged_b_log.display()
                 ),
             );
@@ -4458,7 +4843,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: an unstaged System B selection changed boot policy state (log {})",
+                "m30-layout: an unstaged System B selection changed boot policy state (log {})",
                 unstaged_b_log.display()
             ),
         );
@@ -4474,7 +4859,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: post-Recovery System A restart: {error}"),
+                format!("m30-layout: post-Recovery System A restart: {error}"),
             );
         }
     };
@@ -4483,7 +4868,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", post_recovery_log.display()),
+                format!(
+                    "m30-layout: cannot read {}: {error}",
+                    post_recovery_log.display()
+                ),
             );
         }
     };
@@ -4505,7 +4893,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: post-Recovery boot did not print `{marker}` (QEMU exit {post_recovery_status}; log {})",
+                    "m30-layout: post-Recovery boot did not print `{marker}` (QEMU exit {post_recovery_status}; log {})",
                     post_recovery_log.display()
                 ),
             );
@@ -4517,7 +4905,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: cannot preserve final OVMF variables at {}: {error}",
+                "m30-layout: cannot preserve final OVMF variables at {}: {error}",
                 evidence_vars_copy.display()
             ),
         );
@@ -4549,7 +4937,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", recovery_init_path.display()),
+                format!(
+                    "m30-layout: cannot read {}: {error}",
+                    recovery_init_path.display()
+                ),
             );
         }
     };
@@ -4598,7 +4989,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "m30: cannot preserve M20 reader fixture {}: {error}",
+                "m30-layout: cannot preserve M20 reader fixture {}: {error}",
                 fixture_image.display()
             ),
         );
@@ -4607,7 +4998,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     if let Err(error) = initialize_ovmf_vars(&host.ovmf_vars, &fixture_vars_copy) {
         return failure(
             EXIT_CONFIG_ERROR,
-            format!("m30: initialize M20 fixture OVMF variables: {error}"),
+            format!("m30-layout: initialize M20 fixture OVMF variables: {error}"),
         );
     }
     let fixture_serial_log = evidence.join("m20-model-store-reader-fixture.log");
@@ -4630,7 +5021,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: M20 Model Store fixture QEMU boot: {error}"),
+                format!("m30-layout: M20 Model Store fixture QEMU boot: {error}"),
             );
         }
     };
@@ -4639,7 +5030,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Err(error) => {
             return failure(
                 EXIT_CONFIG_ERROR,
-                format!("m30: cannot read {}: {error}", fixture_serial_log.display()),
+                format!(
+                    "m30-layout: cannot read {}: {error}",
+                    fixture_serial_log.display()
+                ),
             );
         }
     };
@@ -4652,7 +5046,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m30: M20 fixture guest did not print `{marker}` (QEMU exit {fixture_status}; log {})",
+                    "m30-layout: M20 fixture guest did not print `{marker}` (QEMU exit {fixture_status}; log {})",
                     fixture_serial_log.display()
                 ),
             );
@@ -4669,7 +5063,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m30: qemu-img check failed for {}: {}",
+                        "m30-layout: qemu-img check failed for {}: {}",
                         checked_image.display(),
                         String::from_utf8_lossy(&output.stderr).trim()
                     ),
@@ -4678,7 +5072,10 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             Err(error) => {
                 return failure(
                     EXIT_CONFIG_ERROR,
-                    format!("m30: qemu-img check {}: {error}", checked_image.display()),
+                    format!(
+                        "m30-layout: qemu-img check {}: {error}",
+                        checked_image.display()
+                    ),
                 );
             }
         }
@@ -4686,7 +5083,7 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M30 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery, unstaged System B rejection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed (image {}; QEMU copy {}; System A log {}; Recovery log {}; unstaged System B log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
+            "PASS layout-fixture only: 64 GiB GPT qcow2 passed System A, User Data persistence, Recovery, unstaged System B rejection, and post-Recovery restart acceptance; separate M20 guest FAT32 fixture read passed; formal M30 remains BLOCKED (image {}; QEMU copy {}; System A log {}; Recovery log {}; unstaged System B log {}; post-Recovery log {}; M20 fixture {}; M20 log {})",
             image_path.display(),
             qemu_test_image.display(),
             serial_log.display(),
@@ -11118,7 +11515,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-layout, session-ai-link, session-image [Granite.gguf], session-native-image [Granite.gguf], session-acceptance <evidence.json> <image.qcow2>, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
@@ -11460,6 +11857,79 @@ mod tests {
         assert_eq!(parse_command(&["consent".into()]), Ok(Command::Consent));
         assert!(parse_command(&["consent".into(), "extra".into()]).is_err());
         assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
+    }
+
+    #[test]
+    fn formal_release_and_layout_fixture_commands_are_distinct() {
+        assert_eq!(parse_command(&["m30".into()]), Ok(Command::M30));
+        assert_eq!(
+            parse_command(&["m30-layout".into()]),
+            Ok(Command::M30Layout)
+        );
+        assert!(parse_command(&["m30-layout".into(), "extra".into()]).is_err());
+        let result = super::execute_m30(
+            Path::new("/missing"),
+            &crate::doctor::SystemProbe::default(),
+        );
+        assert_eq!(result.exit_code, super::EXIT_NOT_IMPLEMENTED);
+        assert!(result.lines[0].contains("M30 BLOCKED"));
+        assert!(!result.lines[0].contains("M30 PASS"));
+    }
+
+    #[test]
+    fn session_image_accepts_only_one_optional_pinned_artifact() {
+        assert_eq!(
+            parse_command(&["session-ai-link".into()]),
+            Ok(Command::SessionAiLink)
+        );
+        assert!(parse_command(&["session-ai-link".into(), "model.gguf".into()]).is_err());
+        assert_eq!(
+            parse_command(&["session-image".into()]),
+            Ok(Command::SessionImage)
+        );
+        assert_eq!(
+            parse_command(&["session-image".into(), "Granite.gguf".into()]),
+            Ok(Command::SessionImage)
+        );
+        assert!(parse_command(&["session-image".into(), "one".into(), "two".into()]).is_err());
+        assert_eq!(
+            parse_command(&["session-native-image".into()]),
+            Ok(Command::SessionNativeImage)
+        );
+        assert_eq!(
+            parse_command(&["session-native-image".into(), "Granite.gguf".into()]),
+            Ok(Command::SessionNativeImage)
+        );
+        assert!(
+            parse_command(&["session-native-image".into(), "one".into(), "two".into()]).is_err()
+        );
+        let info = super::session_image_build_info(&"a".repeat(40), &"b".repeat(64), "none");
+        assert!(info.contains("profile=signed-in-files-v1\n"));
+        assert!(info.contains("components=login,files,search\n"));
+        assert!(info.contains("model_store_sha256=none\n"));
+        assert!(!info.contains("profile=production-session-v1\n"));
+        assert!(!info.contains("acceptance"));
+    }
+
+    #[test]
+    fn native_session_link_requires_source_provenance_before_fetching() {
+        let root = std::env::temp_dir().join(format!(
+            "nagi-native-session-source-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let result = super::execute_session_ai_link(&root);
+        assert_eq!(result.exit_code, super::EXIT_CONFIG_ERROR);
+        assert!(result
+            .lines
+            .iter()
+            .any(|line| line.contains("Git source revision")));
+        assert!(!root.join("out").exists());
+        std::fs::remove_dir(&root).unwrap();
     }
 
     #[test]

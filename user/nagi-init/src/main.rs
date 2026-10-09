@@ -2,6 +2,39 @@
 #![cfg_attr(target_os = "nagi", no_main)]
 #![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
 
+// A production session must never accidentally run a milestone's boot path.
+// In particular Servo and M20 acceptance entry points terminate the process.
+#[cfg(all(
+    feature = "production-session",
+    any(
+        feature = "m8-shell",
+        feature = "m9-window",
+        feature = "m11-security",
+        feature = "m12-network",
+        feature = "m13-posix",
+        feature = "m13-std",
+        feature = "m14-audio",
+        feature = "m15-history",
+        feature = "m16-package",
+        feature = "m17-servo",
+        feature = "m18-acceptance",
+        feature = "m19-search",
+        feature = "m20-model-store-acceptance",
+        feature = "m20-llama-link-smoke",
+        feature = "m20-llama-inference-acceptance",
+        feature = "m22-history",
+        feature = "m25-voice-acceptance",
+        feature = "m27-recovery",
+        feature = "m27-ro-vfs-check",
+        feature = "m29-settings-acceptance",
+        feature = "desktop-login-acceptance",
+        feature = "consent-dialog-acceptance",
+        feature = "isolated-process-acceptance",
+        feature = "m30-update-install"
+    )
+))]
+compile_error!("production-session is incompatible with milestone/fixture boot paths");
+
 #[cfg(any(
     feature = "m16-package",
     feature = "m19-runtime",
@@ -155,6 +188,8 @@ mod m22_history;
 mod m25_voice;
 #[cfg(all(target_os = "nagi", feature = "m25-whisper-inference-acceptance"))]
 mod m25_whisper;
+#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+mod model_service;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
@@ -165,6 +200,8 @@ mod network;
 mod recovery;
 #[cfg(all(target_os = "nagi", feature = "m11-security"))]
 mod security;
+#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+mod session_services;
 #[cfg(all(
     target_os = "nagi",
     feature = "m8-shell",
@@ -1093,6 +1130,15 @@ pub extern "C" fn _start(
         FPU_STATE_ROUND_TRIP_PASS_LEN
     ));
 
+    // Keep the actual Nagi relibc provider in the normal native link too.
+    // A Cargo dependency with no Rust reference is otherwise omitted, leaving
+    // libc++/llama's C ABI symbols unresolved. This probe performs no inference.
+    #[cfg(feature = "m20-model-service")]
+    if relibc::nagi_backend_probe() != 0x4e41_4749 {
+        libnagi::console_write(b"Nagi model service C ABI unavailable\r\n");
+        libnagi::exit(1);
+    }
+
     unsafe { run_elf_initializers() };
 
     #[cfg(feature = "isolated-process-acceptance")]
@@ -1519,6 +1565,13 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
             libnagi::exit(1);
         };
+        #[cfg(feature = "production-session")]
+        libnagi::console_write(b"Nagi production profile signed-in-files-v1\r\n");
+        // Capture only the read-only Model Store authority. Desktop creates the
+        // bridge with its guest admission budget and starts its worker after
+        // authenticated readiness; boot configuration performs no model I/O.
+        #[cfg(feature = "m20-model-service")]
+        session_services::configure_boot(model_store_capability);
         desktop::run(
             block_capability,
             display_capability,
