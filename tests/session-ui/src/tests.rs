@@ -793,3 +793,22 @@ fn new_login_token_for_same_account_clears_completed_text_and_accepted_terms() {
     assert!(ui.request_submit());
     assert_eq!(ui.request_id(), Some(2));
 }
+
+#[test]
+fn bar_catalogs_remain_key_value_rows_after_windows_checkout() {
+    for source in [
+        include_str!("../../../user/nagi-localization/locales/en-US.lang"),
+        include_str!("../../../user/nagi-localization/locales/ja-JP.lang"),
+    ] {
+        let windows = source.replace("\r\n", "\n").replace('\n', "\r\n");
+        for (row, line) in windows.split('\n').enumerate() {
+            if !line.is_empty() {
+                assert!(
+                    line.contains('='),
+                    "Windows catalog row {} is not key/value",
+                    row + 1
+                );
+            }
+        }
+    }
+}

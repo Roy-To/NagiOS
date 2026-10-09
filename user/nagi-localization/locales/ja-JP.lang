@@ -80,7 +80,6 @@ settings.password.current=今の
 settings.password.new=パスワード
 settings.password.error.same=今の一致
 settings.password.error.save=設定不可
-
 desktop.ai.title=Nagi バー
 desktop.lock=ロック
 desktop.ai.send=送信

@@ -80,7 +80,6 @@ settings.password.current=Current
 settings.password.new=New
 settings.password.error.same=Same password
 settings.password.error.save=Storage error
-
 desktop.ai.title=Nagi Bar
 desktop.lock=Lock
 desktop.ai.send=Send

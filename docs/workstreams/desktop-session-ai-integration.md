@@ -90,7 +90,7 @@ PASS, release, security setting or license-gate relaxation is claimed.
 
 ## Validation (cloud Linux x86_64, pinned nightly-2025-08-01)
 
-- `tests/session-ui/check.sh`: PASS. 38 host orchestration tests (27 UI/adapter
+- `tests/session-ui/check.sh`: PASS. 39 host orchestration tests (28 UI/adapter
   and 11 inherited bridge tests), host warnings-denied Clippy and formatting.
 - Real Desktop regressions: PASS, four production and two legacy acceptance
   host tests. The pre-fix production run failed all three checks, including an
@@ -112,6 +112,13 @@ PASS, release, security setting or license-gate relaxation is claimed.
   The Desktop presentation states are seeded through a test-only scripted
   controller transport; locking uses the real adapter/handler/renderer. This
   does not exercise a native model worker or the complete `run` loop.
+- Windows checkout regression: PASS on a host-simulated CRLF checkout. The first
+  published head's Windows CI failed the strict localization catalog test on
+  the blank separator before the new Bar entries; that empty LF row becomes a
+  nonempty CR row on Windows. Both owned locale additions now contain only
+  key/value rows. The new regression failed on row 83 before removal and passed
+  afterward; the existing localization tests also pass. Catalog parsing and the
+  strict shared test retain their original behavior.
 - Actual Nagi service/worker/controller/adapter leaves: warnings-denied Clippy
   PASS for `targets/x86_64-unknown-nagi-user.json`, using build-std core/alloc.
 - Actual Desktop/login/Files source check with `desktop-check`: compile-only
