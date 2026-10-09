@@ -1,0 +1,490 @@
+== nagi-init target build 2026-10-09T02:56:26+00:00
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded hash32 v0.3.1
+  Downloaded getrandom v0.4.3
+  Downloaded smoltcp v0.12.0
+  Downloaded heapless v0.8.0
+  Downloaded managed v0.8.0
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded getopts v0.2.23
+  Downloaded addr2line v0.25.0
+  Downloaded hashbrown v0.15.4
+  Downloaded memchr v2.7.5
+  Downloaded unicode-width v0.2.1
+  Downloaded libc v0.2.174
+  Downloaded gimli v0.32.0
+  Downloaded rustc-literal-escaper v0.0.5
+  Downloaded cfg-if v1.0.1
+  Downloaded rustc-demangle v0.1.25
+  Downloaded object v0.37.1
+   Compiling compiler_builtins v0.1.160 (/home/sandbox/.rustup/toolchains/nightly-2025-08-01-aarch64-unknown-linux-gnu/lib/rustlib/src/rust/library/compiler-builtins/compiler-builtins)
+   Compiling core v0.0.0 (/home/sandbox/.rustup/toolchains/nightly-2025-08-01-aarch64-unknown-linux-gnu/lib/rustlib/src/rust/library/core)
+   Compiling alloc v0.0.0 (/home/sandbox/.rustup/toolchains/nightly-2025-08-01-aarch64-unknown-linux-gnu/lib/rustlib/src/rust/library/alloc)
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.1
+   Compiling cfg-if v1.0.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling proc-macro2 v1.0.107
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling nagi-model v0.1.0 (/workspace/work/wt-m25-whisper/crates/nagi-model)
+   Compiling sha2 v0.10.9
+   Compiling getrandom v0.4.3
+   Compiling byteorder v1.5.0
+   Compiling nagi-abi v0.1.0 (/workspace/work/wt-m25-whisper/crates/nagi-abi)
+   Compiling serde_core v1.0.229
+   Compiling semver v1.0.28
+   Compiling heapless v0.8.0
+   Compiling rustc_version v0.4.1
+   Compiling hash32 v0.3.1
+   Compiling itoa v1.0.18
+   Compiling stable_deref_trait v1.2.1
+   Compiling smoltcp v0.12.0
+   Compiling zmij v1.0.23
+   Compiling libnagi v0.1.0 (/workspace/work/wt-m25-whisper/user/libnagi)
+   Compiling curve25519-dalek v4.1.3
+   Compiling syn v3.0.6
+   Compiling syn v2.0.119
+   Compiling managed v0.8.0
+   Compiling bitflags v1.3.2
+   Compiling serde_json v1.0.151
+   Compiling serde v1.0.229
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling serde_derive v1.0.229
+   Compiling subtle v2.6.1
+   Compiling memchr v2.8.3
+   Compiling signature v2.2.0
+   Compiling ed25519 v2.2.3
+   Compiling nagi-net v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-net)
+   Compiling relibc v0.2.5 (/workspace/work/wt-m25-whisper/third_party/relibc)
+   Compiling nagi-pal v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-pal)
+   Compiling nagi-model-manager v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-model-manager)
+   Compiling ed25519-dalek v2.1.1
+   Compiling nagi-search v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-search)
+   Compiling nagi-init v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-init)
+   Compiling nagi-ai v0.1.0 (/workspace/work/wt-m25-whisper/services/nagi-ai)
+   Compiling nagi-package v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-package)
+   Compiling nagi-posix v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-posix)
+warning: unused imports: `BLOCK_SIZE` and `MAX_PATH_LENGTH`
+ --> user/nagi-posix/src/runtime.rs:8:86
+  |
+8 |     DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+  |                                                                                      ^^^^^^^^^^
+9 |     MAX_DIRECTORY_ENTRIES, MAX_PATH_LENGTH,
+  |                            ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: type `NagiTimeval` is more private than the item `gettimeofday`
+    --> user/nagi-posix/src/abi.rs:1519:1
+     |
+1519 | pub unsafe extern "C" fn gettimeofday(output: *mut NagiTimeval, _timezone: *mut c_void) -> c_int {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `gettimeofday` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTimeval` is only usable at visibility `pub(self)`
+    --> user/nagi-posix/src/abi.rs:740:1
+     |
+ 740 | struct NagiTimeval {
+     | ^^^^^^^^^^^^^^^^^^
+     = note: `#[warn(private_interfaces)]` on by default
+
+warning: function `is_servo_tempdir_name` is never used
+ --> user/nagi-posix/src/fs.rs:7:15
+  |
+7 | pub(crate) fn is_servo_tempdir_name(name: &[u8]) -> bool {
+  |               ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: constant `POLLIN` is never used
+    --> user/nagi-posix/src/abi.rs:1614:7
+     |
+1614 | const POLLIN: i16 = 0x0001;
+     |       ^^^^^^
+
+warning: constant `POLLOUT` is never used
+    --> user/nagi-posix/src/abi.rs:1615:7
+     |
+1615 | const POLLOUT: i16 = 0x0004;
+     |       ^^^^^^^
+
+warning: constant `POLLHUP` is never used
+    --> user/nagi-posix/src/abi.rs:1617:7
+     |
+1617 | const POLLHUP: i16 = 0x0010;
+     |       ^^^^^^^
+
+warning: function `trace_m18_network_lock` is never used
+  --> user/nagi-posix/src/runtime.rs:99:4
+   |
+99 | fn trace_m18_network_lock(message: &[u8]) {
+   |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `pipe` is never used
+   --> user/nagi-posix/src/runtime.rs:660:8
+    |
+660 | pub fn pipe() -> Result<(i32, i32), RuntimeError> {
+    |        ^^^^
+
+warning: `nagi-posix` (lib) generated 8 warnings (run `cargo fix --lib -p nagi-posix` to apply 1 suggestion)
+warning: type `NagiTm` is more private than the item `localtime_r`
+    --> third_party/relibc/src/nagi.rs:1751:1
+     |
+1751 | pub unsafe extern "C" fn localtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `localtime_r` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTm` is only usable at visibility `pub(self)`
+    --> third_party/relibc/src/nagi.rs:1698:1
+     |
+1698 | struct NagiTm {
+     | ^^^^^^^^^^^^^
+     = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `NagiTm` is more private than the item `gmtime_r`
+    --> third_party/relibc/src/nagi.rs:1810:1
+     |
+1810 | pub unsafe extern "C" fn gmtime_r(timer: *const c_longlong, result: *mut NagiTm) -> *mut NagiTm {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `gmtime_r` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTm` is only usable at visibility `pub(self)`
+    --> third_party/relibc/src/nagi.rs:1698:1
+     |
+1698 | struct NagiTm {
+     | ^^^^^^^^^^^^^
+
+warning: type `NagiTm` is more private than the item `gmtime`
+    --> third_party/relibc/src/nagi.rs:1816:1
+     |
+1816 | pub unsafe extern "C" fn gmtime(timer: *const c_longlong) -> *mut NagiTm {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `gmtime` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTm` is only usable at visibility `pub(self)`
+    --> third_party/relibc/src/nagi.rs:1698:1
+     |
+1698 | struct NagiTm {
+     | ^^^^^^^^^^^^^
+
+warning: type `NagiTm` is more private than the item `localtime`
+    --> third_party/relibc/src/nagi.rs:1823:1
+     |
+1823 | pub unsafe extern "C" fn localtime(timer: *const c_longlong) -> *mut NagiTm {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `localtime` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTm` is only usable at visibility `pub(self)`
+    --> third_party/relibc/src/nagi.rs:1698:1
+     |
+1698 | struct NagiTm {
+     | ^^^^^^^^^^^^^
+
+warning: type `NagiTm` is more private than the item `mktime`
+    --> third_party/relibc/src/nagi.rs:1847:1
+     |
+1847 | pub unsafe extern "C" fn mktime(value: *mut NagiTm) -> c_longlong {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `mktime` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTm` is only usable at visibility `pub(self)`
+    --> third_party/relibc/src/nagi.rs:1698:1
+     |
+1698 | struct NagiTm {
+     | ^^^^^^^^^^^^^
+
+warning: `relibc` (lib) generated 5 warnings
+   Compiling nagi-audio v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-audio)
+   Compiling nagi-search-ipc v0.1.0 (/workspace/work/wt-m25-whisper/crates/nagi-search-ipc)
+   Compiling nagi-history v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-history)
+   Compiling nagi-sdk v0.1.0 (/workspace/work/wt-m25-whisper/sdk/rust)
+   Compiling nagi-ui v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-ui)
+   Compiling nagi-localization v0.1.0 (/workspace/work/wt-m25-whisper/user/nagi-localization)
+warning: unused imports: `ChannelReceiveResult`, `ChannelSendRequest`, `channel_receive`, `channel_send`, and `handle_close`
+  --> user/nagi-init/src/m19_search_service.rs:11:5
+   |
+11 |     channel_receive, channel_send, handle_close, ChannelReceiveResult, ChannelSendRequest,
+   |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `OPCODE_RESULTS`, `OPCODE_RESULT_RELAY`, `OPCODE_SEARCH`, `PROTOCOL_ID`, `PROTOCOL_VERSION`, `decode_results`, and `encode_results`
+  --> user/nagi-init/src/m19_search_service.rs:16:21
+   |
+16 |     decode_request, decode_results, encode_results, KindFilter, ResultStatus, SearchResults,
+   |                     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^
+17 |     MAX_RESULT_IDS, OPCODE_RESULTS, OPCODE_RESULT_RELAY, OPCODE_SEARCH, PROTOCOL_ID,
+   |                     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^
+18 |     PROTOCOL_VERSION,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: unreachable expression
+    --> user/nagi-init/src/main.rs:1441:5
+     |
+1359 |           libnagi::exit(0);
+     |           ---------------- any code following this expression is unreachable
+...
+1441 | /     {
+1442 | |         if exit_code != 0 {
+1443 | |             libnagi::exit(exit_code);
+...    |
+1464 | |         m13::run(volume, block_capability, net_capability, audio_capability);
+1465 | |     }
+     | |_____^ unreachable expression
+     |
+     = note: `#[warn(unreachable_code)]` on by default
+
+warning: unused variable: `browser_history_page_id`
+    --> user/nagi-init/src/m19_search.rs:1430:9
+     |
+1430 |     let browser_history_page_id = browser_history_sync
+     |         ^^^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_browser_history_page_id`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+   --> user/nagi-init/src/main.rs:578:9
+    |
+578 |     let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `net_capability`
+    --> user/nagi-init/src/main.rs:1039:5
+     |
+1039 |     net_capability: u64,
+     |     ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_net_capability`
+
+warning: constant `MAX_RECENT_BROWSER_HISTORY` is never used
+  --> user/nagi-init/src/m19_search.rs:58:7
+   |
+58 | const MAX_RECENT_BROWSER_HISTORY: usize = 3;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: constant `SEARCH_QUERY_GRANT` is never used
+  --> user/nagi-init/src/m19_search_service.rs:23:7
+   |
+23 | const SEARCH_QUERY_GRANT: &[u8] = b"search.query";
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `FILES_SEARCH_GRANT` is never used
+  --> user/nagi-init/src/m19_search_service.rs:24:7
+   |
+24 | const FILES_SEARCH_GRANT: &[u8] = b"files.search";
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: function `evaluate_files` is never used
+  --> user/nagi-init/src/m19_search_service.rs:42:15
+   |
+42 | pub(super) fn evaluate_files(
+   |               ^^^^^^^^^^^^^^
+
+warning: constant `PIPELINE_IDLE` is never used
+  --> user/nagi-init/src/m25_voice.rs:12:7
+   |
+12 | const PIPELINE_IDLE: u8 = 0;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `PERMISSION_ACCEPTED` is never used
+  --> user/nagi-init/src/m25_voice.rs:13:7
+   |
+13 | const PERMISSION_ACCEPTED: u8 = 1;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `INDICATOR_SHOWN` is never used
+  --> user/nagi-init/src/m25_voice.rs:14:7
+   |
+14 | const INDICATOR_SHOWN: u8 = 2;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `PROVIDER_ACTIVE` is never used
+  --> user/nagi-init/src/m25_voice.rs:15:7
+   |
+15 | const PROVIDER_ACTIVE: u8 = 3;
+   |       ^^^^^^^^^^^^^^^
+
+warning: constant `PROVIDER_FINISHED` is never used
+  --> user/nagi-init/src/m25_voice.rs:16:7
+   |
+16 | const PROVIDER_FINISHED: u8 = 4;
+   |       ^^^^^^^^^^^^^^^^^
+
+warning: constant `CLEANED_UP` is never used
+  --> user/nagi-init/src/m25_voice.rs:17:7
+   |
+17 | const CLEANED_UP: u8 = 5;
+   |       ^^^^^^^^^^
+
+warning: constant `INVALID_ORDER` is never used
+  --> user/nagi-init/src/m25_voice.rs:18:7
+   |
+18 | const INVALID_ORDER: u8 = u8::MAX;
+   |       ^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_PCM_FRAMES` is never used
+  --> user/nagi-init/src/m25_voice.rs:19:7
+   |
+19 | const FIXTURE_PCM_FRAMES: usize = 128;
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_PCM_BYTES` is never used
+  --> user/nagi-init/src/m25_voice.rs:20:7
+   |
+20 | const FIXTURE_PCM_BYTES: usize = FIXTURE_PCM_FRAMES * 4;
+   |       ^^^^^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_TRANSCRIPT` is never used
+  --> user/nagi-init/src/m25_voice.rs:21:7
+   |
+21 | const FIXTURE_TRANSCRIPT: &[u8] = "アルバートを開いて".as_bytes();
+   |       ^^^^^^^^^^^^^^^^^^
+
+warning: static `PIPELINE_STAGE` is never used
+  --> user/nagi-init/src/m25_voice.rs:23:8
+   |
+23 | static PIPELINE_STAGE: AtomicU8 = AtomicU8::new(PIPELINE_IDLE);
+   |        ^^^^^^^^^^^^^^
+
+warning: static `INDICATOR_VISIBLE` is never used
+  --> user/nagi-init/src/m25_voice.rs:24:8
+   |
+24 | static INDICATOR_VISIBLE: AtomicBool = AtomicBool::new(false);
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: static `CAPTURE_CALLS` is never used
+  --> user/nagi-init/src/m25_voice.rs:25:8
+   |
+25 | static CAPTURE_CALLS: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^
+
+warning: static `FORWARDED_BYTES` is never used
+  --> user/nagi-init/src/m25_voice.rs:26:8
+   |
+26 | static FORWARDED_BYTES: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^^
+
+warning: static `PCM_DIGEST` is never used
+  --> user/nagi-init/src/m25_voice.rs:27:8
+   |
+27 | static PCM_DIGEST: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^
+
+warning: static `PROVIDER_CANCELS` is never used
+  --> user/nagi-init/src/m25_voice.rs:28:8
+   |
+28 | static PROVIDER_CANCELS: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^^^
+
+warning: static `TTS_PLAYBACK_CHUNKS` is never used
+  --> user/nagi-init/src/m25_voice.rs:29:8
+   |
+29 | static TTS_PLAYBACK_CHUNKS: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: static `TTS_PLAYBACK_BYTES` is never used
+  --> user/nagi-init/src/m25_voice.rs:30:8
+   |
+30 | static TTS_PLAYBACK_BYTES: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^^^^^
+
+warning: static `TTS_PCM_DIGEST` is never used
+  --> user/nagi-init/src/m25_voice.rs:31:8
+   |
+31 | static TTS_PCM_DIGEST: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^
+
+warning: static `TTS_PROVIDER_CANCELS` is never used
+  --> user/nagi-init/src/m25_voice.rs:32:8
+   |
+32 | static TTS_PROVIDER_CANCELS: AtomicUsize = AtomicUsize::new(0);
+   |        ^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_TTS_PCM` is never used
+  --> user/nagi-init/src/m25_voice.rs:34:7
+   |
+34 | const FIXTURE_TTS_PCM: [[u8; 4]; 2] = [[0x10, 0x20, 0x30, 0x40], [0x50, 0x60, 0x70, 0x80]];
+   |       ^^^^^^^^^^^^^^^
+
+warning: struct `FixtureAuthority` is never constructed
+  --> user/nagi-init/src/m25_voice.rs:36:8
+   |
+36 | struct FixtureAuthority {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: struct `FixtureIndicator` is never constructed
+  --> user/nagi-init/src/m25_voice.rs:61:8
+   |
+61 | struct FixtureIndicator;
+   |        ^^^^^^^^^^^^^^^^
+
+warning: struct `FixtureCapture` is never constructed
+  --> user/nagi-init/src/m25_voice.rs:97:8
+   |
+97 | struct FixtureCapture;
+   |        ^^^^^^^^^^^^^^
+
+warning: struct `FixtureProvider` is never constructed
+   --> user/nagi-init/src/m25_voice.rs:120:8
+    |
+120 | struct FixtureProvider {
+    |        ^^^^^^^^^^^^^^^
+
+warning: struct `FixtureTtsProvider` is never constructed
+   --> user/nagi-init/src/m25_voice.rs:194:8
+    |
+194 | struct FixtureTtsProvider {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: struct `FixtureAudioSink` is never constructed
+   --> user/nagi-init/src/m25_voice.rs:234:8
+    |
+234 | struct FixtureAudioSink;
+    |        ^^^^^^^^^^^^^^^^
+
+warning: type alias `FixtureService` is never used
+   --> user/nagi-init/src/m25_voice.rs:254:6
+    |
+254 | type FixtureService = PushToTalkService<
+    |      ^^^^^^^^^^^^^^
+
+warning: function `service` is never used
+   --> user/nagi-init/src/m25_voice.rs:261:4
+    |
+261 | fn service(allow: bool) -> FixtureService {
+    |    ^^^^^^^
+
+warning: function `service_with_empty_transcript` is never used
+   --> user/nagi-init/src/m25_voice.rs:265:4
+    |
+265 | fn service_with_empty_transcript(allow: bool, empty_transcript: bool) -> FixtureService {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `service_with_transcript` is never used
+   --> user/nagi-init/src/m25_voice.rs:269:4
+    |
+269 | fn service_with_transcript(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `marker` is never used
+   --> user/nagi-init/src/m25_voice.rs:285:4
+    |
+285 | fn marker(message: &[u8]) -> bool {
+    |    ^^^^^^
+
+warning: function `run` is never used
+   --> user/nagi-init/src/m25_voice.rs:289:8
+    |
+289 | pub fn run() -> bool {
+    |        ^^^
+
+warning: `nagi-init` (bin "nagi-init") generated 43 warnings (run `cargo fix --bin "nagi-init"` to apply 3 suggestions)
+    Finished `release` profile [optimized] target(s) in 1m 29s
+build exit=0 2026-10-09T02:57:56+00:00
+-rwxr-xr-x 2 sandbox sandbox 1971064 Oct  9 02:57 target/x86_64-unknown-nagi-user/release/nagi-init
+a1102f1d7e27a65ab39155c6ceca01eee509ca6f5c113657e37f90b68c3bdf92  target/x86_64-unknown-nagi-user/release/nagi-init
