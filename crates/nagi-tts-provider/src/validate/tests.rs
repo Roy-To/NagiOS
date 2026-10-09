@@ -52,7 +52,13 @@ struct Voice {
     duration: ModelBytes,
     streams: [ModelBytes; 3],
     windows: [&'static str; 3],
+    /// How many times each stream's `STREAM_WIN` range is listed.
+    window_repeat: [usize; 3],
     extra_position: String,
+    /// `(pdf value index, value)` written into every duration PDF.
+    duration_value: Option<(usize, f32)>,
+    /// `(stream, pdf value index, value)` written into every PDF of a stream.
+    stream_value: Option<(usize, usize, f32)>,
 }
 
 fn two_leaf_tree(prefix: &str) -> String {
@@ -74,42 +80,67 @@ impl Voice {
             duration: model("dur", 2),
             streams: [model("mcp", 6), model("lf0", 3), model("lpf", 2)],
             windows: ["1 1.0\n", "1 1.0\n", "1 1.0\n"],
+            window_repeat: [1; 3],
             extra_position: String::new(),
+            duration_value: None,
+            stream_value: None,
         }
     }
 
     fn bytes(&self) -> Vec<u8> {
         // Means: duration 5 frames, spectrum/LPF small, LF0 voiced ~ log(150).
-        let duration = |i: usize| if i == 0 { 5.0 } else { 1.0 };
+        let duration_value = self.duration_value;
+        let duration = move |i: usize| match duration_value {
+            Some((at, value)) if at == i => value,
+            _ if i == 0 => 5.0,
+            _ => 1.0,
+        };
+        let override_value = self.stream_value;
         let stream_value = |stream: usize| {
-            move |i: usize| match (stream, i) {
-                (1, 0) => 5.0,
-                (1, 2) => 1.0,
-                (_, 0) => 0.1,
+            move |i: usize| match (override_value, stream, i) {
+                (Some((s, at, value)), _, _) if s == stream && at == i => value,
+                (_, 1, 0) => 5.0,
+                (_, 1, 2) => 1.0,
+                (_, _, 0) => 0.1,
                 _ => 1.0,
             }
         };
         let mut data = Vec::new();
         let mut position = String::new();
-        let mut push = |name: &str, bytes: &[u8], data: &mut Vec<u8>| {
+        fn push_position(position: &mut String, name: &str, ranges: &str) {
+            position.push_str(&format!("{name}:{ranges}\n"));
+        }
+        let push = |position: &mut String, name: &str, bytes: &[u8], data: &mut Vec<u8>| {
             let start = data.len();
             data.extend_from_slice(bytes);
-            position.push_str(&format!("{name}:{start}-{}\n", data.len() - 1));
+            push_position(position, name, &format!("{start}-{}", data.len() - 1));
         };
-        push("DURATION_PDF", &self.duration.pdf(duration), &mut data);
-        push("DURATION_TREE", self.duration.tree.as_bytes(), &mut data);
+        push(
+            &mut position,
+            "DURATION_PDF",
+            &self.duration.pdf(duration),
+            &mut data,
+        );
+        push(
+            &mut position,
+            "DURATION_TREE",
+            self.duration.tree.as_bytes(),
+            &mut data,
+        );
         for (index, name) in ["MCP", "LF0", "LPF"].iter().enumerate() {
+            let start = data.len();
+            data.extend_from_slice(self.windows[index].as_bytes());
+            let range = format!("{start}-{}", data.len() - 1);
+            let listed = vec![range; self.window_repeat[index]].join(",");
+            push_position(&mut position, &format!("STREAM_WIN[{name}]"), &listed);
             push(
-                &format!("STREAM_WIN[{name}]"),
-                self.windows[index].as_bytes(),
-                &mut data,
-            );
-            push(
+                &mut position,
                 &format!("STREAM_PDF[{name}]"),
                 &self.streams[index].pdf(stream_value(index)),
                 &mut data,
             );
             push(
+                &mut position,
                 &format!("STREAM_TREE[{name}]"),
                 self.streams[index].tree.as_bytes(),
                 &mut data,
@@ -412,6 +443,208 @@ fn bounded_voice_mutations_never_panic() {
     }
     // Most mutations hit PDF values and must still synthesize.
     assert!(survivors > 0);
+}
+
+/// What happens to `bytes` when the provider's validator is *bypassed*:
+/// jbonsai parses them and synthesizes the fixed labels. Panics are caught
+/// and described. Used to document the pre-validation behaviour of each
+/// regression in its failure message.
+fn unvalidated(bytes: &[u8]) -> String {
+    let engine = match Engine::load_from_bytes([bytes]) {
+        Ok(engine) => engine,
+        Err(error) => return format!("jbonsai parse error, no panic ({error})"),
+    };
+    let labels: Vec<jlabel::Label> = LABELS.iter().map(|l| l.parse().unwrap()).collect();
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        let mut generator = engine.generator(labels).map_err(|e| e.to_string())?;
+        let mut frame = vec![0.0f64; generator.fperiod()];
+        let (mut samples, mut non_finite) = (0usize, 0usize);
+        while generator.generate_step(&mut frame) != 0 {
+            samples += frame.len();
+            non_finite += frame.iter().filter(|s| !s.is_finite()).count();
+            if samples > 48_000 * 60 {
+                return Err("still synthesizing after 60 s".to_owned());
+            }
+        }
+        Ok((samples, non_finite))
+    }));
+    match run {
+        Ok(Ok((samples, non_finite))) => {
+            format!("synthesized {samples} samples ({non_finite} non-finite)")
+        }
+        Ok(Err(error)) => format!("engine error, no panic ({error})"),
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                .unwrap_or_default();
+            format!("PANIC: {message}")
+        }
+    }
+}
+
+/// Checks every case is rejected by both the validator and the loader, and
+/// reports all misses at once with what jbonsai does without the check.
+fn assert_all_invalid(cases: &[(Voice, &str)]) {
+    let mut misses = Vec::new();
+    for (voice, case) in cases {
+        let bytes = voice.bytes();
+        let validator = check_voice_structure(&bytes);
+        let loader = JbonsaiBackend::from_bytes(&bytes, DictionaryBytes::default()).err();
+        if validator != Err(LoadError::VoiceInvalid) || loader != Some(LoadError::VoiceInvalid) {
+            misses.push(format!(
+                "{case}: validator {validator:?}, loader {loader:?}; unvalidated: {}",
+                unvalidated(&bytes)
+            ));
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "accepted malformed voices:\n{}",
+        misses.join("\n")
+    );
+}
+
+fn assert_synthesizes(voice: &Voice, case: &str) {
+    let bytes = voice.bytes();
+    assert_eq!(check_voice_structure(&bytes), Ok(()), "{case}: validator");
+    match outcome(&bytes) {
+        Outcome::Synthesized(Ok(samples)) if samples > 0 => {}
+        other => panic!("{case}: must synthesize, got {other:?}"),
+    }
+}
+
+/// Review finding 1: the duration PDF values were not range-checked. jbonsai
+/// 0.4.2 computes each state duration as `mean.round().max(1.0) as usize`,
+/// so `f32::MAX` or `+inf` becomes `usize::MAX` frames, and the provider's
+/// planner (and jbonsai's own generator) then sums those durations.
+#[test]
+fn duration_pdf_values_must_be_finite_and_bounded() {
+    // NUM_STATES is 1: value 0 is the state mean, value 1 its variance.
+    let with = |at: usize, value: f32| {
+        let mut voice = Voice::valid();
+        voice.duration_value = Some((at, value));
+        voice
+    };
+    assert_all_invalid(&[
+        (with(0, f32::MAX), "duration mean f32::MAX"),
+        (with(0, f32::INFINITY), "duration mean +inf"),
+        (with(0, f32::NAN), "duration mean NaN"),
+        (with(0, -5.0), "duration mean negative"),
+        (with(0, f32::NEG_INFINITY), "duration mean -inf"),
+        (
+            with(0, MAX_DURATION_MEAN_FRAMES * 2.0),
+            "duration mean above the bound",
+        ),
+        (with(1, f32::NAN), "duration variance NaN"),
+        (with(1, f32::INFINITY), "duration variance +inf"),
+        (with(1, 0.0), "duration variance zero"),
+        (with(1, -1.0), "duration variance negative"),
+    ]);
+    // The bounds themselves stay usable.
+    for (at, value) in [(0, 0.0), (0, 1.0), (0, 400.0), (1, MAX_DURATION_VARIANCE)] {
+        assert_synthesizes(&with(at, value), &format!("duration value {at}={value}"));
+    }
+}
+
+/// Stream and GV PDFs must be finite, with non-negative variances and MSD
+/// weights in [0, 1]. Zero variances stay accepted: the pinned LPF stream
+/// has them.
+#[test]
+fn stream_pdf_values_must_be_finite() {
+    let with = |stream: usize, at: usize, value: f32| {
+        let mut voice = Voice::valid();
+        voice.stream_value = Some((stream, at, value));
+        voice
+    };
+    assert_all_invalid(&[
+        (with(0, 0, f32::NAN), "spectrum mean NaN"),
+        (with(0, 0, f32::INFINITY), "spectrum mean +inf"),
+        (with(0, 3, -1.0), "spectrum variance negative"),
+        (with(1, 0, f32::NEG_INFINITY), "log F0 mean -inf"),
+        (with(1, 2, 1.5), "MSD weight above 1"),
+        (with(1, 2, -0.5), "MSD weight negative"),
+        (with(1, 2, f32::NAN), "MSD weight NaN"),
+        (with(2, 1, f32::NAN), "LPF variance NaN"),
+    ]);
+    assert_synthesizes(&with(2, 1, 0.0), "LPF zero variance");
+    assert_synthesizes(&with(1, 2, 0.0), "MSD weight 0 (unvoiced)");
+    assert_synthesizes(&with(0, 0, -1.0e6), "large finite spectrum mean");
+}
+
+/// Review finding 2a: jbonsai's SpeechGenerator::new asserts that the log F0
+/// stream (index 1) has a one-element static vector and the LPF stream
+/// (index 2) an odd one; both were accepted by the validator.
+#[test]
+fn vocoder_stream_shapes_are_role_checked() {
+    let shaped = |stream: usize, from: &str, to: &str, pdf_len: usize| {
+        let mut voice = Voice::valid();
+        assert!(voice.stream.contains(from), "{from}");
+        voice.stream = voice.stream.replacen(from, to, 1);
+        voice.streams[stream].pdf_len = pdf_len;
+        voice
+    };
+    assert_all_invalid(&[
+        (
+            shaped(1, "VECTOR_LENGTH[LF0]:1", "VECTOR_LENGTH[LF0]:2", 2 * 2 + 1),
+            "log F0 vector length 2",
+        ),
+        (
+            shaped(2, "VECTOR_LENGTH[LPF]:1", "VECTOR_LENGTH[LPF]:2", 2 * 2),
+            "LPF vector length 2 (even)",
+        ),
+    ]);
+    assert_synthesizes(
+        &shaped(2, "VECTOR_LENGTH[LPF]:1", "VECTOR_LENGTH[LPF]:3", 3 * 2),
+        "LPF vector length 3",
+    );
+    assert_synthesizes(
+        &shaped(0, "VECTOR_LENGTH[MCP]:3", "VECTOR_LENGTH[MCP]:4", 4 * 2),
+        "even spectrum vector length",
+    );
+}
+
+/// Review finding 2b: the number of STREAM_WIN rows was not compared with
+/// NUM_WINDOWS. MlpgAdjust::create reads the PDF at
+/// `vector_length * window + i` for every listed row, so an extra (for
+/// example duplicated) row indexes past the PDF.
+#[test]
+fn window_rows_must_match_num_windows() {
+    let repeated = |stream: usize, times: usize| {
+        let mut voice = Voice::valid();
+        voice.window_repeat[stream] = times;
+        voice
+    };
+    let row = |stream: usize, text: &'static str| {
+        let mut voice = Voice::valid();
+        voice.windows[stream] = text;
+        voice
+    };
+    let mut fewer = Voice::valid();
+    fewer.stream = fewer
+        .stream
+        .replacen("NUM_WINDOWS[MCP]:1", "NUM_WINDOWS[MCP]:2", 1);
+    fewer.streams[0].pdf_len = 3 * 2 * 2;
+    assert_all_invalid(&[
+        (repeated(0, 2), "spectrum window row duplicated"),
+        (repeated(2, 2), "LPF window row duplicated"),
+        (repeated(1, 3), "log F0 window row listed three times"),
+        (fewer, "fewer window rows than NUM_WINDOWS"),
+        (row(0, "2 0.5 0.5\n"), "even window width"),
+        (row(0, "1 inf\n"), "non-finite window coefficient"),
+        (row(0, "3 1.0\n"), "fewer coefficients than declared"),
+        (row(0, "1 1.0 2.0\n"), "more coefficients than declared"),
+        (row(0, "17 1.0\n"), "window wider than the bound"),
+        (row(0, "x 1.0\n"), "window without a count"),
+    ]);
+    // Rows may repeat as long as their count matches NUM_WINDOWS.
+    let mut matching = repeated(0, 3);
+    matching.stream = matching
+        .stream
+        .replacen("NUM_WINDOWS[MCP]:1", "NUM_WINDOWS[MCP]:3", 1);
+    matching.streams[0].pdf_len = 3 * 3 * 2;
+    assert_synthesizes(&matching, "three rows for three windows");
 }
 
 // ---------------------------------------------------------------------------

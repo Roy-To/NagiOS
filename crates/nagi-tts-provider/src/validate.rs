@@ -39,6 +39,24 @@ pub(crate) const MAX_VOICE_WINDOWS: usize = 16;
 /// jbonsai's header deserializer multiplies without overflow checks; 18
 /// digits always fit in a `u64`.
 pub(crate) const MAX_HEADER_DIGITS: usize = 18;
+/// Largest coefficient count accepted for one `STREAM_WIN` row (the pinned
+/// voice uses 1 and 3).
+pub(crate) const MAX_WINDOW_WIDTH: usize = 15;
+/// Largest duration-PDF mean accepted, in frames per HMM state (the pinned
+/// voice's largest is about 94; 2,000 frames is 10 s at 5 ms frames).
+/// jbonsai 0.4.2 rounds the mean and casts it to `usize` with saturation, so
+/// `+inf` or `f32::MAX` would become a `usize::MAX`-frame state.
+pub(crate) const MAX_DURATION_MEAN_FRAMES: f32 = 2_000.0;
+/// Largest duration-PDF variance accepted (the pinned voice's largest is
+/// about 2,203).
+pub(crate) const MAX_DURATION_VARIANCE: f32 = 1.0e6;
+/// Stream index jbonsai's vocoder reads as log F0; its static vector must
+/// have exactly one element (`SpeechGenerator::new` panics otherwise).
+const LF0_STREAM: usize = 1;
+/// Stream index jbonsai's vocoder reads as low-pass filter coefficients; its
+/// static vector length must be odd (`SpeechGenerator::new` panics
+/// otherwise).
+const LPF_STREAM: usize = 2;
 
 // ---------------------------------------------------------------------------
 // Voice (.htsvoice)
@@ -54,6 +72,20 @@ struct ModelSpec {
     pdf: Range,
     pdf_len: usize,
     states: core::ops::RangeInclusive<usize>,
+    role: PdfRole,
+}
+
+/// How the `f32` values of one PDF are used, which decides their numeric
+/// invariants. Every PDF is `half` means, then `half` variances, then (MSD
+/// streams only) one voiced weight.
+#[derive(Clone, Copy)]
+enum PdfRole {
+    /// State durations: means become frame counts, variances divide.
+    Duration,
+    /// Spectrum / log F0 / LPF statistics, optionally with an MSD weight.
+    Stream { msd: bool },
+    /// Global variance statistics.
+    GlobalVariance,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,13 +204,47 @@ pub(crate) fn check_voice_structure(voice: &[u8]) -> Result<(), LoadError> {
         pdf: range("DURATION_PDF")?,
         pdf_len: num_states.checked_mul(2).ok_or(invalid)?,
         states: 2..=2,
+        role: PdfRole::Duration,
     }];
-    for name in &stream_types {
+    let ranges = |key: &str| -> Result<Vec<Range>, LoadError> {
+        let value = lookup("POSITION", key).ok_or(invalid)?;
+        value
+            .split(',')
+            .map(|range| {
+                let (start, end) = range.split_once('-').ok_or(invalid)?;
+                let start: usize = start.trim().parse().map_err(|_| invalid)?;
+                let end: usize = end.trim().parse().map_err(|_| invalid)?;
+                if start > end || end >= data.len() {
+                    return Err(invalid);
+                }
+                Ok((start, end))
+            })
+            .collect()
+    };
+    for (index, name) in stream_types.iter().enumerate() {
         let key = |field: &str| format!("{field}[{name}]");
         let vector_length = number("STREAM", &key("VECTOR_LENGTH"), MAX_VOICE_VECTOR_LENGTH)?;
         let windows = number("STREAM", &key("NUM_WINDOWS"), MAX_VOICE_WINDOWS)?;
         let is_msd = flag("STREAM", &key("IS_MSD"))?;
         let use_gv = flag("STREAM", &key("USE_GV"))?;
+        // Role-specific static vector shapes jbonsai's SpeechGenerator::new
+        // asserts (it panics instead of returning an error).
+        if (index == LF0_STREAM && vector_length != 1)
+            || (index == LPF_STREAM && vector_length.is_multiple_of(2))
+        {
+            return Err(invalid);
+        }
+        // MlpgAdjust indexes the PDF at `vector_length * window + i` for
+        // every window row listed; more rows than NUM_WINDOWS (for example a
+        // duplicated range) would index past the PDF, fewer would silently
+        // drop dynamic features.
+        let window_ranges = ranges(&key("STREAM_WIN"))?;
+        if window_ranges.len() != windows {
+            return Err(invalid);
+        }
+        for (start, end) in window_ranges {
+            check_window(&data[start..=end])?;
+        }
         let pdf_len = vector_length
             .checked_mul(windows)
             .and_then(|n| n.checked_mul(2))
@@ -189,6 +255,7 @@ pub(crate) fn check_voice_structure(voice: &[u8]) -> Result<(), LoadError> {
             pdf: range(&key("STREAM_PDF"))?,
             pdf_len,
             states: 2..=last_state,
+            role: PdfRole::Stream { msd: is_msd },
         });
         if use_gv {
             models.push(ModelSpec {
@@ -196,11 +263,87 @@ pub(crate) fn check_voice_structure(voice: &[u8]) -> Result<(), LoadError> {
                 pdf: range(&key("GV_PDF"))?,
                 pdf_len: vector_length.checked_mul(2).ok_or(invalid)?,
                 states: 2..=2,
+                role: PdfRole::GlobalVariance,
             });
         }
     }
     for model in &models {
         check_model(data, model)?;
+    }
+    Ok(())
+}
+
+/// One `STREAM_WIN` row as jbonsai parses it: a coefficient count followed
+/// by that many decimal coefficients, separated by spaces, then trailing
+/// separators. Accepts only odd widths up to [`MAX_WINDOW_WIDTH`] and finite
+/// coefficients.
+fn check_window(text: &[u8]) -> Result<(), LoadError> {
+    let invalid = LoadError::VoiceInvalid;
+    let text = core::str::from_utf8(text).map_err(|_| invalid)?;
+    let body = text.trim_end_matches([' ', '\n']);
+    if body.contains(['\n', '\t', '\r']) {
+        return Err(invalid);
+    }
+    let mut tokens = body.split(' ').filter(|token| !token.is_empty());
+    let count = tokens.next().ok_or(invalid)?;
+    if count.is_empty() || !count.bytes().all(|b| b.is_ascii_digit()) || count.len() > 3 {
+        return Err(invalid);
+    }
+    let count: usize = count.parse().map_err(|_| invalid)?;
+    if count == 0 || count > MAX_WINDOW_WIDTH || count.is_multiple_of(2) {
+        return Err(invalid);
+    }
+    let mut seen = 0usize;
+    for token in tokens {
+        let value: f64 = token.parse().map_err(|_| invalid)?;
+        if !value.is_finite() {
+            return Err(invalid);
+        }
+        seen += 1;
+    }
+    if seen != count {
+        return Err(invalid);
+    }
+    Ok(())
+}
+
+/// Numeric invariants of one model's PDF values (`values` holds whole PDFs
+/// of `pdf_len` floats each).
+fn check_pdf_values(values: &[u8], pdf_len: usize, role: PdfRole) -> Result<(), LoadError> {
+    let invalid = LoadError::VoiceInvalid;
+    let msd = matches!(role, PdfRole::Stream { msd: true });
+    let half = (pdf_len - usize::from(msd)) / 2;
+    let floats: Vec<f32> = values
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    for pdf in floats.chunks_exact(pdf_len) {
+        if pdf.iter().any(|value| !value.is_finite()) {
+            return Err(invalid);
+        }
+        let (means, rest) = pdf.split_at(half);
+        let (variances, weight) = rest.split_at(half);
+        let ok = match role {
+            // Means become per-state frame counts; variances are divisors
+            // when the speaking rate is changed.
+            PdfRole::Duration => {
+                means
+                    .iter()
+                    .all(|mean| (0.0..=MAX_DURATION_MEAN_FRAMES).contains(mean))
+                    && variances
+                        .iter()
+                        .all(|vari| *vari > 0.0 && *vari <= MAX_DURATION_VARIANCE)
+            }
+            // The pinned LPF stream carries zero variances; jbonsai maps them
+            // to a large inverse variance, so only negatives are rejected.
+            PdfRole::Stream { .. } | PdfRole::GlobalVariance => {
+                variances.iter().all(|vari| *vari >= 0.0)
+                    && weight.iter().all(|w| (0.0..=1.0).contains(w))
+            }
+        };
+        if !ok {
+            return Err(invalid);
+        }
     }
     Ok(())
 }
@@ -250,6 +393,7 @@ fn check_model(data: &[u8], spec: &ModelSpec) -> Result<(), LoadError> {
     if expected != pdf.len() {
         return Err(invalid);
     }
+    check_pdf_values(&pdf[header_bytes..], spec.pdf_len, spec.role)?;
 
     // Every state synthesis looks up must have a tree.
     for state in spec.states.clone() {
