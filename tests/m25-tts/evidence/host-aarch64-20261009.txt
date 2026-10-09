@@ -1,62 +1,225 @@
+# tests/m25-tts/measure.sh output (WHISPER_CLI/WHISPER_MODEL set: whisper.cpp ggml-base, host only).
+# Run 2026-10-09 10:19 JST on 582e08a plus the uncommitted crate/measure.sh changes that are committed on top of it in this branch (code identical).
+# The sandbox 'date' prints local JST even for -u; the date_utc line is therefore JST.
+# Host evidence only: Linux aarch64, not Nagi/QEMU, no AudioService playback.
 == host
-date_jst=2026-10-09T09:30+0900
+date_utc=2026-10-09T01:19:39Z
+commit=582e08a59ff73411dca5fa98d5b255beaacbd9b2
 uname=Linux 6.12.110+ aarch64
 cpu=Neoverse-V2 cpus=2
 mem_total_kib=8136692
-loadavg_before=2.67 2.39 2.23
+loadavg_before=2.54 2.01 2.37
 rustc=rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)
+profile=release (codegen-units=1), single thread
 voice_sha256=ded6acb4243b93cc50896199d67b00a7c487662bfcdcd3f9f30a4fb0444b0b46
-== commands (stereo48k)
-  load_seconds=0.085
-  utterance=0 text_bytes=33 pcm_bytes=309120 audio_seconds=1.610 first_chunk_seconds=0.0091 synth_seconds=0.0291 rtf=0.0181
-  utterance=1 text_bytes=27 pcm_bytes=265920 audio_seconds=1.385 first_chunk_seconds=0.0077 synth_seconds=0.0254 rtf=0.0183
-  utterance=2 text_bytes=33 pcm_bytes=316800 audio_seconds=1.650 first_chunk_seconds=0.0087 synth_seconds=0.0292 rtf=0.0177
-  utterance=3 text_bytes=36 pcm_bytes=308160 audio_seconds=1.605 first_chunk_seconds=0.0086 synth_seconds=0.0284 rtf=0.0177
-  wav=/workspace/work/wt-m25-tts/out/tts-eval/commands.wav format=stereo48k
-  User time (seconds): 0.12
-  System time (seconds): 0.07
-  Percent of CPU this job got: 96%
-  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.21
-  Maximum resident set size (kbytes): 120724
+== synth commands (stereo48k, expect ok)
+  load_seconds=0.097
+  utterance=0 text_bytes=33 result=ok pcm_bytes=325440 audio_seconds=1.695 first_chunk_seconds=0.0081 synth_seconds=0.0245 rtf=0.0145
+  utterance=1 text_bytes=27 result=ok pcm_bytes=264000 audio_seconds=1.375 first_chunk_seconds=0.0076 synth_seconds=0.0210 rtf=0.0153
+  utterance=2 text_bytes=33 result=ok pcm_bytes=330240 audio_seconds=1.720 first_chunk_seconds=0.0079 synth_seconds=0.0248 rtf=0.0144
+  utterance=3 text_bytes=36 result=ok pcm_bytes=314880 audio_seconds=1.640 first_chunk_seconds=0.0079 synth_seconds=0.0240 rtf=0.0146
+  wav=out/tts-eval/commands.wav format=stereo48k
+  OUTCOME=SUCCESS
+  User time (seconds): 0.11
+  System time (seconds): 0.08
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.20
+  Maximum resident set size (kbytes): 120540
   whisper_transcript=こんにちは、何です。アルバートを開いて、今日の天気は晴れです。ファイルを保存しました。
-== commands_mono16k (mono16k)
-  load_seconds=0.067
-  utterance=0 text_bytes=33 pcm_bytes=51604 audio_seconds=1.613 first_chunk_seconds=0.0097 synth_seconds=0.0320 rtf=0.0198
-  utterance=1 text_bytes=27 pcm_bytes=44404 audio_seconds=1.388 first_chunk_seconds=0.0086 synth_seconds=0.0282 rtf=0.0203
-  wav=/workspace/work/wt-m25-tts/out/tts-eval/commands_mono16k.wav format=mono16k
-  User time (seconds): 0.08
-  System time (seconds): 0.05
-  Percent of CPU this job got: 97%
-  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
-  Maximum resident set size (kbytes): 120788
-  whisper_transcript=こんにちは、何です。アルバートを開いて。
-== numbers (stereo48k)
-  load_seconds=0.071
-  utterance=0 text_bytes=56 pcm_bytes=694080 audio_seconds=3.615 first_chunk_seconds=0.0115 synth_seconds=0.0519 rtf=0.0143
-  wav=/workspace/work/wt-m25-tts/out/tts-eval/numbers.wav format=stereo48k
-  User time (seconds): 0.07
-  System time (seconds): 0.05
-  Percent of CPU this job got: 97%
-  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
-  Maximum resident set size (kbytes): 120788
-  whisper_transcript=会議は午後3時から、参加者は12人です。
-== near_cap (stereo48k)
+== synth commands_mono16k (mono16k, expect ok)
   load_seconds=0.066
-  utterance=0 text_bytes=69 pcm_bytes=761280 audio_seconds=3.965 first_chunk_seconds=0.0111 synth_seconds=0.0549 rtf=0.0138
-  wav=/workspace/work/wt-m25-tts/out/tts-eval/near_cap.wav format=stereo48k
+  utterance=0 text_bytes=33 result=ok pcm_bytes=54324 audio_seconds=1.698 first_chunk_seconds=0.0091 synth_seconds=0.0277 rtf=0.0163
+  utterance=1 text_bytes=27 result=ok pcm_bytes=44084 audio_seconds=1.378 first_chunk_seconds=0.0088 synth_seconds=0.0237 rtf=0.0172
+  wav=out/tts-eval/commands_mono16k.wav format=mono16k
+  OUTCOME=SUCCESS
   User time (seconds): 0.07
   System time (seconds): 0.05
-  Percent of CPU this job got: 96%
   Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
-  Maximum resident set size (kbytes): 120776
+  Maximum resident set size (kbytes): 120584
+  whisper_transcript=こんにちは、何です。アルバートを開いて。
+== synth numbers (stereo48k, expect ok)
+  load_seconds=0.066
+  utterance=0 text_bytes=56 result=ok pcm_bytes=709440 audio_seconds=3.695 first_chunk_seconds=0.0102 synth_seconds=0.0468 rtf=0.0127
+  wav=out/tts-eval/numbers.wav format=stereo48k
+  OUTCOME=SUCCESS
+  User time (seconds): 0.06
+  System time (seconds): 0.05
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.12
+  Maximum resident set size (kbytes): 120592
+  whisper_transcript=会議は午後3時から、参加者は12人です。
+== synth near_cap (stereo48k, expect ok)
+  load_seconds=0.067
+  utterance=0 text_bytes=69 result=ok pcm_bytes=766080 audio_seconds=3.990 first_chunk_seconds=0.0110 synth_seconds=0.0505 rtf=0.0127
+  wav=out/tts-eval/near_cap.wav format=stereo48k
+  OUTCOME=SUCCESS
+  User time (seconds): 0.07
+  System time (seconds): 0.05
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
+  Maximum resident set size (kbytes): 120596
   whisper_transcript=日本語の音声後声が、ローカルで動作しています。
-== over_cap (stereo48k)
-  load_seconds=0.082
-  thread 'main' panicked at examples/synthesize.rs:62:31:
-  utterance 0 failed: Failed
-  User time (seconds): 0.08
-  System time (seconds): 0.07
-  Percent of CPU this job got: 96%
-  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.16
-  Maximum resident set size (kbytes): 120772
-loadavg_after=2.49 2.36 2.23
+== synth over_cap (stereo48k, expect reject)
+  load_seconds=0.065
+  utterance=0 text_bytes=96 result=error stage=begin error=Failed
+  OUTCOME=EXPECTED_REJECT (bounded provider error, no WAV, not a measurement)
+== worst sentences (stereo48k, expect reject)
+  kind=sentences format=stereo48k text_bytes=1008
+  vm_hwm_after_load_kib=120668 vm_rss_after_load_kib=86392
+  plan_seconds=0.0015 labels=625 total_frames=12889 emitted_frames=12693 budget_frames=1092
+  begin_seconds=0.0007 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120668
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120668
+== worst kanji (stereo48k, expect reject)
+  kind=kanji format=stereo48k text_bytes=1008
+  vm_hwm_after_load_kib=120724 vm_rss_after_load_kib=86428
+  plan_seconds=0.0009 labels=914 total_frames=16173 emitted_frames=15977 budget_frames=1092
+  begin_seconds=0.0008 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120724
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120724
+== worst digits (stereo48k, expect reject)
+  kind=digits format=stereo48k text_bytes=1020
+  vm_hwm_after_load_kib=120716 vm_rss_after_load_kib=86424
+  plan_seconds=0.0046 labels=3266 total_frames=50191 emitted_frames=50001 budget_frames=1092
+  begin_seconds=0.0037 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120716
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.03
+  Maximum resident set size (kbytes): 120716
+== worst latin (stereo48k, expect reject)
+  kind=latin format=stereo48k text_bytes=1024
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86436
+  plan_seconds=0.0022 labels=2050 total_frames=35040 emitted_frames=34850 budget_frames=1092
+  begin_seconds=0.0015 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120728
+== worst mixed (stereo48k, expect reject)
+  kind=mixed format=stereo48k text_bytes=999
+  vm_hwm_after_load_kib=120716 vm_rss_after_load_kib=86424
+  plan_seconds=0.0019 labels=1222 total_frames=23577 emitted_frames=23381 budget_frames=1092
+  begin_seconds=0.0013 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120716
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.02
+  Maximum resident set size (kbytes): 120716
+== worst sentences (mono16k, expect reject)
+  kind=sentences format=mono16k text_bytes=1008
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86432
+  plan_seconds=0.0012 labels=625 total_frames=12889 emitted_frames=12693 budget_frames=6552
+  begin_seconds=0.0007 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.02
+  Maximum resident set size (kbytes): 120728
+== worst kanji (mono16k, expect reject)
+  kind=kanji format=mono16k text_bytes=1008
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86428
+  plan_seconds=0.0010 labels=914 total_frames=16173 emitted_frames=15977 budget_frames=6552
+  begin_seconds=0.0008 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.02
+  Maximum resident set size (kbytes): 120728
+== worst digits (mono16k, expect reject)
+  kind=digits format=mono16k text_bytes=1020
+  vm_hwm_after_load_kib=120724 vm_rss_after_load_kib=86428
+  plan_seconds=0.0046 labels=3266 total_frames=50191 emitted_frames=50001 budget_frames=6552
+  begin_seconds=0.0037 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120724
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.03
+  Maximum resident set size (kbytes): 120724
+== worst latin (mono16k, expect reject)
+  kind=latin format=mono16k text_bytes=1024
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86436
+  plan_seconds=0.0022 labels=2050 total_frames=35040 emitted_frames=34850 budget_frames=6552
+  begin_seconds=0.0016 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120728
+== worst mixed (mono16k, expect reject)
+  kind=mixed format=mono16k text_bytes=999
+  vm_hwm_after_load_kib=120724 vm_rss_after_load_kib=86428
+  plan_seconds=0.0020 labels=1222 total_frames=23577 emitted_frames=23381 budget_frames=6552
+  begin_seconds=0.0013 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120724
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.02
+  Maximum resident set size (kbytes): 120724
+== worst hiragana (stereo48k, expect reject)
+  kind=hiragana format=stereo48k text_bytes=1023
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86432
+  plan_seconds=0.0005 labels=343 total_frames=6696 emitted_frames=6506 budget_frames=1092
+  begin_seconds=0.0004 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120728
+== worst hiragana (mono16k, expect ok)
+  kind=hiragana format=mono16k text_bytes=1023
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86432
+  plan_seconds=0.0005 labels=343 total_frames=6696 emitted_frames=6506 budget_frames=6552
+  vm_rss_after_begin_kib=92308
+  begin_seconds=0.0346 result=accepted first_chunk_seconds=0.0406 max_chunk_seconds=0.00584 drain_seconds=0.4350 pcm_bytes=1041044 audio_seconds=32.533
+  cancel_seconds=0.000307 worst_cancel_latency_seconds=0.0349
+  vm_hwm_kib=120728
+  OUTCOME=SUCCESS
+  User time (seconds): 0.48
+  Maximum resident set size (kbytes): 120728
+== worst punctuation (stereo48k, expect ok)
+  kind=punctuation format=stereo48k text_bytes=1023
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86436
+  plan_seconds=0.0008 nothing_speakable=true
+  vm_rss_after_begin_kib=86636
+  begin_seconds=0.0003 result=accepted first_chunk_seconds=0.0000 max_chunk_seconds=0.00000 drain_seconds=0.0004 pcm_bytes=0 audio_seconds=0.000
+  cancel_seconds=0.000000 worst_cancel_latency_seconds=0.0003
+  vm_hwm_kib=120728
+  OUTCOME=SUCCESS
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120728
+== worst fit:2 (stereo48k, expect ok)
+  kind=fit:2 format=stereo48k text_bytes=84
+  vm_hwm_after_load_kib=120724 vm_rss_after_load_kib=86432
+  plan_seconds=0.0006 labels=53 total_frames=1193 emitted_frames=997 budget_frames=1092
+  vm_rss_after_begin_kib=87316
+  begin_seconds=0.0066 result=accepted first_chunk_seconds=0.0115 max_chunk_seconds=0.00484 drain_seconds=0.0603 pcm_bytes=957120 audio_seconds=4.985
+  cancel_seconds=0.000060 worst_cancel_latency_seconds=0.0067
+  vm_hwm_kib=120724
+  OUTCOME=SUCCESS
+  User time (seconds): 0.09
+  Maximum resident set size (kbytes): 120724
+== worst fit:3 (stereo48k, expect reject)
+  kind=fit:3 format=stereo48k text_bytes=126
+  vm_hwm_after_load_kib=120732 vm_rss_after_load_kib=86440
+  plan_seconds=0.0006 labels=79 total_frames=1732 emitted_frames=1536 budget_frames=1092
+  begin_seconds=0.0001 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120732
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.02
+  Maximum resident set size (kbytes): 120732
+== worst fit:12 (mono16k, expect ok)
+  kind=fit:12 format=mono16k text_bytes=504
+  vm_hwm_after_load_kib=120720 vm_rss_after_load_kib=86428
+  plan_seconds=0.0009 labels=313 total_frames=6517 emitted_frames=6321 budget_frames=6552
+  vm_rss_after_begin_kib=92056
+  begin_seconds=0.0337 result=accepted first_chunk_seconds=0.0398 max_chunk_seconds=0.00600 drain_seconds=0.4107 pcm_bytes=1011444 audio_seconds=31.608
+  cancel_seconds=0.000308 worst_cancel_latency_seconds=0.0340
+  vm_hwm_kib=120720
+  OUTCOME=SUCCESS
+  User time (seconds): 0.47
+  Maximum resident set size (kbytes): 120720
+== worst fit:13 (mono16k, expect reject)
+  kind=fit:13 format=mono16k text_bytes=546
+  vm_hwm_after_load_kib=120728 vm_rss_after_load_kib=86432
+  plan_seconds=0.0009 labels=339 total_frames=7048 emitted_frames=6852 budget_frames=6552
+  begin_seconds=0.0004 result=rejected error=Failed pcm_bytes=0
+  vm_hwm_kib=120728
+  OUTCOME=EXPECTED_REJECT
+  User time (seconds): 0.01
+  Maximum resident set size (kbytes): 120728
+loadavg_after=2.10 1.94 2.34
+RESULT=PASS
