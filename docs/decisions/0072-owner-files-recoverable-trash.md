@@ -1,4 +1,4 @@
-# ADR 0070: ordinary owner Files operations and recoverable trash
+# ADR 0072: ordinary owner Files operations and recoverable trash
 
 Status: implemented for review; M19 remains PARTIAL pending guest integration evidence.
 

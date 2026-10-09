@@ -2,18 +2,7 @@
 
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
-M23–M30 `PARTIAL`.
-**M19 ordinary Files recovery checkpoint:** recovered owner-only
-create/rename/trash/restore controls use mirrored trash intent records and bounded
-VFS create/rename undo recovery. Contents and inode/generation are retained;
-Search failure does not disable physical Files operations. The signed Files
-Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
-tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
-Clippy. A synthetic disk written by the exact-base VFS was read without writes
-or formatting by the recovered VFS; clean new mutations remained readable by
-the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
-before init. Normal guest UI/Search operations and Browser History acceptance
-remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
+M23–M29 `PARTIAL`; formal M30 `BLOCKED`.
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,
@@ -51,6 +40,17 @@ are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
 history publication is still acceptance-scoped, and a resident production
 Search service plus general Files producer synchronization remain open; M19
 stays `PARTIAL`.
+**M19 ordinary Files recovery checkpoint:** recovered owner-only
+create/rename/trash/restore controls use mirrored trash intent records and bounded
+VFS create/rename undo recovery. Contents and inode/generation are retained;
+Search failure does not disable physical Files operations. The signed Files
+Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
+tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
+Clippy. A synthetic disk written by the exact-base VFS was read without writes
+or formatting by the recovered VFS; clean new mutations remained readable by
+the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
+before init. Normal guest UI/Search operations and Browser History acceptance
+remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
 **M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
 the shared User Data VFS snapshot adapter and starts a bounded SearchService
 when the owner signs in. It enumerates only regular files directly under

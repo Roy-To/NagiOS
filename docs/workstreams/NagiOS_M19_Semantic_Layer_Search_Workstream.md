@@ -3,7 +3,7 @@
 ## Current ordinary Files checkpoint — 2026-10-08
 
 The dedicated `codex/0.1-files-search-operations` branch wires ordinary
-create/rename/trash/restore UI controls and a recoverable Files leaf (ADR 0070).
+create/rename/trash/restore UI controls and a recoverable Files leaf (ADR 0072).
 Trash preserves the physical inode/generation/content, records the original
 name in a mirrored intent journal and removes it from the active Search
 Workspace. Restore rejects collisions and retains the producer ObjectId.

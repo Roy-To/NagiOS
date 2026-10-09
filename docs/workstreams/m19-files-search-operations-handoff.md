@@ -3,11 +3,11 @@
 Historical Files base: `edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4` (PR #31 merged).
 Historical owner branch: `codex/0.1-files-search-operations`.
 Publication candidate base: `ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8`.
-Proposed publication branch: `codex/recovery-files-vfs-20261009` (not published).
+Publication branch: `codex/0.1-files-recovered`.
 
 Owned changes: `desktop.rs`, `m19_runtime.rs`, new Files/panel/test leaves,
 Files-only entries in the shared en-US/ja-JP guest catalogs, dedicated
-`tests/files-search`, ADR 0070 and M19 status/handoff/own state. The 0.2 Search State,
+`tests/files-search`, ADR 0072 and M19 status/handoff/own state. The 0.2 Search State,
 Writer/Sheets, model and voice fixtures are untouched. No changes to main.rs,
 any shared Cargo/lock file, CLI, CI, acceptance Registry or image generation.
 
@@ -22,7 +22,7 @@ uses the existing Search route on query submission. F2 while Files is focused
 or the Files F2 button opens management. Tab/Enter, Up/Down and mouse controls
 support creation, renaming, trash view and restoration; Escape cancels editing
 or closes the panel. A repeated Enter after completion does not mutate the
-next list entry. Trash/restore behavior is documented in ADR 0070.
+next list entry. Trash/restore behavior is documented in ADR 0072.
 
 ## Proposals for shared owner
 
