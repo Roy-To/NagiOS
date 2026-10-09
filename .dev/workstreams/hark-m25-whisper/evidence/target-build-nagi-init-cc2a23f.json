@@ -1,0 +1,82 @@
+{
+  "kind": "nagi-target-build",
+  "scope": "HOST-side cross build only (no guest execution, no recognition)",
+  "source_commit": "cc2a23f333ad4c3d827348b747b9b6a767eae69d",
+  "base": "f74f128",
+  "built_at": "2026-10-09 11:57 JST",
+  "host": "aarch64 Linux sandbox, 2 shared vCPU, nice -n 19, CARGO_BUILD_JOBS=1",
+  "toolchain": {
+    "rustc": "1.90.0-nightly (adcb3d3b4 2025-07-31) = nightly-2025-08-01 + rust-src",
+    "cargo": "1.90.0-nightly (9b296973b 2025-07-25)",
+    "clang": "Debian clang 19.1.7 (3+b1)"
+  },
+  "prerequisites": {
+    "bootstrap_fetch": {
+      "command": "cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch",
+      "outcome": "PASS",
+      "finished_at": "2026-10-09 11:53 JST",
+      "log": "bootstrap-fetch-cc2a23f.txt",
+      "note": "Two earlier attempts failed with GitHub HTTP 502 while git lazily fetched ~196k Servo blobs during checkout of the --filter=blob:none clone. The passing attempt used a sandbox-only git wrapper on PATH (not in the repo) that prefetched the same blobs from the same remote in batches of 5000 before the unchanged checkout command; bootstrap validation of all pinned sources then passed."
+    },
+    "relibc_headers": "out/m25-relibc/relibc-target/x86_64-unknown-nagi-user/include (make -C third_party/relibc ... headers; PASS earlier)",
+    "whisper_target_archives": {
+      "libwhisper.a": {
+        "bytes": 527992,
+        "sha256": "0499941434d26c594261f69168170c900b06f809c5feb4c4a874143f9ac0dd12"
+      },
+      "libggml-base.a": {
+        "bytes": 1282518,
+        "sha256": "6c7f8833a9ba2857f62fe6605a46bf3e4813cfba5cefaa1014a3ba211a0514e7"
+      },
+      "libggml-cpu.a": {
+        "bytes": 1451540,
+        "sha256": "6d06084bccbea5e12486516b83ffaf66386bd48b50546cf36caddaed2887a95f"
+      },
+      "libggml.a": {
+        "bytes": 18812,
+        "sha256": "32311f162ebec35d62500b1aa45c0227aa26f4fc3f2f82cd4a7517742482e9c1"
+      }
+    }
+  },
+  "environment": {
+    "NAGI_WHISPER_BUILD": "out/m25-whisper-target",
+    "NAGI_WHISPER_SOURCE": "out/cache/whisper-cpp-nagi",
+    "NAGI_TARGET_CLANG": "/usr/bin/clang-19",
+    "NAGI_CXX_HEADERS": "/usr/lib/llvm-19/include/c++/v1",
+    "NAGI_LLVM_AR": "/usr/bin/llvm-ar-19",
+    "NAGI_LLVM_RANLIB": "/usr/bin/llvm-ranlib-19",
+    "NAGI_RELIBC_HEADERS": "out/m25-relibc/relibc-target/x86_64-unknown-nagi-user/include",
+    "NAGI_M25_WHISPER_PCM_FIXTURE": "out/m25-link-placeholder/silence-1s-16k-mono-s16le.pcm (32,000 zero bytes, sha256 0c92bddb4e96f3ea9ec9f0f64a668255a6c15527ac09f6f119cafde60c7c4a39)",
+    "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE": "out/m25-link-placeholder/expected.txt (sha256 65742de7e20d8205f9acb4b82740b5e6561a20aa6307a4e65ae162e3a7fc5700)"
+  },
+  "placeholder_note": "user/nagi-init/build.rs requires a PCM fixture and expected text whenever the feature is enabled. The real acceptance fixture is not available here and FLEURS evaluation clips must not be used as a fixture, so a synthetic 1 s silence and placeholder text were staged only to compile and link. This binary is NOT an acceptance artifact and must not be run as one.",
+  "command": "nice -n 19 cargo +nightly-2025-08-01 build -j1 -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked",
+  "offline_attempt": {
+    "command": "same + --offline",
+    "outcome": "FAIL",
+    "exit_code": 101,
+    "error": "no matching package named `smoltcp` found (crates.io index, offline); required by nagi-net",
+    "log": "target-build-nagi-init-cc2a23f-offline-attempt.txt"
+  },
+  "outcome": "PASS",
+  "exit_code": 0,
+  "duration": "1m 29s (cargo-reported)",
+  "artifact": {
+    "path": "target/x86_64-unknown-nagi-user/release/nagi-init",
+    "format": "ELF 64-bit LSB executable, x86-64, statically linked, not stripped",
+    "bytes": 1971064,
+    "sha256": "a1102f1d7e27a65ab39155c6ceca01eee509ca6f5c113657e37f90b68c3bdf92",
+    "link_checks": [
+      "llvm-nm shows whisper_full, whisper_full_with_state, whisper_full_get_segment_text, ggml_init defined (T)",
+      "147 symbols matching 'whisper'",
+      "3 'Nagi M25 Whisper' marker strings present"
+    ]
+  },
+  "warnings": "58 crates compiled; 43 rustc warnings in nagi-init (33 in user/nagi-init/src/m25_voice.rs, others in m19_search*, main.rs) plus relibc/nagi-posix warnings; none in user/nagi-init/src/m25_whisper.rs or tools/whisper/**. Warnings not denied in this build (same as the shared command).",
+  "log": "target-build-nagi-init-cc2a23f.txt",
+  "not_claimed": [
+    "guest boot or QEMU execution",
+    "speech recognition on the guest",
+    "fixture acceptance"
+  ]
+}
