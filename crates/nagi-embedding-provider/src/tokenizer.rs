@@ -38,7 +38,7 @@ impl CharsMap {
             });
         }
         let size = u32::from_le_bytes(blob.get(0..4)?.try_into().ok()?) as usize;
-        if size % 4 != 0 || size == 0 {
+        if !size.is_multiple_of(4) || size == 0 {
             return None;
         }
         let trie = blob.get(4..4usize.checked_add(size)?)?;

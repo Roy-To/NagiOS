@@ -100,8 +100,9 @@ pub struct ProviderConfig {
     /// When set, loading fails unless the artifact yields this space.
     pub expected_space: Option<EmbeddingSpaceId>,
     pub max_artifact_bytes: usize,
-    /// Token cap including `<s>`/`</s>`; never above the model context.
-    pub max_tokens: usize,
+    /// Token cap including `<s>`/`</s>`. `None` uses the model context
+    /// (512 for multilingual-e5-small); an explicit cap above it is invalid.
+    pub max_tokens: Option<usize>,
     pub max_query_bytes: usize,
     pub max_passage_bytes: usize,
     /// Per-call compute budget, checked between encoder layers.
@@ -115,7 +116,7 @@ impl Default for ProviderConfig {
             expected_artifact_sha256: Some(E5_SMALL_NEMB_SHA256),
             expected_space: None,
             max_artifact_bytes: container::MAX_ARTIFACT_BYTES,
-            max_tokens: MAX_TOKENS,
+            max_tokens: None,
             max_query_bytes: MAX_SEMANTIC_QUERY_BYTES,
             max_passage_bytes: MAX_SEMANTIC_CHUNK_BYTES,
             max_inference_nanos: None,
@@ -203,6 +204,7 @@ pub struct E5Provider {
     encoder: Encoder,
     space: EmbeddingSpaceId,
     info: ArtifactInfo,
+    max_tokens: usize,
     config: ProviderConfig,
 }
 
@@ -234,7 +236,10 @@ pub fn space_id_for(artifact_sha256: &[u8; 32], dimensions: usize) -> EmbeddingS
 impl E5Provider {
     /// Load from an owned artifact buffer.
     pub fn from_artifact(artifact: Vec<u8>, config: ProviderConfig) -> Result<Self, ProviderError> {
-        if config.max_tokens < 3 || config.max_tokens > MAX_TOKENS {
+        if config
+            .max_tokens
+            .is_some_and(|cap| !(3..=MAX_TOKENS).contains(&cap))
+        {
             return Err(ProviderError::InvalidConfig("max_tokens"));
         }
         if config.max_inference_nanos.is_some() && config.clock.is_none() {
@@ -260,9 +265,13 @@ impl E5Provider {
         }
         let parsed = container::parse(&artifact)?;
         let header = &parsed.header;
-        if header.max_positions < config.max_tokens {
-            return Err(ProviderError::InvalidConfig("max_tokens"));
-        }
+        let max_tokens = match config.max_tokens {
+            Some(cap) if cap > header.max_positions => {
+                return Err(ProviderError::InvalidConfig("max_tokens"))
+            }
+            Some(cap) => cap,
+            None => header.max_positions.min(MAX_TOKENS),
+        };
         let tokenizer = Tokenizer::new(
             &artifact,
             &parsed.pieces,
@@ -297,6 +306,7 @@ impl E5Provider {
             encoder,
             space,
             info,
+            max_tokens,
             config,
         })
     }
@@ -336,6 +346,11 @@ impl E5Provider {
         self.encoder.hidden()
     }
 
+    /// Effective token cap including `<s>`/`</s>`.
+    pub fn max_tokens(&self) -> usize {
+        self.max_tokens
+    }
+
     pub fn artifact_info(&self) -> &ArtifactInfo {
         &self.info
     }
@@ -373,10 +388,10 @@ impl E5Provider {
     ) -> Result<Embedding, ProviderError> {
         let input = self.prefixed(purpose, text)?;
         let ids = self.tokenizer.encode(&input);
-        if ids.len() > self.config.max_tokens {
+        if ids.len() > self.max_tokens {
             return Err(ProviderError::TooManyTokens {
                 tokens: ids.len(),
-                limit: self.config.max_tokens,
+                limit: self.max_tokens,
             });
         }
         let result = match (&self.config.clock, self.config.max_inference_nanos) {
