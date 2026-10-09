@@ -85,9 +85,11 @@ integrity checks, guest gates or any other threshold.
 | 37876189901 (dispatch) | `25384ad` | x86_64, ubuntu-24.04, EPYC 7763 | 1.30.0 | 0.9999999999995481 | 1.0000000000287557e-07 | PASS |
 | 37876190718 (pull_request) | PR #41 merge `ae8a856` | x86_64, ubuntu-24.04, EPYC 9V74 | 1.30.0 | 0.9999999999995901 | 1.0000000000287557e-07 | PASS |
 
-The first two x86_64 runs printed rounded values only. The regenerated x86_64
-file is deterministic per CPU model (EPYC 7763 and EPYC 9V74 each reproduce
-their own digest), not byte-identical across x86_64 CPUs. The workflow now writes
+The first two x86_64 runs printed rounded values only. On x86_64 the regenerated file
+took two reproducible byte variants: `d736f7a5…` on AMD EPYC 7763 and
+`7084eca2…` on AMD EPYC 9V74 and Intel Xeon Platinum 8573C (likely different
+onnxruntime kernel paths by CPU feature set; inferred, not verified). Both
+variants are within 1.0e-7 of the aarch64 copy. The workflow now writes
 `x86_64-reference-tolerance.json` (arch, runner OS/image, CPU model,
 onnxruntime version, unrounded worst values, per-item values, thresholds,
 `.nemb` digest, commit SHA) into the uploaded evidence artifact. Record:

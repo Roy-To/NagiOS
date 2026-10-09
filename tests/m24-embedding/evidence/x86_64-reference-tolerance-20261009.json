@@ -131,11 +131,61 @@
       },
       "result": "PASS",
       "commit_note": "pull_request merge commit of PR #41 (head 25384adaf58dd7bcf0e2063e38c32e4ad866a2f5 onto main 672d1c8)"
+    },
+    {
+      "run_id": 37876499001,
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37876499001",
+      "event": "workflow_dispatch",
+      "commit_sha": "7a73ef9124be03f33714c2f11f5849a3109b6d5d",
+      "commit_note": "exact branch head",
+      "arch": "x86_64",
+      "runner_os": "Linux",
+      "runner_image": "ubuntu24 20261004.327.1",
+      "cpu_model": "AMD EPYC 7763 64-Core Processor",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "onnxruntime_version": "1.30.0",
+      "nemb_sha256": "7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287",
+      "texts_and_token_ids": "identical (22 items); tokenizer_parity.json byte-identical",
+      "regenerated_parity_reference_sha256": "d736f7a51349e5c681c737ef6c2de626569f02dc32e0fd1892f01765f40e87b2",
+      "worst_cosine": 0.9999999999995481,
+      "worst_max_abs_diff": 1.0000000000287557e-07,
+      "per_item_min_cosine": 0.9999999999995481,
+      "nagi_encoder_vs_onnx_reference": {
+        "worst_cosine": "0.999999949",
+        "worst_max_abs_diff": "1.42e-7",
+        "real_inference": "8 passed, 0 failed"
+      },
+      "result": "PASS"
+    },
+    {
+      "run_id": 37876502717,
+      "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37876502717",
+      "event": "pull_request",
+      "commit_sha": "c3ad0f402c73ba268f38377ed402f60e97e092fd",
+      "commit_note": "pull_request merge commit of PR #41 (head 7a73ef9124be03f33714c2f11f5849a3109b6d5d onto main 672d1c8)",
+      "arch": "x86_64",
+      "runner_os": "Linux",
+      "runner_image": "ubuntu24 20261004.327.1",
+      "cpu_model": "INTEL(R) XEON(R) PLATINUM 8573C",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "onnxruntime_version": "1.30.0",
+      "nemb_sha256": "7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287",
+      "texts_and_token_ids": "identical (22 items); tokenizer_parity.json byte-identical",
+      "regenerated_parity_reference_sha256": "7084eca270121c0d019d595fe1e912d35e6d1fb36e1b45135d6b4ab07a896b88",
+      "worst_cosine": 0.9999999999995901,
+      "worst_max_abs_diff": 1.0000000000287557e-07,
+      "per_item_min_cosine": 0.9999999999995901,
+      "nagi_encoder_vs_onnx_reference": {
+        "worst_cosine": "0.999999949",
+        "worst_max_abs_diff": "1.42e-7",
+        "real_inference": "8 passed, 0 failed"
+      },
+      "result": "PASS"
     }
   ],
   "observations": [
-    "All four x86_64 runs are within the fixed bounds; worst max |diff| 1.0e-7 is two orders of magnitude below 1e-5 and worst cosine deviates from 1 by under 1e-12.",
-    "The regenerated x86_64 parity_reference.json is deterministic per CPU model, not per architecture: AMD EPYC 7763 produced sha256 d736f7a5... (runs 37872411191, 37876189901) and AMD EPYC 9V74 produced 7084eca2... (runs 37872863618, 37876190718, by matching digests). Both stay within 1.0e-7 of the aarch64 copy.",
-    "Runs 37872411191 and 37872863618 logged rounded values only; runs 37876189901 and 37876190718 recorded unrounded values via x86_64-reference-tolerance.json in their evidence artifacts."
+    "All six x86_64 runs are within the fixed bounds; worst max |diff| 1.0e-7 is two orders of magnitude below 1e-5 and worst cosine deviates from 1 by under 1e-12.",
+    "The regenerated x86_64 parity_reference.json took two reproducible byte variants: sha256 d736f7a5... on AMD EPYC 7763 (runs 37872411191 by digest, 37876189901, 37876499001) and 7084eca2... on AMD EPYC 9V74 (run 37876190718; run 37872863618 by digest) and Intel Xeon Platinum 8573C (run 37876502717). Likely different onnxruntime kernel paths by CPU feature set (inferred, not verified). Both variants stay within 1.0e-7 of the aarch64 copy.",
+    "Runs 37872411191 and 37872863618 logged rounded values only; later runs recorded unrounded values via x86_64-reference-tolerance.json in their evidence artifacts."
   ]
 }
