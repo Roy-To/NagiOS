@@ -344,3 +344,79 @@ impl Tokenizer {
         ids
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::container::{Piece, PieceKind};
+
+    fn tokenizer(pieces: &[(&str, f32, PieceKind)]) -> Tokenizer {
+        let mut bytes = Vec::new();
+        let mut list = Vec::new();
+        for (text, score, kind) in pieces {
+            list.push(Piece {
+                score: *score,
+                kind: *kind,
+                start: bytes.len(),
+                len: text.len(),
+            });
+            bytes.extend_from_slice(text.as_bytes());
+        }
+        Tokenizer::new(&bytes, &list, &[], 3, 0, 2).expect("tokenizer")
+    }
+
+    fn base() -> Tokenizer {
+        use PieceKind::*;
+        tokenizer(&[
+            ("<s>", 0.0, Control),
+            ("<pad>", 0.0, Control),
+            ("</s>", 0.0, Control),
+            ("<unk>", 0.0, Unknown),
+            ("\u{2581}", -2.0, Normal),
+            ("\u{2581}a", -1.0, Normal),
+            ("a", -3.0, Normal),
+            ("b", -3.0, Normal),
+            ("\u{2581}ab", -1.5, Normal),
+            ("ab", -10.0, Normal),
+        ])
+    }
+
+    #[test]
+    fn viterbi_prefers_the_highest_total_score() {
+        // "▁ab" (-1.5) beats "▁a" + "b" (-4.0).
+        assert_eq!(base().encode("ab"), [0, 8, 2]);
+        // Without a prefix-space match: "▁a","b" vs "▁","ab": -4.0 vs -12.0.
+        assert_eq!(base().encode("a b"), [0, 5, 4, 7, 2]);
+    }
+
+    #[test]
+    fn consecutive_unknown_characters_fuse_into_one_unk() {
+        // "▁" then two unknown chars fused, then "a".
+        assert_eq!(base().encode("xyа"), [0, 4, 3, 2]);
+        assert_eq!(base().encode("xya"), [0, 4, 3, 6, 2]);
+    }
+
+    #[test]
+    fn spaces_collapse_and_split_into_metaspace_words() {
+        let t = base();
+        assert_eq!(t.pre_tokenize("a   b"), ["\u{2581}a", "\u{2581}b"]);
+        assert_eq!(t.pre_tokenize(" a"), ["\u{2581}a"]);
+        assert_eq!(t.pre_tokenize("a "), ["\u{2581}a", "\u{2581}"]);
+        assert!(t.pre_tokenize("").is_empty());
+        assert_eq!(t.encode(""), [0, 2]);
+    }
+
+    #[test]
+    fn control_pieces_are_never_matched_from_text() {
+        let t = base();
+        let ids = t.encode("<s>");
+        assert!(!ids[1..ids.len() - 1].contains(&0));
+    }
+
+    #[test]
+    fn malformed_charsmap_is_rejected() {
+        assert!(CharsMap::parse(&[1, 0, 0, 0]).is_none());
+        assert!(CharsMap::parse(&[8, 0, 0, 0, 1, 2]).is_none());
+        assert!(CharsMap::parse(&[]).is_some());
+    }
+}

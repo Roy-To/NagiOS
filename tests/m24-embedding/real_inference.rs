@@ -240,6 +240,37 @@ mod json {
     }
 }
 
+/// Token ids match the reference tokenizer over 788 localization and
+/// randomized multi-script strings.
+#[test]
+#[ignore = "requires NAGI_EMBEDDING_MODEL (pinned multilingual-e5-small .nemb)"]
+fn tokenizer_parity_over_multiscript_corpus() {
+    let provider = provider();
+    let items = json::parse_reference(include_str!("tokenizer_parity.json"));
+    assert!(items.len() > 700);
+    let mismatches: Vec<_> = items
+        .iter()
+        .filter(|item| provider.tokenize(&item.text) != item.ids)
+        .map(|item| {
+            (
+                item.text.clone(),
+                item.ids.clone(),
+                provider.tokenize(&item.text),
+            )
+        })
+        .collect();
+    eprintln!(
+        "m24 tokenizer parity: {}/{} identical",
+        items.len() - mismatches.len(),
+        items.len()
+    );
+    assert!(
+        mismatches.is_empty(),
+        "mismatches: {:#?}",
+        &mismatches[..mismatches.len().min(5)]
+    );
+}
+
 /// Token ids and vectors match the upstream ONNX export + HF tokenizer.
 #[test]
 #[ignore = "requires NAGI_EMBEDDING_MODEL (pinned multilingual-e5-small .nemb)"]

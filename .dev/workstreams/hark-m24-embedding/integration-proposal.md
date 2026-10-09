@@ -122,7 +122,7 @@ Rust crate dependencies are pinned by `crates/nagi-embedding-provider/Cargo.lock
 
 ```
 | multilingual-e5-small (intfloat) | model weights + tokenizer | HF revision `614241f622f53c4eeff9890bdc4f31cfecc418b3` | MIT | converted by `tools/embedding/convert_e5.py` | Derived from microsoft/Multilingual-MiniLM-L12-H384 (MIT) and the XLM-RoBERTa SentencePiece vocabulary (MIT); preserve the MIT notice with any redistribution of the converted `.nemb` |
-| libm, sha2, unicode-segmentation (Rust crates) | B | versions in `crates/nagi-embedding-provider/Cargo.lock` | MIT OR Apache-2.0 | none | statically linked into the embedding provider |
+| Rust crates linked into the provider (`crates/nagi-embedding-provider/Cargo.lock`) | B | libm 0.2.16 (MIT); sha2 0.10.9, digest 0.10.7, block-buffer 0.10.4, crypto-common 0.1.7, cpufeatures 0.2.17, cfg-if 1.0.5, typenum 1.20.1, unicode-segmentation 1.13.3 (MIT OR Apache-2.0); generic-array 0.14.7 (MIT) | as listed | none | statically linked; host-only: libc 0.2.190 via cpufeatures on aarch64 Linux, build-only version_check 0.9.5 |
 ```
 
 ### 3.4 `docs/implementation_status.md` (replace the M24 row text tail)
@@ -174,8 +174,10 @@ tests/m24-embedding/run.sh
 
 ## 5. Evidence
 
-Recorded in `tests/m24-embedding/evidence/` and summarized in
-`.dev/workstreams/hark-m24-embedding/state.md` (updated as work lands).
+Measured host results are in `tests/m24-embedding/EVIDENCE.md` (token parity
+788/788, vector parity worst cosine 0.999999949 vs the upstream ONNX export,
+16/16 JA/EN neighbor requirements, latency/RSS, Nagi user-target compile).
+Run logs are written outside the repository by `tests/m24-embedding/run.sh`.
 
 ## 6. Open gates
 
