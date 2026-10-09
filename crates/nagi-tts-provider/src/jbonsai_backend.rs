@@ -177,6 +177,9 @@ impl DictionaryBytes {
         {
             return Err(LoadError::DictionaryInvalid);
         }
+        // Reject the inconsistencies the upstream loaders and lookups would
+        // index past (or panic on) before handing them the bytes.
+        let shape = crate::validate::check_dictionary_bytes(&self)?;
         let invalid = |_| LoadError::DictionaryInvalid;
         let metadata = Metadata::load(&self.metadata_json).map_err(invalid)?;
         // Both loaders copy into a 16-byte-aligned buffer before rkyv access.
@@ -193,13 +196,15 @@ impl DictionaryBytes {
             true,
         )
         .map_err(invalid)?;
-        Ok(Dictionary {
+        let dictionary = Dictionary {
             prefix_dictionary,
             connection_cost_matrix,
             character_definition,
             unknown_dictionary,
             metadata,
-        })
+        };
+        crate::validate::check_loaded_dictionary(&dictionary, shape)?;
+        Ok(dictionary)
     }
 }
 
@@ -277,6 +282,10 @@ impl JbonsaiBackend {
             return Err(LoadError::VoiceInvalid);
         }
         check_voice_layout(voice)?;
+        // jbonsai trusts tree/PDF cross references and header arithmetic; a
+        // malformed voice must fail here, not panic in the parser or later
+        // in the middle of synthesis.
+        crate::validate::check_voice_structure(voice)?;
         let engine = Engine::load_from_bytes([voice]).map_err(|_| LoadError::VoiceInvalid)?;
         let rate = engine.condition.get_sampling_frequency();
         if rate != ENGINE_SAMPLE_RATE as usize {
