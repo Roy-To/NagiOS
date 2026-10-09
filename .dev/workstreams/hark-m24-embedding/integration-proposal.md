@@ -81,8 +81,29 @@ repository's own `onnx/model.onnx` at the same revision, plus Hugging Face
   (`MAX_SEMANTIC_QUERY_BYTES` for queries, `MAX_SEMANTIC_CHUNK_BYTES` for
   passages); token cap 512 including `<s>`/`</s>` (rejected, not silently
   truncated); artifact size cap; full-file SHA-256 check against the pinned
-  digest; structural validation of every section; optional compute deadline
-  checked between encoder layers; no panics on malformed artifacts.
+  digest; structural validation of every section; no panics on malformed
+  artifacts.
+- Deadline and cancellation (cooperative, **not** strict preemption): the
+  budget starts at call entry, before prefixing and tokenization, and is
+  polled together with an optional caller-owned `CancelSignal` at every
+  checkpoint: `Start` (before tokenization), `Tokenizing` (before each
+  pre-tokenized word), `Tokenized`, `LayerStart(i)` / `LayerMid(i)` for all 12
+  layers, `Encoded` (after the last layer, before pooling) and `Pooled`
+  (after pooling, before normalization). `now >= start + budget` is expired;
+  cancellation wins over expiry at the same checkpoint; partial work is
+  dropped. A successful result implies `Pooled` was reached in time; only
+  O(384) normalization and space tagging run after it. Overrun after expiry
+  is bounded by the longest uninterrupted unit (host: worst checkpoint gap
+  136 ms at 501 tokens, cancel-to-return 65 ms; guest not measured). Loading
+  is bounded by the artifact size cap, not by the deadline. The default
+  config enables a 30 s budget (`DEFAULT_INFERENCE_BUDGET_NANOS`) with the
+  host monotonic clock under `std`; `no_std` (guest) builds must pass a Nagi
+  `Clock` or explicitly opt out with `max_inference_nanos: None`, otherwise
+  loading fails with `InvalidConfig("clock")`. The `EmbeddingProvider::embed`
+  trait method has no cancel parameter, so through the trait a call is
+  deadline-bounded only; callers that need cancellation use
+  `E5Provider::try_embed_cancellable`. Full statement: crate docs in
+  `crates/nagi-embedding-provider/src/lib.rs`.
 
 ## 3. Proposed minimal diffs to shared files (NOT applied here)
 
@@ -101,17 +122,35 @@ sha256 = "1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477"
 tokenizer_file_name = "tokenizer.json"
 tokenizer_size_bytes = 17082730
 tokenizer_sha256 = "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"
+config_file_name = "config.json"
+config_sha256 = "69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959"
 converted_file_name = "multilingual-e5-small.nemb"
 converted_format = "nagi-nemb-v1"
-converted_sha256 = "<see tools/embedding/manifest.toml converted.sha256>"
+converted_size_bytes = 474604256
+converted_sha256 = "7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287"
 conversion = "tools/embedding/convert_e5.py"
 license = "MIT"
 license_reference = "https://huggingface.co/intfloat/multilingual-e5-small/blob/614241f622f53c4eeff9890bdc4f31cfecc418b3/README.md"
 notice_id = "mit"
+notice_reference = "https://huggingface.co/intfloat/multilingual-e5-small/blob/614241f622f53c4eeff9890bdc4f31cfecc418b3/README.md"
 acknowledgement_required = true
 artifact_id = "intfloat.multilingual-e5-small"
 storage = "model_store"
 ```
+
+Provenance chain, checked end to end by `tools/embedding/verify_pins.py`
+(run log: `tests/m24-embedding/logs/verify-pins-*.txt`):
+
+| Link | Pin | How it is bound |
+| --- | --- | --- |
+| upstream revision | `614241f622f53c4eeff9890bdc4f31cfecc418b3` | immutable HF commit; `fetch.sh` refuses non-40-hex revisions and downloads `resolve/<revision>/<file>` only |
+| original weights | `model.safetensors` 470,641,600 B, `1a55775f…c81c98477` | `fetch.sh` and `convert_e5.py` reject any other size/SHA-256 (= HF LFS oid) |
+| tokenizer | `tokenizer.json` 17,082,730 B, `0b44a9d7…6ebdf4c39` | same; vocabulary, scores and the precompiled normalizer are copied into the `.nemb` |
+| architecture | `config.json` 655 B, `69137736…f581abf959` | converter checks the pin and the expected BERT/GELU/absolute-position values, then writes hidden/layers/heads/FFN/positions/eps into the `.nemb` header (the config digest itself is not embedded) |
+| converted artifact | `multilingual-e5-small.nemb` 474,604,256 B, `7fb0a345…1a4d71a287` | deterministic stdlib conversion (two independent runs byte-identical); its header embeds the weights SHA-256, the tokenizer SHA-256 and the revision |
+| runtime pin | `E5_SMALL_NEMB_SHA256` / `E5_SMALL_NEMB_BYTES` / `E5_SMALL_REVISION` in `lib.rs` | `ProviderConfig::default()` rejects any artifact whose full-file SHA-256 differs (`ChecksumMismatch`) |
+| embedding space | `space_id_for(.nemb SHA-256, 384)` | a change to weights, tokenizer, config, converter or prefix scheme changes the `.nemb` digest and therefore the `EmbeddingSpaceId`; stale vectors fail with `EmbeddingSpaceMismatch` |
+| reference only | `onnx/model.onnx` `ca456c06…f1cba6bc8665` | used solely by `reference_e5.py` for parity; never converted or shipped |
 
 ### 3.2 `third_party/sources.lock`
 
@@ -140,22 +179,61 @@ Append to the M24 row (status stays `PARTIAL`):
 
 - Root `Cargo.toml`: **no change** (standalone crate with own workspace).
 - `.dev/workstreams.json`: row in `registration-proposal.md`.
-- `.github/workflows/ci.yml` (ubuntu-host job, after the SEARCH-CORE-01 step):
+- **Shared CI is not provider acceptance evidence.** The existing shared
+  workflow (`ubuntu-host`, `windows-launcher`, target jobs) builds and tests the
+  root workspace. This crate has its own `[workspace]` and is not a root
+  member, so the shared jobs neither compile it nor run its tests. A green
+  shared run on PR #38 says nothing about this provider and is not cited as
+  evidence for it.
+- Proposed dedicated CI registration, for the shared CI owner to add to
+  `.github/workflows/ci.yml` (nothing applied here). Both jobs use the
+  repository toolchain `nightly-2025-08-01`:
 
 ```yaml
-      - name: Standalone embedding provider (M24, hark-m24-embedding)
-        run: |
-          cargo fmt --manifest-path crates/nagi-embedding-provider/Cargo.toml -- --check
-          cargo clippy --manifest-path crates/nagi-embedding-provider/Cargo.toml --all-targets --locked -- -D warnings
-          cargo test --manifest-path crates/nagi-embedding-provider/Cargo.toml --locked
+  m24-embedding-provider:
+    name: M24 embedding provider (hark-m24-embedding)
+    runs-on: ubuntu-latest
+    env:
+      M: crates/nagi-embedding-provider/Cargo.toml
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
+      - name: fmt
+        run: cargo +nightly-2025-08-01 fmt --manifest-path $M -- --check
+      - name: clippy (std, all targets)
+        run: cargo +nightly-2025-08-01 clippy --manifest-path $M --all-targets --locked -- -D warnings
+      - name: clippy (no_std library)
+        run: cargo +nightly-2025-08-01 clippy --manifest-path $M --lib --no-default-features --locked -- -D warnings
+      - name: model-free tests (tokenizer units + contract suite)
+        run: cargo +nightly-2025-08-01 test --manifest-path $M --locked
+      - name: Nagi user-target build (compile only, not executed)
+        working-directory: crates/nagi-embedding-provider
+        run: cargo +nightly-2025-08-01 -Z build-std=core,alloc build --release --locked --no-default-features --target ../../targets/x86_64-unknown-nagi-user.json
+
+  m24-embedding-real-inference:
+    name: M24 embedding real inference (host)
+    needs: m24-embedding-provider
+    runs-on: ubuntu-latest
+    env:
+      NAGI_EMBEDDING_CACHE: ${{ github.workspace }}/.cache/nagi-embedding
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: .cache/nagi-embedding
+          key: m24-e5-small-614241f622f53c4eeff9890bdc4f31cfecc418b3-${{ hashFiles('tools/embedding/manifest.toml') }}
+      - name: Toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
+      - name: Fetch (pinned, SHA-256 verified), convert, verify pins, real inference
+        run: tests/m24-embedding/run.sh
 ```
 
-  This runs all non-model tests (tokenizer/normalizer units, container
-  validation, missing/corrupt artifact, empty/over-limit input, space
-  mismatch). Real-inference tests are `#[ignore]` by default and **fail, not
-  skip,** when run with `--ignored` and no model is present. A separate,
-  manually dispatched or cached job may run
-  `tests/m24-embedding/run.sh` (≈470 MB download, cached by SHA-256).
+  The real-inference job downloads ~470 MB once (cache keyed by the immutable
+  revision and the manifest hash), fails rather than skips when the model is
+  absent, and is host evidence only. The registry row in
+  `registration-proposal.md` is a precondition for the shared
+  `dev_status_resume_and_verify_read_the_registered_workstream` check.
 
 ## 4. Verification commands
 
@@ -167,6 +245,12 @@ cargo clippy --manifest-path $M --all-targets --locked -- -D warnings
 cargo test --manifest-path $M --locked
 # real inference (host): downloads pinned files, verifies SHA-256, converts, runs
 tests/m24-embedding/run.sh
+# every pin agrees (manifest, .nemb header, Rust constants, models.lock proposal)
+python3 tools/embedding/verify_pins.py --artifact <cache>/multilingual-e5-small.nemb \
+   --input <cache>/614241f622f53c4eeff9890bdc4f31cfecc418b3 \
+   --models-lock-proposal .dev/workstreams/hark-m24-embedding/integration-proposal.md
+# reference data regeneration in a fresh hash-pinned venv (byte-identical check)
+tools/embedding/regenerate_reference.sh
 # Nagi target type-check (no_std user target)
 (cd crates/nagi-embedding-provider && cargo -Z build-std=core,alloc check --locked \
    --no-default-features --target ../../targets/x86_64-unknown-nagi-user.json)
@@ -177,11 +261,13 @@ tests/m24-embedding/run.sh
 Measured host results are in `tests/m24-embedding/EVIDENCE.md` (token parity
 788/788, vector parity worst cosine 0.999999949 vs the upstream ONNX export,
 16/16 JA/EN neighbor requirements, latency/RSS, Nagi user-target compile).
-Run logs are written outside the repository by `tests/m24-embedding/run.sh`.
+`tests/m24-embedding/run.sh` writes full run logs outside the repository; the
+reference-regeneration and pin-verification logs are committed under
+`tests/m24-embedding/logs/`.
 
 ## 6. Open gates
 
-1. Registry row + CI step (integration owner).
+1. Registry row + the two dedicated CI jobs in §3.5 (integration / shared CI owner).
 2. models.lock / THIRD_PARTY_NOTICES / implementation_status edits (owners).
 3. Guest inference: wiring the provider into nagi-init / M19 runtime / model
    service and placing the `.nemb` in the ModelStore are Codex-owned; until a

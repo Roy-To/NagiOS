@@ -2,9 +2,12 @@
 # M24 embedding acceptance runner (HOST inference only).
 #
 # 1. fetch pinned upstream files (SHA-256 verified)      tools/embedding/fetch.sh
-# 2. convert deterministically and verify the pinned .nemb digest
+# 2. convert deterministically, verify the pinned .nemb digest and that every
+#    pin agrees (manifest, .nemb header provenance, Rust constants, models.lock
+#    proposal)                                             tools/embedding/verify_pins.py
 # 3. fmt / clippy -D warnings / model-free contract tests
-# 4. real-inference tests (--ignored; they FAIL if the model is absent)
+# 4. real-inference tests (--ignored; they FAIL if the model is absent),
+#    including deadline/cancel checkpoints on the real 12-layer model
 # 5. Nagi user-target compile of the no_std provider (if rust-src is present)
 #
 # This never runs guest inference. A pass here is host evidence only.
@@ -32,6 +35,8 @@ if [[ "$actual" != "$pinned" ]]; then
     exit 1
 fi
 echo "m24: artifact $artifact sha256 $actual (pinned)"
+python3 "$repo/tools/embedding/verify_pins.py" --artifact "$artifact" --input "$input" \
+    --models-lock-proposal "$repo/.dev/workstreams/hark-m24-embedding/integration-proposal.md"
 
 cargo fmt --manifest-path "$crate/Cargo.toml" -- --check
 cargo clippy --manifest-path "$crate/Cargo.toml" --all-targets --locked -- -D warnings
