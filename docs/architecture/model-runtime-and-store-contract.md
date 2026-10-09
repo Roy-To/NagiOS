@@ -117,3 +117,32 @@ be rejected while in use or marked as required by the system.
 
 This is a deterministic service contract only. It does not write files,
 download models, or alter the existing VFS/Capability contracts.
+
+## Ordinary-session service slice
+
+`ResidentModelRuntime` owns one checked session without a self-referential
+borrow. It constructs temporary `LoadedSession` views for invocation, keeping
+the existing request/schema/usage checks, and explicitly unloads or releases on
+drop. An unload error poisons subsequent loads so a second resident context
+cannot conceal failed cleanup.
+
+`LazyModelService` wraps one configured local profile, artifact source, monotonic
+guest clock, current resource budget, and service admission limits. It selects
+by declared capability/role and rejects unsupported manual preferences. Its
+constructor does no artifact IO. Initial load hashes real artifact bytes;
+subsequent successful calls reuse the resident model. Exact configured terms
+acknowledgement is checked before any IO. Deadlines cover hashing and inference
+through cooperative polling; no clock/response/permission fallback is invented.
+Failures/cancellation discard all output and unload, while pressure/session
+handlers can explicitly release the model. The service does not claim an
+installed package, persist acknowledgement, or implement multi-model routing.
+
+The guest adapter is a separate `nagi-init` leaf which accepts the OS-owned
+desktop's live authenticated Session and read-only Model Store capability. It
+rejects other/locked sessions and request-supplied external caller identity.
+External app grants/IPC, isolated AI process activation, shared linking and
+normal desktop integration remain separate ownership boundaries. The original
+inference acceptance and the ordinary service reuse one Rust backend when both
+features are enabled. See the workstream handoff for the integration proposal
+and the distinction between host orchestration, target compilation and guest
+inference evidence.

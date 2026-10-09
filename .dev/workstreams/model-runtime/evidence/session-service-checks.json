@@ -1,0 +1,50 @@
+[
+  {
+    "name": "host-regression",
+    "command": "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-host-regression.txt"
+  },
+  {
+    "name": "manager-clippy",
+    "command": "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-manager-clippy.txt"
+  },
+  {
+    "name": "session-access",
+    "command": "cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-session-access.txt"
+  },
+  {
+    "name": "guest-leaves",
+    "command": "cargo clippy --locked --offline --manifest-path tests/model-session-service/Cargo.toml --features granite-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc -- -D warnings",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-guest-leaves.txt"
+  },
+  {
+    "name": "manager-format",
+    "command": "cargo fmt --package nagi-model-manager -- --check",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-manager-format.txt"
+  },
+  {
+    "name": "init-format",
+    "command": "cargo fmt --package nagi-init -- --check",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-init-format.txt"
+  },
+  {
+    "name": "harness-format",
+    "command": "cargo fmt --manifest-path tests/model-session-service/Cargo.toml -- --check",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-harness-format.txt"
+  },
+  {
+    "name": "whitespace",
+    "command": "git diff --check",
+    "exit_code": 0,
+    "path": ".dev/workstreams/model-runtime/evidence/session-service-whitespace.txt"
+  }
+]
