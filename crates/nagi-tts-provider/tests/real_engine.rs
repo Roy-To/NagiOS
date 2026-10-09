@@ -318,6 +318,18 @@ fn missing_and_invalid_artifacts_are_reported() {
         JbonsaiBackend::from_bytes(&voice_bytes, DictionaryBytes::default()).err(),
         Some(LoadError::DictionaryMissing)
     );
+    // A truncated voice (partial read) is an error, never a parser panic.
+    for len in [voice_bytes.len() - 1, voice_bytes.len() / 2, 100_000, 1_024] {
+        assert_eq!(
+            JbonsaiBackend::from_bytes(
+                &voice_bytes[..len],
+                DictionaryBytes::read_dir(&dict).unwrap()
+            )
+            .err(),
+            Some(LoadError::VoiceInvalid),
+            "truncated to {len} bytes"
+        );
+    }
     assert_eq!(
         JbonsaiBackend::from_bytes(&[], DictionaryBytes::read_dir(&dict).unwrap()).err(),
         Some(LoadError::VoiceMissing)

@@ -276,6 +276,7 @@ impl JbonsaiBackend {
         if voice.len() > MAX_VOICE_BYTES {
             return Err(LoadError::VoiceInvalid);
         }
+        check_voice_layout(voice)?;
         let engine = Engine::load_from_bytes([voice]).map_err(|_| LoadError::VoiceInvalid)?;
         let rate = engine.condition.get_sampling_frequency();
         if rate != ENGINE_SAMPLE_RATE as usize {
@@ -395,6 +396,53 @@ impl JbonsaiBackend {
     }
 }
 
+/// Rejects an `.htsvoice` whose `[POSITION]` ranges point outside its
+/// `[DATA]` section, before jbonsai parses it.
+///
+/// jbonsai 0.4.2 slices the data section with the header's ranges without
+/// bounds checks, so a truncated or tampered voice (for example a partial
+/// Model Store read) would panic inside the parser instead of returning an
+/// error. This check turns that case into [`LoadError::VoiceInvalid`]. It
+/// validates layout only; content integrity is the SHA-256 pin in
+/// `tools/tts/tts-artifacts.lock`, checked by whoever delivers the bytes.
+fn check_voice_layout(voice: &[u8]) -> Result<(), LoadError> {
+    const POSITION: &[u8] = b"[POSITION]\n";
+    const DATA: &[u8] = b"[DATA]\n";
+    let find = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).position(|w| w == needle);
+    let position_start = find(voice, POSITION).ok_or(LoadError::VoiceInvalid)? + POSITION.len();
+    let after_position = &voice[position_start..];
+    let position_len = find(after_position, b"\n[").ok_or(LoadError::VoiceInvalid)?;
+    let header = &after_position[..position_len];
+    let rest = &after_position[position_len..];
+    let newlines = rest.iter().take_while(|&&b| b == b'\n').count();
+    let rest = &rest[newlines..];
+    if !rest.starts_with(DATA) {
+        return Err(LoadError::VoiceInvalid);
+    }
+    let data_len = rest.len() - DATA.len();
+    let header = core::str::from_utf8(header).map_err(|_| LoadError::VoiceInvalid)?;
+    let mut ranges = 0usize;
+    for line in header.lines().filter(|line| !line.trim().is_empty()) {
+        let (_, value) = line.split_once(':').ok_or(LoadError::VoiceInvalid)?;
+        for range in value.split(',') {
+            let (start, end) = range
+                .trim()
+                .split_once('-')
+                .ok_or(LoadError::VoiceInvalid)?;
+            let start: usize = start.trim().parse().map_err(|_| LoadError::VoiceInvalid)?;
+            let end: usize = end.trim().parse().map_err(|_| LoadError::VoiceInvalid)?;
+            if start > end || end >= data_len {
+                return Err(LoadError::VoiceInvalid);
+            }
+            ranges += 1;
+        }
+    }
+    if ranges == 0 {
+        return Err(LoadError::VoiceInvalid);
+    }
+    Ok(())
+}
+
 fn read_voice(path: &Path) -> Result<Vec<u8>, LoadError> {
     let metadata = std::fs::metadata(path).map_err(|_| LoadError::VoiceMissing)?;
     if !metadata.is_file() {
@@ -470,4 +518,57 @@ pub type JbonsaiProvider = LocalTtsProvider<JbonsaiBackend>;
 pub fn load_provider(voice: &Path, dictionary: &Path) -> Result<JbonsaiProvider, LoadError> {
     let backend = JbonsaiBackend::load(voice, dictionary)?;
     LocalTtsProvider::new(backend).map_err(|_| LoadError::UnsupportedFramePeriod)
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::{check_voice_layout, LoadError};
+
+    fn voice(position: &str, data_len: usize) -> Vec<u8> {
+        let mut bytes =
+            format!("[GLOBAL]\nA:1\n[STREAM]\nB:2\n[POSITION]\n{position}\n[DATA]\n").into_bytes();
+        bytes.resize(bytes.len() + data_len, 0xA5);
+        bytes
+    }
+
+    #[test]
+    fn in_bounds_layout_is_accepted() {
+        let bytes = voice("DURATION_PDF:0-9\nSTREAM_WIN[MCP]:10-12,13-19", 20);
+        assert_eq!(check_voice_layout(&bytes), Ok(()));
+    }
+
+    #[test]
+    fn truncated_data_is_rejected_not_panicking() {
+        let bytes = voice("DURATION_PDF:0-9\nSTREAM_TREE[MCP]:10-1743120", 99_123);
+        assert_eq!(check_voice_layout(&bytes), Err(LoadError::VoiceInvalid));
+        let full = voice("DURATION_PDF:0-9", 10);
+        assert_eq!(
+            check_voice_layout(&full[..full.len() - 1]),
+            Err(LoadError::VoiceInvalid)
+        );
+    }
+
+    #[test]
+    fn malformed_positions_are_rejected() {
+        for position in [
+            "DURATION_PDF:9-0",
+            "DURATION_PDF:0-x",
+            "DURATION_PDF",
+            "DURATION_PDF:0-18446744073709551615",
+        ] {
+            assert_eq!(
+                check_voice_layout(&voice(position, 20)),
+                Err(LoadError::VoiceInvalid),
+                "{position}"
+            );
+        }
+        assert_eq!(
+            check_voice_layout(b"not a voice"),
+            Err(LoadError::VoiceInvalid)
+        );
+        assert_eq!(
+            check_voice_layout(b"[POSITION]\nA:0-1\n"),
+            Err(LoadError::VoiceInvalid)
+        );
+    }
 }
