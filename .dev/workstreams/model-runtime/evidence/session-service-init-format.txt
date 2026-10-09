@@ -1,0 +1,2 @@
+Command: cargo fmt --package nagi-init -- --check
+Exit code: 0

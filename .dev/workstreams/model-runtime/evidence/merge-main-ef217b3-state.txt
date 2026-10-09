@@ -1,0 +1,9 @@
+Main base: ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8
+Prior source head: 7a13250df856554ab8e02b2a8f037344a55a614e
+Command: ./nagi dev verify
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `<build-target>/debug/nagi-bootstrap dev verify`
+PASS development state: 30 registered workstreams, 23 state files validated; branch codex/0.1-session-model-service at 7a13250df856554ab8e02b2a8f037344a55a614e
