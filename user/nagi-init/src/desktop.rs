@@ -4,8 +4,10 @@ use core::arch::asm;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
-#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login", not(test)))]
 pub(super) use crate::m19_runtime::files;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login", test))]
+use crate::m19_runtime::files;
 #[cfg(feature = "m20-model-service")]
 #[path = "bar_adapter.rs"]
 mod bar_adapter;
@@ -1669,6 +1671,7 @@ pub fn run(
     desktop.arm_consent();
     let initial_checksum = checksum(surface);
     // Compare every pixel: a moved 3x3 pointer can miss the sampled checksum.
+    #[cfg(not(feature = "production-session"))]
     let initial_frame = frame_hash(surface);
     print(message!(NAGI_M10_READY, 24));
     print_checksum(initial_checksum);
@@ -2012,7 +2015,11 @@ pub fn run(
             if let Some(panel) = &mut desktop.permissions {
                 panel.announce();
             }
-            if frame_hash(surface) == initial_frame {
+            // The milestone fixture expects every event to change its initial
+            // frame. An ordinary session can legitimately return to that frame
+            // when it locks, so keep this failure path in acceptance builds.
+            #[cfg(not(feature = "production-session"))]
+            if unchanged_frame_fails_acceptance(frame_hash(surface), initial_frame) {
                 print(message!(NAGI_M10_FAIL, 26));
                 libnagi::exit(1);
             }
@@ -2182,6 +2189,7 @@ fn checksum(surface: &[u32]) -> u64 {
     value
 }
 
+#[cfg(any(not(feature = "production-session"), test))]
 fn frame_hash(surface: &[u32]) -> u64 {
     surface
         .iter()
@@ -2244,3 +2252,25 @@ fn append_decimal(destination: &mut [u8], mut offset: usize, mut value: u64) -> 
     }
     offset
 }
+
+// Kept separate so the real Desktop regression tests can exercise the failure
+// decision without invoking the guest process-exit syscall on the host.
+#[cfg(any(not(feature = "production-session"), test))]
+fn unchanged_frame_fails_acceptance(current: u64, initial: u64) -> bool {
+    !cfg!(feature = "production-session") && current == initial
+}
+
+#[cfg(all(test, not(target_os = "nagi"), feature = "desktop-login"))]
+#[path = "../../../tests/session-ui/desktop-host/src/desktop_tests.rs"]
+mod regression;
+
+// Test-only nesting lets the inherited Files tests see their Desktop-private
+// panel without changing any Files source or production visibility.
+#[cfg(all(
+    test,
+    not(target_os = "nagi"),
+    feature = "m19-runtime",
+    feature = "desktop-login"
+))]
+#[path = "m19_runtime.rs"]
+pub(super) mod host_m19_runtime;

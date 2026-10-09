@@ -55,6 +55,14 @@ service only after `report_boot_ready` succeeds. Failed worker binding is shown
 without repeatedly spawning on idle steps. An ordinary production Desktop never
 enters the old milestone-focus acceptance halt.
 
+The initial-frame equality failure is also restricted to builds without
+`production-session`, matching the legacy acceptance configuration. An
+existing-account boot, sign-in and F4 lock in the same locale reconstructs the
+initial blank unlock form exactly; returning to that form is valid during an
+ordinary session. Production builds omit this fixture failure path. Display
+presentation, explicit boot readiness and sign-in readiness checks retain their
+original behavior, and the fixture assertion remains active in acceptance builds.
+
 Cancellation retains the controller's occupied slot until the bridge's terminal
 result is drained; all cancellation results, including late Ready, are hidden.
 A second submit stays blocked during that drain. Session replacement/lock uses
@@ -84,6 +92,18 @@ PASS, release, security setting or license-gate relaxation is claimed.
 
 - `tests/session-ui/check.sh`: PASS. 36 host orchestration tests (25 UI/adapter
   and 11 inherited bridge tests), host warnings-denied Clippy and formatting.
+- Real Desktop regressions: PASS, three production and two legacy acceptance
+  host tests. The pre-fix production run failed all three checks, including an
+  exact initial/locked frame collision in the real renderer. The fixed run
+  covers both locales, lock/relogin, failed readiness and preserved login
+  acceptance. Only syscall transport/readiness/time/console are host seams;
+  credential verification, VFS, login events and rendering are actual source.
+  The host syscall-boundary crate also passes warnings-denied Clippy.
+  The legacy login unit configuration omits Files runtime because inherited
+  Files host-test initializers omit acceptance-only fields; no production
+  feature dependency or Files source is altered to accommodate this harness.
+  A separate host compile-only check of the full legacy login/Files acceptance
+  source also passes; it does not execute the inherited acceptance fixtures.
 - Actual Nagi service/worker/controller/adapter leaves: warnings-denied Clippy
   PASS for `targets/x86_64-unknown-nagi-user.json`, using build-std core/alloc.
 - Actual Desktop/login/Files source check with `desktop-check`: compile-only

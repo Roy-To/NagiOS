@@ -1,0 +1,34 @@
+[package]
+name = "nagi-desktop-lock-host-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["libnagi"]
+
+[features]
+default = ["m20-model-service"]
+m20-model-service = ["production-session", "desktop-login", "m19-runtime"]
+production-session = []
+desktop-login = []
+m19-runtime = []
+m19-files-search-production = []
+m19-search = []
+m10-desktop = []
+m29-settings-acceptance = []
+desktop-login-acceptance = []
+desktop-password-change-acceptance = []
+consent-dialog = []
+consent-dialog-acceptance = []
+
+[dependencies]
+libnagi = { package = "nagi-desktop-host-libnagi", path = "libnagi" }
+nagi-model-manager = { path = "../../../user/nagi-model-manager" }
+nagi-model = { path = "../../../crates/nagi-model" }
+nagi-localization = { path = "../../../user/nagi-localization" }
+nagi-ui = { path = "../../../user/nagi-ui" }
+nagi-search = { path = "../../../user/nagi-search" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
