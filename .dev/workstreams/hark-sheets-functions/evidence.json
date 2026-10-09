@@ -1,0 +1,61 @@
+{
+  "lane": "hark-sheets-functions",
+  "status": "PARTIAL",
+  "scope": "host-only; no guest/runtime/UI claim",
+  "base_main": "69fe92d35568649638dbb1964fd680f1b32aa432",
+  "branch": "hark/sheets-ifs-roundup-rounddown",
+  "code_commit": "191267b9add3abe1888aa206a3ebc7d04cf81d8c",
+  "toolchain": "nightly-2025-08-01 (rustc 1.90.0-nightly adcb3d3b4 2025-07-31)",
+  "local_checks": [
+    {
+      "command": "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check",
+      "outcome": "PASS",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "outcome": "PASS",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+      "outcome": "PASS",
+      "exit_code": 0,
+      "tests": {
+        "passed": 29,
+        "failed": 0,
+        "ignored": 0,
+        "existing": 19,
+        "new": 10
+      }
+    },
+    {
+      "command": "git diff --check",
+      "outcome": "PASS",
+      "exit_code": 0
+    },
+    {
+      "command": "./nagi dev verify",
+      "outcome": "PASS",
+      "exit_code": 0,
+      "note": "30 registered workstreams, 23 state files validated"
+    }
+  ],
+  "new_tests": [
+    "ifs_round::ifs_canonical_names_resolve_case_insensitively",
+    "ifs_round::ifs_selects_first_true_pair",
+    "ifs_round::ifs_is_lazy_dead_branches_unevaluated",
+    "ifs_round::ifs_errors_are_typed",
+    "ifs_round::ifs_incremental_recalculation_tracks_all_branch_refs",
+    "ifs_round::roundup_rounddown_directions_and_digits",
+    "ifs_round::roundup_rounddown_negative_zero_is_normalised",
+    "ifs_round::roundup_rounddown_typed_errors",
+    "ifs_round::roundup_rounddown_extremes_never_produce_nonfinite",
+    "ifs_round::roundup_rounddown_incremental_recalculation"
+  ],
+  "notes": [
+    "cargo fmt with --all on this manifest also rewrites third_party/relibc/src/nagi_locale.rs; the CI form without --all is used and that file is untouched.",
+    "Nagi CI (ci.yml) does not run the nagi-sheets-core suite; the 0.2-host-integration.yml job is gated to listed owner branches and is skipped for this branch. CI therefore proves no regression elsewhere, not the Sheets tests."
+  ],
+  "ci": "pending"
+}
