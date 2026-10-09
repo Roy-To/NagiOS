@@ -1,0 +1,26 @@
+[package]
+name = "nagi-tts-provider"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Local Japanese TTS provider for the Nagi M25 TextToSpeechProvider contract"
+
+[workspace]
+
+[features]
+default = ["engine-jbonsai"]
+engine-jbonsai = ["dep:jbonsai", "dep:jpreprocess", "dep:jlabel"]
+
+[dependencies]
+nagi-audio = { path = "../../user/nagi-audio" }
+jbonsai = { version = "=0.4.2", optional = true, default-features = true }
+jpreprocess = { version = "=0.15.0", optional = true, default-features = false, features = ["tokenizer"] }
+
+jlabel = { version = "=0.1.10", optional = true }
+
+[profile.release]
+codegen-units = 1
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
