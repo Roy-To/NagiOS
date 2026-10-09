@@ -21,6 +21,10 @@ use crate::container::{Piece, PieceKind};
 /// SentencePiece/HF unknown-token penalty relative to the lowest piece score.
 const UNK_PENALTY: f32 = 10.0;
 const METASPACE: char = '\u{2581}';
+/// Longest normalized replacement accepted from a precompiled charsmap. The
+/// pinned multilingual-e5-small map's longest replacement is 33 bytes; the cap
+/// bounds how far one input character can expand during normalization.
+pub const MAX_NORMALIZED_REPLACEMENT_BYTES: usize = 64;
 
 /// Double-array trie of the precompiled normalization map.
 pub struct CharsMap {
@@ -42,13 +46,23 @@ impl CharsMap {
             return None;
         }
         let trie = blob.get(4..4usize.checked_add(size)?)?;
+        let normalized = &blob[4 + size..];
+        // A replacement is read from any trie-supplied offset up to the next
+        // NUL (or the end), so the longest NUL-free run bounds every
+        // replacement. Reject maps whose runs exceed the cap.
+        if normalized
+            .split(|b| *b == 0)
+            .any(|run| run.len() > MAX_NORMALIZED_REPLACEMENT_BYTES)
+        {
+            return None;
+        }
         let units = trie
             .chunks_exact(4)
             .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             .collect();
         Some(Self {
             units,
-            normalized: blob[4 + size..].to_vec(),
+            normalized: normalized.to_vec(),
         })
     }
 
@@ -180,6 +194,9 @@ impl Tokenizer {
             min_score = min_score.min(piece.score);
             if piece.kind != PieceKind::Normal {
                 continue;
+            }
+            if piece.len > crate::container::MAX_NORMAL_PIECE_BYTES {
+                return None;
             }
             let key = &bytes[piece.start..piece.start + piece.len];
             max_piece_bytes = max_piece_bytes.max(piece.len);
