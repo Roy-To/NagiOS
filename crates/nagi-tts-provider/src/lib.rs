@@ -89,6 +89,171 @@ pub trait SynthesisBackend {
     ) -> Result<Option<Self::Source>, BackendError>;
 }
 
+/// Edge-silence trimming parameters, in engine frames.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SilenceTrim {
+    /// Frames whose RMS (on the 16-bit sample scale) is below this are silent.
+    pub rms_threshold: f64,
+    /// Silent frames kept immediately before the first and after the last
+    /// voiced frame, so onsets and releases are not clipped.
+    pub pad_frames: usize,
+    /// Longest silent run held back while waiting to see whether speech
+    /// resumes. Longer runs are emitted (internal pauses are preserved).
+    pub max_hold_frames: usize,
+}
+
+impl SilenceTrim {
+    /// 50 ms padding and 600 ms hold for 5 ms HTS frames at 48 kHz.
+    pub const HTS_48K: Self = Self {
+        rms_threshold: 64.0,
+        pad_frames: 10,
+        max_hold_frames: 120,
+    };
+
+    /// Pass every frame through unchanged.
+    pub const DISABLED: Self = Self {
+        rms_threshold: 0.0,
+        pad_frames: 0,
+        max_hold_frames: 0,
+    };
+}
+
+/// Removes leading and trailing silence from a [`FrameSource`] while keeping
+/// internal pauses. Memory is bounded by `max_hold_frames` frames.
+pub struct SilenceTrimmer<S> {
+    inner: S,
+    config: SilenceTrim,
+    frame_len: usize,
+    /// Held silent frames, oldest first, stored contiguously.
+    held: alloc::collections::VecDeque<Vec<f64>>,
+    spare: Vec<Vec<f64>>,
+    voiced_seen: bool,
+    inner_done: bool,
+    /// Frames to emit from `held` before pulling more (after speech resumed
+    /// or at the end of the utterance).
+    flush_remaining: usize,
+}
+
+impl<S: FrameSource> SilenceTrimmer<S> {
+    pub fn new(inner: S, frame_len: usize, config: SilenceTrim) -> Self {
+        Self {
+            inner,
+            config,
+            frame_len,
+            held: alloc::collections::VecDeque::new(),
+            spare: Vec::new(),
+            voiced_seen: false,
+            inner_done: false,
+            flush_remaining: 0,
+        }
+    }
+
+    fn is_silent(&self, frame: &[f64]) -> bool {
+        let energy: f64 = frame.iter().map(|sample| sample * sample).sum();
+        let rms = libm_sqrt(energy / frame.len().max(1) as f64);
+        rms < self.config.rms_threshold
+    }
+
+    fn take_buffer(&mut self) -> Vec<f64> {
+        self.spare
+            .pop()
+            .unwrap_or_else(|| alloc::vec![0.0; self.frame_len])
+    }
+
+    fn recycle(&mut self, mut buffer: Vec<f64>) {
+        buffer.fill(0.0);
+        self.spare.push(buffer);
+    }
+
+    fn emit_held(&mut self, out: &mut [f64]) -> usize {
+        let frame = self.held.pop_front().expect("held frame");
+        out[..self.frame_len].copy_from_slice(&frame);
+        self.recycle(frame);
+        self.flush_remaining -= 1;
+        self.frame_len
+    }
+}
+
+/// `f64::sqrt` lives in `std`; this crate's core is `no_std`.
+fn libm_sqrt(value: f64) -> f64 {
+    if value <= 0.0 {
+        return 0.0;
+    }
+    // Newton iteration from a bit-level initial guess; converges to full
+    // double precision well within 8 steps for the RMS range used here.
+    let mut x = f64::from_bits((value.to_bits() >> 1) + (1023u64 << 51));
+    for _ in 0..8 {
+        x = 0.5 * (x + value / x);
+    }
+    x
+}
+
+impl<S: FrameSource> FrameSource for SilenceTrimmer<S> {
+    fn next_frame(&mut self, out: &mut [f64]) -> Result<usize, BackendError> {
+        if out.len() < self.frame_len {
+            return Err(BackendError::Failed);
+        }
+        loop {
+            if self.flush_remaining > 0 {
+                return Ok(self.emit_held(out));
+            }
+            if self.inner_done {
+                return Ok(0);
+            }
+            let mut frame = self.take_buffer();
+            let produced = match self.inner.next_frame(&mut frame) {
+                Ok(produced) => produced,
+                Err(error) => {
+                    self.recycle(frame);
+                    return Err(error);
+                }
+            };
+            if produced == 0 {
+                self.recycle(frame);
+                self.inner_done = true;
+                // Trailing silence: keep only the padding.
+                let keep = if self.voiced_seen {
+                    self.held.len().min(self.config.pad_frames)
+                } else {
+                    0
+                };
+                while self.held.len() > keep {
+                    let dropped = self.held.pop_back().expect("held frame");
+                    self.recycle(dropped);
+                }
+                self.flush_remaining = self.held.len();
+                continue;
+            }
+            if produced != self.frame_len {
+                self.recycle(frame);
+                return Err(BackendError::Failed);
+            }
+            if self.is_silent(&frame) {
+                if !self.voiced_seen {
+                    // Leading silence: keep only the last `pad_frames`.
+                    self.held.push_back(frame);
+                    while self.held.len() > self.config.pad_frames {
+                        let dropped = self.held.pop_front().expect("held frame");
+                        self.recycle(dropped);
+                    }
+                    continue;
+                }
+                self.held.push_back(frame);
+                if self.held.len() > self.config.max_hold_frames {
+                    // A long internal pause: release the oldest held frame.
+                    self.flush_remaining = 1;
+                }
+                continue;
+            }
+            // Voiced frame: release everything held (padding or an internal
+            // pause), then this frame.
+            self.voiced_seen = true;
+            self.held.push_back(frame);
+            self.flush_remaining = self.held.len();
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OutputMode {
     Stereo48k,

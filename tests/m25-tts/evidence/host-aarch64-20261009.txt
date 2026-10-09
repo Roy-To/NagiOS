@@ -1,0 +1,62 @@
+== host
+date_jst=2026-10-09T09:30+0900
+uname=Linux 6.12.110+ aarch64
+cpu=Neoverse-V2 cpus=2
+mem_total_kib=8136692
+loadavg_before=2.67 2.39 2.23
+rustc=rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)
+voice_sha256=ded6acb4243b93cc50896199d67b00a7c487662bfcdcd3f9f30a4fb0444b0b46
+== commands (stereo48k)
+  load_seconds=0.085
+  utterance=0 text_bytes=33 pcm_bytes=309120 audio_seconds=1.610 first_chunk_seconds=0.0091 synth_seconds=0.0291 rtf=0.0181
+  utterance=1 text_bytes=27 pcm_bytes=265920 audio_seconds=1.385 first_chunk_seconds=0.0077 synth_seconds=0.0254 rtf=0.0183
+  utterance=2 text_bytes=33 pcm_bytes=316800 audio_seconds=1.650 first_chunk_seconds=0.0087 synth_seconds=0.0292 rtf=0.0177
+  utterance=3 text_bytes=36 pcm_bytes=308160 audio_seconds=1.605 first_chunk_seconds=0.0086 synth_seconds=0.0284 rtf=0.0177
+  wav=/workspace/work/wt-m25-tts/out/tts-eval/commands.wav format=stereo48k
+  User time (seconds): 0.12
+  System time (seconds): 0.07
+  Percent of CPU this job got: 96%
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.21
+  Maximum resident set size (kbytes): 120724
+  whisper_transcript=こんにちは、何です。アルバートを開いて、今日の天気は晴れです。ファイルを保存しました。
+== commands_mono16k (mono16k)
+  load_seconds=0.067
+  utterance=0 text_bytes=33 pcm_bytes=51604 audio_seconds=1.613 first_chunk_seconds=0.0097 synth_seconds=0.0320 rtf=0.0198
+  utterance=1 text_bytes=27 pcm_bytes=44404 audio_seconds=1.388 first_chunk_seconds=0.0086 synth_seconds=0.0282 rtf=0.0203
+  wav=/workspace/work/wt-m25-tts/out/tts-eval/commands_mono16k.wav format=mono16k
+  User time (seconds): 0.08
+  System time (seconds): 0.05
+  Percent of CPU this job got: 97%
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
+  Maximum resident set size (kbytes): 120788
+  whisper_transcript=こんにちは、何です。アルバートを開いて。
+== numbers (stereo48k)
+  load_seconds=0.071
+  utterance=0 text_bytes=56 pcm_bytes=694080 audio_seconds=3.615 first_chunk_seconds=0.0115 synth_seconds=0.0519 rtf=0.0143
+  wav=/workspace/work/wt-m25-tts/out/tts-eval/numbers.wav format=stereo48k
+  User time (seconds): 0.07
+  System time (seconds): 0.05
+  Percent of CPU this job got: 97%
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
+  Maximum resident set size (kbytes): 120788
+  whisper_transcript=会議は午後3時から、参加者は12人です。
+== near_cap (stereo48k)
+  load_seconds=0.066
+  utterance=0 text_bytes=69 pcm_bytes=761280 audio_seconds=3.965 first_chunk_seconds=0.0111 synth_seconds=0.0549 rtf=0.0138
+  wav=/workspace/work/wt-m25-tts/out/tts-eval/near_cap.wav format=stereo48k
+  User time (seconds): 0.07
+  System time (seconds): 0.05
+  Percent of CPU this job got: 96%
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.13
+  Maximum resident set size (kbytes): 120776
+  whisper_transcript=日本語の音声後声が、ローカルで動作しています。
+== over_cap (stereo48k)
+  load_seconds=0.082
+  thread 'main' panicked at examples/synthesize.rs:62:31:
+  utterance 0 failed: Failed
+  User time (seconds): 0.08
+  System time (seconds): 0.07
+  Percent of CPU this job got: 96%
+  Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.16
+  Maximum resident set size (kbytes): 120772
+loadavg_after=2.49 2.36 2.23

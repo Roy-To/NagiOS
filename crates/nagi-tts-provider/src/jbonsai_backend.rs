@@ -8,12 +8,17 @@ use std::path::Path;
 
 use jbonsai::speech::SpeechGenerator;
 use jbonsai::Engine;
-use jpreprocess::{DefaultTokenizer, JPreprocess, SystemDictionaryConfig};
+use jpreprocess::{DefaultTokenizer, Dictionary, JPreprocess};
+use lindera_dictionary::dictionary::character_definition::CharacterDefinition;
+use lindera_dictionary::dictionary::connection_cost_matrix::ConnectionCostMatrix;
+use lindera_dictionary::dictionary::metadata::Metadata;
+use lindera_dictionary::dictionary::prefix_dictionary::PrefixDictionary;
+use lindera_dictionary::dictionary::unknown_dictionary::UnknownDictionary;
 use nagi_audio::speech::SpeechSynthesisLanguage;
 
 use crate::{
-    BackendError, FrameSource, LocalTtsProvider, SynthesisBackend, ENGINE_SAMPLE_RATE,
-    MAX_ENGINE_FRAME_SAMPLES,
+    BackendError, FrameSource, LocalTtsProvider, SilenceTrim, SilenceTrimmer, SynthesisBackend,
+    ENGINE_SAMPLE_RATE, MAX_ENGINE_FRAME_SAMPLES,
 };
 
 /// Reasons a voice or dictionary could not be loaded.
@@ -31,11 +36,130 @@ pub enum LoadError {
 /// 2,154,716 bytes; the bound rejects unexpected inputs before parsing.
 pub const MAX_VOICE_BYTES: usize = 16 * 1024 * 1024;
 
+/// Upper bound accepted for any single dictionary component. The largest
+/// pinned component (`dict.da`) is 33,049,069 bytes.
+pub const MAX_DICTIONARY_COMPONENT_BYTES: usize = 64 * 1024 * 1024;
+
+/// The eight files of a jpreprocess/lindera system dictionary, as bytes.
+/// This is the form a read-only Model Store capability can deliver on Nagi;
+/// the path loader reads the same files into this struct first.
+#[derive(Default)]
+pub struct DictionaryBytes {
+    pub metadata_json: Vec<u8>,
+    pub char_def_bin: Vec<u8>,
+    pub matrix_mtx: Vec<u8>,
+    pub dict_da: Vec<u8>,
+    pub dict_vals: Vec<u8>,
+    pub dict_wordsidx: Vec<u8>,
+    pub dict_words: Vec<u8>,
+    pub unk_bin: Vec<u8>,
+}
+
+impl DictionaryBytes {
+    /// File names inside the dictionary directory, in field order.
+    pub const FILES: [&'static str; 8] = [
+        "metadata.json",
+        "char_def.bin",
+        "matrix.mtx",
+        "dict.da",
+        "dict.vals",
+        "dict.wordsidx",
+        "dict.words",
+        "unk.bin",
+    ];
+
+    /// Reads the eight dictionary files from a directory.
+    pub fn read_dir(dictionary: &Path) -> Result<Self, LoadError> {
+        if !dictionary.is_dir() {
+            return Err(LoadError::DictionaryMissing);
+        }
+        let mut parts: [Vec<u8>; 8] = Default::default();
+        for (slot, name) in parts.iter_mut().zip(Self::FILES) {
+            let path = dictionary.join(name);
+            let metadata = std::fs::metadata(&path).map_err(|_| LoadError::DictionaryMissing)?;
+            if !metadata.is_file() {
+                return Err(LoadError::DictionaryMissing);
+            }
+            if metadata.len() > MAX_DICTIONARY_COMPONENT_BYTES as u64 {
+                return Err(LoadError::DictionaryInvalid);
+            }
+            *slot = std::fs::read(&path).map_err(|_| LoadError::DictionaryMissing)?;
+        }
+        let [metadata_json, char_def_bin, matrix_mtx, dict_da, dict_vals, dict_wordsidx, dict_words, unk_bin] =
+            parts;
+        Ok(Self {
+            metadata_json,
+            char_def_bin,
+            matrix_mtx,
+            dict_da,
+            dict_vals,
+            dict_wordsidx,
+            dict_words,
+            unk_bin,
+        })
+    }
+
+    fn sizes(&self) -> [usize; 8] {
+        [
+            self.metadata_json.len(),
+            self.char_def_bin.len(),
+            self.matrix_mtx.len(),
+            self.dict_da.len(),
+            self.dict_vals.len(),
+            self.dict_wordsidx.len(),
+            self.dict_words.len(),
+            self.unk_bin.len(),
+        ]
+    }
+
+    /// Total bytes held.
+    pub fn total_len(&self) -> usize {
+        self.sizes().iter().sum()
+    }
+
+    fn into_dictionary(self) -> Result<Dictionary, LoadError> {
+        let sizes = self.sizes();
+        if sizes.contains(&0) {
+            return Err(LoadError::DictionaryMissing);
+        }
+        if sizes
+            .iter()
+            .any(|size| *size > MAX_DICTIONARY_COMPONENT_BYTES)
+        {
+            return Err(LoadError::DictionaryInvalid);
+        }
+        let invalid = |_| LoadError::DictionaryInvalid;
+        let metadata = Metadata::load(&self.metadata_json).map_err(invalid)?;
+        // Both loaders copy into a 16-byte-aligned buffer before rkyv access.
+        let character_definition =
+            CharacterDefinition::load(&self.char_def_bin).map_err(invalid)?;
+        let unknown_dictionary = UnknownDictionary::load(&self.unk_bin).map_err(invalid)?;
+        let connection_cost_matrix =
+            ConnectionCostMatrix::load(self.matrix_mtx).map_err(invalid)?;
+        let prefix_dictionary = PrefixDictionary::load(
+            self.dict_da,
+            self.dict_vals,
+            self.dict_wordsidx,
+            self.dict_words,
+            true,
+        )
+        .map_err(invalid)?;
+        Ok(Dictionary {
+            prefix_dictionary,
+            connection_cost_matrix,
+            character_definition,
+            unknown_dictionary,
+            metadata,
+        })
+    }
+}
+
 /// The loaded front end and voice. Both persist across utterances until
 /// [`JbonsaiBackend::unload`] is called.
 pub struct JbonsaiBackend {
     loaded: Option<Loaded>,
     frame_len: usize,
+    trim: SilenceTrim,
 }
 
 struct Loaded {
@@ -62,12 +186,14 @@ impl JbonsaiBackend {
     /// dictionary directory.
     pub fn load(voice: &Path, dictionary: &Path) -> Result<Self, LoadError> {
         let voice_bytes = read_voice(voice)?;
-        Self::from_voice_bytes(&voice_bytes, dictionary)
+        let dictionary = DictionaryBytes::read_dir(dictionary)?;
+        Self::from_bytes(&voice_bytes, dictionary)
     }
 
-    /// Loads the voice from bytes already obtained through a read-only model
-    /// capability, plus the dictionary directory.
-    pub fn from_voice_bytes(voice: &[u8], dictionary: &Path) -> Result<Self, LoadError> {
+    /// Loads the voice and dictionary from bytes already obtained through a
+    /// read-only model capability. No filesystem path is involved; this is
+    /// the loader a Nagi guest uses.
+    pub fn from_bytes(voice: &[u8], dictionary: DictionaryBytes) -> Result<Self, LoadError> {
         if voice.is_empty() {
             return Err(LoadError::VoiceMissing);
         }
@@ -83,11 +209,19 @@ impl JbonsaiBackend {
         if frame_len == 0 || frame_len > MAX_ENGINE_FRAME_SAMPLES {
             return Err(LoadError::UnsupportedFramePeriod);
         }
-        let frontend = load_frontend(dictionary)?;
+        let frontend = JPreprocess::with_dictionaries(dictionary.into_dictionary()?, None);
         Ok(Self {
             loaded: Some(Loaded { engine, frontend }),
             frame_len,
+            trim: SilenceTrim::HTS_48K,
         })
+    }
+
+    /// Sets edge-silence trimming. The default, [`SilenceTrim::HTS_48K`],
+    /// removes the ~0.5 s of HTS `sil` before and after each utterance so
+    /// more of the 1 MiB output budget carries speech.
+    pub fn set_silence_trim(&mut self, trim: SilenceTrim) {
+        self.trim = trim;
     }
 
     /// Drops the voice and dictionary (memory-pressure unload). Subsequent
@@ -130,27 +264,12 @@ fn read_voice(path: &Path) -> Result<Vec<u8>, LoadError> {
     std::fs::read(path).map_err(|_| LoadError::VoiceMissing)
 }
 
-fn load_frontend(dictionary: &Path) -> Result<JPreprocess<DefaultTokenizer>, LoadError> {
-    if !dictionary.is_dir() {
-        return Err(LoadError::DictionaryMissing);
-    }
-    // lindera reads `metadata.json` first; a directory without it is not a
-    // dictionary.
-    if !dictionary.join("metadata.json").is_file() {
-        return Err(LoadError::DictionaryMissing);
-    }
-    let system = SystemDictionaryConfig::File(dictionary.to_path_buf())
-        .load()
-        .map_err(|_| LoadError::DictionaryInvalid)?;
-    Ok(JPreprocess::with_dictionaries(system, None))
-}
-
 fn is_silence(label: &jlabel::Label) -> bool {
     matches!(label.phoneme.c.as_deref(), None | Some("sil") | Some("pau"))
 }
 
 impl SynthesisBackend for JbonsaiBackend {
-    type Source = JbonsaiSource;
+    type Source = SilenceTrimmer<JbonsaiSource>;
 
     fn sample_rate(&self) -> u32 {
         ENGINE_SAMPLE_RATE
@@ -190,7 +309,11 @@ impl SynthesisBackend for JbonsaiBackend {
         if generator.fperiod() != self.frame_len {
             return Err(BackendError::Failed);
         }
-        Ok(Some(JbonsaiSource { generator }))
+        Ok(Some(SilenceTrimmer::new(
+            JbonsaiSource { generator },
+            self.frame_len,
+            self.trim,
+        )))
     }
 }
 

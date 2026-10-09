@@ -425,3 +425,110 @@ fn integrates_with_synthesis_service_and_playback_sink() {
         Err(SpeechSynthesisError::PlaybackUnavailable)
     );
 }
+
+/// Frame script: `true` = voiced (value = index + 1000), `false` = silent (0).
+struct ScriptSource {
+    script: Vec<bool>,
+    next: usize,
+}
+
+impl FrameSource for ScriptSource {
+    fn next_frame(&mut self, out: &mut [f64]) -> Result<usize, BackendError> {
+        let Some(voiced) = self.script.get(self.next).copied() else {
+            return Ok(0);
+        };
+        let value = if voiced {
+            1000.0 + self.next as f64
+        } else {
+            self.next as f64 * 1e-3
+        };
+        out[..FRAME].fill(value);
+        self.next += 1;
+        Ok(FRAME)
+    }
+}
+
+fn trimmed(script: &[bool], config: SilenceTrim) -> Vec<usize> {
+    let mut trimmer = SilenceTrimmer::new(
+        ScriptSource {
+            script: script.to_vec(),
+            next: 0,
+        },
+        FRAME,
+        config,
+    );
+    let mut out = vec![0.0; FRAME];
+    let mut indices = Vec::new();
+    while trimmer.next_frame(&mut out).unwrap() == FRAME {
+        // Recover the source index from the encoded value.
+        let index = if out[0] >= 1000.0 {
+            (out[0] - 1000.0) as usize
+        } else {
+            (out[0] * 1e3).round() as usize
+        };
+        indices.push(index);
+    }
+    indices
+}
+
+#[test]
+fn silence_trim_keeps_padding_and_internal_pauses() {
+    let config = SilenceTrim {
+        rms_threshold: 64.0,
+        pad_frames: 2,
+        max_hold_frames: 4,
+    };
+    // 6 silent, 3 voiced, 3 silent (internal pause), 2 voiced, 4 silent
+    // (trailing run within the hold limit).
+    let mut script = vec![false; 6];
+    script.extend([true; 3]);
+    script.extend([false; 3]);
+    script.extend([true; 2]);
+    script.extend([false; 4]);
+    let got = trimmed(&script, config);
+    let expected: Vec<usize> = (4..16).collect();
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn silence_trim_releases_long_internal_pauses_in_order() {
+    let config = SilenceTrim {
+        rms_threshold: 64.0,
+        pad_frames: 1,
+        max_hold_frames: 3,
+    };
+    let mut script = vec![true; 2];
+    script.extend([false; 8]);
+    script.push(true);
+    script.extend([false; 3]);
+    let got = trimmed(&script, config);
+    let expected: Vec<usize> = (0..12).collect();
+    assert_eq!(got, expected, "every internal frame kept, order preserved");
+    // A trailing run longer than the hold limit releases its oldest frames
+    // before the end is known; only the final held run is trimmed.
+    let mut long_tail = vec![true; 1];
+    long_tail.extend([false; 5]);
+    assert_eq!(trimmed(&long_tail, config), vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn silence_trim_all_silent_and_disabled() {
+    let config = SilenceTrim::HTS_48K;
+    assert!(trimmed(&[false; 50], config).is_empty());
+    let script = [false, true, false];
+    assert_eq!(trimmed(&script, SilenceTrim::DISABLED), vec![0, 1, 2]);
+}
+
+#[test]
+fn no_std_sqrt_matches_reference() {
+    for value in [1e-9, 0.25, 1.0, 2.0, 4096.0, 1e6, 1.073741824e9, 1e12] {
+        let got = libm_sqrt(value);
+        let want = value.sqrt();
+        assert!(
+            (got - want).abs() <= want * 1e-12,
+            "{value}: {got} vs {want}"
+        );
+    }
+    assert_eq!(libm_sqrt(0.0), 0.0);
+    assert_eq!(libm_sqrt(-1.0), 0.0);
+}

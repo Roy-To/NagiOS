@@ -786,6 +786,7 @@ dependencies = [
  "jbonsai",
  "jlabel",
  "jpreprocess",
+ "lindera-dictionary",
  "nagi-audio",
 ]
 

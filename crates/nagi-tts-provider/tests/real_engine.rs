@@ -17,7 +17,7 @@ use nagi_audio::speech::{
 };
 use nagi_audio::PcmFormat;
 use nagi_tts_provider::jbonsai_backend::{
-    load_provider, JbonsaiBackend, JbonsaiProvider, LoadError,
+    load_provider, DictionaryBytes, JbonsaiBackend, JbonsaiProvider, LoadError,
 };
 use nagi_tts_provider::LocalTtsProvider;
 
@@ -279,17 +279,35 @@ fn missing_and_invalid_artifacts_are_reported() {
         Some(LoadError::DictionaryMissing)
     );
     assert_eq!(
-        JbonsaiBackend::from_voice_bytes(b"not a voice", &dict).err(),
+        JbonsaiBackend::from_bytes(b"not a voice", DictionaryBytes::read_dir(&dict).unwrap()).err(),
         Some(LoadError::VoiceInvalid)
     );
     let scratch = std::env::temp_dir().join(format!("nagi-tts-bad-dict-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).unwrap();
     std::fs::write(scratch.join("metadata.json"), b"{}").unwrap();
+    // Incomplete dictionary directory.
+    assert_eq!(
+        JbonsaiBackend::load(&voice, &scratch).err(),
+        Some(LoadError::DictionaryMissing)
+    );
+    // Complete but corrupt dictionary.
+    for name in DictionaryBytes::FILES {
+        std::fs::write(scratch.join(name), b"corrupt").unwrap();
+    }
     assert_eq!(
         JbonsaiBackend::load(&voice, &scratch).err(),
         Some(LoadError::DictionaryInvalid)
     );
     std::fs::remove_dir_all(&scratch).unwrap();
+    let voice_bytes = std::fs::read(&voice).unwrap();
+    assert_eq!(
+        JbonsaiBackend::from_bytes(&voice_bytes, DictionaryBytes::default()).err(),
+        Some(LoadError::DictionaryMissing)
+    );
+    assert_eq!(
+        JbonsaiBackend::from_bytes(&[], DictionaryBytes::read_dir(&dict).unwrap()).err(),
+        Some(LoadError::VoiceMissing)
+    );
 }
 
 #[test]
@@ -312,4 +330,61 @@ fn unload_reports_unavailable_and_reload_restores() {
     provider.backend_mut().reload(&voice, &dict).unwrap();
     provider.begin("はい", format).unwrap();
     assert_eq!(drain(&mut provider, 4096).unwrap(), before);
+}
+
+#[test]
+fn edge_silence_is_trimmed_but_speech_is_kept() {
+    let Some((voice, dict)) = artifacts() else {
+        eprintln!("SKIP (artifacts absent)");
+        return;
+    };
+    let format = options(PcmFormat::stereo_48khz());
+    let mut trimmed = load_provider(&voice, &dict).unwrap();
+    trimmed.begin(PHRASE, format).unwrap();
+    let short = drain(&mut trimmed, 4096).unwrap();
+
+    let mut backend = JbonsaiBackend::load(&voice, &dict).unwrap();
+    backend.set_silence_trim(nagi_tts_provider::SilenceTrim::DISABLED);
+    let mut untrimmed = LocalTtsProvider::new(backend).unwrap();
+    untrimmed.begin(PHRASE, format).unwrap();
+    let full = drain(&mut untrimmed, 4096).unwrap();
+
+    let removed = (full.len() - short.len()) as f64 / (48_000.0 * 4.0);
+    assert!((0.5..1.5).contains(&removed), "removed {removed} s");
+    let left = |pcm: &[u8]| -> Vec<i16> { samples(pcm).into_iter().step_by(2).collect() };
+    let short_left = left(&short);
+    // Voiced audio starts within the first 100 ms of the trimmed output.
+    let onset = short_left
+        .chunks(240)
+        .position(|frame| rms(frame) > 64.0)
+        .unwrap();
+    assert!(onset <= 20, "onset frame {onset}");
+    // The trimmed signal is a contiguous slice of the untrimmed one.
+    let full_left = left(&full);
+    let found = full_left
+        .windows(short_left.len())
+        .any(|window| window == short_left.as_slice());
+    assert!(found, "trimmed audio must be an exact sub-slice");
+}
+
+#[test]
+fn bytes_loader_matches_path_loader() {
+    let Some((voice, dict)) = artifacts() else {
+        eprintln!("SKIP (artifacts absent)");
+        return;
+    };
+    let format = options(PcmFormat::stereo_48khz());
+    let mut from_path = load_provider(&voice, &dict).unwrap();
+    from_path.begin(PHRASE, format).unwrap();
+    let expected = drain(&mut from_path, 4096).unwrap();
+    drop(from_path);
+
+    // Bytes as a read-only model capability would deliver them.
+    let voice_bytes = std::fs::read(&voice).unwrap();
+    let dictionary = DictionaryBytes::read_dir(&dict).unwrap();
+    assert!(dictionary.total_len() > 70_000_000);
+    let backend = JbonsaiBackend::from_bytes(&voice_bytes, dictionary).unwrap();
+    let mut from_bytes = LocalTtsProvider::new(backend).unwrap();
+    from_bytes.begin(PHRASE, format).unwrap();
+    assert_eq!(drain(&mut from_bytes, 4096).unwrap(), expected);
 }
