@@ -29,7 +29,7 @@ Pinned input artifacts (SHA-256 equals the Hugging Face LFS `oid`, re-verified a
 | --- | --- | --- |
 | `model.safetensors` | 470641600 | `1a55775f53449dac10a2bcbc312469fac40b96d53198c407081a831f81c98477` |
 | `tokenizer.json` | 17082730 | `0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39` |
-| `config.json` | 655 | (git blob `60a2a84020f1d74cc53ea9e8c4e91cf4af6c2b68`) |
+| `config.json` | 655 | `69137736cab8b8903a07fe8afaafdda25aac55415a12a55d1bffa9f581abf959` (git blob `60a2a840…`) |
 | `onnx/model.onnx` (reference only, not shipped) | 470268510 | `ca456c06b3a9505ddfd9131408916dd79290368331e7d76bb621f1cba6bc8665` |
 
 ### Runtime decision
