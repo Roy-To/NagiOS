@@ -185,7 +185,10 @@ jobs:
         run: |
           set -o pipefail
           n=$(python3 -c 'import json;print(len(json.load(open("tests/m25-whisper/eval/fleurs-ja-validation.json"))["clips"]))')
-          have=$(ls "$NAGI_M25_EVAL_AUDIO"/*.pcm 2>/dev/null | wc -l)
+          have=0
+          if [ -d "$NAGI_M25_EVAL_AUDIO" ]; then
+            have=$(find "$NAGI_M25_EVAL_AUDIO" -maxdepth 1 -name '*.pcm' | wc -l)
+          fi
           if [ "$have" -ne "$n" ]; then
             python3 tools/whisper/fetch-fleurs-ja-eval.py --output "$NAGI_M25_EVAL_AUDIO" 2>&1 | tee "$LOGS/fleurs-fetch.log"
           else
