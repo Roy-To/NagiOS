@@ -109,9 +109,25 @@
         "run_id": 37872530048,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872530048",
         "head_sha": "0ca3f5067eabf18ff4892f61f15b5ca2cfc611f8",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Nagi CI (ci.yml, not owned by this stream), push at the same SHA; in progress when recorded."
+        "status": "COMPLETED",
+        "conclusion": "cancelled",
+        "summary": "Nagi CI (ci.yml, not owned by this stream), push at the same SHA; cancelled by its own cancel-in-progress when 1194bd3 was pushed. No result at this SHA."
+      },
+      {
+        "run_id": 37872955762,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872955762",
+        "head_sha": "1194bd30244aa6d6be0d38253613f438361b5662",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), push at 1194bd3 (state/proposal-only change): jobs A, B, C all success; artifact cache hit, fetch.sh re-verified cached files."
+      },
+      {
+        "run_id": 37872960339,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872960339",
+        "head_sha": "1194bd30244aa6d6be0d38253613f438361b5662",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "M25 local TTS (hark), pull_request #40 at 1194bd3: jobs A, B, C all success."
       }
     ]
   },
