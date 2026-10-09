@@ -6,9 +6,9 @@
   "current_checkpoint": "lazy-resident-service-and-session-bound-guest-leaf",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "edcc5bc187b64cc5123845819dd18c79c971caba",
-    "verified_at": "2026-10-08T23:24:11.207804+00:00",
-    "normal_state": "Ordinary-session Granite model-service leaves on codex/0.1-session-model-service, base edad2e7. ResidentModelRuntime, LazyModelService and SessionModelService reuse the existing target backend. Baseline: 102 Model Manager/AI host tests and 3 live Session-binding host tests PASS. Follow-up production sector reader yields before first sector and at most every 128 reads, including FAT32 traversal; exact Nagi-target leaf Clippy, init format and State verification PASS. Existing host-test code unchanged. Shared startup/feature/archive linking/Nagi Bar integration and normal-session guest inference remain pending. No cached weights, host inference, new model download, isolated AI process or normal-session guest response is claimed. M20/M23/M26 remain PARTIAL.",
+    "commit_sha": "1e3d7cc86a38439e247bc712fe85d74769c17ef3",
+    "verified_at": "2026-10-09T00:22:28.485650+00:00",
+    "normal_state": "Model-service source unchanged from 2258b08; main f74f128 imports without conflicts. Rechecked in the merge working tree: 102 Model Manager/AI tests plus 3 Session-binding host tests PASS; manager Clippy, exact Nagi-target production/acceptance leaf Clippy, formatting and State validation PASS (30 registered workstreams, 23 State files). Dedicated real Granite backend regression passed in Nagi/QEMU at b64bbd4. Ordinary-session startup/feature/linking/Nagi Bar integration, isolation, terms persistence and normal-session guest acceptance remain pending. M20/M23/M26 remain PARTIAL.",
     "commands": [
       "cargo test --locked --offline -p nagi-model-manager -p nagi-ai",
       "cargo clippy --locked --offline -p nagi-model-manager --all-targets -- -D warnings",
@@ -90,6 +90,13 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Follow-up exact production/acceptance leaf compile and init format PASS. Production sector reader now yields before first sector and every 128 reads so FAT32 walks cannot monopolize the cooperative guest worker between artifact callbacks. No guest timing measured. Evidence: .dev/workstreams/model-runtime/evidence/session-service-reader-cooperate.txt"
+      },
+      {
+        "name": "current-main-compatibility",
+        "command": "cargo test --locked --offline -p nagi-model-manager -p nagi-ai; cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml; focused target Clippy, format and State verification",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "After conflict-free import of main f74f128: 105 host tests PASS, manager/target leaf Clippy and format PASS, State validation PASS (30/23). Source unchanged. Normal-session guest NOT RUN. Logs: .dev/workstreams/model-runtime/evidence/merge-main-f74-*.txt"
       }
     ],
     "ci_runs": [
@@ -130,7 +137,7 @@
       "Keep target compilation distinct from final linking and normal-session guest acceptance."
     ]
   },
-  "next_action": "Inspect latest dedicated CI for regressions. Complete shared startup/feature/archive linking and Nagi Bar integration, then verify real Granite responses in the ordinary signed-in QEMU session with cancellation, lock, pressure, missing artifact and resident reuse. M20/M23/M26 remain PARTIAL.",
+  "next_action": "Inspect CI for the current-main merge head, fixing owned-leaf regressions. Complete shared startup/feature/archive linking and Nagi Bar integration, then verify real Granite responses in the ordinary signed-in QEMU session with cancellation, lock, pressure, missing artifact and resident reuse. M20/M23/M26 remain PARTIAL.",
   "acceptance_criteria": [
     "Constructor performs no artifact reads or target library/model load.",
     "Declared capability/role selects the configured Granite model; unsupported manual preference fails.",

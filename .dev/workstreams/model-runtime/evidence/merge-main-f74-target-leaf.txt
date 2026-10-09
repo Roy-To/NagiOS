@@ -1,0 +1,72 @@
+Main base: f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9
+Prior source head: 1e3d7cc86a38439e247bc712fe85d74769c17ef3
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+warning: unused imports: `BLOCK_SIZE` and `MAX_PATH_LENGTH`
+ --> <repo>/user/nagi-posix/src/runtime.rs:8:86
+  |
+8 |     DirectoryEntry, FileHandle, FileMetadata, StorageError, SyscallBlockDevice, Vfs, BLOCK_SIZE,
+  |                                                                                      ^^^^^^^^^^
+9 |     MAX_DIRECTORY_ENTRIES, MAX_PATH_LENGTH,
+  |                            ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: type `NagiTimeval` is more private than the item `gettimeofday`
+    --> <repo>/user/nagi-posix/src/abi.rs:1519:1
+     |
+1519 | pub unsafe extern "C" fn gettimeofday(output: *mut NagiTimeval, _timezone: *mut c_void) -> c_int {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ function `gettimeofday` is reachable at visibility `pub(crate)`
+     |
+note: but type `NagiTimeval` is only usable at visibility `pub(self)`
+    --> <repo>/user/nagi-posix/src/abi.rs:740:1
+     |
+ 740 | struct NagiTimeval {
+     | ^^^^^^^^^^^^^^^^^^
+     = note: `#[warn(private_interfaces)]` on by default
+
+warning: function `is_servo_tempdir_name` is never used
+ --> <repo>/user/nagi-posix/src/fs.rs:7:15
+  |
+7 | pub(crate) fn is_servo_tempdir_name(name: &[u8]) -> bool {
+  |               ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` on by default
+
+warning: constant `POLLIN` is never used
+    --> <repo>/user/nagi-posix/src/abi.rs:1614:7
+     |
+1614 | const POLLIN: i16 = 0x0001;
+     |       ^^^^^^
+
+warning: constant `POLLOUT` is never used
+    --> <repo>/user/nagi-posix/src/abi.rs:1615:7
+     |
+1615 | const POLLOUT: i16 = 0x0004;
+     |       ^^^^^^^
+
+warning: constant `POLLHUP` is never used
+    --> <repo>/user/nagi-posix/src/abi.rs:1617:7
+     |
+1617 | const POLLHUP: i16 = 0x0010;
+     |       ^^^^^^^
+
+warning: function `trace_m18_network_lock` is never used
+  --> <repo>/user/nagi-posix/src/runtime.rs:99:4
+   |
+99 | fn trace_m18_network_lock(message: &[u8]) {
+   |    ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `pipe` is never used
+   --> <repo>/user/nagi-posix/src/runtime.rs:660:8
+    |
+660 | pub fn pipe() -> Result<(i32, i32), RuntimeError> {
+    |        ^^^^
+
+warning: `nagi-posix` (lib) generated 8 warnings (run `cargo clippy --fix --lib -p nagi-posix` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.56s
+

@@ -1,0 +1,72 @@
+{
+  "checkpoint": "WS-HOST-PREP-20261008",
+  "authority": "WS-HOST-PREP-20261008 defines the host-only adoption checkpoint: dedicated branch, draft PR and Windows/Linux CI verification. Main merge requires separate project approval; owner/main branch writes, runtime/provider/GUI/0.3 activation and releases are outside this checkpoint.",
+  "base_sha": "edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4",
+  "sources": {
+    "writer": "8cc5c5da04f622be95c79152bf709edb61272c59",
+    "sheets": "b6e6efe13018cae4f3de188bb387e0584994609f"
+  },
+  "registration": {
+    "id": "writer-sheets-core-adoption",
+    "owner": "Codex host Integration Owner",
+    "owner_branch": "codex/0.2-adopt-writer-sheets-core",
+    "recommended_worktree": "../NagiOS-adopt-writer-sheets",
+    "state_file": ".dev/workstreams/writer-sheets-core-adoption/state.json",
+    "dependencies": [
+      "development-foundation",
+      "app-sdk-contract",
+      "writer-core-01",
+      "sheets-calc-01",
+      "calendar-core-adoption"
+    ],
+    "allowed_paths": [
+      "crates/nagi-writer-core/**",
+      "crates/nagi-sheets-core/**",
+      "tests/writer-core/**",
+      "tests/sheets-core/**",
+      ".dev/workstreams/writer-core-01/**",
+      ".dev/workstreams/sheets-calc-01/**",
+      ".dev/workstreams/writer-sheets-core-adoption/**",
+      ".dev/workstreams.json",
+      ".github/workflows/0.2-host-integration.yml",
+      "docs/0.2/adoption/WRITER_SHEETS_CORE.md"
+    ],
+    "forbidden_paths": [
+      "kernel/**",
+      "loader/**",
+      "user/**",
+      "third_party/**",
+      "tests/acceptance/**",
+      "Cargo.toml",
+      "Cargo.lock",
+      "docs/implementation_status.md",
+      ".dev/schemas/**",
+      ".github/workflows/ci.yml",
+      "crates/nagi-model/**",
+      "crates/nagi-calendar-core/**"
+    ],
+    "activation_gate": "WS-HOST-PREP-20261008: host-only adoption preparation and validation before M30, dedicated draft branch and Windows/Linux CI verification. No runtime/provider/GUI/0.3 activation; source owner States immutable.",
+    "merge_boundary": "Dedicated codex/0.2-adopt-writer-sheets-core only. Base main edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4 after PR #31. Main/owner branch writes and merge are outside this checkpoint. Require separate project merge approval and latest applicable CI/review."
+  },
+  "migration": [
+    "Copy only reviewed owned cores, tests, and immutable source-owner evidence. Retain current main registry rows and all other owner State.",
+    "Writer canonical model/history use current repository path dependencies; generate only Writer standalone Cargo.lock. Sheets already uses canonical model path. No shared/root dependency changes.",
+    "Remove --all only for Writer/Sheets shared host formatter; retain package-scoped Calendar command and warnings-denied Clippy/locked offline tests.",
+    "Extend existing dedicated host CI branch routing and ownership merge-base to this checkpoint. No full CI gating change."
+  ],
+  "consumers": [
+    "nagi-writer-core",
+    "nagi-sheets-core",
+    "nagi-calendar-core (regression only)",
+    "host CLI/Legal/DF-01 (compatibility only)"
+  ],
+  "required_before_publication": [
+    "Completed latest-main/PR/remote/Registry duplicate audit; reverify adoption and shared compatibility on new base."
+  ],
+  "required_before_merge": [
+    "Separate explicit project approval for main merge.",
+    "Latest applicable Ubuntu/Windows dedicated and existing CI PASS; code/dependency/ownership review."
+  ],
+  "runtime_gate": "M30 remains PARTIAL; M30 PASS plus explicit 0.2 release and Integration Owner activation required.",
+  "original_base_sha": "cb3f9f29552bdee3e9c99228cb2153d10a1634e9"
+}

@@ -1,7 +1,7 @@
 # Ordinary-session Granite service handoff
 
 Status: PARTIAL. Branch: `codex/0.1-session-model-service`.
-Base: `edad2e7` (latest origin/main when this worktree was created).
+Base: `f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9`.
 
 ## Implemented API
 
@@ -123,3 +123,13 @@ single artifact operation, where the outer request checkpoint cannot yield
 yet. Exact Nagi-target leaf Clippy and init format passed again; guest latency
 remains unmeasured. The dedicated acceptance reader/backend is unchanged by
 this follow-up.
+
+## Current-main compatibility
+
+Main `f74f128` imports cleanly without source conflicts. After import, the
+102 Model Manager/AI host tests, 3 Session-binding tests, manager Clippy, exact
+Nagi-target leaf Clippy, formatting and development-State checks passed again.
+State validation reports 30 registered workstreams and 23 State files. Logs
+are in `evidence/merge-main-f74-*`. Model-service source is unchanged.
+The existing Granite backend regression passed in Nagi/QEMU; ordinary-session
+service acceptance still requires shared integration.

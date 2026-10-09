@@ -1,0 +1,24 @@
+Main base: f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9
+Prior source head: 1e3d7cc86a38439e247bc712fe85d74769c17ef3
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+   Compiling nagi-model-manager v0.1.0 (<repo>/user/nagi-model-manager)
+   Compiling nagi-model-session-service-check v0.1.0 (<repo>/tests/model-session-service)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.17s
+     Running unittests src/lib.rs (<build-target>/debug/deps/nagi_model_session_service_check-a112b04fe3745570)
+
+running 3 tests
+test model_session_access::tests::accepts_only_the_bound_signed_in_session ... ok
+test model_session_access::tests::model_external_caller_is_not_authorized_by_a_desktop_session ... ok
+test model_session_access::tests::locking_blocks_inference_and_service_construction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nagi_model_session_service_check
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+

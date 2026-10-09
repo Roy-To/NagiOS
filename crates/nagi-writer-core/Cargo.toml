@@ -1,0 +1,18 @@
+[package]
+name = "nagi-writer-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# BP-SBOM-HOST-20261008: standalone host foundation; no root integration.
+[workspace]
+
+# Adoption uses the current canonical types; package-scoped formatting avoids
+# expanding these path dependencies into the shared root workspace.
+[dependencies]
+nagi-model = { path = "../nagi-model", version = "0.1.0" }
+nagi-history = { path = "../../user/nagi-history", version = "0.1.0" }
+
+[[test]]
+name = "writer-core-acceptance"
+path = "../../tests/writer-core/acceptance.rs"
