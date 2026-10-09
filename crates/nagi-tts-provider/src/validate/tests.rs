@@ -648,6 +648,229 @@ fn window_rows_must_match_num_windows() {
 }
 
 // ---------------------------------------------------------------------------
+// Header numbers that size upstream allocations (run in a limited child)
+// ---------------------------------------------------------------------------
+
+/// Header edits whose upstream consequence can be an allocation sized by the
+/// header itself. Each is checked in a child process under `ulimit -v`
+/// (address space) and `ulimit -t` (CPU seconds), so a regression that let
+/// one through to jbonsai cannot exhaust the host's memory or hang the run.
+const HEADER_CASES: &[(&str, &str, &str, &str)] = &[
+    // (case, field, from, to)
+    ("num-streams-0", "global", "NUM_STREAMS:3", "NUM_STREAMS:0"),
+    ("num-streams-2", "global", "NUM_STREAMS:3", "NUM_STREAMS:2"),
+    ("num-streams-4", "global", "NUM_STREAMS:3", "NUM_STREAMS:4"),
+    (
+        "num-streams-huge",
+        "global",
+        "NUM_STREAMS:3",
+        "NUM_STREAMS:999999999999999999",
+    ),
+    ("num-streams-missing", "global", "NUM_STREAMS:3\n", ""),
+    (
+        "gamma-huge",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,GAMMA=999999999999999999",
+    ),
+    (
+        "gamma-1e14",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,GAMMA=100000000000000",
+    ),
+    (
+        "gamma-1",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,GAMMA=1",
+    ),
+    (
+        "gamma-negative",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,GAMMA=-1",
+    ),
+    (
+        "ln-gain-2",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,LN_GAIN=2",
+    ),
+    ("alpha-inf", "stream", "ALPHA=0.55", "ALPHA=inf"),
+    ("alpha-nan", "stream", "ALPHA=0.55", "ALPHA=NaN"),
+    ("alpha-1", "stream", "ALPHA=0.55", "ALPHA=1.0"),
+    ("alpha-negative", "stream", "ALPHA=0.55", "ALPHA=-0.5"),
+    ("alpha-text", "stream", "ALPHA=0.55", "ALPHA=x"),
+    (
+        "alpha-duplicate",
+        "stream",
+        "ALPHA=0.55",
+        "ALPHA=0.55,ALPHA=0.42",
+    ),
+];
+
+/// In-range edits of the same fields that must still synthesize.
+const HEADER_CONTROLS: &[(&str, &str, &str, &str)] = &[
+    (
+        "gamma-0",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,GAMMA=0",
+    ),
+    (
+        "ln-gain-1",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:ALPHA=0.55,LN_GAIN=1",
+    ),
+    ("alpha-0.42", "stream", "ALPHA=0.55", "ALPHA=0.42"),
+    ("alpha-0", "stream", "ALPHA=0.55", "ALPHA=0"),
+    (
+        "no-options",
+        "stream",
+        "OPTION[MCP]:ALPHA=0.55",
+        "OPTION[MCP]:",
+    ),
+];
+
+const CHILD_CASE: &str = "NAGI_TTS_CHILD_CASE";
+const CHILD_MODE: &str = "NAGI_TTS_CHILD_MODE";
+/// Address-space limit for the child, in KiB (the debug test binary and a
+/// synthesis of the synthetic voice need well under 1 GiB).
+const CHILD_MEMORY_KIB: u64 = 2 * 1024 * 1024;
+const CHILD_CPU_SECONDS: u64 = 60;
+
+fn header_voice(case: &str) -> Voice {
+    let (_, field, from, to) = HEADER_CASES
+        .iter()
+        .chain(HEADER_CONTROLS)
+        .find(|(name, ..)| *name == case)
+        .unwrap_or_else(|| panic!("unknown case {case}"));
+    let mut voice = Voice::valid();
+    let target = if *field == "global" {
+        &mut voice.global
+    } else {
+        &mut voice.stream
+    };
+    assert!(target.contains(from), "{case}: {from}");
+    *target = target.replacen(from, to, 1);
+    voice
+}
+
+/// Child entry point. Without the environment variables it does nothing
+/// (and passes), so it never counts as ignored in the model-free run.
+///
+/// - mode `validate`: prints `CHILD-RESULT: <validator> <loader>`;
+///   only the provider's own checks run before the loader returns.
+/// - mode `bypass`: hands the bytes straight to jbonsai (the pre-fix path)
+///   and prints what happened; used to record upstream behaviour.
+#[test]
+fn header_case_child() {
+    let (Ok(case), Ok(mode)) = (std::env::var(CHILD_CASE), std::env::var(CHILD_MODE)) else {
+        return;
+    };
+    let bytes = header_voice(&case).bytes();
+    match mode.as_str() {
+        "validate" => {
+            let validator = check_voice_structure(&bytes);
+            let loader = JbonsaiBackend::from_bytes(&bytes, DictionaryBytes::default()).err();
+            println!("CHILD-RESULT: {validator:?} {loader:?}");
+        }
+        "bypass" => println!("CHILD-RESULT: {}", unvalidated(&bytes)),
+        "synthesize" => {
+            assert_eq!(check_voice_structure(&bytes), Ok(()), "{case}");
+            println!("CHILD-RESULT: {:?}", outcome(&bytes));
+        }
+        other => panic!("unknown mode {other}"),
+    }
+}
+
+/// Runs [`header_case_child`] for `case` in a child process limited by
+/// `ulimit -v` / `ulimit -t`. Returns the child's `CHILD-RESULT` line, or a
+/// description of how it ended without one (panic, abort, signal).
+fn run_limited_child(case: &str, mode: &str) -> String {
+    let exe = std::env::current_exe().expect("test binary path");
+    let output = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(format!(
+            "ulimit -v {CHILD_MEMORY_KIB} && ulimit -t {CHILD_CPU_SECONDS} && exec \"$0\" \"$@\""
+        ))
+        .arg(exe)
+        .args([
+            "--exact",
+            "validate::tests::header_case_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD_CASE, case)
+        .env(CHILD_MODE, mode)
+        .output()
+        .expect("spawn limited child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // libtest prints the line after "test <name> ... " with --nocapture.
+    if let Some(line) = stdout
+        .lines()
+        .find_map(|l| l.split_once("CHILD-RESULT: ").map(|(_, rest)| rest))
+    {
+        return line.to_owned();
+    }
+    let reason = stderr
+        .lines()
+        .chain(stdout.lines())
+        .find(|l| {
+            l.contains("panicked at") || l.contains("memory allocation") || l.contains("capacity")
+        })
+        .unwrap_or("");
+    let next = stderr
+        .lines()
+        .chain(stdout.lines())
+        .skip_while(|l| !l.contains("panicked at"))
+        .nth(1)
+        .unwrap_or("");
+    format!("NO RESULT (status {:?}) {reason} {next}", output.status)
+}
+
+/// Review findings 3 and 4: `NUM_STREAMS` was not compared with
+/// `STREAM_TYPE` (jbonsai sizes its per-stream condition arrays with it and
+/// indexes them 0..=2 during synthesis), and the spectrum stream's `GAMMA`,
+/// `LN_GAIN` and `ALPHA` options were not checked (`GAMMA` is jbonsai's
+/// MGLSA stage count, which sizes `vec![vec![0.0; nmcp]; stage]`).
+#[cfg(unix)]
+#[test]
+fn stream_count_and_spectrum_options_are_checked_in_a_limited_child() {
+    let mut misses = Vec::new();
+    for (case, ..) in HEADER_CASES {
+        let result = run_limited_child(case, "validate");
+        if result != "Err(VoiceInvalid) Some(VoiceInvalid)" {
+            misses.push(format!("{case}: {result}"));
+        }
+    }
+    for (case, ..) in HEADER_CONTROLS {
+        let result = run_limited_child(case, "synthesize");
+        if !result.starts_with("Synthesized(Ok(") {
+            misses.push(format!("control {case}: {result}"));
+        }
+    }
+    assert!(misses.is_empty(), "{}", misses.join("\n"));
+}
+
+/// Records what jbonsai does with each header case when the provider's
+/// checks are bypassed. Run explicitly; prints, never asserts:
+/// `NAGI_TTS_RECORD_BYPASS=1 cargo test header_cases_bypass_record -- --nocapture`
+#[cfg(unix)]
+#[test]
+fn header_cases_bypass_record() {
+    if std::env::var_os("NAGI_TTS_RECORD_BYPASS").is_none() {
+        return;
+    }
+    for (case, ..) in HEADER_CASES {
+        println!("BYPASS {case}: {}", run_limited_child(case, "bypass"));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Dictionary components
 // ---------------------------------------------------------------------------
 

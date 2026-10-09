@@ -197,6 +197,14 @@ pub(crate) fn check_voice_structure(voice: &[u8]) -> Result<(), LoadError> {
     {
         return Err(invalid);
     }
+    // jbonsai sizes its per-stream condition arrays (GV weights, MSD
+    // thresholds, interpolation weights) with NUM_STREAMS and indexes them
+    // 0..=2 during synthesis; it must agree with STREAM_TYPE.
+    let num_streams = number("GLOBAL", "NUM_STREAMS", MAX_VOICE_STREAMS)?;
+    if num_streams != stream_types.len() {
+        return Err(invalid);
+    }
+    check_spectrum_options(lookup("STREAM", &format!("OPTION[{}]", stream_types[0])))?;
     let last_state = num_states.checked_add(1).ok_or(invalid)?;
 
     let mut models = vec![ModelSpec {
@@ -269,6 +277,47 @@ pub(crate) fn check_voice_structure(voice: &[u8]) -> Result<(), LoadError> {
     }
     for model in &models {
         check_model(data, model)?;
+    }
+    Ok(())
+}
+
+/// The spectrum stream's options, which jbonsai's `Condition::load_model`
+/// reads: `GAMMA` is the MGLSA stage count (it sizes
+/// `vec![vec![0.0; nmcp]; stage]`), `LN_GAIN` a flag, `ALPHA` the
+/// frequency-warping factor. The supported contract is the pinned voice's
+/// mel-cepstral (MLSA) vocoder: `GAMMA` absent or exactly `0`, `LN_GAIN`
+/// absent, `0` or `1`, `ALPHA` absent or finite in [0, 1). A key may appear
+/// once. Other keys are ignored by jbonsai and accepted here.
+fn check_spectrum_options(value: Option<&str>) -> Result<(), LoadError> {
+    let invalid = LoadError::VoiceInvalid;
+    let Some(value) = value else {
+        return Ok(());
+    };
+    if value.starts_with('\u{0}') {
+        // Duplicate OPTION line (see `lookup`).
+        return Err(invalid);
+    }
+    let mut seen = BTreeSet::new();
+    for option in value.split(',') {
+        let Some((key, setting)) = option.split_once('=') else {
+            // jbonsai skips options without `=`.
+            continue;
+        };
+        let (key, setting) = (key.trim(), setting.trim());
+        if !seen.insert(key) {
+            return Err(invalid);
+        }
+        let ok = match key {
+            "GAMMA" => setting == "0",
+            "LN_GAIN" => setting == "0" || setting == "1",
+            "ALPHA" => setting
+                .parse::<f64>()
+                .is_ok_and(|alpha| alpha.is_finite() && (0.0..1.0).contains(&alpha)),
+            _ => true,
+        };
+        if !ok {
+            return Err(invalid);
+        }
     }
     Ok(())
 }
