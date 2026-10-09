@@ -1,4 +1,8 @@
-use core::ptr;
+use core::{
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
+use sha2::{Digest, Sha256};
 
 pub const SECTOR_SIZE: usize = 512;
 pub const BLOCK_SIZE: usize = 1024;
@@ -33,6 +37,53 @@ const SUPERBLOCK_BLOCK: u32 = 1;
 /// Blocks 0..15 are reserved metadata and are never file data.
 const RESERVED_BLOCKS: u32 = 15;
 const GROUP_DESCRIPTOR_BLOCK: u32 = 2;
+// Already reserved by the Nagi format, never allocated as file contents.
+const UNDO_BLOCK: u32 = 14;
+const UNDO_MAGIC: &[u8; 8] = b"NAGIVTX1";
+const UNDO_CREATE: u8 = 1;
+const UNDO_RENAME: u8 = 2;
+
+// All Vfs instances in this userspace service share the same gate, including
+// the desktop and snapshot adapter. Block authority must remain exclusive to
+// that service across processes; BlockDevice callbacks must not reenter Vfs.
+static VOLUME_ACCESS: AtomicBool = AtomicBool::new(false);
+struct VolumeAccess;
+impl VolumeAccess {
+    fn acquire() -> Self {
+        while VOLUME_ACCESS
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+        Self
+    }
+}
+impl Drop for VolumeAccess {
+    fn drop(&mut self) {
+        VOLUME_ACCESS.store(false, Ordering::Release);
+    }
+}
+
+struct ResetAccess(*mut bool);
+impl Drop for ResetAccess {
+    fn drop(&mut self) {
+        // The field remains in the borrowed Vfs until this operation returns.
+        unsafe {
+            *self.0 = false;
+        }
+    }
+}
+
+struct Undo {
+    kind: u8,
+    directory_inode: u32,
+    directory_block: u32,
+    inode: u32,
+    data_block: u32,
+    previous_inode: [u8; EXT2_INODE_SIZE as usize],
+    directory: [u8; BLOCK_SIZE],
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageError {
@@ -50,6 +101,8 @@ pub enum StorageError {
     FileTooLarge,
     BufferTooSmall,
     Capacity,
+    /// A valid undo transaction exists; a writable mount must recover first.
+    RecoveryRequired,
 }
 
 pub trait ReadOnlyBlockDevice {
@@ -245,6 +298,7 @@ impl FileMapping {
 
 pub struct Vfs<D> {
     device: D,
+    access_active: bool,
 }
 
 impl<D: BlockDevice> Vfs<D> {
@@ -252,25 +306,43 @@ impl<D: BlockDevice> Vfs<D> {
     /// This only validates the fixed superblock geometry; callers that need
     /// an integrity guarantee must run `check_existing` first.
     pub fn mount_existing(device: D) -> Result<Self, StorageError> {
-        let mut volume = Self { device };
+        let _access = VolumeAccess::acquire();
+        let mut volume = Self {
+            device,
+            access_active: true,
+        };
         let mut superblock = [0; BLOCK_SIZE];
         volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
         if read_u16(&superblock, 56) != EXT2_MAGIC {
             return Err(StorageError::Corrupt);
         }
         validate_superblock(&superblock)?;
+        volume.recover_undo()?;
+        volume.access_active = false;
         Ok(volume)
     }
 
     pub fn mount_or_format(device: D) -> Result<(Self, bool), StorageError> {
-        let mut volume = Self { device };
+        let _access = VolumeAccess::acquire();
+        let mut volume = Self {
+            device,
+            access_active: true,
+        };
         let mut superblock = [0; BLOCK_SIZE];
         volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
         if read_u16(&superblock, 56) != EXT2_MAGIC {
+            let mut header = [0; SECTOR_SIZE];
+            volume.device.read_sector(0, &mut header)?;
+            if header.iter().any(|byte| *byte != 0) {
+                return Err(StorageError::Corrupt);
+            }
             volume.format()?;
+            volume.access_active = false;
             return Ok((volume, true));
         }
         validate_superblock(&superblock)?;
+        volume.recover_undo()?;
+        volume.access_active = false;
         Ok((volume, false))
     }
 
@@ -283,55 +355,63 @@ impl<D: BlockDevice> Vfs<D> {
     /// conventional guest `/tmp` directory; an existing non-directory is an
     /// error rather than being treated as a successful setup.
     pub fn ensure_directory_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        match self.resolve_path(path) {
+        self.with_access(|volume| match volume.resolve_path(path) {
             Ok(inode) => {
-                self.directory_inode(inode)?;
+                volume.directory_inode(inode)?;
                 Ok(())
             }
-            Err(StorageError::NotFound) => self.mkdir_path(path),
+            Err(StorageError::NotFound) => volume.mkdir_path(path),
             Err(error) => Err(error),
-        }
+        })
     }
 
     pub fn create_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        let (parent, name) = self.resolve_parent_path(path, false)?;
-        self.create_in_directory(parent, name)
+        self.with_access(|volume| {
+            let (parent, name) = volume.resolve_parent_path(path, false)?;
+            volume.create_in_directory(parent, name)
+        })
     }
 
     pub fn mkdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        let (parent, name) = self.resolve_parent_path(path, true)?;
-        self.mkdir_in_directory(parent, name)
+        self.with_access(|volume| {
+            let (parent, name) = volume.resolve_parent_path(path, true)?;
+            volume.mkdir_in_directory(parent, name)
+        })
     }
 
     pub fn open_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        let inode_number = self.resolve_path(path)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 == 0x4000 {
-            return Err(StorageError::IsDirectory);
-        }
-        if inode.mode & 0xf000 != 0x8000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        self.handle_for(inode_number)
+        self.with_access(|volume| {
+            let inode_number = volume.resolve_path(path)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 == 0x4000 {
+                return Err(StorageError::IsDirectory);
+            }
+            if inode.mode & 0xf000 != 0x8000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            volume.handle_for(inode_number)
+        })
     }
 
     pub fn metadata_path(&mut self, path: &[u8]) -> Result<FileMetadata, StorageError> {
-        let inode_number = self.resolve_path(path)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        Ok(metadata_from_inode(inode_number, inode))
+        self.with_access(|volume| {
+            let inode_number = volume.resolve_path(path)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            Ok(metadata_from_inode(inode_number, inode))
+        })
     }
 
     /// Remove a regular file by path. Directory removal has a separate POSIX
     /// operation so `unlink` cannot silently remove a directory.
     pub fn remove_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        self.remove_path_with_kind(path, Some(false), false)
+        self.with_access(|volume| volume.remove_path_with_kind(path, Some(false), false))
     }
 
     pub fn rmdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        self.remove_path_with_kind(path, Some(true), true)
+        self.with_access(|volume| volume.remove_path_with_kind(path, Some(true), true))
     }
 
     pub fn list_directory_path(
@@ -339,13 +419,17 @@ impl<D: BlockDevice> Vfs<D> {
         path: &[u8],
         entries: &mut [DirectoryEntry],
     ) -> Result<usize, StorageError> {
-        let inode = self.resolve_path(path)?;
-        self.list_directory_inode(inode, entries)
+        self.with_access(|volume| {
+            let inode = volume.resolve_path(path)?;
+            volume.list_directory_inode(inode, entries)
+        })
     }
 
     pub fn create(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
-        validate_name(name)?;
-        self.create_in_directory(ROOT_INODE, name)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            volume.create_in_directory(ROOT_INODE, name)
+        })
     }
 
     fn create_in_directory(
@@ -358,51 +442,41 @@ impl<D: BlockDevice> Vfs<D> {
         if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
-        let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
-        let generation = match self.next_generation(inode) {
-            Ok(generation) => generation,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let data_block = match self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT) {
-            Ok(block) => block,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let now = current_timestamp();
-        self.write_inode(
-            inode,
-            InodeInfo {
-                mode: 0x8000,
-                uid: 0,
-                gid: 0,
-                size: 0,
-                atime: now,
-                ctime: now,
-                mtime: now,
-                blocks: 0,
-                direct_block: data_block,
-                extra_blocks: [0; DIRECT_BLOCKS - 1],
-                indirect_block: 0,
-                generation,
-            },
-        )?;
-        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 1) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        self.adjust_free_counts(-1, -1)?;
-        Ok(FileHandle { inode, generation })
+        let inode = self.find_free_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)? + 1;
+        let data_block = self.find_free_bit(BLOCK_BITMAP, RESERVED_BLOCKS, EXT2_BLOCK_COUNT)?;
+        let generation = self.next_generation(inode)?;
+        self.transaction(parent_inode, Some((inode, data_block)), |volume| {
+            volume.set_allocated(INODE_BITMAP, inode - 1)?;
+            volume.set_allocated(BLOCK_BITMAP, data_block)?;
+            let now = current_timestamp();
+            volume.write_inode(
+                inode,
+                InodeInfo {
+                    mode: 0x8000,
+                    uid: 0,
+                    gid: 0,
+                    size: 0,
+                    atime: now,
+                    ctime: now,
+                    mtime: now,
+                    blocks: 0,
+                    direct_block: data_block,
+                    extra_blocks: [0; DIRECT_BLOCKS - 1],
+                    indirect_block: 0,
+                    generation,
+                },
+            )?;
+            volume.add_directory_entry_in_directory(parent_inode, name, inode, 1)?;
+            volume.adjust_free_counts(-1, -1)?;
+            Ok(FileHandle { inode, generation })
+        })
     }
 
     pub fn mkdir(&mut self, name: &[u8]) -> Result<(), StorageError> {
-        validate_name(name)?;
-        self.mkdir_in_directory(ROOT_INODE, name)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            volume.mkdir_in_directory(ROOT_INODE, name)
+        })
     }
 
     fn mkdir_in_directory(&mut self, parent_inode: u32, name: &[u8]) -> Result<(), StorageError> {
@@ -465,35 +539,39 @@ impl<D: BlockDevice> Vfs<D> {
     }
 
     pub fn remove(&mut self, name: &[u8]) -> Result<(), StorageError> {
-        validate_name(name)?;
-        let (directory_offset, inode_number) = self
-            .find_directory_entry(name)?
-            .ok_or(StorageError::NotFound)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        if inode.mode & 0xf000 == 0x4000 && !self.directory_is_empty(inode.direct_block)? {
-            return Err(StorageError::DirectoryFull);
-        }
-        let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
-        write_u32(&mut directory, directory_offset, 0);
-        self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
-        self.clear_bit(INODE_BITMAP, inode_number - 1)?;
-        let released = self.release_inode_blocks(&inode)?;
-        self.clear_inode(inode_number)?;
-        self.adjust_free_counts(released as i32, 1)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            let (directory_offset, inode_number) = volume
+                .find_directory_entry(name)?
+                .ok_or(StorageError::NotFound)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            if inode.mode & 0xf000 == 0x4000 && !volume.directory_is_empty(inode.direct_block)? {
+                return Err(StorageError::DirectoryFull);
+            }
+            let mut directory = [0; BLOCK_SIZE];
+            volume.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+            write_u32(&mut directory, directory_offset, 0);
+            volume.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
+            volume.clear_bit(INODE_BITMAP, inode_number - 1)?;
+            let released = volume.release_inode_blocks(&inode)?;
+            volume.clear_inode(inode_number)?;
+            volume.adjust_free_counts(released as i32, 1)
+        })
     }
 
     pub fn open(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
-        validate_name(name)?;
-        let inode = self.find_inode(name)?.ok_or(StorageError::NotFound)?;
-        self.handle_for(inode)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            let inode = volume.find_inode(name)?.ok_or(StorageError::NotFound)?;
+            volume.handle_for(inode)
+        })
     }
 
     pub fn rename(&mut self, old_name: &[u8], new_name: &[u8]) -> Result<FileHandle, StorageError> {
-        self.rename_child_inode(ROOT_INODE, old_name, new_name)
+        self.with_access(|volume| volume.rename_child_inode(ROOT_INODE, old_name, new_name))
     }
 
     /// Rename an entry in the directory at `directory_path` without changing
@@ -505,8 +583,10 @@ impl<D: BlockDevice> Vfs<D> {
         old_name: &[u8],
         new_name: &[u8],
     ) -> Result<FileHandle, StorageError> {
-        let directory_inode = self.resolve_path(directory_path)?;
-        self.rename_child_inode(directory_inode, old_name, new_name)
+        self.with_access(|volume| {
+            let directory_inode = volume.resolve_path(directory_path)?;
+            volume.rename_child_inode(directory_inode, old_name, new_name)
+        })
     }
 
     fn rename_child_inode(
@@ -626,7 +706,9 @@ impl<D: BlockDevice> Vfs<D> {
                 b"",
             );
         }
-        self.write_block(directory.direct_block, &compacted)?;
+        self.transaction(directory_inode, None, |volume| {
+            volume.write_changed_block(directory.direct_block, &compacted)
+        })?;
         let inode = self
             .find_inode_in_directory(directory_inode, new_name)?
             .ok_or(StorageError::Corrupt)?;
@@ -642,37 +724,39 @@ impl<D: BlockDevice> Vfs<D> {
         source_name: &[u8],
         destination_name: &[u8],
     ) -> Result<FileHandle, StorageError> {
-        validate_name(source_name)?;
-        validate_name(destination_name)?;
-        if source_name == destination_name {
-            return self.open(source_name);
-        }
-        let (source_offset, source_inode_number) = self
-            .find_directory_entry(source_name)?
-            .ok_or(StorageError::NotFound)?;
-        let (destination_offset, destination_inode_number) = self
-            .find_directory_entry(destination_name)?
-            .ok_or(StorageError::NotFound)?;
-        let source_inode = self.read_inode(source_inode_number)?;
-        let destination_inode = self.read_inode(destination_inode_number)?;
-        if source_inode.mode & 0xf000 != 0x8000 || destination_inode.mode & 0xf000 != 0x8000 {
-            return Err(StorageError::InvalidHandle);
-        }
+        self.with_access(|volume| {
+            validate_name(source_name)?;
+            validate_name(destination_name)?;
+            if source_name == destination_name {
+                return volume.open(source_name);
+            }
+            let (source_offset, source_inode_number) = volume
+                .find_directory_entry(source_name)?
+                .ok_or(StorageError::NotFound)?;
+            let (destination_offset, destination_inode_number) = volume
+                .find_directory_entry(destination_name)?
+                .ok_or(StorageError::NotFound)?;
+            let source_inode = volume.read_inode(source_inode_number)?;
+            let destination_inode = volume.read_inode(destination_inode_number)?;
+            if source_inode.mode & 0xf000 != 0x8000 || destination_inode.mode & 0xf000 != 0x8000 {
+                return Err(StorageError::InvalidHandle);
+            }
 
-        let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
-        write_u32(&mut directory, destination_offset, source_inode_number);
-        write_u32(&mut directory, source_offset, 0);
-        self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
-        self.clear_bit(INODE_BITMAP, destination_inode_number - 1)?;
-        let released = self.release_inode_blocks(&destination_inode)?;
-        self.clear_inode(destination_inode_number)?;
-        self.adjust_free_counts(released as i32, 1)?;
-        self.handle_for(source_inode_number)
+            let mut directory = [0; BLOCK_SIZE];
+            volume.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+            write_u32(&mut directory, destination_offset, source_inode_number);
+            write_u32(&mut directory, source_offset, 0);
+            volume.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
+            volume.clear_bit(INODE_BITMAP, destination_inode_number - 1)?;
+            let released = volume.release_inode_blocks(&destination_inode)?;
+            volume.clear_inode(destination_inode_number)?;
+            volume.adjust_free_counts(released as i32, 1)?;
+            volume.handle_for(source_inode_number)
+        })
     }
 
     pub fn list_root(&mut self, entries: &mut [DirectoryEntry]) -> Result<usize, StorageError> {
-        self.list_directory_inode(ROOT_INODE, entries)
+        self.with_access(|volume| volume.list_directory_inode(ROOT_INODE, entries))
     }
 
     fn list_directory_inode(
@@ -713,20 +797,22 @@ impl<D: BlockDevice> Vfs<D> {
 
     /// Replace the whole file contents with `data`.
     pub fn write(&mut self, handle: FileHandle, data: &[u8]) -> Result<(), StorageError> {
-        if data.len() > MAX_FILE_SIZE {
-            return Err(StorageError::FileTooLarge);
-        }
-        let mut inode = self.validate_handle(handle)?;
-        let current = data_blocks_for_size(inode.size as usize);
-        let needed = data_blocks_for_size(data.len());
-        self.resize_file_blocks(&mut inode, current, needed)?;
-        self.store_file_range(&inode, 0, data)?;
-        self.clear_past_end(&inode, data.len())?;
-        inode.size = data.len() as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            if data.len() > MAX_FILE_SIZE {
+                return Err(StorageError::FileTooLarge);
+            }
+            let mut inode = volume.validate_handle(handle)?;
+            let current = data_blocks_for_size(inode.size as usize);
+            let needed = data_blocks_for_size(data.len());
+            volume.resize_file_blocks(&mut inode, current, needed)?;
+            volume.store_file_range(&inode, 0, data)?;
+            volume.clear_past_end(&inode, data.len())?;
+            inode.size = data.len() as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     /// Write `data` at `offset`, growing the file as needed. A gap between
@@ -737,55 +823,63 @@ impl<D: BlockDevice> Vfs<D> {
         offset: usize,
         data: &[u8],
     ) -> Result<(), StorageError> {
-        let end = offset
-            .checked_add(data.len())
-            .filter(|end| *end <= MAX_FILE_SIZE)
-            .ok_or(StorageError::FileTooLarge)?;
-        let mut inode = self.validate_handle(handle)?;
-        let size = inode.size as usize;
-        let new_size = size.max(end);
-        let current = data_blocks_for_size(size);
-        let needed = data_blocks_for_size(new_size);
-        if needed > current {
-            self.resize_file_blocks(&mut inode, current, needed)?;
-        }
-        self.store_file_range(&inode, offset, data)?;
-        inode.size = new_size as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let end = offset
+                .checked_add(data.len())
+                .filter(|end| *end <= MAX_FILE_SIZE)
+                .ok_or(StorageError::FileTooLarge)?;
+            let mut inode = volume.validate_handle(handle)?;
+            let size = inode.size as usize;
+            let new_size = size.max(end);
+            let current = data_blocks_for_size(size);
+            let needed = data_blocks_for_size(new_size);
+            if needed > current {
+                volume.resize_file_blocks(&mut inode, current, needed)?;
+            }
+            volume.store_file_range(&inode, offset, data)?;
+            inode.size = new_size as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn truncate(&mut self, handle: FileHandle, length: usize) -> Result<(), StorageError> {
-        if length > MAX_FILE_SIZE {
-            return Err(StorageError::FileTooLarge);
-        }
-        let mut inode = self.validate_handle(handle)?;
-        let size = inode.size as usize;
-        if length < size {
-            self.clear_past_end(&inode, length)?;
-        }
-        let current = data_blocks_for_size(size);
-        let needed = data_blocks_for_size(length);
-        self.resize_file_blocks(&mut inode, current, needed)?;
-        inode.size = length as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            if length > MAX_FILE_SIZE {
+                return Err(StorageError::FileTooLarge);
+            }
+            let mut inode = volume.validate_handle(handle)?;
+            let size = inode.size as usize;
+            if length < size {
+                volume.clear_past_end(&inode, length)?;
+            }
+            let current = data_blocks_for_size(size);
+            let needed = data_blocks_for_size(length);
+            volume.resize_file_blocks(&mut inode, current, needed)?;
+            inode.size = length as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn metadata(&mut self, handle: FileHandle) -> Result<FileMetadata, StorageError> {
-        let inode = self.validate_handle(handle)?;
-        Ok(metadata_from_inode(handle.inode, inode))
+        self.with_access(|volume| {
+            let inode = volume.validate_handle(handle)?;
+            Ok(metadata_from_inode(handle.inode, inode))
+        })
     }
 
     pub fn set_mode(&mut self, handle: FileHandle, mode: u16) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        inode.mode = (inode.mode & 0xf000) | (mode & 0x0fff);
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            inode.mode = (inode.mode & 0xf000) | (mode & 0x0fff);
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn set_owner(
@@ -794,15 +888,17 @@ impl<D: BlockDevice> Vfs<D> {
         uid: Option<u16>,
         gid: Option<u16>,
     ) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        if let Some(uid) = uid {
-            inode.uid = uid;
-        }
-        if let Some(gid) = gid {
-            inode.gid = gid;
-        }
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            if let Some(uid) = uid {
+                inode.uid = uid;
+            }
+            if let Some(gid) = gid {
+                inode.gid = gid;
+            }
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn set_times(
@@ -811,15 +907,17 @@ impl<D: BlockDevice> Vfs<D> {
         atime: u32,
         mtime: u32,
     ) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        inode.atime = atime;
-        inode.mtime = mtime;
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            inode.atime = atime;
+            inode.mtime = mtime;
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn flush(&mut self) -> Result<(), StorageError> {
-        self.device.flush()
+        self.with_access(|volume| volume.device.flush())
     }
 
     pub fn read(
@@ -827,18 +925,20 @@ impl<D: BlockDevice> Vfs<D> {
         handle: FileHandle,
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        let length = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
-        if length > MAX_FILE_SIZE {
-            return Err(StorageError::Corrupt);
-        }
-        if destination.len() < length {
-            return Err(StorageError::BufferTooSmall);
-        }
-        self.copy_file_range(&inode, 0, &mut destination[..length])?;
-        inode.atime = current_timestamp();
-        self.write_inode(handle.inode, inode)?;
-        Ok(length)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            let length = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
+            if length > MAX_FILE_SIZE {
+                return Err(StorageError::Corrupt);
+            }
+            if destination.len() < length {
+                return Err(StorageError::BufferTooSmall);
+            }
+            volume.copy_file_range(&inode, 0, &mut destination[..length])?;
+            inode.atime = current_timestamp();
+            volume.write_inode(handle.inode, inode)?;
+            Ok(length)
+        })
     }
 
     /// Read up to `destination.len()` bytes starting at `offset`. Returns
@@ -849,26 +949,32 @@ impl<D: BlockDevice> Vfs<D> {
         offset: usize,
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
-        let inode = self.validate_handle(handle)?;
-        self.copy_file_range(&inode, offset, destination)
+        self.with_access(|volume| {
+            let inode = volume.validate_handle(handle)?;
+            volume.copy_file_range(&inode, offset, destination)
+        })
     }
 
     pub fn mmap(&mut self, handle: FileHandle) -> Result<FileMapping, StorageError> {
-        let mut mapping = FileMapping {
-            handle,
-            bytes: [0; MAX_SMALL_FILE_SIZE],
-            length: 0,
-        };
-        let length = self.read(handle, &mut mapping.bytes)?;
-        mapping.length = length;
-        Ok(mapping)
+        self.with_access(|volume| {
+            let mut mapping = FileMapping {
+                handle,
+                bytes: [0; MAX_SMALL_FILE_SIZE],
+                length: 0,
+            };
+            let length = volume.read(handle, &mut mapping.bytes)?;
+            mapping.length = length;
+            Ok(mapping)
+        })
     }
 
     pub fn flush_mapping(&mut self, mapping: &FileMapping) -> Result<(), StorageError> {
-        self.write(mapping.handle, mapping.bytes())
+        self.with_access(|volume| volume.write(mapping.handle, mapping.bytes()))
     }
 
     fn format(&mut self) -> Result<(), StorageError> {
+        self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+        self.device.flush()?;
         let mut superblock = [0; BLOCK_SIZE];
         write_u32(&mut superblock, 0, EXT2_INODE_COUNT);
         write_u32(&mut superblock, 4, EXT2_BLOCK_COUNT);
@@ -931,6 +1037,161 @@ impl<D: BlockDevice> Vfs<D> {
         write_directory_record(&mut directory, 12, ROOT_INODE, 12, 2, 2, &dot_dot);
         write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
         self.write_block(ROOT_DIRECTORY_BLOCK, &directory)
+    }
+
+    fn with_access<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
+        if self.access_active {
+            return operation(self);
+        }
+        let _gate = VolumeAccess::acquire();
+        self.access_active = true;
+        let _reset = ResetAccess(&mut self.access_active);
+        self.recover_undo()?;
+        operation(self)
+    }
+
+    fn find_free_bit(
+        &mut self,
+        bitmap_block: u32,
+        start: u32,
+        end: u32,
+    ) -> Result<u32, StorageError> {
+        let mut bitmap = [0; BLOCK_SIZE];
+        self.read_block(bitmap_block, &mut bitmap)?;
+        (start..end)
+            .find(|bit| !is_bit_set(&bitmap, *bit))
+            .ok_or(StorageError::Capacity)
+    }
+
+    fn set_allocated(&mut self, block: u32, bit: u32) -> Result<(), StorageError> {
+        let mut bitmap = [0; BLOCK_SIZE];
+        self.read_block(block, &mut bitmap)?;
+        if is_bit_set(&bitmap, bit) {
+            return Err(StorageError::Corrupt);
+        }
+        set_bit(&mut bitmap, bit);
+        self.write_changed_block(block, &bitmap)
+    }
+
+    fn write_changed_block(
+        &mut self,
+        block: u32,
+        bytes: &[u8; BLOCK_SIZE],
+    ) -> Result<(), StorageError> {
+        let mut previous = [0; BLOCK_SIZE];
+        self.read_block(block, &mut previous)?;
+        for index in 0..2 {
+            let offset = index * SECTOR_SIZE;
+            if previous[offset..offset + SECTOR_SIZE] != bytes[offset..offset + SECTOR_SIZE] {
+                let sector: &[u8; SECTOR_SIZE] = bytes[offset..offset + SECTOR_SIZE]
+                    .try_into()
+                    .map_err(|_| StorageError::Corrupt)?;
+                self.device
+                    .write_sector(u64::from(block) * 2 + index as u64, sector)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn transaction<T>(
+        &mut self,
+        directory_inode: u32,
+        allocation: Option<(u32, u32)>,
+        operation: impl FnOnce(&mut Self) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
+        let result = (|| {
+            // A preceding header-clear flush may have failed after reads began
+            // seeing zero. Make that zero durable before reusing the backup.
+            self.device.flush()?;
+            check_vfs_integrity(&mut self.device)?;
+            let directory_block = self.directory_inode(directory_inode)?.direct_block;
+            let mut undo = Undo {
+                kind: UNDO_RENAME,
+                directory_inode,
+                directory_block,
+                inode: 0,
+                data_block: 0,
+                previous_inode: [0; EXT2_INODE_SIZE as usize],
+                directory: [0; BLOCK_SIZE],
+            };
+            self.read_block(directory_block, &mut undo.directory)?;
+            if let Some((inode, block)) = allocation {
+                undo.kind = UNDO_CREATE;
+                undo.inode = inode;
+                undo.data_block = block;
+                let table_block = INODE_TABLE + (inode - 1) / 8;
+                let offset = ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+                let mut table = [0; BLOCK_SIZE];
+                self.read_block(table_block, &mut table)?;
+                undo.previous_inode
+                    .copy_from_slice(&table[offset..offset + EXT2_INODE_SIZE as usize]);
+            }
+            validate_undo(&mut self.device, &undo)?;
+            self.write_changed_block(UNDO_BLOCK, &undo.directory)?;
+            self.device.flush()?;
+            self.device.write_sector(0, &undo.header())?;
+            self.device.flush()?;
+            let value = operation(self)?;
+            self.device.flush()?;
+            self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+            self.device.flush()?;
+            Ok(value)
+        })();
+        if result.is_err() {
+            // One-shot I/O errors can recover immediately. Persistent failures
+            // retain the valid journal; the next public operation or mount
+            // must recover successfully before accessing ordinary state.
+            let _ = self.recover_undo();
+        }
+        result
+    }
+
+    fn recover_undo(&mut self) -> Result<(), StorageError> {
+        let Some(undo) = load_undo(&mut self.device)? else {
+            return Ok(());
+        };
+        self.write_changed_block(undo.directory_block, &undo.directory)?;
+        if undo.kind == UNDO_CREATE {
+            let table_block = INODE_TABLE + (undo.inode - 1) / 8;
+            let offset = ((undo.inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+            let mut table = [0; BLOCK_SIZE];
+            self.read_block(table_block, &mut table)?;
+            table[offset..offset + EXT2_INODE_SIZE as usize].copy_from_slice(&undo.previous_inode);
+            self.write_changed_block(table_block, &table)?;
+            for (block, bit) in [
+                (INODE_BITMAP, undo.inode - 1),
+                (BLOCK_BITMAP, undo.data_block),
+            ] {
+                let mut bitmap = [0; BLOCK_SIZE];
+                self.read_block(block, &mut bitmap)?;
+                clear_bit_value(&mut bitmap, bit);
+                self.write_changed_block(block, &bitmap)?;
+            }
+            let mut bitmap = [0; BLOCK_SIZE];
+            self.read_block(BLOCK_BITMAP, &mut bitmap)?;
+            let free_blocks = (0..EXT2_BLOCK_COUNT)
+                .filter(|bit| !is_bit_set(&bitmap, *bit))
+                .count() as u32;
+            self.read_block(INODE_BITMAP, &mut bitmap)?;
+            let free_inodes = (0..EXT2_INODE_COUNT)
+                .filter(|bit| !is_bit_set(&bitmap, *bit))
+                .count() as u32;
+            let mut metadata = [0; BLOCK_SIZE];
+            self.read_block(SUPERBLOCK_BLOCK, &mut metadata)?;
+            write_u32(&mut metadata, 12, free_blocks);
+            write_u32(&mut metadata, 16, free_inodes);
+            self.write_changed_block(SUPERBLOCK_BLOCK, &metadata)?;
+            self.read_block(GROUP_DESCRIPTOR_BLOCK, &mut metadata)?;
+            write_u16(&mut metadata, 12, free_blocks as u16);
+            write_u16(&mut metadata, 14, free_inodes as u16);
+            self.write_changed_block(GROUP_DESCRIPTOR_BLOCK, &metadata)?;
+        }
+        self.device.flush()?;
+        self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+        self.device.flush()
     }
 
     fn find_inode(&mut self, name: &[u8]) -> Result<Option<u32>, StorageError> {
@@ -1001,7 +1262,7 @@ impl<D: BlockDevice> Vfs<D> {
                 write_u8(&mut directory, offset + 6, name.len() as u8);
                 write_u8(&mut directory, offset + 7, file_type);
                 copy_bytes_to_offset(&mut directory, offset + 8, name);
-                return self.write_block(directory_inode.direct_block, &directory);
+                return self.write_changed_block(directory_inode.direct_block, &directory);
             }
             offset += record_length;
         }
@@ -1607,8 +1868,193 @@ impl<D: ReadOnlyBlockDevice> Vfs<D> {
     /// Inspect an existing volume without formatting, writing, or flushing it.
     /// Invalid or unsupported on-disk state returns `StorageError::Corrupt`.
     pub fn check_existing(device: &mut D) -> Result<VfsIntegrityReport, StorageError> {
+        let _access = VolumeAccess::acquire();
+        if load_undo(device)?.is_some() {
+            return Err(StorageError::RecoveryRequired);
+        }
         check_vfs_integrity(device)
     }
+}
+
+impl Undo {
+    fn header(&self) -> [u8; SECTOR_SIZE] {
+        let mut header = [0; SECTOR_SIZE];
+        header[..8].copy_from_slice(UNDO_MAGIC);
+        header[8] = self.kind;
+        write_u32(&mut header, 12, self.directory_inode);
+        write_u32(&mut header, 16, self.directory_block);
+        write_u32(&mut header, 20, self.inode);
+        write_u32(&mut header, 24, self.data_block);
+        header[32..64].copy_from_slice(&Sha256::digest(self.directory));
+        header[64..192].copy_from_slice(&self.previous_inode);
+        let digest = Sha256::digest(&header[..480]);
+        header[480..].copy_from_slice(&digest);
+        header
+    }
+}
+
+fn load_undo<D: ReadOnlyBlockDevice>(device: &mut D) -> Result<Option<Undo>, StorageError> {
+    let mut header = [0; SECTOR_SIZE];
+    device.read_sector(0, &mut header)?;
+    if header.iter().all(|byte| *byte == 0) {
+        return Ok(None);
+    }
+    // Zero is the only supported legacy header. Unknown boot/reserved bytes
+    // are never overwritten, interpreted as authority, or auto-formatted.
+    if &header[..8] != UNDO_MAGIC || Sha256::digest(&header[..480])[..] != header[480..] {
+        return Err(StorageError::Corrupt);
+    }
+    let mut undo = Undo {
+        kind: header[8],
+        directory_inode: read_u32(&header, 12),
+        directory_block: read_u32(&header, 16),
+        inode: read_u32(&header, 20),
+        data_block: read_u32(&header, 24),
+        previous_inode: [0; EXT2_INODE_SIZE as usize],
+        directory: [0; BLOCK_SIZE],
+    };
+    undo.previous_inode.copy_from_slice(&header[64..192]);
+    read_device_block(device, UNDO_BLOCK, &mut undo.directory)?;
+    if Sha256::digest(undo.directory)[..] != header[32..64] {
+        return Err(StorageError::Corrupt);
+    }
+    validate_undo(device, &undo)?;
+    Ok(Some(undo))
+}
+
+fn validate_undo<D: ReadOnlyBlockDevice>(device: &mut D, undo: &Undo) -> Result<(), StorageError> {
+    if !matches!(undo.kind, UNDO_CREATE | UNDO_RENAME)
+        || !(ROOT_INODE..=EXT2_INODE_COUNT).contains(&undo.directory_inode)
+        || !(undo.directory_block == ROOT_DIRECTORY_BLOCK
+            || (RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&undo.directory_block))
+    {
+        return Err(StorageError::Corrupt);
+    }
+    if undo.kind == UNDO_CREATE {
+        if !(FIRST_FILE_INODE..=EXT2_INODE_COUNT).contains(&undo.inode)
+            || undo.inode == undo.directory_inode
+            || !(RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&undo.data_block)
+            || undo.data_block == undo.directory_block
+        {
+            return Err(StorageError::Corrupt);
+        }
+    } else if undo.inode != 0
+        || undo.data_block != 0
+        || undo.previous_inode.iter().any(|byte| *byte != 0)
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let mut superblock = [0; BLOCK_SIZE];
+    read_device_block(device, SUPERBLOCK_BLOCK, &mut superblock)?;
+    if read_u16(&superblock, 56) != EXT2_MAGIC {
+        return Err(StorageError::Corrupt);
+    }
+    validate_superblock(&superblock)?;
+    let mut group = [0; BLOCK_SIZE];
+    read_device_block(device, GROUP_DESCRIPTOR_BLOCK, &mut group)?;
+    if read_u32(&group, 0) != BLOCK_BITMAP
+        || read_u32(&group, 4) != INODE_BITMAP
+        || read_u32(&group, 8) != INODE_TABLE
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let mut block_bitmap = [0; BLOCK_SIZE];
+    let mut inode_bitmap = [0; BLOCK_SIZE];
+    read_device_block(device, BLOCK_BITMAP, &mut block_bitmap)?;
+    read_device_block(device, INODE_BITMAP, &mut inode_bitmap)?;
+    if (0..RESERVED_BLOCKS).any(|bit| !is_bit_set(&block_bitmap, bit))
+        || !is_bit_set(&block_bitmap, undo.directory_block)
+        || !is_bit_set(&inode_bitmap, undo.directory_inode - 1)
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let parent = read_inode_from_device(device, undo.directory_inode)?;
+    if parent.mode & 0xf000 != 0x4000
+        || parent.direct_block != undo.directory_block
+        || parent.size != BLOCK_SIZE as u32
+    {
+        return Err(StorageError::Corrupt);
+    }
+    validate_undo_directory(&undo.directory, undo.directory_inode, undo.inode)?;
+    if undo.kind == UNDO_CREATE {
+        // Neither a forged/corrupt journal nor an overlapping writer may free
+        // storage owned by another allocated inode or directory entry.
+        for inode in ROOT_INODE..=EXT2_INODE_COUNT {
+            if inode == undo.inode || !is_bit_set(&inode_bitmap, inode - 1) {
+                continue;
+            }
+            let info = read_inode_from_device(device, inode)?;
+            if info.direct_block == undo.data_block
+                || info.extra_blocks.contains(&undo.data_block)
+                || info.indirect_block == undo.data_block
+            {
+                return Err(StorageError::Corrupt);
+            }
+            if info.mode & 0xf000 == 0x8000 && info.indirect_block != 0 {
+                check_data_block(info.indirect_block)?;
+                let mut table = [0; BLOCK_SIZE];
+                read_device_block(device, info.indirect_block, &mut table)?;
+                if (0..INDIRECT_POINTERS)
+                    .any(|index| read_u32(&table, index * 4) == undo.data_block)
+                {
+                    return Err(StorageError::Corrupt);
+                }
+            }
+            if info.mode & 0xf000 == 0x4000 && inode != undo.directory_inode {
+                let mut directory = [0; BLOCK_SIZE];
+                read_device_block(device, info.direct_block, &mut directory)?;
+                validate_undo_directory(&directory, inode, undo.inode)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_undo_directory(
+    directory: &[u8; BLOCK_SIZE],
+    inode: u32,
+    forbidden_inode: u32,
+) -> Result<(), StorageError> {
+    let mut offset = 0;
+    let mut dot = 0;
+    let mut dot_dot = 0;
+    while offset < BLOCK_SIZE {
+        let target = read_u32(directory, offset);
+        let length = usize::from(read_u16(directory, offset + 4));
+        let name_length = usize::from(directory[offset + 6]);
+        if length < 8
+            || length % 4 != 0
+            || offset + length > BLOCK_SIZE
+            || name_length > length - 8
+            || name_length > MAX_NAME_LENGTH
+        {
+            return Err(StorageError::Corrupt);
+        }
+        if target != 0 {
+            if target > EXT2_INODE_COUNT || target == forbidden_inode {
+                return Err(StorageError::Corrupt);
+            }
+            let name = &directory[offset + 8..offset + 8 + name_length];
+            if name == b"." {
+                if target != inode || directory[offset + 7] != 2 {
+                    return Err(StorageError::Corrupt);
+                }
+                dot += 1;
+            } else if name == b".." {
+                if target < ROOT_INODE || directory[offset + 7] != 2 {
+                    return Err(StorageError::Corrupt);
+                }
+                dot_dot += 1;
+            } else {
+                validate_name(name)?;
+            }
+        }
+        offset += length;
+    }
+    if dot != 1 || dot_dot != 1 {
+        return Err(StorageError::Corrupt);
+    }
+    Ok(())
 }
 
 fn metadata_from_inode(inode: u32, info: InodeInfo) -> FileMetadata {
@@ -2214,6 +2660,7 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 mod tests {
     extern crate std;
 
+    use sha2::Digest;
     use std::vec;
     use std::vec::Vec;
 
@@ -2974,5 +3421,486 @@ mod tests {
             Vfs::mount_or_format(device),
             Err(StorageError::Corrupt)
         ));
+    }
+    #[derive(Clone)]
+    struct FaultDisk(std::sync::Arc<std::sync::Mutex<FaultState>>);
+    struct FaultState {
+        live: Vec<u8>,
+        durable: Vec<u8>,
+        cached: bool,
+        fail_write: Option<usize>,
+        fail_flush: Option<usize>,
+        persistent: bool,
+        offline: bool,
+        writes: usize,
+        flushes: usize,
+    }
+    impl FaultDisk {
+        fn new(cached: bool) -> Self {
+            Self(std::sync::Arc::new(std::sync::Mutex::new(FaultState {
+                live: vec![0; super::EXT2_BLOCK_COUNT as usize * BLOCK_SIZE],
+                durable: vec![0; super::EXT2_BLOCK_COUNT as usize * BLOCK_SIZE],
+                cached,
+                fail_write: None,
+                fail_flush: None,
+                persistent: false,
+                offline: false,
+                writes: 0,
+                flushes: 0,
+            })))
+        }
+        fn fork(&self) -> Self {
+            let state = self.0.lock().unwrap();
+            let disk = Self::new(state.cached);
+            {
+                let mut copy = disk.0.lock().unwrap();
+                copy.live.clone_from(&state.live);
+                copy.durable.clone_from(&state.durable);
+            }
+            disk
+        }
+        fn inject(&self, write: Option<usize>, flush: Option<usize>, persistent: bool) {
+            let mut state = self.0.lock().unwrap();
+            state.fail_write = write;
+            state.fail_flush = flush;
+            state.persistent = persistent;
+            state.offline = false;
+            state.writes = 0;
+            state.flushes = 0;
+        }
+        fn reconnect(&self, power_cut: bool) {
+            let mut state = self.0.lock().unwrap();
+            if power_cut {
+                let durable = state.durable.clone();
+                state.live = durable;
+            }
+            state.offline = false;
+            state.fail_write = None;
+            state.fail_flush = None;
+        }
+    }
+    fn fault(counter: &mut Option<usize>) -> bool {
+        match counter {
+            Some(0) => {
+                *counter = None;
+                true
+            }
+            Some(value) => {
+                *value -= 1;
+                false
+            }
+            None => false,
+        }
+    }
+    impl super::ReadOnlyBlockDevice for FaultDisk {
+        fn read_sector(
+            &mut self,
+            sector: u64,
+            output: &mut [u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            let state = self.0.lock().unwrap();
+            let offset = sector as usize * SECTOR_SIZE;
+            output.copy_from_slice(
+                state
+                    .live
+                    .get(offset..offset + SECTOR_SIZE)
+                    .ok_or(StorageError::Block)?,
+            );
+            Ok(())
+        }
+    }
+    impl BlockDevice for FaultDisk {
+        fn write_sector(
+            &mut self,
+            sector: u64,
+            bytes: &[u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            let mut state = self.0.lock().unwrap();
+            if state.offline {
+                return Err(StorageError::Block);
+            }
+            if fault(&mut state.fail_write) {
+                state.offline = state.persistent;
+                return Err(StorageError::Block);
+            }
+            let offset = sector as usize * SECTOR_SIZE;
+            state
+                .live
+                .get_mut(offset..offset + SECTOR_SIZE)
+                .ok_or(StorageError::Block)?
+                .copy_from_slice(bytes);
+            if !state.cached {
+                state.durable[offset..offset + SECTOR_SIZE].copy_from_slice(bytes);
+            }
+            state.writes += 1;
+            Ok(())
+        }
+        fn flush(&mut self) -> Result<(), StorageError> {
+            let mut state = self.0.lock().unwrap();
+            if state.offline {
+                return Err(StorageError::Block);
+            }
+            if fault(&mut state.fail_flush) {
+                state.offline = state.persistent;
+                return Err(StorageError::Block);
+            }
+            if state.cached {
+                let live = state.live.clone();
+                state.durable = live;
+            }
+            state.flushes += 1;
+            Ok(())
+        }
+    }
+    fn crowded_name(index: usize) -> Vec<u8> {
+        std::format!("{index:02}{}", "x".repeat(30)).into_bytes()
+    }
+    fn failure_baseline(cached: bool, crowded: bool) -> FaultDisk {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let kept = volume.create(b"kept.txt").unwrap();
+        volume.write(kept, b"retained neighbor").unwrap();
+        if crowded {
+            for index in 0..14 {
+                let name = crowded_name(index);
+                let handle = volume.create(&name).unwrap();
+                volume.write(handle, &name).unwrap();
+            }
+        }
+        volume.flush().unwrap();
+        disk
+    }
+    fn failure_operation(
+        volume: &mut Vfs<FaultDisk>,
+        rename: bool,
+    ) -> Result<FileHandle, StorageError> {
+        if rename {
+            volume.rename(&crowded_name(0), b"renamed")
+        } else {
+            volume.create(b"created")
+        }
+    }
+    fn assert_recovered(disk: FaultDisk, rename: bool, success: bool) {
+        let mut volume = Vfs::mount_existing(disk.clone()).expect("recover mount");
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("recovered integrity");
+        let mut output = [0; 64];
+        let kept = volume.open(b"kept.txt").unwrap();
+        let count = volume.read_at(kept, 0, &mut output).unwrap();
+        assert_eq!(&output[..count], b"retained neighbor");
+        let mut entries = [DirectoryEntry::empty(); 64];
+        let count = volume.list_root(&mut entries).unwrap();
+        for (index, entry) in entries[..count].iter().enumerate() {
+            assert!(
+                entries[..index]
+                    .iter()
+                    .all(|other| other.inode != entry.inode),
+                "inode alias"
+            );
+        }
+        if rename {
+            let old = volume.open(&crowded_name(0));
+            let new = volume.open(b"renamed");
+            assert_ne!(
+                old.is_ok(),
+                new.is_ok(),
+                "rename must be complete old or new"
+            );
+            if success {
+                assert!(new.is_ok());
+            }
+            for index in 1..14 {
+                let name = crowded_name(index);
+                let handle = volume.open(&name).unwrap();
+                let count = volume.read_at(handle, 0, &mut output).unwrap();
+                assert_eq!(&output[..count], &name);
+            }
+            let handle = old.or(new).unwrap();
+            let count = volume.read_at(handle, 0, &mut output).unwrap();
+            assert_eq!(&output[..count], crowded_name(0));
+            assert_eq!(count, 32);
+        } else {
+            if success {
+                assert!(volume.open(b"created").is_ok());
+            }
+            let next = volume.create(b"next").unwrap();
+            if let Ok(created) = volume.open(b"created") {
+                assert_ne!(created.inode(), next.inode());
+            }
+        }
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn create_and_crowded_rename_recover_every_write_and_flush_failure() {
+        for cached in [false, true] {
+            for rename in [false, true] {
+                let baseline = failure_baseline(cached, rename);
+                let probe = baseline.fork();
+                let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+                failure_operation(&mut volume, rename).unwrap();
+                let (writes, flushes) = {
+                    let state = probe.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                for persistent in [false, true] {
+                    for flush_fault in [false, true] {
+                        for after in 0..=if flush_fault { flushes } else { writes } {
+                            let disk = baseline.fork();
+                            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                            disk.inject(
+                                (!flush_fault).then_some(after),
+                                flush_fault.then_some(after),
+                                persistent,
+                            );
+                            let result = failure_operation(&mut volume, rename);
+                            if disk.0.lock().unwrap().offline {
+                                assert!(volume.create(b"blocked").is_err());
+                            }
+                            disk.reconnect(cached && persistent);
+                            assert_recovered(disk, rename, result.is_ok());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pending_create_recovery_is_idempotent_at_every_persistent_recovery_write() {
+        let baseline = failure_baseline(false, false);
+        let pending = baseline.fork();
+        let mut volume = Vfs::mount_existing(pending.clone()).unwrap();
+        // Stop after mutation has begun while keeping a durable undo header.
+        pending.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        pending.reconnect(false);
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut pending.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+        let probe = pending.fork();
+        probe.inject(None, None, false);
+        Vfs::mount_existing(probe.clone()).unwrap();
+        let writes = probe.0.lock().unwrap().writes;
+        for after in 0..writes {
+            let disk = pending.fork();
+            disk.inject(Some(after), None, true);
+            assert!(Vfs::mount_existing(disk.clone()).is_err());
+            disk.reconnect(false);
+            assert_recovered(disk, false, false);
+        }
+    }
+
+    #[test]
+    fn unsupported_or_corrupt_undo_never_formats_or_writes() {
+        let baseline = failure_baseline(false, false);
+        for mode in 0..4 {
+            let disk = baseline.fork();
+            {
+                let mut state = disk.0.lock().unwrap();
+                match mode {
+                    0 => state.live[0] = 0xff,
+                    _ => {
+                        drop(state);
+                        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                        disk.inject(Some(6), None, true);
+                        assert!(volume.create(b"created").is_err());
+                        disk.reconnect(false);
+                        state = disk.0.lock().unwrap();
+                        match mode {
+                            1 => state.live[480] ^= 1,
+                            2 => state.live[super::UNDO_BLOCK as usize * BLOCK_SIZE] ^= 1,
+                            _ => {
+                                state.live[20..24].copy_from_slice(&1u32.to_le_bytes());
+                                let digest = sha2::Sha256::digest(&state.live[..480]);
+                                state.live[480..512].copy_from_slice(&digest);
+                            }
+                        }
+                    }
+                }
+                let before = state.live.clone();
+                let writes = state.writes;
+                let flushes = state.flushes;
+                drop(state);
+                assert_eq!(
+                    Vfs::mount_or_format(disk.clone()).err(),
+                    Some(StorageError::Corrupt)
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::Corrupt)
+                );
+                let state = disk.0.lock().unwrap();
+                assert_eq!(state.live, before);
+                assert_eq!(state.writes, writes);
+                assert_eq!(state.flushes, flushes);
+            }
+        }
+    }
+
+    #[test]
+    fn read_only_pending_check_has_no_writes_or_flushes() {
+        let disk = failure_baseline(false, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(false);
+        let (before, writes, flushes) = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+        let state = disk.0.lock().unwrap();
+        assert_eq!(state.live, before);
+        assert_eq!(state.writes, writes);
+        assert_eq!(state.flushes, flushes);
+    }
+    #[test]
+    fn cached_header_clear_failure_cannot_mix_old_header_with_next_backup() {
+        let disk = failure_baseline(true, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(None, Some(4), false); // Header clear is visible but its flush fails.
+        assert!(volume.create(b"first").is_err());
+        {
+            let state = disk.0.lock().unwrap();
+            assert!(state.live[..SECTOR_SIZE].iter().all(|byte| *byte == 0));
+            assert_eq!(&state.durable[..8], super::UNDO_MAGIC);
+        }
+        disk.inject(Some(1), None, true); // New backup is flushed; new header cannot publish.
+        assert!(volume.create(b"second").is_err());
+        disk.reconnect(true);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        assert!(volume.open(b"first").is_ok());
+        assert_eq!(volume.open(b"second"), Err(StorageError::NotFound));
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn recovery_flush_failures_keep_idempotent_durable_recovery() {
+        let disk = failure_baseline(true, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(true);
+        let probe = disk.fork();
+        probe.inject(None, None, false);
+        Vfs::mount_existing(probe.clone()).unwrap();
+        let flushes = probe.0.lock().unwrap().flushes;
+        for after in 0..flushes {
+            let attempt = disk.fork();
+            attempt.inject(None, Some(after), true);
+            assert!(Vfs::mount_existing(attempt.clone()).is_err());
+            attempt.reconnect(true);
+            assert_recovered(attempt, false, false);
+        }
+    }
+
+    #[test]
+    fn invalid_superblock_with_unknown_or_pending_header_is_never_formatted() {
+        for pending in [false, true] {
+            let disk = failure_baseline(false, false);
+            if pending {
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                disk.inject(Some(6), None, true);
+                assert!(volume.create(b"created").is_err());
+                disk.reconnect(false);
+            }
+            {
+                let mut state = disk.0.lock().unwrap();
+                if !pending {
+                    state.live[0] = 0xff;
+                }
+                state.live[BLOCK_SIZE + 56] = 0;
+            }
+            let (before, writes, flushes) = {
+                let state = disk.0.lock().unwrap();
+                (state.live.clone(), state.writes, state.flushes)
+            };
+            assert_eq!(
+                Vfs::mount_or_format(disk.clone()).err(),
+                Some(StorageError::Corrupt)
+            );
+            let state = disk.0.lock().unwrap();
+            assert_eq!(state.live, before);
+            assert_eq!(state.writes, writes);
+            assert_eq!(state.flushes, flushes);
+        }
+    }
+
+    #[test]
+    fn checksummed_undo_cannot_free_an_existing_files_data() {
+        let disk = failure_baseline(false, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        let kept_inode = volume.open(b"kept.txt").unwrap().inode();
+        let kept_data = volume.read_inode(kept_inode).unwrap().direct_block;
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(false);
+        {
+            let mut state = disk.0.lock().unwrap();
+            state.live[24..28].copy_from_slice(&kept_data.to_le_bytes());
+            let digest = sha2::Sha256::digest(&state.live[..480]);
+            state.live[480..512].copy_from_slice(&digest);
+        }
+        let (before, writes, flushes) = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        assert_eq!(
+            Vfs::mount_existing(disk.clone()).err(),
+            Some(StorageError::Corrupt)
+        );
+        let state = disk.0.lock().unwrap();
+        assert_eq!(state.live, before);
+        assert_eq!(state.writes, writes);
+        assert_eq!(state.flushes, flushes);
+    }
+
+    #[test]
+    fn separately_mounted_instances_serialize_and_unwind_releases_access() {
+        use std::sync::mpsc;
+        let disk = failure_baseline(false, false);
+        let mut first = Vfs::mount_existing(disk.clone()).unwrap();
+        let mut second = Vfs::mount_existing(disk.clone()).unwrap();
+        let (held_send, held_receive) = mpsc::channel();
+        let (release_send, release_receive) = mpsc::channel();
+        let (started_send, started_receive) = mpsc::channel();
+        let (done_send, done_receive) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            first
+                .with_access(|volume| {
+                    held_send.send(()).unwrap();
+                    release_receive.recv().unwrap();
+                    volume.create(b"first")
+                })
+                .unwrap()
+        });
+        held_receive.recv().unwrap();
+        let waiter = std::thread::spawn(move || {
+            started_send.send(()).unwrap();
+            let result = second.create(b"second");
+            done_send.send(result).unwrap();
+        });
+        started_receive.recv().unwrap();
+        assert!(done_receive
+            .recv_timeout(std::time::Duration::from_millis(20))
+            .is_err());
+        release_send.send(()).unwrap();
+        let first = worker.join().unwrap();
+        let second = done_receive.recv().unwrap().unwrap();
+        waiter.join().unwrap();
+        assert_ne!(first.inode(), second.inode());
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<(), StorageError> =
+                volume.with_access(|_| panic!("injected operation unwind"));
+        }));
+        assert!(panic.is_err());
+        assert!(!volume.access_active);
+        volume.create(b"after-unwind").unwrap();
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
     }
 }

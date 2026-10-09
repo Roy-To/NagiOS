@@ -1,0 +1,20 @@
+[package]
+name = "nagi-files-search-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+m19-search = []
+desktop-login-acceptance = []
+m19-files-search-production = []
+
+[dependencies]
+libnagi = { path = "../../user/libnagi" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-search = { path = "../../user/nagi-search" }
+
+[lints.rust]
+dead_code = "allow"

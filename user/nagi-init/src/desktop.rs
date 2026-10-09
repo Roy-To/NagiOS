@@ -4,7 +4,16 @@ use core::arch::asm;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+pub(super) use crate::m19_runtime::files;
 use crate::ui::{Painter, Rect};
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+#[path = "m19_files_panel.rs"]
+mod files_panel;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_MANAGE_KEY: u16 = 60; // Linux/VirtIO input F2.
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_PANEL: Rect = Rect::new(17, 25, 286, 167);
 use nagi_ui::{color, ColorRole, ThemeMode};
 
 pub(super) type UserDataVolume = Vfs<SyscallBlockDevice>;
@@ -215,6 +224,8 @@ pub struct Desktop {
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_query: [u8; FILES_SEARCH_QUERY_CAPACITY],
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_panel: files_panel::Panel,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_query_len: usize,
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_pending: bool,
@@ -267,6 +278,8 @@ impl Desktop {
             password_change_succeeded: false,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_query: [0; FILES_SEARCH_QUERY_CAPACITY],
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_panel: files_panel::Panel::new(),
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_query_len: 0,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
@@ -354,6 +367,10 @@ impl Desktop {
             nagi_localization::text(self.locale, "desktop.terminal.title").as_bytes(),
             message!(TERMINAL_TEXT, 9),
         );
+        #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+        if self.files_panel.open {
+            self.render_files_panel(&mut painter);
+        }
         if self.settings_open {
             self.render_settings(&mut painter);
         }
@@ -445,6 +462,29 @@ impl Desktop {
         #[cfg(feature = "consent-dialog")]
         if self.permissions.is_some() {
             return self.handle_permissions_event(event, volume);
+        }
+        #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+        if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 && !self.settings_open {
+            if self.files_panel.open {
+                if event.code == libnagi::INPUT_KEY_LEFT {
+                    self.click_files_panel();
+                } else if event.value == 1 {
+                    self.files_panel.key(event.code);
+                }
+                return true;
+            }
+            let window = self.windows[2];
+            let manage = Rect::new(window.x + 82, window.y + TITLE_HEIGHT + 1, 57, 11);
+            if (event.code == FILES_MANAGE_KEY
+                && self.desktop_focus == Some(DesktopFocus::Application(2)))
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && manage.contains(self.pointer_x, self.pointer_y))
+            {
+                self.desktop_focus = Some(DesktopFocus::Application(2));
+                self.activate_application(2, false);
+                self.files_panel.open();
+                return true;
+            }
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
             if event.code == libnagi::INPUT_KEY_TAB {
@@ -1043,6 +1083,228 @@ impl Desktop {
     }
 
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn render_files_panel(&self, painter: &mut Painter<'_>) {
+        use files_panel::Focus;
+        let panel = &self.files_panel;
+        painter.fill(FILES_PANEL, PANEL);
+        painter.frame(FILES_PANEL, BORDER);
+        painter.text(
+            24,
+            31,
+            nagi_localization::text(self.locale, "desktop.files.title").as_bytes(),
+            TEXT,
+        );
+        let mut button = |rect: Rect, key: &str, focus: Focus| {
+            painter.fill(rect, PANEL);
+            painter.frame(rect, if panel.focus == focus { FOCUS } else { BORDER });
+            painter.text(
+                rect.x + 3,
+                rect.y + 3,
+                nagi_localization::text(self.locale, key).as_bytes(),
+                TEXT,
+            );
+        };
+        if panel.editing {
+            button(
+                Rect::new(24, 162, 90, 14),
+                "desktop.files.apply",
+                Focus::Apply,
+            );
+            button(
+                Rect::new(123, 162, 90, 14),
+                "desktop.files.cancel",
+                Focus::Cancel,
+            );
+        } else {
+            button(
+                Rect::new(24, 45, 125, 14),
+                if panel.trash_view {
+                    "desktop.files.show_files"
+                } else {
+                    "desktop.files.show_trash"
+                },
+                Focus::View,
+            );
+            if !panel.trash_view {
+                button(Rect::new(24, 162, 80, 14), "desktop.files.new", Focus::New);
+                button(
+                    Rect::new(114, 162, 80, 14),
+                    "desktop.files.rename",
+                    Focus::Rename,
+                );
+            }
+            button(
+                Rect::new(204, 162, 91, 14),
+                if panel.trash_view {
+                    "desktop.files.restore"
+                } else {
+                    "desktop.files.trash"
+                },
+                Focus::Trash,
+            );
+        }
+        let first_row = panel.selected.saturating_sub(7);
+        for (row, entry) in panel.entries.iter().enumerate().skip(first_row).take(8) {
+            let rect = Rect::new(24, 63 + (row - first_row) as i32 * 10, 271, 10);
+            if row == panel.selected {
+                painter.fill(
+                    rect,
+                    color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+                );
+                painter.frame(
+                    rect,
+                    if panel.focus == Focus::List {
+                        FOCUS
+                    } else {
+                        BORDER
+                    },
+                );
+            }
+            painter.text(rect.x + 3, rect.y + 1, entry.name.as_bytes(), TEXT);
+        }
+        if panel.entries.is_empty() && !panel.editing {
+            painter.text(
+                27,
+                66,
+                nagi_localization::text(self.locale, "desktop.files.list_empty").as_bytes(),
+                TEXT,
+            );
+        }
+        if panel.editing {
+            let field = Rect::new(24, 145, 271, 14);
+            painter.fill(
+                field,
+                color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+            );
+            painter.frame(
+                field,
+                if panel.focus == Focus::Name {
+                    FOCUS
+                } else {
+                    BORDER
+                },
+            );
+            painter.text(field.x + 3, field.y + 3, panel.name.as_bytes(), TEXT);
+        }
+        if !panel.status.is_empty() {
+            painter.text(
+                24,
+                180,
+                nagi_localization::text(self.locale, panel.status).as_bytes(),
+                TEXT,
+            );
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn click_files_panel(&mut self) {
+        use files_panel::Focus;
+        let x = self.pointer_x;
+        let y = self.pointer_y;
+        if self.files_panel.editing {
+            for (rect, focus) in [
+                (Rect::new(24, 145, 271, 14), Focus::Name),
+                (Rect::new(24, 162, 90, 14), Focus::Apply),
+                (Rect::new(123, 162, 90, 14), Focus::Cancel),
+            ] {
+                if rect.contains(x, y) {
+                    if focus == Focus::Name {
+                        self.files_panel.focus = focus;
+                    } else {
+                        self.files_panel.activate(focus);
+                    }
+                    return;
+                }
+            }
+        } else {
+            if Rect::new(24, 45, 125, 14).contains(x, y) {
+                self.files_panel.activate(Focus::View);
+                return;
+            }
+            let first_row = self.files_panel.selected.saturating_sub(7);
+            for row in 0..self
+                .files_panel
+                .entries
+                .len()
+                .saturating_sub(first_row)
+                .min(8)
+            {
+                if Rect::new(24, 63 + row as i32 * 10, 271, 10).contains(x, y) {
+                    self.files_panel.selected = first_row + row;
+                    self.files_panel.focus = Focus::List;
+                    return;
+                }
+            }
+            for (rect, focus) in [
+                (Rect::new(24, 162, 80, 14), Focus::New),
+                (Rect::new(114, 162, 80, 14), Focus::Rename),
+                (Rect::new(204, 162, 91, 14), Focus::Trash),
+            ] {
+                if rect.contains(x, y) {
+                    self.files_panel.activate(focus);
+                    return;
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn process_files_operations(
+        &mut self,
+        volume: &mut UserDataVolume,
+        runtime: Option<&mut crate::m19_runtime::Runtime>,
+    ) {
+        use files_panel::Operation;
+        if self.session.is_none() {
+            return;
+        }
+        if let Some(operation) = self.files_panel.pending.take() {
+            let (result, marker) = match operation {
+                Operation::Create(name) => {
+                    (files::create(volume, name.as_bytes()).map(|_| ()), "create")
+                }
+                Operation::Rename(entry, name) => (
+                    files::rename(volume, &entry, name.as_bytes()).map(|_| ()),
+                    "rename",
+                ),
+                Operation::Trash(entry) => (files::trash(volume, &entry), "trash"),
+                Operation::Restore(entry) => (files::restore(volume, &entry), "restore"),
+            };
+            self.files_panel.completed(result);
+            self.clear_files_search();
+            // Indexing failure cannot undo or block a physical Files operation.
+            // Every sync starts fail-closed, so stale IDs never reach Search.
+            let synchronized = runtime.is_some_and(|runtime| runtime.sync_files(volume).is_ok());
+            if result.is_ok() {
+                print(b"Nagi Files UI operation PASS operation=");
+                print(marker.as_bytes());
+                print(b"\r\n");
+                if !synchronized {
+                    self.files_panel.status = "desktop.files.operation.saved_search_pending";
+                }
+            }
+        }
+        if self.files_panel.open && self.files_panel.refresh {
+            self.files_panel.refresh = false;
+            let result = files::initialize(volume).and_then(|()| {
+                if self.files_panel.trash_view {
+                    files::trash_entries(volume)
+                } else {
+                    files::list(volume)
+                }
+            });
+            match result {
+                Ok(entries) => self.files_panel.replace_entries(entries),
+                Err(error) => {
+                    self.files_panel.replace_entries(alloc::vec::Vec::new());
+                    self.files_panel.completed(Err(error));
+                    self.files_panel.refresh = false;
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     fn render_files_search(&self, painter: &mut Painter<'_>) {
         let window = self.windows[2];
         let label_y = window.y + TITLE_HEIGHT + 3;
@@ -1076,6 +1338,16 @@ impl Desktop {
         } else {
             painter.text(field.x + 3, field.y + 2, query, TEXT);
         }
+
+        let manage = Rect::new(window.x + 82, label_y - 2, 57, 11);
+        painter.fill(manage, PANEL);
+        painter.frame(manage, BORDER);
+        painter.text(
+            manage.x + 2,
+            manage.y + 2,
+            nagi_localization::text(self.locale, "desktop.files.manage").as_bytes(),
+            TEXT,
+        );
 
         let status_y = field.y + field.height + 3;
         if self.files_search_unavailable {
@@ -1434,6 +1706,7 @@ pub fn run(
                         }
                     }
                 }
+                desktop.process_files_operations(&mut volume, search_runtime.as_mut());
                 if let Some(query) = desktop.take_files_search_request() {
                     if let Some(runtime) = search_runtime.as_mut() {
                         match runtime.sync_files(&mut volume) {

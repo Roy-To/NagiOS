@@ -3,6 +3,17 @@
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M19 ordinary Files recovery checkpoint:** recovered owner-only
+create/rename/trash/restore controls use mirrored trash intent records and bounded
+VFS create/rename undo recovery. Contents and inode/generation are retained;
+Search failure does not disable physical Files operations. The signed Files
+Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
+tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
+Clippy. A synthetic disk written by the exact-base VFS was read without writes
+or formatting by the recovered VFS; clean new mutations remained readable by
+the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
+before init. Normal guest UI/Search operations and Browser History acceptance
+remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,
@@ -2647,7 +2658,7 @@ confirmed the expected ABI entry point. The next Ubuntu target CI must verify
 the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
 evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Local verification after the #164 repair passed: focused M17 tests (11), the
+Local verification after the #164 repair passed: focused M18 tests (11), the
 full `nagi-cli` suite (49 unit and 18 CLI tests), focused Clippy,
 `bash -n tools/nagi-target-cc.sh`, and `git diff --check`. The Nagi wrapper
 compiled `nagi-libcpp-abi.cpp` plus the real fontsan OTS `ots.cc` and `cff.cc`

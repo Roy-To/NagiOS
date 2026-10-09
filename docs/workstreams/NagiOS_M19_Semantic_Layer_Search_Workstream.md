@@ -1,5 +1,29 @@
 # Nagi OS M19 — Semantic Layer / Search
 
+## Current ordinary Files checkpoint — 2026-10-08
+
+The dedicated `codex/0.1-files-search-operations` branch wires ordinary
+create/rename/trash/restore UI controls and a recoverable Files leaf (ADR 0070).
+Trash preserves the physical inode/generation/content, records the original
+name in a mirrored intent journal and removes it from the active Search
+Workspace. Restore rejects collisions and retains the producer ObjectId.
+VFS operations stay available if semantic synchronization fails; stale Search
+queries fail closed until reconciliation succeeds. PR #31's signed production
+Search route is retained; earlier no-endpoint statements below are historical.
+
+The recovered source includes bounded VFS create/rename undo recovery and the
+formerly failing inode-alias regression. Fresh host checks passed 24 Files,
+93 libnagi unit plus 2 renderer and 40 Search/IPC/localization tests, formatting
+and warnings-denied Clippy. Exact-base/recovered synthetic disk compatibility
+passed without formatting existing data. Imported target/guest logs are
+historical and old local commit identities are
+unverified. Imported guest evidence stopped at M7 before init. Normal Files
+production acceptance and shared GUI/Browser integration remain open; M19 stays
+`PARTIAL`.
+
+See `m19-files-search-operations-handoff.md` for bounded ownership, proposed
+Registry/CI/QMP seams and the normal BrowserHistory API proposal.
+
 **Status: PARTIAL**
 
 ## Provenance and scope
