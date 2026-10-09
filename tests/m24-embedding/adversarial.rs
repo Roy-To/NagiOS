@@ -17,7 +17,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use nagi_embedding_provider::container::{self, ModelError};
-use nagi_embedding_provider::tokenizer::CharsMap;
+use nagi_embedding_provider::tokenizer::{
+    max_table_build_probes, CharsMap, Tokenizer, MAX_PIECE_PROBES,
+};
 use nagi_embedding_provider::{
     CancelSignal, Checkpoint, E5Provider, ProviderConfig, ProviderError,
 };
@@ -729,4 +731,276 @@ fn over_context_inputs_fail_before_encoding() {
         other => panic!("expected TooManyTokens, got {other:?}"),
     }
     assert!(extra < 4 * MIB, "peak {extra}");
+}
+
+// ---------------------------------------------------------------------------
+// Piece hash-table collisions.
+//
+// The piece table hashes with a fixed, unkeyed FNV-1a and probes linearly, so
+// an unpinned artifact can pick piece texts that all share one bucket. Before
+// the probe bounds (head c4d4220), measured at runtime with a temporary,
+// uncommitted probe-counting build of the same tokenizer (`cargo test`,
+// opt-level 3, aarch64 host, -j1; wall times are indicative only):
+//
+//   colliding pieces | slots examined to build | missing lookup | Tokenizer::new
+//               1024 |                 524,807 |          1,025 |        ~6.4 ms
+//               4096 |               8,390,663 |          4,097 |        ~116 ms
+//              16384 |             134,231,348 |         16,386 |        ~1.6 s
+//              32768 |             536,887,303 |         32,769 |        ~6.5 s
+//              65536 |           2,147,535,665 |         65,538 |        ~26 s
+//
+// (the 65,536 case is a ~3 MB artifact; growth is quadratic). The 1024 case
+// matches the exact-hash arithmetic `1024*1023/2 = 523,776` occupied-slot
+// comparisons and `1024 + 1` slots for a missing lookup, which
+// `unbounded_table_cost` below recomputes. Arithmetic and runtime figures are
+// kept apart: the arithmetic model never runs the tokenizer.
+
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = FNV_OFFSET;
+    for &b in bytes {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Multiplicative inverse of an odd `p` modulo 2^64 (Newton iteration).
+fn inverse(p: u64) -> u64 {
+    let mut x = p;
+    for _ in 0..6 {
+        x = x.wrapping_mul(2u64.wrapping_sub(p.wrapping_mul(x)));
+    }
+    x
+}
+
+/// `count` distinct 8-byte printable-ASCII keys whose FNV-1a hash lands in
+/// `bucket` of a table with index mask `mask` (2^k - 1, k >= 8). The last
+/// byte is solved for: `bucket = ((x ^ b) * P) & mask` with `P` odd.
+fn colliding_keys(count: usize, mask: u64, bucket: u64) -> Vec<[u8; 8]> {
+    let target = bucket.wrapping_mul(inverse(FNV_PRIME)) & mask;
+    let mut keys = Vec::with_capacity(count);
+    let mut counter = 0u64;
+    'outer: loop {
+        let mut prefix = [0u8; 5];
+        let mut c = counter;
+        for slot in prefix.iter_mut() {
+            *slot = b'a' + (c % 26) as u8;
+            c /= 26;
+        }
+        counter += 1;
+        let s = fnv1a(&prefix);
+        for b0 in 0x21u8..=0x7e {
+            let s0 = (s ^ u64::from(b0)).wrapping_mul(FNV_PRIME);
+            for b1 in 0x21u8..=0x7e {
+                let x = (s0 ^ u64::from(b1)).wrapping_mul(FNV_PRIME);
+                let b2 = (x ^ target) & mask;
+                if (0x21..=0x7e).contains(&b2) {
+                    let key = [
+                        prefix[0], prefix[1], prefix[2], prefix[3], prefix[4], b0, b1, b2 as u8,
+                    ];
+                    assert_eq!(fnv1a(&key) & mask, bucket);
+                    keys.push(key);
+                    if keys.len() == count {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+    keys
+}
+
+/// Index mask of the piece table the tokenizer allocates for `pieces` pieces.
+fn table_mask(pieces: usize) -> u64 {
+    ((pieces * 2).next_power_of_two().max(16) - 1) as u64
+}
+
+fn spec_with(keys: &[[u8; 8]]) -> Spec {
+    let mut spec = Spec::default();
+    for key in keys {
+        spec.pieces.push((key.to_vec(), -5.0, 0));
+    }
+    spec
+}
+
+/// ARITHMETIC model of the pre-fix unbounded table (no tokenizer involved):
+/// (slots examined to insert every normal piece, occupied-slot comparisons,
+/// slots a lookup of `missing` examines).
+fn unbounded_table_cost(spec: &Spec, missing: &[u8]) -> (u64, u64, u64) {
+    let mask = table_mask(spec.pieces.len());
+    let mut slots: Vec<Option<&[u8]>> = vec![None; mask as usize + 1];
+    let (mut examined, mut compared) = (0u64, 0u64);
+    for (text, _, kind) in &spec.pieces {
+        if *kind != 0 {
+            continue;
+        }
+        let mut slot = (fnv1a(text) & mask) as usize;
+        loop {
+            examined += 1;
+            match slots[slot] {
+                None => {
+                    slots[slot] = Some(text);
+                    break;
+                }
+                Some(other) => {
+                    compared += 1;
+                    if other == text.as_slice() {
+                        break;
+                    }
+                }
+            }
+            slot = (slot + 1) & mask as usize;
+        }
+    }
+    let mut slot = (fnv1a(missing) & mask) as usize;
+    let mut lookup = 1;
+    while slots[slot].is_some() {
+        lookup += 1;
+        slot = (slot + 1) & mask as usize;
+    }
+    (examined, compared, lookup)
+}
+
+/// Builds the tokenizer of `artifact` directly, returning the piece-table
+/// slots it examined even when it fails closed.
+fn build_tokenizer(artifact: &[u8]) -> (Result<Tokenizer, ModelError>, usize) {
+    let parsed = container::parse(artifact).expect("structurally valid");
+    let h = &parsed.header;
+    Tokenizer::new_with_build_work(
+        artifact,
+        &parsed.pieces,
+        &artifact[parsed.charsmap.clone()],
+        h.unk_id,
+        h.bos_id,
+        h.eos_id,
+    )
+}
+
+/// Most slots a build that trips the per-piece bound can examine: every piece
+/// before the tripping one stays within `MAX_PIECE_PROBES`, and the tripping
+/// one stops at `MAX_PIECE_PROBES + 1`, so with all colliding pieces in one
+/// run the work is at most `1 + 2 + ... + (MAX_PIECE_PROBES + 1)` plus the
+/// few base pieces.
+const SINGLE_RUN_TRIP_WORK: usize =
+    (MAX_PIECE_PROBES + 1) * (MAX_PIECE_PROBES + 2) / 2 + 2 * MAX_PIECE_PROBES;
+
+#[test]
+fn single_bucket_piece_collisions_fail_closed_after_bounded_work() {
+    let _s = serial();
+    for n in [1024usize, 4096, 65536] {
+        let total = base_pieces().len() + n;
+        let mask = table_mask(total);
+        let mut keys = colliding_keys(n + 1, mask, 0x5a5 & mask);
+        let missing = keys.pop().unwrap();
+        let spec = spec_with(&keys);
+        if n <= 4096 {
+            // Arithmetic only: what the pre-fix table would have done.
+            let (examined, compared, lookup) = unbounded_table_cost(&spec, &missing);
+            let k = n as u64;
+            assert_eq!(compared, k * (k - 1) / 2, "n={n}");
+            assert_eq!(lookup, k + 1, "n={n}");
+            assert!(examined >= k * (k + 1) / 2, "n={n}");
+        }
+        let artifact = build(&spec);
+        // Runtime, post-fix: fails closed after bounded work.
+        let started = std::time::Instant::now();
+        let (result, work) = build_tokenizer(&artifact);
+        let elapsed = started.elapsed();
+        assert_eq!(
+            result.err(),
+            Some(ModelError::Malformed("piece_table")),
+            "n={n}"
+        );
+        assert!(
+            work <= SINGLE_RUN_TRIP_WORK && work <= max_table_build_probes(total),
+            "n={n}: {work} slots examined before failing"
+        );
+        println!("collision n={n}: failed closed after {work} slots in {elapsed:?}");
+        let result = load_bounded("collision", artifact, 16 * MIB);
+        assert_eq!(
+            result.err(),
+            Some(ProviderError::Model(ModelError::Malformed("piece_table"))),
+            "n={n}"
+        );
+    }
+}
+
+/// Many short runs, each under the per-piece bound, still cannot make the
+/// build superlinear: the total budget trips first.
+#[test]
+fn many_collision_runs_under_the_per_piece_bound_hit_the_total_budget() {
+    let _s = serial();
+    let (runs, per_run) = (16usize, 100usize);
+    assert!(per_run + base_pieces().len() < MAX_PIECE_PROBES);
+    let total = base_pieces().len() + runs * per_run;
+    let mask = table_mask(total);
+    assert_eq!(mask, 4095);
+    let mut keys = Vec::new();
+    for run in 0..runs as u64 {
+        keys.extend(colliding_keys(per_run, mask, 0x40 + 256 * run));
+    }
+    let spec = spec_with(&keys);
+    let (examined, _, _) = unbounded_table_cost(&spec, b"x");
+    assert!(examined as usize > max_table_build_probes(total));
+    let (result, work) = build_tokenizer(&build(&spec));
+    assert_eq!(result.err(), Some(ModelError::Malformed("piece_table")));
+    // It stopped exactly when the budget was exceeded, not on one long probe.
+    assert_eq!(work, max_table_build_probes(total) + 1);
+    println!(
+        "{runs} runs of {per_run}: unbounded build would examine {examined} slots; \
+         failed closed at {work}"
+    );
+}
+
+/// A run that stays within both bounds loads; every stored key is found and
+/// every lookup, including missing keys whose bucket falls inside the run,
+/// examines at most the table's longest stored probe (<= MAX_PIECE_PROBES).
+#[test]
+fn missing_lookups_are_bounded_by_the_longest_stored_probe() {
+    let _s = serial();
+    let n = 120usize;
+    let total = base_pieces().len() + n;
+    let mask = table_mask(total);
+    let bucket = 0x10;
+    let mut keys = colliding_keys(n + 1, mask, bucket);
+    let missing = keys.pop().unwrap();
+    let artifact = build(&spec_with(&keys));
+    let (tokenizer, work) = build_tokenizer(&artifact);
+    let tokenizer = tokenizer.expect("within bounds");
+    let stats = tokenizer.piece_table_stats();
+    assert_eq!(stats.build_probes, work);
+    assert!(stats.max_probes >= n && stats.max_probes <= MAX_PIECE_PROBES);
+    for key in &keys {
+        let (found, probes) = tokenizer.lookup_probes(key);
+        assert!(found.is_some());
+        assert!(probes <= stats.max_probes);
+    }
+    let (found, probes) = tokenizer.lookup_probes(&missing);
+    assert_eq!(found, None);
+    assert!(probes <= stats.max_probes, "{probes}");
+    for offset in (0..n as u64).step_by(7) {
+        let other = colliding_keys(1, mask, (bucket + offset) & mask)[0];
+        if keys.contains(&other) {
+            continue;
+        }
+        let (found, probes) = tokenizer.lookup_probes(&other);
+        assert_eq!(found, None);
+        assert!(probes <= stats.max_probes);
+    }
+    // End to end: the provider loads and tokenizes colliding missing words.
+    let p = load(artifact).expect("loads");
+    assert_eq!(p.tokenizer().piece_table_stats(), stats);
+    let words: Vec<String> = colliding_keys(n + 9, mask, bucket)[n + 1..]
+        .iter()
+        .map(|k| String::from_utf8(k.to_vec()).unwrap())
+        .collect();
+    let ids = p.tokenize(&words.join(" "));
+    assert_eq!((ids[0], ids[ids.len() - 1]), (0, 2));
+    assert!(
+        ids.contains(&3),
+        "colliding missing words tokenize to <unk>"
+    );
 }
