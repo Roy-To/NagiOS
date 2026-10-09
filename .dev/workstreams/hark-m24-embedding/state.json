@@ -76,6 +76,13 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "HOST CI on GitHub-hosted ubuntu-24.04 x86_64, run 37872411191 (exact SHA 1f30c30). Provider job: all five steps green, std/no_std/target as separate steps (no_std clippy is not counted as std or target PASS; target build is compile only). Real-inference job: 4 pinned upstream files size+SHA-256 verified, .nemb 7fb0a345... reproduced on x86_64, verify_pins 0 failing, 20 wheels installed with --require-hashes --only-binary :all:, tokenizer_parity.json byte-identical, parity_reference.json not byte-identical on x86_64 (onnxruntime float kernels differ by CPU; texts/ids identical, vectors within worst max |diff| 1.0e-7 of the aarch64 copy), real inference 8 passed / 0 failed (parity worst cosine 0.999999949), Nagi target build PASS, and 5 negative checks (model unset, model path missing, tampered config.json, missing safetensors, wrong config SHA-256 in fetch) all failed as required. Cache key m24-e5-small-614241f622f53c4eeff9890bdc4f31cfecc418b3-97f118f3...26d2b. The pull_request run 37872415148 (merge commit f9302cd, PR head 1f30c30) was also green and is not listed in ci_runs. NOT a substitute for owner registration; M24 stays PARTIAL."
+      },
+      {
+        "name": "Cross-architecture reference-vector match (x86_64 regeneration vs committed aarch64 parity_reference.json)",
+        "command": "hark-m24-embedding.yml job m24-embedding-real-inference, step 'Python reference deps ... and reference regeneration': tools/embedding/regenerate_reference.sh then numeric comparison; writes x86_64-reference-tolerance.json to the evidence artifact",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Criterion (all must hold): texts and token ids exact for all 22 items; tokenizer_parity.json byte-identical; worst cosine >= 0.999999 AND worst max |diff| <= 1e-5; pinned upstream artifacts unchanged and .nemb conversion digest == 7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287. Thresholds fixed: a result beyond either bound is FAIL, investigate, never loosen; applies to this reference match only (semantic-ranking acceptance, model integrity and guest gates unchanged). Measured on GitHub-hosted ubuntu-24.04 x86_64, onnxruntime 1.30.0: run 37872411191 (1f30c30) and run 37872863618 (14fcbfd) both worst cosine 1.000000000 and worst max |diff| 1.00e-07 as logged (rounded; unrounded values not recorded by those runs). aarch64 host baseline (d1457fb, onnxruntime 1.30.0): byte-identical. Record: tests/m24-embedding/evidence/x86_64-reference-tolerance-20261009.json."
       }
     ],
     "ci_runs": [
@@ -86,6 +93,14 @@
         "status": "COMPLETED",
         "conclusion": "success",
         "summary": "hark-m24-embedding.yml push run on hark/m24-embedding: m24-embedding-provider success; m24-embedding-real-inference success (real inference 8/8, pins verified, negative checks failed as required). Host CI only; not owner registration, not guest evidence."
+      },
+      {
+        "run_id": 37872863618,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37872863618",
+        "head_sha": "14fcbfd75c22c3107d121f09ff291524588d2834",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "hark-m24-embedding.yml push run on hark/m24-embedding: both jobs success; x86_64 reference vectors worst cosine 1.000000000, worst max |diff| 1.00e-07 vs aarch64 copy (as logged), real inference 8/8. Host CI only."
       }
     ]
   },
@@ -107,7 +122,8 @@
       "Do not edit shared files (registry, CI, models.lock, sources.lock, THIRD_PARTY_NOTICES, implementation_status) from this branch; propose diffs only.",
       "Do not widen the shared branch schema to admit hark/m24-embedding.",
       "Do not route this model through the pinned llama.cpp: its BertModel path builds a WordPiece vocab and cannot tokenize the XLM-R SentencePiece Unigram vocabulary.",
-      "Do not treat a green hark-m24-embedding.yml run as owner registration, guest evidence or acceptance; status stays PARTIAL while the workstream is unregistered and guest inference has not run."
+      "Do not treat a green hark-m24-embedding.yml run as owner registration, guest evidence or acceptance; status stays PARTIAL while the workstream is unregistered and guest inference has not run.",
+      "Do not loosen the cross-architecture reference-vector thresholds (cosine >= 0.999999, max |diff| <= 1e-5) or apply them to semantic-ranking acceptance, model integrity or guest gates; a result beyond a bound is a FAIL to investigate."
     ]
   },
   "next_action": "Integration / shared CI owner: register the workstream (registry row in registration-proposal.md) and decide whether to keep the branch-local workflow .github/workflows/hark-m24-embedding.yml or fold its two jobs into shared CI; apply the models.lock / THIRD_PARTY_NOTICES / implementation_status diffs (integration-proposal.md section 3); then wire the provider into the guest and run real in-guest inference.",
@@ -118,6 +134,7 @@
     "Cooperative end-to-end deadline and cancellation with documented checkpoints and guarantees; default budget enabled.",
     "Token and vector parity with the upstream reference and Japanese/English neighbor tests on real inference.",
     "Reference data reproducible from hash-pinned Python dependencies.",
+    "Cross-architecture reference vectors: texts and token ids exact, tokenizer_parity.json byte-identical, worst cosine >= 0.999999 AND worst max |diff| <= 1e-5, pinned artifacts and .nemb conversion digest unchanged; fixed thresholds, beyond a bound = FAIL and investigate, never loosen.",
     "fmt, Clippy (std and no_std) and the Nagi user-target build pass.",
     "Real inference inside a Nagi guest (not yet run)."
   ],

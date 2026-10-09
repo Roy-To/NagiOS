@@ -61,6 +61,34 @@ Real-inference tests are `#[ignore]` by default and fail (not skip) when run
 with `--ignored` without `NAGI_EMBEDDING_MODEL`; no fixture vector is counted
 as a real-inference pass.
 
+## Cross-architecture reference-vector criterion (x86_64)
+
+`parity_reference.json` was generated on aarch64; onnxruntime float kernels
+differ by CPU, so a regeneration on x86_64 is not byte-identical. It is accepted
+only by this numeric reference-match criterion (all must hold):
+
+- texts and token ids exact for all 22 items; `tokenizer_parity.json` byte-identical;
+- worst cosine **>= 0.999999** AND worst max |diff| **<= 1e-5**;
+- pinned upstream artifacts unchanged and the `.nemb` conversion digest equal to
+  `7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287`.
+
+The thresholds are fixed. A result beyond either bound is a FAIL to
+investigate; the thresholds are never loosened. The criterion covers this
+reference match only and does not change semantic-ranking acceptance, model
+integrity checks, guest gates or any other threshold.
+
+| Run | Commit | Arch | onnxruntime | Worst cosine | Worst max \|Δ\| | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| local host (baseline) | `d1457fb` | aarch64 | 1.30.0 | 1 (byte-identical) | 0 | PASS |
+| 37872411191 (push) | `1f30c30` | x86_64, ubuntu-24.04 | 1.30.0 | 1.000000000 (as logged) | 1.00e-07 (as logged) | PASS |
+| 37872863618 (push) | `14fcbfd` | x86_64, ubuntu-24.04 | 1.30.0 | 1.000000000 (as logged) | 1.00e-07 (as logged) | PASS |
+
+Those two runs printed rounded values only. The workflow now writes
+`x86_64-reference-tolerance.json` (arch, runner OS/image, CPU model,
+onnxruntime version, unrounded worst values, per-item values, thresholds,
+`.nemb` digest, commit SHA) into the uploaded evidence artifact. Record:
+`evidence/x86_64-reference-tolerance-20261009.json`.
+
 ## Not verified
 
 - Guest inference in QEMU (requires Codex-owned nagi-init / model service /

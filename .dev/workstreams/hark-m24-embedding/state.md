@@ -18,6 +18,14 @@ registry row in `registration-proposal.md`). This file is a short summary.
   `7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287`; its header
   embeds the weights and tokenizer SHA-256 and the revision
   (`tools/embedding/verify_pins.py`).
+- Cross-architecture reference vectors: regenerated onnxruntime vectors are
+  accepted against the committed aarch64 copy only if texts and token ids are
+  exact, `tokenizer_parity.json` is byte-identical, worst cosine >= 0.999999
+  AND worst max |diff| <= 1e-5, and the pinned artifacts and `.nemb` digest are
+  unchanged. Fixed thresholds: beyond a bound = FAIL, investigate, never
+  loosen. Reference match only; no other acceptance threshold changes.
+  x86_64 runs 37872411191 / 37872863618: worst max |diff| 1.0e-7 (PASS);
+  record `tests/m24-embedding/evidence/x86_64-reference-tolerance-20261009.json`.
 - Deadline/cancel: cooperative checkpoints from call entry through pooling,
   30 s default budget; guarantees in the crate docs.
 
