@@ -10,6 +10,15 @@ member). It compiles the same lifecycle source the Nagi guest provider uses:
   (`WhisperSessionStats`), and release of the context after
   `MAX_CONSECUTIVE_ENGINE_FAILURES` (2) consecutive engine-side failures.
   Single-threaded; inference runs synchronously in `finish`.
+  PCM capacity grows geometrically but never above `MAX_WHISPER_SAMPLES`
+  (524,288 f32 = 2 MiB). `cancel`/`finish`/failed utterances zero and clear
+  the buffer but keep the allocation for reuse; `unload`, the automatic
+  release after repeated engine failures, and drop free it with the context.
+
+**Cancellation limit.** `cancel` only discards an utterance that is still
+being captured. `finish` runs whisper.cpp to completion with no abort
+callback, so in-flight inference cannot be cancelled. Production cancellation
+is therefore NOT complete; the tests below cover capture-time cancel only.
 - `tools/whisper/provider_ffi.rs` — `AdapterEngine` over
   `tools/whisper/nagi-provider-adapter.cpp`, `WHISPER_THREADS = 1`.
 
@@ -23,15 +32,21 @@ uses the FLEURS set below, and the harness refuses a clip whose hash equals
 
 ```sh
 cd tests/m25-whisper
-cargo test --locked --offline            # 19 tests
+cargo test --locked --offline            # 24 tests
 cargo fmt -- --check
 cargo clippy --locked --offline --all-targets -- -D warnings
 ```
 
-- `tests/lifecycle.rs` — orchestration only (scripted test engine, not speech
-  recognition): consecutive utterances, cancel, unload/reload, load failure and
-  retry, malformed PCM, oversize utterance, output too small, repeated engine
-  failure releasing the context, empty/invalid transcripts.
+- `tests/lifecycle.rs` (15) — SCRIPTED ENGINE, SAME SESSION (orchestration
+  only, not speech recognition): consecutive utterances, capture-time cancel,
+  cancel after `finish` being a no-op (no inference abort), unload/reload of
+  the same `WhisperSession`, load failure and retry, malformed PCM, oversize
+  utterance, output too small, repeated engine failure releasing the context,
+  empty/invalid transcripts.
+- `tests/capacity.rs` (4) — SCRIPTED ENGINE, SAME SESSION: irregular chunks
+  up to the limit (256 × 4094 B + 512 B) keep capacity ≤ `MAX_WHISPER_SAMPLES`
+  (before the fix: 1,048,064); an odd chunk mix stays bounded; cancel/finish
+  retain the zeroed allocation; unload frees it (capacity 0).
 - `tests/fixture_separation.rs` — source guards for fixture/production
   separation and the licensed evaluation manifest.
 - `tests/metrics.rs` — CER normalization and edit distance.
@@ -57,10 +72,13 @@ tests/m25-whisper/run-eval.sh [output.json]
 `run-eval.sh` verifies the model against `third_party/models.lock` and every
 PCM against `eval/fleurs-ja-validation.json`, then runs `m25-whisper-eval`
 (`--features real-engine`) under `nice -n 19`. It records per-utterance
-transcript, CER, wall time, real-time factor, and RSS, and checks cancel,
-malformed-PCM recovery, output-too-small recovery, unload, an injected model
-read failure during reload (real adapter load-failure path), and a successful
-reload that reproduces the earlier transcript.
+transcript, CER, wall time, real-time factor, and RSS, and checks (REAL
+ENGINE): consecutive utterances, capture-time cancel, malformed-PCM recovery
+and output-too-small recovery on the same session; then
+`unload_then_new_session_failed_load_reload`: unload of the first session,
+followed by an injected model-read failure and a successful reload in a NEW
+`WhisperSession` (not a same-session reload) that reproduces the earlier
+transcript. Each check's `session_scope` is recorded in the output JSON.
 
 Evaluation audio: FLEURS (google/fleurs, ja_jp validation, revision
 70bb2e84b976b7e960aa89f1c648e09c59f894dd), CC BY 4.0. Conneau et al., "FLEURS:

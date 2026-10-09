@@ -10,7 +10,9 @@
     "threads": 1,
     "audio_ctx": "tools/whisper/nagi-provider-adapter.cpp sample-derived context (ADR 0042), unchanged",
     "rss_method": "/proc/self/status VmRSS/VmHWM; peak reset via /proc/self/clear_refs=5 before each phase",
-    "command": "tests/m25-whisper/run-eval.sh"
+    "command": "tests/m25-whisper/run-eval.sh",
+    "source_commit": "none: uncommitted working tree based on edad2e7a87aa0fe08982a5c5249bc4a3ad7de7d4, measured before the rebase onto f74f128; code later committed as 911c436",
+    "superseded_by": ".dev/workstreams/hark-m25-whisper/evidence/host-eval-0d280f2-on-f74f128.json (same code on f74f128, clean committed tree)"
   },
   "kind": "host-unseen-eval",
   "counts_as_guest_result": false,

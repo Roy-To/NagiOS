@@ -3,78 +3,125 @@
   "schema_version": 1,
   "workstream_id": "hark-m25-whisper",
   "current_milestone": "M25 — Voice (Whisper speech-to-text production hardening)",
-  "current_checkpoint": "shared-provider-lifecycle-fixture-separation-host-unseen-eval",
+  "current_checkpoint": "pcm-capacity-cap-session-scope-labels-host-reverify-on-f74f128",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "911c43619bc5fb8ffe1f33576c6230f08b6cbbb2",
-    "verified_at": "2026-10-09T10:30:00+09:00",
-    "normal_state": "The guest Whisper provider (user/nagi-init/src/m25_whisper.rs) now runs on the shared single-threaded lifecycle in tools/whisper/provider_session.rs with the existing adapter ABI (tools/whisper/provider_ffi.rs). Fixture PCM and expected text are confined to the fixture_acceptance module; the production loader reads only the Model Store. Host: 19 harness tests pass (orchestration-only lifecycle tests, fixture-separation guards, CER metrics); the guest module type-checks and passes Clippy with warnings denied via the guest-shape crate. Real-engine HOST evaluation on 12 unseen FLEURS ja_jp validation clips (134.7 s, CC BY 4.0) with one inference thread: aggregate CER 0.1025 (50/488 normalized chars), aggregate RTF 1.539, peak RSS 791,300 KiB during the longest (29.5 s) utterance, 576,048 KiB after load, 26,876 KiB after unload; consecutive utterances, cancel, malformed-PCM recovery, output-too-small recovery, unload, injected model-read failure on reload, and successful reload all PASS with identical transcripts on rerun. No guest (QEMU) run was made for these changes; the earlier guest fixture PASS (ADR 0042 run 1790978330938078000) predates this refactor and is a fixture check only.",
+    "commit_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
+    "verified_at": "2026-10-09T11:45:00+09:00",
+    "normal_state": "Branch hark/m25-whisper-production on base main f74f128 (merge-base; PR #36 Writer/Sheets host adoption, 48 files, no owned path touched). Code verified at 06ff021 (source of all HOST results below; later commits change docs/evidence only). Shared single-threaded provider session (tools/whisper/provider_session.rs) with PCM capacity capped at MAX_WHISPER_SAMPLES (reproduced overallocation before the fix: 1,048,064 f32 for 524,288 samples after 256x4094 B + 512 B), cancel/finish retaining the zeroed buffer and unload freeing it. Cancellation is capture-only: finish is synchronous with no inference abort; production cancellation is NOT complete. HOST (aarch64, 2 shared vCPU, nice 19, 1 thread) on 06ff021: 24 scripted-engine same-session tests pass; real-engine FLEURS ja 12 unseen clips 134.7 s: CER 0.1025, RTF 1.354, peak RSS 791,344 KiB, after unload 25,184 KiB, 5/5 real-engine checks (4 same-session, 1 unload then NEW session failed-load/reload). These are host results, not guest results. The only guest result is the earlier fixture PASS (QEMU run 1790978330938078000, short JP fixture containing アルバートを開いて, recorded 2026-10-03 on the pre-refactor provider); it was not re-run and is not evidence for this branch's code.",
     "commands": [
-      "cd tests/m25-whisper && cargo test --locked --offline",
-      "cd tests/m25-whisper && cargo fmt -- --check",
-      "cd tests/m25-whisper && cargo clippy --locked --offline --all-targets -- -D warnings",
+      "git diff --name-status origin/main origin/hark/m25-whisper-production  # owned paths only",
+      "cd tests/m25-whisper && cargo test --locked --offline && cargo fmt -- --check && cargo clippy --locked --offline --all-targets -- -D warnings",
       "cd tests/m25-whisper && NAGI_WHISPER_HOST_BUILD=../../out/whisper-host-build NAGI_WHISPER_HOST_SOURCE=../../out/cache/whisper-cpp-host cargo clippy --locked --offline --all-targets --features real-engine -- -D warnings",
       "cd tests/m25-whisper/guest-shape && cargo clippy --locked --offline -- -D warnings && cargo fmt -- --check",
-      "rustfmt --edition 2021 --check user/nagi-init/src/m25_whisper.rs; cargo fmt -p nagi-init -- --check",
-      "tools/whisper/build-host-eval.sh && tools/whisper/fetch-fleurs-ja-eval.py && tests/m25-whisper/run-eval.sh"
+      "rustfmt --edition 2021 --check user/nagi-init/src/m25_whisper.rs tools/whisper/provider_session.rs; cargo fmt -p nagi-init -- --check",
+      "tools/whisper/build-host-eval.sh && tests/m25-whisper/run-eval.sh out/m25-whisper-eval/host-eval-HEAD2.json",
+      "make -C third_party/relibc TARGET=x86_64-unknown-nagi-user ... headers  (as tools/libcxx/build-nagi-target.sh; output under out/m25-relibc)",
+      "NAGI_WHISPER_SOURCE=out/cache/whisper-cpp-nagi NAGI_TARGET_CLANG=clang-19 NAGI_CXX_HEADERS=/usr/lib/llvm-19/include/c++/v1 bash tools/whisper/build-nagi-target.sh",
+      "cargo build -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked"
     ],
     "tests": [
       {
-        "name": "Host lifecycle/fixture-separation/metrics tests",
+        "name": "History audit on base f74f128",
+        "command": "git diff --name-status f74f128 HEAD; git diff --name-status origin/main origin/hark/m25-whisper-production",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "28 entries, all under user/nagi-init/src/m25_whisper.rs, tools/whisper/**, tests/m25-whisper/**, .dev/workstreams/hark-m25-whisper/** (at 0d280f2; later commits add only owned paths). edad2e7..f74f128 is PR #36 (48 files, +7856/-3: crates/nagi-{writer,sheets}-core, tests/{writer,sheets}-core, .github/workflows/0.2-host-integration.yml, docs/0.2/adoption, .dev/workstreams.json row, workstream dirs) — not registry-only; it touches no root Cargo.toml/Cargo.lock, user/**, third_party/**, tools/whisper/** or ci.yml, so nagi-init and whisper are unaffected. 0.2-host-integration job is skipped on hark/* (runs 37868348688, 37874306169)."
+      },
+      {
+        "name": "PCM capacity overallocation reproduction (before fix)",
+        "command": "tests/m25-whisper/tests/capacity.rs against tools/whisper/provider_session.rs at 0d280f2",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Expected failure recorded before the fix: capacity 1,048,064 > MAX_WHISPER_SAMPLES 524,288 after 524,288 samples (256 x 4094 B then 512 B); unload left capacity 32,768 instead of 0. Fixed in 06ff021."
+      },
+      {
+        "name": "Host tests (SCRIPTED ENGINE, SAME SESSION)",
         "command": "cd tests/m25-whisper && cargo test --locked --offline",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "14 lifecycle (scripted engine, orchestration only), 3 fixture-separation, 2 metrics tests passed."
+        "evidence": "At 06ff021 on f74f128: 24 passed — lifecycle 15 (incl. cancel_only_affects_capture_not_completed_inference, scripted_same_session_unload_..., scripted_same_session_repeated_engine_failures_...), capacity 4, fixture_separation 3, metrics 2. Orchestration only; not speech recognition."
       },
       {
-        "name": "Harness and guest-shape formatting and Clippy",
-        "command": "cd tests/m25-whisper && cargo fmt -- --check && cargo clippy --locked --offline --all-targets [--features real-engine] -- -D warnings; cd guest-shape && cargo clippy --locked --offline -- -D warnings",
+        "name": "Harness fmt and Clippy (with and without real-engine)",
+        "command": "cargo fmt -- --check; cargo clippy --locked --offline --all-targets [--features real-engine] -- -D warnings",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "No diagnostics with warnings denied, with and without real-engine; guest module checked on the aarch64 host with a relibc stub (check-only)."
+        "evidence": "At 06ff021, no diagnostics with warnings denied."
       },
       {
-        "name": "nagi-init package formatting",
-        "command": "cargo fmt -p nagi-init -- --check",
+        "name": "Guest-shape check (host type-check, relibc stub)",
+        "command": "cd tests/m25-whisper/guest-shape && cargo clippy --locked --offline -- -D warnings && cargo fmt -- --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Formatting check only; no files rewritten outside owned paths."
+        "evidence": "At 06ff021. cargo check/clippy only on aarch64 host; never linked or run; not a guest result."
       },
       {
-        "name": "Real-engine host unseen Japanese evaluation and lifecycle",
+        "name": "Formatting of shared guest sources",
+        "command": "rustfmt --edition 2021 --check user/nagi-init/src/m25_whisper.rs tools/whisper/provider_session.rs; cargo fmt -p nagi-init -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "At 06ff021 (before the sandbox reset at about 11:20 JST)."
+      },
+      {
+        "name": "Real-engine HOST evaluation and lifecycle on f74f128",
         "command": "tests/m25-whisper/run-eval.sh",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "HOST only (aarch64 Neoverse-V2, 2 shared vCPU, nice 19, 1 thread). 12 FLEURS ja clips, 134.7 s audio, 207.3 s inference, RTF 1.539, CER 0.1025, per-clip CER 0.000-0.314; peak RSS 791,300 KiB; 5/5 lifecycle checks PASS. .dev/workstreams/hark-m25-whisper/evidence/host-eval-20261009.json."
+        "evidence": "HOST only. 06ff021: CER 0.1025 (50/488), 182.4 s inference, RTF 1.354, peak RSS 791,344 KiB, after unload 25,184 KiB; checks consecutive_utterances, cancel_then_next_utterance, resume_after_malformed_pcm, resume_after_output_too_small (same session) and unload_then_new_session_failed_load_reload (NEW session) all PASS; evidence/host-eval-06ff021-on-f74f128.json. Same code before the fix at 0d280f2: CER 0.1025, RTF 1.37, evidence/host-eval-0d280f2-on-f74f128.json. Transcripts identical across all three host runs (incl. the pre-rebase edad2e7 working-tree run in evidence/host-eval-20261009.json)."
       },
       {
-        "name": "nagi-init host Clippy",
-        "command": "cargo clippy -p nagi-init --features m25-whisper-inference-acceptance -- -D warnings",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "nagi-init requires x86_64 inline assembly and the Nagi-target whisper.cpp build (NAGI_WHISPER_BUILD, relibc headers, target clang/libc++); not available on this aarch64 sandbox. Left to CI / integration owner."
+        "name": "Relibc target headers",
+        "command": "make -C third_party/relibc TARGET=x86_64-unknown-nagi-user BUILD=out/m25-relibc/... TARGET_HEADERS=out/m25-relibc/.../include headers",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Generated pthread.h etc. under out/m25-relibc (gitignored). Needed sandbox fixes outside the repo: apt llvm (unversioned llvm-objcopy for relibc renamesyms.sh) and a /dev/stdin symlink (the sandbox lacked /dev/stdin, which the relibc Makefile pipes into cbindgen). No tracked file changed."
+      },
+      {
+        "name": "Nagi-target whisper.cpp archives",
+        "command": "NAGI_WHISPER_SOURCE=out/cache/whisper-cpp-nagi NAGI_WHISPER_BUILD=out/m25-whisper-target NAGI_TARGET_CLANG=clang-19 NAGI_CXX_HEADERS=/usr/lib/llvm-19/include/c++/v1 NAGI_LLVM_AR=llvm-ar-19 NAGI_LLVM_RANLIB=llvm-ranlib-19 NAGI_BUILD_JOBS=1 bash tools/whisper/build-nagi-target.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Debian clang 19.1.7 cross to x86_64-unknown-elf on the aarch64 host; source = bootstrap-validated pinned 927cfce + patches 0001-0003 (diff sha256 identical to the host-eval copy). libwhisper.a 527,992 B sha256 0499941434d26c59…, libggml-base.a 1,282,518 B 6c7f8833a9ba2857…, libggml-cpu.a 1,451,540 B 6d06084bccbea5e1…, libggml.a 18,812 B 32311f162ebec35d…. Archives only."
       },
       {
         "name": "Nagi-target build of nagi-init with m25-whisper-inference-acceptance",
-        "command": "./nagi m25-whisper-inference (target build stage)",
-        "outcome": "NOT_RUN",
+        "command": "cargo build -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked",
+        "outcome": "IN_PROGRESS",
         "exit_code": null,
-        "evidence": "No x86_64 Nagi target toolchain, relibc headers, or target whisper.cpp libraries in this sandbox."
+        "evidence": "Pending bootstrap fetch."
       },
       {
-        "name": "Guest QEMU Whisper acceptance after refactor",
-        "command": "./nagi m25-whisper-inference",
+        "name": "Guest QEMU fixture acceptance after refactor",
+        "command": "./nagi m25-whisper-inference <pcm> <expected>",
         "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "Not feasible here (x86_64 QEMU TCG on 2 shared aarch64 vCPU; prior run took about 37 minutes on the user's host). Guest behaviour after this refactor is unverified."
+        "evidence": "Concrete blockers in this sandbox: (1) the acceptance fixture PCM is a local uncommitted input on the user's machine (docs/workstreams/NagiOS_M25_Voice_Workstream.md) and is not available here; using a FLEURS clip as a fixture would turn unseen evaluation data into a fixture; (2) the host is aarch64 (2 shared vCPU), so x86_64 QEMU runs under TCG; the recorded 1.48 s-fixture PASS already took about 37 min under TCG on the reference host, against the fixed 3600 s QEMU timeout in tools/nagi-cli/src/commands.rs (shared, not changeable here); (3) unseen clips are 8-30 s, so a guest unseen-speech run would need several times the fixture's encoder work. Prior guest PASS (run 1790978330938078000) stays a separate, pre-refactor fixture-only record."
       }
     ],
-    "ci_runs": []
+    "ci_runs": [
+      {
+        "run_id": 37874302572,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37874302572",
+        "head_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
+        "status": "IN_PROGRESS",
+        "conclusion": null,
+        "summary": "Shared Nagi CI (push). Does not build tests/m25-whisper or the M25 feature; see ci-proposal.md."
+      },
+      {
+        "run_id": 37874306169,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37874306169",
+        "head_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "0.2 host foundations: job gated to codex/claude branches; skipped on this branch."
+      }
+    ]
   },
   "release_line_gate": {
     "source": "AGENTS.md; docs/workstreams/NagiOS_M25_Voice_Workstream.md; docs/decisions/0042-m25-whisper-guest-memory-budget.md",
-    "last_checked_at": "2026-10-09T10:30:00+09:00",
-    "activation_requirement": "Draft PR only. Merge requires separate user confirmation, Nagi-target build, and a guest QEMU rerun of the Whisper acceptance on the refactored provider. Production exposure (microphone, permission, UI, Model Store routing) requires the respective owners."
+    "last_checked_at": "2026-10-09T11:45:00+09:00",
+    "activation_requirement": "Draft PR only. Merge/release require separate user confirmation, CI covering tests/m25-whisper and the M25 feature (ci-proposal.md), a Nagi-target nagi-init build on an x86_64 integration host, and a guest QEMU rerun of the Whisper fixture acceptance on the refactored provider. Production cancellation of in-flight inference is not implemented. Production exposure (microphone, permission, UI, Model Store routing) requires the respective owners."
   },
   "blocker": {
     "active": false,
@@ -85,22 +132,29 @@
     "attempted_fixes": [],
     "do_not_try": [
       "Do not count the build-staged fixture PASS as recognition evidence.",
-      "Do not raise WHISPER_THREADS or the ADR 0042 memory budget without a new ADR."
+      "Do not raise WHISPER_THREADS or the ADR 0042 memory budget without a new ADR.",
+      "Do not use a FLEURS evaluation clip as the guest acceptance fixture.",
+      "Do not describe capture-time cancel as production cancellation."
     ]
   },
-  "next_action": "Integration owner: apply registration and CI proposals; run Nagi-target build and guest QEMU acceptance on this branch; then decide whether guest unseen-speech evaluation (a few FLEURS clips under the M25 image) is worth the TCG time.",
+  "next_action": "Codex integration owner: apply ci-proposal.md workflow and registration/schema proposals; run ./nagi m25-whisper-inference with the local fixture on an x86_64 host against this branch; decide on an abort-callback ABI change for in-flight cancellation (proposal only).",
   "acceptance_criteria": [
     "Production provider path contains no fixture input or expected text; fixture check is labelled fixture-only.",
     "Consecutive utterances reuse one context with buffers reset between utterances.",
     "Cancel discards buffered PCM; unload releases the context; reload resumes.",
     "Caller errors (malformed PCM, output too small) fail only that utterance; repeated engine failures release the context until explicit reload; model-read failure during load is reported and retry succeeds.",
     "Accuracy, time, and RAM measured on unseen, openly licensed Japanese speech with license evidence recorded; host and guest results never conflated.",
-    "Single-threaded design and ADR 0042 memory budget unchanged."
+    "Single-threaded design and ADR 0042 memory budget unchanged.",
+    "PCM buffer capacity never exceeds MAX_WHISPER_SAMPLES, including irregular chunk sizes near the limit; cancel/finish retain the zeroed allocation and unload frees it.",
+    "Capture-time cancel only is claimed; in-flight inference abort is documented as not implemented.",
+    "Scripted same-session tests and real-engine new-session reload checks are labelled and never conflated."
   ],
   "deferred": [
     "Guest (QEMU) unseen-speech accuracy/time/RAM measurement.",
     "Real microphone capture, permission, indicator, UI, command routing (other owners).",
-    "Multi-threaded inference (requires a worker-pool capability and a new ADR)."
+    "Multi-threaded inference (requires a worker-pool capability and a new ADR).",
+    "Cancellation of in-flight inference (needs whisper.cpp abort_callback in the adapter ABI and a signalling path; outside owned paths/single-thread design).",
+    "Dedicated CI workflow (ci-proposal.md; no workflow file assigned to this stream)."
   ],
   "cross_workstream_dependencies": [
     {

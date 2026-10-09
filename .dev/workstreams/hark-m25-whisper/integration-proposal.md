@@ -5,9 +5,27 @@ Status: PROPOSED. Nothing below is applied outside this stream's owned paths.
 ## Base and branch
 
 - Base: `f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9` (main after PR #36). Work
-  started at `edad2e7`; the intervening main commits touch no owned path and
-  no dependency of this stream (only `.dev/workstreams.json` changed among
-  shared files).
+  started at `edad2e7`; the rebase onto `f74f128` was accepted by the user.
+  The `edad2e7..f74f128` delta is **not** registry-only: it is PR #36
+  Writer/Sheets host adoption, 48 files (+7856/−3): new standalone crates
+  `crates/nagi-writer-core/**` and `crates/nagi-sheets-core/**` (own
+  `[workspace]` + `Cargo.lock`, not members of the root workspace),
+  `tests/writer-core/**`, `tests/sheets-core/**`,
+  `.github/workflows/0.2-host-integration.yml`,
+  `docs/0.2/adoption/WRITER_SHEETS_CORE.md`, `.dev/workstreams.json` (new
+  `writer-sheets-core-adoption` row) and `.dev/workstreams/{writer-core-01,
+  sheets-calc-01,writer-sheets-core-adoption}/**`.
+- History audit (2026-10-09 10:50 JST): `git diff --name-status f74f128 HEAD`
+  and `git diff --name-status origin/main origin/hark/m25-whisper-production`
+  list only owned paths (28 entries: 27 added, `m25_whisper.rs` modified), so
+  nothing from main is dropped or reverted. No interaction with this stream:
+  the delta does not touch root `Cargo.toml`/`Cargo.lock`, `user/**`,
+  `kernel/**`, `third_party/**`, `tools/whisper/**`, `tools/nagi-cli/**` or
+  `.github/workflows/ci.yml`; neither new crate is a dependency of
+  `nagi-init`, and none references whisper. The new workflow's `pull_request`
+  path filter matches `.dev/**`, but its only job is gated to a fixed list of
+  `codex/*`/`claude/*` branches, so it is skipped on this branch (run
+  37868348688 at 0d280f2: `skipped`).
 - Branch: `hark/m25-whisper-production` (draft PR to `main`).
 - Owned paths changed: `user/nagi-init/src/m25_whisper.rs`, `tools/whisper/**`,
   `tests/m25-whisper/**`, `.dev/workstreams/hark-m25-whisper/**`.
@@ -39,6 +57,36 @@ Provider behaviour changes visible to callers:
   now end the utterance (buffer cleared, state `Idle`) instead of leaving it
   open.
 
+- PCM capacity is capped at `MAX_WHISPER_SAMPLES` (geometric growth with
+  exact, capped reservations). Before `06ff021`, `try_reserve` could round a
+  near-limit request up to double the previous capacity: 256 × 4094-byte
+  chunks then one 512-byte chunk left 1,048,064 f32 (≈4 MiB) of capacity for
+  524,288 samples (reproduced by `tests/capacity.rs` on `0d280f2`). Cancel,
+  `finish` and failed utterances keep the zeroed allocation (≤ 2 MiB) for
+  reuse; `unload`, the automatic release after repeated engine failures, and
+  drop free it.
+
+### Cancellation limitation (production cancellation NOT complete)
+
+`cancel` works only while an utterance is being captured (between `begin`
+and `finish`): it zeroes and drops the buffered PCM. `finish` calls
+`whisper_full` synchronously on the single provider thread with no abort
+callback (`nagi-provider-adapter.cpp` sets none), so an inference in progress
+cannot be cancelled, and `cancel` after `finish` returns is a no-op. A real
+abort needs an adapter/ABI change (whisper.cpp `abort_callback`) plus a way
+for another thread or the scheduler to signal it; that is outside this
+stream's owned paths and the single-thread design, and is proposed only.
+
+### Test scope labels
+
+- Scripted engine, same session: `tests/m25-whisper/tests/lifecycle.rs`,
+  `tests/capacity.rs` — every unload/reload reuses one `WhisperSession`.
+- Real engine (host whisper.cpp): `src/bin/m25-whisper-eval.rs` — four checks
+  on one session/context, then `unload_then_new_session_failed_load_reload`,
+  where the failed load and the reload run in a NEW `WhisperSession`
+  (renamed from `unload_failed_load_reload` in `06ff021`; each check's
+  `session_scope` is in the evidence JSON).
+
 The guest fixture check (`m25_whisper::run`, unchanged signature and serial
 markers) now also asserts, without a second inference, that cancel leaves the
 engine idle with no buffered PCM and that unload makes `begin` fail.
@@ -58,30 +106,10 @@ engine idle with no buffered PCM and that unload makes `begin` fail.
    (Alternative without a schema change: register the row under a
    `codex/*` integration branch that imports this branch.)
 
-2. CI (shared workflows; owner: CI/integration). Proposed host job, no model
-   download, Linux and macOS/Windows host runners:
-
-   ```yaml
-   m25-whisper-host:
-     runs-on: ubuntu-latest
-     steps:
-       - uses: actions/checkout@v4
-       - run: rustup show
-       - working-directory: tests/m25-whisper
-         run: |
-           cargo fmt -- --check
-           cargo test --locked
-           cargo clippy --locked --all-targets -- -D warnings
-       - working-directory: tests/m25-whisper/guest-shape
-         run: |
-           cargo fmt -- --check
-           cargo clippy --locked -- -D warnings
-   ```
-
-   The real-engine evaluation (`tests/m25-whisper/run-eval.sh`) needs the
-   487.6 MB model and ~4.5 MB of FLEURS audio; propose it as a manual
-   (`workflow_dispatch`) job only, with the model cached by its
-   `models.lock` hash.
+2. CI (shared workflows; owner: CI/integration): full workflow YAML and
+   the current gap are in `ci-proposal.md` (host tests + guest-shape, a
+   Nagi-target `nagi-init` build with `m25-whisper-inference-acceptance`,
+   and a manual real-engine evaluation job). No workflow file is applied.
 
 3. `user/nagi-init/Cargo.toml`, `build.rs`, `main.rs` (owner: nagi-init /
    Codex integration). Optional follow-up to make the fixture/production split

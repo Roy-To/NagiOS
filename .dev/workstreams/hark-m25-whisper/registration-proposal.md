@@ -6,7 +6,9 @@ is outside this stream's owned paths.
 ## Baseline
 
 - Base commit: `f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9` (main after PR #36;
-  work began at `edad2e7`, no owned path changed in between).
+  work began at `edad2e7`; the intervening PR #36 Writer/Sheets host adoption
+  is 48 files, not registry-only, and changes no owned path — see
+  `integration-proposal.md` "Base and branch").
 - Branch: `hark/m25-whisper-production` (dedicated; draft PR only; never
   merged or marked ready by this stream).
 - Milestone: M25 — Voice. Scope is the Whisper speech-to-text provider only:
@@ -66,6 +68,7 @@ entry validates against `.dev/schemas/workstreams.schema.json`.
 | 2026-10-09 09:35 | Open PRs (#37 `codex/0.1-session-model-service`, #38 `hark/m24-embedding`) changed files vs owned paths; `codex/*`, `claude/*` branches since `edad2e7`; `.dev/workstreams.json` mentions of whisper | No overlap (recorded by dispatcher) |
 | 2026-10-09 09:45 | Path ownership of the four allowed paths | Confirmed for this stream; Model/Granite owner does not change this range |
 | 2026-10-09 10:25 | Open PRs #37, #38 changed files; branches matching `whisper`/`m25`; `edad2e7..f74f128` diff | No overlap (only `hark/m25-local-tts`, disjoint paths) |
+| 2026-10-09 10:50 | Full `edad2e7..f74f128` audit (PR #36, 48 files: writer/sheets crates+tests, 0.2-host-integration workflow, docs, registry row, workstream dirs); `git diff --name-status origin/main origin/hark/m25-whisper-production` | Branch diff = owned paths only; nothing from main dropped; no shared build input of `nagi-init` touched |
 
 If a Codex / Model-owner change to `user/nagi-init/src/m25_whisper.rs`
 appears, this stream stops editing that file, records it here, and keeps
