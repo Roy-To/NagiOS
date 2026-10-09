@@ -55,6 +55,8 @@ jobs:
           rustfmt --check user/nagi-albert/src/lib.rs
       - name: Regression tests for CI diagnostic parsers
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Release profile and ordinary session evidence regressions
+        run: python3 -m unittest discover -s tools/nagi-release -p 'test_*.py' -v
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
@@ -66,6 +68,13 @@ jobs:
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Ordinary session worker protocol and exact Nagi source compilation
+        run: |
+          cargo test --manifest-path tests/model-session-service/Cargo.toml --locked
+          cargo fmt --manifest-path tests/acceptance/session-services/Cargo.toml -- --check
+          cargo test --manifest-path tests/acceptance/session-services/Cargo.toml --locked
+          cargo clippy --manifest-path tests/acceptance/session-services/Cargo.toml --all-targets --locked -- -D warnings
+          cargo clippy --manifest-path tests/acceptance/session-services/Cargo.toml --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked -- -D warnings
       - name: Standalone clipboard core (CLIP-01)
         run: |
           cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
@@ -444,7 +453,11 @@ jobs:
         run: ./nagi m27
       - name: M29 Desktop language Settings acceptance
         run: ./nagi m29
-      - name: M30 reference release disk acceptance
+      - name: GPT layout and Recovery fixture acceptance (does not close M30)
+        run: ./nagi m30-layout
+      - name: Build current partial signed-in product session (does not close M30)
+        run: ./nagi session-image
+      - name: M30 formal release acceptance (fails while production evidence is incomplete)
         run: ./nagi m30
       - name: Capture target runner resource state
         if: always()

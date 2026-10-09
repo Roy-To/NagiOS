@@ -594,6 +594,126 @@ impl<B: ModelBackend> Drop for LoadedSession<'_, B> {
     }
 }
 
+/// An owned runtime with at most one resident model. It reuses the checked
+/// `LoadedSession` path without a self-referential borrow, so a desktop service
+/// can retain its model between requests and release it on lock or pressure.
+pub struct ResidentModelRuntime<B: ModelBackend> {
+    runtime: ModelRuntime<B>,
+    resident: Option<ResidentSession<B::Session>>,
+    poisoned: bool,
+}
+
+struct ResidentSession<S> {
+    session: Option<S>,
+    manifest: ModelManifest,
+}
+
+impl<B: ModelBackend> ResidentModelRuntime<B> {
+    pub const fn new(backend: B) -> Self {
+        Self {
+            runtime: ModelRuntime::new(backend),
+            resident: None,
+            poisoned: false,
+        }
+    }
+
+    pub fn backend(&self) -> &B {
+        self.runtime.backend()
+    }
+
+    pub fn model_id(&self) -> Option<&ModelId> {
+        self.resident
+            .as_ref()
+            .map(|resident| &resident.manifest.model_id)
+    }
+
+    pub fn health(&self) -> BackendHealth {
+        self.runtime.health()
+    }
+
+    pub fn resource_report(&self) -> RuntimeResourceReport {
+        self.runtime.resource_report()
+    }
+
+    pub fn load(
+        &mut self,
+        manifest: &ModelManifest,
+        artifact: &mut dyn ModelArtifactReader,
+        target_architecture: &str,
+    ) -> Result<(), RuntimeError> {
+        if self.resident.is_some() || self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        let mut session = self.runtime.load(manifest, artifact, target_architecture)?;
+        self.resident = Some(ResidentSession {
+            session: session.session.take(),
+            manifest: manifest.clone(),
+        });
+        Ok(())
+    }
+
+    fn with_session<T>(
+        &mut self,
+        invoke: impl FnOnce(&mut LoadedSession<'_, B>) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        let resident = self.resident.as_mut().ok_or(RuntimeError::SessionClosed)?;
+        let manifest = &resident.manifest;
+        let backend_capabilities = self.runtime.backend.descriptor().capabilities.clone();
+        let mut session = LoadedSession {
+            backend: &mut self.runtime.backend,
+            session: resident.session.take(),
+            model_id: manifest.model_id.clone(),
+            provider_id: manifest.provider.provider_id.clone(),
+            capabilities: manifest.capabilities.clone(),
+            backend_capabilities,
+            max_input_tokens: manifest.context.max_input_tokens,
+            max_output_tokens: manifest.context.max_output_tokens,
+        };
+        let result = invoke(&mut session);
+        resident.session = session.session.take();
+        result
+    }
+
+    pub fn generate(
+        &mut self,
+        request: &ModelRequest<'_>,
+        cancellation: &dyn CancellationToken,
+    ) -> Result<ModelResponse, RuntimeError> {
+        self.with_session(|session| session.generate(request, cancellation))
+    }
+
+    pub fn generate_stream(
+        &mut self,
+        request: &ModelRequest<'_>,
+        cancellation: &dyn CancellationToken,
+        sink: &mut dyn TextChunkSink,
+    ) -> Result<ModelStreamResponse, RuntimeError> {
+        self.with_session(|session| session.generate_stream(request, cancellation, sink))
+    }
+
+    pub fn unload(&mut self) -> Result<(), RuntimeError> {
+        if self.poisoned {
+            return Err(RuntimeError::UnloadFailed);
+        }
+        let Some(mut resident) = self.resident.take() else {
+            return Ok(());
+        };
+        if let Some(session) = resident.session.take() {
+            if let Err(error) = self.runtime.backend.unload(session) {
+                self.poisoned = true;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<B: ModelBackend> Drop for ResidentModelRuntime<B> {
+    fn drop(&mut self) {
+        let _ = self.unload();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

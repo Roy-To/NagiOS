@@ -6,6 +6,11 @@ build = "build.rs"
 publish = false
 
 [features]
+# Ordinary product session. Do not inherit milestone feature chains: several
+# run their own fixtures and exit before the desktop can process user input.
+production-session = ["desktop-login", "m19-files-search-production"]
+# Normal resident backend; memory/link support does not activate fixture exits.
+m20-model-service = ["production-session", "dep:nagi-model-manager", "nagi-posix/m20-llama-memory"]
 m8-shell = []
 m9-window = []
 m10-desktop = []

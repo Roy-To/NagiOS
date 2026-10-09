@@ -318,6 +318,9 @@ fn load_registry(root: &Path) -> Result<Vec<Workstream>, CliError> {
             .or(match branch.as_str() {
                 "claude/0.2-writer-core-01" => Some("0.2-writer-core-01"),
                 "claude/0.2-sheets-calc-01" => Some("0.2-sheets-calc-01"),
+                "hark/m24-embedding" => Some("m24-embedding"),
+                "hark/m25-local-tts" => Some("m25-local-tts"),
+                "hark/m25-whisper-production" => Some("m25-whisper-production"),
                 _ => None,
             })
             .unwrap_or("");
@@ -1550,11 +1553,21 @@ mod tests {
     }
 
     #[test]
-    fn registry_accepts_only_the_checkpoint_approved_claude_branches() {
+    fn registry_accepts_only_the_named_claude_and_hark_component_branches() {
         for (index, branch, accepted) in [
             ("codex/legacy", true),
             ("claude/0.2-writer-core-01", true),
             ("claude/0.2-sheets-calc-01", true),
+            ("hark/m24-embedding", true),
+            ("hark/m25-local-tts", true),
+            ("hark/m25-whisper-production", true),
+            ("hark/unassigned", false),
+            ("hark/m24-embedding/extra", false),
+            ("hark/m25-local-tts/extra", false),
+            ("hark/m25-whisper-production/extra", false),
+            ("hark/m25-tts", false),
+            ("hark/0.2-m24-embedding", false),
+            ("hark/M24-embedding", false),
             ("claude/unassigned", false),
             ("claude/0x2-writer-core-01", false),
             ("claude/0.2-writer-core-01/extra", false),

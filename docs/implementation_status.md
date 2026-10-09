@@ -1,5 +1,16 @@
 # 1. Current status
 
+**Ordinary-session integration foundation:** the shared bridge implements one
+bounded guest-worker request slot, live Session binding, cancellation, late-reply
+rejection and safe retired-worker lifetime rules. Model-service/backend leaves
+and ordinary-session image/release gates are included. Host tests and target
+leaf checks validate contracts and compilation only. Desktop AI consumption,
+durable terms persistence, a real guest worker/Granite reply and complete
+same-image acceptance remain unverified. Formal M30 is `BLOCKED`; the existing
+disk-layout fixture remains separately available as `m30-layout`. Embedding and
+TTS are standalone `PARTIAL` foundations. No milestone is promoted.
+
+
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
