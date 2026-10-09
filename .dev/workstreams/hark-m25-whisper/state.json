@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "hark-m25-whisper",
   "current_milestone": "M25 — Voice (Whisper speech-to-text production hardening)",
-  "current_checkpoint": "pcm-capacity-cap-session-scope-labels-host-reverify-on-f74f128",
+  "current_checkpoint": "nagi-target-nagi-init-link-pass-guest-not-run",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
-    "verified_at": "2026-10-09T11:45:00+09:00",
-    "normal_state": "Branch hark/m25-whisper-production on base main f74f128 (merge-base; PR #36 Writer/Sheets host adoption, 48 files, no owned path touched). Code verified at 06ff021 (source of all HOST results below; later commits change docs/evidence only). Shared single-threaded provider session (tools/whisper/provider_session.rs) with PCM capacity capped at MAX_WHISPER_SAMPLES (reproduced overallocation before the fix: 1,048,064 f32 for 524,288 samples after 256x4094 B + 512 B), cancel/finish retaining the zeroed buffer and unload freeing it. Cancellation is capture-only: finish is synchronous with no inference abort; production cancellation is NOT complete. HOST (aarch64, 2 shared vCPU, nice 19, 1 thread) on 06ff021: 24 scripted-engine same-session tests pass; real-engine FLEURS ja 12 unseen clips 134.7 s: CER 0.1025, RTF 1.354, peak RSS 791,344 KiB, after unload 25,184 KiB, 5/5 real-engine checks (4 same-session, 1 unload then NEW session failed-load/reload). These are host results, not guest results. The only guest result is the earlier fixture PASS (QEMU run 1790978330938078000, short JP fixture containing アルバートを開いて, recorded 2026-10-03 on the pre-refactor provider); it was not re-run and is not evidence for this branch's code.",
+    "commit_sha": "cc2a23f333ad4c3d827348b747b9b6a767eae69d",
+    "verified_at": "Fri 2026-10-09 12:05 PM JST (UTC+09:00)",
+    "normal_state": "Branch hark/m25-whisper-production on base main f74f128 (merge-base; PR #36 Writer/Sheets host adoption, 48 files, no owned path touched). Code verified at 06ff021 (source of all HOST results below); cc2a23f and later change docs/evidence only. Nagi-target cross build of nagi-init with m25-whisper-inference-acceptance PASSED at cc2a23f (aarch64 sandbox host, link only, synthetic silence placeholder fixture; not an acceptance artifact). Shared single-threaded provider session (tools/whisper/provider_session.rs) with PCM capacity capped at MAX_WHISPER_SAMPLES (reproduced overallocation before the fix: 1,048,064 f32 for 524,288 samples after 256x4094 B + 512 B), cancel/finish retaining the zeroed buffer and unload freeing it. Cancellation is capture-only: finish is synchronous with no inference abort; production cancellation is NOT complete. HOST (aarch64, 2 shared vCPU, nice 19, 1 thread) on 06ff021: 24 scripted-engine same-session tests pass; real-engine FLEURS ja 12 unseen clips 134.7 s: CER 0.1025, RTF 1.354, peak RSS 791,344 KiB, after unload 25,184 KiB, 5/5 real-engine checks (4 same-session, 1 unload then NEW session failed-load/reload). These are host results, not guest results. The only guest result is the earlier fixture PASS (QEMU run 1790978330938078000, short JP fixture containing アルバートを開いて, recorded 2026-10-03 on the pre-refactor provider); it was not re-run and is not evidence for this branch's code.",
     "commands": [
       "git diff --name-status origin/main origin/hark/m25-whisper-production  # owned paths only",
       "cd tests/m25-whisper && cargo test --locked --offline && cargo fmt -- --check && cargo clippy --locked --offline --all-targets -- -D warnings",
@@ -16,9 +16,10 @@
       "cd tests/m25-whisper/guest-shape && cargo clippy --locked --offline -- -D warnings && cargo fmt -- --check",
       "rustfmt --edition 2021 --check user/nagi-init/src/m25_whisper.rs tools/whisper/provider_session.rs; cargo fmt -p nagi-init -- --check",
       "tools/whisper/build-host-eval.sh && tests/m25-whisper/run-eval.sh out/m25-whisper-eval/host-eval-HEAD2.json",
+      "cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch",
       "make -C third_party/relibc TARGET=x86_64-unknown-nagi-user ... headers  (as tools/libcxx/build-nagi-target.sh; output under out/m25-relibc)",
       "NAGI_WHISPER_SOURCE=out/cache/whisper-cpp-nagi NAGI_TARGET_CLANG=clang-19 NAGI_CXX_HEADERS=/usr/lib/llvm-19/include/c++/v1 bash tools/whisper/build-nagi-target.sh",
-      "cargo build -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked"
+      "NAGI_M25_WHISPER_PCM_FIXTURE=<pcm> NAGI_M25_WHISPER_EXPECTED_TEXT_FILE=<txt> NAGI_WHISPER_BUILD=out/m25-whisper-target NAGI_RELIBC_HEADERS=out/m25-relibc/... cargo +nightly-2025-08-01 build -j1 -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked"
     ],
     "tests": [
       {
@@ -86,10 +87,10 @@
       },
       {
         "name": "Nagi-target build of nagi-init with m25-whisper-inference-acceptance",
-        "command": "cargo build -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked",
-        "outcome": "IN_PROGRESS",
-        "exit_code": null,
-        "evidence": "Pending bootstrap fetch."
+        "command": "nice -n 19 cargo +nightly-2025-08-01 build -j1 -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "At cc2a23f after bootstrap fetch PASS (11:53 JST; Servo blob checkout needed a sandbox-only batched-prefetch git wrapper after two GitHub HTTP 502 failures). Static x86-64 ELF target/x86_64-unknown-nagi-user/release/nagi-init 1,971,064 B sha256 a1102f1d7e27a65ab39155c6ceca01eee509ca6f5c113657e37f90b68c3bdf92; whisper_full/ggml_init defined. Link only: build.rs requires a fixture, so a synthetic 1 s silence PCM and placeholder text (out/, uncommitted) were staged; NOT an acceptance artifact, not run. With --offline it failed (smoltcp not in offline index). No warnings in owned files. evidence/target-build-nagi-init-cc2a23f.json and .txt logs."
       },
       {
         "name": "Guest QEMU fixture acceptance after refactor",
@@ -101,27 +102,43 @@
     ],
     "ci_runs": [
       {
-        "run_id": 37874302572,
-        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37874302572",
-        "head_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
-        "status": "IN_PROGRESS",
-        "conclusion": null,
-        "summary": "Shared Nagi CI (push). Does not build tests/m25-whisper or the M25 feature; see ci-proposal.md."
+        "run_id": 37875092093,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37875092093",
+        "head_sha": "cc2a23f333ad4c3d827348b747b9b6a767eae69d",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Shared Nagi CI (push). Generic; does not build tests/m25-whisper or the M25 feature; see ci-proposal.md."
       },
       {
-        "run_id": 37874306169,
-        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37874306169",
-        "head_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
+        "run_id": 37875095145,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37875095145",
+        "head_sha": "cc2a23f333ad4c3d827348b747b9b6a767eae69d",
+        "status": "QUEUED",
+        "conclusion": null,
+        "summary": "Shared Nagi CI (pull_request). Generic."
+      },
+      {
+        "run_id": 37875095136,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37875095136",
+        "head_sha": "cc2a23f333ad4c3d827348b747b9b6a767eae69d",
         "status": "COMPLETED",
         "conclusion": "skipped",
         "summary": "0.2 host foundations: job gated to codex/claude branches; skipped on this branch."
+      },
+      {
+        "run_id": 37874302572,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37874302572",
+        "head_sha": "06ff021832d57498e4c95e7d6be864e916736f93",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Shared Nagi CI (push) on the code commit. Generic."
       }
     ]
   },
   "release_line_gate": {
     "source": "AGENTS.md; docs/workstreams/NagiOS_M25_Voice_Workstream.md; docs/decisions/0042-m25-whisper-guest-memory-budget.md",
-    "last_checked_at": "2026-10-09T11:45:00+09:00",
-    "activation_requirement": "Draft PR only. Merge/release require separate user confirmation, CI covering tests/m25-whisper and the M25 feature (ci-proposal.md), a Nagi-target nagi-init build on an x86_64 integration host, and a guest QEMU rerun of the Whisper fixture acceptance on the refactored provider. Production cancellation of in-flight inference is not implemented. Production exposure (microphone, permission, UI, Model Store routing) requires the respective owners."
+    "last_checked_at": "Fri 2026-10-09 12:05 PM JST (UTC+09:00)",
+    "activation_requirement": "Draft PR only. Merge/release require separate user confirmation, CI covering tests/m25-whisper and the M25 feature (ci-proposal.md), a Nagi-target nagi-init build on an x86_64 integration host with the real fixture (link-only build passed here on aarch64), and a guest QEMU rerun of the Whisper fixture acceptance on the refactored provider. Production cancellation of in-flight inference is not implemented. Production exposure (microphone, permission, UI, Model Store routing) requires the respective owners."
   },
   "blocker": {
     "active": false,
@@ -134,7 +151,8 @@
       "Do not count the build-staged fixture PASS as recognition evidence.",
       "Do not raise WHISPER_THREADS or the ADR 0042 memory budget without a new ADR.",
       "Do not use a FLEURS evaluation clip as the guest acceptance fixture.",
-      "Do not describe capture-time cancel as production cancellation."
+      "Do not describe capture-time cancel as production cancellation.",
+      "Do not run or ship the placeholder-fixture nagi-init build as an acceptance artifact."
     ]
   },
   "next_action": "Codex integration owner: apply ci-proposal.md workflow and registration/schema proposals; run ./nagi m25-whisper-inference with the local fixture on an x86_64 host against this branch; decide on an abort-callback ABI change for in-flight cancellation (proposal only).",
