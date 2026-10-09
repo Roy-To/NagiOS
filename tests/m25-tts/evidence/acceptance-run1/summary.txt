@@ -1,0 +1,9 @@
+fetch           PASS  exit 0
+fmt             PASS  exit 0
+clippy          PASS  exit 0
+clippy-core     PASS  exit 0
+unit            PASS  exit 0
+unit-ignored    PASS  real-engine tests reported as ignored, not passed
+real            PASS  exit 0
+real-count      PASS  12 passed with real artifacts
+missing-assets  PASS  real suite fails (exit 101) without artifacts

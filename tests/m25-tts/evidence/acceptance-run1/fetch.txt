@@ -1,0 +1,7 @@
+$ <repo>/tools/tts/fetch.sh <repo>/out/cache/tts
+OK    tohoku-f01-neutral.htsvoice (cached)
+OK    tohoku-f01-COPYRIGHT.txt (cached)
+OK    naist-jdic-jpreprocess.tar.gz (cached)
+OK    naist-jdic/ (8 files verified)
+NAGI_TTS_VOICE=<repo>/out/cache/tts/tohoku-f01-neutral.htsvoice
+NAGI_TTS_DICT=<repo>/out/cache/tts/naist-jdic
