@@ -6,6 +6,15 @@ use libnagi::{DisplayInfo, InputEvent};
 
 #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
 pub(super) use crate::m19_runtime::files;
+#[cfg(feature = "m20-model-service")]
+#[path = "bar_adapter.rs"]
+mod bar_adapter;
+#[cfg(feature = "m20-model-service")]
+#[path = "bar_panel.rs"]
+mod bar_panel;
+#[cfg(feature = "m20-model-service")]
+#[path = "session_ui.rs"]
+pub(crate) mod session_ui;
 use crate::ui::{Painter, Rect};
 #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
 #[path = "m19_files_panel.rs"]
@@ -239,6 +248,14 @@ pub struct Desktop {
     files_search_first_title: [u8; FILES_SEARCH_TITLE_CAPACITY],
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_first_title_len: usize,
+    #[cfg(feature = "m20-model-service")]
+    bar: bar_panel::Panel,
+    #[cfg(feature = "m20-model-service")]
+    model_services_ready: bool,
+    #[cfg(feature = "m20-model-service")]
+    model_services: Option<bar_adapter::Adapter>,
+    #[cfg(feature = "m20-model-service")]
+    lock_requested: bool,
 }
 
 impl Desktop {
@@ -254,6 +271,14 @@ impl Desktop {
             desktop_focus: None,
             keyboard_app_focus: [false; APP_COUNT],
             keyboard_focus_pass_printed: false,
+            #[cfg(feature = "m20-model-service")]
+            bar: bar_panel::Panel::new(),
+            #[cfg(feature = "m20-model-service")]
+            model_services_ready: false,
+            #[cfg(feature = "m20-model-service")]
+            model_services: None,
+            #[cfg(feature = "m20-model-service")]
+            lock_requested: false,
             pointer_x: POINTER_START_X,
             pointer_y: POINTER_START_Y,
             notes_has_input: false,
@@ -371,6 +396,8 @@ impl Desktop {
         if self.files_panel.open {
             self.render_files_panel(&mut painter);
         }
+        #[cfg(feature = "m20-model-service")]
+        self.bar.render(&mut painter, self.locale);
         if self.settings_open {
             self.render_settings(&mut painter);
         }
@@ -432,7 +459,12 @@ impl Desktop {
                         print(b"Nagi consent decisions invalid; every grant asks again\r\n");
                     }
                     // Readiness means a signed-in desktop (ADR 0063).
-                    if libnagi::report_boot_ready() {
+                    let ready = libnagi::report_boot_ready();
+                    #[cfg(feature = "m20-model-service")]
+                    {
+                        self.model_services_ready = ready;
+                    }
+                    if ready {
                         print(b"Nagi login readiness reported PASS\r\n");
                     } else {
                         print(b"Nagi login readiness report FAIL\r\n");
@@ -451,6 +483,17 @@ impl Desktop {
                 return event.value != 0;
             }
         }
+        #[cfg(feature = "m20-model-service")]
+        if event.event_type == libnagi::INPUT_EVENT_KEY
+            && event.value == 1
+            && (event.code == 62 // F4 locks this OS-owned session.
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && bar_panel::LOCK_BUTTON.contains(self.pointer_x, self.pointer_y)))
+        {
+            self.lock_model_session(volume);
+            self.lock_requested = true;
+            return true;
+        }
         #[cfg(feature = "desktop-login")]
         if self.password_change.is_some() {
             return self.handle_password_change_event(event, volume);
@@ -462,6 +505,28 @@ impl Desktop {
         #[cfg(feature = "consent-dialog")]
         if self.permissions.is_some() {
             return self.handle_permissions_event(event, volume);
+        }
+        #[cfg(feature = "m20-model-service")]
+        if !self.settings_open && event.event_type == libnagi::INPUT_EVENT_KEY {
+            if event.value == 1
+                && (event.code == 61 // F3 opens the Nagi Bar.
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && bar_panel::BUTTON.contains(self.pointer_x, self.pointer_y)))
+            {
+                self.bar.toggle();
+                self.files_panel.open = false;
+                return true;
+            }
+            if self.bar.open {
+                if event.value == 1
+                    && event.code == libnagi::INPUT_KEY_LEFT
+                    && SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y)
+                {
+                    self.bar.open = false;
+                } else {
+                    return self.bar.event(event, self.pointer_x, self.pointer_y);
+                }
+            }
         }
         #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 && !self.settings_open {
@@ -571,6 +636,38 @@ impl Desktop {
         false
     }
 
+    #[cfg(feature = "m20-model-service")]
+    fn lock_model_session(&mut self, volume: &mut UserDataVolume) {
+        // This runs inside handle_event too, so a nested Files consent loop
+        // immediately sees the invalidated session and aborts its old launch.
+        if let Some(services) = self.model_services.as_mut() {
+            self.bar.controller.lock_or_signout(services);
+        }
+        if let Some(session) = self.session.as_mut() {
+            session.lock();
+        }
+        self.session = None;
+        self.model_services_ready = false;
+        self.bar.clear_presentation();
+        self.files_panel = files_panel::Panel::new();
+        self.clear_files_search();
+        self.password_change = None;
+        self.settings_open = false;
+        self.desktop_focus = None;
+        self.focused.fill(false);
+        self.notes_has_input = false;
+        #[cfg(feature = "consent-dialog")]
+        {
+            self.consent = None;
+            self.permissions = None;
+            self.consent_decision = None;
+        }
+        let mut login = crate::login_screen::LoginScreen::new(crate::login_screen::load(volume));
+        login.focus_language(self.locale);
+        login.resume_throttle(volume);
+        self.login = Some(login);
+    }
+
     #[cfg(feature = "desktop-login")]
     pub fn login_waiting(&self) -> bool {
         self.login.as_ref().is_some_and(|login| login.is_waiting())
@@ -583,33 +680,39 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
-        #[cfg(feature = "desktop-password-change-acceptance")]
+        #[cfg(feature = "production-session")]
+        return false;
+        #[cfg(not(feature = "production-session"))]
         {
-            return self.session.is_some() && self.password_change_succeeded;
-        }
-        #[cfg(not(feature = "desktop-password-change-acceptance"))]
-        {
-            #[cfg(all(
-                feature = "desktop-login-acceptance",
-                not(feature = "m19-files-search-production")
-            ))]
-            if cfg!(feature = "desktop-login-acceptance") {
-                return self.session.is_some();
+            #[cfg(feature = "desktop-password-change-acceptance")]
+            {
+                return self.session.is_some() && self.password_change_succeeded;
             }
-            #[cfg(feature = "consent-dialog-acceptance")]
-            if self.consent_answered {
-                return true;
-            }
-            let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
-            if cfg!(feature = "consent-dialog-acceptance") {
-                false
-            } else if cfg!(feature = "m29-settings-acceptance") {
-                desktop_ready
-                    && self.settings_open
-                    && self.locale == nagi_localization::Locale::JaJp
-                    && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
-            } else {
-                desktop_ready
+            #[cfg(not(feature = "desktop-password-change-acceptance"))]
+            {
+                #[cfg(all(
+                    feature = "desktop-login-acceptance",
+                    not(feature = "m19-files-search-production")
+                ))]
+                if cfg!(feature = "desktop-login-acceptance") {
+                    return self.session.is_some();
+                }
+                #[cfg(feature = "consent-dialog-acceptance")]
+                if self.consent_answered {
+                    return true;
+                }
+                let desktop_ready =
+                    self.focused.iter().all(|focused| *focused) && self.notes_has_input;
+                if cfg!(feature = "consent-dialog-acceptance") {
+                    false
+                } else if cfg!(feature = "m29-settings-acceptance") {
+                    desktop_ready
+                        && self.settings_open
+                        && self.locale == nagi_localization::Locale::JaJp
+                        && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
+                } else {
+                    desktop_ready
+                }
             }
         }
     }
@@ -1514,6 +1617,12 @@ pub fn run(
     };
     let preference = load_locale(&mut volume);
     let mut desktop = Desktop::new(preference.locale());
+    #[cfg(feature = "m20-model-service")]
+    {
+        desktop.model_services = Some(bar_adapter::Adapter::new(
+            crate::session_services::boot_model_store_capability(),
+        ));
+    }
     #[cfg(feature = "desktop-login")]
     let login_mode = {
         let screen = crate::login_screen::LoginScreen::new(crate::login_screen::load(&mut volume));
@@ -1608,6 +1717,38 @@ pub fn run(
         LocalePreference::Restored(_) | LocalePreference::Missing => {}
     }
     loop {
+        #[cfg(feature = "m20-model-service")]
+        {
+            let old_status = desktop.bar.controller.status();
+            if let Some(services) = desktop.model_services.as_mut() {
+                if desktop.bar.cancel_requested {
+                    desktop.bar.cancel_requested = false;
+                    desktop.bar.controller.cancel(services);
+                }
+                session_ui::idle_step(
+                    &mut desktop.bar.controller,
+                    desktop.session.as_ref(),
+                    desktop.model_services_ready,
+                    services,
+                    || {
+                        let _ = libnagi::thread_yield();
+                    },
+                );
+                if desktop.bar.controller.status() == session_ui::Status::Ready
+                    && desktop.bar.controller.terms().is_none()
+                {
+                    if let Some((name, reference)) = services.terms() {
+                        desktop.bar.controller.offer_terms(name, reference);
+                    }
+                }
+            }
+            if desktop.bar.open && old_status != desktop.bar.controller.status() {
+                desktop.render(surface);
+                if !libnagi::display_present(display_capability) {
+                    libnagi::exit(1);
+                }
+            }
+        }
         let mut event = InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             #[cfg(feature = "desktop-login")]
@@ -1618,10 +1759,16 @@ pub fn run(
                     libnagi::exit(1);
                 }
             }
-            unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+            // Cooperate even while locked, idle or without a pending request.
+            let _ = libnagi::thread_yield();
             continue;
         }
         if desktop.handle_event(event, &mut volume) {
+            #[cfg(feature = "m20-model-service")]
+            if desktop.lock_requested {
+                desktop.lock_requested = false;
+                search_runtime = None;
+            }
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             if desktop.session.is_some() {
                 if search_runtime.is_none() {
