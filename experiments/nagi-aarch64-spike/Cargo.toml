@@ -1,0 +1,15 @@
+[package]
+name = "nagi-aarch64-feasibility-spike"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[profile.dev]
+panic = "abort"
+[profile.release]
+panic = "abort"
+opt-level = "s"
+codegen-units = 1
+lto = true

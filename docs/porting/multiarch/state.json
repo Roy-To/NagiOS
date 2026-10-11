@@ -1,0 +1,120 @@
+{
+  "schema_ref": "../../../.dev/schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "PORT-MULTIARCH-01",
+  "current_milestone": "Independent multiarchitecture preparation (unregistered)",
+  "current_checkpoint": "A-B-C-verified-D-E-gated",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "9db6c86e51f4e95a615d06d0423bb87b3425c4bf",
+    "verified_at": "2026-10-11T11:02:42.148840Z",
+    "normal_state": "PROVISIONAL/UNREGISTERED. Phase A audit PASS; B proposal/host foundation PASS; C independent ARM64 spike PASS. D/E BLOCKED. No shared production sources, owner states, registry or acceptance were changed. 99 host/16 BootInfo/5 ABI tests, 3 runner tests, focused lint/format, ARM64 compile and true QEMU EL1/SVC/counter boot verified. EL2 is an intentional negative FAIL with exit 1. x86 guest and production ARM64 NOT_RUN. Post-verification commit carries records only; last_verified identifies actual source commit.",
+    "commands": [
+      "experiments/nagi-multiarch-contracts/verify.sh",
+      "experiments/nagi-aarch64-spike/verify.sh",
+      "python3 docs/porting/multiarch/verify-records.py; python3 experiments/nagi-multiarch-contracts/audit.py --output docs/porting/multiarch/evidence/source-inventory.json --check; ./nagi dev verify",
+      "cargo check --manifest-path experiments/nagi-multiarch-contracts/Cargo.toml --target aarch64-unknown-none --lib --locked --offline",
+      "NOT_RUN: production target/QEMU acceptance",
+      "./nagi dev status; ./nagi dev resume"
+    ],
+    "tests": [
+      {
+        "name": "host-source and proposal tests; format; focused Clippy",
+        "command": "experiments/nagi-multiarch-contracts/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "evidence/host-postcommit.log: 99 + 16 BootInfo + 5 ABI tests; original production assertions retained; named imported baseline style allowances only"
+      },
+      {
+        "name": "independent ARM64 QEMU and negative guest acceptance",
+        "command": "experiments/nagi-aarch64-spike/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "evidence/spike-postcommit.log and evidence/qemu-el1, evidence/qemu-el2-negative; EL1 exit 0, EL2 expected exit 1; 3 runner tests; target build/Clippy/format"
+      },
+      {
+        "name": "source/authority hashes and unchanged registry",
+        "command": "python3 docs/porting/multiarch/verify-records.py; python3 experiments/nagi-multiarch-contracts/audit.py --output docs/porting/multiarch/evidence/source-inventory.json --check; ./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "evidence/records-postcommit.log: 496 baseline sources unchanged, 2136 anchors/153 field references, 31 registered streams/24 states; provisional state separately schema validated"
+      },
+      {
+        "name": "ARM64 no_std contract compilation",
+        "command": "cargo check --manifest-path experiments/nagi-multiarch-contracts/Cargo.toml --target aarch64-unknown-none --lib --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "evidence/contracts-aarch64-check.log; compile only, candidate sources identical to verified source commit"
+      },
+      {
+        "name": "x86 Nagi guest acceptance and production ARM64",
+        "command": "NOT_RUN: production target/QEMU acceptance",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "Closed M30 + os-core checkpoint; no production changes or runtime equivalence claims"
+      },
+      {
+        "name": "unregistered developer resume/status refusal",
+        "command": "./nagi dev status; ./nagi dev resume",
+        "outcome": "FAIL",
+        "exit_code": null,
+        "evidence": "evidence/dev-status.log and evidence/dev-resume.log; expected refusal for an unregistered branch; not repaired through unauthorized registry edits; initial exit code was not separately captured"
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams.json os-core",
+    "last_checked_at": "2026-10-11T11:02:42.148840Z",
+    "activation_requirement": "M30 PASS plus explicit Integration Owner/os-core bounded milestone naming exact source base, allowed paths, ABI/BootInfo contracts and x86 guest parity acceptance. Generic portability request is not that exception."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Production D/E and shared registration remain gated; all independently authorized A/B/C work completed. M30 PARTIAL, no bounded os-core owner checkpoint.",
+    "reproduction_commands": [
+      "Read docs/implementation_status.md and os-core registry activation_gate",
+      "./nagi dev resume"
+    ],
+    "failure_log_summary": "dev resume/status refuse the unregistered branch. Production gate is unmet; not a source defect in the independent spike.",
+    "attempted_fixes": [
+      "Kept new proposal/experiment paths exclusive; no production workaround",
+      "Corrected own mapping style lint; scoped imported baseline style lints",
+      "Used package-local target config for ARM64 lint and selected SP_EL1 before stack setup",
+      "Locally resolved missing host Rust/QEMU dependencies; no global install"
+    ],
+    "do_not_try": [
+      "Do not relax M30 or v5 validation, rewrite production ABI or bypass rights",
+      "Do not edit shared registry/CI/root workspace or another owner State",
+      "Do not merge or force-push shared branches or delete other worktrees",
+      "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
+    ]
+  },
+  "next_action": "Integration Owner reviews registration-proposal.json and architecture/acceptance proposal. After M30 PASS, assign an os-core bounded checkpoint with exact base/paths/ABI and x86 parity before D; E requires later accepted ARM64 boot/MMU/SVC/EL0/transport milestones. No remaining authorized independent acceptance in this checkpoint.",
+  "acceptance_criteria": [
+    "A PASS for live audited baseline, ownership, PR/ref snapshot and anchored portability matrix",
+    "B PASS for proposed architecture/migration boundaries and actual-source host/ABI/negative tests",
+    "C PASS only for independent real aarch64 QEMU ELF and guest serial/trap/counter/exit evidence",
+    "D/E must never be marked PASS without owner checkpoint and actual production target acceptance"
+  ],
+  "deferred": [
+    "Integration Owner registry adoption and architecture acceptance",
+    "Production x86 extraction, BootInfo/ABI changes and ARM64 Nagi guest",
+    "MMU isolation, interrupt timer/GIC, PSCI/SMP, DMA/VirtIO and Nagi userspace",
+    "Pi 5/tablet/phone physical hardware and power/input/display acceptance"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "os-core",
+      "contract": "Production kernel/ABI ownership and bounded M30 checkpoint",
+      "version": "existing registry at baseline 379d19e",
+      "status": "BLOCKED"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Shared registration, ABI consumers, workspace/CI and release boundary",
+      "version": "existing registry at baseline 379d19e",
+      "status": "Registration proposed; no adoption requested or applied"
+    }
+  ]
+}

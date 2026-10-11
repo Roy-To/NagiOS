@@ -1,0 +1,11 @@
+[package]
+name = "nagi-multiarch-contracts-experiment"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+nagi-abi = { path = "../../crates/nagi-abi" }
+nagi-bootinfo = { path = "../../crates/nagi-bootinfo" }

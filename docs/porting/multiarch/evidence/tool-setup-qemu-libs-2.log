@@ -1,0 +1,9 @@
+Get:1 https://deb.debian.org/debian trixie/main amd64 libcapstone5 amd64 5.0.7-1~deb13u1 [778 kB]
+Get:2 https://deb.debian.org/debian trixie/main amd64 libfdt1 amd64 1.7.2-2+b1 [20.0 kB]
+Get:3 https://deb.debian.org/debian trixie/main amd64 libaio1t64 amd64 0.3.113-8+b1 [14.9 kB]
+Get:4 https://deb.debian.org/debian trixie/main amd64 libslirp0 amd64 4.8.0-1+deb13u1 [66.5 kB]
+Get:5 https://deb.debian.org/debian trixie/main amd64 liburing2 amd64 2.9-1 [26.4 kB]
+Get:6 https://deb.debian.org/debian trixie/main amd64 libpmem1 amd64 1.13.1-1.1+b1 [91.7 kB]
+Get:7 https://deb.debian.org/debian trixie/main amd64 libvdeplug2t64 amd64 4.0.1-5.1+b1 [28.5 kB]
+Fetched 1026 kB in 4s (264 kB/s)
+W: Unable to read /etc/apt/apt.conf.d/80-applied-apt-retries - open (13: Permission denied)

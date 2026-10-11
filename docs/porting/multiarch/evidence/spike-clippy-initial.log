@@ -1,0 +1,14 @@
+    Checking nagi-aarch64-feasibility-spike v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-aarch64-spike)
+error: invalid register `x0`: unknown register
+  --> src/main.rs:41:29
+   |
+41 |         asm!("hlt #0xf000", in("x0") 0x20u64, in("x1") block.as_ptr(), options(nostack));
+   |                             ^^^^^^^^^^^^^^^^
+
+error: invalid register `x1`: unknown register
+  --> src/main.rs:41:47
+   |
+41 |         asm!("hlt #0xf000", in("x0") 0x20u64, in("x1") block.as_ptr(), options(nostack));
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `nagi-aarch64-feasibility-spike` (bin "nagi-aarch64-feasibility-spike") due to 2 previous errors

@@ -1,0 +1,8 @@
+test_complete_ordered_guest_and_zero_exit (test_runner.AcceptanceTests.test_complete_ordered_guest_and_zero_exit) ... ok
+test_crash_failure_and_timeout_even_with_markers (test_runner.AcceptanceTests.test_crash_failure_and_timeout_even_with_markers) ... ok
+test_missing_duplicate_and_reordered_markers (test_runner.AcceptanceTests.test_missing_duplicate_and_reordered_markers) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
