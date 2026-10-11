@@ -1,0 +1,4 @@
+PASS owned scope, 496 unchanged baseline sources, authority hashes, provisional schema, 11 local links and Python syntax
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap dev verify`
+PASS development state: 31 registered workstreams, 24 state files validated; branch codex/port-multiarch-foundation-01 at 6cbfb452ee83a7c0011036b6d0ed836625f1f7ae

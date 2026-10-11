@@ -1,7 +1,7 @@
 # PORT-MULTIARCH-01 handoff — provisional, unregistered
 
 Base: `379d19eadb6f8792c27b9bc3f147e1ea48eac4a2`.
-Verified source commit: `9db6c86e51f4e95a615d06d0423bb87b3425c4bf`. The next commit records evidence/state only;
+Verified published candidate: `6cbfb452ee83a7c0011036b6d0ed836625f1f7ae`. The next commit records evidence/state only;
 its HEAD intentionally differs from the tested source SHA (no circular claim).
 Push destination: `RT-NISH/NagiOS:codex/port-multiarch-foundation-01`.
 
@@ -37,3 +37,11 @@ proposal and migration acceptance. Production step 1 requires M30 PASS and
 bounded os-core authorization naming exact base/paths, contract and x86 guest
 parity/rollback. No merge or further production work is authorized. The
 independent checkpoint has no remaining owned Acceptance item.
+
+Publication note: Git transport returned 403 for host identity RyomaTOZAWA.
+Repository-owner RT-NISH's connected Git Data API published all 76 files with
+matching Git blob hashes and exact local tree aa7d52418f2332ab3b902c13a934d01ab70c2012.
+The published candidate above was fetched and reverified (host/QEMU/registry).
+The final records commit is its child; local original commits remain recoverable
+under refs/port-multiarch/local-verified. Raw log whitespace is intentionally
+retained with an evidence-only Git attribute; no source/style acceptance is waived.
