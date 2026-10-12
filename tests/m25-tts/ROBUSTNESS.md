@@ -47,6 +47,7 @@ returning an error.
 | `matrix.mtx` truncated / odd length / trailing bytes / negative or oversized shape | lindera-dictionary 3.0.7: length `assert` or overflow panic while loading, or index out of bounds on the first cost lookup | `DictionaryInvalid` |
 | `dict.vals` context ids outside the matrix | index out of bounds during tokenization | `DictionaryInvalid` |
 | `dict.vals` partial trailing entry | silently ignored | `DictionaryInvalid` |
+| `dict.vals` truncated at a whole-entry boundary while `dict.da` still references removed entries | `from_bytes` accepted the partial dictionary; the actual tokenization path silently skipped missing entries and fell back to unknown words (no provider-path panic reproduced) | `DictionaryInvalid` at load; every DA output's offset/count must fit the entry table |
 | `dict.wordsidx` offsets past `dict.words` or out of order | `start..end` slice panic in jpreprocess / lindera | `DictionaryInvalid` |
 | `dict.words` preamble not `jpreprocess*` (e.g. first byte corrupted) | tokens routed to lindera's decoder, which slices jpreprocess records unchecked: panic | `DictionaryInvalid` |
 | Unknown-word entries / category references out of range (after rkyv load) | unchecked indexing during tokenization | `DictionaryInvalid` |

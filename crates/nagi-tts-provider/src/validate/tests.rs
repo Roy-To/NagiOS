@@ -986,13 +986,57 @@ fn word_index_must_be_monotonic_in_bounds_and_jpreprocess() {
 }
 
 #[test]
+fn prefix_outputs_must_fit_the_separate_entry_table() {
+    let invalid = Err(LoadError::DictionaryInvalid);
+    let da = prefix_bytes(&[(0, 1), (1, 2)]);
+    assert_eq!(check_prefix_values(&da, 3), Ok(()));
+    assert_eq!(check_prefix_values(&da, 2), invalid);
+    assert_eq!(check_prefix_values(&prefix_bytes(&[(3, 1)]), 3), invalid);
+    assert_eq!(
+        check_prefix_values(&prefix_bytes(&[(0xFF_FFFF, 255)]), 3),
+        invalid
+    );
+    assert_eq!(check_prefix_values(&prefix_bytes(&[(0, 0)]), 0), Ok(()));
+    assert_eq!(check_prefix_values(&prefix_bytes(&[(3, 0)]), 3), Ok(()));
+    for end in [0, 3, 4, 3075, 3079, da.len() - 1] {
+        assert_eq!(
+            check_prefix_values(&da[..end], 3),
+            invalid,
+            "truncation {end}"
+        );
+    }
+    let mut oversized = da.clone();
+    oversized[..4].copy_from_slice(&0xFFFF_FF00u32.to_le_bytes());
+    assert_eq!(check_prefix_values(&oversized, 3), invalid);
+    let mut oversized = da.clone();
+    oversized[3076..3080].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(check_prefix_values(&oversized, 3), invalid);
+}
+
+// Only serialized framing is needed for the range-validator tests; actual
+// automaton links are checked by daachorse, and by the real-artifact suite.
+fn prefix_bytes(ranges: &[(u32, u32)]) -> Vec<u8> {
+    let mut bytes = 256u32.to_le_bytes().to_vec();
+    bytes.resize(4 + 256 * 12, 0);
+    bytes.extend_from_slice(&(ranges.len() as u32).to_le_bytes());
+    for (offset, count) in ranges {
+        bytes.extend_from_slice(&((offset << 8) | count).to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+    }
+    bytes.push(0);
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes
+}
+
+#[test]
 fn dictionary_bytes_are_checked_before_any_loader() {
     let (wordsidx, dict_words) = words(b"jpreprocess", &[b"abc"]);
     let base = || DictionaryBytes {
         metadata_json: b"{}".to_vec(),
         char_def_bin: vec![0; 16],
         matrix_mtx: matrix(2, 2, 4),
-        dict_da: vec![0; 16],
+        dict_da: prefix_bytes(&[(0, 1)]),
         dict_vals: entry(0, 1, 1),
         dict_wordsidx: wordsidx.clone(),
         dict_words: dict_words.clone(),

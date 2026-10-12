@@ -686,8 +686,54 @@ pub(crate) struct MatrixShape {
 pub(crate) fn check_dictionary_bytes(dict: &DictionaryBytes) -> Result<MatrixShape, LoadError> {
     let shape = check_matrix(&dict.matrix_mtx)?;
     check_word_entries(&dict.dict_vals, shape)?;
+    check_prefix_values(&dict.dict_da, dict.dict_vals.len() / WORD_ENTRY_BYTES)?;
     check_words(&dict.dict_wordsidx, &dict.dict_words)?;
     Ok(shape)
+}
+
+/// daachorse 2.1.1 (Cargo.lock) serializes a u32 state count, 12-byte
+/// states, a u32 output count, 12-byte u32 outputs (value/length/parent),
+/// then a one-byte match kind and u32 state count. Its deserializer checks
+/// automaton references, but knows nothing about the separate `dict.vals`.
+/// Each system-dictionary output encodes `(entry_offset << 8) | count`.
+/// Reject whole-entry partial reads instead of silently losing known words
+/// in lindera's bounds-checked common-prefix iterator (its other prefix
+/// APIs index these ranges directly). No automaton-sized copy is needed.
+fn check_prefix_values(da: &[u8], entries: usize) -> Result<(), LoadError> {
+    let invalid = LoadError::DictionaryInvalid;
+    let read = |at: usize| -> Result<usize, LoadError> {
+        let end = at.checked_add(4).ok_or(invalid)?;
+        let bytes = da.get(at..end).ok_or(invalid)?;
+        Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize)
+    };
+    let states = read(0)?;
+    if states == 0 || !states.is_multiple_of(256) {
+        return Err(invalid);
+    }
+    let count_at = states
+        .checked_mul(12)
+        .and_then(|n| n.checked_add(4))
+        .ok_or(invalid)?;
+    let outputs = read(count_at)?;
+    let start = count_at.checked_add(4).ok_or(invalid)?;
+    let end = outputs
+        .checked_mul(12)
+        .and_then(|n| n.checked_add(start))
+        .ok_or(invalid)?;
+    // The upstream loader also needs its five-byte trailer. It remains
+    // responsible for validating state links and output-parent references.
+    if end.checked_add(5).is_none_or(|needed| needed > da.len()) {
+        return Err(invalid);
+    }
+    for output in da.get(start..end).ok_or(invalid)?.chunks_exact(12) {
+        let value = u32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        let offset = (value >> 8) as usize;
+        let count = (value & 255) as usize;
+        if offset.checked_add(count).is_none_or(|last| last > entries) {
+            return Err(invalid);
+        }
+    }
+    Ok(())
 }
 
 /// `matrix.mtx`: the cost table length must equal the declared shape, or

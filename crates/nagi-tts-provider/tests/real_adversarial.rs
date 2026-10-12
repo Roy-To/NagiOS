@@ -305,6 +305,13 @@ fn corrupted_dictionary_bytes_fail_closed_without_panic() {
             [matrix.clone(), vec![0, 0]].concat(),
         ),
         ("vals partial entry", VALS, vals[..vals.len() - 1].to_vec()),
+        // Whole-entry truncation bypasses the entry-size/context checks;
+        // the unchanged DA still references removed entries during planning.
+        (
+            "vals truncated at entry boundary",
+            VALS,
+            vals[..10].to_vec(),
+        ),
         (
             "word index partial offset",
             WORDSIDX,
