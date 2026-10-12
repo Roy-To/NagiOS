@@ -1,5 +1,14 @@
 //! Conservative Markdown subset. Unsupported syntax is retained literally and
 //! reported, not interpreted as HTML, fetched as media, or silently discarded.
+//!
+//! `BlockKind::List` stores no per-item ordinal, and export always numbers an
+//! ordered list `1.`, `2.`, ... An ordered run is therefore imported as a list
+//! only when every marker is exactly that canonical sequence. Any other
+//! numbering (non-1 start, gaps, leading zeros, a run resumed after another
+//! block, numbers beyond any integer type) keeps the whole run literally as a
+//! paragraph with one `UnsupportedSyntax` warning per line, so the original
+//! numbers are never rewritten. Markers are compared as decimal text, never
+//! parsed, so arbitrarily long numbers cannot overflow.
 use crate::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Format {
@@ -55,6 +64,14 @@ fn list_line(line: &str) -> Option<(bool, &str)> {
     } else {
         None
     }
+}
+/// True when the ordered marker of `line` is exactly `position + 1` in
+/// canonical decimal form, i.e. what `export` would write for that item.
+fn canonical_ordinal(line: &str, position: usize) -> bool {
+    let n = line.bytes().take_while(u8::is_ascii_digit).count();
+    position
+        .checked_add(1)
+        .is_some_and(|expected| line[..n] == expected.to_string())
 }
 fn heading(line: &str) -> Option<(u8, &str)> {
     let n = line.bytes().take_while(|b| *b == b'#').count();
@@ -184,7 +201,8 @@ pub fn import(
             };
             i += 1;
         } else if let Some((ordered, _)) = list_line(line) {
-            let mut items = vec![];
+            let mut raw = vec![];
+            let mut canonical = true;
             while i < lines.len() {
                 let Some((order, text)) = list_line(lines[i]) else {
                     break;
@@ -192,15 +210,39 @@ pub fn import(
                 if ordered != order {
                     break;
                 }
-                if unsupported(text) {
-                    warnings.push(warn(WarningKind::UnsupportedSyntax, Some(i + 1), None));
-                    items.push(text.into());
-                } else {
-                    items.push(unescape(text));
+                if ordered && !canonical_ordinal(lines[i], raw.len()) {
+                    canonical = false;
                 }
+                raw.push(text);
                 i += 1;
             }
-            kind = BlockKind::List { ordered, items };
+            if canonical {
+                let mut items = vec![];
+                for (offset, text) in raw.into_iter().enumerate() {
+                    if unsupported(text) {
+                        warnings.push(warn(
+                            WarningKind::UnsupportedSyntax,
+                            Some(start + offset + 1),
+                            None,
+                        ));
+                        items.push(text.into());
+                    } else {
+                        items.push(unescape(text));
+                    }
+                }
+                kind = BlockKind::List { ordered, items };
+            } else {
+                // The model cannot hold these ordinals: keep every line
+                // byte-for-byte instead of renumbering, and report each one.
+                for line_number in start + 1..=i {
+                    warnings.push(warn(
+                        WarningKind::UnsupportedSyntax,
+                        Some(line_number),
+                        None,
+                    ));
+                }
+                kind = BlockKind::Paragraph(lines[start..i].join("\n"));
+            }
         } else if line.starts_with("> ") || line == ">" {
             let mut content = vec![];
             while i < lines.len() && (lines[i].starts_with("> ") || lines[i] == ">") {

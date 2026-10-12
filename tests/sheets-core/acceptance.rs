@@ -1,4 +1,6 @@
 use nagi_sheets_core::*;
+#[path = "ifs_round.rs"]
+mod ifs_round;
 fn fixture() -> (Workbook, SheetId, SheetId) {
     let mut w = Workbook::new(ObjectId(100));
     let a = w.create_sheet(ObjectId(101), "Sheet1").unwrap();
