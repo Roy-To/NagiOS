@@ -42,6 +42,7 @@ Local-first / Offline-first は設計の中心です。基本操作をクラウ�
 クラウド LLM、API キー、テレメトリー、リモートストレージに依存させない
 ことを目指します。ただし、現在の Preview の全機能・provider がオフライン
 受け入れを完了したという意味ではありません。
+Albert で外部 Web ページを開くにはネットワーク接続が必要です。
 
 英語と日本語は対等な第一級のユーザー言語です。Nagi OS 0.3 の Personal
 Agent 構想では、ユーザー所有の Profile やモデル非依存の Memory へこの

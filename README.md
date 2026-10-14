@@ -44,6 +44,7 @@ Local-first and offline-first are core design goals: basic operation should not
 depend on a cloud account, cloud LLM, API key, telemetry service, or remote
 storage. This is a product direction; it does not mean every current preview
 feature or provider has completed offline acceptance.
+Opening external web pages in Albert still requires a network connection.
 
 English and Japanese are equal first-class user-language commitments. The
 planned Nagi OS 0.3 Personal Agent builds on these boundaries with user-owned,
