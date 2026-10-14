@@ -17,10 +17,12 @@ The inventory uses these inclusion classifications:
 - **D — lockfile/transitive dependency:** identified from `Cargo.lock` but not
   separately represented in `third_party/sources.lock`.
 
-The [Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md), based on
-main `379d19e` and reviewed on 2026-10-11, records proposed Nagi-owned license
-scope, code/data exceptions, and unresolved source/binary release gates.
-Apache-2.0 is a candidate only; this review does not grant a Nagi license.
+The current [license audit](docs/oss/LICENSE_AUDIT.md),
+[Apache-2.0 proposal](docs/oss/APACHE_2_LICENSE_PROPOSAL.md), and
+[OSS release checklist](docs/oss/OSS_RELEASE_CHECKLIST.md) were reviewed on
+2026-10-14. They use the existing Legal inventory and do not grant a Nagi
+license. The earlier [Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md)
+is a historical snapshot based on main `379d19e` from 2026-10-11.
 
 ## Pinned components
 
