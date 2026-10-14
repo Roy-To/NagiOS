@@ -41,11 +41,11 @@ indicated; it is not a legal opinion.
 - [ ] Use the existing `license-sbom` tooling documented in
   [`docs/legal/README.md`](../legal/README.md); do not create a second scanner
   or assume its output is legal clearance.
-- [ ] Save and review `nagi legal scan --json --output
-  /tmp/nagi-legal-inventory.json` output for the release revision. Resolve
-  every unknown, malformed, conflicting, or manually flagged item selected
-  for the release; record upstream revision, license text, NOTICE, selected
-  `OR` option, and target inclusion evidence.
+- [ ] Save and review the JSON inventory from
+  `./nagi legal scan --json --output /tmp/nagi-legal-inventory.json` for the
+  release revision. Resolve every unknown, malformed, conflicting, or
+  manually flagged item selected for the release; record upstream revision,
+  license text, NOTICE, selected `OR` option, and target inclusion evidence.
 - [ ] Generate an SBOM and NOTICE candidate with the existing tool, then have
   a reviewer verify the exact package/file set and the notice content. Do not
   ship a generated candidate without that review.

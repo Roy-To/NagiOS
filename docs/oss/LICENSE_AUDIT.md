@@ -40,7 +40,7 @@ another scanner, SBOM schema, or generated release inventory.
 
 At this baseline, `./nagi legal check` reports **912 components**, **24 with a
 declared license expression**, **888 with unknown, malformed, or conflicting
-license evidence**, **886 with no license expression/file evidence**, and
+license evidence**, **886 with no license expression/file evidence**,
 **875 without a located NOTICE reference**, and **911 requiring manual
 review**. The tool reports zero structural check errors. The unknown-license
 findings group as 758 crates.io Cargo records, 115 Cargo records without a
