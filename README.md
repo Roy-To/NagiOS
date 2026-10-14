@@ -4,176 +4,214 @@
 
 [English](README.md) · [日本語](README.ja.md)
 
-Nagi is an independent, local-first operating system being built around explicit
-capabilities, a native desktop, and AI that operates within the user's authority.
-It has its own kernel and user-space stack; Linux, Windows, and macOS are
-development hosts. The 0.1 Developer Preview targets QEMU x86-64.
+> **Experimental Developer Preview.** Nagi is an independent operating system
+> under active development. The 0.1 target is the QEMU x86-64 reference machine;
+> this repository does not claim a finished, general-purpose OS or physical-PC
+> support. Nagi's project-wide license has not been selected or granted.
 
-**This is an experimental Developer Preview, not a finished general-purpose OS.**
-The repository is public, but Nagi's own license is still pending approval.
-Apache-2.0 is the leading candidate; this repository does not yet grant a
-project-wide open-source license. See [Licensing](#licensing).
+## Project Overview
 
-## Why Nagi?
+Nagi is a from-scratch operating system project with its own kernel and
+user-space stack. Linux, Windows, and macOS are development hosts only; Nagi is
+not a Linux distribution. The current implementation line is Nagi OS 0.1
+Developer Preview, with QEMU x86-64 as its official target.
 
-**Safe by default. Powerful by choice. Restrict software, not the owner.**
+The project explores a local-first desktop where normal keyboard, pointer, and
+GUI use remains central while AI can help with user-directed work. The AI
+design keeps models in user space and treats their output as untrusted. The
+design requires proposed state changes to pass deterministic validation,
+policy, capability, and executor boundaries; end-to-end integration remains
+under development.
 
-Nagi explores an interface where people can express intent while retaining
-control of their machine. Ordinary GUI, keyboard, and mouse use is a design
-requirement even when AI is disabled. Core operation is intended to work without
-a cloud account, cloud LLM, API key, telemetry, or remote storage.
+This summary was checked against source commit bcb92dc (2026-10-12). The
+milestone record in [implementation status](docs/implementation_status.md) is
+the source of truth for acceptance results and known limits.
 
-AI is a user-space, untrusted provider. Its proposed actions must pass
-deterministic validation, policy, permissions, and an executor before changing
-state. Confidence never grants authority. Local inference, semantic objects,
-history, and undo are parts of this design; their end-to-end integration is
-still in progress.
+## Vision
 
-English and Japanese are equal first-class user-language commitments. English
-is canonical for APIs and diagnostics. Complete localization and accessibility
-acceptance remain open.
+Nagi is guided by:
 
-## Preview in QEMU
+> **Safe by default. Powerful by choice.**
+>
+> **Restrict software, not the owner.**
 
-These are existing guest captures from acceptance runs, not product mockups.
-They show the implementation at each capture checkpoint, rather than every
-feature described in the roadmap.
+The long-term vision is an AI-native operating system that understands user
+intent while keeping authority with the person who owns the machine. AI should
+be useful without becoming a privileged kernel component or gaining authority
+from its confidence.
 
-![Albert browser running inside Nagi on QEMU](docs/assets/screenshots/nagi-m18-qemu-browser.png)
+Local-first and offline-first are core design goals: basic operation should not
+depend on a cloud account, cloud LLM, API key, telemetry service, or remote
+storage. This is a product direction; it does not mean every current preview
+feature or provider has completed offline acceptance.
 
-*Albert / Servo HTTPS rendering acceptance, captured on 2026-10-01.
-This image predates the full interactive M18 CI closure on 2026-10-07.*
+English and Japanese are equal first-class user-language commitments. The
+planned Nagi OS 0.3 Personal Agent builds on these boundaries with user-owned,
+model-independent profile and memory concepts. That agent experience is a
+future architecture, not a completed 0.1 feature.
 
-| Native desktop acceptance surface | Japanese Settings acceptance |
-| --- | --- |
-| ![Nagi M10 desktop in QEMU](docs/assets/screenshots/nagi-m10-qemu-desktop.png) | ![Nagi Japanese Settings in QEMU](docs/assets/screenshots/nagi-m29-settings-ja-jp.png) |
-| Fixed Calculator, Notes, Files, and Terminal panels; not a completed app suite. | Language selection / restart evidence; not proof of complete translation. |
+## Why Nagi OS?
 
-A demo video has not been published as part of this preparation.
-The [recording plan](docs/oss/demo-recording-plan.md) ties proposed shots to
-existing guest acceptance evidence and defines what must be reverified.
+- **An operating system built as an operating system:** Nagi has its own kernel,
+  ABI, services, and native desktop rather than a custom shell on Linux.
+- **The user keeps authority:** capabilities and explicit permissions define
+  what software can do; probabilistic AI output does not grant access.
+- **Local data is the default direction:** user objects, history, and planned
+  AI context are designed around local ownership and recoverability.
+- **Useful without an agent:** ordinary GUI, keyboard, and pointer interaction
+  remains a requirement even when AI is unavailable or disabled.
+- **Designed for English and Japanese:** both are first-class user languages,
+  with broader localization and accessibility work still in progress.
 
-## Architecture and technical direction
+## Key Features
 
-```text
-UEFI / OVMF → Nagi Loader → Nagi Kernel → nagi-init / Supervisor
-                                            │
-                       user-space services and Nagi SDK / PAL
-                                            │
-                              native apps and Albert (Servo)
-```
-
-This is the architectural direction. Some preview services still run inside
-init; the diagram does not imply that all services have production isolation.
-
-- **Capability-based hybrid kernel:** execution, memory, IPC, and authority stay
-  in the kernel; filesystem, networking, desktop, audio, packages, and AI policy
-  belong in user space.
-- **Native stack:** Rust, ELF64, the Nagi ABI, versioned service interfaces,
-  Rust/C SDKs, and a Nagi PAL / relibc compatibility boundary. POSIX is a
-  compatibility layer rather than a Linux kernel contract.
-- **Real browser port:** Albert embeds Servo on Nagi's Mesa Softpipe software
-  rendering path. Guest work is not delegated to a host browser.
-- **Local AI direction:** typed provider capabilities separate deterministic,
-  decision, and generative paths. The 0.1 generative runtime is llama.cpp / GGUF;
-  IBM Granite 4.2 3B is the selected Standard default.
-- **Objects and recoverability:** stable Object IDs and Workspaces separate user
-  objects from paths/processes; transactions, history, undo, and A/B recovery
-  have bounded acceptance implementations, with broader integration pending.
-
-Read the [architecture overview](docs/architecture/README.md) and
-[implementation specification](docs/Nagi_OS_0.1_Codex_Implementation_Spec.md)
-for the contracts and intended scope.
-
-## Development status
-
-Snapshot: **2026-10-11**, documentation based on main
-`379d19eadb6f8792c27b9bc3f147e1ea48eac4a2`.
-[Implementation status](docs/implementation_status.md) is the authoritative
-record; individual acceptance results do not complete a whole milestone.
-
-| Area | Evidence available | Remaining limits |
+| Area | Current evidence | Scope and limits |
 | --- | --- | --- |
-| Boot, kernel, storage, display/input, networking, ABI, SDK | M0–M17 are recorded PASS, including real QEMU acceptance. | Bounded preview implementations and documented regression/environment limits apply. |
-| Albert browser (M18) | PASS: [target CI run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, StorageManager persistence; kanji conversion deferred. Browser services remain in-process. |
-| Search / semantic layer (M19) | PARTIAL: persistent Object IDs, browser-history/Search restart flows, and bounded signed-in Files indexing have guest evidence. | Production app-facing Search with live grants, Files mutation/trash UI, and normal history producer lifecycle remain open. |
-| Local generative AI (M20) | PARTIAL: recorded local QEMU Granite inference produced a schema-constrained Japanese response. | Hosted inference CI failed before inference on a storage write; normal model installation and lazy-service integration remain open. |
-| Planner, undo, browser context, embedding, voice, model routing (M21–M26) | PARTIAL: validators, bounded guest fixtures, and individual provider experiments exist. | No completed general agent workflow, page-summary UI, production semantic-search pipeline, or microphone-to-action voice experience. Qwen inference and Gemma use are not accepted. |
-| Recovery, stress, polish, release (M27–M30) | PARTIAL: bounded A/B/recovery, restart, language, and release-bundle checks have evidence. | Full integrated acceptance, security/localization/accessibility review, and human redistribution review remain open. |
+| Independent OS and kernel | M0–M18 are recorded PASS for their stated acceptance scope. The guest boots Nagi's own kernel and user-space stack on the QEMU reference machine. | Milestone PASS results do not mean the full 0.1 Developer Preview is complete. Physical hardware is not a 0.1 target. |
+| Native desktop | M10 real-QEMU acceptance is PASS. The tracked capture shows Calculator, Notes, Files, and Terminal panels. | This is a bounded desktop acceptance surface, not a finished application suite or installer. |
+| Albert browser | M18 target CI acceptance is PASS: [run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised site permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, and Servo StorageManager persistence remain open; kanji conversion is deferred. |
+| Capability-based security | Kernel handles, IPC, and capability checks have accepted implementation foundations. | Nagi makes no production security guarantee. Full app-facing and AI-action authorization integration is still in progress. |
+| Local-first and local AI | A real QEMU run loaded Granite 4.2 3B in Nagi and produced a schema-constrained Japanese response. | M20 remains PARTIAL. Model installation and normal lazy-service integration remain open; this is not a finished AI chat or agent workflow. |
+| Wayback and Activity Ledger | M15 guest acceptance verified persistent history, versions, restore, and undo. Later M22 work has bounded History and Activity Ledger evidence. | General production Activity Ledger and AI-action integration remain partial. |
+| English and Japanese | The M10 desktop has a Japanese text path; M29 QEMU acceptance verified Japanese Settings selection and restoration after restart. | Cross-process language propagation, complete translation, and accessibility acceptance remain open. |
+| Personal Agent | Nagi 0.3 architecture work describes profile, model-independent memory, learning, and capability-aware agent execution. | This is a forward roadmap, not a 0.1 implementation claim. |
 
-Physical hardware, mobile/multi-device execution, cloud synchronization, and a
-finished installer are future directions, not accepted 0.1 functionality.
-Nagi makes no production security guarantees; see [SECURITY.md](SECURITY.md).
+## Architecture
 
-## Build and explore
+~~~text
+UEFI / OVMF
+    ↓
+Nagi Loader
+    ↓
+Nagi Kernel — execution, memory, IPC, and authority
+    ↓
+nagi-init / Supervisor
+    ↓
+User-space services · Nagi ABI · SDK / PAL / relibc
+    ↓
+Native applications · Albert browser (Servo)
+~~~
 
-Use a supported development host with the pinned Rust toolchains, QEMU,
-OVMF, and build dependencies. [The Developer Preview guide](docs/developer-preview/README.md)
-covers setup and diagnostics; consult the current status record where older
-guide descriptions differ.
+The kernel is Nagi's own, not Linux-based. The architecture places filesystem,
+networking, desktop, audio, packages, and AI policy in user space. Albert uses
+Servo as its browser engine. Some preview services still run inside init, so
+the diagram describes the target boundary and does not imply full production
+service isolation.
 
-POSIX host:
+For the design contracts, see the
+[0.1 implementation specification](docs/Nagi_OS_0.1_Codex_Implementation_Spec.md)
+and [architecture overview](docs/architecture/README.md).
 
-```sh
-./nagi fetch
+## Current Development Status
+
+Status at source commit bcb92dc (2026-10-12):
+
+| Milestones | Status | Summary |
+| --- | --- | --- |
+| M0–M18 | PASS | The accepted baseline includes the kernel and desktop foundations and the full M18 Albert guest scenario. See the linked acceptance records for exact scope. |
+| M19 | PARTIAL — current milestone | Bounded guest Search, Browser History persistence, and Files Search flows have evidence. Production app-facing Search grants, Files trash/restore integration, and normal Browser History producer updates remain open. |
+| M20 | PARTIAL | Local Granite guest inference passed. The [hosted inference run 37702418216](https://github.com/RT-NISH/NagiOS/actions/runs/37702418216) stopped before inference on a User Data write timeout; model installation and normal service integration remain open. |
+| M21–M26 | PARTIAL | Validators, provider boundaries, and bounded guest experiments exist. General production agent actions, semantic-search integration, page summary, and a microphone-to-action voice experience are not accepted. Qwen inference and Gemma use are not accepted. |
+| M27–M30 | PARTIAL | Bounded recovery, integration, Japanese Settings, and release-bundle checks have evidence. Full integrated acceptance, authenticated updates, and redistribution review remain open. M30 is not PASS. |
+
+M30's recorded release manifest still has
+<code>m30_acceptance=NOT_EVALUATED</code>.
+Completion of individual QEMU scenarios or artifact checksums does not make the
+0.1 release ready. For run IDs, source revisions, and precise limitations,
+consult [docs/implementation_status.md](docs/implementation_status.md) and the
+owning workstream documents.
+
+## Screenshots
+
+These are existing captures from QEMU guest acceptance work, not mockups or
+video stills. Each image shows only the checkpoint named in its caption.
+
+| M10 — Native desktop | M18 — Albert / Servo |
+| --- | --- |
+| ![M10 QEMU desktop with Calculator, Notes, Files, and Terminal panels](docs/assets/screenshots/nagi-m10-qemu-desktop.png) | ![M18 Albert browser showing an HTTPS page inside Nagi](docs/assets/screenshots/nagi-m18-qemu-browser.png) |
+| Fixed desktop acceptance panels; not a completed app suite. | Captured 2026-10-01, before M18's full interactive CI closure on 2026-10-07. The still shows a rendered page, not all browser interactions. |
+
+### M29 — Japanese Settings
+
+![M29 Japanese Settings selection shown in the QEMU guest](docs/assets/screenshots/nagi-m29-settings-ja-jp.png)
+
+This image accompanies the QEMU language-selection and same-disk restart
+acceptance. It does not demonstrate complete translation or accessibility.
+
+No demo video has been recorded or published by this preparation. The
+[QEMU demo recording plan](docs/oss/DEMO_RECORDING_PLAN.md) describes a
+recording based on reverified guest behavior.
+
+## Roadmap
+
+- **Nagi OS 0.1 — Developer Preview:** establish a bootable independent OS and
+  its first native desktop, browser, storage, security, and local-AI foundations.
+  The 0.1 line remains in progress; M19–M30 are PARTIAL.
+- **Nagi OS 0.2 — Platform Foundation:** stabilize identity, permissions, IPC,
+  settings, model runtime, updates, application contracts, Search, and
+  Activity/Wayback. The 0.2 specification requires 0.1 M30 PASS and an explicit
+  activation checkpoint; host foundations are not target-runtime acceptance.
+- **Nagi OS 0.3 — Agentic System:** a forward architecture for a Personal Agent
+  with user-owned profile and memory, model portability, capability-aware
+  actions, and Wayback-backed undo. These goals are not 0.1 features.
+- **Nagi OS 1.0:** the long-term target for formal public OSS release. No
+  release date is promised, and the project license is not yet selected.
+
+See [ROADMAP.md](ROADMAP.md), the
+[0.2 implementation specification](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md),
+and the [0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md).
+
+## Getting Started
+
+Nagi 0.1 targets QEMU x86-64 with UEFI/OVMF, q35, four virtual CPUs, and 8 GiB
+of RAM. Use the pinned Rust toolchain and the host dependencies listed by the
+repository. Physical PC support is not a 0.1 completion requirement.
+
+From a local checkout, the POSIX host workflow is:
+
+~~~sh
 ./nagi doctor
+./nagi fetch
 ./nagi build
 ./nagi test
 ./nagi image
 ./nagi run
-```
+~~~
 
-Windows PowerShell:
+fetch may require network access and substantial disk space to materialize
+pinned third-party sources. It does not install every optional model. The
+build and test commands cover host-compatible packages; they do not replace
+QEMU milestone acceptance. For Windows PowerShell, host setup, troubleshooting,
+and current command details, follow the
+[Developer Preview guide](docs/developer-preview/README.md) and run
+<code>./nagi --help</code>.
 
-```powershell
-.\nagi.ps1 fetch
-.\nagi.ps1 doctor
-.\nagi.ps1 build
-.\nagi.ps1 test
-.\nagi.ps1 image
-.\nagi.ps1 run
-```
+The public repository can be inspected, but its visibility does not grant
+permission to use or redistribute the source. See
+[Licensing Status](#licensing-status) before working with or sharing it.
 
-`fetch` materializes hash/revision-pinned third-party sources and fonts. It may
-need substantial disk space and network access. It does not establish that all
-models are installed. `build` and `test` cover host-compatible packages;
-`image` builds the default guest image, and `run` boots it. Feature acceptance
-images are separate: `./nagi --help` lists commands such as `m18` and `login`.
+## Contributing
 
-Reference VM: QEMU x86-64, UEFI/OVMF, q35, 4 vCPU, 8 GiB RAM,
-VirtIO Block/Network/GPU/Sound/RNG, software rendering.
-Physical PC support is not a 0.1 completion requirement.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md),
+[AGENTS.md](AGENTS.md), the current
+[implementation status](docs/implementation_status.md), and the workstream
+that owns the change. Keep acceptance evidence tied to its source revision and
+separate verified behavior from plans and partial implementations.
 
-If PowerShell blocks scripts, the repository's acceptance workflow uses:
+Useful contributions include reproducible QEMU failures, focused fixes,
+documentation improvements, and reviews that identify concrete evidence or
+remaining limits. Check the licensing status below and the repository's
+contribution instructions before submitting code.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
-```
+## Licensing Status
 
-## Contributing and project preparation
+Nagi's official project license has **not been selected or granted**. Public
+repository visibility is not an open-source license and does not imply
+permission to use, copy, modify, or redistribute Nagi-owned code or
+documentation. No candidate license should be treated as a grant.
 
-Read [AGENTS.md](AGENTS.md), the specification, and current status before changing
-implementation. [CONTRIBUTING.md](CONTRIBUTING.md) explains verification;
-the [SDK guide](sdk/README.md) shows sample packaging. Useful contributions include
-reproducible guest failures, narrowly scoped ports, documentation corrections,
-and evidence-backed reviews.
-
-This documentation prepares Nagi for OSS publication and a Codex for Open Source
-application. The [application preparation notes](docs/oss/codex-application-preparation.md)
-describe the project, proposed use of support, and outstanding maintainer checks.
-They are preparation material, not an application submission or acceptance claim.
-
-## Licensing
-
-**Nagi's project-wide license has not been finalized or approved.**
-Apache-2.0 is a proposal for eligible Nagi-owned code and documentation.
-No root LICENSE is added by this preparation, and no license grant is implied.
-
-Third-party code, fonts, model weights, voice data, and images retain their own
-terms. Gemma's terms are separate from Apache-2.0. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
-[Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md) for evidence,
-exceptions, and required follow-up before source or binary release.
-
-More: [Roadmap](ROADMAP.md) · [Release notes](RELEASE_NOTES.md) ·
-[Dependency/SBOM tooling](docs/legal/README.md)
+Third-party source, fonts, model weights, voice data, and images have their own
+terms. Review [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[Legal documentation](docs/legal/README.md) before relying on or redistributing
+those materials. The formal public OSS release is planned for Nagi OS 1.0,
+after license and release reviews are complete.
