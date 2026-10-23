@@ -10051,3 +10051,20 @@ M23 stays `PARTIAL`: the Nagi Bar UI, authenticated caller binding for the
 context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
+
+## Phase 2 Automations draft host contract (2026-10-23)
+
+`crates/nagi-automation-core` is a standalone, dependency-free host/reference
+foundation for first-party §62 and 0.2 §38 (PARTIAL). It models structured
+drafts, bounded validation, read-only preview, disabled run-once admission,
+mandatory pending confirmation for external/destructive Actions, and truthful
+run outcome summaries. Existing Platform Action inputs and scope types remain
+opaque adapter parameters; no executor, capability grant or Job dispatch is
+implemented. Timers, event subscriptions, condition evaluation, natural-language
+building, persistent history/Activity and production/guest integration remain
+NOT STARTED in this foundation. No existing milestone or release gate changes.
+See the crate README for limits, adapter obligations and verification scope.
+Host checks: 13 integration tests, doc tests, manifest-scoped fmt check and
+all-target warning-denied clippy passed on aarch64 macOS with existing Rust
+1.97.1. The default PATH selected mismatched x86_64 Homebrew tools; explicit
+matching host tools resolved that environment failure. No guest acceptance ran.
