@@ -1776,3 +1776,213 @@ fn diagnostics_events_are_rate_limited_to_a_bounded_window() {
             && event.profile_correlation == SafeProfileCorrelation::new([0; 16])
     }));
 }
+
+#[test]
+fn generated_id_collision_preserves_snapshot_and_emits_no_publish_success() {
+    struct RepeatedId;
+    impl NotificationIdGenerator for RepeatedId {
+        fn next_id(&mut self) -> Result<NotificationId, AdapterFailure> {
+            Ok(NotificationId::new(1_u128.to_be_bytes()).unwrap())
+        }
+    }
+    let quota = StoreQuota::default();
+    let store = TestStore::new(quota);
+    let control = store.control.clone();
+    let diagnostics = DiagnosticsControl {
+        events: Rc::new(RefCell::new(Vec::new())),
+        fail: Rc::new(Cell::new(false)),
+    };
+    let mut service = NotificationService::new(
+        MockAdapters(Shared::new()),
+        store,
+        FakeClock::new(100),
+        RepeatedId,
+        TestDiagnostics(diagnostics.clone()),
+        quota,
+        PolicyFailureMode::Reject,
+    )
+    .unwrap();
+    let original = request(
+        "app.notes",
+        public_text("original"),
+        public_text("body"),
+        Priority::Normal,
+        None,
+        None,
+        Vec::new(),
+    );
+    service.publish(&caller("A"), original).unwrap();
+    let before = control.snapshot("A").unwrap();
+    let events = diagnostics.events.borrow().clone();
+    let replacement = request(
+        "app.notes",
+        public_text("replacement"),
+        public_text("other"),
+        Priority::High,
+        None,
+        None,
+        Vec::new(),
+    );
+    assert_eq!(
+        service.publish(&caller("A"), replacement),
+        Err(NotificationError::DuplicateNotificationId)
+    );
+    assert_eq!(control.snapshot("A").unwrap(), before);
+    assert_eq!(*diagnostics.events.borrow(), events);
+}
+
+#[test]
+fn failed_expiry_cleanup_retries_atomically_and_emits_success_once() {
+    let (mut service, _, clock, store, diagnostics) = make_service(StoreQuota::default());
+    let id = publish(
+        &mut service,
+        "A",
+        request(
+            "app.notes",
+            public_text("title"),
+            public_text("body"),
+            Priority::Normal,
+            Some(Timestamp(110)),
+            None,
+            Vec::new(),
+        ),
+    );
+    let before = store.snapshot("A").unwrap();
+    diagnostics.events.borrow_mut().clear();
+    clock.set(110);
+    store.fail_next_commit.set(true);
+    assert_eq!(
+        service.cleanup_expired(&caller("A")),
+        Err(NotificationError::PersistenceUnavailable)
+    );
+    assert_eq!(store.snapshot("A").unwrap(), before);
+    assert!(!diagnostics
+        .events
+        .borrow()
+        .iter()
+        .any(|event| event.code == NotificationEventCode::Expired));
+    assert_eq!(service.cleanup_expired(&caller("A")).unwrap().expired, [id]);
+    let committed = store.snapshot("A").unwrap();
+    assert_eq!(committed.generation(), before.generation() + 1);
+    assert!(committed.records().is_empty());
+    assert!(service
+        .cleanup_expired(&caller("A"))
+        .unwrap()
+        .expired
+        .is_empty());
+    assert_eq!(store.snapshot("A").unwrap(), committed);
+    let events = diagnostics.events.borrow();
+    let expired: Vec<_> = events
+        .iter()
+        .filter(|event| event.code == NotificationEventCode::Expired)
+        .collect();
+    assert_eq!(expired.len(), 1);
+    assert_eq!(expired[0].count, 1);
+}
+
+#[test]
+fn dismissed_record_retries_do_not_commit_emit_or_reactivate_actions() {
+    let (mut service, shared, _, store, diagnostics) = make_service(StoreQuota::default());
+    let action_id = ActionId::new("notes.open").unwrap();
+    let id = publish(
+        &mut service,
+        "A",
+        request(
+            "app.notes",
+            public_text("title"),
+            public_text("body"),
+            Priority::Normal,
+            None,
+            None,
+            vec![action("notes.open")],
+        ),
+    );
+    service.dismiss(&caller("A"), id).unwrap();
+    let before = store.snapshot("A").unwrap();
+    let events = diagnostics.events.borrow().clone();
+    store.fail_next_commit.set(true);
+    assert_eq!(
+        service.dismiss(&caller("A"), id),
+        Ok(MutationOutcome::Unchanged)
+    );
+    assert_eq!(
+        service.acknowledge(&caller("A"), id),
+        Ok(MutationOutcome::Unchanged)
+    );
+    assert_eq!(
+        service.mark_read(&caller("A"), id),
+        Ok(MutationOutcome::Unchanged)
+    );
+    assert!(store.fail_next_commit.get());
+    assert_eq!(
+        service.activate_action(&caller("A"), id, &action_id),
+        Err(NotificationError::Expired)
+    );
+    assert_eq!(shared.0.borrow().action_provider_calls, 0);
+    assert_eq!(store.snapshot("A").unwrap(), before);
+    assert_eq!(*diagnostics.events.borrow(), events);
+    assert!(query_active(&mut service, "A").is_empty());
+}
+
+#[test]
+fn defer_at_expiry_never_becomes_visible_or_resolves_an_action() {
+    let (mut service, shared, clock, store, _) = make_service(StoreQuota::default());
+    shared.0.borrow_mut().policy = Ok(PolicyDecision::DeferUntil(Timestamp(110)));
+    let id = publish(
+        &mut service,
+        "A",
+        request(
+            "app.notes",
+            public_text("title"),
+            public_text("body"),
+            Priority::Normal,
+            Some(Timestamp(110)),
+            None,
+            vec![action("notes.open")],
+        ),
+    );
+    for now in [109, 110, 111] {
+        clock.set(now);
+        assert!(query_active(&mut service, "A").is_empty());
+        assert_eq!(
+            service.ui_view(&caller("A"), id, &locale()),
+            Err(NotificationError::Expired)
+        );
+        assert_eq!(
+            service.activate_action(&caller("A"), id, &ActionId::new("notes.open").unwrap()),
+            Err(NotificationError::Expired)
+        );
+    }
+    assert_eq!(shared.0.borrow().action_provider_calls, 0);
+    assert_eq!(store.snapshot("A").unwrap().records().len(), 1);
+    assert_eq!(service.cleanup_expired(&caller("A")).unwrap().expired, [id]);
+}
+
+#[test]
+fn repeated_payload_publish_has_fresh_ids_without_inferred_content_dedup() {
+    let (mut service, _, _, store, diagnostics) = make_service(StoreQuota::default());
+    let payload = request(
+        "app.notes",
+        public_text("same"),
+        public_text("body"),
+        Priority::Normal,
+        None,
+        None,
+        Vec::new(),
+    );
+    let first = service.publish(&caller("A"), payload.clone()).unwrap().id;
+    let second = service.publish(&caller("A"), payload).unwrap().id;
+    assert_ne!(first, second);
+    let snapshot = store.snapshot("A").unwrap();
+    assert_eq!(snapshot.records().len(), 2);
+    assert_eq!(snapshot.generation(), 2);
+    assert_eq!(
+        diagnostics
+            .events
+            .borrow()
+            .iter()
+            .filter(|event| event.code == NotificationEventCode::Published)
+            .count(),
+        2
+    );
+}
