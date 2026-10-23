@@ -5,8 +5,8 @@ use std::thread;
 
 use nagi_capability::{
     AccessRequest, CapabilityDefinition, CapabilityId, CapabilityRegistry, CapabilityScope,
-    DecisionReason, EvaluationContext, GrantId, GrantLifetime, GrantSource, PermissionEvaluator,
-    PolicyDocument, PolicyStore, PolicyStoreError, PrincipalId, UnixTimestamp,
+    DecisionReason, EvaluationContext, GrantId, GrantLifetime, GrantSource, InMemoryPolicyStore,
+    PermissionEvaluator, PolicyDocument, PolicyStore, PolicyStoreError, PrincipalId, UnixTimestamp,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -305,5 +305,68 @@ fn uncertain_revoke_and_deny_commits_preserve_authoritative_policy() {
         let mut restored = evaluator(store.reload());
         assert_eq!(restored.explain(&request(), &context()).reason(), expected);
         assert_eq!(restored.check(&request(), &context()).reason(), expected);
+    }
+}
+
+// Exercise rollback on the shipped deterministic store as well as the adapter model.
+// A transaction must not publish partial consumption or grant-ID state on error.
+#[test]
+fn in_memory_store_rolls_back_operation_errors_and_invalid_candidates() {
+    for operation_error in [true, false] {
+        let shared = SharedStore::new();
+        grant(&mut evaluator(shared.clone()));
+        let mut store = InMemoryPolicyStore::from_json(shared.bytes().as_bytes()).unwrap();
+        let before = store.to_json().unwrap();
+        let result: Result<(), PolicyStoreError> = store.transact(|document| {
+            let mut candidate = serde_json::to_value(&*document).unwrap();
+            candidate["grants"][0]["consumed_at"] = serde_json::json!(10);
+            candidate["next_grant_id"] = serde_json::json!(if operation_error { 3 } else { 1 });
+            // Deserialize directly so the store, not this setup, validates the candidate.
+            *document = serde_json::from_value(candidate).unwrap();
+            if operation_error {
+                document.validate().unwrap();
+                Err(PolicyStoreError::Unavailable("operation aborted".into()))
+            } else {
+                Ok(())
+            }
+        });
+        if operation_error {
+            assert_eq!(
+                result,
+                Err(PolicyStoreError::Unavailable("operation aborted".into()))
+            );
+        } else {
+            assert!(matches!(result, Err(PolicyStoreError::Malformed(_))));
+        }
+        assert_eq!(store.to_json().unwrap(), before);
+        assert_eq!(store.snapshot().unwrap().grants()[0].consumed_at, None);
+        // A new evaluator sees the original one-shot, with no partial ID allocation.
+        let mut registry = CapabilityRegistry::new();
+        registry
+            .register(CapabilityDefinition {
+                id: request().capability,
+                description: "Host fake contract".into(),
+            })
+            .unwrap();
+        let mut restored = PermissionEvaluator::new(registry, store);
+        assert_eq!(
+            restored.check(&request(), &context()).reason(),
+            DecisionReason::AuthorizedByGrant
+        );
+        assert_eq!(
+            restored.check(&request(), &context()).reason(),
+            DecisionReason::OneShotConsumed
+        );
+        let next_id = restored
+            .grant(
+                &request(),
+                GrantLifetime::OneShot,
+                GrantSource::User,
+                None,
+                UnixTimestamp::from_unix_seconds(1),
+                None,
+            )
+            .unwrap();
+        assert_eq!(next_id.get(), 2);
     }
 }
