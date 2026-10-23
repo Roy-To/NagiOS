@@ -328,12 +328,46 @@ struct ChunkProgress {
     finished: bool,
 }
 
+// Prepared windows and resume counters must agree before engine work or PCM emission.
+fn validate_stream_progress<G>(active: &ActiveUtterance<G>) -> Result<(), SpeechProviderError> {
+    let plan = &active.plan;
+    let frames = plan
+        .end_frame
+        .checked_sub(plan.first_frame)
+        .filter(|frames| *frames != 0)
+        .ok_or(SpeechProviderError::Failed)?;
+    let bytes =
+        checked_synthesis_output_bytes(frames, plan.mode).ok_or(SpeechProviderError::Failed)?;
+    let work_limit = MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES
+        .checked_sub(plan.mode.tail_bytes())
+        .and_then(|bytes| bytes.checked_div(plan.mode.bytes_per_frame()))
+        .and_then(|frames| frames.checked_add(MAX_TRIMMED_EDGE_FRAMES))
+        .ok_or(SpeechProviderError::Failed)?;
+    if plan.end_frame > plan.total_frames
+        || plan.total_frames > work_limit
+        || frames != plan.frames
+        || bytes != plan.bytes
+        || bytes > MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES
+        || active.next_engine_frame > plan.end_frame
+    {
+        return Err(SpeechProviderError::Failed);
+    }
+    let emitted_frames = active.next_engine_frame.saturating_sub(plan.first_frame);
+    let emitted_bytes = checked_output_bytes(emitted_frames, VOICE_FRAME_SAMPLES, plan.mode)
+        .ok_or(SpeechProviderError::Failed)?;
+    if active.emitted_frames != emitted_frames || active.emitted_bytes != emitted_bytes {
+        return Err(SpeechProviderError::Failed);
+    }
+    Ok(())
+}
+
 fn produce_chunk<G: FrameGenerator>(
     active: &mut ActiveUtterance<G>,
     scratch: &mut Scratch,
     destination: &mut [u8],
     chunk_limit: usize,
 ) -> Result<ChunkProgress, SpeechProviderError> {
+    validate_stream_progress(active)?;
     let frame_bytes = active.plan.mode.bytes_per_frame();
     let mut output_offset = 0usize;
 

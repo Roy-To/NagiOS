@@ -668,3 +668,77 @@ fn stereo_sink_contract_rejects_mono_without_conversion_then_accepts_fresh_stere
     assert_eq!(probe.cancels.get(), 1);
     assert_eq!(probe.generator.drops.get(), 2);
 }
+
+#[test]
+fn invalid_plan_or_progress_is_rejected_before_generator_calls() {
+    type Mutation = fn(&mut ActiveUtterance<SyntheticGenerator>);
+    let cases: [(&str, Mutation); 10] = [
+        ("reversed window", |s| s.plan.first_frame = 4),
+        ("end beyond engine", |s| s.plan.total_frames = 2),
+        ("frame count mismatch", |s| s.plan.frames = 2),
+        ("byte budget mismatch", |s| s.plan.bytes -= 2),
+        ("consistent over-cap plan", |s| {
+            let frames = (MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES - s.plan.mode.tail_bytes())
+                / s.plan.mode.bytes_per_frame()
+                + 1;
+            s.plan.total_frames = frames;
+            s.plan.end_frame = frames;
+            s.plan.frames = frames;
+            s.plan.bytes = frames * s.plan.mode.bytes_per_frame() + s.plan.mode.tail_bytes();
+        }),
+        ("unbounded trimmed work", |s| {
+            s.plan.total_frames = usize::MAX
+        }),
+        ("cursor past window", |s| s.next_engine_frame = 4),
+        ("frame progress mismatch", |s| s.emitted_frames = 1),
+        ("byte progress mismatch", |s| s.emitted_bytes = 1),
+        ("empty output window", |s| {
+            s.plan.end_frame = 0;
+            s.plan.frames = 0;
+            s.plan.bytes = s.plan.mode.tail_bytes();
+        }),
+    ];
+    for mode in [OutputMode::Stereo48Khz, OutputMode::Mono16Khz] {
+        for (name, mutate) in cases {
+            let probe = Rc::new(Probe::default());
+            let mut stream = make_active(3, mode, 1000, Fault::None, probe.clone());
+            mutate(&mut stream);
+            let mut active = Some(stream);
+            let mut scratch = Scratch::new();
+            let mut destination = [0xcc; MAX_SPEECH_PCM_CHUNK_BYTES];
+            assert_eq!(
+                next_stream_chunk(&mut active, &mut scratch, &mut destination),
+                Err(SpeechProviderError::Failed),
+                "{name}"
+            );
+            assert!(destination.iter().all(|byte| *byte == 0), "{name}");
+            assert_eq!(probe.calls.get(), 0, "{name} reached the generator");
+            assert_eq!(probe.drops.get(), 1, "{name}");
+            assert!(active.is_none() && scratch.is_clear(), "{name}");
+            assert_eq!(
+                next_stream_chunk(&mut active, &mut scratch, &mut destination),
+                Ok(SynthesisPcmChunk::End)
+            );
+            assert_eq!(probe.calls.get(), 0);
+        }
+    }
+}
+
+#[test]
+fn valid_trimmed_plan_still_skips_edges_and_emits_only_its_window() {
+    let probe = Rc::new(Probe::default());
+    let mut active = make_active(6, OutputMode::Stereo48Khz, 2000, Fault::None, probe.clone());
+    active.plan.first_frame = 1;
+    active.plan.end_frame = 4;
+    active.plan.frames = 3;
+    active.plan.bytes = 3 * STEREO_BYTES_PER_FRAME;
+    let (actual, chunks) = direct_output(&mut active, &mut Scratch::new(), STEREO_BYTES_PER_FRAME);
+    let whole = reference_pcm(6, OutputMode::Stereo48Khz, 2000);
+    assert_eq!(
+        actual,
+        whole[STEREO_BYTES_PER_FRAME..4 * STEREO_BYTES_PER_FRAME]
+    );
+    assert_eq!(chunks, [STEREO_BYTES_PER_FRAME; 3]);
+    assert_eq!(probe.calls.get(), 4);
+    assert_eq!(probe.end_calls.get(), 0);
+}
