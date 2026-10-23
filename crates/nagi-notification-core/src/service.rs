@@ -1344,7 +1344,14 @@ where
         snapshot: &NotificationSnapshot<A::Source>,
     ) -> Result<(), NotificationError> {
         let mut ids = BTreeSet::new();
-        if snapshot.records().len() > self.quota.max_notifications_per_profile
+        let group_count = snapshot
+            .records()
+            .iter()
+            .filter_map(|record| record.grouping_key.as_ref())
+            .collect::<BTreeSet<_>>()
+            .len();
+        if group_count > self.quota.max_groups_per_profile
+            || snapshot.records().len() > self.quota.max_notifications_per_profile
             || snapshot.estimated_bytes() > self.quota.max_store_bytes_per_profile
             || snapshot.records().iter().any(|record| {
                 record.estimated_bytes() > self.quota.max_notification_bytes

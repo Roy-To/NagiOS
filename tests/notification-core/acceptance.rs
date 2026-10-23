@@ -1986,3 +1986,74 @@ fn repeated_payload_publish_has_fresh_ids_without_inferred_content_dedup() {
         2
     );
 }
+
+#[test]
+fn restored_snapshots_enforce_group_quota() {
+    assert_snapshot_group_quota(NOTIFICATION_STORE_SCHEMA_VERSION);
+}
+
+#[test]
+fn migrated_snapshots_enforce_group_quota() {
+    assert_snapshot_group_quota(0);
+}
+
+fn assert_snapshot_group_quota(version: u16) {
+    for groups in [1, 2] {
+        let (mut seed, _, _, seed_store, _) = make_service(StoreQuota::default());
+        for index in 0..groups {
+            publish(
+                &mut seed,
+                "A",
+                request(
+                    "app.notes",
+                    public_text("title"),
+                    public_text("body"),
+                    Priority::Normal,
+                    None,
+                    Some(GroupingKey::new(format!("group-{index}")).unwrap()),
+                    Vec::new(),
+                ),
+            );
+        }
+        let original = seed_store.snapshot("A").unwrap();
+        let snapshot = NotificationSnapshot::from_parts(
+            version,
+            original.generation(),
+            original.records().to_vec(),
+        );
+        let quota = StoreQuota {
+            max_groups_per_profile: 1,
+            ..StoreQuota::default()
+        };
+        let mut store = TestStore::new(quota);
+        store.inner.inject_snapshot("A".into(), snapshot.clone());
+        let (mut service, _, _, control, diagnostics) =
+            service_with(quota, PolicyFailureMode::Reject, store);
+        let result = service.query(&caller("A"), NotificationQuery::default());
+        if groups == 1 {
+            assert_eq!(result.unwrap().len(), 1);
+            assert_eq!(
+                control.snapshot("A").unwrap().schema_version(),
+                NOTIFICATION_STORE_SCHEMA_VERSION
+            );
+        } else {
+            assert_eq!(
+                result,
+                Err(NotificationError::CorruptState),
+                "schema {version}"
+            );
+            assert_eq!(
+                service.query(&caller("A"), NotificationQuery::default()),
+                Err(NotificationError::RecoveryReadOnly)
+            );
+            assert_eq!(control.snapshot("A").unwrap(), snapshot);
+            let events = diagnostics.events.borrow();
+            assert!(events
+                .iter()
+                .any(|event| event.code == NotificationEventCode::StoreRecovered));
+            assert!(!events
+                .iter()
+                .any(|event| event.code == NotificationEventCode::MigrationApplied));
+        }
+    }
+}
