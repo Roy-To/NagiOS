@@ -44,6 +44,6 @@ pub use storage::{
     StorageRootFailure, StorageRootHandle, UserStorageRootAdapter,
 };
 pub use store::{
-    IdentitySnapshotStore, InMemorySnapshotStore, SnapshotStoreError, SnapshotVersion,
-    StoredSnapshot,
+    CurrentSnapshotReader, IdentitySnapshotStore, InMemorySnapshotStore, SnapshotStoreError,
+    SnapshotVersion, StoredSnapshot,
 };

@@ -56,6 +56,8 @@ struct StoreState {
     current: Option<StoredSnapshot>,
     last_good: Option<StoredSnapshot>,
     fail_next_commit: bool,
+    fail_reads: bool,
+    read_barrier: Option<Arc<std::sync::Barrier>>,
 }
 
 impl SharedStore {
@@ -84,8 +86,23 @@ impl SharedStore {
 }
 
 impl IdentitySnapshotStore for SharedStore {
+    fn current_snapshot_reader(&self) -> Option<nagi_identity_session::CurrentSnapshotReader> {
+        let store = self.clone();
+        Some(Arc::new(move || store.load_current()))
+    }
+
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
-        Ok(self.0.lock().unwrap().current.clone())
+        let state = self.0.lock().unwrap();
+        if state.fail_reads {
+            return Err(SnapshotStoreError::Unavailable);
+        }
+        let current = state.current.clone();
+        let barrier = state.read_barrier.clone();
+        drop(state);
+        if let Some(barrier) = barrier {
+            barrier.wait();
+        }
+        Ok(current)
     }
 
     fn load_last_known_good(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
@@ -1332,5 +1349,606 @@ fn migration_requires_an_explicit_converter_and_validates_its_output() {
     assert_eq!(
         decode_snapshot_with_migration(&legacy, &NoIdentitySnapshotMigrator),
         Err(nagi_identity_session::SnapshotError::MigrationFailed)
+    );
+}
+
+// Mapping adapters may execute callbacks; success must not publish a stale identity.
+struct MappingCallback<F: Fn()> {
+    callback: F,
+    calls: Arc<AtomicUsize>,
+}
+
+impl<F: Fn()> CapabilityPrincipalAdapter for MappingCallback<F> {
+    fn principal_for(
+        &self,
+        _identity: &ResolvedIdentity,
+    ) -> Result<PrincipalId, PrincipalMappingFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        (self.callback)();
+        PrincipalId::new("system.mapped").map_err(|_| PrincipalMappingFailure::Denied)
+    }
+}
+
+#[test]
+fn mapping_callback_expiry_must_reject_success() {
+    let (mut service, clock) = new_service(SharedStore::default(), TestCleaner::default());
+    let caller = TestCaller::new("mapping-expiry");
+    recover(&mut service, &caller);
+    service
+        .create_guest_session(
+            &caller,
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("map-expiry").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let adapter = MappingCallback {
+        callback: || clock.set(200),
+        calls: calls.clone(),
+    };
+    let result = resolve_capability_principal(&adapter, &identity);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!identity.is_live());
+    assert_eq!(result, Err(PrincipalMappingFailure::StaleSession));
+}
+
+#[test]
+fn mapping_callback_logout_must_reject_success() {
+    let (mut service, _) = new_service(SharedStore::default(), TestCleaner::default());
+    let caller = TestCaller::new("mapping-logout");
+    recover(&mut service, &caller);
+    let session = service
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("map-logout").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+    let service = std::cell::RefCell::new(service);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let adapter = MappingCallback {
+        callback: || {
+            service.borrow_mut().end_session(&caller, &session).unwrap();
+        },
+        calls: calls.clone(),
+    };
+    let result = resolve_capability_principal(&adapter, &identity);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(!identity.is_live());
+    assert_eq!(result, Err(PrincipalMappingFailure::StaleSession));
+}
+
+#[derive(Default)]
+struct CountingBackend {
+    inner: MemoryProfileStorage,
+    reads: usize,
+    writes: usize,
+}
+impl ProfileStorageBackend for CountingBackend {
+    type Root = MemoryRoot;
+    fn open_profile_root(
+        &mut self,
+        user: Option<UserId>,
+        profile: &ProfileId,
+    ) -> Result<Self::Root, StorageRootFailure> {
+        self.inner.open_profile_root(user, profile)
+    }
+    fn read_object(
+        &mut self,
+        root: &Self::Root,
+        object: ObjectId,
+    ) -> Result<Vec<u8>, StorageRootFailure> {
+        self.reads += 1;
+        self.inner.read_object(root, object)
+    }
+    fn write_object(
+        &mut self,
+        root: &Self::Root,
+        object: ObjectId,
+        data: &[u8],
+    ) -> Result<(), StorageRootFailure> {
+        self.writes += 1;
+        self.inner.write_object(root, object, data)
+    }
+}
+struct CountingPrincipal(Arc<AtomicUsize>);
+impl CapabilityPrincipalAdapter for CountingPrincipal {
+    fn principal_for(&self, _: &ResolvedIdentity) -> Result<PrincipalId, PrincipalMappingFailure> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(PrincipalId::new("system.probe").unwrap())
+    }
+}
+#[test]
+fn recovery_by_b_must_revoke_a_before_backend_access() {
+    let store = SharedStore::default();
+    let (mut a, _) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("cross-instance");
+    recover(&mut a, &caller);
+    let (user, profile) = a
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    a.login_local(
+        &caller,
+        user,
+        profile.clone(),
+        None,
+        nagi_identity_session::IdempotencyKey::new("cross-instance").unwrap(),
+    )
+    .unwrap();
+    let identity = a.resolve_current_identity(&caller).unwrap();
+    let access = IdentityAccessContext::new(&identity, &caller);
+    let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
+    let mut auth = AllowProfileRoot;
+    let handle = roots.resolve_root(&access, &profile, &mut auth).unwrap();
+    roots
+        .write_object(
+            &access,
+            &handle,
+            &profile,
+            ObjectId(1),
+            b"before",
+            &mut auth,
+        )
+        .unwrap();
+    let (mut b, _) = new_service(store.clone(), TestCleaner::default());
+    assert_eq!(b.recover(&caller).unwrap().interrupted_sessions_ended, 1);
+    let saved = IdentitySnapshot::from_json(&store.current().unwrap()).unwrap();
+    assert!(matches!(
+        saved.sessions[0].lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended { .. }
+    ));
+    let read = roots.read_object(&access, &handle, &profile, ObjectId(1), &mut auth);
+    let write = roots.write_object(&access, &handle, &profile, ObjectId(1), b"after", &mut auth);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity);
+    let current_mapping =
+        a.capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()));
+    let backend = roots.into_backend();
+    eprintln!("B persisted Ended; A live={}; read={read:?}; write={write:?}; mapping={mapping:?}; current_mapping={current_mapping:?}; reads={}; writes={} (1 setup write); mapping_calls={}", identity.is_live(), backend.reads, backend.writes, calls.load(Ordering::SeqCst));
+    assert_eq!(
+        (
+            read,
+            write,
+            mapping,
+            current_mapping,
+            backend.reads,
+            backend.writes,
+            calls.load(Ordering::SeqCst)
+        ),
+        (
+            Err(StorageRootFailure::StaleSession),
+            Err(StorageRootFailure::StaleSession),
+            Err(PrincipalMappingFailure::StaleSession),
+            Err(PrincipalMappingFailure::StaleSession),
+            0,
+            1,
+            0
+        )
+    );
+}
+
+#[test]
+fn store_read_failure_must_deny_existing_identity_before_backend() {
+    let store = SharedStore::default();
+    let (mut service, _) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("unreadable-store");
+    recover(&mut service, &caller);
+    let (user, profile) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    service
+        .login_local(
+            &caller,
+            user,
+            profile.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("unreadable-store").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+    let access = IdentityAccessContext::new(&identity, &caller);
+    let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
+    let mut auth = AllowProfileRoot;
+    let handle = roots.resolve_root(&access, &profile, &mut auth).unwrap();
+    store.0.lock().unwrap().fail_reads = true;
+    assert_eq!(
+        service.resolve_current_identity(&caller).unwrap_err(),
+        ResolutionError::Unavailable
+    );
+    let read = roots.read_object(&access, &handle, &profile, ObjectId(1), &mut auth);
+    let write = roots.write_object(&access, &handle, &profile, ObjectId(1), b"after", &mut auth);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity);
+    let backend = roots.into_backend();
+    assert_eq!(
+        (
+            read,
+            write,
+            mapping,
+            backend.reads,
+            backend.writes,
+            calls.load(Ordering::SeqCst)
+        ),
+        (
+            Err(StorageRootFailure::StaleSession),
+            Err(StorageRootFailure::StaleSession),
+            Err(PrincipalMappingFailure::StaleSession),
+            0,
+            0,
+            0
+        )
+    );
+}
+
+struct CallbackRootAuthorizer<F: FnMut()>(F);
+impl<F: FnMut()> ProfileRootAuthorizer for CallbackRootAuthorizer<F> {
+    fn authorize_profile_root(
+        &mut self,
+        _: &dyn TrustedCallerContext,
+        _: &ResolvedIdentity,
+        _: &ProfileId,
+    ) -> Result<(), StorageRootFailure> {
+        (self.0)();
+        Ok(())
+    }
+}
+
+#[test]
+fn recovery_in_storage_authorizer_denies_open_read_write_before_backend() {
+    for operation in 0..3 {
+        let store = SharedStore::default();
+        let (mut a, _) = new_service(store.clone(), TestCleaner::default());
+        let caller = TestCaller::new("recovery-callback");
+        recover(&mut a, &caller);
+        let (user, profile) = a
+            .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+            .unwrap();
+        a.login_local(
+            &caller,
+            user,
+            profile.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("callback-login").unwrap(),
+        )
+        .unwrap();
+        let identity = a.resolve_current_identity(&caller).unwrap();
+        let access = IdentityAccessContext::new(&identity, &caller);
+        let backend = CountingBackend::default();
+        let opens = backend.inner.opens.clone();
+        let mut roots = UserStorageRootAdapter::new(backend);
+        let handle = roots
+            .resolve_root(&access, &profile, &mut AllowProfileRoot)
+            .unwrap();
+        let (mut b, _) = new_service(store.clone(), TestCleaner::default());
+        let mut calls = 0;
+        let mut authorizer = CallbackRootAuthorizer(|| {
+            calls += 1;
+            assert_eq!(b.recover(&caller).unwrap().interrupted_sessions_ended, 1);
+        });
+        let result = match operation {
+            0 => roots
+                .resolve_root(&access, &profile, &mut authorizer)
+                .map(|_| ()),
+            1 => roots
+                .read_object(&access, &handle, &profile, ObjectId(1), &mut authorizer)
+                .map(|_| ()),
+            _ => roots.write_object(
+                &access,
+                &handle,
+                &profile,
+                ObjectId(1),
+                b"after",
+                &mut authorizer,
+            ),
+        };
+        assert_eq!(result, Err(StorageRootFailure::StaleSession));
+        assert_eq!(calls, 1);
+        let backend = roots.into_backend();
+        assert_eq!(
+            (opens.load(Ordering::SeqCst), backend.reads, backend.writes),
+            (1, 0, 0)
+        );
+    }
+}
+
+#[test]
+fn recovery_in_principal_callback_denies_direct_and_service_mapping() {
+    for service_method in [false, true] {
+        let store = SharedStore::default();
+        let (mut a, _) = new_service(store.clone(), TestCleaner::default());
+        let caller = TestCaller::new("mapping-recovery");
+        recover(&mut a, &caller);
+        a.create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("mapping-recovery").unwrap(),
+        )
+        .unwrap();
+        let identity = a.resolve_current_identity(&caller).unwrap();
+        let (b, _) = new_service(store, TestCleaner::default());
+        let b = std::cell::RefCell::new(b);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let adapter = MappingCallback {
+            callback: || {
+                assert_eq!(
+                    b.borrow_mut()
+                        .recover(&caller)
+                        .unwrap()
+                        .interrupted_sessions_ended,
+                    1
+                );
+            },
+            calls: calls.clone(),
+        };
+        let result = if service_method {
+            a.capability_principal_for_current(&caller, &adapter)
+        } else {
+            resolve_capability_principal(&adapter, &identity)
+        };
+        assert_eq!(result, Err(PrincipalMappingFailure::StaleSession));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!identity.is_live());
+    }
+}
+
+#[test]
+fn current_store_corruption_cannot_use_last_known_good_for_authority() {
+    let store = SharedStore::default();
+    let (mut service, _) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("live-corruption");
+    recover(&mut service, &caller);
+    service
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("live-corruption").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+    store.corrupt_current(b"not-a-snapshot".to_vec());
+    assert!(!identity.is_live());
+    let calls = Arc::new(AtomicUsize::new(0));
+    assert_eq!(
+        resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity),
+        Err(PrincipalMappingFailure::StaleSession)
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn in_memory_current_reader_tracks_commit_corruption_and_failure() {
+    let mut store = InMemorySnapshotStore::default();
+    let reader = store.current_snapshot_reader().unwrap();
+    let bytes = IdentitySnapshot::empty().to_json().unwrap();
+    let version = store.commit_atomic(None, &bytes).unwrap();
+    assert_eq!(reader().unwrap().unwrap().bytes, bytes);
+    let independent = store.clone();
+    store.corrupt_current_for_test(b"corrupt".to_vec());
+    assert_eq!(reader().unwrap().unwrap().bytes, b"corrupt");
+    assert_eq!(
+        independent.load_current().unwrap().unwrap().version,
+        version
+    );
+    assert_eq!(
+        independent.current_snapshot_reader().unwrap()()
+            .unwrap()
+            .unwrap()
+            .bytes,
+        bytes
+    );
+    store.fail_reads();
+    assert_eq!(reader(), Err(SnapshotStoreError::Unavailable));
+}
+
+#[test]
+fn parallel_recovery_conflict_revokes_old_handles_and_new_session_still_works() {
+    let store = SharedStore::default();
+    let (mut a, clock) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("parallel-recover");
+    recover(&mut a, &caller);
+    let (user, profile) = a
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    a.login_local(
+        &caller,
+        user,
+        profile.clone(),
+        None,
+        nagi_identity_session::IdempotencyKey::new("parallel-recover").unwrap(),
+    )
+    .unwrap();
+    let old_identity = a.resolve_current_identity(&caller).unwrap();
+    let access = IdentityAccessContext::new(&old_identity, &caller);
+    let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
+    let old_handle = roots
+        .resolve_root(&access, &profile, &mut AllowProfileRoot)
+        .unwrap();
+    let (b, _) = new_service(store.clone(), TestCleaner::default());
+    let (c, _) = new_service(store.clone(), TestCleaner::default());
+    store.0.lock().unwrap().read_barrier = Some(Arc::new(std::sync::Barrier::new(2)));
+    let mut results = Vec::new();
+    thread::scope(|scope| {
+        let caller = &caller;
+        let rb = scope.spawn(move || {
+            let mut service = b;
+            service.recover(caller)
+        });
+        let rc = scope.spawn(move || {
+            let mut service = c;
+            service.recover(caller)
+        });
+        results.push(rb.join().unwrap());
+        results.push(rc.join().unwrap());
+    });
+    store.0.lock().unwrap().read_barrier = None;
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| matches!(r, Ok(report) if report.interrupted_sessions_ended == 1))
+            .count(),
+        1
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| matches!(r, Err(IdentityError::StoreConflict)))
+            .count(),
+        1
+    );
+    let read = roots.read_object(
+        &access,
+        &old_handle,
+        &profile,
+        ObjectId(1),
+        &mut AllowProfileRoot,
+    );
+    let write = roots.write_object(
+        &access,
+        &old_handle,
+        &profile,
+        ObjectId(1),
+        b"old",
+        &mut AllowProfileRoot,
+    );
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mapping = a.capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()));
+    assert_eq!(
+        (read, write, mapping, calls.load(Ordering::SeqCst)),
+        (
+            Err(StorageRootFailure::StaleSession),
+            Err(StorageRootFailure::StaleSession),
+            Err(PrincipalMappingFailure::StaleSession),
+            0
+        )
+    );
+    let mut fresh = IdentityService::new(
+        store,
+        TestIds {
+            session: 100,
+            ..TestIds::default()
+        },
+        clock,
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    fresh.recover(&caller).unwrap();
+    fresh
+        .login_local(
+            &caller,
+            user,
+            profile.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("new-session").unwrap(),
+        )
+        .unwrap();
+    let current = fresh.resolve_current_identity(&caller).unwrap();
+    let current_access = IdentityAccessContext::new(&current, &caller);
+    let new_handle = roots
+        .resolve_root(&current_access, &profile, &mut AllowProfileRoot)
+        .unwrap();
+    roots
+        .write_object(
+            &current_access,
+            &new_handle,
+            &profile,
+            ObjectId(1),
+            b"new",
+            &mut AllowProfileRoot,
+        )
+        .unwrap();
+    assert_eq!(
+        roots.read_object(
+            &current_access,
+            &new_handle,
+            &profile,
+            ObjectId(1),
+            &mut AllowProfileRoot
+        ),
+        Ok(b"new".to_vec())
+    );
+    assert!(fresh
+        .capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()))
+        .is_ok());
+    assert!(!old_identity.is_live());
+    let backend = roots.into_backend();
+    assert_eq!((backend.reads, backend.writes), (1, 1));
+}
+
+#[test]
+fn failed_recovery_commit_does_not_publish_end_and_successful_retry_revokes() {
+    let store = SharedStore::default();
+    let (mut a, _) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("recover-commit-fail");
+    recover(&mut a, &caller);
+    a.create_guest_session(
+        &caller,
+        None,
+        nagi_identity_session::IdempotencyKey::new("commit-fail").unwrap(),
+    )
+    .unwrap();
+    let identity = a.resolve_current_identity(&caller).unwrap();
+    let (mut b, _) = new_service(store.clone(), TestCleaner::default());
+    store.fail_next_commit();
+    assert_eq!(b.recover(&caller), Err(IdentityError::StoreUnavailable));
+    assert!(identity.is_live());
+    assert!(matches!(
+        IdentitySnapshot::from_json(&store.current().unwrap())
+            .unwrap()
+            .sessions[0]
+            .lifecycle,
+        nagi_identity_session::SessionLifecycle::Active
+    ));
+    b.recover(&caller).unwrap();
+    assert!(!identity.is_live());
+}
+
+#[test]
+fn missing_reader_defaults_to_unavailable_without_cached_authority() {
+    struct WithoutReader(SharedStore);
+    impl IdentitySnapshotStore for WithoutReader {
+        fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
+            self.0.load_current()
+        }
+        fn load_last_known_good(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
+            self.0.load_last_known_good()
+        }
+        fn commit_atomic(
+            &mut self,
+            version: Option<SnapshotVersion>,
+            bytes: &[u8],
+        ) -> Result<SnapshotVersion, SnapshotStoreError> {
+            self.0.commit_atomic(version, bytes)
+        }
+    }
+    let mut service = IdentityService::new(
+        WithoutReader(SharedStore::default()),
+        TestIds::default(),
+        TestClock(Arc::new(AtomicU64::new(100))),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    let caller = TestCaller::new("no-reader");
+    service.recover(&caller).unwrap();
+    service
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("no-reader").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        service.resolve_current_identity(&caller).unwrap_err(),
+        ResolutionError::Unavailable
+    );
+    assert_eq!(
+        service.capability_principal_for_current(
+            &caller,
+            &CountingPrincipal(Arc::new(AtomicUsize::new(0)))
+        ),
+        Err(PrincipalMappingFailure::Unavailable)
     );
 }

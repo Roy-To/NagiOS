@@ -41,6 +41,10 @@ pub fn resolve_capability_principal(
         return Err(PrincipalMappingFailure::StaleSession);
     }
     let principal = adapter.principal_for(identity)?;
+    // Adapter callbacks may expire or end the session before returning.
+    if !identity.is_live() {
+        return Err(PrincipalMappingFailure::StaleSession);
+    }
     if principal.as_str().is_empty() {
         return Err(PrincipalMappingFailure::Denied);
     }

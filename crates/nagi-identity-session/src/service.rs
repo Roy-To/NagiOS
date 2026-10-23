@@ -7,7 +7,9 @@ use crate::model::{
     ProfileMetadata, ProfileRecord, SessionEndReason, SessionKind, SessionLifecycle, SessionRecord,
     SnapshotError, UnixMillis, IDENTITY_SCHEMA_VERSION,
 };
-use crate::store::{IdentitySnapshotStore, SnapshotStoreError, SnapshotVersion};
+use crate::store::{
+    CurrentSnapshotReader, IdentitySnapshotStore, SnapshotStoreError, SnapshotVersion,
+};
 use crate::{CallerContextId, IdempotencyKey, ProfileId, ProviderSubjectRef, SessionId, UserId};
 use crate::{CapabilityPrincipalAdapter, PrincipalId, PrincipalMappingFailure};
 
@@ -273,6 +275,8 @@ pub struct ResolvedIdentity {
     expires_at: Option<UnixMillis>,
     clock_now: Arc<dyn Fn() -> UnixMillis + Send + Sync>,
     live: Arc<RwLock<bool>>,
+    issued_session: SessionRecord,
+    store_current: Option<CurrentSnapshotReader>,
 }
 
 impl fmt::Debug for ResolvedIdentity {
@@ -319,15 +323,44 @@ impl ResolvedIdentity {
     }
 
     pub(crate) fn acquire_live_lease(&self) -> Option<RwLockReadGuard<'_, bool>> {
-        let guard = self.live.read().ok()?;
-        if !*guard
-            || self
-                .expires_at
-                .is_some_and(|expires_at| (self.clock_now)() >= expires_at)
-        {
-            return None;
+        self.checked_live_lease().ok()
+    }
+
+    fn checked_live_lease(&self) -> Result<RwLockReadGuard<'_, bool>, ResolutionError> {
+        let guard = self.live.read().map_err(|_| ResolutionError::Unavailable)?;
+        if !*guard {
+            return Err(ResolutionError::Ended);
         }
-        Some(guard)
+        if self
+            .expires_at
+            .is_some_and(|expires| (self.clock_now)() >= expires)
+        {
+            return Err(ResolutionError::Expired);
+        }
+        // Only the current committed snapshot can confirm a lease. In
+        // particular, recovery by a different instance must revoke this one.
+        let reader = self
+            .store_current
+            .as_ref()
+            .ok_or(ResolutionError::Unavailable)?;
+        let stored = reader()
+            .map_err(|_| ResolutionError::Unavailable)?
+            .ok_or(ResolutionError::Unavailable)?;
+        let snapshot = IdentitySnapshot::from_json(&stored.bytes)
+            .map_err(|_| ResolutionError::CorruptState)?;
+        if !snapshot.sessions.iter().any(|session| {
+            session == &self.issued_session && matches!(session.lifecycle, SessionLifecycle::Active)
+        }) {
+            return Err(ResolutionError::Ended);
+        }
+        // A store read can take time; expiry must also be checked afterward.
+        if self
+            .expires_at
+            .is_some_and(|expires| (self.clock_now)() >= expires)
+        {
+            return Err(ResolutionError::Expired);
+        }
+        Ok(guard)
     }
 }
 
@@ -1443,10 +1476,10 @@ where
                 Arc::new(move || clock.now())
             },
             live,
+            issued_session: session.clone(),
+            store_current: self.store.current_snapshot_reader(),
         };
-        if !identity.is_live() {
-            return Err(ResolutionError::Ended);
-        }
+        drop(identity.checked_live_lease()?);
         self.emit(
             IdentityEventKind::CurrentIdentityResolved,
             session.user_id,
