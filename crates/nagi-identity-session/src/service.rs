@@ -519,8 +519,16 @@ where
     }
 
     fn save_candidate(&mut self, candidate: IdentitySnapshot) -> Result<(), IdentityError> {
+        self.save_candidate_at_version(candidate, self.store_version)
+    }
+
+    fn save_candidate_at_version(
+        &mut self,
+        candidate: IdentitySnapshot,
+        expected_version: Option<SnapshotVersion>,
+    ) -> Result<(), IdentityError> {
         let bytes = candidate.to_json().map_err(map_snapshot_error)?;
-        let next_store_version = match self.store.commit_atomic(self.store_version, &bytes) {
+        let next_store_version = match self.store.commit_atomic(expected_version, &bytes) {
             Ok(version) => version,
             Err(error) => {
                 self.emit(
@@ -572,8 +580,7 @@ where
         let current_version = current.as_ref().map(|snapshot| snapshot.version);
         let current = current.map(|snapshot| snapshot.bytes);
         let last_known_good = self.store.load_last_known_good().map_err(map_store_error)?;
-        self.store_version = current_version;
-
+        // Keep the cached snapshot and its CAS version paired on every failure.
         let (mut candidate, source) = match current {
             Some(bytes) => match self.read_valid_snapshot(&bytes) {
                 Ok(snapshot) => (snapshot, RecoverySource::Current),
@@ -653,9 +660,10 @@ where
             })
             .collect::<Vec<_>>();
         if rewrite_snapshot {
-            self.save_candidate(candidate)?;
+            self.save_candidate_at_version(candidate, current_version)?;
         } else {
             self.snapshot = candidate;
+            self.store_version = current_version;
         }
         for lease in &mut lease_guards {
             **lease = false;

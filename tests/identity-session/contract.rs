@@ -1952,3 +1952,102 @@ fn missing_reader_defaults_to_unavailable_without_cached_authority() {
         Err(PrincipalMappingFailure::Unavailable)
     );
 }
+
+#[test]
+fn review_failed_rerecovery_must_not_rebase_stale_snapshot_or_resurrect_identity() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("independent-failure-atomicity");
+    let (mut a, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut a, &caller);
+    a.create_guest_session(
+        &caller,
+        None,
+        nagi_identity_session::IdempotencyKey::new("old-session").unwrap(),
+    )
+    .unwrap();
+    let old = a.resolve_current_identity(&caller).unwrap();
+    let access = IdentityAccessContext::new(&old, &caller);
+    let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
+    let mut auth = AllowProfileRoot;
+    let handle = roots
+        .resolve_root(&access, old.profile_id(), &mut auth)
+        .unwrap();
+    let mut b = IdentityService::new(
+        store.clone(),
+        TestIds {
+            user: 100,
+            profile: 100,
+            session: 100,
+            fail: false,
+        },
+        TestClock(Arc::new(AtomicU64::new(100))),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    b.recover(&caller).unwrap();
+    let (new_user, _) = b
+        .create_local_user(
+            &caller,
+            metadata("B committed user").0,
+            metadata("B committed home").1,
+        )
+        .unwrap();
+    let new_session = b
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("new-session").unwrap(),
+        )
+        .unwrap();
+    assert!(!old.is_live());
+    let before = store.current().unwrap();
+    store.fail_next_commit();
+    assert_eq!(a.recover(&caller), Err(IdentityError::StoreUnavailable));
+    assert_eq!(store.current().unwrap(), before);
+    let followup = a.create_local_user(&caller, metadata("A followup").0, metadata("A home").1);
+    let after = IdentitySnapshot::from_json(&store.current().unwrap()).unwrap();
+    let b_user_retained = after.users.iter().any(|u| u.user_id == new_user);
+    let b_session_retained = after.sessions.iter().any(|s| s.session_id == new_session);
+    eprintln!("followup={followup:?}; B user retained={b_user_retained}; B session retained={b_session_retained}; OLD IDENTITY LIVE AGAIN={}", old.is_live());
+    let read = roots.read_object(&access, &handle, old.profile_id(), ObjectId(1), &mut auth);
+    let write = roots.write_object(
+        &access,
+        &handle,
+        old.profile_id(),
+        ObjectId(1),
+        b"stale",
+        &mut auth,
+    );
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), &old);
+    let current_mapping =
+        a.capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()));
+    let backend = roots.into_backend();
+    eprintln!(
+        "old handle read={read:?}; backend reads={}; old principal mapping={mapping:?}",
+        backend.reads
+    );
+    assert_eq!(followup, Err(IdentityError::StoreConflict));
+    assert_eq!(
+        (backend.reads, backend.writes, calls.load(Ordering::SeqCst)),
+        (0, 0, 0),
+        "committed-ended identity must not reach backend or mapping adapter"
+    );
+    assert_eq!(write, Err(StorageRootFailure::StaleSession));
+    assert_eq!(current_mapping, Err(PrincipalMappingFailure::StaleSession));
+    assert_eq!(read, Err(StorageRootFailure::StaleSession));
+    assert_eq!(mapping, Err(PrincipalMappingFailure::StaleSession));
+    assert!(
+        !old.is_live(),
+        "failed recovery followed by ordinary write resurrected a committed-ended identity"
+    );
+    assert!(
+        b_user_retained,
+        "failed recovery must not cause loss of committed user"
+    );
+    assert!(
+        b_session_retained,
+        "failed recovery must not lose B session"
+    );
+}
