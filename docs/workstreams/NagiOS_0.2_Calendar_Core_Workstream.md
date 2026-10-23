@@ -337,3 +337,56 @@ third-party sources. This replaces the historical owner-checkpoint Git pin
 for adoption; algorithms and all original 61 tests are retained. Current CI,
 PR and dependency evidence belong to the separate calendar-core-adoption State
 and `docs/0.2/adoption/CALENDAR_CORE.md`. Root Cargo and runtime remain unchanged.
+
+## Versioned in-memory snapshot contract (C5 follow-up)
+
+Base: bcb92dcf38d195498056f50a72f7d5ca12b0ea21. Scope is the Calendar crate,
+its contract tests and this document; no shared manifest, lock, CI, IDL or ABI edits.
+
+`StoreSnapshot` is a typed, owned value with schema version 1, calendars, events,
+and all previously allocated Calendar/Event IDs (including deletion tombstones).
+`snapshot()` emits deterministic ID order. `restore_snapshot()` validates the
+entire candidate before replacing stored collections. The receiving store keeps
+its capacity, Clock and IdSource. Every snapshot collection is bounded by that
+capacity (maximum 65536); duplicate IDs, missing live-ID history, dangling Calendar
+references, invalid drafts and reversed record timestamps reject without mutation.
+Resource/Workspace/owner references are opaque canonical metadata; this library
+cannot authenticate or resolve those external objects.
+
+Version dispatch accepts only version 1. There is no older schema to migrate;
+unknown versions reject rather than guessing a migration. Any future version
+requires an explicit migration followed by the same validation boundary.
+This is an explicit state replacement, not an anti-rollback protocol: callers
+choose which snapshot to restore. Restored revisions still protect subsequent
+CRUD calls, and restored ID history rejects allocator collisions/reuse.
+Generic IdSource internals are neither captured nor rewound. Callers must supply
+an allocator appropriate to the restored history; collisions return DuplicateId.
+No byte encoding, disk writes, guest VFS, durability, provider/runtime delivery,
+or claims of product Calendar acceptance are added.
+
+Verification: negative contract tests first (unknown version, duplicate IDs,
+capacity, missing history/calendar, malformed draft/recurrence/time), then full
+Calendar regression tests, fmt and clippy using the standalone locked offline
+manifest and an isolated SSD target with one build job. Compatibility with PRs
+61 and 71 is checked without adopting their implementation into this branch.
+
+Snapshot follow-up verification (host only):
+
+- Installed Rust 1.97.1 with cargo/rustc/rustdoc/rustfmt/clippy selected together;
+  no toolchain configuration or shared registry changes. The initial default
+  compiler run failed on existing `time.rs` unsigned `is_multiple_of` calls;
+  the selected current toolchain then reached the expected missing snapshot API
+  failure before production implementation.
+- Standalone `cargo test --locked --offline`: 88 passed (13 unit, 60 existing
+  acceptance, 15 snapshot contracts), zero failed. `cargo fmt -- --check` and
+  `cargo clippy --all-targets --locked --offline -- -D warnings` passed.
+- A small two-crate compatibility fixture combined this snapshot implementation
+  with PR 61 head `0c59068b260e4e8498f9069d4db707bf9fcc37aa` and PR 71 head
+  `d5b4434889b2619ea81dc4d63cc943b3deb1581f`: 89 tests passed (1 unit, 60
+  acceptance, 9 availability, 4 recurrence, 15 snapshot). Neither PR is adopted
+  into this branch. The combined fixture also passed clippy with warnings denied.
+  No VM, model download, root manifest/lock or CI edits.
+- This is typed in-memory state validation only. There is no parser/serializer,
+  durable guest cache, migration from a prior schema, anti-rollback protocol or
+  authentication of external resource references. Those remain unverified and
+  outside this follow-up; Calendar product acceptance is unchanged.
