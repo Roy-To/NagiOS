@@ -146,3 +146,22 @@ passed. The isolated harness resolved 11 cached packages offline; the production
 workspace lockfile was unchanged. Full CLI/workspace, guest/VM, target, and
 cross-platform execution were not run. Existing tests cover Bearer behavior;
 this follow-up does not define additional authentication schemes.
+
+### Independent review: empty Basic followed by another header
+
+The independent review found a regression when an empty Basic header was
+followed by an Authorization or Proxy-Authorization header: the scheme parser
+could consume the next header's marker as its payload and leave the following
+Bearer credential visible. The same independent negative failed on the current
+pre-fix source before this follow-up. A guard now preserves the next header
+marker for the outer redaction scanner, reusing the existing key/separator
+parser. A committed regression covers CRLF, space and semicolon boundaries,
+colon/equal separators and whitespace before separators at all four output
+boundaries, including round trips.
+
+After the guard, 29 production-module host tests and all five independent
+synthetic tests pass (including the original failure, 2,400 header combinations,
+and the 2,100-input Unicode/limit sweep). Pinned format and warning-denied Clippy
+pass. Original independent review evidence is retained privately; no raw logs or
+private evidence paths are included here. GitHub CI results must be associated
+with the latest PR head; earlier-head CI does not validate this guard.

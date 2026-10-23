@@ -3,8 +3,10 @@
 Status: `PARTIAL` (host-only follow-up on the existing diagnostics foundation).
 The shared sanitizer now removes unquoted Basic authentication payloads at the
 same boundary as Bearer payloads. The synthetic output-boundary regression
-failed before the fix; all 28 diagnostics-module tests and warning-denied
-Clippy pass after it. Validation uses a dependency-isolated harness pointing at
+failed before the fix; all 29 diagnostics-module tests, five independent synthetic tests and
+warning-denied Clippy pass after the independent-review follow-up. An empty
+Basic header now preserves the next authentication marker for redaction; the
+original review negative failed before that guard and passes afterward. Validation uses a dependency-isolated harness pointing at
 the production source, offline, with a dedicated target and one build job.
 See `docs/testing/diagnostics-and-verification.md` for the contract and commands.
 Full CLI/workspace, Windows/Linux, target, and guest/VM validation were not run;

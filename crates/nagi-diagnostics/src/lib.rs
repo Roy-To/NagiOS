@@ -884,15 +884,7 @@ fn inline_secret_bounds(
     start: usize,
     marker: &str,
 ) -> Option<(usize, usize)> {
-    let mut separator = start + marker.len();
-    if matches!(value.as_bytes().get(separator), Some(b'"' | b'\'')) {
-        separator += 1;
-    }
-    separator = skip_whitespace(value, separator);
-    if !matches!(value.as_bytes().get(separator), Some(b':' | b'=')) {
-        return None;
-    }
-    let separator_end = separator + 1;
+    let separator_end = inline_secret_separator(value, start, marker)?;
     let mut secret_start = skip_whitespace(value, separator_end);
 
     // Serialized safe views may be serialized again. Treat our own marker as
@@ -912,6 +904,18 @@ fn inline_secret_bounds(
                     .is_some_and(char::is_whitespace)
             {
                 secret_start = skip_whitespace(value, secret_start + scheme.len());
+                // A missing payload must not consume the next header's marker:
+                // leave it for the outer scanner to redact independently.
+                let next_is_header =
+                    ["authorization", "proxy-authorization"]
+                        .iter()
+                        .any(|header| {
+                            lower[secret_start..].starts_with(header)
+                                && inline_secret_separator(value, secret_start, header).is_some()
+                        });
+                if next_is_header {
+                    return Some((separator_end, secret_start));
+                }
                 if let Some(value_end) = unquoted_secret_end(value, secret_start) {
                     return Some((separator_end, value_end));
                 }
@@ -935,6 +939,15 @@ fn inline_secret_bounds(
     }
 
     unquoted_secret_end(value, secret_start).map(|value_end| (secret_start, value_end))
+}
+
+fn inline_secret_separator(value: &str, start: usize, marker: &str) -> Option<usize> {
+    let mut separator = start + marker.len();
+    if matches!(value.as_bytes().get(separator), Some(b'"' | b'\'')) {
+        separator += 1;
+    }
+    separator = skip_whitespace(value, separator);
+    matches!(value.as_bytes().get(separator), Some(b':' | b'=')).then_some(separator + 1)
 }
 
 fn skip_whitespace(value: &str, mut offset: usize) -> usize {
@@ -2776,6 +2789,55 @@ mod tests {
             }
             let round_trip = DiagnosticEvent::from_json(&event.to_json().unwrap()).unwrap();
             assert_eq!(event.to_json().unwrap(), round_trip.to_json().unwrap());
+        }
+    }
+
+    #[test]
+    fn empty_basic_preserves_following_authorization_marker_for_redaction() {
+        let payload = "c3ludGhldGljOnRlc3Q=";
+        for separator in ["\r\n", " ", "; "] {
+            for header in [
+                "Proxy-Authorization:",
+                "Authorization=",
+                "Proxy-Authorization :",
+                "proxy-authorization\t=",
+            ] {
+                let input =
+                    format!("Authorization: Basic{separator}{header} Bearer {payload} safe=value");
+                let event =
+                    DiagnosticEvent::new(Severity::Warn, "network", "NETWORK.AUTH_FAILED", &input)
+                        .unwrap()
+                        .with_field("detail", &input, PrivacyClass::Public)
+                        .unwrap()
+                        .with_recovery_hint(&input)
+                        .with_error_cause(ErrorCause {
+                            class: FailureClass::Network,
+                            code: "NETWORK.AUTH_FAILED".into(),
+                            safe_message: input,
+                        })
+                        .unwrap();
+                let safe = event.safe_view();
+                for output in [
+                    event.render_human(),
+                    event.to_json().unwrap(),
+                    serde_json::to_string(&safe).unwrap(),
+                    format!("{safe:?}"),
+                ] {
+                    assert!(
+                        !output.contains(payload),
+                        "following credential payload was exported"
+                    );
+                    assert!(output.contains("safe=value"));
+                }
+                let first = event.to_json().unwrap();
+                assert_eq!(
+                    first,
+                    DiagnosticEvent::from_json(&first)
+                        .unwrap()
+                        .to_json()
+                        .unwrap()
+                );
+            }
         }
     }
 
