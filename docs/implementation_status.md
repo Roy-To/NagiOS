@@ -1,3 +1,17 @@
+## Isolated host CI integration candidate — 2026-10-23
+
+Status: `PARTIAL` (host-only candidate based on main `5130ea6b`).
+The shared CLI workstream regression now uses an isolated Git fixture.
+The standalone Installer foundation includes Windows device-path rejection,
+inventory-compatible SemVer bounds, and journal capability-list validation.
+Pinned native arm64 nightly, offline and one build job: 32 Installer tests and
+32 CLI integration tests pass; affected host Clippy with warnings denied and
+changed Rust formatting checks pass. CLI checks use the existing bootstrap
+manifest to compile the same production CLI library without fetching Servo.
+Runtime, SDK/model, CI settings and the shared workstream registry are unchanged.
+Root-workspace CI, Windows execution, target builds, VM and M17 acceptance were
+not run. This candidate does not establish CI recovery or a new milestone PASS.
+
 # 1. Current status
 
 **Current milestone:** `M19 — Semantic Layer / Search`
