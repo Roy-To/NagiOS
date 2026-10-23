@@ -92,6 +92,12 @@ impl PackageMetadata {
                 "version is not a valid SDK semantic version".into(),
             ));
         }
+        // Inventory reads and update precedence use semver's bounded numeric
+        // representation. Reject SDK-valid but unrepresentable core components
+        // here, including fresh installs which do not compare versions yet.
+        semver::Version::parse(&self.version).map_err(|error| {
+            InstallerError::InvalidMetadata(format!("unsupported semantic version: {error}"))
+        })?;
         PackageRelativePath::parse(&self.entrypoint)?;
         let mut capabilities = BTreeSet::new();
         for capability in &self.required_capabilities {
