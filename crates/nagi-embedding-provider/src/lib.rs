@@ -58,6 +58,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+mod boundary;
 pub mod container;
 mod encoder;
 pub mod tokenizer;
@@ -72,6 +73,8 @@ use nagi_search::semantic::{
 };
 use sha2::{Digest, Sha256};
 
+use boundary::ProviderBoundary;
+pub use boundary::{PASSAGE_PREFIX, QUERY_PREFIX};
 pub use container::ModelError;
 use encoder::{EncodeError, Encoder, Interrupt};
 use tokenizer::Tokenizer;
@@ -85,12 +88,8 @@ pub const E5_SMALL_NEMB_BYTES: u64 = 474_604_256;
 /// Upstream revision the artifact was converted from.
 pub const E5_SMALL_REVISION: &str = "614241f622f53c4eeff9890bdc4f31cfecc418b3";
 
-pub const QUERY_PREFIX: &str = "query: ";
-pub const PASSAGE_PREFIX: &str = "passage: ";
 /// Model context length, including `<s>` and `</s>`.
 pub const MAX_TOKENS: usize = 512;
-
-const SPACE_DOMAIN: &[u8] = b"nagi.embedding-space.v1\0";
 
 const fn hex32(text: &str) -> [u8; 32] {
     const fn nibble(c: u8) -> u8 {
@@ -325,7 +324,7 @@ pub struct E5Provider {
     artifact: Vec<u8>,
     tokenizer: Tokenizer,
     encoder: Encoder,
-    space: EmbeddingSpaceId,
+    boundary: ProviderBoundary,
     info: ArtifactInfo,
     max_tokens: usize,
     config: ProviderConfig,
@@ -371,16 +370,7 @@ impl Interrupt for GuardInterrupt<'_> {
 
 /// Compute the provider-neutral space fingerprint for an artifact digest.
 pub fn space_id_for(artifact_sha256: &[u8; 32], dimensions: usize) -> EmbeddingSpaceId {
-    let mut h = Sha256::new();
-    h.update(SPACE_DOMAIN);
-    h.update(artifact_sha256);
-    h.update((dimensions as u32).to_le_bytes());
-    h.update(b"pooling=mean\0normalize=l2\0");
-    h.update(QUERY_PREFIX.as_bytes());
-    h.update([0]);
-    h.update(PASSAGE_PREFIX.as_bytes());
-    h.update([0]);
-    EmbeddingSpaceId(h.finalize().into())
+    boundary::derive_space_id(artifact_sha256, dimensions)
 }
 
 impl E5Provider {
@@ -415,6 +405,13 @@ impl E5Provider {
         }
         let parsed = container::parse(&artifact)?;
         let header = &parsed.header;
+        let boundary = ProviderBoundary::new(
+            &sha256,
+            header.hidden,
+            config.max_query_bytes,
+            config.max_passage_bytes,
+        )?;
+        boundary.validate_expected_space(config.expected_space)?;
         let max_tokens = match config.max_tokens {
             Some(cap) if cap > header.max_positions => {
                 return Err(ProviderError::InvalidConfig("max_tokens"))
@@ -431,15 +428,6 @@ impl E5Provider {
             header.eos_id,
         )?;
         let encoder = Encoder::new(&artifact, header, &parsed.tensors)?;
-        let space = space_id_for(&sha256, header.hidden);
-        if let Some(expected) = config.expected_space {
-            if expected != space {
-                return Err(ProviderError::SpaceMismatch {
-                    expected,
-                    actual: space,
-                });
-            }
-        }
         let info = ArtifactInfo {
             sha256,
             source_weights_sha256: header.source_weights_sha256,
@@ -453,7 +441,7 @@ impl E5Provider {
             artifact,
             tokenizer,
             encoder,
-            space,
+            boundary,
             info,
             max_tokens,
             config,
@@ -488,7 +476,7 @@ impl E5Provider {
     }
 
     pub fn space_id(&self) -> EmbeddingSpaceId {
-        self.space
+        self.boundary.space_id()
     }
 
     pub fn dimensions(&self) -> usize {
@@ -516,23 +504,7 @@ impl E5Provider {
     }
 
     fn prefixed(&self, purpose: EmbeddingPurpose, text: &str) -> Result<String, ProviderError> {
-        if text.trim().is_empty() {
-            return Err(ProviderError::EmptyInput);
-        }
-        let (prefix, limit) = match purpose {
-            EmbeddingPurpose::Query => (QUERY_PREFIX, self.config.max_query_bytes),
-            EmbeddingPurpose::Passage => (PASSAGE_PREFIX, self.config.max_passage_bytes),
-        };
-        if text.len() > limit {
-            return Err(ProviderError::InputTooLong {
-                bytes: text.len(),
-                limit,
-            });
-        }
-        let mut input = String::with_capacity(prefix.len() + text.len());
-        input.push_str(prefix);
-        input.push_str(text);
-        Ok(input)
+        self.boundary.prepare(purpose, text)
     }
 
     /// Embed with detailed errors, bounded by the configured deadline.
@@ -605,8 +577,7 @@ impl E5Provider {
                     ProviderError::Model(ModelError::Malformed("token_id"))
                 }
             })?;
-        Embedding::try_from_values_in_space(pooled, self.space)
-            .map_err(|_| ProviderError::InvalidOutput)
+        self.boundary.finish(pooled)
     }
 }
 
