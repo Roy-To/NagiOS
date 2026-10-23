@@ -2057,3 +2057,112 @@ fn assert_snapshot_group_quota(version: u16) {
         }
     }
 }
+
+struct SnapshotAllocationProbe;
+thread_local! {
+ static SNAPSHOT_TRACK:Cell<bool>=const {Cell::new(false)};
+ static SNAPSHOT_MAX_ALLOC:Cell<usize>=const {Cell::new(0)};
+ static SNAPSHOT_ALLOC_COUNT:Cell<usize>=const {Cell::new(0)};
+}
+// Track only the calling test thread; fixture construction and persistence
+// cloning are excluded from the measured validation interval.
+unsafe impl std::alloc::GlobalAlloc for SnapshotAllocationProbe {
+    unsafe fn alloc(&self, l: std::alloc::Layout) -> *mut u8 {
+        if SNAPSHOT_TRACK.try_with(|x| x.get()).unwrap_or(false) {
+            let _ = SNAPSHOT_MAX_ALLOC.try_with(|x| x.set(x.get().max(l.size())));
+            let _ = SNAPSHOT_ALLOC_COUNT.try_with(|x| x.set(x.get() + 1));
+        }
+        unsafe { std::alloc::System.alloc(l) }
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(p, l) }
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: std::alloc::Layout, n: usize) -> *mut u8 {
+        if SNAPSHOT_TRACK.try_with(|x| x.get()).unwrap_or(false) {
+            let _ = SNAPSHOT_MAX_ALLOC.try_with(|x| x.set(x.get().max(n)));
+            let _ = SNAPSHOT_ALLOC_COUNT.try_with(|x| x.set(x.get() + 1));
+        }
+        unsafe { std::alloc::System.realloc(p, l, n) }
+    }
+}
+#[global_allocator]
+static SNAPSHOT_ALLOCATOR: SnapshotAllocationProbe = SnapshotAllocationProbe;
+struct MoveOnlySnapshotStore(Option<NotificationSnapshot<String>>);
+impl NotificationPersistence<String, String> for MoveOnlySnapshotStore {
+    fn load(&mut self, _: &String) -> Result<StoreLoad<String>, PersistenceError> {
+        Ok(self
+            .0
+            .take()
+            .map(StoreLoad::Snapshot)
+            .unwrap_or(StoreLoad::Empty))
+    }
+    fn commit_atomic(
+        &mut self,
+        _: &String,
+        _: u64,
+        _: NotificationSnapshot<String>,
+    ) -> Result<(), PersistenceError> {
+        panic!("oversize snapshot must never commit")
+    }
+    fn usage(&self) -> StoreUsage {
+        StoreUsage::default()
+    }
+}
+#[test]
+fn oversize_snapshot_rejects_before_group_workspace_allocation() {
+    let (mut seed, _, _, control, _) = make_service(StoreQuota::default());
+    for i in 0..128 {
+        publish(
+            &mut seed,
+            "A",
+            request(
+                "app.notes",
+                public_text("a"),
+                public_text("b"),
+                Priority::Normal,
+                None,
+                Some(GroupingKey::new(format!("g{i}")).unwrap()),
+                Vec::new(),
+            ),
+        );
+    }
+    let snapshot = control.snapshot("A").unwrap();
+    let quota = StoreQuota {
+        max_notifications_per_profile: 1,
+        max_query_results: 1,
+        max_groups_per_profile: 1,
+        ..StoreQuota::default()
+    };
+    let mut service = NotificationService::new(
+        MockAdapters(Shared::new()),
+        MoveOnlySnapshotStore(Some(snapshot)),
+        FakeClock::new(100),
+        SequenceIds(1000),
+        NullNotificationDiagnostics,
+        quota,
+        PolicyFailureMode::Reject,
+    )
+    .unwrap();
+    let caller = caller("A");
+    let query = NotificationQuery {
+        limit: 1,
+        ..NotificationQuery::default()
+    };
+    SNAPSHOT_MAX_ALLOC.with(|x| x.set(0));
+    SNAPSHOT_ALLOC_COUNT.with(|x| x.set(0));
+    SNAPSHOT_TRACK.with(|x| x.set(true));
+    let result = service.query(&caller, query);
+    SNAPSHOT_TRACK.with(|x| x.set(false));
+    let max_alloc = SNAPSHOT_MAX_ALLOC.with(|x| x.get());
+    let count = SNAPSHOT_ALLOC_COUNT.with(|x| x.get());
+    assert_eq!(result, Err(NotificationError::CorruptState));
+    println!(
+        "128 records rejected against item quota 1: {count} allocations; largest {max_alloc} bytes"
+    );
+    // With an item cap of one, validating a rejected snapshot needs only bounded
+    // recovery metadata, never an allocation large enough to collect all 128 keys.
+    assert!(
+        max_alloc <= 256,
+        "allocated {max_alloc} bytes before rejecting item quota 1"
+    );
+}

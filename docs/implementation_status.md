@@ -4835,3 +4835,14 @@ The serial log SHA-256 is
 `58a39abf231fa1fc6db060e847735bd994e07c12334e6be73cc23b050581da2e`.
 There is no real pixel checksum or guest PASS marker. The classifier fix is
 verified; M17 remains `BLOCKED` and M18 remains `NOT STARTED`.
+
+## Notification snapshot validation follow-up (2026-10-23)
+
+PR #62 now rejects restored snapshots above the notification count or store-byte
+quota before collecting group keys. An allocation regression test transfers a
+prebuilt 128-record snapshot without cloning it in the measured query interval;
+with an item quota of one, the uncorrected implementation allocates up to 1024
+bytes before rejecting it, while the reordered checks allocate at most 96 bytes
+on the tested host. All 32 notification acceptance tests pass, including the
+existing restored and migrated snapshot group-quota cases. This host-only
+follow-up does not advance any runtime acceptance or milestone status.
