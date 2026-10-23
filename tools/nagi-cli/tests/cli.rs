@@ -181,53 +181,115 @@ fn dev_requires_a_subcommand_and_rejects_unknown_dev_actions() {
 
 #[test]
 fn dev_status_resume_and_verify_read_the_registered_workstream() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("workspace root");
-    let branch = std::process::Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(root)
-        .output()
-        .expect("read current branch");
-    assert!(branch.status.success(), "git rev-parse must succeed");
-    let branch = String::from_utf8(branch.stdout).expect("branch name is UTF-8");
-    let branch = branch.trim();
-    let registry: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join(".dev/workstreams.json")).expect("read workstream registry"),
+    // Exercise every branch case regardless of the caller's checkout or CI merge ref.
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let fixture = Fixture(std::env::temp_dir().join(format!(
+        "nagi-dev-cli-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("fixture timestamp")
+            .as_nanos()
+    )));
+    let root = &fixture.0;
+    fs::create_dir(root).expect("create isolated repository");
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Nagi Test",
+                "-c",
+                "user.email=nagi@example.test",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=.git/hooks",
+            ])
+            .args(args)
+            .current_dir(root)
+            .output()
+            .expect("run fixture git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("fixture git output is UTF-8")
+            .trim()
+            .to_owned()
+    };
+    git(&[
+        "init",
+        "--initial-branch=codex/integration-next-phase",
+        "--template=",
+    ]);
+    let registry_path = root.join(".dev/workstreams.json");
+    let state_path = root.join(".dev/workstreams/integration-next-phase/state.json");
+    fs::create_dir_all(state_path.parent().unwrap()).expect("create fixture workstream");
+    fs::write(
+        &registry_path,
+        include_bytes!("../../../.dev/workstreams.json"),
     )
-    .expect("parse workstream registry");
-    let active_workstream = registry["workstreams"]
-        .as_array()
-        .expect("workstreams array")
-        .iter()
-        .find(|entry| entry["owner_branch"].as_str() == Some(branch));
+    .expect("write fixture registry");
+    fs::write(
+        &state_path,
+        include_bytes!("../../../.dev/workstreams/integration-next-phase/state.json"),
+    )
+    .expect("write fixture state");
+    git(&["add", ".dev"]);
+    git(&["commit", "-m", "test fixture"]);
+    let head = git(&["rev-parse", "HEAD"]);
+
     let status = nagi_cli::development::execute(&["status".into()], root)
         .expect("registered workstream status");
     assert!(status
         .iter()
-        .any(|line| line.starts_with("Workstream: ") && line.contains(" (")));
-    assert!(status.iter().any(|line| line.starts_with("Branch: ")));
-    assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
-
-    if let Some(workstream) = active_workstream {
-        assert!(status
-            .iter()
-            .any(|line| { line.contains(workstream["id"].as_str().expect("workstream ID")) }));
-        assert!(status.iter().any(|line| line.starts_with("HEAD: ")));
-
-        let resume =
-            nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
-        assert!(resume.iter().any(|line| line.starts_with("Next action: ")));
-    } else {
-        let error = nagi_cli::development::execute(&["status".into()], root)
-            .expect_err("unregistered branches cannot guess their workstream");
-        assert!(error.to_string().contains("is not registered"));
-    }
-
+        .any(|line| line.starts_with("Workstream: integration-next-phase (")));
+    assert!(status
+        .iter()
+        .any(|line| line == "Branch: codex/integration-next-phase"));
+    assert!(status.iter().any(|line| line == &format!("HEAD: {head}")));
+    let resume = nagi_cli::development::execute(&["resume".into()], root).expect("resume summary");
+    assert!(resume.iter().any(|line| line.starts_with("Next action: ")));
     let verify = nagi_cli::development::execute(&["verify".into()], root)
         .expect("state and registry validation");
     assert!(verify[0].starts_with("PASS development state:"));
+    assert!(verify[0].contains("1 state files validated"));
+
+    for args in [
+        ["checkout", "-b", "codex/unregistered-fixture"],
+        ["checkout", "--detach", "HEAD"],
+    ] {
+        git(&args);
+        for action in ["status", "resume"] {
+            let error = nagi_cli::development::execute(&[action.into()], root)
+                .expect_err("unregistered branches cannot guess their workstream");
+            assert_eq!(error.exit_code(), nagi_cli::commands::EXIT_CONFIG_ERROR);
+            assert!(error.to_string().contains("is not registered"));
+        }
+        let verify = nagi_cli::development::execute(&["verify".into()], root)
+            .expect("verify validates registry and states independently of branch registration");
+        assert!(verify[0].starts_with("PASS development state:"));
+    }
+
+    git(&["checkout", "codex/integration-next-phase"]);
+    for path in [&state_path, &registry_path] {
+        let valid = fs::read(path).expect("read valid fixture");
+        fs::write(path, b"{").expect("corrupt fixture JSON");
+        for action in ["status", "resume", "verify"] {
+            let error = nagi_cli::development::execute(&[action.into()], root)
+                .expect_err("malformed state and registry must be rejected");
+            assert_eq!(error.exit_code(), nagi_cli::commands::EXIT_CONFIG_ERROR);
+            assert!(error.to_string().contains("invalid JSON"));
+        }
+        fs::write(path, valid).expect("restore valid fixture");
+    }
 }
 
 #[test]
