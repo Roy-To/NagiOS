@@ -1,5 +1,5 @@
 use nagi_calendar_core::{model::*, time::Instant, AppId, ObjectId};
-use nagi_calendar_search_adapter::{CalendarSearchAdapter, Error, EventObjects};
+use nagi_calendar_search_adapter::{deletion_revision, CalendarSearchAdapter, Error, EventObjects};
 use nagi_search_core::{
     nagi_search::*, DocumentRevision, IngestOutcome, MemorySnapshotBackend, ProviderAuthority,
     ProviderScope, RemoveOutcome, ScopedQuery, SearchCore, SearchCoreError,
@@ -132,7 +132,7 @@ fn update_delete_stale_conflict_and_replay() {
         adapter.publish(&mut core, &event()),
         Err(Error::Search(SearchCoreError::StaleRevision))
     );
-    let rev = EventRevision::new(3).unwrap();
+    let rev = e.revision;
     assert_eq!(
         adapter.remove(&mut core, &e.id, rev, 1),
         Ok(RemoveOutcome::Removed)
@@ -146,7 +146,7 @@ fn update_delete_stale_conflict_and_replay() {
         adapter.publish(&mut core, &e),
         Err(Error::Search(SearchCoreError::StaleRevision))
     );
-    e.revision = rev;
+    e.revision = EventRevision::new(rev.get() + 1).unwrap();
     assert_eq!(
         adapter.publish(&mut core, &e),
         Err(Error::Search(SearchCoreError::RevisionConflict))
@@ -280,9 +280,7 @@ fn reopened_index_retains_mapping_and_tombstone_revision() {
     core.register_provider(PROVIDER).unwrap();
     let e = event();
     adapter.publish(&mut core, &e).unwrap();
-    adapter
-        .remove(&mut core, &e.id, EventRevision::new(2).unwrap(), 0)
-        .unwrap();
+    adapter.remove(&mut core, &e.id, e.revision, 0).unwrap();
     drop(core);
     let mut reopened = SearchCore::open(metadata, ledger, policy, authority).unwrap();
     assert!(get(&reopened).is_none());
@@ -290,4 +288,149 @@ fn reopened_index_retains_mapping_and_tombstone_revision() {
         adapter.publish(&mut reopened, &e),
         Err(Error::Search(SearchCoreError::StaleRevision))
     );
+}
+
+#[test]
+fn actual_calendar_crud_deletion_uses_last_live_revision() {
+    use nagi_calendar_core::{
+        store::{EventStore, InMemoryStore, SequentialIds},
+        time::FixedClock,
+    };
+    let (adapter, mut core, _, _, _) = fixture();
+    let mut store = InMemoryStore::new(FixedClock(0), SequentialIds::new(), 10).unwrap();
+    let calendar = store.create_calendar("Calendar", None).unwrap();
+    let mut draft = event().draft;
+    draft.calendar_id = calendar.id;
+    let created = store.create(draft).unwrap();
+    adapter.publish(&mut core, &created).unwrap();
+    let mut draft = created.draft.clone();
+    draft.title = "Updated by actual CRUD".into();
+    let updated = store.update(&created.id, created.revision, draft).unwrap();
+    adapter.publish(&mut core, &updated).unwrap();
+    let deleted = store.delete(&updated.id, updated.revision).unwrap();
+    assert_eq!(deleted.revision, updated.revision);
+    assert_eq!(
+        adapter.remove(&mut core, &deleted.id, deleted.revision, 0),
+        Ok(RemoveOutcome::Removed)
+    );
+    assert!(get(&core).is_none());
+    assert!(core
+        .search(
+            AccessContext::anonymous(),
+            &ScopedQuery::only(SearchQuery::default(), [PROVIDER])
+        )
+        .unwrap()
+        .objects
+        .is_empty());
+    assert_eq!(
+        adapter.remove(&mut core, &deleted.id, deleted.revision, 0),
+        Ok(RemoveOutcome::AlreadyRemoved)
+    );
+    for delayed in [&created, &updated] {
+        assert_eq!(
+            adapter.publish(&mut core, delayed),
+            Err(Error::Search(SearchCoreError::StaleRevision))
+        );
+    }
+    // The real store gives recreation a fresh identity instead of resurrecting a
+    // deleted EventId. Integration supplies its already assigned ObjectId.
+    let recreated = store.create(deleted.draft).unwrap();
+    assert_ne!(recreated.id, deleted.id);
+    struct RecreatedObject;
+    impl EventObjects for RecreatedObject {
+        fn object_id(&self, id: &EventId) -> Option<ObjectId> {
+            (id.as_str() == "event_2").then_some(ObjectId(18))
+        }
+    }
+    CalendarSearchAdapter::new(PROVIDER, RecreatedObject)
+        .publish(&mut core, &recreated)
+        .unwrap();
+    assert!(get(&core).is_none());
+    let hits = core
+        .search(
+            AccessContext::anonymous(),
+            &ScopedQuery::only(SearchQuery::default(), [PROVIDER]),
+        )
+        .unwrap()
+        .objects;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].hit.record.object_id, ObjectId(18));
+}
+
+#[test]
+fn deletion_successor_handles_terminal_revision_without_writes() {
+    let (adapter, mut core, _, _, metadata) = fixture();
+    let mut e = event();
+    e.revision = EventRevision::new(u64::MAX).unwrap();
+    adapter.publish(&mut core, &e).unwrap();
+    let before = metadata.snapshot();
+    let writes = metadata.writes();
+    assert_eq!(
+        deletion_revision(e.revision),
+        Err(Error::DeletionRevisionOverflow)
+    );
+    assert_eq!(
+        adapter.remove(&mut core, &e.id, e.revision, 0),
+        Err(Error::DeletionRevisionOverflow)
+    );
+    assert_eq!(metadata.snapshot(), before);
+    assert_eq!(metadata.writes(), writes);
+    assert_eq!(
+        core.revision(PROVIDER, ObjectId(17)).unwrap().get(),
+        u64::MAX
+    );
+    assert!(get(&core).is_some());
+}
+
+#[test]
+fn deletion_at_last_available_successor_is_idempotent_and_blocks_replay() {
+    let (adapter, mut core, _, _, _) = fixture();
+    let mut e = event();
+    e.revision = EventRevision::new(u64::MAX - 1).unwrap();
+    adapter.publish(&mut core, &e).unwrap();
+    assert_eq!(deletion_revision(e.revision).unwrap().get(), u64::MAX);
+    assert_eq!(
+        adapter.remove(&mut core, &e.id, e.revision, 0),
+        Ok(RemoveOutcome::Removed)
+    );
+    assert_eq!(
+        adapter.remove(&mut core, &e.id, e.revision, 0),
+        Ok(RemoveOutcome::AlreadyRemoved)
+    );
+    assert_eq!(
+        adapter.publish(&mut core, &e),
+        Err(Error::Search(SearchCoreError::StaleRevision))
+    );
+    e.revision = EventRevision::new(u64::MAX).unwrap();
+    assert_eq!(
+        adapter.publish(&mut core, &e),
+        Err(Error::Search(SearchCoreError::RevisionConflict))
+    );
+    assert!(get(&core).is_none());
+}
+
+#[test]
+fn stale_delete_cannot_remove_newer_live_or_tombstoned_metadata() {
+    let (adapter, mut core, _, _, metadata) = fixture();
+    let mut e = event();
+    e.revision = EventRevision::new(3).unwrap();
+    adapter.publish(&mut core, &e).unwrap();
+    let writes = metadata.writes();
+    for (last_live, expected) in [
+        (1, SearchCoreError::StaleRevision),
+        (2, SearchCoreError::RevisionConflict),
+    ] {
+        assert_eq!(
+            adapter.remove(&mut core, &e.id, EventRevision::new(last_live).unwrap(), 0),
+            Err(Error::Search(expected))
+        );
+        assert!(get(&core).is_some());
+        assert_eq!(metadata.writes(), writes);
+    }
+    adapter.remove(&mut core, &e.id, e.revision, 0).unwrap();
+    assert_eq!(
+        adapter.remove(&mut core, &e.id, EventRevision::new(2).unwrap(), 0),
+        Err(Error::Search(SearchCoreError::StaleRevision))
+    );
+    assert!(get(&core).is_none());
 }

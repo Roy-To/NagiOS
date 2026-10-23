@@ -19,6 +19,8 @@ pub trait EventObjects {
 pub enum Error {
     UnmappedEvent,
     SourceMismatch,
+    /// No Search tombstone successor exists; integration must preflight deletion.
+    DeletionRevisionOverflow,
     Calendar(nagi_calendar_core::Error),
     Search(SearchCoreError),
 }
@@ -75,6 +77,12 @@ impl<R: EventObjects> CalendarSearchAdapter<R> {
             .map_err(Error::Search)
     }
 
+    /// Remove using the deleted Event's last live Calendar revision. Calendar
+    /// delete returns that unchanged revision; Search requires a newer tombstone.
+    /// Repeating the same input is idempotent. Call `deletion_revision` before
+    /// deleting from Calendar to reject the terminal u64::MAX case before loss
+    /// of the live Calendar record. Identities must never be reused after delete.
+    ///
     /// `removed_at` uses the canonical Search timestamp convention. Integration
     /// supplies it explicitly rather than silently converting Calendar units.
     pub fn remove<MB, LB, V, A>(
@@ -91,12 +99,29 @@ impl<R: EventObjects> CalendarSearchAdapter<R> {
         A: ProviderAuthority,
     {
         let object = self.objects.object_id(event).ok_or(Error::UnmappedEvent)?;
-        core.remove(self.provider, object, revision(event_revision), removed_at)
-            .map_err(Error::Search)
+        core.remove(
+            self.provider,
+            object,
+            deletion_revision(event_revision)?,
+            removed_at,
+        )
+        .map_err(Error::Search)
     }
 }
 
 fn revision(value: EventRevision) -> DocumentRevision {
     // Calendar's checked revision type has the identical nonzero invariant.
     DocumentRevision::new(value.get()).expect("Calendar revision is nonzero")
+}
+
+/// Preflight the Search tombstone revision before Calendar deletion. The caller
+/// must retain/retry a failed publication or removal; this is not a transaction
+/// across the Calendar store and Search. A terminal live revision cannot be
+/// deleted through this bridge because no newer canonical revision exists.
+pub fn deletion_revision(last_live: EventRevision) -> Result<DocumentRevision, Error> {
+    let successor = last_live
+        .get()
+        .checked_add(1)
+        .ok_or(Error::DeletionRevisionOverflow)?;
+    Ok(DocumentRevision::new(successor).expect("successor is nonzero"))
 }

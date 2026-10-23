@@ -6,7 +6,20 @@ The existing Calendar and Search sources remain unchanged.
 
 A trusted integration caller injects the Calendar provider identity and a stable
 EventId -> existing ObjectId resolver. No ObjectId allocator or Search schema is
-introduced. Calendar revisions become canonical DocumentRevision values.
+introduced. Live Calendar revisions become canonical DocumentRevision values. Calendar
+EventStore::delete returns the last live revision unchanged; remove accepts that
+last live value and converts it to a checked successor for the Search tombstone.
+Identical remove retries map to the same tombstone and return AlreadyRemoved.
+Stale deletes cannot replace newer live records. Deleted EventIds/ObjectIds must
+not be reused; actual Calendar recreation receives a fresh ID and mapping.
+
+Integration must call deletion_revision before deleting from Calendar. At
+u64::MAX it returns DeletionRevisionOverflow without mutating Search; integration
+must retain the live Calendar event rather than deleting it. u64::MAX-1 can be
+removed at tombstone u64::MAX. There is no saturating or wrapping conversion.
+This bridge is not a transaction across Calendar and Search: integration must
+retain and retry failed index operations. Delete-before-first-index and dirty
+ledger recovery remain inherited SearchCore integration limitations.
 Projection uses ApplicationData, title, location and participant tags; the
 canonical MetadataRecord validator rejects overlong fields without truncation.
 Descriptions/notes, dates, workspace membership and runtime integration are
@@ -49,3 +62,15 @@ patch. Equal revisions compare the selected metadata projection, not omitted
 Calendar notes or scheduling fields. Dates, workspaces, notes policy, runtime
 registration, IPC, UI, guest/VM acceptance and product CAL-009 remain unverified
 and out of scope. Existing GitHub CI is not disabled or skipped.
+
+
+## Deletion revision regression
+
+Independent review reproduced a real Calendar create/publish/delete/remove
+failure against the original PR head: removal passed an equal revision and
+SearchCore retained the live metadata with RevisionConflict. The adapter now
+bridges the returned last live revision to its successor. The real-store test
+covers create/update/delete, metadata/search removal, duplicate remove, delayed
+replay and fresh-ID recreation. Boundary tests cover terminal overflow without
+writes, the final usable successor, and stale removal. Calendar/Search sources
+and the original independent review evidence are preserved.
