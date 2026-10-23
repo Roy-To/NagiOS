@@ -98,8 +98,11 @@ struct CompatibilityInputs {
     build_profile: Option<String>,
     build_command_digest: Option<String>,
     build_flags: Vec<String>,
+    #[serde(deserialize_with = "deserialize_unique_string_map")]
     environment_inputs: BTreeMap<String, String>,
+    #[serde(deserialize_with = "deserialize_unique_string_map")]
     third_party_revisions: BTreeMap<String, String>,
+    #[serde(deserialize_with = "deserialize_unique_string_map")]
     submodule_revisions: BTreeMap<String, String>,
     nagi_patch_digest: String,
     build_configuration_digest: String,
@@ -118,9 +121,11 @@ struct SourceIdentity {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ToolchainIdentity {
+    #[serde(deserialize_with = "deserialize_unique_string_map")]
     rustc: BTreeMap<String, String>,
     cargo: Option<String>,
     host_triple: Option<String>,
+    #[serde(deserialize_with = "deserialize_unique_string_map")]
     native_tools: BTreeMap<String, String>,
 }
 
@@ -1609,6 +1614,48 @@ fn command_output(program: &Path, args: &[&str], root: &Path) -> Option<std::pro
         .current_dir(root)
         .output()
         .ok()
+}
+
+// Typed structs already reject duplicate fields. String maps need the same
+// protection before BTreeMap deserialization can discard an earlier value.
+fn deserialize_unique_string_map<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct UniqueStringMap;
+
+    impl<'de> serde::de::Visitor<'de> for UniqueStringMap {
+        type Value = BTreeMap<String, String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string map with unique keys")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let mut entries = BTreeMap::new();
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                match entries.entry(key) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(value);
+                    }
+                    std::collections::btree_map::Entry::Occupied(entry) => {
+                        return Err(serde::de::Error::custom(format!(
+                            "duplicate map key `{}`",
+                            entry.key()
+                        )));
+                    }
+                }
+            }
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueStringMap)
 }
 
 fn read_fingerprint(

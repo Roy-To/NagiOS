@@ -329,3 +329,75 @@ fn empty_inventory_path_is_not_a_file_or_tool() {
     }
     // The existing artifact negative table includes the empty path as well.
 }
+
+fn compare_encoded_document(encoded: &str) -> (i32, String) {
+    let root = fixture();
+    fs::write(root.join("nested.json"), encoded).unwrap();
+    let result = execute_fingerprint_cli(
+        &["compare", "nested.json", "nested.json", "--json"].map(str::to_owned),
+        &root,
+    );
+    (result.exit_code, result.lines.join("\n"))
+}
+
+#[test]
+fn nested_duplicate_json_map_keys_fail_closed() {
+    for (field, key, value) in [
+        ("rustc", "version", "rustc fixture".to_owned()),
+        ("native_tools", "compiler", "clang fixture".to_owned()),
+        ("environment_inputs", "RUSTFLAGS", "d".repeat(64)),
+        ("third_party_revisions", "serde.revision", "e".repeat(40)),
+        (
+            "submodule_revisions",
+            "third_party/component",
+            "f".repeat(40),
+        ),
+    ] {
+        let entry = format!(
+            "{}:{}",
+            serde_json::to_string(key).unwrap(),
+            serde_json::to_string(&value).unwrap()
+        );
+        let canonical_map = format!("\"{field}\":{{{entry}}}");
+        let inputs = if field == "rustc" {
+            INPUTS.to_owned()
+        } else {
+            INPUTS.replace(&format!("\"{field}\":{{}}"), &canonical_map)
+        };
+        let valid = with_inputs(&inputs);
+        let encoded = serde_json::to_string(&valid).unwrap();
+        assert_eq!(
+            compare_encoded_document(&encoded).0,
+            0,
+            "valid {field} control"
+        );
+        for first_value in [value.as_str(), "shadowed attacker value"] {
+            let first_entry = format!(
+                "{}:{}",
+                serde_json::to_string(key).unwrap(),
+                serde_json::to_string(first_value).unwrap()
+            );
+            let ambiguous = encoded.replace(
+                &canonical_map,
+                &format!("\"{field}\":{{{first_entry},{entry}}}"),
+            );
+            assert_ne!(ambiguous, encoded);
+            let (code, output) = compare_encoded_document(&ambiguous);
+            assert_eq!(code, 4, "duplicate in {field}: {output}");
+            assert!(output.contains("duplicate map key"), "{output}");
+        }
+    }
+}
+
+#[test]
+fn escaped_nested_duplicate_json_key_fails_closed() {
+    let encoded = serde_json::to_string(&document()).unwrap();
+    let ambiguous = encoded.replace(
+        r#""rustc":{"version":"rustc fixture"}"#,
+        r#""rustc":{"vers\u0069on":"shadowed attacker value","version":"rustc fixture"}"#,
+    );
+    assert_ne!(ambiguous, encoded);
+    let (code, output) = compare_encoded_document(&ambiguous);
+    assert_eq!(code, 4, "{output}");
+    assert!(output.contains("duplicate map key"), "{output}");
+}
