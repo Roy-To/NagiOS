@@ -253,7 +253,7 @@ pub fn validate_spdx_document(document: &Value) -> Result<(), Vec<String>> {
                 errors.push("documentDescribes entries must be SPDX identifiers".to_owned());
                 continue;
             };
-            if id != "SPDXRef-NagiOS" && !package_ids.contains(id) {
+            if !package_ids.contains(id) {
                 errors.push(format!("documentDescribes refers to absent package {id}"));
             }
         }
