@@ -271,6 +271,7 @@ struct RunControl {
     stop: AtomicU8,
     pause: AtomicU8,
     parent: Option<Arc<RunControl>>,
+    last_progress: Mutex<Option<TimestampMillis>>,
 }
 
 impl Default for RunControl {
@@ -279,6 +280,7 @@ impl Default for RunControl {
             stop: AtomicU8::new(0),
             pause: AtomicU8::new(0),
             parent: None,
+            last_progress: Mutex::new(None),
         }
     }
 }
@@ -422,7 +424,6 @@ pub struct Scheduler {
 #[derive(Default)]
 struct RuntimeState {
     active: HashMap<JobId, Arc<RunControl>>,
-    last_progress: HashMap<JobId, TimestampMillis>,
 }
 
 impl Scheduler {
@@ -1198,7 +1199,7 @@ impl Scheduler {
         let clock = self.clock.clone();
         let store = self.store.clone();
         let diagnostics = self.diagnostics.clone();
-        let runtime = self.runtime.clone();
+        let progress_control = control.clone();
         let progress_interval = self.config.progress_interval;
         let progress_id = id.clone();
         let progress_handler = record.handler().clone();
@@ -1215,17 +1216,18 @@ impl Scheduler {
                 return Err(ProgressError::StoreUnavailable);
             }
             {
-                let mut state = runtime
+                // A callback whose read overlaps recovery can still lose CAS.
+                // Reserve only its own run's budget, never its replacement's.
+                let mut last_progress = progress_control
+                    .last_progress
                     .lock()
                     .map_err(|_| ProgressError::StoreUnavailable)?;
-                if state
-                    .last_progress
-                    .get(&progress_id)
+                if last_progress
                     .is_some_and(|last| now.0 < last.0.saturating_add(progress_interval.0))
                 {
                     return Err(ProgressError::RateLimited);
                 }
-                state.last_progress.insert(progress_id.clone(), now);
+                *last_progress = Some(now);
             }
             current.set_progress(summary.clone(), now);
             let saved = store
@@ -1452,7 +1454,6 @@ impl Scheduler {
                 .is_some_and(|active| Arc::ptr_eq(active, control))
             {
                 runtime.active.remove(id);
-                runtime.last_progress.remove(id);
             }
         }
     }

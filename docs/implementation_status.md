@@ -3,6 +3,17 @@
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**JOB-01 host follow-up, 2026-10-23:** `PARTIAL`. Progress rate state is
+scoped to each run control so an obsolete callback whose record read overlaps
+recovery cannot consume a replacement attempt's progress window, even when its
+store CAS is rejected. Attempt/state validation and CAS still guard metadata;
+no obsolete checkpoint or diagnostic event is accepted. The deterministic
+snapshot-gate regression failed before the fix (`RateLimited` for the replacement)
+and passes afterward. Locked offline host tests pass (22 unit + 13 integration),
+including the three independent stale callback negatives and pause/resume.
+Runtime activation still requires formal M30 PASS and an explicit JOB-01
+checkpoint; guest/runtime acceptance remains NOT_RUN.
+
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,

@@ -491,3 +491,398 @@ fn stale_context_updates_do_not_mutate_records_events_or_replacement_rate_budget
         }
     }
 }
+
+// Public-API stale callback and recovery interleaving regressions.
+enum CallbackCommand {
+    Progress,
+    Checkpoint,
+    Finish,
+    FinishPaused,
+}
+struct CallbackHandle {
+    command: mpsc::Sender<CallbackCommand>,
+    result: mpsc::Receiver<Result<(), ProgressError>>,
+}
+struct CallbackProvider {
+    started: mpsc::Sender<CallbackHandle>,
+}
+impl JobHandler for CallbackProvider {
+    fn supports_pause(&self) -> bool {
+        true
+    }
+    fn handler_ref(&self) -> HandlerRef {
+        reference()
+    }
+    fn recovery_policy(&self, _: &JobRecord) -> RecoveryPolicy {
+        RecoveryPolicy::Idempotent
+    }
+    fn execute(&self, context: &mut HandlerContext) -> HandlerOutcome {
+        let (command, commands) = mpsc::channel();
+        let (result, results) = mpsc::channel();
+        self.started
+            .send(CallbackHandle {
+                command,
+                result: results,
+            })
+            .unwrap();
+        loop {
+            match commands.recv().unwrap() {
+                CallbackCommand::Progress => result
+                    .send(
+                        context.report_progress(
+                            ProgressSummary::new(
+                                ProgressCode::new("old.progress").unwrap(),
+                                1,
+                                Some(2),
+                            )
+                            .unwrap(),
+                        ),
+                    )
+                    .unwrap(),
+                CallbackCommand::Checkpoint => result
+                    .send(context.publish_checkpoint(CheckpointRef::new("old.checkpoint").unwrap()))
+                    .unwrap(),
+                CallbackCommand::Finish => return HandlerOutcome::Succeeded,
+                CallbackCommand::FinishPaused => return HandlerOutcome::Paused(None),
+            }
+        }
+    }
+}
+fn callback_harness() -> (
+    Arc<Scheduler>,
+    Arc<BoundedJobEventRecorder>,
+    CallerRef,
+    JobId,
+    mpsc::Receiver<CallbackHandle>,
+) {
+    let events = Arc::new(BoundedJobEventRecorder::new(64));
+    let providers = Arc::new(JobProviderRegistry::new());
+    let (tx, rx) = mpsc::channel();
+    providers
+        .register(Arc::new(CallbackProvider { started: tx }))
+        .unwrap();
+    let scheduler = Arc::new(
+        Scheduler::new(
+            Arc::new(InMemoryJobStore::new()),
+            Arc::new(ManualClock::default()),
+            Arc::new(FakeAuthority),
+            events.clone(),
+            providers,
+            SchedulerConfig::default(),
+        )
+        .unwrap(),
+    );
+    let caller =
+        CallerRef::from_authenticated_adapter(PrincipalRef::new("fake.owner").unwrap(), None);
+    let retry = RetryPolicy::new(
+        3,
+        DurationMillis(10),
+        DurationMillis(20),
+        2000,
+        [JobFailureCode::Transient],
+        RetryTerminalAction::Failed,
+    )
+    .unwrap();
+    let id = scheduler
+        .enqueue(
+            &caller,
+            JobRequest::new(reference()).with_retry_policy(retry),
+        )
+        .unwrap()
+        .record
+        .id()
+        .clone();
+    (scheduler, events, caller, id, rx)
+}
+fn stale_callback_check(command: CallbackCommand) {
+    let (s, events, caller, id, started) = callback_harness();
+    let old = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let old_handle = started.recv().unwrap();
+    s.recover_startup().unwrap();
+    let new = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let new_handle = started.recv().unwrap();
+    let before = s.inspect(&caller, &id).unwrap();
+    let events_before = events.snapshot();
+    assert_eq!(before.attempt_count(), 2);
+    old_handle.command.send(command).unwrap();
+    let result = old_handle.result.recv().unwrap();
+    let after = s.inspect(&caller, &id).unwrap();
+    let events_after = events.snapshot();
+    old_handle.command.send(CallbackCommand::Finish).unwrap();
+    let old_result = old.join().unwrap();
+    new_handle.command.send(CallbackCommand::Finish).unwrap();
+    let new_result = new.join().unwrap();
+    assert!(old_result.is_ok() && new_result.is_ok());
+    assert_eq!(
+        after,
+        before,
+        "stale callback changed replacement attempt; callback result={result:?}, events changed={}",
+        events_before != events_after
+    );
+    assert_eq!(events_after, events_before);
+    assert!(result.is_err(), "stale callback accepted");
+}
+#[test]
+fn stale_progress_cannot_mutate_replacement_attempt_or_events() {
+    stale_callback_check(CallbackCommand::Progress);
+}
+#[test]
+fn stale_checkpoint_cannot_mutate_replacement_attempt() {
+    stale_callback_check(CallbackCommand::Checkpoint);
+}
+#[test]
+fn rejected_queued_callback_cannot_throttle_replacement_progress() {
+    let (s, _, caller, id, started) = callback_harness();
+    let old = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let old_handle = started.recv().unwrap();
+    s.recover_startup().unwrap();
+    assert_eq!(s.inspect(&caller, &id).unwrap().state(), &JobState::Queued);
+    old_handle.command.send(CallbackCommand::Progress).unwrap();
+    let stale_result = old_handle.result.recv().unwrap();
+    let new = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let new_handle = started.recv().unwrap();
+    new_handle.command.send(CallbackCommand::Progress).unwrap();
+    let current_result = new_handle.result.recv().unwrap();
+    old_handle.command.send(CallbackCommand::Finish).unwrap();
+    old.join().unwrap().unwrap();
+    new_handle.command.send(CallbackCommand::Finish).unwrap();
+    new.join().unwrap().unwrap();
+    assert_eq!(stale_result, Err(ProgressError::StoreUnavailable));
+    assert_eq!(
+        current_result,
+        Ok(()),
+        "rejected stale callback consumed the replacement attempt rate window"
+    );
+}
+
+#[test]
+fn additional_stale_outcomes_preserve_replacement_record_events_and_token() {
+    for outcome in [
+        HandlerOutcome::Cancelled,
+        HandlerOutcome::Paused(Some(CheckpointRef::new("stale.result.checkpoint").unwrap())),
+        HandlerOutcome::Failed(JobFailureCode::Permanent),
+        HandlerOutcome::Failed(JobFailureCode::PermissionDenied),
+    ] {
+        let h = Harness::new();
+        let old = h.spawn();
+        h.started.recv().unwrap();
+        h.scheduler.recover_startup().unwrap();
+        let new = h.spawn();
+        let token = h.started.recv().unwrap();
+        let before = h.record();
+        let events = h.events.snapshot();
+        h.releases[0].send(outcome).unwrap();
+        let result = old.join().unwrap();
+        let after = h.record();
+        let after_events = h.events.snapshot();
+        h.cancel();
+        let reason = token.reason();
+        h.releases[1].send(HandlerOutcome::Cancelled).unwrap();
+        new.join().unwrap().unwrap();
+        assert_eq!(
+            result,
+            Ok(DispatchResult::Completed(Box::new(before.clone())))
+        );
+        assert_eq!(after, before);
+        assert_eq!(after_events, events);
+        assert_eq!(reason, Some(CancellationReason::Requested));
+    }
+}
+
+#[test]
+fn pause_resume_retains_checkpoint_and_current_callbacks_work() {
+    let (s, events, caller, id, started) = callback_harness();
+    let first = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let h = started.recv().unwrap();
+    h.command.send(CallbackCommand::Checkpoint).unwrap();
+    assert_eq!(h.result.recv().unwrap(), Ok(()));
+    let requested = s.pause(&caller, &id).unwrap();
+    assert_eq!(requested.state(), &JobState::PauseRequested);
+    h.command.send(CallbackCommand::FinishPaused).unwrap();
+    first.join().unwrap().unwrap();
+    let paused = s.inspect(&caller, &id).unwrap();
+    assert_eq!(paused.state(), &JobState::Paused);
+    assert_eq!(paused.checkpoint_ref().unwrap().as_str(), "old.checkpoint");
+    assert_eq!(s.resume(&caller, &id).unwrap().state(), &JobState::Queued);
+    let second = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let h = started.recv().unwrap();
+    h.command.send(CallbackCommand::Progress).unwrap();
+    let progress = h.result.recv().unwrap();
+    h.command.send(CallbackCommand::Finish).unwrap();
+    second.join().unwrap().unwrap();
+    assert_eq!(progress, Ok(()));
+    let completed = s.inspect(&caller, &id).unwrap();
+    assert_eq!(completed.state(), &JobState::Succeeded);
+    assert_eq!(completed.attempt_count(), 2);
+    assert_eq!(completed.checkpoint_ref(), paused.checkpoint_ref());
+    let codes = events
+        .snapshot()
+        .into_iter()
+        .map(|e| e.code())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        codes.iter().filter(|c| **c == JobEventCode::Paused).count(),
+        1
+    );
+    assert_eq!(
+        codes
+            .iter()
+            .filter(|c| **c == JobEventCode::Resumed)
+            .count(),
+        1
+    );
+}
+
+// A linearizable store adapter gates one get after the backing store copied its
+// snapshot. This models a callback preemption before validating that snapshot.
+struct SnapshotGateStore {
+    inner: InMemoryJobStore,
+    armed: std::sync::atomic::AtomicBool,
+    entered: mpsc::Sender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
+}
+impl JobStore for SnapshotGateStore {
+    fn insert(
+        &self,
+        r: JobRecord,
+        d: Option<(DedupeScope, TimestampMillis)>,
+        n: TimestampMillis,
+        q: usize,
+        c: usize,
+    ) -> Result<InsertOutcome, JobStoreError> {
+        self.inner.insert(r, d, n, q, c)
+    }
+    fn get(&self, id: &JobId) -> Result<Option<JobRecord>, JobStoreError> {
+        let snapshot = self.inner.get(id)?;
+        if self.armed.swap(false, Ordering::SeqCst) {
+            self.entered.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+        }
+        Ok(snapshot)
+    }
+    fn list(&self) -> Result<Vec<JobRecord>, JobStoreError> {
+        self.inner.list()
+    }
+    fn compare_and_swap(
+        &self,
+        id: &JobId,
+        rev: u64,
+        r: JobRecord,
+    ) -> Result<JobRecord, JobStoreError> {
+        self.inner.compare_and_swap(id, rev, r)
+    }
+    fn claim(
+        &self,
+        id: &JobId,
+        rev: u64,
+        n: TimestampMillis,
+        g: usize,
+        o: usize,
+    ) -> Result<Option<JobRecord>, JobStoreError> {
+        self.inner.claim(id, rev, n, g, o)
+    }
+}
+#[test]
+fn progress_read_recovery_race_cannot_consume_replacement_rate_budget() {
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    let store = Arc::new(SnapshotGateStore {
+        inner: InMemoryJobStore::new(),
+        armed: std::sync::atomic::AtomicBool::new(false),
+        entered: entered_tx,
+        release: Mutex::new(release_rx),
+    });
+    let events = Arc::new(BoundedJobEventRecorder::new(64));
+    let providers = Arc::new(JobProviderRegistry::new());
+    let (started_tx, started) = mpsc::channel();
+    providers
+        .register(Arc::new(CallbackProvider {
+            started: started_tx,
+        }))
+        .unwrap();
+    let s = Arc::new(
+        Scheduler::new(
+            store.clone(),
+            Arc::new(ManualClock::default()),
+            Arc::new(FakeAuthority),
+            events.clone(),
+            providers,
+            SchedulerConfig::default(),
+        )
+        .unwrap(),
+    );
+    let caller =
+        CallerRef::from_authenticated_adapter(PrincipalRef::new("fake.owner").unwrap(), None);
+    let retry = RetryPolicy::new(
+        3,
+        DurationMillis(10),
+        DurationMillis(20),
+        2000,
+        [JobFailureCode::Transient],
+        RetryTerminalAction::Failed,
+    )
+    .unwrap();
+    let id = s
+        .enqueue(
+            &caller,
+            JobRequest::new(reference()).with_retry_policy(retry),
+        )
+        .unwrap()
+        .record
+        .id()
+        .clone();
+    let old = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let old_h = started.recv().unwrap();
+    store.armed.store(true, Ordering::SeqCst);
+    old_h.command.send(CallbackCommand::Progress).unwrap();
+    entered.recv().unwrap();
+    // The old get has copied attempt 1. It overlaps valid recovery and claim 2.
+    s.recover_startup().unwrap();
+    let new = {
+        let s = s.clone();
+        thread::spawn(move || s.dispatch_one())
+    };
+    let new_h = started.recv().unwrap();
+    let before = s.inspect(&caller, &id).unwrap();
+    let before_events = events.snapshot();
+    assert_eq!(before.attempt_count(), 2);
+    release.send(()).unwrap();
+    let stale = old_h.result.recv().unwrap();
+    let after = s.inspect(&caller, &id).unwrap();
+    let after_events = events.snapshot();
+    new_h.command.send(CallbackCommand::Progress).unwrap();
+    let fresh = new_h.result.recv().unwrap();
+    old_h.command.send(CallbackCommand::Finish).unwrap();
+    old.join().unwrap().unwrap();
+    new_h.command.send(CallbackCommand::Finish).unwrap();
+    new.join().unwrap().unwrap();
+    assert_eq!(stale, Err(ProgressError::StoreUnavailable));
+    assert_eq!(after, before);
+    assert_eq!(after_events, before_events);
+    assert_eq!(
+        fresh,
+        Ok(()),
+        "old callback lost its CAS but reserved attempt 2 progress budget after recovery"
+    );
+}
