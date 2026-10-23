@@ -37,6 +37,9 @@ shared localization catalogs, with English-safe fallback text kept separate.
 Fields carry a privacy class. `SENSITIVE` and `SECRET` values are redacted;
 credential-like names, common inline credential forms, and path-like field
 names are redacted as well. Absolute source paths collapse to the filename.
+Unquoted `Authorization: Basic <credential>` and Bearer values redact the
+whole scheme/payload pair, including mixed-case schemes and whitespace
+separators. Quoted credential values follow the existing quoted-value rule.
 Buffers store only sanitized event records. Dynamic values belong in
 classified fields, not message templates.
 
@@ -100,3 +103,46 @@ this command reports local verification and safe system context.
 
 This workstream does not change M17, Servo, CI acceptance criteria, Activity,
 Wayback, capabilities, the App SDK, or first-party app behavior.
+
+## Basic authorization regression (host only)
+
+The 2026-10-23 follow-up fixes the Basic credential payload left after the
+previous sanitizer redacted only the scheme token. The contract follows the
+0.2 implementation specification, section 17: credential payloads must not be
+copied into diagnostics by default. The synthetic regression covers human and
+JSON output, the stored safe view, public fields, recovery hints, error causes,
+and serialization round trips. It covers colon/equal separators, mixed case,
+tab/Unicode whitespace, and JSON-quoted headers. It adds no header collection.
+
+For dependency-isolated host validation without fetching the parent workspace's
+Servo patches, an ignored `target/diag-host-harness/Cargo.toml` points its library
+directly at the production source (no source copy):
+
+```toml
+[package]
+name = "nagi-diagnostics-host-regression"
+version = "0.0.0"
+edition = "2021"
+[workspace]
+[lib]
+path = "../../crates/nagi-diagnostics/src/lib.rs"
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
+
+Use the installed pinned arm64 nightly compiler and Cargo together on arm64
+macOS, the official SSD launcher, a dedicated `CARGO_TARGET_DIR`, and jobs=1:
+
+```sh
+cargo test --manifest-path target/diag-host-harness/Cargo.toml --offline -j 1
+cargo clippy --manifest-path target/diag-host-harness/Cargo.toml --offline --locked --all-targets -j 1 -- -D warnings
+rustfmt --edition 2021 --check crates/nagi-diagnostics/src/lib.rs
+```
+
+The focused regression failed before the fix (credential payload exported).
+After the fix all 28 production-module unit tests and warning-denied Clippy
+passed. The isolated harness resolved 11 cached packages offline; the production
+workspace lockfile was unchanged. Full CLI/workspace, guest/VM, target, and
+cross-platform execution were not run. Existing tests cover Bearer behavior;
+this follow-up does not define additional authentication schemes.

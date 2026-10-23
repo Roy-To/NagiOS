@@ -1,3 +1,16 @@
+## Diagnostics Basic authorization follow-up — 2026-10-23
+
+Status: `PARTIAL` (host-only follow-up on the existing diagnostics foundation).
+The shared sanitizer now removes unquoted Basic authentication payloads at the
+same boundary as Bearer payloads. The synthetic output-boundary regression
+failed before the fix; all 28 diagnostics-module tests and warning-denied
+Clippy pass after it. Validation uses a dependency-isolated harness pointing at
+the production source, offline, with a dedicated target and one build job.
+See `docs/testing/diagnostics-and-verification.md` for the contract and commands.
+Full CLI/workspace, Windows/Linux, target, and guest/VM validation were not run;
+no 0.1 milestone or production-integration status is advanced. The historical
+foundation evidence below is preserved.
+
 # Nagi OS 遯ｶ繝ｻImplementation Status
 
 This file is the persistent implementation handoff for **Nagi OS 0.1 Developer Preview**.

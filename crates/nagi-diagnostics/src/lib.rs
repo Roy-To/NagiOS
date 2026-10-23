@@ -901,16 +901,21 @@ fn inline_secret_bounds(
         return Some((secret_start, secret_start + REDACTED.len()));
     }
 
-    if marker == "authorization"
-        && lower[secret_start..].starts_with("bearer")
-        && value[secret_start + "bearer".len()..]
-            .chars()
-            .next()
-            .is_some_and(char::is_whitespace)
-    {
-        secret_start = skip_whitespace(value, secret_start + "bearer".len());
-        if let Some(value_end) = unquoted_secret_end(value, secret_start) {
-            return Some((separator_end, value_end));
+    if marker == "authorization" {
+        // Both schemes carry a credential after the scheme token. Redacting
+        // only that first token would leave an unquoted Basic payload visible.
+        for scheme in ["bearer", "basic"] {
+            if lower[secret_start..].starts_with(scheme)
+                && value[secret_start + scheme.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_whitespace)
+            {
+                secret_start = skip_whitespace(value, secret_start + scheme.len());
+                if let Some(value_end) = unquoted_secret_end(value, secret_start) {
+                    return Some((separator_end, value_end));
+                }
+            }
         }
     }
 
@@ -2734,6 +2739,44 @@ mod tests {
         assert!(!rendered.contains("top-secret"));
         assert!(!rendered.contains("bearer-secret"));
         assert!(!rendered.contains("private text"));
+    }
+
+    #[test]
+    fn basic_authorization_payload_is_redacted_at_output_boundaries() {
+        // Synthetic credential-shaped fixture; never collect real headers.
+        let payload = "c3ludGhldGljOnRlc3Q=";
+        for header in [
+            format!("Authorization: Basic {payload} safe=value"),
+            format!("AUTHORIZATION=bAsIc\t{payload}; safe=value"),
+            format!("authorization: Basic\u{2003}{payload}, safe=value"),
+            format!(r#"{{"authorization":"Basic {payload}","safe":"value"}}"#),
+        ] {
+            let event =
+                DiagnosticEvent::new(Severity::Warn, "network", "NETWORK.AUTH_FAILED", &header)
+                    .unwrap()
+                    .with_field("detail", &header, PrivacyClass::Public)
+                    .unwrap()
+                    .with_recovery_hint(&header)
+                    .with_error_cause(ErrorCause {
+                        class: FailureClass::Network,
+                        code: "NETWORK.AUTH_FAILED".into(),
+                        safe_message: header,
+                    })
+                    .unwrap();
+            let safe = event.safe_view();
+            for output in [
+                event.render_human(),
+                event.to_json().unwrap(),
+                serde_json::to_string(&safe).unwrap(),
+                format!("{safe:?}"),
+            ] {
+                assert!(!output.contains(payload), "credential payload was exported");
+                assert!(output.contains(REDACTED));
+                assert!(output.contains("safe"));
+            }
+            let round_trip = DiagnosticEvent::from_json(&event.to_json().unwrap()).unwrap();
+            assert_eq!(event.to_json().unwrap(), round_trip.to_json().unwrap());
+        }
     }
 
     #[test]
