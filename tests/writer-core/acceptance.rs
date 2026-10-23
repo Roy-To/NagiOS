@@ -1200,28 +1200,55 @@ fn h09_ordered_list_non_one_start_is_kept_literally_not_renumbered() {
 }
 #[test]
 fn h09_ordered_list_gaps_and_resumed_numbering_are_not_lost() {
-    let (doc, text, _) = md_roundtrip("1. a\n2. b\n4. c");
+    let (doc, text, _) = md_roundtrip(
+        "1. a
+2. b
+4. c",
+    );
     assert_eq!(
         kinds(&doc.document),
-        vec![BlockKind::Paragraph("1. a\n2. b\n4. c".into())]
+        vec![BlockKind::Paragraph(
+            "1. a
+2. b
+4. c"
+                .into()
+        )]
     );
     assert_eq!(warned_lines(&doc), vec![1, 2, 3]);
-    assert!(text.contains("4\\. c"));
-    // A run resumed after a blank line would otherwise restart at "1.".
-    let (doc, text, _) = md_roundtrip("1. a\n\n2. b\n3. c");
+    assert!(text.contains(r"4\. c"));
+
+    // CommonMark keeps same-type items together across blank lines. The flat
+    // model retains the items but cannot retain loose-list presentation.
+    let (doc, text, reopened) = md_roundtrip(
+        "1. a
+
+2. b
+3. c",
+    );
     assert_eq!(
         kinds(&doc.document),
-        vec![
-            BlockKind::List {
-                ordered: true,
-                items: vec!["a".into()],
-            },
-            BlockKind::Paragraph("2. b\n3. c".into()),
-        ]
+        vec![BlockKind::List {
+            ordered: true,
+            items: vec!["a".into(), "b".into(), "c".into()],
+        }]
     );
-    assert_eq!(warned_lines(&doc), vec![3, 4]);
-    assert_eq!(text, "1. a\n\n2\\. b\n3\\. c");
+    assert_eq!(
+        doc.warnings,
+        vec![UnsupportedWarning {
+            kind: WarningKind::StructuralLoss,
+            line: None,
+            object: None,
+        }]
+    );
+    assert_eq!(
+        text,
+        "1. a
+2. b
+3. c"
+    );
+    assert_eq!(kinds(&reopened.document), kinds(&doc.document));
 }
+
 #[test]
 fn h08_canonical_ordered_lists_still_roundtrip_exactly() {
     let input = (1..=12)
@@ -1243,24 +1270,181 @@ fn h08_canonical_ordered_lists_still_roundtrip_exactly() {
     assert_eq!(warned_lines(&doc), vec![4]);
 }
 #[test]
-fn h10_huge_ordered_list_numbers_do_not_overflow_or_get_rewritten() {
-    let huge = "9".repeat(400);
+fn h10_digit_strings_beyond_commonmark_marker_width_stay_literal_without_overflow() {
     for number in [
         u64::MAX.to_string(),
         (u128::from(u64::MAX) + 1).to_string(),
         usize::MAX.to_string(),
-        huge,
+        "9".repeat(400),
     ] {
-        let input = format!("{number}. 巨大\n1. next");
+        let input = format!(
+            "{number}. 巨大
+1. next"
+        );
         let (doc, text, _) = md_roundtrip(&input);
         assert_eq!(
             kinds(&doc.document),
-            vec![BlockKind::Paragraph(input.clone())]
+            vec![
+                BlockKind::Paragraph(format!("{number}. 巨大")),
+                BlockKind::List {
+                    ordered: true,
+                    items: vec!["next".into()],
+                },
+            ]
         );
-        assert_eq!(warned_lines(&doc), vec![1, 2]);
-        assert!(text.starts_with(&format!("{number}\\. ")));
+        assert!(doc.warnings.is_empty());
+        assert!(text.starts_with(&format!(r"{number}\. 巨大")));
     }
 }
+
+#[test]
+fn h09_repeated_number_after_blank_is_not_a_restart() {
+    let input = "1. a\n\n1. b";
+    let imported = import_text(Format::Markdown, input);
+    assert_eq!(
+        kinds(&imported.document),
+        vec![BlockKind::Paragraph(input.into())]
+    );
+    assert_eq!(warned_lines(&imported), vec![1, 3]);
+
+    let output = export(Format::Markdown, &imported.document, Limits::default()).unwrap();
+    let expected = [r"1\. a", r"1\. b"].join("\n\n");
+    assert_eq!(output.text, expected);
+    assert!(output
+        .warnings
+        .iter()
+        .any(|warning| warning.kind == WarningKind::StructuralLoss));
+
+    let reopened = import_text(Format::Markdown, &output.text);
+    assert_eq!(
+        kinds(&reopened.document),
+        vec![
+            BlockKind::Paragraph("1. a".into()),
+            BlockKind::Paragraph("1. b".into()),
+        ]
+    );
+    assert!(reopened.warnings.is_empty());
+}
+#[test]
+fn h09_restart_after_a_real_block_boundary_starts_a_new_list() {
+    let input = "1. first
+
+# Next
+
+1. restarted";
+    let (doc, _, _) = md_roundtrip(input);
+    assert_eq!(
+        kinds(&doc.document),
+        vec![
+            BlockKind::List {
+                ordered: true,
+                items: vec!["first".into()],
+            },
+            BlockKind::Heading {
+                level: 1,
+                text: "Next".into(),
+            },
+            BlockKind::List {
+                ordered: true,
+                items: vec!["restarted".into()],
+            },
+        ]
+    );
+    assert!(doc.warnings.is_empty());
+}
+
+#[test]
+fn h09_nested_ordered_content_is_preserved_as_one_literal_run() {
+    let input = "1. parent\n  - child\n2. sibling";
+    let imported = import_text(Format::Markdown, input);
+    assert_eq!(
+        kinds(&imported.document),
+        vec![BlockKind::Paragraph(input.into())]
+    );
+    assert_eq!(warned_lines(&imported), vec![1, 2, 3]);
+
+    let output = export(Format::Markdown, &imported.document, Limits::default()).unwrap();
+    let reopened = import_text(Format::Markdown, &output.text);
+    assert_eq!(kinds(&reopened.document), kinds(&imported.document));
+    assert_eq!(warned_lines(&reopened), vec![2]);
+}
+#[test]
+fn h09_multiline_ordered_item_is_not_split_into_false_blocks() {
+    let input = "1. first
+continued text
+2. second";
+    let (doc, _, _) = md_roundtrip(input);
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph(input.into())]
+    );
+    assert_eq!(warned_lines(&doc), vec![1, 2, 3]);
+}
+
+#[test]
+fn h09_alternate_ordered_delimiter_is_preserved_with_line_warnings() {
+    let input = "1) first
+2) second";
+    let (doc, _, _) = md_roundtrip(input);
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::Paragraph(input.into())]
+    );
+    assert_eq!(warned_lines(&doc), vec![1, 2]);
+}
+
+#[test]
+fn h09_empty_ordered_item_roundtrips_without_inventing_text() {
+    let (doc, text, reopened) = md_roundtrip(
+        "1.
+2. second",
+    );
+    assert_eq!(
+        kinds(&doc.document),
+        vec![BlockKind::List {
+            ordered: true,
+            items: vec!["".into(), "second".into()],
+        }]
+    );
+    assert_eq!(
+        text,
+        "1.
+2. second"
+    );
+    assert_eq!(kinds(&reopened.document), kinds(&doc.document));
+}
+
+#[test]
+fn h09_adjacent_ordered_model_blocks_report_unrepresentable_restart() {
+    let mut e = engine();
+    insert(
+        &mut e,
+        3,
+        BlockKind::List {
+            ordered: true,
+            items: vec!["first".into()],
+        },
+    );
+    insert(
+        &mut e,
+        4,
+        BlockKind::List {
+            ordered: true,
+            items: vec!["restarted".into()],
+        },
+    );
+    let output = export(Format::Markdown, e.document(), Limits::default()).unwrap();
+    assert_eq!(
+        output.text,
+        "1. first
+
+1. restarted"
+    );
+    assert!(output.warnings.iter().any(|warning| {
+        warning.kind == WarningKind::StructuralLoss && warning.object == Some(ObjectId(4))
+    }));
+}
+
 #[test]
 fn h09_mixed_ordered_unordered_runs_keep_every_number() {
     let input = "1. a\n- b\n2. c\n* d\n1. e\n2. f";
@@ -1337,7 +1521,6 @@ fn h09_import_export_import_never_drops_an_ordered_number() {
         "1. a\n3. b",
         "intro\n7. x",
         "# 見出し\n\n10. 十\n11. 十一",
-        "1. a\n\n1. b",
         "> quote\n\n42. answer **bold**",
     ] {
         let (doc, text, _) = md_roundtrip(input);
