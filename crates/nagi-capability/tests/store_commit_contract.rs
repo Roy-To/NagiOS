@@ -370,3 +370,112 @@ fn in_memory_store_rolls_back_operation_errors_and_invalid_candidates() {
         assert_eq!(next_id.get(), 2);
     }
 }
+
+// Compare adapter outcomes to a fresh evaluator over authoritative serialized policy.
+// This checks the transaction boundary, not an independently implemented policy oracle.
+#[test]
+fn shared_store_operation_error_discards_candidate() {
+    let store = SharedStore::new();
+    let mut eval = evaluator(store.clone());
+    grant(&mut eval);
+    let before = store.bytes();
+    let mut handle = store.clone();
+    let r: Result<(), PolicyStoreError> = handle.transact(|doc| {
+        *doc = PolicyDocument::new();
+        Err(PolicyStoreError::Unavailable("operation abort".into()))
+    });
+    assert!(r.is_err());
+    assert_eq!(store.bytes(), before);
+}
+
+fn apply_test_action<S: PolicyStore>(eval: &mut PermissionEvaluator<S>, op: u64) -> String {
+    match op % 5 {
+        0 => format!("{:?}", eval.check(&request(), &context()).reason()),
+        1 => format!(
+            "{:?}",
+            eval.grant(
+                &request(),
+                GrantLifetime::OneShot,
+                GrantSource::User,
+                None,
+                UnixTimestamp::from_unix_seconds(1),
+                None
+            )
+        ),
+        2 => format!(
+            "{:?}",
+            eval.deny(
+                &request(),
+                GrantLifetime::Persistent,
+                GrantSource::Policy,
+                None,
+                UnixTimestamp::from_unix_seconds(2),
+                None
+            )
+        ),
+        3 => {
+            let doc = eval.store().snapshot().unwrap();
+            let id = doc.grants().last().map(|g| g.id);
+            format!(
+                "{:?}",
+                id.map(|id| eval.revoke(id, UnixTimestamp::from_unix_seconds(5)))
+            )
+        }
+        _ => format!("{:?}", eval.explain(&request(), &context()).reason()),
+    }
+}
+
+#[test]
+fn seeded_fault_sequences_match_authoritative_serialized_policy() {
+    use nagi_capability::InMemoryPolicyStore;
+    for seed in 0..24_u64 {
+        let store = SharedStore::new();
+        let mut eval = evaluator(store.clone());
+        let mut rng = seed + 123;
+        for step in 0..120 {
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let op = (rng >> 32) % 5;
+            let fault = match (rng >> 40) % 3 {
+                0 => Fault::None,
+                1 => Fault::BeforeCommit,
+                _ => Fault::AfterCommit,
+            };
+            let before = store.bytes();
+            let mut registry = CapabilityRegistry::new();
+            registry
+                .register(CapabilityDefinition {
+                    id: request().capability,
+                    description: "oracle".into(),
+                })
+                .unwrap();
+            let mut oracle = PermissionEvaluator::new(
+                registry,
+                InMemoryPolicyStore::from_json(before.as_bytes()).unwrap(),
+            );
+            let expected = apply_test_action(&mut oracle, op);
+            let expected_bytes = oracle.store().to_json().unwrap();
+            store.inject(fault);
+            let actual = apply_test_action(&mut eval, op);
+            let is_transaction =
+                op != 4 && !(op == 3 && oracle.store().snapshot().unwrap().grants().is_empty());
+            if !is_transaction || matches!(fault, Fault::None) {
+                assert_eq!(actual, expected, "seed {seed} step {step}");
+            } else if op == 0 {
+                assert_eq!(actual, "PolicyStoreUnavailable");
+            } else {
+                assert!(
+                    actual.contains("Unavailable"),
+                    "seed {seed} step {step}: {actual}"
+                );
+            }
+            let expected_commit = if is_transaction && matches!(fault, Fault::BeforeCommit) {
+                &before
+            } else {
+                &expected_bytes
+            };
+            assert_eq!(&store.bytes(), expected_commit, "seed {seed} step {step}");
+        }
+    }
+}
