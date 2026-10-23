@@ -1710,7 +1710,20 @@ fn validate_fingerprint(document: &FingerprintDocument) -> Result<(), crate::com
             "fingerprint compatibility digest does not match its normalized inputs".into(),
         ));
     }
+    let mut artifact_keys = BTreeSet::new();
     for artifact in &document.artifacts {
+        if !safe_inventory_path(&artifact.path) {
+            return Err(config_error(format!(
+                "unsafe artifact path `{}`",
+                artifact.path
+            )));
+        }
+        if !artifact_keys.insert((&artifact.role, &artifact.path)) {
+            return Err(config_error(format!(
+                "duplicate artifact `{}` at `{}`",
+                artifact.role, artifact.path
+            )));
+        }
         if !is_sha256(&artifact.sha256) {
             return Err(config_error(format!(
                 "artifact `{}` has an invalid SHA-256 digest",
@@ -1718,18 +1731,29 @@ fn validate_fingerprint(document: &FingerprintDocument) -> Result<(), crate::com
             )));
         }
     }
-    for input in inputs
-        .generated_inputs
-        .iter()
-        .chain(inputs.runtime_harness.firmware_inputs.iter())
-    {
-        if !matches!(input.kind.as_str(), "file" | "directory" | "tool")
-            || !is_sha256(&input.sha256)
-        {
-            return Err(config_error(format!(
-                "input `{}` has an invalid kind or SHA-256 digest",
-                input.path
-            )));
+    for inventory in [
+        &inputs.generated_inputs,
+        &inputs.runtime_harness.firmware_inputs,
+    ] {
+        let mut input_keys = BTreeSet::new();
+        for input in inventory {
+            // logical_path encodes the repository root as an empty relative path.
+            // Only directory inputs may use that schema-v1 representation.
+            let repository_root_directory = input.kind == "directory" && input.path.is_empty();
+            if !repository_root_directory && !safe_inventory_path(&input.path) {
+                return Err(config_error(format!("unsafe input path `{}`", input.path)));
+            }
+            if !input_keys.insert((&input.path, &input.kind)) {
+                return Err(config_error(format!("duplicate input `{}`", input.path)));
+            }
+            if !matches!(input.kind.as_str(), "file" | "directory" | "tool")
+                || !is_sha256(&input.sha256)
+            {
+                return Err(config_error(format!(
+                    "input `{}` has an invalid kind or SHA-256 digest",
+                    input.path
+                )));
+            }
         }
     }
     if inputs
@@ -1743,6 +1767,16 @@ fn validate_fingerprint(document: &FingerprintDocument) -> Result<(), crate::com
         ));
     }
     Ok(())
+}
+
+// Wire paths are logical, normalized inventory names, never host paths.
+// External files are represented by logical_path as external/<filename>.
+fn safe_inventory_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains('\\')
+        && !path.chars().any(char::is_control)
+        && path.as_bytes().get(1) != Some(&b':')
+        && path.split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 
 fn is_sorted_by<T, F>(values: &[T], mut compare: F) -> bool
@@ -2002,6 +2036,8 @@ fn logical_path(root: &Path, path: &Path) -> Result<String, crate::commands::Cli
         let value = relative
             .to_str()
             .ok_or_else(|| config_error("input path is not valid UTF-8".into()))?;
+        // An empty relative path is the schema-v1 name for the repository root.
+        // validate_fingerprint permits it only for directory inputs.
         return Ok(value.replace('\\', "/"));
     }
     let name = canonical_path
