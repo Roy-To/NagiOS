@@ -1194,6 +1194,7 @@ impl Scheduler {
 
     fn make_handler_context(&self, record: JobRecord, control: Arc<RunControl>) -> HandlerContext {
         let id = record.id().clone();
+        let attempt = record.attempt_count();
         let clock = self.clock.clone();
         let store = self.store.clone();
         let diagnostics = self.diagnostics.clone();
@@ -1204,6 +1205,15 @@ impl Scheduler {
         let progress_correlation = correlation_id(&record);
         let progress = move |summary: ProgressSummary| {
             let now = clock.now();
+            let mut current = store
+                .get(&progress_id)
+                .map_err(|_| ProgressError::StoreUnavailable)?
+                .ok_or(ProgressError::StoreUnavailable)?;
+            // Reject obsolete context updates before consuming the current
+            // attempt's progress budget or changing its metadata.
+            if current.attempt_count() != attempt || !current.state().occupies_slot() {
+                return Err(ProgressError::StoreUnavailable);
+            }
             {
                 let mut state = runtime
                     .lock()
@@ -1216,13 +1226,6 @@ impl Scheduler {
                     return Err(ProgressError::RateLimited);
                 }
                 state.last_progress.insert(progress_id.clone(), now);
-            }
-            let mut current = store
-                .get(&progress_id)
-                .map_err(|_| ProgressError::StoreUnavailable)?
-                .ok_or(ProgressError::StoreUnavailable)?;
-            if !current.state().occupies_slot() {
-                return Err(ProgressError::StoreUnavailable);
             }
             current.set_progress(summary.clone(), now);
             let saved = store
@@ -1251,7 +1254,7 @@ impl Scheduler {
                 .get(&checkpoint_id)
                 .map_err(|_| ProgressError::StoreUnavailable)?
                 .ok_or(ProgressError::StoreUnavailable)?;
-            if !current.state().occupies_slot() {
+            if current.attempt_count() != attempt || !current.state().occupies_slot() {
                 return Err(ProgressError::StoreUnavailable);
             }
             current.set_checkpoint(reference);

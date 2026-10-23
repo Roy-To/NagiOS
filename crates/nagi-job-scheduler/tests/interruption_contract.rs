@@ -361,3 +361,133 @@ fn stale_authorization_denial_preserves_record_events_and_new_cancel_control() {
     assert_eq!(h.record().state(), &JobState::Cancelled);
     assert!(h.started.try_recv().is_err());
 }
+
+#[derive(Clone, Copy)]
+enum ContextCommand {
+    Publish,
+    Finish,
+}
+struct ContextProbe {
+    started: mpsc::Sender<CancellationToken>,
+    commands: Mutex<VecDeque<mpsc::Receiver<ContextCommand>>>,
+    results: mpsc::Sender<(Result<(), ProgressError>, Result<(), ProgressError>)>,
+}
+impl JobHandler for ContextProbe {
+    fn handler_ref(&self) -> HandlerRef {
+        reference()
+    }
+    fn recovery_policy(&self, _: &JobRecord) -> RecoveryPolicy {
+        RecoveryPolicy::Idempotent
+    }
+    fn execute(&self, context: &mut HandlerContext) -> HandlerOutcome {
+        let commands = self.commands.lock().unwrap().pop_front().unwrap();
+        self.started
+            .send(context.cancellation_token().child_token())
+            .unwrap();
+        while let ContextCommand::Publish = commands.recv().unwrap() {
+            let summary =
+                ProgressSummary::new(ProgressCode::new("fake-progress").unwrap(), 1, Some(2))
+                    .unwrap();
+            let progress = context.report_progress(summary);
+            let checkpoint =
+                context.publish_checkpoint(CheckpointRef::new("fake-checkpoint").unwrap());
+            self.results.send((progress, checkpoint)).unwrap();
+        }
+        HandlerOutcome::Succeeded
+    }
+}
+
+// Covers recovery before replacement, during replacement, and after replacement
+// completion. All provider calls are in-memory, controlled by channels.
+#[test]
+fn stale_context_updates_do_not_mutate_records_events_or_replacement_rate_budget() {
+    for replacement_phase in 0..3 {
+        let clock = Arc::new(ManualClock::default());
+        let events = Arc::new(BoundedJobEventRecorder::new(64));
+        let registry = Arc::new(JobProviderRegistry::new());
+        let (started_tx, started) = mpsc::channel();
+        let (old_tx, old_commands) = mpsc::channel();
+        let (new_tx, new_commands) = mpsc::channel();
+        let (results_tx, results) = mpsc::channel();
+        registry
+            .register(Arc::new(ContextProbe {
+                started: started_tx,
+                commands: Mutex::new(VecDeque::from([old_commands, new_commands])),
+                results: results_tx,
+            }))
+            .unwrap();
+        let scheduler = Arc::new(
+            Scheduler::new(
+                Arc::new(InMemoryJobStore::new()),
+                clock,
+                Arc::new(FakeAuthority),
+                events.clone(),
+                registry,
+                SchedulerConfig::default(),
+            )
+            .unwrap(),
+        );
+        let caller =
+            CallerRef::from_authenticated_adapter(PrincipalRef::new("fake.owner").unwrap(), None);
+        let id = scheduler
+            .enqueue(&caller, JobRequest::new(reference()))
+            .unwrap()
+            .record
+            .id()
+            .clone();
+        let old_scheduler = scheduler.clone();
+        let old = thread::spawn(move || old_scheduler.dispatch_one());
+        started.recv().unwrap();
+        scheduler.recover_startup().unwrap();
+        let mut current = None;
+        let mut current_token = None;
+        if replacement_phase > 0 {
+            let new_scheduler = scheduler.clone();
+            current = Some(thread::spawn(move || new_scheduler.dispatch_one()));
+            current_token = Some(started.recv().unwrap());
+        }
+        if replacement_phase == 2 {
+            new_tx.send(ContextCommand::Finish).unwrap();
+            current.take().unwrap().join().unwrap().unwrap();
+        }
+        let before = scheduler.inspect(&caller, &id).unwrap();
+        let before_events = events.snapshot();
+        old_tx.send(ContextCommand::Publish).unwrap();
+        let stale = results.recv().unwrap();
+        let after = scheduler.inspect(&caller, &id).unwrap();
+        let after_events = events.snapshot();
+        let mut fresh = None;
+        let mut cancel_reason = None;
+        if replacement_phase == 1 {
+            new_tx.send(ContextCommand::Publish).unwrap();
+            fresh = Some(results.recv().unwrap());
+            scheduler.cancel(&caller, &id).unwrap();
+            cancel_reason = current_token.as_ref().unwrap().reason();
+            new_tx.send(ContextCommand::Finish).unwrap();
+            current.take().unwrap().join().unwrap().unwrap();
+        }
+        old_tx.send(ContextCommand::Finish).unwrap();
+        let old_result = old.join().unwrap();
+        // Drain workers before checking negatives, including on unfixed code.
+        assert_eq!(
+            stale,
+            (
+                Err(ProgressError::StoreUnavailable),
+                Err(ProgressError::StoreUnavailable)
+            )
+        );
+        assert_eq!(after, before);
+        assert_eq!(after_events, before_events);
+        assert!(old_result.is_ok());
+        if replacement_phase == 1 {
+            assert_eq!(fresh, Some((Ok(()), Ok(()))));
+            assert_eq!(cancel_reason, Some(CancellationReason::Requested));
+            let record = scheduler.inspect(&caller, &id).unwrap();
+            assert!(record.progress().is_some());
+            assert_eq!(
+                record.checkpoint_ref(),
+                Some(&CheckpointRef::new("fake-checkpoint").unwrap())
+            );
+        }
+    }
+}
