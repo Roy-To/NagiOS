@@ -1415,6 +1415,67 @@ fn h09_empty_ordered_item_roundtrips_without_inventing_text() {
 }
 
 #[test]
+fn h09_ordered_item_leading_whitespace_warns_before_structural_loss() {
+    let mut missing_warnings = vec![];
+    for item in [" a", "\ta", "  a", " "] {
+        let mut e = engine();
+        insert(
+            &mut e,
+            3,
+            BlockKind::List {
+                ordered: true,
+                items: vec![item.into(), "next".into()],
+            },
+        );
+        let output = export(Format::Markdown, e.document(), Limits::default()).unwrap();
+        assert_eq!(output.text, format!("1. {item}\n2. next"));
+        let reopened = import_text(Format::Markdown, &output.text);
+        assert_eq!(
+            kinds(&reopened.document),
+            vec![BlockKind::Paragraph(output.text.clone())],
+            "conservative import must retain the exported source for {item:?}"
+        );
+        if !output.warnings.iter().any(|warning| {
+            warning.kind == WarningKind::StructuralLoss && warning.object == Some(ObjectId(3))
+        }) {
+            missing_warnings.push(item);
+        }
+    }
+    assert!(
+        missing_warnings.is_empty(),
+        "ordered items lost list structure without an export warning: {missing_warnings:?}"
+    );
+}
+
+#[test]
+fn h08_representable_list_items_do_not_gain_structural_loss_warnings() {
+    for (ordered, item) in [
+        (true, "a"),
+        (true, ""),
+        (true, "a "),
+        (false, " a"),
+        (false, "\ta"),
+    ] {
+        let mut e = engine();
+        insert(
+            &mut e,
+            3,
+            BlockKind::List {
+                ordered,
+                items: vec![item.into(), "next".into()],
+            },
+        );
+        let output = export(Format::Markdown, e.document(), Limits::default()).unwrap();
+        assert!(!output
+            .warnings
+            .iter()
+            .any(|warning| warning.kind == WarningKind::StructuralLoss));
+        let reopened = import_text(Format::Markdown, &output.text);
+        assert_eq!(kinds(&reopened.document), kinds(e.document()));
+    }
+}
+
+#[test]
 fn h09_adjacent_ordered_model_blocks_report_unrepresentable_restart() {
     let mut e = engine();
     insert(

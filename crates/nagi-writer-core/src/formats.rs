@@ -335,7 +335,13 @@ pub fn export(format: Format, document: &Document, limits: Limits) -> Result<Exp
                     format!("{} {}", "#".repeat(*level as usize), escape(text))
                 }
                 (BlockKind::List { ordered, items }, Format::Markdown) => {
-                    if items.is_empty() || items.iter().any(|s| s.contains('\n')) {
+                    // The conservative ordered importer preserves noncanonical marker
+                    // spacing literally, so leading item whitespace loses list structure.
+                    if items.is_empty()
+                        || items
+                            .iter()
+                            .any(|s| s.contains('\n') || (*ordered && s.starts_with([' ', '\t'])))
+                    {
                         warnings.push(warn(WarningKind::StructuralLoss, None, Some(b.id)));
                     }
                     items
