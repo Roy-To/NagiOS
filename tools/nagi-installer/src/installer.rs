@@ -901,6 +901,13 @@ impl Installer {
         if package.app_id != app_id
             || !is_valid_app_identifier(&package.app_id)
             || Version::parse(&package.version).is_err()
+            || package.required_capabilities.iter().any(String::is_empty)
+            || package
+                .required_capabilities
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != package.required_capabilities.len()
             || !valid_transaction_id(&package.transaction_id)
             || package.transaction_id != final_location_component(&package.active_location)
             || package.active_location
