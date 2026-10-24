@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "nagi-provenance-sbom-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+nagi_cli = { package = "nagi-bootstrap", path = "../nagi-bootstrap" }
+nagi-legal = { path = "../legal" }
+serde_json = "1.0"
+sha2 = "=0.10.9"

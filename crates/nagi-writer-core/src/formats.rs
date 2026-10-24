@@ -1,14 +1,7 @@
-//! Conservative Markdown subset. Unsupported syntax is retained literally and
-//! reported, not interpreted as HTML, fetched as media, or silently discarded.
-//!
-//! `BlockKind::List` stores no per-item ordinal, and export always numbers an
-//! ordered list `1.`, `2.`, ... An ordered run is therefore imported as a list
-//! only when every marker is exactly that canonical sequence. Any other
-//! numbering (non-1 start, gaps, leading zeros, a run resumed after another
-//! block, numbers beyond any integer type) keeps the whole run literally as a
-//! paragraph with one `UnsupportedSyntax` warning per line, so the original
-//! numbers are never rewritten. Markers are compared as decimal text, never
-//! parsed, so arbitrarily long numbers cannot overflow.
+//! Markdown and plain-text conversion for the host-only Writer core. Unsupported
+//! syntax stays visible and produces warnings. Ordered-list interpretation is
+//! isolated in ordered_lists; the public document model remains flat.
+mod ordered_lists;
 use crate::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Format {
@@ -50,28 +43,10 @@ fn fence(line: &str) -> Option<(char, usize, &str)> {
     let count = line.chars().take_while(|ch| *ch == c).count();
     (count >= 3).then(|| (c, count, &line[count..]))
 }
-fn list_line(line: &str) -> Option<(bool, &str)> {
-    if let Some(t) = line
-        .strip_prefix("- ")
+fn unordered_item(line: &str) -> Option<&str> {
+    line.strip_prefix("- ")
         .or_else(|| line.strip_prefix("* "))
         .or_else(|| line.strip_prefix("+ "))
-    {
-        return Some((false, t));
-    }
-    let n = line.bytes().take_while(u8::is_ascii_digit).count();
-    if n > 0 {
-        line[n..].strip_prefix(". ").map(|t| (true, t))
-    } else {
-        None
-    }
-}
-/// True when the ordered marker of `line` is exactly `position + 1` in
-/// canonical decimal form, i.e. what `export` would write for that item.
-fn canonical_ordinal(line: &str, position: usize) -> bool {
-    let n = line.bytes().take_while(u8::is_ascii_digit).count();
-    position
-        .checked_add(1)
-        .is_some_and(|expected| line[..n] == expected.to_string())
 }
 fn heading(line: &str) -> Option<(u8, &str)> {
     let n = line.bytes().take_while(|b| *b == b'#').count();
@@ -200,49 +175,64 @@ pub fn import(
                 },
             };
             i += 1;
-        } else if let Some((ordered, _)) = list_line(line) {
-            let mut raw = vec![];
-            let mut canonical = true;
-            while i < lines.len() {
-                let Some((order, text)) = list_line(lines[i]) else {
-                    break;
-                };
-                if ordered != order {
-                    break;
-                }
-                if ordered && !canonical_ordinal(lines[i], raw.len()) {
-                    canonical = false;
-                }
-                raw.push(text);
-                i += 1;
-            }
-            if canonical {
-                let mut items = vec![];
-                for (offset, text) in raw.into_iter().enumerate() {
-                    if unsupported(text) {
+        } else if let Some(run) = ordered_lists::scan(&lines, i, limits.max_objects)? {
+            i = run.end;
+            if run.preserve_literal {
+                for (line_index, source_line) in lines.iter().enumerate().take(i).skip(start) {
+                    if !source_line.trim().is_empty() {
                         warnings.push(warn(
                             WarningKind::UnsupportedSyntax,
-                            Some(start + offset + 1),
+                            Some(line_index + 1),
                             None,
                         ));
-                        items.push(text.into());
-                    } else {
-                        items.push(unescape(text));
                     }
                 }
-                kind = BlockKind::List { ordered, items };
+                kind = BlockKind::Paragraph(lines[start..i].join("\n"));
             } else {
-                // The model cannot hold these ordinals: keep every line
-                // byte-for-byte instead of renumbering, and report each one.
-                for line_number in start + 1..=i {
+                if run.separated_by_blank_line {
+                    warnings.push(warn(WarningKind::StructuralLoss, None, None));
+                }
+                let mut items = vec![];
+                for item in run.items {
+                    if unsupported(item.text) {
+                        warnings.push(warn(WarningKind::UnsupportedSyntax, Some(item.line), None));
+                        items.push(item.text.into());
+                    } else {
+                        items.push(unescape(item.text));
+                    }
+                }
+                kind = BlockKind::List {
+                    ordered: true,
+                    items,
+                };
+            }
+        } else if unordered_item(line).is_some() {
+            let mut raw = vec![];
+            while i < lines.len() {
+                if let Some(text) = unordered_item(lines[i]) {
+                    raw.push(text);
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            let mut items = vec![];
+            for (offset, text) in raw.into_iter().enumerate() {
+                if unsupported(text) {
                     warnings.push(warn(
                         WarningKind::UnsupportedSyntax,
-                        Some(line_number),
+                        Some(start + offset + 1),
                         None,
                     ));
+                    items.push(text.into());
+                } else {
+                    items.push(unescape(text));
                 }
-                kind = BlockKind::Paragraph(lines[start..i].join("\n"));
             }
+            kind = BlockKind::List {
+                ordered: false,
+                items,
+            };
         } else if line.starts_with("> ") || line == ">" {
             let mut content = vec![];
             while i < lines.len() && (lines[i].starts_with("> ") || lines[i] == ">") {
@@ -262,7 +252,8 @@ pub fn import(
                 && !lines[i].is_empty()
                 && heading(lines[i]).is_none()
                 && fence(lines[i]).is_none()
-                && list_line(lines[i]).is_none()
+                && unordered_item(lines[i]).is_none()
+                && !ordered_lists::starts_marker(lines[i])
                 && !lines[i].starts_with("> ")
                 && lines[i] != ">"
             {
@@ -276,10 +267,8 @@ pub fn import(
                         Some(start + offset + 1),
                         None,
                     ));
-                    content.push((*t).into());
-                } else {
-                    content.push(unescape(t));
                 }
+                content.push(unescape(t));
             }
             kind = BlockKind::Paragraph(content.join("\n"));
         }
@@ -307,6 +296,7 @@ pub fn export(format: Format, document: &Document, limits: Limits) -> Result<Exp
     document.validate(limits)?;
     let mut parts = vec![];
     let mut warnings = vec![warn(WarningKind::NativeMetadata, None, None)];
+    let mut previous_ordered_markdown_block = false;
     for s in &document.sections {
         if !s.title.is_empty() {
             parts.push(if format == Format::Markdown {
@@ -315,8 +305,15 @@ pub fn export(format: Format, document: &Document, limits: Limits) -> Result<Exp
                 s.title.clone()
             });
             warnings.push(warn(WarningKind::StructuralLoss, None, Some(s.id)));
+            previous_ordered_markdown_block = false;
         }
         for b in &s.blocks {
+            let current_ordered_markdown_block = format == Format::Markdown
+                && matches!(&b.kind, BlockKind::List { ordered: true, .. });
+            if current_ordered_markdown_block && previous_ordered_markdown_block {
+                warnings.push(warn(WarningKind::StructuralLoss, None, Some(b.id)));
+            }
+            previous_ordered_markdown_block = current_ordered_markdown_block;
             if b.kind
                 .text()
                 .is_some_and(|t| t.contains('\r') || t.starts_with('\n') || t.ends_with('\n'))
@@ -338,22 +335,29 @@ pub fn export(format: Format, document: &Document, limits: Limits) -> Result<Exp
                     format!("{} {}", "#".repeat(*level as usize), escape(text))
                 }
                 (BlockKind::List { ordered, items }, Format::Markdown) => {
-                    if items.is_empty() || items.iter().any(|s| s.contains('\n')) {
+                    // The conservative ordered importer preserves noncanonical marker
+                    // spacing literally, so leading item whitespace loses list structure.
+                    if items.is_empty()
+                        || items
+                            .iter()
+                            .any(|s| s.contains('\n') || (*ordered && s.starts_with([' ', '\t'])))
+                    {
                         warnings.push(warn(WarningKind::StructuralLoss, None, Some(b.id)));
                     }
                     items
                         .iter()
                         .enumerate()
                         .map(|(i, s)| {
-                            format!(
-                                "{} {}",
-                                if *ordered {
-                                    format!("{}.", i + 1)
-                                } else {
-                                    "-".into()
-                                },
-                                escape(s)
-                            )
+                            let marker = if *ordered {
+                                format!("{}.", i + 1)
+                            } else {
+                                "-".into()
+                            };
+                            if *ordered && s.is_empty() {
+                                marker
+                            } else {
+                                format!("{marker} {}", escape(s))
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join("\n")
