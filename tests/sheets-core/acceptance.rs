@@ -1,4 +1,6 @@
 use nagi_sheets_core::*;
+#[path = "candidate_function_edges.rs"]
+mod candidate_function_edges;
 #[path = "ifs_round.rs"]
 mod ifs_round;
 fn fixture() -> (Workbook, SheetId, SheetId) {
