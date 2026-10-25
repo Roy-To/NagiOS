@@ -22,6 +22,16 @@ When instructions conflict, use this priority:
 
 Do not silently change an architecture decision. If a deviation is required, document the reason in `docs/decisions/` before implementing it.
 
+## Product decision continuity (public-safe rule)
+
+- NagiOS also has an **owner-managed, private** product-decision ledger at `RT-NISH/NagiOS-internal/docs/product-decisions/`. The path is a pointer for authorized agents, **not** permission to disclose its contents.
+- Before designing or changing user-facing behavior, AI/Memory/Learning policies, Files/Albert behavior, cross-app Actions or future features, consult its current `README.md`, `OPERATING_RULES.md`, and relevant `DEC-*.md` **using an authenticated account with access**. Read the related release/architecture specifications in this repository as well. Do not substitute stale chat memory for verified decisions.
+- The private ledger distinguishes approved decisions from provisional ideas and review notes. **Do not treat private future roadmaps or product decisions as release activation, changes to workstream ownership, or evidence of target PASS.** Existing security, compatibility, implementation specs and acceptance gates still apply.
+- If private access is missing, report that the relevant product decisions are **unverified** and ask the owner for an approved excerpt/authorization when necessary. Independent existing 0.1 work may continue under its current gates; do not fabricate the missing requirements.
+- Never copy the private decision files, unpublished roadmaps, confidential examples, or private excerpts into this public repository, PRs, issues, CI artifacts, logs, or public discussion. Any publication needs separate explicit approval, sanitized content, and a visibility check.
+- Product decisions newly approved in a chat are durably recorded **only after a verified commit to the Private source**; GitHub upload availability and cross-session access are not automatic. See the private `CODEX_START_HERE.md` for authorized handoff.
+
+
 ---
 
 ## Required workflow
