@@ -10,9 +10,10 @@ It has its own kernel and user-space stack; Linux, Windows, and macOS are
 development hosts. The 0.1 Developer Preview targets QEMU x86-64.
 
 **This is an experimental Developer Preview, not a finished general-purpose OS.**
-The repository is public, but Nagi's own license is still pending approval.
-Apache-2.0 is the leading candidate; this repository does not yet grant a
-project-wide open-source license. See [Licensing](#licensing).
+The repository is public. The maintainer has selected **MPL-2.0** as the intended
+license for eligible Nagi-owned source code. Ownership and file-level clearance
+are still pending, so **no project-wide OSS license has yet been granted**.
+See [Licensing](#licensing).
 
 ## Why Nagi?
 
@@ -95,7 +96,7 @@ record; individual acceptance results do not complete a whole milestone.
 | Area | Evidence available | Remaining limits |
 | --- | --- | --- |
 | Boot, kernel, storage, display/input, networking, ABI, SDK | M0–M17 are recorded PASS, including real QEMU acceptance. | Bounded preview implementations and documented regression/environment limits apply. |
-| Albert browser (M18) | PASS: [target CI run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, StorageManager persistence; kanji conversion deferred. Browser services remain in-process. |
+| Albert browser (M18) | PASS: [target CI run 37601664873](https://github.com/Roy-To/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, StorageManager persistence; kanji conversion deferred. Browser services remain in-process. |
 | Search / semantic layer (M19) | PARTIAL: persistent Object IDs, browser-history/Search restart flows, and bounded signed-in Files indexing have guest evidence. | Production app-facing Search with live grants, Files mutation/trash UI, and normal history producer lifecycle remain open. |
 | Local generative AI (M20) | PARTIAL: recorded local QEMU Granite inference produced a schema-constrained Japanese response. | Hosted inference CI failed before inference on a storage write; normal model installation and lazy-service integration remain open. |
 | Planner, undo, browser context, embedding, voice, model routing (M21–M26) | PARTIAL: validators, bounded guest fixtures, and individual provider experiments exist. | No completed general agent workflow, page-summary UI, production semantic-search pipeline, or microphone-to-action voice experience. Qwen inference and Gemma use are not accepted. |
@@ -165,15 +166,19 @@ They are preparation material, not an application submission or acceptance claim
 
 ## Licensing
 
-**Nagi's project-wide license has not been finalized or approved.**
-Apache-2.0 is a proposal for eligible Nagi-owned code and documentation.
-No root LICENSE is added by this preparation, and no license grant is implied.
+**MPL-2.0 is the selected licensing policy for eligible Nagi-owned OS source
+code, but has not yet been formally applied.** Before adding a root `LICENSE` or
+file-level notices, the maintainer must verify authorship, existing grants and
+third-party boundaries. The public repository does not yet grant a project-wide
+open-source license. See the [MPL-2.0 adoption and clearance plan](docs/oss/mpl-2.0-adoption-plan.md).
 
-Third-party code, fonts, model weights, voice data, and images retain their own
-terms. Gemma's terms are separate from Apache-2.0. See
+Third-party code, fonts, model weights, voice data and images retain their own
+terms. The pinned Granite and Qwen model artifacts are recorded as Apache-2.0;
+Gemma has separate Google terms, and other components have their respective
+licenses. Model metadata alone is not redistribution clearance. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
-[Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md) for evidence,
-exceptions, and required follow-up before source or binary release.
+[historical Apache-2.0 readiness audit](docs/oss/apache-2.0-readiness.md)
+for outstanding component-level evidence and release obligations.
 
 More: [Roadmap](ROADMAP.md) · [Release notes](RELEASE_NOTES.md) ·
 [Dependency/SBOM tooling](docs/legal/README.md)
