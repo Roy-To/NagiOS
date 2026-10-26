@@ -1,12 +1,12 @@
 # Codex for Open Source application preparation
 
-Status: **preparation only; not submitted**. Reviewed 2026-10-11 against
+Status: **preparation only; not submitted**. Initial review 2026-10-11; licensing policy updated 2026-10-26. Recheck the current application against
 [OpenAI's program overview](https://developers.openai.com/community/codex-for-oss)
 and [application form](https://openai.com/form/codex-for-oss/).
 Requirements and form fields can change; recheck before submission.
 
 日本語要約: 応募文の下書きと証拠をまとめた資料です。応募送信は行いません。
-Nagi 自体のライセンスは未承認であり、OSS としてのライセンス付与を完了した
+Nagi 独自コードへの MPL-2.0 採用方針は決定しましたが、権利確認が未完了であり、OSS としてのライセンス付与を完了した
 プロジェクトとはまだ説明できません。利用規模・maintainer の役割・アカウント情報は
 本人が確認します。採択や支援の保証はありません。
 
@@ -20,18 +20,19 @@ and recoverable operations.
 
 The baseline has M0–M18 recorded PASS; M19–M30 remain PARTIAL.
 Individual local AI/provider experiments do not establish a completed agentic
-desktop or production security. The repository is public, but a project-wide
-OSS license is pending. [Apache-2.0 review](apache-2.0-readiness.md) records
-proposed scope and outstanding rights/notice checks.
+desktop or production security. The repository is public, and MPL-2.0 is now the selected policy for eligible
+first-party OS code, but it has **not been applied as an OSS license grant**.
+The [MPL adoption plan](mpl-2.0-adoption-plan.md) records review gates; the
+[older Apache-2.0 audit](apache-2.0-readiness.md) remains dependency evidence.
 
 ## Evidence to attach or reference
 
 | Claim | Reviewable material |
 | --- | --- |
 | Project scope and architecture | [English README](../../README.md), [Japanese README](../../README.ja.md), [architecture](../architecture/README.md), [specification](../Nagi_OS_0.1_Codex_Implementation_Spec.md) |
-| Active maintenance | [Repository PRs](https://github.com/RT-NISH/NagiOS/pulls), [commits](https://github.com/RT-NISH/NagiOS/commits/main/), [contribution workflow](../../CONTRIBUTING.md); select concrete review/triage/porting examples and confirm the applicant's role. |
+| Active maintenance | [Repository PRs](https://github.com/Roy-To/NagiOS/pulls), [commits](https://github.com/RT-NISH/NagiOS/commits/main/), [contribution workflow](../../CONTRIBUTING.md); select concrete review/triage/porting examples and confirm the applicant's role. |
 | Real guest behavior and honest limits | [Status record](../implementation_status.md), [M18 CI](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873), existing QEMU screenshots embedded in README |
-| License preparation | [Third-party notices](../../THIRD_PARTY_NOTICES.md), [review and open gates](apache-2.0-readiness.md), [Legal/SBOM tooling](../legal/README.md) |
+| License preparation | [Third-party notices](../../THIRD_PARTY_NOTICES.md), [MPL decision and application gates](mpl-2.0-adoption-plan.md), [Legal/SBOM tooling](../legal/README.md) |
 | Demo | [Recording plan](demo-recording-plan.md) only. No video URL is available from this preparation. |
 
 No stars, downloads, user counts, contributor counts, or adoption claims are
@@ -47,7 +48,7 @@ license decision. They do not claim the application qualifies automatically.
 
 **Why the repository matters (draft):**
 
-> Nagi OS explores a local-first, capability-based operating system with a native desktop, a Servo browser port, and AI proposals constrained by deterministic validation. Its QEMU Developer Preview has public guest acceptance evidence and documented limitations. We aim to share reusable porting and authority-boundary work. The project is early; we do not claim broad adoption, and its project-wide OSS license is pending approval.
+> Nagi OS explores a local-first, capability-based operating system with a native desktop, a Servo browser port, and AI proposals constrained by deterministic validation. Its QEMU Developer Preview has public guest acceptance evidence and documented limitations. We aim to share reusable porting and authority-boundary work. The project is early; we do not claim broad adoption, and MPL-2.0 is selected for eligible first-party code but not yet applied.
 
 **Proposed use of API credits (draft):**
 
@@ -55,13 +56,13 @@ license decision. They do not claim the application qualifies automatically.
 
 **Anything else (draft):**
 
-> M0–M18 are recorded PASS; M19–M30 remain PARTIAL. Local Granite guest inference has evidence, but normal model-service integration is incomplete. Apache-2.0 is the leading OS license candidate; third-party code, fonts and models retain separate terms. A dedicated documentation PR prepares licensing review and README material without changing implementation or milestone states.
+> M0–M18 are recorded PASS; M19–M30 remain PARTIAL. Local Granite guest inference has evidence, but normal model-service integration is incomplete. MPL-2.0 is the selected first-party OS licensing policy, pending authorship and scope review; third-party code, fonts and models retain their own terms. A dedicated documentation PR prepares licensing review and README material without changing implementation or milestone states.
 
 ## Maintainer checks before submission
 
 - Confirm the applicant's primary/core maintainer role and repository write
   access; use their own public GitHub profile and correct ChatGPT account.
-- Resolve the project license approval and source-publication gates before
+- Complete the MPL-2.0 ownership/scope audit and formal license application before
   presenting Nagi as an OSS-licensed project. Update the drafts with the
   actual decision; do not use a pending license proposal as proof.
 - Confirm any usage/ecosystem claim with public evidence. Explain the
