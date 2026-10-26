@@ -30,8 +30,8 @@ The [MPL adoption plan](mpl-2.0-adoption-plan.md) records review gates; the
 | Claim | Reviewable material |
 | --- | --- |
 | Project scope and architecture | [English README](../../README.md), [Japanese README](../../README.ja.md), [architecture](../architecture/README.md), [specification](../Nagi_OS_0.1_Codex_Implementation_Spec.md) |
-| Active maintenance | [Repository PRs](https://github.com/Roy-To/NagiOS/pulls), [commits](https://github.com/RT-NISH/NagiOS/commits/main/), [contribution workflow](../../CONTRIBUTING.md); select concrete review/triage/porting examples and confirm the applicant's role. |
-| Real guest behavior and honest limits | [Status record](../implementation_status.md), [M18 CI](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873), existing QEMU screenshots embedded in README |
+| Active maintenance | [Repository PRs](https://github.com/Roy-To/NagiOS/pulls), [commits](https://github.com/Roy-To/NagiOS/commits/main/), [contribution workflow](../../CONTRIBUTING.md); select concrete review/triage/porting examples and confirm the applicant's role. |
+| Real guest behavior and honest limits | [Status record](../implementation_status.md), [M18 CI](https://github.com/Roy-To/NagiOS/actions/runs/37601664873), existing QEMU screenshots embedded in README |
 | License preparation | [Third-party notices](../../THIRD_PARTY_NOTICES.md), [MPL decision and application gates](mpl-2.0-adoption-plan.md), [Legal/SBOM tooling](../legal/README.md) |
 | Demo | [Recording plan](demo-recording-plan.md) only. No video URL is available from this preparation. |
 
