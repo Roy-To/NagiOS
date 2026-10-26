@@ -80,8 +80,13 @@ workstream in sync, and avoid rewriting unrelated history. Do not duplicate a
 milestone table in a way that can become stale. For new or changed
 dependencies, update the source lock, patch/provenance records, and
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) as required by the repo
-rules. The Nagi OS license has not been selected; do not infer it from a
-dependency or sample package.
+rules. The maintainer has selected MPL-2.0 as the intended license for eligible
+Nagi-owned OS source code, but file-level ownership and prior-grant review
+are still pending. The repository does not yet grant a project-wide OSS
+license. Consult [the licensing adoption plan](docs/oss/mpl-2.0-adoption-plan.md)
+before changing license metadata; never infer Nagi's licensing from a
+dependency, model weight, or sample package. Third-party licenses must remain
+intact.
 
 ## Security reports
 
