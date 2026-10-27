@@ -10,6 +10,13 @@ The maintainer licenses the original Nagi OS source code described below under
 rights to do so. This is a source-code license grant, not merely a proposed
 license. The unmodified license text is in `LICENSE`.
 
+For the included source, after applying the exceptions below, the MPL Exhibit A
+notice is attached here alongside the root LICENSE:
+
+> This Source Code Form is subject to the terms of the Mozilla Public
+> License, v. 2.0. If a copy of the MPL was not distributed with this
+> file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 This notice identifies the source to which that license applies. It does not
 modify MPL-2.0, add a non-commercial condition, revoke a previous grant, grant
 someone else's rights, or certify that a complete OS image can be redistributed.
