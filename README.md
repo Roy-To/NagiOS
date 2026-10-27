@@ -10,10 +10,10 @@ It has its own kernel and user-space stack; Linux, Windows, and macOS are
 development hosts. The 0.1 Developer Preview targets QEMU x86-64.
 
 **This is an experimental Developer Preview, not a finished general-purpose OS.**
-The repository is public. The maintainer has selected **MPL-2.0** as the intended
-license for eligible Nagi-owned source code. Ownership and file-level clearance
-are still pending, so **no project-wide OSS license has yet been granted**.
-See [Licensing](#licensing).
+The maintainer's original Nagi OS source within the documented scope is licensed
+under **MPL-2.0**. Existing package licenses and third-party/model terms remain
+separate. Some glyph/media provenance and complete-image redistribution checks
+remain unresolved. See [Licensing](#licensing) and [LICENSE_SCOPE.md](LICENSE_SCOPE.md).
 
 ## Why Nagi?
 
@@ -166,19 +166,27 @@ They are preparation material, not an application submission or acceptance claim
 
 ## Licensing
 
-**MPL-2.0 is the selected licensing policy for eligible Nagi-owned OS source
-code, but has not yet been formally applied.** Before adding a root `LICENSE` or
-file-level notices, the maintainer must verify authorship, existing grants and
-third-party boundaries. The public repository does not yet grant a project-wide
-open-source license. See the [MPL-2.0 adoption and clearance plan](docs/oss/mpl-2.0-adoption-plan.md).
+The maintainer's original Nagi OS source identified in
+[LICENSE_SCOPE.md](LICENSE_SCOPE.md) is licensed under **[MPL-2.0](LICENSE)**.
+This is a scoped source grant, not a claim that every repository file, image,
+model or dependency is covered by MPL or cleared for redistribution.
 
-Third-party code, fonts, model weights, voice data and images retain their own
-terms. The pinned Granite and Qwen model artifacts are recorded as Apache-2.0;
-Gemma has separate Google terms, and other components have their respective
-licenses. Model metadata alone is not redistribution clearance. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
-[historical Apache-2.0 readiness audit](docs/oss/apache-2.0-readiness.md)
-for outstanding component-level evidence and release obligations.
+The existing `MIT OR Apache-2.0` declarations in `tools/nagi-cli`, `tools/legal`,
+`crates/nagi-embedding-provider` and `crates/nagi-tts-provider` are preserved.
+Third-party software and model artifacts retain their own terms. Granite and
+Qwen artifacts are recorded as Apache-2.0; Gemma has separate Google terms.
+No model weights are redistributed by this licensing change.
+
+Known holds include `user/nagi-init/src/font.rs` (embedded glyph provenance),
+media and artifact-specific notices. They are not silently included in the new
+grant. The [scope review](docs/oss/mpl-2.0-scope-review.md) describes the reviewed
+evidence and its limits. Complete-image/source-bundle redistribution review and
+Nagi 0.1 release acceptance remain separate work.
+
+[Third-party notices](THIRD_PARTY_NOTICES.md) and the
+[historical Apache-2.0 audit](docs/oss/apache-2.0-readiness.md) retain their
+dependency findings. Their old project-license proposal is superseded by
+LICENSE_SCOPE.md, not their unresolved provenance and notice requirements.
 
 More: [Roadmap](ROADMAP.md) · [Release notes](RELEASE_NOTES.md) ·
 [Dependency/SBOM tooling](docs/legal/README.md)

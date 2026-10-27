@@ -80,13 +80,27 @@ workstream in sync, and avoid rewriting unrelated history. Do not duplicate a
 milestone table in a way that can become stale. For new or changed
 dependencies, update the source lock, patch/provenance records, and
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) as required by the repo
-rules. The maintainer has selected MPL-2.0 as the intended license for eligible
-Nagi-owned OS source code, but file-level ownership and prior-grant review
-are still pending. The repository does not yet grant a project-wide OSS
-license. Consult [the licensing adoption plan](docs/oss/mpl-2.0-adoption-plan.md)
-before changing license metadata; never infer Nagi's licensing from a
-dependency, model weight, or sample package. Third-party licenses must remain
-intact.
+rules.
+
+## Source licensing
+
+The maintainer's original Nagi OS source within [LICENSE_SCOPE.md](LICENSE_SCOPE.md)
+is licensed under [MPL-2.0](LICENSE). Read the scope and exclusions before adding
+license metadata. Existing MIT/Apache package declarations, upstream notices,
+model licenses and earlier grants are preserved; none is silently revoked.
+
+For new original source in MPL-covered areas, use
+`SPDX-License-Identifier: MPL-2.0` in the file's comment syntax. Submit only
+material for which you have the necessary rights, and identify copied or
+adapted upstream material and its terms. Contributions to separately licensed
+packages follow the applicable existing package/file terms, not an automatic
+project-wide replacement. Document any uncertain provenance for review.
+
+This change does not impose a retroactive contributor agreement, assign
+copyright, or authorize relicensing contributions whose rights are not held by
+the maintainer. See [the scope review](docs/oss/mpl-2.0-scope-review.md) for
+remaining glyph, asset, dependency and rights checks. A license grant for Nagi
+source is not clearance of a complete release image.
 
 ## Security reports
 

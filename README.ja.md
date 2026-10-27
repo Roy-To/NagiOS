@@ -10,10 +10,10 @@ Nagi は、明示的な権限、ネイティブデスクトップ、利用者の
 0.1 Developer Preview の対象は QEMU x86-64 です。
 
 **実験的な Developer Preview であり、完成した汎用 OS ではありません。**
-リポジトリは公開されています。Nagi 独自ソースコードのうち適用権限のある部分には
-**MPL-2.0 を採用する方針を決定しました**。ただし著作権の帰属・既存ライセンスの
-確認が残るため、正式なライセンス付与はまだ行っていません。
-[ライセンス](#ライセンス)を参照してください。
+所有者が権利を持つ Nagi 独自 OS ソースのうち、明示された範囲を
+**MPL-2.0** で提供します。既存パッケージ・外部ソフトウェア・モデルの
+ライセンスは維持します。字形・画像等の出自や OS イメージ全体の再配布確認は
+未完了です。[ライセンス](#ライセンス)と[適用範囲](LICENSE_SCOPE.md)を参照してください。
 
 ## 開発理念
 
@@ -162,20 +162,26 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
 
 ## ライセンス
 
-**Nagi 独自 OS コードのうち権利を確認できた部分には、MPL-2.0 を採用する方針です。**
-これは採用方針の決定であり、まだ正式なライセンス付与ではありません。
-著作者・既存の利用許諾・第三者コードを確認した後に、別途 LICENSE と
-対象ファイルの表示を整備します。現時点でリポジトリ全体が MPL-2.0 で
-利用できるという意味ではありません。
-[MPL-2.0 採用・権利確認計画](docs/oss/mpl-2.0-adoption-plan.md)を参照してください。
+所有者が権利を持つ Nagi 独自 OS ソースのうち、[LICENSE_SCOPE.md](LICENSE_SCOPE.md)
+に記載した対象を **[MPL-2.0](LICENSE)** で提供します。単なる採用候補ではなく、
+対象ソースへの利用許諾です。ただし、リポジトリ内の全ファイルや OS イメージ全体が
+MPL 対象・再配布確認済みという意味ではありません。
 
-第三者コード、フォント、モデル重み、音声データ、画像にはそれぞれの条件が残ります。
-Granite と Qwen の対象モデルは Apache-2.0 と記録されていますが、
-Gemma には Google 独自規約が適用されます。モデルの記録だけでは再配布許可の
-確認は完了しません。
+`tools/nagi-cli`、`tools/legal`、`crates/nagi-embedding-provider`、
+`crates/nagi-tts-provider` の既存 `MIT OR Apache-2.0` 表記は維持します。
+第三者ソフトウェアやモデルにも元の条件が残ります。Granite・Qwen の対象モデルは
+Apache-2.0 と記録されていますが、Gemma は Google 独自規約です。
+今回のライセンス整備ではモデル重みを配布しません。
+
+埋め込み字形の出自が未確認の `user/nagi-init/src/font.rs` や画像・データ類は、
+今回の新たな許諾に含めません。[レビュー記録](docs/oss/mpl-2.0-scope-review.md)に、
+確認した資料、確認できなかった範囲、未解決事項を明記しています。
+OS イメージ・ソース一式の再配布確認と 0.1 の完成判定は、引き続き別の作業です。
+
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)と
-[過去の Apache-2.0 準備監査](docs/oss/apache-2.0-readiness.md)に、
-第三者コンポーネントの証拠や未解決事項を記載しています。
+[過去の Apache-2.0 準備監査](docs/oss/apache-2.0-readiness.md)の依存関係に関する
+指摘は残ります。過去の Nagi 本体のライセンス候補に関する記述だけを
+LICENSE_SCOPE.md で更新し、未解決の出自・通知義務まで解決扱いにはしません。
 
 その他: [ロードマップ](ROADMAP.md) · [リリースノート](RELEASE_NOTES.md) ·
 [依存関係／SBOM ツール](docs/legal/README.md)
