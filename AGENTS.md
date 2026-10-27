@@ -24,7 +24,7 @@ Do not silently change an architecture decision. If a deviation is required, doc
 
 ## Product decision continuity (public-safe rule)
 
-- NagiOS also has an **owner-managed, private** product-decision ledger at `RT-NISH/NagiOS-internal/docs/product-decisions/`. The path is a pointer for authorized agents, **not** permission to disclose its contents.
+- NagiOS also has an **owner-managed, private** product-decision ledger at `Roy-To/NagiOS-internal/docs/product-decisions/`. The path is a pointer for authorized agents, **not** permission to disclose its contents.
 - Before designing or changing user-facing behavior, AI/Memory/Learning policies, Files/Albert behavior, cross-app Actions or future features, consult its current `README.md`, `OPERATING_RULES.md`, and relevant `DEC-*.md` **using an authenticated account with access**. Read the related release/architecture specifications in this repository as well. Do not substitute stale chat memory for verified decisions.
 - The private ledger distinguishes approved decisions from provisional ideas and review notes. **Do not treat private future roadmaps or product decisions as release activation, changes to workstream ownership, or evidence of target PASS.** Existing security, compatibility, implementation specs and acceptance gates still apply.
 - If private access is missing, report that the relevant product decisions are **unverified** and ask the owner for an approved excerpt/authorization when necessary. Independent existing 0.1 work may continue under its current gates; do not fabricate the missing requirements.
