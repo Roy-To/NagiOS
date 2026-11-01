@@ -1,4 +1,6 @@
 use std::env;
+use std::fmt;
+use std::io::{self, Write};
 use std::path::Path;
 
 use nagi_cli::commands::execute;
@@ -10,14 +12,14 @@ fn main() {
     let receipt_config = match RunReceiptConfig::take_from_env_at_startup() {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("FAIL run receipt configuration: {error}");
+            report(format_args!("FAIL run receipt configuration: {error}"));
             std::process::exit(nagi_cli::commands::EXIT_CONFIG_ERROR);
         }
     };
     let root = match discover_repo_root(Path::new(".")) {
         Ok(root) => root,
         Err(error) => {
-            eprintln!("FAIL repository: {error}");
+            report(format_args!("FAIL repository: {error}"));
             std::process::exit(nagi_cli::commands::EXIT_CONFIG_ERROR);
         }
     };
@@ -25,7 +27,7 @@ fn main() {
         Some(config) => match config.start(&root) {
             Ok(started) => Some(started),
             Err(error) => {
-                eprintln!("FAIL run receipt start: {error}");
+                report(format_args!("FAIL run receipt start: {error}"));
                 std::process::exit(nagi_cli::commands::EXIT_CONFIG_ERROR);
             }
         },
@@ -36,17 +38,30 @@ fn main() {
     let result = execute(&args, &root, &probe);
     let command_result = result.exit_code;
 
-    for line in result.lines {
-        println!("{line}");
-    }
+    // Persist the already known command result before any fallible output. A
+    // disconnected terminal or closed pipe must not prevent the receipt or
+    // replace command_result. This is still not an OS wait status.
+    let receipt_error = started_run
+        .as_ref()
+        .and_then(|started| started.finish(command_result).err());
 
-    // Keep the durable result write as the final action before process::exit.
-    // An abrupt kill or power loss can still make the OS wait status unavailable.
-    if let Some(started) = started_run {
-        if let Err(error) = started.finish(command_result) {
-            eprintln!("WARN run receipt terminal outcome: {error}");
+    let mut stdout = io::stdout().lock();
+    for line in &result.lines {
+        if writeln!(stdout, "{line}").is_err() {
+            break;
         }
+    }
+    let _ = stdout.flush();
+    drop(stdout);
+
+    if let Some(error) = receipt_error {
+        report(format_args!("WARN run receipt terminal outcome: {error}"));
     }
 
     std::process::exit(command_result);
+}
+
+/// Write a diagnostic to stderr without panicking when stderr is closed.
+fn report(message: fmt::Arguments<'_>) {
+    let _ = writeln!(io::stderr().lock(), "{message}");
 }
