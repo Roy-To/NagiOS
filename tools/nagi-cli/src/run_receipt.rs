@@ -35,7 +35,9 @@ pub enum ReconnectionState {
         command_result: i32,
         source: SourceIdentity,
     },
-    Inconclusive { reason: InconclusiveReason },
+    Inconclusive {
+        reason: InconclusiveReason,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1042,8 +1044,11 @@ mod tests {
                 reason: InconclusiveReason::MissingStartedReceipt
             }
         );
-        fs::write(directory.0.join("started.json"), "{\"record\":\"started\"}\n")
-            .expect("write corrupt started fixture");
+        fs::write(
+            directory.0.join("started.json"),
+            "{\"record\":\"started\"}\n",
+        )
+        .expect("write corrupt started fixture");
         assert_eq!(
             inspect_reconnection(&directory.0, &test_expected()),
             ReconnectionState::Inconclusive {
