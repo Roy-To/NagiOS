@@ -31,7 +31,10 @@ pub struct RunReceiptConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReconnectionState {
-    Terminal { command_result: i32 },
+    Terminal {
+        command_result: i32,
+        source: SourceIdentity,
+    },
     Inconclusive { reason: InconclusiveReason },
 }
 
@@ -62,16 +65,20 @@ impl fmt::Display for ReceiptWriteError {
 pub enum InconclusiveReason {
     MissingStartedReceipt,
     InvalidStartedReceipt,
+    StartedReceiptMismatch,
     MissingTerminalProcessAbsent,
     ProcessStateUnknown,
     InvalidTerminalReceipt,
     TerminalReceiptUnreadable,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TerminalObservation {
     Missing,
-    RecordedCommandResult(i32),
+    RecordedCommandResult {
+        command_result: i32,
+        source: SourceIdentity,
+    },
     Invalid,
 }
 
@@ -82,10 +89,19 @@ pub enum ProcessObservation {
     Unknown,
 }
 
+/// Source state captured once at run start and repeated in the terminal record.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct SourceIdentity {
-    head: String,
-    worktree_dirty: bool,
+pub struct SourceIdentity {
+    pub head: String,
+    pub worktree_dirty: bool,
+}
+
+/// The run a reconnecting caller expects to find in a receipt directory.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpectedRun {
+    run_id: String,
+    stage: String,
+    source_head: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +127,32 @@ struct TerminalRecord {
 pub struct StartedRun {
     directory: PathBuf,
     record: StartedRecord,
+}
+
+impl ExpectedRun {
+    pub fn new(
+        run_id: impl Into<String>,
+        stage: impl Into<String>,
+        source_head: impl Into<String>,
+    ) -> Result<Self, String> {
+        let run_id = run_id.into();
+        let stage = stage.into();
+        let source_head = source_head.into();
+        validate_label("run id", &run_id)?;
+        validate_label("stage", &stage)?;
+        validate_source_head(&source_head)?;
+        Ok(Self {
+            run_id,
+            stage,
+            source_head,
+        })
+    }
+
+    fn matches_started(&self, started: &StartedRecord) -> bool {
+        self.run_id == started.run_id
+            && self.stage == started.stage
+            && self.source_head == started.source.head
+    }
 }
 
 impl RunReceiptConfig {
@@ -226,11 +268,13 @@ impl StartedRun {
     }
 }
 
-/// Read receipts without changing them. A terminal receipt wins; without one,
-/// only a present PID is reported. A missing terminal plus an absent PID is
-/// inconclusive, never a guessed pass or a guessed exit code. PID presence by
-/// itself does not prove that the process is the original run.
-pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
+/// Read receipts without changing them. The started receipt must name the
+/// expected run ID, stage and source revision; any mismatch is inconclusive.
+/// A matching terminal receipt wins and reports the recorded source metadata.
+/// Without one, a missing terminal plus an absent PID is inconclusive, never a
+/// guessed pass or a guessed exit code. PID presence by itself does not prove
+/// that the process is the original run.
+pub fn inspect_reconnection(directory: &Path, expected: &ExpectedRun) -> ReconnectionState {
     let started_path = directory.join("started.json");
     let started_text = match fs::read_to_string(&started_path) {
         Ok(text) => text,
@@ -253,6 +297,11 @@ pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
             }
         }
     };
+    if !expected.matches_started(&started) {
+        return ReconnectionState::Inconclusive {
+            reason: InconclusiveReason::StartedReceiptMismatch,
+        };
+    }
 
     let terminal_path = directory.join("terminal.json");
     match fs::read_to_string(&terminal_path) {
@@ -260,6 +309,7 @@ pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
             Some(terminal) if terminal.matches_started(&started) => {
                 return ReconnectionState::Terminal {
                     command_result: terminal.command_result,
+                    source: terminal.source,
                 }
             }
             _ => {
@@ -296,9 +346,13 @@ pub fn classify_reconnection(
     process: ProcessObservation,
 ) -> ReconnectionState {
     match terminal {
-        TerminalObservation::RecordedCommandResult(command_result) => {
-            ReconnectionState::Terminal { command_result }
-        }
+        TerminalObservation::RecordedCommandResult {
+            command_result,
+            source,
+        } => ReconnectionState::Terminal {
+            command_result,
+            source,
+        },
         TerminalObservation::Invalid => ReconnectionState::Inconclusive {
             reason: InconclusiveReason::InvalidTerminalReceipt,
         },
@@ -656,6 +710,11 @@ mod tests {
         }
     }
 
+    fn test_expected() -> ExpectedRun {
+        ExpectedRun::new("run-17", "m20-normal-session", test_source().head)
+            .expect("valid expected run")
+    }
+
     fn begin_test_run(directory: &Path) -> StartedRun {
         let config = test_config(directory);
         config.begin(test_source()).expect("write started receipt")
@@ -697,8 +756,11 @@ mod tests {
         let started = begin_test_run(&directory.0);
         started.finish(0).expect("write terminal receipt");
         assert_eq!(
-            inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { command_result: 0 }
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Terminal {
+                command_result: 0,
+                source: test_source()
+            }
         );
     }
 
@@ -708,8 +770,11 @@ mod tests {
         let started = begin_test_run(&directory.0);
         started.finish(23).expect("write terminal receipt");
         assert_eq!(
-            inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { command_result: 23 }
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Terminal {
+                command_result: 23,
+                source: test_source()
+            }
         );
     }
 
@@ -718,7 +783,7 @@ mod tests {
         let directory = TestDirectory::new();
         let _started = begin_test_run(&directory.0);
         assert_eq!(
-            inspect_reconnection(&directory.0),
+            inspect_reconnection(&directory.0, &test_expected()),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::ProcessStateUnknown
             }
@@ -758,7 +823,7 @@ mod tests {
         )
         .expect("write started receipt for exited process");
         assert_eq!(
-            inspect_reconnection(&directory.0),
+            inspect_reconnection(&directory.0, &test_expected()),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::MissingTerminalProcessAbsent
             }
@@ -795,7 +860,7 @@ mod tests {
         )
         .expect("write malformed terminal fixture");
         assert_eq!(
-            inspect_reconnection(&directory.0),
+            inspect_reconnection(&directory.0, &test_expected()),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::InvalidTerminalReceipt
             }
@@ -817,7 +882,7 @@ mod tests {
         );
         fs::write(directory.0.join("terminal.json"), legacy).expect("write legacy terminal format");
         assert_eq!(
-            inspect_reconnection(&directory.0),
+            inspect_reconnection(&directory.0, &test_expected()),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::InvalidTerminalReceipt
             }
@@ -843,8 +908,11 @@ mod tests {
             terminal_before
         );
         assert_eq!(
-            inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { command_result: 7 }
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Terminal {
+                command_result: 7,
+                source: test_source()
+            }
         );
     }
 
@@ -877,6 +945,119 @@ mod tests {
             fs::read_to_string(path).expect("published receipt remains visible"),
             "complete receipt\n"
         );
+    }
+
+    #[test]
+    fn started_receipt_for_another_run_stage_or_source_is_inconclusive() {
+        let directory = TestDirectory::new();
+        begin_test_run(&directory.0)
+            .finish(0)
+            .expect("write terminal receipt");
+        let head = test_source().head;
+        let other_head = "1123456789abcdef0123456789abcdef01234567";
+        for expected in [
+            ExpectedRun::new("run-18", "m20-normal-session", head.clone()),
+            ExpectedRun::new("run-17", "m20-other-stage", head.clone()),
+            ExpectedRun::new("run-17", "m20-normal-session", other_head),
+        ] {
+            assert_eq!(
+                inspect_reconnection(&directory.0, &expected.expect("valid expected run")),
+                ReconnectionState::Inconclusive {
+                    reason: InconclusiveReason::StartedReceiptMismatch
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_for_another_run_source_stage_pid_or_time_is_rejected() {
+        let directory = TestDirectory::new();
+        let started = begin_test_run(&directory.0);
+        let matching = TerminalRecord {
+            run_id: started.record.run_id.clone(),
+            source: started.record.source.clone(),
+            stage: started.record.stage.clone(),
+            pid: started.record.pid,
+            finished_unix_nanos: started.record.started_unix_nanos,
+            command_result: 0,
+        };
+        let mut other_run = matching.clone();
+        other_run.run_id = "run-18".to_owned();
+        let mut other_head = matching.clone();
+        other_head.source.head = "1123456789abcdef0123456789abcdef01234567".to_owned();
+        let mut other_dirty = matching.clone();
+        other_dirty.source.worktree_dirty = !matching.source.worktree_dirty;
+        let mut other_stage = matching.clone();
+        other_stage.stage = "m20-other-stage".to_owned();
+        let mut other_pid = matching.clone();
+        other_pid.pid = matching.pid.wrapping_add(1).max(1);
+        let mut before_start = matching.clone();
+        before_start.finished_unix_nanos = matching.finished_unix_nanos - 1;
+        for terminal in [
+            other_run,
+            other_head,
+            other_dirty,
+            other_stage,
+            other_pid,
+            before_start,
+        ] {
+            fs::write(directory.0.join("terminal.json"), terminal.to_json())
+                .expect("write mismatched terminal fixture");
+            assert_eq!(
+                inspect_reconnection(&directory.0, &test_expected()),
+                ReconnectionState::Inconclusive {
+                    reason: InconclusiveReason::InvalidTerminalReceipt
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_result_reports_recorded_dirty_source() {
+        let directory = TestDirectory::new();
+        let dirty = SourceIdentity {
+            worktree_dirty: true,
+            ..test_source()
+        };
+        test_config(&directory.0)
+            .begin(dirty.clone())
+            .expect("write started receipt")
+            .finish(5)
+            .expect("write terminal receipt");
+        assert_eq!(
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Terminal {
+                command_result: 5,
+                source: dirty
+            }
+        );
+    }
+
+    #[test]
+    fn missing_or_corrupt_started_receipt_is_inconclusive() {
+        let directory = TestDirectory::new();
+        assert_eq!(
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::MissingStartedReceipt
+            }
+        );
+        fs::write(directory.0.join("started.json"), "{\"record\":\"started\"}\n")
+            .expect("write corrupt started fixture");
+        assert_eq!(
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::InvalidStartedReceipt
+            }
+        );
+    }
+
+    #[test]
+    fn expected_run_rejects_invalid_identity() {
+        let head = test_source().head;
+        assert!(ExpectedRun::new("../run", "m20", head.clone()).is_err());
+        assert!(ExpectedRun::new("run", "m20/session", head).is_err());
+        assert!(ExpectedRun::new("run", "m20", "not-a-commit").is_err());
     }
 
     #[test]
