@@ -4,8 +4,11 @@
 //! If the recorded CLI PID is gone, the result is inconclusive; SIGKILL and power
 //! loss can prevent the terminal receipt from being written.
 //! Opt in through NAGI_RUN_RECEIPT_DIR, NAGI_RUN_ID, and NAGI_RUN_STAGE.
+//! The environment settings must be consumed at single-threaded CLI startup so
+//! nested CLI processes do not accidentally reuse the parent's receipt ID.
 
 use std::env;
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -28,9 +31,31 @@ pub struct RunReceiptConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReconnectionState {
-    ProcessPresent { pid: u32 },
-    Terminal { exit_code: i32 },
+    Terminal { command_result: i32 },
     Inconclusive { reason: InconclusiveReason },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReceiptWriteError {
+    NotPublished { path: PathBuf, reason: String },
+    PublishedDurabilityUnknown { path: PathBuf, reason: String },
+}
+
+impl fmt::Display for ReceiptWriteError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotPublished { path, reason } => write!(
+                formatter,
+                "receipt not published at {}: {reason}",
+                path.display()
+            ),
+            Self::PublishedDurabilityUnknown { path, reason } => write!(
+                formatter,
+                "receipt published at {}, but directory durability is unknown: {reason}",
+                path.display()
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,7 +71,7 @@ pub enum InconclusiveReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalObservation {
     Missing,
-    RecordedExitCode(i32),
+    RecordedCommandResult(i32),
     Invalid,
 }
 
@@ -79,7 +104,7 @@ struct TerminalRecord {
     stage: String,
     pid: u32,
     finished_unix_nanos: u128,
-    exit_code: i32,
+    command_result: i32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,7 +116,7 @@ pub struct StartedRun {
 impl RunReceiptConfig {
     /// Enable receipt writing only when all three opt-in variables are present.
     /// The directory may be absolute or relative to the repository root.
-    pub fn from_env() -> Result<Option<Self>, String> {
+    fn from_env() -> Result<Option<Self>, String> {
         let directory = env::var_os(RECEIPT_DIR_ENV);
         let run_id = env::var_os(RUN_ID_ENV);
         let stage = env::var_os(RUN_STAGE_ENV);
@@ -111,6 +136,18 @@ impl RunReceiptConfig {
             .into_string()
             .map_err(|_| format!("{RUN_STAGE_ENV} must be UTF-8"))?;
         Self::new(PathBuf::from(directory), run_id, stage).map(Some)
+    }
+
+    /// Read the opt-in settings once, then remove them from this process's
+    /// environment before commands can spawn children. Call only during
+    /// single-threaded CLI startup; the returned config remains available to
+    /// write this process's own receipts.
+    pub fn take_from_env_at_startup() -> Result<Option<Self>, String> {
+        let config = Self::from_env();
+        env::remove_var(RECEIPT_DIR_ENV);
+        env::remove_var(RUN_ID_ENV);
+        env::remove_var(RUN_STAGE_ENV);
+        config
     }
 
     pub fn new(
@@ -164,12 +201,7 @@ impl RunReceiptConfig {
             )
         })?;
         let started_path = self.directory.join("started.json");
-        atomic_create_new(&started_path, &record.to_json()).map_err(|error| {
-            format!(
-                "cannot atomically create run receipt {}: {error}",
-                started_path.display()
-            )
-        })?;
+        atomic_create_new(&started_path, &record.to_json()).map_err(|error| error.to_string())?;
         Ok(StartedRun {
             directory: self.directory.clone(),
             record,
@@ -180,22 +212,17 @@ impl RunReceiptConfig {
 impl StartedRun {
     /// Save the command result code that main immediately passes to
     /// process::exit. This cannot recover an OS wait status after abrupt death.
-    pub fn finish(&self, actual_exit_code: i32) -> Result<(), String> {
+    pub fn finish(&self, command_result: i32) -> Result<(), ReceiptWriteError> {
         let record = TerminalRecord {
             run_id: self.record.run_id.clone(),
             source: self.record.source.clone(),
             stage: self.record.stage.clone(),
             pid: self.record.pid,
             finished_unix_nanos: unix_nanos(),
-            exit_code: actual_exit_code,
+            command_result,
         };
         let terminal_path = self.directory.join("terminal.json");
-        atomic_create_new(&terminal_path, &record.to_json()).map_err(|error| {
-            format!(
-                "cannot atomically create terminal receipt {}: {error}",
-                terminal_path.display()
-            )
-        })
+        atomic_create_new(&terminal_path, &record.to_json())
     }
 }
 
@@ -232,7 +259,7 @@ pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
         Ok(text) => match TerminalRecord::parse(&text) {
             Some(terminal) if terminal.matches_started(&started) => {
                 return ReconnectionState::Terminal {
-                    exit_code: terminal.exit_code,
+                    command_result: terminal.command_result,
                 }
             }
             _ => {
@@ -250,9 +277,11 @@ pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
     }
 
     match process_is_present(started.pid) {
-        Ok(true) => ReconnectionState::ProcessPresent { pid: started.pid },
         Ok(false) => ReconnectionState::Inconclusive {
             reason: InconclusiveReason::MissingTerminalProcessAbsent,
+        },
+        Ok(true) => ReconnectionState::Inconclusive {
+            reason: InconclusiveReason::ProcessStateUnknown,
         },
         Err(()) => ReconnectionState::Inconclusive {
             reason: InconclusiveReason::ProcessStateUnknown,
@@ -265,22 +294,22 @@ pub fn inspect_reconnection(directory: &Path) -> ReconnectionState {
 pub fn classify_reconnection(
     terminal: TerminalObservation,
     process: ProcessObservation,
-    pid: u32,
 ) -> ReconnectionState {
     match terminal {
-        TerminalObservation::RecordedExitCode(exit_code) => {
-            ReconnectionState::Terminal { exit_code }
+        TerminalObservation::RecordedCommandResult(command_result) => {
+            ReconnectionState::Terminal { command_result }
         }
         TerminalObservation::Invalid => ReconnectionState::Inconclusive {
             reason: InconclusiveReason::InvalidTerminalReceipt,
         },
         TerminalObservation::Missing => match process {
-            ProcessObservation::Present => ReconnectionState::ProcessPresent { pid },
+            ProcessObservation::Present | ProcessObservation::Unknown => {
+                ReconnectionState::Inconclusive {
+                    reason: InconclusiveReason::ProcessStateUnknown,
+                }
+            }
             ProcessObservation::Absent => ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::MissingTerminalProcessAbsent,
-            },
-            ProcessObservation::Unknown => ReconnectionState::Inconclusive {
-                reason: InconclusiveReason::ProcessStateUnknown,
             },
         },
     }
@@ -345,14 +374,22 @@ fn unix_nanos() -> u128 {
         .as_nanos()
 }
 
-fn atomic_create_new(path: &Path, contents: &str) -> io::Result<()> {
+fn atomic_create_new(path: &Path, contents: &str) -> Result<(), ReceiptWriteError> {
+    atomic_create_new_with_sync(path, contents, sync_parent_directory)
+}
+
+fn atomic_create_new_with_sync(
+    path: &Path,
+    contents: &str,
+    sync_parent: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), ReceiptWriteError> {
     let parent = path
         .parent()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "receipt has no parent"))?;
+        .ok_or_else(|| not_published(path, "receipt has no parent"))?;
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "receipt name is not UTF-8"))?;
+        .ok_or_else(|| not_published(path, "receipt name is not UTF-8"))?;
     let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temporary = parent.join(format!(
         ".{file_name}.tmp.{}.{}.{}",
@@ -363,23 +400,38 @@ fn atomic_create_new(path: &Path, contents: &str) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&temporary)?;
+        .open(&temporary)
+        .map_err(|error| not_published(path, error))?;
     if let Err(error) = file
         .write_all(contents.as_bytes())
         .and_then(|()| file.sync_all())
     {
         drop(file);
         let _ = fs::remove_file(&temporary);
-        return Err(error);
+        return Err(not_published(path, error));
     }
     drop(file);
 
     if let Err(error) = fs::hard_link(&temporary, path) {
         let _ = fs::remove_file(&temporary);
-        return Err(error);
+        return Err(not_published(path, error));
     }
-    fs::remove_file(&temporary)?;
-    sync_parent_directory(parent)
+    fs::remove_file(&temporary).map_err(|error| published_durability_unknown(path, error))?;
+    sync_parent(parent).map_err(|error| published_durability_unknown(path, error))
+}
+
+fn not_published(path: &Path, reason: impl fmt::Display) -> ReceiptWriteError {
+    ReceiptWriteError::NotPublished {
+        path: path.to_path_buf(),
+        reason: reason.to_string(),
+    }
+}
+
+fn published_durability_unknown(path: &Path, reason: impl fmt::Display) -> ReceiptWriteError {
+    ReceiptWriteError::PublishedDurabilityUnknown {
+        path: path.to_path_buf(),
+        reason: reason.to_string(),
+    }
 }
 
 #[cfg(unix)]
@@ -430,7 +482,7 @@ fn process_is_present(_pid: u32) -> Result<bool, ()> {
 impl StartedRecord {
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"record\": \"started\",\n  \"run_id\": \"{}\",\n  \"source_head\": \"{}\",\n  \"source_worktree_dirty\": {},\n  \"stage\": \"{}\",\n  \"pid\": {},\n  \"started_unix_nanos\": {}\n}}\n",
+            "{{\n  \"schema_version\": 2,\n  \"record\": \"started\",\n  \"run_id\": \"{}\",\n  \"source_head\": \"{}\",\n  \"source_worktree_dirty\": {},\n  \"stage\": \"{}\",\n  \"pid\": {},\n  \"started_unix_nanos\": {}\n}}\n",
             self.run_id,
             self.source.head,
             self.source.worktree_dirty,
@@ -441,7 +493,7 @@ impl StartedRecord {
     }
 
     fn parse(json: &str) -> Option<Self> {
-        if number_field(json, "schema_version")? != 1 || string_field(json, "record")? != "started"
+        if number_field(json, "schema_version")? != 2 || string_field(json, "record")? != "started"
         {
             return None;
         }
@@ -472,19 +524,19 @@ impl StartedRecord {
 impl TerminalRecord {
     fn to_json(&self) -> String {
         format!(
-            "{{\n  \"schema_version\": 1,\n  \"record\": \"terminal\",\n  \"run_id\": \"{}\",\n  \"source_head\": \"{}\",\n  \"source_worktree_dirty\": {},\n  \"stage\": \"{}\",\n  \"pid\": {},\n  \"finished_unix_nanos\": {},\n  \"exit_code\": {}\n}}\n",
+            "{{\n  \"schema_version\": 2,\n  \"record\": \"terminal\",\n  \"run_id\": \"{}\",\n  \"source_head\": \"{}\",\n  \"source_worktree_dirty\": {},\n  \"stage\": \"{}\",\n  \"pid\": {},\n  \"finished_unix_nanos\": {},\n  \"command_result\": {}\n}}\n",
             self.run_id,
             self.source.head,
             self.source.worktree_dirty,
             self.stage,
             self.pid,
             self.finished_unix_nanos,
-            self.exit_code
+            self.command_result
         )
     }
 
     fn parse(json: &str) -> Option<Self> {
-        if number_field(json, "schema_version")? != 1 || string_field(json, "record")? != "terminal"
+        if number_field(json, "schema_version")? != 2 || string_field(json, "record")? != "terminal"
         {
             return None;
         }
@@ -495,7 +547,7 @@ impl TerminalRecord {
         let pid = u32::try_from(number_field(json, "pid")?).ok()?;
         let finished_unix_nanos =
             u128::try_from(number_field(json, "finished_unix_nanos")?).ok()?;
-        let exit_code = i32::try_from(number_field(json, "exit_code")?).ok()?;
+        let command_result = i32::try_from(number_field(json, "command_result")?).ok()?;
         validate_label("run id", &run_id).ok()?;
         validate_label("stage", &stage).ok()?;
         validate_source_head(&source_head).ok()?;
@@ -509,7 +561,7 @@ impl TerminalRecord {
             stage,
             pid,
             finished_unix_nanos,
-            exit_code,
+            command_result,
         };
         (record.to_json() == json).then_some(record)
     }
@@ -646,7 +698,7 @@ mod tests {
         started.finish(0).expect("write terminal receipt");
         assert_eq!(
             inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { exit_code: 0 }
+            ReconnectionState::Terminal { command_result: 0 }
         );
     }
 
@@ -657,18 +709,18 @@ mod tests {
         started.finish(23).expect("write terminal receipt");
         assert_eq!(
             inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { exit_code: 23 }
+            ReconnectionState::Terminal { command_result: 23 }
         );
     }
 
     #[test]
-    fn started_without_terminal_and_present_pid_is_not_terminal() {
+    fn started_without_terminal_and_pid_identity_unknown_is_inconclusive() {
         let directory = TestDirectory::new();
-        let started = begin_test_run(&directory.0);
+        let _started = begin_test_run(&directory.0);
         assert_eq!(
             inspect_reconnection(&directory.0),
-            ReconnectionState::ProcessPresent {
-                pid: started.record.pid
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::ProcessStateUnknown
             }
         );
     }
@@ -676,11 +728,7 @@ mod tests {
     #[test]
     fn missing_terminal_and_absent_process_is_inconclusive_without_rc() {
         assert_eq!(
-            classify_reconnection(
-                TerminalObservation::Missing,
-                ProcessObservation::Absent,
-                5678
-            ),
+            classify_reconnection(TerminalObservation::Missing, ProcessObservation::Absent),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::MissingTerminalProcessAbsent
             }
@@ -720,23 +768,17 @@ mod tests {
     #[test]
     fn missing_terminal_and_present_pid_is_not_terminal() {
         assert_eq!(
-            classify_reconnection(
-                TerminalObservation::Missing,
-                ProcessObservation::Present,
-                5678
-            ),
-            ReconnectionState::ProcessPresent { pid: 5678 }
+            classify_reconnection(TerminalObservation::Missing, ProcessObservation::Present),
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::ProcessStateUnknown
+            }
         );
     }
 
     #[test]
     fn invalid_terminal_never_uses_process_or_logs_to_guess_result() {
         assert_eq!(
-            classify_reconnection(
-                TerminalObservation::Invalid,
-                ProcessObservation::Absent,
-                5678
-            ),
+            classify_reconnection(TerminalObservation::Invalid, ProcessObservation::Absent),
             ReconnectionState::Inconclusive {
                 reason: InconclusiveReason::InvalidTerminalReceipt
             }
@@ -752,6 +794,28 @@ mod tests {
             "{\"record\":\"terminal\"}\n",
         )
         .expect("write malformed terminal fixture");
+        assert_eq!(
+            inspect_reconnection(&directory.0),
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::InvalidTerminalReceipt
+            }
+        );
+    }
+
+    #[test]
+    fn legacy_exit_code_field_is_not_misread_as_command_result() {
+        let directory = TestDirectory::new();
+        let started = begin_test_run(&directory.0);
+        let legacy = format!(
+            "{{\n  \"schema_version\": 1,\n  \"record\": \"terminal\",\n  \"run_id\": \"{}\",\n  \"source_head\": \"{}\",\n  \"source_worktree_dirty\": {},\n  \"stage\": \"{}\",\n  \"pid\": {},\n  \"finished_unix_nanos\": {},\n  \"exit_code\": 0\n}}\n",
+            started.record.run_id,
+            started.record.source.head,
+            started.record.source.worktree_dirty,
+            started.record.stage,
+            started.record.pid,
+            unix_nanos()
+        );
+        fs::write(directory.0.join("terminal.json"), legacy).expect("write legacy terminal format");
         assert_eq!(
             inspect_reconnection(&directory.0),
             ReconnectionState::Inconclusive {
@@ -780,7 +844,38 @@ mod tests {
         );
         assert_eq!(
             inspect_reconnection(&directory.0),
-            ReconnectionState::Terminal { exit_code: 7 }
+            ReconnectionState::Terminal { command_result: 7 }
+        );
+    }
+
+    #[test]
+    fn failure_before_publish_is_reported_without_overwriting_existing_receipt() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("terminal.json");
+        fs::write(&path, "existing\n").expect("create existing receipt");
+        let error = atomic_create_new(&path, "replacement\n").expect_err("must be create-only");
+        assert!(matches!(error, ReceiptWriteError::NotPublished { .. }));
+        assert_eq!(
+            fs::read_to_string(path).expect("read original"),
+            "existing\n"
+        );
+    }
+
+    #[test]
+    fn failure_after_publish_reports_visible_receipt_with_unknown_durability() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("terminal.json");
+        let error = atomic_create_new_with_sync(&path, "complete receipt\n", |_| {
+            Err(io::Error::other("injected parent directory sync failure"))
+        })
+        .expect_err("directory sync failure must be surfaced");
+        assert!(matches!(
+            error,
+            ReceiptWriteError::PublishedDurabilityUnknown { .. }
+        ));
+        assert_eq!(
+            fs::read_to_string(path).expect("published receipt remains visible"),
+            "complete receipt\n"
         );
     }
 
