@@ -137,8 +137,12 @@ pub struct ErrorCause {
 /// The bounded text scrubber recognizes JSON object members, header-classified
 /// secret fields, and parsed key/value fields. Header-classified secret fields
 /// are hidden through their line boundary, which can also hide safe-looking
-/// fields later on that line. Recognized `private_key` PEM blocks are hidden
-/// through the matching `END` marker or bounded input end. Scheme names in
+/// fields later on that line. PEM blocks with a `PRIVATE KEY` label in an
+/// already recognized secret-key value are hidden through the matching `END`
+/// marker. An incomplete block is hidden to the next header-shaped line at the
+/// same or lesser indentation, or to the bounded input end. Secret-looking
+/// names not recognized by the key classifier, including `tls_key` and
+/// `private.key`, are not covered. Scheme names in
 /// arbitrary inline text are not a universal credential detector.
 /// Arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
 /// command-line flags, and bracketed key paths are not certified safe.
@@ -159,9 +163,12 @@ pub struct DiagnosticEvent {
 
 /// A structured event view whose supported text fields have been redacted.
 /// Header-classified secret fields, including authorization and auth/token/
-/// cookie/session fields, are redacted through their line boundary. Recognized
-/// `private_key` fields redact PEM blocks through the matching `END` marker or
-/// the end of the bounded input. Other key/value text is handled only by its
+/// cookie/session fields, are redacted through their line boundary. PEM blocks
+/// with a `PRIVATE KEY` label in an already recognized secret-key value are
+/// redacted through the matching `END` marker. An incomplete block stops before
+/// the next header-shaped line at the same or lesser indentation, or at the
+/// bounded input end. `tls_key` and `private.key` are not recognized aliases.
+/// Other key/value text is handled only by its
 /// recognized key, scheme, and delimiter rules; this is not a universal secret
 /// scanner. Line-scoped redaction can hide safe-looking fields later on that
 /// line. Arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer
@@ -365,8 +372,11 @@ impl DiagnosticEvent {
     /// Serializes this structured event after applying privacy classes and the
     /// bounded diagnostic text scrubber. It redacts header-classified secret
     /// fields through their line boundary (so later safe-looking fields on that
-    /// line may also be hidden) and recognized `private_key` PEM blocks through
-    /// the matching `END` marker or bounded input end. Other
+    /// line may also be hidden) and PEM blocks with a `PRIVATE KEY` label in an
+    /// already recognized secret-key value through the matching `END` marker.
+    /// Incomplete blocks stop before the next header-shaped line at the same or
+    /// lesser indentation, or at the bounded input end. `tls_key` and
+    /// `private.key` are not recognized aliases. Other
     /// key/value text follows recognized scheme and delimiter rules. Arbitrary
     /// raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
     /// command-line flags, and bracketed key paths are not certified safe.
@@ -377,8 +387,9 @@ impl DiagnosticEvent {
 
     /// Produces a redacted view for a structured event using the same bounded
     /// text rules as `to_json`: header-classified secret fields are redacted to
-    /// their line boundary, recognized `private_key` PEM blocks to their
-    /// matching `END` marker or bounded input end, and other key/value fields
+    /// their line boundary, recognized secret-key PEM blocks to their matching
+    /// `END` marker, and incomplete blocks to a safe header boundary or bounded
+    /// input end. `tls_key` and `private.key` are not recognized aliases. Other key/value fields
     /// according to recognized schemes and delimiters. Line-scoped redaction
     /// may hide later safe-looking fields on the same line. This does not certify
     /// arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
@@ -388,7 +399,8 @@ impl DiagnosticEvent {
     }
 
     /// Parses a serialized event and reapplies the same bounded text redaction
-    /// as `to_json`, including recognized `private_key` PEM blocks. This does
+    /// as `to_json`, including PEM blocks in already recognized secret-key
+    /// values. This does
     /// not certify arbitrary raw logs or unsupported formats as safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let record: SafeDiagnosticEvent = serde_json::from_str(input)
@@ -677,10 +689,10 @@ struct FieldMarker {
     separator_end: usize,
     value_start: usize,
     kind: FieldValueKind,
-    is_private_key: bool,
 }
 
-struct PemPrivateKeyBlock {
+struct PemSecretBlock {
+    prefix_end: usize,
     end: usize,
     closing_quote: Option<char>,
 }
@@ -702,9 +714,10 @@ fn redact_inline_secrets(value: &str) -> String {
     // fields.
     // Header-classified secret fields are opaque through their line boundary.
     // Inline key/value text uses only recognized schemes and delimiters; an
-    // arbitrary scheme in free text is not generally parsed. For recognized
-    // private_key fields, a PEM BEGIN marker consumes through its matching END
-    // marker, or through the end of this bounded input if incomplete.
+    // arbitrary scheme in free text is not generally parsed. PEM blocks in an
+    // already recognized secret-key value consume through their matching END
+    // marker. An incomplete block stops before the next safe header at the
+    // same or lesser indentation, or at the end of this bounded input.
     // Replace oversized input before parsing. This bounds work and prevents a
     // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
@@ -724,26 +737,23 @@ fn redact_inline_secrets(value: &str) -> String {
 
         if let Some(marker) = field_marker_at(value, cursor) {
             output.push_str(&value[cursor..marker.separator_end]);
-            if marker.is_private_key {
-                if let Some(block) = private_key_pem_block(value, marker.value_start) {
-                    output.push_str(&value[marker.separator_end..marker.value_start]);
-                    if let Some(quote) = block.closing_quote {
-                        output.push(quote);
-                    }
-                    output.push_str(REDACTED);
-                    if let Some(quote) = block.closing_quote {
-                        output.push(quote);
-                    }
-                    if line_ending_len(value, block.end).is_some() {
-                        // The normal terminal escape pass turns raw line breaks
-                        // into printable sequences. Keep a delimiter before
-                        // either raw or already-escaped line breaks so a second
-                        // pass preserves the following field boundary.
-                        output.push(' ');
-                    }
-                    cursor = block.end;
-                    continue;
+            if let Some(block) =
+                secret_value_pem_block(value, marker.value_start, marker.separator_end)
+            {
+                output.push_str(&value[marker.separator_end..block.prefix_end]);
+                output.push_str(REDACTED);
+                if let Some(quote) = block.closing_quote {
+                    output.push(quote);
                 }
+                if line_ending_len(value, block.end).is_some() {
+                    // The normal terminal escape pass turns raw line breaks
+                    // into printable sequences. Keep a delimiter before
+                    // either raw or already-escaped line breaks so a second
+                    // pass preserves the following field boundary.
+                    output.push(' ');
+                }
+                cursor = block.end;
+                continue;
             }
             if marker.kind == FieldValueKind::Header
                 || value_starts_with_credential_scheme(value, marker.value_start)
@@ -1175,7 +1185,6 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
         separator + 1
     };
     let normalized = normalized_secret_key(&key);
-    let compact = normalized.replace('_', "");
     let kind = if (!quoted_key && separator_byte == b':')
         || normalized.contains("auth")
         || normalized.contains("token")
@@ -1190,30 +1199,83 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
         separator_end,
         value_start: skip_horizontal_whitespace(value, separator_end),
         kind,
-        is_private_key: compact.contains("privatekey"),
     })
 }
 
-fn private_key_pem_block(value: &str, start: usize) -> Option<PemPrivateKeyBlock> {
-    const BEGIN: &str = "-----BEGIN ";
-
-    let (quote, content_start) = match value.as_bytes().get(start) {
+fn secret_value_pem_block(
+    value: &str,
+    start: usize,
+    separator_end: usize,
+) -> Option<PemSecretBlock> {
+    let (quote, mut probe) = match value.as_bytes().get(start) {
         Some(b'"') => (Some('"'), start + 1),
         Some(b'\'') => (Some('\''), start + 1),
         _ => (None, start),
     };
-    if !value.get(content_start..)?.starts_with(BEGIN) {
+    let quoted_prefix_end = if quote.is_some() { start + 1 } else { start };
+    probe = skip_horizontal_whitespace(value, probe);
+
+    let mut multiline_prefix = false;
+    let mut begin_start = probe;
+    if matches!(value.as_bytes().get(probe), Some(b'|' | b'>')) {
+        if let Some(after_indicator_line) = yaml_block_scalar_line_end(value, probe) {
+            multiline_prefix = true;
+            begin_start = first_nonblank_line_start(value, after_indicator_line)?;
+        }
+    } else if line_ending_len(value, probe).is_some() {
+        multiline_prefix = true;
+        begin_start = first_nonblank_line_start(value, probe)?;
+    }
+    let prefix_end = if multiline_prefix {
+        if quote.is_some() {
+            quoted_prefix_end
+        } else {
+            separator_end
+        }
+    } else if quote.is_some() {
+        quoted_prefix_end
+    } else {
+        begin_start
+    };
+
+    if !ascii_starts_with_ignore_case(value, begin_start, "-----BEGIN") {
         return None;
     }
 
-    let label_start = content_start + BEGIN.len();
-    let Some(label_end_offset) = value.get(label_start..)?.find("-----") else {
-        return Some(PemPrivateKeyBlock {
-            end: value.len(),
-            closing_quote: None,
-        });
+    let begin_line_end = line_content_end(value, begin_start);
+    let begin_line = value.get(begin_start..begin_line_end)?;
+    let begin_prefix_len = "-----BEGIN".len();
+    let label_start = begin_start + begin_prefix_len;
+    let Some(label_space) = value.as_bytes().get(label_start) else {
+        return Some(incomplete_pem_secret_block(
+            value,
+            prefix_end,
+            begin_start,
+            begin_line_end,
+            quote,
+        ));
     };
-    let label_end = label_start + label_end_offset;
+    if !matches!(label_space, b' ' | b'\t') {
+        return Some(incomplete_pem_secret_block(
+            value,
+            prefix_end,
+            begin_start,
+            begin_line_end,
+            quote,
+        ));
+    }
+    let label_start = skip_horizontal_whitespace(value, label_start);
+    let Some(label_end_relative) = begin_line.get(label_start - begin_start..)?.find("-----")
+    else {
+        return Some(incomplete_pem_secret_block(
+            value,
+            prefix_end,
+            begin_start,
+            begin_line_end,
+            quote,
+        ));
+    };
+    let label_end = label_start + label_end_relative;
     let label = value.get(label_start..label_end)?;
     if label.is_empty()
         || label.len() > 64
@@ -1224,52 +1286,224 @@ fn private_key_pem_block(value: &str, start: usize) -> Option<PemPrivateKeyBlock
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
         || !label.to_ascii_uppercase().ends_with("PRIVATE KEY")
     {
-        return Some(PemPrivateKeyBlock {
-            end: value.len(),
-            closing_quote: None,
-        });
+        return Some(incomplete_pem_secret_block(
+            value,
+            prefix_end,
+            begin_start,
+            begin_line_end,
+            quote,
+        ));
     }
 
-    let marker_start = label_end + "-----".len();
-    let end_marker = format!("-----END {}-----", label.to_ascii_uppercase());
-    let tail = value.get(marker_start..)?;
-    let Some(end_offset) = tail
-        .to_ascii_uppercase()
-        .find(&end_marker.to_ascii_uppercase())
-    else {
-        return Some(PemPrivateKeyBlock {
-            end: value.len(),
-            closing_quote: None,
-        });
-    };
-    let end_marker_start = marker_start + end_offset;
-    let mut end = end_marker_start + end_marker.len();
-
-    if let Some(quote) = quote {
-        let mut cursor = marker_start;
-        while cursor < end_marker_start {
-            let character = value[cursor..].chars().next()?;
-            if character == quote && backslashes_before(value, cursor).is_multiple_of(2) {
-                return Some(PemPrivateKeyBlock {
-                    end: value.len(),
-                    closing_quote: None,
-                });
-            }
-            cursor += character.len_utf8();
+    let end_marker = format!("-----END {label}-----");
+    let mut previous_line_break = begin_line_end;
+    let mut line_start = line_ending_after(value, begin_line_end)?;
+    let begin_indent = indentation_before(value, begin_start);
+    while line_start < value.len() {
+        let line_end = line_content_end(value, line_start);
+        let content_start = skip_horizontal_whitespace(value, line_start);
+        if ascii_starts_with_ignore_case(value, content_start, &end_marker) {
+            let end_marker_end = content_start + end_marker.len();
+            let (end, closing_quote) = pem_end_suffix(value, end_marker_end, line_end, quote);
+            return Some(PemSecretBlock {
+                prefix_end,
+                end,
+                closing_quote,
+            });
         }
-    }
 
-    let closing_quote = quote.filter(|quote| value.as_bytes().get(end) == Some(&(*quote as u8)));
-    if closing_quote.is_some() {
-        end += 1;
-        if !quoted_value_suffix_is_delimited(value, end) {
-            return Some(PemPrivateKeyBlock {
-                end: header_value_end(value, end),
+        if line_indentation(value, line_start) <= begin_indent
+            && looks_like_header_line(&value[line_start..line_end])
+        {
+            return Some(PemSecretBlock {
+                prefix_end,
+                end: previous_line_break,
                 closing_quote: None,
             });
         }
+
+        if line_end == value.len() {
+            break;
+        }
+        previous_line_break = line_end;
+        line_start = line_ending_after(value, line_end)?;
     }
-    Some(PemPrivateKeyBlock { end, closing_quote })
+
+    Some(PemSecretBlock {
+        prefix_end,
+        end: value.len(),
+        closing_quote: None,
+    })
+}
+
+fn incomplete_pem_secret_block(
+    value: &str,
+    prefix_end: usize,
+    begin_start: usize,
+    begin_line_end: usize,
+    quote: Option<char>,
+) -> PemSecretBlock {
+    let begin_indent = indentation_before(value, begin_start);
+    let mut previous_line_break = begin_line_end;
+    let mut line_start = line_ending_after(value, begin_line_end).unwrap_or(value.len());
+    while line_start < value.len() {
+        let line_end = line_content_end(value, line_start);
+        if line_indentation(value, line_start) <= begin_indent
+            && looks_like_header_line(&value[line_start..line_end])
+        {
+            return PemSecretBlock {
+                prefix_end,
+                end: previous_line_break,
+                closing_quote: quote,
+            };
+        }
+        if line_end == value.len() {
+            break;
+        }
+        previous_line_break = line_end;
+        line_start = line_ending_after(value, line_end).unwrap_or(value.len());
+    }
+
+    PemSecretBlock {
+        prefix_end,
+        end: value.len(),
+        closing_quote: quote,
+    }
+}
+
+fn yaml_block_scalar_line_end(value: &str, start: usize) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut cursor = start + 1;
+    let mut seen_chomp = false;
+    let mut seen_indent = false;
+    while let Some(byte) = bytes.get(cursor).copied() {
+        match byte {
+            b'+' | b'-' if !seen_chomp => {
+                seen_chomp = true;
+                cursor += 1;
+            }
+            b'1'..=b'9' if !seen_indent => {
+                seen_indent = true;
+                cursor += 1;
+            }
+            b' ' | b'\t' => {
+                cursor = skip_horizontal_whitespace(value, cursor);
+                if bytes.get(cursor) == Some(&b'#') {
+                    while cursor < value.len() && line_ending_len(value, cursor).is_none() {
+                        cursor += value[cursor..].chars().next()?.len_utf8();
+                    }
+                }
+                return line_ending_len(value, cursor).map(|length| cursor + length);
+            }
+            _ => return line_ending_len(value, cursor).map(|length| cursor + length),
+        }
+    }
+    None
+}
+
+fn first_nonblank_line_start(value: &str, mut line_start: usize) -> Option<usize> {
+    while line_start < value.len() {
+        let line_end = line_content_end(value, line_start);
+        let content_start = skip_horizontal_whitespace(value, line_start);
+        if content_start < line_end {
+            return Some(content_start);
+        }
+        if line_end == value.len() {
+            return None;
+        }
+        line_start = line_ending_after(value, line_end)?;
+    }
+    None
+}
+
+fn line_content_end(value: &str, mut start: usize) -> usize {
+    while start < value.len() {
+        if line_ending_len(value, start).is_some() {
+            return start;
+        }
+        let Some(character) = value[start..].chars().next() else {
+            return value.len();
+        };
+        start += character.len_utf8();
+    }
+    value.len()
+}
+
+fn line_ending_after(value: &str, line_end: usize) -> Option<usize> {
+    line_ending_len(value, line_end).map(|length| line_end + length)
+}
+
+fn line_indentation(value: &str, line_start: usize) -> usize {
+    let mut cursor = line_start;
+    while matches!(value.as_bytes().get(cursor), Some(b' ' | b'\t')) {
+        cursor += 1;
+    }
+    cursor - line_start
+}
+
+fn indentation_before(value: &str, content_start: usize) -> usize {
+    let bytes = value.as_bytes();
+    let mut line_start = content_start;
+    while line_start > 0 && matches!(bytes.get(line_start - 1), Some(b' ' | b'\t')) {
+        line_start -= 1;
+    }
+    content_start - line_start
+}
+
+fn looks_like_header_line(line: &str) -> bool {
+    let start = line_indentation(line, 0);
+    let bytes = line.as_bytes();
+    let mut name_end = start;
+    while bytes
+        .get(name_end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        name_end += 1;
+    }
+    name_end > start && bytes.get(name_end) == Some(&b':')
+}
+
+fn ascii_starts_with_ignore_case(value: &str, start: usize, expected: &str) -> bool {
+    value
+        .get(start..start.saturating_add(expected.len()))
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(expected))
+}
+
+fn pem_end_suffix(
+    value: &str,
+    end_marker_end: usize,
+    line_end: usize,
+    quote: Option<char>,
+) -> (usize, Option<char>) {
+    if let Some(quote) = quote {
+        let after_space = skip_horizontal_whitespace(value, end_marker_end);
+        if value.as_bytes().get(after_space) == Some(&(quote as u8))
+            && backslashes_before(value, after_space).is_multiple_of(2)
+        {
+            let after_quote = after_space + quote.len_utf8();
+            if quoted_value_suffix_is_delimited(value, after_quote) {
+                return (after_quote, Some(quote));
+            }
+            return (line_end, Some(quote));
+        }
+        return (
+            if end_marker_end < line_end {
+                line_end
+            } else {
+                end_marker_end
+            },
+            None,
+        );
+    }
+
+    if end_marker_end == value.len()
+        || line_ending_len(value, end_marker_end).is_some()
+        || matches!(value.as_bytes().get(end_marker_end), Some(b' ' | b'\t'))
+    {
+        (end_marker_end, None)
+    } else {
+        (line_end, None)
+    }
 }
 
 fn is_field_name_byte(byte: u8) -> bool {
@@ -1792,8 +2026,10 @@ struct CheckResultDraft {
 
 /// A structured verification report. Human and JSON outputs use the same
 /// bounded text rules as [`DiagnosticEvent`]: header-classified secret fields
-/// are hidden through their line boundary, recognized `private_key` PEM blocks
-/// through the matching `END` marker or bounded input end, and other inline
+/// are hidden through their line boundary, recognized secret-key PEM blocks
+/// through the matching `END` marker, and incomplete PEM blocks to the next
+/// header-shaped line at the same or lesser indentation or bounded input end.
+/// Other inline
 /// schemes follow only recognized rules. Line-scoped redaction may also hide
 /// safe-looking fields later on that line. Arbitrary raw logs, HAR, URL userinfo,
 /// pair arrays, bare bearer tokens, command-line flags, and bracketed key paths
@@ -2064,8 +2300,11 @@ pub trait CrashSink {
 
 /// Crash recovery hints, event messages, and error details use the same bounded
 /// diagnostic text scrubber as [`DiagnosticEvent`]. Header-classified secret
-/// fields are hidden through their line boundary; recognized `private_key` PEM
-/// blocks are hidden through the matching `END` marker or bounded input end.
+/// fields are hidden through their line boundary; PEM blocks with a `PRIVATE
+/// KEY` label in an already recognized secret-key value are hidden through the
+/// matching `END` marker. Incomplete blocks stop before a safe header boundary
+/// or at the bounded input end. `tls_key` and `private.key` are not recognized
+/// aliases.
 /// Line-scoped redaction may also hide safe-looking fields later on that line.
 /// Scheme names in arbitrary inline text are not a universal credential
 /// detector. Arbitrary raw logs and unsupported formats are not certified as
@@ -2137,7 +2376,8 @@ impl CrashRecord {
     }
 
     /// Parses and sanitizes the crash record using the same bounded text rules
-    /// as [`DiagnosticEvent`], including recognized `private_key` PEM blocks.
+    /// as [`DiagnosticEvent`], including PEM blocks in already recognized
+    /// secret-key values.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let mut record: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse crash record: {error}")))?;
@@ -2235,8 +2475,11 @@ impl<S: CrashSink> CrashCapture<S> {
 /// A bundle of structured verification and event records. Human and JSON output
 /// use the same bounded text redaction rules as [`DiagnosticEvent`].
 /// Header-classified secret fields are hidden through their line boundary;
-/// recognized `private_key` PEM blocks are hidden through the matching `END`
-/// marker or bounded input end. Arbitrary raw logs, HAR, URL userinfo, pair
+/// PEM blocks with a `PRIVATE KEY` label in an already recognized secret-key
+/// value are hidden through the matching `END` marker. Incomplete blocks stop
+/// before the next header-shaped line at the same or lesser indentation or at
+/// the bounded input end. `tls_key` and `private.key` are not recognized
+/// aliases. Arbitrary raw logs, HAR, URL userinfo, pair
 /// arrays, bare bearer tokens, command-line flags, and bracketed key paths are
 /// not certified safe. Line-scoped redaction may also hide safe-looking fields
 /// later on that line.
@@ -3167,6 +3410,96 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("SYNTHETIC-SINK-PEM"));
+    }
+
+    #[test]
+    fn pem_blocks_are_redacted_for_recognized_secret_fields_with_multiline_prefixes() {
+        let cases = [
+            (
+                "private_key: |\n  -----BEGIN PRIVATE KEY-----\nSYNTHETIC-YAML-BLOCK\n  -----END PRIVATE KEY-----\nX-Trace: yaml-visible",
+                "SYNTHETIC-YAML-BLOCK",
+                "X-Trace: yaml-visible",
+            ),
+            (
+                "PRIVATE_KEY=\n-----begin private key-----\nSYNTHETIC-EMPTY-VALUE\n-----end private key-----\nX-Trace: empty-visible",
+                "SYNTHETIC-EMPTY-VALUE",
+                "X-Trace: empty-visible",
+            ),
+            (
+                "private_key=\"   -----BEGIN RSA PRIVATE KEY-----\r\nSYNTHETIC-QUOTED-LEADING-SPACE\r\n-----END rsa private key-----\"\r\nX-Trace: quoted-space-visible",
+                "SYNTHETIC-QUOTED-LEADING-SPACE",
+                "X-Trace: quoted-space-visible",
+            ),
+            (
+                "client_secret: >-\n  -----BEGIN OPENSSH PRIVATE KEY-----\nSYNTHETIC-ALIAS-PEM\n  -----END OPENSSH PRIVATE KEY-----\nX-Trace: alias-visible",
+                "SYNTHETIC-ALIAS-PEM",
+                "X-Trace: alias-visible",
+            ),
+            (
+                "auth_key: |-\n  -----BEGIN EC PRIVATE KEY-----\nSYNTHETIC-LITERAL-BLOCK-PEM\n  -----END EC PRIVATE KEY-----\nX-Trace: literal-block-visible",
+                "SYNTHETIC-LITERAL-BLOCK-PEM",
+                "X-Trace: literal-block-visible",
+            ),
+            (
+                "password: >\n  -----BEGIN DSA PRIVATE KEY-----\nSYNTHETIC-FOLDED-BLOCK-PEM\n  -----END DSA PRIVATE KEY-----\nX-Trace: folded-block-visible",
+                "SYNTHETIC-FOLDED-BLOCK-PEM",
+                "X-Trace: folded-block-visible",
+            ),
+            (
+                "private_key: | # synthetic comment\n  -----BEGIN PRIVATE KEY-----\nSYNTHETIC-COMMENTED-BLOCK\n  -----END PRIVATE KEY-----\nX-Trace: comment-visible",
+                "SYNTHETIC-COMMENTED-BLOCK",
+                "X-Trace: comment-visible",
+            ),
+            (
+                "auth_key=\\n  -----BEGIN EC PRIVATE KEY-----\\nSYNTHETIC-LITERAL-LEADING-PEM\\n  -----END EC PRIVATE KEY-----\\nX-Trace: literal-visible",
+                "SYNTHETIC-LITERAL-LEADING-PEM",
+                "X-Trace: literal-visible",
+            ),
+        ];
+
+        for (input, payload, safe_field) in cases {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains(payload), "{safe:?}");
+            assert!(safe.contains(safe_field), "{safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+    }
+
+    #[test]
+    fn pem_blocks_fail_closed_without_consuming_the_next_safe_header() {
+        let incomplete = "auth_key: |\n  -----BEGIN PRIVATE KEY-----\nSYNTHETIC-INCOMPLETE-ALIAS\nX-Trace: preserved\npublic=visible";
+        let safe = redact_inline_secrets(incomplete);
+        assert!(!safe.contains("SYNTHETIC-INCOMPLETE-ALIAS"), "{safe:?}");
+        assert!(safe.contains("X-Trace: preserved"), "{safe:?}");
+        assert!(safe.contains("public=visible"), "{safe:?}");
+
+        let malformed = "client_secret=-----BEGIN PRIVATE KEY\nSYNTHETIC-MALFORMED-BEGIN\nX-Trace: malformed-preserved";
+        let safe_malformed = redact_inline_secrets(malformed);
+        assert!(!safe_malformed.contains("SYNTHETIC-MALFORMED-BEGIN"));
+        assert!(safe_malformed.contains("X-Trace: malformed-preserved"));
+
+        let quoted_incomplete = "client_secret=\" -----BEGIN PRIVATE KEY-----\nSYNTHETIC-QUOTED-INCOMPLETE\nX-Trace: quoted-preserved";
+        let safe_quoted_incomplete = redact_inline_secrets(quoted_incomplete);
+        assert!(!safe_quoted_incomplete.contains("SYNTHETIC-QUOTED-INCOMPLETE"));
+        assert!(safe_quoted_incomplete.contains("X-Trace: quoted-preserved"));
+
+        let empty = redact_inline_secrets("auth_key=\nX-Trace: after-empty");
+        assert!(empty.contains("X-Trace: after-empty"), "{empty:?}");
+    }
+
+    #[test]
+    fn pem_end_marker_suffix_is_hidden_through_its_line_boundary() {
+        let input = "client_secret=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-END-SUFFIX-BODY\n-----END PRIVATE KEY-----SYNTHETIC-END-SUFFIX\nX-Trace: suffix-next-line";
+        let safe = redact_inline_secrets(input);
+        assert!(!safe.contains("SYNTHETIC-END-SUFFIX-BODY"), "{safe:?}");
+        assert!(!safe.contains("SYNTHETIC-END-SUFFIX"), "{safe:?}");
+        assert!(safe.contains("X-Trace: suffix-next-line"), "{safe:?}");
+
+        let quoted = "auth_key=\"-----BEGIN PRIVATE KEY-----\nSYNTHETIC-QUOTED-END-BODY\n-----END PRIVATE KEY-----SYNTHETIC-QUOTED-END-SUFFIX\nX-Trace: quoted-suffix-next-line";
+        let safe_quoted = redact_inline_secrets(quoted);
+        assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-BODY"));
+        assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-SUFFIX"));
+        assert!(safe_quoted.contains("X-Trace: quoted-suffix-next-line"));
     }
 
     #[test]
