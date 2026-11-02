@@ -1,0 +1,19 @@
+[package]
+name = "nagi-slides-core"
+version = "0.2.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-model = { path = "../nagi-model", version = "=0.1.0" }
+nagi-history = { path = "../../user/nagi-history", version = "=0.1.0" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[test]]
+name = "slides-core-acceptance"
+path = "../../tests/slides-core/acceptance.rs"
