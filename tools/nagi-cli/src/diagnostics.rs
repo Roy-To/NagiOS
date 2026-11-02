@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2111,12 +2111,10 @@ mod tests {
     #[test]
     fn event_json_rejects_unsupported_versions_and_excess_fields() {
         let unsupported = r#"{"schema_version":2,"timestamp_unix_ms":1,"severity":"INFO","subsystem":"test","event_code":"TEST.OK","message_template":"ok","operation_id":null,"error_class":null,"source":null,"fields":[],"error_chain":[],"recovery_hint":null}"#;
-        assert!(
-            DiagnosticEvent::from_json(unsupported)
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported")
-        );
+        assert!(DiagnosticEvent::from_json(unsupported)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported"));
 
         let mut event = DiagnosticEvent::new(Severity::Info, "test", "TEST.OK", "ok").unwrap();
         for index in 0..MAX_FIELD_COUNT {
@@ -2124,11 +2122,9 @@ mod tests {
                 .with_field(format!("field-{index}"), "value", PrivacyClass::Public)
                 .unwrap();
         }
-        assert!(
-            event
-                .with_field("too-many", "value", PrivacyClass::Public)
-                .is_err()
-        );
+        assert!(event
+            .with_field("too-many", "value", PrivacyClass::Public)
+            .is_err());
     }
 
     #[test]
@@ -2774,12 +2770,10 @@ mod tests {
         assert!(!crash_json.contains(crash_secret));
         let parsed = CrashRecord::from_json(&crash_json).unwrap();
         assert!(!parsed.fatal_event().message_template.contains(crash_secret));
-        assert!(
-            parsed
-                .recent_context()
-                .iter()
-                .all(|event| !event.message_template.contains(crash_secret))
-        );
+        assert!(parsed
+            .recent_context()
+            .iter()
+            .all(|event| !event.message_template.contains(crash_secret)));
         assert_eq!(parsed.to_json().unwrap(), crash_json);
 
         let mut tampered: serde_json::Value = serde_json::from_str(&crash_json).unwrap();
@@ -2789,13 +2783,11 @@ mod tests {
         let parsed_tampered = CrashRecord::from_json(&tampered_json).unwrap();
         let sanitized_json = parsed_tampered.to_json().unwrap();
         assert!(!sanitized_json.contains("crash-recovery-synthetic"));
-        assert!(
-            !parsed_tampered
-                .recovery_hint
-                .as_deref()
-                .unwrap_or_default()
-                .contains("crash-recovery-synthetic")
-        );
+        assert!(!parsed_tampered
+            .recovery_hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("crash-recovery-synthetic"));
 
         // Direct serde deserialization is also bounded by the public serializer.
         let directly_deserialized: CrashRecord = serde_json::from_str(&tampered_json).unwrap();
@@ -2949,12 +2941,10 @@ mod tests {
         let mut corrupted_value: serde_json::Value = serde_json::from_str(&json).unwrap();
         corrupted_value["outcome"] = serde_json::Value::String("PASS".into());
         let corrupted = serde_json::to_string(&corrupted_value).unwrap();
-        assert!(
-            VerificationReport::from_json(&corrupted)
-                .unwrap_err()
-                .to_string()
-                .contains("does not match")
-        );
+        assert!(VerificationReport::from_json(&corrupted)
+            .unwrap_err()
+            .to_string()
+            .contains("does not match"));
     }
 
     #[test]
@@ -3008,11 +2998,9 @@ mod tests {
         }
         let nonfatal =
             DiagnosticEvent::new(Severity::Error, "kernel", "KERNEL.ERROR", "no").unwrap();
-        assert!(
-            capture
-                .capture_fatal("kernel", None, nonfatal, None)
-                .is_err()
-        );
+        assert!(capture
+            .capture_fatal("kernel", None, nonfatal, None)
+            .is_err());
 
         let fatal = DiagnosticEvent::new(Severity::Fatal, "kernel", "KERNEL.PANIC", "panic")
             .unwrap()
