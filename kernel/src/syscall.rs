@@ -2001,8 +2001,12 @@ mod tests {
             .expect("diagnostic helpers follow block_write")
             .0;
 
+        assert!(block_read.contains("readable_capability_matches"));
+        assert!(!block_read.contains("writable_capability_matches"));
         assert!(block_read.contains("is_user_writable_range_mapped"));
         assert!(!block_read.contains("is_user_readable_range_mapped"));
+        assert!(block_write.contains("writable_capability_matches"));
+        assert!(!block_write.contains("readable_capability_matches"));
         assert!(block_write.contains("is_user_readable_range_mapped"));
         assert!(!block_write.contains("is_user_writable_range_mapped"));
     }
