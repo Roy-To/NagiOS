@@ -28,7 +28,10 @@ pub struct SnapshotStoreState {
     pub current: Option<StoredSnapshot>,
     /// Highest version ever committed. This must survive current-payload loss
     /// and restoration from last-known-good data; it is not derived from either
-    /// snapshot's embedded version.
+    /// snapshot's embedded version. None is valid only when the adapter can
+    /// prove no commit has ever succeeded. If the high-water was lost or its
+    /// history is uncertain, adapters must return an error rather than describe
+    /// the store as empty, because generation-scoped SessionIds could repeat.
     pub high_water_version: Option<SnapshotVersion>,
 }
 
@@ -60,14 +63,18 @@ pub trait IdentitySnapshotStore {
     /// the newest committed CAS version. `None` is valid only before the first
     /// commit; a current payload is present only when its version equals the
     /// high-water version. Report an older current payload as absent (or fail
-    /// closed) so recovery can use last-known-good data.
+    /// closed) so recovery can use last-known-good data. If the high-water is
+    /// lost or uncertain, return an error, never an empty state; otherwise
+    /// recovery could reuse a generation-scoped SessionId.
     fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError>;
 
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError>;
 
-    /// Load the exact (bytes, version) pair from an earlier successful
-    /// commit. The version is provenance: equal versions identify the same
-    /// original commit generation and the history represented by those bytes.
+    /// Load the exact (bytes, version) pair from a last-good committed
+    /// generation. The version is provenance: equal versions identify the same
+    /// original commit generation and history represented by those bytes. An
+    /// LKG mirror may share current high-water only when it is the same
+    /// generation.
     /// Implementations must not relabel restored LKG bytes with the current
     /// high-water or a newly allocated version. Restored bytes become current
     /// only through commit_atomic, which issues a distinct later CAS version;
@@ -77,7 +84,12 @@ pub trait IdentitySnapshotStore {
 
     /// Compare `expected_version` against the non-rollback high-water version,
     /// not the current or last-known-good payload version. A successful commit
-    /// must issue a strictly newer version and must never reuse a prior one;
+    /// must issue exactly the next version after expected_version (or version 1
+    /// before the first commit) and must never skip or reuse a version. Session
+    /// IDs reserve that next CAS generation before committing. Durable adapters
+    /// must preserve this generation source across restart and return
+    /// unavailable/corrupt state if it is lost; the in-memory reference fake
+    /// has no persistence guarantee.
     /// `None` is valid only before the store's first committed snapshot.
     fn commit_atomic(
         &mut self,

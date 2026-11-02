@@ -764,6 +764,62 @@ fn older_lkg_recovery_blocks_reuse_of_guest_profile_id_from_lost_current() {
 }
 
 #[test]
+fn lkg_recovery_does_not_reuse_session_id_from_lost_generation() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("lkg-session-id-generation");
+    let (mut writer, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut writer, &caller);
+    let (user_id, profile_id) = writer
+        .create_local_user(
+            &caller,
+            metadata("Session owner").0,
+            metadata("Session profile").1,
+        )
+        .unwrap();
+    let lost_guest_session = writer
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("lost-session-generation").unwrap(),
+        )
+        .unwrap();
+
+    store.lose_current();
+    let (mut recovered, _) = new_service_with_ids(store.clone(), cleaner, TestIds::default());
+    assert_eq!(
+        recovered.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!recovered
+        .snapshot()
+        .sessions
+        .iter()
+        .any(|session| session.session_id == lost_guest_session));
+
+    // Existing profiles remain usable after LKG recovery, while the session
+    // identifier must not overlap the lost generation's history.
+    let expected_generation = store.current_version().unwrap().get() + 1;
+    let replacement = recovered
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("login-after-lkg").unwrap(),
+        )
+        .unwrap();
+    assert_ne!(
+        replacement, lost_guest_session,
+        "a reset ID source must not reuse a SessionId from a lost store generation"
+    );
+    assert_eq!(
+        replacement.as_str(),
+        format!("session_epoch.{expected_generation}_s1")
+    );
+}
+
+#[test]
 fn legacy_snapshot_defaults_profile_history_to_incomplete() {
     let mut legacy = serde_json::to_value(IdentitySnapshot::empty()).unwrap();
     legacy
@@ -1800,6 +1856,92 @@ fn recovery_rejects_missing_current_and_lkg_after_a_prior_commit() {
 }
 
 #[test]
+fn recovery_rejects_current_payload_version_mismatched_with_high_water() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("current-version-high-water-mismatch");
+    let (mut initial, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut initial, &caller);
+
+    {
+        let mut state = store.0.lock().unwrap();
+        let high_water = state.high_water_version.unwrap();
+        state.current.as_mut().unwrap().version = SnapshotVersion::new(high_water.get() + 1);
+    }
+
+    let (mut restarted, _) = new_service(store, TestCleaner::default());
+    assert_eq!(
+        restarted.recover(&caller),
+        Err(IdentityError::StoreUnavailable)
+    );
+}
+
+#[test]
+fn recovery_rejects_lkg_version_above_high_water() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("lkg-version-above-high-water");
+    let (mut writer, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut writer, &caller);
+    writer
+        .create_local_user(&caller, metadata("Owner").0, metadata("Profile").1)
+        .unwrap();
+
+    {
+        let mut state = store.0.lock().unwrap();
+        let high_water = state.high_water_version.unwrap();
+        state.last_good.as_mut().unwrap().version = SnapshotVersion::new(high_water.get() + 1);
+    }
+
+    let (mut restarted, _) = new_service(store, TestCleaner::default());
+    assert_eq!(
+        restarted.recover(&caller),
+        Err(IdentityError::StoreUnavailable)
+    );
+}
+
+#[test]
+fn lkg_selected_at_equal_high_water_still_marks_profile_history_incomplete() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("lkg-equal-high-water-history");
+    let (mut writer, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut writer, &caller);
+    let (user_id, profile_id) = writer
+        .create_local_user(&caller, metadata("Owner").0, metadata("Profile").1)
+        .unwrap();
+
+    {
+        let mut state = store.0.lock().unwrap();
+        let same_generation = state.current.as_ref().unwrap().clone();
+        assert_eq!(Some(same_generation.version), state.high_water_version);
+        state.last_good = Some(same_generation);
+        state.current.as_mut().unwrap().bytes = b"corrupt-current".to_vec();
+    }
+
+    let (mut restarted, _) = new_service(store, TestCleaner::default());
+    assert_eq!(
+        restarted.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!restarted.snapshot().profile_id_history_complete);
+    assert_eq!(
+        restarted.create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Blocked new profile", None).unwrap()
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+    assert!(restarted
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("existing-login-after-equal-lkg").unwrap()
+        )
+        .is_ok());
+}
+
+#[test]
 fn recovery_rejects_corrupt_lkg_when_current_is_missing() {
     let store = SharedStore::default();
     let caller = TestCaller::new("corrupt-lkg-with-missing-current");
@@ -1847,17 +1989,17 @@ fn restart_ends_sessions_and_does_not_reuse_old_session_ids() {
         after_restart.resolve_current_identity(&caller).unwrap_err(),
         ResolutionError::NoSession
     );
-    assert_eq!(
-        after_restart.login_local(
+    let next_session = after_restart
+        .login_local(
             &caller,
             user_id,
             profile_id,
             None,
             nagi_identity_session::IdempotencyKey::new("after-restart").unwrap(),
-        ),
-        Err(IdentityError::IdCollision)
-    );
-    assert_eq!(old_session.as_str(), "session_s1");
+        )
+        .unwrap();
+    assert_ne!(next_session, old_session);
+    assert_eq!(old_session.as_str(), "session_epoch.3_s1");
     assert!(cleaned.lock().unwrap().is_empty());
 }
 
@@ -2085,11 +2227,15 @@ fn migration_requires_an_explicit_converter_and_validates_its_output() {
     let mut legacy = serde_json::to_value(IdentitySnapshot::empty()).unwrap();
     legacy["schema_version"] = serde_json::json!(0);
     let legacy = serde_json::to_vec(&legacy).unwrap();
-    assert_eq!(
-        decode_snapshot_with_migration(&legacy, &TestMigrator)
-            .unwrap()
-            .schema_version,
-        1
+    let migrated = decode_snapshot_with_migration(&legacy, &TestMigrator).unwrap();
+    assert_eq!(migrated.schema_version, 1);
+    assert!(
+        IdentitySnapshot::from_json(&legacy).unwrap_err()
+            == nagi_identity_session::SnapshotError::UnsupportedVersion(0)
+    );
+    assert!(
+        !migrated.profile_id_history_complete,
+        "schema conversion alone cannot assert complete ProfileId history"
     );
     assert_eq!(
         decode_snapshot_with_migration(&legacy, &NoIdentitySnapshotMigrator),

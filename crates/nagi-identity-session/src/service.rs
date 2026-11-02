@@ -79,7 +79,10 @@ pub enum IdSourceFailure {
 }
 
 /// Production implementations must draw from an approved unpredictable
-/// source and check collisions against the durable snapshot.
+/// source and check collisions against the durable snapshot. Session IDs from
+/// this source are nonce inputs: IdentityService binds each one to the next
+/// store CAS generation before persisting it, so a reset source cannot reuse a
+/// SessionId from a lost snapshot generation.
 pub trait IdentityIdSource {
     fn next_user_id(&mut self) -> Result<UserId, IdSourceFailure>;
     fn next_profile_id(&mut self) -> Result<ProfileId, IdSourceFailure>;
@@ -158,6 +161,9 @@ pub enum IdentityError {
     AuthorizationUnavailable,
     IdSourceUnavailable,
     IdCollision,
+    /// ProfileId history cannot be proven complete, so new users, profiles,
+    /// and guest profiles are blocked. This crate has no authoritative repair
+    /// API; only an external authoritative history repair can restore creation.
     ProfileHistoryIncomplete,
     InvalidMetadata,
     UserNotFound,
@@ -185,7 +191,7 @@ impl fmt::Display for IdentityError {
             Self::IdSourceUnavailable => "identity ID source is unavailable",
             Self::IdCollision => "identity ID collides with an existing record",
             Self::ProfileHistoryIncomplete => {
-                "profile ID history is incomplete after identity recovery"
+                "profile ID history is incomplete; new identity creation requires authoritative repair"
             }
             Self::InvalidMetadata => "identity metadata is invalid",
             Self::UserNotFound => "local user was not found",
@@ -596,12 +602,20 @@ where
     /// last-known-good snapshot, ends all active sessions, and cleans only the
     /// exact guest profile IDs recorded in that snapshot.
     ///
-    /// If the selected LKG version is older than the store high-water version,
-    /// later commits may have allocated ProfileIds absent from that snapshot.
-    /// Recovery persists an incomplete-history marker in the restored snapshot;
-    /// all new profile allocations then return ProfileHistoryIncomplete, and
-    /// this remains true across future restarts until an authoritative repair
-    /// supplies complete history. Existing profiles remain usable.
+    /// Selecting any LKG snapshot persists an incomplete ProfileId-history
+    /// marker, even when its version equals the high-water: fallback selection
+    /// is not proof that every allocation is represented. Current JSON without
+    /// the history marker is also treated as incomplete. New users, profiles,
+    /// and guest profiles then return ProfileHistoryIncomplete until an
+    /// authoritative repair supplies complete history. This crate currently
+    /// has no repair API; existing profiles can still be used for login.
+    ///
+    /// Snapshot revision is not a global generation: it can roll back when an
+    /// LKG snapshot is selected. Session IDs therefore use the store CAS
+    /// high-water generation, not snapshot revision. Recovery may initialize
+    /// Empty only when the store proves no commit has ever succeeded; durable
+    /// adapters that lose or cannot verify high-water must return unavailable
+    /// or corrupt state. This crate provides no durable adapter.
     pub fn recover(
         &mut self,
         caller: &impl TrustedCallerContext,
@@ -623,9 +637,6 @@ where
         }) {
             return Err(IdentityError::StoreUnavailable);
         }
-        let lkg_omits_committed_generations = last_known_good.as_ref().is_some_and(|snapshot| {
-            current_version.is_some_and(|high_water| snapshot.version.get() < high_water.get())
-        });
         // Keep the cached snapshot and its CAS version paired on every failure.
         let (mut candidate, source) = match current {
             Some(bytes) => match self.read_valid_snapshot(&bytes) {
@@ -677,10 +688,10 @@ where
             },
         };
 
-        // A lower-version LKG cannot carry ProfileIds allocated by later
-        // commits. Persist the loss marker in the restored snapshot so the
+        // Any LKG fallback is weaker evidence than a valid current payload,
+        // including an equal-version backup. Persist the loss marker so the
         // fail-closed allocation rule survives subsequent restarts.
-        if source == RecoverySource::LastKnownGood && lkg_omits_committed_generations {
+        if source == RecoverySource::LastKnownGood {
             candidate.profile_id_history_complete = false;
         }
 
@@ -799,6 +810,9 @@ where
         })
     }
 
+    /// Create a local user and its first profile. Returns
+    /// ProfileHistoryIncomplete when restored state cannot prove complete
+    /// ProfileId history; this crate has no repair API for that condition.
     pub fn create_local_user(
         &mut self,
         caller: &impl TrustedCallerContext,
@@ -861,7 +875,9 @@ where
     }
 
     /// A user may own multiple profiles. Each session binds to exactly one;
-    /// this API does not assume a profile-selection UI.
+    /// this API does not assume a profile-selection UI. Returns
+    /// ProfileHistoryIncomplete when restored state cannot prove complete
+    /// ProfileId history; this crate has no repair API for that condition.
     pub fn create_profile(
         &mut self,
         caller: &impl TrustedCallerContext,
@@ -947,6 +963,9 @@ where
         )
     }
 
+    /// Create a guest profile and session. Returns ProfileHistoryIncomplete
+    /// when restored state cannot prove complete ProfileId history; this crate
+    /// has no repair API for that condition.
     pub fn create_guest_session(
         &mut self,
         caller: &impl TrustedCallerContext,
@@ -1084,9 +1103,15 @@ where
             return Err(IdentityError::ProfileAlreadyActive);
         }
 
-        let session_id = self
+        let next_store_generation = self
+            .store_version
+            .and_then(|version| version.get().checked_add(1))
+            .ok_or(IdentityError::StoreUnavailable)?;
+        let session_nonce = self
             .ids
             .next_session_id()
+            .map_err(|_| IdentityError::IdSourceUnavailable)?;
+        let session_id = SessionId::in_store_generation(next_store_generation, &session_nonce)
             .map_err(|_| IdentityError::IdSourceUnavailable)?;
         if self
             .snapshot

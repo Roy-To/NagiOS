@@ -74,7 +74,7 @@ impl<'de> Deserialize<'de> for UserId {
 }
 
 macro_rules! opaque_string_id {
-    ($name:ident, $prefix:literal) => {
+    ($name:ident, $prefix:literal, $validator:ident) => {
         #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
@@ -82,7 +82,7 @@ macro_rules! opaque_string_id {
         impl $name {
             pub fn new(value: impl Into<String>) -> Result<Self, IdError> {
                 let value = value.into();
-                validate_prefixed_id(&value, $prefix)?;
+                $validator(&value, $prefix)?;
                 Ok(Self(value))
             }
 
@@ -108,9 +108,38 @@ macro_rules! opaque_string_id {
     };
 }
 
-opaque_string_id!(ProfileId, "profile_");
-opaque_string_id!(SessionId, "session_");
-opaque_string_id!(CallerContextId, "caller_");
+opaque_string_id!(ProfileId, "profile_", validate_prefixed_id);
+opaque_string_id!(SessionId, "session_", validate_session_id);
+opaque_string_id!(CallerContextId, "caller_", validate_prefixed_id);
+
+impl SessionId {
+    /// Bind a source-provided nonce to the next store CAS generation. The dot
+    /// delimiter is reserved for this format and was rejected by legacy
+    /// SessionId validation, so IDs from lost legacy generations cannot occupy
+    /// the generated namespace.
+    pub(crate) fn in_store_generation(generation: u64, nonce: &SessionId) -> Result<Self, IdError> {
+        let prefix = format!("session_epoch.{generation}_");
+        let available = MAX_ID_BYTES.saturating_sub(prefix.len());
+        let source_suffix = nonce
+            .as_str()
+            .strip_prefix("session_")
+            .ok_or(IdError::InvalidNamespace)?;
+        let suffix: String = source_suffix
+            .bytes()
+            .filter(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+            })
+            .take(available)
+            .map(char::from)
+            .collect();
+        let suffix = if suffix.is_empty() {
+            "id"
+        } else {
+            suffix.as_str()
+        };
+        Self::new(format!("{prefix}{suffix}"))
+    }
+}
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -186,6 +215,30 @@ impl ProviderSubjectRef {
     }
 }
 
+fn validate_session_id(value: &str, prefix: &str) -> Result<(), IdError> {
+    if value.len() > MAX_ID_BYTES {
+        return Err(IdError::TooLong);
+    }
+    if let Some(generation_suffix) = value.strip_prefix("session_epoch.") {
+        let Some((generation, nonce)) = generation_suffix.split_once('_') else {
+            return Err(IdError::InvalidCharacter);
+        };
+        let parsed_generation = generation
+            .parse::<u64>()
+            .map_err(|_| IdError::InvalidCharacter)?;
+        if parsed_generation.to_string() != generation
+            || nonce.is_empty()
+            || !nonce.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+            })
+        {
+            return Err(IdError::InvalidCharacter);
+        }
+        return Ok(());
+    }
+    validate_prefixed_id(value, prefix)
+}
+
 fn validate_prefixed_id(value: &str, prefix: &str) -> Result<(), IdError> {
     if value.is_empty() {
         return Err(IdError::Empty);
@@ -220,4 +273,32 @@ fn validate_simple_token(value: &str) -> Result<(), IdError> {
         return Err(IdError::InvalidCharacter);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_generation_session_ids_use_reserved_round_trippable_namespace() {
+        let source = SessionId::new("session_s1").unwrap();
+        let generated = SessionId::in_store_generation(42, &source).unwrap();
+        assert_eq!(generated.as_str(), "session_epoch.42_s1");
+        assert_eq!(SessionId::new(generated.as_str()), Ok(generated));
+        assert_eq!(
+            SessionId::new("session_legacy.id"),
+            Err(IdError::InvalidCharacter)
+        );
+    }
+
+    #[test]
+    fn store_generation_session_id_fits_a_maximum_length_source_id() {
+        let source = SessionId::new(format!("session_{}", "s".repeat(120))).unwrap();
+        let generated = SessionId::in_store_generation(u64::MAX, &source).unwrap();
+        assert!(generated.as_str().len() <= MAX_ID_BYTES);
+        assert!(generated
+            .as_str()
+            .starts_with("session_epoch.18446744073709551615_"));
+        assert_eq!(SessionId::new(generated.as_str()), Ok(generated));
+    }
 }
