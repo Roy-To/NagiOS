@@ -2,7 +2,7 @@ name: Nagi notification core
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
     paths:
       - '.github/workflows/nagi-notification-core.yml'
       - 'crates/nagi-notification-core/**'
