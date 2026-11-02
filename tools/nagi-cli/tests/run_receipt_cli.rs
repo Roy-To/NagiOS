@@ -51,10 +51,14 @@ fn repository_root() -> &'static Path {
 }
 
 fn nagi(args: &[&str]) -> Command {
+    nagi_at(repository_root(), args)
+}
+
+fn nagi_at(root: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nagi"));
     command
         .args(args)
-        .current_dir(repository_root())
+        .current_dir(root)
         .env_remove(RECEIPT_DIR)
         .env_remove(RUN_ID)
         .env_remove(RUN_STAGE)
@@ -63,7 +67,17 @@ fn nagi(args: &[&str]) -> Command {
 }
 
 fn nagi_with_receipt(args: &[&str], directory: &Path, run_id: &str, stage: &str) -> Command {
-    let mut command = nagi(args);
+    nagi_with_receipt_at(repository_root(), args, directory, run_id, stage)
+}
+
+fn nagi_with_receipt_at(
+    root: &Path,
+    args: &[&str],
+    directory: &Path,
+    run_id: &str,
+    stage: &str,
+) -> Command {
+    let mut command = nagi_at(root, args);
     command
         .env(RECEIPT_DIR, directory)
         .env(RUN_ID, run_id)
@@ -75,21 +89,28 @@ fn run(mut command: Command) -> Output {
     command.output().expect("run nagi")
 }
 
-fn git(args: &[&str]) -> String {
+fn git_at(root: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")
-        .arg(repository_root())
+        .arg(root)
         .args(args)
         .output()
         .expect("run git");
-    assert!(output.status.success(), "git {args:?} failed");
+    assert!(output.status.success(), "git -C {root:?} {args:?} failed");
     String::from_utf8(output.stdout).expect("git output is UTF-8")
 }
 
 fn current_source() -> SourceIdentity {
+    source_at(repository_root())
+}
+
+fn source_at(root: &Path) -> SourceIdentity {
     SourceIdentity {
-        head: git(&["rev-parse", "--verify", "HEAD"]).trim().to_owned(),
-        worktree_dirty: !git(&["status", "--porcelain", "--untracked-files=normal"]).is_empty(),
+        head: git_at(root, &["rev-parse", "--verify", "HEAD"])
+            .trim()
+            .to_owned(),
+        worktree_dirty: !git_at(root, &["status", "--porcelain", "--untracked-files=normal"])
+            .is_empty(),
     }
 }
 
@@ -110,7 +131,23 @@ fn assert_terminal(
     command_result: i32,
     before: &SourceIdentity,
 ) {
-    let after = current_source();
+    assert_terminal_at(
+        directory,
+        expected,
+        command_result,
+        before,
+        repository_root(),
+    );
+}
+
+fn assert_terminal_at(
+    directory: &Path,
+    expected: &ExpectedRun,
+    command_result: i32,
+    before: &SourceIdentity,
+    root: &Path,
+) {
+    let after = source_at(root);
     match inspect_reconnection(directory, expected) {
         ReconnectionState::Terminal {
             command_result: recorded,
@@ -415,5 +452,277 @@ fn competing_starts_publish_one_run_and_never_overwrite() {
             OsString::from("started.json"),
             OsString::from("terminal.json")
         ]
+    );
+}
+
+#[test]
+fn acceptance_execution_with_closed_pipes_keeps_result_and_terminal_receipt() {
+    let scratch = Scratch::new("acceptance-closed-pipes");
+    let tool_bin = scratch.0.join("launcher-bin");
+    fs::create_dir_all(&tool_bin).expect("create launcher tool shims");
+    let cargo = tool_bin.join("cargo");
+    let rustc = tool_bin.join("rustc");
+    let rustdoc = tool_bin.join("rustdoc");
+    write_executable(
+        &tool_bin.join("rustup"),
+        "#!/bin/sh\n\
+         case \"$2\" in\n\
+           cargo) printf '%s\\n' \"$NAGI_RECEIPT_TEST_CARGO\" ;;\n\
+           rustc) printf '%s\\n' \"$NAGI_RECEIPT_TEST_RUSTC\" ;;\n\
+           rustdoc) printf '%s\\n' \"$NAGI_RECEIPT_TEST_RUSTDOC\" ;;\n\
+           *) exit 92 ;;\n\
+         esac\n",
+    );
+    write_executable(
+        &cargo,
+        "#!/bin/sh\n\
+         printf \"fixture cargo failure\\n\" >&2\n\
+         exit 37\n",
+    );
+    write_executable(&rustc, "#!/bin/sh\nexit 0\n");
+    write_executable(&rustdoc, "#!/bin/sh\nexit 0\n");
+    let original_path = env::var_os("PATH").expect("PATH");
+    let path =
+        env::join_paths(std::iter::once(tool_bin.clone()).chain(env::split_paths(&original_path)))
+            .expect("join launcher fixture PATH");
+    let configure = |command: &mut Command| {
+        command
+            .env("PATH", &path)
+            .env("NAGI_RECEIPT_TEST_CARGO", &cargo)
+            .env("NAGI_RECEIPT_TEST_RUSTC", &rustc)
+            .env("NAGI_RECEIPT_TEST_RUSTDOC", &rustdoc);
+    };
+    let args = [
+        "test",
+        "--acceptance",
+        "--host-only",
+        "--milestone",
+        "M0",
+        "--subsystem",
+        "developer-cli",
+        "--verbose",
+    ];
+    let mut baseline_command = nagi(&args);
+    configure(&mut baseline_command);
+    let baseline = baseline_command.output().expect("run launcher acceptance");
+    let baseline_stdout = String::from_utf8_lossy(&baseline.stdout);
+    assert!(
+        baseline_stdout.contains("RUN M0-LAUNCHER"),
+        "acceptance did not emit its in-progress output: {:?}",
+        baseline_stdout
+    );
+    assert!(
+        baseline_stdout.contains("--- M0-LAUNCHER output ---"),
+        "verbose acceptance output was not emitted: {:?}",
+        baseline_stdout
+    );
+    let command_result = baseline.status.code().expect("CLI exit code");
+    assert_ne!(
+        command_result, 0,
+        "fixture must preserve a nonzero acceptance result: {baseline_stdout}",
+    );
+    assert!(
+        baseline_stdout.contains("fixture cargo failure"),
+        "fake Cargo failure did not reach acceptance output: {baseline_stdout}",
+    );
+
+    let receipts = scratch.0.join("receipts");
+    let run_id = "acceptance-closed-pipes";
+    let source = current_source();
+    let (stdout_reader, stdout_writer) = io::pipe().expect("stdout pipe");
+    let (stderr_reader, stderr_writer) = io::pipe().expect("stderr pipe");
+    drop(stdout_reader);
+    drop(stderr_reader);
+    let mut command = nagi_with_receipt(&args, &receipts, run_id, "receipt-acceptance-test");
+    configure(&mut command);
+    let status = command
+        .stdout(stdout_writer)
+        .stderr(stderr_writer)
+        .status()
+        .expect("run acceptance with closed output pipes");
+    assert_eq!(status.code(), Some(command_result));
+    assert_terminal(
+        &receipts,
+        &expected(run_id, "receipt-acceptance-test", &source.head),
+        command_result,
+        &source,
+    );
+}
+
+fn write_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).expect("write fixture executable");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("make fixture executable");
+}
+
+fn fixture_repository(root: &Path) {
+    fs::create_dir_all(root.join("third_party/rust-std/patches"))
+        .expect("create rust-std patch directory");
+    fs::write(root.join("Cargo.toml"), "[workspace]\n").expect("write fixture manifest");
+    fs::write(
+        root.join("nagi.toml"),
+        "[toolchain]\nrust_channel = \"nightly-2025-08-01\"\nllvm_min_version = \"19.0.0\"\nlld_min_version = \"19.0.0\"\nqemu_min_version = \"8.0\"\ncmake_min_version = \"3.0\"\nmeson_min_version = \"1.0\"\nninja_min_version = \"1.0\"\npython_min_version = \"3.11\"\novmf_pairs = []\n[paths]\ncache = \"out/cache\"\nartifacts = \"out/artifacts\"\nlogs = \"out/logs\"\n",
+    )
+    .expect("write fixture root marker");
+    fs::write(
+        root.join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"nightly-2025-08-01\"\n",
+    )
+    .expect("write fixture pinned toolchain");
+    fs::write(
+        root.join("third_party/sources.lock"),
+        "format_version = 1\n[sources]\n",
+    )
+    .expect("write fixture source lock");
+    fs::write(
+        root.join("third_party/rust-std/patches/0001-nagi-target-support.patch"),
+        "",
+    )
+    .expect("write empty source patch");
+
+    let output = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(root)
+        .output()
+        .expect("initialize fixture git repository");
+    assert!(output.status.success(), "git init failed");
+    git_at(root, &["config", "user.name", "Receipt CLI test"]);
+    git_at(
+        root,
+        &["config", "user.email", "receipt-cli-test@example.invalid"],
+    );
+    git_at(
+        root,
+        &[
+            "add",
+            "Cargo.toml",
+            "nagi.toml",
+            "rust-toolchain.toml",
+            "third_party",
+        ],
+    );
+    git_at(root, &["commit", "-qm", "receipt test fixture"]);
+}
+
+#[test]
+fn rust_std_runtime_diagnostics_survive_closed_pipes_without_changing_result() {
+    const FAKE_CARGO_EXIT: i32 = 37;
+    let scratch = Scratch::new("rust-std-closed-pipes");
+    let repository = scratch.0.join("repo");
+    let rust_sysroot = scratch.0.join("rust-sysroot");
+    let rust_source = rust_sysroot.join("lib/rustlib/src/rust");
+    let bins = scratch.0.join("bin");
+    fs::create_dir_all(rust_source.join("library")).expect("create fake rust source");
+    fs::create_dir_all(&bins).expect("create fixture tools");
+    fs::write(
+        rust_source.join("library/Cargo.toml"),
+        "[package]\nname = \"fixture-std\"\nversion = \"0.0.0\"\n",
+    )
+    .expect("write fake standard library manifest");
+    fixture_repository(&repository);
+
+    let original_path = env::var_os("PATH").expect("PATH");
+    let real_git = env::split_paths(&original_path)
+        .map(|directory| directory.join("git"))
+        .find(|candidate| candidate.is_file())
+        .expect("git on PATH");
+    let cargo_log = scratch.0.join("cargo.log");
+    write_executable(
+        &bins.join("rustc"),
+        "#!/bin/sh\n\
+         case \"$1\" in\n\
+           --print) printf '%s\\n' \"$NAGI_TEST_RUST_SYSROOT\" ;;\n\
+           --version) printf '%s\\n' 'rustc 1.90.0' 'release: 1.90.0' 'host: fixture' ;;\n\
+           *) exit 91 ;;\n\
+         esac\n",
+    );
+    write_executable(
+        &bins.join("git"),
+        "#!/bin/sh\n\
+         if [ \"$1\" = apply ]; then exit 0; fi\n\
+         exec \"$NAGI_TEST_REAL_GIT\" \"$@\"\n",
+    );
+    write_executable(
+        &bins.join("cargo"),
+        "#!/bin/sh\n\
+         printf '%s\\n' \"$*\" >> \"$NAGI_TEST_CARGO_LOG\"\n\
+         printf '%s\\n' 'fixture cargo failure' >&2\n\
+         exit 37\n",
+    );
+    let path =
+        env::join_paths(std::iter::once(bins.clone()).chain(env::split_paths(&original_path)))
+            .expect("join fixture PATH");
+    let configure = |command: &mut Command| {
+        command
+            .env("PATH", &path)
+            .env("NAGI_TEST_RUST_SYSROOT", &rust_sysroot)
+            .env("NAGI_TEST_REAL_GIT", &real_git)
+            .env("NAGI_TEST_CARGO_LOG", &cargo_log);
+    };
+
+    let mut baseline_command = nagi_at(&repository, &["std"]);
+    configure(&mut baseline_command);
+    let baseline = baseline_command
+        .output()
+        .expect("run std fixture with open output");
+    assert_eq!(
+        baseline.status.code(),
+        Some(FAKE_CARGO_EXIT),
+        "baseline stdout: {}\nbaseline stderr: {}",
+        String::from_utf8_lossy(&baseline.stdout),
+        String::from_utf8_lossy(&baseline.stderr),
+    );
+    let baseline_stdout = String::from_utf8_lossy(&baseline.stdout);
+    let baseline_stderr = String::from_utf8_lossy(&baseline.stderr);
+    assert!(
+        baseline_stdout.contains("user init: cargo failed"),
+        "missing original command failure: {baseline_stdout}"
+    );
+    assert!(
+        baseline_stderr.contains("phase=discover-toolchain")
+            && baseline_stderr.contains("phase=lock")
+            && (baseline_stderr.contains("Rust std source: verified reuse")
+                || baseline_stderr.contains("Rust std source: fresh preparation")),
+        "expected rust-std status diagnostics on stderr: {baseline_stderr}"
+    );
+
+    let source = source_at(&repository);
+    let receipts = scratch.0.join("receipts");
+    let run_id = "rust-std-closed-pipes";
+    let (stdout_reader, stdout_writer) = io::pipe().expect("stdout pipe");
+    let (stderr_reader, stderr_writer) = io::pipe().expect("stderr pipe");
+    drop(stdout_reader);
+    drop(stderr_reader);
+    let mut command = nagi_with_receipt_at(
+        &repository,
+        &["std"],
+        &receipts,
+        run_id,
+        "receipt-rust-std-test",
+    );
+    configure(&mut command);
+    let status = command
+        .stdout(stdout_writer)
+        .stderr(stderr_writer)
+        .status()
+        .expect("run std fixture with closed output pipes");
+    assert_eq!(status.code(), Some(FAKE_CARGO_EXIT));
+    assert_terminal_at(
+        &receipts,
+        &expected(run_id, "receipt-rust-std-test", &source.head),
+        FAKE_CARGO_EXIT,
+        &source,
+        &repository,
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_log)
+            .expect("read fake cargo log")
+            .lines()
+            .count(),
+        2,
+        "the fixture should stop at one fake init build per run"
+    );
+    assert!(
+        !repository.join("out/artifacts").exists(),
+        "fixture unexpectedly reached image/QEMU stages"
     );
 }

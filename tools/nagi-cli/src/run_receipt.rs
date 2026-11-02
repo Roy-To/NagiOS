@@ -3,6 +3,11 @@
 //! A missing terminal receipt is never reconstructed from logs or guest markers.
 //! If the recorded CLI PID is gone, the result is inconclusive; SIGKILL and power
 //! loss can prevent the terminal receipt from being written.
+//! A signal that terminates the process before terminal.json is published
+//! can leave only started.json; no handler infers a command result.
+//! Publication uses a same-directory hard link for create-only semantics.
+//! Filesystems without hard-link support fail closed rather than falling back to
+//! a weaker overwrite-prone publication method.
 //! Opt in through NAGI_RUN_RECEIPT_DIR, NAGI_RUN_ID, and NAGI_RUN_STAGE.
 //! The environment settings must be consumed at single-threaded CLI startup so
 //! nested CLI processes do not accidentally reuse the parent's receipt ID.
