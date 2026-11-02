@@ -158,6 +158,7 @@ pub enum IdentityError {
     AuthorizationUnavailable,
     IdSourceUnavailable,
     IdCollision,
+    ProfileHistoryIncomplete,
     InvalidMetadata,
     UserNotFound,
     ProfileNotFound,
@@ -183,6 +184,9 @@ impl fmt::Display for IdentityError {
             Self::AuthorizationUnavailable => "identity authorization is unavailable",
             Self::IdSourceUnavailable => "identity ID source is unavailable",
             Self::IdCollision => "identity ID collides with an existing record",
+            Self::ProfileHistoryIncomplete => {
+                "profile ID history is incomplete after identity recovery"
+            }
             Self::InvalidMetadata => "identity metadata is invalid",
             Self::UserNotFound => "local user was not found",
             Self::ProfileNotFound => "profile was not found",
@@ -576,6 +580,14 @@ where
                 .any(|session| &session.profile_id == profile_id)
     }
 
+    fn ensure_profile_id_history_complete(&self) -> Result<(), IdentityError> {
+        if self.snapshot.profile_id_history_complete {
+            Ok(())
+        } else {
+            Err(IdentityError::ProfileHistoryIncomplete)
+        }
+    }
+
     fn read_valid_snapshot(&self, bytes: &[u8]) -> Result<IdentitySnapshot, IdentityError> {
         IdentitySnapshot::from_json(bytes).map_err(map_snapshot_error)
     }
@@ -583,6 +595,13 @@ where
     /// Recovery never resumes a saved session. It selects a valid current or
     /// last-known-good snapshot, ends all active sessions, and cleans only the
     /// exact guest profile IDs recorded in that snapshot.
+    ///
+    /// If the selected LKG version is older than the store high-water version,
+    /// later commits may have allocated ProfileIds absent from that snapshot.
+    /// Recovery persists an incomplete-history marker in the restored snapshot;
+    /// all new profile allocations then return ProfileHistoryIncomplete, and
+    /// this remains true across future restarts until an authoritative repair
+    /// supplies complete history. Existing profiles remain usable.
     pub fn recover(
         &mut self,
         caller: &impl TrustedCallerContext,
@@ -604,6 +623,9 @@ where
         }) {
             return Err(IdentityError::StoreUnavailable);
         }
+        let lkg_omits_committed_generations = last_known_good.as_ref().is_some_and(|snapshot| {
+            current_version.is_some_and(|high_water| snapshot.version.get() < high_water.get())
+        });
         // Keep the cached snapshot and its CAS version paired on every failure.
         let (mut candidate, source) = match current {
             Some(bytes) => match self.read_valid_snapshot(&bytes) {
@@ -654,6 +676,13 @@ where
                 }
             },
         };
+
+        // A lower-version LKG cannot carry ProfileIds allocated by later
+        // commits. Persist the loss marker in the restored snapshot so the
+        // fail-closed allocation rule survives subsequent restarts.
+        if source == RecoverySource::LastKnownGood && lkg_omits_committed_generations {
+            candidate.profile_id_history_complete = false;
+        }
 
         let now = self.clock.now();
         let mut ended = 0;
@@ -784,6 +813,7 @@ where
             .validate()
             .map_err(|_| IdentityError::InvalidMetadata)?;
         self.authorize(caller, IdentityAction::CreateLocalUser, None, None, None)?;
+        self.ensure_profile_id_history_complete()?;
 
         let user_id = self
             .ids
@@ -857,6 +887,7 @@ where
         {
             return Err(IdentityError::UserNotFound);
         }
+        self.ensure_profile_id_history_complete()?;
         let profile_id = self
             .ids
             .next_profile_id()
@@ -938,6 +969,7 @@ where
             }
             return Err(IdentityError::IdempotencyConflict);
         }
+        self.ensure_profile_id_history_complete()?;
         let profile_id = self
             .ids
             .next_profile_id()
@@ -1557,6 +1589,7 @@ fn map_resolution_identity_error(error: IdentityError) -> ResolutionError {
         | IdentityError::ExpiryNotInFuture
         | IdentityError::SessionNotFound
         | IdentityError::SessionNotCurrent
+        | IdentityError::ProfileHistoryIncomplete
         | IdentityError::RevisionExhausted => ResolutionError::Unavailable,
     }
 }

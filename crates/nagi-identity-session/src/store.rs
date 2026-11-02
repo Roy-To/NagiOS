@@ -226,3 +226,261 @@ impl IdentitySnapshotStore for InMemorySnapshotStore {
         Ok(next_version)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        AuthorizationFailure, AuthorizationRequest, CallerContextId, Clock, GuestCleanupFailure,
+        GuestProfileCleaner, IdSourceFailure, IdentityAuthorizer, IdentityIdSource,
+        IdentityService, NoopIdentityEventSink, PrincipalId, RecoverySource, SessionId,
+        TrustedCallerContext, UnixMillis, UserId,
+    };
+
+    #[derive(Clone, Copy)]
+    struct TestClock;
+
+    impl Clock for TestClock {
+        fn now(&self) -> UnixMillis {
+            UnixMillis::new(100)
+        }
+    }
+
+    #[derive(Default)]
+    struct TestIds {
+        user: u64,
+        profile: u64,
+        session: u64,
+    }
+
+    impl IdentityIdSource for TestIds {
+        fn next_user_id(&mut self) -> Result<UserId, IdSourceFailure> {
+            self.user += 1;
+            UserId::new(self.user).map_err(|_| IdSourceFailure::Unavailable)
+        }
+
+        fn next_profile_id(&mut self) -> Result<crate::ProfileId, IdSourceFailure> {
+            self.profile += 1;
+            crate::ProfileId::new(format!("profile_p{}", self.profile))
+                .map_err(|_| IdSourceFailure::Unavailable)
+        }
+
+        fn next_session_id(&mut self) -> Result<SessionId, IdSourceFailure> {
+            self.session += 1;
+            SessionId::new(format!("session_s{}", self.session))
+                .map_err(|_| IdSourceFailure::Unavailable)
+        }
+    }
+
+    struct AllowAuthorization;
+
+    impl IdentityAuthorizer for AllowAuthorization {
+        fn authorize(
+            &mut self,
+            _request: &AuthorizationRequest,
+        ) -> Result<(), AuthorizationFailure> {
+            Ok(())
+        }
+    }
+
+    struct NoopCleaner;
+
+    impl GuestProfileCleaner for NoopCleaner {
+        fn cleanup_guest_profile(
+            &mut self,
+            _profile_id: &crate::ProfileId,
+        ) -> Result<(), GuestCleanupFailure> {
+            Ok(())
+        }
+    }
+
+    struct TestCaller {
+        principal: PrincipalId,
+        context: CallerContextId,
+    }
+
+    impl TestCaller {
+        fn new() -> Self {
+            Self {
+                principal: PrincipalId::new("system.identity-store-test").unwrap(),
+                context: CallerContextId::new("caller_identity-store-test").unwrap(),
+            }
+        }
+    }
+
+    impl TrustedCallerContext for TestCaller {
+        fn principal_id(&self) -> &PrincipalId {
+            &self.principal
+        }
+
+        fn context_id(&self) -> &CallerContextId {
+            &self.context
+        }
+    }
+
+    type TestService =
+        IdentityService<InMemorySnapshotStore, TestIds, TestClock, AllowAuthorization, NoopCleaner>;
+
+    fn new_service(store: InMemorySnapshotStore) -> TestService {
+        IdentityService::new(
+            store,
+            TestIds::default(),
+            TestClock,
+            AllowAuthorization,
+            NoopCleaner,
+            NoopIdentityEventSink,
+        )
+    }
+
+    #[test]
+    fn in_memory_store_keeps_high_water_after_current_loss_and_rejects_lkg_cas() {
+        let mut store = InMemorySnapshotStore::default();
+        let bytes = IdentitySnapshot::empty().to_json().unwrap();
+        let first = store.commit_atomic(None, &bytes).unwrap();
+        let latest = store.commit_atomic(Some(first), &bytes).unwrap();
+        let lkg = store.load_last_known_good().unwrap().unwrap();
+        assert_eq!(lkg.version, first);
+
+        store.current = None;
+        store.observed.write().unwrap().current = None;
+
+        let observation = store.load_current_state().unwrap();
+        assert!(observation.current.is_none());
+        assert_eq!(observation.high_water_version, Some(latest));
+        assert_eq!(
+            store.commit_atomic(Some(lkg.version), &lkg.bytes),
+            Err(SnapshotStoreError::Conflict),
+            "a stale LKG revision cannot pass the independent high-water CAS"
+        );
+        assert_eq!(
+            store.load_current_state().unwrap().high_water_version,
+            Some(latest)
+        );
+    }
+
+    #[test]
+    fn in_memory_store_overflow_fails_without_mutating_current_or_lkg() {
+        let mut store = InMemorySnapshotStore::default();
+        let bytes = IdentitySnapshot::empty().to_json().unwrap();
+        let maximum = SnapshotVersion::new(u64::MAX);
+        let previous = SnapshotVersion::new(u64::MAX - 1);
+        store.current = Some(StoredSnapshot {
+            bytes: bytes.clone(),
+            version: maximum,
+        });
+        store.last_known_good = Some(StoredSnapshot {
+            bytes: bytes.clone(),
+            version: previous,
+        });
+        store.high_water_version = Some(maximum);
+        store.observed.write().unwrap().current = store.current.clone();
+
+        assert_eq!(
+            store.commit_atomic(Some(maximum), &bytes),
+            Err(SnapshotStoreError::Unavailable)
+        );
+
+        let state = store.load_current_state().unwrap();
+        assert_eq!(state.current.unwrap().version, maximum);
+        assert_eq!(state.high_water_version, Some(maximum));
+        assert_eq!(
+            store.load_last_known_good().unwrap().unwrap().version,
+            previous
+        );
+    }
+
+    #[test]
+    fn in_memory_store_lkg_recovery_persists_incomplete_profile_history() {
+        let caller = TestCaller::new();
+        let mut writer = new_service(InMemorySnapshotStore::default());
+        assert_eq!(
+            writer.recover(&caller).unwrap().source,
+            RecoverySource::Empty
+        );
+        let guest = writer
+            .create_guest_session(
+                &caller,
+                None,
+                crate::IdempotencyKey::new("in-memory-lost-guest").unwrap(),
+            )
+            .unwrap();
+        let lost_profile = writer
+            .snapshot()
+            .sessions
+            .iter()
+            .find(|session| session.session_id == guest)
+            .unwrap()
+            .profile_id
+            .clone();
+
+        let (mut store, _, _, _, _, _) = writer.into_parts();
+        let state = store.load_current_state().unwrap();
+        let latest = state.high_water_version.unwrap();
+        let lkg = store.load_last_known_good().unwrap().unwrap();
+        assert_eq!(latest.get(), lkg.version.get() + 1);
+        let lkg_snapshot = IdentitySnapshot::from_json(&lkg.bytes).unwrap();
+        assert!(!lkg_snapshot
+            .profiles
+            .iter()
+            .any(|profile| profile.profile_id == lost_profile));
+        assert!(!lkg_snapshot
+            .sessions
+            .iter()
+            .any(|session| session.profile_id == lost_profile));
+
+        store.current = None;
+        store.observed.write().unwrap().current = None;
+        let mut recovered = new_service(store);
+        assert_eq!(
+            recovered.recover(&caller).unwrap().source,
+            RecoverySource::LastKnownGood
+        );
+        assert!(!recovered.snapshot().profile_id_history_complete);
+        assert_eq!(
+            recovered.create_guest_session(
+                &caller,
+                None,
+                crate::IdempotencyKey::new("blocked-in-memory-reuse").unwrap()
+            ),
+            Err(crate::IdentityError::ProfileHistoryIncomplete)
+        );
+
+        let (store, _, _, _, _, _) = recovered.into_parts();
+        let mut restarted = new_service(store);
+        assert_eq!(
+            restarted.recover(&caller).unwrap().source,
+            RecoverySource::Current
+        );
+        assert!(!restarted.snapshot().profile_id_history_complete);
+        assert_eq!(
+            restarted.create_guest_session(
+                &caller,
+                None,
+                crate::IdempotencyKey::new("blocked-after-restart").unwrap()
+            ),
+            Err(crate::IdentityError::ProfileHistoryIncomplete)
+        );
+    }
+
+    #[test]
+    fn in_memory_store_missing_current_and_lkg_after_commit_rejects_recovery() {
+        let caller = TestCaller::new();
+        let mut initialized = new_service(InMemorySnapshotStore::default());
+        initialized.recover(&caller).unwrap();
+        let (mut store, _, _, _, _, _) = initialized.into_parts();
+        assert!(store
+            .load_current_state()
+            .unwrap()
+            .high_water_version
+            .is_some());
+        assert!(store.load_last_known_good().unwrap().is_none());
+
+        store.current = None;
+        store.observed.write().unwrap().current = None;
+        let mut recovered = new_service(store);
+        assert_eq!(
+            recovered.recover(&caller),
+            Err(crate::IdentityError::CorruptState)
+        );
+    }
+}
