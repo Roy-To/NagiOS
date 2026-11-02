@@ -6,8 +6,11 @@ pub enum MigrationFailure {
     InvalidLegacyState,
 }
 
-/// Owner-supplied migration seam. This crate has no deployed prior identity
-/// format, so it provides no production legacy migrator.
+/// Owner-supplied schema conversion seam. A migrator must not claim complete
+/// ProfileId history without an authoritative record of every allocation.
+/// This crate has no such repair API, so decode_snapshot_with_migration always
+/// downgrades migrated snapshots to incomplete history, even if the converter
+/// sets the marker true. It provides no production legacy migrator.
 pub trait IdentitySnapshotMigrator {
     fn migrate_to_current(
         &self,
@@ -51,5 +54,11 @@ pub fn decode_snapshot_with_migration(
     let migrated = migrator
         .migrate_to_current(source_version, source)
         .map_err(|_| SnapshotError::MigrationFailed)?;
-    IdentitySnapshot::from_json(&migrated).map_err(|_| SnapshotError::MigratedStateInvalid)
+    let mut snapshot =
+        IdentitySnapshot::from_json(&migrated).map_err(|_| SnapshotError::MigratedStateInvalid)?;
+    // Schema conversion alone does not prove that IDs missing from its source
+    // were never allocated. Only a future authoritative repair API may clear
+    // this marker after verifying complete history.
+    snapshot.profile_id_history_complete = false;
+    Ok(snapshot)
 }

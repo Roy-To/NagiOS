@@ -197,11 +197,14 @@ pub struct SessionRecord {
 #[serde(deny_unknown_fields)]
 pub struct IdentitySnapshot {
     pub schema_version: u32,
+    /// Snapshot-local revision. LKG recovery can restore an older revision and
+    /// increment from it, so this is not a globally unique generation and must
+    /// not be used to namespace session IDs.
     pub revision: u64,
     /// True only when every previously allocated ProfileId is represented by
-    /// current profiles or retained session history. An older LKG restore sets
-    /// this false when the store high-water is newer; the flag is persisted so
-    /// later restarts continue to reject new profile allocation. Older JSON
+    /// current profiles or retained session history. Any selected LKG restore
+    /// sets this false; the flag is persisted so later restarts continue to
+    /// reject new profile allocation. Older JSON
     /// without this marker is treated as incomplete because it cannot prove
     /// complete ID history; empty() explicitly initializes new stores true.
     #[serde(default)]
