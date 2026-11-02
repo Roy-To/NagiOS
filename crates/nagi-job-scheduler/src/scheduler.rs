@@ -202,12 +202,13 @@ pub enum SchedulerError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DispatchResult {
     Idle,
-    /// The returned snapshot reflects this attempt's committed outcome. It may
-    /// be RetryWait or Paused; inspect the state before treating it as success.
+    /// This dispatch applied this attempt's outcome to the record. It does not
+    /// imply success; inspect the state, which may be RetryWait or Paused.
     Completed(Box<JobRecord>),
     /// This attempt's late outcome was ignored because the record now belongs
     /// to another attempt or was already settled. `record` is the current
     /// snapshot and `attempt` is the stale execution's attempt number.
+    /// Callers with exhaustive matches must handle this variant.
     Superseded {
         record: Box<JobRecord>,
         attempt: u8,
@@ -1004,9 +1005,6 @@ impl Scheduler {
                 return Ok((record, false));
             }
             let now = self.clock.now();
-            if let Some(control) = control.as_ref() {
-                Self::signal_recovery_control(&record, control, now);
-            }
             let target = self.recovery_target(&record, now)?;
             let next_state = if record.state().can_transition_to(&target) {
                 target
@@ -1029,12 +1027,21 @@ impl Scheduler {
                 .store
                 .compare_and_swap(record.id(), record.revision(), replacement)
             {
-                Ok(saved) if matches!(saved.state(), JobState::Interrupted) => {
-                    // Running and an unsafe pause may need a second, policy
-                    // driven transition after the interruption is persisted.
-                    record = saved;
+                Ok(saved) => {
+                    // Make recovery authoritative before waking the old run.
+                    // If completion commits first, this CAS reloads it below
+                    // without canceling a successfully settled job.
+                    if let Some(control) = control.as_ref() {
+                        Self::signal_recovery_control(&record, control, now);
+                    }
+                    if matches!(saved.state(), JobState::Interrupted) {
+                        // Running and an unsafe pause may need a second,
+                        // policy-driven transition after interruption persists.
+                        record = saved;
+                    } else {
+                        return Ok((saved, true));
+                    }
                 }
-                Ok(saved) => return Ok((saved, true)),
                 Err(JobStoreError::Conflict) => {
                     record = self
                         .store
@@ -1582,9 +1589,13 @@ impl Scheduler {
                     HandlerOutcome::Failed(code) => {
                         let retryable = record.retry_policy().retryable().contains(&code)
                             && record.attempt_count() < record.retry_policy().max_attempts()
-                            && !deadline_passed
-                            && !matches!(record.state(), JobState::PauseRequested);
-                        if retryable {
+                            && !deadline_passed;
+                        if retryable && matches!(record.state(), JobState::PauseRequested) {
+                            // A cooperative pause takes precedence over a
+                            // transient retry. Reuse the startup pause contract
+                            // so checkpoint and recovery policy stay aligned.
+                            self.pause_recovery_target(&record)?
+                        } else if retryable {
                             let delay = record.retry_policy().delay_after(record.attempt_count());
                             let retry_at = now.saturating_add(delay);
                             record
@@ -1607,8 +1618,7 @@ impl Scheduler {
                                 Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
                                 Err(error) => return Err(error),
                             }
-                        }
-                        if record.attempt_count() >= record.retry_policy().max_attempts()
+                        } else if record.attempt_count() >= record.retry_policy().max_attempts()
                             && record.retry_policy().exhausted_action()
                                 == RetryTerminalAction::RecoveryRequired
                         {
