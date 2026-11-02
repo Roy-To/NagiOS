@@ -3,8 +3,10 @@
 //! A missing terminal receipt is never reconstructed from logs or guest markers.
 //! If the recorded CLI PID is gone, the result is inconclusive; SIGKILL and power
 //! loss can prevent the terminal receipt from being written.
-//! A signal that terminates the process before terminal.json is published
-//! can leave only started.json; no handler infers a command result.
+//! SIGHUP, SIGINT, or SIGTERM before terminal.json publication can leave only
+//! started.json; no handler infers a command result. `nohup` ignores SIGHUP and
+//! `setsid` detaches the controlling terminal, but neither prevents all signal
+//! termination nor guarantees terminal.json publication.
 //! Publication uses a same-directory hard link for create-only semantics.
 //! Filesystems without hard-link support fail closed rather than falling back to
 //! a weaker overwrite-prone publication method.
