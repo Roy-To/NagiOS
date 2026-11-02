@@ -685,6 +685,7 @@ impl JobState {
                     | S::Cancelled
                     | S::TimedOut
                     | S::Interrupted
+                    | S::RecoveryRequired(_)
             ),
             S::Paused => matches!(next, S::Queued | S::Cancelled | S::TimedOut | S::Failed(_)),
             S::RetryWait => matches!(
@@ -698,7 +699,7 @@ impl JobState {
             ),
             S::Interrupted => matches!(
                 next,
-                S::Queued | S::RecoveryRequired(_) | S::TimedOut | S::Failed(_)
+                S::Queued | S::RecoveryRequired(_) | S::TimedOut | S::Failed(_) | S::Cancelled
             ),
             S::RecoveryRequired(_) => {
                 matches!(next, S::Queued | S::Cancelled | S::TimedOut | S::Failed(_))

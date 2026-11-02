@@ -21,6 +21,7 @@ const DEFAULT_PROGRESS_INTERVAL_MS: u64 = 250;
 const MAX_CONCURRENCY: usize = 256;
 const MAX_QUEUE_CAPACITY: usize = 65_536;
 const MAX_RECORD_CAPACITY: usize = 262_144;
+const MAX_RECORD_CAS_RETRIES: usize = 8;
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> TimestampMillis;
@@ -201,19 +202,35 @@ pub enum SchedulerError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DispatchResult {
     Idle,
-    /// This dispatch invocation returned a record snapshot, not necessarily a
-    /// terminal job. It may be RetryWait or Paused, or the current Queued/Running
-    /// snapshot when an obsolete attempt's result was ignored after recovery.
-    /// Inspect `JobRecord::state()` to determine success; only Succeeded means
-    /// success. This variant alone is not evidence of a completion transition.
+    /// This dispatch applied this attempt's outcome to the record. It does not
+    /// imply success; inspect the state, which may be RetryWait or Paused.
     Completed(Box<JobRecord>),
+    /// This attempt's late outcome was ignored because the record now belongs
+    /// to another attempt or was already settled. `record` is the current
+    /// snapshot and `attempt` is the stale execution's attempt number.
+    /// Callers with exhaustive matches must handle this variant.
+    Superseded {
+        record: Box<JobRecord>,
+        attempt: u8,
+    },
 }
 
-/// Whether this invocation actually committed a completion transition.
-/// Kept private so the existing dispatch API remains snapshot-oriented.
 struct CompletionResult {
     record: JobRecord,
     applied: bool,
+}
+
+impl CompletionResult {
+    fn into_dispatch_result(self, attempt: u8) -> DispatchResult {
+        if self.applied {
+            DispatchResult::Completed(Box::new(self.record))
+        } else {
+            DispatchResult::Superseded {
+                record: Box::new(self.record),
+                attempt,
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -426,6 +443,18 @@ struct RuntimeState {
     active: HashMap<JobId, Arc<RunControl>>,
 }
 
+struct ActiveRunGuard<'a> {
+    scheduler: &'a Scheduler,
+    id: JobId,
+    control: Arc<RunControl>,
+}
+
+impl Drop for ActiveRunGuard<'_> {
+    fn drop(&mut self) {
+        self.scheduler.remove_active(&self.id, &self.control);
+    }
+}
+
 impl Scheduler {
     pub fn new(
         store: Arc<dyn JobStore>,
@@ -607,116 +636,126 @@ impl Scheduler {
     }
 
     pub fn cancel(&self, caller: &CallerRef, id: &JobId) -> Result<JobRecord, SchedulerError> {
-        let now = self.clock.now();
-        let mut record = self
-            .store
-            .get(id)
-            .map_err(SchedulerError::Store)?
-            .ok_or(SchedulerError::NotFound)?;
-        self.authorization
-            .authorize_user(caller, record.owner(), JobAction::Cancel, Some(id))
-            .map_err(SchedulerError::Authorization)?;
-        if record.state().is_terminal() || matches!(record.state(), JobState::Cancelled) {
-            return Ok(record);
-        }
-        if matches!(record.state(), JobState::CancelRequested) {
-            if let Ok(runtime) = self.runtime.lock() {
-                if let Some(control) = runtime.active.get(id) {
-                    control.request_cancel();
-                }
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            let mut record = self
+                .store
+                .get(id)
+                .map_err(SchedulerError::Store)?
+                .ok_or(SchedulerError::NotFound)?;
+            self.authorization
+                .authorize_user(caller, record.owner(), JobAction::Cancel, Some(id))
+                .map_err(SchedulerError::Authorization)?;
+            if record.state().is_terminal() {
+                return Ok(record);
             }
-            return Ok(record);
-        }
-        if record.state().occupies_slot() {
-            record
-                .request_cancel(now)
-                .map_err(|_| SchedulerError::InvalidTransition)?;
-        } else {
-            record
-                .set_state(JobState::Cancelled, now)
-                .map_err(|_| SchedulerError::InvalidTransition)?;
-            record.mark_finished(now);
-        }
-        let saved = self.save_record(record)?;
-        if matches!(saved.state(), JobState::CancelRequested) {
-            if let Ok(runtime) = self.runtime.lock() {
-                if let Some(control) = runtime.active.get(id) {
-                    control.request_cancel();
+            if matches!(record.state(), JobState::CancelRequested) {
+                self.signal_active_stop(&record);
+                return Ok(record);
+            }
+
+            let now = self.clock.now();
+            if record.state().occupies_slot() {
+                record
+                    .request_cancel(now)
+                    .map_err(|_| SchedulerError::InvalidTransition)?;
+            } else {
+                record
+                    .set_state(JobState::Cancelled, now)
+                    .map_err(|_| SchedulerError::InvalidTransition)?;
+                record.mark_finished(now);
+            }
+            match self.save_record(record) {
+                Ok(saved) => {
+                    if matches!(saved.state(), JobState::CancelRequested) {
+                        self.signal_active_stop(&saved);
+                    }
+                    self.emit_for_record(now, JobEventCode::CancellationRequested, &saved, None);
+                    return Ok(saved);
                 }
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                Err(error) => return Err(error),
             }
         }
-        self.emit_for_record(now, JobEventCode::CancellationRequested, &saved, None);
-        Ok(saved)
+        Err(SchedulerError::Store(JobStoreError::Conflict))
     }
 
     pub fn pause(&self, caller: &CallerRef, id: &JobId) -> Result<JobRecord, SchedulerError> {
-        let mut record = self
-            .store
-            .get(id)
-            .map_err(SchedulerError::Store)?
-            .ok_or(SchedulerError::NotFound)?;
-        self.authorization
-            .authorize_user(caller, record.owner(), JobAction::Pause, Some(id))
-            .map_err(SchedulerError::Authorization)?;
-        let provider = self
-            .providers
-            .get(record.handler())?
-            .ok_or(SchedulerError::MissingHandler)?;
-        if !provider.supports_pause() {
-            return Err(SchedulerError::UnsupportedPause);
-        }
-        let now = self.clock.now();
-        if matches!(record.state(), JobState::Paused) {
-            return Ok(record);
-        }
-        if matches!(record.state(), JobState::PauseRequested) {
-            if let Ok(runtime) = self.runtime.lock() {
-                if let Some(control) = runtime.active.get(id) {
-                    control.request_pause();
-                }
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            let mut record = self
+                .store
+                .get(id)
+                .map_err(SchedulerError::Store)?
+                .ok_or(SchedulerError::NotFound)?;
+            self.authorization
+                .authorize_user(caller, record.owner(), JobAction::Pause, Some(id))
+                .map_err(SchedulerError::Authorization)?;
+            let provider = self
+                .providers
+                .get(record.handler())?
+                .ok_or(SchedulerError::MissingHandler)?;
+            if !provider.supports_pause() {
+                return Err(SchedulerError::UnsupportedPause);
             }
-            return Ok(record);
-        }
-        if record.state().occupies_slot() {
-            record
-                .set_state(JobState::PauseRequested, now)
-                .map_err(|_| SchedulerError::InvalidTransition)?;
-        } else {
-            record
-                .set_state(JobState::Paused, now)
-                .map_err(|_| SchedulerError::InvalidTransition)?;
-        }
-        let saved = self.save_record(record)?;
-        if matches!(saved.state(), JobState::PauseRequested) {
-            if let Ok(runtime) = self.runtime.lock() {
-                if let Some(control) = runtime.active.get(id) {
-                    control.request_pause();
+            if matches!(record.state(), JobState::Paused) {
+                return Ok(record);
+            }
+            if matches!(record.state(), JobState::PauseRequested) {
+                self.signal_active_pause(id);
+                return Ok(record);
+            }
+
+            let now = self.clock.now();
+            if record.state().occupies_slot() {
+                record
+                    .set_state(JobState::PauseRequested, now)
+                    .map_err(|_| SchedulerError::InvalidTransition)?;
+            } else {
+                record
+                    .set_state(JobState::Paused, now)
+                    .map_err(|_| SchedulerError::InvalidTransition)?;
+            }
+            match self.save_record(record) {
+                Ok(saved) => {
+                    if matches!(saved.state(), JobState::PauseRequested) {
+                        self.signal_active_pause(id);
+                    }
+                    self.emit_for_record(now, JobEventCode::PauseRequested, &saved, None);
+                    return Ok(saved);
                 }
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                Err(error) => return Err(error),
             }
         }
-        self.emit_for_record(now, JobEventCode::PauseRequested, &saved, None);
-        Ok(saved)
+        Err(SchedulerError::Store(JobStoreError::Conflict))
     }
 
     pub fn resume(&self, caller: &CallerRef, id: &JobId) -> Result<JobRecord, SchedulerError> {
-        let mut record = self
-            .store
-            .get(id)
-            .map_err(SchedulerError::Store)?
-            .ok_or(SchedulerError::NotFound)?;
-        self.authorization
-            .authorize_user(caller, record.owner(), JobAction::Resume, Some(id))
-            .map_err(SchedulerError::Authorization)?;
-        if !matches!(record.state(), JobState::Paused) {
-            return Err(SchedulerError::InvalidTransition);
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            let mut record = self
+                .store
+                .get(id)
+                .map_err(SchedulerError::Store)?
+                .ok_or(SchedulerError::NotFound)?;
+            self.authorization
+                .authorize_user(caller, record.owner(), JobAction::Resume, Some(id))
+                .map_err(SchedulerError::Authorization)?;
+            if !matches!(record.state(), JobState::Paused) {
+                return Err(SchedulerError::InvalidTransition);
+            }
+            let now = self.clock.now();
+            record
+                .set_state(JobState::Queued, now)
+                .map_err(|_| SchedulerError::InvalidTransition)?;
+            match self.save_record(record) {
+                Ok(saved) => {
+                    self.emit_for_record(now, JobEventCode::Resumed, &saved, None);
+                    return Ok(saved);
+                }
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                Err(error) => return Err(error),
+            }
         }
-        let now = self.clock.now();
-        record
-            .set_state(JobState::Queued, now)
-            .map_err(|_| SchedulerError::InvalidTransition)?;
-        let saved = self.save_record(record)?;
-        self.emit_for_record(now, JobEventCode::Resumed, &saved, None);
-        Ok(saved)
+        Err(SchedulerError::Store(JobStoreError::Conflict))
     }
 
     /// Explicitly retries a recovery-required record after operator repair.
@@ -727,38 +766,48 @@ impl Scheduler {
         caller: &CallerRef,
         id: &JobId,
     ) -> Result<JobRecord, SchedulerError> {
-        let mut record = self
-            .store
-            .get(id)
-            .map_err(SchedulerError::Store)?
-            .ok_or(SchedulerError::NotFound)?;
-        self.authorization
-            .authorize_user(caller, record.owner(), JobAction::Recover, Some(id))
-            .map_err(SchedulerError::Authorization)?;
-        if !matches!(record.state(), JobState::RecoveryRequired(_)) {
-            return Err(SchedulerError::InvalidTransition);
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            let mut record = self
+                .store
+                .get(id)
+                .map_err(SchedulerError::Store)?
+                .ok_or(SchedulerError::NotFound)?;
+            self.authorization
+                .authorize_user(caller, record.owner(), JobAction::Recover, Some(id))
+                .map_err(SchedulerError::Authorization)?;
+            if !matches!(record.state(), JobState::RecoveryRequired(_)) {
+                return Err(SchedulerError::InvalidTransition);
+            }
+            let now = self.clock.now();
+            record
+                .set_state(JobState::Queued, now)
+                .map_err(|_| SchedulerError::InvalidTransition)?;
+            match self.save_record(record) {
+                Ok(saved) => {
+                    self.emit_for_record(now, JobEventCode::StateTransition, &saved, None);
+                    return Ok(saved);
+                }
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                Err(error) => return Err(error),
+            }
         }
-        let now = self.clock.now();
-        record
-            .set_state(JobState::Queued, now)
-            .map_err(|_| SchedulerError::InvalidTransition)?;
-        let saved = self.save_record(record)?;
-        self.emit_for_record(now, JobEventCode::StateTransition, &saved, None);
-        Ok(saved)
+        Err(SchedulerError::Store(JobStoreError::Conflict))
     }
 
     /// Runs one eligible registered provider synchronously. Tests can advance
     /// the virtual clock or cancel from another thread while it cooperates.
     pub fn dispatch_one(&self) -> Result<DispatchResult, SchedulerError> {
-        self.refresh_pending()?;
-        let now = self.clock.now();
-        let conditions = *self
-            .conditions
-            .lock()
-            .map_err(|_| SchedulerError::RuntimeStatePoisoned)?;
         let selected = {
+            // Recovery and claim/control installation share this lock so a
+            // recovered record cannot be claimed after its control was missed.
             let _dispatch = self
                 .dispatch_lock
+                .lock()
+                .map_err(|_| SchedulerError::RuntimeStatePoisoned)?;
+            self.refresh_pending()?;
+            let now = self.clock.now();
+            let conditions = *self
+                .conditions
                 .lock()
                 .map_err(|_| SchedulerError::RuntimeStatePoisoned)?;
             let mut candidates = self
@@ -800,47 +849,48 @@ impl Scheduler {
                     Err(JobStoreError::Conflict) => continue,
                     Err(error) => return Err(SchedulerError::Store(error)),
                 };
-                selected = Some((claimed, provider));
+                let control = Arc::new(RunControl::default());
+                self.runtime
+                    .lock()
+                    .map_err(|_| SchedulerError::RuntimeStatePoisoned)?
+                    .active
+                    .insert(claimed.id().clone(), control.clone());
+                selected = Some((claimed, provider, control, now));
                 break;
             }
             selected
         };
 
-        let Some((claimed, provider)) = selected else {
+        let Some((claimed, provider, control, now)) = selected else {
             return Ok(DispatchResult::Idle);
         };
-
-        let control = Arc::new(RunControl::default());
-        self.runtime
-            .lock()
-            .map_err(|_| SchedulerError::RuntimeStatePoisoned)?
-            .active
-            .insert(claimed.id().clone(), control.clone());
+        let _active_guard = ActiveRunGuard {
+            scheduler: self,
+            id: claimed.id().clone(),
+            control: control.clone(),
+        };
         self.emit_for_record(now, JobEventCode::Started, &claimed, None);
+        let attempted_attempt = claimed.attempt_count();
 
         if self
             .authorization
             .authorize_handler(claimed.owner(), claimed.handler())
             .is_err()
         {
-            let CompletionResult {
-                record: failed,
-                applied,
-            } = self.complete(
+            let completion = self.complete(
                 claimed,
                 HandlerOutcome::Failed(JobFailureCode::PermissionDenied),
                 &control,
             )?;
-            self.remove_active(failed.id(), &control);
-            if applied {
+            if completion.applied {
                 self.emit_for_record(
                     self.clock.now(),
                     JobEventCode::PermissionDenied,
-                    &failed,
+                    &completion.record,
                     Some(JobEventReason::PermissionDenied),
                 );
             }
-            return Ok(DispatchResult::Completed(Box::new(failed)));
+            return Ok(completion.into_dispatch_result(attempted_attempt));
         }
 
         let context = self.make_handler_context(claimed.clone(), control.clone());
@@ -849,105 +899,303 @@ impl Scheduler {
             provider.execute(&mut context)
         }))
         .unwrap_or(HandlerOutcome::Failed(JobFailureCode::Permanent));
-        let CompletionResult {
-            record: completed, ..
-        } = self.complete(claimed, outcome, &control)?;
-        self.remove_active(completed.id(), &control);
-        Ok(DispatchResult::Completed(Box::new(completed)))
+        let completion = self.complete(claimed, outcome, &control)?;
+        Ok(completion.into_dispatch_result(attempted_attempt))
     }
 
     /// Reconciles persisted running records after a process restart. Safe
     /// idempotent/checkpointed work is queued for at-least-once replay;
     /// non-idempotent work remains recovery-required for explicit repair.
     pub fn recover_startup(&self) -> Result<Vec<JobRecord>, SchedulerError> {
-        self.runtime
+        // A claim and its cancellation control are installed under this same
+        // lock. Recovery therefore sees every claimed run before it requeues it.
+        let _dispatch = self
+            .dispatch_lock
             .lock()
-            .map_err(|_| SchedulerError::RuntimeStatePoisoned)?
-            .active
-            .clear();
+            .map_err(|_| SchedulerError::RuntimeStatePoisoned)?;
         let records = self.store.list().map_err(SchedulerError::Store)?;
         if has_dependency_cycle(&records) {
             return Err(SchedulerError::DependencyCycle);
         }
-        let now = self.clock.now();
+        let controls = self
+            .runtime
+            .lock()
+            .map_err(|_| SchedulerError::RuntimeStatePoisoned)?
+            .active
+            .clone();
         let mut recovered = Vec::new();
-        for record in records.into_iter().filter(|record| {
-            matches!(
+        let mut unresolved_conflict = false;
+
+        for record in records {
+            let candidate = matches!(
                 record.state(),
                 JobState::Running
                     | JobState::CancelRequested
                     | JobState::PauseRequested
                     | JobState::Interrupted
-            )
-        }) {
-            let interrupted = if matches!(record.state(), JobState::Interrupted) {
-                record.clone()
-            } else {
-                let mut interrupted = record.clone();
-                interrupted
-                    .set_state(JobState::Interrupted, now)
-                    .map_err(|_| SchedulerError::InvalidTransition)?;
-                self.store
-                    .compare_and_swap(record.id(), record.revision(), interrupted)
-                    .map_err(SchedulerError::Store)?
+            );
+            let Some(control) = controls.get(record.id()).cloned() else {
+                if !candidate {
+                    continue;
+                }
+                match self.recover_record(record) {
+                    Ok((saved, true)) => {
+                        self.emit_recovered(&saved);
+                        recovered.push(saved);
+                    }
+                    Ok((_, false)) => {}
+                    Err(SchedulerError::Store(JobStoreError::Conflict)) => {
+                        unresolved_conflict = true;
+                    }
+                    Err(error) => return Err(error),
+                }
+                continue;
             };
-            let provider = self.providers.get(interrupted.handler())?;
-            let policy = provider
-                .as_ref()
-                .map(|provider| provider.recovery_policy(&interrupted));
-            let target = match (provider, policy) {
-                (Some(_), Some(_)) if !interrupted.has_execution_capacity() => {
-                    JobState::RecoveryRequired(JobFailureCode::Permanent)
+
+            if !candidate {
+                if !record.state().occupies_slot() {
+                    self.remove_active(record.id(), &control);
                 }
-                (None, _) => JobState::RecoveryRequired(JobFailureCode::MissingHandler),
-                (Some(_), Some(_))
-                    if self
-                        .authorization
-                        .authorize_handler(interrupted.owner(), interrupted.handler())
-                        .is_err() =>
-                {
-                    JobState::RecoveryRequired(JobFailureCode::PermissionDenied)
-                }
-                (Some(_), Some(RecoveryPolicy::Idempotent)) => JobState::Queued,
-                (Some(provider), Some(RecoveryPolicy::VerifiedCheckpoint)) => {
-                    if interrupted
-                        .checkpoint_ref()
-                        .is_some_and(|reference| provider.verify_checkpoint(reference))
-                    {
-                        JobState::Queued
-                    } else {
-                        JobState::RecoveryRequired(JobFailureCode::InvalidCheckpoint)
+                continue;
+            }
+
+            match self.recover_record_with_control(record, Some(control.clone())) {
+                Ok((saved, changed)) => {
+                    if !saved.state().occupies_slot() {
+                        self.remove_active(saved.id(), &control);
+                    }
+                    if changed {
+                        self.emit_recovered(&saved);
+                        recovered.push(saved);
                     }
                 }
-                (Some(_), Some(RecoveryPolicy::NonIdempotent)) | (_, None) => {
-                    JobState::RecoveryRequired(JobFailureCode::Permanent)
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => {
+                    // One busy/corrupt record must not prevent recovery of the
+                    // remaining records. It can be retried on the next startup.
+                    unresolved_conflict = true;
                 }
-            };
-            let mut reconciled = interrupted.clone();
-            reconciled
-                .set_state(target.clone(), now)
-                .map_err(|_| SchedulerError::InvalidTransition)?;
-            if target.is_terminal() {
-                reconciled.mark_finished(now);
+                Err(error) => return Err(error),
             }
-            let reconciled = self
-                .store
-                .compare_and_swap(interrupted.id(), interrupted.revision(), reconciled)
-                .map_err(SchedulerError::Store)?;
-            let code = if matches!(reconciled.state(), JobState::Queued) {
-                JobEventCode::RecoveryResumed
-            } else {
-                JobEventCode::RecoveryRequired
-            };
-            let reason = if matches!(reconciled.state(), JobState::Queued) {
-                None
-            } else {
-                Some(JobEventReason::UnsafeRecovery)
-            };
-            self.emit_for_record(now, code, &reconciled, reason);
-            recovered.push(reconciled);
         }
-        Ok(recovered)
+
+        if unresolved_conflict {
+            Err(SchedulerError::Store(JobStoreError::Conflict))
+        } else {
+            Ok(recovered)
+        }
+    }
+
+    fn recover_record(&self, record: JobRecord) -> Result<(JobRecord, bool), SchedulerError> {
+        self.recover_record_with_control(record, None)
+    }
+
+    fn recover_record_with_control(
+        &self,
+        mut record: JobRecord,
+        control: Option<Arc<RunControl>>,
+    ) -> Result<(JobRecord, bool), SchedulerError> {
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            if !matches!(
+                record.state(),
+                JobState::Running
+                    | JobState::CancelRequested
+                    | JobState::PauseRequested
+                    | JobState::Interrupted
+            ) {
+                return Ok((record, false));
+            }
+            let now = self.clock.now();
+            let target = self.recovery_target(&record, now)?;
+            let next_state = if record.state().can_transition_to(&target) {
+                target
+            } else {
+                JobState::Interrupted
+            };
+            if matches!(record.state(), JobState::Interrupted)
+                && matches!(next_state, JobState::Interrupted)
+            {
+                return Err(SchedulerError::InvalidTransition);
+            }
+            let mut replacement = record.clone();
+            replacement
+                .set_state(next_state.clone(), now)
+                .map_err(|_| SchedulerError::InvalidTransition)?;
+            if next_state.is_terminal() {
+                replacement.mark_finished(now);
+            }
+            match self
+                .store
+                .compare_and_swap(record.id(), record.revision(), replacement)
+            {
+                Ok(saved) => {
+                    // Make recovery authoritative before waking the old run.
+                    // If completion commits first, this CAS reloads it below
+                    // without canceling a successfully settled job.
+                    if let Some(control) = control.as_ref() {
+                        Self::signal_recovery_control(&record, control, now);
+                    }
+                    if matches!(saved.state(), JobState::Interrupted) {
+                        // Running and an unsafe pause may need a second,
+                        // policy-driven transition after interruption persists.
+                        record = saved;
+                    } else {
+                        return Ok((saved, true));
+                    }
+                }
+                Err(JobStoreError::Conflict) => {
+                    record = self
+                        .store
+                        .get(record.id())
+                        .map_err(SchedulerError::Store)?
+                        .ok_or(SchedulerError::NotFound)?;
+                }
+                Err(error) => return Err(SchedulerError::Store(error)),
+            }
+        }
+        Err(SchedulerError::Store(JobStoreError::Conflict))
+    }
+
+    fn recovery_target(
+        &self,
+        record: &JobRecord,
+        now: TimestampMillis,
+    ) -> Result<JobState, SchedulerError> {
+        match record.stop_reason() {
+            Some(StopReason::TimedOut) => return Ok(JobState::TimedOut),
+            Some(StopReason::Cancelled) => return Ok(JobState::Cancelled),
+            None => {}
+        }
+        if record_timed_out(record, now) {
+            return Ok(JobState::TimedOut);
+        }
+        match record.state() {
+            JobState::CancelRequested => Ok(JobState::Cancelled),
+            JobState::PauseRequested => self.pause_recovery_target(record),
+            JobState::Running | JobState::Interrupted => self.interrupted_recovery_target(record),
+            _ => Err(SchedulerError::InvalidTransition),
+        }
+    }
+
+    fn interrupted_recovery_target(&self, record: &JobRecord) -> Result<JobState, SchedulerError> {
+        let Some(provider) = self.providers.get(record.handler())? else {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::MissingHandler));
+        };
+        if !record.has_execution_capacity() {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::Permanent));
+        }
+        if self
+            .authorization
+            .authorize_handler(record.owner(), record.handler())
+            .is_err()
+        {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::PermissionDenied));
+        }
+        let target = match provider.recovery_policy(record) {
+            RecoveryPolicy::Idempotent => JobState::Queued,
+            RecoveryPolicy::VerifiedCheckpoint => {
+                if record
+                    .checkpoint_ref()
+                    .is_some_and(|reference| provider.verify_checkpoint(reference))
+                {
+                    JobState::Queued
+                } else {
+                    JobState::RecoveryRequired(JobFailureCode::InvalidCheckpoint)
+                }
+            }
+            RecoveryPolicy::NonIdempotent => JobState::RecoveryRequired(JobFailureCode::Permanent),
+        };
+        Ok(target)
+    }
+
+    fn pause_recovery_target(&self, record: &JobRecord) -> Result<JobState, SchedulerError> {
+        let Some(provider) = self.providers.get(record.handler())? else {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::MissingHandler));
+        };
+        if !record.has_execution_capacity() {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::Permanent));
+        }
+        if self
+            .authorization
+            .authorize_handler(record.owner(), record.handler())
+            .is_err()
+        {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::PermissionDenied));
+        }
+        if !provider.supports_pause() {
+            return Ok(JobState::RecoveryRequired(JobFailureCode::Permanent));
+        }
+        match provider.recovery_policy(record) {
+            RecoveryPolicy::Idempotent => Ok(JobState::Paused),
+            RecoveryPolicy::VerifiedCheckpoint => {
+                if record
+                    .checkpoint_ref()
+                    .is_some_and(|reference| provider.verify_checkpoint(reference))
+                {
+                    Ok(JobState::Paused)
+                } else {
+                    Ok(JobState::RecoveryRequired(
+                        JobFailureCode::InvalidCheckpoint,
+                    ))
+                }
+            }
+            RecoveryPolicy::NonIdempotent => {
+                Ok(JobState::RecoveryRequired(JobFailureCode::Permanent))
+            }
+        }
+    }
+
+    fn signal_active_stop(&self, record: &JobRecord) {
+        if let Ok(runtime) = self.runtime.lock() {
+            if let Some(control) = runtime.active.get(record.id()) {
+                match record.stop_reason() {
+                    Some(StopReason::TimedOut) => control.request_timeout(),
+                    Some(StopReason::Cancelled) | None => control.request_cancel(),
+                }
+            }
+        }
+    }
+
+    fn signal_active_pause(&self, id: &JobId) {
+        if let Ok(runtime) = self.runtime.lock() {
+            if let Some(control) = runtime.active.get(id) {
+                control.request_pause();
+            }
+        }
+    }
+
+    fn signal_recovery_control(record: &JobRecord, control: &RunControl, now: TimestampMillis) {
+        match record.stop_reason() {
+            Some(StopReason::TimedOut) => control.request_timeout(),
+            Some(StopReason::Cancelled) => control.request_cancel(),
+            None if record_timed_out(record, now) => control.request_timeout(),
+            None if matches!(record.state(), JobState::PauseRequested) => control.request_pause(),
+            None if matches!(
+                record.state(),
+                JobState::Running | JobState::CancelRequested | JobState::Interrupted
+            ) =>
+            {
+                control.request_cancel()
+            }
+            None => {}
+        }
+    }
+
+    fn emit_recovered(&self, record: &JobRecord) {
+        let (code, reason) = match record.state() {
+            JobState::Queued => (JobEventCode::RecoveryResumed, None),
+            JobState::Paused => (JobEventCode::Paused, None),
+            JobState::Cancelled => (
+                JobEventCode::CancellationCompleted,
+                Some(JobEventReason::Cancelled),
+            ),
+            JobState::TimedOut => (JobEventCode::TimedOut, Some(JobEventReason::Timeout)),
+            JobState::RecoveryRequired(_) => (
+                JobEventCode::RecoveryRequired,
+                Some(JobEventReason::UnsafeRecovery),
+            ),
+            _ => (JobEventCode::StateTransition, None),
+        };
+        self.emit_for_record(self.clock.now(), code, record, reason);
     }
 
     fn refresh_pending(&self) -> Result<(), SchedulerError> {
@@ -1205,50 +1453,54 @@ impl Scheduler {
         let progress_handler = record.handler().clone();
         let progress_correlation = correlation_id(&record);
         let progress = move |summary: ProgressSummary| {
-            let now = clock.now();
-            let mut current = store
-                .get(&progress_id)
-                .map_err(|_| ProgressError::StoreUnavailable)?
-                .ok_or(ProgressError::StoreUnavailable)?;
-            // Reject obsolete context updates before consuming the current
-            // attempt's progress budget or changing its metadata.
-            if current.attempt_count() != attempt || !current.state().occupies_slot() {
-                return Err(ProgressError::StoreUnavailable);
-            }
-            {
-                // A callback whose read overlaps recovery can still lose CAS.
-                // Reserve only its own run's budget, never its replacement's.
-                let mut last_progress = progress_control
-                    .last_progress
-                    .lock()
-                    .map_err(|_| ProgressError::StoreUnavailable)?;
-                if last_progress
-                    .is_some_and(|last| now.0 < last.0.saturating_add(progress_interval.0))
-                {
-                    return Err(ProgressError::RateLimited);
-                }
-                *last_progress = Some(now);
-            }
-            current.set_progress(summary.clone(), now);
-            let saved = store
-                .compare_and_swap(&progress_id, current.revision(), current)
+            // Serialize this attempt's callbacks so a concurrent report cannot
+            // carry a revision read before the previous report committed.
+            let mut last_progress = progress_control
+                .last_progress
+                .lock()
                 .map_err(|_| ProgressError::StoreUnavailable)?;
-            let event = JobDiagnosticEvent::new(
-                now,
-                JobEventCode::Progress,
-                JobDiagnosticDetails {
-                    job_id: Some(saved.id().clone()),
-                    handler: Some(progress_handler.clone()),
-                    attempt: Some(saved.attempt_count()),
-                    correlation: progress_correlation.clone(),
-                    progress: Some(summary),
-                    ..JobDiagnosticDetails::default()
-                },
-            );
-            let _ = diagnostics.record(event);
-            Ok(())
-        };
+            let now = clock.now();
+            if last_progress.is_some_and(|last| now.0 < last.0.saturating_add(progress_interval.0))
+            {
+                return Err(ProgressError::RateLimited);
+            }
 
+            for _ in 0..MAX_RECORD_CAS_RETRIES {
+                let mut current = store
+                    .get(&progress_id)
+                    .map_err(|_| ProgressError::StoreUnavailable)?
+                    .ok_or(ProgressError::StoreUnavailable)?;
+                // Recheck identity and state after every conflict before
+                // applying this callback to a newer snapshot.
+                if current.attempt_count() != attempt || !current.state().occupies_slot() {
+                    return Err(ProgressError::StoreUnavailable);
+                }
+                current.set_progress(summary.clone(), now);
+                match store.compare_and_swap(&progress_id, current.revision(), current) {
+                    Ok(saved) => {
+                        *last_progress = Some(now);
+                        drop(last_progress);
+                        let event = JobDiagnosticEvent::new(
+                            now,
+                            JobEventCode::Progress,
+                            JobDiagnosticDetails {
+                                job_id: Some(saved.id().clone()),
+                                handler: Some(progress_handler.clone()),
+                                attempt: Some(saved.attempt_count()),
+                                correlation: progress_correlation.clone(),
+                                progress: Some(summary),
+                                ..JobDiagnosticDetails::default()
+                            },
+                        );
+                        let _ = diagnostics.record(event);
+                        return Ok(());
+                    }
+                    Err(JobStoreError::Conflict) => continue,
+                    Err(_) => return Err(ProgressError::StoreUnavailable),
+                }
+            }
+            Err(ProgressError::StoreUnavailable)
+        };
         let checkpoint_id = id.clone();
         let checkpoint_store = self.store.clone();
         let checkpoint = move |reference: CheckpointRef| {
@@ -1281,127 +1533,152 @@ impl Scheduler {
         outcome: HandlerOutcome,
         control: &Arc<RunControl>,
     ) -> Result<CompletionResult, SchedulerError> {
-        let now = self.clock.now();
-        let mut record = self
-            .store
-            .get(claimed.id())
-            .map_err(SchedulerError::Store)?
-            .ok_or(SchedulerError::NotFound)?;
-        // A suspended provider may return after recovery has queued or started
-        // another attempt. Its outcome must not mutate that attempt (or emit a
-        // second completion for an already settled record).
-        if record.attempt_count() != claimed.attempt_count() || !record.state().occupies_slot() {
-            return Ok(CompletionResult {
-                record,
-                applied: false,
-            });
-        }
-        let elapsed_timeout = record
-            .started_at()
-            .zip(record.constraints().effective_runtime())
-            .is_some_and(|(start, runtime)| now.0 >= start.0.saturating_add(runtime.0));
-        let deadline_passed = record
-            .constraints()
-            .deadline()
-            .is_some_and(|deadline| now >= deadline);
-        let token_reason = CancellationToken::requested(control.clone()).reason();
-
-        let final_state = if elapsed_timeout
-            || deadline_passed
-            || token_reason == Some(CancellationReason::TimedOut)
-        {
-            JobState::TimedOut
-        } else if record.stop_reason() == Some(StopReason::Cancelled) {
-            match outcome {
-                HandlerOutcome::Succeeded => JobState::Succeeded,
-                _ => JobState::Cancelled,
+        let attempt = claimed.attempt_count();
+        for _ in 0..MAX_RECORD_CAS_RETRIES {
+            let now = self.clock.now();
+            let mut record = self
+                .store
+                .get(claimed.id())
+                .map_err(SchedulerError::Store)?
+                .ok_or(SchedulerError::NotFound)?;
+            // A suspended provider may return after recovery has queued or started
+            // another attempt. Its outcome must not mutate that attempt (or emit a
+            // second completion for an already settled record).
+            if record.attempt_count() != attempt || !record.state().occupies_slot() {
+                return Ok(CompletionResult {
+                    record,
+                    applied: false,
+                });
             }
-        } else {
-            match outcome {
-                HandlerOutcome::Succeeded => JobState::Succeeded,
-                HandlerOutcome::Cancelled => JobState::Cancelled,
-                HandlerOutcome::Paused(checkpoint) => {
-                    if !matches!(record.state(), JobState::PauseRequested) {
-                        JobState::Failed(JobFailureCode::Permanent)
-                    } else {
-                        if let Some(checkpoint) = checkpoint {
-                            record.set_checkpoint(checkpoint);
+            let elapsed_timeout = record
+                .started_at()
+                .zip(record.constraints().effective_runtime())
+                .is_some_and(|(start, runtime)| now.0 >= start.0.saturating_add(runtime.0));
+            let deadline_passed = record
+                .constraints()
+                .deadline()
+                .is_some_and(|deadline| now >= deadline);
+            let token_reason = CancellationToken::requested(control.clone()).reason();
+            let timeout_requested = record.stop_reason() == Some(StopReason::TimedOut);
+
+            let final_state = if elapsed_timeout
+                || deadline_passed
+                || timeout_requested
+                || token_reason == Some(CancellationReason::TimedOut)
+            {
+                JobState::TimedOut
+            } else if record.stop_reason() == Some(StopReason::Cancelled) {
+                match outcome {
+                    HandlerOutcome::Succeeded => JobState::Succeeded,
+                    _ => JobState::Cancelled,
+                }
+            } else {
+                match outcome.clone() {
+                    HandlerOutcome::Succeeded => JobState::Succeeded,
+                    HandlerOutcome::Cancelled => JobState::Cancelled,
+                    HandlerOutcome::Paused(checkpoint) => {
+                        if !matches!(record.state(), JobState::PauseRequested) {
+                            JobState::Failed(JobFailureCode::Permanent)
+                        } else {
+                            if let Some(checkpoint) = checkpoint {
+                                record.set_checkpoint(checkpoint);
+                            }
+                            JobState::Paused
                         }
-                        JobState::Paused
+                    }
+                    HandlerOutcome::Failed(code) => {
+                        let retryable = record.retry_policy().retryable().contains(&code)
+                            && record.attempt_count() < record.retry_policy().max_attempts()
+                            && !deadline_passed;
+                        if retryable && matches!(record.state(), JobState::PauseRequested) {
+                            // A cooperative pause takes precedence over a
+                            // transient retry. Reuse the startup pause contract
+                            // so checkpoint and recovery policy stay aligned.
+                            self.pause_recovery_target(&record)?
+                        } else if retryable {
+                            let delay = record.retry_policy().delay_after(record.attempt_count());
+                            let retry_at = now.saturating_add(delay);
+                            record
+                                .set_state(JobState::RetryWait, now)
+                                .map_err(|_| SchedulerError::InvalidTransition)?;
+                            record.set_retry_at(retry_at);
+                            match self.save_record(record) {
+                                Ok(saved) => {
+                                    self.emit_for_record(
+                                        now,
+                                        JobEventCode::RetryScheduled,
+                                        &saved,
+                                        Some(JobEventReason::RetryableFailure),
+                                    );
+                                    return Ok(CompletionResult {
+                                        record: saved,
+                                        applied: true,
+                                    });
+                                }
+                                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                                Err(error) => return Err(error),
+                            }
+                        } else if record.attempt_count() >= record.retry_policy().max_attempts()
+                            && record.retry_policy().exhausted_action()
+                                == RetryTerminalAction::RecoveryRequired
+                        {
+                            JobState::RecoveryRequired(code)
+                        } else {
+                            JobState::Failed(
+                                if record.attempt_count() >= record.retry_policy().max_attempts() {
+                                    JobFailureCode::Permanent
+                                } else {
+                                    code
+                                },
+                            )
+                        }
                     }
                 }
-                HandlerOutcome::Failed(code) => {
-                    let retryable = record.retry_policy().retryable().contains(&code)
-                        && record.attempt_count() < record.retry_policy().max_attempts()
-                        && !deadline_passed;
-                    if retryable {
-                        let delay = record.retry_policy().delay_after(record.attempt_count());
-                        let retry_at = now.saturating_add(delay);
-                        record
-                            .set_state(JobState::RetryWait, now)
-                            .map_err(|_| SchedulerError::InvalidTransition)?;
-                        record.set_retry_at(retry_at);
-                        let saved = self.save_record(record)?;
-                        self.emit_for_record(
-                            now,
-                            JobEventCode::RetryScheduled,
-                            &saved,
-                            Some(JobEventReason::RetryableFailure),
-                        );
+            };
+
+            if matches!(final_state, JobState::Paused) {
+                record
+                    .set_state(final_state, now)
+                    .map_err(|_| SchedulerError::InvalidTransition)?;
+                match self.save_record(record) {
+                    Ok(saved) => {
+                        self.emit_for_record(now, JobEventCode::Paused, &saved, None);
                         return Ok(CompletionResult {
                             record: saved,
                             applied: true,
                         });
                     }
-                    if record.attempt_count() >= record.retry_policy().max_attempts()
-                        && record.retry_policy().exhausted_action()
-                            == RetryTerminalAction::RecoveryRequired
-                    {
-                        JobState::RecoveryRequired(code)
-                    } else {
-                        JobState::Failed(
-                            if record.attempt_count() >= record.retry_policy().max_attempts() {
-                                JobFailureCode::Permanent
-                            } else {
-                                code
-                            },
-                        )
-                    }
+                    Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                    Err(error) => return Err(error),
                 }
             }
-        };
 
-        if matches!(final_state, JobState::Paused) {
             record
-                .set_state(final_state, now)
+                .set_state(final_state.clone(), now)
                 .map_err(|_| SchedulerError::InvalidTransition)?;
-            let saved = self.save_record(record)?;
-            self.emit_for_record(now, JobEventCode::Paused, &saved, None);
-            return Ok(CompletionResult {
-                record: saved,
-                applied: true,
-            });
+            if final_state.is_terminal() {
+                record.mark_finished(now);
+            }
+            match self.save_record(record) {
+                Ok(saved) => {
+                    let code = match saved.state() {
+                        JobState::Cancelled => JobEventCode::CancellationCompleted,
+                        JobState::TimedOut => JobEventCode::TimedOut,
+                        JobState::Failed(_) => JobEventCode::HandlerFailed,
+                        JobState::RecoveryRequired(_) => JobEventCode::RecoveryRequired,
+                        _ => JobEventCode::StateTransition,
+                    };
+                    self.emit_for_record(now, code, &saved, None);
+                    return Ok(CompletionResult {
+                        record: saved,
+                        applied: true,
+                    });
+                }
+                Err(SchedulerError::Store(JobStoreError::Conflict)) => continue,
+                Err(error) => return Err(error),
+            }
         }
-
-        record
-            .set_state(final_state.clone(), now)
-            .map_err(|_| SchedulerError::InvalidTransition)?;
-        if final_state.is_terminal() {
-            record.mark_finished(now);
-        }
-        let saved = self.save_record(record)?;
-        let code = match saved.state() {
-            JobState::Cancelled => JobEventCode::CancellationCompleted,
-            JobState::TimedOut => JobEventCode::TimedOut,
-            JobState::Failed(_) => JobEventCode::HandlerFailed,
-            JobState::RecoveryRequired(_) => JobEventCode::RecoveryRequired,
-            _ => JobEventCode::StateTransition,
-        };
-        self.emit_for_record(now, code, &saved, None);
-        Ok(CompletionResult {
-            record: saved,
-            applied: true,
-        })
+        Err(SchedulerError::Store(JobStoreError::Conflict))
     }
 
     fn fail_record(
@@ -1524,6 +1801,17 @@ enum DependencyResult {
     Pending,
     Failed,
     PendingAndFailed,
+}
+
+fn record_timed_out(record: &JobRecord, now: TimestampMillis) -> bool {
+    record
+        .started_at()
+        .zip(record.constraints().effective_runtime())
+        .is_some_and(|(start, runtime)| now.0 >= start.0.saturating_add(runtime.0))
+        || record
+            .constraints()
+            .deadline()
+            .is_some_and(|deadline| now >= deadline)
 }
 
 fn dependency_result(record: &JobRecord, records: &HashMap<JobId, JobRecord>) -> DependencyResult {
