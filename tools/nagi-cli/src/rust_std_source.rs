@@ -37,10 +37,10 @@ pub(crate) struct PreparedSource {
 }
 
 fn timing(phase: &str, start: Instant) {
-    eprintln!(
-        "TIMING rust-std-source phase={phase} elapsed_ms={:.3}",
+    let _ = crate::cli_output::write_stderr(format_args!(
+        "TIMING rust-std-source phase={phase} elapsed_ms={:.3}\n",
         start.elapsed().as_secs_f64() * 1000.0
-    );
+    ));
 }
 
 pub(crate) fn prepare(

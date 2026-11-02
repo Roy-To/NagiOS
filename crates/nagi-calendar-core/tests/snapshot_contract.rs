@@ -402,3 +402,69 @@ fn snapshots_are_owned_and_do_not_alias_the_source() {
     snapshot.calendars.clear();
     assert_eq!(source.snapshot(), before);
 }
+
+#[test]
+fn failed_restore_does_not_consume_injected_clock_or_ids() {
+    struct Clock(Rc<Cell<usize>>);
+    impl RealtimeSource for Clock {
+        fn realtime_ns(&self) -> nagi_calendar_core::Result<u64> {
+            self.0.set(self.0.get() + 1);
+            Ok(2_000_000)
+        }
+    }
+    struct Ids {
+        calendars: Rc<Cell<usize>>,
+        events: Rc<Cell<usize>>,
+    }
+    impl IdSource for Ids {
+        fn next_calendar_id(&mut self) -> nagi_calendar_core::Result<CalendarId> {
+            self.calendars.set(self.calendars.get() + 1);
+            CalendarId::new(format!("cal_{}", self.calendars.get()))
+        }
+        fn next_event_id(&mut self) -> nagi_calendar_core::Result<EventId> {
+            self.events.set(self.events.get() + 1);
+            EventId::new(format!("event_{}", self.events.get()))
+        }
+    }
+
+    let clocks = Rc::new(Cell::new(0));
+    let calendars = Rc::new(Cell::new(0));
+    let events = Rc::new(Cell::new(0));
+    let mut target = InMemoryStore::new(
+        Clock(clocks.clone()),
+        Ids {
+            calendars: calendars.clone(),
+            events: events.clone(),
+        },
+        20,
+    )
+    .unwrap();
+    let before = target.snapshot();
+    let mut invalid = populated().snapshot();
+    invalid.version = SNAPSHOT_VERSION + 1;
+    assert_eq!(
+        target.restore_snapshot(invalid),
+        Err(Error::UnsupportedSnapshotVersion)
+    );
+    assert_eq!(target.snapshot(), before);
+    assert_eq!(clocks.get(), 0);
+    assert_eq!(calendars.get(), 0);
+    assert_eq!(events.get(), 0);
+
+    let calendar = target
+        .create_calendar("after failed restore", None)
+        .unwrap();
+    assert_eq!(calendar.id.as_str(), "cal_1");
+    let created = target
+        .create(EventDraft::new(
+            calendar.id,
+            "after failed restore",
+            schedule(),
+        ))
+        .unwrap();
+    assert_eq!(created.id.as_str(), "event_1");
+    assert_eq!(created.created_at, Instant(2000));
+    assert_eq!(clocks.get(), 1);
+    assert_eq!(calendars.get(), 1);
+    assert_eq!(events.get(), 1);
+}

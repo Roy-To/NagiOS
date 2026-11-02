@@ -186,6 +186,7 @@ impl Recurrence {
         base: OccurrenceKey,
         keys: BTreeSet<OccurrenceKey>,
     ) -> Result<()> {
+        self.validate(base)?;
         if keys.is_empty() {
             return Ok(());
         }

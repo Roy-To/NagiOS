@@ -95,8 +95,7 @@ impl Geometry {
         {
             return Err(FatError::Geometry);
         }
-        let mut fat_sectors = 1u32;
-        for _ in 0..16 {
+        let clusters_for = |fat_sectors: u32| -> Result<u32, FatError> {
             let overhead = RESERVED_SECTORS
                 .checked_add(
                     FAT_COUNT
@@ -107,19 +106,40 @@ impl Geometry {
             if overhead >= total_sectors {
                 return Err(FatError::Geometry);
             }
-            let clusters = (total_sectors - overhead) / sectors_per_cluster;
+            Ok((total_sectors - overhead) / sectors_per_cluster)
+        };
+        let accept = |fat_sectors: u32, clusters: u32| {
+            if !(MIN_FAT32_CLUSTERS..=MAX_FAT32_CLUSTERS).contains(&clusters) {
+                return Err(FatError::Geometry);
+            }
+            Ok(Self {
+                total_sectors,
+                sectors_per_cluster,
+                fat_sectors,
+                cluster_count: clusters,
+            })
+        };
+        let mut fat_sectors = 1u32;
+        let mut previous = 0u32;
+        for _ in 0..16 {
+            let clusters = clusters_for(fat_sectors)?;
             let required = (clusters + 2).div_ceil(ENTRIES_PER_FAT_SECTOR);
             if required == fat_sectors {
-                if !(MIN_FAT32_CLUSTERS..=MAX_FAT32_CLUSTERS).contains(&clusters) {
+                return accept(fat_sectors, clusters);
+            }
+            if required == previous {
+                // A 2-cycle: no FAT size is exactly what its own cluster
+                // count needs (adding one FAT sector drops the requirement
+                // below it). The larger size covers its clusters with
+                // slack; the smaller one would be too small.
+                let fat_sectors = fat_sectors.max(required);
+                let clusters = clusters_for(fat_sectors)?;
+                if (clusters + 2).div_ceil(ENTRIES_PER_FAT_SECTOR) > fat_sectors {
                     return Err(FatError::Geometry);
                 }
-                return Ok(Self {
-                    total_sectors,
-                    sectors_per_cluster,
-                    fat_sectors,
-                    cluster_count: clusters,
-                });
+                return accept(fat_sectors, clusters);
             }
+            previous = fat_sectors;
             fat_sectors = required;
         }
         Err(FatError::Geometry)
@@ -640,6 +660,130 @@ mod tests {
         let mut output = vec![0; new.len()];
         reader.read_all(&mut output).unwrap();
         assert_eq!(output, new);
+    }
+
+    #[test]
+    fn two_cycle_geometries_use_the_larger_fat() {
+        // 512 FAT sectors leave 65,535 clusters, which need 513; 513 leave
+        // 65,534, which need 512. The larger FAT is the valid choice.
+        let geometry = Geometry::compute(4_195_296, 64).expect("geometry");
+        assert_eq!(
+            (geometry.fat_sectors, geometry.cluster_count),
+            (513, 65_534)
+        );
+        // Cycles whose cluster count is below the FAT32 minimum stay refused.
+        assert_eq!(Geometry::compute(65_681, 1), Err(FatError::Geometry));
+        assert_eq!(Geometry::compute(524_310, 8), Err(FatError::Geometry));
+        // The reference slot is unchanged.
+        let slot = Geometry::compute(SLOT_SECTORS, 64).expect("slot");
+        assert_eq!((slot.fat_sectors, slot.cluster_count), (1024, 131_039));
+
+        let contents = pattern(3_000, 7);
+        let name = short_name(b"SLOT.MAN").unwrap();
+        let mut disk = MemoryDisk::new(4_195_296);
+        format(
+            &mut disk,
+            4_195_296,
+            64,
+            LABEL,
+            &[RootFile {
+                name,
+                contents: &contents,
+            }],
+        )
+        .expect("format");
+        let mut reader = RootFileReader::open(&mut disk, 4_195_296, &name).expect("open");
+        let mut output = vec![0; contents.len()];
+        assert_eq!(reader.read_all(&mut output), Ok(contents.len()));
+        assert_eq!(output, contents);
+    }
+
+    #[test]
+    fn geometry_around_the_fat32_cluster_minimum() {
+        // (total sectors, sectors per cluster, expected (fat, clusters)).
+        // Each block: one below the 65,525-cluster minimum, the minimum,
+        // the last 512-sector fixed point, the 2-cycle sizes that now take
+        // 513 sectors, and the first 513-sector fixed point.
+        type Case = (u32, u32, Option<(u32, u32)>);
+        let cases: &[Case] = &[
+            (4_194_655, 64, None),
+            (4_194_656, 64, Some((512, 65_525))),
+            (4_195_295, 64, Some((512, 65_534))),
+            (4_195_296, 64, Some((513, 65_534))),
+            (4_195_297, 64, Some((513, 65_534))),
+            (4_195_298, 64, Some((513, 65_535))),
+            (525_255, 8, None),
+            (525_256, 8, Some((512, 65_525))),
+            (525_335, 8, Some((512, 65_534))),
+            (525_336, 8, Some((513, 65_534))),
+            (525_337, 8, Some((513, 65_534))),
+            (525_338, 8, Some((513, 65_535))),
+            (66_580, 1, None),
+            (66_581, 1, Some((512, 65_525))),
+            (66_590, 1, Some((512, 65_534))),
+            (66_591, 1, Some((513, 65_533))),
+            (66_592, 1, Some((513, 65_534))),
+            (66_593, 1, Some((513, 65_535))),
+        ];
+        for &(total, spc, expected) in cases {
+            let actual = Geometry::compute(total, spc)
+                .ok()
+                .map(|geometry| (geometry.fat_sectors, geometry.cluster_count));
+            assert_eq!(actual, expected, "{total} sectors, {spc} per cluster");
+            if let Some((fat, clusters)) = actual {
+                assert!(fat * ENTRIES_PER_FAT_SECTOR >= clusters + 2);
+                assert!(RESERVED_SECTORS + FAT_COUNT * fat + clusters * spc <= total);
+            }
+        }
+    }
+
+    #[test]
+    fn the_guest_model_store_reader_accepts_a_two_cycle_geometry() {
+        use nagi_model_manager::{
+            model_store_short_name, ArtifactId, ArtifactReadError, Fat32ArtifactReader,
+            ModelArtifactReader, ModelStoreSectorReader, FAT32_SECTOR_SIZE,
+        };
+
+        struct Reader<'a>(&'a mut MemoryDisk);
+        impl ModelStoreSectorReader for Reader<'_> {
+            fn read_sector(
+                &mut self,
+                sector: u64,
+                destination: &mut [u8; FAT32_SECTOR_SIZE],
+            ) -> Result<(), ArtifactReadError> {
+                self.0
+                    .read_sector(sector, destination)
+                    .map_err(|_| ArtifactReadError::Unavailable)
+            }
+        }
+
+        const SECTORS: u32 = 4_195_296;
+        let artifact = ArtifactId::new("org.nagi.test.fat32").expect("artifact id");
+        let contents = pattern(70_000, 11);
+        let mut disk = MemoryDisk::new(u64::from(SECTORS));
+        format(
+            &mut disk,
+            SECTORS,
+            64,
+            LABEL,
+            &[RootFile {
+                name: model_store_short_name(&artifact),
+                contents: &contents,
+            }],
+        )
+        .expect("format");
+        let mut reader = Fat32ArtifactReader::open(Reader(&mut disk), u64::from(SECTORS), artifact)
+            .expect("independent reader opens the volume");
+        let mut output = vec![0; contents.len()];
+        let mut offset = 0;
+        while offset < output.len() {
+            let read = reader
+                .read_at(offset as u64, &mut output[offset..])
+                .expect("read");
+            assert!(read > 0);
+            offset += read;
+        }
+        assert_eq!(output, contents);
     }
 
     #[test]
