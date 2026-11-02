@@ -149,6 +149,11 @@ pub struct DiagnosticEvent {
     pub recovery_hint: Option<String>,
 }
 
+/// A structured event view whose supported text fields have been redacted.
+/// This is not a sanitizer for arbitrary raw logs, HAR, URL userinfo, pair
+/// arrays, bare bearer tokens, command-line flags, or bracketed key paths.
+/// Reprocessing ambiguous free text may redact more content; this is not a
+/// byte-canonicalizer for arbitrary strings.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SafeDiagnosticEvent {
@@ -344,16 +349,20 @@ impl DiagnosticEvent {
     }
 
     /// Serializes this structured event after applying privacy classes and the
-    /// diagnostic text scrubber. This is not a sanitizer for arbitrary raw
-    /// logs; callers must structure and classify unsupported formats first.
+    /// diagnostic text scrubber. The scrubber recognizes JSON object members
+    /// (including JSON `\\uXXXX` key escapes), HTTP-style headers, and key/value
+    /// fields. It does not certify arbitrary raw logs, HAR, URL userinfo, pair
+    /// arrays, bare bearer tokens, command-line flags, or bracketed key paths.
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         serde_json::to_string_pretty(&self.safe_view())
             .map_err(|error| DiagnosticError(format!("serialize diagnostic event: {error}")))
     }
 
     /// Produces a redacted view for a structured event. Text matching covers
-    /// JSON members, HTTP-style headers, and key/value fields; it does not
-    /// certify raw HAR, URL userinfo, pair arrays, or bare bearer tokens.
+    /// JSON object members (including JSON `\\uXXXX` key escapes), HTTP-style
+    /// headers, and key/value fields; it does not certify arbitrary raw logs,
+    /// HAR, URL userinfo, pair arrays, bare bearer tokens, command-line flags,
+    /// or bracketed key paths.
     pub fn safe_view(&self) -> SafeDiagnosticEvent {
         self.safe_record()
     }
@@ -616,7 +625,7 @@ pub(crate) fn escape_terminal_controls(value: &str) -> String {
     value
         .chars()
         .map(|character| {
-            if character.is_control() {
+            if character.is_control() || matches!(character, '\u{2028}' | '\u{2029}') {
                 character.escape_default().to_string()
             } else {
                 character.to_string()
@@ -653,12 +662,14 @@ struct JsonSecretMember {
 const MAX_JSON_DEPTH: usize = 32;
 
 fn redact_inline_secrets(value: &str) -> String {
-    // This text scrubber recognizes JSON members, HTTP-style header lines, and
-    // key/value fields. It is not a HAR decoder or a parser for URL userinfo,
-    // pair arrays, or bare bearer tokens; callers must not label those raw
-    // formats safe without first converting them to structured fields.
-    // Refuse oversized input before parsing. Besides bounding work, this avoids
-    // truncating in the middle of a credential marker or quoted value.
+    // This text scrubber recognizes JSON members (including JSON Unicode
+    // escapes in keys), HTTP-style header lines, and key/value fields. It does
+    // not parse arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer
+    // tokens, command-line flags, or bracketed key paths. Callers must not
+    // label those formats safe without first converting them to structured
+    // fields.
+    // Replace oversized input before parsing. This bounds work and prevents a
+    // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
         return format!("{REDACTED}{TRUNCATED}");
     }
@@ -676,10 +687,12 @@ fn redact_inline_secrets(value: &str) -> String {
 
         if let Some(marker) = field_marker_at(value, cursor) {
             output.push_str(&value[cursor..marker.separator_end]);
-            if marker.kind == FieldValueKind::Header {
-                // Authorization and other secret headers are opaque through
-                // the line ending. This includes Digest, AWS, Negotiate, and
-                // schemes unknown to this CLI.
+            if marker.kind == FieldValueKind::Header
+                || value_starts_with_credential_scheme(value, marker.value_start)
+            {
+                // Authorization, auth/token/cookie fields, and other secret
+                // headers are opaque through the line ending. This includes
+                // Digest, AWS, Negotiate, and schemes unknown to this CLI.
                 output.push_str(REDACTED);
                 cursor = header_value_end(value, marker.value_start);
                 append_escaped_control_boundary_space(
@@ -709,6 +722,17 @@ fn redact_inline_secrets(value: &str) -> String {
             if let Some((opening_end, closing_start, after_closing)) =
                 inline_quoted_value(value, marker.value_start)
             {
+                if !quoted_value_suffix_is_delimited(value, after_closing) {
+                    output.push_str(REDACTED);
+                    cursor = header_value_end(value, marker.value_start);
+                    append_escaped_control_boundary_space(
+                        value,
+                        marker.value_start,
+                        cursor,
+                        &mut output,
+                    );
+                    continue;
+                }
                 output.push_str(&value[marker.value_start..opening_end]);
                 output.push_str(REDACTED);
                 output.push_str(&value[closing_start..after_closing]);
@@ -738,8 +762,8 @@ fn redact_inline_secrets(value: &str) -> String {
         output.push(character);
         cursor += character.len_utf8();
     }
-    let single_line = escape_terminal_controls(&output);
-    bounded_text(&single_line, MAX_MESSAGE_BYTES)
+    let escaped_controls = escape_terminal_controls(&output);
+    bounded_text(&escaped_controls, MAX_MESSAGE_BYTES)
 }
 
 fn skip_json_whitespace(value: &str, mut offset: usize) -> usize {
@@ -1093,8 +1117,10 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
     };
     let normalized = normalized_secret_key(&key);
     let kind = if (!quoted_key && separator_byte == b':')
-        || normalized.contains("authorization")
-        || normalized == "cookie"
+        || normalized.contains("auth")
+        || normalized.contains("token")
+        || normalized.contains("cookie")
+        || normalized.contains("session")
     {
         FieldValueKind::Header
     } else {
@@ -1121,10 +1147,35 @@ fn inline_value_is_empty(value: &str, marker: FieldMarker) -> bool {
     {
         return true;
     }
-    if matches!(value.as_bytes()[start], b',' | b';') {
-        return true;
-    }
     field_marker_at(value, start).is_some()
+}
+
+fn value_starts_with_credential_scheme(value: &str, start: usize) -> bool {
+    let bytes = value.as_bytes();
+    let mut scheme_end = start;
+    while bytes
+        .get(scheme_end)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+    {
+        scheme_end += 1;
+    }
+    if scheme_end == start || !matches!(bytes.get(scheme_end), Some(b' ' | b'\t')) {
+        return false;
+    }
+    let scheme = &value[start..scheme_end];
+    [
+        "basic",
+        "bearer",
+        "digest",
+        "negotiate",
+        "ntlm",
+        "aws4-hmac-sha256",
+        "scram-sha-1",
+        "scram-sha-256",
+        "oauth",
+    ]
+    .iter()
+    .any(|known| scheme.eq_ignore_ascii_case(known))
 }
 
 fn inline_quoted_value(value: &str, start: usize) -> Option<(usize, usize, usize)> {
@@ -1148,6 +1199,16 @@ fn inline_quoted_value(value: &str, start: usize) -> Option<(usize, usize, usize
     let (style, content_start) = opening_quote_at(value, start)?;
     let (closing_start, after) = delimited_string_end(value, content_start, style)?;
     Some((content_start, closing_start, after))
+}
+
+fn quoted_value_suffix_is_delimited(value: &str, after_closing: usize) -> bool {
+    if after_closing >= value.len() || line_ending_len(value, after_closing).is_some() {
+        return true;
+    }
+    value[after_closing..]
+        .chars()
+        .next()
+        .is_some_and(char::is_whitespace)
 }
 
 fn starts_with_quote(value: &str, start: usize) -> bool {
@@ -1247,10 +1308,10 @@ fn append_escaped_control_boundary_space(
         .strip_suffix(' ')
         .is_some_and(|prior| prior == REDACTED);
     if already_sanitized_boundary
-        || value[cursor..]
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_control() && character.is_whitespace())
+        || value[cursor..].chars().next().is_some_and(|character| {
+            (character.is_control() && character.is_whitespace())
+                || matches!(character, '\u{2028}' | '\u{2029}')
+        })
     {
         // escape_terminal_controls turns raw control whitespace into printable
         // sequences. This space keeps the next field boundary stable on a
@@ -1450,6 +1511,9 @@ impl OverallStatus {
     }
 }
 
+/// Verification text fields use the limited JSON/header/key-value scrubber;
+/// this type does not certify arbitrary raw logs or unsupported formats.
+/// Reprocessing ambiguous free text may redact more content.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerificationCheckResult {
@@ -1836,6 +1900,9 @@ pub trait CrashSink {
     fn persist(&mut self, record: &CrashRecord) -> Result<(), String>;
 }
 
+/// Crash recovery hints use the limited diagnostic text scrubber. Arbitrary
+/// raw logs and unsupported formats are not certified as secret-free.
+/// Reprocessing ambiguous free text may redact more content.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CrashRecord {
@@ -2163,7 +2230,7 @@ mod tests {
             Severity::Warn,
             "network",
             "NETWORK.AUTH_FAILED",
-            "request failed token=top-secret authorization: Bearer bearer-secret",
+            "request failed token=top-secret\nAuthorization: Bearer bearer-secret",
         )
         .unwrap()
         .with_field("request_id", "r-7", PrivacyClass::Public)
@@ -2300,13 +2367,13 @@ mod tests {
 
         let inline_semicolon = redact_inline_secrets("token=inline-secret; next=visible");
         assert!(!inline_semicolon.contains("inline-secret"));
-        assert!(inline_semicolon.contains("; next=visible"));
+        assert!(!inline_semicolon.contains("next=visible"));
 
         let semicolon_secret =
             redact_inline_secrets("token=first-secret; sessionId=second-secret; next=visible");
         assert!(!semicolon_secret.contains("first-secret"));
         assert!(!semicolon_secret.contains("second-secret"));
-        assert!(semicolon_secret.contains("; next=visible"));
+        assert!(!semicolon_secret.contains("next=visible"));
 
         let cookie_field = redact_inline_secrets("cookie=sid=first-secret; theme=second-secret");
         assert!(!cookie_field.contains("first-secret"));
@@ -2364,7 +2431,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_markers_fail_closed_without_consuming_following_fields() {
+    fn inline_markers_fail_closed_and_auth_fields_consume_the_line() {
         for (input, secrets) in [
             (
                 "password= Authorization: Basic empty-auth-synthetic",
@@ -2399,9 +2466,70 @@ mod tests {
             assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
         }
         assert!(
-            redact_inline_secrets("token='single quote synthetic' next=visible")
+            !redact_inline_secrets("token='single quote synthetic' next=visible")
                 .contains("next=visible")
         );
+    }
+
+    #[test]
+    fn authentication_and_cookie_values_are_opaque_through_the_line() {
+        for (input, secrets) in [
+            (
+                "auth=Bearer bearer-scheme-synthetic",
+                &["bearer-scheme-synthetic"][..],
+            ),
+            (
+                "token=Basic basic-scheme-synthetic",
+                &["basic-scheme-synthetic"][..],
+            ),
+            (
+                "password=Bearer password-scheme-synthetic",
+                &["password-scheme-synthetic"][..],
+            ),
+            (
+                "cookie=sid=cookie-synthetic; csrf=csrf-synthetic",
+                &["cookie-synthetic", "csrf-synthetic"][..],
+            ),
+            (
+                "'Authorization'=Bearer quoted-auth-synthetic",
+                &["quoted-auth-synthetic"][..],
+            ),
+        ] {
+            let safe = redact_inline_secrets(input);
+            for secret in secrets {
+                assert!(!safe.contains(secret), "{secret:?} leaked in {safe:?}");
+            }
+            assert!(safe.contains(REDACTED), "{input:?} -> {safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+    }
+
+    #[test]
+    fn quoted_secret_suffixes_fail_closed_after_the_closing_quote() {
+        for (input, secret) in [
+            (r#"password="ab"P"#, "P"),
+            (r#"password="ab""P"#, "P"),
+            ("password='ab''P'", "P"),
+            (r#"password="P"'more'"#, "more"),
+        ] {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains(secret), "{input:?} -> {safe:?}");
+            assert!(safe.contains(REDACTED), "{input:?} -> {safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+    }
+
+    #[test]
+    fn leading_comma_and_semicolon_values_are_not_treated_as_empty() {
+        for (input, secret) in [
+            ("password=;semicolon-synthetic", "semicolon-synthetic"),
+            ("password=,comma-synthetic", "comma-synthetic"),
+        ] {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains(secret), "{input:?} -> {safe:?}");
+            assert!(safe.contains(REDACTED), "{input:?} -> {safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
     }
 
     #[test]
@@ -2617,6 +2745,8 @@ mod tests {
             assert!(safe.contains("Cookie:[REDACTED]"), "{safe:?}");
             assert!(safe.contains("X-Api-Token:[REDACTED]"), "{safe:?}");
             assert!(safe.contains("X-Trace: safe"), "{safe:?}");
+            assert!(!safe.contains('\u{2028}'), "{safe:?}");
+            assert!(!safe.contains('\u{2029}'), "{safe:?}");
             assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
         }
 
@@ -2656,6 +2786,12 @@ mod tests {
         assert!(!safe.contains('\u{1b}'));
         assert!(safe.contains("\\u{1b}[2J"));
         assert_eq!(redact_inline_secrets(&safe), safe);
+
+        let unicode_separators = redact_inline_secrets("visible\u{2028}next\u{2029}field");
+        assert!(!unicode_separators.contains('\u{2028}'));
+        assert!(!unicode_separators.contains('\u{2029}'));
+        assert!(unicode_separators.contains("\\u{2028}"));
+        assert!(unicode_separators.contains("\\u{2029}"));
 
         let below = redact_inline_secrets(&"x".repeat(MAX_MESSAGE_BYTES - 1));
         let exact = redact_inline_secrets(&"x".repeat(MAX_MESSAGE_BYTES));
