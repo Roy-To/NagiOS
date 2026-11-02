@@ -137,11 +137,13 @@ pub struct ErrorCause {
 /// The bounded text scrubber recognizes JSON object members, header-classified
 /// secret fields, and parsed key/value fields. Header-classified secret fields
 /// are hidden through their line boundary, which can also hide safe-looking
-/// fields later on that line. PEM blocks with a `PRIVATE KEY` label in an
-/// already recognized secret-key value are hidden through the matching `END`
-/// marker. An incomplete block is hidden to the next header-shaped line at the
-/// same or lesser indentation, or to the bounded input end. Secret-looking
-/// names not recognized by the key classifier, including `tls_key` and
+/// fields later on that line. PEM blocks labeled `PRIVATE KEY` or
+/// `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value are hidden
+/// through the matching `END` marker, including directly concatenated suffixes
+/// on that line. A malformed or incomplete block hides the rest of the bounded
+/// input, so following safe-looking fields can also be hidden. Prefixes such
+/// as YAML anchors/tags and OpenSSL bag attributes are hidden with the PEM.
+/// Secret-looking names not recognized by the key classifier, including `tls_key` and
 /// `private.key`, are not covered. Scheme names in
 /// arbitrary inline text are not a universal credential detector.
 /// Arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
@@ -164,10 +166,12 @@ pub struct DiagnosticEvent {
 /// A structured event view whose supported text fields have been redacted.
 /// Header-classified secret fields, including authorization and auth/token/
 /// cookie/session fields, are redacted through their line boundary. PEM blocks
-/// with a `PRIVATE KEY` label in an already recognized secret-key value are
-/// redacted through the matching `END` marker. An incomplete block stops before
-/// the next header-shaped line at the same or lesser indentation, or at the
-/// bounded input end. `tls_key` and `private.key` are not recognized aliases.
+/// labeled `PRIVATE KEY` or `PGP PRIVATE KEY BLOCK` in an already recognized
+/// secret-key value are redacted through the matching `END` marker, including
+/// directly concatenated suffixes on that line. A malformed or incomplete
+/// block consumes the rest of the bounded input; safe-looking following fields
+/// may be hidden. Prefixes such as YAML anchors/tags and OpenSSL bag attributes
+/// are hidden with the PEM. `tls_key` and `private.key` are not recognized aliases.
 /// Other key/value text is handled only by its
 /// recognized key, scheme, and delimiter rules; this is not a universal secret
 /// scanner. Line-scoped redaction can hide safe-looking fields later on that
@@ -372,11 +376,12 @@ impl DiagnosticEvent {
     /// Serializes this structured event after applying privacy classes and the
     /// bounded diagnostic text scrubber. It redacts header-classified secret
     /// fields through their line boundary (so later safe-looking fields on that
-    /// line may also be hidden) and PEM blocks with a `PRIVATE KEY` label in an
-    /// already recognized secret-key value through the matching `END` marker.
-    /// Incomplete blocks stop before the next header-shaped line at the same or
-    /// lesser indentation, or at the bounded input end. `tls_key` and
-    /// `private.key` are not recognized aliases. Other
+    /// line may also be hidden) and PEM blocks labeled `PRIVATE KEY` or
+    /// `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value through
+    /// the matching `END` marker. A malformed or incomplete block consumes the
+    /// rest of the bounded input, including safe-looking following fields.
+    /// Prefixes such as YAML anchors/tags and OpenSSL bag attributes are hidden
+    /// with the PEM. `tls_key` and `private.key` are not recognized aliases. Other
     /// key/value text follows recognized scheme and delimiter rules. Arbitrary
     /// raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
     /// command-line flags, and bracketed key paths are not certified safe.
@@ -388,8 +393,10 @@ impl DiagnosticEvent {
     /// Produces a redacted view for a structured event using the same bounded
     /// text rules as `to_json`: header-classified secret fields are redacted to
     /// their line boundary, recognized secret-key PEM blocks to their matching
-    /// `END` marker, and incomplete blocks to a safe header boundary or bounded
-    /// input end. `tls_key` and `private.key` are not recognized aliases. Other key/value fields
+    /// `END` marker, and malformed or incomplete blocks through the bounded
+    /// input end. Safe-looking following fields may be hidden; prefixes such as
+    /// YAML anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
+    /// `tls_key` and `private.key` are not recognized aliases. Other key/value fields
     /// according to recognized schemes and delimiters. Line-scoped redaction
     /// may hide later safe-looking fields on the same line. This does not certify
     /// arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
@@ -716,8 +723,8 @@ fn redact_inline_secrets(value: &str) -> String {
     // Inline key/value text uses only recognized schemes and delimiters; an
     // arbitrary scheme in free text is not generally parsed. PEM blocks in an
     // already recognized secret-key value consume through their matching END
-    // marker. An incomplete block stops before the next safe header at the
-    // same or lesser indentation, or at the end of this bounded input.
+    // marker. An incomplete or malformed block consumes the rest of this
+    // bounded input to prevent PEM body text from escaping as another header.
     // Replace oversized input before parsing. This bounds work and prevents a
     // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
@@ -1207,73 +1214,30 @@ fn secret_value_pem_block(
     start: usize,
     separator_end: usize,
 ) -> Option<PemSecretBlock> {
-    let (quote, mut probe) = match value.as_bytes().get(start) {
-        Some(b'"') => (Some('"'), start + 1),
-        Some(b'\'') => (Some('\''), start + 1),
-        _ => (None, start),
+    let (quote, search_start, prefix_end) = match value.as_bytes().get(start) {
+        Some(b'"') => (Some('"'), start + 1, start + 1),
+        Some(b'\'') => (Some('\''), start + 1, start + 1),
+        _ => (None, start, separator_end),
     };
-    let quoted_prefix_end = if quote.is_some() { start + 1 } else { start };
-    probe = skip_horizontal_whitespace(value, probe);
-
-    let mut multiline_prefix = false;
-    let mut begin_start = probe;
-    if matches!(value.as_bytes().get(probe), Some(b'|' | b'>')) {
-        if let Some(after_indicator_line) = yaml_block_scalar_line_end(value, probe) {
-            multiline_prefix = true;
-            begin_start = first_nonblank_line_start(value, after_indicator_line)?;
-        }
-    } else if line_ending_len(value, probe).is_some() {
-        multiline_prefix = true;
-        begin_start = first_nonblank_line_start(value, probe)?;
-    }
-    let prefix_end = if multiline_prefix {
-        if quote.is_some() {
-            quoted_prefix_end
-        } else {
-            separator_end
-        }
-    } else if quote.is_some() {
-        quoted_prefix_end
-    } else {
-        begin_start
-    };
-
-    if !ascii_starts_with_ignore_case(value, begin_start, "-----BEGIN") {
-        return None;
-    }
+    // Search the already-classified secret value, including bounded prefixes
+    // such as YAML anchors/tags and OpenSSL bag attributes. Once a BEGIN is
+    // found, all prefix text is scrubbed with the PEM value.
+    let begin_start = find_ascii_case_insensitive(value, search_start, "-----BEGIN")?;
 
     let begin_line_end = line_content_end(value, begin_start);
     let begin_line = value.get(begin_start..begin_line_end)?;
     let begin_prefix_len = "-----BEGIN".len();
     let label_start = begin_start + begin_prefix_len;
     let Some(label_space) = value.as_bytes().get(label_start) else {
-        return Some(incomplete_pem_secret_block(
-            value,
-            prefix_end,
-            begin_start,
-            begin_line_end,
-            quote,
-        ));
+        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
     };
     if !matches!(label_space, b' ' | b'\t') {
-        return Some(incomplete_pem_secret_block(
-            value,
-            prefix_end,
-            begin_start,
-            begin_line_end,
-            quote,
-        ));
+        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
     }
     let label_start = skip_horizontal_whitespace(value, label_start);
     let Some(label_end_relative) = begin_line.get(label_start - begin_start..)?.find("-----")
     else {
-        return Some(incomplete_pem_secret_block(
-            value,
-            prefix_end,
-            begin_start,
-            begin_line_end,
-            quote,
-        ));
+        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
     };
     let label_end = label_start + label_end_relative;
     let label = value.get(label_start..label_end)?;
@@ -1284,136 +1248,36 @@ fn secret_value_pem_block(
         || !label
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
-        || !label.to_ascii_uppercase().ends_with("PRIVATE KEY")
+        || !is_private_key_pem_label(label)
     {
-        return Some(incomplete_pem_secret_block(
-            value,
-            prefix_end,
-            begin_start,
-            begin_line_end,
-            quote,
-        ));
+        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
     }
 
+    let begin_marker_end = label_end + "-----".len();
     let end_marker = format!("-----END {label}-----");
-    let mut previous_line_break = begin_line_end;
-    let mut line_start = line_ending_after(value, begin_line_end)?;
-    let begin_indent = indentation_before(value, begin_start);
-    while line_start < value.len() {
-        let line_end = line_content_end(value, line_start);
-        let content_start = skip_horizontal_whitespace(value, line_start);
-        if ascii_starts_with_ignore_case(value, content_start, &end_marker) {
-            let end_marker_end = content_start + end_marker.len();
-            let (end, closing_quote) = pem_end_suffix(value, end_marker_end, line_end, quote);
-            return Some(PemSecretBlock {
-                prefix_end,
-                end,
-                closing_quote,
-            });
-        }
-
-        if line_indentation(value, line_start) <= begin_indent
-            && looks_like_header_line(&value[line_start..line_end])
-        {
-            return Some(PemSecretBlock {
-                prefix_end,
-                end: previous_line_break,
-                closing_quote: None,
-            });
-        }
-
-        if line_end == value.len() {
-            break;
-        }
-        previous_line_break = line_end;
-        line_start = line_ending_after(value, line_end)?;
-    }
-
+    let Some(end_start) = find_ascii_case_insensitive(value, begin_marker_end, &end_marker) else {
+        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
+    };
+    let end_marker_end = end_start + end_marker.len();
+    let line_end = line_content_end(value, end_marker_end);
+    let (end, closing_quote) = pem_end_suffix(value, end_marker_end, line_end, quote);
     Some(PemSecretBlock {
         prefix_end,
-        end: value.len(),
-        closing_quote: None,
+        end,
+        closing_quote,
     })
 }
 
 fn incomplete_pem_secret_block(
     value: &str,
     prefix_end: usize,
-    begin_start: usize,
-    begin_line_end: usize,
     quote: Option<char>,
 ) -> PemSecretBlock {
-    let begin_indent = indentation_before(value, begin_start);
-    let mut previous_line_break = begin_line_end;
-    let mut line_start = line_ending_after(value, begin_line_end).unwrap_or(value.len());
-    while line_start < value.len() {
-        let line_end = line_content_end(value, line_start);
-        if line_indentation(value, line_start) <= begin_indent
-            && looks_like_header_line(&value[line_start..line_end])
-        {
-            return PemSecretBlock {
-                prefix_end,
-                end: previous_line_break,
-                closing_quote: quote,
-            };
-        }
-        if line_end == value.len() {
-            break;
-        }
-        previous_line_break = line_end;
-        line_start = line_ending_after(value, line_end).unwrap_or(value.len());
-    }
-
     PemSecretBlock {
         prefix_end,
         end: value.len(),
         closing_quote: quote,
     }
-}
-
-fn yaml_block_scalar_line_end(value: &str, start: usize) -> Option<usize> {
-    let bytes = value.as_bytes();
-    let mut cursor = start + 1;
-    let mut seen_chomp = false;
-    let mut seen_indent = false;
-    while let Some(byte) = bytes.get(cursor).copied() {
-        match byte {
-            b'+' | b'-' if !seen_chomp => {
-                seen_chomp = true;
-                cursor += 1;
-            }
-            b'1'..=b'9' if !seen_indent => {
-                seen_indent = true;
-                cursor += 1;
-            }
-            b' ' | b'\t' => {
-                cursor = skip_horizontal_whitespace(value, cursor);
-                if bytes.get(cursor) == Some(&b'#') {
-                    while cursor < value.len() && line_ending_len(value, cursor).is_none() {
-                        cursor += value[cursor..].chars().next()?.len_utf8();
-                    }
-                }
-                return line_ending_len(value, cursor).map(|length| cursor + length);
-            }
-            _ => return line_ending_len(value, cursor).map(|length| cursor + length),
-        }
-    }
-    None
-}
-
-fn first_nonblank_line_start(value: &str, mut line_start: usize) -> Option<usize> {
-    while line_start < value.len() {
-        let line_end = line_content_end(value, line_start);
-        let content_start = skip_horizontal_whitespace(value, line_start);
-        if content_start < line_end {
-            return Some(content_start);
-        }
-        if line_end == value.len() {
-            return None;
-        }
-        line_start = line_ending_after(value, line_end)?;
-    }
-    None
 }
 
 fn line_content_end(value: &str, mut start: usize) -> usize {
@@ -1429,44 +1293,21 @@ fn line_content_end(value: &str, mut start: usize) -> usize {
     value.len()
 }
 
-fn line_ending_after(value: &str, line_end: usize) -> Option<usize> {
-    line_ending_len(value, line_end).map(|length| line_end + length)
-}
-
-fn line_indentation(value: &str, line_start: usize) -> usize {
-    let mut cursor = line_start;
-    while matches!(value.as_bytes().get(cursor), Some(b' ' | b'\t')) {
-        cursor += 1;
+fn find_ascii_case_insensitive(value: &str, start: usize, expected: &str) -> Option<usize> {
+    let tail = value.get(start..)?;
+    if expected.is_empty() {
+        return Some(start);
     }
-    cursor - line_start
+    let relative = tail
+        .as_bytes()
+        .windows(expected.len())
+        .position(|candidate| candidate.eq_ignore_ascii_case(expected.as_bytes()))?;
+    Some(start + relative)
 }
 
-fn indentation_before(value: &str, content_start: usize) -> usize {
-    let bytes = value.as_bytes();
-    let mut line_start = content_start;
-    while line_start > 0 && matches!(bytes.get(line_start - 1), Some(b' ' | b'\t')) {
-        line_start -= 1;
-    }
-    content_start - line_start
-}
-
-fn looks_like_header_line(line: &str) -> bool {
-    let start = line_indentation(line, 0);
-    let bytes = line.as_bytes();
-    let mut name_end = start;
-    while bytes
-        .get(name_end)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
-    {
-        name_end += 1;
-    }
-    name_end > start && bytes.get(name_end) == Some(&b':')
-}
-
-fn ascii_starts_with_ignore_case(value: &str, start: usize, expected: &str) -> bool {
-    value
-        .get(start..start.saturating_add(expected.len()))
-        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(expected))
+fn is_private_key_pem_label(label: &str) -> bool {
+    let upper = label.to_ascii_uppercase();
+    upper.ends_with("PRIVATE KEY") || upper == "PGP PRIVATE KEY BLOCK"
 }
 
 fn pem_end_suffix(
@@ -2027,8 +1868,9 @@ struct CheckResultDraft {
 /// A structured verification report. Human and JSON outputs use the same
 /// bounded text rules as [`DiagnosticEvent`]: header-classified secret fields
 /// are hidden through their line boundary, recognized secret-key PEM blocks
-/// through the matching `END` marker, and incomplete PEM blocks to the next
-/// header-shaped line at the same or lesser indentation or bounded input end.
+/// through the matching `END` marker, and malformed or incomplete PEM blocks
+/// through the bounded input end. Safe-looking fields may be hidden; YAML
+/// anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
 /// Other inline
 /// schemes follow only recognized rules. Line-scoped redaction may also hide
 /// safe-looking fields later on that line. Arbitrary raw logs, HAR, URL userinfo,
@@ -2300,11 +2142,12 @@ pub trait CrashSink {
 
 /// Crash recovery hints, event messages, and error details use the same bounded
 /// diagnostic text scrubber as [`DiagnosticEvent`]. Header-classified secret
-/// fields are hidden through their line boundary; PEM blocks with a `PRIVATE
-/// KEY` label in an already recognized secret-key value are hidden through the
-/// matching `END` marker. Incomplete blocks stop before a safe header boundary
-/// or at the bounded input end. `tls_key` and `private.key` are not recognized
-/// aliases.
+/// fields are hidden through their line boundary; PEM blocks labeled `PRIVATE
+/// KEY` or `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value
+/// are hidden through the matching `END` marker. Malformed or incomplete
+/// blocks consume the rest of the bounded input, including safe-looking
+/// following fields. YAML anchors/tags and OpenSSL bag attributes are scrubbed
+/// with the PEM. `tls_key` and `private.key` are not recognized aliases.
 /// Line-scoped redaction may also hide safe-looking fields later on that line.
 /// Scheme names in arbitrary inline text are not a universal credential
 /// detector. Arbitrary raw logs and unsupported formats are not certified as
@@ -2475,10 +2318,11 @@ impl<S: CrashSink> CrashCapture<S> {
 /// A bundle of structured verification and event records. Human and JSON output
 /// use the same bounded text redaction rules as [`DiagnosticEvent`].
 /// Header-classified secret fields are hidden through their line boundary;
-/// PEM blocks with a `PRIVATE KEY` label in an already recognized secret-key
-/// value are hidden through the matching `END` marker. Incomplete blocks stop
-/// before the next header-shaped line at the same or lesser indentation or at
-/// the bounded input end. `tls_key` and `private.key` are not recognized
+/// PEM blocks labeled `PRIVATE KEY` or `PGP PRIVATE KEY BLOCK` in an already
+/// recognized secret-key value are hidden through the matching `END` marker.
+/// Malformed or incomplete blocks consume the rest of the bounded input,
+/// including safe-looking following fields. YAML anchors/tags and OpenSSL bag
+/// attributes are scrubbed with the PEM. `tls_key` and `private.key` are not recognized
 /// aliases. Arbitrary raw logs, HAR, URL userinfo, pair
 /// arrays, bare bearer tokens, command-line flags, and bracketed key paths are
 /// not certified safe. Line-scoped redaction may also hide safe-looking fields
@@ -3292,12 +3136,12 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_pem_private_key_blocks_stop_at_safe_header_or_bounded_end() {
+    fn incomplete_pem_private_key_blocks_hide_to_bounded_end() {
         let incomplete_with_header =
             "private_key=-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-INCOMPLETE-PEM\r\nX-Trace: visible";
         let safe_with_header = redact_inline_secrets(incomplete_with_header);
         assert!(!safe_with_header.contains("SYNTHETIC-INCOMPLETE-PEM"));
-        assert!(safe_with_header.contains("X-Trace: visible"));
+        assert!(!safe_with_header.contains("X-Trace: visible"));
 
         for input in [
             "PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----\\nSYNTHETIC-LITERAL-INCOMPLETE-PEM",
@@ -3459,6 +3303,16 @@ mod tests {
                 "SYNTHETIC-LITERAL-LEADING-PEM",
                 "X-Trace: literal-visible",
             ),
+            (
+                "private_key: &synthetic !!str # tagged key\n  -----BEGIN PRIVATE KEY-----\nSYNTHETIC-YAML-TAGGED-PEM\n  -----END PRIVATE KEY-----\nX-Trace: tagged-visible",
+                "SYNTHETIC-YAML-TAGGED-PEM",
+                "X-Trace: tagged-visible",
+            ),
+            (
+                "private_key=Bag Attributes\n    localKeyID: synthetic\n    friendlyName: test-key\n-----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-OPENSSL-BAG-PEM\n-----END RSA PRIVATE KEY-----\nX-Trace: bag-visible",
+                "SYNTHETIC-OPENSSL-BAG-PEM",
+                "X-Trace: bag-visible",
+            ),
         ];
 
         for (input, payload, safe_field) in cases {
@@ -3470,22 +3324,22 @@ mod tests {
     }
 
     #[test]
-    fn pem_blocks_fail_closed_without_consuming_the_next_safe_header() {
+    fn incomplete_pem_blocks_hide_all_following_bounded_input() {
         let incomplete = "auth_key: |\n  -----BEGIN PRIVATE KEY-----\nSYNTHETIC-INCOMPLETE-ALIAS\nX-Trace: preserved\npublic=visible";
         let safe = redact_inline_secrets(incomplete);
         assert!(!safe.contains("SYNTHETIC-INCOMPLETE-ALIAS"), "{safe:?}");
-        assert!(safe.contains("X-Trace: preserved"), "{safe:?}");
-        assert!(safe.contains("public=visible"), "{safe:?}");
+        assert!(!safe.contains("X-Trace: preserved"), "{safe:?}");
+        assert!(!safe.contains("public=visible"), "{safe:?}");
 
         let malformed = "client_secret=-----BEGIN PRIVATE KEY\nSYNTHETIC-MALFORMED-BEGIN\nX-Trace: malformed-preserved";
         let safe_malformed = redact_inline_secrets(malformed);
         assert!(!safe_malformed.contains("SYNTHETIC-MALFORMED-BEGIN"));
-        assert!(safe_malformed.contains("X-Trace: malformed-preserved"));
+        assert!(!safe_malformed.contains("X-Trace: malformed-preserved"));
 
         let quoted_incomplete = "client_secret=\" -----BEGIN PRIVATE KEY-----\nSYNTHETIC-QUOTED-INCOMPLETE\nX-Trace: quoted-preserved";
         let safe_quoted_incomplete = redact_inline_secrets(quoted_incomplete);
         assert!(!safe_quoted_incomplete.contains("SYNTHETIC-QUOTED-INCOMPLETE"));
-        assert!(safe_quoted_incomplete.contains("X-Trace: quoted-preserved"));
+        assert!(!safe_quoted_incomplete.contains("X-Trace: quoted-preserved"));
 
         let empty = redact_inline_secrets("auth_key=\nX-Trace: after-empty");
         assert!(empty.contains("X-Trace: after-empty"), "{empty:?}");
@@ -3504,6 +3358,66 @@ mod tests {
         assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-BODY"));
         assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-SUFFIX"));
         assert!(safe_quoted.contains("X-Trace: quoted-suffix-next-line"));
+    }
+
+    #[test]
+    fn pem_blocks_cover_inline_eof_and_internal_header_lines() {
+        let single_line = "private_key=-----BEGIN PRIVATE KEY----- SYNTHETIC-SINGLE-LINE -----END PRIVATE KEY-----";
+        let safe_single_line = redact_inline_secrets(single_line);
+        assert!(
+            !safe_single_line.contains("SYNTHETIC-SINGLE-LINE"),
+            "{safe_single_line:?}"
+        );
+        let single_line_suffix = "private_key=-----BEGIN PRIVATE KEY----- SYNTHETIC-SINGLE-LINE-SUFFIX -----END PRIVATE KEY-----SYNTHETIC-TRAILING-SUFFIX";
+        let safe_single_line_suffix = redact_inline_secrets(single_line_suffix);
+        assert!(
+            !safe_single_line_suffix.contains("SYNTHETIC-"),
+            "{safe_single_line_suffix:?}"
+        );
+
+        let rsa = "private_key=-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,SYNTHETIC-IV\nSYNTHETIC-RSA-BODY\n-----END RSA PRIVATE KEY-----\nX-Trace: rsa-visible";
+        let safe_rsa = redact_inline_secrets(rsa);
+        for secret in [
+            "Proc-Type:",
+            "DEK-Info:",
+            "SYNTHETIC-IV",
+            "SYNTHETIC-RSA-BODY",
+        ] {
+            assert!(!safe_rsa.contains(secret), "{safe_rsa:?}");
+        }
+        assert!(safe_rsa.contains("X-Trace: rsa-visible"), "{safe_rsa:?}");
+
+        let pgp = "private_key: -----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: 1\nComment: synthetic\nSYNTHETIC-PGP-BODY\n-----END PGP PRIVATE KEY BLOCK-----\nX-Trace: pgp-visible";
+        let safe_pgp = redact_inline_secrets(pgp);
+        for secret in ["Version:", "Comment:", "SYNTHETIC-PGP-BODY"] {
+            assert!(!safe_pgp.contains(secret), "{safe_pgp:?}");
+        }
+        assert!(safe_pgp.contains("X-Trace: pgp-visible"), "{safe_pgp:?}");
+    }
+
+    #[test]
+    fn incomplete_pem_blocks_hide_all_remaining_bounded_input() {
+        for (input, secret, following_header) in [
+            (
+                "private_key=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-INCOMPLETE-BODY\nX-Trace: must-hide",
+                "SYNTHETIC-INCOMPLETE-BODY",
+                "X-Trace: must-hide",
+            ),
+            (
+                "private_key=-----BEGIN PRIVATE KEY----- SYNTHETIC-EOF-BODY",
+                "SYNTHETIC-EOF-BODY",
+                "SYNTHETIC-EOF-BODY",
+            ),
+            (
+                "private_key=-----BEGIN PRIVATE KEY\nSYNTHETIC-MALFORMED-BODY\nX-Trace: malformed-must-hide",
+                "SYNTHETIC-MALFORMED-BODY",
+                "X-Trace: malformed-must-hide",
+            ),
+        ] {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains(secret), "{safe:?}");
+            assert!(!safe.contains(following_header), "{safe:?}");
+        }
     }
 
     #[test]
