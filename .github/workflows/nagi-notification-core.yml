@@ -1,0 +1,43 @@
+name: Nagi notification core
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - '.github/workflows/nagi-notification-core.yml'
+      - 'crates/nagi-notification-core/**'
+      - 'crates/nagi-i18n/**'
+      - 'tests/notification-core/**'
+      - '.cargo/config.toml'
+      - 'rust-toolchain.toml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/nagi-notification-core.yml'
+      - 'crates/nagi-notification-core/**'
+      - 'crates/nagi-i18n/**'
+      - 'tests/notification-core/**'
+      - '.cargo/config.toml'
+      - 'rust-toolchain.toml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nagi-notification-core-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notification-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
+      - name: Check standalone notification formatting
+        run: cargo +nightly-2025-08-01 fmt --manifest-path crates/nagi-notification-core/Cargo.toml --all -- --check
+      - name: Lint standalone notification targets
+        run: cargo +nightly-2025-08-01 clippy --manifest-path crates/nagi-notification-core/Cargo.toml --all-targets --locked -- -D warnings
+      - name: Test standalone notification crate
+        run: cargo +nightly-2025-08-01 test --manifest-path crates/nagi-notification-core/Cargo.toml --locked
