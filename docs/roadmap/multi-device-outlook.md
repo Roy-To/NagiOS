@@ -11,7 +11,7 @@ This document records a user-selected direction without changing Nagi OS 0.1, 0.
 - **PC版が最優先。** Complete and stabilize the independent x86-64/QEMU Nagi PC experience first.
 - **ARM64は並行して準備。** Architecture analysis and an isolated ARM64/QEMU proof of concept may progress in parallel where existing ownership boundaries, activation gates, and integration approvals permit.
 - **Raspberry Pi 5** is a desirable first physical ARM64 target after the ARM64 virtual-machine foundations are validated. Hardware purchase or delivery dates are not assumed.
-- **Nagi Phoneの第一候補はGoogle Pixel 9a。** The project owner already owns one, so no new phone is required for planning. Actual phone porting and flashing are deferred until the PC version is sufficiently mature.
+- **Nagi Phoneの第一候補はGoogle Pixel 9a。** Device ownership is unconfirmed in the public repository; no new phone purchase is assumed for planning. Actual phone porting and flashing are deferred until the PC version is sufficiently mature.
 - PC, Raspberry Pi, tablet, and phone are envisioned as **one Nagi OS product and application model**, not unrelated desktop/mobile editions.
 
 This is a future direction, not an instruction to start mobile hardware development immediately.
@@ -35,7 +35,7 @@ The ARM64 work does **not** bypass the active 0.1 milestones or the existing 0.2
 
 | Item | Planning baseline |
 | --- | --- |
-| First phone target | Google Pixel 9a (specific user-owned unit; bootloader eligibility still to be checked) |
+| First phone target | Google Pixel 9a (unit availability unconfirmed; bootloader eligibility still to be checked) |
 | SoC / ISA | Google Tensor G4, ARM64 |
 | RAM | **8 GB** on the Pixel 9a; plan a memory-constrained local-AI profile rather than assuming desktop RAM |
 | Storage | 128 GB or 256 GB variants; 128 GB as the initial planning floor |
@@ -50,7 +50,7 @@ A bootloader-unlockable unit is a **necessary but insufficient** condition for a
 
 ## 4. Safety and feasibility guardrails
 
-1. **Do not unlock, flash, repartition, factory-reset, or otherwise modify the owner's Pixel 9a as part of planning.** Any such action needs a separate explicit decision, backup/recovery plan, understanding of data-loss risk, and a device-specific feasibility assessment. Google warns that bootloader unlocking can reduce security and installing factory images erases device data: [Google factory images](https://developers.google.com/android/images).
+1. **Do not unlock, flash, repartition, factory-reset, or otherwise modify any Pixel 9a unit as part of planning.** Any such action needs a separate explicit decision, backup/recovery plan, understanding of data-loss risk, and a device-specific feasibility assessment. Google warns that bootloader unlocking can reduce security and installing factory images erases device data: [Google factory images](https://developers.google.com/android/images).
 2. Nagi must remain an **independent kernel**. Android or Linux may be useful as documentation/development references, but booting Android/Linux underneath is not acceptance for Nagi Phone.
 3. Vendor boot assets, binary firmware, and driver/source licensing require independent review before redistribution. Availability of a factory image does not authorize arbitrary redistribution.
 4. Use staged evidence: architecture feasibility -> non-destructive hardware inventory -> ARM64 QEMU kernel boot -> target-specific boot feasibility -> real display/touch -> storage and lifecycle -> networking, power and thermal management -> security/recovery -> optional cellular and camera. Each stage requires observed evidence; do not mark downstream stages PASS early.
@@ -63,7 +63,7 @@ Follow [ADR 0014](../decisions/0014-unified-device-application-model.md) and the
 - Preserve **AppId**, **AppSessionId**, **UserId**, **NodeId**, **ExecutionInstanceId**, and **SurfaceId** semantics across future machines; do not fork applications into unrelated desktop and mobile identities.
 - Adapt presentation to device capabilities (including Compact/Medium/Expanded, touch, orientation, DPI and safe regions) without assuming that a desktop Window is the universal application root.
 - Keep AI Profile/Memory outside a particular model runtime. Moving between PC and phone must not require treating LLM weights or a model KV cache as the user's memory.
-- Cross-node synchronization, remote pairing, and shared identity are **future opt-in designs**, not features of the current single-node release. Device membership never confers implicit kernel authority.
+- Cross-node synchronization, remote pairing, and shared identity are **future opt-in designs**, not features of the current single-node release. Device membership never confers authority; capabilities remain explicit, attenuated, and locally policy-checked.
 
 ## 6. Revisit triggers
 
@@ -71,7 +71,7 @@ Reassess the Pixel 9a plan when all of the following become relevant:
 
 - The PC release line has reached an explicitly agreed stability checkpoint.
 - ARM64 kernel/ABI and QEMU target evidence justify physical hardware work.
-- The exact Pixel 9a unit's bootloader/boot-chain feasibility is documented.
+- A specific Pixel 9a unit's bootloader/boot-chain feasibility is documented.
 - Required device documentation, firmware licensing and practical recovery paths are identified.
 - Available capacity justifies the substantial independent-driver work.
 
