@@ -36,7 +36,7 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
       - name: Check standalone notification formatting
-        run: cargo +nightly-2025-08-01 fmt --manifest-path crates/nagi-notification-core/Cargo.toml --all -- --check
+        run: cargo +nightly-2025-08-01 fmt --manifest-path crates/nagi-notification-core/Cargo.toml -- --check
       - name: Lint standalone notification targets
         run: cargo +nightly-2025-08-01 clippy --manifest-path crates/nagi-notification-core/Cargo.toml --all-targets --locked -- -D warnings
       - name: Test standalone notification crate
