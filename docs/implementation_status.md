@@ -1,16 +1,36 @@
-## Isolated host CI integration candidate — 2026-10-23
+## PR #80 standalone Installer host candidate — 2026-11-02
 
-Status: `PARTIAL` (host-only candidate based on main `5130ea6b`).
-The shared CLI workstream regression now uses an isolated Git fixture.
-The standalone Installer foundation includes Windows device-path rejection,
-inventory-compatible SemVer bounds, and journal capability-list validation.
-Pinned native arm64 nightly, offline and one build job: 32 Installer tests and
-32 CLI integration tests pass; affected host Clippy with warnings denied and
-changed Rust formatting checks pass. CLI checks use the existing bootstrap
-manifest to compile the same production CLI library without fetching Servo.
-Runtime, SDK/model, CI settings and the shared workstream registry are unchanged.
-Root-workspace CI, Windows execution, target builds, VM and M17 acceptance were
-not run. This candidate does not establish CI recovery or a new milestone PASS.
+Status: `PARTIAL` (local review candidate; no 0.1 milestone PASS).
+Reviewed implementation baseline: `a3ec58ad52e77308ba63a11781137aa756f68eaf`
+(tree `82bcdc14292a8f7febb3ab60c5ee711f67b31189`), integrating PR #80 head
+`74ea168047042ea0a628063a9e382ea974729ed7` with public-main snapshot
+`9d73f3bd015d6b9805609ab38c90b5305b89f8b9` via local merge
+`a8f6ea8cc43c0b050c9f21b027f1a0fc936ca590`. This local review follow-up
+contains only edition-2021 formatting and documentation corrections. Remote PR
+#80 remains a draft at its prior head; this local candidate has not been pushed.
+
+The candidate scopes committed-cleanup failures to the affected app, exposes
+pending app IDs in the inventory, preserves unknown package-directory content,
+binds install journals to their version transaction, and adds Windows path and
+non-Unix executable metadata regressions. The shared CLI Git fixture sanitizes
+inherited Git environment variables. Ubuntu and Windows workflows now include
+standalone Installer checks. `NoopPolicy` remains a host-reference policy; no
+production installer activation or permission integration is included.
+
+**Verification at this candidate:** the pinned nightly edition-2021 formatting
+check for `tools/nagi-installer/Cargo.toml` passes. A temporary std-only
+`rustc` harness called the unchanged canonical `ensure_cc_nagi_checkout`
+helper with Cargo offline, materializing only the pinned `cc-nagi` source.
+The generated checkout and review harness are local evidence, not PR payload.
+
+Cargo tests and Clippy have not been run after the final pending-cleanup changes.
+An earlier pre-final Installer attempt reported 26/27; the remaining journal
+fixture failed while reading a journal that its setup had not created, before
+the intended assertion. That run does not verify this candidate. The full CLI
+suite and new Ubuntu/Windows standalone Installer CI have not been run for this
+candidate. Windows directory-sync or power-loss durability is not claimed.
+No target build or VM acceptance was run. This change does not alter the M19
+through M30 milestone statuses.
 
 # 1. Current status
 

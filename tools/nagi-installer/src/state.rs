@@ -85,10 +85,12 @@ impl InventorySnapshot {
         self.packages.values()
     }
 
-    /// Applications whose committed uninstall left package cleanup pending.
+    /// Applications with committed transaction cleanup still pending.
     ///
-    /// These applications are absent from the active inventory and cannot be
-    /// installed or uninstalled again until recovery completes.
+    /// A committed install can remain active in the inventory while its journal
+    /// cleanup is pending. A committed uninstall is absent from the inventory.
+    /// The affected app cannot be installed or uninstalled again until recovery
+    /// completes; unrelated apps remain available.
     pub fn pending_cleanup_app_ids(&self) -> impl Iterator<Item = &str> {
         self.pending_cleanup_app_ids.iter().map(String::as_str)
     }
