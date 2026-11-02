@@ -66,6 +66,11 @@ jobs:
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Standalone installer format, lint, and tests
+        run: |
+          cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
+          cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked
       - name: Standalone clipboard core (CLIP-01)
         run: |
           cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
@@ -145,6 +150,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cargo test --workspace --exclude nagi-kernel --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Standalone installer format, lint, and tests (Windows)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify Windows launcher help
         shell: pwsh

@@ -1,6 +1,63 @@
 use std::fs;
 use std::path::Path;
 
+fn run_fixture_git(
+    root: &Path,
+    args: &[&str],
+    injected_environment: &[(&str, std::ffi::OsString)],
+) -> String {
+    let empty_global_config = root
+        .parent()
+        .unwrap_or(root)
+        .join(".nagi-empty-global-gitconfig");
+    if !empty_global_config.exists() {
+        fs::write(&empty_global_config, b"").expect("create empty fixture git config");
+    }
+    let mut command = std::process::Command::new("git");
+    command.args([
+        "-c",
+        "user.name=Nagi Test",
+        "-c",
+        "user.email=nagi@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.hooksPath=.git/hooks",
+    ]);
+    command.current_dir(root);
+    // Apply these first to model inherited contamination; the sanitizer below
+    // must remove them without changing the test process environment.
+    for (key, value) in injected_environment {
+        command.env(key, value);
+    }
+    let inherited_git_keys = std::env::vars_os()
+        .map(|(key, _)| key)
+        .filter(|key| {
+            key.to_string_lossy()
+                .get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("GIT_"))
+        })
+        .collect::<Vec<_>>();
+    for key in inherited_git_keys {
+        command.env_remove(key);
+    }
+    for (key, _) in injected_environment {
+        command.env_remove(key);
+    }
+    command
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_ATTR_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", &empty_global_config)
+        .args(args);
+    let output = command.output().expect("run fixture git");
+    let succeeded = output.status.success();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let stdout = String::from_utf8(output.stdout).expect("fixture git output is UTF-8");
+    let _ = fs::remove_file(&empty_global_config);
+    assert!(succeeded, "git {args:?}: {stderr}");
+    stdout.trim().to_owned()
+}
+
 use nagi_cli::commands::{execute, parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
 use nagi_cli::config::load_toolchain_requirements;
 use nagi_cli::doctor::{
@@ -318,32 +375,7 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
     )));
     let root = &fixture.0;
     fs::create_dir(root).expect("create isolated repository");
-    let git = |args: &[&str]| {
-        let output = std::process::Command::new("git")
-            .args([
-                "-c",
-                "user.name=Nagi Test",
-                "-c",
-                "user.email=nagi@example.test",
-                "-c",
-                "commit.gpgsign=false",
-                "-c",
-                "core.hooksPath=.git/hooks",
-            ])
-            .args(args)
-            .current_dir(root)
-            .output()
-            .expect("run fixture git");
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout)
-            .expect("fixture git output is UTF-8")
-            .trim()
-            .to_owned()
-    };
+    let git = |args: &[&str]| run_fixture_git(root, args, &[]);
     git(&[
         "init",
         "--initial-branch=codex/integration-next-phase",
@@ -410,6 +442,125 @@ fn dev_status_resume_and_verify_read_the_registered_workstream() {
         }
         fs::write(path, valid).expect("restore valid fixture");
     }
+}
+
+#[test]
+fn fixture_git_ignores_inherited_repository_environment() {
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let fixture = Fixture(std::env::temp_dir().join(format!(
+        "nagi-dev-cli-git-env-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    )));
+    fs::create_dir_all(&fixture.0).unwrap();
+    let outer = fixture.0.join("outer");
+    let scratch = fixture.0.join("scratch");
+    fs::create_dir(&outer).unwrap();
+    fs::create_dir(&scratch).unwrap();
+    run_fixture_git(
+        &outer,
+        &["init", "--initial-branch=main", "--template="],
+        &[],
+    );
+    fs::write(outer.join("sentinel"), b"outer repository").unwrap();
+    run_fixture_git(&outer, &["add", "sentinel"], &[]);
+    run_fixture_git(&outer, &["commit", "-m", "outer sentinel"], &[]);
+    let outer_head = run_fixture_git(&outer, &["rev-parse", "HEAD"], &[]);
+    let outer_index = fs::read(outer.join(".git/index")).unwrap();
+    let outer_config = fs::read(outer.join(".git/config")).unwrap();
+
+    run_fixture_git(
+        &scratch,
+        &[
+            "init",
+            "--initial-branch=codex/integration-next-phase",
+            "--template=",
+        ],
+        &[],
+    );
+    fs::write(outer.join("candidate.txt"), b"outer-only candidate").unwrap();
+    fs::write(scratch.join("candidate.txt"), b"scratch-only candidate").unwrap();
+    let git_environment_before = std::env::vars_os()
+        .filter(|(key, _)| {
+            key.to_string_lossy()
+                .get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("GIT_"))
+        })
+        .collect::<Vec<_>>();
+    let injected = [
+        ("GIT_DIR", outer.join(".git").into_os_string()),
+        ("GIT_WORK_TREE", outer.clone().into_os_string()),
+        ("GIT_INDEX_FILE", outer.join(".git/index").into_os_string()),
+        (
+            "GIT_OBJECT_DIRECTORY",
+            outer.join(".git/objects").into_os_string(),
+        ),
+        (
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            outer.join(".git/objects").into_os_string(),
+        ),
+        ("GIT_CONFIG_COUNT", "1".into()),
+        ("GIT_CONFIG_KEY_0", "core.hooksPath".into()),
+        (
+            "GIT_CONFIG_VALUE_0",
+            outer.join("unsafe-hooks").into_os_string(),
+        ),
+    ];
+    run_fixture_git(&scratch, &["add", "candidate.txt"], &injected);
+    assert_eq!(
+        run_fixture_git(&outer, &["rev-parse", "HEAD"], &[]),
+        outer_head
+    );
+    assert_eq!(fs::read(outer.join(".git/index")).unwrap(), outer_index);
+    assert_eq!(fs::read(outer.join(".git/config")).unwrap(), outer_config);
+    assert_eq!(
+        run_fixture_git(&outer, &["status", "--porcelain"], &[]),
+        "?? candidate.txt"
+    );
+    assert_eq!(
+        run_fixture_git(&scratch, &["status", "--porcelain"], &[]),
+        "A  candidate.txt"
+    );
+    assert_eq!(
+        std::env::vars_os()
+            .filter(|(key, _)| {
+                key.to_string_lossy()
+                    .get(..4)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("GIT_"))
+            })
+            .collect::<Vec<_>>(),
+        git_environment_before,
+        "fixture setup must not mutate process-global Git environment"
+    );
+
+    let registry_path = scratch.join(".dev/workstreams.json");
+    let state_path = scratch.join(".dev/workstreams/integration-next-phase/state.json");
+    fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    fs::write(
+        &registry_path,
+        include_bytes!("../../../.dev/workstreams.json"),
+    )
+    .unwrap();
+    fs::write(
+        &state_path,
+        include_bytes!("../../../.dev/workstreams/integration-next-phase/state.json"),
+    )
+    .unwrap();
+    run_fixture_git(&scratch, &["add", ".dev"], &[]);
+    run_fixture_git(&scratch, &["commit", "-m", "fixture workstream"], &[]);
+    let status = nagi_cli::development::execute(&["status".into()], &scratch)
+        .expect("production status path reads the isolated fixture repository");
+    assert!(status
+        .iter()
+        .any(|line| line == "Branch: codex/integration-next-phase"));
 }
 
 #[test]

@@ -21,6 +21,7 @@ pub enum ErrorKind {
     InvalidTransition,
     ConcurrentModification,
     RecoveryFailure,
+    CleanupPending,
     InjectedFailure,
 }
 
@@ -63,6 +64,10 @@ pub enum InstallerError {
     },
     ConcurrentModification(String),
     RecoveryFailure(String),
+    CleanupPending {
+        app_id: String,
+        reason: String,
+    },
     InjectedFailure {
         point: String,
         message: String,
@@ -101,6 +106,7 @@ impl InstallerError {
             Self::InvalidTransition { .. } => ErrorKind::InvalidTransition,
             Self::ConcurrentModification(_) => ErrorKind::ConcurrentModification,
             Self::RecoveryFailure(_) => ErrorKind::RecoveryFailure,
+            Self::CleanupPending { .. } => ErrorKind::CleanupPending,
             Self::InjectedFailure { .. } => ErrorKind::InjectedFailure,
         }
     }
@@ -119,6 +125,9 @@ impl fmt::Display for InstallerError {
             | Self::InventoryFailure(message)
             | Self::ConcurrentModification(message)
             | Self::RecoveryFailure(message) => formatter.write_str(message),
+            Self::CleanupPending { app_id, reason } => {
+                write!(formatter, "cleanup for {app_id} is pending: {reason}")
+            }
             Self::VersionConflict {
                 installed,
                 requested,

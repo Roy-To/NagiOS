@@ -6,11 +6,11 @@ use nagi_sdk::app_contract::is_valid_app_identifier;
 use semver::Version;
 use serde::Serialize;
 
-use crate::error::{io_error, PolicyName};
+use crate::error::{PolicyName, io_error};
 use crate::state::{
-    new_transaction_id, CapabilityDelta, InstallOperation, InstalledPackage, InventoryFile,
-    InventorySnapshot, JournalOperation, TransactionJournal, TransactionPhase,
-    INVENTORY_SCHEMA_VERSION, JOURNAL_SCHEMA_VERSION,
+    CapabilityDelta, INVENTORY_SCHEMA_VERSION, InstallOperation, InstalledPackage, InventoryFile,
+    InventorySnapshot, JOURNAL_SCHEMA_VERSION, JournalOperation, TransactionJournal,
+    TransactionPhase, new_transaction_id,
 };
 use crate::{InstallerError, PackageMetadata, PackageRelativePath, PackageSource};
 
@@ -18,6 +18,37 @@ const INVENTORY_FILE: &str = "inventory.json";
 const TRANSACTIONS_DIR: &str = "transactions";
 const STAGING_DIR: &str = "staging";
 const PACKAGES_DIR: &str = "packages";
+
+#[derive(Clone, Debug)]
+struct PendingCleanup {
+    app_id: String,
+    reason: String,
+}
+
+impl PendingCleanup {
+    fn into_error(self) -> InstallerError {
+        InstallerError::CleanupPending {
+            app_id: self.app_id,
+            reason: self.reason,
+        }
+    }
+}
+
+fn ensure_app_cleanup_complete(
+    app_id: &str,
+    pending_cleanups: &[PendingCleanup],
+) -> Result<(), InstallerError> {
+    match pending_cleanups
+        .iter()
+        .find(|pending| pending.app_id.as_str() == app_id)
+    {
+        Some(pending) => Err(InstallerError::CleanupPending {
+            app_id: pending.app_id.clone(),
+            reason: pending.reason.clone(),
+        }),
+        None => Ok(()),
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyCheck {
@@ -61,6 +92,10 @@ pub trait PolicyEvaluator {
     ) -> Result<PolicyDecision, String>;
 }
 
+/// Host-reference policy that allows every check.
+///
+/// Do not use this as a production policy evaluator; production callers must
+/// supply an evaluator that implements the required trust and permission checks.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoopPolicy;
 
@@ -210,10 +245,13 @@ impl Installer {
 
     pub fn plan_install(&self, source: PackageSource) -> Result<InstallPlan, InstallerError> {
         let _lock = self.acquire_lock()?;
-        self.recover_locked()?;
+        let pending_cleanups = self.recover_locked()?;
+        ensure_app_cleanup_complete(&source.metadata.app_id, &pending_cleanups)?;
         self.plan_install_locked(source)
     }
 
+    /// Host-reference convenience only; all policy checks are allowed.
+    /// Production callers must use install_with with a real evaluator.
     pub fn install(&self, source: PackageSource) -> Result<InstalledPackage, InstallerError> {
         self.install_with(source, &mut NoopPolicy, &mut NoFailureInjector)
     }
@@ -235,7 +273,8 @@ impl Installer {
         failures: &mut dyn FailureInjector,
     ) -> Result<InstalledPackage, InstallerError> {
         let _lock = self.acquire_lock()?;
-        self.recover_locked()?;
+        let pending_cleanups = self.recover_locked()?;
+        ensure_app_cleanup_complete(plan.app_id(), &pending_cleanups)?;
         let inventory = self.read_inventory()?;
         let current = inventory.packages.get(plan.app_id()).cloned();
         if current != plan.previous {
@@ -256,7 +295,8 @@ impl Installer {
             ));
         }
         let _lock = self.acquire_lock()?;
-        self.recover_locked()?;
+        let pending_cleanups = self.recover_locked()?;
+        ensure_app_cleanup_complete(app_id, &pending_cleanups)?;
         let inventory = self.read_inventory()?;
         let previous = inventory
             .packages
@@ -269,6 +309,8 @@ impl Installer {
         })
     }
 
+    /// Host-reference convenience only; the policy check is allowed.
+    /// Production callers must use uninstall_with with a real evaluator.
     pub fn uninstall(&self, app_id: &str) -> Result<crate::UninstallOutcome, InstallerError> {
         self.uninstall_with(app_id, &mut NoopPolicy, &mut NoFailureInjector)
     }
@@ -290,7 +332,8 @@ impl Installer {
         failures: &mut dyn FailureInjector,
     ) -> Result<crate::UninstallOutcome, InstallerError> {
         let _lock = self.acquire_lock()?;
-        self.recover_locked()?;
+        let pending_cleanups = self.recover_locked()?;
+        ensure_app_cleanup_complete(plan.app_id(), &pending_cleanups)?;
         let inventory = self.read_inventory()?;
         if inventory.packages.get(plan.app_id()) != Some(&plan.previous) {
             return Err(InstallerError::ConcurrentModification(format!(
@@ -304,8 +347,12 @@ impl Installer {
 
     pub fn inventory(&self) -> Result<InventorySnapshot, InstallerError> {
         let _lock = self.acquire_lock()?;
-        self.recover_locked()?;
-        Ok(self.read_inventory()?.snapshot())
+        let pending_cleanups = self.recover_locked()?;
+        let pending_cleanup_app_ids = pending_cleanups
+            .into_iter()
+            .map(|pending| pending.app_id)
+            .collect();
+        Ok(self.read_inventory()?.snapshot(pending_cleanup_app_ids))
     }
 
     pub fn installed(&self, app_id: &str) -> Result<Option<InstalledPackage>, InstallerError> {
@@ -335,9 +382,15 @@ impl Installer {
 
     /// Recover incomplete transactions and safely remove orphan staging
     /// directories. Unknown or corrupt journals fail closed and are retained.
+    /// A committed uninstall with unowned package-directory entries is reported
+    /// as pending; inventory remains readable and other applications remain
+    /// operable while this application is blocked.
     pub fn recover(&self) -> Result<(), InstallerError> {
         let _lock = self.acquire_lock()?;
-        self.recover_locked()
+        match self.recover_locked()?.into_iter().next() {
+            Some(pending) => Err(pending.into_error()),
+            None => Ok(()),
+        }
     }
 
     fn plan_install_locked(&self, source: PackageSource) -> Result<InstallPlan, InstallerError> {
@@ -790,7 +843,7 @@ impl Installer {
         Ok(())
     }
 
-    fn recover_locked(&self) -> Result<(), InstallerError> {
+    fn recover_locked(&self) -> Result<Vec<PendingCleanup>, InstallerError> {
         let directory = self.root.join(TRANSACTIONS_DIR);
         let mut journal_paths = fs::read_dir(&directory)
             .map_err(|error| io_error("enumerate transaction journals", error))?
@@ -804,10 +857,20 @@ impl Installer {
             })
             .collect::<Vec<_>>();
         journal_paths.sort();
+        let mut pending_cleanups = Vec::new();
         for path in journal_paths {
-            self.recover_journal(&path)?;
+            match self.recover_journal(&path) {
+                Ok(()) => {}
+                Err(InstallerError::CleanupPending { app_id, reason }) => {
+                    pending_cleanups.push(PendingCleanup { app_id, reason });
+                }
+                Err(error) => return Err(error),
+            }
         }
-        self.cleanup_orphan_staging()
+        self.cleanup_orphan_staging()?;
+        pending_cleanups.sort_by(|left, right| left.app_id.cmp(&right.app_id));
+        pending_cleanups.dedup_by(|left, right| left.app_id == right.app_id);
+        Ok(pending_cleanups)
     }
 
     fn recover_journal(&self, path: &Path) -> Result<(), InstallerError> {
@@ -884,6 +947,16 @@ impl Installer {
             JournalOperation::Install if journal.target.is_none() => Err(
                 InstallerError::RecoveryFailure("install journal has no target record".into()),
             ),
+            JournalOperation::Install
+                if journal
+                    .target
+                    .as_ref()
+                    .is_some_and(|target| target.transaction_id != journal.transaction_id) =>
+            {
+                Err(InstallerError::RecoveryFailure(
+                    "install journal target transaction does not match journal identity".into(),
+                ))
+            }
             JournalOperation::Uninstall if journal.prior.is_none() || journal.target.is_some() => {
                 Err(InstallerError::RecoveryFailure(
                     "uninstall journal has an invalid record transition".into(),
@@ -971,20 +1044,35 @@ impl Installer {
                     )));
                 }
                 if let Some(previous) = &journal.prior {
-                    self.remove_app_packages(&previous.app_id)?
+                    match self.remove_app_packages(&previous.app_id) {
+                        Ok(complete) => complete,
+                        Err(error) => {
+                            return Err(InstallerError::CleanupPending {
+                                app_id: journal.app_id.clone(),
+                                reason: error.to_string(),
+                            });
+                        }
+                    }
                 } else {
                     true
                 }
             }
         };
         if !cleanup_complete {
-            return Ok(());
+            return Err(InstallerError::CleanupPending {
+                app_id: journal.app_id.clone(),
+                reason: "unowned package-directory content was preserved".into(),
+            });
         }
         let filename = path.file_name().ok_or_else(|| {
             InstallerError::UnsafePath("transaction journal path has no file name".into())
         })?;
-        fs::remove_file(self.root.join(TRANSACTIONS_DIR).join(filename))
-            .map_err(|error| io_error("remove completed transaction journal", error))?;
+        fs::remove_file(self.root.join(TRANSACTIONS_DIR).join(filename)).map_err(|error| {
+            InstallerError::CleanupPending {
+                app_id: journal.app_id.clone(),
+                reason: format!("cannot remove completed transaction journal: {error}"),
+            }
+        })?;
         sync_directory(&self.root.join(TRANSACTIONS_DIR))
     }
 
@@ -1054,7 +1142,7 @@ impl Installer {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|error| io_error("read installed package version", error))?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return remove_empty_app_directory(&app_root)
+                return remove_empty_app_directory(&app_root);
             }
             Err(error) => return Err(io_error("enumerate installed versions", error)),
         };
@@ -1394,8 +1482,8 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        evaluate_policy, valid_transaction_id, FailurePoint, InstallOperation, Installer,
-        PolicyCheck, PolicyDecision, PolicyEvaluator, PolicyOperation, PolicyReferences,
+        FailurePoint, InstallOperation, Installer, PolicyCheck, PolicyDecision, PolicyEvaluator,
+        PolicyOperation, PolicyReferences, evaluate_policy, valid_transaction_id,
     };
     use crate::state::{CapabilityDelta, TransactionPhase};
     use crate::{
@@ -1405,9 +1493,11 @@ mod tests {
     use nagi_sdk::app_contract::AppStateVersion;
     use nagi_sdk::app_contract::{
         AppEntrypoint, AppIdentity, AppManifestContract, AppOrigin, CapabilityRequest, DisplayName,
-        EntrypointKind, StateCompatibility, EN_US, SDK_CONTRACT_VERSION,
+        EN_US, EntrypointKind, SDK_CONTRACT_VERSION, StateCompatibility,
     };
     use std::fs;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -1474,9 +1564,24 @@ mod tests {
             .expect("valid package metadata")
     }
 
+    fn metadata_for(app_id: &str, version: &str, capabilities: &[&str]) -> PackageMetadata {
+        let mut metadata = metadata(version, capabilities);
+        metadata.app_id = app_id.to_owned();
+        metadata
+    }
+
     fn source(version: &str, capabilities: &[&str], content: &[u8]) -> PackageSource {
+        source_for("com.nagi.installer-fixture", version, capabilities, content)
+    }
+
+    fn source_for(
+        app_id: &str,
+        version: &str,
+        capabilities: &[&str],
+        content: &[u8],
+    ) -> PackageSource {
         PackageSource::from_virtual_files(
-            metadata(version, capabilities),
+            metadata_for(app_id, version, capabilities),
             vec![VirtualFile {
                 path: "bin/app.napp".into(),
                 contents: content.to_vec(),
@@ -1493,7 +1598,7 @@ mod tests {
         fn check(&mut self, point: FailurePoint) -> Result<(), String> {
             if self.0 == Some(point) {
                 self.0 = None;
-                Err("simulated power loss".into())
+                Err("in-process failure injection".into())
             } else {
                 Ok(())
             }
@@ -1552,6 +1657,19 @@ mod tests {
             ["network.fetch", "storage.read"]
         );
         assert_eq!(adapted.entrypoint, "bin/app.napp");
+    }
+
+    #[test]
+    fn virtual_executable_mode_is_normalized_to_host_capability() {
+        let root = TestRoot::new();
+        let installer = Installer::open(&root.0).unwrap();
+        let package = source("1.0.0", &[], b"virtual executable");
+        assert_eq!(package.files[0].executable, cfg!(unix));
+        let installed = installer.install(package).unwrap();
+        assert_eq!(
+            app_content(&installer, &installed.app_id),
+            b"virtual executable"
+        );
     }
 
     #[test]
@@ -2015,6 +2133,101 @@ mod tests {
     }
 
     #[test]
+    fn pending_committed_uninstall_is_reported_and_scoped_to_its_app() {
+        let root = TestRoot::new();
+        let installer = Installer::open(&root.0).unwrap();
+        let installed = installer.install(source("1.0.0", &[], b"active")).unwrap();
+        let stale_plan = installer
+            .plan_install(source("2.0.0", &[], b"replacement"))
+            .unwrap();
+        let versions = installer
+            .package_path(&installed)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let foreign = versions.join(".DS_Store");
+        fs::write(&foreign, b"unowned metadata").unwrap();
+
+        let outcome = installer.uninstall(&installed.app_id).unwrap();
+        assert!(!outcome.package_files_removed);
+        assert_eq!(fs::read(&foreign).unwrap(), b"unowned metadata");
+        assert!(matches!(
+            installer.execute_install_with(
+                stale_plan,
+                &mut NoopPolicy,
+                &mut crate::NoFailureInjector
+            ),
+            Err(InstallerError::CleanupPending { ref app_id, .. }) if app_id == &installed.app_id
+        ));
+        assert!(matches!(
+            installer.plan_install(source("2.0.0", &[], b"replacement")),
+            Err(InstallerError::CleanupPending { ref app_id, .. }) if app_id == &installed.app_id
+        ));
+        assert!(matches!(
+            installer.plan_uninstall(&installed.app_id),
+            Err(InstallerError::CleanupPending { ref app_id, .. }) if app_id == &installed.app_id
+        ));
+        assert!(matches!(
+            installer.recover(),
+            Err(InstallerError::CleanupPending { ref app_id, .. }) if app_id == &installed.app_id
+        ));
+
+        let pending_inventory = installer.inventory().unwrap();
+        assert!(pending_inventory.is_empty());
+        assert_eq!(
+            pending_inventory
+                .pending_cleanup_app_ids()
+                .collect::<Vec<_>>(),
+            [installed.app_id.as_str()]
+        );
+        assert_eq!(fs::read(&foreign).unwrap(), b"unowned metadata");
+        assert_eq!(
+            fs::read_dir(root.0.join("transactions")).unwrap().count(),
+            1
+        );
+
+        let unrelated = installer
+            .install(source_for(
+                "com.nagi.unrelated-fixture",
+                "1.0.0",
+                &[],
+                b"unrelated",
+            ))
+            .unwrap();
+        assert_eq!(unrelated.app_id, "com.nagi.unrelated-fixture");
+        let inventory_with_unrelated = installer.inventory().unwrap();
+        assert_eq!(inventory_with_unrelated.len(), 1);
+        assert!(inventory_with_unrelated.get(&unrelated.app_id).is_some());
+        assert_eq!(
+            inventory_with_unrelated
+                .pending_cleanup_app_ids()
+                .collect::<Vec<_>>(),
+            [installed.app_id.as_str()]
+        );
+        assert_eq!(fs::read(&foreign).unwrap(), b"unowned metadata");
+
+        fs::remove_file(&foreign).unwrap();
+        installer.recover().unwrap();
+        assert_eq!(
+            installer
+                .inventory()
+                .unwrap()
+                .pending_cleanup_app_ids()
+                .count(),
+            0
+        );
+        assert_eq!(
+            fs::read_dir(root.0.join("transactions")).unwrap().count(),
+            0
+        );
+        let replacement = installer
+            .install(source("2.0.0", &[], b"replacement"))
+            .unwrap();
+        assert_eq!(replacement.version, "2.0.0");
+    }
+
+    #[test]
     fn uninstall_removes_retained_rollback_versions() {
         let root = TestRoot::new();
         let installer = Installer::open(&root.0).unwrap();
@@ -2031,6 +2244,122 @@ mod tests {
         assert!(outcome.package_files_removed);
         assert!(!old_path.exists());
         assert!(!root.0.join("packages/com.nagi.installer-fixture").exists());
+    }
+
+    #[test]
+    fn install_journal_cannot_delete_a_version_owned_by_another_transaction() {
+        let root = TestRoot::new();
+        let installer = Installer::open(&root.0).unwrap();
+        let oldest = installer.install(source("1.0.0", &[], b"oldest")).unwrap();
+        installer.install(source("2.0.0", &[], b"middle")).unwrap();
+        let current = installer.install(source("3.0.0", &[], b"current")).unwrap();
+        let plan = installer
+            .plan_install(source("4.0.0", &[], b"candidate"))
+            .unwrap();
+        let journal_id = plan.transaction_id().to_owned();
+        let journal_path = root.0.join(format!("transactions/{journal_id}.json"));
+        let oldest_package_file = installer
+            .package_path(&oldest)
+            .unwrap()
+            .join("bin/app.napp");
+        let oldest_bytes = fs::read(&oldest_package_file).unwrap();
+        let hostile_journal = crate::state::TransactionJournal {
+            schema_version: crate::state::JOURNAL_SCHEMA_VERSION,
+            transaction_id: journal_id.clone(),
+            operation: crate::state::JournalOperation::Install,
+            app_id: current.app_id.clone(),
+            prior: Some(current.clone()),
+            target: Some(oldest.clone()),
+            staging_location: Some(format!("staging/{journal_id}")),
+            phase: TransactionPhase::Created,
+            failure: None,
+        };
+        fs::write(&journal_path, serde_json::to_vec(&hostile_journal).unwrap()).unwrap();
+
+        assert_eq!(
+            installer.recover().unwrap_err().kind(),
+            crate::ErrorKind::RecoveryFailure
+        );
+        assert_eq!(fs::read(&oldest_package_file).unwrap(), oldest_bytes);
+        assert_eq!(
+            installer
+                .read_inventory()
+                .unwrap()
+                .packages
+                .get(&current.app_id),
+            Some(&current)
+        );
+        assert!(journal_path.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directory_junctions_are_rejected_without_writing_outside_installer_root() {
+        let root = TestRoot::new();
+        let installer_root = root.0.join("installer");
+        let installer = Installer::open(&installer_root).unwrap();
+        let outside = root.0.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let sentinel = outside.join("keep.txt");
+        fs::write(&sentinel, b"outside data").unwrap();
+        let package_parent = installer_root.join("packages/com.nagi.installer-fixture");
+        fs::create_dir_all(&package_parent).unwrap();
+        let junction = package_parent.join("versions");
+        let output = std::process::Command::new("cmd.exe")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&outside)
+            .output()
+            .expect("create a directory junction for the Windows test");
+        assert!(
+            output.status.success(),
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(
+            installer
+                .install(source("1.0.0", &[], b"must not escape"))
+                .is_err()
+        );
+        assert_eq!(fs::read(&sentinel).unwrap(), b"outside data");
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+
+        fs::remove_dir(&junction).unwrap();
+        installer.recover().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn in_use_package_file_keeps_uninstall_journal_until_recovery_can_cleanup() {
+        let root = TestRoot::new();
+        let installer = Installer::open(&root.0).unwrap();
+        let installed = installer.install(source("1.0.0", &[], b"active")).unwrap();
+        let active_file = installer
+            .package_path(&installed)
+            .unwrap()
+            .join("bin/app.napp");
+        let handle = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&active_file)
+            .unwrap();
+
+        let outcome = installer.uninstall(&installed.app_id).unwrap();
+        assert!(!outcome.package_files_removed);
+        assert!(installer.read_inventory().unwrap().packages.is_empty());
+        assert_eq!(
+            fs::read_dir(root.0.join("transactions")).unwrap().count(),
+            1
+        );
+
+        drop(handle);
+        installer.recover().unwrap();
+        assert!(installer.read_inventory().unwrap().packages.is_empty());
+        assert_eq!(
+            fs::read_dir(root.0.join("transactions")).unwrap().count(),
+            0
+        );
     }
 
     #[test]
@@ -2098,10 +2427,12 @@ mod tests {
 
         fs::remove_file(package_parent.join("versions")).unwrap();
         installer.recover().unwrap();
-        assert!(fs::read_dir(install_root.join("transactions"))
-            .unwrap()
-            .next()
-            .is_none());
+        assert!(
+            fs::read_dir(install_root.join("transactions"))
+                .unwrap()
+                .next()
+                .is_none()
+        );
     }
 
     #[test]

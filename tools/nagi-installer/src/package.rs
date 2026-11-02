@@ -14,6 +14,7 @@ const MAX_PACKAGE_FILES: usize = 100_000;
 pub struct VirtualFile {
     pub path: String,
     pub contents: Vec<u8>,
+    /// POSIX executable-mode metadata, honored on Unix hosts and ignored elsewhere.
     pub executable: bool,
 }
 
@@ -82,6 +83,7 @@ impl PackageSource {
         let mut payload = BTreeMap::new();
         let mut entries = Vec::with_capacity(files.len());
         for file in files {
+            let executable = cfg!(unix) && file.executable;
             let path = PackageRelativePath::parse(&file.path)?;
             if payload
                 .insert(path.as_str().to_owned(), file.contents)
@@ -95,7 +97,7 @@ impl PackageSource {
             entries.push(PackageFile {
                 path,
                 size: contents.len() as u64,
-                executable: file.executable,
+                executable,
                 sha256: Sha256::digest(contents).into(),
             });
         }
