@@ -1,7 +1,7 @@
 # Nagi OS 0.2 — Writer Document Core Host Foundation
 **Document ID:** NAGI-0.2-PARALLEL-WRITER-20261008  
 **担当:** Claude ②  
-**対象:** `RT-NISH/NagiOS`  
+**対象:** `Roy-To/NagiOS`  
 **作業区分:** Phase 2 Writerの **Host-only / UI-independent** 文書エンジン  
 **対象仕様:** `docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md` §57、0.2のResource/Document/Object/Revision/Activity/Wayback公共契約  
 **実行状態:** 新規Workstream提案。Owner登録/host-only activation前にproductionへ接続しない。

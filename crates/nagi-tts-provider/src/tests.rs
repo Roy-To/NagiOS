@@ -505,3 +505,146 @@ fn playback_sink_sees_no_audio_for_over_budget_text() {
         Err(SpeechSynthesisError::ProviderFailed)
     );
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle after errors: no retained PCM or engine state, reuse matches a
+// fresh provider byte for byte.
+// ---------------------------------------------------------------------------
+
+fn fresh_output(plan: Plan, options: SpeechSynthesisOptions) -> Vec<u8> {
+    let mut p = provider(plan);
+    p.begin("基準", options).unwrap();
+    drain(&mut p, 1000).unwrap()
+}
+
+#[test]
+fn begin_errors_leave_no_state_and_reuse_matches_fresh_provider() {
+    let reference_stereo = fresh_output(Plan::Frames(7), stereo());
+    let reference_mono = fresh_output(Plan::Frames(7), mono());
+    let english = SpeechSynthesisOptions {
+        language: SpeechSynthesisLanguage::English,
+        pcm_format: PcmFormat::stereo_48khz(),
+    };
+    let mut p = provider(Plan::Frames(usize::MAX));
+    for options in [stereo(), mono()] {
+        // Over budget: rejected by the backend before any audio.
+        assert_eq!(p.begin("長い", options), Err(SpeechProviderError::Failed));
+        assert!(p.is_clear());
+    }
+    assert_eq!(
+        p.begin("英語", english),
+        Err(SpeechProviderError::Unavailable)
+    );
+    assert!(p.is_clear());
+    assert_eq!(p.begin("", stereo()), Err(SpeechProviderError::Failed));
+    assert!(p.is_clear());
+    p.backend_mut().loaded = false;
+    assert_eq!(p.begin("未", mono()), Err(SpeechProviderError::Unavailable));
+    assert!(p.is_clear());
+    p.backend_mut().loaded = true;
+    // None of the failed begins counted as an utterance.
+    assert_eq!(p.stats(), ProviderStats::default());
+
+    p.backend_mut().plan = Plan::Frames(7);
+    for _ in 0..3 {
+        p.begin("基準", stereo()).unwrap();
+        assert_eq!(drain(&mut p, 1000).unwrap(), reference_stereo);
+        p.begin("基準", mono()).unwrap();
+        assert_eq!(drain(&mut p, 1000).unwrap(), reference_mono);
+        assert!(p.is_clear());
+    }
+}
+
+#[test]
+fn mono_failure_mid_stream_leaves_no_decimator_state() {
+    let reference = fresh_output(Plan::Frames(7), mono());
+    for fail_after in [0, 1, 3, 40] {
+        let mut p = provider(Plan::FailAfter(fail_after));
+        p.begin("失敗", mono()).unwrap();
+        assert_eq!(drain(&mut p, 1000), Err(SpeechProviderError::Failed));
+        assert!(p.is_clear());
+        assert_eq!(p.stats().aborted_utterances, 1);
+        // The next utterance starts from a reset filter: identical to a
+        // provider that never saw the failed one.
+        p.backend_mut().plan = Plan::Frames(7);
+        p.begin("基準", mono()).unwrap();
+        assert_eq!(
+            drain(&mut p, 1000).unwrap(),
+            reference,
+            "fail_after={fail_after}"
+        );
+    }
+}
+
+#[test]
+fn no_pcm_is_written_after_end_error_or_cancel() {
+    let mut p = provider(Plan::Frames(3));
+    let mut buffer = [0xA5u8; 512];
+    let untouched = |buffer: &[u8]| buffer.iter().all(|b| *b == 0xA5);
+
+    // After End.
+    p.begin("一", stereo()).unwrap();
+    drain(&mut p, 4096).unwrap();
+    assert_eq!(
+        p.next_pcm_chunk(&mut buffer),
+        Err(SpeechProviderError::Failed)
+    );
+    assert!(untouched(&buffer));
+
+    // After a mid-stream error.
+    p.backend_mut().plan = Plan::NotFinite;
+    p.begin("二", stereo()).unwrap();
+    let mut scratch = [0u8; 4096];
+    assert_eq!(
+        p.next_pcm_chunk(&mut scratch),
+        Err(SpeechProviderError::Failed)
+    );
+    assert!(scratch.iter().all(|b| *b == 0), "failed chunk is zeroed");
+    assert_eq!(
+        p.next_pcm_chunk(&mut buffer),
+        Err(SpeechProviderError::Failed)
+    );
+    assert!(untouched(&buffer));
+
+    // After an undersized destination aborted the utterance.
+    p.backend_mut().plan = Plan::Frames(3);
+    p.begin("三", mono()).unwrap();
+    assert_eq!(
+        p.next_pcm_chunk(&mut [0u8; 1]),
+        Err(SpeechProviderError::OutputTooSmall)
+    );
+    assert_eq!(
+        p.next_pcm_chunk(&mut buffer),
+        Err(SpeechProviderError::Failed)
+    );
+    assert!(untouched(&buffer));
+
+    // After cancel.
+    p.begin("四", stereo()).unwrap();
+    p.cancel();
+    p.cancel();
+    assert_eq!(
+        p.next_pcm_chunk(&mut buffer),
+        Err(SpeechProviderError::Failed)
+    );
+    assert!(untouched(&buffer));
+    assert!(p.is_clear());
+}
+
+#[test]
+fn unload_after_error_reports_unavailable_until_reloaded() {
+    let reference = fresh_output(Plan::Frames(4), stereo());
+    let mut p = provider(Plan::FailAfter(2));
+    p.begin("失敗", stereo()).unwrap();
+    assert_eq!(drain(&mut p, 4096), Err(SpeechProviderError::Failed));
+    p.backend_mut().loaded = false;
+    assert_eq!(
+        p.begin("再", stereo()),
+        Err(SpeechProviderError::Unavailable)
+    );
+    assert!(p.is_clear());
+    p.backend_mut().loaded = true;
+    p.backend_mut().plan = Plan::Frames(4);
+    p.begin("基準", stereo()).unwrap();
+    assert_eq!(drain(&mut p, 4096).unwrap(), reference);
+}
