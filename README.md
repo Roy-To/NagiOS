@@ -225,7 +225,9 @@ separate verified behavior from plans and partial implementations.
 
 Useful contributions include reproducible QEMU failures, focused fixes,
 documentation improvements, and reviews that identify concrete evidence or
-remaining limits. This documentation prepares Nagi for OSS publication and a Codex for Open Source
+remaining limits.
+
+This documentation prepares Nagi for OSS publication and a Codex for Open Source
 application. The [application preparation notes](docs/oss/codex-application-preparation.md)
 describe the project, proposed use of support, and outstanding maintainer checks.
 They are preparation material, not an application submission or acceptance claim.
