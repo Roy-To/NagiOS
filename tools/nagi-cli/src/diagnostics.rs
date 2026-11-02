@@ -134,6 +134,14 @@ pub struct ErrorCause {
 
 /// In-memory event. Serialization is deliberately only exposed through
 /// `to_json`, which applies redaction and size limits before emitting data.
+/// The bounded text scrubber recognizes JSON object members, header-classified
+/// secret fields, and parsed key/value fields. Header-classified secret fields
+/// are hidden through their line boundary, which can also hide safe-looking
+/// fields later on that line. Recognized `private_key` PEM blocks are hidden
+/// through the matching `END` marker or bounded input end. Scheme names in
+/// arbitrary inline text are not a universal credential detector.
+/// Arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
+/// command-line flags, and bracketed key paths are not certified safe.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagnosticEvent {
     pub timestamp_unix_ms: u64,
@@ -150,8 +158,14 @@ pub struct DiagnosticEvent {
 }
 
 /// A structured event view whose supported text fields have been redacted.
-/// This is not a sanitizer for arbitrary raw logs, HAR, URL userinfo, pair
-/// arrays, bare bearer tokens, command-line flags, or bracketed key paths.
+/// Header-classified secret fields, including authorization and auth/token/
+/// cookie/session fields, are redacted through their line boundary. Recognized
+/// `private_key` fields redact PEM blocks through the matching `END` marker or
+/// the end of the bounded input. Other key/value text is handled only by its
+/// recognized key, scheme, and delimiter rules; this is not a universal secret
+/// scanner. Line-scoped redaction can hide safe-looking fields later on that
+/// line. Arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer
+/// tokens, command-line flags, and bracketed key paths are not certified safe.
 /// Reprocessing ambiguous free text may redact more content; this is not a
 /// byte-canonicalizer for arbitrary strings.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -349,24 +363,33 @@ impl DiagnosticEvent {
     }
 
     /// Serializes this structured event after applying privacy classes and the
-    /// diagnostic text scrubber. The scrubber recognizes JSON object members
-    /// (including JSON `\\uXXXX` key escapes), HTTP-style headers, and key/value
-    /// fields. It does not certify arbitrary raw logs, HAR, URL userinfo, pair
-    /// arrays, bare bearer tokens, command-line flags, or bracketed key paths.
+    /// bounded diagnostic text scrubber. It redacts header-classified secret
+    /// fields through their line boundary (so later safe-looking fields on that
+    /// line may also be hidden) and recognized `private_key` PEM blocks through
+    /// the matching `END` marker or bounded input end. Other
+    /// key/value text follows recognized scheme and delimiter rules. Arbitrary
+    /// raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
+    /// command-line flags, and bracketed key paths are not certified safe.
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         serde_json::to_string_pretty(&self.safe_view())
             .map_err(|error| DiagnosticError(format!("serialize diagnostic event: {error}")))
     }
 
-    /// Produces a redacted view for a structured event. Text matching covers
-    /// JSON object members (including JSON `\\uXXXX` key escapes), HTTP-style
-    /// headers, and key/value fields; it does not certify arbitrary raw logs,
-    /// HAR, URL userinfo, pair arrays, bare bearer tokens, command-line flags,
-    /// or bracketed key paths.
+    /// Produces a redacted view for a structured event using the same bounded
+    /// text rules as `to_json`: header-classified secret fields are redacted to
+    /// their line boundary, recognized `private_key` PEM blocks to their
+    /// matching `END` marker or bounded input end, and other key/value fields
+    /// according to recognized schemes and delimiters. Line-scoped redaction
+    /// may hide later safe-looking fields on the same line. This does not certify
+    /// arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
+    /// command-line flags, or bracketed key paths as safe.
     pub fn safe_view(&self) -> SafeDiagnosticEvent {
         self.safe_record()
     }
 
+    /// Parses a serialized event and reapplies the same bounded text redaction
+    /// as `to_json`, including recognized `private_key` PEM blocks. This does
+    /// not certify arbitrary raw logs or unsupported formats as safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let record: SafeDiagnosticEvent = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse diagnostic event: {error}")))?;
@@ -447,6 +470,9 @@ impl DiagnosticEvent {
         })
     }
 
+    /// Renders the event after applying the same bounded text redaction used by
+    /// `to_json`; arbitrary raw logs and unsupported formats are not certified
+    /// safe for export.
     pub fn render_human(&self) -> String {
         let safe = self.safe_record();
         let mut line = format!(
@@ -651,6 +677,12 @@ struct FieldMarker {
     separator_end: usize,
     value_start: usize,
     kind: FieldValueKind,
+    is_private_key: bool,
+}
+
+struct PemPrivateKeyBlock {
+    end: usize,
+    closing_quote: Option<char>,
 }
 
 struct JsonSecretMember {
@@ -668,6 +700,11 @@ fn redact_inline_secrets(value: &str) -> String {
     // tokens, command-line flags, or bracketed key paths. Callers must not
     // label those formats safe without first converting them to structured
     // fields.
+    // Header-classified secret fields are opaque through their line boundary.
+    // Inline key/value text uses only recognized schemes and delimiters; an
+    // arbitrary scheme in free text is not generally parsed. For recognized
+    // private_key fields, a PEM BEGIN marker consumes through its matching END
+    // marker, or through the end of this bounded input if incomplete.
     // Replace oversized input before parsing. This bounds work and prevents a
     // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
@@ -687,12 +724,34 @@ fn redact_inline_secrets(value: &str) -> String {
 
         if let Some(marker) = field_marker_at(value, cursor) {
             output.push_str(&value[cursor..marker.separator_end]);
+            if marker.is_private_key {
+                if let Some(block) = private_key_pem_block(value, marker.value_start) {
+                    output.push_str(&value[marker.separator_end..marker.value_start]);
+                    if let Some(quote) = block.closing_quote {
+                        output.push(quote);
+                    }
+                    output.push_str(REDACTED);
+                    if let Some(quote) = block.closing_quote {
+                        output.push(quote);
+                    }
+                    if line_ending_len(value, block.end).is_some() {
+                        // The normal terminal escape pass turns raw line breaks
+                        // into printable sequences. Keep a delimiter before
+                        // either raw or already-escaped line breaks so a second
+                        // pass preserves the following field boundary.
+                        output.push(' ');
+                    }
+                    cursor = block.end;
+                    continue;
+                }
+            }
             if marker.kind == FieldValueKind::Header
                 || value_starts_with_credential_scheme(value, marker.value_start)
             {
-                // Authorization, auth/token/cookie fields, and other secret
-                // headers are opaque through the line ending. This includes
-                // Digest, AWS, Negotiate, and schemes unknown to this CLI.
+                // Header-classified secret fields (including authorization,
+                // auth/token/cookie/session fields) are opaque through the
+                // line boundary. A scheme in arbitrary inline text is only
+                // recognized when it is listed below.
                 output.push_str(REDACTED);
                 cursor = header_value_end(value, marker.value_start);
                 append_escaped_control_boundary_space(
@@ -1116,6 +1175,7 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
         separator + 1
     };
     let normalized = normalized_secret_key(&key);
+    let compact = normalized.replace('_', "");
     let kind = if (!quoted_key && separator_byte == b':')
         || normalized.contains("auth")
         || normalized.contains("token")
@@ -1130,7 +1190,86 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
         separator_end,
         value_start: skip_horizontal_whitespace(value, separator_end),
         kind,
+        is_private_key: compact.contains("privatekey"),
     })
+}
+
+fn private_key_pem_block(value: &str, start: usize) -> Option<PemPrivateKeyBlock> {
+    const BEGIN: &str = "-----BEGIN ";
+
+    let (quote, content_start) = match value.as_bytes().get(start) {
+        Some(b'"') => (Some('"'), start + 1),
+        Some(b'\'') => (Some('\''), start + 1),
+        _ => (None, start),
+    };
+    if !value.get(content_start..)?.starts_with(BEGIN) {
+        return None;
+    }
+
+    let label_start = content_start + BEGIN.len();
+    let Some(label_end_offset) = value.get(label_start..)?.find("-----") else {
+        return Some(PemPrivateKeyBlock {
+            end: value.len(),
+            closing_quote: None,
+        });
+    };
+    let label_end = label_start + label_end_offset;
+    let label = value.get(label_start..label_end)?;
+    if label.is_empty()
+        || label.len() > 64
+        || !label.is_ascii()
+        || label.trim() != label
+        || !label
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
+        || !label.to_ascii_uppercase().ends_with("PRIVATE KEY")
+    {
+        return Some(PemPrivateKeyBlock {
+            end: value.len(),
+            closing_quote: None,
+        });
+    }
+
+    let marker_start = label_end + "-----".len();
+    let end_marker = format!("-----END {}-----", label.to_ascii_uppercase());
+    let tail = value.get(marker_start..)?;
+    let Some(end_offset) = tail
+        .to_ascii_uppercase()
+        .find(&end_marker.to_ascii_uppercase())
+    else {
+        return Some(PemPrivateKeyBlock {
+            end: value.len(),
+            closing_quote: None,
+        });
+    };
+    let end_marker_start = marker_start + end_offset;
+    let mut end = end_marker_start + end_marker.len();
+
+    if let Some(quote) = quote {
+        let mut cursor = marker_start;
+        while cursor < end_marker_start {
+            let character = value[cursor..].chars().next()?;
+            if character == quote && backslashes_before(value, cursor).is_multiple_of(2) {
+                return Some(PemPrivateKeyBlock {
+                    end: value.len(),
+                    closing_quote: None,
+                });
+            }
+            cursor += character.len_utf8();
+        }
+    }
+
+    let closing_quote = quote.filter(|quote| value.as_bytes().get(end) == Some(&(*quote as u8)));
+    if closing_quote.is_some() {
+        end += 1;
+        if !quoted_value_suffix_is_delimited(value, end) {
+            return Some(PemPrivateKeyBlock {
+                end: header_value_end(value, end),
+                closing_quote: None,
+            });
+        }
+    }
+    Some(PemPrivateKeyBlock { end, closing_quote })
 }
 
 fn is_field_name_byte(byte: u8) -> bool {
@@ -1173,6 +1312,8 @@ fn value_starts_with_credential_scheme(value: &str, start: usize) -> bool {
         "scram-sha-1",
         "scram-sha-256",
         "oauth",
+        "token",
+        "dpop",
     ]
     .iter()
     .any(|known| scheme.eq_ignore_ascii_case(known))
@@ -1414,6 +1555,9 @@ pub trait DiagnosticSink {
     fn write_event(&mut self, event: &DiagnosticEvent) -> io::Result<()>;
 }
 
+/// Writes events through the bounded human renderer documented on
+/// [`DiagnosticEvent`]. This does not certify arbitrary raw logs or unsupported
+/// formats as safe.
 pub struct HumanReadableSink<W: Write> {
     writer: W,
 }
@@ -1434,6 +1578,9 @@ impl<W: Write> DiagnosticSink for HumanReadableSink<W> {
     }
 }
 
+/// Writes events through [`DiagnosticEvent::to_json`] and its bounded text
+/// redaction rules. This does not certify arbitrary raw logs or unsupported
+/// formats as safe.
 pub struct JsonLinesSink<W: Write> {
     writer: W,
 }
@@ -1643,6 +1790,14 @@ struct CheckResultDraft {
     evidence: Vec<String>,
 }
 
+/// A structured verification report. Human and JSON outputs use the same
+/// bounded text rules as [`DiagnosticEvent`]: header-classified secret fields
+/// are hidden through their line boundary, recognized `private_key` PEM blocks
+/// through the matching `END` marker or bounded input end, and other inline
+/// schemes follow only recognized rules. Line-scoped redaction may also hide
+/// safe-looking fields later on that line. Arbitrary raw logs, HAR, URL userinfo,
+/// pair arrays, bare bearer tokens, command-line flags, and bracketed key paths
+/// are not certified safe.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerificationReport {
@@ -1725,12 +1880,17 @@ impl VerificationReport {
         Ok(())
     }
 
+    /// Serializes the report using the bounded text redaction rules described
+    /// on [`DiagnosticEvent`].
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         self.validate()?;
         serde_json::to_string_pretty(self)
             .map_err(|error| DiagnosticError(format!("serialize verification report: {error}")))
     }
 
+    /// Parses and validates a report. Text fields are redacted by the human and
+    /// JSON output paths using the bounded rules described on
+    /// [`DiagnosticEvent`]; unsupported raw formats are not certified safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let report: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse verification report: {error}")))?;
@@ -1738,6 +1898,8 @@ impl VerificationReport {
         Ok(report)
     }
 
+    /// Renders report fields through the bounded diagnostic text scrubber
+    /// described on [`DiagnosticEvent`].
     pub fn render_human(&self) -> String {
         let passed = self
             .checks
@@ -1900,9 +2062,14 @@ pub trait CrashSink {
     fn persist(&mut self, record: &CrashRecord) -> Result<(), String>;
 }
 
-/// Crash recovery hints use the limited diagnostic text scrubber. Arbitrary
-/// raw logs and unsupported formats are not certified as secret-free.
-/// Reprocessing ambiguous free text may redact more content.
+/// Crash recovery hints, event messages, and error details use the same bounded
+/// diagnostic text scrubber as [`DiagnosticEvent`]. Header-classified secret
+/// fields are hidden through their line boundary; recognized `private_key` PEM
+/// blocks are hidden through the matching `END` marker or bounded input end.
+/// Line-scoped redaction may also hide safe-looking fields later on that line.
+/// Scheme names in arbitrary inline text are not a universal credential
+/// detector. Arbitrary raw logs and unsupported formats are not certified as
+/// secret-free. Reprocessing ambiguous free text may redact more content.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CrashRecord {
@@ -1956,6 +2123,8 @@ impl CrashRecord {
         Ok(())
     }
 
+    /// Serializes the crash record using the bounded text redaction rules
+    /// described on [`DiagnosticEvent`].
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         self.validate()?;
         let mut safe = self.clone();
@@ -1967,6 +2136,8 @@ impl CrashRecord {
             .map_err(|error| DiagnosticError(format!("serialize crash record: {error}")))
     }
 
+    /// Parses and sanitizes the crash record using the same bounded text rules
+    /// as [`DiagnosticEvent`], including recognized `private_key` PEM blocks.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let mut record: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse crash record: {error}")))?;
@@ -2061,6 +2232,14 @@ impl<S: CrashSink> CrashCapture<S> {
     }
 }
 
+/// A bundle of structured verification and event records. Human and JSON output
+/// use the same bounded text redaction rules as [`DiagnosticEvent`].
+/// Header-classified secret fields are hidden through their line boundary;
+/// recognized `private_key` PEM blocks are hidden through the matching `END`
+/// marker or bounded input end. Arbitrary raw logs, HAR, URL userinfo, pair
+/// arrays, bare bearer tokens, command-line flags, and bracketed key paths are
+/// not certified safe. Line-scoped redaction may also hide safe-looking fields
+/// later on that line.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiagnosticsBundle {
@@ -2097,12 +2276,16 @@ impl DiagnosticsBundle {
         Ok(())
     }
 
+    /// Serializes the bundle using the bounded text redaction rules described
+    /// on [`DiagnosticEvent`].
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         self.validate()?;
         serde_json::to_string_pretty(self)
             .map_err(|error| DiagnosticError(format!("serialize diagnostics bundle: {error}")))
     }
 
+    /// Parses and sanitizes bundle events using the same bounded text rules as
+    /// [`DiagnosticEvent`]. Unsupported raw formats are not certified safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let mut bundle: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse diagnostics bundle: {error}")))?;
@@ -2111,6 +2294,8 @@ impl DiagnosticsBundle {
         Ok(bundle)
     }
 
+    /// Renders bundle events and the report through their bounded diagnostic
+    /// text redaction paths.
     pub fn render_human(&self) -> String {
         let mut lines = vec![format!(
             "Nagi diagnostics bundle v{} ({}/{})",
@@ -2776,6 +2961,212 @@ mod tests {
         let cookie = redact_inline_secrets("Cookie:a=1;sid=cookie-synthetic\r\nX-Trace: safe");
         assert!(!cookie.contains("cookie-synthetic"));
         assert!(cookie.contains("X-Trace: safe"));
+    }
+
+    #[test]
+    fn private_key_pem_blocks_redact_through_matching_end_and_preserve_safe_fields() {
+        for label in [
+            "PRIVATE KEY",
+            "ENCRYPTED PRIVATE KEY",
+            "OPENSSH PRIVATE KEY",
+            "RSA PRIVATE KEY",
+            "EC PRIVATE KEY",
+            "DSA PRIVATE KEY",
+        ] {
+            let input = format!(
+                "PRIVATE_KEY=-----BEGIN {label}-----\r\nSYNTHETIC-PEM-BODY\r\n-----END {label}-----\r\nX-Trace: visible"
+            );
+            let safe = redact_inline_secrets(&input);
+            assert!(!safe.contains("SYNTHETIC-PEM-BODY"), "{safe:?}");
+            assert!(!safe.contains(&format!("BEGIN {label}")), "{safe:?}");
+            assert!(safe.contains("X-Trace: visible"), "{safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+
+        let quoted = "private_key=\"-----BEGIN EC PRIVATE KEY-----\r\nSYNTHETIC-QUOTED-PEM\r\n-----END EC PRIVATE KEY-----\"\r\nX-Trace: quoted-visible";
+        let safe_quoted = redact_inline_secrets(quoted);
+        assert!(
+            !safe_quoted.contains("SYNTHETIC-QUOTED-PEM"),
+            "{safe_quoted:?}"
+        );
+        assert!(
+            safe_quoted.contains("X-Trace: quoted-visible"),
+            "{safe_quoted:?}"
+        );
+        assert_eq!(redact_inline_secrets(&safe_quoted), safe_quoted);
+
+        let quoted_suffix = "private_key=\"-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-QUOTE-SUFFIX-BODY\r\n-----END PRIVATE KEY-----\"SYNTHETIC-QUOTE-SUFFIX\r\nX-Trace: suffix-visible";
+        let safe_quoted_suffix = redact_inline_secrets(quoted_suffix);
+        assert!(!safe_quoted_suffix.contains("SYNTHETIC-QUOTE-SUFFIX"));
+        assert!(!safe_quoted_suffix.contains("SYNTHETIC-QUOTE-SUFFIX-BODY"));
+        assert!(safe_quoted_suffix.contains("X-Trace: suffix-visible"));
+
+        let single_quoted = "private_key='-----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-SINGLE-QUOTED-PEM\n-----END RSA PRIVATE KEY-----'\nX-Trace: single-quoted-visible";
+        let safe_single_quoted = redact_inline_secrets(single_quoted);
+        assert!(!safe_single_quoted.contains("SYNTHETIC-SINGLE-QUOTED-PEM"));
+        assert!(safe_single_quoted.contains("X-Trace: single-quoted-visible"));
+        assert_eq!(
+            redact_inline_secrets(&safe_single_quoted),
+            safe_single_quoted
+        );
+
+        let escaped = "private_key=-----BEGIN PRIVATE KEY-----\\nSYNTHETIC-ESCAPED-PEM\\n-----END PRIVATE KEY-----\\nX-Trace: escaped-visible";
+        let safe_escaped = redact_inline_secrets(escaped);
+        assert!(
+            !safe_escaped.contains("SYNTHETIC-ESCAPED-PEM"),
+            "{safe_escaped:?}"
+        );
+        assert!(
+            safe_escaped.contains("X-Trace: escaped-visible"),
+            "{safe_escaped:?}"
+        );
+        assert_eq!(redact_inline_secrets(&safe_escaped), safe_escaped);
+
+        for (input, payload) in [
+            (
+                "secret=Token SYNTHETIC-TOKEN-SUFFIX\r\nX-Trace: token-visible",
+                "SYNTHETIC-TOKEN-SUFFIX",
+            ),
+            (
+                "secret=DPoP SYNTHETIC-DPOP-SUFFIX\r\nX-Trace: dpop-visible",
+                "SYNTHETIC-DPOP-SUFFIX",
+            ),
+        ] {
+            let safe_scheme = redact_inline_secrets(input);
+            assert!(!safe_scheme.contains(payload), "{safe_scheme:?}");
+            assert!(safe_scheme.contains("X-Trace:"), "{safe_scheme:?}");
+        }
+
+        let json = r#"{"private_key":"-----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-JSON-PEM\n-----END RSA PRIVATE KEY-----","status":"visible"}"#;
+        let safe_json = redact_inline_secrets(json);
+        assert!(!safe_json.contains("SYNTHETIC-JSON-PEM"), "{safe_json:?}");
+        assert!(
+            safe_json.contains("\"status\":\"visible\""),
+            "{safe_json:?}"
+        );
+        serde_json::from_str::<serde_json::Value>(&safe_json)
+            .expect("JSON PEM value remains valid after redaction");
+    }
+
+    #[test]
+    fn incomplete_pem_private_key_blocks_fail_closed_to_bounded_end() {
+        for input in [
+            "private_key=-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-INCOMPLETE-PEM\r\nX-Trace: hidden",
+            "PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----\\nSYNTHETIC-LITERAL-INCOMPLETE-PEM",
+            "private_key=-----BEGIN PRIVATE KEY\r\nSYNTHETIC-TRUNCATED-HEADER-PEM",
+        ] {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains("SYNTHETIC-"), "{safe:?}");
+            assert!(!safe.contains("X-Trace: hidden"), "{safe:?}");
+        }
+
+        let oversized = format!(
+            "private_key=-----BEGIN PRIVATE KEY-----\r\n{}SYNTHETIC-TRUNCATED-PEM",
+            "x".repeat(MAX_MESSAGE_BYTES)
+        );
+        let safe_oversized = redact_inline_secrets(&oversized);
+        assert!(!safe_oversized.contains("SYNTHETIC-TRUNCATED-PEM"));
+        assert!(safe_oversized.ends_with(TRUNCATED));
+
+        let bounded_input = format!(
+            "private_key=-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-BOUNDED-PEM\r\n{}",
+            "x".repeat(MAX_MESSAGE_BYTES)
+        );
+        let truncated = bounded_text(&bounded_input, MAX_MESSAGE_BYTES);
+        assert!(truncated.contains("SYNTHETIC-BOUNDED-PEM"));
+        let safe_truncated = redact_inline_secrets(&truncated);
+        assert!(!safe_truncated.contains("SYNTHETIC-BOUNDED-PEM"));
+    }
+
+    #[test]
+    fn pem_private_key_redaction_is_shared_by_diagnostic_sinks() {
+        let pem = "private_key=-----BEGIN OPENSSH PRIVATE KEY-----\r\nSYNTHETIC-SINK-PEM\r\n-----END OPENSSH PRIVATE KEY-----\r\nX-Trace: visible";
+        let event = DiagnosticEvent::new(Severity::Error, "network", "NETWORK.PEM", pem)
+            .unwrap()
+            .with_field("details", pem, PrivacyClass::Public)
+            .unwrap()
+            .with_recovery_hint(pem);
+
+        let human = event.render_human();
+        let event_json = event.to_json().unwrap();
+        assert!(!human.contains("SYNTHETIC-SINK-PEM"), "{human:?}");
+        assert!(!event_json.contains("SYNTHETIC-SINK-PEM"), "{event_json:?}");
+        let parsed_event = DiagnosticEvent::from_json(&event_json).unwrap();
+        assert!(!parsed_event.render_human().contains("SYNTHETIC-SINK-PEM"));
+        assert!(!serde_json::to_string(&event.safe_view())
+            .unwrap()
+            .contains("SYNTHETIC-SINK-PEM"));
+
+        let check = VerificationCheckResult::fail(
+            "pem-check",
+            "diagnostics",
+            "PEM redaction",
+            EvidenceKind::Host,
+            FailureClass::Network,
+            pem,
+            vec![pem.into()],
+        );
+        let report = VerificationReport::new(vec![check], None, None, 1);
+        let report_human = report.render_human();
+        let report_json = report.to_json().unwrap();
+        assert!(!report_human.contains("SYNTHETIC-SINK-PEM"));
+        assert!(!report_json.contains("SYNTHETIC-SINK-PEM"));
+        assert!(!VerificationReport::from_json(&report_json)
+            .unwrap()
+            .render_human()
+            .contains("SYNTHETIC-SINK-PEM"));
+
+        let bundle = DiagnosticsBundle {
+            schema_version: DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
+            generated_at_unix_ms: 1,
+            source_commit: None,
+            host_os: "macos".into(),
+            host_arch: "arm64".into(),
+            verification: report,
+            events: vec![event.safe_view()],
+        };
+        let bundle_human = bundle.render_human();
+        let bundle_json = bundle.to_json().unwrap();
+        assert!(!bundle_human.contains("SYNTHETIC-SINK-PEM"));
+        assert!(!bundle_json.contains("SYNTHETIC-SINK-PEM"));
+        assert!(!DiagnosticsBundle::from_json(&bundle_json)
+            .unwrap()
+            .render_human()
+            .contains("SYNTHETIC-SINK-PEM"));
+
+        #[derive(Clone, Default)]
+        struct Store(Arc<Mutex<Vec<CrashRecord>>>);
+        impl CrashSink for Store {
+            fn persist(&mut self, record: &CrashRecord) -> Result<(), String> {
+                self.0.lock().unwrap().push(record.clone());
+                Ok(())
+            }
+        }
+
+        let store = Store::default();
+        let handle = store.0.clone();
+        let mut capture = CrashCapture::new(store, 1);
+        capture
+            .capture_fatal(
+                "kernel",
+                None,
+                DiagnosticEvent::new(Severity::Fatal, "kernel", "KERNEL.PEM", pem).unwrap(),
+                Some(pem.into()),
+            )
+            .unwrap();
+        let records = handle.lock().unwrap();
+        let crash_json = records[0].to_json().unwrap();
+        assert!(!crash_json.contains("SYNTHETIC-SINK-PEM"));
+        let parsed_crash = CrashRecord::from_json(&crash_json).unwrap();
+        assert!(!parsed_crash
+            .to_json()
+            .unwrap()
+            .contains("SYNTHETIC-SINK-PEM"));
+        assert!(!parsed_crash
+            .recovery_hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("SYNTHETIC-SINK-PEM"));
     }
 
     #[test]
