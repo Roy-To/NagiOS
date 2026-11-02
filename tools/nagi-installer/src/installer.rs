@@ -2302,7 +2302,9 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         let sentinel = outside.join("keep.txt");
         fs::write(&sentinel, b"outside data").unwrap();
-        let package_parent = installer_root.join("packages/com.nagi.installer-fixture");
+        let package_parent = installer_root
+            .join("packages")
+            .join("com.nagi.installer-fixture");
         fs::create_dir_all(&package_parent).unwrap();
         let junction = package_parent.join("versions");
         let output = std::process::Command::new("cmd.exe")
