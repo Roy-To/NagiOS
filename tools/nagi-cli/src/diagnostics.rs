@@ -545,8 +545,41 @@ fn safe_classified_value(key: &str, value: &str, privacy: PrivacyClass) -> Strin
     }
 }
 
+fn normalized_secret_key(key: &str) -> String {
+    let characters = key.chars().collect::<Vec<_>>();
+    let mut normalized = String::with_capacity(key.len() + 8);
+    for (index, character) in characters.iter().copied().enumerate() {
+        if character == '-' {
+            if !normalized.ends_with('_') {
+                normalized.push('_');
+            }
+            continue;
+        }
+        if character.is_ascii_uppercase() {
+            let previous = index.checked_sub(1).map(|previous| characters[previous]);
+            let next = characters.get(index + 1).copied();
+            let camel_boundary = previous.is_some_and(|previous| {
+                previous.is_ascii_lowercase()
+                    || previous.is_ascii_digit()
+                    || (previous.is_ascii_uppercase()
+                        && next.is_some_and(|next| next.is_ascii_lowercase()))
+            });
+            if camel_boundary && !normalized.ends_with('_') {
+                normalized.push('_');
+            }
+            normalized.push(character.to_ascii_lowercase());
+        } else if character.is_ascii_alphanumeric() || character == '_' {
+            normalized.push(character.to_ascii_lowercase());
+        } else {
+            normalized.push(character);
+        }
+    }
+    normalized
+}
+
 fn is_secret_key(key: &str) -> bool {
-    let key = key.to_ascii_lowercase().replace('-', "_");
+    let simple = key.to_ascii_lowercase().replace('-', "_");
+    let camel = normalized_secret_key(key);
     [
         "password",
         "passwd",
@@ -560,7 +593,7 @@ fn is_secret_key(key: &str) -> bool {
         "access_key",
     ]
     .iter()
-    .any(|needle| key.contains(needle))
+    .any(|needle| simple.contains(needle) || camel.contains(needle))
 }
 
 pub(crate) fn escape_terminal_controls(value: &str) -> String {
@@ -576,221 +609,546 @@ pub(crate) fn escape_terminal_controls(value: &str) -> String {
         .collect()
 }
 
-#[derive(Clone, Copy)]
-enum SecretMarkerKind {
-    HeaderValue,
-    JsonValue,
-    InlineValue,
-}
-
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum QuoteStyle {
     Plain,
     Escaped(usize),
 }
 
-const JSON_SECRET_KEYS: &[&str] = &[
-    "proxy-authorization",
-    "authorization",
-    "set-cookie",
-    "cookie",
-    "x-api-token",
-    "api-token",
-    "x-auth-token",
-    "x-access-token",
-    "token",
-    "secret",
-    "secret_key",
-    "secret-key",
-    "private_key",
-    "private-key",
-    "access_key",
-    "access-key",
-    "api_key",
-    "api-key",
-    "api_token",
-    "credential",
-    "password",
-    "passwd",
-];
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldValueKind {
+    Header,
+    Inline,
+}
+
+#[derive(Clone, Copy)]
+struct FieldMarker {
+    separator_end: usize,
+    value_start: usize,
+    kind: FieldValueKind,
+}
+
+struct JsonSecretMember {
+    prefix_end: usize,
+    value_start: usize,
+    quote_style: QuoteStyle,
+}
+
+const MAX_JSON_DEPTH: usize = 32;
 
 fn redact_inline_secrets(value: &str) -> String {
-    const MARKERS: &[&str] = &[
-        "proxy-authorization:",
-        "proxy-authorization=",
-        "authorization:",
-        "authorization=",
-        "set-cookie:",
-        "cookie:",
-        "x-api-token:",
-        "api-token:",
-        "x-auth-token:",
-        "x-access-token:",
-        "token:",
-        "secret:",
-        "secret_key:",
-        "secret-key:",
-        "private_key:",
-        "private-key:",
-        "access_key:",
-        "access-key:",
-        "api_key:",
-        "api-key:",
-        "api_token:",
-        "credential:",
-        "password:",
-        "passwd:",
-        "password=",
-        "passwd=",
-        "token=",
-        "secret=",
-        "secret_key=",
-        "secret-key=",
-        "private_key=",
-        "private-key=",
-        "access_key=",
-        "access-key=",
-        "api_key=",
-        "api-key=",
-        "api_token=",
-        "api-token=",
-        "credential=",
-        "cookie=",
-    ];
+    // Refuse oversized input before parsing. Besides bounding work, this avoids
+    // truncating in the middle of a credential marker or quoted value.
+    if value.len() > MAX_MESSAGE_BYTES {
+        return format!("{REDACTED}{TRUNCATED}");
+    }
 
-    let lower = value.to_ascii_lowercase();
+    let quote_context = quote_context_end_map(value);
     let mut output = String::new();
     let mut cursor = 0;
     while cursor < value.len() {
-        let mut selected = find_json_key_marker(value, &lower, cursor)
-            .map(|(start, end)| (start, end, SecretMarkerKind::JsonValue));
-        for marker in MARKERS {
-            let Some(offset) = lower[cursor..].find(marker) else {
-                continue;
-            };
-            let start = cursor + offset;
-            let end = start + marker.len();
-            let kind = if marker.ends_with(':') || marker.contains("authorization=") {
-                SecretMarkerKind::HeaderValue
-            } else {
-                SecretMarkerKind::InlineValue
-            };
-            let candidate = (start, end, kind);
-            if selected
-                .as_ref()
-                .is_none_or(|current| start < current.0 || (start == current.0 && end > current.1))
-            {
-                selected = Some(candidate);
-            }
+        if let Some(member) = json_secret_member_at(value, cursor) {
+            output.push_str(&value[cursor..member.prefix_end]);
+            append_json_redaction(&mut output, member.quote_style);
+            cursor = json_value_end(value, member.value_start, member.quote_style)
+                .unwrap_or(value.len());
+            continue;
         }
-        let Some((start, marker_end, kind)) = selected else {
-            output.push_str(&value[cursor..]);
-            break;
-        };
 
-        output.push_str(&value[cursor..marker_end]);
-        let value_start = skip_value_whitespace(value, marker_end);
-        match kind {
-            SecretMarkerKind::HeaderValue => {
-                // Header field values can contain spaces, commas, and quoted
-                // parameters (for example Digest); only a line ending closes
-                // the field, regardless of the authorization scheme.
-                if inside_quoted_context(value, start) {
-                    if let Some((closing_start, after_closing)) =
-                        matching_quote(value, value_start, QuoteStyle::Plain)
-                    {
-                        output.push_str(REDACTED);
-                        output.push_str(&value[closing_start..after_closing]);
-                        cursor = after_closing;
-                        continue;
-                    }
-                }
+        if let Some(marker) = field_marker_at(value, cursor) {
+            output.push_str(&value[cursor..marker.separator_end]);
+            if marker.kind == FieldValueKind::Header {
+                // Authorization and other secret headers are opaque through
+                // the line ending. This includes Digest, AWS, Negotiate, and
+                // schemes unknown to this CLI.
                 output.push_str(REDACTED);
-                cursor = header_value_end(value, value_start);
+                cursor = quote_context[cursor]
+                    .filter(|closing| *closing >= marker.value_start)
+                    .unwrap_or_else(|| header_value_end(value, marker.value_start));
+                continue;
             }
-            SecretMarkerKind::JsonValue => {
-                if opening_quote(value, value_start).is_some() {
-                    if let Some(after_quoted_value) =
-                        append_quoted_redaction(&mut output, value, value_start)
-                    {
-                        cursor = after_quoted_value;
-                    } else {
-                        output.push_str(REDACTED);
-                        cursor = header_value_end(value, value_start);
-                    }
-                } else {
-                    output.push_str(REDACTED);
-                    cursor = json_scalar_end(value, value_start);
+
+            if inline_value_is_empty(value, marker) {
+                output.push_str(REDACTED);
+                if field_marker_at(value, marker.value_start).is_some() {
+                    output.push(' ');
                 }
+                cursor = marker.value_start;
+                continue;
             }
-            SecretMarkerKind::InlineValue => {
-                if opening_quote(value, value_start).is_some() {
-                    if let Some(after_quoted_value) =
-                        append_quoted_redaction(&mut output, value, value_start)
-                    {
-                        cursor = after_quoted_value;
-                    } else {
-                        output.push_str(REDACTED);
-                        cursor = header_value_end(value, value_start);
-                    }
-                } else {
-                    // Inline key/value diagnostics use a single scalar token;
-                    // whitespace, commas, and semicolons delimit the next field.
-                    output.push_str(REDACTED);
-                    cursor = inline_value_end(value, value_start);
-                }
+
+            if let Some((opening_end, closing_start, after_closing)) =
+                inline_quoted_value(value, marker.value_start)
+            {
+                output.push_str(&value[marker.value_start..opening_end]);
+                output.push_str(REDACTED);
+                output.push_str(&value[closing_start..after_closing]);
+                cursor = after_closing;
+                continue;
             }
+
+            if starts_with_quote(value, marker.value_start) {
+                output.push_str(REDACTED);
+                cursor = header_value_end(value, marker.value_start);
+                continue;
+            }
+
+            output.push_str(REDACTED);
+            cursor = inline_value_end(value, marker.value_start);
+            continue;
         }
+
+        let character = value[cursor..].chars().next().unwrap();
+        output.push(character);
+        cursor += character.len_utf8();
     }
     let single_line = escape_terminal_controls(&output);
     bounded_text(&single_line, MAX_MESSAGE_BYTES)
 }
 
-fn find_json_key_marker(value: &str, lower: &str, cursor: usize) -> Option<(usize, usize)> {
-    let mut selected = None;
-    for key in JSON_SECRET_KEYS {
-        let mut search = cursor;
-        while let Some(offset) = lower[search..].find(key) {
-            let start = search + offset;
-            let preceded_by_quote = value[..start].chars().next_back() == Some('"');
-            let mut end = start + key.len();
-            let quote_width = if value[end..].starts_with('"') {
-                1
-            } else if value[end..].starts_with("\\\"") {
-                2
-            } else {
-                0
-            };
-            if preceded_by_quote && quote_width != 0 {
-                end += quote_width;
-                end = skip_value_whitespace(value, end);
-                if value[end..].starts_with(':') {
-                    let candidate = (start, end + 1);
-                    if selected.as_ref().is_none_or(|current: &(usize, usize)| {
-                        start < current.0 || (start == current.0 && end + 1 > current.1)
-                    }) {
-                        selected = Some(candidate);
-                    }
-                }
-            }
-            search = start + 1;
+fn skip_json_whitespace(value: &str, mut offset: usize) -> usize {
+    while offset < value.len() {
+        if let Some(length) = line_ending_len(value, offset) {
+            offset += length;
+            continue;
         }
+        let byte = value.as_bytes()[offset];
+        if !matches!(byte, b' ' | b'\t') {
+            break;
+        }
+        offset += 1;
     }
-    selected
+    offset
 }
 
-fn skip_value_whitespace(value: &str, mut offset: usize) -> usize {
-    while offset < value.len() {
-        if line_ending_len(value, offset).is_some() {
+fn skip_horizontal_whitespace(value: &str, mut offset: usize) -> usize {
+    while matches!(value.as_bytes().get(offset), Some(b' ' | b'\t')) {
+        offset += 1;
+    }
+    offset
+}
+
+fn json_secret_member_at(value: &str, start: usize) -> Option<JsonSecretMember> {
+    let (style, content_start) = opening_quote_at(value, start)?;
+    let (closing_start, after_closing) = delimited_string_end(value, content_start, style)?;
+    let mut key = decode_json_string(&value[content_start..closing_start]);
+    if matches!(style, QuoteStyle::Escaped(_)) {
+        for _ in 0..2 {
+            let Some(decoded) = key.as_deref().and_then(decode_json_string) else {
+                break;
+            };
+            if key.as_deref() == Some(decoded.as_str()) {
+                break;
+            }
+            key = Some(decoded);
+        }
+    }
+    let colon = skip_json_whitespace(value, after_closing);
+    if value.as_bytes().get(colon) != Some(&b':') {
+        return None;
+    }
+    let value_start = skip_json_whitespace(value, colon + 1);
+    if key.as_deref().is_some_and(|key| !is_secret_key(key)) {
+        return None;
+    }
+    Some(JsonSecretMember {
+        prefix_end: colon + 1,
+        value_start,
+        quote_style: style,
+    })
+}
+
+fn opening_quote_at(value: &str, start: usize) -> Option<(QuoteStyle, usize)> {
+    let bytes = value.as_bytes();
+    if bytes.get(start) == Some(&b'"') {
+        return Some((QuoteStyle::Plain, start + 1));
+    }
+    if bytes.get(start) != Some(&b'\\') {
+        return None;
+    }
+    let mut quote_index = start;
+    while bytes.get(quote_index) == Some(&b'\\') {
+        quote_index += 1;
+    }
+    let slash_count = quote_index - start;
+    if !slash_count.is_multiple_of(2) && bytes.get(quote_index) == Some(&b'"') {
+        Some((QuoteStyle::Escaped(slash_count), quote_index + 1))
+    } else {
+        None
+    }
+}
+
+fn delimited_string_end(
+    value: &str,
+    content_start: usize,
+    style: QuoteStyle,
+) -> Option<(usize, usize)> {
+    for (offset, character) in value[content_start..].char_indices() {
+        if matches!(
+            character,
+            '\r' | '\n' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+        ) {
+            return None;
+        }
+        if character != '"' {
+            continue;
+        }
+        let quote_index = content_start + offset;
+        let slash_count = backslashes_before(value, quote_index);
+        match style {
+            QuoteStyle::Plain if slash_count.is_multiple_of(2) => {
+                return Some((quote_index, quote_index + 1));
+            }
+            QuoteStyle::Escaped(expected) if slash_count == expected => {
+                return Some((quote_index - slash_count, quote_index + 1));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn decode_json_string(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let mut output = String::with_capacity(value.len());
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'\\' {
+            let character = value[cursor..].chars().next()?;
+            output.push(character);
+            cursor += character.len_utf8();
+            continue;
+        }
+        cursor += 1;
+        let escape = *bytes.get(cursor)?;
+        cursor += 1;
+        match escape {
+            b'"' => output.push('"'),
+            b'\\' => output.push('\\'),
+            b'/' => output.push('/'),
+            b'b' => output.push('\u{0008}'),
+            b'f' => output.push('\u{000c}'),
+            b'n' => output.push('\n'),
+            b'r' => output.push('\r'),
+            b't' => output.push('\t'),
+            b'u' => {
+                let first = parse_json_hex4(bytes, cursor)?;
+                cursor += 4;
+                let codepoint = if (0xd800..=0xdbff).contains(&first) {
+                    if bytes.get(cursor..cursor + 2) != Some(b"\\u") {
+                        return None;
+                    }
+                    cursor += 2;
+                    let second = parse_json_hex4(bytes, cursor)?;
+                    cursor += 4;
+                    if !(0xdc00..=0xdfff).contains(&second) {
+                        return None;
+                    }
+                    0x1_0000 + ((u32::from(first) - 0xd800) << 10) + (u32::from(second) - 0xdc00)
+                } else if (0xdc00..=0xdfff).contains(&first) {
+                    return None;
+                } else {
+                    u32::from(first)
+                };
+                output.push(char::from_u32(codepoint)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(output)
+}
+
+fn parse_json_hex4(bytes: &[u8], start: usize) -> Option<u16> {
+    let slice = bytes.get(start..start + 4)?;
+    let mut value = 0u16;
+    for byte in slice {
+        value = value.checked_mul(16)?
+            + match byte {
+                b'0'..=b'9' => u16::from(byte - b'0'),
+                b'a'..=b'f' => u16::from(byte - b'a' + 10),
+                b'A'..=b'F' => u16::from(byte - b'A' + 10),
+                _ => return None,
+            };
+    }
+    Some(value)
+}
+
+fn append_json_redaction(output: &mut String, style: QuoteStyle) {
+    let slash_count = match style {
+        QuoteStyle::Plain => 0,
+        QuoteStyle::Escaped(slash_count) => slash_count,
+    };
+    output.extend(std::iter::repeat_n('\\', slash_count));
+    output.push('"');
+    output.push_str(REDACTED);
+    output.extend(std::iter::repeat_n('\\', slash_count));
+    output.push('"');
+}
+
+fn json_value_end(value: &str, start: usize, style: QuoteStyle) -> Option<usize> {
+    if start >= value.len() {
+        return None;
+    }
+    let end = if let Some((actual_style, content_start)) = opening_quote_at(value, start) {
+        if actual_style != style {
+            return None;
+        }
+        delimited_string_end(value, content_start, style).map(|(_, after)| after)?
+    } else {
+        match value.as_bytes()[start] {
+            b'{' | b'[' => json_container_end(value, start, style),
+            _ => json_scalar_end(value, start),
+        }?
+    };
+    let delimiter = skip_json_whitespace(value, end);
+    if delimiter == value.len()
+        || matches!(value.as_bytes().get(delimiter), Some(b',' | b'}' | b']'))
+    {
+        Some(end)
+    } else {
+        None
+    }
+}
+
+fn json_container_end(value: &str, start: usize, style: QuoteStyle) -> Option<usize> {
+    let first = *value.as_bytes().get(start)?;
+    let mut stack = Vec::with_capacity(MAX_JSON_DEPTH);
+    stack.push(if first == b'{' { b'}' } else { b']' });
+    let mut cursor = start + 1;
+    while cursor < value.len() {
+        let byte = value.as_bytes()[cursor];
+        if line_ending_len(value, cursor).is_some() || matches!(byte, b' ' | b'\t') {
+            cursor += 1;
+            continue;
+        }
+
+        if byte == b'"' || byte == b'\\' {
+            if let Some((actual_style, content_start)) = opening_quote_at(value, cursor) {
+                if actual_style == style {
+                    let (_, after) = delimited_string_end(value, content_start, style)?;
+                    cursor = after;
+                    continue;
+                }
+                if style != QuoteStyle::Plain {
+                    let mut quote_index = cursor;
+                    while value.as_bytes().get(quote_index) == Some(&b'\\') {
+                        quote_index += 1;
+                    }
+                    if value.as_bytes().get(quote_index) == Some(&b'"') {
+                        cursor = quote_index + 1;
+                        continue;
+                    }
+                }
+                return None;
+            }
+            if byte == b'\\' {
+                return None;
+            }
+            if style != QuoteStyle::Plain {
+                return None;
+            }
+            let (_, after) = delimited_string_end(value, cursor + 1, QuoteStyle::Plain)?;
+            cursor = after;
+            continue;
+        }
+
+        match byte {
+            b'{' | b'[' => {
+                if stack.len() >= MAX_JSON_DEPTH {
+                    return None;
+                }
+                stack.push(if byte == b'{' { b'}' } else { b']' });
+                cursor += 1;
+            }
+            b'}' | b']' => {
+                if stack.pop() != Some(byte) {
+                    return None;
+                }
+                cursor += 1;
+                if stack.is_empty() {
+                    return Some(cursor);
+                }
+            }
+            _ => {
+                let character = value[cursor..].chars().next()?;
+                cursor += character.len_utf8();
+            }
+        }
+    }
+    None
+}
+
+fn json_scalar_end(value: &str, start: usize) -> Option<usize> {
+    let mut cursor = start;
+    while cursor < value.len() {
+        let character = value[cursor..].chars().next()?;
+        if line_ending_len(value, cursor).is_some()
+            || character.is_ascii_whitespace()
+            || matches!(character, ',' | '}' | ']')
+        {
             break;
         }
+        cursor += character.len_utf8();
+    }
+    (cursor > start).then_some(cursor)
+}
+
+fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
+    if start >= value.len() {
+        return None;
+    }
+    if start > 0 {
+        let previous = value.as_bytes()[start - 1];
+        if is_field_name_byte(previous) {
+            return None;
+        }
+    }
+    let bytes = value.as_bytes();
+    if !bytes[start].is_ascii_alphanumeric() && bytes[start] != b'_' {
+        return None;
+    }
+    let mut key_end = start;
+    while bytes
+        .get(key_end)
+        .is_some_and(|byte| is_field_name_byte(*byte))
+    {
+        key_end += 1;
+    }
+    let separator = skip_horizontal_whitespace(value, key_end);
+    let separator_byte = *bytes.get(separator)?;
+    if !matches!(separator_byte, b':' | b'=') || !is_secret_key(&value[start..key_end]) {
+        return None;
+    }
+    let normalized = normalized_secret_key(&value[start..key_end]);
+    let kind = if separator_byte == b':' || normalized.contains("authorization") {
+        FieldValueKind::Header
+    } else {
+        FieldValueKind::Inline
+    };
+    let separator_end = separator + 1;
+    Some(FieldMarker {
+        separator_end,
+        value_start: skip_horizontal_whitespace(value, separator_end),
+        kind,
+    })
+}
+
+fn is_field_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
+}
+
+fn inline_value_is_empty(value: &str, marker: FieldMarker) -> bool {
+    let start = marker.value_start;
+    if start >= value.len() || line_ending_len(value, start).is_some() {
+        return true;
+    }
+    if matches!(value.as_bytes()[start], b',' | b';') {
+        return true;
+    }
+    field_marker_at(value, start).is_some()
+}
+
+fn inline_quoted_value(value: &str, start: usize) -> Option<(usize, usize, usize)> {
+    if value.as_bytes().get(start) == Some(&b'\'') {
+        for (offset, character) in value[start + 1..].char_indices() {
+            if character == '\'' {
+                let quote_index = start + 1 + offset;
+                if backslashes_before(value, quote_index).is_multiple_of(2) {
+                    return Some((start + 1, quote_index, quote_index + 1));
+                }
+            }
+            if matches!(
+                character,
+                '\r' | '\n' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+            ) {
+                return None;
+            }
+        }
+        return None;
+    }
+    let (style, content_start) = opening_quote_at(value, start)?;
+    let (closing_start, after) = delimited_string_end(value, content_start, style)?;
+    Some((content_start, closing_start, after))
+}
+
+fn starts_with_quote(value: &str, start: usize) -> bool {
+    matches!(value.as_bytes().get(start), Some(b'"' | b'\'' | b'\\'))
+}
+
+fn inline_value_end(value: &str, start: usize) -> usize {
+    let mut offset = start;
+    while offset < value.len() {
+        if line_ending_len(value, offset).is_some() {
+            return offset;
+        }
         let character = value[offset..].chars().next().unwrap();
-        if !character.is_whitespace() {
-            break;
+        if character.is_whitespace() || matches!(character, ',' | ';' | '"' | '\'') {
+            return offset;
         }
         offset += character.len_utf8();
     }
-    offset
+    value.len()
+}
+
+fn quote_context_end_map(value: &str) -> Vec<Option<usize>> {
+    let mut map = vec![None; value.len() + 1];
+    let bytes = value.as_bytes();
+    let mut active: Option<(usize, usize)> = None;
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if let Some(length) = raw_line_ending_len(value, cursor) {
+            if let Some((opening, _)) = active.take() {
+                map[opening..cursor].fill(Some(cursor));
+            }
+            cursor += length;
+            continue;
+        }
+
+        if bytes[cursor] == b'\\' || bytes[cursor] == b'"' {
+            let opening = cursor;
+            while bytes.get(cursor) == Some(&b'\\') {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b'"') {
+                let slash_count = cursor - opening;
+                let style = if slash_count.is_multiple_of(2) {
+                    0
+                } else {
+                    slash_count
+                };
+                if let Some((start, active_style)) = active {
+                    if style == active_style {
+                        map[start..cursor].fill(Some(cursor));
+                        active = None;
+                    }
+                } else {
+                    active = Some((if style == 0 { cursor } else { opening }, style));
+                }
+                cursor += 1;
+                continue;
+            }
+            if cursor == opening {
+                cursor += 1;
+            }
+            continue;
+        }
+
+        let character = value[cursor..].chars().next().unwrap();
+        cursor += character.len_utf8();
+    }
+    if let Some((opening, _)) = active {
+        map[opening..value.len()].fill(Some(value.len()));
+    }
+    map
+}
+
+fn raw_line_ending_len(value: &str, offset: usize) -> Option<usize> {
+    let character = value.get(offset..)?.chars().next()?;
+    matches!(
+        character,
+        '\r' | '\n' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+    )
+    .then_some(character.len_utf8())
 }
 
 fn line_ending_len(value: &str, offset: usize) -> Option<usize> {
@@ -825,107 +1183,6 @@ fn header_value_end(value: &str, start: usize) -> usize {
         offset += value[offset..].chars().next().unwrap().len_utf8();
     }
     value.len()
-}
-
-fn json_scalar_end(value: &str, start: usize) -> usize {
-    let mut offset = start;
-    while offset < value.len() {
-        if line_ending_len(value, offset).is_some() {
-            return offset;
-        }
-        let character = value[offset..].chars().next().unwrap();
-        if character.is_whitespace() || matches!(character, ',' | '}' | ']') {
-            return offset;
-        }
-        offset += character.len_utf8();
-    }
-    value.len()
-}
-
-fn inline_value_end(value: &str, start: usize) -> usize {
-    let mut offset = start;
-    while offset < value.len() {
-        if line_ending_len(value, offset).is_some() {
-            return offset;
-        }
-        let character = value[offset..].chars().next().unwrap();
-        if character.is_whitespace() || matches!(character, ',' | ';' | '"') {
-            return offset;
-        }
-        offset += character.len_utf8();
-    }
-    value.len()
-}
-
-fn inside_quoted_context(value: &str, end: usize) -> bool {
-    let mut offset = 0;
-    let mut in_quotes = false;
-    let mut backslashes = 0;
-    while offset < end {
-        if let Some(length) = line_ending_len(value, offset) {
-            in_quotes = false;
-            backslashes = 0;
-            offset += length;
-            continue;
-        }
-        let character = value[offset..].chars().next().unwrap();
-        if character == '"' && backslashes % 2 == 0 {
-            in_quotes = !in_quotes;
-        }
-        if character == '\\' {
-            backslashes += 1;
-        } else {
-            backslashes = 0;
-        }
-        offset += character.len_utf8();
-    }
-    in_quotes
-}
-
-fn opening_quote(value: &str, start: usize) -> Option<(QuoteStyle, usize)> {
-    let bytes = value.as_bytes();
-    if bytes.get(start) == Some(&b'"') {
-        return Some((QuoteStyle::Plain, start + 1));
-    }
-    let mut quote_index = start;
-    while bytes.get(quote_index) == Some(&b'\\') {
-        quote_index += 1;
-    }
-    let slash_count = quote_index - start;
-    if slash_count > 0 && slash_count % 2 == 1 && bytes.get(quote_index) == Some(&b'"') {
-        Some((QuoteStyle::Escaped(slash_count), quote_index + 1))
-    } else {
-        None
-    }
-}
-
-fn matching_quote(value: &str, content_start: usize, style: QuoteStyle) -> Option<(usize, usize)> {
-    for (offset, character) in value[content_start..].char_indices() {
-        if character != '"' {
-            continue;
-        }
-        let quote_index = content_start + offset;
-        let slash_count = backslashes_before(value, quote_index);
-        match style {
-            QuoteStyle::Plain if slash_count % 2 == 0 => {
-                return Some((quote_index, quote_index + 1));
-            }
-            QuoteStyle::Escaped(expected) if slash_count == expected => {
-                return Some((quote_index - slash_count, quote_index + 1));
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn append_quoted_redaction(output: &mut String, value: &str, start: usize) -> Option<usize> {
-    let (style, content_start) = opening_quote(value, start)?;
-    let (closing_start, after_closing) = matching_quote(value, content_start, style)?;
-    output.push_str(&value[start..content_start]);
-    output.push_str(REDACTED);
-    output.push_str(&value[closing_start..after_closing]);
-    Some(after_closing)
 }
 
 fn backslashes_before(value: &str, quote_index: usize) -> usize {
@@ -1477,7 +1734,21 @@ pub struct CrashRecord {
     build_id: Option<String>,
     fatal_event: SafeDiagnosticEvent,
     recent_context: Vec<SafeDiagnosticEvent>,
+    #[serde(serialize_with = "serialize_sanitized_recovery_hint")]
     recovery_hint: Option<String>,
+}
+
+fn serialize_sanitized_recovery_hint<S>(
+    value: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    value
+        .as_deref()
+        .map(redact_inline_secrets)
+        .serialize(serializer)
 }
 
 impl CrashRecord {
@@ -1509,14 +1780,23 @@ impl CrashRecord {
 
     pub fn to_json(&self) -> Result<String, DiagnosticError> {
         self.validate()?;
-        serde_json::to_string_pretty(self)
+        let mut safe = self.clone();
+        safe.recovery_hint = safe
+            .recovery_hint
+            .take()
+            .map(|hint| redact_inline_secrets(&hint));
+        serde_json::to_string_pretty(&safe)
             .map_err(|error| DiagnosticError(format!("serialize crash record: {error}")))
     }
 
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
-        let record: Self = serde_json::from_str(input)
+        let mut record: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse crash record: {error}")))?;
         record.validate()?;
+        record.recovery_hint = record
+            .recovery_hint
+            .take()
+            .map(|hint| redact_inline_secrets(&hint));
         Ok(record)
     }
 
@@ -1921,6 +2201,113 @@ mod tests {
     }
 
     #[test]
+    fn secret_json_members_cover_normalized_keys_and_complete_values() {
+        let input = r#"{"access_token":"access-synthetic","client_secret":"client-synthetic","refresh_token":"refresh-synthetic","apiKey":"camel-synthetic","X-Api-Key":"header-synthetic","X-Amz-Security-Token":"aws-synthetic","api\u004bey":"unicode-key-synthetic","token":["first","array-tail-synthetic"],"credential":{"user":"safe","pass":"object-tail-synthetic"},"note":"visible"}"#;
+        let safe = redact_inline_secrets(input);
+        for secret in [
+            "access-synthetic",
+            "client-synthetic",
+            "refresh-synthetic",
+            "camel-synthetic",
+            "header-synthetic",
+            "aws-synthetic",
+            "unicode-key-synthetic",
+            "first",
+            "array-tail-synthetic",
+            "object-tail-synthetic",
+        ] {
+            assert!(!safe.contains(secret), "{secret:?} leaked in {safe:?}");
+        }
+        assert!(safe.contains("\"note\":\"visible\""), "{safe:?}");
+        assert_eq!(redact_inline_secrets(&safe), safe);
+        serde_json::from_str::<serde_json::Value>(&safe)
+            .expect("redacted object and array values remain valid JSON");
+
+        let escaped_key = r#"{\"api\\u004bey\":\"escaped-key-synthetic\"}"#;
+        let escaped_key_safe = redact_inline_secrets(escaped_key);
+        assert!(!escaped_key_safe.contains("escaped-key-synthetic"));
+        assert_eq!(redact_inline_secrets(&escaped_key_safe), escaped_key_safe);
+
+        let newline =
+            redact_inline_secrets("{\"token\":\n  \"newline-synthetic\",\n\"note\":\"visible\"}");
+        assert!(!newline.contains("newline-synthetic"));
+        assert!(newline.contains("\"note\":\"visible\""));
+
+        for primitive in ["42", "null", "false"] {
+            let input = format!("{{\"token\":{primitive},\"note\":\"visible\"}}");
+            let once = redact_inline_secrets(&input);
+            assert_eq!(redact_inline_secrets(&once), once, "{once:?}");
+            serde_json::from_str::<serde_json::Value>(&once)
+                .expect("all JSON value kinds become quoted sentinels");
+        }
+    }
+
+    #[test]
+    fn inline_markers_fail_closed_without_consuming_following_fields() {
+        for (input, secrets) in [
+            (
+                "password= Authorization: Basic empty-auth-synthetic",
+                &["empty-auth-synthetic"][..],
+            ),
+            (
+                "token=\tCookie:sid=empty-cookie-synthetic",
+                &["empty-cookie-synthetic"][..],
+            ),
+            (
+                "password=Authorization: Basic empty-auth-no-space-synthetic",
+                &["empty-auth-no-space-synthetic"][..],
+            ),
+            (
+                "token=Cookie:sid=empty-cookie-no-space-synthetic",
+                &["empty-cookie-no-space-synthetic"][..],
+            ),
+            ("password = spaced-synthetic", &["spaced-synthetic"][..]),
+            (
+                "token='single quote synthetic' next=visible",
+                &["single quote synthetic"][..],
+            ),
+            (
+                "Authorization : Digest response=\"inner-synthetic, safe=1",
+                &["inner-synthetic", "safe=1"][..],
+            ),
+        ] {
+            let safe = redact_inline_secrets(input);
+            for secret in secrets {
+                assert!(!safe.contains(secret), "{secret:?} leaked in {safe:?}");
+            }
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+        assert!(
+            redact_inline_secrets("token='single quote synthetic' next=visible")
+                .contains("next=visible")
+        );
+    }
+
+    #[test]
+    fn oversized_inputs_are_redacted_before_any_truncation() {
+        for size in [36 * 1024, 144 * 1024] {
+            let input = format!("public={} token=oversized-synthetic-tail", "x".repeat(size));
+            let safe = redact_inline_secrets(&input);
+            assert!(!safe.contains("oversized-synthetic-tail"));
+            assert_eq!(safe, format!("{REDACTED}{TRUNCATED}"));
+        }
+    }
+
+    #[test]
+    fn malformed_json_secret_values_fail_closed_through_the_remaining_input() {
+        for input in [
+            r#"{"token":["first","unclosed-synthetic""#,
+            r#"{"token":"value-synthetic" trailing-synthetic,"note":"visible"}"#,
+            r#"{"token":{"nested":["value-synthetic"]}tail-synthetic}"#,
+        ] {
+            let safe = redact_inline_secrets(input);
+            assert!(!safe.contains("synthetic"), "{safe:?}");
+            assert!(safe.contains(REDACTED), "{safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
+    }
+
+    #[test]
     fn empty_headers_and_unicode_line_boundaries_do_not_swallow_next_fields() {
         for separator in ["\r\n", "\u{0085}", "\u{2028}", "\u{2029}"] {
             let input = format!(
@@ -2130,6 +2517,26 @@ mod tests {
             .iter()
             .all(|event| !event.message_template.contains(crash_secret)));
         assert_eq!(parsed.to_json().unwrap(), crash_json);
+
+        let mut tampered: serde_json::Value = serde_json::from_str(&crash_json).unwrap();
+        tampered["recovery_hint"] =
+            serde_json::Value::String("Authorization: Basic crash-recovery-synthetic".into());
+        let tampered_json = serde_json::to_string(&tampered).unwrap();
+        let parsed_tampered = CrashRecord::from_json(&tampered_json).unwrap();
+        let sanitized_json = parsed_tampered.to_json().unwrap();
+        assert!(!sanitized_json.contains("crash-recovery-synthetic"));
+        assert!(!parsed_tampered
+            .recovery_hint
+            .as_deref()
+            .unwrap_or_default()
+            .contains("crash-recovery-synthetic"));
+
+        // Direct serde deserialization is also bounded by the public serializer.
+        let directly_deserialized: CrashRecord = serde_json::from_str(&tampered_json).unwrap();
+        let sanitized_direct = directly_deserialized.to_json().unwrap();
+        assert!(!sanitized_direct.contains("crash-recovery-synthetic"));
+        let serde_json = serde_json::to_string(&directly_deserialized).unwrap();
+        assert!(!serde_json.contains("crash-recovery-synthetic"));
     }
 
     #[test]
