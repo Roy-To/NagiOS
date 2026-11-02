@@ -7,7 +7,12 @@
 > **Experimental Developer Preview.** Nagi is an independent operating system
 > under active development. The 0.1 target is the QEMU x86-64 reference machine;
 > this repository does not claim a finished, general-purpose OS or physical-PC
-> support. Nagi's project-wide license has not been selected or granted.
+> support.
+
+The maintainer's original Nagi OS source within the documented scope is licensed
+under **MPL-2.0**. Existing package licenses and third-party/model terms remain
+separate. Some glyph/media provenance and complete-image redistribution checks
+remain unresolved. See [Licensing](#licensing) and [LICENSE_SCOPE.md](LICENSE_SCOPE.md).
 
 ## Project Overview
 
@@ -70,7 +75,7 @@ future architecture, not a completed 0.1 feature.
 | --- | --- | --- |
 | Independent OS and kernel | M0–M18 are recorded PASS for their stated acceptance scope. The guest boots Nagi's own kernel and user-space stack on the QEMU reference machine. | Milestone PASS results do not mean the full 0.1 Developer Preview is complete. Physical hardware is not a 0.1 target. |
 | Native desktop | M10 real-QEMU acceptance is PASS. The tracked capture shows Calculator, Notes, Files, and Terminal panels. | This is a bounded desktop acceptance surface, not a finished application suite or installer. |
-| Albert browser | M18 target CI acceptance is PASS: [run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised site permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, and Servo StorageManager persistence remain open; kanji conversion is deferred. |
+| Albert browser | M18 target CI acceptance is PASS: [run 37601664873](https://github.com/Roy-To/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised site permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, and Servo StorageManager persistence remain open; kanji conversion is deferred. |
 | Capability-based security | Kernel handles, IPC, and capability checks have accepted implementation foundations. | Nagi makes no production security guarantee. Full app-facing and AI-action authorization integration is still in progress. |
 | Local-first and local AI | A real QEMU run loaded Granite 4.2 3B in Nagi and produced a schema-constrained Japanese response. | M20 remains PARTIAL. Model installation and normal lazy-service integration remain open; this is not a finished AI chat or agent workflow. |
 | Wayback and Activity Ledger | M15 guest acceptance verified persistent history, versions, restore, and undo. Later M22 work has bounded History and Activity Ledger evidence. | General production Activity Ledger and AI-action integration remain partial. |
@@ -111,7 +116,7 @@ Status at source commit bcb92dc (2026-10-12):
 | --- | --- | --- |
 | M0–M18 | PASS | The accepted baseline includes the kernel and desktop foundations and the full M18 Albert guest scenario. See the linked acceptance records for exact scope. |
 | M19 | PARTIAL — current milestone | Bounded guest Search, Browser History persistence, and Files Search flows have evidence. Production app-facing Search grants, Files trash/restore integration, and normal Browser History producer updates remain open. |
-| M20 | PARTIAL | Local Granite guest inference passed. The [hosted inference run 37702418216](https://github.com/RT-NISH/NagiOS/actions/runs/37702418216) stopped before inference on a User Data write timeout; model installation and normal service integration remain open. |
+| M20 | PARTIAL | Local Granite guest inference passed. The [hosted inference run 37702418216](https://github.com/Roy-To/NagiOS/actions/runs/37702418216) stopped before inference on a User Data write timeout; model installation and normal service integration remain open. |
 | M21–M26 | PARTIAL | Validators, provider boundaries, and bounded guest experiments exist. General production agent actions, semantic-search integration, page summary, and a microphone-to-action voice experience are not accepted. Qwen inference and Gemma use are not accepted. |
 | M27–M30 | PARTIAL | Bounded recovery, integration, Japanese Settings, and release-bundle checks have evidence. Full integrated acceptance, authenticated updates, and redistribution review remain open. M30 is not PASS. |
 
@@ -121,6 +126,8 @@ Completion of individual QEMU scenarios or artifact checksums does not make the
 0.1 release ready. For run IDs, source revisions, and precise limitations,
 consult [docs/implementation_status.md](docs/implementation_status.md) and the
 owning workstream documents.
+
+Nagi makes no production security guarantees; see [SECURITY.md](SECURITY.md).
 
 ## Screenshots
 
@@ -140,7 +147,7 @@ This image accompanies the QEMU language-selection and same-disk restart
 acceptance. It does not demonstrate complete translation or accessibility.
 
 No demo video has been recorded or published by this preparation. The
-[QEMU demo recording plan](docs/oss/DEMO_RECORDING_PLAN.md) describes a
+[QEMU demo recording plan](docs/oss/demo-recording-plan.md) describes a
 recording based on reverified guest behavior.
 
 ## Roadmap
@@ -156,7 +163,7 @@ recording based on reverified guest behavior.
   with user-owned profile and memory, model portability, capability-aware
   actions, and Wayback-backed undo. These goals are not 0.1 features.
 - **Nagi OS 1.0:** the long-term target for formal public OSS release. No
-  release date is promised, and the project license is not yet selected.
+  release date is promised.
 
 See [ROADMAP.md](ROADMAP.md), the
 [0.2 implementation specification](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md),
@@ -179,6 +186,23 @@ From a local checkout, the POSIX host workflow is:
 ./nagi run
 ~~~
 
+Windows PowerShell:
+
+```powershell
+.\nagi.ps1 fetch
+.\nagi.ps1 doctor
+.\nagi.ps1 build
+.\nagi.ps1 test
+.\nagi.ps1 image
+.\nagi.ps1 run
+```
+
+If PowerShell blocks scripts, the repository's acceptance workflow uses:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
+```
+
 fetch may require network access and substantial disk space to materialize
 pinned third-party sources. It does not install every optional model. The
 build and test commands cover host-compatible packages; they do not replace
@@ -187,9 +211,9 @@ and current command details, follow the
 [Developer Preview guide](docs/developer-preview/README.md) and run
 <code>./nagi --help</code>.
 
-The public repository can be inspected, but its visibility does not grant
-permission to use or redistribute the source. See
-[Licensing Status](#licensing-status) before working with or sharing it.
+Public visibility alone does not grant rights beyond the scoped source license.
+Use and redistribution follow [LICENSE_SCOPE.md](LICENSE_SCOPE.md), [LICENSE](LICENSE),
+and the applicable exclusions, third-party terms, and notices.
 
 ## Contributing
 
@@ -201,18 +225,37 @@ separate verified behavior from plans and partial implementations.
 
 Useful contributions include reproducible QEMU failures, focused fixes,
 documentation improvements, and reviews that identify concrete evidence or
-remaining limits. Check the licensing status below and the repository's
+remaining limits. This documentation prepares Nagi for OSS publication and a Codex for Open Source
+application. The [application preparation notes](docs/oss/codex-application-preparation.md)
+describe the project, proposed use of support, and outstanding maintainer checks.
+They are preparation material, not an application submission or acceptance claim.
+
+Check the licensing terms below and the repository's
 contribution instructions before submitting code.
 
-## Licensing Status
+## Licensing
 
-Nagi's official project license has **not been selected or granted**. Public
-repository visibility is not an open-source license and does not imply
-permission to use, copy, modify, or redistribute Nagi-owned code or
-documentation. No candidate license should be treated as a grant.
+The maintainer's original Nagi OS source identified in
+[LICENSE_SCOPE.md](LICENSE_SCOPE.md) is licensed under **[MPL-2.0](LICENSE)**.
+This is a scoped source grant, not a claim that every repository file, image,
+model or dependency is covered by MPL or cleared for redistribution.
 
-Third-party source, fonts, model weights, voice data, and images have their own
-terms. Review [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
-[Legal documentation](docs/legal/README.md) before relying on or redistributing
-those materials. The formal public OSS release is planned for Nagi OS 1.0,
-after license and release reviews are complete.
+The existing `MIT OR Apache-2.0` declarations in `tools/nagi-cli`, `tools/legal`,
+`crates/nagi-embedding-provider` and `crates/nagi-tts-provider` are preserved.
+Third-party software and model artifacts retain their own terms. Granite and
+Qwen artifacts are recorded as Apache-2.0; Gemma has separate Google terms.
+No model weights are redistributed by this licensing change.
+
+Known holds include `user/nagi-init/src/font.rs` (embedded glyph provenance),
+media and artifact-specific notices. They are not silently included in the new
+grant. The [scope review](docs/oss/mpl-2.0-scope-review.md) describes the reviewed
+evidence and its limits. Complete-image/source-bundle redistribution review and
+Nagi 0.1 release acceptance remain separate work.
+
+[Third-party notices](THIRD_PARTY_NOTICES.md) and the
+[historical Apache-2.0 audit](docs/oss/apache-2.0-readiness.md) retain their
+dependency findings. Their old project-license proposal is superseded by
+LICENSE_SCOPE.md, not their unresolved provenance and notice requirements.
+
+More: [Roadmap](ROADMAP.md) · [Release notes](RELEASE_NOTES.md) ·
+[Dependency/SBOM tooling](docs/legal/README.md)
