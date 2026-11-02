@@ -6,8 +6,8 @@ Reviewed implementation baseline: `a3ec58ad52e77308ba63a11781137aa756f68eaf`
 `74ea168047042ea0a628063a9e382ea974729ed7` with public-main snapshot
 `9d73f3bd015d6b9805609ab38c90b5305b89f8b9` via local merge
 `a8f6ea8cc43c0b050c9f21b027f1a0fc936ca590`. This local review follow-up
-contains only edition-2021 formatting and documentation corrections. Remote PR
-#80 remains a draft at its prior head; this local candidate has not been pushed.
+contains only edition-2021 formatting and documentation corrections. PR #80
+remains a draft; no merge or milestone PASS is claimed.
 
 The candidate scopes committed-cleanup failures to the affected app, exposes
 pending app IDs in the inventory, preserves unknown package-directory content,
