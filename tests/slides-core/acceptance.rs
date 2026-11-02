@@ -781,3 +781,581 @@ fn duplicate_uses_source_created_and_edited_earlier_in_batch() {
     assert_eq!(p.slides()[3].notes, p.slides()[2].notes);
     assert_eq!(p.slides()[3].objects[0].id, ObjectId(41));
 }
+
+// PR #55 supplemental coverage. Native mutants start from bytes that decode,
+// and every limit/duplicate rejection is paired with an exact accepting case.
+fn le(ids: &[u64]) -> Vec<u8> {
+    ids.iter().flat_map(|id| id.to_le_bytes()).collect()
+}
+fn wire_text(s: &str) -> Vec<u8> {
+    let mut bytes = (s.len() as u32).to_le_bytes().to_vec();
+    bytes.extend_from_slice(s.as_bytes());
+    bytes
+}
+fn find_unique(bytes: &[u8], needle: &[u8]) -> usize {
+    let hits: Vec<_> = bytes
+        .windows(needle.len())
+        .enumerate()
+        .filter(|(_, window)| *window == needle)
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(hits.len(), 1, "fixture needle must occur exactly once");
+    hits[0]
+}
+fn object_head(id: u64) -> Vec<u8> {
+    [
+        le(&[id]),
+        1000i64.to_le_bytes().to_vec(),
+        2000i64.to_le_bytes().to_vec(),
+    ]
+    .concat()
+}
+fn fonts_wire() -> Vec<u8> {
+    [
+        wire_text("body"),
+        wire_text("Noto Sans"),
+        wire_text("head"),
+        wire_text("Noto Sans"),
+    ]
+    .concat()
+}
+fn colors_wire() -> Vec<u8> {
+    [
+        wire_text("accent"),
+        0x1234_56ffu32.to_le_bytes().to_vec(),
+        wire_text("border"),
+        0xabcd_ef80u32.to_le_bytes().to_vec(),
+    ]
+    .concat()
+}
+/// The untouched bytes must decode; only the single mutation may be rejected.
+fn rejects_mutant(bytes: &[u8], mutate: impl FnOnce(&mut Vec<u8>), error: Error) {
+    native::decode(bytes, Limits::default()).unwrap();
+    let mut hostile = bytes.to_vec();
+    mutate(&mut hostile);
+    assert_ne!(hostile, bytes);
+    assert_eq!(native::decode(&hostile, Limits::default()), Err(error));
+}
+/// Two fonts/colors, source + embedded reference, negative geometry, an
+/// internal target and tombstones 30/31 from an in-batch add/delete.
+fn rich() -> Presentation {
+    let mut p = populated();
+    let mut theme = p.theme().clone();
+    theme.fonts.insert("head".into(), "Noto Sans".into());
+    theme.colors.insert("border".into(), 0xabcd_ef80);
+    let mut linked = object(11);
+    linked.source = Some(reference());
+    let mut embedded = object(12);
+    embedded.geometry.x = -5000;
+    embedded.geometry.rotation_millidegrees = 359_999;
+    embedded.content = Content::EmbeddedReference;
+    embedded.theme_token = None;
+    embedded.source = Some(SourceReference {
+        resource: ObjectId(900),
+        object: None,
+        revision: RevisionId(1),
+        kind: SourceKind::Other,
+        label: String::new(),
+        locator: None,
+    });
+    embedded.target = Some(ObjectId(11));
+    apply(
+        &mut p,
+        &[
+            Edit::SetTitle("題名 / Title".into()),
+            Edit::SetTheme(theme),
+            Edit::SetObject(linked),
+            Edit::AddObject {
+                slide: ObjectId(20),
+                index: 1,
+                object: embedded,
+            },
+            Edit::AddSlide {
+                index: 2,
+                slide: slide(30, vec![object(31)]),
+            },
+            Edit::DeleteSlide(ObjectId(30)),
+        ],
+    )
+    .unwrap();
+    p
+}
+
+#[test]
+fn rich_native_save_load_save_is_byte_stable_and_reopened_state_edits_identically() {
+    let mut original = rich();
+    let bytes = native::encode(&original, Limits::default()).unwrap();
+    let mut reopened = native::decode(&bytes, Limits::default()).unwrap();
+    assert_eq!(reopened, original);
+    assert_eq!(native::encode(&reopened, Limits::default()).unwrap(), bytes);
+    let next = [Edit::AddSlide {
+        index: 2,
+        slide: slide(40, vec![object(41)]),
+    }];
+    assert_eq!(apply(&mut original, &next), Ok(RevisionId(4)));
+    assert_eq!(apply(&mut reopened, &next), Ok(RevisionId(4)));
+    assert_eq!(reopened, original);
+    unchanged(
+        &mut reopened,
+        &[Edit::AddSlide {
+            index: 0,
+            slide: slide(31, vec![]),
+        }],
+        Error::DuplicateId(ObjectId(31)),
+    );
+}
+
+#[test]
+fn native_rejects_noncanonical_issued_font_and_color_order() {
+    let plain = native::encode(&populated(), Limits::default()).unwrap();
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &le(&[10, 11]));
+            b[at..at + 16].copy_from_slice(&le(&[11, 10]));
+        },
+        Error::MalformedNative,
+    );
+    let rich = native::encode(&rich(), Limits::default()).unwrap();
+    rejects_mutant(
+        &rich,
+        |b| {
+            let at = find_unique(b, &fonts_wire());
+            b[at + 4..at + 8].copy_from_slice(b"head");
+            b[at + 25..at + 29].copy_from_slice(b"body");
+        },
+        Error::MalformedNative,
+    );
+    rejects_mutant(
+        &rich,
+        |b| {
+            let at = find_unique(b, &colors_wire());
+            b[at + 4..at + 10].copy_from_slice(b"border");
+            b[at + 18..at + 24].copy_from_slice(b"accent");
+        },
+        Error::MalformedNative,
+    );
+}
+
+#[test]
+fn native_rejects_duplicate_issued_font_and_color_entries() {
+    let plain = native::encode(&populated(), Limits::default()).unwrap();
+    // Without the duplicate check, set dedup would surface InvalidReference.
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &le(&[10, 11]));
+            b[at + 8..at + 16].copy_from_slice(&le(&[10]));
+        },
+        Error::MalformedNative,
+    );
+    let rich = native::encode(&rich(), Limits::default()).unwrap();
+    rejects_mutant(
+        &rich,
+        |b| {
+            let at = find_unique(b, &fonts_wire());
+            b[at + 25..at + 29].copy_from_slice(b"body");
+        },
+        Error::MalformedNative,
+    );
+    rejects_mutant(
+        &rich,
+        |b| {
+            let at = find_unique(b, &colors_wire());
+            b[at + 18..at + 24].copy_from_slice(b"accent");
+        },
+        Error::MalformedNative,
+    );
+}
+
+#[test]
+fn native_rejects_unknown_enum_and_presence_tags() {
+    let plain = native::encode(&populated(), Limits::default()).unwrap();
+    rejects_mutant(
+        &plain,
+        |b| {
+            let layout = [le(&[3]), vec![0], wire_text("Title + 内容")].concat();
+            let at = find_unique(b, &layout);
+            b[at + 8] = 5;
+        },
+        Error::MalformedNative,
+    );
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &object_head(21));
+            b[at + 48] = 3;
+        },
+        Error::MalformedNative,
+    );
+    // The final byte is object 21's absent-target flag.
+    rejects_mutant(
+        &plain,
+        |b| *b.last_mut().unwrap() = 2,
+        Error::MalformedNative,
+    );
+    let rich = native::encode(&rich(), Limits::default()).unwrap();
+    rejects_mutant(
+        &rich,
+        |b| {
+            let source = [vec![1], le(&[1001, 5])].concat();
+            let at = find_unique(b, &source);
+            b[at + 17] = 6;
+        },
+        Error::MalformedNative,
+    );
+}
+
+#[test]
+fn native_rejects_missing_references_and_unissued_or_duplicate_live_ids() {
+    let plain = native::encode(&populated(), Limits::default()).unwrap();
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &le(&[10, 3]));
+            b[at + 8..at + 16].copy_from_slice(&le(&[404]));
+        },
+        Error::InvalidReference,
+    );
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &le(&[20, 21]));
+            b[at + 8..at + 16].copy_from_slice(&le(&[22]));
+        },
+        Error::InvalidReference,
+    );
+    rejects_mutant(
+        &plain,
+        |b| {
+            let at = find_unique(b, &object_head(21));
+            b[at..at + 8].copy_from_slice(&le(&[11]));
+        },
+        Error::DuplicateId(ObjectId(11)),
+    );
+    // Slide 20/object 21 become tombstones; object 11's target flag is last.
+    let mut p = populated();
+    apply(&mut p, &[Edit::DeleteSlide(ObjectId(20))]).unwrap();
+    let bytes = native::encode(&p, Limits::default()).unwrap();
+    let with_target = |target: u64| {
+        let mut b = bytes.clone();
+        assert_eq!(b.pop(), Some(0));
+        b.push(1);
+        b.extend_from_slice(&le(&[target]));
+        b
+    };
+    let linked = native::decode(&with_target(10), Limits::default()).unwrap();
+    assert_eq!(linked.slides()[0].objects[0].target, Some(ObjectId(10)));
+    assert_eq!(
+        native::encode(&linked, Limits::default()).unwrap(),
+        with_target(10)
+    );
+    for dangling in [20, 21, 3, 404] {
+        assert_eq!(
+            native::decode(&with_target(dangling), Limits::default()),
+            Err(Error::InvalidReference),
+            "target {dangling}"
+        );
+    }
+}
+
+#[test]
+fn native_rejects_a_complete_document_appended_after_a_valid_one() {
+    let bytes = native::encode(&populated(), Limits::default()).unwrap();
+    native::decode(&bytes, Limits::default()).unwrap();
+    assert_eq!(
+        native::decode(&[bytes.clone(), bytes].concat(), Limits::default()),
+        Err(Error::MalformedNative)
+    );
+}
+
+#[test]
+fn native_limits_accept_exact_bytes_ids_slides_and_reject_one_outside() {
+    let p = populated();
+    let bytes = native::encode(&p, Limits::default()).unwrap();
+    // max_text_bytes must stay <= max_bytes, or Limits::validate rejects first.
+    let exact = Limits {
+        max_bytes: bytes.len(),
+        max_ids: 7,
+        max_slides: 2,
+        max_text_bytes: 64,
+        ..Limits::default()
+    };
+    assert_eq!(native::encode(&p, exact).unwrap(), bytes);
+    assert_eq!(native::decode(&bytes, exact).unwrap(), p);
+    for outside in [
+        Limits {
+            max_bytes: bytes.len() - 1,
+            ..exact
+        },
+        Limits {
+            max_ids: 6,
+            ..exact
+        },
+        Limits {
+            max_slides: 1,
+            ..exact
+        },
+    ] {
+        assert_eq!(native::encode(&p, outside), Err(Error::LimitExceeded));
+        assert_eq!(native::decode(&bytes, outside), Err(Error::LimitExceeded));
+    }
+}
+
+#[test]
+fn apply_accepts_exact_id_and_slide_limits_and_rejects_mid_slide_overflow() {
+    let base = populated();
+    let add = [Edit::AddSlide {
+        index: 2,
+        slide: slide(30, vec![object(31)]),
+    }];
+    // max_ids 8 admits slide 30 and then fails on object 31 inside one edit.
+    for (limits, accepted) in [
+        (
+            Limits {
+                max_ids: 9,
+                ..Limits::default()
+            },
+            true,
+        ),
+        (
+            Limits {
+                max_ids: 8,
+                ..Limits::default()
+            },
+            false,
+        ),
+        (
+            Limits {
+                max_slides: 3,
+                ..Limits::default()
+            },
+            true,
+        ),
+        (
+            Limits {
+                max_slides: 2,
+                ..Limits::default()
+            },
+            false,
+        ),
+    ] {
+        let mut p = base.clone();
+        let result = p.apply(p.revision(), &add, limits);
+        if accepted {
+            assert_eq!(result, Ok(RevisionId(3)));
+            assert_eq!(p.slides()[2].objects[0].id, ObjectId(31));
+        } else {
+            assert_eq!(result, Err(Error::LimitExceeded));
+            assert_eq!(p, base);
+        }
+    }
+}
+
+#[test]
+fn duplicate_exhausting_id_budget_midway_leaks_no_ids_or_revision() {
+    let mut p = populated();
+    apply(
+        &mut p,
+        &[Edit::AddObject {
+            slide: ObjectId(10),
+            index: 1,
+            object: object(12),
+        }],
+    )
+    .unwrap();
+    // Eight IDs are issued; this duplicate needs 30, 31 and 32.
+    let before = p.clone();
+    let duplicate = Edit::DuplicateSlide {
+        slide: ObjectId(10),
+        index: 2,
+        id: ObjectId(30),
+        object_ids: vec![ObjectId(31), ObjectId(32)],
+    };
+    let batch = [Edit::SetTitle("先行編集".into()), duplicate];
+    let ids = |max_ids| Limits {
+        max_ids,
+        ..Limits::default()
+    };
+    assert_eq!(
+        p.apply(p.revision(), &batch, ids(10)),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(p, before);
+    assert_eq!(p.revision(), RevisionId(3));
+    let mut exact = p.clone();
+    assert_eq!(
+        exact.apply(exact.revision(), &batch, ids(11)),
+        Ok(RevisionId(4))
+    );
+    assert_eq!(exact.slides()[2].objects[0].id, ObjectId(31));
+    assert_eq!(exact.slides()[2].objects[1].id, ObjectId(32));
+    // IDs touched by the failed batch remain free for unrelated roles.
+    assert_eq!(
+        apply(
+            &mut p,
+            &[Edit::AddSlide {
+                index: 2,
+                slide: slide(32, vec![object(30), object(31)]),
+            }],
+        ),
+        Ok(RevisionId(4))
+    );
+}
+
+#[test]
+fn second_duplicate_over_capacity_rolls_back_first_duplicate() {
+    let mut p = populated();
+    let batch = [
+        Edit::DuplicateSlide {
+            slide: ObjectId(10),
+            index: 2,
+            id: ObjectId(30),
+            object_ids: vec![ObjectId(31)],
+        },
+        Edit::DuplicateSlide {
+            slide: ObjectId(30),
+            index: 3,
+            id: ObjectId(40),
+            object_ids: vec![ObjectId(41)],
+        },
+    ];
+    let mut twice = p.clone();
+    apply(&mut twice, &batch).unwrap();
+    let twice_bytes = native::encode(&twice, Limits::default()).unwrap().len();
+    let bytes = |max_bytes| Limits {
+        max_bytes,
+        max_text_bytes: 128,
+        ..Limits::default()
+    };
+    let before = p.clone();
+    assert_eq!(
+        p.apply(p.revision(), &batch, bytes(twice_bytes - 1)),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(p, before);
+    let mut exact = p.clone();
+    assert_eq!(
+        exact.apply(exact.revision(), &batch, bytes(twice_bytes)),
+        Ok(RevisionId(3))
+    );
+    assert_eq!(exact, twice);
+    assert_eq!(
+        apply(
+            &mut p,
+            &[Edit::AddSlide {
+                index: 2,
+                slide: slide(41, vec![object(40), object(31), object(30)]),
+            }],
+        ),
+        Ok(RevisionId(3))
+    );
+}
+
+#[test]
+fn duplicate_over_slide_limit_after_earlier_add_rolls_back_both() {
+    let mut p = populated();
+    let before = p.clone();
+    let batch = [
+        Edit::AddSlide {
+            index: 2,
+            slide: slide(30, vec![object(31)]),
+        },
+        Edit::DuplicateSlide {
+            slide: ObjectId(30),
+            index: 3,
+            id: ObjectId(40),
+            object_ids: vec![ObjectId(41)],
+        },
+    ];
+    let slides = |max_slides| Limits {
+        max_slides,
+        ..Limits::default()
+    };
+    assert_eq!(
+        p.apply(p.revision(), &batch, slides(3)),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(p, before);
+    let mut exact = p.clone();
+    assert_eq!(
+        exact.apply(exact.revision(), &batch, slides(4)),
+        Ok(RevisionId(3))
+    );
+    assert_eq!(exact.slides()[3].objects[0].id, ObjectId(41));
+    assert_eq!(
+        apply(
+            &mut p,
+            &[Edit::AddSlide {
+                index: 2,
+                slide: slide(41, vec![object(40), object(31), object(30)]),
+            }],
+        ),
+        Ok(RevisionId(3))
+    );
+}
+
+fn duplicate_delete_cycles(count: usize) -> Vec<Edit> {
+    (0..count as u64)
+        .flat_map(|i| {
+            let id = 30 + 2 * i;
+            [
+                Edit::DuplicateSlide {
+                    slide: ObjectId(10),
+                    index: 2,
+                    id: ObjectId(id),
+                    object_ids: vec![ObjectId(id + 1)],
+                },
+                Edit::DeleteSlide(ObjectId(id)),
+            ]
+        })
+        .collect()
+}
+
+#[test]
+fn copy_budget_accepts_last_fitting_cycle_and_rejects_next_without_id_leak() {
+    let base = populated();
+    let base_bytes = native::encode(&base, Limits::default()).unwrap().len();
+    let mut once = base.clone();
+    apply(&mut once, &duplicate_delete_cycles(1)[..1]).unwrap();
+    // Copied slide size, excluding its two 8-byte issued-ID tombstones.
+    let slide_bytes = native::encode(&once, Limits::default()).unwrap().len() - base_bytes - 16;
+    // Smallest n whose cumulative copies exceed base + 16n + slide, which is
+    // also the n-th cycle's peak snapshot; n - 1 cycles then fit both budgets.
+    const MAX_BOUNDARY_CYCLES: usize = 32;
+    let mut n = 2usize;
+    while (n - 1) * slide_bytes <= base_bytes + 16 * n {
+        assert!(
+            n < MAX_BOUNDARY_CYCLES,
+            "copy-budget boundary not found within {MAX_BOUNDARY_CYCLES} cycles"
+        );
+        n += 1;
+    }
+    let limits = Limits {
+        max_bytes: base_bytes + 16 * n + slide_bytes,
+        max_text_bytes: 128,
+        ..Limits::default()
+    };
+    let mut p = base.clone();
+    assert_eq!(
+        p.apply(p.revision(), &duplicate_delete_cycles(n), limits),
+        Err(Error::LimitExceeded)
+    );
+    assert_eq!(p, base);
+    assert_eq!(
+        p.apply(p.revision(), &duplicate_delete_cycles(n - 1), limits),
+        Ok(RevisionId(3))
+    );
+    assert_eq!(p.slides(), base.slides());
+    let last = 30 + 2 * (n as u64 - 1);
+    assert_eq!(
+        apply(
+            &mut p,
+            &[Edit::AddSlide {
+                index: 2,
+                slide: slide(last, vec![object(last + 1)]),
+            }],
+        ),
+        Ok(RevisionId(4))
+    );
+}
