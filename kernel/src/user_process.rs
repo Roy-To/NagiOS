@@ -1968,8 +1968,9 @@ mod tests {
         build_address_space(&plan(2 * PAGE_SIZE), &image, &kernel_pml4, &mut storage)
             .expect("address space");
 
-        let sector = USER_IMAGE_BASE + PAGE_SIZE - 2048;
-        let sector_len = 4096;
+        // One 512-byte block transfer crosses the 4 KiB image-page boundary.
+        let sector = USER_IMAGE_BASE + PAGE_SIZE - 256;
+        let sector_len = 512;
         let readable = PageTableEntry::PRESENT | PageTableEntry::USER;
         let writable = readable | PageTableEntry::WRITABLE;
         assert!(super::mapped_image_range(
