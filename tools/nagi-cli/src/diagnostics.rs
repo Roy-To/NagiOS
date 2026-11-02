@@ -2230,7 +2230,7 @@ mod tests {
             Severity::Warn,
             "network",
             "NETWORK.AUTH_FAILED",
-            "request failed token=top-secret\nAuthorization: Bearer bearer-secret",
+            "request failed token=top-secret\nauthorization: Bearer bearer-secret",
         )
         .unwrap()
         .with_field("request_id", "r-7", PrivacyClass::Public)
