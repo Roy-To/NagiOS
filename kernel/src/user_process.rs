@@ -1961,6 +1961,45 @@ mod tests {
     }
 
     #[test]
+    fn block_io_user_ranges_follow_read_and_write_page_permissions() {
+        let kernel_pml4 = PageTable::empty();
+        let mut storage = boxed_storage();
+        let image = [0x90_u8; 16];
+        build_address_space(&plan(2 * PAGE_SIZE), &image, &kernel_pml4, &mut storage)
+            .expect("address space");
+
+        let sector = USER_IMAGE_BASE + PAGE_SIZE - 2048;
+        let sector_len = 4096;
+        let readable = PageTableEntry::PRESENT | PageTableEntry::USER;
+        let writable = readable | PageTableEntry::WRITABLE;
+        assert!(super::mapped_image_range(
+            &storage, sector, sector_len, readable
+        ));
+        assert!(
+            !super::mapped_image_range(&storage, sector, sector_len, writable),
+            "block_read output must reject a read-only image page"
+        );
+
+        assert!(
+            !super::mapped_image_range(&storage, USER_IMAGE_BASE + 2 * PAGE_SIZE, 1, readable,),
+            "an unmapped image page is not a valid block_write source"
+        );
+        assert!(
+            !super::mapped_image_range(&storage, u64::MAX - 3, 8, readable),
+            "a range whose end overflows must be rejected"
+        );
+
+        let second_page = storage.image_pt.raw_entry(1).expect("second image page");
+        assert!(storage
+            .image_pt
+            .replace(1, second_page & !PageTableEntry::USER));
+        assert!(
+            !super::mapped_image_range(&storage, sector, sector_len, readable),
+            "every page in a crossing input range must be user accessible"
+        );
+    }
+
+    #[test]
     fn mmap_range_accepts_its_window_end_and_rejects_crossing_it() {
         let window_bytes = USER_MMAP_PAGES as u64 * PAGE_SIZE;
         assert_eq!(
