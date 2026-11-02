@@ -198,9 +198,19 @@ pub struct SessionRecord {
 pub struct IdentitySnapshot {
     pub schema_version: u32,
     pub revision: u64,
+    /// True only when every previously allocated ProfileId is represented by
+    /// current profiles or retained session history. An older LKG restore sets
+    /// this false when the store high-water is newer; the flag is persisted so
+    /// later restarts continue to reject new profile allocation.
+    #[serde(default = "default_profile_id_history_complete")]
+    pub profile_id_history_complete: bool,
     pub users: Vec<LocalUser>,
     pub profiles: Vec<ProfileRecord>,
     pub sessions: Vec<SessionRecord>,
+}
+
+fn default_profile_id_history_complete() -> bool {
+    true
 }
 
 impl IdentitySnapshot {
@@ -208,6 +218,7 @@ impl IdentitySnapshot {
         Self {
             schema_version: IDENTITY_SCHEMA_VERSION,
             revision: 0,
+            profile_id_history_complete: true,
             users: Vec::new(),
             profiles: Vec::new(),
             sessions: Vec::new(),

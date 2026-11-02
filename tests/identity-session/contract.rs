@@ -625,6 +625,158 @@ fn stale_store_revision_is_rejected_after_lkg_recovery_from_missing_current() {
 }
 
 #[test]
+fn older_lkg_recovery_blocks_reuse_of_guest_profile_id_from_lost_current() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("lkg-guest-history-loss");
+    let (mut writer, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut writer, &caller);
+    let (user_id, first_profile) = writer
+        .create_local_user(&caller, metadata("Owner").0, metadata("Primary").1)
+        .unwrap();
+    let second_profile = writer
+        .create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Second", None).unwrap(),
+        )
+        .unwrap();
+    let guest = writer
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("guest-current-only").unwrap(),
+        )
+        .unwrap();
+    let lost_guest_profile = writer
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == guest)
+        .unwrap()
+        .profile_id
+        .clone();
+
+    let high_water = store.current_version().unwrap();
+    let lkg = store.load_last_known_good().unwrap().unwrap();
+    assert_eq!(high_water.get(), lkg.version.get() + 1);
+    let lkg_snapshot = IdentitySnapshot::from_json(&lkg.bytes).unwrap();
+    assert!(lkg_snapshot
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == first_profile));
+    assert!(lkg_snapshot
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == second_profile));
+    assert!(!lkg_snapshot
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == lost_guest_profile));
+    assert!(!lkg_snapshot
+        .sessions
+        .iter()
+        .any(|session| session.profile_id == lost_guest_profile));
+
+    store.lose_current();
+    let (mut recovered, _) = new_service_with_ids(
+        store.clone(),
+        cleaner.clone(),
+        TestIds {
+            user: 1,
+            profile: 2,
+            session: 1,
+            fail: false,
+        },
+    );
+    assert_eq!(
+        recovered.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!recovered.snapshot().profile_id_history_complete);
+    assert!(!recovered
+        .snapshot()
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == lost_guest_profile));
+    assert!(!recovered
+        .snapshot()
+        .sessions
+        .iter()
+        .any(|session| session.profile_id == lost_guest_profile));
+    assert!(
+        cleaner.cleaned.lock().unwrap().is_empty(),
+        "the lost guest record cannot drive cleanup of its old root"
+    );
+
+    let before = recovered.snapshot().clone();
+    let attempted_reuse = recovered.create_guest_session(
+        &caller,
+        None,
+        nagi_identity_session::IdempotencyKey::new("reused-lost-guest").unwrap(),
+    );
+    assert_eq!(
+        attempted_reuse,
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+    assert_eq!(recovered.snapshot(), &before);
+    assert_eq!(
+        recovered.create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Blocked profile", None).unwrap()
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+    assert_eq!(
+        recovered.create_local_user(
+            &caller,
+            metadata("Blocked owner").0,
+            metadata("Blocked home").1
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+    assert_eq!(recovered.snapshot(), &before);
+
+    let (mut restarted, _) = new_service_with_ids(
+        store,
+        cleaner,
+        TestIds {
+            user: 1,
+            profile: 2,
+            session: 1,
+            fail: false,
+        },
+    );
+    assert_eq!(
+        restarted.recover(&caller).unwrap().source,
+        RecoverySource::Current
+    );
+    assert!(!restarted.snapshot().profile_id_history_complete);
+    assert_eq!(
+        restarted.create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("restart-blocked-guest").unwrap()
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+}
+
+#[test]
+fn legacy_snapshot_defaults_profile_history_to_complete() {
+    let mut legacy = serde_json::to_value(IdentitySnapshot::empty()).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("profile_id_history_complete");
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+
+    let loaded = IdentitySnapshot::from_json(&bytes).unwrap();
+    assert!(loaded.profile_id_history_complete);
+}
+
+#[test]
 fn snapshot_rejects_cleaned_guest_profile_id_reuse_by_persistent_owner() {
     let store = SharedStore::default();
     let caller = TestCaller::new("snapshot-profile-history");
