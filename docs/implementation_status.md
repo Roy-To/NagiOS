@@ -1,36 +1,44 @@
-## PR #80 standalone Installer host candidate — 2026-11-02
+## PR #80 standalone Installer host candidate - 2026-11-02
 
-Status: `PARTIAL` (local review candidate; no 0.1 milestone PASS).
-Reviewed implementation baseline: `a3ec58ad52e77308ba63a11781137aa756f68eaf`
-(tree `82bcdc14292a8f7febb3ab60c5ee711f67b31189`), integrating PR #80 head
-`74ea168047042ea0a628063a9e382ea974729ed7` with public-main snapshot
-`9d73f3bd015d6b9805609ab38c90b5305b89f8b9` via local merge
-`a8f6ea8cc43c0b050c9f21b027f1a0fc936ca590`. This local review follow-up
-contains only edition-2021 formatting and documentation corrections. PR #80
-remains a draft; no merge or milestone PASS is claimed.
+Status: `PARTIAL` (host checks pass; no 0.1 milestone PASS).
+Published candidate: `14daabe3cffb0c2161d67df5c349ad59ea1d5ea1`
+(tree `d28a4d7b721eb190aa209d999b3b1b2b9260702b`), based on public
+`main` `8b49bc8a2427071adb20ba7ef14ece4ff08e9c97`. PR #80 remains open
+as a draft; it has not been merged. PRs #63, #69, and #75 remain open.
 
-The candidate scopes committed-cleanup failures to the affected app, exposes
-pending app IDs in the inventory, preserves unknown package-directory content,
-binds install journals to their version transaction, and adds Windows path and
-non-Unix executable metadata regressions. The shared CLI Git fixture sanitizes
-inherited Git environment variables. Ubuntu and Windows workflows now include
-standalone Installer checks. `NoopPolicy` remains a host-reference policy; no
-production installer activation or permission integration is included.
+The candidate scopes committed-uninstall cleanup failures to the affected app,
+reports pending app IDs while keeping inventory and unrelated apps usable,
+preserves unknown package-directory content, and binds install journals to
+their version transaction. It also adds Windows junction/open-handle coverage,
+normalizes non-Unix executable metadata, and sanitizes inherited Git environment
+overrides in the isolated CLI fixture. The standalone Installer remains a
+host-side foundation: no production installer activation or permission
+integration is included.
 
-**Verification at this candidate:** the pinned nightly edition-2021 formatting
-check for `tools/nagi-installer/Cargo.toml` passes. A temporary std-only
-`rustc` harness called the unchanged canonical `ensure_cc_nagi_checkout`
-helper with Cargo offline, materializing only the pinned `cc-nagi` source.
-The generated checkout and review harness are local evidence, not PR payload.
+**Hosted validation at the current head:** GitHub Actions run
+[41412047119](https://github.com/Roy-To/NagiOS/actions/runs/41412047119):
+- Ubuntu host job: PASS, including standalone Installer formatting, Clippy
+  with warnings denied, and 35 Installer tests (27 unit, 3 journal, 5 metadata).
+  The CLI integration files passed 33 `cli.rs` tests and 6
+  `run_receipt_cli.rs` tests.
+- Windows launcher job: PASS, including standalone Installer formatting,
+  Clippy with warnings denied, and the same 35 Installer tests. The Windows
+  junction regression passed. Windows ran 33 `cli.rs` tests; the
+  Unix-specific `run_receipt_cli.rs` target contained 0 tests.
+- On the preceding head `507b71cd`, the first run
+  [41410824188](https://github.com/Roy-To/NagiOS/actions/runs/41410824188)
+  found that the junction fixture used a forward slash in a path passed to
+  `cmd.exe`. Commit `14daabe3` switched that fixture to native
+  `PathBuf::join` components; the current Windows rerun passes.
+- The additional `nagi-target` job in run 41412047119 is still running at
+  `Build Nagi user init`; its result is not included above. No guest/VM
+  acceptance is claimed.
 
-Cargo tests and Clippy have not been run after the final pending-cleanup changes.
-An earlier pre-final Installer attempt reported 26/27; the remaining journal
-fixture failed while reading a journal that its setup had not created, before
-the intended assertion. That run does not verify this candidate. The full CLI
-suite and new Ubuntu/Windows standalone Installer CI have not been run for this
-candidate. Windows directory-sync or power-loss durability is not claimed.
-No target build or VM acceptance was run. This change does not alter the M19
-through M30 milestone statuses.
+The Windows implementation's directory-sync operation remains a no-op.
+Crash/power-loss durability for directory-tree promotion is not established.
+The pinned nightly edition-2021 format check and `git diff --check` pass.
+The scoped canonical `cc-nagi` bootstrap used a local verified archive; its
+generated checkout and receipt remain local and are not PR content.
 
 # 1. Current status
 
