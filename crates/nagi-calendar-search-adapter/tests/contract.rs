@@ -434,3 +434,61 @@ fn stale_delete_cannot_remove_newer_live_or_tombstoned_metadata() {
     );
     assert!(get(&core).is_none());
 }
+
+#[test]
+fn same_revision_changes_to_unprojected_fields_are_unchanged() {
+    let (adapter, mut core, _, _, metadata) = fixture();
+    let mut e = event();
+    assert_eq!(adapter.publish(&mut core, &e), Ok(IngestOutcome::Applied));
+    let before = get(&core).unwrap().hit.record;
+    let writes = metadata.writes();
+
+    e.draft.description = "new private notes".into();
+    assert_eq!(adapter.publish(&mut core, &e), Ok(IngestOutcome::Unchanged));
+    assert_eq!(get(&core).unwrap().hit.record, before);
+    assert_eq!(metadata.writes(), writes);
+    assert!(!format!("{:?}", get(&core).unwrap()).contains("new private notes"));
+}
+
+#[test]
+fn unmapped_remove_keeps_the_published_record_unchanged() {
+    struct MissingObjects;
+    impl EventObjects for MissingObjects {
+        fn object_id(&self, _: &EventId) -> Option<ObjectId> {
+            None
+        }
+    }
+
+    let (adapter, mut core, _, _, metadata) = fixture();
+    let e = event();
+    adapter.publish(&mut core, &e).unwrap();
+    let before = metadata.snapshot();
+    let writes = metadata.writes();
+    let missing = CalendarSearchAdapter::new(PROVIDER, MissingObjects);
+
+    assert_eq!(
+        missing.remove(&mut core, &e.id, e.revision, 10),
+        Err(Error::UnmappedEvent)
+    );
+    assert_eq!(metadata.snapshot(), before);
+    assert_eq!(metadata.writes(), writes);
+    assert_eq!(get(&core).unwrap().hit.record.title, "Planning");
+}
+
+#[test]
+fn mismatched_provider_cannot_tombstone_another_providers_record() {
+    let (adapter, mut core, _, _, metadata) = fixture();
+    let e = event();
+    adapter.publish(&mut core, &e).unwrap();
+    let before = metadata.snapshot();
+    let writes = metadata.writes();
+    let spoof = CalendarSearchAdapter::new(AppId(99), Objects);
+
+    assert_eq!(
+        spoof.remove(&mut core, &e.id, e.revision, 10),
+        Err(Error::Search(SearchCoreError::ProviderNotAuthorized))
+    );
+    assert_eq!(metadata.snapshot(), before);
+    assert_eq!(metadata.writes(), writes);
+    assert_eq!(get(&core).unwrap().hit.record.title, "Planning");
+}
