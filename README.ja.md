@@ -6,8 +6,12 @@
 
 > **実験的な Developer Preview です。** Nagi は独立した OS として開発中
 > です。0.1 の対象は QEMU x86-64 参照マシンであり、完成した汎用 OS や
-> 物理 PC 対応を示すものではありません。Nagi のプロジェクトライセンスは
-> 未選定で、ライセンス付与も行われていません。
+> 物理 PC 対応を示すものではありません。
+
+所有者が権利を持つ Nagi 独自 OS ソースのうち、明示された範囲を
+**MPL-2.0** で提供します。既存パッケージ・外部ソフトウェア・モデルの
+ライセンスは維持します。字形・画像等の出自や OS イメージ全体の再配布確認は
+未完了です。[ライセンス](#ライセンス)と[適用範囲](LICENSE_SCOPE.md)を参照してください。
 
 ## プロジェクト概要
 
@@ -68,7 +72,7 @@ Agent 構想では、ユーザー所有の Profile やモデル非依存の Memo
 | --- | --- | --- |
 | 独立 OS とカーネル | M0–M18 は、それぞれの受け入れ範囲で PASS と記録されています。QEMU 参照マシンで Nagi のカーネルとユーザー空間が起動します。 | マイルストーン PASS は 0.1 全体の完成を意味しません。物理ハードウェアは 0.1 の対象外です。 |
 | ネイティブデスクトップ | M10 の実 QEMU 受け入れは PASS。保存済み画像には Calculator、Notes、Files、Terminal のパネルがあります。 | 範囲を限定したデスクトップ受け入れ画面です。完成したアプリ群やインストーラーではありません。 |
-| Albert ブラウザー | M18 の target CI は PASS: [run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873)。HTTPS ページ 3 件、サイト権限、Clipboard、かな IME、Upload、ユーザー操作による Download を確認しました。 | 本番認証、通知表示、Servo StorageManager の永続化は未完了です。漢字変換は延期されています。 |
+| Albert ブラウザー | M18 の target CI は PASS: [run 37601664873](https://github.com/Roy-To/NagiOS/actions/runs/37601664873)。HTTPS ページ 3 件、サイト権限、Clipboard、かな IME、Upload、ユーザー操作による Download を確認しました。 | 本番認証、通知表示、Servo StorageManager の永続化は未完了です。漢字変換は延期されています。 |
 | Capability-based security | カーネルの Handle、IPC、Capability 検査に受け入れ済みの基盤があります。 | 本番セキュリティを保証するものではありません。アプリや AI 操作に対する認可統合は作業中です。 |
 | Local-first とローカル AI | 実 QEMU で Granite 4.2 3B を Nagi 内で動かし、日本語の schema 制約付き応答を生成した記録があります。 | M20 は PARTIAL。モデルのインストールや通常の遅延起動サービスとの統合は未完了で、完成した AI チャットや Agent ではありません。 |
 | Wayback と Activity Ledger | M15 のゲスト受け入れでは、永続履歴、バージョン、復元、Undo を確認しました。M22 には範囲を限定した History / Activity Ledger の証拠があります。 | 本番 Activity Ledger や AI 操作との一般的な統合は部分実装です。 |
@@ -109,7 +113,7 @@ source commit bcb92dc（2026-10-12）時点の概要:
 | --- | --- | --- |
 | M0–M18 | PASS | カーネル・デスクトップ基盤と M18 Albert のゲストシナリオを含む、定義済みの受け入れを通過しています。範囲は各記録を確認してください。 |
 | M19 | PARTIAL — 現在のマイルストーン | 範囲を限定したゲスト Search、Browser History 永続化、Files Search の証拠があります。本番アプリ向け Search grant、Files の Trash/Restore 統合、通常の Browser History producer 更新は未完了です。 |
-| M20 | PARTIAL | ローカル Granite のゲスト推論は成功しています。[ホスト CI run 37702418216](https://github.com/RT-NISH/NagiOS/actions/runs/37702418216) は推論前の User Data 書き込み timeout で停止しました。モデルのインストールと通常サービスへの統合は未完了です。 |
+| M20 | PARTIAL | ローカル Granite のゲスト推論は成功しています。[ホスト CI run 37702418216](https://github.com/Roy-To/NagiOS/actions/runs/37702418216) は推論前の User Data 書き込み timeout で停止しました。モデルのインストールと通常サービスへの統合は未完了です。 |
 | M21–M26 | PARTIAL | Validator、provider 境界、範囲を限定したゲスト実験があります。本番の一般的な Agent 操作、Semantic Search 統合、ページ要約、マイクから操作までの音声体験は受け入れ未完了です。Qwen 推論と Gemma 利用も受け入れられていません。 |
 | M27–M30 | PARTIAL | 範囲を限定した Recovery、統合、日本語 Settings、Release bundle の確認記録があります。統合受け入れ、認証済み更新、再配布レビューは未完了です。M30 は PASS ではありません。 |
 
@@ -119,6 +123,8 @@ checksum 検証だけで 0.1 リリース準備完了とはなりません。実
 revision、制限事項は
 [docs/implementation_status.md](docs/implementation_status.md) と各
 workstream の記録を参照してください。
+
+本番セキュリティの保証はありません。[SECURITY.md](SECURITY.md)を参照してください。
 
 ## スクリーンショット
 
@@ -138,7 +144,7 @@ workstream の記録を参照してください。
 全 UI の翻訳やアクセシビリティを示すものではありません。
 
 この準備作業では動画を撮影・公開していません。
-[QEMU 動画撮影計画](docs/oss/DEMO_RECORDING_PLAN.md)では、再確認した
+[QEMU 動画撮影計画](docs/oss/demo-recording-plan.md)では、再確認した
 ゲスト動作を撮影する手順をまとめています。
 
 ## ロードマップ
@@ -153,8 +159,7 @@ workstream の記録を参照してください。
 - **Nagi OS 0.3 — Agentic System:** ユーザー所有の Profile / Memory、
   モデル移行性、Capability を考慮した操作、Wayback による Undo を備える
   Personal Agent の将来アーキテクチャです。0.1 の機能ではありません。
-- **Nagi OS 1.0:** 正式な公開 OSS リリースの長期目標です。日程は未定で、
-  プロジェクトライセンスも未選定です。
+- **Nagi OS 1.0:** 正式な公開 OSS リリースの長期目標です。日程は未定です。
 
 [ROADMAP.md](ROADMAP.md)、
 [0.2 実装仕様](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、
@@ -178,6 +183,24 @@ POSIX 開発ホストでは、チェックアウトのルートから次を実�
 ./nagi run
 ~~~
 
+Windows PowerShell:
+
+~~~powershell
+.\nagi.ps1 fetch
+.\nagi.ps1 doctor
+.\nagi.ps1 build
+.\nagi.ps1 test
+.\nagi.ps1 image
+.\nagi.ps1 run
+~~~
+
+PowerShell の実行ポリシーによりスクリプトが拒否される場合、受け入れ手順では
+次を使用します。
+
+~~~powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
+~~~
+
 fetch は pinned third-party source の取得にネットワーク接続と大きな
 ディスク容量を要する場合があります。すべての任意モデルを取得するわけ
 ではありません。build と test はホスト互換パッケージを対象とし、QEMU
@@ -186,9 +209,10 @@ fetch は pinned third-party source の取得にネットワーク接続と大�
 [Developer Preview ガイド](docs/developer-preview/README.md)を参照して
 ください。現在のコマンドは <code>./nagi --help</code> で確認できます。
 
-公開リポジトリを閲覧できても、ソースの利用・再配布権が付与されたことには
-なりません。作業や共有の前に[ライセンスの状態](#ライセンスの状態)を
-確認してください。
+公開リポジトリであること自体は、明示された適用範囲を超える権利を
+付与しません。利用・再配布は [LICENSE_SCOPE.md](LICENSE_SCOPE.md) と
+[LICENSE](LICENSE) に示す範囲に従い、除外対象と第三者素材にはそれぞれの条件と
+通知が適用されます。
 
 ## コントリビューション
 
@@ -199,17 +223,35 @@ workstream を先に確認してください。受け入れ証拠は source revi
 
 再現可能な QEMU の不具合報告、範囲を絞った修正、ドキュメントの改善、
 証拠や未完了項目を明らかにするレビューが役立ちます。コードを送る前に、
-下記のライセンス状態とコントリビューション手順を確認してください。
+このドキュメントは OSS 公開と Codex for Open Source 応募の準備です。
+[応募準備メモ](docs/oss/codex-application-preparation.md)に、プロジェクト説明、
+支援の用途、maintainer が確認する事項をまとめています。
+応募の送信や採択を示すものではありません。
 
-## ライセンスの状態
+下記のライセンス条件とコントリビューション手順を確認してください。
 
-Nagi の正式なプロジェクトライセンスは**未選定で、付与されていません**。
-リポジトリが公開されていることは OSS ライセンスではなく、Nagi のコードや
-ドキュメントを利用、複製、改変、再配布する許可を意味しません。候補ライセンス
-を付与済みのものとして扱わないでください。
+## ライセンス
 
-サードパーティのソース、フォント、モデル重み、音声データ、画像にはそれぞれ
-別の条件があります。[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) と
-[Legal ドキュメント](docs/legal/README.md)を確認してください。正式な公開
-OSS リリースは、ライセンスとリリースのレビュー完了後、Nagi OS 1.0 を
-目標としています。
+所有者が権利を持つ Nagi 独自 OS ソースのうち、[LICENSE_SCOPE.md](LICENSE_SCOPE.md)
+に記載した対象を **[MPL-2.0](LICENSE)** で提供します。単なる採用候補ではなく、
+対象ソースへの利用許諾です。ただし、リポジトリ内の全ファイルや OS イメージ全体が
+MPL 対象・再配布確認済みという意味ではありません。
+
+`tools/nagi-cli`、`tools/legal`、`crates/nagi-embedding-provider`、
+`crates/nagi-tts-provider` の既存 `MIT OR Apache-2.0` 表記は維持します。
+第三者ソフトウェアやモデルにも元の条件が残ります。Granite・Qwen の対象モデルは
+Apache-2.0 と記録されていますが、Gemma は Google 独自規約です。
+今回のライセンス整備ではモデル重みを配布しません。
+
+埋め込み字形の出自が未確認の `user/nagi-init/src/font.rs` や画像・データ類は、
+今回の新たな許諾に含めません。[レビュー記録](docs/oss/mpl-2.0-scope-review.md)に、
+確認した資料、確認できなかった範囲、未解決事項を明記しています。
+OS イメージ・ソース一式の再配布確認と 0.1 の完成判定は、引き続き別の作業です。
+
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)と
+[過去の Apache-2.0 準備監査](docs/oss/apache-2.0-readiness.md)の依存関係に関する
+指摘は残ります。過去の Nagi 本体のライセンス候補に関する記述だけを
+LICENSE_SCOPE.md で更新し、未解決の出自・通知義務まで解決扱いにはしません。
+
+その他: [ロードマップ](ROADMAP.md) · [リリースノート](RELEASE_NOTES.md) ·
+[依存関係／SBOM ツール](docs/legal/README.md)

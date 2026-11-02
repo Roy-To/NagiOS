@@ -1,7 +1,7 @@
 # Nagi OS 0.2 — Calendar Scheduling Core Host Foundation
 **Document ID:** NAGI-0.2-PARALLEL-CALENDAR-20261008  
 **担当:** Codex ②  
-**対象:** `RT-NISH/NagiOS`  
+**対象:** `Roy-To/NagiOS`  
 **作業区分:** Phase 2 Calendarの **Host-only / Provider-independent** 予定管理基盤  
 **対象仕様:** `docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md` §61、0.2のPhase 2並行方針  
 **実行状態:** 登録・host-only開始承認済み。C1–C5の既存実装を専用Calendar採用checkpointで検証。元OwnerのStateは履歴として保持し、現行統合結果はcalendar-core-adoption State参照。
