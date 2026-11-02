@@ -1,5 +1,6 @@
 pub mod acceptance;
 pub(crate) mod cc_nagi;
+pub(crate) mod cli_output;
 pub mod commands;
 pub mod config;
 pub mod development;
