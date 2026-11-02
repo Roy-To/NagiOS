@@ -137,12 +137,12 @@ pub struct ErrorCause {
 /// The bounded text scrubber recognizes JSON object members, header-classified
 /// secret fields, and parsed key/value fields. Header-classified secret fields
 /// are hidden through their line boundary, which can also hide safe-looking
-/// fields later on that line. PEM blocks labeled `PRIVATE KEY` or
-/// `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value are hidden
-/// through the matching `END` marker, including directly concatenated suffixes
-/// on that line. A malformed or incomplete block hides the rest of the bounded
-/// input, so following safe-looking fields can also be hidden. Prefixes such
-/// as YAML anchors/tags and OpenSSL bag attributes are hidden with the PEM.
+/// fields later on that line. If a value recognized as secret contains a PEM
+/// `BEGIN` marker, the rest of that bounded free-text input is hidden regardless
+/// of PEM label or matching `END`. This can also hide safe-looking trailing
+/// text and fields in that same input. Structured values stored in separate
+/// fields are scrubbed independently. Prefixes such as YAML anchors/tags and
+/// OpenSSL bag attributes are hidden with the PEM.
 /// Secret-looking names not recognized by the key classifier, including `tls_key` and
 /// `private.key`, are not covered. Scheme names in
 /// arbitrary inline text are not a universal credential detector.
@@ -165,13 +165,14 @@ pub struct DiagnosticEvent {
 
 /// A structured event view whose supported text fields have been redacted.
 /// Header-classified secret fields, including authorization and auth/token/
-/// cookie/session fields, are redacted through their line boundary. PEM blocks
-/// labeled `PRIVATE KEY` or `PGP PRIVATE KEY BLOCK` in an already recognized
-/// secret-key value are redacted through the matching `END` marker, including
-/// directly concatenated suffixes on that line. A malformed or incomplete
-/// block consumes the rest of the bounded input; safe-looking following fields
-/// may be hidden. Prefixes such as YAML anchors/tags and OpenSSL bag attributes
-/// are hidden with the PEM. `tls_key` and `private.key` are not recognized aliases.
+/// cookie/session fields, are redacted through their line boundary. If an
+/// already recognized secret-key value contains a PEM `BEGIN` marker, the rest
+/// of that bounded free-text input is redacted regardless of PEM label or
+/// matching `END`.
+/// Safe-looking trailing text and fields in that same input may be hidden;
+/// separate structured fields are scrubbed independently. Prefixes such as
+/// YAML anchors/tags and OpenSSL bag attributes are hidden with the PEM.
+/// `tls_key` and `private.key` are not recognized aliases.
 /// Other key/value text is handled only by its
 /// recognized key, scheme, and delimiter rules; this is not a universal secret
 /// scanner. Line-scoped redaction can hide safe-looking fields later on that
@@ -376,12 +377,13 @@ impl DiagnosticEvent {
     /// Serializes this structured event after applying privacy classes and the
     /// bounded diagnostic text scrubber. It redacts header-classified secret
     /// fields through their line boundary (so later safe-looking fields on that
-    /// line may also be hidden) and PEM blocks labeled `PRIVATE KEY` or
-    /// `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value through
-    /// the matching `END` marker. A malformed or incomplete block consumes the
-    /// rest of the bounded input, including safe-looking following fields.
-    /// Prefixes such as YAML anchors/tags and OpenSSL bag attributes are hidden
-    /// with the PEM. `tls_key` and `private.key` are not recognized aliases. Other
+    /// line may also be hidden). If an already recognized secret-key value
+    /// contains a PEM `BEGIN` marker, it redacts the rest of that bounded
+    /// free-text input regardless of PEM label or matching `END`. Safe-looking
+    /// trailing text and fields in that same input may be hidden; separate
+    /// structured fields are scrubbed independently. Prefixes such as YAML
+    /// anchors/tags and OpenSSL bag attributes are hidden with the PEM.
+    /// `tls_key` and `private.key` are not recognized aliases. Other
     /// key/value text follows recognized scheme and delimiter rules. Arbitrary
     /// raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
     /// command-line flags, and bracketed key paths are not certified safe.
@@ -392,12 +394,14 @@ impl DiagnosticEvent {
 
     /// Produces a redacted view for a structured event using the same bounded
     /// text rules as `to_json`: header-classified secret fields are redacted to
-    /// their line boundary, recognized secret-key PEM blocks to their matching
-    /// `END` marker, and malformed or incomplete blocks through the bounded
-    /// input end. Safe-looking following fields may be hidden; prefixes such as
-    /// YAML anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
-    /// `tls_key` and `private.key` are not recognized aliases. Other key/value fields
-    /// according to recognized schemes and delimiters. Line-scoped redaction
+    /// their line boundary. When an already recognized secret-key value
+    /// contains a PEM `BEGIN` marker, the rest of that bounded free-text input
+    /// is redacted regardless of PEM label or matching `END`. Safe-looking
+    /// trailing text may be hidden; separate structured fields are scrubbed
+    /// independently. YAML anchors/tags and OpenSSL bag attributes are scrubbed
+    /// with the PEM.
+    /// `tls_key` and `private.key` are not recognized aliases. Other key/value
+    /// fields follow recognized scheme and delimiter rules. Line-scoped redaction
     /// may hide later safe-looking fields on the same line. This does not certify
     /// arbitrary raw logs, HAR, URL userinfo, pair arrays, bare bearer tokens,
     /// command-line flags, or bracketed key paths as safe.
@@ -721,10 +725,10 @@ fn redact_inline_secrets(value: &str) -> String {
     // fields.
     // Header-classified secret fields are opaque through their line boundary.
     // Inline key/value text uses only recognized schemes and delimiters; an
-    // arbitrary scheme in free text is not generally parsed. PEM blocks in an
-    // already recognized secret-key value consume through their matching END
-    // marker. An incomplete or malformed block consumes the rest of this
-    // bounded input to prevent PEM body text from escaping as another header.
+    // arbitrary scheme in free text is not generally parsed. A PEM BEGIN marker
+    // in an already recognized secret-key value consumes the rest of this
+    // bounded free-text input, regardless of PEM label or matching END. This
+    // prevents bodies, concatenated blocks, and ambiguous suffixes from escaping.
     // Replace oversized input before parsing. This bounds work and prevents a
     // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
@@ -751,13 +755,6 @@ fn redact_inline_secrets(value: &str) -> String {
                 output.push_str(REDACTED);
                 if let Some(quote) = block.closing_quote {
                     output.push(quote);
-                }
-                if line_ending_len(value, block.end).is_some() {
-                    // The normal terminal escape pass turns raw line breaks
-                    // into printable sequences. Keep a delimiter before
-                    // either raw or already-escaped line breaks so a second
-                    // pass preserves the following field boundary.
-                    output.push(' ');
                 }
                 cursor = block.end;
                 continue;
@@ -1219,78 +1216,16 @@ fn secret_value_pem_block(
         Some(b'\'') => (Some('\''), start + 1, start + 1),
         _ => (None, start, separator_end),
     };
-    // Search the already-classified secret value, including bounded prefixes
-    // such as YAML anchors/tags and OpenSSL bag attributes. Once a BEGIN is
-    // found, all prefix text is scrubbed with the PEM value.
-    let begin_start = find_ascii_case_insensitive(value, search_start, "-----BEGIN")?;
-
-    let begin_line_end = line_content_end(value, begin_start);
-    let begin_line = value.get(begin_start..begin_line_end)?;
-    let begin_prefix_len = "-----BEGIN".len();
-    let label_start = begin_start + begin_prefix_len;
-    let Some(label_space) = value.as_bytes().get(label_start) else {
-        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
-    };
-    if !matches!(label_space, b' ' | b'\t') {
-        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
-    }
-    let label_start = skip_horizontal_whitespace(value, label_start);
-    let Some(label_end_relative) = begin_line.get(label_start - begin_start..)?.find("-----")
-    else {
-        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
-    };
-    let label_end = label_start + label_end_relative;
-    let label = value.get(label_start..label_end)?;
-    if label.is_empty()
-        || label.len() > 64
-        || !label.is_ascii()
-        || label.trim() != label
-        || !label
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ')
-        || !is_private_key_pem_label(label)
-    {
-        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
-    }
-
-    let begin_marker_end = label_end + "-----".len();
-    let end_marker = format!("-----END {label}-----");
-    let Some(end_start) = find_ascii_case_insensitive(value, begin_marker_end, &end_marker) else {
-        return Some(incomplete_pem_secret_block(value, prefix_end, quote));
-    };
-    let end_marker_end = end_start + end_marker.len();
-    let line_end = line_content_end(value, end_marker_end);
-    let (end, closing_quote) = pem_end_suffix(value, end_marker_end, line_end, quote);
+    // A recognized secret value may contain a private key, certificate,
+    // parameters, multiple blocks, or malformed/truncated PEM. Once any BEGIN
+    // marker is visible, hide the bounded remainder instead of interpreting
+    // the PEM body or guessing where another secret field begins.
+    find_ascii_case_insensitive(value, search_start, "-----BEGIN")?;
     Some(PemSecretBlock {
-        prefix_end,
-        end,
-        closing_quote,
-    })
-}
-
-fn incomplete_pem_secret_block(
-    value: &str,
-    prefix_end: usize,
-    quote: Option<char>,
-) -> PemSecretBlock {
-    PemSecretBlock {
         prefix_end,
         end: value.len(),
         closing_quote: quote,
-    }
-}
-
-fn line_content_end(value: &str, mut start: usize) -> usize {
-    while start < value.len() {
-        if line_ending_len(value, start).is_some() {
-            return start;
-        }
-        let Some(character) = value[start..].chars().next() else {
-            return value.len();
-        };
-        start += character.len_utf8();
-    }
-    value.len()
+    })
 }
 
 fn find_ascii_case_insensitive(value: &str, start: usize, expected: &str) -> Option<usize> {
@@ -1303,48 +1238,6 @@ fn find_ascii_case_insensitive(value: &str, start: usize, expected: &str) -> Opt
         .windows(expected.len())
         .position(|candidate| candidate.eq_ignore_ascii_case(expected.as_bytes()))?;
     Some(start + relative)
-}
-
-fn is_private_key_pem_label(label: &str) -> bool {
-    let upper = label.to_ascii_uppercase();
-    upper.ends_with("PRIVATE KEY") || upper == "PGP PRIVATE KEY BLOCK"
-}
-
-fn pem_end_suffix(
-    value: &str,
-    end_marker_end: usize,
-    line_end: usize,
-    quote: Option<char>,
-) -> (usize, Option<char>) {
-    if let Some(quote) = quote {
-        let after_space = skip_horizontal_whitespace(value, end_marker_end);
-        if value.as_bytes().get(after_space) == Some(&(quote as u8))
-            && backslashes_before(value, after_space).is_multiple_of(2)
-        {
-            let after_quote = after_space + quote.len_utf8();
-            if quoted_value_suffix_is_delimited(value, after_quote) {
-                return (after_quote, Some(quote));
-            }
-            return (line_end, Some(quote));
-        }
-        return (
-            if end_marker_end < line_end {
-                line_end
-            } else {
-                end_marker_end
-            },
-            None,
-        );
-    }
-
-    if end_marker_end == value.len()
-        || line_ending_len(value, end_marker_end).is_some()
-        || matches!(value.as_bytes().get(end_marker_end), Some(b' ' | b'\t'))
-    {
-        (end_marker_end, None)
-    } else {
-        (line_end, None)
-    }
 }
 
 fn is_field_name_byte(byte: u8) -> bool {
@@ -1867,10 +1760,12 @@ struct CheckResultDraft {
 
 /// A structured verification report. Human and JSON outputs use the same
 /// bounded text rules as [`DiagnosticEvent`]: header-classified secret fields
-/// are hidden through their line boundary, recognized secret-key PEM blocks
-/// through the matching `END` marker, and malformed or incomplete PEM blocks
-/// through the bounded input end. Safe-looking fields may be hidden; YAML
-/// anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
+/// are hidden through their line boundary. If an already recognized
+/// secret-key value contains a PEM `BEGIN` marker, the rest of that bounded
+/// free-text input is hidden regardless of PEM label or matching `END`.
+/// Safe-looking trailing text and fields in that input may be hidden; separate
+/// structured fields are scrubbed independently. YAML anchors/tags and OpenSSL
+/// bag attributes are scrubbed with the PEM.
 /// Other inline
 /// schemes follow only recognized rules. Line-scoped redaction may also hide
 /// safe-looking fields later on that line. Arbitrary raw logs, HAR, URL userinfo,
@@ -2142,12 +2037,13 @@ pub trait CrashSink {
 
 /// Crash recovery hints, event messages, and error details use the same bounded
 /// diagnostic text scrubber as [`DiagnosticEvent`]. Header-classified secret
-/// fields are hidden through their line boundary; PEM blocks labeled `PRIVATE
-/// KEY` or `PGP PRIVATE KEY BLOCK` in an already recognized secret-key value
-/// are hidden through the matching `END` marker. Malformed or incomplete
-/// blocks consume the rest of the bounded input, including safe-looking
-/// following fields. YAML anchors/tags and OpenSSL bag attributes are scrubbed
-/// with the PEM. `tls_key` and `private.key` are not recognized aliases.
+/// fields are hidden through their line boundary. If an already recognized
+/// secret-key value contains a PEM `BEGIN` marker, the rest of that bounded
+/// free-text input is hidden regardless of PEM label or matching `END`.
+/// Safe-looking trailing text and fields in that input may be hidden; separate
+/// structured fields are scrubbed independently. YAML anchors/tags and OpenSSL
+/// bag attributes are scrubbed with the PEM. `tls_key` and `private.key` are not
+/// recognized aliases.
 /// Line-scoped redaction may also hide safe-looking fields later on that line.
 /// Scheme names in arbitrary inline text are not a universal credential
 /// detector. Arbitrary raw logs and unsupported formats are not certified as
@@ -2317,12 +2213,13 @@ impl<S: CrashSink> CrashCapture<S> {
 
 /// A bundle of structured verification and event records. Human and JSON output
 /// use the same bounded text redaction rules as [`DiagnosticEvent`].
-/// Header-classified secret fields are hidden through their line boundary;
-/// PEM blocks labeled `PRIVATE KEY` or `PGP PRIVATE KEY BLOCK` in an already
-/// recognized secret-key value are hidden through the matching `END` marker.
-/// Malformed or incomplete blocks consume the rest of the bounded input,
-/// including safe-looking following fields. YAML anchors/tags and OpenSSL bag
-/// attributes are scrubbed with the PEM. `tls_key` and `private.key` are not recognized
+/// Header-classified secret fields are hidden through their line boundary.
+/// If an already recognized secret-key value contains a PEM `BEGIN` marker,
+/// the rest of that bounded free-text input is hidden regardless of PEM label
+/// or matching `END`. Safe-looking trailing text and fields in that input may
+/// be hidden; separate structured fields are scrubbed independently. YAML
+/// anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
+/// `tls_key` and `private.key` are not recognized
 /// aliases. Arbitrary raw logs, HAR, URL userinfo, pair
 /// arrays, bare bearer tokens, command-line flags, and bracketed key paths are
 /// not certified safe. Line-scoped redaction may also hide safe-looking fields
@@ -3051,7 +2948,7 @@ mod tests {
     }
 
     #[test]
-    fn private_key_pem_blocks_redact_through_matching_end_and_preserve_safe_fields() {
+    fn recognized_secret_pem_begin_hides_the_bounded_text_remainder() {
         for label in [
             "PRIVATE KEY",
             "ENCRYPTED PRIVATE KEY",
@@ -3066,7 +2963,7 @@ mod tests {
             let safe = redact_inline_secrets(&input);
             assert!(!safe.contains("SYNTHETIC-PEM-BODY"), "{safe:?}");
             assert!(!safe.contains(&format!("BEGIN {label}")), "{safe:?}");
-            assert!(safe.contains("X-Trace: visible"), "{safe:?}");
+            assert!(!safe.contains("X-Trace: visible"), "{safe:?}");
             assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
         }
 
@@ -3077,7 +2974,7 @@ mod tests {
             "{safe_quoted:?}"
         );
         assert!(
-            safe_quoted.contains("X-Trace: quoted-visible"),
+            !safe_quoted.contains("X-Trace: quoted-visible"),
             "{safe_quoted:?}"
         );
         assert_eq!(redact_inline_secrets(&safe_quoted), safe_quoted);
@@ -3086,12 +2983,12 @@ mod tests {
         let safe_quoted_suffix = redact_inline_secrets(quoted_suffix);
         assert!(!safe_quoted_suffix.contains("SYNTHETIC-QUOTE-SUFFIX"));
         assert!(!safe_quoted_suffix.contains("SYNTHETIC-QUOTE-SUFFIX-BODY"));
-        assert!(safe_quoted_suffix.contains("X-Trace: suffix-visible"));
+        assert!(!safe_quoted_suffix.contains("X-Trace: suffix-visible"));
 
         let single_quoted = "private_key='-----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-SINGLE-QUOTED-PEM\n-----END RSA PRIVATE KEY-----'\nX-Trace: single-quoted-visible";
         let safe_single_quoted = redact_inline_secrets(single_quoted);
         assert!(!safe_single_quoted.contains("SYNTHETIC-SINGLE-QUOTED-PEM"));
-        assert!(safe_single_quoted.contains("X-Trace: single-quoted-visible"));
+        assert!(!safe_single_quoted.contains("X-Trace: single-quoted-visible"));
         assert_eq!(
             redact_inline_secrets(&safe_single_quoted),
             safe_single_quoted
@@ -3104,7 +3001,7 @@ mod tests {
             "{safe_escaped:?}"
         );
         assert!(
-            safe_escaped.contains("X-Trace: escaped-visible"),
+            !safe_escaped.contains("X-Trace: escaped-visible"),
             "{safe_escaped:?}"
         );
         assert_eq!(redact_inline_secrets(&safe_escaped), safe_escaped);
@@ -3176,12 +3073,19 @@ mod tests {
             .unwrap()
             .with_field("details", pem, PrivacyClass::Public)
             .unwrap()
+            .with_field(
+                "public_status",
+                "structured-status-remains-separate",
+                PrivacyClass::Public,
+            )
+            .unwrap()
             .with_recovery_hint(pem);
 
         let human = event.render_human();
         let event_json = event.to_json().unwrap();
         assert!(!human.contains("SYNTHETIC-SINK-PEM"), "{human:?}");
         assert!(!event_json.contains("SYNTHETIC-SINK-PEM"), "{event_json:?}");
+        assert!(event_json.contains("structured-status-remains-separate"));
         let parsed_event = DiagnosticEvent::from_json(&event_json).unwrap();
         assert!(!parsed_event.render_human().contains("SYNTHETIC-SINK-PEM"));
         assert!(!serde_json::to_string(&event.safe_view())
@@ -3220,6 +3124,7 @@ mod tests {
         let bundle_json = bundle.to_json().unwrap();
         assert!(!bundle_human.contains("SYNTHETIC-SINK-PEM"));
         assert!(!bundle_json.contains("SYNTHETIC-SINK-PEM"));
+        assert!(bundle_json.contains("structured-status-remains-separate"));
         assert!(!DiagnosticsBundle::from_json(&bundle_json)
             .unwrap()
             .render_human()
@@ -3318,7 +3223,7 @@ mod tests {
         for (input, payload, safe_field) in cases {
             let safe = redact_inline_secrets(input);
             assert!(!safe.contains(payload), "{safe:?}");
-            assert!(safe.contains(safe_field), "{safe:?}");
+            assert!(!safe.contains(safe_field), "{safe:?}");
             assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
         }
     }
@@ -3346,18 +3251,18 @@ mod tests {
     }
 
     #[test]
-    fn pem_end_marker_suffix_is_hidden_through_its_line_boundary() {
+    fn pem_begin_hides_end_suffix_and_all_later_free_text() {
         let input = "client_secret=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-END-SUFFIX-BODY\n-----END PRIVATE KEY-----SYNTHETIC-END-SUFFIX\nX-Trace: suffix-next-line";
         let safe = redact_inline_secrets(input);
         assert!(!safe.contains("SYNTHETIC-END-SUFFIX-BODY"), "{safe:?}");
         assert!(!safe.contains("SYNTHETIC-END-SUFFIX"), "{safe:?}");
-        assert!(safe.contains("X-Trace: suffix-next-line"), "{safe:?}");
+        assert!(!safe.contains("X-Trace: suffix-next-line"), "{safe:?}");
 
         let quoted = "auth_key=\"-----BEGIN PRIVATE KEY-----\nSYNTHETIC-QUOTED-END-BODY\n-----END PRIVATE KEY-----SYNTHETIC-QUOTED-END-SUFFIX\nX-Trace: quoted-suffix-next-line";
         let safe_quoted = redact_inline_secrets(quoted);
         assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-BODY"));
         assert!(!safe_quoted.contains("SYNTHETIC-QUOTED-END-SUFFIX"));
-        assert!(safe_quoted.contains("X-Trace: quoted-suffix-next-line"));
+        assert!(!safe_quoted.contains("X-Trace: quoted-suffix-next-line"));
     }
 
     #[test]
@@ -3385,14 +3290,59 @@ mod tests {
         ] {
             assert!(!safe_rsa.contains(secret), "{safe_rsa:?}");
         }
-        assert!(safe_rsa.contains("X-Trace: rsa-visible"), "{safe_rsa:?}");
+        assert!(!safe_rsa.contains("X-Trace: rsa-visible"), "{safe_rsa:?}");
 
         let pgp = "private_key: -----BEGIN PGP PRIVATE KEY BLOCK-----\nVersion: 1\nComment: synthetic\nSYNTHETIC-PGP-BODY\n-----END PGP PRIVATE KEY BLOCK-----\nX-Trace: pgp-visible";
         let safe_pgp = redact_inline_secrets(pgp);
         for secret in ["Version:", "Comment:", "SYNTHETIC-PGP-BODY"] {
             assert!(!safe_pgp.contains(secret), "{safe_pgp:?}");
         }
-        assert!(safe_pgp.contains("X-Trace: pgp-visible"), "{safe_pgp:?}");
+        assert!(!safe_pgp.contains("X-Trace: pgp-visible"), "{safe_pgp:?}");
+    }
+
+    #[test]
+    fn recognized_secret_pem_hides_mismatched_multiple_and_non_key_blocks() {
+        for (input, hidden) in [
+            (
+                "Authorization: -----BEGIN PRIVATE KEY----- X -----END PRIVATE KEY----- SYNTHETIC-AUTH-TAIL\nX-Trace: auth-tail",
+                &["SYNTHETIC-AUTH-TAIL", "X-Trace: auth-tail"][..],
+            ),
+            (
+                "private_key=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-FIRST-KEY\n-----END PRIVATE KEY-----\n-----BEGIN RSA PRIVATE KEY-----\nSYNTHETIC-SECOND-KEY\n-----END RSA PRIVATE KEY-----\npublic=tail",
+                &["SYNTHETIC-FIRST-KEY", "SYNTHETIC-SECOND-KEY", "public=tail"][..],
+            ),
+            (
+                "private_key=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-END-MISMATCH\n-----END RSA PRIVATE KEY-----\nX-Trace: mismatch-tail",
+                &["SYNTHETIC-END-MISMATCH", "X-Trace: mismatch-tail"][..],
+            ),
+            (
+                "private_key=-----BEGIN CERTIFICATE-----\nSYNTHETIC-CERTIFICATE\n-----END CERTIFICATE-----\nX-Trace: certificate-tail",
+                &["SYNTHETIC-CERTIFICATE", "X-Trace: certificate-tail"][..],
+            ),
+            (
+                "private_key=-----BEGIN EC PARAMETERS-----\nSYNTHETIC-EC-PARAMETERS\n-----END EC PARAMETERS-----\nX-Trace: parameters-tail",
+                &["SYNTHETIC-EC-PARAMETERS", "X-Trace: parameters-tail"][..],
+            ),
+            (
+                "private_key=\"-----BEGIN PRIVATE KEY----- SYNTHETIC-QUOTED-EOF",
+                &["SYNTHETIC-QUOTED-EOF"][..],
+            ),
+            (
+                "éprivate_key=-----BEGIN PRIVATE KEY-----\nSYNTHETIC-UNICODE-BOUNDARY\n-----END PRIVATE KEY-----\nX-Trace: unicode-tail",
+                &["SYNTHETIC-UNICODE-BOUNDARY", "X-Trace: unicode-tail"][..],
+            ),
+            (
+                "private_key=prefix\npublic_cert=-----BEGIN CERTIFICATE-----\nSYNTHETIC-PUBLIC-CERT-IN-SECRET-VALUE\n-----END CERTIFICATE-----\nstatus=hidden-too",
+                &["SYNTHETIC-PUBLIC-CERT-IN-SECRET-VALUE", "status=hidden-too"][..],
+            ),
+        ] {
+            let safe = redact_inline_secrets(input);
+            for marker in hidden {
+                assert!(!safe.contains(marker), "{safe:?}");
+            }
+            assert!(safe.contains(REDACTED), "{safe:?}");
+            assert_eq!(redact_inline_secrets(&safe), safe, "{safe:?}");
+        }
     }
 
     #[test]
