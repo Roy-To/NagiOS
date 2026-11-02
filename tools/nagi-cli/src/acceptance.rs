@@ -409,11 +409,11 @@ pub fn execute(args: &[String], root: &Path) -> CommandResult {
             result.previous_status = previous.get(&result.case.id).cloned();
             result.regressed = is_regression(result.status, result.previous_status.as_deref());
             if result.regressed {
-                println!(
-                    "REGRESSION {}: previous PASS -> current {}",
+                let _ = crate::cli_output::write_stdout(format_args!(
+                    "REGRESSION {}: previous PASS -> current {}\n",
                     result.case.id,
                     result.status.as_str()
-                );
+                ));
             }
         }
     }
@@ -626,13 +626,13 @@ fn run_case(root: &Path, case: &AcceptanceCase, log_directory: &Path, verbose: b
         None
     };
     let command_description = command_description(&script_relative, powershell.as_deref());
-    println!(
-        "RUN {} [{} / {}] timeout={}s command={command_description}",
+    let _ = crate::cli_output::write_stdout(format_args!(
+        "RUN {} [{} / {}] timeout={}s command={command_description}\n",
         case.id,
         case.milestone,
         case.scope.as_str(),
         case.timeout_seconds,
-    );
+    ));
     let _ = std::io::stdout().flush();
 
     if let Err(error) = log_path.parent().map(fs::create_dir_all).transpose() {
@@ -792,11 +792,12 @@ fn run_case(root: &Path, case: &AcceptanceCase, log_directory: &Path, verbose: b
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .unwrap_or_default();
     if verbose {
-        print!("--- {} output ---\n{}", case.id, output);
+        let _ =
+            crate::cli_output::write_stdout(format_args!("--- {} output ---\n{}", case.id, output));
         if !output.ends_with('\n') {
-            println!();
+            let _ = crate::cli_output::write_stdout(format_args!("\n"));
         }
-        println!("--- end {} output ---", case.id);
+        let _ = crate::cli_output::write_stdout(format_args!("--- end {} output ---\n", case.id));
     }
 
     let (status, failure_stage, diagnostic) = classify_result(&output, status_code, timed_out);
@@ -1130,28 +1131,34 @@ fn println_result(result: &CaseResult) {
         .map(|path| format!("; log {path}"))
         .unwrap_or_default();
     match result.status {
-        Status::Pass => println!(
-            "PASS {} [{} / {}] {:.1}s{}",
-            result.case.id,
-            result.case.milestone,
-            result.case.scope.as_str(),
-            elapsed.as_secs_f64(),
-            log
-        ),
-        Status::NotRun => println!("NOT RUN {}", result.case.id),
-        status => println!(
-            "{} {} [{} / {}; stage={}] {}{}",
-            status.as_str(),
-            result.case.id,
-            result.case.milestone,
-            result.case.scope.as_str(),
-            result
-                .failure_stage
-                .map(FailureStage::as_str)
-                .unwrap_or("unknown"),
-            result.diagnostic.as_deref().unwrap_or("no diagnostic"),
-            log
-        ),
+        Status::Pass => {
+            let _ = crate::cli_output::write_stdout(format_args!(
+                "PASS {} [{} / {}] {:.1}s{}\n",
+                result.case.id,
+                result.case.milestone,
+                result.case.scope.as_str(),
+                elapsed.as_secs_f64(),
+                log
+            ));
+        }
+        Status::NotRun => {
+            let _ = crate::cli_output::write_stdout(format_args!("NOT RUN {}\n", result.case.id));
+        }
+        status => {
+            let _ = crate::cli_output::write_stdout(format_args!(
+                "{} {} [{} / {}; stage={}] {}{}\n",
+                status.as_str(),
+                result.case.id,
+                result.case.milestone,
+                result.case.scope.as_str(),
+                result
+                    .failure_stage
+                    .map(FailureStage::as_str)
+                    .unwrap_or("unknown"),
+                result.diagnostic.as_deref().unwrap_or("no diagnostic"),
+                log
+            ));
+        }
     }
 }
 
