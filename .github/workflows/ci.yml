@@ -95,6 +95,10 @@ jobs:
         run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
       - name: Test M3 self-test task frame layout
         run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
+      - name: Test block syscall capability and buffer directions
+        run: cargo test --locked -p nagi-kernel --lib syscall::tests::block_syscalls_validate_user_ranges_in_the_transfer_direction
+      - name: Test block I/O user page permissions
+        run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Test Albert browser state and input adapters
         run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
       - name: M0 doctor acceptance

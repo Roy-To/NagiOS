@@ -10,9 +10,10 @@ It has its own kernel and user-space stack; Linux, Windows, and macOS are
 development hosts. The 0.1 Developer Preview targets QEMU x86-64.
 
 **This is an experimental Developer Preview, not a finished general-purpose OS.**
-The repository is public, but Nagi's own license is still pending approval.
-Apache-2.0 is the leading candidate; this repository does not yet grant a
-project-wide open-source license. See [Licensing](#licensing).
+The maintainer's original Nagi OS source within the documented scope is licensed
+under **MPL-2.0**. Existing package licenses and third-party/model terms remain
+separate. Some glyph/media provenance and complete-image redistribution checks
+remain unresolved. See [Licensing](#licensing) and [LICENSE_SCOPE.md](LICENSE_SCOPE.md).
 
 ## Why Nagi?
 
@@ -95,7 +96,7 @@ record; individual acceptance results do not complete a whole milestone.
 | Area | Evidence available | Remaining limits |
 | --- | --- | --- |
 | Boot, kernel, storage, display/input, networking, ABI, SDK | M0–M17 are recorded PASS, including real QEMU acceptance. | Bounded preview implementations and documented regression/environment limits apply. |
-| Albert browser (M18) | PASS: [target CI run 37601664873](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, StorageManager persistence; kanji conversion deferred. Browser services remain in-process. |
+| Albert browser (M18) | PASS: [target CI run 37601664873](https://github.com/Roy-To/NagiOS/actions/runs/37601664873) rendered three HTTPS sites and exercised permission, clipboard, kana IME, upload, and user-activated download. | Production authentication, notification presentation, StorageManager persistence; kanji conversion deferred. Browser services remain in-process. |
 | Search / semantic layer (M19) | PARTIAL: persistent Object IDs, browser-history/Search restart flows, and bounded signed-in Files indexing have guest evidence. | Production app-facing Search with live grants, Files mutation/trash UI, and normal history producer lifecycle remain open. |
 | Local generative AI (M20) | PARTIAL: recorded local QEMU Granite inference produced a schema-constrained Japanese response. | Hosted inference CI failed before inference on a storage write; normal model installation and lazy-service integration remain open. |
 | Planner, undo, browser context, embedding, voice, model routing (M21–M26) | PARTIAL: validators, bounded guest fixtures, and individual provider experiments exist. | No completed general agent workflow, page-summary UI, production semantic-search pipeline, or microphone-to-action voice experience. Qwen inference and Gemma use are not accepted. |
@@ -165,15 +166,27 @@ They are preparation material, not an application submission or acceptance claim
 
 ## Licensing
 
-**Nagi's project-wide license has not been finalized or approved.**
-Apache-2.0 is a proposal for eligible Nagi-owned code and documentation.
-No root LICENSE is added by this preparation, and no license grant is implied.
+The maintainer's original Nagi OS source identified in
+[LICENSE_SCOPE.md](LICENSE_SCOPE.md) is licensed under **[MPL-2.0](LICENSE)**.
+This is a scoped source grant, not a claim that every repository file, image,
+model or dependency is covered by MPL or cleared for redistribution.
 
-Third-party code, fonts, model weights, voice data, and images retain their own
-terms. Gemma's terms are separate from Apache-2.0. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
-[Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md) for evidence,
-exceptions, and required follow-up before source or binary release.
+The existing `MIT OR Apache-2.0` declarations in `tools/nagi-cli`, `tools/legal`,
+`crates/nagi-embedding-provider` and `crates/nagi-tts-provider` are preserved.
+Third-party software and model artifacts retain their own terms. Granite and
+Qwen artifacts are recorded as Apache-2.0; Gemma has separate Google terms.
+No model weights are redistributed by this licensing change.
+
+Known holds include `user/nagi-init/src/font.rs` (embedded glyph provenance),
+media and artifact-specific notices. They are not silently included in the new
+grant. The [scope review](docs/oss/mpl-2.0-scope-review.md) describes the reviewed
+evidence and its limits. Complete-image/source-bundle redistribution review and
+Nagi 0.1 release acceptance remain separate work.
+
+[Third-party notices](THIRD_PARTY_NOTICES.md) and the
+[historical Apache-2.0 audit](docs/oss/apache-2.0-readiness.md) retain their
+dependency findings. Their old project-license proposal is superseded by
+LICENSE_SCOPE.md, not their unresolved provenance and notice requirements.
 
 More: [Roadmap](ROADMAP.md) · [Release notes](RELEASE_NOTES.md) ·
 [Dependency/SBOM tooling](docs/legal/README.md)
