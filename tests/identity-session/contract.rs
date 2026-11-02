@@ -764,7 +764,7 @@ fn older_lkg_recovery_blocks_reuse_of_guest_profile_id_from_lost_current() {
 }
 
 #[test]
-fn legacy_snapshot_defaults_profile_history_to_complete() {
+fn legacy_snapshot_defaults_profile_history_to_incomplete() {
     let mut legacy = serde_json::to_value(IdentitySnapshot::empty()).unwrap();
     legacy
         .as_object_mut()
@@ -773,7 +773,186 @@ fn legacy_snapshot_defaults_profile_history_to_complete() {
     let bytes = serde_json::to_vec(&legacy).unwrap();
 
     let loaded = IdentitySnapshot::from_json(&bytes).unwrap();
-    assert!(loaded.profile_id_history_complete);
+    assert!(!loaded.profile_id_history_complete);
+    assert!(IdentitySnapshot::empty().profile_id_history_complete);
+}
+
+#[test]
+fn legacy_current_at_high_water_without_history_marker_fails_closed() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("legacy-current-history-marker");
+    let (mut writer, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut writer, &caller);
+    writer
+        .create_local_user(
+            &caller,
+            metadata("Legacy owner").0,
+            metadata("Legacy profile").1,
+        )
+        .unwrap();
+    let guest = writer
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("legacy-current-lost-guest").unwrap(),
+        )
+        .unwrap();
+    let lost_profile = writer
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == guest)
+        .unwrap()
+        .profile_id
+        .clone();
+
+    store.lose_current();
+    let (mut recovered, _) = new_service_with_ids(
+        store.clone(),
+        cleaner.clone(),
+        TestIds {
+            user: 1,
+            profile: 1,
+            session: 1,
+            fail: false,
+        },
+    );
+    assert_eq!(
+        recovered.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!recovered
+        .snapshot()
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == lost_profile));
+
+    // Simulate a previously written current snapshot that omitted the new
+    // marker. Keep its actual commit version equal to the store high-water.
+    {
+        let mut state = store.0.lock().unwrap();
+        let high_water = state.high_water_version.unwrap();
+        let current = state.current.as_mut().unwrap();
+        assert_eq!(current.version, high_water);
+        let mut json: serde_json::Value = serde_json::from_slice(&current.bytes).unwrap();
+        assert!(json
+            .as_object_mut()
+            .unwrap()
+            .remove("profile_id_history_complete")
+            .is_some());
+        current.bytes = serde_json::to_vec(&json).unwrap();
+    }
+
+    let (mut restarted, _) = new_service_with_ids(
+        store,
+        cleaner,
+        TestIds {
+            user: 1,
+            profile: 1,
+            session: 1,
+            fail: false,
+        },
+    );
+    assert_eq!(
+        restarted.recover(&caller).unwrap().source,
+        RecoverySource::Current
+    );
+    assert!(!restarted.snapshot().profile_id_history_complete);
+    assert_eq!(
+        restarted.create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("legacy-marker-reuse").unwrap()
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete),
+        "the next generated ProfileId is the lost guest ID and must remain reserved"
+    );
+}
+
+#[test]
+fn incomplete_history_survives_existing_profile_use_and_lkg_recovery() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("incomplete-history-existing-profile");
+    let (mut writer, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut writer, &caller);
+    let (user_id, profile_id) = writer
+        .create_local_user(
+            &caller,
+            metadata("Existing owner").0,
+            metadata("Existing profile").1,
+        )
+        .unwrap();
+    writer
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("existing-use-lost-guest").unwrap(),
+        )
+        .unwrap();
+
+    store.lose_current();
+    let (mut degraded, _) = new_service(store.clone(), cleaner.clone());
+    assert_eq!(
+        degraded.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!degraded.snapshot().profile_id_history_complete);
+
+    // Existing profiles remain usable even though allocating a new profile is
+    // unsafe while the snapshot cannot prove complete ID history.
+    let first_login = degraded
+        .login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("existing-use-after-loss").unwrap(),
+        )
+        .unwrap();
+    assert!(degraded
+        .snapshot()
+        .sessions
+        .iter()
+        .any(|session| session.session_id == first_login));
+    assert!(!degraded.snapshot().profile_id_history_complete);
+
+    let lkg = store.load_last_known_good().unwrap().unwrap();
+    let lkg_snapshot = IdentitySnapshot::from_json(&lkg.bytes).unwrap();
+    assert!(!lkg_snapshot.profile_id_history_complete);
+    assert!(lkg.version.get() < store.current_version().unwrap().get());
+    store.lose_current();
+
+    let (mut restored, _) = new_service(store, cleaner);
+    assert_eq!(
+        restored.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    assert!(!restored.snapshot().profile_id_history_complete);
+    assert_eq!(
+        restored.create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Unsafe new profile", None).unwrap()
+        ),
+        Err(IdentityError::ProfileHistoryIncomplete)
+    );
+    let second_login = restored
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("existing-use-after-lkg").unwrap(),
+        )
+        .unwrap();
+    assert!(restored
+        .snapshot()
+        .sessions
+        .iter()
+        .any(|session| session.session_id == second_login));
+    assert!(!restored.snapshot().profile_id_history_complete);
 }
 
 #[test]

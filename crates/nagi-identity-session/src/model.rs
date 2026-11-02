@@ -201,16 +201,14 @@ pub struct IdentitySnapshot {
     /// True only when every previously allocated ProfileId is represented by
     /// current profiles or retained session history. An older LKG restore sets
     /// this false when the store high-water is newer; the flag is persisted so
-    /// later restarts continue to reject new profile allocation.
-    #[serde(default = "default_profile_id_history_complete")]
+    /// later restarts continue to reject new profile allocation. Older JSON
+    /// without this marker is treated as incomplete because it cannot prove
+    /// complete ID history; empty() explicitly initializes new stores true.
+    #[serde(default)]
     pub profile_id_history_complete: bool,
     pub users: Vec<LocalUser>,
     pub profiles: Vec<ProfileRecord>,
     pub sessions: Vec<SessionRecord>,
-}
-
-fn default_profile_id_history_complete() -> bool {
-    true
 }
 
 impl IdentitySnapshot {
