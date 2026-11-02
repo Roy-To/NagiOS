@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
+use crate::cli_output;
 use crate::config::{load_toolchain_requirements, validate_project};
 use crate::diagnostics::{
     ClosureHealthCheck, DiagnosticEvent, DiagnosticsBundle, EvidenceKind, FailureClass,
@@ -8159,10 +8160,10 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
             command_output(&version)
         ));
     }
-    eprintln!(
-        "TIMING rust-std-source phase=discover-toolchain elapsed_ms={:.3}",
+    let _ = cli_output::write_stderr(format_args!(
+        "TIMING rust-std-source phase=discover-toolchain elapsed_ms={:.3}\n",
         discovery_start.elapsed().as_secs_f64() * 1000.0
-    );
+    ));
     let patch = root.join("third_party/rust-std/patches/0001-nagi-target-support.patch");
     let prepared = crate::rust_std_source::prepare(
         root,
@@ -8170,14 +8171,14 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
         &String::from_utf8_lossy(&version.stdout),
         &patch,
     )?;
-    eprintln!(
-        "Rust std source: {}",
+    let _ = cli_output::write_stderr(format_args!(
+        "Rust std source: {}\n",
         if prepared.reused {
             "verified reuse"
         } else {
             "fresh preparation"
         }
-    );
+    ));
     Ok(prepared.library)
 }
 
