@@ -353,7 +353,7 @@ fn invalid_config_is_rejected() {
 }
 
 #[test]
-fn custom_byte_limits_keep_legacy_load_and_embed_behavior() {
+fn custom_byte_limits_preserve_legacy_load_acceptance() {
     let query_zero = E5Provider::from_artifact(
         tiny_artifact(1),
         ProviderConfig {
@@ -388,6 +388,9 @@ fn custom_byte_limits_keep_legacy_load_and_embed_behavior() {
         Err(ProviderError::EmptyInput)
     ));
 
+    // This tiny artifact has only 16 positions. An above-limit input would
+    // hit token-count validation first, so the pure boundary unit test covers
+    // byte-limit admission while this integration test covers load acceptance.
     let extended_query = E5Provider::from_artifact(
         tiny_artifact(1),
         ProviderConfig {
@@ -396,11 +399,9 @@ fn custom_byte_limits_keep_legacy_load_and_embed_behavior() {
         },
     )
     .expect("an extended query limit was accepted by the prior public API");
-    assert!(
-        extended_query
-            .try_embed(EmbeddingPurpose::Query, "ab")
-            .is_ok()
-    );
+    assert!(extended_query
+        .try_embed(EmbeddingPurpose::Query, "ab")
+        .is_ok());
 
     let extended_passage = E5Provider::from_artifact(
         tiny_artifact(1),
@@ -410,11 +411,9 @@ fn custom_byte_limits_keep_legacy_load_and_embed_behavior() {
         },
     )
     .expect("an extended passage limit was accepted by the prior public API");
-    assert!(
-        extended_passage
-            .try_embed(EmbeddingPurpose::Passage, "ab")
-            .is_ok()
-    );
+    assert!(extended_passage
+        .try_embed(EmbeddingPurpose::Passage, "ab")
+        .is_ok());
 }
 
 struct StepClock(AtomicU64);
@@ -506,6 +505,25 @@ fn provider_purpose_reaches_distinct_real_tokenizer_and_encoder_inputs() {
     let passage = provider
         .try_embed(EmbeddingPurpose::Passage, "ab")
         .expect("passage inference succeeds");
+    // Independent seed-1 reference output for Query("ab"). This fixed vector
+    // makes a Query/Passage purpose swap in the production call observable.
+    let query_golden = [
+        0.48998308f32,
+        -0.20748788,
+        -0.07358261,
+        -0.01074764,
+        -0.57325405,
+        0.25503963,
+        0.45772755,
+        0.32887003,
+    ];
+    assert_eq!(query.values().len(), query_golden.len());
+    for (dimension, (actual, expected)) in query.values().iter().zip(query_golden).enumerate() {
+        assert!(
+            (*actual - expected).abs() <= 1e-4,
+            "Query golden mismatch at dimension {dimension}: expected {expected}, got {actual}"
+        );
+    }
     assert_ne!(query.values(), passage.values());
     assert_eq!(query.space_id(), Some(provider.space_id()));
     assert_eq!(passage.space_id(), Some(provider.space_id()));
