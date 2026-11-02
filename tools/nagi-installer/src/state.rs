@@ -73,6 +73,7 @@ pub struct InstalledPackage {
 pub struct InventorySnapshot {
     pub generation: u64,
     packages: BTreeMap<String, InstalledPackage>,
+    pending_cleanup_app_ids: Vec<String>,
 }
 
 impl InventorySnapshot {
@@ -82,6 +83,14 @@ impl InventorySnapshot {
 
     pub fn packages(&self) -> impl Iterator<Item = &InstalledPackage> {
         self.packages.values()
+    }
+
+    /// Applications whose committed uninstall left package cleanup pending.
+    ///
+    /// These applications are absent from the active inventory and cannot be
+    /// installed or uninstalled again until recovery completes.
+    pub fn pending_cleanup_app_ids(&self) -> impl Iterator<Item = &str> {
+        self.pending_cleanup_app_ids.iter().map(String::as_str)
     }
 
     pub fn len(&self) -> usize {
@@ -153,10 +162,11 @@ impl Default for InventoryFile {
 }
 
 impl InventoryFile {
-    pub(crate) fn snapshot(&self) -> InventorySnapshot {
+    pub(crate) fn snapshot(&self, pending_cleanup_app_ids: Vec<String>) -> InventorySnapshot {
         InventorySnapshot {
             generation: self.generation,
             packages: self.packages.clone(),
+            pending_cleanup_app_ids,
         }
     }
 
