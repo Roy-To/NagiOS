@@ -3292,15 +3292,19 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_pem_private_key_blocks_fail_closed_to_bounded_end() {
+    fn incomplete_pem_private_key_blocks_stop_at_safe_header_or_bounded_end() {
+        let incomplete_with_header =
+            "private_key=-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-INCOMPLETE-PEM\r\nX-Trace: visible";
+        let safe_with_header = redact_inline_secrets(incomplete_with_header);
+        assert!(!safe_with_header.contains("SYNTHETIC-INCOMPLETE-PEM"));
+        assert!(safe_with_header.contains("X-Trace: visible"));
+
         for input in [
-            "private_key=-----BEGIN PRIVATE KEY-----\r\nSYNTHETIC-INCOMPLETE-PEM\r\nX-Trace: hidden",
             "PRIVATE_KEY=-----BEGIN OPENSSH PRIVATE KEY-----\\nSYNTHETIC-LITERAL-INCOMPLETE-PEM",
             "private_key=-----BEGIN PRIVATE KEY\r\nSYNTHETIC-TRUNCATED-HEADER-PEM",
         ] {
             let safe = redact_inline_secrets(input);
             assert!(!safe.contains("SYNTHETIC-"), "{safe:?}");
-            assert!(!safe.contains("X-Trace: hidden"), "{safe:?}");
         }
 
         let oversized = format!(
