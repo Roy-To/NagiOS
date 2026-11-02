@@ -583,6 +583,10 @@ fn redact_inline_secrets(value: &str) -> String {
     while cursor < value.len() {
         let tail = &lower[cursor..];
         let marker = [
+            "proxy-authorization\":",
+            "proxy-authorization:",
+            "proxy-authorization=",
+            "authorization\":",
             "authorization:",
             "authorization=",
             "password=",
@@ -601,15 +605,50 @@ fn redact_inline_secrets(value: &str) -> String {
             break;
         };
         let start = cursor + offset;
-        output.push_str(&value[cursor..start + marker.len()]);
         let mut value_start = start + marker.len();
-        while value[value_start..]
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_whitespace())
-        {
-            value_start += value[value_start..].chars().next().unwrap().len_utf8();
+        let is_authorization = marker
+            .strip_prefix("proxy-")
+            .unwrap_or(marker)
+            .starts_with("authorization");
+        while let Some(character) = value[value_start..].chars().next() {
+            if !character.is_whitespace() || (is_authorization && matches!(character, '\r' | '\n'))
+            {
+                break;
+            }
+            value_start += character.len_utf8();
         }
+
+        if is_authorization {
+            let quoted = value[value_start..].starts_with('"');
+            let content_start = if quoted { value_start + 1 } else { value_start };
+            let closing_quote = if quoted {
+                unescaped_quote_after(value, content_start)
+            } else {
+                None
+            };
+            let content_end = closing_quote.unwrap_or(value.len());
+            if let Some(credential_end) =
+                authorization_credential_end(&value[content_start..content_end])
+            {
+                output.push_str(&value[cursor..start + marker.len()]);
+                if quoted {
+                    output.push('"');
+                    output.push_str(REDACTED);
+                    if let Some(closing_quote) = closing_quote {
+                        output.push('"');
+                        cursor = closing_quote + 1;
+                    } else {
+                        cursor = value.len();
+                    }
+                } else {
+                    output.push_str(REDACTED);
+                    cursor = content_start + credential_end;
+                }
+                continue;
+            }
+        }
+
+        output.push_str(&value[cursor..start + marker.len()]);
         if marker.starts_with("authorization") && lower[value_start..].starts_with("bearer ") {
             value_start += "bearer ".len();
         }
@@ -624,6 +663,68 @@ fn redact_inline_secrets(value: &str) -> String {
     }
     let single_line = escape_terminal_controls(&output);
     bounded_text(&single_line, MAX_MESSAGE_BYTES)
+}
+
+fn authorization_credential_end(value: &str) -> Option<usize> {
+    let mut scheme_start = 0;
+    while let Some(character) = value[scheme_start..].chars().next() {
+        if !character.is_whitespace() || matches!(character, '\r' | '\n') {
+            break;
+        }
+        scheme_start += character.len_utf8();
+    }
+
+    let scheme_end = ["basic", "bearer"].iter().find_map(|scheme| {
+        let end = scheme_start + scheme.len();
+        let candidate = value.get(scheme_start..end)?;
+        if !candidate.eq_ignore_ascii_case(scheme) {
+            return None;
+        }
+        let boundary = value[end..].chars().next();
+        if boundary.is_some_and(|character| {
+            !character.is_whitespace() && !matches!(character, ',' | ';' | '"')
+        }) {
+            return None;
+        }
+        Some(end)
+    })?;
+
+    let mut credential_start = scheme_end;
+    while let Some(character) = value[credential_start..].chars().next() {
+        if matches!(character, '\r' | '\n') {
+            return Some(scheme_end);
+        }
+        if !character.is_whitespace() {
+            break;
+        }
+        credential_start += character.len_utf8();
+    }
+    let Some(first_credential_character) = value[credential_start..].chars().next() else {
+        return Some(scheme_end);
+    };
+    if matches!(first_credential_character, ',' | ';' | '"') {
+        return Some(scheme_end);
+    }
+
+    let credential_end = value[credential_start..]
+        .find(|character: char| character.is_whitespace() || matches!(character, ',' | ';' | '"'))
+        .map(|offset| credential_start + offset)
+        .unwrap_or(value.len());
+    Some(credential_end)
+}
+
+fn unescaped_quote_after(value: &str, start: usize) -> Option<usize> {
+    let mut escaped = false;
+    for (offset, character) in value[start..].char_indices() {
+        if escaped {
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else if character == '"' {
+            return Some(start + offset);
+        }
+    }
+    None
 }
 
 fn validate_identifier(value: &str, uppercase: bool, label: &str) -> Result<(), DiagnosticError> {
@@ -1477,6 +1578,92 @@ mod tests {
         assert!(!rendered.contains("top-secret"));
         assert!(!rendered.contains("bearer-secret"));
         assert!(!rendered.contains("private text"));
+    }
+
+    #[test]
+    fn inline_authorization_credentials_are_redacted_without_crossing_header_boundaries() {
+        let cases = [
+            ("Authorization: Basic dGVzdDpzZWNyZXQ=", "dGVzdDpzZWNyZXQ="),
+            (
+                "aUtHoRiZaTiOn:\u{2003}bAsIc\tdW5pY29kZS1zZWNyZXQ=",
+                "dW5pY29kZS1zZWNyZXQ=",
+            ),
+            (
+                "Proxy-Authorization: Basic cHJveHktc2VjcmV0",
+                "cHJveHktc2VjcmV0",
+            ),
+            (
+                "Authorization: bEaReR bearer-secret-case",
+                "bearer-secret-case",
+            ),
+            (
+                "pRoXy-AuThOrIzAtIoN: BeArEr proxy-bearer-secret",
+                "proxy-bearer-secret",
+            ),
+        ];
+
+        for (input, credential) in cases {
+            let output = redact_inline_secrets(input);
+            assert!(
+                !output.contains(credential),
+                "credential leaked for {input:?}: {output:?}"
+            );
+            assert!(output.contains(REDACTED), "missing redaction for {input:?}");
+        }
+
+        let quoted_json = redact_inline_secrets(
+            r#"{"Authorization": "Basic json-synthetic-secret", "note": "safe"}"#,
+        );
+        assert!(!quoted_json.contains("json-synthetic-secret"));
+        assert!(quoted_json.contains("\"note\": \"safe\""));
+        serde_json::from_str::<serde_json::Value>(&quoted_json)
+            .expect("redacted quoted JSON remains valid JSON");
+
+        let adjacent_headers = redact_inline_secrets(
+            "Authorization: Basic\r\nX-Trace: safe\r\nProxy-Authorization: Basic adjacent-secret",
+        );
+        assert!(!adjacent_headers.contains("adjacent-secret"));
+        assert!(adjacent_headers.contains("X-Trace: safe"));
+        assert!(adjacent_headers.contains("\\r\\n"));
+        assert!(!adjacent_headers.contains('\r'));
+        assert!(!adjacent_headers.contains('\n'));
+
+        let semicolon =
+            redact_inline_secrets("Authorization: Basic semicolon-secret; next=visible");
+        assert!(!semicolon.contains("semicolon-secret"));
+        assert!(semicolon.contains("; next=visible"));
+
+        let long_credential = format!(
+            "Authorization: Basic {} public={}",
+            "x".repeat(MAX_MESSAGE_BYTES * 2),
+            "y".repeat(MAX_MESSAGE_BYTES * 2)
+        );
+        let bounded = redact_inline_secrets(&long_credential);
+        assert!(bounded.len() <= MAX_MESSAGE_BYTES);
+        assert!(bounded.ends_with(TRUNCATED));
+    }
+
+    #[test]
+    fn safe_views_and_json_round_trip_keep_basic_credentials_redacted() {
+        let credential = "round-trip-synthetic-secret";
+        let event = DiagnosticEvent::new(
+            Severity::Error,
+            "network",
+            "NETWORK.AUTH_FAILED",
+            format!("request failed Proxy-Authorization: Basic {credential}"),
+        )
+        .unwrap();
+
+        let safe_json = serde_json::to_string(&event.safe_view()).unwrap();
+        assert!(safe_json.contains(REDACTED));
+        assert!(!safe_json.contains(credential));
+
+        let json = event.to_json().unwrap();
+        assert!(json.contains(REDACTED));
+        assert!(!json.contains(credential));
+        let parsed = DiagnosticEvent::from_json(&json).unwrap();
+        assert_eq!(parsed.to_json().unwrap(), json);
+        assert!(!parsed.render_human().contains(credential));
     }
 
     #[test]
