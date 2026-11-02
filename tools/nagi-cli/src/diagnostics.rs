@@ -1092,7 +1092,10 @@ fn field_marker_at(value: &str, start: usize) -> Option<FieldMarker> {
         separator + 1
     };
     let normalized = normalized_secret_key(&key);
-    let kind = if !quoted_key && (separator_byte == b':' || normalized.contains("authorization")) {
+    let kind = if (!quoted_key && separator_byte == b':')
+        || normalized.contains("authorization")
+        || normalized == "cookie"
+    {
         FieldValueKind::Header
     } else {
         FieldValueKind::Inline
@@ -1152,11 +1155,15 @@ fn starts_with_quote(value: &str, start: usize) -> bool {
 }
 
 fn inline_value_end(value: &str, start: usize) -> usize {
-    // In unquoted key/value syntax only whitespace ends the value. Quotes and
-    // commas after the value start are data; callers must quote values that
-    // contain spaces. Encoded line endings are ambiguous, so fail closed.
+    // In unquoted key/value syntax whitespace ends the value, and a semicolon
+    // followed by a field-shaped key/value pair begins the next field. Quotes
+    // and commas after the value start are data; callers must quote values
+    // that contain spaces. Encoded line endings are ambiguous, so fail closed.
     let mut offset = start;
     while offset < value.len() {
+        if value.as_bytes()[offset] == b';' && has_key_value_after_semicolon(value, offset) {
+            return offset;
+        }
         if line_ending_len(value, offset).is_some() {
             if raw_line_ending_len(value, offset).is_some() {
                 return offset;
@@ -1173,6 +1180,29 @@ fn inline_value_end(value: &str, start: usize) -> usize {
         offset += character.len_utf8();
     }
     value.len()
+}
+
+fn has_key_value_after_semicolon(value: &str, semicolon: usize) -> bool {
+    let bytes = value.as_bytes();
+    let Some(first_after) = bytes.get(semicolon + 1) else {
+        return false;
+    };
+    if !matches!(first_after, b' ' | b'\t') {
+        return false;
+    }
+    let field_start = skip_horizontal_whitespace(value, semicolon + 1);
+    let mut field_end = field_start;
+    while bytes
+        .get(field_end)
+        .is_some_and(|byte| is_field_name_byte(*byte))
+    {
+        field_end += 1;
+    }
+    if field_end == field_start {
+        return false;
+    }
+    let separator = skip_horizontal_whitespace(value, field_end);
+    matches!(bytes.get(separator), Some(b'=' | b':'))
 }
 
 fn line_ending_len(value: &str, offset: usize) -> Option<usize> {
@@ -2271,6 +2301,16 @@ mod tests {
         let inline_semicolon = redact_inline_secrets("token=inline-secret; next=visible");
         assert!(!inline_semicolon.contains("inline-secret"));
         assert!(inline_semicolon.contains("; next=visible"));
+
+        let semicolon_secret =
+            redact_inline_secrets("token=first-secret; sessionId=second-secret; next=visible");
+        assert!(!semicolon_secret.contains("first-secret"));
+        assert!(!semicolon_secret.contains("second-secret"));
+        assert!(semicolon_secret.contains("; next=visible"));
+
+        let cookie_field = redact_inline_secrets("cookie=sid=first-secret; theme=second-secret");
+        assert!(!cookie_field.contains("first-secret"));
+        assert!(!cookie_field.contains("second-secret"));
 
         let long_credential = format!(
             "Authorization: Basic bounded-secret\r\npublic={}",
