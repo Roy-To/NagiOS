@@ -538,7 +538,7 @@ impl JobHandler for CallbackProvider {
         reference()
     }
     fn recovery_policy(&self, _: &JobRecord) -> RecoveryPolicy {
-        self.recovery.clone()
+        self.recovery
     }
     fn verify_checkpoint(&self, checkpoint: &CheckpointRef) -> bool {
         self.verified_checkpoint.as_ref() == Some(checkpoint)
