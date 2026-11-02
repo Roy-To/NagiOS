@@ -6,11 +6,11 @@ use nagi_sdk::app_contract::is_valid_app_identifier;
 use semver::Version;
 use serde::Serialize;
 
-use crate::error::{PolicyName, io_error};
+use crate::error::{io_error, PolicyName};
 use crate::state::{
-    CapabilityDelta, INVENTORY_SCHEMA_VERSION, InstallOperation, InstalledPackage, InventoryFile,
-    InventorySnapshot, JOURNAL_SCHEMA_VERSION, JournalOperation, TransactionJournal,
-    TransactionPhase, new_transaction_id,
+    new_transaction_id, CapabilityDelta, InstallOperation, InstalledPackage, InventoryFile,
+    InventorySnapshot, JournalOperation, TransactionJournal, TransactionPhase,
+    INVENTORY_SCHEMA_VERSION, JOURNAL_SCHEMA_VERSION,
 };
 use crate::{InstallerError, PackageMetadata, PackageRelativePath, PackageSource};
 
@@ -1482,8 +1482,8 @@ fn replace_file(source: &Path, destination: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FailurePoint, InstallOperation, Installer, PolicyCheck, PolicyDecision, PolicyEvaluator,
-        PolicyOperation, PolicyReferences, evaluate_policy, valid_transaction_id,
+        evaluate_policy, valid_transaction_id, FailurePoint, InstallOperation, Installer,
+        PolicyCheck, PolicyDecision, PolicyEvaluator, PolicyOperation, PolicyReferences,
     };
     use crate::state::{CapabilityDelta, TransactionPhase};
     use crate::{
@@ -1493,7 +1493,7 @@ mod tests {
     use nagi_sdk::app_contract::AppStateVersion;
     use nagi_sdk::app_contract::{
         AppEntrypoint, AppIdentity, AppManifestContract, AppOrigin, CapabilityRequest, DisplayName,
-        EN_US, EntrypointKind, SDK_CONTRACT_VERSION, StateCompatibility,
+        EntrypointKind, StateCompatibility, EN_US, SDK_CONTRACT_VERSION,
     };
     use std::fs;
     #[cfg(windows)]
@@ -2317,11 +2317,9 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
 
-        assert!(
-            installer
-                .install(source("1.0.0", &[], b"must not escape"))
-                .is_err()
-        );
+        assert!(installer
+            .install(source("1.0.0", &[], b"must not escape"))
+            .is_err());
         assert_eq!(fs::read(&sentinel).unwrap(), b"outside data");
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
 
@@ -2427,12 +2425,10 @@ mod tests {
 
         fs::remove_file(package_parent.join("versions")).unwrap();
         installer.recover().unwrap();
-        assert!(
-            fs::read_dir(install_root.join("transactions"))
-                .unwrap()
-                .next()
-                .is_none()
-        );
+        assert!(fs::read_dir(install_root.join("transactions"))
+            .unwrap()
+            .next()
+            .is_none());
     }
 
     #[test]
