@@ -8,6 +8,7 @@ on:
       - codex/0.2-adopt-calendar-core
       - codex/0.2-adopt-writer-sheets-core
       - codex/0.2-sheets-bounded-updates
+      - codex/0.2-combined-host-foundations-ci
       - codex/0.2-calendar-core-01
       - claude/0.2-writer-core-01
       - claude/0.2-sheets-calc-01
@@ -41,7 +42,7 @@ concurrency:
 
 jobs:
   host-foundations:
-    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-adopt-writer-sheets-core", "codex/0.2-sheets-bounded-updates", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
+    if: contains(fromJSON('["codex/0.2-integrate-provenance-sbom", "codex/0.2-adopt-host-foundations", "codex/0.2-adopt-calendar-core", "codex/0.2-adopt-writer-sheets-core", "codex/0.2-sheets-bounded-updates", "codex/0.2-combined-host-foundations-ci", "codex/0.2-calendar-core-01", "claude/0.2-writer-core-01", "claude/0.2-sheets-calc-01"]'), github.head_ref || github.ref_name)
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +67,7 @@ jobs:
           row = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)
           if row is None:
               raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')
-          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption', 'sheets-bounded-updates']:
+          if row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption', 'sheets-bounded-updates', 'combined-host-foundations-ci']:
               # Audit the adoption delta against its current release-line base;
               # unrelated already-main changes are not this checkpoint's edits.
               baseline = subprocess.check_output(
@@ -95,6 +96,71 @@ jobs:
                                                if w['id'] != row['id']]
               if source_registry != prior_registry and registry != prior_registry:
                   raise SystemExit('Sheets registration must preserve all existing registry rows')
+          elif row['id'] == 'combined-host-foundations-ci':
+              registration_paths = {'.dev/workstreams.json',
+                                    '.github/workflows/0.2-host-integration.yml'}
+              immutable_sources = {
+                  '.dev/workstreams/sheets-bounded-updates/state.json':
+                      ('f8e54a03591467407f3104f463a2532c432272d4', '1cda3a114d76e91a906d342ef16b5ccc41a0b8c1'),
+                  'crates/nagi-sheets-core/src/workbook.rs':
+                      ('f8e54a03591467407f3104f463a2532c432272d4', 'f1435a44e1d62243cdc60ba0042fa76e3aeed730'),
+                  '.dev/workstreams/hark-sheets-functions/README.md':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '53286eaff290076524c27d40b1803509bea61d45'),
+                  '.dev/workstreams/hark-sheets-functions/evidence.json':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '398354a5dc9de588ba7abbee034e8edf57f70628'),
+                  'crates/nagi-sheets-core/src/engine.rs':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '68f74c3e08062b768fc4d20c02315f39fa22fd27'),
+                  'crates/nagi-sheets-core/src/parser.rs':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'dd44a2aee40d3f98ba4fbef546402093bd6e8030'),
+                  'tests/sheets-core/acceptance.rs':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'aaa9ac33f7bf6c13d6035abbff98702c10bea6b0'),
+                  'tests/sheets-core/ifs_round.rs':
+                      ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '59cc12dac636258bb654d35fdd5ee12e36abd032'),
+                  '.dev/workstreams/hark-writer-list-numbering/README.md':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', '95cda0538d85d257052d59433850fbfae5485e7b'),
+                  '.dev/workstreams/hark-writer-list-numbering/new-tests-on-unfixed-code.txt':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4ae8f917210dc41f48dd93ebf2675b1f01a9f211'),
+                  '.dev/workstreams/hark-writer-list-numbering/repro-before-fix.txt':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'f2dbc593d04ae6cf27c8007c2d2308b9f01b70f6'),
+                  '.dev/workstreams/hark-writer-list-numbering/verify-after-fix.txt':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'da23edca3e4944c6ed3d00beaf8d6cdd3e60c8e9'),
+                  'crates/nagi-writer-core/src/formats.rs':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', '8699f291117d32962b29d465d4f36905c3f19502'),
+                  'tests/writer-core/acceptance.rs':
+                      ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4019dc2cd9f186a8b3cee10eddbafa17669b0b18'),
+                  '.dev/workstreams/hark-calendar-availability-boundary/HANDOFF.md':
+                      ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', 'd997a793d6fdaab4885a8eacded9e1f0821869ca'),
+                  'crates/nagi-calendar-core/src/availability.rs':
+                      ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', '1e03d6ef8e48ffe4ffd3cd0b8baeb0055b04b7a4'),
+              }
+              expected_paths = list(immutable_sources) + ['.dev/workstreams/combined-host-foundations-ci/**']
+              if row['allowed_paths'] != expected_paths:
+                  raise SystemExit('Combined CI ownership must remain fixed-source imports only')
+              import hashlib
+              row_hash = hashlib.sha256(json.dumps(row, sort_keys=True,
+                  separators=(',', ':')).encode()).hexdigest()
+              if row_hash != '07226b34db54736c3f9a4740bd6ec5784858a35d81fd198c5269c1b3adf8f331':
+                  raise SystemExit('Combined CI registration contract changed')
+              for path, (source_head, expected_blob) in immutable_sources.items():
+                  entry = subprocess.check_output(['git', 'ls-tree', 'HEAD', '--', path], text=True).strip()
+                  fields = entry.split(None, 3)
+                  if len(fields) != 4 or fields[:3] != ['100644', 'blob', expected_blob]:
+                      raise SystemExit('Immutable source import changed: ' + path)
+              prior_registry = json.loads(subprocess.check_output(
+                  ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))
+              prior_ids = {w['id'] for w in prior_registry['workstreams']}
+              retained = dict(registry)
+              retained['workstreams'] = [w for w in registry['workstreams']
+                                         if w['id'] in prior_ids]
+              added = [w for w in registry['workstreams'] if w['id'] not in prior_ids]
+              if retained != prior_registry or any(w['id'] not in
+                      ['sheets-bounded-updates', 'combined-host-foundations-ci'] for w in added):
+                  raise SystemExit('Combined registration must preserve all existing registry rows')
+              sheets_row = next(w for w in registry['workstreams'] if w['id'] == 'sheets-bounded-updates')
+              sheets_hash = hashlib.sha256(json.dumps(sheets_row, sort_keys=True,
+                  separators=(',', ':')).encode()).hexdigest()
+              if sheets_hash != '588b9f6777fd9e03ca69e96fa7d21d7a1efcc69f6f130fe1d14732d9a42f3828':
+                  raise SystemExit('Imported Sheets source ownership changed')
           invalid = [p for p in changed if p not in registration_paths
                      if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])
                      or not any(fnmatch.fnmatchcase(p, g) for g in row['allowed_paths'])]

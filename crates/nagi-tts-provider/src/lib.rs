@@ -24,6 +24,8 @@ extern crate alloc;
 
 #[cfg(feature = "engine-jbonsai")]
 pub mod jbonsai_backend;
+#[cfg(feature = "engine-jbonsai")]
+mod validate;
 
 use alloc::vec::Vec;
 
