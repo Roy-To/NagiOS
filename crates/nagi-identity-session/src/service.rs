@@ -564,6 +564,18 @@ where
             .ok_or(IdentityError::RevisionExhausted)
     }
 
+    fn profile_id_is_reserved(&self, profile_id: &ProfileId) -> bool {
+        self.snapshot
+            .profiles
+            .iter()
+            .any(|profile| &profile.profile_id == profile_id)
+            || self
+                .snapshot
+                .sessions
+                .iter()
+                .any(|session| &session.profile_id == profile_id)
+    }
+
     fn read_valid_snapshot(&self, bytes: &[u8]) -> Result<IdentitySnapshot, IdentityError> {
         IdentitySnapshot::from_json(bytes).map_err(map_snapshot_error)
     }
@@ -576,10 +588,22 @@ where
         caller: &impl TrustedCallerContext,
     ) -> Result<RecoveryReport, IdentityError> {
         self.authorize(caller, IdentityAction::Recover, None, None, None)?;
-        let current = self.store.load_current().map_err(map_store_error)?;
-        let current_version = current.as_ref().map(|snapshot| snapshot.version);
-        let current = current.map(|snapshot| snapshot.bytes);
+        let store_state = self.store.load_current_state().map_err(map_store_error)?;
+        let current_version = store_state.high_water_version;
+        if store_state
+            .current
+            .as_ref()
+            .is_some_and(|snapshot| current_version != Some(snapshot.version))
+        {
+            return Err(IdentityError::StoreUnavailable);
+        }
+        let current = store_state.current.map(|snapshot| snapshot.bytes);
         let last_known_good = self.store.load_last_known_good().map_err(map_store_error)?;
+        if last_known_good.as_ref().is_some_and(|snapshot| {
+            current_version.is_none_or(|high_water| snapshot.version.get() > high_water.get())
+        }) {
+            return Err(IdentityError::StoreUnavailable);
+        }
         // Keep the cached snapshot and its CAS version paired on every failure.
         let (mut candidate, source) = match current {
             Some(bytes) => match self.read_valid_snapshot(&bytes) {
@@ -762,11 +786,7 @@ where
             .users
             .iter()
             .any(|user| user.user_id == user_id)
-            || self
-                .snapshot
-                .profiles
-                .iter()
-                .any(|profile| profile.profile_id == profile_id)
+            || self.profile_id_is_reserved(&profile_id)
         {
             return Err(IdentityError::IdCollision);
         }
@@ -829,12 +849,7 @@ where
             .ids
             .next_profile_id()
             .map_err(|_| IdentityError::IdSourceUnavailable)?;
-        if self
-            .snapshot
-            .profiles
-            .iter()
-            .any(|profile| profile.profile_id == profile_id)
-        {
+        if self.profile_id_is_reserved(&profile_id) {
             return Err(IdentityError::IdCollision);
         }
         let mut candidate = self.snapshot.clone();
@@ -915,12 +930,7 @@ where
             .ids
             .next_profile_id()
             .map_err(|_| IdentityError::IdSourceUnavailable)?;
-        if self
-            .snapshot
-            .profiles
-            .iter()
-            .any(|profile| profile.profile_id == profile_id)
-        {
+        if self.profile_id_is_reserved(&profile_id) {
             return Err(IdentityError::IdCollision);
         }
         let intent = SessionIntent {

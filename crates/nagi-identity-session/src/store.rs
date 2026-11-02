@@ -21,6 +21,17 @@ pub struct StoredSnapshot {
     pub version: SnapshotVersion,
 }
 
+/// One atomic observation of the rollbackable current payload and its
+/// independent, monotonically increasing store CAS revision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotStoreState {
+    pub current: Option<StoredSnapshot>,
+    /// Highest version ever committed. This must survive current-payload loss
+    /// and restoration from last-known-good data; it is not derived from either
+    /// snapshot's embedded version.
+    pub high_water_version: Option<SnapshotVersion>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SnapshotStoreError {
     Unavailable,
@@ -43,8 +54,22 @@ pub trait IdentitySnapshotStore {
         None
     }
 
+    /// Atomically observe current bytes with the independent store CAS
+    /// high-water version. If current bytes are absent or restored from an
+    /// older last-known-good snapshot, `high_water_version` must still retain
+    /// the newest committed CAS version. `None` is valid only before the first
+    /// commit; a current payload is present only when its version equals the
+    /// high-water version. Report an older current payload as absent (or fail
+    /// closed) so recovery can use last-known-good data.
+    fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError>;
+
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError>;
     fn load_last_known_good(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError>;
+
+    /// Compare `expected_version` against the non-rollback high-water version,
+    /// not the current or last-known-good payload version. A successful commit
+    /// must issue a strictly newer version and must never reuse a prior one;
+    /// `None` is valid only before the store's first committed snapshot.
     fn commit_atomic(
         &mut self,
         expected_version: Option<SnapshotVersion>,
@@ -58,6 +83,7 @@ pub trait IdentitySnapshotStore {
 pub struct InMemorySnapshotStore {
     current: Option<StoredSnapshot>,
     last_known_good: Option<StoredSnapshot>,
+    high_water_version: Option<SnapshotVersion>,
     fail_next_commit: bool,
     fail_reads: bool,
     observed: Arc<RwLock<MemoryObservation>>,
@@ -75,6 +101,7 @@ impl Clone for InMemorySnapshotStore {
         Self {
             current: self.current.clone(),
             last_known_good: self.last_known_good.clone(),
+            high_water_version: self.high_water_version,
             fail_next_commit: self.fail_next_commit,
             fail_reads: self.fail_reads,
             observed: Arc::new(RwLock::new(MemoryObservation {
@@ -99,10 +126,10 @@ impl InMemorySnapshotStore {
 
     pub fn corrupt_current_for_test(&mut self, bytes: Vec<u8>) {
         let version = self
-            .current
-            .as_ref()
-            .map(|snapshot| snapshot.version)
+            .high_water_version
+            .or_else(|| self.current.as_ref().map(|snapshot| snapshot.version))
             .unwrap_or(SnapshotVersion::new(1));
+        self.high_water_version = Some(version);
         self.current = Some(StoredSnapshot { bytes, version });
         if let Ok(mut observation) = self.observed.write() {
             observation.current = self.current.clone();
@@ -128,6 +155,16 @@ impl IdentitySnapshotStore for InMemorySnapshotStore {
             }
             Ok(observation.current.clone())
         }))
+    }
+
+    fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError> {
+        if self.fail_reads {
+            return Err(SnapshotStoreError::Unavailable);
+        }
+        Ok(SnapshotStoreState {
+            current: self.current.clone(),
+            high_water_version: self.high_water_version,
+        })
     }
 
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
@@ -156,7 +193,7 @@ impl IdentitySnapshotStore for InMemorySnapshotStore {
         IdentitySnapshot::from_json(complete_snapshot)
             .map_err(|_| SnapshotStoreError::Unavailable)?;
 
-        if self.current.as_ref().map(|snapshot| snapshot.version) != expected_version {
+        if self.high_water_version != expected_version {
             return Err(SnapshotStoreError::Conflict);
         }
 
@@ -185,6 +222,7 @@ impl IdentitySnapshotStore for InMemorySnapshotStore {
             version: next_version,
         });
         observation.current = self.current.clone();
+        self.high_water_version = Some(next_version);
         Ok(next_version)
     }
 }

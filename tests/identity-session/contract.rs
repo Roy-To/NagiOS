@@ -13,8 +13,8 @@ use nagi_identity_session::{
     LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator, NoopIdentityEventSink,
     PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata, ProfileRootAuthorizer,
     ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef, RecoverySource,
-    ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError, SnapshotVersion,
-    StorageRootFailure, StoredSnapshot, TrustedCallerContext, UnixMillis, UserId,
+    ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError, SnapshotStoreState,
+    SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext, UnixMillis, UserId,
     UserStorageRootAdapter,
 };
 use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
@@ -55,6 +55,7 @@ struct SharedStore(Arc<Mutex<StoreState>>);
 struct StoreState {
     current: Option<StoredSnapshot>,
     last_good: Option<StoredSnapshot>,
+    high_water_version: Option<SnapshotVersion>,
     fail_next_commit: bool,
     fail_reads: bool,
     read_barrier: Option<Arc<std::sync::Barrier>>,
@@ -68,10 +69,10 @@ impl SharedStore {
     fn corrupt_current(&self, bytes: Vec<u8>) {
         let mut state = self.0.lock().unwrap();
         let version = state
-            .current
-            .as_ref()
-            .map(|snapshot| snapshot.version)
+            .high_water_version
+            .or_else(|| state.current.as_ref().map(|snapshot| snapshot.version))
             .unwrap_or(SnapshotVersion::new(1));
+        state.high_water_version = Some(version);
         state.current = Some(StoredSnapshot { bytes, version });
     }
 
@@ -83,12 +84,51 @@ impl SharedStore {
             .as_ref()
             .map(|snapshot| snapshot.bytes.clone())
     }
+
+    fn current_version(&self) -> Option<SnapshotVersion> {
+        self.0
+            .lock()
+            .unwrap()
+            .current
+            .as_ref()
+            .map(|snapshot| snapshot.version)
+    }
+
+    fn last_good_version(&self) -> Option<SnapshotVersion> {
+        self.0
+            .lock()
+            .unwrap()
+            .last_good
+            .as_ref()
+            .map(|snapshot| snapshot.version)
+    }
+
+    fn lose_current(&self) {
+        self.0.lock().unwrap().current = None;
+    }
 }
 
 impl IdentitySnapshotStore for SharedStore {
     fn current_snapshot_reader(&self) -> Option<nagi_identity_session::CurrentSnapshotReader> {
         let store = self.clone();
         Some(Arc::new(move || store.load_current()))
+    }
+
+    fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError> {
+        let state = self.0.lock().unwrap();
+        if state.fail_reads {
+            return Err(SnapshotStoreError::Unavailable);
+        }
+        let observation = SnapshotStoreState {
+            current: state.current.clone(),
+            high_water_version: state.high_water_version,
+        };
+        let barrier = state.read_barrier.clone();
+        drop(state);
+        if let Some(barrier) = barrier {
+            barrier.wait();
+        }
+        Ok(observation)
     }
 
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
@@ -120,7 +160,7 @@ impl IdentitySnapshotStore for SharedStore {
             state.fail_next_commit = false;
             return Err(SnapshotStoreError::Unavailable);
         }
-        if state.current.as_ref().map(|snapshot| snapshot.version) != expected_version {
+        if state.high_water_version != expected_version {
             return Err(SnapshotStoreError::Conflict);
         }
         let next_version = SnapshotVersion::new(match expected_version {
@@ -139,6 +179,7 @@ impl IdentitySnapshotStore for SharedStore {
             bytes: bytes.to_vec(),
             version: next_version,
         });
+        state.high_water_version = Some(next_version);
         Ok(next_version)
     }
 }
@@ -252,6 +293,23 @@ fn new_service_with_authorizer(
         TestIds::default(),
         clock.clone(),
         authorizer,
+        cleaner,
+        NoopIdentityEventSink,
+    );
+    (service, clock)
+}
+
+fn new_service_with_ids(
+    store: SharedStore,
+    cleaner: TestCleaner,
+    ids: TestIds,
+) -> (TestService, TestClock) {
+    let clock = TestClock(Arc::new(AtomicU64::new(100)));
+    let service = IdentityService::new(
+        store,
+        ids,
+        clock.clone(),
+        TestAuthorizer::default(),
         cleaner,
         NoopIdentityEventSink,
     );
@@ -491,6 +549,189 @@ fn guest_cleanup_only_targets_its_ephemeral_profile() {
         .profiles
         .iter()
         .any(|profile| profile.profile_id == guest_profile));
+}
+
+#[test]
+fn stale_store_revision_is_rejected_after_lkg_recovery_from_missing_current() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("lkg-store-revision-aba");
+    let (mut stale, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut stale, &caller);
+
+    let (mut writer, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut writer, &caller);
+    let (user_id, _) = writer
+        .create_local_user(
+            &caller,
+            metadata("Committed owner").0,
+            metadata("Primary").1,
+        )
+        .unwrap();
+    writer
+        .create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Later profile", None).unwrap(),
+        )
+        .unwrap();
+    let highest_version = store.current_version().unwrap();
+    let lkg_version = store.last_good_version().unwrap();
+    assert!(highest_version.get() > lkg_version.get());
+
+    store.lose_current();
+    let missing_state = store.load_current_state().unwrap();
+    assert!(missing_state.current.is_none());
+    assert_eq!(missing_state.high_water_version, Some(highest_version));
+    let (mut recovery, _) = new_service(store.clone(), TestCleaner::default());
+    assert_eq!(
+        recovery.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    let first_recovery_version = store.current_version().unwrap();
+
+    // Lose current again while the same older LKG remains. This makes the
+    // durable high-water version exceed the LKG by more than one generation.
+    store.lose_current();
+    assert_eq!(
+        recovery.recover(&caller).unwrap().source,
+        RecoverySource::LastKnownGood
+    );
+    let recovered_version = store.current_version().unwrap();
+    assert!(recovered_version.get() > first_recovery_version.get());
+    assert!(recovered_version.get() > lkg_version.get() + 1);
+
+    let lkg = store.load_last_known_good().unwrap().unwrap();
+    assert_eq!(lkg.version, lkg_version);
+    let mut stale_restore = store.clone();
+    assert_eq!(
+        stale_restore.commit_atomic(Some(lkg.version), &lkg.bytes),
+        Err(SnapshotStoreError::Conflict),
+        "an update based on the old LKG CAS revision must be rejected"
+    );
+    let recovered_bytes = store.current().unwrap();
+
+    let stale_write = stale.create_local_user(
+        &caller,
+        metadata("Stale owner").0,
+        metadata("Stale profile").1,
+    );
+    assert_eq!(
+        stale_write,
+        Err(IdentityError::StoreConflict),
+        "recovery must retain a CAS high-water mark above the LKG version"
+    );
+    assert!(recovered_version.get() > highest_version.get());
+    assert_eq!(store.current(), Some(recovered_bytes));
+}
+
+#[test]
+fn cleaned_guest_profile_id_cannot_be_reused_by_a_later_guest_session() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("guest-profile-history");
+    let (mut first, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut first, &caller);
+    let ended = first
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("first-guest").unwrap(),
+        )
+        .unwrap();
+    let old_profile = first
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == ended)
+        .unwrap()
+        .profile_id
+        .clone();
+    assert_eq!(
+        first.end_session(&caller, &ended).unwrap(),
+        EndSessionResult::Ended
+    );
+    assert!(!first
+        .snapshot()
+        .profiles
+        .iter()
+        .any(|profile| profile.profile_id == old_profile));
+
+    let (mut restarted, _) = new_service_with_ids(
+        store.clone(),
+        cleaner,
+        TestIds {
+            user: 0,
+            profile: 0,
+            session: 1,
+            fail: false,
+        },
+    );
+    recover(&mut restarted, &caller);
+    let before = restarted.snapshot().clone();
+    let reused = restarted.create_guest_session(
+        &caller,
+        None,
+        nagi_identity_session::IdempotencyKey::new("second-guest").unwrap(),
+    );
+
+    assert_eq!(reused, Err(IdentityError::IdCollision));
+    assert_eq!(restarted.snapshot(), &before);
+}
+
+#[test]
+fn cleaned_guest_profile_id_cannot_be_reassigned_to_a_persistent_owner() {
+    let store = SharedStore::default();
+    let cleaner = TestCleaner::default();
+    let caller = TestCaller::new("guest-profile-ownership-history");
+    let (mut first, _) = new_service(store.clone(), cleaner.clone());
+    recover(&mut first, &caller);
+    let (user_id, _) = first
+        .create_local_user(&caller, metadata("Owner").0, metadata("Primary").1)
+        .unwrap();
+    let guest = first
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("guest-to-clean").unwrap(),
+        )
+        .unwrap();
+    let old_guest_profile = first
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == guest)
+        .unwrap()
+        .profile_id
+        .clone();
+    assert_eq!(
+        first.end_session(&caller, &guest).unwrap(),
+        EndSessionResult::Ended
+    );
+
+    let (mut restarted, _) = new_service_with_ids(
+        store.clone(),
+        cleaner,
+        TestIds {
+            user: 1,
+            profile: 1,
+            session: 1,
+            fail: false,
+        },
+    );
+    recover(&mut restarted, &caller);
+    let before = restarted.snapshot().clone();
+    let reassigned = restarted.create_profile(
+        &caller,
+        user_id,
+        ProfileMetadata::new("Replacement owner", None).unwrap(),
+    );
+
+    assert_eq!(reassigned, Err(IdentityError::IdCollision));
+    assert_eq!(restarted.snapshot(), &before);
+    assert!(before.sessions.iter().any(|session| {
+        session.profile_id == old_guest_profile
+            && session.guest_cleanup == nagi_identity_session::GuestCleanupStatus::Complete
+    }));
 }
 
 #[test]
@@ -1909,6 +2150,10 @@ fn failed_recovery_commit_does_not_publish_end_and_successful_retry_revokes() {
 fn missing_reader_defaults_to_unavailable_without_cached_authority() {
     struct WithoutReader(SharedStore);
     impl IdentitySnapshotStore for WithoutReader {
+        fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError> {
+            self.0.load_current_state()
+        }
+
         fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError> {
             self.0.load_current()
         }

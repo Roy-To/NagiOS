@@ -45,5 +45,5 @@ pub use storage::{
 };
 pub use store::{
     CurrentSnapshotReader, IdentitySnapshotStore, InMemorySnapshotStore, SnapshotStoreError,
-    SnapshotVersion, StoredSnapshot,
+    SnapshotStoreState, SnapshotVersion, StoredSnapshot,
 };
