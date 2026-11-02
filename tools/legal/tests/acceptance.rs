@@ -697,3 +697,35 @@ vendored_path = "third_party/unreviewed"
             && f.component_id.as_deref() == Some(unreviewed.component_id.as_str())
     }));
 }
+
+#[test]
+fn document_describes_rejects_an_absent_project_package() {
+    let inventory = Fixture::new().scan();
+    let mut document = build_spdx_document(&inventory, "2026-10-23T00:00:00Z").unwrap();
+    validate_spdx_document(&document).expect("valid generated control");
+    document["packages"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|package| package["SPDXID"] != "SPDXRef-NagiOS");
+    // Isolate documentDescribes validation from the separate relationship guard.
+    document["relationships"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|relationship| {
+            relationship["spdxElementId"] != "SPDXRef-NagiOS"
+                && relationship["relatedSpdxElement"] != "SPDXRef-NagiOS"
+        });
+    assert!(document["documentDescribes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id == "SPDXRef-NagiOS"));
+    let errors =
+        validate_spdx_document(&document).expect_err("described project package must exist");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error == "documentDescribes refers to absent package SPDXRef-NagiOS"),
+        "{errors:?}"
+    );
+}
