@@ -214,22 +214,18 @@ mod tests {
         );
 
         let extended = boundary(MAX_SEMANTIC_QUERY_BYTES + 1, MAX_SEMANTIC_CHUNK_BYTES + 1);
-        assert!(
-            extended
-                .prepare(
-                    EmbeddingPurpose::Query,
-                    &"q".repeat(MAX_SEMANTIC_QUERY_BYTES + 1),
-                )
-                .is_ok()
-        );
-        assert!(
-            extended
-                .prepare(
-                    EmbeddingPurpose::Passage,
-                    &"p".repeat(MAX_SEMANTIC_CHUNK_BYTES + 1),
-                )
-                .is_ok()
-        );
+        assert!(extended
+            .prepare(
+                EmbeddingPurpose::Query,
+                &"q".repeat(MAX_SEMANTIC_QUERY_BYTES + 1),
+            )
+            .is_ok());
+        assert!(extended
+            .prepare(
+                EmbeddingPurpose::Passage,
+                &"p".repeat(MAX_SEMANTIC_CHUNK_BYTES + 1),
+            )
+            .is_ok());
     }
 
     #[test]
