@@ -619,6 +619,7 @@ fn global_and_per_owner_concurrency_limits_are_atomic() {
     assert_eq!(first_record.state(), &JobState::Cancelled);
     let second_record = match harness.scheduler.dispatch_one().unwrap() {
         DispatchResult::Completed(record) => record,
+        DispatchResult::Superseded { .. } => panic!("queued work cannot be superseded"),
         DispatchResult::Idle => panic!("owner slot should be free"),
     };
     assert_eq!(second_record.id(), alice_second.record.id());
