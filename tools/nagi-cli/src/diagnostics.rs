@@ -137,13 +137,19 @@ pub struct ErrorCause {
 /// The bounded text scrubber recognizes JSON object members, header-classified
 /// secret fields, and parsed key/value fields. Header-classified secret fields
 /// are hidden through their line boundary, which can also hide safe-looking
-/// fields later on that line. For a recognized secret key, the scrubber searches
-/// from its `:` or `=` delimiter, including following lines, for the PEM marker
-/// `-----BEGIN` (ASCII case-insensitive). A match hides the rest of that bounded
-/// free-text input regardless of PEM label or matching `END`. This can hide
-/// safe-looking trailing text and later fields in that same input. Structured
-/// values stored in separate fields are scrubbed independently. Prefixes such
-/// as YAML anchors/tags and OpenSSL bag attributes are hidden with the PEM.
+/// fields later on that line. PEM detection is format-scoped: for a recognized
+/// JSON secret member, search stays within that member's JSON value, decoding
+/// JSON-string escapes for at most three passes. For non-JSON recognized
+/// key/value or header fields, search starts at the `:` or `=` delimiter and
+/// may include following lines. A `-----BEGIN` marker (ASCII case-insensitive)
+/// hides the rest of that bounded free-text input regardless of PEM label or
+/// matching `END`. Thus a marker in an unrelated JSON member, or after a JSON
+/// secret member whose value has no marker, does not activate this rule and is
+/// outside this JSON PEM coverage; later members are still processed for their
+/// own recognized secret keys. A match can hide safe-looking trailing text and
+/// fields in the same input. Structured values stored in separate fields are
+/// scrubbed independently. Prefixes such as YAML anchors/tags and OpenSSL bag
+/// attributes are hidden with the PEM.
 /// Secret-looking names not recognized by the key classifier, including
 /// `tls_key` and `private.key`, are not covered. Scheme names in arbitrary
 /// inline text are not a universal credential detector.
@@ -166,11 +172,12 @@ pub struct DiagnosticEvent {
 
 /// A structured event view whose supported text fields have been redacted.
 /// Header-classified secret fields, including authorization and auth/token/
-/// cookie/session fields, are redacted through their line boundary. For a
-/// recognized secret key, the scrubber searches from its `:` or `=` delimiter,
-/// including following lines, for the PEM marker `-----BEGIN` (ASCII
-/// case-insensitive). A match redacts the rest of that bounded free-text input
-/// regardless of PEM label or matching `END`.
+/// cookie/session fields, are redacted through their line boundary. PEM search
+/// follows [`DiagnosticEvent`]: JSON scanning stays within a recognized secret
+/// member's value (at most three JSON-string escape decode passes); non-JSON
+/// key/value/header scanning may include following lines. A `-----BEGIN`
+/// match hides the rest of that bounded free-text input. Markers in unrelated
+/// JSON members do not trigger this rule.
 /// Safe-looking trailing text and fields in that same input may be hidden;
 /// separate structured fields are scrubbed independently. Prefixes such as
 /// YAML anchors/tags and OpenSSL bag attributes are hidden with the PEM.
@@ -379,12 +386,13 @@ impl DiagnosticEvent {
     /// Serializes this structured event after applying privacy classes and the
     /// bounded diagnostic text scrubber. It redacts header-classified secret
     /// fields through their line boundary (so later safe-looking fields on that
-    /// line may also be hidden). For a recognized secret key, the scrubber
-    /// searches from its `:` or `=` delimiter, including following lines, for
-    /// the PEM marker `-----BEGIN` (ASCII case-insensitive). A match redacts the
-    /// rest of that bounded free-text input regardless of PEM label or matching
-    /// `END`. Safe-looking trailing text and fields in that same input may be
-    /// hidden; separate structured fields are scrubbed independently. Prefixes
+    /// line may also be hidden). PEM search follows [`DiagnosticEvent`]: JSON
+    /// scanning stays within a recognized secret member's value (at most three
+    /// JSON-string escape decode passes); non-JSON key/value/header scanning may
+    /// include following lines. A `-----BEGIN` match hides the rest of that
+    /// bounded free-text input; markers in unrelated JSON members do not trigger
+    /// this rule. Safe-looking trailing text may be hidden; separate structured
+    /// fields are scrubbed independently. Prefixes
     /// such as YAML
     /// anchors/tags and OpenSSL bag attributes are hidden with the PEM.
     /// `tls_key` and `private.key` are not recognized aliases. Other
@@ -398,13 +406,14 @@ impl DiagnosticEvent {
 
     /// Produces a redacted view for a structured event using the same bounded
     /// text rules as `to_json`: header-classified secret fields are redacted to
-    /// their line boundary. For a recognized secret key, the scrubber searches
-    /// from its `:` or `=` delimiter, including following lines, for the PEM
-    /// marker `-----BEGIN` (ASCII case-insensitive). A match redacts the rest of
-    /// that bounded free-text input regardless of PEM label or matching `END`.
-    /// Safe-looking trailing text may be hidden; separate structured fields are
-    /// scrubbed independently. YAML anchors/tags and OpenSSL bag attributes are
-    /// scrubbed with the PEM.
+    /// their line boundary. PEM search follows [`DiagnosticEvent`]: JSON
+    /// scanning stays within a recognized secret member's value (at most three
+    /// JSON-string escape decode passes); non-JSON key/value/header scanning may
+    /// include following lines. A `-----BEGIN` match hides the rest of that
+    /// bounded free-text input; markers in unrelated JSON members do not trigger
+    /// this rule. Safe-looking trailing text may be hidden; separate structured
+    /// fields are scrubbed independently. YAML anchors/tags and OpenSSL bag
+    /// attributes are scrubbed with the PEM.
     /// `tls_key` and `private.key` are not recognized aliases. Other key/value
     /// fields follow recognized scheme and delimiter rules. Line-scoped redaction
     /// may hide later safe-looking fields on the same line. This does not certify
@@ -415,11 +424,12 @@ impl DiagnosticEvent {
     }
 
     /// Parses a serialized event and reapplies the same bounded text redaction
-    /// as `to_json`. For recognized secret keys, it searches from the `:` or
-    /// `=` delimiter, including following lines, for the PEM marker
-    /// `-----BEGIN` (ASCII case-insensitive); a match redacts the remaining
-    /// bounded free-text input. This does not certify arbitrary raw logs or
-    /// unsupported formats as safe.
+    /// as `to_json`. PEM search follows [`DiagnosticEvent`]: JSON scanning is
+    /// confined to recognized secret-member values (at most three JSON-string
+    /// escape decode passes); non-JSON key/value/header scanning may include
+    /// following lines. A `-----BEGIN` match hides the bounded free-text tail;
+    /// markers in unrelated JSON members do not trigger this rule. This does
+    /// not certify arbitrary raw logs or unsupported formats as safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let record: SafeDiagnosticEvent = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse diagnostic event: {error}")))?;
@@ -722,6 +732,7 @@ struct JsonSecretMember {
 }
 
 const MAX_JSON_DEPTH: usize = 32;
+const MAX_JSON_STRING_DECODE_PASSES: usize = 3;
 
 fn redact_inline_secrets(value: &str) -> String {
     // This text scrubber recognizes JSON members (including JSON Unicode
@@ -730,14 +741,14 @@ fn redact_inline_secrets(value: &str) -> String {
     // tokens, command-line flags, or bracketed key paths. Callers must not
     // label those formats safe without first converting them to structured
     // fields.
-    // Header-classified secret fields are opaque through their line boundary.
-    // Inline key/value text uses only recognized schemes and delimiters; an
-    // arbitrary scheme in free text is not generally parsed. For a recognized
-    // secret key, search from its ':' or '=' delimiter, including following
-    // lines, for the PEM marker "-----BEGIN" (ASCII case-insensitive). A match
-    // consumes the rest of this bounded free-text input regardless of label or
-    // matching END. This prevents bodies, concatenated blocks, and ambiguous
-    // suffixes from escaping.
+    // JSON PEM search is limited to a recognized secret member's JSON value;
+    // JSON-string escapes are decoded for at most three passes. Non-JSON
+    // key/value and header PEM search starts at its ':' or '=' delimiter and
+    // may include following lines. A "-----BEGIN" match consumes the rest of
+    // this bounded free-text input. Markers in unrelated JSON members do not
+    // trigger that rule. Header-classified values are otherwise opaque through
+    // their line boundary. Inline key/value text uses recognized schemes and
+    // delimiters; arbitrary schemes are not generally parsed.
     // Replace oversized input before parsing. This bounds work and prevents a
     // truncation from splitting a credential marker or quoted value.
     if value.len() > MAX_MESSAGE_BYTES {
@@ -748,8 +759,16 @@ fn redact_inline_secrets(value: &str) -> String {
     let mut cursor = 0;
     while cursor < value.len() {
         if let Some(member) = json_secret_member_at(value, cursor) {
-            let member_end = json_value_end(value, member.value_start, member.quote_style)
-                .unwrap_or(value.len());
+            let Some(member_end) = json_value_end(value, member.value_start, member.quote_style)
+            else {
+                // A malformed or incomplete JSON value has no trustworthy
+                // boundary. Redact the remaining text without searching it
+                // as if it were part of this member's value.
+                output.push_str(&value[cursor..member.prefix_end]);
+                append_json_redaction(&mut output, member.quote_style);
+                cursor = value.len();
+                continue;
+            };
             if json_secret_value_has_pem_begin(
                 value,
                 member.value_start,
@@ -888,7 +907,7 @@ fn json_secret_member_at(value: &str, start: usize) -> Option<JsonSecretMember> 
     let (closing_start, after_closing) = delimited_string_end(value, content_start, style)?;
     let mut key = decode_json_string(&value[content_start..closing_start]);
     if matches!(style, QuoteStyle::Escaped(_)) {
-        for _ in 0..2 {
+        for _ in 1..MAX_JSON_STRING_DECODE_PASSES {
             let Some(decoded) = key.as_deref().and_then(decode_json_string) else {
                 break;
             };
@@ -1081,18 +1100,7 @@ fn json_secret_value_has_pem_begin(
                 if let Some((closing_start, after_closing)) =
                     delimited_string_end(value, content_start, style)
                 {
-                    if let Some(decoded) = decode_json_string(&value[content_start..closing_start])
-                    {
-                        if find_ascii_case_insensitive(&decoded, 0, "-----BEGIN").is_some() {
-                            return true;
-                        }
-                    } else if find_ascii_case_insensitive(
-                        &value[content_start..closing_start],
-                        0,
-                        "-----BEGIN",
-                    )
-                    .is_some()
-                    {
+                    if json_string_has_pem_begin(&value[content_start..closing_start]) {
                         return true;
                     }
                     cursor = after_closing;
@@ -1106,6 +1114,23 @@ fn json_secret_value_has_pem_begin(
         cursor += character.len_utf8();
     }
     find_ascii_case_insensitive(secret_value, 0, "-----BEGIN").is_some()
+}
+
+fn json_string_has_pem_begin(value: &str) -> bool {
+    let mut current = value.to_owned();
+    for _ in 0..MAX_JSON_STRING_DECODE_PASSES {
+        let Some(decoded) = decode_json_string(&current) else {
+            break;
+        };
+        if find_ascii_case_insensitive(&decoded, 0, "-----BEGIN").is_some() {
+            return true;
+        }
+        if decoded == current {
+            break;
+        }
+        current = decoded;
+    }
+    false
 }
 
 fn json_container_end(value: &str, start: usize, style: QuoteStyle) -> Option<usize> {
@@ -1693,6 +1718,11 @@ impl OverallStatus {
 
 /// Verification text fields use the limited JSON/header/key-value scrubber;
 /// this type does not certify arbitrary raw logs or unsupported formats.
+/// PEM search follows [`DiagnosticEvent`]: JSON search is limited to recognized
+/// secret-member values and decodes JSON-string escapes for at most three
+/// passes; non-JSON key/value/header search may include following lines. A
+/// match hides the bounded free-text tail, while unrelated JSON members do not
+/// trigger that rule.
 /// Reprocessing ambiguous free text may redact more content.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1825,11 +1855,11 @@ struct CheckResultDraft {
 
 /// A structured verification report. Human and JSON outputs use the same
 /// bounded text rules as [`DiagnosticEvent`]: header-classified secret fields
-/// are hidden through their line boundary. For a recognized secret key, the
-/// scrubber searches from its `:` or `=` delimiter, including following lines,
-/// for the PEM marker `-----BEGIN` (ASCII case-insensitive). A match hides the
-/// rest of that bounded free-text input regardless of PEM label or matching
-/// `END`.
+/// are hidden through their line boundary. PEM search stays within a recognized
+/// JSON secret member's value (at most three JSON-string escape decode passes);
+/// non-JSON key/value/header scans may include following lines. A `-----BEGIN`
+/// match hides the remaining bounded free-text input. Markers in unrelated JSON
+/// members do not trigger this rule.
 /// Safe-looking trailing text and fields in that input may be hidden; separate
 /// structured fields are scrubbed independently. YAML anchors/tags and OpenSSL
 /// bag attributes are scrubbed with the PEM.
@@ -1928,11 +1958,12 @@ impl VerificationReport {
             .map_err(|error| DiagnosticError(format!("serialize verification report: {error}")))
     }
 
-    /// Parses and validates a report. Human and JSON output redact recognized
-    /// secret keys by searching from the `:` or `=` delimiter, including
-    /// following lines, for the PEM marker `-----BEGIN` (ASCII
-    /// case-insensitive); a match redacts the remaining bounded free-text input.
-    /// Unsupported raw formats are not certified safe.
+    /// Parses and validates a report using the same PEM scope as
+    /// [`DiagnosticEvent`]: JSON scanning is limited to recognized secret-member
+    /// values (at most three JSON-string escape decode passes), while non-JSON
+    /// key/value/header scanning may include following lines. A `-----BEGIN`
+    /// match hides the bounded free-text tail; unrelated JSON members do not
+    /// trigger that rule. Unsupported raw formats are not certified safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let report: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse verification report: {error}")))?;
@@ -2106,11 +2137,12 @@ pub trait CrashSink {
 
 /// Crash recovery hints, event messages, and error details use the same bounded
 /// diagnostic text scrubber as [`DiagnosticEvent`]. Header-classified secret
-/// fields are hidden through their line boundary. For a recognized secret key,
-/// the scrubber searches from its `:` or `=` delimiter, including following
-/// lines, for the PEM marker `-----BEGIN` (ASCII case-insensitive). A match
-/// hides the rest of that bounded free-text input regardless of PEM label or
-/// matching `END`.
+/// fields are hidden through their line boundary. PEM search follows
+/// [`DiagnosticEvent`]: JSON scanning stays within recognized secret-member
+/// values (at most three JSON-string escape decode passes); non-JSON key/value/
+/// header scanning may include following lines. A `-----BEGIN` match hides the
+/// remaining bounded free-text input; unrelated JSON members do not trigger
+/// that rule.
 /// Safe-looking trailing text and fields in that input may be hidden; separate
 /// structured fields are scrubbed independently. YAML anchors/tags and OpenSSL
 /// bag attributes are scrubbed with the PEM. `tls_key` and `private.key` are not
@@ -2185,11 +2217,12 @@ impl CrashRecord {
             .map_err(|error| DiagnosticError(format!("serialize crash record: {error}")))
     }
 
-    /// Parses and sanitizes the crash record using the same bounded text rules
-    /// as [`DiagnosticEvent`]. For recognized secret keys, it searches from the
-    /// `:` or `=` delimiter, including following lines, for the PEM marker
-    /// `-----BEGIN` (ASCII case-insensitive); a match redacts the remaining
-    /// bounded free-text input.
+    /// Parses and sanitizes the crash record using the PEM scope described on
+    /// [`DiagnosticEvent`]: JSON scans are limited to recognized secret-member
+    /// values (at most three JSON-string escape decode passes); non-JSON
+    /// key/value/header scans may include following lines. A `-----BEGIN` match
+    /// hides the remaining bounded free-text input; unrelated JSON members do
+    /// not trigger that rule.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let mut record: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse crash record: {error}")))?;
@@ -2287,12 +2320,12 @@ impl<S: CrashSink> CrashCapture<S> {
 /// A bundle of structured verification and event records. Human and JSON output
 /// use the same bounded text redaction rules as [`DiagnosticEvent`].
 /// Header-classified secret fields are hidden through their line boundary.
-/// For a recognized secret key, the scrubber searches from its `:` or `=`
-/// delimiter, including following lines, for the PEM marker `-----BEGIN`
-/// (ASCII case-insensitive). A match hides the rest of that bounded free-text
-/// input regardless of PEM label or matching `END`. Safe-looking trailing text
-/// and fields in that input may be hidden; separate structured fields are
-/// scrubbed independently. YAML
+/// PEM search stays within recognized JSON secret-member values (at most three
+/// JSON-string escape decode passes); non-JSON key/value/header scans may include
+/// following lines. A `-----BEGIN` match hides the rest of that bounded free-
+/// text input; markers in unrelated JSON members do not trigger this rule.
+/// Safe-looking trailing text and fields in that input may be hidden; separate
+/// structured fields are scrubbed independently. YAML
 /// anchors/tags and OpenSSL bag attributes are scrubbed with the PEM.
 /// `tls_key` and `private.key` are not recognized
 /// aliases. Arbitrary raw logs, HAR, URL userinfo, pair
@@ -2343,12 +2376,12 @@ impl DiagnosticsBundle {
             .map_err(|error| DiagnosticError(format!("serialize diagnostics bundle: {error}")))
     }
 
-    /// Parses and sanitizes bundle events using the same bounded text rules as
-    /// [`DiagnosticEvent`]. For recognized secret keys, the scrubber searches
-    /// from the `:` or `=` delimiter, including following lines, for the PEM
-    /// marker `-----BEGIN` (ASCII case-insensitive); a match redacts the
-    /// remaining bounded free-text input. Unsupported raw formats are not
-    /// certified safe.
+    /// Parses and sanitizes bundle events using the PEM scope described on
+    /// [`DiagnosticEvent`]: JSON scans are limited to recognized secret-member
+    /// values (at most three JSON-string escape decode passes); non-JSON
+    /// key/value/header scans may include following lines. A `-----BEGIN` match
+    /// hides the remaining bounded free-text input; unrelated JSON members do
+    /// not trigger that rule. Unsupported raw formats are not certified safe.
     pub fn from_json(input: &str) -> Result<Self, DiagnosticError> {
         let mut bundle: Self = serde_json::from_str(input)
             .map_err(|error| DiagnosticError(format!("parse diagnostics bundle: {error}")))?;
@@ -3163,6 +3196,114 @@ mod tests {
         let safe_oversized = redact_inline_secrets(&oversized);
         assert!(!safe_oversized.contains(payload), "{safe_oversized:?}");
         assert!(safe_oversized.ends_with(TRUNCATED));
+    }
+
+    #[test]
+    fn json_secret_pem_detection_is_bounded_to_member_and_three_escape_decodes() {
+        let two_stage_hyphens = r#"{"private_key":"\\u002d\\u002d\\u002d\\u002d\\u002dBEGIN PRIVATE KEY-----","line2":"SYNTHETIC-TWO-STAGE-HYPHEN-BODY"}"#;
+        let safe_two_stage_hyphens = redact_inline_secrets(two_stage_hyphens);
+        assert!(
+            !safe_two_stage_hyphens.contains("SYNTHETIC-TWO-STAGE-HYPHEN-BODY"),
+            "{safe_two_stage_hyphens:?}"
+        );
+
+        let two_stage_partial_marker = r#"{"private_key":"-----B\\u0045GIN PRIVATE KEY-----","line2":"SYNTHETIC-TWO-STAGE-PARTIAL-BODY"}"#;
+        let safe_two_stage_partial_marker = redact_inline_secrets(two_stage_partial_marker);
+        assert!(
+            !safe_two_stage_partial_marker.contains("SYNTHETIC-TWO-STAGE-PARTIAL-BODY"),
+            "{safe_two_stage_partial_marker:?}"
+        );
+
+        let three_stage_marker = r#"{"private_key":"\\\\u002d\\\\u002d\\\\u002d\\\\u002d\\\\u002dBEGIN PRIVATE KEY-----","line2":"SYNTHETIC-THREE-STAGE-BODY"}"#;
+        let safe_three_stage_marker = redact_inline_secrets(three_stage_marker);
+        assert!(
+            !safe_three_stage_marker.contains("SYNTHETIC-THREE-STAGE-BODY"),
+            "{safe_three_stage_marker:?}"
+        );
+
+        let escaped_json = r#"{\"private_key\":\"-----B\\\\u0045GIN PRIVATE KEY-----\",\"line2\":\"SYNTHETIC-ESCAPED-JSON-UNICODE-BODY\"}"#;
+        let safe_escaped_json = redact_inline_secrets(escaped_json);
+        assert!(
+            !safe_escaped_json.contains("SYNTHETIC-ESCAPED-JSON-UNICODE-BODY"),
+            "{safe_escaped_json:?}"
+        );
+
+        let malformed_with_literal_marker = r#"{"private_key":"\\u00G0-----BEGIN PRIVATE KEY-----","line2":"SYNTHETIC-MALFORMED-ESCAPE-TAIL"}"#;
+        let safe_malformed_with_literal_marker =
+            redact_inline_secrets(malformed_with_literal_marker);
+        assert!(
+            !safe_malformed_with_literal_marker.contains("SYNTHETIC-MALFORMED-ESCAPE-TAIL"),
+            "{safe_malformed_with_literal_marker:?}"
+        );
+
+        let malformed_without_marker =
+            r#"{"private_key":"\\u00G0","status":"visible-after-malformed-escape"}"#;
+        let safe_malformed_without_marker = redact_inline_secrets(malformed_without_marker);
+        assert!(
+            safe_malformed_without_marker.contains("visible-after-malformed-escape"),
+            "{safe_malformed_without_marker:?}"
+        );
+
+        let utf8 = format!("é{two_stage_partial_marker}");
+        let safe_utf8 = redact_inline_secrets(&utf8);
+        assert!(safe_utf8.starts_with('é'), "{safe_utf8:?}");
+        assert!(!safe_utf8.contains("SYNTHETIC-TWO-STAGE-PARTIAL-BODY"));
+
+        let escaped_marker = r#"\\\\\\\\u002d\\\\\\\\u002d\\\\\\\\u002d\\\\\\\\u002d\\\\\\\\u002dBEGIN PRIVATE KEY-----"#;
+        let four_stage = format!(
+            r#"{{"private_key":"{escaped_marker}","line2":"SYNTHETIC-FOUR-STAGE-OUT-OF-SCOPE"}}"#
+        );
+        let safe_four_stage = redact_inline_secrets(&four_stage);
+        assert!(
+            safe_four_stage.contains("SYNTHETIC-FOUR-STAGE-OUT-OF-SCOPE"),
+            "the documented three-pass limit must remain bounded: {safe_four_stage:?}"
+        );
+
+        let payload = "SYNTHETIC-THREE-PASS-2048-TAIL";
+        let prefix = r#"{"private_key":"\\u002d\\u002d\\u002d\\u002d\\u002dBEGIN PRIVATE KEY-----","padding":""#;
+        let suffix = r#""}"#;
+        let padding = MAX_MESSAGE_BYTES - prefix.len() - suffix.len() - payload.len();
+        let bounded = format!("{prefix}{}{payload}{suffix}", "x".repeat(padding));
+        assert_eq!(bounded.len(), MAX_MESSAGE_BYTES);
+        let safe_bounded = redact_inline_secrets(&bounded);
+        assert!(!safe_bounded.contains(payload), "{safe_bounded:?}");
+
+        let oversized = format!("{bounded}é");
+        let safe_oversized = redact_inline_secrets(&oversized);
+        assert!(!safe_oversized.contains(payload), "{safe_oversized:?}");
+        assert!(safe_oversized.ends_with(TRUNCATED));
+    }
+
+    #[test]
+    fn json_pem_search_does_not_scan_unrelated_members_or_text_after_member() {
+        let unrelated_member = r#"{"private_key":"","note":"-----BEGIN PRIVATE KEY-----","line2":"SYNTHETIC-UNRELATED-MEMBER-BODY"}"#;
+        let safe_unrelated_member = redact_inline_secrets(unrelated_member);
+        assert!(
+            safe_unrelated_member.contains("-----BEGIN PRIVATE KEY-----"),
+            "{safe_unrelated_member:?}"
+        );
+        assert!(
+            safe_unrelated_member.contains("SYNTHETIC-UNRELATED-MEMBER-BODY"),
+            "{safe_unrelated_member:?}"
+        );
+
+        let after_member = "{\"private_key\":\"ordinary-synthetic-value\"}\n-----BEGIN PRIVATE KEY-----\nSYNTHETIC-OUTSIDE-JSON-MEMBER-BODY";
+        let safe_after_member = redact_inline_secrets(after_member);
+        assert!(
+            safe_after_member.contains("SYNTHETIC-OUTSIDE-JSON-MEMBER-BODY"),
+            "{safe_after_member:?}"
+        );
+        assert!(
+            safe_after_member.contains("-----BEGIN PRIVATE KEY-----"),
+            "{safe_after_member:?}"
+        );
+
+        let ordinary_json = r#"{"private_key":"ordinary-synthetic-value","status":"visible"}"#;
+        let safe_ordinary_json = redact_inline_secrets(ordinary_json);
+        assert!(!safe_ordinary_json.contains("ordinary-synthetic-value"));
+        assert!(safe_ordinary_json.contains("\"status\":\"visible\""));
+        serde_json::from_str::<serde_json::Value>(&safe_ordinary_json)
+            .expect("ordinary JSON remains valid after redaction");
     }
 
     #[test]
