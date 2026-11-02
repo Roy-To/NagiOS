@@ -31,6 +31,12 @@ budget counts explicit edit text plus the full native size of each dynamically
 resolved duplicate source; repeated duplicate/delete cycles cannot evade it.
 Duplicate transfers its one copied slide into the candidate without another clone.
 
+The default per-presentation `max_ids` limit is 4096. IDs remain in the issued-ID
+set after deletion, so deleting a slide or object does not refund the limit; native
+save/reopen preserves those tombstones and does not reset the budget. Product
+policy for the lifetime ID budget and any epoch-based reuse remains undecided;
+this standalone core does not define it.
+
 Geometry uses integer logical millipoints (1/1000 point); display pixels/DPI do
 not enter the model. Coordinates may be negative, bounded to ±1e9; positive
 dimensions and their endpoints cannot exceed 1e9. Rotation is canonical clockwise
