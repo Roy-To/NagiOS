@@ -1,8 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
 use nagi_search::semantic::{
-    Embedding, EmbeddingPurpose, EmbeddingSpaceId, MAX_SEMANTIC_CHUNK_BYTES,
-    MAX_SEMANTIC_EMBEDDING_DIMENSIONS, MAX_SEMANTIC_QUERY_BYTES,
+    Embedding, EmbeddingPurpose, EmbeddingSpaceId, MAX_SEMANTIC_EMBEDDING_DIMENSIONS,
 };
 use sha2::{Digest, Sha256};
 
@@ -32,13 +31,8 @@ impl ProviderBoundary {
         if dimensions == 0 || dimensions > MAX_SEMANTIC_EMBEDDING_DIMENSIONS {
             return Err(ProviderError::InvalidConfig("dimensions"));
         }
-        if query_limit == 0 || query_limit > MAX_SEMANTIC_QUERY_BYTES {
-            return Err(ProviderError::InvalidConfig("max_query_bytes"));
-        }
-        if passage_limit == 0 || passage_limit > MAX_SEMANTIC_CHUNK_BYTES {
-            return Err(ProviderError::InvalidConfig("max_passage_bytes"));
-        }
-
+        // These public byte limits historically controlled request admission
+        // rather than artifact loading; preserve that contract here.
         Ok(Self {
             dimensions,
             query_limit,
@@ -191,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn query_and_passage_configuration_limits_are_independent_and_bounded() {
+    fn query_and_passage_configuration_limits_are_independent() {
         let adapter = boundary(8, 4);
         assert!(adapter.prepare(EmbeddingPurpose::Query, "12345").is_ok());
         assert_eq!(
@@ -201,12 +195,40 @@ mod tests {
             ProviderError::InputTooLong { bytes: 5, limit: 4 }
         );
 
-        assert!(ProviderBoundary::new(&[0; 32], 2, 0, 1).is_err());
-        assert!(ProviderBoundary::new(&[0; 32], 2, MAX_SEMANTIC_QUERY_BYTES + 1, 1).is_err());
-        assert!(ProviderBoundary::new(&[0; 32], 2, 1, MAX_SEMANTIC_CHUNK_BYTES + 1).is_err());
         assert!(ProviderBoundary::new(&[0; 32], 0, 1, 1).is_err());
         assert!(
             ProviderBoundary::new(&[0; 32], MAX_SEMANTIC_EMBEDDING_DIMENSIONS + 1, 1, 1).is_err()
+        );
+    }
+
+    #[test]
+    fn zero_and_extended_byte_limits_are_enforced_only_at_input_admission() {
+        let zero = boundary(0, 0);
+        assert_eq!(
+            zero.prepare(EmbeddingPurpose::Query, "a").unwrap_err(),
+            ProviderError::InputTooLong { bytes: 1, limit: 0 }
+        );
+        assert_eq!(
+            zero.prepare(EmbeddingPurpose::Passage, "a").unwrap_err(),
+            ProviderError::InputTooLong { bytes: 1, limit: 0 }
+        );
+
+        let extended = boundary(MAX_SEMANTIC_QUERY_BYTES + 1, MAX_SEMANTIC_CHUNK_BYTES + 1);
+        assert!(
+            extended
+                .prepare(
+                    EmbeddingPurpose::Query,
+                    &"q".repeat(MAX_SEMANTIC_QUERY_BYTES + 1),
+                )
+                .is_ok()
+        );
+        assert!(
+            extended
+                .prepare(
+                    EmbeddingPurpose::Passage,
+                    &"p".repeat(MAX_SEMANTIC_CHUNK_BYTES + 1),
+                )
+                .is_ok()
         );
     }
 

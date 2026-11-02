@@ -13,6 +13,7 @@ use nagi_embedding_provider::{
     ProviderConfig, ProviderError, DEFAULT_INFERENCE_BUDGET_NANOS, E5_SMALL_NEMB_SHA256,
 };
 use nagi_model::ObjectId;
+use nagi_search::semantic::{MAX_SEMANTIC_CHUNK_BYTES, MAX_SEMANTIC_QUERY_BYTES};
 use nagi_search::{
     BackendError, EmbeddingProvider, EmbeddingPurpose, EmbeddingSpaceId, IndexedChunk,
     PersistentVectorIndex, SemanticError, SnapshotBackend, TextChunk, VectorIndex,
@@ -351,6 +352,71 @@ fn invalid_config_is_rejected() {
     ));
 }
 
+#[test]
+fn custom_byte_limits_keep_legacy_load_and_embed_behavior() {
+    let query_zero = E5Provider::from_artifact(
+        tiny_artifact(1),
+        ProviderConfig {
+            max_query_bytes: 0,
+            ..unpinned()
+        },
+    )
+    .expect("zero query limit was accepted by the prior public API");
+    assert!(matches!(
+        query_zero.try_embed(EmbeddingPurpose::Query, "ab"),
+        Err(ProviderError::InputTooLong { bytes: 2, limit: 0 })
+    ));
+    assert!(matches!(
+        query_zero.try_embed(EmbeddingPurpose::Query, ""),
+        Err(ProviderError::EmptyInput)
+    ));
+
+    let passage_zero = E5Provider::from_artifact(
+        tiny_artifact(1),
+        ProviderConfig {
+            max_passage_bytes: 0,
+            ..unpinned()
+        },
+    )
+    .expect("zero passage limit was accepted by the prior public API");
+    assert!(matches!(
+        passage_zero.try_embed(EmbeddingPurpose::Passage, "ab"),
+        Err(ProviderError::InputTooLong { bytes: 2, limit: 0 })
+    ));
+    assert!(matches!(
+        passage_zero.try_embed(EmbeddingPurpose::Passage, ""),
+        Err(ProviderError::EmptyInput)
+    ));
+
+    let extended_query = E5Provider::from_artifact(
+        tiny_artifact(1),
+        ProviderConfig {
+            max_query_bytes: MAX_SEMANTIC_QUERY_BYTES + 1,
+            ..unpinned()
+        },
+    )
+    .expect("an extended query limit was accepted by the prior public API");
+    assert!(
+        extended_query
+            .try_embed(EmbeddingPurpose::Query, "ab")
+            .is_ok()
+    );
+
+    let extended_passage = E5Provider::from_artifact(
+        tiny_artifact(1),
+        ProviderConfig {
+            max_passage_bytes: MAX_SEMANTIC_CHUNK_BYTES + 1,
+            ..unpinned()
+        },
+    )
+    .expect("an extended passage limit was accepted by the prior public API");
+    assert!(
+        extended_passage
+            .try_embed(EmbeddingPurpose::Passage, "ab")
+            .is_ok()
+    );
+}
+
 struct StepClock(AtomicU64);
 
 impl Clock for StepClock {
@@ -405,6 +471,44 @@ fn space_id_tracks_the_artifact_and_tags_vectors() {
     assert_eq!(v.dimensions(), HIDDEN as usize);
     let norm: f32 = v.values().iter().map(|x| x * x).sum();
     assert!((norm - 1.0).abs() < 1e-5);
+}
+
+#[test]
+fn production_e5_small_384_space_identity_is_fixed() {
+    let expected = EmbeddingSpaceId([
+        0x9f, 0xd2, 0x00, 0x6f, 0x73, 0x6b, 0xcd, 0x75, 0xf8, 0xfe, 0x63, 0x30, 0xef, 0x97, 0xa7,
+        0x68, 0xc6, 0xd7, 0x4b, 0x44, 0x88, 0x26, 0x8e, 0x9d, 0x41, 0x3f, 0x14, 0x6d, 0xfb, 0x21,
+        0xce, 0xf3,
+    ]);
+    assert_eq!(space_id_for(&E5_SMALL_NEMB_SHA256, 384), expected);
+}
+
+#[test]
+fn provider_purpose_reaches_distinct_real_tokenizer_and_encoder_inputs() {
+    let provider = tiny_provider(1);
+
+    // The tiny tokenizer contains distinct ▁query (15) and ▁passage (16)
+    // pieces. Verify exact prefix tokenization so output inequality is not
+    // the only evidence that the two purposes reach inference differently.
+    assert_eq!(
+        provider.tokenize("query: ab").as_slice(),
+        &[0, 15, 14, 8, 2]
+    );
+    assert_eq!(
+        provider.tokenize("passage: ab").as_slice(),
+        &[0, 16, 14, 8, 2]
+    );
+
+    // `try_embed` uses the production tokenizer and tiny artifact encoder.
+    let query = provider
+        .try_embed(EmbeddingPurpose::Query, "ab")
+        .expect("query inference succeeds");
+    let passage = provider
+        .try_embed(EmbeddingPurpose::Passage, "ab")
+        .expect("passage inference succeeds");
+    assert_ne!(query.values(), passage.values());
+    assert_eq!(query.space_id(), Some(provider.space_id()));
+    assert_eq!(passage.space_id(), Some(provider.space_id()));
 }
 
 #[test]
