@@ -755,6 +755,140 @@ impl JobStore for ControlledStore {
     }
 }
 
+struct TokenAwareRecoveryProvider {
+    started: mpsc::Sender<CancellationToken>,
+    cancellation_observed: mpsc::Sender<()>,
+    allow_return: Mutex<mpsc::Receiver<()>>,
+}
+
+impl JobHandler for TokenAwareRecoveryProvider {
+    fn handler_ref(&self) -> HandlerRef {
+        reference()
+    }
+
+    fn recovery_policy(&self, _: &JobRecord) -> RecoveryPolicy {
+        RecoveryPolicy::Idempotent
+    }
+
+    fn execute(&self, context: &mut HandlerContext) -> HandlerOutcome {
+        let token = context.cancellation_token();
+        self.started.send(token.clone()).unwrap();
+        while !token.is_cancelled() {
+            thread::yield_now();
+        }
+        self.cancellation_observed.send(()).unwrap();
+        self.allow_return.lock().unwrap().recv().unwrap();
+        HandlerOutcome::Cancelled
+    }
+}
+
+fn token_aware_recovery_harness(
+    store: Arc<ControlledStore>,
+) -> (
+    Arc<Scheduler>,
+    CallerRef,
+    JobId,
+    mpsc::Receiver<CancellationToken>,
+    mpsc::Receiver<()>,
+    mpsc::Sender<()>,
+) {
+    let events = Arc::new(BoundedJobEventRecorder::new(64));
+    let providers = Arc::new(JobProviderRegistry::new());
+    let (started_tx, started) = mpsc::channel();
+    let (observed_tx, cancellation_observed) = mpsc::channel();
+    let (allow_return, allow_return_rx) = mpsc::channel();
+    providers
+        .register(Arc::new(TokenAwareRecoveryProvider {
+            started: started_tx,
+            cancellation_observed: observed_tx,
+            allow_return: Mutex::new(allow_return_rx),
+        }))
+        .unwrap();
+    let scheduler = Arc::new(
+        Scheduler::new(
+            store,
+            Arc::new(ManualClock::default()),
+            Arc::new(FakeAuthority),
+            events,
+            providers,
+            SchedulerConfig::default(),
+        )
+        .unwrap(),
+    );
+    let caller =
+        CallerRef::from_authenticated_adapter(PrincipalRef::new("fake.owner").unwrap(), None);
+    let id = scheduler
+        .enqueue(&caller, JobRequest::new(reference()))
+        .unwrap()
+        .record
+        .id()
+        .clone();
+    (
+        scheduler,
+        caller,
+        id,
+        started,
+        cancellation_observed,
+        allow_return,
+    )
+}
+
+#[test]
+fn recovery_persists_requeue_before_signaling_the_old_attempt() {
+    let (store, gate_entered, gate_release) = ControlledStore::new();
+    let (scheduler, _, id, started, cancellation_observed, allow_return) =
+        token_aware_recovery_harness(store.clone());
+    let mut worker = Some({
+        let scheduler = scheduler.clone();
+        thread::spawn(move || scheduler.dispatch_one())
+    });
+    let token = started.recv().unwrap();
+
+    store.arm_gate();
+    let recovery = {
+        let scheduler = scheduler.clone();
+        thread::spawn(move || scheduler.recover_startup())
+    };
+    gate_entered.recv().unwrap();
+
+    // Under the old signal-before-CAS order, the token is already set while
+    // recovery is blocked inside CAS, so let the old attempt settle first.
+    let signaled_before_commit = token.reason().is_some();
+    let state_while_recovery_cas_is_blocked = store.get(&id).unwrap().unwrap().state().clone();
+    let mut worker_result = None;
+    if signaled_before_commit {
+        cancellation_observed.recv().unwrap();
+        allow_return.clone().send(()).unwrap();
+        worker_result = Some(worker.take().unwrap().join().unwrap());
+    }
+
+    gate_release.send(()).unwrap();
+    let recovered = recovery.join().unwrap().unwrap();
+    if !signaled_before_commit {
+        cancellation_observed.recv().unwrap();
+        allow_return.send(()).unwrap();
+        worker_result = Some(worker.take().unwrap().join().unwrap());
+    }
+
+    let current = store.get(&id).unwrap().unwrap();
+    assert!(
+        !signaled_before_commit,
+        "recovery must persist the non-occupying state before requesting stop"
+    );
+    assert_eq!(
+        state_while_recovery_cas_is_blocked,
+        JobState::Running,
+        "the gate must hold the recovery CAS before it can signal the old token"
+    );
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].state(), &JobState::Queued);
+    assert_eq!(current.state(), &JobState::Queued);
+    assert!(matches!(
+        worker_result.unwrap(),
+        Ok(DispatchResult::Superseded { attempt: 1, .. })
+    ));
+}
+
 #[test]
 fn startup_recovery_preserves_user_cancellation_without_reexecution() {
     let (scheduler, _, caller, id, started) = callback_harness();
@@ -886,7 +1020,7 @@ fn startup_recovery_requires_a_checkpoint_before_pausing_verified_work() {
 }
 
 #[test]
-fn transient_failure_does_not_schedule_retry_while_pause_is_requested() {
+fn transient_failure_during_pause_preserves_resumable_pause() {
     let (scheduler, _, caller, id, started) = callback_harness();
     let worker = {
         let scheduler = scheduler.clone();
@@ -903,7 +1037,38 @@ fn transient_failure_does_not_schedule_retry_while_pause_is_requested() {
         .unwrap();
     assert!(worker.join().unwrap().is_ok());
     let record = scheduler.inspect(&caller, &id).unwrap();
-    assert_eq!(record.state(), &JobState::Failed(JobFailureCode::Transient));
+    assert_eq!(record.state(), &JobState::Paused);
+    assert_eq!(record.attempt_count(), 1);
+
+    let resumed = scheduler.resume(&caller, &id).unwrap();
+    assert_eq!(resumed.state(), &JobState::Queued);
+    assert_eq!(resumed.attempt_count(), 1);
+}
+
+#[test]
+fn transient_failure_during_verified_pause_requires_a_valid_checkpoint() {
+    let (scheduler, _, caller, id, started, _) = callback_harness_with_config(
+        Arc::new(InMemoryJobStore::new()),
+        RecoveryPolicy::VerifiedCheckpoint,
+        None,
+        retryable_request(),
+    );
+    let worker = {
+        let scheduler = scheduler.clone();
+        thread::spawn(move || scheduler.dispatch_one())
+    };
+    let handle = started.recv().unwrap();
+    scheduler.pause(&caller, &id).unwrap();
+    handle
+        .command
+        .send(CallbackCommand::FinishTransient)
+        .unwrap();
+    assert!(worker.join().unwrap().is_ok());
+    let record = scheduler.inspect(&caller, &id).unwrap();
+    assert_eq!(
+        record.state(),
+        &JobState::RecoveryRequired(JobFailureCode::InvalidCheckpoint)
+    );
     assert_eq!(record.attempt_count(), 1);
 }
 
