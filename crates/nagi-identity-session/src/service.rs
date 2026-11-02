@@ -86,6 +86,10 @@ pub enum IdSourceFailure {
 pub trait IdentityIdSource {
     fn next_user_id(&mut self) -> Result<UserId, IdSourceFailure>;
     fn next_profile_id(&mut self) -> Result<ProfileId, IdSourceFailure>;
+    /// Supply a nonce for a service-issued SessionId. The service adds the
+    /// next store CAS generation and does not return this value unchanged; its
+    /// suffix may be compacted to fit the validated ID length. Treat issued
+    /// SessionIds as opaque.
     fn next_session_id(&mut self) -> Result<SessionId, IdSourceFailure>;
 }
 
