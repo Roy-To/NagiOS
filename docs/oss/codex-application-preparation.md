@@ -1,79 +1,74 @@
 # Codex for Open Source application preparation
 
-Status: **preparation only; not submitted**. Reviewed 2026-10-11 against
-[OpenAI's program overview](https://developers.openai.com/community/codex-for-oss)
-and [application form](https://openai.com/form/codex-for-oss/).
-Requirements and form fields can change; recheck before submission.
+Status: **preparation only; not submitted**.
+Initial program/form review: 2026-10-11. Source-license wording updated: 2026-10-27.
+This update is not a fresh verification of program eligibility or form fields.
+Recheck [OpenAI's program overview](https://developers.openai.com/community/codex-for-oss)
+and [application form](https://openai.com/form/codex-for-oss/) before submission.
 
-日本語要約: 応募文の下書きと証拠をまとめた資料です。応募送信は行いません。
-Nagi 自体のライセンスは未承認であり、OSS としてのライセンス付与を完了した
-プロジェクトとはまだ説明できません。利用規模・maintainer の役割・アカウント情報は
-本人が確認します。採択や支援の保証はありません。
+日本語要約: 応募用の下書きです。Nagi 独自コードへの MPL-2.0 付与は
+LICENSE_SCOPE.md の範囲に限定し、既存ライセンスやモデル等の条件を維持します。
+字形・画像・依存関係等の未解決事項を隠さず、リポジトリ全体が権利確認済みとは
+説明しません。対象変更の main への反映を確認してから応募文を使用してください。
+応募の送信、資格充足、採択を示す資料ではありません。
 
-## Project summary
+## Project summary and evidence
 
-Nagi OS is an independent, local-first operating system targeting a QEMU
-x86-64 Developer Preview. Its capability-based kernel keeps high-level policy
-in user space. Albert ports Servo to the guest; deterministic checks bound
-AI-proposed actions. The project explores owner control, native interaction,
-and recoverable operations.
+Nagi OS is an experimental, independent, local-first operating system with its
+own kernel, an Albert/Servo browser port and permission-constrained AI design.
+The QEMU x86-64 Developer Preview remains under development. Consult the exact
+revision's [implementation status](../implementation_status.md); historical
+acceptance results do not prove a finished agentic desktop or production safety.
 
-The baseline has M0–M18 recorded PASS; M19–M30 remain PARTIAL.
-Individual local AI/provider experiments do not establish a completed agentic
-desktop or production security. The repository is public, but a project-wide
-OSS license is pending. [Apache-2.0 review](apache-2.0-readiness.md) records
-proposed scope and outstanding rights/notice checks.
+The maintainer's original OS source has a scoped MPL-2.0 grant in revisions
+containing [LICENSE](../../LICENSE) and [LICENSE_SCOPE.md](../../LICENSE_SCOPE.md).
+Existing dual-license package declarations, third-party code and model terms
+remain separate. The [scope review](mpl-2.0-scope-review.md) explicitly records
+its limits and unresolved glyph/media/dependency rights checks. Do not describe
+the entire repository or an OS image as fully license-cleared.
 
-## Evidence to attach or reference
-
-| Claim | Reviewable material |
+| Claim | Evidence to check |
 | --- | --- |
-| Project scope and architecture | [English README](../../README.md), [Japanese README](../../README.ja.md), [architecture](../architecture/README.md), [specification](../Nagi_OS_0.1_Codex_Implementation_Spec.md) |
-| Active maintenance | [Repository PRs](https://github.com/RT-NISH/NagiOS/pulls), [commits](https://github.com/RT-NISH/NagiOS/commits/main/), [contribution workflow](../../CONTRIBUTING.md); select concrete review/triage/porting examples and confirm the applicant's role. |
-| Real guest behavior and honest limits | [Status record](../implementation_status.md), [M18 CI](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873), existing QEMU screenshots embedded in README |
-| License preparation | [Third-party notices](../../THIRD_PARTY_NOTICES.md), [review and open gates](apache-2.0-readiness.md), [Legal/SBOM tooling](../legal/README.md) |
-| Demo | [Recording plan](demo-recording-plan.md) only. No video URL is available from this preparation. |
+| Project scope and limitations | [English README](../../README.md), [Japanese README](../../README.ja.md), [architecture](../architecture/README.md), [specification](../Nagi_OS_0.1_Codex_Implementation_Spec.md) |
+| Active maintenance | [PRs](https://github.com/Roy-To/NagiOS/pulls), [commits](https://github.com/Roy-To/NagiOS/commits/main/), [CONTRIBUTING](../../CONTRIBUTING.md); identify actual maintainer work rather than assuming authorship of every commit. |
+| Guest evidence | [Status](../implementation_status.md), historical [M18 CI](https://github.com/Roy-To/NagiOS/actions/runs/37601664873), README screenshots with their capture dates and limits. |
+| Source licensing | [Scope](../../LICENSE_SCOPE.md), [review](mpl-2.0-scope-review.md), [third-party inventory](../../THIRD_PARTY_NOTICES.md). |
+| Video | [Recording plan](demo-recording-plan.md) only; no video is represented as published by this preparation. |
 
-No stars, downloads, user counts, contributor counts, or adoption claims are
-invented. Capture such metrics with their date/source if the applicant elects
-to use them. Existing PR history is evidence of work; it does not by itself
-prove ecosystem adoption or that the applicant authored every change.
+No stars, downloads, user counts, downstream dependents or adoption figures are
+invented. Obtain current, dated evidence for any such claim.
 
-## Form text drafts
+## Form drafts
 
-The form currently has 500-character narrative fields. These drafts are under
-that limit, but should be reviewed by the applicant and adapted after the
-license decision. They do not claim the application qualifies automatically.
+The prior form review recorded 500-character narrative fields. The drafts below
+are respectively 370, 312 and 361 Unicode characters (excluding Markdown quote
+markers). Confirm the live form limits before use, and use licensing claims
+only after verifying the relevant grant in the public default branch.
 
-**Why the repository matters (draft):**
+**Why the repository matters:**
 
-> Nagi OS explores a local-first, capability-based operating system with a native desktop, a Servo browser port, and AI proposals constrained by deterministic validation. Its QEMU Developer Preview has public guest acceptance evidence and documented limitations. We aim to share reusable porting and authority-boundary work. The project is early; we do not claim broad adoption, and its project-wide OSS license is pending approval.
+> Nagi OS is an experimental, local-first operating system with its own kernel, a Servo browser port and permission-constrained AI integration. Public QEMU acceptance records document progress and limits. The maintainer's original code has a scoped MPL-2.0 grant; existing package/model licenses remain separate. We do not claim broad adoption or clearance of every asset.
 
-**Proposed use of API credits (draft):**
+**Proposed use of API credits:**
 
-> We would use credits for maintainer workflows: reviewing Rust and C/C++ port changes, triaging reproducible guest failures, checking native dependency notices, improving English/Japanese documentation, and drafting tests for authority boundaries. Human review and real QEMU acceptance would remain release gates. Credits would support development rather than make the local-first guest require a cloud service.
+> We would use credits for code review, CI-failure analysis, regression-test drafting, dependency-notice review and English/Japanese documentation. Human review and real QEMU acceptance remain release gates. The support would fund development workflows, not make Nagi's local-first guest depend on cloud inference.
 
-**Anything else (draft):**
+**Anything else:**
 
-> M0–M18 are recorded PASS; M19–M30 remain PARTIAL. Local Granite guest inference has evidence, but normal model-service integration is incomplete. Apache-2.0 is the leading OS license candidate; third-party code, fonts and models retain separate terms. A dedicated documentation PR prepares licensing review and README material without changing implementation or milestone states.
+> Nagi is an experimental Developer Preview, not a production-ready OS. Licensing scope and unresolved glyph/media/dependency reviews are documented publicly. Four packages preserve MIT OR Apache-2.0 declarations. Support eligibility, adoption metrics and account details require applicant verification. No award or completed full-release rights audit is claimed.
 
-## Maintainer checks before submission
+## Before submitting
 
-- Confirm the applicant's primary/core maintainer role and repository write
-  access; use their own public GitHub profile and correct ChatGPT account.
-- Resolve the project license approval and source-publication gates before
-  presenting Nagi as an OSS-licensed project. Update the drafts with the
-  actual decision; do not use a pending license proposal as proof.
-- Confirm any usage/ecosystem claim with public evidence. Explain the
-  significance of the OS/porting work without calling Nagi widely used.
-- Choose the requested support based on actual workflow needs; review the
-  current program terms. The official program considers active maintenance
-  and ecosystem relevance; the maintainer's application is subject to review.
-- Supply identity, email and OpenAI organization details directly in the
-  official form. Do not commit personal contact details, organization IDs or
-  credentials to preparation documents.
-- Submit only when the applicant is ready to accept the program terms.
-  This task authorizes preparation and a documentation PR, not submission.
+- Verify the grant and scope on the actual public main revision, not only a draft
+  PR. Do not equate a partial source grant with clearance of every dependency.
+- Confirm the applicant's maintainer role, GitHub username and the correct
+  personal service account. Supply identity/email/account IDs directly in the
+  official form, not in public preparation documents.
+- Check current program terms and eligibility independently. A license choice
+  alone neither guarantees qualification nor an award. Anthropic's program
+  requires its own separate checks; this file does not establish those.
+- Review all claims, disclose known scope limitations, and submit only with the
+  applicant's authorization to accept the relevant terms.
 
-Selection and benefits are determined by OpenAI. This document neither
-guarantees eligibility nor records an award.
+No application or external terms acceptance is performed by this repository
+change. Selection and benefits are determined by the program operator.

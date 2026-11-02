@@ -1,0 +1,50 @@
+name: Nagi Job Scheduler host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/nagi-job-scheduler/**'
+      - '.cargo/**'
+      - 'rust-toolchain.toml'
+      - 'rustfmt.toml'
+      - '.rustfmt.toml'
+      - 'clippy.toml'
+      - '.github/workflows/nagi-job-scheduler.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/nagi-job-scheduler/**'
+      - '.cargo/**'
+      - 'rust-toolchain.toml'
+      - 'rustfmt.toml'
+      - '.rustfmt.toml'
+      - 'clippy.toml'
+      - '.github/workflows/nagi-job-scheduler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nagi-job-scheduler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scheduler-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
+
+      - name: Check formatting
+        run: cargo +nightly-2025-08-01 fmt --manifest-path crates/nagi-job-scheduler/Cargo.toml -- --check
+
+      - name: Run Clippy
+        run: cargo +nightly-2025-08-01 clippy --manifest-path crates/nagi-job-scheduler/Cargo.toml --all-targets --locked -- -D warnings
+
+      - name: Run standalone scheduler tests
+        run: cargo +nightly-2025-08-01 test --manifest-path crates/nagi-job-scheduler/Cargo.toml --locked

@@ -66,6 +66,11 @@ jobs:
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Standalone installer format, lint, and tests
+        run: |
+          cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
+          cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked
       - name: Standalone clipboard core (CLIP-01)
         run: |
           cargo fmt --manifest-path crates/nagi-clipboard-core/Cargo.toml -- --check
@@ -95,6 +100,10 @@ jobs:
         run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
       - name: Test M3 self-test task frame layout
         run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
+      - name: Test block syscall capability and buffer directions
+        run: cargo test --locked -p nagi-kernel --lib syscall::tests::block_syscalls_validate_user_ranges_in_the_transfer_direction
+      - name: Test block I/O user page permissions
+        run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Test Albert browser state and input adapters
         run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
       - name: M0 doctor acceptance
@@ -141,6 +150,16 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cargo test --workspace --exclude nagi-kernel --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Standalone installer format, lint, and tests (Windows)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --manifest-path tools/nagi-installer/Cargo.toml --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify Windows launcher help
         shell: pwsh
