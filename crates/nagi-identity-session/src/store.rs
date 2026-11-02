@@ -64,6 +64,15 @@ pub trait IdentitySnapshotStore {
     fn load_current_state(&self) -> Result<SnapshotStoreState, SnapshotStoreError>;
 
     fn load_current(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError>;
+
+    /// Load the exact (bytes, version) pair from an earlier successful
+    /// commit. The version is provenance: equal versions identify the same
+    /// original commit generation and the history represented by those bytes.
+    /// Implementations must not relabel restored LKG bytes with the current
+    /// high-water or a newly allocated version. Restored bytes become current
+    /// only through commit_atomic, which issues a distinct later CAS version;
+    /// the backup keeps its source version until a later committed current
+    /// snapshot naturally replaces it as LKG.
     fn load_last_known_good(&self) -> Result<Option<StoredSnapshot>, SnapshotStoreError>;
 
     /// Compare `expected_version` against the non-rollback high-water version,
