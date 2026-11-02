@@ -161,6 +161,7 @@ jobs:
             sudo apt-get update
             sudo apt-get install --no-install-recommends -y python3.12-venv
           fi
+          echo "m24: uname -m: $(uname -m); uname -sr: $(uname -sr); runner: $RUNNER_OS/$RUNNER_ARCH ${ImageOS:-?} ${ImageVersion:-?}"
           # The committed reference was generated on aarch64. onnxruntime float
           # kernels differ per architecture, so on x86_64 the vector file is not
           # expected to be byte-identical; it is compared numerically below.
@@ -168,11 +169,37 @@ jobs:
           rc=0
           tools/embedding/regenerate_reference.sh || rc=$?
           echo "regenerate_reference.sh exit status: $rc"
-          python3 - "$NAGI_M24_REGEN_DIR" tests/m24-embedding <<'PY'
-          import hashlib, json, math, os, sys
-          new_dir, old_dir = sys.argv[1], sys.argv[2]
+          # Numeric reference-match criterion for regenerated ONNX vectors (all must hold):
+          #   texts and token ids exact; tokenizer_parity.json byte-identical;
+          #   worst cosine >= 0.999999 AND worst max |diff| <= 1e-5 per item;
+          #   pinned artifacts and the .nemb conversion digest unchanged.
+          # THRESHOLDS ARE FIXED. A result beyond either bound is a FAIL to
+          # investigate; never loosen them. They apply to this reference match
+          # only, not to semantic-ranking acceptance, model integrity or guest gates.
+          # The .nemb digest is enforced in "Convert to .nemb" and verify_pins.py;
+          # it is re-checked here against the literal pin so the evidence file
+          # records the artifact these vectors were accepted with.
+          M24_PINNED_NEMB_SHA256=7fb0a34528feecae52e13a3cb0ef6a0edcbab981ae8926c585373b1a4d71a287 \
+          M24_ORT_VERSION=$("$NAGI_M24_REGEN_DIR/venv/bin/python" -c 'import onnxruntime;print(onnxruntime.__version__)' 2>/dev/null || echo unavailable) \
+          M24_CPU_MODEL=$(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -n 1) \
+          python3 - "$NAGI_M24_REGEN_DIR" tests/m24-embedding "$NAGI_EMBEDDING_CACHE/multilingual-e5-small.nemb" \
+            "$NAGI_M24_EVIDENCE_DIR/x86_64-reference-tolerance.json" <<'PY'
+          import hashlib, json, math, os, platform, sys, tomllib
+          new_dir, old_dir, nemb, out = sys.argv[1:5]
+          COS_MIN, ABS_MAX = 0.999999, 1e-5  # fixed; exceeding = FAIL, investigate, do not loosen
           def sha(p):
-              return hashlib.sha256(open(p, "rb").read()).hexdigest()
+              h = hashlib.sha256()
+              with open(p, "rb") as f:
+                  for chunk in iter(lambda: f.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
+          pinned = os.environ["M24_PINNED_NEMB_SHA256"]
+          manifest = tomllib.load(open("tools/embedding/manifest.toml", "rb"))["converted"]["sha256"]
+          nemb_sha = sha(nemb)
+          print(f"m24 reference: platform {platform.machine()} / {platform.platform()}")
+          print(f"m24 reference: .nemb sha256 {nemb_sha} (literal pin {pinned}, manifest {manifest})")
+          if not (nemb_sha == pinned == manifest):
+              sys.exit("m24 reference: .nemb conversion digest differs from the pin")
           for name in ("tokenizer_parity.json", "parity_reference.json"):
               if not os.path.isfile(os.path.join(new_dir, name)):
                   sys.exit(f"m24 reference: regenerated {name} missing (install or generation failed)")
@@ -183,19 +210,51 @@ jobs:
           old = json.load(open(os.path.join(old_dir, "parity_reference.json")))
           assert new["reference"] == old["reference"] and new["revision"] == old["revision"], "reference/revision differ"
           assert len(new["items"]) == len(old["items"]) == 22, "item count differs"
-          worst_cos, worst_abs = 1.0, 0.0
+          worst_cos, worst_abs, items = 1.0, 0.0, []
           for a, b in zip(new["items"], old["items"]):
               assert a["text"] == b["text"] and a["ids"] == b["ids"], f"text/ids differ for {b['text']!r}"
               x, y = a["embedding"], b["embedding"]
               assert len(x) == len(y) == 384
               cos = sum(p * q for p, q in zip(x, y)) / math.sqrt(sum(p * p for p in x) * sum(q * q for q in y))
+              mx = max(abs(p - q) for p, q in zip(x, y))
+              items.append({"text": b["text"], "cosine": cos, "max_abs_diff": mx})
               worst_cos = min(worst_cos, cos)
-              worst_abs = max(worst_abs, max(abs(p - q) for p, q in zip(x, y)))
+              worst_abs = max(worst_abs, mx)
+          passed = worst_cos >= COS_MIN and worst_abs <= ABS_MAX
+          evidence = {
+              "criterion": "regenerated onnxruntime reference vectors vs committed aarch64 parity_reference.json: "
+                           "texts and token ids exact AND worst cosine >= 0.999999 AND worst max |diff| <= 1e-5; "
+                           "tokenizer_parity.json byte-identical; .nemb conversion digest equals the pin. "
+                           "Thresholds fixed: exceeding = FAIL, investigate, do not loosen.",
+              "thresholds": {"cosine_min": COS_MIN, "max_abs_diff_max": ABS_MAX},
+              "result": "PASS" if passed else "FAIL",
+              "commit_sha": os.environ.get("GITHUB_SHA"),
+              "run_id": os.environ.get("GITHUB_RUN_ID"),
+              "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+              "event": os.environ.get("GITHUB_EVENT_NAME"),
+              "arch": platform.machine(),
+              "runner_os": os.environ.get("RUNNER_OS"),
+              "runner_arch": os.environ.get("RUNNER_ARCH"),
+              "runner_image": f"{os.environ.get('ImageOS', '?')} {os.environ.get('ImageVersion', '?')}",
+              "cpu_model": os.environ.get("M24_CPU_MODEL") or None,
+              "platform": platform.platform(),
+              "onnxruntime_version": os.environ.get("M24_ORT_VERSION"),
+              "nemb_sha256": nemb_sha,
+              "regenerated_parity_reference_sha256": sha(os.path.join(new_dir, "parity_reference.json")),
+              "committed_parity_reference_sha256": sha(os.path.join(old_dir, "parity_reference.json")),
+              "items": len(items),
+              "worst_cosine": worst_cos,
+              "worst_max_abs_diff": worst_abs,
+              "per_item": items,
+          }
+          with open(out, "w") as f:
+              json.dump(evidence, f, indent=2, ensure_ascii=False)
           print(f"m24 reference: parity_reference.json 22 items, texts and token ids identical; "
-                f"vectors vs committed aarch64 copy: worst cosine {worst_cos:.9f}, worst max |diff| {worst_abs:.2e}")
-          if worst_cos < 0.999999 or worst_abs > 1e-5:
-              sys.exit("m24 reference: vectors outside tolerance (cosine >= 0.999999, max |diff| <= 1e-5)")
-          print("m24 reference: PASS (tokens byte-identical; vectors within tolerance, not byte-identical across architectures)")
+                f"vectors vs committed aarch64 copy: worst cosine {worst_cos!r}, worst max |diff| {worst_abs!r}")
+          print(f"m24 reference: evidence written to {out}")
+          if not passed:
+              sys.exit("m24 reference: FAIL vectors outside fixed tolerance (cosine >= 0.999999 AND max |diff| <= 1e-5); investigate, do not loosen")
+          print("m24 reference: PASS (tokens byte-identical; vectors within fixed tolerance, not byte-identical across architectures)")
           PY
       - name: run.sh (fetch/verify again, fmt, clippy, model-free tests, real inference 8/8, Nagi target build)
         run: |

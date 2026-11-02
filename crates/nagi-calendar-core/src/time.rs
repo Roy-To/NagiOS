@@ -11,8 +11,12 @@ impl Instant {
         self.0.checked_add(micros).map(Self).ok_or(Error::Overflow)
     }
     /// PAL realtime nanoseconds: reject precision loss rather than truncate.
+    #[allow(
+        clippy::manual_is_multiple_of,
+        reason = "Keep constant modulo checks for host compiler compatibility."
+    )]
     pub fn from_realtime_ns(ns: u64) -> Result<Self> {
-        if !ns.is_multiple_of(1000) {
+        if ns % 1000 != 0 {
             return Err(Error::PrecisionLoss);
         }
         i64::try_from(ns / 1000)
@@ -94,11 +98,13 @@ impl Date {
         (self.epoch_days() + 3).rem_euclid(7) as u8
     }
 }
+#[allow(
+    clippy::manual_is_multiple_of,
+    reason = "Keep constant modulo checks for host compiler compatibility."
+)]
 pub fn days_in_month(year: u16, month: u8) -> u8 {
     match month {
-        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {
-            29
-        }
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
         2 => 28,
         4 | 6 | 9 | 11 => 30,
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,

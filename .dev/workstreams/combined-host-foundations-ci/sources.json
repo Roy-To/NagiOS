@@ -1,0 +1,162 @@
+{
+  "base_main": "5b183660eee9babc1478fd05386e412026a0b87a",
+  "combined_source_tree": "16f148ffab6ea42a9bbc857c660f2242442a916a",
+  "inputs": [
+    {
+      "pr": 49,
+      "head": "f8e54a03591467407f3104f463a2532c432272d4"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b"
+    },
+    {
+      "pr": 51,
+      "head": "885459dfcf9967c0306c27eaebbf1c2196e89f8a"
+    }
+  ],
+  "immutable_imports": [
+    {
+      "pr": 49,
+      "head": "f8e54a03591467407f3104f463a2532c432272d4",
+      "path": ".dev/workstreams/sheets-bounded-updates/state.json",
+      "blob": "1cda3a114d76e91a906d342ef16b5ccc41a0b8c1",
+      "bytes": 5014,
+      "sha256": "f37f42e0ce9e3ed06ac2e396a9108b4e70555ed9d07a0475c8ea2dbb91dc1326"
+    },
+    {
+      "pr": 49,
+      "head": "f8e54a03591467407f3104f463a2532c432272d4",
+      "path": "crates/nagi-sheets-core/src/workbook.rs",
+      "blob": "f1435a44e1d62243cdc60ba0042fa76e3aeed730",
+      "bytes": 31456,
+      "sha256": "ab2e1b035017df9aeec97f4ba99edfb99fac694f1f9463031442be1cb2dac2c5"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": ".dev/workstreams/hark-sheets-functions/README.md",
+      "blob": "53286eaff290076524c27d40b1803509bea61d45",
+      "bytes": 3448,
+      "sha256": "e199edd3652fae88bea3bf26777ab3e89ff36ca09b4ac5c570e289c5210777c7"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": ".dev/workstreams/hark-sheets-functions/evidence.json",
+      "blob": "398354a5dc9de588ba7abbee034e8edf57f70628",
+      "bytes": 3649,
+      "sha256": "3c95918e19567055b3c5f46c2b98c2e7eb5480f37fcd1faf5aa43623356b752c"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": "crates/nagi-sheets-core/src/engine.rs",
+      "blob": "68f74c3e08062b768fc4d20c02315f39fa22fd27",
+      "bytes": 14659,
+      "sha256": "1938b467c44131b41e7f38e65feba7c9e6f354a409b344a52ef59a533f06761c"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": "crates/nagi-sheets-core/src/parser.rs",
+      "blob": "dd44a2aee40d3f98ba4fbef546402093bd6e8030",
+      "bytes": 14044,
+      "sha256": "5ac036ca73b7914acad9bb9990a31f42a9e8d2d88a7db1e17b7131a1d8a19fb7"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": "tests/sheets-core/acceptance.rs",
+      "blob": "aaa9ac33f7bf6c13d6035abbff98702c10bea6b0",
+      "bytes": 18628,
+      "sha256": "2fcc0eaef26ff8436bb620420f4eb1a066597cdfc401b7c7e97a046f43ea25f0"
+    },
+    {
+      "pr": 46,
+      "head": "eee74ef27f228fe8bb0e87c6580aff4d6b79c434",
+      "path": "tests/sheets-core/ifs_round.rs",
+      "blob": "59cc12dac636258bb654d35fdd5ee12e36abd032",
+      "bytes": 15262,
+      "sha256": "51c5e8bc0641197511b25c8d4a209d6d2e5a6729dbe5083519c80033c114f8df"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": ".dev/workstreams/hark-writer-list-numbering/README.md",
+      "blob": "95cda0538d85d257052d59433850fbfae5485e7b",
+      "bytes": 3929,
+      "sha256": "00b3826798aaa64a347f1be0936048aa394d5796518ba09061a70b39a0a3db8e"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": ".dev/workstreams/hark-writer-list-numbering/new-tests-on-unfixed-code.txt",
+      "blob": "4ae8f917210dc41f48dd93ebf2675b1f01a9f211",
+      "bytes": 3576,
+      "sha256": "caa0132fdb7c91f936dea8bd71df9ff2393b7f90df9ad109899b04f2ac928fc6"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": ".dev/workstreams/hark-writer-list-numbering/repro-before-fix.txt",
+      "blob": "f2dbc593d04ae6cf27c8007c2d2308b9f01b70f6",
+      "bytes": 1666,
+      "sha256": "f6aec5681aec1bb5b9e4417c035ef6e574cb3df4b047ef12770e923b9bf63d50"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": ".dev/workstreams/hark-writer-list-numbering/verify-after-fix.txt",
+      "blob": "da23edca3e4944c6ed3d00beaf8d6cdd3e60c8e9",
+      "bytes": 4359,
+      "sha256": "ec4d84fce9114667d7cea2fcb2134887f159b90f03a4e300bbbc069a449e9bbe"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": "crates/nagi-writer-core/src/formats.rs",
+      "blob": "8699f291117d32962b29d465d4f36905c3f19502",
+      "bytes": 16465,
+      "sha256": "9079bf57e8f42f8f6192e984b29569a0f781242f0f56c4f815a668a056c23aa2"
+    },
+    {
+      "pr": 50,
+      "head": "dd9e125dda6357e4eefadb71d690cd33b839440b",
+      "path": "tests/writer-core/acceptance.rs",
+      "blob": "4019dc2cd9f186a8b3cee10eddbafa17669b0b18",
+      "bytes": 39171,
+      "sha256": "9448ce8eb071efd3402073e38d6c5c7e0158080f9cd762c0be44d66239b73b15"
+    },
+    {
+      "pr": 51,
+      "head": "885459dfcf9967c0306c27eaebbf1c2196e89f8a",
+      "path": ".dev/workstreams/hark-calendar-availability-boundary/HANDOFF.md",
+      "blob": "d997a793d6fdaab4885a8eacded9e1f0821869ca",
+      "bytes": 3147,
+      "sha256": "8c1dee5d989dd6dc7c2cb754b43d8349d2902f096429bcc483aed6733f83c5ad"
+    },
+    {
+      "pr": 51,
+      "head": "885459dfcf9967c0306c27eaebbf1c2196e89f8a",
+      "path": "crates/nagi-calendar-core/src/availability.rs",
+      "blob": "1e03d6ef8e48ffe4ffd3cd0b8baeb0055b04b7a4",
+      "bytes": 11777,
+      "sha256": "645a8d12cf3d3e3ec6b1046d0ea74126d210df3a5719df3f998ab9e643662942"
+    }
+  ],
+  "implementation_source_edits": false,
+  "guest_or_product_acceptance": false,
+  "PR49_already_in_base": true,
+  "difference_from_prior_combined_tree": [
+    "docs/architecture/rust-std-source-preparation.md",
+    "tools/nagi-cli/src/commands.rs",
+    "tools/nagi-cli/src/lib.rs",
+    "tools/nagi-cli/src/rust_std_source.rs",
+    "tools/nagi-cli/src/rust_std_source/tests.rs"
+  ]
+}

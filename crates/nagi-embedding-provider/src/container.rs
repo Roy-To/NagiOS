@@ -21,6 +21,13 @@ const MAX_INTERMEDIATE: u32 = 16384;
 const MAX_POSITIONS: u32 = 8192;
 const MAX_VOCAB: u32 = 1_000_000;
 const MAX_TENSOR_DIMS: u32 = 4;
+/// Smallest encoded piece record: f32 score, u8 kind, u16 length, >= 1 byte.
+const MIN_PIECE_RECORD_BYTES: usize = 4 + 1 + 2 + 1;
+/// Longest normal (segmentable) piece accepted. The pinned
+/// multilingual-e5-small vocabulary's longest normal piece is 48 bytes. The
+/// Unigram Viterbi pass does work proportional to this length per input byte
+/// between two cancellation polls, so it must stay small.
+pub const MAX_NORMAL_PIECE_BYTES: usize = 64;
 
 /// Errors raised while loading or validating an artifact.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -221,6 +228,11 @@ pub fn parse(bytes: &[u8]) -> Result<Parsed, ModelError> {
     let pieces_len = f[14] as usize;
     let charsmap_len = f[15] as usize;
     let n_tensors = f[16] as usize;
+    // Reject a piece count the pieces section cannot hold before reserving
+    // the piece table, so header bytes alone cannot request a large buffer.
+    if n_pieces > pieces_len / MIN_PIECE_RECORD_BYTES {
+        return Err(ModelError::Malformed("n_pieces"));
+    }
     let layer_norm_eps = c.f32("header")?;
     if !(layer_norm_eps.is_finite() && layer_norm_eps > 0.0 && layer_norm_eps < 1.0) {
         return Err(ModelError::Malformed("layer_norm_eps"));
@@ -255,6 +267,9 @@ pub fn parse(bytes: &[u8]) -> Result<Parsed, ModelError> {
         let raw = c.take(len, "pieces")?;
         if len == 0 || core::str::from_utf8(raw).is_err() || !score.is_finite() {
             return Err(ModelError::Malformed("piece"));
+        }
+        if kind == PieceKind::Normal && len > MAX_NORMAL_PIECE_BYTES {
+            return Err(ModelError::Malformed("piece_len"));
         }
         pieces.push(Piece {
             score,

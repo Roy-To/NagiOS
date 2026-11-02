@@ -17,6 +17,11 @@ The inventory uses these inclusion classifications:
 - **D — lockfile/transitive dependency:** identified from `Cargo.lock` but not
   separately represented in `third_party/sources.lock`.
 
+The [Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md), based on
+main `379d19e` and reviewed on 2026-10-11, records proposed Nagi-owned license
+scope, code/data exceptions, and unresolved source/binary release gates.
+Apache-2.0 is a candidate only; this review does not grant a Nagi license.
+
 ## Pinned components
 
 This table covers every component, version/revision/toolchain pin, and declared
@@ -44,7 +49,7 @@ as missing license metadata rather than assigned an unverified value.
 | cc-nagi | B + C | `1.4.6`, locked archive hash | MIT OR Apache-2.0 | `third_party/cc-nagi`, `third_party/cc-nagi-patches/` | Generated checkout contains both license texts; verify notice preservation for a binary release |
 | inventory-nagi | A + B + C | `0.3.24`, locked archive hash | MIT OR Apache-2.0 | `third_party/inventory-nagi`, `third_party/inventory-nagi-patches/` | Tracked source includes both license texts; verify notice preservation for a binary release |
 | llama.cpp-ggml-cpu | B + C | revision `c85b92c69c955961621193cd51da194f3cbcedf3` | MIT | `third_party/llama.cpp`, `third_party/llama-cpp-patches/` | Generated checkout includes the upstream license and component-license directory; review linked components before binary redistribution |
-| whisper.cpp-stt | B | revision `927cfce34f31707e17f2bff35c349632fb9e2c3a` | MIT | `third_party/whisper.cpp` | Source pin is fetched by `./nagi fetch`; review linked-source notices before binary redistribution |
+| whisper.cpp-stt | B + C | revision `927cfce34f31707e17f2bff35c349632fb9e2c3a` | MIT | `third_party/whisper.cpp`, `third_party/whisper-cpp-patches/` | Source pin and patches are materialized by `./nagi fetch`; review linked-source notices before binary redistribution |
 | llvm-libcxx (LLVM libc++) | B + C | `19.1.7`, release tarball SHA-256 | Apache-2.0 WITH LLVM-exception | no Nagi patch; built by `tools/libcxx/build-nagi-target.sh` | Source is fetched by `./nagi m20-granite-inference`; the static `libc++.a` linked into M20 guest images carries the LLVM exception; preserve `libcxx/LICENSE.TXT` with any binary redistribution |
 
 ## External model artifact pins
@@ -52,12 +57,63 @@ as missing license metadata rather than assigned an unverified value.
 `third_party/models.lock` pins the Whisper small multilingual artifact at
 487,601,967 bytes with SHA-256
 `1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b` and
-records the model repository's MIT declaration at an immutable revision. Model
+records the model repository's MIT declaration at immutable revision
+`5359861c739e955e79d9a303bcbc70fb988958b1`. Model
 bytes are not fetched by `./nagi fetch`, stored in the source checkout, or
 included in a Nagi image by this metadata-only step. The Model Store uses the
 opaque artifact ID in the lock; it must verify the size and SHA-256 before a
-future STT backend can load the bytes. Keep model licensing distinct from the
+STT backend can load the bytes. Keep model licensing distinct from the
 whisper.cpp source license and review both before redistribution.
+
+The current lock also pins the following external GGUF artifacts. The lock
+describes external bytes, not model files committed to this source tree or a
+complete statement of what any generated image includes.
+
+| Model artifact | Immutable revision | Declared terms | Review still required |
+| --- | --- | --- | --- |
+| IBM Granite 4.2 3B Q4_K_M | `c40945d71cd90f249a56985e8155551a9188dc30` | Apache-2.0 | Exact GGUF/base-model provenance, license text and any upstream NOTICE |
+| Qwen3 4B Q4_K_M | `bc640142c66e1fdd12af0bd68f40445458f3869b` | Apache-2.0 | Exact weights/tokenizer/conversion provenance and notices |
+| Gemma 3 1B IT Q4_K_M | `f9c28bcd85737ffc5aef028638d3341d49869c27` | Gemma Terms of Use | Separate terms, downstream restrictions, prescribed Notice, provenance and optional distribution decision; not Apache-2.0 |
+
+Additional model/data pins are maintained outside `third_party/models.lock`:
+
+- [Embedding manifest](tools/embedding/manifest.toml):
+  `intfloat/multilingual-e5-small` at
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3`, declared MIT; conversion to
+  `.nemb` and tokenizer/base provenance require notice review. The ONNX
+  export is reference-only.
+- [TTS artifact lock](tools/tts/tts-artifacts.lock):
+  tohoku-f01 neutral voice at `8e3306021db135c265f5eda5f062dc489707ddf8`,
+  CC-BY-4.0; retain creator attribution, license link and change status.
+  naist-jdic-jpreprocess v0.15.0 dictionary declares BSD-3-Clause; preserve
+  the complete copied COPYING and component notices in
+  [tools/tts/notices](tools/tts/notices/).
+- jbonsai/jpreprocess TTS runtime crates declare BSD-3-Clause. The
+  [TTS crate inventory](tests/m25-tts/CRATE_LICENSES.md) is metadata evidence
+  rather than release clearance.
+
+The [Legal model catalog](docs/legal/model-assets.json) still uses
+fixture-only/placeholder records and is not synchronized with these exact
+artifact pins. Reconcile it with actual image inclusion before a release
+SBOM; do not infer bundled weights or authoritative terms from fixtures.
+
+## Imported subcomponent license exceptions
+
+The relibc import contains OpenLibm, whose
+[license inventory](third_party/relibc/openlibm/LICENSE.md) includes MIT,
+BSD, ISC, Sun attribution and LGPL tests. Tracked
+`third_party/relibc/openlibm/test/test-double.c` and `test-float.c` carry
+LGPL-2.1-or-later headers. Confirm the full LGPL license text and source
+redistribution obligations; check actual binary inclusion separately.
+The parent relibc MIT declaration does not replace these terms.
+
+`freetype-sys`'s MIT wrapper declaration does not cover its bundled
+FreeType/libpng source. A hash-verified 0.23.0 archive review found FreeType's
+FTL / GPL-2.0-or-later alternatives, PNG Reference Library License v2 for
+libpng, and BSL-1.0 for bundled dlg. Review selected files and retain
+subcomponent notices. The readiness review proposes the FTL path where
+applicable, including FreeType binary attribution; selection and full
+distribution review remain open.
 
 ## Cargo.lock transitive and native-source review
 
@@ -118,8 +174,19 @@ Open Font License 1.1 permits; they are not sold by themselves.
 
 The SVG references common system font family names (`Segoe UI`, `Helvetica
 Neue`, and `Arial`) for text rendering; no font files are redistributed by this
-repository. The two PNGs above are the only other tracked image assets found
-in the audited snapshot, and neither is used as Nagi branding.
+repository. The two PNGs above are imported documentation assets, and neither
+is used as Nagi branding. Their image-specific permissions, including Octocat reuse
+terms, remain unresolved for source as well as binary distributions.
+
+The current snapshot also tracks three real-QEMU captures:
+`docs/assets/screenshots/nagi-m10-qemu-desktop.png`,
+`nagi-m18-qemu-browser.png`, and `nagi-m29-settings-ja-jp.png` (all in the
+same screenshot directory). They are reused by both READMEs with
+acceptance-scope captions. Confirm capture ownership and reuse scope, and
+review third-party web content visible in the browser image; a screenshot
+does not relicense its contents. The six-file tracked image inventory and
+the embedded bitmap glyph provenance follow-up are documented in the
+[readiness review](docs/oss/apache-2.0-readiness.md).
 
 ## Source-only snapshot versus binary distribution
 

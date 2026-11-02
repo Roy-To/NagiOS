@@ -1,0 +1,42 @@
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.1
+   Compiling libc v0.2.190
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling sha2 v0.10.9
+   Compiling nagi-model v0.1.0 (<worktree>/crates/nagi-model)
+   Compiling nagi-history v0.1.0 (<worktree>/user/nagi-history)
+   Compiling nagi-writer-core v0.1.0 (<worktree>/crates/nagi-writer-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 40.96s
+     Running unittests src/lib.rs (crates/nagi-writer-core/target/debug/deps/nagi_writer_core-e4449ac0db144b9c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running ../../tests/writer-core/acceptance.rs (crates/nagi-writer-core/target/debug/deps/writer_core_acceptance-5b23802514ccfb58)
+
+running 1 test
+REPRO import_kinds=[List { ordered: true, items: ["item"] }] import_warnings=[] export_text="1. item"
+
+thread 'h09_repro_ordered_list_number_is_not_silently_lost' panicked at ../../tests/writer-core/acceptance.rs:1165:5:
+ordered-list number 9 was silently discarded: "1. item"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test h09_repro_ordered_list_number_is_not_silently_lost ... FAILED
+
+failures:
+
+failures:
+    h09_repro_ordered_list_number_is_not_silently_lost
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--test writer-core-acceptance`
+
+real	0m42.067s
+user	0m4.649s
+sys	0m1.311s
