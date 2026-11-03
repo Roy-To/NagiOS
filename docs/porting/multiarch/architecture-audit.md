@@ -3,12 +3,12 @@
 The audit details below were collected on 2026-10-11 against historical
 baseline 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2. They are not current
 A-phase acceptance and have no live origin/main dependency. Current explicit
-main is fa0e0415d381da76a190f049b07b950fcfdaca98. The 12-path Identity
-crate/test/workflow merge after 1b3637ea does not touch this workstream's
-three owned prefixes. Its contract/spike source stability has been confirmed
-by fixed-SHA diff; old inventory, authority and run records are still
-historical. Current A remains PENDING until new inventory/authority/ownership
-evidence is committed and checked.
+main is 0362427747e769b00558053e4c7f4c756d303802. The fixed diff from 1b3637ea changes 35 paths in
+automation, calendar/search, Identity, and TTS crates/workflows/tests, with no
+changes under the three owned prefixes. Contract/spike source stability was
+confirmed by fixed-SHA diff; the old fa0e0415d381da76a190f049b07b950fcfdaca98 inventory and authority records are
+indexed as superseded, and old run records remain historical. Current A remains
+PENDING for the ownership/live-ref checks not performed in this refresh.
 
 ## Authority and scope
 

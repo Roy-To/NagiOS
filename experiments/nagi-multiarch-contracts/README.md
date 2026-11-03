@@ -10,10 +10,10 @@ linker, Python 3. On the verified Debian 13 x86-64 host:
 ```sh
 ./experiments/nagi-multiarch-contracts/verify.sh
 python3 experiments/nagi-multiarch-contracts/audit.py \
-  --base fa0e0415d381da76a190f049b07b950fcfdaca98 \
+  --base 0362427747e769b00558053e4c7f4c756d303802 \
   --source-commit SOURCE_COMMIT_SHA \
-  --output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/source-inventory.json \
-  --authority-output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/authority-sources.json \
+  --output docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/source-inventory.json \
+  --authority-output docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/authority-sources.json \
   --check
 ```
 

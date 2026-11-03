@@ -5,16 +5,16 @@
 The earlier A/B/C PASS statements later in this document describe historical
 evidence collected against 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2. They are
 retained as historical detail only. The current explicit main baseline is
-fa0e0415d381da76a190f049b07b950fcfdaca98; A/B/C are PENDING/NOT_RUN for that
-baseline until fresh current-main evidence is generated and reviewed.
-The source files inventoried by old A and used by B/C are unchanged across
-the 12-path Identity crate/test/workflow merge from 1b3637ea to this main.
-That source stability does not transfer the old run evidence. No current-main
-Cargo build, ARM64 ELF, QEMU run, or VM acceptance was performed in this phase.
+0362427747e769b00558053e4c7f4c756d303802; A/B remain PENDING and C is NOT_RUN for that
+baseline. The fixed 1b3637ea-to-current diff changes 35 paths outside the
+three owned prefixes, including automation, calendar/search, Identity, and TTS
+crates/workflows/tests. Source stability does not transfer old inventory or run
+evidence. No current-main Cargo build, ARM64 ELF, QEMU run, or VM acceptance was
+performed in this phase.
 
 The immutable historical input is indexed in
-[evidence/HISTORICAL.json](evidence/HISTORICAL.json). A new static inventory
-will be bound to its explicit full --base SHA and a fixed source commit. The
+[evidence/HISTORICAL.json](evidence/HISTORICAL.json). The current static inventory is bound to explicit full --base and source
+commit SHAs; the superseded main record has a separate exact-hash index. The
 ARM64 receipt entry point is experiments/nagi-aarch64-spike/attest.py; the
 standalone runner observes a binary but makes no source claim. A receipt JSON
 and its hashes are not tamper-proof proof of execution; an independent rebuild

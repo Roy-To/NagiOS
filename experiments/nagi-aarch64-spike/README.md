@@ -8,14 +8,14 @@ outside the production Cargo workspace; no root/ABI/loader/kernel changes.
 Current-main revalidation is PENDING. The previously recorded Rust/QEMU
 versions and all old receipts belong to the historical 379d19e baseline. The
 package has no external dependencies. No new build or QEMU run has been
-performed for fa0e0415d381da76a190f049b07b950fcfdaca98.
+performed for 0362427747e769b00558053e4c7f4c756d303802.
 
 The standalone runner is observational only: it reports the binary and QEMU
 hashes before/after execution and always records
 source_attestation=NOT_CLAIMED_BY_RUNNER. For source-bound evidence, use the
 generator after reviewing a clean fixed source commit and tree:
 
-    ./verify.sh SOURCE_COMMIT_SHA SOURCE_TREE_SHA fa0e0415d381da76a190f049b07b950fcfdaca98 $NAGI_STORAGE_ROOT/private-evidence/NEW-UNIQUE-DIR
+    ./verify.sh SOURCE_COMMIT_SHA SOURCE_TREE_SHA 0362427747e769b00558053e4c7f4c756d303802 $NAGI_STORAGE_ROOT/private-evidence/NEW-UNIQUE-DIR
 
 Run through the SSD guard so NAGI_STORAGE_ROOT names the approved storage
 root. The output must be new and outside the source repository. The generator
