@@ -88,6 +88,62 @@ fn run_summary_requires_this_approval_run_and_exact_unique_registered_step_order
 }
 
 #[test]
+fn structural_summary_errors_precede_recovery_required_outcomes() {
+    let run_ref = approval_run_ref("approval/run-structural");
+    let other_run_ref = approval_run_ref("approval/run-other");
+    let first = step_id("step/1");
+    let second = step_id("step/2");
+    let expected = vec![first.clone(), second.clone()];
+    let recovery_first = step_result(&run_ref, &first, StepOutcome::RecoveryRequired);
+
+    assert_eq!(
+        summarize_run(
+            &run_ref,
+            &expected,
+            &[
+                recovery_first.clone(),
+                step_result(&other_run_ref, &second, StepOutcome::Succeeded),
+            ]
+        ),
+        Err(SummaryError::WrongApprovalRunRef { index: 1 })
+    );
+    assert_eq!(
+        summarize_run(
+            &run_ref,
+            &expected,
+            &[
+                recovery_first.clone(),
+                step_result(&run_ref, &step_id("unregistered"), StepOutcome::Succeeded),
+            ]
+        ),
+        Err(SummaryError::UnregisteredStep { index: 1 })
+    );
+    assert_eq!(
+        summarize_run(
+            &run_ref,
+            &expected,
+            &[
+                recovery_first,
+                step_result(&run_ref, &first, StepOutcome::Succeeded),
+            ]
+        ),
+        Err(SummaryError::DuplicateStepResult { index: 1 })
+    );
+    assert_eq!(
+        summarize_run(
+            &run_ref,
+            &expected,
+            &[step_result(
+                &run_ref,
+                &second,
+                StepOutcome::RecoveryRequired,
+            )]
+        ),
+        Err(SummaryError::OutOfOrderStepResult { index: 0 })
+    );
+}
+
+#[test]
 fn recovery_required_precedence_covers_every_pair_of_step_outcomes() {
     let run_ref = approval_run_ref("approval/run-3");
     let first = step_id("step/1");
