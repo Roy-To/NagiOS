@@ -426,10 +426,13 @@ def build_once(output, label, source_spike, source, archive_sha256, toolchain, t
     build_dir = output / f"build-{label}"
     try:
         result = run(command, source_spike, env=env, timeout=1800, text=False)
-        reject_ambient_cargo_config(source_spike, cargo_home, trusted_config_hashes)
         build_dir.mkdir()
         (build_dir / "stdout.log").write_bytes(result.stdout)
         (build_dir / "stderr.log").write_bytes(result.stderr)
+        try:
+            reject_ambient_cargo_config(source_spike, cargo_home, trusted_config_hashes)
+        except AttestationError as exc:
+            raise AttestationError(f"{exc}; see build-{label} logs") from exc
         if result.returncode:
             raise AttestationError(f"cargo build {label} failed with exit {result.returncode}")
         elf = target / "aarch64-unknown-none/release/nagi-aarch64-feasibility-spike"
