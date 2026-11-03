@@ -167,7 +167,7 @@ def check_builds(output, record, commit, tree, toolchain):
             raise VerificationError("build must use an isolated empty CARGO_HOME")
         if build.get("environment_policy") != "minimal-allowlist; inherited build variables discarded":
             raise VerificationError("build environment policy is incomplete")
-        if build.get("cargo_config_policy") != "reject external .cargo/config and .cargo/config.toml in cwd ancestors; empty isolated CARGO_HOME":
+        if build.get("cargo_config_policy") != "allow hash-verified committed source-snapshot .cargo configs; reject external configs and configs in isolated CARGO_HOME":
             raise VerificationError("Cargo config isolation policy is incomplete")
         if build.get("source_archive_sha256") != record.get("source_snapshot", {}).get("archive_sha256"):
             raise VerificationError("build input archive differs from the committed source snapshot")

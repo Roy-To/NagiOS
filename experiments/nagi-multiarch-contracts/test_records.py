@@ -180,7 +180,12 @@ class VerifyEndToEndTests(unittest.TestCase):
         for sha, state in sorted(((self.old_main, "SUPERSEDED"), (self.main, "CURRENT"))):
             directory = evidence / ("main-" + sha)
             files = []
-            for name in ("source-inventory.json", "authority-sources.json", "baseline-drift.json", "current-status.json"):
+            names = ["source-inventory.json", "authority-sources.json", "baseline-drift.json", "current-status.json"]
+            status = json.loads((directory / "current-status.json").read_text())
+            validation = status.get("records_validation", {})
+            if isinstance(validation, dict) and validation.get("stdout_path"):
+                names.append("records-validation.stdout.log")
+            for name in names:
                 files.append({"path": f"main-{sha}/{name}", "sha256": self.file_hash(directory / name)})
             entries.append({"main_sha": sha, "status": state, "files": files})
         return entries
@@ -242,7 +247,7 @@ class VerifyEndToEndTests(unittest.TestCase):
                 "outcome": "PENDING", "record_head_sha": None, "record_tree_sha": None,
                 "source_commit_sha": self.source,
                 "command": f"python3 docs/porting/multiarch/verify-records.py --main {self.main} --evidence-dir docs/porting/multiarch/evidence/main-{self.main}",
-                "stdout_sha256": None,
+                "exit_code": None, "stdout_path": None, "stdout_sha256": None,
             },
             "execution": {"cargo_check": "NOT_RUN", "cargo_clippy": "NOT_RUN", "cargo_build": "NOT_RUN", "new_ELF_generation": "NOT_RUN", "QEMU": "NOT_RUN", "VM": "NOT_RUN", "Miri": "NOT_RUN", "independent_rebuild": "NOT_RUN"},
             "artifact_hashes": {},
@@ -398,9 +403,18 @@ class VerifyEndToEndTests(unittest.TestCase):
         self.assertEqual(initial["source"], self.source)
         path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
         status = json.loads(path.read_text())
+        record_tree = self.tree_sha(self.records)
+        stdout_path = path.parent / "records-validation.stdout.log"
+        stdout = (
+            f"PASS records-only child; main={self.main} source={self.source}; "
+            f"record_head={self.records} record_tree={record_tree}; fixture output\n"
+        ).encode()
+        stdout_path.write_bytes(stdout)
         status["records_validation"].update({
-            "outcome": "PASS", "record_head_sha": self.records,
-            "record_tree_sha": self.tree_sha(self.records), "stdout_sha256": digest(b"PASS fixture verifier output\n"),
+            "outcome": "PASS", "record_head_sha": self.records, "record_tree_sha": record_tree,
+            "exit_code": 0,
+            "stdout_path": f"docs/porting/multiarch/evidence/main-{self.main}/records-validation.stdout.log",
+            "stdout_sha256": digest(stdout),
         })
         status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
         self.write_json(path, status)
@@ -408,6 +422,56 @@ class VerifyEndToEndTests(unittest.TestCase):
         self.commit_change("record successful verification")
         result = self.verify()
         self.assertEqual(result["main"], self.main)
+        (path.parent / "records-validation.stdout.log").write_text("forged verifier result\\n")
+        self.refresh_status_index()
+        self.commit_change("tamper saved records-validation output")
+        with self.assertRaisesRegex(RecordsError, "stdout hash does not match"):
+            self.verify()
+
+    def test_verify_rejects_source_commit_as_records_validation_head(self):
+        path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
+        status = json.loads(path.read_text())
+        stdout_path = path.parent / "records-validation.stdout.log"
+        stdout = (
+            f"PASS records-only child; main={self.main} source={self.source}; "
+            f"record_head={self.source} record_tree={self.tree}; fixture output\\n"
+        ).encode()
+        stdout_path.write_bytes(stdout)
+        status["records_validation"].update({
+            "outcome": "PASS", "record_head_sha": self.source, "record_tree_sha": self.tree,
+            "exit_code": 0,
+            "stdout_path": f"docs/porting/multiarch/evidence/main-{self.main}/records-validation.stdout.log",
+            "stdout_sha256": digest(stdout),
+        })
+        status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
+        self.write_json(path, status)
+        self.refresh_status_index()
+        self.commit_change("invalid source-as-record head")
+        with self.assertRaisesRegex(RecordsError, "strict records-only child"):
+            self.verify()
+
+    def test_verify_rejects_nonzero_records_validation_exit_code(self):
+        self.verify()
+        path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
+        status = json.loads(path.read_text())
+        record_tree = self.tree_sha(self.records)
+        stdout = (
+            f"PASS records-only child; main={self.main} source={self.source}; "
+            f"record_head={self.records} record_tree={record_tree}; fixture output\n"
+        ).encode()
+        (path.parent / "records-validation.stdout.log").write_bytes(stdout)
+        status["records_validation"].update({
+            "outcome": "PASS", "record_head_sha": self.records, "record_tree_sha": record_tree,
+            "exit_code": 1,
+            "stdout_path": f"docs/porting/multiarch/evidence/main-{self.main}/records-validation.stdout.log",
+            "stdout_sha256": digest(stdout),
+        })
+        status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
+        self.write_json(path, status)
+        self.refresh_status_index()
+        self.commit_change("records validation has nonzero exit code")
+        with self.assertRaisesRegex(RecordsError, "successful zero exit code"):
+            self.verify()
 
     def test_verify_rejects_unindexed_superseded_main_file(self):
         path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.old_main) / "extra.json"

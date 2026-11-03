@@ -22,7 +22,11 @@ root. The output must be new and outside the source repository. The generator
 builds twice with separate empty Cargo homes and target directories, using the
 pinned toolchain and --locked --offline; it runs only one of its fresh ELFs.
 The second build hash is a same-host comparison, not proof of path-independent
-reproducibility. It records the toolchain, build commands/logs, ELF hashes,
+reproducibility. The committed .cargo/config.toml is accepted only from the
+explicit source snapshot after matching its Git blob hash; external ancestor
+configs and configs in the isolated Cargo home are rejected. A fake-tool test
+covers generator-to-runner orchestration without invoking real Cargo or QEMU.
+It records the toolchain, build commands/logs, ELF hashes,
 QEMU executable hash/path/version, serial/stderr hashes, run outcomes, source
 commit/tree/clean state, and a non-circular manifest that excludes its own
 attestation.json. verify_attestation.py validates those bindings without
