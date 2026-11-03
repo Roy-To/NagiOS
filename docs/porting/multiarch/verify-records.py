@@ -334,9 +334,12 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
         require_sha256(hashes.get(name), "artifact_hashes." + name)
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != hashes[name]:
             raise RecordsError("current status artifact hash mismatch: " + name)
+    raw_validation = status.get("records_validation")
+    validation_outcome = raw_validation.get("outcome") if isinstance(raw_validation, dict) else None
+    registry_validation_state = "PENDING" if validation_outcome == "PENDING" else "PASS"
     expected_phases = {
         "A": ("PENDING", {"current_static_inventory": "PASS", "current_authority_hashes": "PASS",
-            "registry_unregistered_and_record_validation": "PASS", "ownership_and_live_ref_snapshot": "NOT_RUN"}),
+            "registry_unregistered_and_record_validation": registry_validation_state, "ownership_and_live_ref_snapshot": "NOT_RUN"}),
         "B": ("PENDING", {"model_free_tool_acceptance": "PASS", "host_Cargo_contract_tests": "NOT_RUN"}),
         "C": ("NOT_RUN", {"new_ELF": "NOT_RUN", "QEMU_EL1": "NOT_RUN",
             "QEMU_EL2_negative": "NOT_RUN", "independent_rebuild": "NOT_RUN"}),
@@ -361,14 +364,21 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
         raise RecordsError("records_validation has missing or extra fields")
     expected_command = ("python3 docs/porting/multiarch/verify-records.py --main " + baseline
         + " --evidence-dir docs/porting/multiarch/evidence/main-" + baseline)
-    if validation.get("outcome") != "PASS" or validation.get("source_commit_sha") != source_commit or validation.get("command") != expected_command:
+    if validation.get("source_commit_sha") != source_commit or validation.get("command") != expected_command:
         raise RecordsError("records_validation is not bound to the explicit main/source command")
-    record_head = full_commit(root, validation.get("record_head_sha"), "records_validation.record_head_sha")
-    if validation.get("record_tree_sha") != git(root, "rev-parse", f"{record_head}^{{tree}}").strip():
-        raise RecordsError("records_validation.record_tree_sha does not match its commit")
-    require_ancestor(root, record_head, head, "records_validation record head")
-    validate_record_commit(root, source_commit, record_head)
-    require_sha256(validation.get("stdout_sha256"), "records_validation.stdout_sha256")
+    validation_outcome = validation.get("outcome")
+    if validation_outcome == "PENDING":
+        if any(validation.get(key) is not None for key in ("record_head_sha", "record_tree_sha", "stdout_sha256")):
+            raise RecordsError("pending records_validation must not claim a record head, tree, or result hash")
+    elif validation_outcome == "PASS":
+        record_head = full_commit(root, validation.get("record_head_sha"), "records_validation.record_head_sha")
+        if validation.get("record_tree_sha") != git(root, "rev-parse", f"{record_head}^{{tree}}").strip():
+            raise RecordsError("records_validation.record_tree_sha does not match its commit")
+        require_ancestor(root, record_head, head, "records_validation record head")
+        validate_record_commit(root, source_commit, record_head)
+        require_sha256(validation.get("stdout_sha256"), "records_validation.stdout_sha256")
+    else:
+        raise RecordsError("records_validation outcome must be PENDING or PASS")
     tools = status.get("tool_acceptance", {})
     if not isinstance(tools, dict):
         raise RecordsError("tool_acceptance must be an object")

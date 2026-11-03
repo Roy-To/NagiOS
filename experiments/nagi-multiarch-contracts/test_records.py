@@ -124,6 +124,7 @@ class VerifyEndToEndTests(unittest.TestCase):
         self.source = self.main
         self.tree = self.tree_sha(self.source)
         self.write_records()
+        self.records = run(self.root, "rev-parse", "HEAD").stdout.strip()
 
     def create_base(self):
         (self.root / "README.md").write_text("old main\n")
@@ -225,7 +226,7 @@ class VerifyEndToEndTests(unittest.TestCase):
             "schema": "nagi-multiarch-current-status/1", "main_sha": self.main, "main_tree_sha": main_tree,
             "source_commit_sha": self.source, "source_tree_sha": self.tree,
             "phases": {
-                "A": {"status": "PENDING", "checks": {"current_static_inventory": "PASS", "current_authority_hashes": "PASS", "registry_unregistered_and_record_validation": "PASS", "ownership_and_live_ref_snapshot": "NOT_RUN"}, "reason": "Fixture; ownership is not recorded."},
+                "A": {"status": "PENDING", "checks": {"current_static_inventory": "PASS", "current_authority_hashes": "PASS", "registry_unregistered_and_record_validation": "PENDING", "ownership_and_live_ref_snapshot": "NOT_RUN"}, "reason": "Fixture; ownership is not recorded."},
                 "B": {"status": "PENDING", "checks": {"model_free_tool_acceptance": "PASS", "host_Cargo_contract_tests": "NOT_RUN"}, "reason": "Fixture; Cargo tests are unrun."},
                 "C": {"status": "NOT_RUN", "checks": {"new_ELF": "NOT_RUN", "QEMU_EL1": "NOT_RUN", "QEMU_EL2_negative": "NOT_RUN", "independent_rebuild": "NOT_RUN"}, "reason": "Fixture; no ELF or QEMU run occurred."},
             },
@@ -238,10 +239,10 @@ class VerifyEndToEndTests(unittest.TestCase):
                 "static_inventory_exact_check": {"outcome": "PASS", "source_commit_explicit": True},
             },
             "records_validation": {
-                "outcome": "PASS", "record_head_sha": self.source, "record_tree_sha": self.tree,
+                "outcome": "PENDING", "record_head_sha": None, "record_tree_sha": None,
                 "source_commit_sha": self.source,
                 "command": f"python3 docs/porting/multiarch/verify-records.py --main {self.main} --evidence-dir docs/porting/multiarch/evidence/main-{self.main}",
-                "stdout_sha256": "a" * 64,
+                "stdout_sha256": None,
             },
             "execution": {"cargo_check": "NOT_RUN", "cargo_clippy": "NOT_RUN", "cargo_build": "NOT_RUN", "new_ELF_generation": "NOT_RUN", "QEMU": "NOT_RUN", "VM": "NOT_RUN", "Miri": "NOT_RUN", "independent_rebuild": "NOT_RUN"},
             "artifact_hashes": {},
@@ -360,12 +361,53 @@ class VerifyEndToEndTests(unittest.TestCase):
     def test_verify_rejects_records_validation_commit_tampering(self):
         path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
         status = json.loads(path.read_text())
-        status["records_validation"]["record_head_sha"] = "0" * 40
+        status["records_validation"].update({
+            "outcome": "PASS", "record_head_sha": "0" * 40, "record_tree_sha": self.tree,
+            "stdout_sha256": "a" * 64,
+        })
+        status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
         self.write_json(path, status)
         self.refresh_status_index()
         self.commit_change("invalid records validation")
         with self.assertRaisesRegex(RecordsError, "does not resolve"):
             self.verify()
+
+    def test_verify_rejects_pending_validation_with_result_hash(self):
+        path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
+        status = json.loads(path.read_text())
+        status["records_validation"]["stdout_sha256"] = "a" * 64
+        self.write_json(path, status)
+        self.refresh_status_index()
+        self.commit_change("pending validation has fabricated result")
+        with self.assertRaisesRegex(RecordsError, "must not claim"):
+            self.verify()
+
+    def test_verify_rejects_unknown_validation_outcome(self):
+        path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
+        status = json.loads(path.read_text())
+        status["records_validation"]["outcome"] = "UNKNOWN"
+        status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
+        self.write_json(path, status)
+        self.refresh_status_index()
+        self.commit_change("unknown validation outcome")
+        with self.assertRaisesRegex(RecordsError, "outcome must be PENDING or PASS"):
+            self.verify()
+
+    def test_verify_accepts_pending_to_pass_records_only_transition(self):
+        initial = self.verify()
+        self.assertEqual(initial["source"], self.source)
+        path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.main) / "current-status.json"
+        status = json.loads(path.read_text())
+        status["records_validation"].update({
+            "outcome": "PASS", "record_head_sha": self.records,
+            "record_tree_sha": self.tree_sha(self.records), "stdout_sha256": digest(b"PASS fixture verifier output\n"),
+        })
+        status["phases"]["A"]["checks"]["registry_unregistered_and_record_validation"] = "PASS"
+        self.write_json(path, status)
+        self.refresh_status_index()
+        self.commit_change("record successful verification")
+        result = self.verify()
+        self.assertEqual(result["main"], self.main)
 
     def test_verify_rejects_unindexed_superseded_main_file(self):
         path = self.root / "docs/porting/multiarch/evidence" / ("main-" + self.old_main) / "extra.json"
