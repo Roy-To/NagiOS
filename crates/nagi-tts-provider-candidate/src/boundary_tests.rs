@@ -198,7 +198,7 @@ fn fir_tail_is_carried_to_next_chunk_and_emitted_only_once() {
     for _ in 0..3 {
         assert_eq!(
             next_stream_chunk(&mut active, &mut scratch, &mut [0; 160]),
-            Ok(SynthesisPcmChunk::End)
+            Err(SpeechProviderError::Failed)
         );
     }
     assert_eq!(probe.calls.get(), 3);
@@ -250,7 +250,7 @@ fn cumulative_overflow_aborts_and_erases_the_failed_chunk() {
         assert_eq!(probe.drops.get(), 1);
         assert_eq!(
             next_stream_chunk(&mut active, &mut scratch, &mut [0; 4096]),
-            Ok(SynthesisPcmChunk::End)
+            Err(SpeechProviderError::Failed)
         );
     }
 }
@@ -294,7 +294,7 @@ fn short_nan_and_extra_end_frames_erase_prior_output_and_terminate() {
             let calls = probe.calls.get();
             assert_eq!(
                 next_stream_chunk(&mut active, &mut scratch, &mut destination),
-                Ok(SynthesisPcmChunk::End)
+                Err(SpeechProviderError::Failed)
             );
             assert_eq!(probe.calls.get(), calls);
             assert_eq!(probe.drops.get(), 1);
@@ -501,9 +501,9 @@ impl TextToSpeechProvider for SyntheticProvider {
         options: SpeechSynthesisOptions,
     ) -> Result<(), SpeechProviderError> {
         prepare_begin(&self.active, &mut self.scratch)?;
-        if !validate_request(text, options.language, options.pcm_format) {
-            return Err(SpeechProviderError::Failed);
-        }
+        let mode = validate_begin(text, OutputMode::from_format(options.pcm_format), true)
+            .map_err(CandidateFailure::provider_error)?;
+        validate_language(options.language).map_err(CandidateFailure::provider_error)?;
         self.probe.begins.set(self.probe.begins.get() + 1);
         let (frames, seed) = if text == "first" {
             (90, 1000)
@@ -512,7 +512,7 @@ impl TextToSpeechProvider for SyntheticProvider {
         };
         self.active = Some(make_active(
             frames,
-            OutputMode::from_format(options.pcm_format).unwrap(),
+            mode,
             seed,
             Fault::None,
             self.probe.generator.clone(),
@@ -572,6 +572,64 @@ fn options(format: PcmFormat) -> SpeechSynthesisOptions {
         language: SpeechSynthesisLanguage::Japanese,
         pcm_format: format,
     }
+}
+
+#[derive(Default)]
+struct EmptyOutputProbe {
+    begins: Cell<usize>,
+    nexts: Cell<usize>,
+    cancels: Cell<usize>,
+}
+
+struct EmptyOutputProvider {
+    probe: Rc<EmptyOutputProbe>,
+}
+
+impl TextToSpeechProvider for EmptyOutputProvider {
+    fn begin(
+        &mut self,
+        _text: &str,
+        _options: SpeechSynthesisOptions,
+    ) -> Result<(), SpeechProviderError> {
+        self.probe.begins.set(self.probe.begins.get() + 1);
+        Ok(())
+    }
+
+    fn next_pcm_chunk(
+        &mut self,
+        _destination: &mut [u8],
+    ) -> Result<SynthesisPcmChunk, SpeechProviderError> {
+        self.probe.nexts.set(self.probe.nexts.get() + 1);
+        Ok(SynthesisPcmChunk::End)
+    }
+
+    fn cancel(&mut self) {
+        self.probe.cancels.set(self.probe.cancels.get() + 1);
+    }
+}
+
+#[test]
+fn speech_service_maps_a_successful_empty_stream_to_no_audio_produced() {
+    let probe = Rc::new(EmptyOutputProbe::default());
+    let log = Rc::new(RefCell::new(SinkLog::default()));
+    let provider = EmptyOutputProvider {
+        probe: probe.clone(),
+    };
+    let sink = RecordingSink {
+        log: log.clone(),
+        fail_on: Rc::new(Cell::new(None)),
+        stereo_only: false,
+    };
+    let mut service = SpeechSynthesisService::new(provider, sink);
+
+    assert_eq!(
+        service.speak(b"silent", options(PcmFormat::stereo_48khz())),
+        Err(SpeechSynthesisError::NoAudioProduced)
+    );
+    assert_eq!(probe.begins.get(), 1);
+    assert_eq!(probe.nexts.get(), 1);
+    assert_eq!(probe.cancels.get(), 1);
+    assert!(log.borrow().accepted.is_empty());
 }
 
 #[test]
@@ -717,7 +775,7 @@ fn invalid_plan_or_progress_is_rejected_before_generator_calls() {
             assert!(active.is_none() && scratch.is_clear(), "{name}");
             assert_eq!(
                 next_stream_chunk(&mut active, &mut scratch, &mut destination),
-                Ok(SynthesisPcmChunk::End)
+                Err(SpeechProviderError::Failed)
             );
             assert_eq!(probe.calls.get(), 0);
         }
