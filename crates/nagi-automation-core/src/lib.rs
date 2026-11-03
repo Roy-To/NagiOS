@@ -6,6 +6,7 @@ pub const MAX_CONDITIONS: usize = 16;
 pub const MAX_RESOURCES: usize = 64;
 pub const MAX_PERMISSIONS: usize = 32;
 pub const MAX_IDENTIFIER_BYTES: usize = 128;
+pub const MAX_JOB_IDENTIFIER_BYTES: usize = 96;
 pub const MAX_CONDITION_VALUE_BYTES: usize = 1024;
 pub const MAX_RETRIES: u8 = 3;
 
@@ -114,12 +115,96 @@ pub struct Preview<'a, A, S> {
     pub confirmation_required: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IdentifierError {
+    Empty,
+    TooLong,
+    InvalidStart,
+    InvalidCharacter,
+}
+
+/// An opaque reference to one approval-bound run, not an automation identity.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ApprovalRunRef(String);
+
+impl ApprovalRunRef {
+    pub fn new(value: impl Into<String>) -> Result<Self, IdentifierError> {
+        let value = value.into();
+        validate_core_identifier(&value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// A per-run step identity using the existing 128-byte, slash-capable core
+/// identifier grammar.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct StepId(String);
+
+impl StepId {
+    pub fn new(value: impl Into<String>) -> Result<Self, IdentifierError> {
+        let value = value.into();
+        validate_core_identifier(&value)?;
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Explicitly validated identifier for the standalone Job scheduler boundary.
+/// This validates only; it does not compose, truncate, or normalize core IDs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchedulerJobId(String);
+
+impl SchedulerJobId {
+    pub fn new(value: &str) -> Result<Self, IdentifierError> {
+        if value.is_empty() {
+            return Err(IdentifierError::Empty);
+        }
+        if value.len() > MAX_JOB_IDENTIFIER_BYTES {
+            return Err(IdentifierError::TooLong);
+        }
+        let bytes = value.as_bytes();
+        if !bytes[0].is_ascii_alphanumeric() {
+            return Err(IdentifierError::InvalidStart);
+        }
+        if bytes
+            .iter()
+            .any(|byte| !(byte.is_ascii_alphanumeric() || b"._:-".contains(byte)))
+        {
+            return Err(IdentifierError::InvalidCharacter);
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+fn validate_core_identifier(value: &str) -> Result<(), IdentifierError> {
+    if value.is_empty() {
+        return Err(IdentifierError::Empty);
+    }
+    if value.len() > MAX_IDENTIFIER_BYTES {
+        return Err(IdentifierError::TooLong);
+    }
+    if !value
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"._:-/".contains(&c))
+    {
+        return Err(IdentifierError::InvalidCharacter);
+    }
+    Ok(())
+}
+
 fn identifier(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_IDENTIFIER_BYTES
-        && value
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"._:-/".contains(&c))
+    validate_core_identifier(value).is_ok()
 }
 
 fn validate_shape<A, S>(draft: &Draft<A, S>) -> Result<(), ValidationError> {
@@ -219,7 +304,18 @@ pub enum StepOutcome {
     Succeeded,
     Failed,
     Skipped,
+    /// The step has no final result yet.
     Pending,
+    Cancelled,
+    TimedOut,
+    RecoveryRequired,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StepResult {
+    pub approval_run_ref: ApprovalRunRef,
+    pub step_id: StepId,
+    pub outcome: StepOutcome,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -229,36 +325,105 @@ pub enum RunStatus {
     Failed,
     Skipped,
     Pending,
+    Cancelled,
+    TimedOut,
+    RecoveryRequired,
 }
 
-/// Summarize final per-step outcomes, never attempts. A caller supplies at most
-/// one outcome per step; this is not a durable Activity/history implementation.
-pub fn summarize_run(expected_steps: usize, outcomes: &[StepOutcome]) -> RunStatus {
-    if expected_steps > MAX_ACTIONS || outcomes.len() > expected_steps {
-        return RunStatus::Failed;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SummaryError {
+    TooManyExpectedSteps,
+    DuplicateExpectedStep { index: usize },
+    WrongApprovalRunRef { index: usize },
+    UnregisteredStep { index: usize },
+    DuplicateStepResult { index: usize },
+    OutOfOrderStepResult { index: usize },
+}
+
+/// Summarize final per-step results for one approval-bound run.
+///
+/// Every returned result must identify the same approval run and exactly match
+/// the expected step sequence. A trailing missing result or any Pending result
+/// keeps the run Pending; malformed, duplicate, unregistered, or reordered
+/// results return an error. This describes outcomes only and is not durable
+/// deduplication or an Activity/history implementation.
+pub fn summarize_run(
+    approval_run_ref: &ApprovalRunRef,
+    expected_steps: &[StepId],
+    results: &[StepResult],
+) -> Result<RunStatus, SummaryError> {
+    if expected_steps.len() > MAX_ACTIONS {
+        return Err(SummaryError::TooManyExpectedSteps);
     }
-    if expected_steps == 0 {
-        return RunStatus::Skipped;
+    for (index, step_id) in expected_steps.iter().enumerate() {
+        if expected_steps[..index].contains(step_id) {
+            return Err(SummaryError::DuplicateExpectedStep { index });
+        }
     }
-    let succeeded = outcomes
+    for (index, result) in results.iter().enumerate() {
+        if result.approval_run_ref != *approval_run_ref {
+            return Err(SummaryError::WrongApprovalRunRef { index });
+        }
+        if !expected_steps.contains(&result.step_id) {
+            return Err(SummaryError::UnregisteredStep { index });
+        }
+        if results[..index]
+            .iter()
+            .any(|previous| previous.step_id == result.step_id)
+        {
+            return Err(SummaryError::DuplicateStepResult { index });
+        }
+        if expected_steps.get(index) != Some(&result.step_id) {
+            return Err(SummaryError::OutOfOrderStepResult { index });
+        }
+    }
+
+    if expected_steps.is_empty() {
+        return Ok(RunStatus::Skipped);
+    }
+    if results.len() < expected_steps.len()
+        || results
+            .iter()
+            .any(|result| result.outcome == StepOutcome::Pending)
+    {
+        return Ok(RunStatus::Pending);
+    }
+
+    let succeeded = results
         .iter()
-        .filter(|o| **o == StepOutcome::Succeeded)
+        .filter(|result| result.outcome == StepOutcome::Succeeded)
         .count();
-    if outcomes.contains(&StepOutcome::Failed) {
-        return if succeeded > 0 {
-            RunStatus::Partial
-        } else {
-            RunStatus::Failed
+    if succeeded == expected_steps.len() {
+        return Ok(RunStatus::Success);
+    }
+    if succeeded > 0 {
+        return Ok(RunStatus::Partial);
+    }
+
+    let mut failure_status = None;
+    let mut mixed_failure_statuses = false;
+    for result in results {
+        let status = match result.outcome {
+            StepOutcome::Failed => Some(RunStatus::Failed),
+            StepOutcome::Cancelled => Some(RunStatus::Cancelled),
+            StepOutcome::TimedOut => Some(RunStatus::TimedOut),
+            StepOutcome::RecoveryRequired => Some(RunStatus::RecoveryRequired),
+            StepOutcome::Succeeded | StepOutcome::Skipped | StepOutcome::Pending => None,
         };
+        if let Some(status) = status {
+            if failure_status.is_some_and(|previous| previous != status) {
+                mixed_failure_statuses = true;
+            } else {
+                failure_status = Some(status);
+            }
+        }
     }
-    if outcomes.len() < expected_steps || outcomes.contains(&StepOutcome::Pending) {
-        return RunStatus::Pending;
-    }
-    if succeeded == expected_steps {
-        RunStatus::Success
-    } else if succeeded > 0 {
-        RunStatus::Partial
+
+    if mixed_failure_statuses {
+        Ok(RunStatus::Failed)
+    } else if let Some(status) = failure_status {
+        Ok(status)
     } else {
-        RunStatus::Skipped
+        Ok(RunStatus::Skipped)
     }
 }

@@ -10068,3 +10068,26 @@ Host checks: 13 integration tests, doc tests, manifest-scoped fmt check and
 all-target warning-denied clippy passed on aarch64 macOS with existing Rust
 1.97.1. The default PATH selected mismatched x86_64 Homebrew tools; explicit
 matching host tools resolved that environment failure. No guest acceptance ran.
+
+### PR #77 automation summary contract candidate (2026-11-03)
+
+The local candidate changes `summarize_run` from count-based outcomes to an
+approval-run reference, ordered expected `StepId`s, and per-step results that
+carry both identities. Wrong-run, duplicate, unregistered and out-of-order
+results return `SummaryError`; missing trailing results and Pending outcomes
+remain Pending. Cancelled, TimedOut and RecoveryRequired are explicit outcomes
+and run statuses. Core IDs keep the existing 128-byte slash-capable grammar;
+`SchedulerJobId::new` adds a separate pure 96-byte scheduler-token validator.
+No Job adapter, dedupe store, outbox, notification integration or exactly-once
+behavior was added. The Job boundary guidance preserves applied-vs-success,
+Superseded and cancellation-request semantics; K1/K2/K4 remain runtime HOLDs.
+
+Pinned `nightly-2025-08-01` local verification on the arm64 macOS host passed
+manifest-scoped fmt, all-target `clippy -D warnings`, and 15 integration tests
+(12 existing + 3 new; no library unit or doc tests), with one build job and a
+dedicated SSD target/TMPDIR. The focused pre-implementation compile failed on
+the missing typed API and passed after implementation. New model-free CI is in
+`.github/workflows/nagi-automation-core.yml`; only local YAML syntax was
+checked, not a GitHub Actions run. Guest/runtime acceptance is unverified.
+Evidence is under the SSD's
+`private-evidence/pr77-automation-core-20261103/`. No release gate changes.

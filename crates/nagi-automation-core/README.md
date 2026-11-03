@@ -36,14 +36,51 @@ timezones, subscribe to events or evaluate conditions. Condition keys/values
 are opaque adapter inputs and their meaning must be validated by the eventual
 condition evaluator. Unknown keys must not be treated as satisfied.
 
-Run outcome summarization accepts explicit per-step outcomes and never reports
-success for empty, incomplete, failed, skipped or pending runs. It does not
-execute retry/continue/notify policies; it only validates and displays them.
+Run outcome summarization takes an approval-run reference, the ordered
+expected step IDs, and results that each retain both the approval-run reference
+and step ID. It returns a summary only for the same run and exact expected
+sequence. Duplicate expected IDs, duplicate results, wrong-run results,
+unregistered steps and out-of-order results return a `SummaryError`; a trailing
+missing result or any `Pending` result remains `RunStatus::Pending`. A non-empty
+run is successful only when every expected step has exactly one ordered
+`Succeeded` result. Empty work and all-skipped work are `Skipped`; cancellation,
+timeout and recovery-required results retain explicit statuses, and mixed
+success/non-success results are `Partial`. This is a public API change from
+the old count-only summary: callers now provide typed run and ordered step IDs,
+and `summarize_run` returns `Result<RunStatus, SummaryError>`. `StepOutcome` and
+`RunStatus` add explicit Cancelled, TimedOut and RecoveryRequired variants.
 
-Non-goals: timers, event subscriptions, Job dispatch, natural-language generation,
-OS sandbox, persistent history/Activity, production UI and guest integration.
-The runtime must revalidate after preview, enforce conditions, acquire current
-capabilities and confirmation, and execute through the existing Platform.
+`ApprovalRunRef` and `StepId` preserve the core's existing 128-byte identifier
+grammar, including slash. They stay separate; an automation ID alone is not a
+run/step identity. `SchedulerJobId::new` is an explicit pure validation
+boundary for the standalone Job scheduler's 96-byte, alphanumeric-first
+`[A-Za-z0-9._:-]` grammar. It does not compose, normalize or truncate values.
+A future adapter must preserve approval-run plus step identity when it derives
+scheduler request/deduplication IDs.
+
+When a future adapter observes the Job scheduler, it must inspect the
+`JobRecord` state after `DispatchResult::Completed`; that result only says an
+attempt was applied and is not itself success. `DispatchResult::Superseded`
+must emit no step result. A cancellation request is not a final cancellation
+and may settle as succeeded; only the resulting state is summarized. Other
+nonterminal Job states remain Pending; RecoveryRequired stays distinct
+and does not claim the Job is terminal or safe to retry. These core types do not
+connect to Job or implement durable deduplication, an outbox, notifications,
+or exactly-once execution.
+
+K1 (binding approval to the exact draft/effect), K2 (fail-closed external
+effect errors), and K4 (notification publication separate from completion
+CAS) remain runtime HOLDs. A future adapter must use `no_retry`,
+`NonIdempotent`, and `pause=false`; a verified checkpoint does not make an
+external effect safe to retry. This crate does not choose scheduled/event
+caller authority. It also does not execute retry/continue/notify policies;
+it only validates and describes the draft.
+
+Non-goals: timers, event subscriptions, Job dispatch, natural-language
+generation, OS sandbox, persistent history/Activity, production UI and guest
+integration. The runtime must revalidate after preview, enforce conditions,
+acquire current capabilities and confirmation, and execute through the existing
+Platform.
 
 ## Verification
 
@@ -54,14 +91,27 @@ manifest with a dedicated SSD target and `CARGO_BUILD_JOBS=1`: `cargo test
 manifest-scoped fmt and warning-denied clippy. No dependencies or shared lock
 changes are needed. Guest/production acceptance is unverified.
 
-Verified on an arm64 macOS host using the existing Rust 1.97.1 toolchain and
-explicit `aarch64-apple-darwin` target: 13 integration tests pass, fmt check
-passes, and all-target warning-denied clippy passes. This includes an exhaustive
+The initial implementation was verified on an arm64 macOS host using the
+existing Rust 1.97.1 toolchain and explicit `aarch64-apple-darwin` target: 13
+integration tests passed, fmt check passed, and all-target warning-denied Clippy
+passed. This includes an exhaustive
 small-state outcome matrix, shape/metadata bounds, unknown/denied Actions,
 restricted scopes and all external/destructive effect combinations. Preview
 has no executor interface; disabled admission makes zero adapter calls.
 The initial default-toolchain run could not link because PATH selected an
 x86_64 Homebrew compiler against arm64 developer tools. Verification explicitly
 selected matching cargo/rustc/rustdoc/clippy tools, without installing anything.
-Existing repository CI may not select this standalone manifest; these local
-checks do not replace production or guest acceptance.
+The model-free workflow `.github/workflows/nagi-automation-core.yml` runs the
+standalone fmt, all-target Clippy and contract tests when this crate, workflow
+or pinned toolchain changes. Local checks do not replace remote CI or production
+and guest acceptance.
+
+The PR #77 local candidate was verified with pinned `nightly-2025-08-01`, the
+`aarch64-apple-darwin` target and one Cargo build job: fmt check, all-target
+warning-denied Clippy and the standalone contract suite passed (15 integration
+tests; no library unit or doc tests). The focused RED compile run failed before
+the implementation because the typed run/step result API was absent; the new
+contract tests passed after implementation. Command/time/exit metadata and raw
+logs are under `private-evidence/pr77-automation-core-20261103/` on the
+development SSD. The workflow YAML was syntax-checked locally; its GitHub
+Actions run and all guest/runtime acceptance remain unverified.
