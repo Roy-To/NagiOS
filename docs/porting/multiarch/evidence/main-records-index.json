@@ -16,7 +16,11 @@
         },
         {
           "path": "main-0362427747e769b00558053e4c7f4c756d303802/current-status.json",
-          "sha256": "d815984d62ae7e21004151bd381f7c1a070901b50e69dc3b79fe094aee065d59"
+          "sha256": "a1d90f074afbe6433b505972ac7d707233063cb7b8ce62c21eae583eef8f51a1"
+        },
+        {
+          "path": "main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
+          "sha256": "548acec7a938250999334375f7d7d219358c2d6c57c005e238780f131e78c4c4"
         },
         {
           "path": "main-0362427747e769b00558053e4c7f4c756d303802/source-inventory.json",
