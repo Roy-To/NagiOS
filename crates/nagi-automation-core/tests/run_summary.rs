@@ -88,77 +88,129 @@ fn run_summary_requires_this_approval_run_and_exact_unique_registered_step_order
 }
 
 #[test]
-fn nonterminal_and_terminal_failure_states_never_become_success_or_skipped() {
+fn recovery_required_precedence_covers_every_pair_of_step_outcomes() {
     let run_ref = approval_run_ref("approval/run-3");
     let first = step_id("step/1");
     let second = step_id("step/2");
     let expected = vec![first.clone(), second.clone()];
 
     assert_eq!(summarize_run(&run_ref, &[], &[]), Ok(RunStatus::Skipped));
-    for (outcome, expected_status) in [
-        (StepOutcome::Pending, RunStatus::Pending),
-        (StepOutcome::Cancelled, RunStatus::Cancelled),
-        (StepOutcome::TimedOut, RunStatus::TimedOut),
-        (StepOutcome::RecoveryRequired, RunStatus::RecoveryRequired),
-        (StepOutcome::Failed, RunStatus::Failed),
-    ] {
-        assert_eq!(
-            summarize_run(
-                &run_ref,
-                &expected,
-                &[
-                    step_result(&run_ref, &first, outcome),
-                    step_result(&run_ref, &second, StepOutcome::Skipped),
-                ]
-            ),
-            Ok(expected_status),
-            "outcome={outcome:?}"
-        );
-    }
-
     assert_eq!(
-        summarize_run(
-            &run_ref,
-            &expected,
-            &[
-                step_result(&run_ref, &first, StepOutcome::Pending),
-                step_result(&run_ref, &second, StepOutcome::Failed),
-            ]
-        ),
+        summarize_run(&run_ref, &expected, &[]),
         Ok(RunStatus::Pending)
     );
     assert_eq!(
         summarize_run(
             &run_ref,
             &expected,
+            &[step_result(&run_ref, &first, StepOutcome::RecoveryRequired)]
+        ),
+        Ok(RunStatus::RecoveryRequired)
+    );
+
+    let outcomes = [
+        StepOutcome::Succeeded,
+        StepOutcome::Failed,
+        StepOutcome::Skipped,
+        StepOutcome::Pending,
+        StepOutcome::Cancelled,
+        StepOutcome::TimedOut,
+        StepOutcome::RecoveryRequired,
+    ];
+    let expected_status = [
+        [
+            RunStatus::Success,
+            RunStatus::Partial,
+            RunStatus::Partial,
+            RunStatus::Pending,
+            RunStatus::Partial,
+            RunStatus::Partial,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::Partial,
+            RunStatus::Failed,
+            RunStatus::Failed,
+            RunStatus::Pending,
+            RunStatus::Failed,
+            RunStatus::Failed,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::Partial,
+            RunStatus::Failed,
+            RunStatus::Skipped,
+            RunStatus::Pending,
+            RunStatus::Cancelled,
+            RunStatus::TimedOut,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::Pending,
+            RunStatus::Pending,
+            RunStatus::Pending,
+            RunStatus::Pending,
+            RunStatus::Pending,
+            RunStatus::Pending,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::Partial,
+            RunStatus::Failed,
+            RunStatus::Cancelled,
+            RunStatus::Pending,
+            RunStatus::Cancelled,
+            RunStatus::Failed,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::Partial,
+            RunStatus::Failed,
+            RunStatus::TimedOut,
+            RunStatus::Pending,
+            RunStatus::Failed,
+            RunStatus::TimedOut,
+            RunStatus::RecoveryRequired,
+        ],
+        [
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+            RunStatus::RecoveryRequired,
+        ],
+    ];
+
+    for (first_index, first_outcome) in outcomes.iter().copied().enumerate() {
+        for (second_index, second_outcome) in outcomes.iter().copied().enumerate() {
+            assert_eq!(
+                summarize_run(
+                    &run_ref,
+                    &expected,
+                    &[
+                        step_result(&run_ref, &first, first_outcome),
+                        step_result(&run_ref, &second, second_outcome),
+                    ]
+                ),
+                Ok(expected_status[first_index][second_index]),
+                "outcomes={first_outcome:?}+{second_outcome:?}"
+            );
+        }
+    }
+
+    // Preserve the explicit contract: skipped work is not a successful step.
+    assert_eq!(
+        summarize_run(
+            &run_ref,
+            &expected,
             &[
                 step_result(&run_ref, &first, StepOutcome::Succeeded),
-                step_result(&run_ref, &second, StepOutcome::Cancelled),
-            ]
-        ),
-        Ok(RunStatus::Partial)
-    );
-    assert_eq!(
-        summarize_run(
-            &run_ref,
-            &expected,
-            &[
-                step_result(&run_ref, &first, StepOutcome::Cancelled),
-                step_result(&run_ref, &second, StepOutcome::TimedOut),
-            ]
-        ),
-        Ok(RunStatus::Failed)
-    );
-    assert_eq!(
-        summarize_run(
-            &run_ref,
-            &expected,
-            &[
-                step_result(&run_ref, &first, StepOutcome::Skipped),
                 step_result(&run_ref, &second, StepOutcome::Skipped),
             ]
         ),
-        Ok(RunStatus::Skipped)
+        Ok(RunStatus::Partial)
     );
 }
 

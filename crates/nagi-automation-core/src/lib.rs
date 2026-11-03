@@ -381,6 +381,17 @@ pub fn summarize_run(
     if expected_steps.is_empty() {
         return Ok(RunStatus::Skipped);
     }
+
+    // RecoveryRequired is a run-level safety barrier. Preserve it even when
+    // another step succeeded, failed, was cancelled, or is still pending.
+    if results
+        .iter()
+        .any(|result| result.outcome == StepOutcome::RecoveryRequired)
+    {
+        return Ok(RunStatus::RecoveryRequired);
+    }
+
+    // Without a recovery barrier, unfinished ordinary work remains Pending.
     if results.len() < expected_steps.len()
         || results
             .iter()
@@ -397,6 +408,8 @@ pub fn summarize_run(
         return Ok(RunStatus::Success);
     }
     if succeeded > 0 {
+        // Includes completed Succeeded + Skipped runs; skipped work is not a
+        // successful result for every expected step.
         return Ok(RunStatus::Partial);
     }
 
@@ -407,8 +420,10 @@ pub fn summarize_run(
             StepOutcome::Failed => Some(RunStatus::Failed),
             StepOutcome::Cancelled => Some(RunStatus::Cancelled),
             StepOutcome::TimedOut => Some(RunStatus::TimedOut),
-            StepOutcome::RecoveryRequired => Some(RunStatus::RecoveryRequired),
-            StepOutcome::Succeeded | StepOutcome::Skipped | StepOutcome::Pending => None,
+            StepOutcome::Succeeded
+            | StepOutcome::Skipped
+            | StepOutcome::Pending
+            | StepOutcome::RecoveryRequired => None,
         };
         if let Some(status) = status {
             if failure_status.is_some_and(|previous| previous != status) {

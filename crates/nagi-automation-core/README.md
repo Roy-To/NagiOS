@@ -40,15 +40,19 @@ Run outcome summarization takes an approval-run reference, the ordered
 expected step IDs, and results that each retain both the approval-run reference
 and step ID. It returns a summary only for the same run and exact expected
 sequence. Duplicate expected IDs, duplicate results, wrong-run results,
-unregistered steps and out-of-order results return a `SummaryError`; a trailing
-missing result or any `Pending` result remains `RunStatus::Pending`. A non-empty
-run is successful only when every expected step has exactly one ordered
-`Succeeded` result. Empty work and all-skipped work are `Skipped`; cancellation,
-timeout and recovery-required results retain explicit statuses, and mixed
-success/non-success results are `Partial`. This is a public API change from
-the old count-only summary: callers now provide typed run and ordered step IDs,
-and `summarize_run` returns `Result<RunStatus, SummaryError>`. `StepOutcome` and
-`RunStatus` add explicit Cancelled, TimedOut and RecoveryRequired variants.
+unregistered steps and out-of-order results return a `SummaryError`.
+`RecoveryRequired` is a run-level safety barrier: any such result takes
+precedence over every other outcome, including `Succeeded`, `Failed`, `Cancelled`,
+`TimedOut` and `Pending`, and remains visible if another result is missing. Without
+a recovery barrier, a trailing missing result or any `Pending` result keeps the
+run `Pending`. A non-empty run is successful only when every expected step has
+exactly one ordered `Succeeded` result. When no `RecoveryRequired` is present, any completed mix containing both
+`Succeeded` and another outcome is `Partial`, including `Succeeded` plus `Skipped`.
+Without `Succeeded`, one terminal failure state (`Failed`, `Cancelled` or `TimedOut`)
+is preserved; mixed terminal failure states collapse to `Failed`, and all-skipped
+or empty work is `Skipped`. This is a public API change from the old count-only
+summary: callers now provide typed run and ordered step IDs, and `summarize_run` returns `Result<RunStatus, SummaryError>`. `StepOutcome` and `RunStatus` add explicit
+`Cancelled`, `TimedOut` and `RecoveryRequired` variants.
 
 `ApprovalRunRef` and `StepId` preserve the core's existing 128-byte identifier
 grammar, including slash. They stay separate; an automation ID alone is not a
@@ -106,12 +110,17 @@ standalone fmt, all-target Clippy and contract tests when this crate, workflow
 or pinned toolchain changes. Local checks do not replace remote CI or production
 and guest acceptance.
 
-The PR #77 local candidate was verified with pinned `nightly-2025-08-01`, the
-`aarch64-apple-darwin` target and one Cargo build job: fmt check, all-target
-warning-denied Clippy and the standalone contract suite passed (15 integration
-tests; no library unit or doc tests). The focused RED compile run failed before
-the implementation because the typed run/step result API was absent; the new
-contract tests passed after implementation. Command/time/exit metadata and raw
-logs are under `private-evidence/pr77-automation-core-20261103/` on the
-development SSD. The workflow YAML was syntax-checked locally; its GitHub
-Actions run and all guest/runtime acceptance remain unverified.
+The earlier compile/API RED established that the typed run/step API was
+absent; it did not exercise the old count-only summary behavior. A separate
+fixture built from the original PR-head library ran duplicate-step and
+unregistered-step counterexamples: the ordinary distinct-step control passed,
+while both regression assertions failed because the old API returned `Success`.
+For the `RecoveryRequired` precedence correction, the standalone contract suite
+covers all 49 ordered pairs of `Succeeded`, `Failed`, `Skipped`, `Pending`, `Cancelled`,
+`TimedOut` and `RecoveryRequired` outcomes, plus empty and missing-result cases.
+Local verification uses pinned `nightly-2025-08-01`, the
+`aarch64-apple-darwin` target and one Cargo build job. Command/time/exit metadata
+and raw logs are under
+`private-evidence/pr77-automation-core-recovery-p2-20261103/` on the development
+SSD. The workflow YAML is syntax-checked locally; its GitHub Actions run and
+all guest/runtime acceptance remain unverified.
