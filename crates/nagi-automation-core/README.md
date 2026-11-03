@@ -40,18 +40,24 @@ Run outcome summarization takes an approval-run reference, the ordered
 expected step IDs, and results that each retain both the approval-run reference
 and step ID. It returns a summary only for the same run and exact expected
 sequence. Duplicate expected IDs, duplicate results, wrong-run results,
-unregistered steps and out-of-order results return a `SummaryError`.
-`RecoveryRequired` is a run-level safety barrier: any such result takes
-precedence over every other outcome, including `Succeeded`, `Failed`, `Cancelled`,
-`TimedOut` and `Pending`, and remains visible if another result is missing. Without
-a recovery barrier, a trailing missing result or any `Pending` result keeps the
-run `Pending`. A non-empty run is successful only when every expected step has
-exactly one ordered `Succeeded` result. When no `RecoveryRequired` is present, any completed mix containing both
-`Succeeded` and another outcome is `Partial`, including `Succeeded` plus `Skipped`.
-Without `Succeeded`, one terminal failure state (`Failed`, `Cancelled` or `TimedOut`)
-is preserved; mixed terminal failure states collapse to `Failed`, and all-skipped
-or empty work is `Skipped`. This is a public API change from the old count-only
-summary: callers now provide typed run and ordered step IDs, and `summarize_run` returns `Result<RunStatus, SummaryError>`. `StepOutcome` and `RunStatus` add explicit
+unregistered steps and out-of-order results return a `SummaryError`. These
+identity and structure errors are checked before outcome aggregation, even
+when a result is `RecoveryRequired`.
+
+`RecoveryRequired` is a run-level safety barrier. Any such result takes
+precedence over `Succeeded`, `Failed`, `Skipped`, `Cancelled`, `TimedOut`, `Pending`,
+`Partial` and a missing trailing result. Without `RecoveryRequired`, a missing
+result or any `Pending` result keeps the run `Pending`. A non-empty run is `Success`
+only when every expected step has exactly one ordered `Succeeded` result. When
+no `RecoveryRequired` is present, a completed mix containing `Succeeded` and any
+other outcome is `Partial`, including `Succeeded` plus `Skipped`. Without `Succeeded`,
+one terminal failure state (`Failed`, `Cancelled` or `TimedOut`) is preserved; mixed
+terminal failure states collapse to `Failed`, and all-skipped or empty work is
+`Skipped`.
+
+This is a public API change from the old count-only summary: callers now
+provide typed run and ordered step IDs, and `summarize_run` returns
+Result<`RunStatus`, `SummaryError`>. `StepOutcome` and `RunStatus` add explicit
 `Cancelled`, `TimedOut` and `RecoveryRequired` variants.
 
 `ApprovalRunRef` and `StepId` preserve the core's existing 128-byte identifier
@@ -115,12 +121,12 @@ absent; it did not exercise the old count-only summary behavior. A separate
 fixture built from the original PR-head library ran duplicate-step and
 unregistered-step counterexamples: the ordinary distinct-step control passed,
 while both regression assertions failed because the old API returned `Success`.
-For the `RecoveryRequired` precedence correction, the standalone contract suite
-covers all 49 ordered pairs of `Succeeded`, `Failed`, `Skipped`, `Pending`, `Cancelled`,
-`TimedOut` and `RecoveryRequired` outcomes, plus empty and missing-result cases.
-Local verification uses pinned `nightly-2025-08-01`, the
-`aarch64-apple-darwin` target and one Cargo build job. Command/time/exit metadata
-and raw logs are under
-`private-evidence/pr77-automation-core-recovery-p2-20261103/` on the development
-SSD. The workflow YAML is syntax-checked locally; its GitHub Actions run and
-all guest/runtime acceptance remain unverified.
+The `RecoveryRequired` correction also has a behavioral RED: the new summary
+tests were run against the pre-correction `5b4c1fdf` library and the precedence
+matrix failed, while the malformed-result precedence assertions passed.
+Current local verification uses pinned `nightly-2025-08-01`, the
+`aarch64-apple-darwin` target and one Cargo build job. The suite contains 12
+contract tests and 4 run_summary tests. Command/time/exit metadata and raw logs
+are under `private-evidence/pr77-automation-core-ea830-integration-20261103/`
+on the development SSD. The workflow YAML is syntax-checked locally; remote
+GitHub Actions, runtime and guest acceptance remain unverified.

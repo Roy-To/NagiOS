@@ -343,10 +343,13 @@ pub enum SummaryError {
 /// Summarize final per-step results for one approval-bound run.
 ///
 /// Every returned result must identify the same approval run and exactly match
-/// the expected step sequence. A trailing missing result or any Pending result
-/// keeps the run Pending; malformed, duplicate, unregistered, or reordered
-/// results return an error. This describes outcomes only and is not durable
-/// deduplication or an Activity/history implementation.
+/// the expected step sequence. Identity, membership, duplicate, and ordering
+/// errors are checked before outcome aggregation, even if a result is
+/// RecoveryRequired. Once the result structure is valid, any RecoveryRequired
+/// result takes precedence over all other outcomes, Pending, and missing
+/// trailing results. Without RecoveryRequired, a missing trailing result or
+/// any Pending result keeps the run Pending. This describes outcomes only and
+/// is not durable deduplication or an Activity/history implementation.
 pub fn summarize_run(
     approval_run_ref: &ApprovalRunRef,
     expected_steps: &[StepId],
