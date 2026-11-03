@@ -5,18 +5,33 @@ ARM64 boot protocol, production service or Raspberry Pi implementation. No
 Linux guest or host-side service supplies its results. It is deliberately
 outside the production Cargo workspace; no root/ABI/loader/kernel changes.
 
-Prerequisites: nightly-2025-08-01, `aarch64-unknown-none` core target,
-rustfmt/Clippy, host `cc`, Python 3, and qemu-system-aarch64. Verified with
-Rust 1.90.0-nightly (adcb3d3b4), Debian 13 x86-64, QEMU 10.0.13 TCG.
-The package has no external dependencies. Run from the package directory so
-Cargo reads its `.cargo/config.toml`:
+Current-main revalidation is PENDING. The previously recorded Rust/QEMU
+versions and all old receipts belong to the historical 379d19e baseline. The
+package has no external dependencies. No new build or QEMU run has been
+performed for fa0e0415d381da76a190f049b07b950fcfdaca98.
 
-```sh
-cd experiments/nagi-aarch64-spike
-./build.sh
-python3 run.py
-./verify.sh
-```
+The standalone runner is observational only: it reports the binary and QEMU
+hashes before/after execution and always records
+source_attestation=NOT_CLAIMED_BY_RUNNER. For source-bound evidence, use the
+generator after reviewing a clean fixed source commit and tree:
+
+    ./verify.sh SOURCE_COMMIT_SHA SOURCE_TREE_SHA fa0e0415d381da76a190f049b07b950fcfdaca98 $NAGI_STORAGE_ROOT/private-evidence/NEW-UNIQUE-DIR
+
+Run through the SSD guard so NAGI_STORAGE_ROOT names the approved storage
+root. The output must be new and outside the source repository. The generator
+builds twice with separate empty Cargo homes and target directories, using the
+pinned toolchain and --locked --offline; it runs only one of its fresh ELFs.
+The second build hash is a same-host comparison, not proof of path-independent
+reproducibility. It records the toolchain, build commands/logs, ELF hashes,
+QEMU executable hash/path/version, serial/stderr hashes, run outcomes, source
+commit/tree/clean state, and a non-circular manifest that excludes its own
+attestation.json. verify_attestation.py validates those bindings without
+building or running QEMU.
+
+These JSON records and hashes can be fabricated by a party able to write the
+receipt directory. Treat them as reviewable evidence, not a cryptographic
+execution proof; an independently repeated build/run and artifact comparison
+are still required before a full C PASS.
 
 For a locally extracted QEMU, set `QEMU_AARCH64` and the applicable
 `LD_LIBRARY_PATH`. The verifier performs EL1 boot and an expected-failure EL2
@@ -68,6 +83,13 @@ prove isolation while MMU is disabled. Secondary parking and idle fallback
 exist in code but are not multi-core or wakeup acceptance. The only verified
 runtime is this independent single-core experiment.
 
-No global software installation is needed. In this session Rust homes and
-QEMU .deb extraction were confined to `/workspace/port-tools`; package/source
-hashes and tool versions are saved under `docs/porting/multiarch/evidence/`.
+The prior run used cached pinned toolchain components and a locally extracted
+QEMU; its exact cache paths and tool versions are historical and stay in the
+unchanged evidence tree. The spike Cargo.lock contains only the local package
+and there are no dependency sections, so an empty CARGO_HOME with
+--locked --offline can resolve the crate graph without downloaded crates.
+The pinned rustup toolchain, target component, linker, host C compiler and QEMU
+must already be installed/available; this workflow does not install them.
+Separate target/Cargo-home roots can change absolute-path inputs or debug data,
+so matching ELF hashes are recorded as an observed same-host comparison, not
+a guaranteed path-independent reproducibility property.

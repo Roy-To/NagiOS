@@ -1,9 +1,14 @@
-# PORT-MULTIARCH-01 — live audit
+# PORT-MULTIARCH-01 — historical audit and current-main revalidation note
 
-Audit date: 2026-10-11. Baseline: `379d19eadb6f8792c27b9bc3f147e1ea48eac4a2` (`origin/main` after fetch).
-Dedicated worktree: `/workspace/worktrees/port-multiarch-foundation-01`.
-Branch: `codex/port-multiarch-foundation-01`. Initial original worktree was
-clean at the same SHA on `work`; it remains untouched.
+The audit details below were collected on 2026-10-11 against historical
+baseline 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2. They are not current
+A-phase acceptance and have no live origin/main dependency. Current explicit
+main is fa0e0415d381da76a190f049b07b950fcfdaca98. The 12-path Identity
+crate/test/workflow merge after 1b3637ea does not touch this workstream's
+three owned prefixes. Its contract/spike source stability has been confirmed
+by fixed-SHA diff; old inventory, authority and run records are still
+historical. Current A remains PENDING until new inventory/authority/ownership
+evidence is committed and checked.
 
 ## Authority and scope
 

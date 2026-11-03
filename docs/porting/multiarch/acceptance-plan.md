@@ -1,14 +1,30 @@
 # Acceptance and bounded migration plan
 
-A PASS: baseline/ownership/remote/PR audit, all kernel modules classified,
-anchored inventory with hashes and explicit unknowns. B PASS: proposal scope,
-semantic negative fixtures plus unchanged production mechanism/ABI tests.
-C PASS: independent real ARM64 ELF executed under QEMU, ordered guest serial,
-SVC exception return and monotonic counter, exit 0; EL2 boot rejects with exit 1.
-None implies M30, Nagi ARM64, x86 guest regression, Pi or phone support.
-D/E: BLOCKED by M30 and owner checkpoint; no implementation attempted.
+## Current-main status
 
-## Implemented verification
+The earlier A/B/C PASS statements later in this document describe historical
+evidence collected against 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2. They are
+retained as historical detail only. The current explicit main baseline is
+fa0e0415d381da76a190f049b07b950fcfdaca98; A/B/C are PENDING/NOT_RUN for that
+baseline until fresh current-main evidence is generated and reviewed.
+The source files inventoried by old A and used by B/C are unchanged across
+the 12-path Identity crate/test/workflow merge from 1b3637ea to this main.
+That source stability does not transfer the old run evidence. No current-main
+Cargo build, ARM64 ELF, QEMU run, or VM acceptance was performed in this phase.
+
+The immutable historical input is indexed in
+[evidence/HISTORICAL.json](evidence/HISTORICAL.json). A new static inventory
+will be bound to its explicit full --base SHA and a fixed source commit. The
+ARM64 receipt entry point is experiments/nagi-aarch64-spike/attest.py; the
+standalone runner observes a binary but makes no source claim. A receipt JSON
+and its hashes are not tamper-proof proof of execution; an independent rebuild
+and review remain required.
+
+None of these checks implies M30, Nagi ARM64, x86 guest regression, Pi or phone
+support. D/E remain BLOCKED by M30 and the owner checkpoint; no implementation
+was attempted.
+
+## Historical verification on the original 379d19e baseline (not current acceptance)
 
 - `experiments/nagi-multiarch-contracts/verify.sh`: format, 99 actual-source and
   proposal tests, standalone warning-denied Clippy, 16 BootInfo tests, 5 ABI

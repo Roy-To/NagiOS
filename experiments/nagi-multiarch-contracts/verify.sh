@@ -1,6 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 cd "$(dirname "$0")"
+python3 -m unittest test_audit test_records -v
 cargo fmt -- --check
 cargo test --locked --offline
 cargo clippy --all-targets --locked --offline -- -D warnings

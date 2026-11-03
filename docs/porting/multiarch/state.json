@@ -3,62 +3,37 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "A-B-C-verified-D-E-gated",
+  "current_checkpoint": "current-main fa0e0415d381 revalidation pending; historical 379d evidence invalid for current acceptance",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "6cbfb452ee83a7c0011036b6d0ed836625f1f7ae",
+    "commit_sha": "58b2cf1edbd2db0a550642d0fd04128fb004a91e",
     "verified_at": "2026-10-11T11:08:09.571263Z",
-    "normal_state": "PROVISIONAL/UNREGISTERED. Phase A audit PASS; B proposal/host foundation PASS; C independent ARM64 spike PASS. D/E BLOCKED. No shared production sources, owner states, registry or acceptance were changed. 99 host/16 BootInfo/5 ABI tests, 3 runner tests, focused lint/format, ARM64 compile and true QEMU EL1/SVC/counter boot verified. EL2 is an intentional negative FAIL with exit 1. x86 guest and production ARM64 NOT_RUN. Post-verification commit carries records only; last_verified identifies actual source commit. Published candidate 6cbfb452ee83a7c0011036b6d0ed836625f1f7ae was fetched and independently reverified with identical source/artifact; earlier local history preserved at refs/port-multiarch/local-verified. Owner-connection publication was necessary because Git push used RyomaTOZAWA and returned 403.",
+    "normal_state": "Current explicit main is fa0e0415d381da76a190f049b07b950fcfdaca98; A/B/C are PENDING/NOT_RUN. Earlier evidence from 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2 remains immutable history only. The fixed 1b3637ea..current-main diff confirms the three owned prefixes and contract/spike source did not change, but old baseline inventory and ELF/QEMU results are not current evidence. No current-main Cargo build, new ELF, QEMU, or VM acceptance has been performed.",
     "commands": [
-      "experiments/nagi-multiarch-contracts/verify.sh",
-      "experiments/nagi-aarch64-spike/verify.sh",
-      "python3 docs/porting/multiarch/verify-records.py; python3 experiments/nagi-multiarch-contracts/audit.py --output docs/porting/multiarch/evidence/source-inventory.json --check; ./nagi dev verify",
-      "cargo check --manifest-path experiments/nagi-multiarch-contracts/Cargo.toml --target aarch64-unknown-none --lib --locked --offline",
-      "NOT_RUN: production target/QEMU acceptance",
-      "./nagi dev status; ./nagi dev resume"
+      "NOT_RUN: current-main Cargo tests, Clippy/build, ARM64 ELF generation, QEMU/VM",
+      "Static source/baseline comparison only; see current-main evidence status record"
     ],
     "tests": [
       {
-        "name": "host-source and proposal tests; format; focused Clippy",
-        "command": "experiments/nagi-multiarch-contracts/verify.sh",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "evidence/host-publication.log: 99 + 16 BootInfo + 5 ABI tests; original production assertions retained; named imported baseline style allowances only"
-      },
-      {
-        "name": "independent ARM64 QEMU and negative guest acceptance",
-        "command": "experiments/nagi-aarch64-spike/verify.sh",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "evidence/spike-publication.log and evidence/qemu-el1, evidence/qemu-el2-negative; EL1 exit 0, EL2 expected exit 1; 3 runner tests; target build/Clippy/format"
-      },
-      {
-        "name": "source/authority hashes and unchanged registry",
-        "command": "python3 docs/porting/multiarch/verify-records.py; python3 experiments/nagi-multiarch-contracts/audit.py --output docs/porting/multiarch/evidence/source-inventory.json --check; ./nagi dev verify",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "evidence/records-publication.log: 496 baseline sources unchanged, 2136 anchors/153 field references, 31 registered streams/24 states; provisional state separately schema validated"
-      },
-      {
-        "name": "ARM64 no_std contract compilation",
-        "command": "cargo check --manifest-path experiments/nagi-multiarch-contracts/Cargo.toml --target aarch64-unknown-none --lib --locked --offline",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "evidence/contracts-aarch64-check.log; compile only, candidate sources identical to verified source commit"
-      },
-      {
-        "name": "x86 Nagi guest acceptance and production ARM64",
-        "command": "NOT_RUN: production target/QEMU acceptance",
+        "name": "Current-main model-free Python tool acceptance tests",
+        "command": "python3 -m unittest test_audit test_records test_runner test_attestation -v",
         "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "Closed M30 + os-core checkpoint; no production changes or runtime equivalence claims"
+        "evidence": "Run and bind raw logs to the fixed source commit before recording results"
       },
       {
-        "name": "unregistered developer resume/status refusal",
-        "command": "./nagi dev status; ./nagi dev resume",
-        "outcome": "FAIL",
+        "name": "Current-main current inventory/authority and records validation",
+        "command": "audit.py --base <full-main-sha>; verify-records.py --main <full-main-sha> --evidence-dir <current-evidence-dir>",
+        "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "evidence/dev-status.log and evidence/dev-resume.log; expected refusal for an unregistered branch; not repaired through unauthorized registry edits; initial exit code was not separately captured"
+        "evidence": "Requires current-main evidence records and a records-only child commit"
+      },
+      {
+        "name": "Current-main host/ARM64 Cargo and QEMU acceptance",
+        "command": "Cargo/Clippy/build and QEMU are out of scope in this phase",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No new build, ELF, QEMU, or VM work performed"
       }
     ],
     "ci_runs": []
@@ -71,17 +46,15 @@
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Production D/E and shared registration remain gated; all independently authorized A/B/C work completed. M30 PARTIAL, no bounded os-core owner checkpoint.",
+    "summary": "Current-main A/B/C acceptance is pending; no fresh Cargo build, ELF, QEMU run, or VM result exists. Production D/E and shared registration remain gated by M30 and owner checkpoint.",
     "reproduction_commands": [
       "Read docs/implementation_status.md and os-core registry activation_gate",
       "./nagi dev resume"
     ],
-    "failure_log_summary": "dev resume/status refuse the unregistered branch. Production gate is unmet; not a source defect in the independent spike.",
+    "failure_log_summary": "No failure asserted; current-main runtime acceptance has not been run.",
     "attempted_fixes": [
-      "Kept new proposal/experiment paths exclusive; no production workaround",
-      "Corrected own mapping style lint; scoped imported baseline style lints",
-      "Used package-local target config for ARM64 lint and selected SP_EL1 before stack setup",
-      "Locally resolved missing host Rust/QEMU dependencies; no global install"
+      "Preserved the historical 379d19e evidence and marked it invalid for current-main acceptance",
+      "Prepared explicit-current-main inventory and source-bound evidence tools in the owned experiment/document paths"
     ],
     "do_not_try": [
       "Do not relax M30 or v5 validation, rewrite production ABI or bypass rights",
@@ -90,12 +63,12 @@
       "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
     ]
   },
-  "next_action": "Integration Owner reviews registration-proposal.json and architecture/acceptance proposal. After M30 PASS, assign an os-core bounded checkpoint with exact base/paths/ABI and x86 parity before D; E requires later accepted ARM64 boot/MMU/SVC/EL0/transport milestones. No remaining authorized independent acceptance in this checkpoint.",
+  "next_action": "Complete current-main static records checks, then separately authorize and run the source-bound host/build/QEMU acceptance. Keep D/E and registration gated by M30 and owner review.",
   "acceptance_criteria": [
-    "A PASS for live audited baseline, ownership, PR/ref snapshot and anchored portability matrix",
-    "B PASS for proposed architecture/migration boundaries and actual-source host/ABI/negative tests",
-    "C PASS only for independent real aarch64 QEMU ELF and guest serial/trap/counter/exit evidence",
-    "D/E must never be marked PASS without owner checkpoint and actual production target acceptance"
+    "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
+    "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",
+    "Current C is PASS only after a source-bound freshly built ARM64 ELF, actual QEMU guest evidence, and independent rebuild review",
+    "D/E remain blocked without the M30 owner checkpoint and actual production target acceptance"
   ],
   "deferred": [
     "Integration Owner registry adoption and architecture acceptance",
@@ -107,13 +80,13 @@
     {
       "workstream_id": "os-core",
       "contract": "Production kernel/ABI ownership and bounded M30 checkpoint",
-      "version": "existing registry at baseline 379d19e",
+      "version": "existing registry at current main fa0e0415d381da76a190f049b07b950fcfdaca98",
       "status": "BLOCKED"
     },
     {
       "workstream_id": "integration-next-phase",
       "contract": "Shared registration, ABI consumers, workspace/CI and release boundary",
-      "version": "existing registry at baseline 379d19e",
+      "version": "existing registry at current main fa0e0415d381da76a190f049b07b950fcfdaca98",
       "status": "Registration proposed; no adoption requested or applied"
     }
   ]
