@@ -87,8 +87,8 @@ test suite. The #78 stage adds independent adapter and pinned SearchCore legs.
 Each matrix leg fetches its own lockfile graph before locked offline
 Clippy/tests; graph-specific metadata assertions run only in the corresponding
 adapter or SearchCore leg. The #79-only workflow does not fetch or test packages introduced only by
-#78. The path filter includes the direct source
-paths, contracts, manifests, tests, and the workflow itself.
+#78. The path filter includes the direct source paths, contracts, manifests,
+tests, and the workflow itself.
 
 `ci.yml` does not provide Calendar core coverage, and the legacy 0.2 host
 integration job is branch-allowlisted. This dedicated matrix supplies Calendar
