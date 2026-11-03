@@ -1,0 +1,11 @@
+[package]
+name = "nagi-automation-core"
+version = "0.2.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
