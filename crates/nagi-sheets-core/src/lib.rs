@@ -1,6 +1,7 @@
 //! Bounded, deterministic, host-only Sheets calculation foundation.
 //! No I/O, permission grants, clock, UI or production service adapters.
 mod engine;
+mod functions;
 mod parser;
 mod workbook;
 pub use nagi_model::ObjectId;
