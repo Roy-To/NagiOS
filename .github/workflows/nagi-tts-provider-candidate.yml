@@ -5,7 +5,11 @@ on:
     paths:
       - 'crates/nagi-tts-provider-candidate/**'
       - 'user/nagi-audio/**'
+      - 'user/libnagi/**'
+      - 'crates/nagi-abi/**'
+      - 'crates/nagi-model/**'
       - 'third_party/libc/**'
+      - 'tools/tts/tts-artifacts.lock'
       - 'rust-toolchain.toml'
       - '.github/workflows/nagi-tts-provider-candidate.yml'
   push:
@@ -14,7 +18,11 @@ on:
     paths:
       - 'crates/nagi-tts-provider-candidate/**'
       - 'user/nagi-audio/**'
+      - 'user/libnagi/**'
+      - 'crates/nagi-abi/**'
+      - 'crates/nagi-model/**'
       - 'third_party/libc/**'
+      - 'tools/tts/tts-artifacts.lock'
       - 'rust-toolchain.toml'
       - '.github/workflows/nagi-tts-provider-candidate.yml'
 
@@ -39,6 +47,36 @@ jobs:
           rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
           rustc +"$TOOLCHAIN" --version
           cargo +"$TOOLCHAIN" --version
+
+      - name: Check candidate asset pins against artifact lock
+        run: |
+          python3 - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+
+          assets = Path("crates/nagi-tts-provider-candidate/src/assets.rs").read_text(encoding="utf-8")
+          lock = tomllib.loads(Path("tools/tts/tts-artifacts.lock").read_text(encoding="utf-8"))
+          voice = lock["artifacts"]["tohoku_f01_neutral"]
+          dictionary = lock["artifacts"]["naist_jdic_jpreprocess"]["files"]
+          size_match = re.search(r"LOCKED_VOICE_BYTES: usize = ([0-9_]+)", assets)
+          sha_match = re.search(r'const VOICE_SHA256: &str = "([0-9a-f]{64})"', assets)
+          if size_match is None or sha_match is None:
+              raise SystemExit("candidate voice pin constants were not found")
+          dictionary_body = assets.split("const DICTIONARY_SHA256:", 1)[1].split("];", 1)[0]
+          pins = {
+              filename: digest
+              for digest, filename in re.findall(
+                  r'"([0-9a-f]{64})",\s*//\s*([A-Za-z0-9_.]+)', dictionary_body
+              )
+          }
+          candidate_size = int(size_match.group(1).replace("_", ""))
+          if candidate_size != voice["size_bytes"] or sha_match.group(1) != voice["sha256"]:
+              raise SystemExit("candidate voice pins differ from tools/tts/tts-artifacts.lock")
+          if len(pins) != 8 or pins != dictionary:
+              raise SystemExit("candidate dictionary pins differ from tools/tts/tts-artifacts.lock")
+          print("verified candidate voice and dictionary pins against the artifact lock; no asset bytes read")
+          PY
 
       - name: rustfmt --check
         run: cargo +"$TOOLCHAIN" fmt --manifest-path "$MANIFEST" -- --check
