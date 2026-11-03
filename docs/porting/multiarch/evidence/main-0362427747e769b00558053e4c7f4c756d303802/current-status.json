@@ -12,10 +12,10 @@
       "checks": {
         "current_static_inventory": "PASS",
         "current_authority_hashes": "PASS",
-        "registry_unregistered_and_record_validation": "PENDING",
+        "registry_unregistered_and_record_validation": "PASS",
         "ownership_and_live_ref_snapshot": "NOT_RUN"
       },
-      "reason": "Inventory, authority hashes and unregistered registry boundary are verified. The first clean records-only verification is pending; ownership/ref snapshot is not run."
+      "reason": "Current-main inventory and authority hashes pass; registry remains unregistered; the clean records-only verifier passed at the first records commit. Live ownership/ref snapshot is not run."
     },
     "B": {
       "status": "PENDING",
@@ -70,12 +70,12 @@
     }
   },
   "records_validation": {
-    "outcome": "PENDING",
-    "record_head_sha": null,
-    "record_tree_sha": null,
+    "outcome": "PASS",
+    "record_head_sha": "6f6ad4c0c57808c8fc002cacd3b11488a69b102b",
+    "record_tree_sha": "8e70014a549b2c300fad52f785ab83a2fdfb69e5",
     "source_commit_sha": "f08c7692199be43217a45ba51673377ea6103829",
     "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-    "stdout_sha256": null
+    "stdout_sha256": "770e6a03ddf21c10ead0292f5a07c8a61307b92b4c48c98269aa64ad2f80e8bc"
   },
   "execution": {
     "cargo_check": "NOT_RUN",
