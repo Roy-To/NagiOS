@@ -39,6 +39,8 @@ failed, and the pinned-nightly test run on 38f95bac passed tests but strict
 Clippy rejected the now-unnecessary feature attribute. Those attempts remain
 separate from the FE52 pinned-nightly PASS.
 
+The records-only verifier passed at direct child 274d52f883cf0a348b1ce429fcca7d7a0a7f6e02 (tree c23394d8cc02ad3bfd81f83ba5dff169d5c5a8ee); its captured stdout SHA-256 is 172e7648eafbbb59ec7dabbee61e83c79c16f4bbbd300c347694f984f6df6194 and is recorded in current-main evidence.
+
 Phase A remains PENDING while live ownership/ref review is NOT_RUN. Phase B
 remains PENDING because the architecture proposal is PROPOSED_UNREGISTERED and
 still needs owner review, despite the host-test subcheck passing. Phase C stays
