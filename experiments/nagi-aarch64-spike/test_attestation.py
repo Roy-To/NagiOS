@@ -15,8 +15,9 @@ from unittest.mock import patch
 import attest as attest_module
 
 from attest import (
-    AttestationError, archive_spike_source, build_environment, forbidden_environment,
-    materialize_spike_source, reject_ambient_cargo_config, validate_output,
+    AttestationError, archive_spike_source, build_environment,
+    committed_cargo_config_hashes, forbidden_environment, materialize_spike_source,
+    reject_ambient_cargo_config, validate_output,
 )
 from verify_attestation import VerificationError, check_manifest, verify_attestation
 
@@ -468,7 +469,7 @@ class AttestationFixture(unittest.TestCase):
         self.assertIn('add_argument("--source-commit", required=True)', source)
         self.assertIn('add_argument("--source-tree", required=True)', source)
 
-    def _run_fake_generator(self, different=False):
+    def _run_fake_generator(self, different=False, mutate_config=False, expect_failure=False):
         with tempfile.TemporaryDirectory(prefix="nagi-generator-e2e-", dir=SCRATCH) as temp:
             base = Path(temp)
             repo = base / "repo"
@@ -550,6 +551,11 @@ class AttestationFixture(unittest.TestCase):
                 "    output.parent.mkdir(parents=True, exist_ok=True)",
                 "    output.write_bytes(elf)",
                 '    print("fake Cargo build complete")',
+                f"    if {mutate_config!r}:",
+                '        config = Path.cwd() / ".cargo" / "config.toml"',
+                '        config.chmod(0o600)',
+                '        config.write_text("mutated Cargo configuration")',
+                '        print("FAKE_CONFIG_MUTATION", file=sys.stderr)',
                 "else:",
                 "    raise SystemExit(64)",
             ]))
@@ -592,9 +598,22 @@ class AttestationFixture(unittest.TestCase):
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
             }
             stdout = io.StringIO()
+            stderr = io.StringIO()
             with patch.object(attest_module, "ROOT", repo), patch.dict(os.environ, env):
-                with contextlib.redirect_stdout(stdout):
-                    exit_code = attest_module.main(arguments)
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    try:
+                        exit_code = attest_module.main(arguments)
+                    except SystemExit as exc:
+                        if not expect_failure:
+                            raise
+                        exit_code = exc.code
+            if expect_failure:
+                build_dir = output / "build-a"
+                return (
+                    exit_code, stdout.getvalue(), stderr.getvalue(),
+                    (build_dir / "stdout.log").read_bytes(),
+                    (build_dir / "stderr.log").read_bytes(),
+                )
             record = json.loads((output / "attestation.json").read_text())
             verified = verify_attestation(
                 repo, output / "attestation.json", expected_main=main_commit,
@@ -617,6 +636,58 @@ class AttestationFixture(unittest.TestCase):
             with self.assertRaisesRegex(AttestationError, "changed after source snapshot"):
                 reject_ambient_cargo_config(cwd, cargo_home, trusted)
 
+    def test_committed_cargo_config_blob_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="cargo-config-blob-", dir=SCRATCH) as temp:
+            base = Path(temp)
+            repo = base / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Fixture"], check=True)
+            relative = f"{SPIKE_REL}/.cargo/config.toml"
+            committed = repo / relative
+            committed.parent.mkdir(parents=True)
+            committed.write_text("[build]\ntarget = 'aarch64-unknown-none'\n")
+            subprocess.run(["git", "-C", str(repo), "add", relative], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture config"], check=True)
+            source_commit = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            source_spike = base / "snapshot" / SPIKE_REL
+            snapshot_config = source_spike / ".cargo" / "config.toml"
+            snapshot_config.parent.mkdir(parents=True)
+            snapshot_config.write_text("[build]\ntarget = 'unexpected-target'\n")
+            with self.assertRaisesRegex(AttestationError, "snapshot differs from source commit"):
+                committed_cargo_config_hashes(repo, source_commit, [relative], source_spike)
+
+    def test_committed_cargo_config_snapshot_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="cargo-config-symlink-", dir=SCRATCH) as temp:
+            base = Path(temp)
+            repo = base / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Fixture"], check=True)
+            relative = f"{SPIKE_REL}/.cargo/config.toml"
+            committed = repo / relative
+            committed.parent.mkdir(parents=True)
+            committed.write_text("[build]\ntarget = 'aarch64-unknown-none'\n")
+            subprocess.run(["git", "-C", str(repo), "add", relative], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture config"], check=True)
+            source_commit = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                text=True, capture_output=True, check=True,
+            ).stdout.strip()
+            source_spike = base / "snapshot" / SPIKE_REL
+            cargo_dir = source_spike / ".cargo"
+            cargo_dir.mkdir(parents=True)
+            target = source_spike / "config-target"
+            target.write_text("[build]\ntarget = 'aarch64-unknown-none'\n")
+            (cargo_dir / "config.toml").symlink_to(target)
+            with self.assertRaisesRegex(AttestationError, "missing or unsafe"):
+                committed_cargo_config_hashes(repo, source_commit, [relative], source_spike)
+
     def test_isolated_cargo_home_config_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix="cargo-home-config-", dir=SCRATCH) as temp:
             base = Path(temp)
@@ -627,6 +698,16 @@ class AttestationFixture(unittest.TestCase):
             (cargo_home / "config.toml").write_text("[build]\nrustflags = ['-Dwarnings']\n")
             with self.assertRaisesRegex(AttestationError, "isolated CARGO_HOME"):
                 reject_ambient_cargo_config(cwd, cargo_home)
+
+    def test_build_time_config_mutation_fails_and_preserves_logs(self):
+        code, _stdout, stderr, build_stdout, build_stderr = self._run_fake_generator(
+            mutate_config=True, expect_failure=True
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("committed Cargo config changed after source snapshot", stderr)
+        self.assertIn("see build-a logs", stderr)
+        self.assertIn(b"fake Cargo build complete", build_stdout)
+        self.assertIn(b"FAKE_CONFIG_MUTATION", build_stderr)
 
     def test_generator_end_to_end_with_fake_cargo_rustup_and_qemu(self):
         matched_code, matched_stdout, matched, matched_verified = self._run_fake_generator()
