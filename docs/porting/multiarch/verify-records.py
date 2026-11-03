@@ -313,6 +313,76 @@ def validate_baseline_drift(root, path, baseline, source_commit, source_tree):
     return drift
 
 
+def validate_host_cargo_acceptance(root, status, tools, source_commit, source_tree):
+    record = tools.get("host_Cargo_contract_tests")
+    if record is None:
+        return "NOT_RUN"
+    required = {
+        "outcome", "source_commit_sha", "source_tree_sha", "command", "toolchain", "rustc_version",
+        "locked", "offline", "cargo_tests", "doctests", "bootinfo_tests", "abi_tests",
+        "clippy_outcome", "fmt_outcome", "clippy_deny_warnings", "exit_code", "stdout_sha256",
+        "stderr_sha256", "metadata_file", "prior_attempts",
+    }
+    if not isinstance(record, dict) or set(record) != required:
+        raise RecordsError("host Cargo contract record has missing or extra fields")
+    if (record.get("outcome") != "PASS" or record.get("source_commit_sha") != source_commit
+            or record.get("source_tree_sha") != source_tree):
+        raise RecordsError("host Cargo result is not bound to the current source commit/tree")
+    if record.get("command") != "./experiments/nagi-multiarch-contracts/verify.sh":
+        raise RecordsError("host Cargo command is not the pinned contract verification entry point")
+    if (record.get("toolchain") != "nightly-2025-08-01"
+            or not isinstance(record.get("rustc_version"), str)
+            or not record["rustc_version"].startswith("rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)")):
+        raise RecordsError("host Cargo result does not identify the pinned nightly rustc")
+    if record.get("locked") is not True or record.get("offline") is not True:
+        raise RecordsError("host Cargo result must be locked and offline")
+    expected_counts = {"cargo_tests": 99, "doctests": 0, "bootinfo_tests": 16, "abi_tests": 5}
+    for key, expected in expected_counts.items():
+        value = record.get(key)
+        if isinstance(value, bool) or value != expected:
+            raise RecordsError("host Cargo test count is invalid: " + key)
+    if record.get("clippy_outcome") != "PASS" or record.get("fmt_outcome") != "PASS" or record.get("clippy_deny_warnings") is not True:
+        raise RecordsError("host Cargo formatting or strict Clippy result is invalid")
+    if isinstance(record.get("exit_code"), bool) or record.get("exit_code") != 0:
+        raise RecordsError("host Cargo verification must record a zero exit code")
+    require_sha256(record.get("stdout_sha256"), "host_Cargo_contract_tests.stdout_sha256")
+    require_sha256(record.get("stderr_sha256"), "host_Cargo_contract_tests.stderr_sha256")
+    metadata_file = record.get("metadata_file")
+    if (not isinstance(metadata_file, str) or metadata_file.startswith("/")
+            or metadata_file != "host-cargo-verify-fe52fedc/verify.meta.json"):
+        raise RecordsError("host Cargo metadata path must be the fixed relative private-evidence reference")
+    attempts = record.get("prior_attempts")
+    attempt_fields = {"name", "record_head_sha", "result", "exit_code", "failure", "index_sha256"}
+    if not isinstance(attempts, list) or len(attempts) != 4:
+        raise RecordsError("host Cargo history must preserve all four earlier attempts")
+    for attempt in attempts:
+        if not isinstance(attempt, dict) or set(attempt) != attempt_fields:
+            raise RecordsError("host Cargo prior-attempt record has missing or extra fields")
+        full_commit(root, attempt.get("record_head_sha"), "host Cargo prior attempt")
+        require_sha256(attempt.get("index_sha256"), "host Cargo prior-attempt index_sha256")
+        if attempt.get("result") not in {"FAIL", "PARTIAL_FAIL"} or not isinstance(attempt.get("failure"), str) or not attempt["failure"].strip():
+            raise RecordsError("host Cargo prior attempt must retain its failed result and reason")
+        if isinstance(attempt.get("exit_code"), bool) or attempt.get("exit_code") not in {101, 1}:
+            raise RecordsError("host Cargo prior-attempt exit code is invalid")
+    if attempts[0].get("name") != "host-cargo-validation-ca0a8d2f" or "E0658" not in attempts[0].get("failure", ""):
+        raise RecordsError("initial unpinned compiler failure is not preserved")
+    if attempts[-1].get("name") != "host-cargo-validation-pinned-38f95bac" or attempts[-1].get("result") != "PARTIAL_FAIL":
+        raise RecordsError("last intermediate pinned-nightly failure is not preserved")
+    log_metadata = status.get("private_tool_log_metadata")
+    if not isinstance(log_metadata, list):
+        raise RecordsError("private tool log metadata must be an array")
+    matches = [entry for entry in log_metadata if isinstance(entry, dict)
+        and entry.get("name") == "host-cargo-verify-fe52fedc" and entry.get("metadata_file") == metadata_file]
+    if len(matches) != 1:
+        raise RecordsError("host Cargo result must bind to exactly one private metadata entry")
+    entry = matches[0]
+    for field in ("record_head_sha", "exit_code", "stdout_sha256", "stderr_sha256"):
+        expected = source_commit if field == "record_head_sha" else record[field]
+        if entry.get(field) != expected:
+            raise RecordsError("host Cargo private metadata binding differs: " + field)
+    return "PASS"
+
+
 def validate_current_status(root, status_path, inventory_path, drift_path, baseline, source_commit, source_tree, head):
     status = json_file(status_path, "current status record")
     if not isinstance(status, dict):
@@ -337,10 +407,14 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
     raw_validation = status.get("records_validation")
     validation_outcome = raw_validation.get("outcome") if isinstance(raw_validation, dict) else None
     registry_validation_state = "PENDING" if validation_outcome == "PENDING" else "PASS"
+    tools = status.get("tool_acceptance", {})
+    if not isinstance(tools, dict):
+        raise RecordsError("tool_acceptance must be an object")
+    host_cargo_state = validate_host_cargo_acceptance(root, status, tools, source_commit, source_tree)
     expected_phases = {
         "A": ("PENDING", {"current_static_inventory": "PASS", "current_authority_hashes": "PASS",
             "registry_unregistered_and_record_validation": registry_validation_state, "ownership_and_live_ref_snapshot": "NOT_RUN"}),
-        "B": ("PENDING", {"model_free_tool_acceptance": "PASS", "host_Cargo_contract_tests": "NOT_RUN"}),
+        "B": ("PENDING", {"model_free_tool_acceptance": "PASS", "host_Cargo_contract_tests": host_cargo_state}),
         "C": ("NOT_RUN", {"new_ELF": "NOT_RUN", "QEMU_EL1": "NOT_RUN",
             "QEMU_EL2_negative": "NOT_RUN", "independent_rebuild": "NOT_RUN"}),
     }
@@ -408,9 +482,6 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
             raise RecordsError("records_validation stdout log does not record the claimed PASS and commit")
     else:
         raise RecordsError("records_validation outcome must be PENDING or PASS")
-    tools = status.get("tool_acceptance", {})
-    if not isinstance(tools, dict):
-        raise RecordsError("tool_acceptance must be an object")
     tests = tools.get("model_free_python_tests", {})
     contract_count = tests.get("contracts_audit_and_records") if isinstance(tests, dict) else None
     runner_count = tests.get("runner_and_receipt") if isinstance(tests, dict) else None

@@ -1,2 +1,0 @@
-PASS records-only child; main=0362427747e769b00558053e4c7f4c756d303802 source=9324506e848513e2a9f4f32ee9eec729636a8e03; record_head=e58f127fecfedfa70b318d77788136b81f56fa9b record_tree=303d0d4bbe33488809ff0e8d18b9a9d76a6cbc3e; 579 source files, 13 authority files, 32 registry entries, 50 immutable historical files; 94 owned paths, 8 local links
-TRACKED CLEAN; 2 untracked local guard files under .codex, .entire are excluded from source scope
