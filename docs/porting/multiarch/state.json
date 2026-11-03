@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "current-main 0362427747e769b00558053e4c7f4c756d303802 inventory and model-free tools are refreshed for source 2c2103e3c87f487221b64117014797d1b2f52be4; records-only verifier is pending and A/B remain pending, C is not run",
+  "current_checkpoint": "current-main 0362427747e769b00558053e4c7f4c756d303802 inventory, model-free tools, and records-only validation pass for source 2c2103e3c87f487221b64117014797d1b2f52be4; A/B remain pending, C is not run",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "2c2103e3c87f487221b64117014797d1b2f52be4",
     "verified_at": "2026-11-03T12:22:53Z",
-    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit 2c2103e3c87f487221b64117014797d1b2f52be4. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes; the main-fa0 record remains SUPERSEDED. 57 model-free Python tests (30 audit/records and 27 runner/receipt), nine-file Python syntax, two shell syntax checks, explicit-base inventory and exact check pass. The records-only verifier at the current source is pending. A/B remain PENDING because live ownership/ref and host Cargo checks are unfinished; C remains NOT_RUN. No real Cargo build/Clippy, new ELF, QEMU/VM, Miri or independent rebuild was performed; 379d history remains invalid for current acceptance.",
+    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit 2c2103e3c87f487221b64117014797d1b2f52be4. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes; the main-fa0 record remains SUPERSEDED. 57 model-free Python tests (30 audit/records and 27 runner/receipt), nine-file Python syntax, two shell syntax checks, explicit-base inventory and exact check pass. The records-only verifier passes at strict child 5bb809b522aaeba6cc5b4ea545a083d92861dac5 (tree 6357c9b4181ea89d4b77ac8447ce2a5662d6ee3c) with its captured stdout committed to current-main evidence. A/B remain PENDING because live ownership/ref and host Cargo checks are unfinished; C remains NOT_RUN. No real Cargo build/Clippy, new ELF, QEMU/VM, Miri or independent rebuild was performed; 379d history remains invalid for current acceptance.",
     "commands": [
       "python3 experiments/nagi-multiarch-contracts/test_audit.py -v",
       "python3 experiments/nagi-multiarch-contracts/test_records.py -v",
@@ -18,8 +18,8 @@
       "/bin/sh -n experiments/nagi-multiarch-contracts/verify.sh experiments/nagi-aarch64-spike/verify.sh",
       "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 2c2103e3c87f487221b64117014797d1b2f52be4 --output <private-evidence>/generated/source-inventory.json --authority-output <private-evidence>/generated/authority-sources.json",
       "same explicit-base/source audit command with --check",
-      "NOT_RUN: real Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, independent rebuild",
-      "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802 (pending)"
+      "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802 (PASS; records-only child 5bb809b522aaeba6cc5b4ea545a083d92861dac5)",
+      "NOT_RUN: real Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, independent rebuild"
     ],
     "tests": [
       {
@@ -81,9 +81,9 @@
       {
         "name": "Records-only verifier",
         "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "The first records-only child is committed; verification will be recorded in the next records-only update."
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 548acec7a938250999334375f7d7d219358c2d6c57c005e238780f131e78c4c4; record_head 5bb809b522aaeba6cc5b4ea545a083d92861dac5, tree 6357c9b4181ea89d4b77ac8447ce2a5662d6ee3c"
       },
       {
         "name": "Cargo/build/ELF/QEMU/VM/Miri/independent rebuild",
