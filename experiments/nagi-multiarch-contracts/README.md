@@ -9,9 +9,16 @@ linker, Python 3. On the verified Debian 13 x86-64 host:
 
 ```sh
 ./experiments/nagi-multiarch-contracts/verify.sh
-python3 experiments/nagi-multiarch-contracts/audit.py \
-  --output docs/porting/multiarch/evidence/source-inventory.json --check
+python3 experiments/nagi-multiarch-contracts/audit.py \\
+  --base fa0e0415d381da76a190f049b07b950fcfdaca98 \\
+  --output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/source-inventory.json \\
+  --authority-output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/authority-sources.json \\
+  --check
 ```
+
+The base is deliberately a full commit SHA; the audit has no origin/main or
+other moving-ref fallback. Regenerate the evidence only after reviewing a new
+explicit base and recording that SHA in the candidate.
 
 The local Cargo workspace has only path dependencies on unchanged nagi-abi and
 nagi-bootinfo. Test-only `#[path]` modules read production source directly:
@@ -36,6 +43,6 @@ Do not present the harness lint result as full production-kernel Clippy PASS.
 
 The audit inventories tracked sources and exact hashes, retaining matched
 text and line numbers, including tests/comments. It is not a semantic proof
-of exhaustive portability. The manually reviewed matrix and unknowns are in
-`docs/porting/multiarch/`. A new baseline requires owner review and regeneration,
-not relaxing a stale inventory check.
+of exhaustive portability. It is tied to its explicit baseline and recorded
+source commit; a later records-only child can validate the same source snapshot.
+The manually reviewed matrix and unknowns are in `docs/porting/multiarch/`.

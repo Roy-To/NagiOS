@@ -2,9 +2,9 @@
   "registration_status": "PROPOSED_UNREGISTERED",
   "id": "PORT-MULTIARCH-01",
   "owner": "Codex, bounded independent preparation requested by repository owner",
-  "owner_branch": "codex/port-multiarch-foundation-01",
-  "source_base": "379d19eadb6f8792c27b9bc3f147e1ea48eac4a2",
-  "recommended_worktree": "/workspace/worktrees/port-multiarch-foundation-01",
+  "owner_branch": "PR #57 existing branch; preserve published ancestry and update only by ordinary fast-forward",
+  "source_base": "fa0e0415d381da76a190f049b07b950fcfdaca98",
+  "recommended_worktree": "Guarded private SSD worktree; do not publish its local path",
   "allowed_paths": [
     "docs/porting/multiarch/**",
     "experiments/nagi-multiarch-contracts/**",
@@ -28,7 +28,7 @@
   "state_file": "docs/porting/multiarch/state.json",
   "dependencies": [],
   "activation_gate": "Current user request authorizes A/B and independent C when exclusively owned. New proposal/experiment paths are absent on all inspected remote branches and not specifically claimed by any stream. No production Nagi activation. Shared registration pending Integration Owner review.",
-  "merge_boundary": "Push dedicated branch, draft PR only; no main/integration merge authorized.",
+  "merge_boundary": "The prepared candidate retains PR #57 head as an ancestor and includes the exact current main as an ancestor. A later branch update can use an ordinary fast-forward. No push, PR mutation, or merge was performed in this phase.",
   "production_checkpoint_required": {
     "owner": "os-core + Integration Owner + loader/platform-apis owners as applicable",
     "requirements": [
