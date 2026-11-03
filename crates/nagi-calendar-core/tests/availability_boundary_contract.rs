@@ -1,4 +1,6 @@
-use nagi_calendar_core::availability::{find_availability, interval, AvailabilityRequest};
+use nagi_calendar_core::availability::{
+    find_availability, interval, normalize_busy, AvailabilityRequest,
+};
 use nagi_calendar_core::model::Interval;
 use nagi_calendar_core::{Error, Result};
 
@@ -239,6 +241,70 @@ fn busy_buffer_arithmetic_overflow_is_rejected_at_signed_limits() {
     assert_eq!(
         find_availability(&after_request, &after_busy).map(pairs),
         reference_enumeration(&after_request, &after_busy)
+    );
+}
+
+#[test]
+fn positive_buffers_can_reach_signed_limits_exactly() {
+    let mut before_request = request(i64::MIN, i64::MIN + 10, 5, 5);
+    before_request.buffer_before_micros = 1;
+    let before_busy = [interval(i64::MIN + 1, i64::MIN + 5).unwrap()];
+    assert_eq!(
+        find_availability(&before_request, &before_busy).map(pairs),
+        Ok(vec![(i64::MIN + 5, i64::MIN + 10)])
+    );
+    assert_eq!(
+        find_availability(&before_request, &before_busy).map(pairs),
+        reference_enumeration(&before_request, &before_busy)
+    );
+
+    let mut after_request = request(i64::MAX - 10, i64::MAX, 5, 5);
+    after_request.buffer_after_micros = 1;
+    let after_busy = [interval(i64::MAX - 5, i64::MAX - 1).unwrap()];
+    assert_eq!(
+        find_availability(&after_request, &after_busy).map(pairs),
+        Ok(vec![(i64::MAX - 10, i64::MAX - 5)])
+    );
+    assert_eq!(
+        find_availability(&after_request, &after_busy).map(pairs),
+        reference_enumeration(&after_request, &after_busy)
+    );
+}
+
+#[test]
+fn buffered_busy_ranges_clip_and_merge_overlapping_and_touching_intervals() {
+    let window = interval(0, 24).unwrap();
+    let busy = [
+        interval(0, 5).unwrap(),
+        interval(6, 10).unwrap(),
+        interval(12, 14).unwrap(),
+        interval(22, 24).unwrap(),
+    ];
+    let first_expanded = interval(0, 6).unwrap();
+    let second_expanded = interval(5, 11).unwrap();
+    let third_expanded = interval(11, 15).unwrap();
+    assert!(first_expanded.overlaps(second_expanded));
+    assert!(!second_expanded.overlaps(third_expanded));
+
+    assert_eq!(
+        normalize_busy(window, &busy, 1, 1).map(pairs),
+        Ok(vec![(0, 15), (21, 24)])
+    );
+    assert_eq!(
+        normalize_reference((0, 24), &busy, 1, 1),
+        Ok(vec![(0, 15), (21, 24)])
+    );
+
+    let mut request = request(0, 24, 3, 3);
+    request.buffer_before_micros = 1;
+    request.buffer_after_micros = 1;
+    assert_eq!(
+        find_availability(&request, &busy).map(pairs),
+        Ok(vec![(15, 18), (18, 21)])
+    );
+    assert_eq!(
+        find_availability(&request, &busy).map(pairs),
+        reference_enumeration(&request, &busy)
     );
 }
 
