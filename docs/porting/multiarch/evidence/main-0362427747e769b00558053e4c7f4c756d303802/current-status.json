@@ -12,10 +12,10 @@
       "checks": {
         "current_static_inventory": "PASS",
         "current_authority_hashes": "PASS",
-        "registry_unregistered_and_record_validation": "PENDING",
+        "registry_unregistered_and_record_validation": "PASS",
         "ownership_and_live_ref_snapshot": "NOT_RUN"
       },
-      "reason": "The explicit-main inventory, authority hashes, and 60 model-free tests pass for the fixed source commit. The records-only verifier and live ownership/ref review remain pending."
+      "reason": "The explicit-main inventory, authority hashes, 60 model-free tests, and records-only verifier pass for the fixed source commit. Live ownership/ref review remains pending."
     },
     "B": {
       "status": "PENDING",
@@ -70,14 +70,14 @@
     }
   },
   "records_validation": {
-    "outcome": "PENDING",
-    "record_head_sha": null,
-    "record_tree_sha": null,
+    "outcome": "PASS",
+    "record_head_sha": "e58f127fecfedfa70b318d77788136b81f56fa9b",
+    "record_tree_sha": "303d0d4bbe33488809ff0e8d18b9a9d76a6cbc3e",
     "source_commit_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03",
     "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-    "exit_code": null,
-    "stdout_path": null,
-    "stdout_sha256": null
+    "exit_code": 0,
+    "stdout_path": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
+    "stdout_sha256": "7d437312554a78afa34c16d1a790ce3df09eb2786c5298d71cc16d0f497af699"
   },
   "execution": {
     "cargo_check": "NOT_RUN",
@@ -158,6 +158,22 @@
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "metadata_file": "current-inventory-exact-check-p3-source.meta.json",
       "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
+    },
+    {
+      "name": "records-validation-r1-p3",
+      "exit_code": 0,
+      "stdout_sha256": "7d437312554a78afa34c16d1a790ce3df09eb2786c5298d71cc16d0f497af699",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "records-r1-p3.meta.json",
+      "record_head_sha": "e58f127fecfedfa70b318d77788136b81f56fa9b"
+    },
+    {
+      "name": "current-inventory-tracked-check-r1-p3",
+      "exit_code": 0,
+      "stdout_sha256": "fc57d2d126aeec089ef031718307e4b08873374899db5f451f5acdc1bf6d1478",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "current-inventory-tracked-check-r1-p3.meta.json",
+      "record_head_sha": "e58f127fecfedfa70b318d77788136b81f56fa9b"
     }
   ],
   "historical_index_file_count": 50,
