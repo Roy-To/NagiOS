@@ -51,11 +51,12 @@ def run(command, cwd, env=None, timeout=None, text=True):
     )
 
 
-def git(root, *args, check=True):
-    result = run(["git", *args], root, text=True)
+def git(root, *args, check=True, text=True):
+    result = run(["git", *args], root, text=text)
     if check and result.returncode != 0:
-        raise AttestationError(result.stderr.strip() or f"git {' '.join(args)} failed")
-    return result.stdout.strip()
+        message = result.stderr if isinstance(result.stderr, str) else result.stderr.decode("utf-8", "replace")
+        raise AttestationError(message.strip() or f"git {' '.join(args)} failed")
+    return result.stdout.strip() if text else result.stdout
 
 
 def full_sha(value, label):
@@ -219,17 +220,53 @@ def hash_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def reject_ambient_cargo_config(cwd, cargo_home):
+def committed_cargo_config_hashes(root, source_commit, source_paths, source_spike):
+    prefix = SPIKE_REL + "/.cargo/"
+    hashes = {}
+    for source_path in source_paths:
+        if not source_path.startswith(prefix):
+            continue
+        name = source_path[len(prefix):]
+        if name not in ("config", "config.toml"):
+            continue
+        result = run(["git", "cat-file", "blob", f"{source_commit}:{source_path}"], root, text=False)
+        if result.returncode:
+            raise AttestationError("cannot read committed Cargo config: " + source_path)
+        snapshot_path = Path(source_spike) / ".cargo" / name
+        if snapshot_path.is_symlink() or not snapshot_path.is_file():
+            raise AttestationError("committed Cargo config is missing or unsafe in source snapshot")
+        expected = hash_bytes(result.stdout)
+        if hash_file(snapshot_path) != expected:
+            raise AttestationError("committed Cargo config snapshot differs from source commit")
+        hashes[snapshot_path.resolve(strict=True)] = expected
+    return hashes
+
+
+def reject_ambient_cargo_config(cwd, cargo_home, trusted_config_hashes=None):
     cargo_home = Path(cargo_home).resolve()
     current = Path(cwd).resolve()
+    trusted = {
+        Path(path).resolve(strict=True): digest
+        for path, digest in (trusted_config_hashes or {}).items()
+    }
+    for name in ("config", "config.toml"):
+        config = cargo_home / name
+        if config.is_symlink() or config.exists():
+            raise AttestationError("isolated CARGO_HOME contains Cargo config: " + str(config))
     for directory in (current, *current.parents):
         for name in ("config", "config.toml"):
             config = directory / ".cargo" / name
-            if config.exists():
-                resolved = config.resolve()
-                if resolved.is_relative_to(cargo_home):
-                    continue
-                raise AttestationError("ambient Cargo config can inject build settings: " + str(config))
+            if not config.exists() and not config.is_symlink():
+                continue
+            if config.is_symlink():
+                raise AttestationError("Cargo config must not be a symlink: " + str(config))
+            resolved = config.resolve(strict=True)
+            expected = trusted.get(resolved)
+            if expected is not None and resolved.is_relative_to(current):
+                if hash_file(resolved) != expected:
+                    raise AttestationError("committed Cargo config changed after source snapshot creation")
+                continue
+            raise AttestationError("ambient Cargo config can inject build settings: " + str(config))
 
 
 def hash_file(path):
@@ -377,18 +414,19 @@ def object_identity(root, source_commit, relative):
     raw = git(root, "show", f"{source_commit}:{relative}", text=False)
     return {"path": relative, "git_blob": blob, "sha256": hash_bytes(raw)}
 
-def build_once(output, label, source_spike, source, archive_sha256, toolchain):
+def build_once(output, label, source_spike, source, archive_sha256, toolchain, trusted_config_hashes):
     temp_dir = output / ".build" / label
     target = temp_dir / "target"
     cargo_home = temp_dir / "cargo-home"
     target.mkdir(parents=True)
     cargo_home.mkdir(parents=True)
     env = build_environment(temp_dir, target, cargo_home, toolchain)
-    reject_ambient_cargo_config(source_spike, cargo_home)
+    reject_ambient_cargo_config(source_spike, cargo_home, trusted_config_hashes)
     command = [toolchain["cargo_path"], *CARGO_COMMAND[1:]]
     build_dir = output / f"build-{label}"
     try:
         result = run(command, source_spike, env=env, timeout=1800, text=False)
+        reject_ambient_cargo_config(source_spike, cargo_home, trusted_config_hashes)
         build_dir.mkdir()
         (build_dir / "stdout.log").write_bytes(result.stdout)
         (build_dir / "stderr.log").write_bytes(result.stderr)
@@ -409,7 +447,7 @@ def build_once(output, label, source_spike, source, archive_sha256, toolchain):
             "target_dir": f".build/{label}/target", "cargo_home": f".build/{label}/cargo-home",
             "cargo_home_seed": "empty",
             "environment_policy": "minimal-allowlist; inherited build variables discarded",
-            "cargo_config_policy": "reject external .cargo/config and .cargo/config.toml in cwd ancestors; empty isolated CARGO_HOME",
+            "cargo_config_policy": "allow hash-verified committed source-snapshot .cargo configs; reject external configs and configs in isolated CARGO_HOME",
             "exit_code": result.returncode,
             "stdout_path": f"build-{label}/stdout.log", "stdout_sha256": hash_file(build_dir / "stdout.log"),
             "stderr_path": f"build-{label}/stderr.log", "stderr_sha256": hash_file(build_dir / "stderr.log"),
@@ -532,10 +570,13 @@ def attest(args):
     source_spike = materialize_spike_source(archive_bytes, source_paths, snapshot_root)
     toolchain = toolchain_record(source_spike)
     archive_sha256 = hash_bytes(archive_bytes)
+    trusted_config_hashes = committed_cargo_config_hashes(
+        repo, source["commit"], source_paths, source_spike
+    )
 
     builds = [
-        build_once(output, "a", source_spike, source, archive_sha256, toolchain),
-        build_once(output, "b", source_spike, source, archive_sha256, toolchain),
+        build_once(output, "a", source_spike, source, archive_sha256, toolchain, trusted_config_hashes),
+        build_once(output, "b", source_spike, source, archive_sha256, toolchain, trusted_config_hashes),
     ]
     build_match = builds[0]["elf_sha256"] == builds[1]["elf_sha256"]
     qemu_sha = hash_file(qemu)
@@ -566,7 +607,7 @@ def attest(args):
         "mode": "build-and-run",
         "generator": object_identity(repo, args.source_commit, f"{SPIKE_REL}/attest.py"),
         "runner": object_identity(repo, args.source_commit, f"{SPIKE_REL}/run.py"),
-        "source": source | {"head_after_build": source_after["head"], "tree_after_build": args.source_tree},
+        "source": source | {"head_after_build": source_after["commit"], "tree_after_build": args.source_tree},
         "source_snapshot": {
             "path": "source-snapshot/" + SPIKE_REL,
             "archive_path": "source/spike.tar",
@@ -577,7 +618,7 @@ def attest(args):
         },
         "toolchain": toolchain,
         "environment": {
-            "policy": "clean allowlist; inherited variables are not passed to Cargo or runner; external Cargo config files are rejected",
+            "policy": "clean allowlist; inherited variables are not passed to Cargo or runner; committed source-snapshot Cargo configs are hash-verified and external configs rejected",
             "discarded_override_names": ignored_overrides,
             "inherited_environment_values_recorded": False,
             "cargo_home_isolated": True,
@@ -607,7 +648,7 @@ def attest(args):
     attestation["files"] = file_manifest(output)
     path = output / "attestation.json"
     path.write_text(json.dumps(attestation, indent=2) + "\n")
-    return path
+    return attestation
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)

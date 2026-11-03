@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +10,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import attest as attest_module
 
 from attest import (
     AttestationError, archive_spike_source, build_environment, forbidden_environment,
@@ -149,7 +154,7 @@ class AttestationFixture(unittest.TestCase):
                 "argv": [toolchain["cargo_path"], "build", "--release", "--locked", "--offline"],
                 "cwd": snapshot_path, "cargo_home_seed": "empty",
                 "environment_policy": "minimal-allowlist; inherited build variables discarded",
-                "cargo_config_policy": "reject external .cargo/config and .cargo/config.toml in cwd ancestors; empty isolated CARGO_HOME",
+                "cargo_config_policy": "allow hash-verified committed source-snapshot .cargo configs; reject external configs and configs in isolated CARGO_HOME",
                 "exit_code": 0,
                 "stdout_path": f"build-{label}/stdout.log", "stdout_sha256": sha(b""),
                 "stderr_path": f"build-{label}/stderr.log", "stderr_sha256": sha(b""),
@@ -462,6 +467,186 @@ class AttestationFixture(unittest.TestCase):
         self.assertNotIn('add_argument("--binary"', source)
         self.assertIn('add_argument("--source-commit", required=True)', source)
         self.assertIn('add_argument("--source-tree", required=True)', source)
+
+    def _run_fake_generator(self, different=False):
+        with tempfile.TemporaryDirectory(prefix="nagi-generator-e2e-", dir=SCRATCH) as temp:
+            base = Path(temp)
+            repo = base / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "fixture@example.invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Fixture"], check=True)
+
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args], cwd=repo, text=True, capture_output=True, check=True
+                ).stdout.strip()
+
+            (repo / "README.md").write_text("fixture main\n")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture main"], check=True)
+            main_commit = git("rev-parse", "HEAD")
+
+            spike = repo / SPIKE_REL
+            (spike / ".cargo").mkdir(parents=True)
+            source_files = {
+                ".cargo/config.toml": (Path(__file__).resolve().parent / ".cargo/config.toml").read_bytes(),
+                "Cargo.toml": b'[package]\nname = "nagi-aarch64-feasibility-spike"\nversion = "0.1.0"\nedition = "2021"\n',
+                "Cargo.lock": b'[[package]]\nname = "nagi-aarch64-feasibility-spike"\nversion = "0.1.0"\n',
+                "attest.py": Path(__file__).with_name("attest.py").read_bytes(),
+                "run.py": Path(__file__).with_name("run.py").read_bytes(),
+                "rust-toolchain.toml": b'[toolchain]\nchannel = "nightly-2025-08-01"\n',
+                "linker.ld": b"ENTRY(_start)\n",
+            }
+            for relative, data in source_files.items():
+                path = spike / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "fixture source"], check=True)
+            source_commit = git("rev-parse", "HEAD")
+            source_tree = git("rev-parse", f"{source_commit}^{{tree}}")
+
+            fake_bin = base / "fake-bin"
+            fake_bin.mkdir()
+            rustc = fake_bin / "rustc"
+            cargo = fake_bin / "cargo"
+            rustup = fake_bin / "rustup"
+            sysroot = base / "fake-sysroot"
+            lld = sysroot / "lib/rustlib/aarch64-apple-darwin/bin/rust-lld"
+            lld.parent.mkdir(parents=True)
+            lld.write_bytes(b"fake lld fixture")
+
+            def write_executable(path, body):
+                path.write_text("#!" + sys.executable + "\n" + body)
+                path.chmod(0o755)
+
+            write_executable(rustc, "\n".join([
+                "import sys",
+                'if sys.argv[1:] == ["-Vv"]:',
+                '    print("rustc 1.90.0 (fixture)")',
+                '    print("host: aarch64-apple-darwin")',
+                'elif sys.argv[1:] == ["--print", "sysroot"]:',
+                f"    print({str(sysroot)!r})",
+                "else:",
+                "    raise SystemExit(64)",
+            ]))
+            write_executable(cargo, "\n".join([
+                "import os",
+                "from pathlib import Path",
+                "import sys",
+                'if sys.argv[1:] == ["-V"]:',
+                '    print("cargo 1.90.0 (fixture)")',
+                'elif sys.argv[1:] == ["build", "--release", "--locked", "--offline"]:',
+                '    if not (Path.cwd() / ".cargo" / "config.toml").is_file():',
+                '        raise SystemExit("committed Cargo config was not visible")',
+                '    target = Path(os.environ["CARGO_TARGET_DIR"])',
+                '    elf = bytearray(64)',
+                '    elf[:6] = [127, 69, 76, 70, 2, 1]',
+                '    elf[18:20] = (183).to_bytes(2, "little")',
+                f"    if {different!r} and target.parent.name == 'b':",
+                "        elf[30] = 1",
+                '    output = target / "aarch64-unknown-none" / "release" / "nagi-aarch64-feasibility-spike"',
+                "    output.parent.mkdir(parents=True, exist_ok=True)",
+                "    output.write_bytes(elf)",
+                '    print("fake Cargo build complete")',
+                "else:",
+                "    raise SystemExit(64)",
+            ]))
+            write_executable(rustup, "\n".join([
+                "import sys",
+                'args = sys.argv[1:]',
+                'if args == ["show", "active-toolchain"]:',
+                '    print("nightly-2025-08-01-aarch64-apple-darwin (default)")',
+                'elif args == ["which", "rustc"]:',
+                f"    print({str(rustc)!r})",
+                'elif args == ["which", "cargo"]:',
+                f"    print({str(cargo)!r})",
+                "else:",
+                "    raise SystemExit(64)",
+            ]))
+            qemu = base / "fake-qemu-system-aarch64"
+            write_executable(qemu, "\n".join([
+                "import sys",
+                "args = sys.argv[1:]",
+                'if args == ["--version"]:',
+                '    print("QEMU emulator version fake-fixture")',
+                "    raise SystemExit(0)",
+                'machine = args[args.index("-machine") + 1]',
+                'if "virtualization=off" in machine:',
+                '    sys.stdout.buffer.write(b"SPIKE ARM64 EL1 PL011 PASS\\nSPIKE SVC VECTOR ERET PASS\\nSPIKE GENERIC COUNTER PASS\\nSPIKE COMPLETE PASS\\n")',
+                "    raise SystemExit(0)",
+                'sys.stdout.buffer.write(b"SPIKE FAIL exception-level expected EL1 got EL2\\n")',
+                "raise SystemExit(1)",
+            ]))
+
+            output = base / "receipt"
+            arguments = [
+                "--source-commit", source_commit, "--source-tree", source_tree, "--main", main_commit,
+                "--output", str(output), "--qemu", str(qemu),
+            ]
+            env = {
+                "NAGI_STORAGE_ROOT": str(base),
+                "HOME": str(base / "fake-home"),
+                "RUSTUP_HOME": str(base / "fake-rustup-home"),
+                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+            }
+            stdout = io.StringIO()
+            with patch.object(attest_module, "ROOT", repo), patch.dict(os.environ, env):
+                with contextlib.redirect_stdout(stdout):
+                    exit_code = attest_module.main(arguments)
+            record = json.loads((output / "attestation.json").read_text())
+            verified = verify_attestation(
+                repo, output / "attestation.json", expected_main=main_commit,
+                expected_source_commit=source_commit, expected_source_tree=source_tree,
+            )
+            return exit_code, stdout.getvalue(), record, verified
+
+    def test_committed_snapshot_cargo_config_must_keep_its_commit_hash(self):
+        with tempfile.TemporaryDirectory(prefix="cargo-config-snapshot-", dir=SCRATCH) as temp:
+            base = Path(temp)
+            cwd = base / "source"
+            cargo_home = base / "cargo-home"
+            config = cwd / ".cargo" / "config.toml"
+            config.parent.mkdir(parents=True)
+            cargo_home.mkdir()
+            config.write_text("[build]\ntarget = 'aarch64-unknown-none'\n")
+            trusted = {config.resolve(): sha(config.read_bytes())}
+            reject_ambient_cargo_config(cwd, cargo_home, trusted)
+            config.write_text("[build]\ntarget = 'unexpected-target'\n")
+            with self.assertRaisesRegex(AttestationError, "changed after source snapshot"):
+                reject_ambient_cargo_config(cwd, cargo_home, trusted)
+
+    def test_isolated_cargo_home_config_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="cargo-home-config-", dir=SCRATCH) as temp:
+            base = Path(temp)
+            cwd = base / "source"
+            cargo_home = base / "cargo-home"
+            cwd.mkdir()
+            cargo_home.mkdir()
+            (cargo_home / "config.toml").write_text("[build]\nrustflags = ['-Dwarnings']\n")
+            with self.assertRaisesRegex(AttestationError, "isolated CARGO_HOME"):
+                reject_ambient_cargo_config(cwd, cargo_home)
+
+    def test_generator_end_to_end_with_fake_cargo_rustup_and_qemu(self):
+        matched_code, matched_stdout, matched, matched_verified = self._run_fake_generator()
+        self.assertEqual(matched_code, 0)
+        self.assertIn("two-build comparison=MATCHED", matched_stdout)
+        self.assertEqual(matched["build_reproducibility"]["status"], "MATCHED")
+        self.assertEqual([run["derived_verdict"] for run in matched["runs"]], ["PASS", "MET"])
+        self.assertIn(
+            "source-snapshot/" + SPIKE_REL + "/.cargo/config.toml",
+            matched["files"],
+        )
+        self.assertEqual(matched_verified["source"], matched["source"]["commit"])
+        self.assertEqual(matched_verified["two_build_comparison"], "MATCHED")
+
+        different_code, different_stdout, different, different_verified = self._run_fake_generator(different=True)
+        self.assertEqual(different_code, 2)
+        self.assertIn("two-build comparison=DIFFERENT", different_stdout)
+        self.assertNotIn("SOURCE-BOUND RUNS: PASS", different_stdout)
+        self.assertEqual(different["build_reproducibility"]["status"], "DIFFERENT")
+        self.assertEqual(different_verified["receipt_status"], "REPRODUCIBILITY_FAILED")
 
 
 if __name__ == "__main__":

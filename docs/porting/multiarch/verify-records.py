@@ -359,7 +359,7 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
     if status.get("execution") != expected_execution:
         raise RecordsError("current status execution fields must all remain NOT_RUN")
     validation = status.get("records_validation")
-    required_validation = {"outcome", "record_head_sha", "record_tree_sha", "source_commit_sha", "command", "stdout_sha256"}
+    required_validation = {"outcome", "record_head_sha", "record_tree_sha", "source_commit_sha", "command", "exit_code", "stdout_path", "stdout_sha256"}
     if not isinstance(validation, dict) or set(validation) != required_validation:
         raise RecordsError("records_validation has missing or extra fields")
     expected_command = ("python3 docs/porting/multiarch/verify-records.py --main " + baseline
@@ -368,15 +368,44 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
         raise RecordsError("records_validation is not bound to the explicit main/source command")
     validation_outcome = validation.get("outcome")
     if validation_outcome == "PENDING":
-        if any(validation.get(key) is not None for key in ("record_head_sha", "record_tree_sha", "stdout_sha256")):
-            raise RecordsError("pending records_validation must not claim a record head, tree, or result hash")
+        if any(validation.get(key) is not None for key in ("record_head_sha", "record_tree_sha", "exit_code", "stdout_path", "stdout_sha256")):
+            raise RecordsError("pending records_validation must not claim a record head, exit code, or result artifact")
     elif validation_outcome == "PASS":
         record_head = full_commit(root, validation.get("record_head_sha"), "records_validation.record_head_sha")
-        if validation.get("record_tree_sha") != git(root, "rev-parse", f"{record_head}^{{tree}}").strip():
+        record_tree = git(root, "rev-parse", f"{record_head}^{{tree}}").strip()
+        if validation.get("record_tree_sha") != record_tree:
             raise RecordsError("records_validation.record_tree_sha does not match its commit")
+        if record_head == source_commit:
+            raise RecordsError("records_validation record head must be a strict records-only child of source")
+        parents = git(root, "rev-list", "--parents", "-n", "1", record_head).split()[1:]
+        if parents != [source_commit]:
+            raise RecordsError("records_validation record head must directly follow the source commit")
         require_ancestor(root, record_head, head, "records_validation record head")
         validate_record_commit(root, source_commit, record_head)
+        if isinstance(validation.get("exit_code"), bool) or validation.get("exit_code") != 0:
+            raise RecordsError("records_validation must record a successful zero exit code")
+        expected_stdout_path = (
+            "docs/porting/multiarch/evidence/" + Path(inventory_path).parent.name + "/records-validation.stdout.log"
+        )
+        if validation.get("stdout_path") != expected_stdout_path:
+            raise RecordsError("records_validation stdout_path is not the fixed evidence log")
+        stdout_path = Path(root) / expected_stdout_path
+        if stdout_path.is_symlink() or not stdout_path.is_file():
+            raise RecordsError("records_validation stdout log is missing or unsafe")
         require_sha256(validation.get("stdout_sha256"), "records_validation.stdout_sha256")
+        stdout_bytes = stdout_path.read_bytes()
+        if hashlib.sha256(stdout_bytes).hexdigest() != validation["stdout_sha256"]:
+            raise RecordsError("records_validation stdout hash does not match the saved execution log")
+        expected_prefix = (
+            f"PASS records-only child; main={baseline} source={source_commit}; "
+            f"record_head={record_head} record_tree={record_tree};"
+        )
+        try:
+            stdout_text = stdout_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RecordsError("records_validation stdout log is not UTF-8") from exc
+        if not stdout_text.startswith(expected_prefix):
+            raise RecordsError("records_validation stdout log does not record the claimed PASS and commit")
     else:
         raise RecordsError("records_validation outcome must be PENDING or PASS")
     tools = status.get("tool_acceptance", {})
@@ -418,7 +447,7 @@ def validate_main_record_index(root, current_main):
         raise RecordsError("main records index entries must be a list")
     actual_dirs = sorted(item.name for item in evidence.glob("main-*") if item.is_dir())
     indexed_dirs, current_count = [], 0
-    required_names = {"source-inventory.json", "authority-sources.json", "baseline-drift.json", "current-status.json"}
+    base_required_names = {"source-inventory.json", "authority-sources.json", "baseline-drift.json", "current-status.json"}
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"main_sha", "status", "files"}:
             raise RecordsError("main records index entry is malformed")
@@ -438,6 +467,17 @@ def validate_main_record_index(root, current_main):
                 raise RecordsError("main evidence contains a symlink: " + str(file_path.relative_to(evidence)))
             if file_path.is_file():
                 actual_files.append(file_path.relative_to(evidence).as_posix())
+        status_record = json_file(record_dir / "current-status.json", "indexed current status")
+        validation = status_record.get("records_validation")
+        stdout_path = validation.get("stdout_path") if isinstance(validation, dict) else None
+        required_names = set(base_required_names)
+        if stdout_path is not None:
+            expected_stdout_path = (
+                "docs/porting/multiarch/evidence/" + directory + "/records-validation.stdout.log"
+            )
+            if stdout_path != expected_stdout_path:
+                raise RecordsError("indexed records-validation stdout path is not fixed: " + directory)
+            required_names.add("records-validation.stdout.log")
         if {Path(item).name for item in actual_files} != required_names:
             raise RecordsError("main evidence file set is incomplete or unexpected: " + directory)
         files = entry.get("files")
@@ -558,6 +598,8 @@ def verify(root, expected_main, evidence_dir):
     return {
         "main": baseline,
         "source": source_commit,
+        "record_head": head,
+        "record_tree": git(root, "rev-parse", f"{head}^{{tree}}").strip(),
         "changed_paths": len(changed),
         "source_files": len(recorded_paths),
         "authority_files": len(authorities),
@@ -579,6 +621,7 @@ def main(argv=None):
         parser.error(str(exc))
     print(
         f"PASS records-only child; main={result['main']} source={result['source']}; "
+        f"record_head={result['record_head']} record_tree={result['record_tree']}; "
         f"{result['source_files']} source files, {result['authority_files']} authority files, "
         f"{result['registry_count']} registry entries, {result['historical_files']} immutable historical files; "
         f"{result['changed_paths']} owned paths, {result['local_links']} local links"
