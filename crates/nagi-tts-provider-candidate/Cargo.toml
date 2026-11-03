@@ -1,0 +1,21 @@
+[package]
+name = "nagi-tts-provider-candidate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Isolated M25 local TTS provider candidate"
+
+[workspace]
+
+[dependencies]
+nagi-audio = { path = "../../user/nagi-audio" }
+jbonsai = { version = "=0.4.2", default-features = true }
+jpreprocess = { version = "=0.15.0", default-features = false, features = ["tokenizer"] }
+jlabel = "=0.1.10"
+lindera-dictionary = { version = "=3.0.7", default-features = false }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+
+[patch.crates-io]
+libc = { path = "../../third_party/libc" }
