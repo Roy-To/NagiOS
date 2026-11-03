@@ -1,0 +1,41 @@
+name: Automation Core host contract
+
+on:
+  push:
+    paths:
+      - 'crates/nagi-automation-core/**'
+      - '.github/workflows/nagi-automation-core.yml'
+      - 'rust-toolchain.toml'
+  pull_request:
+    paths:
+      - 'crates/nagi-automation-core/**'
+      - '.github/workflows/nagi-automation-core.yml'
+      - 'rust-toolchain.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-08-01 \
+            --profile minimal --component rustfmt --component clippy
+      - name: Format standalone core
+        run: |
+          cargo +nightly-2025-08-01 fmt \
+            --manifest-path crates/nagi-automation-core/Cargo.toml -- --check
+      - name: Lint standalone core
+        run: |
+          cargo +nightly-2025-08-01 clippy \
+            --manifest-path crates/nagi-automation-core/Cargo.toml \
+            --all-targets --locked --offline -- -D warnings
+      - name: Test standalone core contracts
+        run: |
+          cargo +nightly-2025-08-01 test \
+            --manifest-path crates/nagi-automation-core/Cargo.toml --locked --offline
