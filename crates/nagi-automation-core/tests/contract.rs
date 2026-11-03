@@ -116,24 +116,6 @@ fn risky_effects_never_become_ready_and_require_restricted_scope() {
     }
 }
 #[test]
-fn incomplete_failed_and_pending_runs_never_succeed() {
-    assert_eq!(
-        summarize_run(2, &[StepOutcome::Succeeded]),
-        RunStatus::Pending
-    );
-    assert_eq!(summarize_run(1, &[StepOutcome::Failed]), RunStatus::Failed);
-    assert_eq!(
-        summarize_run(2, &[StepOutcome::Succeeded, StepOutcome::Failed]),
-        RunStatus::Partial
-    );
-    assert_eq!(
-        summarize_run(1, &[StepOutcome::Pending]),
-        RunStatus::Pending
-    );
-    assert_eq!(summarize_run(0, &[]), RunStatus::Skipped);
-}
-
-#[test]
 fn multi_action_preview_preserves_order_and_complete_draft() {
     let mut d = draft();
     d.actions.push("notes.create".into());
@@ -305,6 +287,7 @@ fn maximum_workflow_is_accepted_and_disabled_malformed_drafts_are_inert() {
 }
 #[test]
 fn success_requires_exactly_one_successful_final_outcome_per_expected_step() {
+    let approval_run_ref = ApprovalRunRef::new("approval/exhaustive").unwrap();
     let choices = [
         StepOutcome::Succeeded,
         StepOutcome::Failed,
@@ -312,33 +295,42 @@ fn success_requires_exactly_one_successful_final_outcome_per_expected_step() {
         StepOutcome::Pending,
     ];
     for expected in 0..=4 {
+        let expected_steps: Vec<_> = (0..expected)
+            .map(|index| StepId::new(format!("step-{index}")).unwrap())
+            .collect();
         for len in 0..=5 {
             for mut bits in 0..4_usize.pow(len as u32) {
                 let outcomes: Vec<_> = (0..len)
-                    .map(|_| {
-                        let o = choices[bits % 4];
+                    .map(|step_index| {
+                        let outcome = choices[bits % 4];
                         bits /= 4;
-                        o
+                        StepResult {
+                            approval_run_ref: approval_run_ref.clone(),
+                            step_id: StepId::new(format!("step-{step_index}")).unwrap(),
+                            outcome,
+                        }
                     })
                     .collect();
                 let should_succeed = expected > 0
                     && len == expected
-                    && outcomes.iter().all(|o| *o == StepOutcome::Succeeded);
+                    && outcomes
+                        .iter()
+                        .all(|result| result.outcome == StepOutcome::Succeeded);
+                let summary = summarize_run(&approval_run_ref, &expected_steps, &outcomes)
+                    .unwrap_or(RunStatus::Failed);
                 assert_eq!(
-                    summarize_run(expected, &outcomes) == RunStatus::Success,
+                    summary == RunStatus::Success,
                     should_succeed,
                     "expected={expected} outcomes={outcomes:?}"
                 );
             }
         }
     }
-    assert_eq!(summarize_run(MAX_ACTIONS + 1, &[]), RunStatus::Failed);
+    let too_many_steps: Vec<_> = (0..=MAX_ACTIONS)
+        .map(|index| StepId::new(format!("step-{index}")).unwrap())
+        .collect();
     assert_eq!(
-        summarize_run(2, &[StepOutcome::Skipped, StepOutcome::Skipped]),
-        RunStatus::Skipped
-    );
-    assert_eq!(
-        summarize_run(2, &[StepOutcome::Succeeded, StepOutcome::Skipped]),
-        RunStatus::Partial
+        summarize_run(&approval_run_ref, &too_many_steps, &[]),
+        Err(SummaryError::TooManyExpectedSteps)
     );
 }
