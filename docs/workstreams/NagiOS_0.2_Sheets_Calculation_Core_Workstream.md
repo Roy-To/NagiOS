@@ -1,7 +1,7 @@
 # Nagi OS 0.2 — Sheets Calculation Core Host Foundation
 **Document ID:** NAGI-0.2-PARALLEL-SHEETS-CALC-20261008  
 **担当:** Claude ①  
-**対象:** `RT-NISH/NagiOS`  
+**対象:** `Roy-To/NagiOS`  
 **作業区分:** Phase 2 Sheetsの **UI非依存・Host-only** 計算基盤  
 **対象仕様:** `docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md` §58、0.2 Master §27.1/§38  
 **実行状態:** 新規Workstream提案。Ownerの登録・host-only activation checkpointを確認した範囲のみ実装する。

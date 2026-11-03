@@ -21,8 +21,11 @@ be independently verified before a binary release is announced.
 
 ## Distribution status
 
-The Nagi OS project license has not been selected. The third-party notice
-inventory identifies upstream license, notice, patched-source, and asset
-provenance reviews that remain open. Do not redistribute a binary or bundled
-third-party source until the applicable review and release acceptance are
-complete.
+The maintainer's original Nagi OS source in [LICENSE_SCOPE.md](LICENSE_SCOPE.md)
+is licensed under [MPL-2.0](LICENSE), subject to that notice's explicit scope
+and preserved prior/third-party grants. This is not clearance for a complete
+source bundle or executable image. The embedded glyph file, media/model rights,
+upstream notices and target-specific dependency reviews remain open where
+identified in the [scope review](docs/oss/mpl-2.0-scope-review.md).
+Do not redistribute affected material or announce a binary release until the
+applicable rights, notice obligations and release acceptance are satisfied.
