@@ -1,0 +1,163 @@
+{
+  "schema": "nagi-multiarch-current-status/1",
+  "main_sha": "0362427747e769b00558053e4c7f4c756d303802",
+  "main_tree_sha": "1cc62a0a93201bb35c85ae89afca677650cd96ea",
+  "source_commit_sha": "f08c7692199be43217a45ba51673377ea6103829",
+  "source_tree_sha": "6620c4be954eb08176acede9d86fe72e78a92e60",
+  "pr_head_sha": "a7da7b76f69c9470c72eca3976876a1b666473ef",
+  "identity_merge_scope": "36 paths from old main to current main; zero paths in the three owned prefixes",
+  "phases": {
+    "A": {
+      "status": "PENDING",
+      "checks": {
+        "current_static_inventory": "PASS",
+        "current_authority_hashes": "PASS",
+        "registry_unregistered_and_record_validation": "PENDING",
+        "ownership_and_live_ref_snapshot": "NOT_RUN"
+      },
+      "reason": "Inventory, authority hashes and unregistered registry boundary are verified. The first clean records-only verification is pending; ownership/ref snapshot is not run."
+    },
+    "B": {
+      "status": "PENDING",
+      "checks": {
+        "model_free_tool_acceptance": "PASS",
+        "host_Cargo_contract_tests": "NOT_RUN"
+      },
+      "reason": "52 model-free Python tests passed. Host Cargo contract tests and Clippy remain NOT_RUN."
+    },
+    "C": {
+      "status": "NOT_RUN",
+      "checks": {
+        "new_ELF": "NOT_RUN",
+        "QEMU_EL1": "NOT_RUN",
+        "QEMU_EL2_negative": "NOT_RUN",
+        "independent_rebuild": "NOT_RUN"
+      },
+      "reason": "No Cargo build, new ELF, QEMU/VM, Miri or independent rebuild was performed."
+    }
+  },
+  "tool_acceptance": {
+    "model_free_python_tests": {
+      "outcome": "PASS",
+      "tests": 52,
+      "contracts_audit_and_records": 28,
+      "runner_and_receipt": 24
+    },
+    "python_syntax": {
+      "outcome": "PASS",
+      "files": 9
+    },
+    "shell_syntax": {
+      "outcome": "PASS",
+      "scripts": 2
+    },
+    "cargo_fmt": {
+      "outcome": "PASS",
+      "packages": 2,
+      "build_performed": false,
+      "basis": "Both standalone package Rust source/manifest sets are unchanged from their prior cargo fmt check."
+    },
+    "static_inventory": {
+      "outcome": "PASS",
+      "source_files": 579,
+      "matches": 2234,
+      "bootinfo_field_references": 153,
+      "authority_files": 13
+    },
+    "static_inventory_exact_check": {
+      "outcome": "PASS",
+      "source_commit_explicit": true
+    }
+  },
+  "records_validation": {
+    "outcome": "PENDING",
+    "record_head_sha": null,
+    "record_tree_sha": null,
+    "source_commit_sha": "f08c7692199be43217a45ba51673377ea6103829",
+    "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
+    "stdout_sha256": null
+  },
+  "execution": {
+    "cargo_check": "NOT_RUN",
+    "cargo_clippy": "NOT_RUN",
+    "cargo_build": "NOT_RUN",
+    "new_ELF_generation": "NOT_RUN",
+    "QEMU": "NOT_RUN",
+    "VM": "NOT_RUN",
+    "Miri": "NOT_RUN",
+    "independent_rebuild": "NOT_RUN"
+  },
+  "artifact_hashes": {
+    "source_inventory_sha256": "01d28986581f23ad63492d20711cff7f45b531d00f3f5bf880c4add954242ffb",
+    "authority_sources_sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a",
+    "baseline_drift_sha256": "15f21e0f0929993bc960c0112e7e28e77a4809c85fb8911875e4a7c8d4a1cf12"
+  },
+  "private_tool_log_metadata": [
+    {
+      "name": "contracts-python-tests",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "de53f87658c83a321a1236defa173954147eb98a3a9490d83544ef876c0eca59",
+      "metadata_file": "contracts-python-tests.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "spike-python-tests",
+      "exit_code": 0,
+      "stdout_sha256": "755cb5f6b4db7515bcad042789b86d92c85c0ac7df7181f79fcf7378007825a4",
+      "stderr_sha256": "9a399e9e3dd79f0b7305e3c7fa8e67a19467be2a901960664f41d7110e25f2e2",
+      "metadata_file": "spike-python-tests.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "python-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "python-syntax.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "contracts-shell-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "contracts-shell-syntax.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "spike-shell-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "spike-shell-syntax.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "source-diff-check",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "source-diff-check.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "current-static-inventory",
+      "exit_code": 0,
+      "stdout_sha256": "7eefac6636ebae5becca9e8bf30bbb12472e4d574f445bad9b62e3161c62b2eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "current-static-inventory.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    },
+    {
+      "name": "current-inventory-exact-check",
+      "exit_code": 0,
+      "stdout_sha256": "7eefac6636ebae5becca9e8bf30bbb12472e4d574f445bad9b62e3161c62b2eb",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "current-inventory-exact-check.meta.json",
+      "record_head_sha": "f08c7692199be43217a45ba51673377ea6103829"
+    }
+  ],
+  "historical_index_file_count": 50,
+  "remote_publish_or_PR_mutation": "NOT_RUN"
+}

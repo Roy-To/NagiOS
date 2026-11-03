@@ -3,66 +3,77 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "current-main fa0e0415d381 revalidation pending; historical 379d evidence invalid for current acceptance",
+  "current_checkpoint": "current-main 0362427747e769b00558053e4c7f4c756d303802 integrated locally; fresh static records tied to f08c7692199be43217a45ba51673377ea6103829; records validation is pending its clean records-only run; A/B remain pending and C is not run",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a",
-    "verified_at": "2026-11-03T02:59:09.856651Z",
-    "normal_state": "Current main fa0e0415d381da76a190f049b07b950fcfdaca98: current A/B remain PENDING and C is NOT_RUN because live ownership/ref refresh, Cargo contract testing, and runtime/build acceptance remain outstanding. The 562-file source inventory and 13 authority hashes were generated and exact-regeneration-checked from caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a; the registry remains unmodified and the clean records-only verifier passed at b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2. Thirty-nine model-free Python tool tests pass; Python syntax, both package fmt checks, both shell syntax checks and source-diff checks pass. No Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, or independent rebuild was performed. Historical 379d evidence remains byte-preserved and invalid for current acceptance.",
+    "commit_sha": "f08c7692199be43217a45ba51673377ea6103829",
+    "verified_at": "2026-11-03T11:11:37Z",
+    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit f08c7692199be43217a45ba51673377ea6103829. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes. The earlier main-fa0 record is indexed SUPERSEDED. 52 model-free Python tests, nine-file Python syntax, two shell syntax checks and exact static inventory regeneration pass. The current records verifier marker remains PENDING until the first clean records-only run; A/B remain PENDING because live ownership/ref and host Cargo checks are unfinished; C remains NOT_RUN. No Cargo build/Clippy, new ELF, QEMU/VM, Miri or independent rebuild was performed; 379d history remains invalid for current acceptance.",
     "commands": [
-      "python3 -m unittest test_audit test_records -v",
-      "python3 -m unittest test_runner test_attestation -v",
-      "python3 -m py_compile on the nine Python tools and tests",
-      "cargo fmt --manifest-path experiments/nagi-aarch64-spike/Cargo.toml -- --check",
-      "cargo fmt --manifest-path experiments/nagi-multiarch-contracts/Cargo.toml -- --check",
-      "sh -n on both package verify.sh scripts",
-      "python3 experiments/nagi-multiarch-contracts/audit.py --base fa0e0415d381da76a190f049b07b950fcfdaca98 --source-commit caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a --output <private-evidence>/source-inventory.json --authority-output <private-evidence>/authority-sources.json",
+      "python3 -m unittest -v test_audit test_records",
+      "python3 -m unittest -v test_attestation test_runner",
+      "python3 -m py_compile on the nine Python tools/tests",
+      "/bin/sh -n experiments/nagi-multiarch-contracts/verify.sh experiments/nagi-aarch64-spike/verify.sh",
+      "python3 experiments/nagi-multiarch-contracts/audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit f08c7692199be43217a45ba51673377ea6103829 --output <private-evidence>/source-inventory.json --authority-output <private-evidence>/authority-sources.json",
       "same explicit-base/source audit command with --check",
-      "NOT_RUN: Cargo check/Clippy/build, ELF, QEMU/VM, Miri, independent rebuild",
-      "python3 docs/porting/multiarch/verify-records.py --main fa0e0415d381da76a190f049b07b950fcfdaca98 --evidence-dir docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98"
+      "NOT_RUN: Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, independent rebuild"
     ],
     "tests": [
       {
-        "name": "Model-free source audit and records-boundary fixtures (16 tests)",
-        "command": "python3 -m unittest test_audit test_records -v",
+        "name": "Contracts audit and full records verifier fixtures (28 tests)",
+        "command": "python3 -m unittest -v test_audit test_records",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-current-main-20261103-01/source-caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a/contracts-python-tests.stderr.log sha256 1a703615c32ac42146a494cf2733e542839f00cadf5de43d361f3fadcb1b47f8"
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/contracts-python-tests.stderr.log sha256 de53f87658c83a321a1236defa173954147eb98a3a9490d83544ef876c0eca59"
       },
       {
-        "name": "Runner and receipt integrity fixtures (23 tests; fake ELF/QEMU/serial only)",
-        "command": "python3 -m unittest test_runner test_attestation -v",
+        "name": "Runner and source-bound receipt fixtures (24 tests; fake ELF/QEMU/serial only)",
+        "command": "python3 -m unittest -v test_attestation test_runner",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-current-main-20261103-01/source-caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a/spike-python-tests.stderr.log sha256 b3faee001e6ccd9f50b7b8b5e3525bdf29c273bcf62188b954dc0820f347cafb"
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/spike-python-tests.stderr.log sha256 9a399e9e3dd79f0b7305e3c7fa8e67a19467be2a901960664f41d7110e25f2e2"
       },
       {
-        "name": "Python/shell syntax and package formatting checks",
-        "command": "python3 -m py_compile; sh -n; cargo fmt -- --check",
+        "name": "Python syntax compilation (9 files)",
+        "command": "python3 -m py_compile on the nine Python tools/tests",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Private source-bound metadata: python-syntax, spike-shell-syntax, contracts-shell-syntax, spike-cargo-fmt, contracts-cargo-fmt"
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/python-syntax.meta.json"
       },
       {
-        "name": "Current explicit-main static inventory and exact regeneration check",
-        "command": "audit.py --base fa0e0415d381da76a190f049b07b950fcfdaca98 --source-commit caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a --output <private-evidence>/source-inventory.json --authority-output <private-evidence>/authority-sources.json --check",
+        "name": "Shell syntax (2 standalone verify.sh scripts)",
+        "command": "/bin/sh -n on both verify.sh scripts",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "source-inventory.json sha256 9f3e9a84c67061739d199a5b1b4fbacfcadf0067e95f5a5c4fe0fd59fdfb1c7a; authority-sources.json sha256 15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a"
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/contracts-shell-syntax.meta.json and spike-shell-syntax.meta.json"
       },
       {
-        "name": "Current-main registry/records verification",
-        "command": "python3 docs/porting/multiarch/verify-records.py --main fa0e0415d381da76a190f049b07b950fcfdaca98 --evidence-dir docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98",
+        "name": "Explicit-main inventory and byte-exact regeneration",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit f08c7692199be43217a45ba51673377ea6103829 --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-current-main-20261103-01/source-caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a/records-verify.stdout.log sha256 68eb6a19696ecfac1fafffe5f7e24c3f5c7cac962be8c1e6cbdc7cd8c3146b5d; record HEAD b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2"
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/current-inventory-exact-check.stdout.log sha256 7eefac6636ebae5becca9e8bf30bbb12472e4d574f445bad9b62e3161c62b2eb"
       },
       {
-        "name": "Current-main Cargo/ELF/QEMU/VM acceptance",
+        "name": "Current-main static inventory",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit f08c7692199be43217a45ba51673377ea6103829",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-p2-20261103-01/source-f08c7692199be43217a45ba51673377ea6103829/current-static-inventory.stdout.log sha256 7eefac6636ebae5becca9e8bf30bbb12472e4d574f445bad9b62e3161c62b2eb"
+      },
+      {
+        "name": "Current-main records-only verifier",
+        "command": "NOT_RUN until the evidence commit is clean",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "records_validation remains PENDING until the clean records-only run"
+      },
+      {
+        "name": "Cargo/ELF/QEMU/VM/Miri/independent rebuild",
         "command": "NOT_RUN by phase boundary",
         "outcome": "NOT_RUN",
         "exit_code": null,
-        "evidence": "No Cargo build, new ELF, QEMU, VM, Miri or independent rebuild"
+        "evidence": "No Cargo build, new ELF, QEMU/VM, Miri or independent rebuild."
       }
     ],
     "ci_runs": []
@@ -75,15 +86,17 @@
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "Current-main A/B/C acceptance is pending; no fresh Cargo build, ELF, QEMU run, or VM result exists. Production D/E and shared registration remain gated by M30 and owner checkpoint.",
+    "summary": "Current-main 0362427747e769b00558053e4c7f4c756d303802 A/B acceptance remains pending live ownership/ref and host Cargo checks; C has no fresh Cargo build, ELF, QEMU run, or VM result. Production D/E and shared registration remain gated by M30 and owner checkpoint.",
     "reproduction_commands": [
       "Read docs/implementation_status.md and os-core registry activation_gate",
       "./nagi dev resume"
     ],
-    "failure_log_summary": "No failure asserted; current-main runtime acceptance has not been run.",
+    "failure_log_summary": "No current-main acceptance failure is asserted. Model-free tool tests, syntax/shell checks and inventory exact-check pass; actual Cargo/ELF/QEMU/VM execution remains NOT_RUN.",
     "attempted_fixes": [
-      "Preserved the historical 379d19e evidence and marked it invalid for current-main acceptance",
-      "Prepared explicit-current-main inventory and source-bound evidence tools in the owned experiment/document paths"
+      "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
+      "Updated inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit",
+      "Bound builds and runs to an archived read-only source snapshot with clean environments and ambient Cargo-config rejection",
+      "Added end-to-end receipt and records verifier fixtures, strict phase/hash/drift checks, and a hash index for superseded main records"
     ],
     "do_not_try": [
       "Do not relax M30 or v5 validation, rewrite production ABI or bypass rights",
@@ -92,7 +105,7 @@
       "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
     ]
   },
-  "next_action": "Complete current-main static records checks, then separately authorize and run the source-bound host/build/QEMU acceptance. Keep D/E and registration gated by M30 and owner review.",
+  "next_action": "Keep D/E and registration gated. After the existing owner checkpoint, separately perform the source-bound host/build/QEMU acceptance and independent rebuild review; no result here implies phase C.",
   "acceptance_criteria": [
     "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
     "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",
@@ -109,13 +122,13 @@
     {
       "workstream_id": "os-core",
       "contract": "Production kernel/ABI ownership and bounded M30 checkpoint",
-      "version": "existing registry at current main fa0e0415d381da76a190f049b07b950fcfdaca98",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
       "status": "BLOCKED"
     },
     {
       "workstream_id": "integration-next-phase",
       "contract": "Shared registration, ABI consumers, workspace/CI and release boundary",
-      "version": "existing registry at current main fa0e0415d381da76a190f049b07b950fcfdaca98",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
       "status": "Registration proposed; no adoption requested or applied"
     }
   ]
