@@ -17,24 +17,34 @@ by main. The former `main-fa0e0415d381da76a190f049b07b950fcfdaca98` record direc
 the `0362427747e769b00558053e4c7f4c756d303802` records are indexed as CURRENT. Existing 379d historical evidence,
 `validation-evidence.json`, and the handwritten EL2 summary remain byte-preserved.
 
-Current A/B status remains PENDING and C is NOT_RUN. The new inventory and
-authority records are generated from an explicit full `--base` and fixed source
-commit. `attest.py` requires source commit/tree/main, archives that exact commit,
-builds from a read-only snapshot, discards inherited build/runtime variables,
-hash-verifies committed snapshot Cargo config, rejects external ancestor and
-isolated Cargo-home config, and sends only a newly built ELF to the observational
-runner. It verifies exact manifests, source/build/run bindings and
-both build hashes. A DIFFERENT two-build result reports reproducibility failure
-with exit 2. Receipt JSON and hashes remain forgeable, so independent rebuild and
-review are still required.
+Current A/B status remains PENDING and C is NOT_RUN. The inventory and authority
+records are generated with explicit full base 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit
+fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50. The fixed-main diff still has no changes under the owned
+multiarch, contract, and spike prefixes. Existing 379d historical evidence,
+validation-evidence.json, and the handwritten EL2 summary remain byte-preserved.
 
-The model-free fixture suites pass 60 tests (30 audit/records and 30
-runner/attestation tests); Python syntax compilation passes for nine tools. The
-final fixed source and record commits are checked by explicit-base inventory
-and records verification. No real Cargo build/check/Clippy, new ELF, QEMU/VM,
-Miri, independent rebuild, push, or PR mutation was performed. Current runtime
-validation remains NOT_RUN.
+The 60 model-free fixture suites (30 audit/records and 30 runner/attestation),
+nine-file Python syntax check, two shell syntax checks, and explicit-base
+inventory check pass for the fixed source snapshot. The pinned host verification
+entry point now selects nightly-2025-08-01 for Cargo and Rust tools and passed
+locked/offline contract tests (99 unit tests, 0 doctests), cargo fmt, strict
+Clippy with warnings denied, 16 BootInfo tests, and 5 ABI tests.
 
+Earlier host attempts remain failures. The first unpinned stable invocation
+exited 101 with E0658 for unsigned_is_multiple_of; its per-command metadata did
+not capture the effective rustc version, so the exact old compiler version is
+not asserted here. A nightly-labeled run also failed E0658 while the effective
+cargo child compiler was not attested. A later temporary feature-gate attempt
+failed, and the pinned-nightly test run on 38f95bac passed tests but strict
+Clippy rejected the now-unnecessary feature attribute. Those attempts remain
+separate from the FE52 pinned-nightly PASS.
+
+Phase A remains PENDING while live ownership/ref review is NOT_RUN. Phase B
+remains PENDING because the architecture proposal is PROPOSED_UNREGISTERED and
+still needs owner review, despite the host-test subcheck passing. Phase C stays
+NOT_RUN: no AArch64-target Cargo build, new ELF, actual QEMU/VM, Miri, or
+independent rebuild was performed. No push, PR mutation, or remote merge was
+performed.
 ## Review remediation: generator and records validation
 
 attest.py allows Cargo config only when .cargo/config or .cargo/config.toml is
