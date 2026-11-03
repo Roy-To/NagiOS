@@ -216,6 +216,33 @@ fn busy_and_participant_half_open_windows_keep_the_last_valid_slot() {
 }
 
 #[test]
+fn busy_buffer_arithmetic_overflow_is_rejected_at_signed_limits() {
+    let mut before_request = request(i64::MIN, i64::MIN + 10, 1, 1);
+    before_request.buffer_before_micros = 1;
+    let before_busy = [interval(i64::MIN, i64::MIN + 5).unwrap()];
+    assert_eq!(
+        find_availability(&before_request, &before_busy),
+        Err(Error::Overflow)
+    );
+    assert_eq!(
+        find_availability(&before_request, &before_busy).map(pairs),
+        reference_enumeration(&before_request, &before_busy)
+    );
+
+    let mut after_request = request(i64::MAX - 10, i64::MAX, 1, 1);
+    after_request.buffer_after_micros = 1;
+    let after_busy = [interval(i64::MAX - 5, i64::MAX).unwrap()];
+    assert_eq!(
+        find_availability(&after_request, &after_busy),
+        Err(Error::Overflow)
+    );
+    assert_eq!(
+        find_availability(&after_request, &after_busy).map(pairs),
+        reference_enumeration(&after_request, &after_busy)
+    );
+}
+
+#[test]
 fn an_unfittable_aligned_start_skips_only_that_free_region() {
     let request = request(1, i64::MAX, 1, i64::MAX);
     let busy = [interval(1, i64::MAX - 1).unwrap()];
