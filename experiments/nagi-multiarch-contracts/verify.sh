@@ -1,6 +1,17 @@
 #!/usr/bin/env sh
 set -eu
 cd "$(dirname "$0")"
+
+# Ensure Cargo, rustc, rustdoc and Rust tools all use the repository-pinned toolchain.
+toolchain=nightly-2025-08-01
+rustc_path=$(rustup which rustc --toolchain "$toolchain")
+toolchain_bin=${rustc_path%/*}
+PATH="$toolchain_bin:$PATH"
+RUSTUP_TOOLCHAIN=$toolchain
+RUSTC=$toolchain_bin/rustc
+RUSTDOC=$toolchain_bin/rustdoc
+RUSTFMT=$toolchain_bin/rustfmt
+export PATH RUSTUP_TOOLCHAIN RUSTC RUSTDOC RUSTFMT
 python3 -m unittest test_audit test_records -v
 cargo fmt -- --check
 cargo test --locked --offline
