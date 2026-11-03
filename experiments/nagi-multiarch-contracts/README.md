@@ -9,16 +9,19 @@ linker, Python 3. On the verified Debian 13 x86-64 host:
 
 ```sh
 ./experiments/nagi-multiarch-contracts/verify.sh
-python3 experiments/nagi-multiarch-contracts/audit.py \\
-  --base fa0e0415d381da76a190f049b07b950fcfdaca98 \\
-  --output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/source-inventory.json \\
-  --authority-output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/authority-sources.json \\
+python3 experiments/nagi-multiarch-contracts/audit.py \
+  --base fa0e0415d381da76a190f049b07b950fcfdaca98 \
+  --source-commit SOURCE_COMMIT_SHA \
+  --output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/source-inventory.json \
+  --authority-output docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/authority-sources.json \
   --check
 ```
 
-The base is deliberately a full commit SHA; the audit has no origin/main or
-other moving-ref fallback. Regenerate the evidence only after reviewing a new
-explicit base and recording that SHA in the candidate.
+The base and source are explicit full commit SHAs; the audit has no origin/main
+or other moving-ref fallback. It reads source blobs from that immutable source
+commit, so --check can reproduce a source inventory from a clean records-only
+child without rebinding it to the child's HEAD. Regenerate evidence only after
+reviewing a new explicit main base and source commit.
 
 The local Cargo workspace has only path dependencies on unchanged nagi-abi and
 nagi-bootinfo. Test-only `#[path]` modules read production source directly:

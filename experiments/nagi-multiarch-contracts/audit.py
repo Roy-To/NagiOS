@@ -58,8 +58,18 @@ def full_commit(root, value):
     result = git(root, "rev-parse", "--verify", f"{value}^{{commit}}", check=False)
     resolved = result.stdout.strip()
     if result.returncode != 0 or resolved != value:
-        raise AuditError("base must resolve exactly to the supplied full commit SHA")
+        raise AuditError("commit must resolve exactly to the supplied full commit SHA")
     return resolved
+
+
+def commit_blob(root, commit, path):
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{path}"],
+        cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    if result.returncode != 0:
+        raise AuditError(result.stderr.decode("utf-8", errors="replace").strip() or f"cannot read {commit}:{path}")
+    return result.stdout
 
 
 def guard_untracked_paths(root):
@@ -85,22 +95,28 @@ def require_tracked_clean(root):
     }
 
 
-def inventory(root=ROOT, base=None):
+def inventory(root=ROOT, base=None, source_commit=None):
     if base is None:
         raise AuditError("an explicit --base commit is required")
     base = full_commit(root, base)
     head = git(root, "rev-parse", "HEAD").stdout.strip()
-    tree = git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
-    ancestor = git(root, "merge-base", "--is-ancestor", base, head, check=False)
+    if source_commit is None:
+        source_commit = head
+    source_commit = full_commit(root, source_commit)
+    source_is_ancestor = git(root, "merge-base", "--is-ancestor", source_commit, head, check=False)
+    if source_is_ancestor.returncode != 0:
+        raise AuditError("source commit must be an ancestor of the inspected records commit")
+    ancestor = git(root, "merge-base", "--is-ancestor", base, source_commit, check=False)
     if ancestor.returncode != 0:
         raise AuditError("base must be an ancestor of the inspected source commit")
+    tree = git(root, "rev-parse", f"{source_commit}^{{tree}}").stdout.strip()
     clean = require_tracked_clean(root)
-    paths = git(root, "ls-files").stdout.splitlines()
+    paths = git(root, "ls-tree", "-r", "--name-only", source_commit).stdout.splitlines()
     files, matches, consumers = [], [], []
     for name in paths:
         if not name.startswith(SOURCE_PREFIXES) or not name.endswith(SOURCE_SUFFIXES):
             continue
-        data = (Path(root) / name).read_bytes()
+        data = commit_blob(root, source_commit, name)
         try:
             lines = data.decode("utf-8").splitlines()
         except UnicodeDecodeError:
@@ -116,10 +132,10 @@ def inventory(root=ROOT, base=None):
                         consumers.append({"path": name, "line": line, "field": field, "text": text.strip()})
     return {
         "baseline_sha": base,
-        "source_commit_sha": head,
+        "source_commit_sha": source_commit,
         "source_tree_sha": tree,
         "source_status": clean,
-        "scope": "tracked production/tool/test source; tests and comments included; indirect assumptions need semantic review",
+        "scope": "tracked production/tool/test source read from the immutable source commit; tests and comments included; indirect assumptions need semantic review",
         "rules": RULES,
         "files": files,
         "matches": matches,
@@ -127,10 +143,12 @@ def inventory(root=ROOT, base=None):
     }
 
 
-def authority_sources(root=ROOT):
+def authority_sources(root=ROOT, source_commit=None):
     result = {}
+    if source_commit is not None:
+        source_commit = full_commit(root, source_commit)
     for name in AUTHORITY_PATHS:
-        data = (Path(root) / name).read_bytes()
+        data = commit_blob(root, source_commit, name) if source_commit else (Path(root) / name).read_bytes()
         result[name] = hashlib.sha256(data).hexdigest()
     return result
 
@@ -158,15 +176,16 @@ def write_or_check(path, content, check):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", required=True, help="explicit full 40-character baseline commit SHA")
+    parser.add_argument("--source-commit", required=True, help="explicit full SHA of the source snapshot to inventory")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--authority-output", type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
     try:
-        result = inventory(ROOT, args.base)
+        result = inventory(ROOT, args.base, args.source_commit)
         write_or_check(args.output, encode_record(result), args.check)
         if args.authority_output:
-            authority = authority_sources(ROOT)
+            authority = authority_sources(ROOT, args.source_commit)
             write_or_check(args.authority_output, json.dumps(authority, indent=2) + "\n", args.check)
     except (AuditError, OSError) as exc:
         parser.error(str(exc))
