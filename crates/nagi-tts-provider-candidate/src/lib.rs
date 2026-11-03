@@ -1,12 +1,33 @@
+//! Host-only candidate for the M25 Japanese TTS provider.
+//!
+//! This standalone std crate is separate from the existing nagi-tts-provider,
+//! which remains the main no-std/Nagi-target implementation and keeps its own
+//! real-engine CI. This candidate is not connected to AudioService or the
+//! runtime and does not select a canonical provider. SpeechSynthesisService<P,
+//! S> owns P by value; the candidate assumes exclusive ownership. External
+//! shared-handle memory-pressure unload while speak is running is unsupported.
+//!
+//! Model-free tests cover bounded planning, framing, state transitions, hashes,
+//! and rejection paths. Fixed asset hashes do not prove that the voice or
+//! dictionary decodes. Synthetic bytes cannot reach VoiceDecode,
+//! DictionaryDecode, or UnsupportedVoice after fixed digest checks; only the
+//! locked assets can exercise those paths, and matching their hashes does not
+//! prove that decoding succeeds. Real voice shape, sil/pau labels, engine
+//! end-of-stream behavior, loaded-engine reload recovery, memory, and latency
+//! need the pinned assets.
+//!
+//! Runtime adoption remains HOLD: 1 MiB of stereo 48 kHz S16LE lasts about
+//! 5.46 seconds, while text is capped at 1024 bytes; begin/voice LPF settings
+//! are unverified; device cancel/STOP and residual playback are not handled;
+//! mono output can be rejected late; kernel PCM erase scope is unverified;
+//! no-std conversion and guest audio playback are unverified; and the canonical
+//! provider choice remains open.
 mod assets;
 
 pub use assets::{AssetError, DictionaryAssets, LOCKED_VOICE_BYTES};
 
 use jbonsai::{
-    duration::DurationEstimator,
-    engine::{Engine, EngineError},
-    model::Models,
-    speech::SpeechGenerator,
+    duration::DurationEstimator, engine::Engine, model::Models, speech::SpeechGenerator,
 };
 use jpreprocess::{DefaultTokenizer, JPreprocess};
 use nagi_audio::{
@@ -18,6 +39,37 @@ use nagi_audio::{
     },
     PcmFormat,
 };
+
+/// Payload-free diagnostics for the last candidate provider failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CandidateFailure {
+    InvalidText,
+    TooLong,
+    Format,
+    Language,
+    Engine,
+    Unavailable,
+    OutputTooSmall,
+}
+
+impl CandidateFailure {
+    const fn provider_error(self) -> SpeechProviderError {
+        match self {
+            Self::Unavailable | Self::Language => SpeechProviderError::Unavailable,
+            Self::OutputTooSmall => SpeechProviderError::OutputTooSmall,
+            Self::InvalidText | Self::TooLong | Self::Format | Self::Engine => {
+                SpeechProviderError::Failed
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalState {
+    Idle,
+    Empty,
+    EndPending,
+}
 
 const VOICE_SAMPLE_RATE: usize = 48_000;
 const VOICE_FRAME_SAMPLES: usize = 240;
@@ -37,7 +89,7 @@ struct LoadedEngine {
     engine: Engine,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OutputMode {
     Stereo48Khz,
     Mono16Khz,
@@ -97,6 +149,7 @@ struct ActiveUtterance<G = SpeechGenerator> {
 }
 
 struct Scratch {
+    terminal: TerminalState,
     engine_samples: [f64; VOICE_FRAME_SAMPLES],
     stereo_frame: [u8; STEREO_BYTES_PER_FRAME],
     mono_frame: [u8; VOICE_FRAME_SAMPLES * 2],
@@ -106,6 +159,7 @@ struct Scratch {
 impl Scratch {
     fn new() -> Self {
         Self {
+            terminal: TerminalState::Idle,
             engine_samples: [0.0; VOICE_FRAME_SAMPLES],
             stereo_frame: [0; STEREO_BYTES_PER_FRAME],
             mono_frame: [0; VOICE_FRAME_SAMPLES * 2],
@@ -114,6 +168,7 @@ impl Scratch {
     }
 
     fn clear(&mut self) {
+        self.terminal = TerminalState::Idle;
         self.engine_samples.fill(0.0);
         self.stereo_frame.fill(0);
         self.mono_frame.fill(0);
@@ -121,7 +176,8 @@ impl Scratch {
     }
 
     fn is_clear(&self) -> bool {
-        self.engine_samples.iter().all(|sample| *sample == 0.0)
+        self.terminal == TerminalState::Idle
+            && self.engine_samples.iter().all(|sample| *sample == 0.0)
             && self.stereo_frame.iter().all(|byte| *byte == 0)
             && self.mono_frame.iter().all(|byte| *byte == 0)
     }
@@ -135,6 +191,7 @@ pub struct LocalTtsProvider {
     loaded: Option<LoadedEngine>,
     active: Option<ActiveUtterance>,
     scratch: Scratch,
+    last_failure: Option<CandidateFailure>,
 }
 
 impl LocalTtsProvider {
@@ -144,6 +201,7 @@ impl LocalTtsProvider {
             loaded: None,
             active: None,
             scratch: Scratch::new(),
+            last_failure: None,
         }
     }
 
@@ -154,32 +212,49 @@ impl LocalTtsProvider {
             loaded: Some(loaded),
             active: None,
             scratch: Scratch::new(),
+            last_failure: None,
         })
     }
 
     /// Drops all loaded assets, including after a memory-pressure request.
     pub fn unload(&mut self) {
         unload_state(&mut self.loaded, &mut self.active, &mut self.scratch);
+        self.last_failure = None;
     }
 
     /// A replacement is installed only after its voice, dictionary, and engine
     /// have all passed validation. Errors leave the current stream and assets intact.
     pub fn reload(&mut self, voice: &[u8], dictionary: DictionaryAssets) -> Result<(), AssetError> {
         let replacement = load_verified_engine(voice, dictionary);
-        install_verified_replacement(
+        let result = install_verified_replacement(
             &mut self.loaded,
             &mut self.active,
             &mut self.scratch,
             replacement,
-        )
+        );
+        if result.is_ok() {
+            self.last_failure = None;
+        }
+        result
     }
 
     pub fn is_clear(&self) -> bool {
         self.active.is_none() && self.scratch.is_clear()
     }
 
+    /// Returns the last failure category without retaining request text or PCM.
+    pub fn last_failure(&self) -> Option<CandidateFailure> {
+        self.last_failure
+    }
+
+    fn record_failure(&mut self, failure: CandidateFailure) -> SpeechProviderError {
+        self.last_failure = Some(failure);
+        failure.provider_error()
+    }
+
     fn cancel_inner(&mut self) {
         cancel_stream(&mut self.active, &mut self.scratch);
+        self.last_failure = None;
     }
 }
 
@@ -201,7 +276,7 @@ fn load_verified_engine(
 }
 
 fn prepare_begin<T>(active: &Option<T>, scratch: &mut Scratch) -> Result<(), SpeechProviderError> {
-    if active.is_some() {
+    if active.is_some() || scratch.terminal != TerminalState::Idle {
         return Err(SpeechProviderError::Failed);
     }
     scratch.clear();
@@ -242,44 +317,56 @@ impl TextToSpeechProvider for LocalTtsProvider {
         text: &str,
         options: SpeechSynthesisOptions,
     ) -> Result<(), SpeechProviderError> {
-        prepare_begin(&self.active, &mut self.scratch)?;
-
-        if !validate_request(text, options.language, options.pcm_format) {
-            return Err(SpeechProviderError::Failed);
+        if let Err(error) = prepare_begin(&self.active, &mut self.scratch) {
+            self.last_failure = Some(CandidateFailure::Engine);
+            return Err(error);
         }
-        let mode =
-            OutputMode::from_format(options.pcm_format).ok_or(SpeechProviderError::Failed)?;
-        let loaded = self
-            .loaded
-            .as_ref()
-            .ok_or(SpeechProviderError::Unavailable)?;
+        self.last_failure = None;
 
-        let labels = loaded
-            .frontend
-            .extract_fullcontext(text)
-            .map_err(|_| SpeechProviderError::Failed)?;
-        if labels.is_empty() || labels.len() > MAX_FULL_CONTEXT_LABELS {
-            return Err(SpeechProviderError::Failed);
+        let mode = match validate_begin(
+            text,
+            OutputMode::from_format(options.pcm_format),
+            self.loaded.is_some(),
+        ) {
+            Ok(mode) => mode,
+            Err(failure) => return Err(self.record_failure(failure)),
+        };
+        if let Err(failure) = validate_language(options.language) {
+            return Err(self.record_failure(failure));
         }
 
-        let plan = plan_output(&loaded.engine, &labels, mode).ok_or(SpeechProviderError::Failed)?;
-        let generator = loaded.engine.generator(labels).map_err(map_engine_error)?;
-
-        self.active = Some(ActiveUtterance {
-            generator,
-            plan,
-            next_engine_frame: 0,
-            emitted_frames: 0,
-            emitted_bytes: 0,
-        });
-        Ok(())
+        let prepared = match self.loaded.as_ref() {
+            Some(loaded) => prepare_synthesis(loaded, text, mode),
+            None => return Err(self.record_failure(CandidateFailure::Unavailable)),
+        };
+        match prepared {
+            Ok(Some(active)) => {
+                self.active = Some(active);
+                Ok(())
+            }
+            Ok(None) => {
+                self.scratch.terminal = TerminalState::Empty;
+                Ok(())
+            }
+            Err(failure) => Err(self.record_failure(failure)),
+        }
     }
 
     fn next_pcm_chunk(
         &mut self,
         destination: &mut [u8],
     ) -> Result<SynthesisPcmChunk, SpeechProviderError> {
-        next_stream_chunk(&mut self.active, &mut self.scratch, destination)
+        match next_stream_chunk(&mut self.active, &mut self.scratch, destination) {
+            Ok(chunk) => Ok(chunk),
+            Err(error) => {
+                self.last_failure = Some(match error {
+                    SpeechProviderError::Unavailable => CandidateFailure::Unavailable,
+                    SpeechProviderError::OutputTooSmall => CandidateFailure::OutputTooSmall,
+                    SpeechProviderError::Failed => CandidateFailure::Engine,
+                });
+                Err(error)
+            }
+        }
     }
 
     fn cancel(&mut self) {
@@ -293,13 +380,29 @@ fn next_stream_chunk<G: FrameGenerator>(
     destination: &mut [u8],
 ) -> Result<SynthesisPcmChunk, SpeechProviderError> {
     let Some(current) = active.as_ref() else {
-        return Ok(SynthesisPcmChunk::End);
+        return match scratch.terminal {
+            TerminalState::Empty | TerminalState::EndPending => {
+                scratch.clear();
+                Ok(SynthesisPcmChunk::End)
+            }
+            TerminalState::Idle => {
+                scratch.clear();
+                Err(SpeechProviderError::Failed)
+            }
+        };
     };
+    if scratch.terminal != TerminalState::Idle {
+        cancel_stream(active, scratch);
+        return Err(SpeechProviderError::Failed);
+    }
     let chunk_limit = checked_chunk_limit(destination.len(), current.plan.mode)?;
     destination[..chunk_limit].fill(0);
     let progress = match active.as_mut() {
         Some(current) => produce_chunk(current, scratch, destination, chunk_limit),
-        None => return Ok(SynthesisPcmChunk::End),
+        None => {
+            cancel_stream(active, scratch);
+            return Err(SpeechProviderError::Failed);
+        }
     };
     match progress {
         Ok(ChunkProgress {
@@ -309,12 +412,18 @@ fn next_stream_chunk<G: FrameGenerator>(
             cancel_stream(active, scratch);
             Ok(SynthesisPcmChunk::End)
         }
-        Ok(ChunkProgress { bytes, finished }) => {
-            if finished {
-                cancel_stream(active, scratch);
-            }
+        Ok(ChunkProgress {
+            bytes,
+            finished: true,
+        }) => {
+            cancel_stream(active, scratch);
+            scratch.terminal = TerminalState::EndPending;
             Ok(SynthesisPcmChunk::Data(bytes))
         }
+        Ok(ChunkProgress {
+            bytes,
+            finished: false,
+        }) => Ok(SynthesisPcmChunk::Data(bytes)),
         Err(error) => {
             destination[..chunk_limit].fill(0);
             cancel_stream(active, scratch);
@@ -648,18 +757,64 @@ fn checked_output_bytes(
     frames.checked_mul(mode.bytes_per_frame())
 }
 
-fn map_engine_error(_error: EngineError) -> SpeechProviderError {
-    SpeechProviderError::Failed
+fn validate_begin(
+    text: &str,
+    requested_mode: Option<OutputMode>,
+    loaded: bool,
+) -> Result<OutputMode, CandidateFailure> {
+    if text.is_empty() {
+        return Err(CandidateFailure::InvalidText);
+    }
+    if text.len() > MAX_SPEECH_SYNTHESIS_TEXT_BYTES {
+        return Err(CandidateFailure::TooLong);
+    }
+    let mode = requested_mode.ok_or(CandidateFailure::Format)?;
+    if !loaded {
+        return Err(CandidateFailure::Unavailable);
+    }
+    Ok(mode)
 }
 
-fn validate_request(text: &str, language: SpeechSynthesisLanguage, format: PcmFormat) -> bool {
-    !text.is_empty()
-        && text.len() <= MAX_SPEECH_SYNTHESIS_TEXT_BYTES
-        && matches!(
-            language,
-            SpeechSynthesisLanguage::Auto | SpeechSynthesisLanguage::Japanese
-        )
-        && OutputMode::from_format(format).is_some()
+fn validate_language(language: SpeechSynthesisLanguage) -> Result<(), CandidateFailure> {
+    match language {
+        SpeechSynthesisLanguage::Auto | SpeechSynthesisLanguage::Japanese => Ok(()),
+        SpeechSynthesisLanguage::English => Err(CandidateFailure::Language),
+    }
+}
+
+fn phonemes_are_silence_only<'a>(phonemes: impl IntoIterator<Item = Option<&'a str>>) -> bool {
+    phonemes.into_iter().all(is_silence_phoneme)
+}
+
+fn prepare_synthesis(
+    loaded: &LoadedEngine,
+    text: &str,
+    mode: OutputMode,
+) -> Result<Option<ActiveUtterance>, CandidateFailure> {
+    let labels = loaded
+        .frontend
+        .extract_fullcontext(text)
+        .map_err(|_| CandidateFailure::Engine)?;
+    if labels.len() > MAX_FULL_CONTEXT_LABELS {
+        return Err(CandidateFailure::Engine);
+    }
+    if phonemes_are_silence_only(labels.iter().map(|label| label.phoneme.c.as_deref())) {
+        return Ok(None);
+    }
+
+    let plan = plan_output(&loaded.engine, &labels, mode).ok_or(CandidateFailure::Engine)?;
+    let generator = loaded
+        .engine
+        .generator(labels)
+        .map_err(|_| CandidateFailure::Engine)?;
+
+    Ok(Some(ActiveUtterance {
+        generator,
+        plan,
+        next_engine_frame: 0,
+        emitted_frames: 0,
+        emitted_bytes: 0,
+    }))
 }
 
 #[cfg(test)]
@@ -669,14 +824,15 @@ mod boundary_tests;
 mod tests {
     use super::{
         checked_chunk_limit, checked_output_bytes, checked_synthesis_output_bytes, encode_sample,
-        install_verified_replacement, is_silence_phoneme, plan_frame_window, prepare_begin,
-        validate_request, LocalTtsProvider, OutputMode, MONO_RESAMPLER_TAIL_BYTES,
+        install_verified_replacement, is_silence_phoneme, phonemes_are_silence_only,
+        plan_frame_window, prepare_begin, validate_begin, validate_language, CandidateFailure,
+        LocalTtsProvider, OutputMode, TerminalState, MONO_RESAMPLER_TAIL_BYTES,
         STEREO_BYTES_PER_FRAME, VOICE_FRAME_SAMPLES,
     };
     use nagi_audio::speech::{
-        SpeechProviderError, SpeechSynthesisLanguage, Stereo48KhzToMono16Khz, TextToSpeechProvider,
-        MAX_SPEECH_PCM_CHUNK_BYTES, MAX_SPEECH_SYNTHESIS_TEXT_BYTES,
-        MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES,
+        SpeechProviderError, SpeechSynthesisLanguage, SpeechSynthesisOptions,
+        Stereo48KhzToMono16Khz, TextToSpeechProvider, MAX_SPEECH_PCM_CHUNK_BYTES,
+        MAX_SPEECH_SYNTHESIS_TEXT_BYTES, MAX_SPEECH_SYNTHESIS_UTTERANCE_BYTES,
     };
     use nagi_audio::PcmFormat;
 
@@ -748,37 +904,73 @@ mod tests {
     }
 
     #[test]
-    fn request_gate_preserves_only_supported_language_and_formats() {
-        assert!(validate_request(
-            "こんにちは",
-            SpeechSynthesisLanguage::Japanese,
-            PcmFormat::stereo_48khz()
-        ));
-        assert!(validate_request(
-            "こんにちは",
-            SpeechSynthesisLanguage::Auto,
-            PcmFormat::mono_16khz()
-        ));
-        assert!(!validate_request(
-            "hello",
-            SpeechSynthesisLanguage::English,
-            PcmFormat::stereo_48khz()
-        ));
-        assert!(!validate_request(
-            "",
-            SpeechSynthesisLanguage::Japanese,
-            PcmFormat::stereo_48khz()
-        ));
-        assert!(!validate_request(
-            "x".repeat(MAX_SPEECH_SYNTHESIS_TEXT_BYTES + 1).as_str(),
-            SpeechSynthesisLanguage::Japanese,
-            PcmFormat::stereo_48khz()
-        ));
-        assert!(validate_request(
-            "ok",
-            SpeechSynthesisLanguage::Japanese,
-            PcmFormat::stereo_48khz(),
-        ));
+    fn request_gate_fixes_format_availability_and_language_priority() {
+        assert_eq!(
+            validate_begin("こんにちは", Some(OutputMode::Stereo48Khz), true),
+            Ok(OutputMode::Stereo48Khz)
+        );
+        assert_eq!(
+            validate_begin("こんにちは", Some(OutputMode::Mono16Khz), true),
+            Ok(OutputMode::Mono16Khz)
+        );
+        assert_eq!(
+            validate_begin("", Some(OutputMode::Stereo48Khz), true),
+            Err(CandidateFailure::InvalidText)
+        );
+        assert_eq!(
+            validate_begin(
+                "x".repeat(MAX_SPEECH_SYNTHESIS_TEXT_BYTES + 1).as_str(),
+                Some(OutputMode::Stereo48Khz),
+                true
+            ),
+            Err(CandidateFailure::TooLong)
+        );
+        assert_eq!(
+            validate_begin("ok", None, false),
+            Err(CandidateFailure::Format),
+            "an invalid format must win over an unloaded engine"
+        );
+        assert_eq!(
+            validate_begin("ok", Some(OutputMode::Stereo48Khz), false),
+            Err(CandidateFailure::Unavailable)
+        );
+        assert_eq!(validate_language(SpeechSynthesisLanguage::Japanese), Ok(()));
+        assert_eq!(validate_language(SpeechSynthesisLanguage::Auto), Ok(()));
+        assert_eq!(
+            validate_language(SpeechSynthesisLanguage::English),
+            Err(CandidateFailure::Language)
+        );
+        assert_eq!(
+            CandidateFailure::Language.provider_error(),
+            SpeechProviderError::Unavailable
+        );
+    }
+
+    #[test]
+    fn silence_only_phonemes_are_a_valid_empty_synthesis() {
+        assert!(phonemes_are_silence_only([None, Some("sil"), Some("pau")]));
+        assert!(!phonemes_are_silence_only([
+            Some("sil"),
+            Some("a"),
+            Some("pau")
+        ]));
+        assert!(phonemes_are_silence_only([]));
+    }
+
+    #[test]
+    fn empty_stream_emits_end_once_and_idle_stream_fails() {
+        let mut active: Option<super::ActiveUtterance> = None;
+        let mut scratch = super::Scratch::new();
+        scratch.terminal = TerminalState::Empty;
+        assert_eq!(
+            super::next_stream_chunk(&mut active, &mut scratch, &mut [0; 4096]),
+            Ok(super::SynthesisPcmChunk::End)
+        );
+        assert!(scratch.is_clear());
+        assert_eq!(
+            super::next_stream_chunk(&mut active, &mut scratch, &mut [0; 4096]),
+            Err(SpeechProviderError::Failed)
+        );
     }
 
     #[test]
@@ -851,6 +1043,125 @@ mod tests {
         provider.cancel();
         provider.cancel();
         assert!(provider.is_clear());
+    }
+
+    #[test]
+    fn inactive_provider_reports_failed_instead_of_end() {
+        let mut provider = LocalTtsProvider::unloaded();
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+    }
+
+    #[test]
+    fn cancelled_or_unloaded_provider_does_not_report_end() {
+        let mut provider = LocalTtsProvider::unloaded();
+        provider.cancel();
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+
+        provider.unload();
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+    }
+
+    #[test]
+    fn failed_begin_and_failed_reload_do_not_report_end() {
+        let mut provider = LocalTtsProvider::unloaded();
+        let options = SpeechSynthesisOptions {
+            language: SpeechSynthesisLanguage::Japanese,
+            pcm_format: PcmFormat::stereo_48khz(),
+        };
+        assert_eq!(
+            provider.begin("こんにちは", options),
+            Err(SpeechProviderError::Unavailable)
+        );
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+
+        let dictionary = super::DictionaryAssets {
+            metadata_json: Vec::new(),
+            char_def_bin: Vec::new(),
+            matrix_mtx: Vec::new(),
+            dict_da: Vec::new(),
+            dict_vals: Vec::new(),
+            dict_wordsidx: Vec::new(),
+            dict_words: Vec::new(),
+            unk_bin: Vec::new(),
+        };
+        assert_eq!(
+            provider.reload(&[], dictionary),
+            Err(super::AssetError::VoiceMismatch)
+        );
+        assert!(provider.is_clear());
+        assert_eq!(
+            provider.begin("こんにちは", options),
+            Err(SpeechProviderError::Unavailable)
+        );
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+    }
+
+    #[test]
+    fn failure_diagnostics_are_payload_free_and_distinguish_categories() {
+        let mut provider = LocalTtsProvider::unloaded();
+        let mut options = SpeechSynthesisOptions {
+            language: SpeechSynthesisLanguage::Japanese,
+            pcm_format: PcmFormat::stereo_48khz(),
+        };
+        let oversized = "x".repeat(MAX_SPEECH_SYNTHESIS_TEXT_BYTES + 1);
+        assert_eq!(
+            provider.begin(&oversized, options),
+            Err(SpeechProviderError::Failed)
+        );
+        assert_eq!(provider.last_failure(), Some(CandidateFailure::TooLong));
+
+        assert_eq!(
+            provider.begin("こんにちは", options),
+            Err(SpeechProviderError::Unavailable)
+        );
+        assert_eq!(provider.last_failure(), Some(CandidateFailure::Unavailable));
+
+        provider.cancel();
+        assert_eq!(provider.last_failure(), None);
+        assert_eq!(
+            provider.next_pcm_chunk(&mut [0; MAX_SPEECH_PCM_CHUNK_BYTES]),
+            Err(SpeechProviderError::Failed)
+        );
+        assert_eq!(provider.last_failure(), Some(CandidateFailure::Engine));
+
+        options.language = SpeechSynthesisLanguage::English;
+        assert_eq!(
+            validate_language(options.language),
+            Err(CandidateFailure::Language)
+        );
+        assert_eq!(
+            CandidateFailure::Language.provider_error(),
+            SpeechProviderError::Unavailable
+        );
+    }
+
+    #[test]
+    fn unsupported_language_is_unavailable_like_the_existing_provider() {
+        let mut provider = LocalTtsProvider::unloaded();
+        let options = SpeechSynthesisOptions {
+            language: SpeechSynthesisLanguage::English,
+            pcm_format: PcmFormat::stereo_48khz(),
+        };
+        assert_eq!(
+            provider.begin("hello", options),
+            Err(SpeechProviderError::Unavailable)
+        );
+        assert_eq!(provider.last_failure(), Some(CandidateFailure::Unavailable));
     }
 
     #[test]
