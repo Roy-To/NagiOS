@@ -1,0 +1,66 @@
+name: Calendar Search host contracts
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/calendar-search-host.yml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/nagi-model/**
+      - crates/nagi-calendar-core/**
+      - crates/nagi-calendar-search-adapter/**
+      - crates/nagi-search-core/**
+      - tests/search-core/**
+      - user/nagi-search/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/calendar-search-host.yml
+      - Cargo.toml
+      - Cargo.lock
+      - crates/nagi-model/**
+      - crates/nagi-calendar-core/**
+      - crates/nagi-calendar-search-adapter/**
+      - crates/nagi-search-core/**
+      - tests/search-core/**
+      - user/nagi-search/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calendar-search-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: 1
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Calendar core
+            manifest: crates/nagi-calendar-core/Cargo.toml
+            package: nagi-calendar-core
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned host toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
+      - name: Put pinned toolchain on PATH
+        run: echo "$HOME/.rustup/toolchains/nightly-2025-08-01-x86_64-unknown-linux-gnu/bin" >> "$GITHUB_PATH"
+      - name: Fetch locked manifest sources
+        run: cargo fetch --manifest-path "${{ matrix.manifest }}" --locked
+      - name: Package format
+        run: cargo fmt --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" -- --check
+      - name: Package warnings-denied Clippy
+        run: cargo clippy --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline -- -D warnings
+      - name: Package host tests
+        run: cargo test --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline
