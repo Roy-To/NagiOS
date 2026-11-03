@@ -1,6 +1,5 @@
 //! Experimental design validators; no production wiring or authority grants.
 #![no_std]
-#![feature(unsigned_is_multiple_of)]
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Architecture {
