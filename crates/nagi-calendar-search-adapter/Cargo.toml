@@ -1,0 +1,21 @@
+[package]
+name = "nagi-calendar-search-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-calendar-core = { path = "../nagi-calendar-core" }
+nagi-search-core = { path = "../nagi-search-core" }
+
+# Resolve the predecessor Search dependency to the canonical types on this base.
+# No shared manifest or predecessor source is modified.
+[patch."https://github.com/RT-NISH/NagiOS"]
+nagi-model = { path = "../nagi-model" }
+nagi-search = { path = "../../user/nagi-search" }
+
+[lints.rust]
+unsafe_code = "forbid"
