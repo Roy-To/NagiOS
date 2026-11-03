@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "current-main 0362427747e769b00558053e4c7f4c756d303802 inventory, model-free tools, and records-only validation pass for source 2c2103e3c87f487221b64117014797d1b2f52be4; A/B remain pending, C is not run",
+  "current_checkpoint": "current-main 0362427747e769b00558053e4c7f4c756d303802 inventory and 60 model-free tests pass for source 9324506e848513e2a9f4f32ee9eec729636a8e03; records-only verifier is pending, A/B remain pending, C is not run",
   "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "2c2103e3c87f487221b64117014797d1b2f52be4",
-    "verified_at": "2026-11-03T12:22:53Z",
-    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit 2c2103e3c87f487221b64117014797d1b2f52be4. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes; the main-fa0 record remains SUPERSEDED. 57 model-free Python tests (30 audit/records and 27 runner/receipt), nine-file Python syntax, two shell syntax checks, explicit-base inventory and exact check pass. The records-only verifier passes at strict child 5bb809b522aaeba6cc5b4ea545a083d92861dac5 (tree 6357c9b4181ea89d4b77ac8447ce2a5662d6ee3c) with its captured stdout committed to current-main evidence. A/B remain PENDING because live ownership/ref and host Cargo checks are unfinished; C remains NOT_RUN. No real Cargo build/Clippy, new ELF, QEMU/VM, Miri or independent rebuild was performed; 379d history remains invalid for current acceptance.",
+    "commit_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03",
+    "verified_at": "2026-11-03T13:14:40Z",
+    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit 9324506e848513e2a9f4f32ee9eec729636a8e03. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes; the main-fa0 record remains SUPERSEDED. 60 model-free Python tests (30 audit/records and 30 runner/attestation), nine-file Python syntax, two shell syntax checks, explicit-base inventory and exact check pass. The records-only verifier for this source is pending. A/B remain PENDING because live ownership/ref and host Cargo checks are unfinished; C remains NOT_RUN. No real Cargo build/Clippy, new ELF, QEMU/VM, Miri or independent rebuild was performed; 379d history remains invalid for current acceptance.",
     "commands": [
       "python3 experiments/nagi-multiarch-contracts/test_audit.py -v",
       "python3 experiments/nagi-multiarch-contracts/test_records.py -v",
@@ -16,9 +16,9 @@
       "python3 experiments/nagi-aarch64-spike/test_attestation.py -v",
       "compile() on the nine Python tools/tests",
       "/bin/sh -n experiments/nagi-multiarch-contracts/verify.sh experiments/nagi-aarch64-spike/verify.sh",
-      "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 2c2103e3c87f487221b64117014797d1b2f52be4 --output <private-evidence>/generated/source-inventory.json --authority-output <private-evidence>/generated/authority-sources.json",
+      "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 9324506e848513e2a9f4f32ee9eec729636a8e03 --output <private-evidence>/generated/source-inventory.json --authority-output <private-evidence>/generated/authority-sources.json",
       "same explicit-base/source audit command with --check",
-      "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802 (PASS; records-only child 5bb809b522aaeba6cc5b4ea545a083d92861dac5)",
+      "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802 (pending)",
       "NOT_RUN: real Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, independent rebuild"
     ],
     "tests": [
@@ -27,63 +27,63 @@
         "command": "python3 experiments/nagi-multiarch-contracts/test_audit.py -v",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/contracts-audit-tests.stderr.log sha256 fe10c90090f2299e097e7c5a8f5eed856e7a68fe4c7d925cbd2e9bcb48102306"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/contracts-audit-tests-p3-source.stderr.log sha256 a596d9f8cb26715863d7756d5335388ff42e8e8d5205ffc825f3ee3548be65c7"
       },
       {
         "name": "Contracts records fixtures (22 tests)",
         "command": "python3 experiments/nagi-multiarch-contracts/test_records.py -v",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/contracts-records-tests.stderr.log sha256 932b2dd61e20e1b3b6fd06a6c19012c8652d10d16a3cac0d52dbde9b0b43e01f"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/contracts-records-tests-p3-source.stderr.log sha256 0ea9edbdd7aeaaa12c97e45d3c57072a85a3ae6a418bb496aa0580769cb06cec"
       },
       {
         "name": "Spike runner fixtures (8 tests; fake QEMU/ELF only)",
         "command": "python3 experiments/nagi-aarch64-spike/test_runner.py -v",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/spike-runner-tests.stderr.log sha256 8e64a4b69dacd2ef2014b2571a0d33e5cea8f7092b0e1b204ae4c5b8602f2f9c"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/spike-runner-tests-p3-source.stderr.log sha256 291ae56db49cbe5222fbe01bf28b404b3c85bb899027455c7d1d3ba46a7ba45d"
       },
       {
-        "name": "Spike attestation fixtures (19 tests; fake Cargo/rustup/QEMU/ELF E2E)",
+        "name": "Spike attestation fixtures (22 tests; fake Cargo/rustup/QEMU/ELF E2E incl. config rejection/log retention)",
         "command": "python3 experiments/nagi-aarch64-spike/test_attestation.py -v",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/spike-attestation-tests.stderr.log sha256 bfd67aeac6c2c78aa5a14d441a4291abd0c6eabe8549073fd2dbf54300b09d56"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/spike-attestation-tests-p3-source.stderr.log sha256 b2848e3459ce75ccf9e4e772e7062e35ae3ba2c688db7f13048aade61eb0a7b7"
       },
       {
         "name": "Python syntax compilation (9 files)",
         "command": "compile() over the nine Python tools/tests",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/python-syntax.meta.json"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/python-syntax-p3-source.meta.json sha256 36beb123288dd181c79e126f054a6bdc5979706bca1657a1b449e1ee4a0938b4"
       },
       {
         "name": "Shell syntax (2 standalone verify.sh scripts)",
         "command": "/bin/sh -n on both verify.sh scripts",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/shell-syntax.meta.json"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/shell-syntax-p3-source.meta.json sha256 ff42317427948098272a72f5de332f614306f09b64ea00acebaddb26e5756309"
       },
       {
         "name": "Explicit-main inventory and byte-exact check",
-        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 2c2103e3c87f487221b64117014797d1b2f52be4 --check",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 9324506e848513e2a9f4f32ee9eec729636a8e03 --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/current-inventory-exact-check.stdout.log sha256 4902a0962faafa843722b6a17a0d48a0e76b1352befdefcc609255ef196f2f38"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/current-inventory-exact-check-p3-source.stdout.log sha256 fc57d2d126aeec089ef031718307e4b08873374899db5f451f5acdc1bf6d1478"
       },
       {
         "name": "Current-main static inventory",
-        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 2c2103e3c87f487221b64117014797d1b2f52be4",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit 9324506e848513e2a9f4f32ee9eec729636a8e03",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-2c2103e3c87f487221b64117014797d1b2f52be4/current-static-inventory.stdout.log sha256 4902a0962faafa843722b6a17a0d48a0e76b1352befdefcc609255ef196f2f38"
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/final-head-9324506e848513e2a9f4f32ee9eec729636a8e03/current-static-inventory.stdout.log sha256 fc57d2d126aeec089ef031718307e4b08873374899db5f451f5acdc1bf6d1478"
       },
       {
         "name": "Records-only verifier",
         "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 548acec7a938250999334375f7d7d219358c2d6c57c005e238780f131e78c4c4; record_head 5bb809b522aaeba6cc5b4ea545a083d92861dac5, tree 6357c9b4181ea89d4b77ac8447ce2a5662d6ee3c"
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "The new source commit is fixed; a strict records-only child verifier run is pending."
       },
       {
         "name": "Cargo/build/ELF/QEMU/VM/Miri/independent rebuild",

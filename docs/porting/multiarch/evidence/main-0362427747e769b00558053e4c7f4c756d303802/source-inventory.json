@@ -1,7 +1,7 @@
 {
   "baseline_sha": "0362427747e769b00558053e4c7f4c756d303802",
-  "source_commit_sha": "2c2103e3c87f487221b64117014797d1b2f52be4",
-  "source_tree_sha": "9c834b696070c210545a736390204c115acb398d",
+  "source_commit_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03",
+  "source_tree_sha": "06bb86557580906ee79584dabb3e7342dcb50d4a",
   "source_status": {"tracked_clean": true, "local_guard_untracked_roots": [".codex", ".entire"], "local_guard_untracked_count": 2},
   "scope": "tracked production/tool/test source read from the immutable source commit; tests and comments included; indirect assumptions need semantic review",
   "rules": {"cpu-entry-traps": "(?i)\\b(x86_64|win64|syscall|sysretq?|iretq?|lgdt|lidt|ltr|rdmsr|wrmsr|cr[034]|invlpg|cli|sti|hlt|rflags|fxsave|fxrstor|cpuid)\\b", "platform-discovery": "(?i)\\b(ACPI|APIC|IOAPIC|MADT|RSDP|UEFI|OVMF|q35|COM1|0x0?cf8|0x0?cfc|0x3[fF]8)\\b", "transport-dma": "(?i)\\b(PCI|MMIO|DMA|VIRTIO|legacy|fence|read_volatile|write_volatile)\\b|queue_address.*u32::MAX|asm!.*(in |out )", "address-layout": "(?i)PML4|PDPT|0x0000[_]?4000|0x04000000|0xFFFF_FFFF|u32::MAX|PAGE_SIZE|USER_ADDRESS_LIMIT|USER_IMAGE_BASE|disable-redzone|code-model|EM_X86_64|read_u16\\(bytes, 18\\)", "userspace-toolchain": "(?i)\\b(x86(?:_64)?|aarch64|FS_BASE|TLS|SSE\\d*|AVX\\d*|simd|cpufeatures|relibc|soft-float)\\b|target_arch|llvm-target", "reference-acceptance": "(?i)MAX_CPUS|topology.count|qemu-system-x86|q35|\\b(320|200)\\b|\\b(smp|8G|8192)\\b"},

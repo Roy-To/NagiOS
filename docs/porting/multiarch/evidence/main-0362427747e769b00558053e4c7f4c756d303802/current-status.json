@@ -2,8 +2,8 @@
   "schema": "nagi-multiarch-current-status/1",
   "main_sha": "0362427747e769b00558053e4c7f4c756d303802",
   "main_tree_sha": "1cc62a0a93201bb35c85ae89afca677650cd96ea",
-  "source_commit_sha": "2c2103e3c87f487221b64117014797d1b2f52be4",
-  "source_tree_sha": "9c834b696070c210545a736390204c115acb398d",
+  "source_commit_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03",
+  "source_tree_sha": "06bb86557580906ee79584dabb3e7342dcb50d4a",
   "pr_head_sha": "a7da7b76f69c9470c72eca3976876a1b666473ef",
   "identity_merge_scope": "36 paths from old main to current main; zero paths in the three owned prefixes",
   "phases": {
@@ -12,10 +12,10 @@
       "checks": {
         "current_static_inventory": "PASS",
         "current_authority_hashes": "PASS",
-        "registry_unregistered_and_record_validation": "PASS",
+        "registry_unregistered_and_record_validation": "PENDING",
         "ownership_and_live_ref_snapshot": "NOT_RUN"
       },
-      "reason": "The fixed-main inventory, authority hashes, model-free validation, and records-only verifier pass at the fixed source commit. Live ownership/ref review remains pending."
+      "reason": "The explicit-main inventory, authority hashes, and 60 model-free tests pass for the fixed source commit. The records-only verifier and live ownership/ref review remain pending."
     },
     "B": {
       "status": "PENDING",
@@ -23,7 +23,7 @@
         "model_free_tool_acceptance": "PASS",
         "host_Cargo_contract_tests": "NOT_RUN"
       },
-      "reason": "57 model-free Python tests pass, including fake-tool generator-to-receipt end-to-end coverage. Host Cargo contract tests and Clippy remain NOT_RUN."
+      "reason": "60 model-free Python tests pass, including fake Cargo build-time Cargo-config mutation detection; host Cargo contract tests and Clippy remain NOT_RUN."
     },
     "C": {
       "status": "NOT_RUN",
@@ -39,9 +39,9 @@
   "tool_acceptance": {
     "model_free_python_tests": {
       "outcome": "PASS",
-      "tests": 57,
+      "tests": 60,
       "contracts_audit_and_records": 30,
-      "runner_and_receipt": 27
+      "runner_and_receipt": 30
     },
     "python_syntax": {
       "outcome": "PASS",
@@ -70,14 +70,14 @@
     }
   },
   "records_validation": {
-    "outcome": "PASS",
-    "record_head_sha": "5bb809b522aaeba6cc5b4ea545a083d92861dac5",
-    "record_tree_sha": "6357c9b4181ea89d4b77ac8447ce2a5662d6ee3c",
-    "source_commit_sha": "2c2103e3c87f487221b64117014797d1b2f52be4",
+    "outcome": "PENDING",
+    "record_head_sha": null,
+    "record_tree_sha": null,
+    "source_commit_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03",
     "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-    "exit_code": 0,
-    "stdout_path": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
-    "stdout_sha256": "548acec7a938250999334375f7d7d219358c2d6c57c005e238780f131e78c4c4"
+    "exit_code": null,
+    "stdout_path": null,
+    "stdout_sha256": null
   },
   "execution": {
     "cargo_check": "NOT_RUN",
@@ -90,82 +90,74 @@
     "independent_rebuild": "NOT_RUN"
   },
   "artifact_hashes": {
-    "source_inventory_sha256": "61e56c2c5fe9d3e5ead8052f41fffdc3fd3ac4c9719fa0ceaabfc36edf16ab42",
+    "source_inventory_sha256": "2ce476e2ac6749471a4fa0a8ff5ac66abd91a7350b209c5f83405208fe0c0297",
     "authority_sources_sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a",
-    "baseline_drift_sha256": "9ffe5d22c9dd35de52e55f9da11c49a2c4da3672a3a0fceca402d707f751832f"
+    "baseline_drift_sha256": "8c4c89b90bded8bb81fd996de788109eb52cbdf44aa0167f5599017a51a8a7d5"
   },
   "private_tool_log_metadata": [
     {
-      "name": "contracts-audit-tests",
+      "name": "contracts-audit-tests-p3-source",
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "stderr_sha256": "fe10c90090f2299e097e7c5a8f5eed856e7a68fe4c7d925cbd2e9bcb48102306",
-      "metadata_file": "contracts-audit-tests.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "stderr_sha256": "a596d9f8cb26715863d7756d5335388ff42e8e8d5205ffc825f3ee3548be65c7",
+      "metadata_file": "contracts-audit-tests-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "contracts-records-tests",
+      "name": "contracts-records-tests-p3-source",
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "stderr_sha256": "932b2dd61e20e1b3b6fd06a6c19012c8652d10d16a3cac0d52dbde9b0b43e01f",
-      "metadata_file": "contracts-records-tests.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "stderr_sha256": "0ea9edbdd7aeaaa12c97e45d3c57072a85a3ae6a418bb496aa0580769cb06cec",
+      "metadata_file": "contracts-records-tests-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "spike-runner-tests",
+      "name": "spike-runner-tests-p3-source",
       "exit_code": 0,
-      "stdout_sha256": "bbb571fce392831d685bb2cb043915d456c509ffddf98f9430f75ac522d0bea8",
-      "stderr_sha256": "8e64a4b69dacd2ef2014b2571a0d33e5cea8f7092b0e1b204ae4c5b8602f2f9c",
-      "metadata_file": "spike-runner-tests.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "stdout_sha256": "86467bdc31b4d4656b4d0ef5ece3486d606270aea6cf66a930a62e8b6d1f298d",
+      "stderr_sha256": "291ae56db49cbe5222fbe01bf28b404b3c85bb899027455c7d1d3ba46a7ba45d",
+      "metadata_file": "spike-runner-tests-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "spike-attestation-tests",
+      "name": "spike-attestation-tests-p3-source",
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "stderr_sha256": "bfd67aeac6c2c78aa5a14d441a4291abd0c6eabe8549073fd2dbf54300b09d56",
-      "metadata_file": "spike-attestation-tests.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "stderr_sha256": "b2848e3459ce75ccf9e4e772e7062e35ae3ba2c688db7f13048aade61eb0a7b7",
+      "metadata_file": "spike-attestation-tests-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "python-syntax",
+      "name": "python-syntax-p3-source",
+      "exit_code": 0,
+      "stdout_sha256": "7077e09b94eed746b053f669137fdd94d972b35d10f8cae598bd8de708b18bc3",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "python-syntax-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
+    },
+    {
+      "name": "shell-syntax-p3-source",
       "exit_code": 0,
       "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "metadata_file": "python-syntax.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "metadata_file": "shell-syntax-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "contracts-shell-syntax",
+      "name": "current-static-inventory-p3-source",
       "exit_code": 0,
-      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "metadata_file": "shell-syntax.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
-    },
-    {
-      "name": "current-static-inventory",
-      "exit_code": 0,
-      "stdout_sha256": "4902a0962faafa843722b6a17a0d48a0e76b1352befdefcc609255ef196f2f38",
+      "stdout_sha256": "fc57d2d126aeec089ef031718307e4b08873374899db5f451f5acdc1bf6d1478",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "metadata_file": "current-static-inventory.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     },
     {
-      "name": "current-inventory-exact-check",
+      "name": "current-inventory-exact-check-p3-source",
       "exit_code": 0,
-      "stdout_sha256": "4902a0962faafa843722b6a17a0d48a0e76b1352befdefcc609255ef196f2f38",
+      "stdout_sha256": "fc57d2d126aeec089ef031718307e4b08873374899db5f451f5acdc1bf6d1478",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "metadata_file": "current-inventory-exact-check.meta.json",
-      "record_head_sha": "2c2103e3c87f487221b64117014797d1b2f52be4"
-    },
-    {
-      "name": "records-validation-r1",
-      "exit_code": 0,
-      "stdout_sha256": "548acec7a938250999334375f7d7d219358c2d6c57c005e238780f131e78c4c4",
-      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "metadata_file": "records-r1-pass.meta.json",
-      "record_head_sha": "5bb809b522aaeba6cc5b4ea545a083d92861dac5"
+      "metadata_file": "current-inventory-exact-check-p3-source.meta.json",
+      "record_head_sha": "9324506e848513e2a9f4f32ee9eec729636a8e03"
     }
   ],
   "historical_index_file_count": 50,
