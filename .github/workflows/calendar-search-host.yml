@@ -47,60 +47,76 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: Calendar core
+            manifest: crates/nagi-calendar-core/Cargo.toml
+            package: nagi-calendar-core
+            assert_local_graph: false
+            assert_pinned_graph: false
           - name: Calendar Search adapter
             manifest: crates/nagi-calendar-search-adapter/Cargo.toml
             package: nagi-calendar-search-adapter
+            assert_local_graph: true
+            assert_pinned_graph: false
           - name: Pinned SearchCore graph
             manifest: crates/nagi-search-core/Cargo.toml
             package: nagi-search-core
+            assert_local_graph: false
+            assert_pinned_graph: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
       - name: Install pinned host toolchain
         run: rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy
       - name: Put pinned toolchain on PATH
         run: echo "$HOME/.rustup/toolchains/nightly-2025-08-01-x86_64-unknown-linux-gnu/bin" >> "$GITHUB_PATH"
-      - name: Fetch locked adapter registry sources
-        run: cargo fetch --manifest-path crates/nagi-calendar-search-adapter/Cargo.toml --locked
-      - name: Fetch only the locked SearchCore git pin
-        run: cargo fetch --manifest-path crates/nagi-search-core/Cargo.toml --locked
-      - name: Assert pinned and local canonical type graphs
+      - name: Fetch locked manifest sources
+        run: cargo fetch --manifest-path "${{ matrix.manifest }}" --locked
+      - name: Assert adapter local canonical type graph
+        if: ${{ matrix.assert_local_graph }}
         run: |
-          python3 - <<'PY'
+          python3 - <<PY
           import json
           import pathlib
           import subprocess
 
-          def metadata(manifest):
-              return json.loads(subprocess.check_output([
-                  "cargo", "metadata", "--format-version", "1",
-                  "--locked", "--offline", "--manifest-path", manifest
-              ], text=True))
-
-          adapter = metadata("crates/nagi-calendar-search-adapter/Cargo.toml")["packages"]
-          expected_paths = {
+          data = json.loads(subprocess.check_output([
+              "cargo", "metadata", "--format-version", "1", "--locked", "--offline",
+              "--manifest-path", "crates/nagi-calendar-search-adapter/Cargo.toml"
+          ], text=True))
+          packages = data["packages"]
+          expected = {
               "nagi-model": pathlib.Path("crates/nagi-model/Cargo.toml").resolve(),
               "nagi-search": pathlib.Path("user/nagi-search/Cargo.toml").resolve(),
           }
-          for name, expected_path in expected_paths.items():
-              found = [p for p in adapter if p["name"] == name]
+          for name, path in expected.items():
+              found = [package for package in packages if package["name"] == name]
               assert len(found) == 1, f"adapter graph has {len(found)} {name} packages"
               assert found[0]["source"] is None, f"adapter {name} is not a local path package"
-              assert pathlib.Path(found[0]["manifest_path"]).resolve() == expected_path, found[0]["manifest_path"]
+              assert pathlib.Path(found[0]["manifest_path"]).resolve() == path, found[0]["manifest_path"]
+          print("PASS: adapter metadata has exactly one local canonical model and search package")
+          PY
+      - name: Assert standalone SearchCore pinned type graph
+        if: ${{ matrix.assert_pinned_graph }}
+        run: |
+          python3 - <<PY
+          import json
+          import subprocess
 
-          pinned = metadata("crates/nagi-search-core/Cargo.toml")["packages"]
+          data = json.loads(subprocess.check_output([
+              "cargo", "metadata", "--format-version", "1", "--locked", "--offline",
+              "--manifest-path", "crates/nagi-search-core/Cargo.toml"
+          ], text=True))
+          packages = data["packages"]
           revision = "de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa"
           for name in ("nagi-model", "nagi-search"):
-              found = [p for p in pinned if p["name"] == name]
+              found = [package for package in packages if package["name"] == name]
               assert len(found) == 1, f"pinned graph has {len(found)} {name} packages"
               source = found[0]["source"] or ""
               assert source.endswith("#" + revision), f"{name} is not pinned to {revision}: {source}"
-          print("PASS: adapter uses one local canonical model/search package; SearchCore uses one exact git-pinned pair")
+          print("PASS: SearchCore metadata has exactly one model and search package at the pinned revision")
           PY
       - name: Package format
         run: cargo fmt --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" -- --check
       - name: Package warnings-denied Clippy
-        run: cargo clippy --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline -- -D warnings
+        run: cargo clippy --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline -j 1 -- -D warnings
       - name: Package host tests
-        run: cargo test --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline
+        run: cargo test --manifest-path "${{ matrix.manifest }}" -p "${{ matrix.package }}" --all-targets --locked --offline -j 1

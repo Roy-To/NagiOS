@@ -40,9 +40,11 @@ The standalone SearchCore manifest pins both nagi-model and nagi-search to
 revision de3092c6a0125e45ea0b1f5f70c6d62c0c33f7fa. Its locked graph is tested
 independently. In the adapter's package-owned manifest, the local patch maps
 those dependencies to this base's crates/nagi-model and user/nagi-search.
-Metadata and cargo tree checks must show exactly one nagi-model and one
-nagi-search in each graph, with the adapter graph resolving both from those
-local paths.
+The checked-in calendar-search-host workflow verifies these graphs using
+`cargo metadata --format-version 1 --locked --offline`: the adapter leg asserts
+one local-path `nagi-model` and one local-path `nagi-search`; the standalone
+SearchCore leg asserts one of each at the exact git pin. CI does not run
+`cargo tree`.
 
 The main-versus-pin comparison adds Search producer metadata keys and APIs and
 adds derives to an existing model ID; the fields and enum variants used by this
@@ -78,16 +80,28 @@ cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked --offline
 cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked --offline -j 1 -- -D warnings
 ```
 
-The dedicated calendar-search-host workflow tests the adapter and pinned
-SearchCore with standalone/package-scoped format, clippy, and test commands.
-The adapter path-patched contract suite compiles canonical user/nagi-search
-as a local dependency and checks the single-package type graph. A separate root
-workspace test of user/nagi-search is not part of this host-only workflow: a
-clean checkout needs the ignored third_party/cc-nagi source for the root Cargo
-patch, and the official ./nagi fetch materializes many unrelated pinned
-components as well. The path filter includes both package manifests, direct
-local dependency sources, SearchCore acceptance test, root workspace files,
-and the workflow itself. Existing host CI continues to cover Calendar core.
+The checked-in `calendar-search-host.yml` validates the candidate at both
+integration stages. The #79-only stage carries the Calendar core leg only and
+runs Calendar fmt, all-targets Clippy with `-D warnings`, and its complete host
+test suite. The #78 stage adds independent adapter and pinned SearchCore legs.
+Each matrix leg fetches its own lockfile graph before locked offline
+Clippy/tests; graph-specific metadata assertions run only in the corresponding
+adapter or SearchCore leg. The #79-only workflow does not fetch or test packages introduced only by
+#78. The path filter includes the direct source
+paths, contracts, manifests, tests, and the workflow itself.
+
+`ci.yml` does not provide Calendar core coverage, and the legacy 0.2 host
+integration job is branch-allowlisted. This dedicated matrix supplies Calendar
+CI coverage at both PR stages. The public `ci.yml` ubuntu-host job bootstraps
+pinned third-party sources, then runs workspace Clippy/build/tests including
+canonical `nagi-search`; verify that public job after posting.
+
+The adapter leg compiles canonical `user/nagi-search` as a local path
+dependency, but does not run its own test suite. A separate local root
+workspace test is not included because root patch resolution needs ignored
+sources such as `third_party/cc-nagi`, and the official `./nagi fetch` command
+bootstraps many unrelated components. The public root workspace CI is the
+canonical Search suite check.
 
 ## Runtime integration HOLD
 
