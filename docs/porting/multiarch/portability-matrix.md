@@ -3,9 +3,10 @@
 The classifications and anchors below were reviewed against historical
 baseline 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2; they are not current-main
 A acceptance. Current explicit main is
-fa0e0415d381da76a190f049b07b950fcfdaca98. The current-main inventory and
+0362427747e769b00558053e4c7f4c756d303802. The current-main inventory and
 authority hashes are tracked under
-[evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/](evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98/).
+[evidence/main-0362427747e769b00558053e4c7f4c756d303802/](evidence/main-0362427747e769b00558053e4c7f4c756d303802/). The previous fa0e0415d381da76a190f049b07b950fcfdaca98
+record is historical and indexed separately.
 Status remains a static classification, **not** ARM64 runtime proof. All links
 below are immutable historical anchors. No match proves portability; indirect
 build/upstream assumptions remain an explicit verification item.

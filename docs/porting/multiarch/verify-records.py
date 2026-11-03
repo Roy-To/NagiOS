@@ -254,6 +254,204 @@ def validate_state_schema(state, schema):
     validate_schema_value(state, schema, schema)
 
 
+def require_sha256(value, label):
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise RecordsError(f"{label} must be a full SHA-256")
+
+
+def json_file(path, label):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise RecordsError(f"cannot read {label}: {exc}") from exc
+
+
+def validate_baseline_drift(root, path, baseline, source_commit, source_tree):
+    drift = json_file(path, "baseline-drift record")
+    required = {"schema", "old_main_sha", "current_main_sha", "old_main_tree_sha", "current_main_tree_sha",
+        "source_commit_sha", "source_tree_sha", "pr_head_sha", "candidate_merge_sha",
+        "historical_common_ancestor_sha", "main_changed_paths", "main_changed_path_count",
+        "main_changes_in_owned_prefixes", "owned_prefixes_unchanged_from_old_main",
+        "pr_to_merge_changes_in_owned_prefixes", "pr_contract_and_spike_tree_preserved_by_main_merge",
+        "remote_publish_or_PR_mutation"}
+    if not isinstance(drift, dict) or set(drift) != required:
+        raise RecordsError("baseline-drift record has missing or extra fields")
+    if drift["schema"] != "nagi-pr57-main-drift/1":
+        raise RecordsError("unsupported baseline-drift schema")
+    old_main = full_commit(root, drift["old_main_sha"], "baseline-drift old_main_sha")
+    current = full_commit(root, drift["current_main_sha"], "baseline-drift current_main_sha")
+    if current != baseline:
+        raise RecordsError("baseline-drift current_main_sha differs from the explicit current baseline")
+    old_tree = git(root, "rev-parse", f"{old_main}^{{tree}}").strip()
+    current_tree = git(root, "rev-parse", f"{current}^{{tree}}").strip()
+    if drift["old_main_tree_sha"] != old_tree or drift["current_main_tree_sha"] != current_tree:
+        raise RecordsError("baseline-drift tree hashes do not match their main commits")
+    if drift["source_commit_sha"] != source_commit or drift["source_tree_sha"] != source_tree:
+        raise RecordsError("baseline-drift source identity differs from current source records")
+    pr_head = full_commit(root, drift["pr_head_sha"], "baseline-drift pr_head_sha")
+    candidate = full_commit(root, drift["candidate_merge_sha"], "baseline-drift candidate_merge_sha")
+    common = git(root, "merge-base", old_main, current).strip()
+    if drift["historical_common_ancestor_sha"] != common:
+        raise RecordsError("baseline-drift historical common ancestor is incorrect")
+    actual = git(root, "diff", "--name-status", old_main, current).splitlines()
+    if drift["main_changed_paths"] != actual or drift["main_changed_path_count"] != len(actual):
+        raise RecordsError("baseline-drift main path list/count differs from the fixed commit diff")
+    owned = sorted({p for line in actual for p in line.split("\t")[1:] if p.startswith(PREFIXES)})
+    if drift["main_changes_in_owned_prefixes"] != owned or drift["pr_to_merge_changes_in_owned_prefixes"] != owned:
+        raise RecordsError("baseline-drift owned-prefix lists differ from the fixed main diff")
+    if drift["owned_prefixes_unchanged_from_old_main"] is not (not owned):
+        raise RecordsError("baseline-drift owned-prefix unchanged flag is incorrect")
+    spike = sorted({p for line in actual for p in line.split("\t")[1:]
+        if p.startswith(("experiments/nagi-multiarch-contracts/", "experiments/nagi-aarch64-spike/"))})
+    if drift["pr_contract_and_spike_tree_preserved_by_main_merge"] is not (not spike):
+        raise RecordsError("baseline-drift contract/spike preservation flag is incorrect")
+    if drift["remote_publish_or_PR_mutation"] != "NOT_RUN":
+        raise RecordsError("baseline-drift must not claim remote publication or PR mutation")
+    require_ancestor(root, current, candidate, "current main in candidate merge")
+    require_ancestor(root, pr_head, candidate, "PR head in candidate merge")
+    require_ancestor(root, candidate, source_commit, "candidate merge in source commit")
+    return drift
+
+
+def validate_current_status(root, status_path, inventory_path, drift_path, baseline, source_commit, source_tree, head):
+    status = json_file(status_path, "current status record")
+    if not isinstance(status, dict):
+        raise RecordsError("current status record must be an object")
+    if status.get("schema") != "nagi-multiarch-current-status/1":
+        raise RecordsError("unsupported current status schema")
+    expected_tree = git(root, "rev-parse", f"{baseline}^{{tree}}").strip()
+    if status.get("main_sha") != baseline or status.get("main_tree_sha") != expected_tree:
+        raise RecordsError("current status main commit/tree do not match the fixed baseline")
+    if status.get("source_commit_sha") != source_commit or status.get("source_tree_sha") != source_tree:
+        raise RecordsError("current status source commit/tree do not match the fixed source")
+    expected_artifacts = {"source_inventory_sha256": Path(inventory_path),
+        "authority_sources_sha256": Path(inventory_path).parent / "authority-sources.json",
+        "baseline_drift_sha256": Path(drift_path)}
+    hashes = status.get("artifact_hashes")
+    if not isinstance(hashes, dict) or set(hashes) != set(expected_artifacts):
+        raise RecordsError("current status artifact_hashes has missing or extra entries")
+    for name, path in expected_artifacts.items():
+        require_sha256(hashes.get(name), "artifact_hashes." + name)
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != hashes[name]:
+            raise RecordsError("current status artifact hash mismatch: " + name)
+    expected_phases = {
+        "A": ("PENDING", {"current_static_inventory": "PASS", "current_authority_hashes": "PASS",
+            "registry_unregistered_and_record_validation": "PASS", "ownership_and_live_ref_snapshot": "NOT_RUN"}),
+        "B": ("PENDING", {"model_free_tool_acceptance": "PASS", "host_Cargo_contract_tests": "NOT_RUN"}),
+        "C": ("NOT_RUN", {"new_ELF": "NOT_RUN", "QEMU_EL1": "NOT_RUN",
+            "QEMU_EL2_negative": "NOT_RUN", "independent_rebuild": "NOT_RUN"}),
+    }
+    phases = status.get("phases")
+    if not isinstance(phases, dict) or set(phases) != set(expected_phases):
+        raise RecordsError("current status phases must contain exactly A, B, and C")
+    for name, (state, checks) in expected_phases.items():
+        phase = phases[name]
+        if not isinstance(phase, dict) or phase.get("status") != state or phase.get("checks") != checks:
+            raise RecordsError(f"phase {name} status/checks are not the strict pending-state contract")
+        if not isinstance(phase.get("reason"), str) or not phase["reason"].strip():
+            raise RecordsError(f"phase {name} requires a reason")
+    expected_execution = {"cargo_check": "NOT_RUN", "cargo_clippy": "NOT_RUN", "cargo_build": "NOT_RUN",
+        "new_ELF_generation": "NOT_RUN", "QEMU": "NOT_RUN", "VM": "NOT_RUN", "Miri": "NOT_RUN",
+        "independent_rebuild": "NOT_RUN"}
+    if status.get("execution") != expected_execution:
+        raise RecordsError("current status execution fields must all remain NOT_RUN")
+    validation = status.get("records_validation")
+    required_validation = {"outcome", "record_head_sha", "record_tree_sha", "source_commit_sha", "command", "stdout_sha256"}
+    if not isinstance(validation, dict) or set(validation) != required_validation:
+        raise RecordsError("records_validation has missing or extra fields")
+    expected_command = ("python3 docs/porting/multiarch/verify-records.py --main " + baseline
+        + " --evidence-dir docs/porting/multiarch/evidence/main-" + baseline)
+    if validation.get("outcome") != "PASS" or validation.get("source_commit_sha") != source_commit or validation.get("command") != expected_command:
+        raise RecordsError("records_validation is not bound to the explicit main/source command")
+    record_head = full_commit(root, validation.get("record_head_sha"), "records_validation.record_head_sha")
+    if validation.get("record_tree_sha") != git(root, "rev-parse", f"{record_head}^{{tree}}").strip():
+        raise RecordsError("records_validation.record_tree_sha does not match its commit")
+    require_ancestor(root, record_head, head, "records_validation record head")
+    validate_record_commit(root, source_commit, record_head)
+    require_sha256(validation.get("stdout_sha256"), "records_validation.stdout_sha256")
+    tools = status.get("tool_acceptance", {})
+    if not isinstance(tools, dict):
+        raise RecordsError("tool_acceptance must be an object")
+    tests = tools.get("model_free_python_tests", {})
+    contract_count = tests.get("contracts_audit_and_records") if isinstance(tests, dict) else None
+    runner_count = tests.get("runner_and_receipt") if isinstance(tests, dict) else None
+    total_count = tests.get("tests") if isinstance(tests, dict) else None
+    counts_valid = all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        for value in (contract_count, runner_count, total_count))
+    if not counts_valid or tests.get("outcome") != "PASS" or total_count <= 0 or contract_count + runner_count != total_count:
+        raise RecordsError("model-free Python test counts are invalid")
+    syntax, shell, fmt = tools.get("python_syntax", {}), tools.get("shell_syntax", {}), tools.get("cargo_fmt", {})
+    if syntax.get("outcome") != "PASS" or not isinstance(syntax.get("files"), int) or syntax["files"] < 1:
+        raise RecordsError("python_syntax acceptance is invalid")
+    if shell.get("outcome") != "PASS" or not isinstance(shell.get("scripts"), int) or shell["scripts"] < 1:
+        raise RecordsError("shell_syntax acceptance is invalid")
+    if fmt.get("outcome") != "PASS" or not isinstance(fmt.get("packages"), int) or fmt["packages"] < 1 or fmt.get("build_performed") is not False:
+        raise RecordsError("cargo_fmt acceptance is invalid")
+    inventory = json_file(inventory_path, "source inventory")
+    static, exact = tools.get("static_inventory", {}), tools.get("static_inventory_exact_check", {})
+    if static.get("outcome") != "PASS" or static.get("source_files") != len(inventory.get("files", [])):
+        raise RecordsError("static inventory count differs from source inventory")
+    if static.get("authority_files") != len(AUTHORITY_PATHS) or exact.get("outcome") != "PASS" or exact.get("source_commit_explicit") is not True:
+        raise RecordsError("static inventory exact-check acceptance is invalid")
+    return status
+
+
+def validate_main_record_index(root, current_main):
+    evidence = Path(root) / "docs/porting/multiarch/evidence"
+    index = json_file(evidence / "main-records-index.json", "main records index")
+    if not isinstance(index, dict) or set(index) != {"schema", "current_main_sha", "entries"}:
+        raise RecordsError("main records index has missing or extra fields")
+    if index.get("schema") != "nagi-multiarch-main-records-index/1" or index.get("current_main_sha") != current_main:
+        raise RecordsError("main records index is not bound to current main")
+    entries = index.get("entries")
+    if not isinstance(entries, list):
+        raise RecordsError("main records index entries must be a list")
+    actual_dirs = sorted(item.name for item in evidence.glob("main-*") if item.is_dir())
+    indexed_dirs, current_count = [], 0
+    required_names = {"source-inventory.json", "authority-sources.json", "baseline-drift.json", "current-status.json"}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"main_sha", "status", "files"}:
+            raise RecordsError("main records index entry is malformed")
+        main_sha = full_commit(root, entry.get("main_sha"), "main records index main_sha")
+        directory = "main-" + main_sha
+        indexed_dirs.append(directory)
+        expected_status = "CURRENT" if main_sha == current_main else "SUPERSEDED"
+        if entry.get("status") != expected_status:
+            raise RecordsError("main records index status is invalid: " + directory)
+        current_count += int(expected_status == "CURRENT")
+        record_dir = evidence / directory
+        if not record_dir.is_dir() or record_dir.is_symlink():
+            raise RecordsError("indexed main evidence directory is missing or unsafe: " + directory)
+        actual_files = []
+        for file_path in record_dir.rglob("*"):
+            if file_path.is_symlink():
+                raise RecordsError("main evidence contains a symlink: " + str(file_path.relative_to(evidence)))
+            if file_path.is_file():
+                actual_files.append(file_path.relative_to(evidence).as_posix())
+        if {Path(item).name for item in actual_files} != required_names:
+            raise RecordsError("main evidence file set is incomplete or unexpected: " + directory)
+        files = entry.get("files")
+        if not isinstance(files, list) or any(not isinstance(item, dict) or set(item) != {"path", "sha256"} for item in files):
+            raise RecordsError("main records file list is malformed: " + directory)
+        paths = [item.get("path") for item in files]
+        if sorted(paths) != sorted(actual_files) or len(set(paths)) != len(paths):
+            raise RecordsError("main records index does not cover exact file set: " + directory)
+        for item in files:
+            require_sha256(item.get("sha256"), "main records index digest")
+            file_path = evidence / item["path"]
+            if not file_path.is_file() or hashlib.sha256(file_path.read_bytes()).hexdigest() != item["sha256"]:
+                raise RecordsError("main evidence hash mismatch: " + item["path"])
+        if json_file(record_dir / "source-inventory.json", "indexed inventory").get("baseline_sha") != main_sha:
+            raise RecordsError("indexed inventory baseline differs from directory name")
+        if json_file(record_dir / "current-status.json", "indexed status").get("main_sha") != main_sha:
+            raise RecordsError("indexed current status differs from directory name")
+    if sorted(indexed_dirs) != actual_dirs or len(set(indexed_dirs)) != len(indexed_dirs):
+        raise RecordsError("main records index does not cover exact main-* directory set")
+    if current_count != 1 or indexed_dirs != sorted(indexed_dirs):
+        raise RecordsError("main records index must have one current entry and sorted full SHAs")
+    return len(actual_dirs)
+
+
 def verify(root, expected_main, evidence_dir):
     root = Path(root).resolve()
     doc = root / "docs/porting/multiarch"
@@ -314,17 +512,14 @@ def verify(root, expected_main, evidence_dir):
     registration = json.loads((doc / "registration-proposal.json").read_text())
     if registration.get("registration_status") != "PROPOSED_UNREGISTERED":
         raise RecordsError("registration proposal must remain unapplied")
-    current_status = json.loads((inventory_path / "current-status.json").read_text())
-    if current_status.get("main_sha") != baseline or current_status.get("source_commit_sha") != source_commit:
-        raise RecordsError("current status record is not bound to the selected main/source")
-    if current_status.get("source_tree_sha") != source_tree:
-        raise RecordsError("current status record is not bound to the attested source tree")
-    phases = current_status.get("phases", {})
-    if not all(name in phases for name in ("A", "B", "C")):
-        raise RecordsError("current status record must describe A, B, and C phases")
-    for name in ("A", "B", "C"):
-        if phases.get(name, {}).get("status") == "PASS":
-            raise RecordsError(f"phase {name} cannot be PASS in the pending current-main record")
+    current_status_path = inventory_path / "current-status.json"
+    drift_path = inventory_path / "baseline-drift.json"
+    current_status = validate_current_status(
+        root, current_status_path, inventory_path / "source-inventory.json", drift_path,
+        baseline, source_commit, source_tree, head,
+    )
+    validate_baseline_drift(root, drift_path, baseline, source_commit, source_tree)
+    validate_main_record_index(root, baseline)
 
     history_count = validate_historical_index(root)
     local_links = 0
