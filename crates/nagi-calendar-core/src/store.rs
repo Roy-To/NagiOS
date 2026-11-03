@@ -1,4 +1,5 @@
 use crate::model::*;
+use crate::snapshot::{StoreSnapshot, SNAPSHOT_VERSION};
 use crate::time::{Instant, RealtimeSource};
 use crate::{Error, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,7 +45,8 @@ pub trait EventStore {
         -> Result<Event>;
     fn delete(&mut self, id: &EventId, expected: EventRevision) -> Result<Event>;
 }
-/// Local reference store. No persistence, authentication, provider or runtime access.
+/// Local reference store with typed in-memory snapshots.
+/// No durable storage, authentication, provider or runtime access.
 pub struct InMemoryStore<C, I> {
     clock: C,
     ids: I,
@@ -68,6 +70,29 @@ impl<C: RealtimeSource, I: IdSource> InMemoryStore<C, I> {
             used_events: BTreeSet::new(),
             used_calendars: BTreeSet::new(),
         })
+    }
+    /// Clone the state in deterministic ID order, including deletion history.
+    pub fn snapshot(&self) -> StoreSnapshot {
+        StoreSnapshot {
+            version: SNAPSHOT_VERSION,
+            calendars: self.calendars.values().cloned().collect(),
+            events: self.events.values().cloned().collect(),
+            used_calendar_ids: self.used_calendars.iter().cloned().collect(),
+            used_event_ids: self.used_events.iter().cloned().collect(),
+        }
+    }
+    /// Explicitly replace state only after validating the complete candidate.
+    ///
+    /// Keeps this store's capacity, Clock and IdSource; neither source is called.
+    /// This is not an anti-rollback protocol. Callers choose the snapshot and an
+    /// allocator suitable for its history; reused IDs return `DuplicateId`.
+    pub fn restore_snapshot(&mut self, snapshot: StoreSnapshot) -> Result<()> {
+        let next = snapshot.validate(self.capacity)?;
+        self.calendars = next.calendars;
+        self.events = next.events;
+        self.used_calendars = next.used_calendars;
+        self.used_events = next.used_events;
+        Ok(())
     }
     pub fn create_calendar(
         &mut self,
