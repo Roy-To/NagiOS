@@ -1,0 +1,50 @@
+{
+  "schema": "nagi-multiarch-main-records-index/1",
+  "current_main_sha": "0362427747e769b00558053e4c7f4c756d303802",
+  "entries": [
+    {
+      "main_sha": "0362427747e769b00558053e4c7f4c756d303802",
+      "status": "CURRENT",
+      "files": [
+        {
+          "path": "main-0362427747e769b00558053e4c7f4c756d303802/authority-sources.json",
+          "sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a"
+        },
+        {
+          "path": "main-0362427747e769b00558053e4c7f4c756d303802/baseline-drift.json",
+          "sha256": "15f21e0f0929993bc960c0112e7e28e77a4809c85fb8911875e4a7c8d4a1cf12"
+        },
+        {
+          "path": "main-0362427747e769b00558053e4c7f4c756d303802/current-status.json",
+          "sha256": "906cd936c24f98f0a2332049c82740b144c6e19f6c415afb1b0f90e973a41424"
+        },
+        {
+          "path": "main-0362427747e769b00558053e4c7f4c756d303802/source-inventory.json",
+          "sha256": "01d28986581f23ad63492d20711cff7f45b531d00f3f5bf880c4add954242ffb"
+        }
+      ]
+    },
+    {
+      "main_sha": "fa0e0415d381da76a190f049b07b950fcfdaca98",
+      "status": "SUPERSEDED",
+      "files": [
+        {
+          "path": "main-fa0e0415d381da76a190f049b07b950fcfdaca98/authority-sources.json",
+          "sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a"
+        },
+        {
+          "path": "main-fa0e0415d381da76a190f049b07b950fcfdaca98/baseline-drift.json",
+          "sha256": "b9ed53ff97b909e497653b6c262747f01a7d3470b02ac78c4e2af6e7f887e8c4"
+        },
+        {
+          "path": "main-fa0e0415d381da76a190f049b07b950fcfdaca98/current-status.json",
+          "sha256": "fbd1088f63e5f40bff03250b8fa3535eb4f52e6f6fb703ebddc5b93d8431f639"
+        },
+        {
+          "path": "main-fa0e0415d381da76a190f049b07b950fcfdaca98/source-inventory.json",
+          "sha256": "9f3e9a84c67061739d199a5b1b4fbacfcadf0067e95f5a5c4fe0fd59fdfb1c7a"
+        }
+      ]
+    }
+  ]
+}
