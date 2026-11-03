@@ -12,7 +12,7 @@
       "checks": {
         "current_static_inventory": "PASS",
         "current_authority_hashes": "PASS",
-        "registry_unregistered_and_record_validation": "PENDING",
+        "registry_unregistered_and_record_validation": "PASS",
         "ownership_and_live_ref_snapshot": "NOT_RUN"
       },
       "reason": "The current source and authority inventory was regenerated from explicit immutable commits. Full ownership and live PR/ref review is not claimed."
@@ -69,8 +69,12 @@
     }
   },
   "records_validation": {
-    "outcome": "PENDING",
-    "reason": "Will run against the clean records-only child commit."
+    "outcome": "PASS",
+    "record_head_sha": "b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2",
+    "record_tree_sha": "37eba4b0376381219001afd85043a2f17d1fa141",
+    "source_commit_sha": "caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a",
+    "command": "python3 docs/porting/multiarch/verify-records.py --main fa0e0415d381da76a190f049b07b950fcfdaca98 --evidence-dir docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98",
+    "stdout_sha256": "68eb6a19696ecfac1fafffe5f7e24c3f5c7cac962be8c1e6cbdc7cd8c3146b5d"
   },
   "execution": {
     "cargo_check": "NOT_RUN",
@@ -157,6 +161,22 @@
       "stdout_sha256": "a585ad43cdf821e2bb11b9693863a80407b4ddafcfc1d1f4cf15a589b80ea4be",
       "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "metadata_file": "current-inventory-check.meta.json"
+    },
+    {
+      "name": "records-verify",
+      "exit_code": 0,
+      "stdout_sha256": "68eb6a19696ecfac1fafffe5f7e24c3f5c7cac962be8c1e6cbdc7cd8c3146b5d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "records-verify.meta.json",
+      "record_head_sha": "b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2"
+    },
+    {
+      "name": "inventory-check-after-records",
+      "exit_code": 0,
+      "stdout_sha256": "a585ad43cdf821e2bb11b9693863a80407b4ddafcfc1d1f4cf15a589b80ea4be",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "inventory-check-after-records.meta.json",
+      "record_head_sha": "b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2"
     }
   ],
   "historical_index_file_count": 50,

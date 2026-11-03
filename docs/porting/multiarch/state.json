@@ -7,8 +7,8 @@
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a",
-    "verified_at": "2026-11-03T02:57:27.677097Z",
-    "normal_state": "Current main fa0e0415d381da76a190f049b07b950fcfdaca98: A/B remain PENDING and C is NOT_RUN. The 562-file source inventory and 13 authority hashes were generated and exact-regeneration-checked from fixed source commit caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a; the registry/records verifier remains pending its clean records-only commit. Thirty-nine model-free Python tool tests pass; Python syntax, both package fmt checks, both shell syntax checks and fixed-source diff checks pass. No Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, or independent rebuild was performed. Historical 379d evidence remains byte-preserved and invalid for current acceptance.",
+    "verified_at": "2026-11-03T02:59:09.856651Z",
+    "normal_state": "Current main fa0e0415d381da76a190f049b07b950fcfdaca98: current A/B remain PENDING and C is NOT_RUN because live ownership/ref refresh, Cargo contract testing, and runtime/build acceptance remain outstanding. The 562-file source inventory and 13 authority hashes were generated and exact-regeneration-checked from caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a; the registry remains unmodified and the clean records-only verifier passed at b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2. Thirty-nine model-free Python tool tests pass; Python syntax, both package fmt checks, both shell syntax checks and source-diff checks pass. No Cargo check/Clippy/build, new ELF, QEMU/VM, Miri, or independent rebuild was performed. Historical 379d evidence remains byte-preserved and invalid for current acceptance.",
     "commands": [
       "python3 -m unittest test_audit test_records -v",
       "python3 -m unittest test_runner test_attestation -v",
@@ -18,7 +18,8 @@
       "sh -n on both package verify.sh scripts",
       "python3 experiments/nagi-multiarch-contracts/audit.py --base fa0e0415d381da76a190f049b07b950fcfdaca98 --source-commit caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a --output <private-evidence>/source-inventory.json --authority-output <private-evidence>/authority-sources.json",
       "same explicit-base/source audit command with --check",
-      "NOT_RUN: Cargo check/Clippy/build, ELF, QEMU/VM, Miri, independent rebuild"
+      "NOT_RUN: Cargo check/Clippy/build, ELF, QEMU/VM, Miri, independent rebuild",
+      "python3 docs/porting/multiarch/verify-records.py --main fa0e0415d381da76a190f049b07b950fcfdaca98 --evidence-dir docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98"
     ],
     "tests": [
       {
@@ -52,9 +53,9 @@
       {
         "name": "Current-main registry/records verification",
         "command": "python3 docs/porting/multiarch/verify-records.py --main fa0e0415d381da76a190f049b07b950fcfdaca98 --evidence-dir docs/porting/multiarch/evidence/main-fa0e0415d381da76a190f049b07b950fcfdaca98",
-        "outcome": "NOT_RUN",
-        "exit_code": null,
-        "evidence": "Will run on the clean records-only child commit"
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-current-main-20261103-01/source-caa8b9f4105cc243ec935a3c23c93f9cfdb8a70a/records-verify.stdout.log sha256 68eb6a19696ecfac1fafffe5f7e24c3f5c7cac962be8c1e6cbdc7cd8c3146b5d; record HEAD b712d0dacaef4e0b5e6bd716f9c4f088ea0269d2"
       },
       {
         "name": "Current-main Cargo/ELF/QEMU/VM acceptance",
