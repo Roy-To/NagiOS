@@ -1795,7 +1795,9 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
         report_m20_block_write_failure(b"capability", sector);
         return u64::MAX;
     }
-    if !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE) {
+    // The disk capability above is writable; the user buffer is an input.
+    // A read-only user image page is therefore valid for this syscall.
+    if !nagi_kernel::user_process::is_user_readable_range_mapped(address, BLOCK_SECTOR_SIZE) {
         #[cfg(feature = "m20-llama-memory")]
         report_m20_block_write_failure(b"user buffer", sector);
         return u64::MAX;
@@ -1978,6 +1980,36 @@ mod tests {
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
     use crate::user_process::{USER_MMAP_BASE, USER_MMAP_LIMIT};
+
+    #[test]
+    fn block_syscalls_validate_user_ranges_in_the_transfer_direction() {
+        let source = include_str!("syscall.rs");
+        let after_read = source
+            .split_once("fn block_read(")
+            .expect("block_read source")
+            .1;
+        let block_read = after_read
+            .split_once("\n#[cfg(not(test))]\nfn block_write(")
+            .expect("block_write follows block_read")
+            .0;
+        let after_write = source
+            .split_once("fn block_write(")
+            .expect("block_write source")
+            .1;
+        let block_write = after_write
+            .split_once("\n#[cfg(all(not(test), feature = \"m20-llama-memory\"))]\nfn report_m20_block_write_failure")
+            .expect("diagnostic helpers follow block_write")
+            .0;
+
+        assert!(block_read.contains("readable_capability_matches"));
+        assert!(!block_read.contains("writable_capability_matches"));
+        assert!(block_read.contains("is_user_writable_range_mapped"));
+        assert!(!block_read.contains("is_user_readable_range_mapped"));
+        assert!(block_write.contains("writable_capability_matches"));
+        assert!(!block_write.contains("readable_capability_matches"));
+        assert!(block_write.contains("is_user_readable_range_mapped"));
+        assert!(!block_write.contains("is_user_writable_range_mapped"));
+    }
 
     // Inspect the actual entry body, not a second model of its save list. This
     // also covers registers the Rust ABI happens to preserve today.
