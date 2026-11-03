@@ -1,0 +1,222 @@
+{
+  "schema": "port-multiarch-historical-evidence/1",
+  "base_sha": "379d19eadb6f8792c27b9bc3f147e1ea48eac4a2",
+  "historical_candidate_sha": "6cbfb452ee83a7c0011036b6d0ed836625f1f7ae",
+  "historical_pr_head_sha": "a7da7b76f69c9470c72eca3976876a1b666473ef",
+  "current_main_sha": "fa0e0415d381da76a190f049b07b950fcfdaca98",
+  "current_validity": "NONE",
+  "manifest_excludes": [
+    "docs/porting/multiarch/evidence/HISTORICAL.json",
+    "docs/porting/multiarch/evidence/main-*/*"
+  ],
+  "files": [
+    {
+      "path": "docs/porting/multiarch/evidence/.gitattributes",
+      "sha256": "0ded296e877d1b2a383ec19feee9b1536073a064a02e90a23f4a62d84bdef214"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/.gitignore",
+      "sha256": "e027cf8ebf80d6dcdacced8a4dbd1c440e2436fb1868ec851db4061cb67bb787"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/authority-sources.json",
+      "sha256": "aa44abc2dbc6434e24411d28da0255f1a9b76de227c8754aa1cb3dc921701fb8"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/contracts-aarch64-check.log",
+      "sha256": "4d8cc5a6529120bbf189d85564e7c303cadaf87ff4ae706e4663d3962b981b35"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/dev-resume.log",
+      "sha256": "fc8cfd96b23572bd062d0433f23e540edf14006300883603fb73b1fad63926a2"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/dev-status.log",
+      "sha256": "98b2b87369766226990439a46ecf7df5726b5860bb9a546217274a31f69f183f"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/dev-verify.log",
+      "sha256": "f7725be81df757389a9f7ac08715297a55feb8eb040e806835ed06b9315cd1f9"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/environment.json",
+      "sha256": "74ffe588cda053de4e66510aaf6004e007c2e7a11d90d484b8aa849ce015ee9d"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/host-clippy-initial.log",
+      "sha256": "cb8b3182ef1850af4a31d465aa9415c26ab94db2d22300c7aedb579969db676a"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/host-initial.log",
+      "sha256": "908e39db245bd1b42e39a98d528c4495ed96f7c5b82fc2ff4a6f6ac5cbcee5b0"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/host-postcommit.log",
+      "sha256": "f98c1836501ce9178bf47bcfd9ed359d4cfac47bedbe826132cf33689c39918b"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/host-publication.log",
+      "sha256": "c822f9806d0d49e931501b2714b104ab6dc6a19fe13a360cbceb46233564f574"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/host-verified.log",
+      "sha256": "f9557cb2728a6c3314e9b2660b8e86dea256783da7c0f38c3957c274b69cb5c6"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/pr-snapshot.json",
+      "sha256": "59ce9fe58206ad0d870e03c03fd94c5606b15fd51c532ba0826d659b850296e4"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el1/result.json",
+      "sha256": "a29bb1cf25b5b0ab68915433bbeb9ce07e142486597b235683ddfb34c467d658"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el1/serial.log",
+      "sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el1/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative-result.json",
+      "sha256": "87921d2d3eba2a49355843aea3e39492a8952a174a3e9cab7eea52fc2d7f94c3"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative-serial.log",
+      "sha256": "1b7e493e4e939cc2ee17098a1ed95923bc6d98a3e92b4e39e89f8e827d4f129b"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative-stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative/result.json",
+      "sha256": "682ed9790fe16e8d3e9cccb5927d5d3db37f97b4cd2329599ac0c462de77fe45"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative/serial.log",
+      "sha256": "1b7e493e4e939cc2ee17098a1ed95923bc6d98a3e92b4e39e89f8e827d4f129b"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-el2-negative/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-initial/result.json",
+      "sha256": "4ad73a89574a9cc7dca47210603b87035b36cdbfef3c219051b0eec078bf4b71"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-initial/serial.log",
+      "sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-initial/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-verified/result.json",
+      "sha256": "a29bb1cf25b5b0ab68915433bbeb9ce07e142486597b235683ddfb34c467d658"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-verified/serial.log",
+      "sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/qemu-verified/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/records-postcommit.log",
+      "sha256": "98fac213061be8523fc852930b5d4c383726d69b63be015436759577651acc1e"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/records-publication.log",
+      "sha256": "726e6991686e680d0e3014ad19db1f785f6cf385c610dde4ed2e48687e8d6fbd"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/remote-refs.txt",
+      "sha256": "0e404998fd0b5973464c0b438969c53869bcae30ad33f1ae700fcd003258c27c"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/runner-tests.log",
+      "sha256": "d727edc2bb882b95b16fca448c64aacbb4177d658f493cbf846e5496687767df"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/source-inventory.json",
+      "sha256": "2b13e8fb8e392eacf441f7bc17c62064e6713bf7b86e2552cb1ffd03d5a97eaa"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-build-initial.log",
+      "sha256": "ee036fa6048b8903e4a86c6c01d1243c8234f74fea8a1b4f5affeafb9391b40d"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-build.log",
+      "sha256": "be4532f0d56eff380b00237a06192e9143ee20a9aacdbcb53aa652b0059f7f05"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-clippy-initial.log",
+      "sha256": "2124837a2df8ce7e820875e9682a435f3e8e9270ffd0e3dfeaa521c6fdb3ddd0"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-clippy-verified.log",
+      "sha256": "93a7bf18b6c18ba5b978760f68bff2583c1c50db66ca1cf60f8b9a20770b6e2f"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-elf.log",
+      "sha256": "2365c1264e829d765a62adb7b47880d7ecf848620e8dbedb0012a503e5cc20d0"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-postcommit.log",
+      "sha256": "860db9c8699b847e11d72d1881bc6f03362398e00c210f5c210b7a7563963aa1"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-publication.log",
+      "sha256": "05c2df7bdab13dc333adff69219ff800939ce5e301084aed54463f1d8233e869"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-repro-build.log",
+      "sha256": "261da6b84ccc48329ead2e2c8d901fd5c1471abb0b2aba59113dd6adb079aae2"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/spike-verified.log",
+      "sha256": "362f310a02082504bed56dee02173ca154371025a6ccd81549e9aedb8325ea6e"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/state-validation.log",
+      "sha256": "d6608cf8882879dd88adf5a89c9fbbe6bcef8f0cf348e6f949e14b1e6371af67"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/tool-setup-apt-update-debian.log",
+      "sha256": "57277534f6f73b36e8be086a6e86a487340e4946956a2d8d71678d1118c9c684"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/tool-setup-apt-update.log",
+      "sha256": "b7b526fc9e99cd1d032a1ef14f5bb62882f268d3c40441ebbfa62122b228b9d4"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/tool-setup-qemu-libs-2.log",
+      "sha256": "9e1cd5c1841eb484e76b6e9aa56ef9d728c05de3eb6cffb13a36d2ad1f4ab6cd"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/tool-setup-qemu-libs-3.log",
+      "sha256": "1962e2fbea3903992e710d49de1230db1c84d57ef14d400b74c01de158fc5712"
+    },
+    {
+      "path": "docs/porting/multiarch/evidence/tool-setup-qemu-libs.log",
+      "sha256": "476564e2f735faed3cbd9dcbddbcb45d5b7bb0f86e565ce5ce00ecc8bda9de44"
+    },
+    {
+      "path": "docs/porting/multiarch/validation-evidence.json",
+      "sha256": "e355c73d3b705a8b5b9de3fda61d0b42a9f46d360d77f9c2da9275f42f2e5694"
+    }
+  ],
+  "notes": [
+    "These paths and byte hashes identify immutable evidence from the historical 379d19e baseline; none is current-main acceptance.",
+    "The historical source-inventory.json and authority-sources.json are tied to that earlier baseline and are not rebound to current main.",
+    "qemu-el2-negative-result.json is a handwritten historical summary; the runner output remains the separate qemu-el2-negative/result.json record.",
+    "spike-repro-build.log has no complete ELF digest and does not prove path-independent reproducibility.",
+    "Historical EL1/QEMU artifacts are not mechanically attested to a fresh source commit and must not be reused as current proof.",
+    "This index records only paths and SHA-256 values; it adds no environment-variable values or credentials."
+  ]
+}

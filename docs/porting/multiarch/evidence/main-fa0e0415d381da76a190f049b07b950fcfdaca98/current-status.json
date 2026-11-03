@@ -1,0 +1,153 @@
+{
+  "schema": "nagi-multiarch-current-status/1",
+  "main_sha": "fa0e0415d381da76a190f049b07b950fcfdaca98",
+  "main_tree_sha": "41a686c6ff4d5e83c8da205d48b70cea8308cefe",
+  "source_commit_sha": "1c3c0b5209b7672d2b25b6909c63752adbaf29b3",
+  "source_tree_sha": "7c70d68348a991cb086951a1f17369de667f15c0",
+  "pr_head_sha": "a7da7b76f69c9470c72eca3976876a1b666473ef",
+  "identity_merge_scope": "12 paths; no changes in the three owned prefixes",
+  "phases": {
+    "A": {
+      "status": "PENDING",
+      "checks": {
+        "current_static_inventory": "PASS",
+        "current_authority_hashes": "PASS",
+        "registry_unregistered_and_record_validation": "PENDING",
+        "ownership_and_live_ref_snapshot": "NOT_RUN"
+      },
+      "reason": "The current source/authority inventory was regenerated against explicit main. Full ownership and live PR/ref review is not claimed here."
+    },
+    "B": {
+      "status": "PENDING",
+      "checks": {
+        "model_free_tool_acceptance": "PASS",
+        "host_Cargo_contract_tests": "NOT_RUN"
+      },
+      "reason": "Tool boundary fixtures pass; Cargo host/ABI contract tests and Clippy were not run."
+    },
+    "C": {
+      "status": "NOT_RUN",
+      "checks": {
+        "new_ELF": "NOT_RUN",
+        "QEMU_EL1": "NOT_RUN",
+        "QEMU_EL2_negative": "NOT_RUN",
+        "independent_rebuild": "NOT_RUN"
+      },
+      "reason": "This phase did not build Cargo targets, create an ELF, or run QEMU/VM."
+    }
+  },
+  "tool_acceptance": {
+    "model_free_python_tests": {
+      "outcome": "PASS",
+      "tests": 38,
+      "contracts_audit_and_records": 15,
+      "runner_and_receipt": 23
+    },
+    "python_syntax": {
+      "outcome": "PASS",
+      "files": 9
+    },
+    "shell_syntax": {
+      "outcome": "PASS",
+      "scripts": 2
+    },
+    "cargo_fmt": {
+      "outcome": "PASS",
+      "packages": 2,
+      "build_performed": false
+    },
+    "static_inventory": {
+      "outcome": "PASS",
+      "source_files": 562,
+      "matches": 2231,
+      "bootinfo_field_references": 153,
+      "authority_files": 13
+    }
+  },
+  "records_validation": {
+    "outcome": "NOT_RUN",
+    "reason": "Must run against the clean records-only child commit."
+  },
+  "execution": {
+    "cargo_check": "NOT_RUN",
+    "cargo_clippy": "NOT_RUN",
+    "cargo_build": "NOT_RUN",
+    "new_ELF_generation": "NOT_RUN",
+    "QEMU": "NOT_RUN",
+    "VM": "NOT_RUN",
+    "Miri": "NOT_RUN",
+    "independent_rebuild": "NOT_RUN"
+  },
+  "artifact_hashes": {
+    "source_inventory_sha256": "af7a735207aead9883cde4f30b1a3012344b401f6ff61e1a515e90307e4a5457",
+    "authority_sources_sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a",
+    "baseline_drift_sha256": "0f71bf3c1194e5129e53346243aac1279a86ffb37108945174639e9a894920cc"
+  },
+  "private_tool_log_metadata": [
+    {
+      "name": "contracts-python-tests",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "cc5f854c95daeb6261c6c1e58ac87afe4312e8d62a6bf06285741ae34556f1f1",
+      "metadata_file": "contracts-python-tests.meta.json"
+    },
+    {
+      "name": "spike-python-tests",
+      "exit_code": 0,
+      "stdout_sha256": "a8fa09e1d7ead8c47c5bf20d2149d072a56ddc03c4a7a7afce7d98bfb58f3b6e",
+      "stderr_sha256": "2e9513cac2be5b46a551e0b02013728f241380b952edb7169a16e4ae0f456c87",
+      "metadata_file": "spike-python-tests.meta.json"
+    },
+    {
+      "name": "python-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "python-syntax.meta.json"
+    },
+    {
+      "name": "spike-cargo-fmt",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "spike-cargo-fmt.meta.json"
+    },
+    {
+      "name": "contracts-cargo-fmt",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "contracts-cargo-fmt.meta.json"
+    },
+    {
+      "name": "spike-shell-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "spike-shell-syntax.meta.json"
+    },
+    {
+      "name": "contracts-shell-syntax",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "contracts-shell-syntax.meta.json"
+    },
+    {
+      "name": "source-diff-check",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "source-diff-check.meta.json"
+    },
+    {
+      "name": "current-static-inventory",
+      "exit_code": 0,
+      "stdout_sha256": "4767ff8b90d30c18a609089511db2be431d26cb2e16b8dff6b54dd5002b1f136",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "metadata_file": "current-static-inventory.meta.json"
+    }
+  ],
+  "historical_index_file_count": 50,
+  "remote_publish_or_PR_mutation": "NOT_RUN"
+}
