@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-from audit import AuditError, full_commit, inventory, write_or_check
+from audit import AuditError, encode_record, full_commit, inventory, write_or_check
 
 
 def command(root, *args):
@@ -39,6 +39,27 @@ class AuditTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(AuditError):
                     full_commit(self.root, value)
+
+    def test_explicit_source_commit_reproduces_inventory_from_records_only_child(self):
+        new_source = self.root / "kernel/src/entry.rs"
+        new_source.write_text("pub fn entry() {}\n")
+        subprocess.run(["git", "add", "kernel/src/entry.rs"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "source snapshot"], cwd=self.root, check=True)
+        source = command(self.root, "rev-parse", "HEAD")
+        records = self.root / "docs/record.json"
+        records.parent.mkdir(parents=True)
+        records.write_text("{}\n")
+        subprocess.run(["git", "add", "docs/record.json"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-qm", "records only"], cwd=self.root, check=True)
+        result = inventory(self.root, self.base, source)
+        self.assertEqual(result["source_commit_sha"], source)
+        self.assertEqual(result["source_tree_sha"], command(self.root, "rev-parse", f"{source}^{{tree}}"))
+        self.assertIn("kernel/src/entry.rs", [item["path"] for item in result["files"]])
+        output = self.root.with_name(self.root.name + "-inventory.json")
+        rendered = encode_record(result)
+        write_or_check(output, rendered, check=False)
+        write_or_check(output, rendered, check=True)
+        self.assertEqual(result["source_commit_sha"], source)
 
     def test_non_ancestor_base_is_rejected(self):
         subprocess.run(["git", "checkout", "--orphan", "unrelated"], cwd=self.root, check=True, stdout=subprocess.DEVNULL)
