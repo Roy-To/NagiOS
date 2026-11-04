@@ -3880,6 +3880,136 @@ mod tests {
     }
 
     #[test]
+    fn qemu_acceptance_preserves_consumed_deadline_through_qmp_shutdown() {
+        use std::net::TcpListener;
+        use std::path::PathBuf;
+        use std::process::{Child, Command, Stdio};
+
+        struct Fixture {
+            child: Child,
+            serial_log: PathBuf,
+            quit_witness: PathBuf,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                let _ = std::fs::remove_file(&self.serial_log);
+                let _ = std::fs::remove_file(&self.quit_witness);
+            }
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let qmp_port = listener.local_addr().expect("fake QMP address").port();
+        drop(listener);
+        let serial_log = unique_persistent_disk_path("qemu-acceptance-shutdown-deadline");
+        let quit_witness = unique_persistent_disk_path("qemu-acceptance-quit-received");
+        let serial = b"Nagi fake acceptance\n";
+        std::fs::write(&serial_log, serial).expect("write accepted serial log");
+        let child = Command::new(std::env::current_exe().expect("current test executable"))
+            .args([
+                "--exact",
+                "image::tests::qemu_host_deadline_fixture_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "0")
+            .env("NAGI_QEMU_DEADLINE_HOLD_QUIT_MS", "3000")
+            .env("NAGI_QEMU_DEADLINE_QUIT_RECEIVED_PATH", &quit_witness)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake QMP child");
+        let mut fixture = Fixture {
+            child,
+            serial_log,
+            quit_witness,
+        };
+
+        // Finish setup before testing the production acceptance -> quit call.
+        // No artificial startup/acceptance sleep spends the tested remainder.
+        let setup_deadline = Instant::now() + Duration::from_secs(10);
+        let mut stream = super::connect_guest_tcp(
+            &mut fixture.child,
+            qmp_port,
+            setup_deadline,
+            "fake QMP endpoint",
+        )
+        .expect("connect ready fake QMP");
+        let greeting = read_qmp_line(&mut stream, setup_deadline).expect("read fake QMP greeting");
+        super::validate_qmp_greeting(&greeting).expect("valid fake QMP greeting");
+        super::qmp_exchange(
+            &mut stream,
+            r#"{"execute":"qmp_capabilities"}"#,
+            setup_deadline,
+        )
+        .expect("acknowledge fake QMP readiness");
+
+        let timeout = Duration::from_secs(4);
+        let consumed = Duration::from_secs(2);
+        // Represent elapsed earlier lifecycle work without sleeping through it.
+        // Only two seconds of the original four-second budget remain.
+        let original_start = Instant::now()
+            .checked_sub(consumed)
+            .expect("earlier host start");
+        let deadline = original_start + timeout;
+        let started_at = Instant::now();
+        let remaining = deadline.saturating_duration_since(started_at);
+        assert!(remaining > Duration::ZERO && remaining < timeout);
+        let result = super::wait_for_qemu_any_with_qmp(
+            &mut fixture.child,
+            &mut stream,
+            &fixture.serial_log,
+            &["Nagi fake acceptance"],
+            deadline,
+            timeout,
+        );
+        let elapsed = started_at.elapsed();
+        let status_after = fixture
+            .child
+            .try_wait()
+            .expect("poll child after acceptance shutdown");
+        let quit_received = std::fs::read(&fixture.quit_witness)
+            .expect("fixture must receive the production caller's quit request");
+        println!(
+            "fake QMP acceptance -> shutdown remaining_ms={} elapsed_ms={} quit_received={}",
+            remaining.as_millis(),
+            elapsed.as_millis(),
+            quit_received == b"quit\n"
+        );
+        assert_eq!(quit_received, b"quit\n");
+        let error = result.expect_err("acceptance caller must preserve the consumed deadline");
+        assert!(
+            error.contains("QEMU host deadline expired"),
+            "shutdown error: {error}"
+        );
+        assert!(
+            status_after.is_some(),
+            "production shutdown must reap its child"
+        );
+        assert!(
+            !status_after.expect("asserted reaped status").success(),
+            "original deadline must kill the child before its three-second clean exit"
+        );
+        assert!(
+            Instant::now() >= deadline,
+            "must exercise deadline exhaustion"
+        );
+        assert!(
+            elapsed < remaining + Duration::from_millis(500),
+            "acceptance renewed the deadline: elapsed={elapsed:?}, remainder={remaining:?}"
+        );
+        assert_eq!(
+            std::fs::read(&fixture.serial_log).expect("read preserved serial"),
+            serial
+        );
+    }
+
+    #[test]
     fn qmp_handshake_rejects_eof_and_malformed_json() {
         for (stage, expected_error) in [
             ("malformed-greeting", "invalid QMP greeting JSON"),
@@ -4223,6 +4353,9 @@ mod tests {
                 Err(_) => return,
             }
             if request.contains("\"execute\":\"quit\"") {
+                if let Some(path) = std::env::var_os("NAGI_QEMU_DEADLINE_QUIT_RECEIVED_PATH") {
+                    std::fs::write(path, b"quit\n").expect("record actual fake QMP quit receipt");
+                }
                 if let Ok(delay) = std::env::var("NAGI_QEMU_DEADLINE_HOLD_QUIT_MS") {
                     let delay = delay.parse::<u64>().expect("valid fake QMP quit hold");
                     std::thread::sleep(Duration::from_millis(delay));
