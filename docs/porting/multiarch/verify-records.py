@@ -387,7 +387,8 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
     status = json_file(status_path, "current status record")
     if not isinstance(status, dict):
         raise RecordsError("current status record must be an object")
-    if status.get("schema") != "nagi-multiarch-current-status/1":
+    status_schema = status.get("schema")
+    if status_schema not in {"nagi-multiarch-current-status/1", "nagi-multiarch-current-status/2"}:
         raise RecordsError("unsupported current status schema")
     expected_tree = git(root, "rev-parse", f"{baseline}^{{tree}}").strip()
     if status.get("main_sha") != baseline or status.get("main_tree_sha") != expected_tree:
@@ -430,8 +431,11 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
     expected_execution = {"cargo_check": "NOT_RUN", "cargo_clippy": "NOT_RUN", "cargo_build": "NOT_RUN",
         "new_ELF_generation": "NOT_RUN", "QEMU": "NOT_RUN", "VM": "NOT_RUN", "Miri": "NOT_RUN",
         "independent_rebuild": "NOT_RUN"}
-    if status.get("execution") != expected_execution:
-        raise RecordsError("current status execution fields must all remain NOT_RUN")
+    if status_schema == "nagi-multiarch-current-status/1":
+        if status.get("execution") != expected_execution or "target_execution" in status:
+            raise RecordsError("current status v1 execution fields must all remain NOT_RUN")
+    elif status.get("target_execution") != expected_execution or "execution" in status:
+        raise RecordsError("current status v2 target_execution fields must all remain NOT_RUN")
     validation = status.get("records_validation")
     required_validation = {"outcome", "record_head_sha", "record_tree_sha", "source_commit_sha", "command", "exit_code", "stdout_path", "stdout_sha256"}
     if not isinstance(validation, dict) or set(validation) != required_validation:

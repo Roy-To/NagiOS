@@ -1,5 +1,5 @@
 {
-  "schema": "nagi-multiarch-current-status/1",
+  "schema": "nagi-multiarch-current-status/2",
   "main_sha": "0362427747e769b00558053e4c7f4c756d303802",
   "main_tree_sha": "1cc62a0a93201bb35c85ae89afca677650cd96ea",
   "source_commit_sha": "fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
@@ -134,7 +134,7 @@
     "stdout_path": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
     "stdout_sha256": "172e7648eafbbb59ec7dabbee61e83c79c16f4bbbd300c347694f984f6df6194"
   },
-  "execution": {
+  "target_execution": {
     "cargo_check": "NOT_RUN",
     "cargo_clippy": "NOT_RUN",
     "cargo_build": "NOT_RUN",
