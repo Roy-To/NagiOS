@@ -1,3 +1,21 @@
+## Local shared block/Net queue geometry — 2026-11-04
+
+Formal M30 remains `BLOCKED`. Pinning RX/TX properties to 256 did not change
+QEMU 10's observed 1024-entry ring geometry, so that local attempt is superseded
+and removed from the launcher. Net now uses the same checked 256/512/1024 legacy
+split-ring layout as block. Only the existing 256 receive buffers are published;
+returned buffer IDs remain bounded by that pool. RX buffer pointers now step by
+1546 bytes (including the VirtIO header), preventing adjacent descriptors from
+overlapping. RX is notified after DRIVER_OK. Timeouts, feature negotiation,
+capability checks and acceptance requirements are unchanged. ADR 0072 records
+the evidence and superseded attempt.
+
+All 170 kernel tests and the target kernel build pass. Shared tests cover ring
+geometry, publication/completion, index wrap, the bounded RX pool inside a larger
+ring and invalid lengths. Net tests check its header-inclusive buffer stride.
+Source-bound native image/guest and real network acceptance of this shared
+implementation are pending; earlier M7 progress does not imply Net success.
+
 ## Local reference Net queue contract follow-up — 2026-11-04
 
 Formal M30 remains `BLOCKED`. The variable block layout at local code

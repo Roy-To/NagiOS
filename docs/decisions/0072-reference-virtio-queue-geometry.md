@@ -25,14 +25,19 @@ fails. This is not formal M30 acceptance.
   32 KiB region. Larger, smaller or malformed lengths fail closed. Use the
   actual length for publication and completion/wrap indexing, and volatile
   DMA accesses. Do not change timeouts, capability boundaries or test outcomes.
-- Keep the network driver's existing 256-entry ring and receive-buffer bound.
-  Set reference QEMU `rx_queue_size=256,tx_queue_size=256` explicitly so QEMU
-  machine-version defaults cannot silently change that hardware contract.
-  VirtIO Network remains present and handles actual guest packets.
-- Validate each selected RX/TX queue after reset and require its exact supported
-  length. The former TX `>=256` check could accept an incompatible layout;
-  tightening it prevents that failure. Arbitrary 1024-entry network devices
-  remain unsupported by this driver.
+- Share the bounded split-ring layout/publication/completion implementation
+  between block and network. Read and validate RX/TX lengths independently after
+  reset. Both support power-of-two lengths 256/512/1024; unsupported lengths
+  fail closed. Network ring length does not expand its 256 receive-buffer pool.
+- Publish only those 256 RX descriptor heads into the actual available ring.
+  Recycle returned heads only after checking their buffer bounds. Include the
+  10-byte VirtIO header in each buffer stride, and notify RX after DRIVER_OK.
+
+A local attempt to pin QEMU `rx_queue_size=256,tx_queue_size=256` did not restore
+this contract: QMP still reported 1024-entry device rings. That attempt is
+superseded by actual device-sized handling; its launcher properties are removed.
+The failed attempt and M12 queue error remain in source-bound evidence. No
+configuration-only success is claimed.
 
 The reference machine still uses q35, 4 vCPU, 8 GiB, UEFI and VirtIO Block/
 Network/GPU/Sound/RNG. This change does not introduce host networking in place
