@@ -91,6 +91,10 @@ fn runtime(backend: Backend) -> Runtime<Backend> {
     Runtime {
         service: SearchService::open(backend, OwnerFilesVisibility).unwrap(),
         synchronized: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_record_restored: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_object_id: None,
     }
 }
 fn volume() -> (Disk, Vfs<Disk>) {
@@ -495,6 +499,10 @@ fn real_guest_snapshot_backend_restores_trash_identity_on_same_vfs_disk() {
     let mut search = Runtime {
         service: SearchService::open(backend, OwnerFilesVisibility).unwrap(),
         synchronized: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_record_restored: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_object_id: None,
     };
     search.sync_files(&mut volume).unwrap();
     let id = search.search_files("guest").unwrap()[0];
@@ -511,6 +519,10 @@ fn real_guest_snapshot_backend_restores_trash_identity_on_same_vfs_disk() {
     let mut search = Runtime {
         service: SearchService::open(backend, OwnerFilesVisibility).unwrap(),
         synchronized: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_record_restored: false,
+        #[cfg(feature = "desktop-login-acceptance")]
+        acceptance_object_id: None,
     };
     let mut volume = Vfs::mount_existing(disk).unwrap();
     search.sync_files(&mut volume).unwrap();

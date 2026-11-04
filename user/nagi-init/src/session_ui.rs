@@ -54,6 +54,7 @@ pub enum Status {
     Waiting,
     Complete,
     Cancelled,
+    Cancelling,
     Unavailable,
     Busy,
     TermsRequired,
@@ -78,6 +79,7 @@ impl Status {
             Self::Waiting => "desktop.ai.status.waiting",
             Self::Complete => "desktop.ai.status.complete",
             Self::Cancelled => "desktop.ai.status.cancelled",
+            Self::Cancelling => "desktop.ai.status.cancelling",
             Self::Unavailable => "desktop.ai.status.unavailable",
             Self::Busy => "desktop.ai.status.busy",
             Self::TermsRequired => "desktop.ai.status.terms_required",
@@ -159,6 +161,7 @@ impl Controller {
             status: Status::SignedOut,
         }
     }
+    #[cfg(test)]
     pub const fn session(&self) -> Option<Session> {
         self.session
     }
@@ -180,6 +183,7 @@ impl Controller {
     pub fn is_busy(&self) -> bool {
         self.queued.is_some() || self.in_flight.is_some() || self.accept_queued
     }
+    #[cfg(test)]
     pub fn request_id(&self) -> Option<u64> {
         self.in_flight.or(self.queued).map(|r| r.id)
     }
@@ -227,6 +231,9 @@ impl Controller {
             false
         } else if !self.bound {
             false
+        } else if self.discarding {
+            self.status = Status::Cancelling;
+            false
         } else if self.is_busy() {
             self.status = Status::Busy;
             false
@@ -234,6 +241,7 @@ impl Controller {
             true
         }
     }
+    #[cfg(test)]
     pub fn set_input(&mut self, text: &str) -> bool {
         if !self.can_edit() {
             return false;
@@ -301,17 +309,24 @@ impl Controller {
         true
     }
     pub fn cancel(&mut self, services: &mut dyn Services) {
-        if let Some(r) = self.in_flight {
+        let cancelling = if let Some(r) = self.in_flight {
             let _ = services.cancel_request(&r.session, r.id);
             self.discarding = true;
-        }
-        // PR43 retains the occupied slot until its cancellation result is polled.
-        // Drain without publishing, even if the transport produces a late Ready.
+            true
+        } else {
+            false
+        };
+        // Keep the single service slot reserved until its result is drained.
+        // A stalled worker stays explicitly "Cancelling", never falsely idle.
         self.queued = None;
         self.accept_queued = false;
         self.output.clear();
         self.status = if self.session.is_some() {
-            Status::Cancelled
+            if cancelling {
+                Status::Cancelling
+            } else {
+                Status::Cancelled
+            }
         } else {
             Status::SignedOut
         };
@@ -347,6 +362,11 @@ impl Controller {
         self.status = Status::TermsPending;
         true
     }
+    fn readiness_unavailable(&mut self, services: &mut dyn Services) {
+        self.lock_or_signout(services);
+        self.status = Status::Unavailable;
+    }
+
     /// At most one submit/ack/poll per step; sign-in is readiness-gated by Desktop.
     pub fn tick(&mut self, live: Option<&Session>, services: &mut dyn Services) {
         match live {
@@ -387,9 +407,11 @@ impl Controller {
         } else if let Some(r) = self.in_flight {
             let reply = services.poll_reply(&session, r.id);
             if matches!(reply, Ok(Reply::Pending)) {
-                if !self.discarding {
-                    self.status = Status::Waiting;
-                }
+                self.status = if self.discarding {
+                    Status::Cancelling
+                } else {
+                    Status::Waiting
+                };
                 return;
             }
             self.in_flight = None;
@@ -451,6 +473,12 @@ pub fn idle_step(
     services: &mut dyn Services,
     yield_now: impl FnOnce(),
 ) {
-    ui.tick(if ready { live } else { None }, services);
+    if ready {
+        ui.tick(live, services);
+    } else if live.is_some() {
+        ui.readiness_unavailable(services);
+    } else {
+        ui.tick(None, services);
+    }
     yield_now();
 }

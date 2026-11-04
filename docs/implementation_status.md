@@ -10153,3 +10153,34 @@ NAGI_FILES_SEARCH_PACKAGE artifact; it does not establish an init build result.
 No native init link, new guest worker/inference, durable consent, or same-image
 M30 acceptance is claimed. Hosted CI results must be assessed at the published
 integration head separately from these local checks.
+
+
+## PR #48 current-main and PR #43 integration (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public #48 head `27f844308a779c8bde93e48e49a21f0c39c8f5a0`,
+merges main `0362427747e769b00558053e4c7f4c756d303802`, and then merges published
+#43 head `54f24085939a40d86a451d191c4d4bb91f3f2103`. Its worker source exactly
+matches #43, so reviewed worker fencing is imported once through that ancestry.
+The combined candidate `746f19eb15e0bb69079b0267aa682b0ecf0a5b09` supplies
+scoped host fixtures, live Shared queue tests, cancellation-drain status and
+Desktop lock-state cleanup. The public Files panel, recoverable trash and
+Search lifecycle, production image commands, release evidence validator,
+layout fixture and formal M30 gate remain present. The combined candidate's
+whole tree is deliberately not substituted for the public PR.
+
+The production Desktop loop now calls the same bounded service step exercised
+by host regressions. Its target-only signed Files client remains target-only
+when the host harness enables the production feature graph. The existing
+Files test constructors initialize their acceptance-only fields when run in
+the login acceptance feature configuration. No production Files behavior or
+release assertion is weakened.
+
+Local Linux x86-64 validation of the integrated source: 49 UI/controller tests,
+48 Desktop/Files/worker tests, 26 login/Files tests, 16 standalone worker tests,
+and 37 release/profile/session Python tests passed. Session UI all-target
+Clippy passed with warnings denied. These host tests use explicit syscall and
+scripted model seams; they do not establish guest inference. CI now runs the
+Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
+results must refer to the published successor. Actual guest/model validation
+and complete workspace checks remain pending at this checkpoint.

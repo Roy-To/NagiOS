@@ -324,6 +324,34 @@ impl Desktop {
         }
     }
 
+    /// One bounded production Desktop step for model-service orchestration.
+    /// Returns whether the open Bar needs a fresh frame after the status changes.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn model_service_step(&mut self, yield_now: impl FnOnce()) -> bool {
+        let old_status = self.bar.controller.status();
+        if let Some(services) = self.model_services.as_mut() {
+            if self.bar.cancel_requested {
+                self.bar.cancel_requested = false;
+                self.bar.controller.cancel(services);
+            }
+            session_ui::idle_step(
+                &mut self.bar.controller,
+                self.session.as_ref(),
+                self.model_services_ready,
+                services,
+                yield_now,
+            );
+            if self.bar.controller.status() == session_ui::Status::Ready
+                && self.bar.controller.terms().is_none()
+            {
+                if let Some((name, reference)) = services.terms() {
+                    self.bar.controller.offer_terms(name, reference);
+                }
+            }
+        }
+        self.bar.open && old_status != self.bar.controller.status()
+    }
+
     pub fn render(&self, surface: &mut [u32]) {
         let mut painter = Painter::new(surface);
         #[cfg(feature = "desktop-login")]
@@ -655,8 +683,11 @@ impl Desktop {
         self.clear_files_search();
         self.password_change = None;
         self.settings_open = false;
+        self.settings_focus = None;
         self.desktop_focus = None;
         self.focused.fill(false);
+        self.keyboard_app_focus.fill(false);
+        self.keyboard_focus_pass_printed = false;
         self.notes_has_input = false;
         #[cfg(feature = "consent-dialog")]
         {
@@ -683,7 +714,9 @@ impl Desktop {
 
     pub fn acceptance_ready(&self) -> bool {
         #[cfg(feature = "production-session")]
-        return false;
+        {
+            false
+        }
         #[cfg(not(feature = "production-session"))]
         {
             #[cfg(feature = "desktop-password-change-acceptance")]
@@ -694,7 +727,7 @@ impl Desktop {
             {
                 #[cfg(all(
                     feature = "desktop-login-acceptance",
-                    not(feature = "m19-files-search-production")
+                    not(all(target_os = "nagi", feature = "m19-files-search-production"))
                 ))]
                 if cfg!(feature = "desktop-login-acceptance") {
                     return self.session.is_some();
@@ -1722,30 +1755,9 @@ pub fn run(
     loop {
         #[cfg(feature = "m20-model-service")]
         {
-            let old_status = desktop.bar.controller.status();
-            if let Some(services) = desktop.model_services.as_mut() {
-                if desktop.bar.cancel_requested {
-                    desktop.bar.cancel_requested = false;
-                    desktop.bar.controller.cancel(services);
-                }
-                session_ui::idle_step(
-                    &mut desktop.bar.controller,
-                    desktop.session.as_ref(),
-                    desktop.model_services_ready,
-                    services,
-                    || {
-                        let _ = libnagi::thread_yield();
-                    },
-                );
-                if desktop.bar.controller.status() == session_ui::Status::Ready
-                    && desktop.bar.controller.terms().is_none()
-                {
-                    if let Some((name, reference)) = services.terms() {
-                        desktop.bar.controller.offer_terms(name, reference);
-                    }
-                }
-            }
-            if desktop.bar.open && old_status != desktop.bar.controller.status() {
+            if desktop.model_service_step(|| {
+                let _ = libnagi::thread_yield();
+            }) {
                 desktop.render(surface);
                 if !libnagi::display_present(display_capability) {
                     libnagi::exit(1);
@@ -1891,7 +1903,10 @@ pub fn run(
                             }
                         };
                         if synced {
-                            #[cfg(feature = "m19-files-search-production")]
+                            #[cfg(all(
+                                target_os = "nagi",
+                                feature = "m19-files-search-production"
+                            ))]
                             {
                                 let response = crate::m19_files_client::search(
                                     runtime,
@@ -1953,7 +1968,10 @@ pub fn run(
                                     desktop.set_files_search_unavailable();
                                 }
                             }
-                            #[cfg(not(feature = "m19-files-search-production"))]
+                            #[cfg(not(all(
+                                target_os = "nagi",
+                                feature = "m19-files-search-production"
+                            )))]
                             if let Some(titles) = runtime.search_file_titles(&query) {
                                 desktop.set_files_search_results(&titles);
                                 #[cfg(feature = "desktop-login-acceptance")]

@@ -6,6 +6,17 @@ use libnagi::security::{AccountStore, Role, Session};
 use nagi_model_manager::{BackendId, ModelId, ModelResponse, ProviderId, TokenUsage};
 use std::{collections::VecDeque, format, string::String, vec, vec::Vec};
 
+#[path = "../path_guard.rs"]
+mod path_guard_regressions;
+
+#[test]
+fn generated_session_services_resolves_the_model_fixture_after_copying_to_out_dir() {
+    let generated = include_str!(concat!(env!("OUT_DIR"), "/session_services.rs"));
+    assert!(generated.contains(r#"env!("NAGI_MODEL_MANAGER_FIXTURE_PATH")"#));
+    assert!(!generated.contains(r#""../../nagi-model-manager/tests/fixtures/granite-4.2-3b.json""#));
+    assert!(std::path::Path::new(env!("NAGI_MODEL_MANAGER_FIXTURE_PATH")).is_file());
+}
+
 #[derive(Debug, Eq, PartialEq)]
 enum Event {
     SignedIn(Session),
@@ -494,6 +505,7 @@ fn failed_readiness_and_locked_inputless_steps_always_yield_without_binding() {
     }
     assert_eq!(yields, 3);
     assert!(fake.events.is_empty());
+    assert_eq!(ui.status(), Status::Unavailable);
     crate::session_ui::idle_step(&mut ui, Some(&session), true, &mut fake, || yields += 1);
     assert_eq!(fake.events, vec![Event::SignedIn(session)]);
     ui.set_input("queued");
@@ -576,6 +588,14 @@ fn real_adapter_configuration_has_no_host_worker_or_implicit_consent() {
     );
     let mut real = Adapter::new(42);
     let reference = String::from(real.terms().unwrap().1);
+    let fixture = nagi_model_manager::ModelManifest::parse_json(include_bytes!(
+        "../../../user/nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        Some(reference.as_str()),
+        fixture.license.terms_reference.as_deref()
+    );
     assert_eq!(
         real.on_signed_in(&session),
         Err(SubmitError::WorkerUnavailable)
@@ -629,6 +649,7 @@ fn every_bar_status_and_control_has_both_localizations() {
         Status::Waiting,
         Status::Complete,
         Status::Cancelled,
+        Status::Cancelling,
         Status::Unavailable,
         Status::Busy,
         Status::TermsRequired,
@@ -658,6 +679,28 @@ fn every_bar_status_and_control_has_both_localizations() {
         for locale in [Locale::EnUs, Locale::JaJp] {
             assert_ne!(text(locale, key), "Text unavailable.");
         }
+    }
+}
+
+#[test]
+fn indefinitely_pending_cancel_is_explicit_and_keeps_the_single_slot_reserved() {
+    let (session, _) = sessions();
+    let mut fake = FakeServices::default();
+    let mut ui = Controller::new();
+    ui.sign_in(&session, &mut fake);
+    assert!(ui.set_input("cancel this request"));
+    assert!(ui.request_submit());
+    ui.tick(Some(&session), &mut fake);
+    ui.cancel(&mut fake);
+    for _ in 0..8 {
+        assert_eq!(ui.status(), Status::Cancelling);
+        assert!(ui.is_busy());
+        assert!(!ui.set_input("retry while the worker is stopping"));
+        assert_eq!(ui.status(), Status::Cancelling);
+        assert!(!ui.request_submit());
+        ui.tick(Some(&session), &mut fake);
+        assert_eq!(ui.status(), Status::Cancelling);
+        assert_eq!(ui.output(), "");
     }
 }
 

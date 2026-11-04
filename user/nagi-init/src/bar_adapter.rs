@@ -19,6 +19,8 @@ pub const fn admission_budget() -> ResourceBudget {
 pub struct Adapter {
     service: Result<SessionServices, SubmitError>,
     metadata: Option<ModelManifest>,
+    #[cfg(all(test, nagi_desktop_host_test))]
+    host_shared_session: bool,
 }
 impl Adapter {
     pub fn new(read_only_model_store: u64) -> Self {
@@ -28,13 +30,38 @@ impl Adapter {
                 "../../nagi-model-manager/tests/fixtures/granite-4.2-3b.json"
             ))
             .ok(),
+            #[cfg(all(test, nagi_desktop_host_test))]
+            host_shared_session: false,
         }
     }
-    /// Display the same pinned package metadata consumed by SessionServices.
-    /// This is OS configuration, never inferred from generated text.
+    /// Host-only path that binds the real Shared state without starting a worker.
+    #[cfg(all(test, nagi_desktop_host_test))]
+    pub(crate) fn new_host_shared_session(read_only_model_store: u64) -> Self {
+        let mut adapter = Self::new(read_only_model_store);
+        adapter.host_shared_session = true;
+        adapter
+    }
+    #[cfg(all(test, nagi_desktop_host_test))]
+    pub(crate) fn host_shared_snapshot(&self) -> Option<crate::session_services::HostTestSnapshot> {
+        self.service
+            .as_ref()
+            .ok()
+            .map(crate::session_services::host_test_snapshot_for_test)
+    }
+    /// Complete a queued request through the real Shared state using a scripted host backend.
+    #[cfg(all(test, nagi_desktop_host_test))]
+    pub fn host_test_complete_request(&self) -> bool {
+        match self.service.as_ref() {
+            Ok(service) => crate::session_services::host_test_complete_queued_request(service),
+            Err(_) => false,
+        }
+    }
+    /// Display the pinned model name and the exact reference owned by the
+    /// same SessionServices instance that will record the user's acceptance.
     pub fn terms(&self) -> Option<(&str, &str)> {
-        let m = self.metadata.as_ref()?;
-        Some((&m.display_name, m.license.terms_reference.as_deref()?))
+        let metadata = self.metadata.as_ref()?;
+        let service = self.service.as_ref().ok()?;
+        Some((&metadata.display_name, service.model_terms_reference()))
     }
     fn service(&mut self) -> Result<&mut SessionServices, SubmitError> {
         self.service.as_mut().map_err(|error| *error)
@@ -42,6 +69,10 @@ impl Adapter {
 }
 impl Services for Adapter {
     fn on_signed_in(&mut self, s: &Session) -> Result<(), SubmitError> {
+        #[cfg(all(test, nagi_desktop_host_test))]
+        if self.host_shared_session {
+            return crate::session_services::host_test_bind_for_test(self.service()?, s);
+        }
         self.service()?.on_signed_in(s)
     }
     fn submit_text(&mut self, s: &Session, id: u64, text: &str) -> Result<(), SubmitError> {
