@@ -48,7 +48,6 @@ const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
 const MIB_SECTORS: u64 = 1024 * 1024 / 512;
 const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
 const QMP_MAX_LINE_BYTES: usize = 64 * 1024;
-#[cfg(test)]
 const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1564,6 +1563,8 @@ pub struct QemuConfig<'a> {
     pub vars_copy: &'a Path,
     pub serial_log: &'a Path,
     pub acceptance_marker: &'a str,
+    /// Total host budget, including startup, shutdown and timeout diagnostics.
+    /// QMP acceptance runners reserve min(5 seconds, 10%) for diagnostics.
     pub timeout: Duration,
 }
 
@@ -1905,6 +1906,14 @@ fn run_qemu_after_spawn(
     )
 }
 
+// Reserve the tail of the existing host budget, never renew it at timeout.
+// Short orchestration runs retain 90% for guest work; ordinary boots reserve
+// at most the existing five-second diagnostic budget. Successful shutdown
+// continues to use the original deadline.
+fn qemu_diagnostic_start(deadline: Instant, timeout: Duration) -> Instant {
+    deadline - QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT.min(timeout / 10)
+}
+
 fn wait_for_qemu_any_with_qmp(
     child: &mut Child,
     qmp_stream: &mut TcpStream,
@@ -1913,9 +1922,10 @@ fn wait_for_qemu_any_with_qmp(
     deadline: Instant,
     timeout: Duration,
 ) -> Result<i32, String> {
+    let diagnostic_start = qemu_diagnostic_start(deadline, timeout);
     loop {
         let serial = fs::read(serial_log).unwrap_or_default();
-        if Instant::now() >= deadline {
+        if Instant::now() >= diagnostic_start {
             let diagnostics = capture_qmp_timeout_diagnostics_until(qmp_stream, deadline);
             terminate_qemu(child, serial_log, &serial);
             let log_result = append_qmp_timeout_diagnostics(serial_log, &diagnostics);
@@ -2588,6 +2598,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     let qmp_trace_started = Instant::now();
     let mut last_qmp_trace = qmp_trace_started;
 
+    let diagnostic_start = qemu_diagnostic_start(deadline, config.timeout);
     let marker = config.acceptance_marker.as_bytes();
     let mut buffer = [0_u8; 4096];
     let mut events_sent = false;
@@ -2595,7 +2606,20 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     let mut serial_input_sent = false;
     let mut ready_after = None;
     loop {
-        match serial_stream.read(&mut buffer) {
+        let remaining = diagnostic_start.saturating_duration_since(Instant::now());
+        if !remaining.is_zero() {
+            if let Err(error) =
+                serial_stream.set_read_timeout(Some(remaining.min(Duration::from_millis(100))))
+            {
+                terminate_qemu(&mut child, config.serial_log, &serial);
+                return Err(format!("cannot configure GUI serial read timeout: {error}"));
+            }
+        }
+        match if remaining.is_zero() {
+            Err(std::io::Error::from(std::io::ErrorKind::TimedOut))
+        } else {
+            serial_stream.read(&mut buffer)
+        } {
             Ok(0) => break,
             Ok(count) => {
                 serial.extend_from_slice(&buffer[..count]);
@@ -2729,7 +2753,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                 acceptance_reached: false,
             });
         }
-        if Instant::now() >= deadline {
+        if Instant::now() >= diagnostic_start {
             if let Some(diagnostics) = qmp_diagnostics.as_mut() {
                 let _ = diagnostics.flush();
             }
@@ -2769,7 +2793,8 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         if last_qmp_trace.elapsed() >= Duration::from_secs(20) {
             last_qmp_trace = Instant::now();
             if let Some(diagnostics) = qmp_diagnostics.as_mut() {
-                let trace_deadline = (Instant::now() + Duration::from_secs(5)).min(deadline);
+                let trace_deadline =
+                    (Instant::now() + Duration::from_secs(5)).min(diagnostic_start);
                 let response = qmp_exchange_response(
                     &mut qmp_stream,
                     r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
@@ -3763,11 +3788,11 @@ mod tests {
             "QMP handshake time was renewed after startup: elapsed={elapsed:?}, budget={timeout:?}"
         );
         assert!(
-            elapsed >= timeout,
-            "timeout must include the handshake delay"
+            elapsed >= timeout - timeout / 10,
+            "guest budget must include the handshake delay"
         );
         assert!(serial.contains("Nagi QEMU timeout diagnostics:"));
-        assert!(serial.contains("QMP query-status skipped: diagnostic time budget exhausted"));
+        assert!(serial.contains("QMP query-status:"), "{serial}");
     }
 
     #[test]

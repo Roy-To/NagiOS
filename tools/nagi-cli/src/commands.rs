@@ -11939,3 +11939,106 @@ mod tests {
         assert!(random.contains("fn is_rng_device(vendor: u16, device_id: u16) -> bool"));
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod qemu_timeout_caller_tests {
+    use super::has_pre_guest_firmware_timeout_signature;
+    use crate::image::{run_qemu, run_qemu_gui, QemuConfig};
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn production_callers_capture_timeout_diagnostics_and_reap_within_original_budget() {
+        for gui in [false, true] {
+            for stall in [false, true] {
+                let root = std::env::temp_dir().join(format!(
+                    "nagi-timeout-caller-{}-{}",
+                    std::process::id(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+                fs::create_dir(&root).unwrap();
+                let qemu = root.join("qemu");
+                fs::write(&qemu, include_str!("../tests/fixtures/qmp_timeout.py")).unwrap();
+                fs::set_permissions(&qemu, fs::Permissions::from_mode(0o700)).unwrap();
+                if stall {
+                    fs::write(root.join("stall"), "").unwrap();
+                }
+                let template = root.join("template");
+                fs::write(&template, b"vars").unwrap();
+                let vars = root.join("vars");
+                let disk = root.join("disk");
+                fs::write(&disk, b"disk").unwrap();
+                let serial = root.join("serial");
+                let timeout = Duration::from_secs(3);
+                let config = QemuConfig {
+                    qemu: &qemu,
+                    ovmf_code: &template,
+                    ovmf_vars_template: &template,
+                    disk_image: &disk,
+                    persistent_disk: &disk,
+                    vars_copy: &vars,
+                    serial_log: &serial,
+                    acceptance_marker: "never accepted",
+                    timeout,
+                };
+                let start = Instant::now();
+                let result = if gui {
+                    run_qemu_gui(&config)
+                } else {
+                    run_qemu(&config)
+                };
+                let elapsed = start.elapsed();
+                println!(
+                    "production timeout gui={gui} stalled_qmp={stall} elapsed_ms={} budget_ms={}",
+                    elapsed.as_millis(),
+                    timeout.as_millis()
+                );
+                let pid = fs::read_to_string(root.join("pid")).unwrap();
+                // A zombie still has /proc/<pid>: absence verifies termination AND reaping.
+                let reaped = !std::path::Path::new("/proc").join(pid.trim()).exists();
+                let log = fs::read_to_string(&serial).unwrap();
+                let requests = fs::read_to_string(root.join("requests")).unwrap();
+                fs::remove_dir_all(root).unwrap();
+                let error = result.expect_err("missing acceptance must time out");
+                assert!(
+                    error.contains("QEMU did not reach acceptance within"),
+                    "{error}"
+                );
+                assert!(reaped, "gui={gui} stall={stall}: child was not reaped");
+                assert!(
+                    elapsed >= timeout - timeout / 10,
+                    "returned before reserved diagnostics: {elapsed:?}"
+                );
+                assert!(
+                    elapsed < timeout + Duration::from_millis(400),
+                    "renewed deadline: {elapsed:?}"
+                );
+                assert!(
+                    requests.contains("query-status"),
+                    "production caller never requested diagnostics: {requests}"
+                );
+                assert!(log.contains("QEMU timeout diagnostics:"), "{log}");
+                if stall {
+                    assert!(log.contains("QMP query-status failed:"), "{log}");
+                    assert!(!has_pre_guest_firmware_timeout_signature(&error, &log));
+                } else {
+                    assert!(log.contains("QMP CPU instruction window:"), "{log}");
+                    assert!(
+                        has_pre_guest_firmware_timeout_signature(&error, &log),
+                        "retry classification lost: {error}; {log}"
+                    );
+                    assert!(!has_pre_guest_firmware_timeout_signature(
+                        &error,
+                        &format!("Nagi Kernel started\n{log}")
+                    ));
+                }
+            }
+        }
+    }
+}
