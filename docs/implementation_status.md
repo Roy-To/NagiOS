@@ -1,3 +1,51 @@
+## PR #80 standalone Installer host candidate - 2026-11-02
+
+Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
+PASS for the standalone Installer).
+Code/test candidate validated by CI: `14daabe3cffb0c2161d67df5c349ad59ea1d5ea1`
+(tree `d28a4d7b721eb190aa209d999b3b1b2b9260702b`), based on public
+`main` `8b49bc8a2427071adb20ba7ef14ece4ff08e9c97`. This status update is a
+docs-only follow-up to that tested candidate. PR #80 remains open as a draft;
+it has not been merged. PRs #63, #69, and #75 remain open.
+
+The candidate scopes committed-uninstall cleanup failures to the affected app,
+reports pending app IDs while keeping inventory and unrelated apps usable,
+preserves unknown package-directory content, and binds install journals to
+their version transaction. It also adds Windows junction/open-handle coverage,
+normalizes non-Unix executable metadata, and sanitizes inherited Git environment
+overrides in the isolated CLI fixture. The standalone Installer remains a
+host-side foundation: no production installer activation or permission
+integration is included.
+
+**Hosted validation at the tested code head:** GitHub Actions run
+[41412047119](https://github.com/Roy-To/NagiOS/actions/runs/41412047119):
+- Ubuntu host job: PASS, including standalone Installer formatting, Clippy
+  with warnings denied, and 35 Installer tests (27 unit, 3 journal, 5 metadata).
+  The CLI integration files passed 33 `cli.rs` tests and 6
+  `run_receipt_cli.rs` tests.
+- Windows launcher job: PASS, including standalone Installer formatting,
+  Clippy with warnings denied, and the same 35 Installer tests. The Windows
+  junction regression passed. Windows ran 33 `cli.rs` tests; the
+  Unix-specific `run_receipt_cli.rs` target contained 0 tests.
+- On the preceding code head `507b71cd`, the first run
+  [41410824188](https://github.com/Roy-To/NagiOS/actions/runs/41410824188)
+  found that the junction fixture used a forward slash in a path passed to
+  `cmd.exe`. Commit `14daabe3` switched that fixture to native
+  `PathBuf::join` components; the current Windows rerun passes.
+- The `nagi-target` job completed successfully: pinned source bootstrap,
+  M17/M18 dependency checks, Mesa Softpipe, kernel/init/UEFI builds, and the
+  existing M17 first-web-pixel, M18 Albert, M19 Files, M22 Undo, M27 rollback,
+  M29 Settings, and M30 reference-disk acceptance steps all passed. This job
+  does not exercise the standalone Installer; no guest-side Installer
+  acceptance is claimed. The M20 inference job and Nagi 0.2 host-foundations
+  workflow were skipped.
+
+The Windows implementation's directory-sync operation remains a no-op.
+Crash/power-loss durability for directory-tree promotion is not established.
+The pinned nightly edition-2021 format check and `git diff --check` pass.
+The scoped canonical `cc-nagi` bootstrap used a local verified archive; its
+generated checkout and receipt remain local and are not PR content.
+
 # 1. Current status
 
 **Current milestone:** `M19 — Semantic Layer / Search`

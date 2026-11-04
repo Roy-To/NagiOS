@@ -112,19 +112,23 @@ pub fn find_availability(
     let mut slots = vec![];
     let mut scanned = 0usize;
     for window in free {
-        let delta = window
-            .start()
-            .0
-            .checked_sub(request.window.start().0)
-            .ok_or(Error::Overflow)?;
-        let steps = delta / request.step_micros + i64::from(delta % request.step_micros != 0);
-        let mut cursor = request.window.start().checked_add(
-            steps
-                .checked_mul(request.step_micros)
-                .ok_or(Error::Overflow)?,
-        )?;
-        loop {
-            let end = cursor.checked_add(request.duration_micros)?;
+        // i128 exactly represents every difference and sum of i64 endpoints/periods.
+        let window_start = i128::from(window.start().0);
+        let window_end = i128::from(window.end().0);
+        let distance = window_start - i128::from(request.window.start().0);
+        let step = i128::from(request.step_micros);
+        let remainder = distance % step;
+        let gap = if remainder == 0 { 0 } else { step - remainder };
+        let first = window_start + gap;
+        if first >= window_end {
+            continue;
+        }
+
+        // The in-window check proves the aligned start fits in the Instant domain.
+        let mut cursor = Instant(i64::try_from(first).map_err(|_| Error::Overflow)?);
+        while i128::from(cursor.0) < window_end {
+            let candidate_end = i128::from(cursor.0) + i128::from(request.duration_micros);
+            let end = Instant(i64::try_from(candidate_end).map_err(|_| Error::Overflow)?);
             if end > window.end() {
                 break;
             }
@@ -136,7 +140,13 @@ pub fn find_availability(
                 return Err(Error::OutputLimitExceeded);
             }
             slots.push(Interval::new(cursor, end)?);
-            cursor = cursor.checked_add(request.step_micros)?;
+
+            let next = i128::from(cursor.0) + step;
+            if next >= window_end {
+                break;
+            }
+            // The in-window check proves the next grid point fits in the Instant domain.
+            cursor = Instant(i64::try_from(next).map_err(|_| Error::Overflow)?);
         }
     }
     Ok(slots)

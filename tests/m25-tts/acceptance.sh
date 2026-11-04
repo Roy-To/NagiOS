@@ -12,7 +12,14 @@
 #                   reported as ignored, never as passed
 #   real            cargo test --test real_engine -- --ignored
 #                   (real Japanese synthesis with the pinned artifacts)
-#   missing-assets  the real suite with NAGI_TTS_VOICE/NAGI_TTS_DICT unset
+#   real-adversarial  cargo test --test real_adversarial -- --ignored
+#                   (corrupted voice/dictionary bytes, lifecycle after errors;
+#                   exactly 3 tests must pass; test names and the result line
+#                   are echoed to stdout so CI logs show them)
+#   real-hostile    cargo test --test real_hostile_model -- --ignored
+#                   (hostile duration PDFs / STREAM_WIN rows in the pinned
+#                   voice; exactly 1 test must pass; echoed like above)
+#   missing-assets  each real suite with NAGI_TTS_VOICE/NAGI_TTS_DICT unset
 #                   must FAIL (guards against a silent skip)
 #
 # Any failing step makes the script exit 1. Missing artifacts are a FAIL.
@@ -65,6 +72,18 @@ if run_step unit env -u NAGI_TTS_VOICE -u NAGI_TTS_DICT \
   else
     record unit-ignored FAIL "real-engine tests were not reported as ignored"
   fi
+  # Each real-artifact binary must report all of its tests as ignored.
+  for expect in "real_adversarial:3" "real_hostile_model:1"; do
+    bin="${expect%%:*}"; count="${expect##*:}"
+    if awk -v bin="tests/$bin.rs" '
+          index($0, "Running " bin) { on = 1; next }
+          on && /^test result:/ { print; exit }' "$LOG_DIR/unit.log" \
+        | grep -q "test result: ok\. 0 passed; 0 failed; $count ignored"; then
+      record "unit-ign-$bin" PASS "$count ignored without artifacts"
+    else
+      record "unit-ign-$bin" FAIL "expected $count ignored without artifacts"
+    fi
+  done
 fi
 
 export NAGI_TTS_VOICE="$CACHE/tohoku-f01-neutral.htsvoice"
@@ -78,7 +97,38 @@ if run_step real cargo test --manifest-path "$MANIFEST" -j"$JOBS" --locked \
   fi
 fi
 
+# Additional real-artifact suites. Their test lines and result line are
+# echoed so the CI log itself shows which tests executed.
+real_suite() { # step test-binary expected-passes
+  local step="$1" bin="$2" expect="$3"
+  if run_step "$step" cargo test --manifest-path "$MANIFEST" -j"$JOBS" --locked \
+      --test "$bin" -- --ignored --test-threads=1; then
+    :
+  fi
+  echo "---- $bin (from $LOG_DIR/$step.log) ----"
+  grep -E '^(running [0-9]+ tests?|test [A-Za-z0-9_:]+ \.\.\. |test result:)' "$LOG_DIR/$step.log"
+  if grep -q "test result: ok\. $expect passed; 0 failed; 0 ignored" "$LOG_DIR/$step.log"; then
+    record "$step-count" PASS "$expect passed with real artifacts"
+  else
+    record "$step-count" FAIL "expected exactly $expect passed"
+  fi
+}
+real_suite real-adversarial real_adversarial 3
+real_suite real-hostile real_hostile_model 1
+
 # The acceptance mode must fail closed without artifacts.
+for bin in real_adversarial real_hostile_model; do
+  log="$LOG_DIR/missing-assets-$bin.log"
+  env -u NAGI_TTS_VOICE -u NAGI_TTS_DICT cargo test --manifest-path "$MANIFEST" -j"$JOBS" --locked \
+    --test "$bin" -- --ignored >"$log" 2>&1
+  rc=$?
+  if [ $rc -ne 0 ] && grep -q "FAIL: NAGI_TTS_VOICE is not set" "$log" \
+      && grep -q "test result: FAILED\. 0 passed;" "$log"; then
+    record "missing-$bin" PASS "fails (exit $rc) without artifacts"
+  else
+    record "missing-$bin" FAIL "did not fail without artifacts (exit $rc)"
+  fi
+done
 log="$LOG_DIR/missing-assets.log"
 env -u NAGI_TTS_VOICE -u NAGI_TTS_DICT cargo test --manifest-path "$MANIFEST" -j"$JOBS" --locked \
   --test real_engine -- --ignored synthesizes_audible_japanese_stereo_48k >"$log" 2>&1
