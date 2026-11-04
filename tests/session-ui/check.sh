@@ -9,6 +9,7 @@ rustfmt=$(rustup which rustfmt --toolchain "$toolchain")
 rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
 "$rustfmt" --check --edition 2021 --config skip_children=true \
   user/nagi-init/src/desktop.rs \
+  user/nagi-init/src/font.rs \
   user/nagi-init/src/m19_files_client.rs \
   user/nagi-init/src/bar_adapter.rs \
   user/nagi-init/src/bar_panel.rs \
@@ -18,6 +19,8 @@ rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
   tests/session-ui/src/lib.rs \
   tests/session-ui/src/session_services.rs \
   tests/session-ui/src/tests.rs \
+  tests/session-ui/src/font_tests.rs \
+  tests/session-ui/font-host.rs \
   tests/session-ui/src/summary_tests.rs \
   tests/session-ui/desktop-host/src/lib.rs \
   tests/session-ui/desktop-host/libnagi/src/lib.rs \
