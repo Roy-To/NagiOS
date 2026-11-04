@@ -1,3 +1,37 @@
+## QMP deadline/parser integration candidate — 2026-11-04
+
+Status: `PARTIAL`. Ported the QMP-only changes from candidate
+`03e48e1404c1ad6a2bb6d059d176928424603b78` (tree
+`5eccfd1541a1fa47e7bb0ab59d345d87149f293a`) onto main
+`0362427747e769b00558053e4c7f4c756d303802`. The source histories have no
+common ancestor, so unrelated candidate APIs, guest changes and milestone
+claims are excluded. Public QEMU runner APIs remain compatible with main.
+
+The runner retains its original host deadline across handshake, acceptance,
+diagnostics and shutdown; parses greeting/response JSON; validates known
+command result shapes and asynchronous-event timestamps. A real diskless QEMU
+11.1.1 check on macOS found a closed-socket timeout-configuration race during
+quit. Shutdown accepts this only after observing a clean owned-process exit
+within the original deadline. The diskless regression is opt-in locally and
+runs in the existing Ubuntu host CI job.
+
+Pinned nightly-2025-08-01 local verification: QMP filter 12 passed / 1 ignored;
+explicit real diskless QMP 1 passed; standalone bootstrap (same CLI production
+source) full serial suite 362 library tests passed / 2 ignored, 33 CLI tests
+passed, 0 doctests; Clippy all targets with warnings denied and Python
+regression passed. The initial full parallel run failed the shutdown timing
+assertion under load and a missing generated mozjs fixture. The official
+registry-source preparation supplied the pinned fixture; the serial rerun
+passed without changing assertions. Parallel-load timing remains a CI risk.
+The ordinary workspace run initially stopped before tests because generated
+third-party sources were absent; full workspace/platform CI is still required.
+
+No Nagi guest, existing disk, image, overlay, receipt or launch claim was used.
+Diskless QMP compatibility is not Nagi guest/VM acceptance. Nagi 0.1 and all
+milestone statuses remain unchanged. Candidate bundle, original available
+logs, failed and successful verification logs are preserved in an isolated
+SSD evidence directory for this integration task.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
