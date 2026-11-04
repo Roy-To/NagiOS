@@ -49,11 +49,13 @@ pub fn validate_dtb_envelope(data: &[u8]) -> Result<(), Error> {
     let structure = word(8);
     let strings = word(12);
     let reservations = word(16);
-    let structure_end = structure.checked_add(word(36)).ok_or(invalid)?;
+    let structure_bytes = word(36);
+    let structure_end = structure.checked_add(structure_bytes).ok_or(invalid)?;
     let strings_end = strings.checked_add(word(32)).ok_or(invalid)?;
     if structure < 40
         || structure % 4 != 0
-        || word(36) == 0
+        || structure_bytes < 4
+        || structure_bytes % 4 != 0
         || strings < 40
         || reservations < 40
         || reservations % 8 != 0
@@ -193,6 +195,33 @@ mod tests {
             assert_eq!(
                 validate_dtb_envelope(&tree[..end]),
                 Err(Error::DeviceTreeEnvelope)
+            );
+        }
+    }
+
+    #[test]
+    fn structure_length_requires_complete_aligned_tokens() {
+        let mut tree = [0; 80];
+        tree[..64].copy_from_slice(&dtb());
+        tree[4..8].copy_from_slice(&80u32.to_be_bytes());
+        tree[12..16].copy_from_slice(&72u32.to_be_bytes());
+        // Keep every candidate range in bounds and before the strings block,
+        // so rejection specifically exercises the structure length boundary.
+        for length in [0u32, 1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15] {
+            tree[36..40].copy_from_slice(&length.to_be_bytes());
+            assert_eq!(
+                validate_dtb_envelope(&tree),
+                Err(Error::DeviceTreeEnvelope),
+                "structure length {length}"
+            );
+        }
+        // These are valid envelope lengths, not complete parsed device trees.
+        for length in [4u32, 8, 12, 16] {
+            tree[36..40].copy_from_slice(&length.to_be_bytes());
+            assert_eq!(
+                validate_dtb_envelope(&tree),
+                Ok(()),
+                "structure length {length}"
             );
         }
     }

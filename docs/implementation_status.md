@@ -7,11 +7,20 @@ unknown or enabled MMU, and incompatible UART facts. Physical profiles reject
 even with complete QEMU-shaped fixtures. The spike's EL2 negative predicate now
 requires its single exact failure line, and direct runner API calls reject
 unexpected virtualization properties before I/O. No production boot path or
-guest source changed. The complete contracts verifier passes (104 contract,
+guest source changed. The complete contracts verifier passes (105 contract,
 30 audit/records, 16 BootInfo and 5 ABI tests, formatting and strict Clippy);
 32 runner/receipt fixtures pass. Candidate guest execution and independent
 review remain NOT_RUN; existing source0039 runtime evidence is unchanged.
 See [the independent handoff](porting/multiarch/host-boundary-handoff.md).
+
+Independent review of `d5bd77b9a5d4ec59e2bb797e73dcefdf9d6096ef` found that the
+DTB envelope accepted structure-block lengths 1–3 and other nonmultiples of 4.
+The repair requires length at least 4 and divisible by 4. Its new regression
+fails on length 1 before the fix, rejects in-bounds malformed lengths, and
+accepts envelope lengths 4/8/12/16. All 188 host tests pass after the repair.
+The reviewer reported a pinned AArch64 build and QEMU EL1/EL2 checks on the
+preceding candidate; these are not execution evidence for the repaired source.
+Repair review and repaired-candidate guest/attestation checks remain NOT_RUN.
 
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
