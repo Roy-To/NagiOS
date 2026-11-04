@@ -132,10 +132,6 @@ pub fn initialize() -> Result<(), NetError> {
     if candidate.io_base == 0 {
         return Err(NetError::InvalidBar);
     }
-    let queue_size = unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) } as usize;
-    if queue_size != QUEUE_SIZE {
-        return Err(NetError::UnsupportedQueue);
-    }
     let receive_address = ptr::addr_of!(RECEIVE_QUEUE) as u64;
     let transmit_address = ptr::addr_of!(TRANSMIT_QUEUE) as u64;
     if !queue_address_is_usable(receive_address) || !queue_address_is_usable(transmit_address) {
@@ -223,7 +219,9 @@ pub fn receive(frame: &mut [u8]) -> Result<Option<usize>, NetError> {
 
 unsafe fn setup_queue(io_base: u16, index: u16, address: u64) -> Result<(), NetError> {
     io_write16(io_base + LEGACY_QUEUE_SELECT, index);
-    if (io_read16(io_base + LEGACY_QUEUE_SIZE) as usize) < QUEUE_SIZE {
+    // This driver has a fixed ring/buffer contract. Validate each selected
+    // queue after reset instead of accepting a larger TX ring with wrong offsets.
+    if (io_read16(io_base + LEGACY_QUEUE_SIZE) as usize) != QUEUE_SIZE {
         return Err(NetError::UnsupportedQueue);
     }
     io_write32(io_base + LEGACY_QUEUE_ADDRESS, (address >> 12) as u32);
