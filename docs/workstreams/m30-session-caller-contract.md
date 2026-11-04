@@ -1,24 +1,29 @@
 # Ordinary session / M23 provider contract checkpoint
 
-Status: BLOCKED for ordinary Browser summarization. Investigation only; no
-external-app authority is enabled and no summary budget candidate is merged.
+Status: BLOCKED for ordinary Browser summarization. The transferred M23
+input/output-boundary source is integrated locally; external-app authority and
+the live Browser worker route remain unimplemented.
 
 ## Source and candidate boundary
 
-This checkpoint inspects the local integration lineage through `d3a4ea2`.
-The separate budget candidate `ed67d36954e520122ee889715846ad513bd0ccdf` was
-reported by its owning workstream as revalidated against current main, with
-conflict-free temporary-index application to #43 and #48. This is upstream
-workstream evidence, not verification performed in this checkout. The candidate
-is absent locally; a prior read-only fetch returned `not our ref`. It has not
-been integrated here. The observations below describe the current source, not a
-finding that the uninspected candidate still has the same budget behavior.
+This checkpoint combines the M30 lineage through `335074f` with the source/docs
+transfer identified by candidate `4ef8534a55c90b4601d7e8cbf3e612ea30531f35`.
+Both transfer layers' byte counts/SHA-256, source-only tree
+`a437843e3beec28ec5b7ab5a876a262cfe0c5588`, full tree
+`518ca7262002444a45c3cb6ef800e245c5a657f5` and all six changed blobs were
+verified against base `87b7dea`. Original commit metadata was not transferred
+or independently verified; the local reconstructed commit has a distinct ID.
+The transferred boundary source includes the earlier output-budget candidate;
+this does not claim that its original commit object was imported. Only the
+implementation-status append conflicted; both workstreams' sections were kept.
+The remaining five candidate blobs match the verified transfer exactly.
 
 ## Current mismatch
 
 - `services/nagi-ai/src/browser_context.rs` creates a `ModelRequest` with
   `caller: Some(prompt.context.caller().app_id)`, a separate trusted system
-  prompt, serialized untrusted Browser page context and 2048 output tokens.
+  prompt, serialized untrusted Browser page context and at most 256 output
+  tokens (or a smaller trusted caller budget).
 - `user/nagi-init/src/model_service.rs` requires an OS-supplied live Session.
   `ModelSessionAccess` admits only its bound unlocked token and `caller=None`.
   A request-side AppId does not establish an authenticated app identity.
@@ -26,10 +31,12 @@ finding that the uninspected candidate still has the same budget behavior.
   generation. Its worker builds a text.generate request with caller=None,
   system_prompt=None and at most 256 output tokens. It is the OS Bar route,
   not a BrowserSummaryAdapter/GenerativeProvider app transport.
-- The current summary adapter checks JSON input against 24 KiB; the service
-  checks combined system+input against 24 KiB. Its 256-token ceiling also
-  differs from the current adapter's 2048 request. A future budget fix must
-  coordinate with actual service limits; it cannot silently relax them.
+- The integrated summary adapter now checks serialized JSON plus system
+  instructions against the trusted caller's input budget, capped at 24 KiB.
+  The output cap is 256 or smaller. Native template/tokenizer capacity failures
+  map to ContextLimit before KV clearing/prefill; the adapter maps this to
+  InputTooLarge. These fixes align conservative admission bounds, but do not
+  authenticate an app or supply the missing transport/system-instruction seam.
 
 Thus accepting a model artifact alone cannot make the current ordinary Browser
 summary route work. A missing-model Bar reply and dedicated M20 inference do
