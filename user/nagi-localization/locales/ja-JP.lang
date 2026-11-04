@@ -106,3 +106,5 @@ desktop.ai.status.terms_failed=規約への同意に失敗しました
 desktop.ai.status.denied=セッションのアクセスが拒否されました
 desktop.ai.status.worker_unavailable=モデルワーカーを利用できません
 desktop.ai.status.cancelling=ワーカーの停止までキャンセル中
+desktop.ai.summarize_page=ページ要約
+desktop.ai.status.summary_unavailable=ページ要約を利用できません

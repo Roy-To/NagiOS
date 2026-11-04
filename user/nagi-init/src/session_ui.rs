@@ -34,6 +34,7 @@ pub trait Services {
         &mut self,
         _: &Session,
         _: u64,
+        _: &nagi_ai::ContextRequest,
         _: &dyn nagi_ai::ContextAuthority,
         _: &mut dyn nagi_ai::PublicBrowserContextApi,
     ) -> Result<Reply, SubmitError> {
@@ -73,10 +74,11 @@ impl Services for SessionServices {
         &mut self,
         s: &Session,
         id: u64,
+        current_request: &nagi_ai::ContextRequest,
         authority: &dyn nagi_ai::ContextAuthority,
         browser: &mut dyn nagi_ai::PublicBrowserContextApi,
     ) -> Result<Reply, SubmitError> {
-        SessionServices::poll_page_summary(self, s, id, authority, browser)
+        SessionServices::poll_page_summary(self, s, id, current_request, authority, browser)
     }
     fn cancel_request(&mut self, s: &Session, id: u64) -> Result<(), SubmitError> {
         SessionServices::cancel_request(self, s, id)
@@ -99,6 +101,7 @@ pub enum Status {
     Cancelled,
     Cancelling,
     Unavailable,
+    PageSummaryUnavailable,
     Busy,
     TermsRequired,
     Failed,
@@ -124,6 +127,7 @@ impl Status {
             Self::Cancelled => "desktop.ai.status.cancelled",
             Self::Cancelling => "desktop.ai.status.cancelling",
             Self::Unavailable => "desktop.ai.status.unavailable",
+            Self::PageSummaryUnavailable => "desktop.ai.status.summary_unavailable",
             Self::Busy => "desktop.ai.status.busy",
             Self::TermsRequired => "desktop.ai.status.terms_required",
             Self::Failed => "desktop.ai.status.failed",
@@ -147,7 +151,7 @@ impl Status {
             nagi_ai::PageSummaryError::Context(
                 nagi_ai::BrowserContextError::ApiUnavailable
                 | nagi_ai::BrowserContextError::NoActivePage,
-            ) => Self::Unavailable,
+            ) => Self::PageSummaryUnavailable,
             nagi_ai::PageSummaryError::Context(nagi_ai::BrowserContextError::EmptyPageContent) => {
                 Self::EmptyInput
             }
@@ -188,7 +192,7 @@ impl Terms {
 }
 #[derive(Clone, Copy)]
 struct Request {
-    summary: bool,
+    summary_caller: Option<nagi_ai::CallerIdentity>,
     session: Session,
     id: u64,
 }
@@ -364,7 +368,7 @@ impl Controller {
         };
         self.last_request_id = id;
         self.queued = Some(Request {
-            summary: false,
+            summary_caller: None,
             session,
             id,
         });
@@ -407,7 +411,7 @@ impl Controller {
         match services.submit_page_summary(live, caller, id, request, authority, browser) {
             Ok(()) => {
                 self.in_flight = Some(Request {
-                    summary: true,
+                    summary_caller: Some(caller),
                     session: *live,
                     id,
                 });
@@ -424,6 +428,23 @@ impl Controller {
                 self.status = Status::submit_error(error);
                 false
             }
+        }
+    }
+
+    /// Read-only state for the Desktop's private owner-binding lifecycle.
+    pub fn is_bound_to(&self, live: &Session) -> bool {
+        self.bound && !live.is_locked() && self.session == Some(*live)
+    }
+    pub fn has_page_summary(&self) -> bool {
+        self.in_flight
+            .is_some_and(|request| request.summary_caller.is_some())
+    }
+    /// No owner/caller is fabricated when ordinary Desktop cannot acquire
+    /// context. Rejection consumes intent and never queues a deferred retry.
+    pub fn reject_page_summary(&mut self, error: SubmitError) {
+        if self.can_edit() {
+            self.output.clear();
+            self.status = Status::submit_error(error);
         }
     }
 
@@ -495,17 +516,30 @@ impl Controller {
     pub fn tick_page_summary(
         &mut self,
         live: Option<&Session>,
+        current_request: &nagi_ai::ContextRequest,
         services: &mut dyn Services,
         authority: &dyn nagi_ai::ContextAuthority,
         browser: &mut dyn nagi_ai::PublicBrowserContextApi,
     ) {
-        self.tick_inner(live, services, Some((authority, browser)));
+        // The requesting app session/node/workspace must still be the one
+        // queued by the owner, independently of the bound OS Session token.
+        if self
+            .in_flight
+            .and_then(|request| request.summary_caller)
+            .is_some_and(|caller| caller != current_request.caller)
+        {
+            self.cancel(services);
+            self.tick_inner(live, services, None);
+        } else {
+            self.tick_inner(live, services, Some((current_request, authority, browser)));
+        }
     }
     fn tick_inner(
         &mut self,
         live: Option<&Session>,
         services: &mut dyn Services,
         context: Option<(
+            &nagi_ai::ContextRequest,
             &dyn nagi_ai::ContextAuthority,
             &mut dyn nagi_ai::PublicBrowserContextApi,
         )>,
@@ -546,11 +580,16 @@ impl Controller {
                 }
             }
         } else if let Some(r) = self.in_flight {
-            let reply = if r.summary {
-                let Some((authority, browser)) = context else {
+            let reply = if r.summary_caller.is_some() {
+                if let Some((current_request, authority, browser)) = context {
+                    services.poll_page_summary(&session, r.id, current_request, authority, browser)
+                } else if self.discarding {
+                    // Only cancelled failures may drain without Browser state;
+                    // Shared never releases successful summary text this way.
+                    services.poll_reply(&session, r.id)
+                } else {
                     return;
-                };
-                services.poll_page_summary(&session, r.id, authority, browser)
+                }
             } else {
                 services.poll_reply(&session, r.id)
             };
@@ -576,7 +615,7 @@ impl Controller {
                         || response.text.trim().is_empty()
                         || response.text.contains('\0')
                         || response.text.len()
-                            > if r.summary {
+                            > if r.summary_caller.is_some() {
                                 nagi_ai::MAX_PAGE_SUMMARY_BYTES
                             } else {
                                 OUTPUT_CAPACITY

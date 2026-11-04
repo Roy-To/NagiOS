@@ -11,6 +11,8 @@ const PANEL: Rect = Rect::new(17, 25, 286, 167);
 const INPUT: Rect = Rect::new(25, 46, 270, 17);
 const SEND: Rect = Rect::new(25, 67, 75, 15);
 const CANCEL: Rect = Rect::new(107, 67, 75, 15);
+pub const SUMMARY: Rect = Rect::new(189, 67, 106, 15);
+pub const SUMMARY_KEY: u16 = 63; // VirtIO/Linux F5, only inside the open Bar.
 const ACCEPT: Rect = Rect::new(25, 151, 270, 17);
 const COLUMNS: usize = 33;
 pub(super) const WRAPPED_LINE_CAPACITY: usize = COLUMNS * 4;
@@ -21,12 +23,14 @@ enum Focus {
     Input,
     Send,
     Cancel,
+    Summary,
     Terms,
 }
 pub struct Panel {
     pub controller: Controller,
     pub open: bool,
     pub cancel_requested: bool,
+    pub summary_requested: bool,
     focus: Focus,
     scroll: usize,
 }
@@ -36,6 +40,7 @@ impl Panel {
             controller: Controller::new(),
             open: false,
             cancel_requested: false,
+            summary_requested: false,
             focus: Focus::Input,
             scroll: 0,
         }
@@ -47,6 +52,7 @@ impl Panel {
     pub fn clear_presentation(&mut self) {
         self.open = false;
         self.cancel_requested = false;
+        self.summary_requested = false;
         self.focus = Focus::Input;
         self.scroll = 0;
     }
@@ -61,7 +67,17 @@ impl Panel {
                     self.scroll = 0;
                 }
             }
-            Focus::Cancel => self.cancel_requested = true,
+            Focus::Cancel => {
+                self.summary_requested = false;
+                self.cancel_requested = true;
+            }
+            Focus::Summary => {
+                // Record intent only. The Desktop validates its live owner,
+                // Session/readiness and explicit terms on the next service step.
+                if !self.controller.is_busy() {
+                    self.summary_requested = true;
+                }
+            }
             Focus::Terms => {
                 self.controller.accept_request();
             }
@@ -78,18 +94,22 @@ impl Panel {
                 self.activate(Focus::Send);
             } else if CANCEL.contains(x, y) {
                 self.activate(Focus::Cancel);
+            } else if SUMMARY.contains(x, y) {
+                self.activate(Focus::Summary);
             } else if self.terms_needed() && ACCEPT.contains(x, y) {
                 self.activate(Focus::Terms);
             }
             return true;
         }
         match event.code {
+            SUMMARY_KEY => self.activate(Focus::Summary),
             libnagi::INPUT_KEY_ESCAPE => self.open = false,
             libnagi::INPUT_KEY_TAB => {
                 self.focus = match self.focus {
                     Focus::Input => Focus::Send,
                     Focus::Send => Focus::Cancel,
-                    Focus::Cancel if self.terms_needed() => Focus::Terms,
+                    Focus::Cancel => Focus::Summary,
+                    Focus::Summary if self.terms_needed() => Focus::Terms,
                     _ => Focus::Input,
                 }
             }
@@ -154,6 +174,7 @@ impl Panel {
             (INPUT, Focus::Input, None),
             (SEND, Focus::Send, Some("desktop.ai.send")),
             (CANCEL, Focus::Cancel, Some("desktop.ai.cancel")),
+            (SUMMARY, Focus::Summary, Some("desktop.ai.summarize_page")),
         ] {
             painter.frame(
                 rect,

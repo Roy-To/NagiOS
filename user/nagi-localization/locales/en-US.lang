@@ -106,3 +106,5 @@ desktop.ai.status.terms_failed=Terms acceptance failed
 desktop.ai.status.denied=Session access denied
 desktop.ai.status.worker_unavailable=Model worker unavailable
 desktop.ai.status.cancelling=Cancelling until the worker stops
+desktop.ai.summarize_page=Summarize page
+desktop.ai.status.summary_unavailable=Page summary unavailable

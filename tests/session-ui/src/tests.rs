@@ -626,7 +626,7 @@ fn panel_open_and_typing_do_not_accept_terms_or_submit_implicitly() {
     assert_eq!(panel.controller.status(), Status::TermsRequired);
     panel.controller.tick(Some(&session), &mut fake);
     assert_eq!(fake.events, vec![Event::SignedIn(session)]);
-    for _ in 0..3 {
+    for _ in 0..4 {
         panel.event(key(libnagi::INPUT_KEY_TAB), 0, 0);
     }
     panel.event(key(libnagi::INPUT_KEY_ENTER), 0, 0);
@@ -651,6 +651,7 @@ fn every_bar_status_and_control_has_both_localizations() {
         Status::Cancelled,
         Status::Cancelling,
         Status::Unavailable,
+        Status::PageSummaryUnavailable,
         Status::Busy,
         Status::TermsRequired,
         Status::Failed,
@@ -674,6 +675,7 @@ fn every_bar_status_and_control_has_both_localizations() {
         "desktop.lock",
         "desktop.ai.send",
         "desktop.ai.cancel",
+        "desktop.ai.summarize_page",
         "desktop.ai.accept_session",
     ] {
         for locale in [Locale::EnUs, Locale::JaJp] {
