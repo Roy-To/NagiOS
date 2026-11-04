@@ -13,6 +13,7 @@ const SEND: Rect = Rect::new(25, 67, 75, 15);
 const CANCEL: Rect = Rect::new(107, 67, 75, 15);
 const ACCEPT: Rect = Rect::new(25, 151, 270, 17);
 const COLUMNS: usize = 33;
+pub(super) const WRAPPED_LINE_CAPACITY: usize = COLUMNS * 4;
 const ROWS: usize = 7;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -186,19 +187,16 @@ impl Panel {
         );
         if self.terms_needed() {
             if let Some(terms) = self.controller.terms() {
+                let mut line = [0u8; WRAPPED_LINE_CAPACITY];
                 painter.text(
                     25,
                     103,
-                    wrapped_line(terms.name(), 0).as_bytes(),
+                    wrapped_line(terms.name(), 0, &mut line).as_bytes(),
                     foreground,
                 );
                 for row in 0..3 {
-                    painter.text(
-                        25,
-                        115 + row as i32 * 11,
-                        wrapped_line(terms.reference(), row).as_bytes(),
-                        foreground,
-                    );
+                    let wrapped = wrapped_line(terms.reference(), row, &mut line);
+                    painter.text(25, 115 + row as i32 * 11, wrapped.as_bytes(), foreground);
                 }
             }
             painter.frame(
@@ -216,29 +214,36 @@ impl Panel {
                 foreground,
             );
         } else {
+            let mut line = [0u8; WRAPPED_LINE_CAPACITY];
             for row in 0..ROWS {
-                painter.text(
-                    25,
-                    103 + row as i32 * 11,
-                    wrapped_line(self.controller.output(), self.scroll + row).as_bytes(),
-                    foreground,
-                );
+                let wrapped = wrapped_line(self.controller.output(), self.scroll + row, &mut line);
+                painter.text(25, 103 + row as i32 * 11, wrapped.as_bytes(), foreground);
             }
         }
     }
 }
-/// Character-based wrapping retains complete UTF-8 and maps control characters
-/// to the font's safe replacement glyph. It never interprets generated commands.
-fn wrapped_line(text: &str, row: usize) -> &str {
-    let start = text
-        .char_indices()
-        .nth(row * COLUMNS)
-        .map_or(text.len(), |(i, _)| i);
-    let end = text[start..]
-        .char_indices()
-        .nth(COLUMNS)
-        .map_or(text.len(), |(i, _)| start + i);
-    &text[start..end]
+/// Character-based wrapping retains complete UTF-8 and replaces controls with
+/// a visible safe glyph. Generated text is never interpreted as a command.
+pub(super) fn wrapped_line<'a>(
+    text: &str,
+    row: usize,
+    output: &'a mut [u8; WRAPPED_LINE_CAPACITY],
+) -> &'a str {
+    let first = row.saturating_mul(COLUMNS);
+    let mut length = 0;
+    for character in text.chars().skip(first).take(COLUMNS) {
+        if character.is_control() {
+            output[length] = b'?';
+            length += 1;
+            continue;
+        }
+        let mut encoded = [0u8; 4];
+        let bytes = character.encode_utf8(&mut encoded).as_bytes();
+        let end = length + bytes.len();
+        output[length..end].copy_from_slice(bytes);
+        length = end;
+    }
+    core::str::from_utf8(&output[..length]).unwrap_or("")
 }
 
 impl Default for Panel {

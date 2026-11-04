@@ -2,6 +2,7 @@
 name = "nagi-desktop-lock-host-tests"
 version = "0.1.0"
 edition = "2021"
+build = "../build.rs"
 publish = false
 
 [workspace]
@@ -9,26 +10,24 @@ members = ["libnagi"]
 
 [features]
 default = ["m20-model-service"]
-m20-model-service = ["production-session", "desktop-login", "m19-runtime"]
-production-session = []
-desktop-login = []
-m19-runtime = []
-m19-files-search-production = []
-m19-search = []
+m20-model-service = ["production-session", "dep:nagi-model-manager"]
+production-session = ["desktop-login", "m19-files-search-production"]
+desktop-login = ["m10-desktop", "m19-runtime"]
 m10-desktop = []
-m29-settings-acceptance = []
-desktop-login-acceptance = []
-desktop-password-change-acceptance = []
+m19-runtime = ["dep:nagi-search", "dep:nagi-search-ipc"]
+m19-files-search-production = ["desktop-login", "consent-dialog", "dep:nagi-search-ipc"]
+desktop-login-acceptance = ["desktop-login"]
 consent-dialog = []
-consent-dialog-acceptance = []
 
 [dependencies]
 libnagi = { package = "nagi-desktop-host-libnagi", path = "libnagi" }
-nagi-model-manager = { path = "../../../user/nagi-model-manager" }
+nagi-model-manager = { path = "../../../user/nagi-model-manager", optional = true }
 nagi-model = { path = "../../../crates/nagi-model" }
 nagi-localization = { path = "../../../user/nagi-localization" }
 nagi-ui = { path = "../../../user/nagi-ui" }
-nagi-search = { path = "../../../user/nagi-search" }
+nagi-package = { path = "../../../user/nagi-package" }
+nagi-search = { path = "../../../user/nagi-search", optional = true }
+nagi-search-ipc = { path = "../../../crates/nagi-search-ipc", optional = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
