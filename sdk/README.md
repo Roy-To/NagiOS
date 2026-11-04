@@ -36,7 +36,15 @@ does not itself start a process or open a Window Server connection.
 The C functions validate their pointers and nonzero dimensions, then fill the
 presentation IDs; they do not make an IPC call or grant authority.
 
-## Build and package the sample
+## Third-party out-of-tree quick start
+
+For a third-party Rust app built outside a NagiOS checkout, follow the bilingual
+[Third-Party Rust App Quick Start](rust/docs/THIRD_PARTY_QUICKSTART.md). It uses
+the public `nagi-sdk` Git dependency and the existing host-side command
+`nagi-pkg manifest validate`. Manifest validation does not install or launch
+an app; the 0.1 M30 and 0.2 runtime gates remain closed.
+
+## Existing host artifact flow and package tests
 
 From the repository root, the current CI-verified sample artifact flow is:
 
@@ -48,12 +56,14 @@ cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- \
   build-hello out/artifacts/hello-nagi.napp out/artifacts/hello-nagi.xapp
 ```
 
-The package tool also exposes `build-signed-hello` and `info`; its signing key
-is a fixed host-side test key and is not a production signing workflow. The
-`./nagi m16` acceptance command stages the sample package in a QEMU image and
-checks guest package install, list/info, launch, atomic update, and removal.
-That single sample acceptance is not a general installer or a claim that all
-SDK capabilities in the primary specification exist.
+The commands above describe the repository's existing host artifact and 0.1
+acceptance flow. They are separate from the third-party quick start, which
+currently checks only a standalone Rust build and a manifest. The package tool
+also exposes `build-signed-hello` and `info`; its signing key is a fixed
+host-side test key and is not a production signing workflow. The `./nagi m16`
+acceptance command stages the existing first-party sample package in a QEMU
+image. That fixture does not establish third-party installation or full SDK
+runtime support.
 
 ## Not yet provided by this SDK surface
 
