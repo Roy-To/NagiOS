@@ -1,7 +1,8 @@
+use crate::virtqueue::{Descriptor, LegacyQueue, QueueLayout, QueueView};
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -18,9 +19,6 @@ const LEGACY_DEVICE_STATUS: u16 = 0x12;
 const LEGACY_DEVICE_CONFIG: u16 = 0x14;
 const LEGACY_HOST_FEATURES: u16 = 0x00;
 const LEGACY_GUEST_FEATURES: u16 = 0x04;
-const MIN_QUEUE_SIZE: usize = 256;
-const MAX_QUEUE_SIZE: usize = 1024;
-const QUEUE_STORAGE_BYTES: usize = 32 * 1024;
 // The first User Data write in M20 allocates QCOW2 metadata for a sparse,
 // high-LBA extent. Older QEMU TCG may need longer to complete that request;
 // keep polling bounded while allowing the reference VM to finish it.
@@ -54,107 +52,6 @@ pub enum BlockError {
     InvalidCapability,
     Busy,
     UnsupportedFeature,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Descriptor {
-    address: u64,
-    length: u32,
-    flags: u16,
-    next: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct UsedElement {
-    id: u32,
-    length: u32,
-}
-
-#[repr(C, align(4096))]
-struct LegacyQueue {
-    storage: [u8; QUEUE_STORAGE_BYTES],
-}
-
-impl LegacyQueue {
-    const fn empty() -> Self {
-        Self {
-            storage: [0; QUEUE_STORAGE_BYTES],
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct QueueLayout {
-    size: usize,
-    available: usize,
-    used: usize,
-}
-
-impl QueueLayout {
-    fn for_size(size: usize) -> Result<Self, BlockError> {
-        if !(MIN_QUEUE_SIZE..=MAX_QUEUE_SIZE).contains(&size) || !size.is_power_of_two() {
-            return Err(BlockError::UnsupportedQueue);
-        }
-        let available = size * size_of::<Descriptor>();
-        // flags/index, ring entries and used_event; used ring is page aligned.
-        let available_end = available + 6 + size * size_of::<u16>();
-        let used = (available_end + 4095) & !4095;
-        if used + 6 + size * size_of::<UsedElement>() > QUEUE_STORAGE_BYTES {
-            return Err(BlockError::UnsupportedQueue);
-        }
-        Ok(Self {
-            size,
-            available,
-            used,
-        })
-    }
-}
-
-#[derive(Clone, Copy)]
-struct QueueView {
-    base: *mut u8,
-    layout: QueueLayout,
-}
-
-impl QueueView {
-    // The caller owns a page-aligned QUEUE_STORAGE_BYTES DMA region. Use raw
-    // volatile accesses: the device writes the used ring independently.
-    unsafe fn used_index(self) -> u16 {
-        ptr::read_volatile(self.base.add(self.layout.used + 2).cast::<u16>())
-    }
-
-    unsafe fn descriptor(self, index: usize, value: Descriptor) {
-        debug_assert!(index < self.layout.size);
-        ptr::write_volatile(self.base.cast::<Descriptor>().add(index), value);
-    }
-
-    unsafe fn publish(self) {
-        let index = self.base.add(self.layout.available + 2).cast::<u16>();
-        let previous = ptr::read_volatile(index);
-        let slot = usize::from(previous) % self.layout.size;
-        ptr::write_volatile(
-            self.base
-                .add(self.layout.available + 4)
-                .cast::<u16>()
-                .add(slot),
-            0,
-        );
-        fence(Ordering::SeqCst);
-        ptr::write_volatile(index, previous.wrapping_add(1));
-        fence(Ordering::SeqCst);
-    }
-
-    unsafe fn completion(self, previous: u16) -> UsedElement {
-        fence(Ordering::Acquire);
-        ptr::read_volatile(
-            self.base
-                .add(self.layout.used + 4)
-                .cast::<UsedElement>()
-                .add(usize::from(previous) % self.layout.size),
-        )
-    }
 }
 
 #[repr(C)]
@@ -217,9 +114,9 @@ pub fn initialize() -> Result<(), BlockError> {
     }
     // Legacy queue length is device-owned. A larger queue changes both ring
     // addresses; accepting it while using a 256-entry layout loses every kick.
-    let queue_layout = QueueLayout::for_size(unsafe {
-        io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) as usize
-    })?;
+    let queue_layout =
+        QueueLayout::for_size(unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) as usize })
+            .ok_or(BlockError::UnsupportedQueue)?;
     let queue_address = ptr::addr_of!(QUEUE) as u64;
     if queue_address & 0xfff != 0 || queue_address >> 12 > u64::from(u32::MAX) {
         return Err(BlockError::AddressOutOfRange);
@@ -552,7 +449,7 @@ unsafe fn flush_locked(device: DeviceState) -> Result<(), BlockError> {
             next: 0,
         },
     );
-    queue.publish();
+    queue.publish(0);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
 
     let mut spins = 0;
@@ -673,7 +570,7 @@ unsafe fn transfer_locked(
             next: 0,
         },
     );
-    queue.publish();
+    queue.publish(0);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
 
     let mut spins = 0;
@@ -913,9 +810,8 @@ mod tests {
     use super::{
         choose_largest_writable_block_device, descriptor_flags, is_readable_capability,
         is_writable_capability, make_capability, pci_config_address, request_header,
-        translate_user_sector, validate_sector, BlockError, BlockRequestHeader, Descriptor,
-        DeviceCandidate, LegacyQueue, QueueLayout, QueueView, UsedElement, BLOCK_IN, DESC_F_NEXT,
-        DESC_F_WRITE,
+        translate_user_sector, validate_sector, BlockRequestHeader, DeviceCandidate, BLOCK_IN,
+        DESC_F_NEXT, DESC_F_WRITE,
     };
 
     #[test]
@@ -1023,92 +919,5 @@ mod tests {
             choose_largest_writable_block_device(None, user_data_disk),
             Some(user_data_disk)
         );
-    }
-
-    #[test]
-    fn uses_the_legacy_queue_size_and_used_ring_alignment() {
-        let layout = QueueLayout::for_size(256).unwrap();
-        assert_eq!(layout.available, 4096);
-        assert_eq!(layout.used, 8192);
-        assert_eq!(core::mem::align_of::<LegacyQueue>(), 4096);
-        assert_eq!(core::mem::size_of::<LegacyQueue>(), 32 * 1024);
-        let middle = QueueLayout::for_size(512).unwrap();
-        assert_eq!((middle.available, middle.used), (8192, 12288));
-    }
-
-    #[test]
-    fn queue_1024_publishes_and_reads_at_the_device_ring_addresses() {
-        let mut storage = LegacyQueue::empty();
-        let queue = QueueView {
-            base: storage.storage.as_mut_ptr(),
-            layout: QueueLayout::for_size(1024).unwrap(),
-        };
-        assert_eq!((queue.layout.available, queue.layout.used), (16384, 20480));
-        unsafe {
-            queue.descriptor(
-                0,
-                Descriptor {
-                    address: 0x1234,
-                    length: 16,
-                    flags: 0,
-                    next: 0,
-                },
-            );
-            queue.publish();
-            assert_eq!(
-                core::ptr::read_volatile(queue.base.add(16386).cast::<u16>()),
-                1
-            );
-            // The old fixed-256 available index remains untouched: a 1024-entry
-            // device never reads it, which caused the observed M7 timeout.
-            assert_eq!(
-                core::ptr::read_volatile(queue.base.add(4098).cast::<u16>()),
-                0
-            );
-            core::ptr::write_volatile(
-                queue.base.add(20484).cast::<UsedElement>(),
-                UsedElement { id: 0, length: 513 },
-            );
-            core::ptr::write_volatile(queue.base.add(20482).cast::<u16>(), 1);
-            assert_eq!(queue.used_index(), 1);
-            assert_eq!(queue.completion(0), UsedElement { id: 0, length: 513 });
-        }
-    }
-
-    #[test]
-    fn queue_indices_wrap_using_the_device_length() {
-        let mut storage = LegacyQueue::empty();
-        let queue = QueueView {
-            base: storage.storage.as_mut_ptr(),
-            layout: QueueLayout::for_size(1024).unwrap(),
-        };
-        unsafe {
-            core::ptr::write_volatile(queue.base.add(16386).cast::<u16>(), u16::MAX);
-            core::ptr::write_volatile(queue.base.add(18434).cast::<u16>(), 9);
-            queue.publish();
-            assert_eq!(
-                core::ptr::read_volatile(queue.base.add(16386).cast::<u16>()),
-                0
-            );
-            assert_eq!(
-                core::ptr::read_volatile(queue.base.add(18434).cast::<u16>()),
-                0
-            );
-            core::ptr::write_volatile(
-                queue.base.add(28668).cast::<UsedElement>(),
-                UsedElement { id: 0, length: 1 },
-            );
-            assert_eq!(queue.completion(u16::MAX), UsedElement { id: 0, length: 1 });
-        }
-    }
-
-    #[test]
-    fn unsupported_device_queue_lengths_fail_closed() {
-        for size in [0, 128, 255, 257, 1023, 1025, 2048, usize::MAX] {
-            assert_eq!(
-                QueueLayout::for_size(size),
-                Err(BlockError::UnsupportedQueue)
-            );
-        }
     }
 }

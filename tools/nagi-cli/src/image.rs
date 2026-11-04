@@ -2819,10 +2819,8 @@ fn spawn_qemu_with_display_mode_and_vars(
         "virtio-sound-pci,audiodev=nagi-audio,disable-modern=on",
         "-netdev",
         "user,id=nagi-net",
-        // Preserve the driver's bounded 256-entry RX/TX contract across QEMU
-        // machine versions; their implicit device defaults can differ.
         "-device",
-        "virtio-net-pci,netdev=nagi-net,disable-modern=on,rx_queue_size=256,tx_queue_size=256,mac=02:00:00:00:00:15",
+        "virtio-net-pci,netdev=nagi-net,disable-modern=on,mac=02:00:00:00:00:15",
         "-drive",
         &code_drive,
         "-drive",
