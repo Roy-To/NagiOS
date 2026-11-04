@@ -1,0 +1,108 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "developer-tooling",
+  "current_milestone": "Developer Tooling Foundation — Existing Application Porting Readiness",
+  "current_checkpoint": "PORT-READINESS-HOST-20261104",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "87b7dea4061be2572526181ab559d63037f823d0",
+    "verified_at": "2026-11-04T04:05:41Z",
+    "normal_state": "The host-only static readiness analyzer and CLI, independent portable-files sample, and English/Japanese migration guides are implemented in the dirty codex/0.2-developer-tooling worktree based on public main 87b7dea4061be2572526181ab559d63037f823d0. Focused scanner/CLI tests, sample host tests, the existing package validator, and the documented out-of-checkout Cargo CLI invocation passed. Independent review found no remaining Critical or Important findings; the toolchain pin in both guide examples was added. M30 remains PARTIAL; guest install, launch, and runtime acceptance remain NOT_RUN.",
+    "commands": [
+      "git status --short --branch",
+      "git rev-parse HEAD",
+      "git ls-remote origin refs/heads/main",
+      "cargo +nightly-2025-08-01 fmt --manifest-path tools/nagi-cli/Cargo.toml -- --check",
+      "git diff --check",
+      "cargo +nightly-2025-08-01 run --locked --offline --manifest-path tools/nagi-bootstrap/Cargo.toml -- dev verify"
+    ],
+    "tests": [
+      {
+        "name": "Port readiness CLI integration",
+        "command": "cargo +nightly-2025-08-01 test --locked --offline --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap --test cli port_readiness -- --nocapture",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "13 focused CLI cases passed, including external-project execution, text/JSON output, explicit receipt handling, bounded directory traversal, terminal-control filtering, and non-UTF-8 input counted against the 20 MiB total-read cap."
+      },
+      {
+        "name": "Bounded reader unit test",
+        "command": "cargo +nightly-2025-08-01 test --locked --offline --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap --lib bounded_reader_counts_valid_and_invalid_input_without_exceeding_limit -- --nocapture",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Valid and invalid byte sequences were counted within the configured read limit."
+      },
+      {
+        "name": "Portable Files host sample",
+        "command": "cargo +nightly-2025-08-01 test --locked --offline --manifest-path samples/porting/portable-files/Cargo.toml",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Three unit tests passed; binary and doc-test targets completed."
+      },
+      {
+        "name": "Existing package validator on sample fixture",
+        "command": "cargo +nightly-2025-08-01 run --locked --offline --manifest-path tools/nagi-pkg/Cargo.toml -- manifest validate samples/porting/portable-files/manifest.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Existing validator accepted the third-party, zero-capability host fixture with SDK contract 1.0; this does not establish installability."
+      },
+      {
+        "name": "Run readiness CLI outside NagiOS checkout",
+        "command": "cargo +nightly-2025-08-01 run --locked --offline --manifest-path PATH/TO/NagiOS/tools/nagi-bootstrap/Cargo.toml -- port readiness PATH/TO/PROJECT --format json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The documented Cargo invocation was run from the system temporary directory against the portable-files sample and emitted valid schema-version-1 JSON."
+      },
+      {
+        "name": "Workstream registry and state validation",
+        "command": "cargo +nightly-2025-08-01 run --locked --offline --manifest-path tools/nagi-bootstrap/Cargo.toml -- dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "32 registered workstreams and 26 state files validated; current branch codex/0.2-developer-tooling was registered at base SHA 87b7dea4061be2572526181ab559d63037f823d0."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams/development-foundation/state.json",
+    "last_checked_at": "2026-11-04T03:51:13Z",
+    "activation_requirement": "Public main remains 87b7dea4061be2572526181ab559d63037f823d0. docs/implementation_status.md records Nagi 0.1 M30 PARTIAL as of 2026-10-03 because authenticated updates/System B and human binary redistribution review remain open. This checkpoint is host-only static analysis, documentation, and a host-buildable sample. Guest install/launch and 0.2 runtime integration require M30 PASS and an explicit 0.2 release boundary."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": []
+  },
+  "next_action": "Commit and push the reviewed host-only checkpoint, create a draft PR without merging, then verify the pushed SHA and PR state.",
+  "acceptance_criteria": [
+    "The host-only readiness command scans Rust/C/C++ sources and recognized manifests without building, executing, installing, or launching the inspected project.",
+    "The versioned report distinguishes detected evidence from unverified dependencies, framework coverage, and target behavior and contains no compatibility certification.",
+    "Focused tests cover portable Rust, filesystem/process calls, C process/thread calls, C++ GUI-framework evidence, unknown dependencies, malformed roots, and stable JSON output.",
+    "A separate host-buildable portable-files sample reuses an appropriately noticed portable Nagi Files source unit and uses the existing package validator.",
+    "English and Japanese guides describe source reuse, OS/capability adapters, public SDK boundaries, Permission/Capability constraints, and unverified areas.",
+    "The workstream registry/state validate, owned paths match the exact allowlist, and no active Hello Nagi, app-sdk-contract, or multiarch files are modified.",
+    "Nagi 0.1 M30 and all guest/runtime acceptance remain unchanged and NOT_RUN for this checkpoint."
+  ],
+  "deferred": [
+    "Linux binary compatibility, blanket POSIX compatibility, Qt/GTK/Electron/SDL compatibility, and other framework coverage without per-target evidence.",
+    "Nagi target ABI details, migration effort estimates, production Files capability adapters, guest installation, launch, and runtime acceptance until their gates are open."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "DF-01 state, resume, verification, and release-line gate",
+      "version": "1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Host manifest and package validation contract",
+      "version": "committed main 87b7dea",
+      "status": "PASS for existing host validation only"
+    }
+  ]
+}

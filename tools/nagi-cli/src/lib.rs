@@ -29,6 +29,7 @@ pub(crate) mod mio_servo;
 pub(crate) mod model_artifact;
 pub(crate) mod mozjs_sys_nagi;
 pub mod paths;
+pub mod porting;
 pub(crate) mod registry_source;
 pub mod run_receipt;
 pub(crate) mod rust_std_source;
