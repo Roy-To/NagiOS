@@ -1,3 +1,25 @@
+## Local reference Net queue contract follow-up — 2026-11-04
+
+Formal M30 remains `BLOCKED`. The variable block layout at local code
+`4f4ad9d14c1fa9801c304bdc49e304c858965f4b` builds native image SHA-256
+`88f6a44789202e6f7560f8e25cb71b4253109626fc109edb7fe00d85b372380f`.
+QEMU 10 now consumes 1024-entry block requests and reports M7 VirtIO Block PASS;
+QEMU 8 still formats/writes User Data with a 256-entry block ring. This reveals
+M12 Net `UnsupportedQueue`: QMP shows 1024-entry network queues, outside that
+driver's fixed 256-entry contract. The retained layout fixture reaches persistent
+User Data but fails its actual M13 PAL network operation and times out; evidence
+is `out/evidence/m30-layout-1793770606428462864/reference-disk-restart.log`.
+No layout or formal release PASS is claimed for that run.
+
+The reference launcher now explicitly requests RX/TX length 256, preserving the
+existing bounded Net driver contract across QEMU machine versions. Each selected
+queue is validated after reset with an exact-length check, including TX; no
+larger incompatible ring is accepted. Network remains enabled. See ADR 0072.
+All 168 kernel tests, 27 CLI image tests, format and target kernel build pass.
+The optional whole-kernel host warnings-denied Clippy check fails on five
+unchanged audio/scheduler/user_process diagnostics; none is in the affected
+VirtIO source. Guest regression of this follow-up is recorded separately.
+
 ## Local M30 guest diagnostics and variable VirtIO queue repair — 2026-11-04
 
 Formal M30 remains `BLOCKED`. Native source
