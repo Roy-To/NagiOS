@@ -7,9 +7,11 @@ external-app authority is enabled and no summary budget candidate is merged.
 
 This checkpoint inspects the local integration lineage through `d3a4ea2`.
 The separate budget candidate `ed67d36954e520122ee889715846ad513bd0ccdf` was
-reported as preparing independent review. It is absent locally; a read-only
-fetch from origin returned `not our ref`. Its implementation and tests are
-unverified here. The observations below describe the current source, not a
+reported by its owning workstream as revalidated against current main, with
+conflict-free temporary-index application to #43 and #48. This is upstream
+workstream evidence, not verification performed in this checkout. The candidate
+is absent locally; a prior read-only fetch returned `not our ref`. It has not
+been integrated here. The observations below describe the current source, not a
 finding that the uninspected candidate still has the same budget behavior.
 
 ## Current mismatch
@@ -41,6 +43,13 @@ Use the existing Supervisor/kernel-stamped process identity and applicable live
 grants/context resolution, then bind AppId/AppSessionId/node and the selected
 page/navigation generation. Lock, Session replacement, navigation changes and
 grant revocation must invalidate queued and late output as appropriate.
+
+Normal Albert Context API resolution and the user's context-sharing permission
+must authorize an immutable snapshot of exactly the selected text/visible page
+fields. Model-license terms consent does not establish this sharing permission.
+Preserve the context include flags and navigation binding across the asynchronous
+request; neither a page-provided AppId nor an already accepted license replaces
+the verified invocation and current context grant.
 
 Keep ordinary `generate`'s external-caller rejection. A separately authenticated
 app entry needs an OS-created authorization object or equivalent checked
