@@ -13,7 +13,8 @@ use crate::m19_storage::{self, VfsSnapshotFiles};
 #[cfg(feature = "desktop-login-acceptance")]
 use libnagi::storage::MAX_SMALL_FILE_SIZE;
 use libnagi::storage::{
-    DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
+    BlockDevice, DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH,
+    MAX_PATH_LENGTH,
 };
 use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 use nagi_search::{
@@ -22,12 +23,13 @@ use nagi_search::{
         PRODUCER_KEY_ATTRIBUTE,
     },
     AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchService,
-    VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession,
+    SnapshotBackend, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession,
 };
 
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 type SearchBackend = GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>;
-type OwnerFilesSearchService = SearchService<SearchBackend, OwnerFilesVisibility>;
+#[path = "m19_files.rs"]
+pub(super) mod files;
 
 const FILES_ROOT: &[u8] = b"/home/owner/files";
 const FILES_APP_ID: AppId = AppId::from_identifier(b"org.nagi.files");
@@ -103,8 +105,9 @@ pub(super) enum RuntimeError {
 }
 
 /// Persistent Search service active during the signed-in owner desktop.
-pub(super) struct Runtime {
-    service: OwnerFilesSearchService,
+pub(super) struct Runtime<B: SnapshotBackend = SearchBackend> {
+    service: SearchService<B, OwnerFilesVisibility>,
+    synchronized: bool,
     #[cfg(feature = "desktop-login-acceptance")]
     acceptance_record_restored: bool,
     #[cfg(feature = "desktop-login-acceptance")]
@@ -133,6 +136,7 @@ impl Runtime {
                 OwnerFilesVisibility,
             )
             .map_err(|_| RuntimeError::SearchUnavailable)?,
+            synchronized: false,
             #[cfg(feature = "desktop-login-acceptance")]
             acceptance_record_restored: false,
             #[cfg(feature = "desktop-login-acceptance")]
@@ -160,14 +164,19 @@ impl Runtime {
         runtime.sync_files(volume)?;
         Ok(runtime)
     }
+}
 
+impl<B: SnapshotBackend> Runtime<B> {
     /// Reconcile producer metadata after a Files operation. Only names and VFS
     /// identity/timestamps are indexed; file contents are never read.
-    pub(super) fn sync_files(
+    pub(super) fn sync_files<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
     ) -> Result<(usize, usize), RuntimeError> {
-        let mut present_keys = BTreeSet::new();
+        self.synchronized = false;
+        let trash_entries = files::trash_entries(volume).map_err(|_| RuntimeError::Storage)?;
+        let mut present_keys: BTreeSet<String> =
+            trash_entries.iter().map(files::Entry::key).collect();
         let mut present_ids = Vec::new();
         let mut restored_records = 0;
         let mut pending_directories = Vec::new();
@@ -198,6 +207,9 @@ impl Runtime {
                 let Ok(name) = core::str::from_utf8(entry.name()) else {
                     continue;
                 };
+                if name.starts_with(files::TRASH_PREFIX) {
+                    continue;
+                }
                 let path = child_path(&directory_path, name)?;
                 if entry.file_type == 2 {
                     if depth >= MAX_DIRECTORY_DEPTH {
@@ -299,17 +311,21 @@ impl Runtime {
                     .map_err(|_| RuntimeError::SearchUnavailable)?;
             }
         }
+        self.synchronized = true;
         Ok((present_ids.len(), restored_records))
     }
 
     /// Rename a direct child of the owner Files directory and reconcile its
     /// searchable metadata before reporting success to the caller.
-    pub(super) fn rename_file(
+    pub(super) fn rename_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         old_name: &[u8],
         new_name: &[u8],
     ) -> Result<(), RuntimeError> {
+        owner_file_path(old_name)?;
+        owner_file_path(new_name)?;
+        self.synchronized = false;
         volume
             .rename_child(FILES_ROOT, old_name, new_name)
             .and_then(|_| volume.flush())
@@ -320,9 +336,9 @@ impl Runtime {
 
     /// Create an empty direct child in the owner Files directory, then publish
     /// its metadata before returning the stable Search ObjectId.
-    pub(super) fn create_file(
+    pub(super) fn create_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         name: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let path = owner_file_path(name)?;
@@ -344,6 +360,7 @@ impl Runtime {
             return Err(RuntimeError::TooManyFiles);
         }
 
+        self.synchronized = false;
         volume.create_path(&path).map_err(|error| {
             let message: &[u8] = match error {
                 StorageError::AlreadyExists => {
@@ -376,11 +393,10 @@ impl Runtime {
             );
             RuntimeError::Storage
         })?;
-        self.sync_files(volume).map_err(|error| {
+        self.sync_files(volume).inspect_err(|_| {
             trace_acceptance_failure(
                 b"Nagi M19 lifecycle trace: Search sync after create failed\r\n",
             );
-            error
         })?;
         self.file_object_id(volume, &path)
     }
@@ -388,13 +404,14 @@ impl Runtime {
     /// Permanently remove a direct child and tombstone its Search record before
     /// reporting success. A restore creates a new file identity if the VFS
     /// inode was reused in the meantime.
-    pub(super) fn delete_file(
+    pub(super) fn delete_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         name: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let path = owner_file_path(name)?;
         let object_id = self.file_object_id(volume, &path)?;
+        self.synchronized = false;
         volume
             .remove_path(&path)
             .map_err(|_| RuntimeError::Storage)?;
@@ -403,9 +420,9 @@ impl Runtime {
         Ok(object_id)
     }
 
-    fn file_object_id(
+    fn file_object_id<D: BlockDevice>(
         &self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         path: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let metadata = volume
@@ -435,6 +452,9 @@ impl Runtime {
     }
 
     fn search_files_as(&self, access: AccessContext, query: &str) -> Option<Vec<ObjectId>> {
+        if !self.synchronized {
+            return None;
+        }
         let response = self
             .service
             .search(
@@ -460,6 +480,9 @@ impl Runtime {
     /// applies the same private Files workspace and visibility policy as the
     /// ObjectId-facing API; the UI never reads file contents.
     pub(super) fn search_file_titles(&self, query: &str) -> Option<Vec<String>> {
+        if !self.synchronized {
+            return None;
+        }
         let response = self
             .service
             .search(
@@ -486,6 +509,9 @@ impl Runtime {
     /// checked again before a title reaches the UI.
     #[cfg(feature = "m19-files-search-production")]
     pub(super) fn visible_file_titles(&self, object_ids: &[u64]) -> Option<Vec<String>> {
+        if !self.synchronized {
+            return None;
+        }
         let workspace = self
             .service
             .get_workspace(FILES_ACCESS, FILES_WORKSPACE_ID)?;
@@ -656,7 +682,8 @@ impl Runtime {
 }
 
 fn owner_file_path(name: &[u8]) -> Result<Vec<u8>, RuntimeError> {
-    if name.is_empty()
+    if !files::valid_name(name)
+        || name.is_empty()
         || name.len() > MAX_NAME_LENGTH
         || name == b"."
         || name == b".."
@@ -746,3 +773,7 @@ fn ensure_non_utf8_name_fixture(volume: &mut UserDataVolume) -> Result<(), Runti
         Err(_) => Err(RuntimeError::Storage),
     }
 }
+
+#[cfg(test)]
+#[path = "m19_runtime_tests.rs"]
+mod tests;

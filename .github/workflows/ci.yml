@@ -75,6 +75,8 @@ jobs:
           cargo test --manifest-path tests/acceptance/session-services/Cargo.toml --locked
           cargo clippy --manifest-path tests/acceptance/session-services/Cargo.toml --all-targets --locked -- -D warnings
           cargo clippy --manifest-path tests/acceptance/session-services/Cargo.toml --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked -- -D warnings
+      - name: Nagi Bar host regressions
+        run: sh tests/session-ui/check.sh
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
@@ -170,6 +172,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --manifest-path tools/nagi-installer/Cargo.toml --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Nagi Bar host regressions (Windows)
+        shell: bash
+        run: sh tests/session-ui/check.sh
       - name: Verify Windows launcher help
         shell: pwsh
         run: |

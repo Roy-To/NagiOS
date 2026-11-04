@@ -58,6 +58,41 @@ Desktop consumer/native-link evidence belongs to its recorded source and is
 not substituted for #43 acceptance. Ordinary Servo/AI/History/voice/stress,
 persistence/offline demo and complete distribution review remain open.
 
+## PR #48 Files consent scheduler follow-up — 2026-11-04
+
+Status: `PARTIAL`; host regression only, guest reproduction `NOT_RUN`.
+Based on published #48 head `59adf3a3081514c3a31a9d07313f0f42aea74a8d`
+in a separate worktree/branch. The signed Files query calls a modal consent
+wait synchronously when either required live grant needs consent. Its old
+no-input path used only CPU `pause`, while the bootstrap thread scheduler is
+cooperative. The wait now performs one existing bounded model service step
+and an explicit thread yield on every live-session iteration, including
+continuous input and an absent model adapter. Model status changes redraw the
+modal frame; a failed presentation returns no answer. Modal input, fresh
+press/release consent, both live grant checks and child cleanup are unchanged.
+F4 still invalidates/cancels in the Desktop handler before the loop aborts.
+No Files operation is reentered and no Supervisor or model bridge guard is
+held across the new yield.
+
+Validation: the original wait source fails all four initial modal regressions;
+the fixed source passes them. `sh tests/session-ui/check.sh` passes 49
+controller/bridge tests, 54 production Desktop/Files/Shared tests (six new
+modal regressions) and 26 legacy login/Files tests. Counts overlap existing
+suites and are not guest evidence. The consent-enabled model-disabled host
+configuration also compiles and passes its lost-session regression. The preserved
+Files suite passes 30 tests; controller/bridge all-target Clippy passes with
+warnings denied, formatting and `git diff --check` pass. Tests
+compile the actual wait function verbatim and use explicit host syscall seams;
+they collect an already-scripted Shared reply and count yield calls, without
+running the Nagi scheduler, signed child or native worker. Actual guest
+starvation/recovery, native linking and inference remain unverified here.
+M19/M20/M23 remain `PARTIAL`; formal M30 remains `BLOCKED`.
+
+Before handoff, public main advanced from `0362427747e769b00558053e4c7f4c756d303802`
+to `87b7dea4061be2572526181ab559d63037f823d0` (three unrelated host-contract
+and evidence files); none intersects this change. The #48 public head was
+unchanged. The shared #48 branch and other guest/CI work are not overwritten.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
@@ -158,6 +193,24 @@ are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
 history publication is still acceptance-scoped, and a resident production
 Search service plus general Files producer synchronization remain open; M19
 stays `PARTIAL`.
+**M19 ordinary Files recovery checkpoint:** recovered owner-only
+create/rename/trash/restore controls use mirrored trash intent records and bounded
+VFS create/rename undo recovery. Contents and inode/generation are retained;
+Search failure does not disable physical Files operations. The signed Files
+Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
+tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
+Clippy. A synthetic disk written by the exact-base VFS was read without writes
+or formatting by the recovered VFS; clean new mutations remained readable by
+the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
+before init. Normal guest UI/Search operations and Browser History acceptance
+remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
+**Recovery caller follow-up:** read-only inspection diagnoses pending supported
+VFS undo; an explicit Recovery-console `recover` operation performs no-format
+writable recovery and checks full integrity before exposing a mount. Six fresh
+synthetic caller tests pass, including unchanged diagnosis bytes/counters,
+create/rename restoration, rejected input, retry and unrelated corruption after
+journal repair. This is host evidence; normal guest Recovery acceptance remains
+unproven and no Recovery milestone is marked complete.
 **M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
 the shared User Data VFS snapshot adapter and starts a bounded SearchService
 when the owner signs in. It enumerates only regular files directly under
@@ -2765,7 +2818,7 @@ confirmed the expected ABI entry point. The next Ubuntu target CI must verify
 the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
 evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Local verification after the #164 repair passed: focused M17 tests (11), the
+Local verification after the #164 repair passed: focused M18 tests (11), the
 full `nagi-cli` suite (49 unit and 18 CLI tests), focused Clippy,
 `bash -n tools/nagi-target-cc.sh`, and `git diff --check`. The Nagi wrapper
 compiled `nagi-libcpp-abi.cpp` plus the real fontsan OTS `ots.cc` and `cff.cc`
@@ -10195,3 +10248,34 @@ NAGI_FILES_SEARCH_PACKAGE artifact; it does not establish an init build result.
 No native init link, new guest worker/inference, durable consent, or same-image
 M30 acceptance is claimed. Hosted CI results must be assessed at the published
 integration head separately from these local checks.
+
+
+## PR #48 current-main and PR #43 integration (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public #48 head `27f844308a779c8bde93e48e49a21f0c39c8f5a0`,
+merges main `0362427747e769b00558053e4c7f4c756d303802`, and then merges published
+#43 head `54f24085939a40d86a451d191c4d4bb91f3f2103`. Its worker source exactly
+matches #43, so reviewed worker fencing is imported once through that ancestry.
+The combined candidate `746f19eb15e0bb69079b0267aa682b0ecf0a5b09` supplies
+scoped host fixtures, live Shared queue tests, cancellation-drain status and
+Desktop lock-state cleanup. The public Files panel, recoverable trash and
+Search lifecycle, production image commands, release evidence validator,
+layout fixture and formal M30 gate remain present. The combined candidate's
+whole tree is deliberately not substituted for the public PR.
+
+The production Desktop loop now calls the same bounded service step exercised
+by host regressions. Its target-only signed Files client remains target-only
+when the host harness enables the production feature graph. The existing
+Files test constructors initialize their acceptance-only fields when run in
+the login acceptance feature configuration. No production Files behavior or
+release assertion is weakened.
+
+Local Linux x86-64 validation of the integrated source: 49 UI/controller tests,
+48 Desktop/Files/worker tests, 26 login/Files tests, 16 standalone worker tests,
+and 37 release/profile/session Python tests passed. Session UI all-target
+Clippy passed with warnings denied. These host tests use explicit syscall and
+scripted model seams; they do not establish guest inference. CI now runs the
+Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
+results must refer to the published successor. Actual guest/model validation
+and complete workspace checks remain pending at this checkpoint.
