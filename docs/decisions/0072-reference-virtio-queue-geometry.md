@@ -29,6 +29,11 @@ fails. This is not formal M30 acceptance.
   between block and network. Read and validate RX/TX lengths independently after
   reset. Both support power-of-two lengths 256/512/1024; unsupported lengths
   fail closed. Network ring length does not expand its 256 receive-buffer pool.
+- Modern input explicitly programs and reads back its bounded event queue
+  length before enabling it. Supplying separate ring addresses without setting
+  queue length left QEMU 10 at 1024 while software wrapped at 64, duplicating or
+  losing input after enough events. Legacy input requires its exact supported
+  64-entry layout; it cannot silently clamp a device-owned larger ring.
 - Publish only those 256 RX descriptor heads into the actual available ring.
   Recycle returned heads only after checking their buffer bounds. Include the
   10-byte VirtIO header in each buffer stride, and notify RX after DRIVER_OK.
