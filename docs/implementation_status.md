@@ -10127,3 +10127,29 @@ M23 stays `PARTIAL`: the Nagi Bar UI, authenticated caller binding for the
 context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
+
+## PR #43 current-main integration (2026-11-04)
+
+Status: M20 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public PR #43 head `909d8ee01da5ff5f62a422ea67057b5ea27cafa1`
+as its first-parent lineage and merges main `0362427747e769b00558053e4c7f4c756d303802`.
+Only the reviewed worker file through candidate `03da0373c03efdb248625e2e2b4c024c2326941c`
+is replayed from the combined candidate. No #48 Desktop/Bar UI is imported.
+Locked worker entry points revoke the matching session; quarantine retains a
+same-session failure reply while fencing alternate sessions and late output.
+The worker CI step and main's separate Ubuntu/Windows Installer checks remain.
+The layout fixture, partial production-session image build and failing formal
+M30 gate remain distinct; release acceptance requirements are unchanged.
+
+Local Linux x86-64 validation: 500 nagi-cli/model-manager/AI unit, integration
+and documentation tests; 16 worker orchestration and 3 session access tests;
+35 standalone Installer tests; 37 release/profile/session Python tests passed.
+Affected host formatting and warnings-denied Clippy passed, as did actual Nagi
+worker/model-service target-leaf Clippy (existing dependency nagi-posix warnings
+remain). Legal delegation initially failed on uncached offline dependencies;
+fetching the pinned Legal lockfile dependencies allowed the full rerun to pass.
+A direct production-session host check stopped at the required missing
+NAGI_FILES_SEARCH_PACKAGE artifact; it does not establish an init build result.
+No native init link, new guest worker/inference, durable consent, or same-image
+M30 acceptance is claimed. Hosted CI results must be assessed at the published
+integration head separately from these local checks.
