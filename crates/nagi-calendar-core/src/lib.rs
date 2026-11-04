@@ -4,6 +4,7 @@ pub mod adapter;
 pub mod availability;
 pub mod model;
 pub mod recurrence;
+pub mod snapshot;
 pub mod store;
 pub mod time;
 
@@ -12,6 +13,8 @@ pub use nagi_model::{AppId, ObjectId, UserId, WorkspaceId};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidId,
+    UnsupportedSnapshotVersion,
+    InvalidSnapshot,
     InvalidText,
     Capacity,
     NotFound,

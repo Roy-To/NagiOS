@@ -477,6 +477,28 @@ fn real_model_bounds_inputs() {
         p.try_embed(EmbeddingPurpose::Query, &bytes),
         Err(ProviderError::InputTooLong { limit: 4096, .. })
     ));
+    // The pinned piece table sits well inside the tokenizer's probe bounds
+    // (which reject hostile bucket collisions in unpinned artifacts): its
+    // longest insertion probe is 28 slots of MAX_PIECE_PROBES = 128, and its
+    // build examines 361,886 slots of the 1,016,392 budget for 250,002
+    // pieces. Missing-key lookups stop after those 28 slots.
+    let stats = p.tokenizer().piece_table_stats();
+    eprintln!("m24: pinned piece table {stats:?}");
+    assert_eq!(stats.slots, 524_288);
+    assert_eq!(stats.max_probes, 28);
+    assert_eq!(stats.build_probes, 361_886);
+    assert!(stats.max_probes <= nagi_embedding_provider::tokenizer::MAX_PIECE_PROBES);
+    assert!(
+        stats.build_probes <= nagi_embedding_provider::tokenizer::max_table_build_probes(250_002)
+    );
+    for word in [
+        "\u{2581}query",
+        "\u{2581}東京",
+        "\u{2581}zzzzqqqq",
+        "\u{2581}\u{2581}",
+    ] {
+        assert!(p.tokenizer().lookup_probes(word.as_bytes()).1 <= stats.max_probes);
+    }
 }
 
 /// Host clock that records every read and can jump past any deadline from a

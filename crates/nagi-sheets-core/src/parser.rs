@@ -20,6 +20,9 @@ pub enum FunctionId {
     Len,
     Trim,
     Concat,
+    Ifs,
+    RoundUp,
+    RoundDown,
 }
 impl FunctionId {
     pub fn resolve(name: &str) -> Result<Self, CellError> {
@@ -42,6 +45,9 @@ impl FunctionId {
             "LEN" => Ok(Self::Len),
             "TRIM" => Ok(Self::Trim),
             "CONCAT" => Ok(Self::Concat),
+            "IFS" => Ok(Self::Ifs),
+            "ROUNDUP" => Ok(Self::RoundUp),
+            "ROUNDDOWN" => Ok(Self::RoundDown),
             _ => Err(CellError::NameError),
         }
     }
@@ -65,6 +71,9 @@ impl FunctionId {
             Self::Len => "LEN",
             Self::Trim => "TRIM",
             Self::Concat => "CONCAT",
+            Self::Ifs => "IFS",
+            Self::RoundUp => "ROUNDUP",
+            Self::RoundDown => "ROUNDDOWN",
         }
     }
 }

@@ -36,6 +36,11 @@ const FLAG_LABEL: u8 = 0b100;
 const KIND_TEXT: u8 = 0;
 const KIND_BINARY: u8 = 1;
 const KIND_OBJECT: u8 = 2;
+/// Smallest possible encoded item: its `u32` representation count.
+const MIN_ITEM_BYTES: usize = 4;
+/// Smallest possible encoded representation: a `u32` media type length, one
+/// media type byte, the `u8` kind, and a `u32` payload length.
+const MIN_REPRESENTATION_BYTES: usize = 4 + 1 + 1 + 4;
 
 /// Why an envelope could not be decoded.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -134,7 +139,9 @@ pub fn encode_content(
 }
 
 /// Decodes and validates an envelope against `limits`. Declared lengths are
-/// checked before any allocation.
+/// checked before any allocation, and pre-allocation is additionally bounded by
+/// the input bytes actually present, so a declared count can never reserve more
+/// than the envelope could hold even when `limits` were not validated.
 pub fn decode_content(
     input: &[u8],
     limits: &ClipboardLimits,
@@ -178,10 +185,11 @@ pub fn decode_content(
         }
     }
     let item_count = reader.count(limits.max_items)?;
-    let mut items = Vec::with_capacity(item_count);
+    let mut items = Vec::with_capacity(reader.capacity_for(item_count, MIN_ITEM_BYTES));
     for _ in 0..item_count {
         let representation_count = reader.count(limits.max_representations_per_item)?;
-        let mut representations = Vec::with_capacity(representation_count);
+        let mut representations =
+            Vec::with_capacity(reader.capacity_for(representation_count, MIN_REPRESENTATION_BYTES));
         for _ in 0..representation_count {
             let media_type = MediaType::new(reader.string(MAX_MEDIA_TYPE_BYTES)?)
                 .map_err(|_| DecodeError::InvalidMediaType)?;
@@ -266,6 +274,13 @@ impl<'a> Reader<'a> {
             return Err(DecodeError::BoundExceeded);
         }
         Ok(count)
+    }
+
+    /// Capacity to reserve for `count` records of at least `min_record_bytes`
+    /// each: never more than the remaining input could encode.
+    fn capacity_for(&self, count: usize, min_record_bytes: usize) -> usize {
+        let remaining = self.input.len() - self.offset;
+        count.min(remaining / min_record_bytes)
     }
 
     fn bytes(&mut self, bound: usize) -> Result<&'a [u8], DecodeError> {

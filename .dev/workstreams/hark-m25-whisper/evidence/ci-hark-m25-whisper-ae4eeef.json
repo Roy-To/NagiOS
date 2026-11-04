@@ -1,0 +1,51 @@
+{
+  "kind": "dedicated-ci",
+  "workflow": ".github/workflows/hark-m25-whisper.yml",
+  "workflow_name": "M25 Whisper (hark)",
+  "head_sha": "ae4eeefd5c01c47b659136a84df0645133a628c5",
+  "base_main_merged": "ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8 (merge commit b8e2a38)",
+  "recorded_at": "2026-10-09T13:50:00+09:00",
+  "runner": "GitHub-hosted ubuntu-24.04 (x86_64)",
+  "runs": [
+    {"run_id": 37884041763, "event": "push", "conclusion": "success", "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37884041763"},
+    {"run_id": 37884047013, "event": "pull_request", "conclusion": "success", "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37884047013"}
+  ],
+  "jobs": {
+    "A host-tests": {
+      "result": "PASS",
+      "push_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884041763/job/113669937455",
+      "pr_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884047013/job/113669953416",
+      "detail": "rustfmt --check (harness, guest-shape, m25_whisper.rs, provider_session.rs, provider_ffi.rs); clippy -D warnings without the real engine; 24 scripted-engine same-session tests (lifecycle 15, capacity 4, fixture_separation 3, metrics 2), capacity.rs separately 4/4; guest-shape clippy (host check with relibc stub, not a guest result)."
+    },
+    "B real-engine": {
+      "result": "PASS",
+      "push_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884041763/job/113669937699",
+      "pr_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884047013/job/113669953455",
+      "scope": "HOST measurement only; counts_as_guest_result=false",
+      "detail": "Pinned ggml-small.bin (models.lock size 487601967 + sha256 1be3a9b2…) and 12 FLEURS ja_jp clips (source WAV + PCM sha256) verified; pinned whisper.cpp 927cfce + patches 0001-0003 host build; clippy -D warnings with --features real-engine; run-eval.sh 1 thread.",
+      "push_run_measurements": {
+        "clips": 12,
+        "audio_seconds": 134.7,
+        "inference_seconds": 58.051,
+        "aggregate_cer": 0.1025,
+        "aggregate_rtf": 0.431,
+        "rss_kib": {"before_load": 8572, "after_load": 580032, "peak_during_any_utterance": 801784, "after_unload": 32660, "after_failed_load": 42224},
+        "lifecycle_checks": "5/5 PASS (4 same session; unload_then_new_session_failed_load_reload on a NEW session)",
+        "artifact": "m25-whisper-real-engine-host-eval-1 (host-eval.json, eval-set.tsv, logs)"
+      },
+      "negatives": "missing model, truncated (mismatched) model, corrupted clip (SHA-256 mismatch), missing clips: all fail closed with the expected message; real model re-verified afterwards.",
+      "thresholds": "none added; CER/RTF/RSS are recorded, not gated"
+    },
+    "C nagi-target-compile-only": {
+      "result": "PASS (COMPILE-ONLY)",
+      "push_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884041763/job/113669937675",
+      "pr_job": "https://github.com/RT-NISH/NagiOS/actions/runs/37884047013/job/113669953256",
+      "detail": "nagi-bootstrap fetch (pinned sources incl. patched whisper.cpp), relibc headers, Nagi-target whisper.cpp archives, cargo build -p nagi-init --features m25-whisper-inference-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc,compiler_builtins --release --locked. nagi-init 1,970,896 B sha256 7234abe034b2c37c7c51293afdd727f2bf9ddec2db14861df87fc9aaa977d0c6 (identical in both runs).",
+      "label": "COMPILE-ONLY: synthetic 1 s silence PCM + placeholder text staged because build.rs requires them; never run; NOT guest inference acceptance."
+    }
+  },
+  "not_run": ["Guest QEMU fixture acceptance (./nagi m25-whisper-inference with the real fixture): fixture PCM not available in CI; no job stands in for it."],
+  "earlier_heads": [
+    {"head_sha": "6aea27101bcfc159af5dfeff4317cbd537871ceb", "run_id": 37883430718, "event": "push", "conclusion": "failure", "cause": "workflow bug: `ls *.pcm | wc -l` under pipefail exited on an empty FLEURS cache (job B step 7); A and C passed. Fixed in ae4eeef."}
+  ]
+}

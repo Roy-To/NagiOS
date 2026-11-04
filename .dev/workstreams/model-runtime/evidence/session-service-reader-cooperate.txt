@@ -1,0 +1,8 @@
+Follow-up source: edcc5bc187b64cc5123845819dd18c79c971caba
+Command: cargo clippy --locked --offline --manifest-path tests/model-session-service/Cargo.toml --features granite-acceptance --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc -- -D warnings
+Result: PASS, exit 0; exact production and existing acceptance leaves compile; eight existing nagi-posix dependency warnings remain.
+Command: cargo fmt --package nagi-init -- --check
+Result: PASS, exit 0.
+Command: git diff --check
+Result: PASS, exit 0.
+No normal-session guest execution or measured timing. Existing host-test sources unchanged.
