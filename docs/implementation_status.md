@@ -1,3 +1,42 @@
+## PR #43 formal M30 and ordinary native guest investigation — 2026-11-04
+
+Status: formal M30 `BLOCKED`; no milestone is promoted. Baseline source
+`54f24085939a40d86a451d191c4d4bb91f3f2103`, current main rechecked at
+`87b7dea4061be2572526181ab559d63037f823d0`.
+
+Public run 41757573083 completed: Ubuntu, Windows and dedicated M20 Granite
+inference passed. nagi-target passed its component/fixture steps and partial
+session image build, then failed formal M30 with exit 3. `execute_m30` still
+reports unavailable ordinary-session/distribution acceptance; the same exit was
+reproduced locally. Component fixture results and separate M20 inference are
+not same-image ordinary Desktop/worker/AI evidence.
+
+On the exact baseline, 37 release/profile/session Python tests, 16 worker host
+tests and the actual Nagi-target worker/service Clippy check passed (existing
+nagi-posix dependency warnings remain). `./nagi session-ai-link` passed with
+real libc++/llama archives and rooted worker/provider entries; init SHA-256
+`ec92ace7f82fe6608f290eee822e2784dacc1c89e0eeeb29d8cc51257f9d84b0`.
+This is final-link evidence only.
+
+`./nagi session-native-image` built the partial `native-provider-session-v1`
+image with matching `m20-llama-memory` kernel. Image SHA-256
+`0be8016c43a945d43991bd1d7163f4c3c776d1565d41246fafd9e75e43994327`;
+`qemu-img check` passed. On QEMU 10.0.13, q35/4 vCPU/8 GiB/OVMF,
+a disposable copy passed System A signature verification and M2-M4 but stopped
+at `Nagi M7 VirtIO Block FAIL` before login. Pristine image hash stayed unchanged.
+Model Store is empty; no worker startup/inference is claimed. Evidence is in
+`out/evidence/pr43-native-boot-1793764318601699068/`; native link receipt is in
+`out/evidence/session-ai-link-1793764033566235904/`.
+
+The isolated diagnostic correction keeps the existing M7 FAIL and halt, adds
+an exact BlockError reason, and preserves a transport error raised during GPT
+reads instead of reporting every read failure as a malformed partition table.
+It changes no success condition, capability, deadline, queue or disk contents.
+Guest verification of the diagnostic candidate follows separately. #48's
+Desktop consumer/native-link evidence belongs to its recorded source and is
+not substituted for #43 acceptance. Ordinary Servo/AI/History/voice/stress,
+persistence/offline demo and complete distribution review remain open.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
