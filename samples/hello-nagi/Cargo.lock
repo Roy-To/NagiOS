@@ -12,10 +12,12 @@ dependencies = [
 [[package]]
 name = "nagi-model"
 version = "0.1.0"
+source = "git+https://github.com/Roy-To/NagiOS.git?rev=87b7dea4061be2572526181ab559d63037f823d0#87b7dea4061be2572526181ab559d63037f823d0"
 
 [[package]]
 name = "nagi-sdk"
 version = "0.1.0"
+source = "git+https://github.com/Roy-To/NagiOS.git?rev=87b7dea4061be2572526181ab559d63037f823d0#87b7dea4061be2572526181ab559d63037f823d0"
 dependencies = [
  "nagi-model",
 ]

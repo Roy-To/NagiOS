@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "com.example.hello-nagi",
+  "version": "0.1.0",
+  "origin": "third-party",
+  "displayName": { "en-US": "Hello Nagi" },
+  "supportedLocales": ["en-US"],
+  "entrypoint": { "kind": "native", "target": "hello.napp" },
+  "resources": [],
+  "intents": [],
+  "requestedCapabilities": [],
+  "stateCompatibility": { "currentVersion": 1, "minimumReadableVersion": 1 }
+}

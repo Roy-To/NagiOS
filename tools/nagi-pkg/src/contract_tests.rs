@@ -274,3 +274,26 @@ fn public_ipc_error_and_denial_contracts_are_usable_by_a_host_adapter() {
         Err(AppError::new(ErrorCode::PermissionDenied))
     );
 }
+
+#[test]
+fn third_party_hello_nagi_sample_manifest_is_valid_without_declared_authority() {
+    let manifest_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../samples/hello-nagi/manifest.json");
+    let bytes = std::fs::read(&manifest_path).expect("third-party hello-nagi sample manifest");
+    let document: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("hello-nagi manifest JSON");
+
+    assert!(document.get("authority").is_none());
+    assert_eq!(
+        document["requestedCapabilities"].as_array().map(Vec::len),
+        Some(0)
+    );
+
+    let manifest = load_manifest(&manifest_path).expect("valid hello-nagi manifest-v1 contract");
+    assert_eq!(manifest.identifier, "com.example.hello-nagi");
+    assert_eq!(
+        manifest.origin,
+        nagi_sdk::app_contract::AppOrigin::ThirdParty
+    );
+    assert_eq!(manifest.publisher_id, None);
+}
