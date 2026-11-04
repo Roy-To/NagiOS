@@ -9,7 +9,7 @@ performed after the older FE52 static/host checkpoint below. EL1 passed, the
 EL2 negative condition was met, and two fresh ELF hashes matched. Phase C is
 PENDING independent rebuild/review. The overall verify.sh is still failing
 (two concrete entry-point defects); explicit-SHA receipt verification passed.
-See [runtime follow-up](evidence/arm64-ae9a5654-20261104/README.md) for exact
+See [runtime follow-up](runtime/arm64-ae9a5654-20261104/README.md) for exact
 results, failed attempts, commands and remaining physical-hardware limitations.
 The older NOT_RUN/no-push statements below describe their earlier checkpoints.
 

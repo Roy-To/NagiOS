@@ -3,7 +3,7 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "Published ae9a56544d2c66cbbf6e641b80cd144ed52314a4 unchanged to PR #57; fresh ARM64 ELF builds match and real QEMU EL1 passes / EL2 negative condition MET. Explicit-SHA receipt verification passes, but verify.sh has two entry-point defects. Phase C remains PENDING independent rebuild/review. last_verified below retains the earlier FE52 static/host checkpoint; latest runtime evidence is evidence/arm64-ae9a5654-20261104/summary.json.",
+  "current_checkpoint": "Published ae9a56544d2c66cbbf6e641b80cd144ed52314a4 unchanged to PR #57; fresh ARM64 ELF builds match and real QEMU EL1 passes / EL2 negative condition MET. Explicit-SHA receipt verification passes, but verify.sh has two entry-point defects. Phase C remains PENDING independent rebuild/review. last_verified below retains the earlier FE52 static/host checkpoint; latest runtime evidence is runtime/arm64-ae9a5654-20261104/summary.json.",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
