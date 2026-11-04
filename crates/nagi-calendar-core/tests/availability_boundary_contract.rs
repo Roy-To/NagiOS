@@ -250,6 +250,19 @@ fn positive_buffers_can_reach_signed_limits_exactly() {
     before_request.buffer_before_micros = 1;
     let before_busy = [interval(i64::MIN + 1, i64::MIN + 5).unwrap()];
     assert_eq!(
+        normalize_busy(before_request.window, &before_busy, 1, 0).map(pairs),
+        Ok(vec![(i64::MIN, i64::MIN + 5)])
+    );
+    assert_eq!(
+        normalize_reference(
+            (i128::from(i64::MIN), i128::from(i64::MIN + 10)),
+            &before_busy,
+            1,
+            0,
+        ),
+        Ok(vec![(i128::from(i64::MIN), i128::from(i64::MIN + 5))])
+    );
+    assert_eq!(
         find_availability(&before_request, &before_busy).map(pairs),
         Ok(vec![(i64::MIN + 5, i64::MIN + 10)])
     );
@@ -261,6 +274,19 @@ fn positive_buffers_can_reach_signed_limits_exactly() {
     let mut after_request = request(i64::MAX - 10, i64::MAX, 5, 5);
     after_request.buffer_after_micros = 1;
     let after_busy = [interval(i64::MAX - 5, i64::MAX - 1).unwrap()];
+    assert_eq!(
+        normalize_busy(after_request.window, &after_busy, 0, 1).map(pairs),
+        Ok(vec![(i64::MAX - 5, i64::MAX)])
+    );
+    assert_eq!(
+        normalize_reference(
+            (i128::from(i64::MAX - 10), i128::from(i64::MAX)),
+            &after_busy,
+            0,
+            1,
+        ),
+        Ok(vec![(i128::from(i64::MAX - 5), i128::from(i64::MAX))])
+    );
     assert_eq!(
         find_availability(&after_request, &after_busy).map(pairs),
         Ok(vec![(i64::MAX - 10, i64::MAX - 5)])

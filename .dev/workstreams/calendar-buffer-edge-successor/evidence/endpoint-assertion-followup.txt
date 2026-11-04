@@ -1,0 +1,28 @@
+Calendar buffer endpoint assertion follow-up
+Date: 2026-11-04
+
+Parent: cb5e086fe29edc8c7c7b96c0eca36c15825fea2d
+Original fixed candidate preserved: 317853bd21412739dbd3410cf391359386b31064
+Scope: test-only strengthening in availability_boundary_contract.rs.
+
+The signed-limit success test now directly asserts normalize_busy output:
+- before=1 expands the busy start from MIN+1 to exactly MIN;
+- after=1 expands the busy end from MAX-1 to exactly MAX.
+Both exact tuples are also checked against the independent i128
+normalize_reference helper. The existing availability and enumeration
+assertions remain. If either buffer is ignored, the direct normalized tuple
+assertion fails.
+
+Host verification (nightly-2025-08-01-aarch64-apple-darwin,
+aarch64-apple-darwin, offline, CARGO_BUILD_JOBS=1, isolated /tmp target dir):
+- cargo fmt --manifest-path crates/nagi-calendar-core/Cargo.toml --package
+  nagi-calendar-core -- --check: PASS.
+- cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --target
+  aarch64-apple-darwin --locked --offline: PASS; 93 tests passed, 0 failed,
+  0 ignored; 0 doctests.
+- cargo clippy --manifest-path crates/nagi-calendar-core/Cargo.toml --target
+  aarch64-apple-darwin --all-targets --locked --offline -- -D warnings: PASS.
+- git diff --check: PASS.
+
+No production implementation, lockfile, registry, or milestone state changed.
+No Nagi guest/target build, VM/QEMU, network/API call, or publication was done.
