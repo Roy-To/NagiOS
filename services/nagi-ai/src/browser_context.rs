@@ -1,4 +1,5 @@
-use alloc::{borrow::ToOwned, string::String};
+use alloc::{borrow::ToOwned, string::String, sync::Arc};
+use core::sync::atomic::{AtomicBool, Ordering};
 use serde::Serialize;
 
 use nagi_model_manager::{
@@ -85,10 +86,74 @@ impl BrowserContextRequest {
     }
 }
 
+/// Owner-held lifetime for one page/context-sharing state. This is a freshness
+/// fence, not a capability or proof of OS caller provenance. The trusted Browser
+/// owner must invalidate BEFORE navigation, active-tab/selection/content or
+/// sharing-policy changes, including changes that restore identical text.
+/// Keep the owner on its event thread; do not clone or persist it across restore.
+#[derive(Debug)]
+pub struct BrowserContextEpoch {
+    current: BrowserContextRevision,
+    // Only revocable revisions cross the worker queue. Keep mutation/drop on
+    // the Browser event thread so a UI check cannot race owner invalidation.
+    owner_thread: core::marker::PhantomData<alloc::rc::Rc<()>>,
+}
+
+impl BrowserContextEpoch {
+    pub fn new() -> Self {
+        Self {
+            current: BrowserContextRevision(Arc::new(AtomicBool::new(true))),
+            owner_thread: core::marker::PhantomData,
+        }
+    }
+
+    pub fn revision(&self) -> BrowserContextRevision {
+        self.current.clone()
+    }
+
+    /// Old snapshots become permanently invalid; a fresh allocation avoids
+    /// counter wrap and owner-recreation ABA while a snapshot retains its token.
+    pub fn invalidate(&mut self) {
+        self.current.0.store(false, Ordering::Release);
+        self.current = BrowserContextRevision(Arc::new(AtomicBool::new(true)));
+    }
+}
+
+impl Default for BrowserContextEpoch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for BrowserContextEpoch {
+    fn drop(&mut self) {
+        self.current.0.store(false, Ordering::Release);
+    }
+}
+
+/// Opaque, revocable state identity supplied only by a trusted Browser owner.
+/// Constructing an epoch does not authenticate that owner or the requesting app.
+#[derive(Clone, Debug)]
+pub struct BrowserContextRevision(Arc<AtomicBool>);
+
+impl BrowserContextRevision {
+    pub fn is_current(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+impl PartialEq for BrowserContextRevision {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for BrowserContextRevision {}
+
 /// Data exposed by the public Browser Context API. This DTO is never passed
 /// directly to a provider; ContextResolver wraps it as untrusted context.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowserPageSnapshot {
+    revision: Option<BrowserContextRevision>,
     tab_id: u64,
     url: Option<String>,
     title: Option<String>,
@@ -105,6 +170,7 @@ impl BrowserPageSnapshot {
         visible_text: Option<String>,
     ) -> Self {
         Self {
+            revision: None,
             tab_id,
             url,
             title,
@@ -112,10 +178,23 @@ impl BrowserPageSnapshot {
             visible_text,
         }
     }
+
+    /// Stamp only after the owner has drained relevant events and extracted a
+    /// coherent snapshot from that same epoch. A stale token stays revoked.
+    pub fn with_revision(mut self, revision: BrowserContextRevision) -> Self {
+        self.revision = Some(revision);
+        self
+    }
 }
 
 /// Public caller boundary implemented by Albert or another browser. AI code
 /// must obtain page data through this API instead of reading Servo internals.
+/// Async owners must attach a live revision and invalidate its epoch BEFORE
+/// any relevant state changes, even when the final fields equal the old page.
+/// Legacy unversioned snapshots remain available to synchronous consumers;
+/// the Desktop async queue rejects them. Neither stamping nor caller fields
+/// authenticate OS provenance. Only a trusted event-thread owner may supply
+/// this integration, with coherent extraction and no yield before display.
 pub trait PublicBrowserContextApi {
     fn current_page_context(
         &mut self,
@@ -131,6 +210,9 @@ pub enum BrowserContextApiError {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct UntrustedBrowserContext {
+    // Owner metadata must never enter the serialized untrusted model input.
+    #[serde(skip)]
+    revision: Option<BrowserContextRevision>,
     tab_id: u64,
     url: Option<String>,
     title: Option<String>,
@@ -141,6 +223,7 @@ pub struct UntrustedBrowserContext {
 impl UntrustedBrowserContext {
     fn from_public_snapshot(snapshot: BrowserPageSnapshot) -> Self {
         Self {
+            revision: snapshot.revision,
             tab_id: snapshot.tab_id,
             url: snapshot
                 .url
@@ -155,6 +238,14 @@ impl UntrustedBrowserContext {
                 .visible_text
                 .map(|value| bounded_text(value, MAX_BROWSER_VISIBLE_TEXT_BYTES)),
         }
+    }
+
+    /// Required by asynchronous integrations; content equality alone cannot
+    /// detect navigation/sharing A -> B -> A between two owner polls.
+    pub fn has_current_revision(&self) -> bool {
+        self.revision
+            .as_ref()
+            .is_some_and(BrowserContextRevision::is_current)
     }
 
     pub const fn is_untrusted(&self) -> bool {
@@ -616,6 +707,53 @@ mod tests {
             node_id: NodeId(9),
             workspace_id: Some(WorkspaceId(10)),
         }
+    }
+
+    #[test]
+    fn browser_epoch_never_revives_on_change_restore_or_owner_recreation() {
+        let mut owner = BrowserContextEpoch::new();
+        let a = owner.revision();
+        assert!(a.is_current());
+        assert_eq!(a, owner.revision());
+        owner.invalidate();
+        let b = owner.revision();
+        assert!(!a.is_current());
+        assert_ne!(a, b);
+        owner.invalidate();
+        let restored = owner.revision();
+        assert!(!b.is_current());
+        assert_ne!(a, restored);
+        drop(owner);
+        assert!(!restored.is_current());
+        let recreated = BrowserContextEpoch::new();
+        assert_ne!(restored, recreated.revision());
+        assert!(recreated.revision().is_current());
+    }
+
+    #[test]
+    fn revision_is_not_serialized_as_model_context_or_authority() {
+        let mut owner = BrowserContextEpoch::new();
+        let snapshot = || BrowserPageSnapshot::new(7, None, None, None, Some("page".into()));
+        let legacy = UntrustedBrowserContext::from_public_snapshot(snapshot());
+        let versioned = UntrustedBrowserContext::from_public_snapshot(
+            snapshot().with_revision(owner.revision()),
+        );
+        assert!(!legacy.has_current_revision());
+        assert!(versioned.has_current_revision());
+        assert_ne!(legacy, versioned);
+        assert_eq!(
+            serde_json::to_string(&legacy).unwrap(),
+            serde_json::to_string(&versioned).unwrap()
+        );
+        owner.invalidate();
+        assert!(!versioned.has_current_revision());
+        let stale = UntrustedBrowserContext::from_public_snapshot(
+            snapshot().with_revision(versioned.revision.clone().unwrap()),
+        );
+        assert!(
+            !stale.has_current_revision(),
+            "attaching old stamp cannot revive it"
+        );
     }
 
     fn request(selected_object: Option<ObjectId>) -> ContextRequest {

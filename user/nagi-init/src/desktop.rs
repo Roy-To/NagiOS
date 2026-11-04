@@ -51,6 +51,9 @@ impl PartialEq for PageSummaryBinding {
 impl Eq for PageSummaryBinding {}
 /// Borrowed only for one step from a trusted live Browser owner. Production
 /// supplies None; logical caller provenance is still an owner precondition.
+/// Its Browser API must return coherent snapshots stamped with an owner-held
+/// BrowserContextEpoch, invalidated before page/selection/sharing changes.
+/// A stamp authenticates neither this freely supplied caller nor its owner.
 #[cfg(feature = "m20-model-service")]
 pub(crate) struct DesktopPageContext<'a> {
     pub binding: PageSummaryBinding,
