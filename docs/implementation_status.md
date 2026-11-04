@@ -1,3 +1,38 @@
+## PR #48 Files consent scheduler follow-up — 2026-11-04
+
+Status: `PARTIAL`; host regression only, guest reproduction `NOT_RUN`.
+Based on published #48 head `59adf3a3081514c3a31a9d07313f0f42aea74a8d`
+in a separate worktree/branch. The signed Files query calls a modal consent
+wait synchronously when either required live grant needs consent. Its old
+no-input path used only CPU `pause`, while the bootstrap thread scheduler is
+cooperative. The wait now performs one existing bounded model service step
+and an explicit thread yield on every live-session iteration, including
+continuous input and an absent model adapter. Model status changes redraw the
+modal frame; a failed presentation returns no answer. Modal input, fresh
+press/release consent, both live grant checks and child cleanup are unchanged.
+F4 still invalidates/cancels in the Desktop handler before the loop aborts.
+No Files operation is reentered and no Supervisor or model bridge guard is
+held across the new yield.
+
+Validation: the original wait source fails all four initial modal regressions;
+the fixed source passes them. `sh tests/session-ui/check.sh` passes 49
+controller/bridge tests, 54 production Desktop/Files/Shared tests (six new
+modal regressions) and 26 legacy login/Files tests. Counts overlap existing
+suites and are not guest evidence. The consent-enabled model-disabled host
+configuration also compiles and passes its lost-session regression. The preserved
+Files suite passes 30 tests; controller/bridge all-target Clippy passes with
+warnings denied, formatting and `git diff --check` pass. Tests
+compile the actual wait function verbatim and use explicit host syscall seams;
+they collect an already-scripted Shared reply and count yield calls, without
+running the Nagi scheduler, signed child or native worker. Actual guest
+starvation/recovery, native linking and inference remain unverified here.
+M19/M20/M23 remain `PARTIAL`; formal M30 remains `BLOCKED`.
+
+Before handoff, public main advanced from `0362427747e769b00558053e4c7f4c756d303802`
+to `87b7dea4061be2572526181ab559d63037f823d0` (three unrelated host-contract
+and evidence files); none intersects this change. The #48 public head was
+unchanged. The shared #48 branch and other guest/CI work are not overwritten.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone

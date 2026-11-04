@@ -87,3 +87,58 @@ pub mod storage {
         }
     }
 }
+
+// Finite syscall script for the exact Files modal wait. Exhaustion fails the
+// test instead of allowing the historical pause-only loop to hang the host.
+#[derive(Default)]
+struct ModalScript {
+    input: std::collections::VecDeque<Option<InputEvent>>,
+    yields: usize,
+    reads: usize,
+    presents: usize,
+    fail_present: bool,
+}
+thread_local! { static MODAL: RefCell<ModalScript> = RefCell::new(ModalScript::default()); }
+pub fn script_modal(input: Vec<Option<InputEvent>>, fail_present: bool) {
+    MODAL.with(|state| {
+        *state.borrow_mut() = ModalScript {
+            input: input.into(),
+            fail_present,
+            ..ModalScript::default()
+        };
+    });
+}
+pub fn modal_counts() -> (usize, usize, usize) {
+    MODAL.with(|state| {
+        let state = state.borrow();
+        (state.yields, state.reads, state.presents)
+    })
+}
+pub fn thread_yield() -> bool {
+    MODAL.with(|state| state.borrow_mut().yields += 1);
+    true
+}
+pub fn input_read(_: u64, event: &mut InputEvent) -> bool {
+    MODAL.with(|state| {
+        let mut state = state.borrow_mut();
+        state.reads += 1;
+        match state
+            .input
+            .pop_front()
+            .expect("modal input script exhausted")
+        {
+            Some(next) => {
+                *event = next;
+                true
+            }
+            None => false,
+        }
+    })
+}
+pub fn display_present(_: u64) -> bool {
+    MODAL.with(|state| {
+        let mut state = state.borrow_mut();
+        state.presents += 1;
+        !state.fail_present
+    })
+}
