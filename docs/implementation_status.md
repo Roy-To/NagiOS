@@ -1,3 +1,56 @@
+## PR 90 public CI fixture startup failure candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated test-only follow-up to public PR 90 head
+`0342cc71c1fb1835bf8ca5992eb6d02c5c7620b2` (tree
+`6068b35371e41bb91256187596cd1f6b2d61d578`). Base remains
+`87b7dea4061be2572526181ab559d63037f823d0`. This candidate is not pushed;
+no approval, merge, workflow rerun, or other external mutation was performed.
+
+Public [Nagi CI run 41821444900](https://github.com/Roy-To/NagiOS/actions/runs/41821444900)
+completed with failure at the above head (checkout merge 2421aa8a):
+- target_classification: success.
+- windows-launcher: success (Linux-only fixture cases do not execute here).
+- ubuntu-host: failure in Test host-compatible workspace. Format, diagnostic
+  parser tests, host lint/build, real diskless QMP and Legal preparation passed.
+- nagi-target: skipped, not a target acceptance PASS.
+- nagi-m20-inference: skipped, not an inference PASS.
+The separate host-foundations run 41821444770 was skipped.
+
+The sole Ubuntu library failure was
+`commands::qemu_timeout_caller_tests::gui_preserves_serial_emitted_during_diagnostics_and_shutdown`:
+its first GUI case returned in 0 ms, then reading the fixture's nonexistent PID
+file panicked at commands.rs:12027. The suite reported 365 passed / 1 failed /
+2 ignored; headless race and the four-case production timeout test passed.
+The test unwrapped the PID read before checking the runner's Result, hiding the
+actual startup error. The original CI OS error is therefore UNCONFIRMED.
+
+The candidate checks and reports the original runner error before consulting
+PID evidence. It also uses the immutable, executable checkout Python fixture
+rather than writing and immediately executing a per-case script. The fixture
+locates its per-case state beside the first firmware drive passed by the real
+production caller. All timeout/serial/retry/reap assertions and budgets remain;
+no automatic retry or assertion weakening is added. image.rs production source
+is byte-for-byte unchanged.
+
+Potential mechanism, not a confirmed CI diagnosis: another concurrent spawn can
+briefly inherit a writable executable descriptor before exec. A controlled local
+experiment reproduced Linux errno 26 Text file busy while a forked child held
+that descriptor, followed by success once it closed. A fixed executable source
+avoids creating that writable-executable window during parallel tests. Twelve
+baseline caller-suite processes (four concurrently, 120 total scenario runs)
+with improved error reporting did not reproduce the original CI failure.
+
+Candidate validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 366 passed / 2 ignored.
+- 12 additional caller-suite processes, four concurrently: all 36 Rust test
+  executions / 120 scenario runs passed.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed-file rustfmt and git diff check: passed.
+
+Public CI has not run this follow-up. Review and an authorized publication/CI
+run are needed to establish whether it resolves the observed hosted startup
+failure. Public 0342cc7 and both previous candidate worktrees remain protected.
+
 ## PR 90 final serial capture race candidate — 2026-11-04
 
 Status: `PARTIAL`; isolated follow-up to protected candidate

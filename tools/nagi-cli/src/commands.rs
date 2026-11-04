@@ -11946,7 +11946,6 @@ mod qemu_timeout_caller_tests {
     use crate::image::{run_qemu, run_qemu_gui, QemuConfig};
     use std::{
         fs,
-        os::unix::fs::PermissionsExt,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -11985,9 +11984,11 @@ mod qemu_timeout_caller_tests {
                         .as_nanos()
                 ));
                 fs::create_dir(&root).unwrap();
-                let qemu = root.join("qemu");
-                fs::write(&qemu, include_str!("../tests/fixtures/qmp_timeout.py")).unwrap();
-                fs::set_permissions(&qemu, fs::Permissions::from_mode(0o700)).unwrap();
+                // Execute the immutable checkout fixture. A freshly written
+                // executable can fail with ETXTBSY when another parallel spawn
+                // briefly inherits a writable descriptor before exec.
+                let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/qmp_timeout.py");
                 if stall {
                     fs::write(root.join("stall"), "").unwrap();
                 }
@@ -12024,18 +12025,21 @@ mod qemu_timeout_caller_tests {
                     elapsed.as_millis(),
                     timeout.as_millis()
                 );
-                let pid = fs::read_to_string(root.join("pid")).unwrap();
+                let error = result.expect_err("missing acceptance must time out");
+                assert!(
+                    error.contains("QEMU did not reach acceptance within"),
+                    "gui={gui} stall={stall} late={late:?}: unexpected runner error: {error}"
+                );
+                let pid = fs::read_to_string(root.join("pid")).unwrap_or_else(|read_error| {
+                    panic!("gui={gui} stall={stall} late={late:?}: {error}; missing fixture PID: {read_error}")
+                });
                 // A zombie still has /proc/<pid>: absence verifies termination AND reaping.
                 let reaped = !std::path::Path::new("/proc").join(pid.trim()).exists();
                 let log = fs::read_to_string(&serial).unwrap();
                 let requests = fs::read_to_string(root.join("requests")).unwrap();
                 let emitted = fs::read_to_string(root.join("late-sent")).ok();
                 fs::remove_dir_all(root).unwrap();
-                let error = result.expect_err("missing acceptance must time out");
-                assert!(
-                    error.contains("QEMU did not reach acceptance within"),
-                    "{error}"
-                );
+
                 assert!(reaped, "gui={gui} stall={stall}: child was not reaped");
                 assert!(
                     elapsed >= timeout - timeout / 10,
