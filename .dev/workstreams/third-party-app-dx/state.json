@@ -1,0 +1,73 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "third-party-app-dx",
+  "current_milestone": "Host-only out-of-tree third-party app developer experience",
+  "current_checkpoint": "registered-host-only-sample-and-manifest-validation",
+  "status": "IN_PROGRESS",
+  "last_verified": {
+    "commit_sha": "87b7dea4061be2572526181ab559d63037f823d0",
+    "verified_at": "2026-11-04T03:01:25Z",
+    "normal_state": "Host-only workstream registration checkpoint verified on current public main. Audit confirms 0.1 M30 remains PARTIAL and 0.2 activation is closed. Existing app-sdk-contract PASS is host-side only and does not establish target runtime PASS. No sample or manifest implementation validation has been run at this checkpoint.",
+    "commands": [
+      ".\\nagi.ps1 dev verify (process-local rust-lld linker and Windows SDK LIB paths)"
+    ],
+    "tests": [
+      {
+        "name": "Public workstream registry and state verification",
+        "command": ".\\nagi.ps1 dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PASS: 33 registered workstreams and 26 state files validated; current branch codex/0.2-third-party-app-dx at base 87b7dea4061be2572526181ab559d63037f823d0. The command required process-local rust-lld and Windows SDK LIB configuration because link.exe is absent."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and docs/Nagi_OS_0.2_Codex_Implementation_Spec.md on public main",
+    "last_checked_at": "2026-11-04T03:00:20Z",
+    "activation_requirement": "Host-only sample build and manifest validation are authorized by this workstream. Do not connect to target runtime, install, or launch until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint opens."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [],
+    "do_not_try": [
+      "Do not claim the existing app-sdk-contract host PASS as target runtime PASS.",
+      "Do not implement runtime integration, guest installation or launch, or authority enforcement before M30 PASS and an explicit 0.2 checkpoint.",
+      "Do not copy private NagiOS-internal specifications into this public repository.",
+      "Do not change shared root manifests, CI, schemas, or public release-gate records in this workstream."
+    ]
+  },
+  "next_action": "Add a regression test first, adapt the existing sample to use a pinned public nagi-sdk Git dependency, validate its third-party manifest with the existing host tool, document both languages, then update this state with exact evidence.",
+  "acceptance_criteria": [
+    "The existing standalone Hello Nagi sample builds outside a NagiOS checkout using only a public SDK Git dependency as its direct Nagi dependency.",
+    "The sample manifest declares third-party origin and passes the existing host nagi-pkg manifest validator.",
+    "A focused regression test covers acceptance of the third-party sample manifest.",
+    "English and Japanese quick-start instructions show out-of-tree build, dependency source verification, and manifest validation.",
+    "Documentation and state distinguish host manifest validation from target installation, launch, authority, runtime, M21, and M30 acceptance.",
+    "Focused checks pass and the dedicated branch is pushed without changing M30 or 0.2 activation status."
+  ],
+  "deferred": [
+    "Guest installation, launch, runtime integration, app authority enforcement, and target acceptance until M30 PASS and an explicit 0.2 integration checkpoint.",
+    "Full M21 acceptance, including package install/launch and runtime isolation.",
+    "Crates.io publication; nagi-sdk currently has publish=false and this sample consumes the public Git repository."
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Durable public workstream registry and state model",
+      "version": "1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Public SDK and host manifest contract; existing acceptance is host-side only",
+      "version": "1",
+      "status": "PASS (host-side only)"
+    }
+  ]
+}

@@ -1074,6 +1074,47 @@
       ],
       "activation_gate": "Host-only combined CI of immutable PR49, PR46, PR50 and PR51 source snapshots. Imported paths remain owned by their original authors; this registration grants no app implementation edits or guest/runtime/provider/product activation.",
       "merge_boundary": "Dedicated combined CI candidate only. Preserve all existing registry rows and source-owner state snapshots. Main merge and release remain separate decisions."
+    },
+    {
+      "id": "third-party-app-dx",
+      "owner": "Codex integration owner",
+      "owner_branch": "codex/0.2-third-party-app-dx",
+      "recommended_worktree": "../NagiOS-0.2-third-party-app-dx",
+      "state_file": ".dev/workstreams/third-party-app-dx/state.json",
+      "dependencies": [
+        "development-foundation",
+        "app-sdk-contract"
+      ],
+      "allowed_paths": [
+        ".dev/workstreams.json",
+        ".dev/workstreams/third-party-app-dx/**",
+        "docs/superpowers/specs/2026-11-04-third-party-app-dx-design.md",
+        "docs/superpowers/plans/2026-11-04-third-party-app-dx.md",
+        "samples/hello-nagi/**",
+        "sdk/README.md",
+        "sdk/rust/docs/THIRD_PARTY_QUICKSTART.md",
+        "tools/nagi-pkg/src/contract_tests.rs"
+      ],
+      "forbidden_paths": [
+        "kernel/**",
+        "loader/**",
+        "user/**",
+        "idl/**",
+        "third_party/**",
+        "out/**",
+        "target/**",
+        "Cargo.toml",
+        "Cargo.lock",
+        "sdk/rust/Cargo.toml",
+        "sdk/rust/Cargo.lock",
+        ".github/workflows/**",
+        ".dev/schemas/**",
+        "docs/implementation_status.md",
+        "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md",
+        "docs/Nagi_OS_0.2_Codex_Implementation_Spec.md"
+      ],
+      "activation_gate": "AUTHORIZED host-only DX checkpoint: reuse the existing standalone Hello Nagi sample, build it out of tree from a public SDK Git revision, and validate a third-party manifest with the existing host nagi-pkg tool. No runtime integration, guest install/launch, authority enforcement, or full M21 acceptance. Nagi 0.1 M30 remains PARTIAL and 0.2 activation remains closed.",
+      "merge_boundary": "Dedicated codex/0.2-third-party-app-dx branch only; no direct merge to main. Any shared runtime, release-gate, root workspace, CI, or schema changes require a separate Integration Owner checkpoint."
     }
   ]
 }
