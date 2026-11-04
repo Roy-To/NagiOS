@@ -1300,6 +1300,20 @@ formatting, and the Nagi no-std target compile pass. Live Servo extraction,
 authenticated guest policy/IPC, Nagi Bar UI, and real inference remain, so the
 page-summary acceptance is unmet. See
 `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`.
+The isolated 2026-11-04 session-summary bridge adds an OS-owned
+`SessionModelService::summarize_page` entry while preserving rejection of
+external inference callers. Its host harness passes eleven tests, warnings-denied
+Clippy, and the Nagi no-std leaf compile in its producer checkpoint. That
+producer lacked the ordinary worker/UI. The local M30 combination includes the
+plaintext Bar route, but this summary operation still lacks worker transport,
+lock cancellation and active-session/request display integration. No real inference or guest acceptance was run;
+M23 remains `PARTIAL`.
+The isolated follow-up includes system instructions in the service's combined
+24 KiB byte admission bound and returns `InputTooLarge` before service invocation
+when exceeded. It preserves exact typed service errors, including license
+acknowledgement, resource and clock failures. New host regressions execute real
+`LazyModelService` admission with an explicit synthetic backend/artifact; this
+is no proof of guest inference or worker/UI lifecycle integration.
 **M24 evidence:** Added bounded multilingual UTF-8 chunking, provider-neutral
 embedding-space identities, `PersistentVectorIndex` snapshots, and
 visibility-filtered `SearchService` semantic indexing/query orchestration.
@@ -10603,3 +10617,53 @@ missing; Some(AppId) rejection and untrusted Context sharing boundaries remain.
 The earlier normal-session Files evidence stays bound to source `464246c` and is
 not relabeled as new-source inference. Model/DNS/Browser/History/voice/stress/
 distribution blockers remain. See workstreams/m30-session-caller-contract.md.
+
+
+## Isolated M30 integration of reviewed summary bridge (2026-11-04)
+
+Status: M23 `PARTIAL`; formal M30 `BLOCKED`. This candidate lives in a NEW
+worktree/branch `codex/m30-summary-bridge-integration-20261104`, with exact
+parent e3500f48c8848a39e76445d1b74d39beb9c191e4 (tree
+9fd73d4baa489248e6f8b0187792d31b970add8f). Original candidate, protected branches,
+source/runner export and prior evidence are unchanged. No VM/model/inference,
+model acquisition, public push/merge or denied export retry occurred.
+
+The supplied A/B gzip and raw patches match all four supplied sizes/SHA-256.
+Temporary-index application against base0362427/tree1cc62a0a reproduces parent
+tree30855e5d then reviewed bridge treeb6211696 exactly. Producer revision IDs
+7dd84a2/ba2ff322 identify supplied source; their commit metadata is not verified.
+The seven-file delta applies to e3500f4 without conflict.
+
+Integration adds nagi-ai to the ordinary model-service feature dependency.
+NAGI_BAR_APP_ID is a shared typed constant in nagi-ai, re-exported unchanged by
+Albert; the summary entry requires that requesting assistant identity, not the
+foreground browser's AppId, plus full request/caller equality. These values are
+freely constructible and do NOT establish OS provenance. Only a future verified
+OS invocation may supply them; no external IPC entry or new app grant is added.
+The bound Session and ordinary Some(AppId) rejection remain intact. Separate
+system instructions/untrusted context, smaller byte/output limits, typed service
+errors, request-ID validation and cancellation precedence remain enforced.
+
+Final host boundary suite PASS (20): existing bridge/access11, five actual
+SessionModelService wrapper admission/denial/cancellation cases, one synchronous
+error/cancellation precedence case, and three actual Albert policy cases.
+Production syscall/artifact/native entries have abort/panic-only host test hooks;
+no replacement model output is provided or real model/license acknowledged.
+Real LazyModelService boundary fixtures retain synthetic artifact/backend tests.
+AI33 + Model Manager77 and existing worker16 host tests PASS; release/session
+validator37 PASS. Host AI and boundary-harness all-target Clippy PASS with
+warnings denied; changed-leaf formatting/whitespace PASS. Nagi no-std service
+leaf check and target Clippy PASS with eight existing POSIX dependency warnings.
+The production init feature graph also passes the Nagi release target check,
+using existing public source/build caches; its 18 warnings include the unused
+summary entry. Full init warning-denied Clippy and a final ELF link are not
+claimed. No new software installation/download was performed.
+
+This is a synchronous service bridge, not end-to-end M23: summary worker/UI
+transport, lock/sign-out propagation into an in-flight summary, live-Session plus
+active-request display fencing, and post-acquisition navigation/context-sharing
+freshness remain unconnected/unverified. The existing plaintext Bar worker's
+host lifecycle tests are not substituted for those summary guarantees. Actor
+OS provenance, real Browser extraction and same-session guest inference remain
+unverified. Existing coordinator lease, admission quota, explicit per-session
+terms and all release gates are unchanged; M30 is not complete.

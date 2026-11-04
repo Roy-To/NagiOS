@@ -1,9 +1,9 @@
 //! Compile the exact guest leaves without modifying init's shared feature graph.
 //! No host inference backend is linked or used by this harness.
-#![no_std]
+#![cfg_attr(any(target_os = "nagi", not(test)), no_std)]
 extern crate alloc;
 
-#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+#[cfg(all(any(target_os = "nagi", test), feature = "m20-model-service"))]
 #[path = "../../../user/nagi-init/src/model_service.rs"]
 pub mod model_service;
 
@@ -27,6 +27,17 @@ impl nagi_model_manager::ModelStoreSectorReader for SyscallModelStoreReader {
 #[path = "../../../user/nagi-init/src/m20_granite.rs"]
 pub mod granite_acceptance;
 
-#[cfg(not(target_os = "nagi"))]
+#[cfg(all(not(target_os = "nagi"), not(test)))]
 #[path = "../../../user/nagi-init/src/model_session_access.rs"]
 pub mod model_session_access;
+
+#[cfg(all(not(target_os = "nagi"), not(test)))]
+#[path = "../../../user/nagi-init/src/session_page_summary.rs"]
+#[allow(dead_code)] // The guest service invokes this leaf; the host harness tests it.
+pub mod session_page_summary;
+
+// Exercise Albert's actual policy source without bringing its Servo target graph
+// into this standalone host boundary harness.
+#[cfg(all(test, not(target_os = "nagi")))]
+#[path = "../../../user/nagi-albert/src/assistant_context.rs"]
+mod albert_context_policy;

@@ -12,10 +12,15 @@ m20-model-service = []
 granite-acceptance = []
 
 [dependencies]
+nagi-ai = { path = "../../services/nagi-ai" }
 libnagi = { path = "../../user/libnagi" }
 nagi-model = { path = "../../crates/nagi-model" }
 nagi-model-manager = { path = "../../user/nagi-model-manager" }
 nagi-posix = { path = "../../user/nagi-posix", features = ["m20-llama-memory"] }
+
+[dev-dependencies]
+nagi-model-manager = { path = "../../user/nagi-model-manager", features = ["test-support"] }
+sha2 = { version = "=0.10.9", default-features = false }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

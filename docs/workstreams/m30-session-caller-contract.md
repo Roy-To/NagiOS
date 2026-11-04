@@ -2,7 +2,8 @@
 
 Status: BLOCKED for ordinary Browser summarization. The transferred M23
 input/output-boundary source is integrated locally; external-app authority and
-the live Browser worker route remain unimplemented.
+the live Browser worker route remain unimplemented. A later local integration
+adds the verified ba2ff322 synchronous service entry, not its worker/UI route.
 
 ## Source and candidate boundary
 
@@ -18,7 +19,16 @@ this does not claim that its original commit object was imported. Only the
 implementation-status append conflicted; both workstreams' sections were kept.
 The remaining five candidate blobs match the verified transfer exactly.
 
-## Current mismatch
+The ba2ff322 integration is separately isolated from this e3500f4 checkpoint.
+A/B source reconstruction matches parent tree30855e5d and candidate treeb6211696;
+original commit metadata is unverified. Its ordinary feature enables nagi-ai.
+Albert re-exports the shared NAGI_BAR_APP_ID; the summary entry checks requesting
+assistant identity plus full caller equality, while ordinary generate keeps
+rejecting Some(AppId). The freely constructible identity remains an OS-caller
+precondition, not authenticated provenance. Synchronous service/Context/terms
+admission is host-tested; worker/UI/freshness and guest execution are not.
+
+## Remaining transport mismatch
 
 - `services/nagi-ai/src/browser_context.rs` creates a `ModelRequest` with
   `caller: Some(prompt.context.caller().app_id)`, a separate trusted system
@@ -59,7 +69,7 @@ request; neither a page-provided AppId nor an already accepted license replaces
 the verified invocation and current context grant.
 
 Keep ordinary `generate`'s external-caller rejection. A separately authenticated
-app entry needs an OS-created authorization object or equivalent checked
+app transport still needs an OS-created authorization object or equivalent checked
 binding; do not admit every Some(AppId), forge the Bar's None caller, reuse a
 fixture allow policy, or let serialized page metadata confer authority.
 
