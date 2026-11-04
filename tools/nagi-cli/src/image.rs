@@ -1927,7 +1927,10 @@ fn wait_for_qemu_any_with_qmp(
         let serial = fs::read(serial_log).unwrap_or_default();
         if Instant::now() >= diagnostic_start {
             let diagnostics = capture_qmp_timeout_diagnostics_until(qmp_stream, deadline);
-            terminate_qemu(child, serial_log, &serial);
+            // QEMU owns this file. Reap its writer before appending diagnostics;
+            // the pre-diagnostic snapshot may lack a newly started kernel.
+            let _ = child.kill();
+            let _ = child.wait();
             let log_result = append_qmp_timeout_diagnostics(serial_log, &diagnostics);
             let persisted = match log_result {
                 Ok(()) => format!("diagnostics appended to {}", serial_log.display()),
@@ -2758,11 +2761,14 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                 let _ = diagnostics.flush();
             }
             drop(qmp_diagnostics);
-            let timeout_diagnostics =
-                capture_qmp_timeout_diagnostics_until(&mut qmp_stream, deadline);
+            let (timeout_diagnostics, serial_capture) = capture_gui_timeout_and_reap(
+                &mut child,
+                &mut qmp_stream,
+                &mut serial_stream,
+                &mut serial,
+                deadline,
+            );
             let _ = serial_log.flush();
-            let _ = child.kill();
-            let _ = child.wait();
             drop(serial_log);
             let serial_write = fs::write(config.serial_log, &serial).map_err(|error| {
                 format!(
@@ -2772,6 +2778,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
             });
             let diagnostics_write =
                 append_qmp_timeout_diagnostics(config.serial_log, &timeout_diagnostics);
+            // A partial capture cannot establish that the kernel never started.
+            // Persist all bytes collected, but fail outside the retry signature.
+            serial_capture?;
+            if let Err(error) = &serial_write {
+                return Err(error.clone());
+            }
             let persisted = match (serial_write, diagnostics_write) {
                 (Ok(()), Ok(())) => {
                     format!(
@@ -3285,6 +3297,53 @@ fn capture_qmp_timeout_diagnostics_until(stream: &mut TcpStream, deadline: Insta
         }
     }
     diagnostics
+}
+
+// Read serial concurrently so a full TCP buffer cannot stall guest output while
+// QMP diagnostics run. After killing/reaping QEMU, drain the bytes already
+// queued in the socket. This does not allocate another timed wait after deadline.
+fn capture_gui_timeout_and_reap(
+    child: &mut Child,
+    qmp: &mut TcpStream,
+    stream: &mut TcpStream,
+    serial: &mut Vec<u8>,
+    deadline: Instant,
+) -> (Vec<String>, Result<(), String>) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let finished = AtomicBool::new(false);
+    thread::scope(|scope| {
+        let reader = thread::Builder::new().spawn_scoped(scope, || {
+            stream
+                .set_nonblocking(true)
+                .map_err(|error| format!("cannot configure final GUI serial capture: {error}"))?;
+            let mut buffer = [0_u8; 4096];
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) => return Ok(()),
+                    Ok(count) => serial.extend_from_slice(&buffer[..count]),
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if finished.load(Ordering::Acquire) {
+                            return Ok(());
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => return Err(format!("cannot capture final GUI serial: {error}")),
+                }
+            }
+        });
+        let diagnostics = capture_qmp_timeout_diagnostics_until(qmp, deadline);
+        let _ = child.kill();
+        let _ = child.wait();
+        finished.store(true, Ordering::Release);
+        let captured = match reader {
+            Ok(reader) => reader
+                .join()
+                .unwrap_or_else(|_| Err("final GUI serial reader panicked".to_owned())),
+            Err(error) => Err(format!("cannot start final GUI serial capture: {error}")),
+        };
+        (diagnostics, captured)
+    })
 }
 
 fn append_qmp_timeout_diagnostics(path: &Path, diagnostics: &[String]) -> Result<(), String> {
