@@ -1,3 +1,18 @@
+## PR #57 independent ARM64 host boundary candidate — 2026-11-04
+
+Status: `PARTIAL`; no milestone or physical-target PASS. The isolated contracts
+experiment adds a host-only preparation proposal that rejects missing boot
+identity/DTB, malformed bounded FDT v17 envelopes, unknown or non-EL1 entry,
+unknown or enabled MMU, and incompatible UART facts. Physical profiles reject
+even with complete QEMU-shaped fixtures. The spike's EL2 negative predicate now
+requires its single exact failure line, and direct runner API calls reject
+unexpected virtualization properties before I/O. No production boot path or
+guest source changed. The complete contracts verifier passes (104 contract,
+30 audit/records, 16 BootInfo and 5 ABI tests, formatting and strict Clippy);
+32 runner/receipt fixtures pass. Candidate guest execution and independent
+review remain NOT_RUN; existing source0039 runtime evidence is unchanged.
+See [the independent handoff](porting/multiarch/host-boundary-handoff.md).
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone

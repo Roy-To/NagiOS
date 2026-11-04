@@ -43,6 +43,28 @@ class AcceptanceTests(unittest.TestCase):
         self.assertFalse(expected_el2_rejection(0, b"SPIKE FAIL exception-level", False))
         self.assertFalse(expected_el2_rejection(1, b"SPIKE FAIL exception-level", True))
 
+    def test_el2_negative_rejects_partial_success_and_unrelated_failures(self):
+        failure = b"SPIKE FAIL exception-level"
+        for serial in (
+            failure + b" expected EL1 got EL0",
+            b"prefix " + failure,
+            failure + b"\n" + failure,
+            failure + b"\nSPIKE FAIL panic",
+            *(failure + b"\n" + marker for marker in MARKERS),
+        ):
+            with self.subTest(serial=serial):
+                self.assertFalse(expected_el2_rejection(1, serial, False))
+        self.assertTrue(expected_el2_rejection(1, failure + b"\n", False))
+
+    def test_invalid_machine_properties_rejected_before_any_io(self):
+        with patch("run.resolve_executable") as executable, \
+             patch("run.subprocess.run") as process:
+            for value in ("", "yes", "on,secure=on", None):
+                with self.subTest(value=value), self.assertRaises(RunnerError):
+                    run_guest("missing.elf", "missing-qemu", value, "unused")
+            executable.assert_not_called()
+            process.assert_not_called()
+
     def _fixture(self, root):
         binary = root / "external.elf"
         binary.write_bytes(fake_elf())

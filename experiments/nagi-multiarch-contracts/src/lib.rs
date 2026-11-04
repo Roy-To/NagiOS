@@ -1,6 +1,8 @@
 //! Experimental design validators; no production wiring or authority grants.
 #![no_std]
 
+pub mod arm64_boot;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Architecture {
     X86_64,
