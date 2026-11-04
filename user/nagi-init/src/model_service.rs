@@ -241,6 +241,46 @@ impl SessionModelService {
         )
     }
 
+    /// Queue-owned summary snapshot, after public API extraction. Only the
+    /// OS-owned SessionServices worker calls this; no external IPC is exposed.
+    pub(super) fn generate_page_summary(
+        &mut self,
+        user: &Session,
+        prompt: &nagi_ai::PageSummaryPrompt,
+        cancellation: &dyn CancellationToken,
+    ) -> Result<ModelResponse, SessionPageSummaryError> {
+        self.authorize(user)
+            .map_err(|_| SessionPageSummaryError::Denied)?;
+        let role = RoleId::new("standard").map_err(|_| SessionPageSummaryError::Denied)?;
+        let capability =
+            CapabilityId::new("text.generate").map_err(|_| SessionPageSummaryError::Denied)?;
+        let model_id = self
+            .selected_model(&capability, Some(&role))
+            .map_err(|error| match error {
+                SessionModelError::Denied => SessionPageSummaryError::Denied,
+                SessionModelError::Service(error) => SessionPageSummaryError::Service(error),
+            })?
+            .clone();
+        let access = ModelSessionAccess::bind(user).ok_or(SessionPageSummaryError::Denied)?;
+        session_page_summary::generate_prepared(
+            &access,
+            user,
+            prompt,
+            model_id,
+            LIMITS,
+            |request, token| {
+                self.generate(user, Some(&role), None, request, token)
+                    .map_err(|error| match error {
+                        SessionModelError::Denied => SessionPageSummaryError::Denied,
+                        SessionModelError::Service(error) => {
+                            SessionPageSummaryError::Service(error)
+                        }
+                    })
+            },
+            cancellation,
+        )
+    }
+
     pub fn selected_model(
         &self,
         capability: &CapabilityId,

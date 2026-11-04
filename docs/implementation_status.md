@@ -10702,3 +10702,80 @@ was denied by OS permissions; that lookup was stopped without retry/escalation.
 No bytes from that directory were read and no private data was accessed. Missing
 UI target cache is an independent blocker from the resolved nagi-ai dependency
 regression; summary runtime/UI and M30 acceptance remain incomplete.
+
+
+## Summary worker/UI owner-context seam (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. This local-only candidate is isolated on
+`codex/m30-summary-worker-lifecycle-20261104` in
+`/workspace/NagiOS-m30-summary-worker`, based on exact parent
+62995a2d4077ebb2cd3b436c9b3fbbf87682d649/tree
+303fb9a2be177775c8d44e5467ae85ce2c4113f8. Earlier candidates and exports remain
+unchanged. No formal release gate or CI assertion is changed.
+
+The public Browser Context operation now separates policy-checked acquisition
+from generation, keeping the existing synchronous API as a composition of both.
+Only the immutable, bounded, explicitly untrusted context snapshot enters the
+existing single-slot guest worker. Browser/Context Authority references stay on
+their owner thread; no unsafe Send implementation is added. The queue checks the
+bound authenticated Session, full requesting CallerIdentity and shared
+NAGI_BAR_APP_ID, explicit per-session terms, monotonic request IDs and unchanged
+generation after extraction. This freely constructed logical identity is a
+trusted-bootstrap precondition, not proof of OS provenance. Ordinary external
+Some(AppId) inference remains refused; no new IPC, authority or consent grant is
+introduced. The worker's separate page-summary operation preserves system
+instructions separately from serialized untrusted page data, the combined input
+byte budget, 256-token output ceiling, typed service errors, cancellation
+precedence, and the existing coordinator/lease/admission policy.
+
+Controller and Adapter expose an explicit summary request and owner-context UI
+step. Normal plaintext polling cannot release a summary. Each summary poll
+reacquires through Context Authority and the public Browser API and compares
+caller/context/page snapshots before consuming a reply, including during pending
+inference. A changed or denied snapshot cancels and discards that request; an
+explicit cancellation retains precedence. Worker scheduling precedes the fresh
+recheck. Lock/sign-out cancels through the existing generation fence; Session
+and active request are checked before display, and new sessions require new
+terms consent. Output NULs, excess reported tokens and oversized summary replies
+are rejected at the queue and presentation boundaries. Host-only scripted
+completion helpers now serve both existing UI harnesses, before their test
+modules; no production model output is replaced.
+
+Host verification PASS, with overlapping suites listed separately: direct
+worker22, actual service-boundary22, UI59, existing Desktop60 and login26.
+New tests cover full caller mismatch before extraction, terms/sharing denial,
+non-Send Browser ownership, generation change during extraction, summary polling
+without current context, navigation/sharing changes before and after completion,
+lock/same-owner reauthentication with reused service request ID, late replies,
+explicit cancellation precedence, separate system instructions, smaller combined
+input admission and exact typed clock/terms failures. The actual wrapper's new
+prepared entry is checked with locked/other Sessions and the real license gate;
+host syscall/artifact/native test guards remain fail-fast. These are synthetic
+orchestration/service-boundary tests, not real inference or operator consent.
+
+Worker, service and UI host all-target Clippy PASS with warnings denied. AI33
+unit tests and strict all-target Clippy PASS through an external standalone
+manifest pointing at this exact tracked AI lib.rs and unchanged pinned path/
+registry dependencies; every registry version/checksum matches the existing
+service lock closure. Root workspace AI tests are BLOCKED by unmaterialized
+Servo patch directories (initially cc-nagi, then tokio-servo), not a source test
+failure; this standalone check does not prove the root workspace build. The UI
+script's formatting and feature-tree checks PASS, including absence of model
+manager activation in the login-only profile. Changed-leaf rustfmt/whitespace
+PASS; existing release/session validator host regressions37 PASS (synthetic). Exact worker Nagi target warnings-denied Clippy PASS, retaining eight
+existing dependency warnings. Exact UI target Clippy remains BLOCKED before
+Rust compilation by uncached fixed libc0.2.191 under --offline. No replacement
+version, dependency download, root registry access or installation is used.
+
+Remaining integration is explicit: ordinary Desktop does not invoke the new
+summary command or owner-context tick, and its normal Albert live Context API,
+OS-derived logical caller and trusted navigation/sharing revision are absent.
+Reacquired snapshot equality detects tested changes but cannot detect ABA,
+changes outside bounded fields, or establish atomic freshness across independently
+mutable owners; it is not a trusted monotonic revision contract. No complete
+post-acquisition freshness guarantee is claimed. The real live Browser owner
+must supply that contract and connect command/polling before activation. No
+same-session guest summary, model/VM execution, native final link, terms
+acknowledgement, public push/merge, release approval or M30 PASS is claimed.
+Private product-decision ledger contents were not read; those decisions remain
+unverified. Existing 0.1 public specifications govern this unactivated seam.

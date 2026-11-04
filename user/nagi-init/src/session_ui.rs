@@ -17,6 +17,29 @@ pub trait Services {
     fn on_signed_in(&mut self, session: &Session) -> Result<(), SubmitError>;
     fn submit_text(&mut self, session: &Session, id: u64, text: &str) -> Result<(), SubmitError>;
     fn poll_reply(&mut self, session: &Session, id: u64) -> Result<Reply, SubmitError>;
+    /// Trusted OS integration only; external transports default to fail closed.
+    #[allow(clippy::too_many_arguments)]
+    fn submit_page_summary(
+        &mut self,
+        _: &Session,
+        _: nagi_ai::CallerIdentity,
+        _: u64,
+        _: nagi_ai::ContextRequest,
+        _: &dyn nagi_ai::ContextAuthority,
+        _: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<(), SubmitError> {
+        Err(SubmitError::Unavailable)
+    }
+    fn poll_page_summary(
+        &mut self,
+        _: &Session,
+        _: u64,
+        _: &dyn nagi_ai::ContextAuthority,
+        _: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<Reply, SubmitError> {
+        Err(SubmitError::Unavailable)
+    }
+
     fn cancel_request(&mut self, session: &Session, id: u64) -> Result<(), SubmitError>;
     fn on_lock_or_signout(&mut self, session: &Session);
     fn acknowledge_model_terms(
@@ -34,6 +57,26 @@ impl Services for SessionServices {
     }
     fn poll_reply(&mut self, s: &Session, id: u64) -> Result<Reply, SubmitError> {
         SessionServices::poll_reply(self, s, id)
+    }
+    fn submit_page_summary(
+        &mut self,
+        s: &Session,
+        caller: nagi_ai::CallerIdentity,
+        id: u64,
+        request: nagi_ai::ContextRequest,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<(), SubmitError> {
+        SessionServices::submit_page_summary(self, s, caller, id, request, authority, browser)
+    }
+    fn poll_page_summary(
+        &mut self,
+        s: &Session,
+        id: u64,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<Reply, SubmitError> {
+        SessionServices::poll_page_summary(self, s, id, authority, browser)
     }
     fn cancel_request(&mut self, s: &Session, id: u64) -> Result<(), SubmitError> {
         SessionServices::cancel_request(self, s, id)
@@ -96,8 +139,24 @@ impl Status {
             Self::WorkerUnavailable => "desktop.ai.status.worker_unavailable",
         }
     }
+    fn summary_error(error: nagi_ai::PageSummaryError) -> Self {
+        match error {
+            nagi_ai::PageSummaryError::InputTooLarge => Self::InputFull,
+            nagi_ai::PageSummaryError::ProviderUnavailable => Self::Unavailable,
+            nagi_ai::PageSummaryError::ProviderInvalidResponse => Self::InvalidReply,
+            nagi_ai::PageSummaryError::Context(
+                nagi_ai::BrowserContextError::ApiUnavailable
+                | nagi_ai::BrowserContextError::NoActivePage,
+            ) => Self::Unavailable,
+            nagi_ai::PageSummaryError::Context(nagi_ai::BrowserContextError::EmptyPageContent) => {
+                Self::EmptyInput
+            }
+            nagi_ai::PageSummaryError::Context(_) => Self::Denied,
+        }
+    }
     fn submit_error(error: SubmitError) -> Self {
         match error {
+            SubmitError::Context(error) => Self::summary_error(error),
             SubmitError::Denied => Self::Denied,
             SubmitError::Unavailable => Self::Unavailable,
             SubmitError::WorkerUnavailable => Self::WorkerUnavailable,
@@ -129,6 +188,7 @@ impl Terms {
 }
 #[derive(Clone, Copy)]
 struct Request {
+    summary: bool,
     session: Session,
     id: u64,
 }
@@ -303,11 +363,70 @@ impl Controller {
             return false;
         };
         self.last_request_id = id;
-        self.queued = Some(Request { session, id });
+        self.queued = Some(Request {
+            summary: false,
+            session,
+            id,
+        });
         self.output.clear();
         self.status = Status::Queued;
         true
     }
+    /// Explicit OS-owned page-summary command. Extraction is synchronous on
+    /// the Browser owner thread; inference is queued. The owner must call
+    /// tick_page_summary while active so every reply is revalidated.
+    /// No default Desktop button or logical caller provenance is fabricated.
+    #[allow(clippy::too_many_arguments)]
+    pub fn request_page_summary(
+        &mut self,
+        live: &Session,
+        caller: nagi_ai::CallerIdentity,
+        request: nagi_ai::ContextRequest,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+        services: &mut dyn Services,
+    ) -> bool {
+        if live.is_locked() || self.session != Some(*live) {
+            self.lock_or_signout(services);
+            self.status = Status::Denied;
+            return false;
+        }
+        if !self.can_edit() {
+            return false;
+        }
+        if self.terms.as_ref().is_some_and(|terms| !terms.acknowledged) {
+            self.status = Status::TermsRequired;
+            return false;
+        }
+        let Some(id) = self.last_request_id.checked_add(1) else {
+            self.status = Status::Failed;
+            return false;
+        };
+        self.last_request_id = id;
+        self.output.clear();
+        match services.submit_page_summary(live, caller, id, request, authority, browser) {
+            Ok(()) => {
+                self.in_flight = Some(Request {
+                    summary: true,
+                    session: *live,
+                    id,
+                });
+                self.discarding = false;
+                self.status = Status::Waiting;
+                true
+            }
+            Err(error) => {
+                if error == SubmitError::TermsRequired {
+                    if let Some(terms) = self.terms.as_mut() {
+                        terms.acknowledged = false;
+                    }
+                }
+                self.status = Status::submit_error(error);
+                false
+            }
+        }
+    }
+
     pub fn cancel(&mut self, services: &mut dyn Services) {
         let cancelling = if let Some(r) = self.in_flight {
             let _ = services.cancel_request(&r.session, r.id);
@@ -369,6 +488,28 @@ impl Controller {
 
     /// At most one submit/ack/poll per step; sign-in is readiness-gated by Desktop.
     pub fn tick(&mut self, live: Option<&Session>, services: &mut dyn Services) {
+        self.tick_inner(live, services, None);
+    }
+    /// Borrow live owner APIs only for this UI step. Ordinary tick never
+    /// releases a summary without current context; lock/signout still cancels.
+    pub fn tick_page_summary(
+        &mut self,
+        live: Option<&Session>,
+        services: &mut dyn Services,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) {
+        self.tick_inner(live, services, Some((authority, browser)));
+    }
+    fn tick_inner(
+        &mut self,
+        live: Option<&Session>,
+        services: &mut dyn Services,
+        context: Option<(
+            &dyn nagi_ai::ContextAuthority,
+            &mut dyn nagi_ai::PublicBrowserContextApi,
+        )>,
+    ) {
         match live {
             Some(s) => self.sign_in(s, services),
             None => self.lock_or_signout(services),
@@ -405,7 +546,14 @@ impl Controller {
                 }
             }
         } else if let Some(r) = self.in_flight {
-            let reply = services.poll_reply(&session, r.id);
+            let reply = if r.summary {
+                let Some((authority, browser)) = context else {
+                    return;
+                };
+                services.poll_page_summary(&session, r.id, authority, browser)
+            } else {
+                services.poll_reply(&session, r.id)
+            };
             if matches!(reply, Ok(Reply::Pending)) {
                 self.status = if self.discarding {
                     Status::Cancelling
@@ -427,7 +575,12 @@ impl Controller {
                         || response.request_id != r.id
                         || response.text.trim().is_empty()
                         || response.text.contains('\0')
-                        || response.text.len() > OUTPUT_CAPACITY
+                        || response.text.len()
+                            > if r.summary {
+                                nagi_ai::MAX_PAGE_SUMMARY_BYTES
+                            } else {
+                                OUTPUT_CAPACITY
+                            }
                         || response.usage.output_tokens > MAX_OUTPUT_TOKENS
                     {
                         let _ = services.cancel_request(&session, r.id);
@@ -436,6 +589,9 @@ impl Controller {
                         self.output = response.text;
                         self.status = Status::Complete;
                     }
+                }
+                Ok(Reply::Failed(ReplyError::Context(error))) => {
+                    self.status = Status::summary_error(error)
                 }
                 Ok(Reply::Failed(ReplyError::Denied)) => self.status = Status::Denied,
                 Ok(Reply::Failed(ReplyError::WorkerUnavailable)) => {

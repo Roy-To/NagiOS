@@ -24,6 +24,7 @@ const WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SubmitError {
+    Context(nagi_ai::PageSummaryError),
     Denied,
     Unavailable,
     InvalidRequestId,
@@ -36,6 +37,7 @@ pub enum SubmitError {
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplyError {
+    Context(nagi_ai::PageSummaryError),
     Denied,
     Model(ModelServiceError),
     WorkerUnavailable,
@@ -107,9 +109,16 @@ struct Job {
     request_id: u64,
     #[cfg_attr(not(target_os = "nagi"), allow(dead_code))]
     input: String,
+    summary: Option<nagi_ai::PageSummaryPrompt>,
     cancellation: Arc<AtomicBool>,
 }
+#[derive(Clone)]
+struct SummarySnapshot {
+    request: nagi_ai::ContextRequest,
+    prompt: nagi_ai::PageSummaryPrompt,
+}
 struct Slot {
+    summary: Option<SummarySnapshot>,
     request_id: u64,
     cancellation: Arc<AtomicBool>,
 }
@@ -231,14 +240,26 @@ impl Shared {
         if input.trim().is_empty() || input.contains('\0') {
             return Err(SubmitError::InvalidInput);
         }
-        // Allocate the owned bounded input before acquiring the queue lock.
-        let input = String::from(input);
+        self.enqueue(user, request_id, String::from(input), None, None)
+    }
+    fn enqueue(
+        &self,
+        user: &Session,
+        request_id: u64,
+        input: String,
+        summary: Option<SummarySnapshot>,
+        expected_generation: Option<u64>,
+    ) -> Result<(), SubmitError> {
         let cancel = Arc::new(AtomicBool::new(false));
         let mut state = self.state.lock();
         if self.cleanup_failed.load(Ordering::Acquire) {
             return Err(SubmitError::WorkerUnavailable);
         }
-        if !state.allows(user) || self.closed.load(Ordering::Acquire) {
+        if !state.allows(user)
+            || self.closed.load(Ordering::Acquire)
+            || expected_generation
+                .is_some_and(|generation| self.generation.load(Ordering::Acquire) != generation)
+        {
             return Err(SubmitError::Denied);
         }
         if request_id == 0 || request_id <= state.last_request_id {
@@ -251,7 +272,9 @@ impl Shared {
             return Err(SubmitError::TermsRequired);
         }
         state.last_request_id = request_id;
+        let prompt = summary.as_ref().map(|snapshot| snapshot.prompt.clone());
         state.active = Some(Slot {
+            summary,
             request_id,
             cancellation: cancel.clone(),
         });
@@ -260,11 +283,20 @@ impl Shared {
             generation: self.generation.load(Ordering::Acquire),
             request_id,
             input,
+            summary: prompt,
             cancellation: cancel,
         });
         Ok(())
     }
     fn poll(&self, user: &Session, request_id: u64) -> Result<ReplyProgress, SubmitError> {
+        self.poll_checked(user, request_id, None)
+    }
+    fn poll_checked(
+        &self,
+        user: &Session,
+        request_id: u64,
+        checked: Option<(u64, &nagi_ai::PageSummaryPrompt)>,
+    ) -> Result<ReplyProgress, SubmitError> {
         if user.is_locked() {
             self.unbind(user);
             return Err(SubmitError::Denied);
@@ -279,6 +311,18 @@ impl Shared {
             .is_none_or(|slot| slot.request_id != request_id)
         {
             return Err(SubmitError::InvalidRequestId);
+        }
+        // Plaintext polling can never release a summary. Its owner must check
+        // the current public Browser API, Context Authority and logical caller.
+        let slot = state.active.as_ref().ok_or(SubmitError::InvalidRequestId)?;
+        if let Some(snapshot) = slot.summary.as_ref() {
+            if checked.is_none_or(|(generation, prompt)| {
+                generation != self.generation.load(Ordering::Acquire) || prompt != &snapshot.prompt
+            }) {
+                return Err(SubmitError::Denied);
+            }
+        } else if checked.is_some() {
+            return Err(SubmitError::Denied);
         }
         let Some(reply) = state.reply.take() else {
             return Ok(ReplyProgress::Pending);
@@ -330,7 +374,14 @@ impl Shared {
         if result.as_ref().is_ok_and(|r| {
             r.request_id != job.request_id
                 || r.text.trim().is_empty()
-                || r.text.len() > MAX_OUTPUT_BYTES
+                || r.text.contains('\0')
+                || r.usage.output_tokens > MAX_OUTPUT_TOKENS
+                || r.text.len()
+                    > if job.summary.is_some() {
+                        nagi_ai::MAX_PAGE_SUMMARY_BYTES
+                    } else {
+                        MAX_OUTPUT_BYTES
+                    }
         }) {
             result = Err(ReplyError::Model(
                 RuntimeError::InvalidBackendResponse.into(),
@@ -451,6 +502,118 @@ impl SessionServices {
     ) -> Result<(), SubmitError> {
         self.shared.submit(user, request_id, input)
     }
+    /// OS-owned entry only: the caller is obtained from trusted desktop app
+    /// state, never prompt text. A logical identity alone is not OS provenance.
+    /// Extraction stays on the Browser owner thread; only bounded untrusted data
+    /// crosses the worker queue. No terms acknowledgement occurs here.
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_page_summary(
+        &mut self,
+        user: &Session,
+        trusted_caller: nagi_ai::CallerIdentity,
+        request_id: u64,
+        request: nagi_ai::ContextRequest,
+        authority: &(impl nagi_ai::ContextAuthority + ?Sized),
+        browser: &mut (impl nagi_ai::PublicBrowserContextApi + ?Sized),
+    ) -> Result<(), SubmitError> {
+        if user.is_locked() {
+            self.shared.unbind(user);
+            return Err(SubmitError::Denied);
+        }
+        let generation = {
+            let state = self.shared.state.lock();
+            if !state.allows(user)
+                || self.shared.closed.load(Ordering::Acquire)
+                || trusted_caller.app_id != nagi_ai::NAGI_BAR_APP_ID
+                || request.caller != trusted_caller
+            {
+                return Err(SubmitError::Denied);
+            }
+            if self.shared.cleanup_failed.load(Ordering::Acquire) {
+                return Err(SubmitError::WorkerUnavailable);
+            }
+            if request_id == 0 || request_id <= state.last_request_id {
+                return Err(SubmitError::InvalidRequestId);
+            }
+            if state.active.is_some() {
+                return Err(SubmitError::Busy);
+            }
+            if !state.terms_confirmed {
+                return Err(SubmitError::TermsRequired);
+            }
+            self.shared.generation.load(Ordering::Acquire)
+        };
+        let prompt = nagi_ai::prepare_page_summary(request_id, request.clone(), authority, browser)
+            .map_err(SubmitError::Context)?;
+        self.shared.enqueue(
+            user,
+            request_id,
+            String::new(),
+            Some(SummarySnapshot { request, prompt }),
+            Some(generation),
+        )
+    }
+
+    /// Recheck sharing, navigation, page text and Context Authority on every UI
+    /// poll, including pending inference. Failure cancels and discards this slot.
+    /// No Browser references or unsafe Send implementations cross the queue.
+    pub fn poll_page_summary(
+        &mut self,
+        user: &Session,
+        request_id: u64,
+        authority: &(impl nagi_ai::ContextAuthority + ?Sized),
+        browser: &mut (impl nagi_ai::PublicBrowserContextApi + ?Sized),
+    ) -> Result<ReplyProgress, SubmitError> {
+        if user.is_locked() {
+            self.shared.unbind(user);
+            return Err(SubmitError::Denied);
+        }
+        let (generation, snapshot) = {
+            let state = self.shared.state.lock();
+            if !state.allows(user) || self.shared.closed.load(Ordering::Acquire) {
+                return Err(SubmitError::Denied);
+            }
+            let slot = state
+                .active
+                .as_ref()
+                .filter(|slot| slot.request_id == request_id)
+                .ok_or(SubmitError::InvalidRequestId)?;
+            let snapshot = slot.summary.clone().ok_or(SubmitError::Denied)?;
+            (self.shared.generation.load(Ordering::Acquire), snapshot)
+        };
+        // Schedule the worker before checking current owner state, never after
+        // a successful recheck and before consuming its reply on this UI step.
+        cooperate();
+        let fresh = nagi_ai::prepare_page_summary(request_id, snapshot.request, authority, browser);
+        if fresh.as_ref().is_err()
+            || fresh
+                .as_ref()
+                .is_ok_and(|current| current != &snapshot.prompt)
+        {
+            let mut state = self.shared.state.lock();
+            if !state.allows(user) || self.shared.generation.load(Ordering::Acquire) != generation {
+                return Err(SubmitError::Denied);
+            }
+            let slot = state
+                .active
+                .as_ref()
+                .filter(|slot| slot.request_id == request_id)
+                .ok_or(SubmitError::InvalidRequestId)?;
+            let explicitly_cancelled = slot.cancellation.swap(true, Ordering::AcqRel);
+            state.queued = None;
+            state.reply = Some(Err(if explicitly_cancelled {
+                cancelled()
+            } else {
+                match fresh {
+                    Err(error) => ReplyError::Context(error),
+                    Ok(_) => ReplyError::Denied,
+                }
+            }));
+        }
+        self.shared
+            .poll_checked(user, request_id, Some((generation, &snapshot.prompt)))
+    }
+
     pub fn poll_reply(
         &mut self,
         user: &Session,
@@ -619,6 +782,7 @@ mod guest {
     pub(super) fn report_backend_result(result: &Result<ModelResponse, ReplyError>) {
         let code: &[u8] = match result {
             Ok(_) => b"ready",
+            Err(ReplyError::Context(_)) => b"context-denied",
             Err(ReplyError::Denied) => b"denied",
             Err(ReplyError::WorkerUnavailable) => b"worker-unavailable",
             Err(ReplyError::Model(ModelServiceError::ResourceLimit)) => b"resource-limit",
@@ -669,6 +833,20 @@ mod guest {
             job: &Job,
             cancellation: &dyn CancellationToken,
         ) -> Result<ModelResponse, ReplyError> {
+            if let Some(prompt) = job.summary.as_ref() {
+                return self
+                    .generate_page_summary(&job.user, prompt, cancellation)
+                    .map_err(|error| match error {
+                        crate::model_service::SessionPageSummaryError::Denied => ReplyError::Denied,
+                        crate::model_service::SessionPageSummaryError::Cancelled => cancelled(),
+                        crate::model_service::SessionPageSummaryError::Service(error) => {
+                            ReplyError::Model(error)
+                        }
+                        crate::model_service::SessionPageSummaryError::Summary(error) => {
+                            ReplyError::Context(error)
+                        }
+                    });
+            }
             let capability =
                 CapabilityId::new("text.generate").map_err(|_| ReplyError::WorkerUnavailable)?;
             let role = RoleId::new("standard").map_err(|_| ReplyError::WorkerUnavailable)?;
@@ -862,7 +1040,20 @@ mod tests {
                 2 => Ok(response(job.request_id + 1, "orchestration fixture")),
                 3 => Ok(response(job.request_id, &"x".repeat(MAX_OUTPUT_BYTES + 1))),
                 5 => Err(ReplyError::Model(RuntimeError::ArtifactUnavailable.into())),
-                _ => Ok(response(job.request_id, &job.input)),
+                6 => Ok(response(job.request_id, "fixture\0reply")),
+                7 => {
+                    let mut reply = response(job.request_id, "fixture");
+                    reply.usage.output_tokens = MAX_OUTPUT_TOKENS + 1;
+                    Ok(reply)
+                }
+                _ => Ok(response(
+                    job.request_id,
+                    if job.summary.is_some() {
+                        "summary orchestration fixture"
+                    } else {
+                        &job.input
+                    },
+                )),
             }
         }
         fn unload(&mut self) -> Result<(), ReplyError> {
@@ -931,6 +1122,228 @@ mod tests {
     }
     fn step(worker: &mut WorkerMachine<FixtureBackend>, bridge: &SessionServices) -> bool {
         worker.step(&bridge.shared, 42, budget(), &bridge.terms_reference)
+    }
+
+    struct ContextOwner {
+        denied: bool,
+        body: &'static str,
+        calls: usize,
+        rebind: Option<(Arc<Shared>, Session)>,
+    }
+    impl nagi_ai::ContextAuthority for ContextOwner {
+        fn can_read_object(&self, _: nagi_ai::CallerIdentity, _: nagi_model::ObjectId) -> bool {
+            false
+        }
+    }
+    impl nagi_ai::PublicBrowserContextApi for ContextOwner {
+        fn current_page_context(
+            &mut self,
+            request: nagi_ai::BrowserContextRequest,
+        ) -> Result<Option<nagi_ai::BrowserPageSnapshot>, nagi_ai::BrowserContextApiError> {
+            self.calls += 1;
+            assert_eq!(request.caller().app_id, nagi_ai::NAGI_BAR_APP_ID);
+            if let Some((shared, user)) = self.rebind.take() {
+                shared.unbind(&user);
+                shared.bind(&user).unwrap();
+            }
+            if self.denied {
+                return Err(nagi_ai::BrowserContextApiError::Denied);
+            }
+            Ok(Some(nagi_ai::BrowserPageSnapshot::new(
+                7,
+                None,
+                None,
+                None,
+                Some(self.body.into()),
+            )))
+        }
+    }
+    struct NoObjects;
+    impl nagi_ai::ContextAuthority for NoObjects {
+        fn can_read_object(&self, _: nagi_ai::CallerIdentity, _: nagi_model::ObjectId) -> bool {
+            false
+        }
+    }
+    fn summary_context() -> (nagi_ai::ContextRequest, ContextOwner) {
+        (
+            nagi_ai::ContextRequest {
+                caller: nagi_ai::CallerIdentity {
+                    app_id: nagi_ai::NAGI_BAR_APP_ID,
+                    app_session_id: nagi_model::AppSessionId(8),
+                    node_id: nagi_model::NodeId(9),
+                    workspace_id: None,
+                },
+                selected_object: None,
+                candidate_objects: alloc::vec::Vec::new(),
+            },
+            ContextOwner {
+                denied: false,
+                body: "untrusted page fixture",
+                calls: 0,
+                rebind: None,
+            },
+        )
+    }
+    #[test]
+    fn summary_requires_terms_and_full_bar_identity_before_context_extraction() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        let (request, mut browser) = summary_context();
+        assert_eq!(
+            b.submit_page_summary(
+                &user,
+                request.caller,
+                1,
+                request.clone(),
+                &NoObjects,
+                &mut browser
+            ),
+            Err(SubmitError::TermsRequired)
+        );
+        confirm(&mut b, &user);
+        let mut wrong = request.caller;
+        wrong.app_session_id = nagi_model::AppSessionId(99);
+        assert_eq!(
+            b.submit_page_summary(&user, wrong, 1, request.clone(), &NoObjects, &mut browser),
+            Err(SubmitError::Denied)
+        );
+        let mut wrong_app = request.clone();
+        wrong_app.caller.app_id = nagi_model::AppId(999);
+        assert_eq!(
+            b.submit_page_summary(
+                &user,
+                wrong_app.caller,
+                1,
+                wrong_app,
+                &NoObjects,
+                &mut browser
+            ),
+            Err(SubmitError::Denied)
+        );
+        assert_eq!(browser.calls, 0);
+        browser.denied = true;
+        assert!(matches!(
+            b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser),
+            Err(SubmitError::Context(_))
+        ));
+        assert!(b.shared.state.lock().active.is_none());
+    }
+    #[test]
+    fn summary_uses_real_queue_and_requires_fresh_context_even_after_completion() {
+        let _g = serial();
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        assert_eq!(b.poll_reply(&user, 1), Err(SubmitError::Denied));
+        assert_eq!(
+            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            Ok(ReplyProgress::Pending)
+        );
+        step(&mut WorkerMachine::<FixtureBackend>::new(), &b);
+        assert_eq!(b.poll_reply(&user, 1), Err(SubmitError::Denied));
+        assert!(
+            matches!(b.poll_page_summary(&user, 1, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.request_id == 1 && reply.text == "summary orchestration fixture")
+        );
+        assert_eq!(browser.calls, 3);
+    }
+    #[test]
+    fn summary_navigation_and_sharing_changes_cancel_pending_and_completed_results() {
+        let _g = serial();
+        for complete in [false, true] {
+            for denied in [false, true] {
+                let (user, _) = same_owner_sessions();
+                let mut b = bridge(&user);
+                confirm(&mut b, &user);
+                let (request, mut browser) = summary_context();
+                b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+                    .unwrap();
+                let old = b.shared.state.lock().queued.take().unwrap();
+                if complete {
+                    b.shared.complete(&old, Ok(response(1, "late fixture")));
+                }
+                browser.denied = denied;
+                browser.body = "new navigation fixture";
+                assert!(matches!(
+                    b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+                    Ok(ReplyProgress::Failed(_))
+                ));
+                assert!(old.cancellation.load(Ordering::Acquire));
+                b.submit_text(&user, 2, "next fixture").unwrap();
+                b.shared.complete(&old, Ok(response(1, "late fixture")));
+                assert_eq!(b.poll_reply(&user, 2), Ok(ReplyProgress::Pending));
+            }
+        }
+    }
+    #[test]
+    fn explicit_summary_cancel_precedes_context_failure() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        b.cancel_request(&user, 1).unwrap();
+        browser.denied = true;
+        assert_eq!(
+            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            Ok(ReplyProgress::Failed(cancelled()))
+        );
+    }
+
+    #[test]
+    fn summary_context_extraction_cannot_survive_generation_change() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        browser.rebind = Some((b.shared.clone(), user));
+        assert_eq!(
+            b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser),
+            Err(SubmitError::Denied)
+        );
+        assert!(!b.shared.state.lock().terms_confirmed);
+        assert!(b.shared.state.lock().active.is_none());
+    }
+    #[test]
+    fn summary_lock_and_same_owner_new_session_fence_reused_request_id() {
+        let _g = serial();
+        let (user, other) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(
+            &user,
+            request.caller,
+            1,
+            request.clone(),
+            &NoObjects,
+            &mut browser,
+        )
+        .unwrap();
+        let old = b.shared.state.lock().queued.take().unwrap();
+        b.on_lock_or_signout(&user);
+        assert!(old.cancellation.load(Ordering::Acquire));
+        b.shared.bind(&other).unwrap();
+        confirm(&mut b, &other);
+        b.submit_page_summary(&other, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        b.shared
+            .complete(&old, Ok(response(1, "old session fixture")));
+        assert_eq!(
+            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            Err(SubmitError::Denied)
+        );
+        assert_eq!(
+            b.poll_page_summary(&other, 1, &NoObjects, &mut browser),
+            Ok(ReplyProgress::Pending)
+        );
+        step(&mut WorkerMachine::<FixtureBackend>::new(), &b);
+        assert!(
+            matches!(b.poll_page_summary(&other, 1, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.text == "summary orchestration fixture")
+        );
     }
     #[test]
     fn configuration_rejects_absent_store_and_insufficient_guest_budget() {
@@ -1035,7 +1448,7 @@ mod tests {
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
-        for mode in [2, 3] {
+        for mode in [2, 3, 6, 7] {
             MODE.store(mode, Ordering::Relaxed);
             b.submit_text(&user, mode as u64, "fixture request")
                 .unwrap();
@@ -1277,6 +1690,7 @@ mod tests {
                 generation: job.generation,
                 request_id: job.request_id,
                 input: job.input.clone(),
+                summary: job.summary.clone(),
                 cancellation: job.cancellation.clone(),
             }
         };

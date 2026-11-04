@@ -214,8 +214,8 @@ impl ContextResolver {
     pub fn resolve_with_browser_api(
         &self,
         request: ContextRequest,
-        authority: &impl ContextAuthority,
-        browser_api: &mut impl PublicBrowserContextApi,
+        authority: &(impl ContextAuthority + ?Sized),
+        browser_api: &mut (impl PublicBrowserContextApi + ?Sized),
     ) -> Result<ResolvedContext, BrowserContextError> {
         let caller = request.caller;
         let resolved = self.resolve(request, authority)?;
@@ -416,19 +416,42 @@ impl<P: GenerativeProvider> BrowserSummaryProvider for BrowserSummaryAdapter<P> 
 pub fn summarize_current_page(
     request_id: u64,
     request: ContextRequest,
-    authority: &impl ContextAuthority,
-    browser_api: &mut impl PublicBrowserContextApi,
+    authority: &(impl ContextAuthority + ?Sized),
+    browser_api: &mut (impl PublicBrowserContextApi + ?Sized),
     provider: Option<&mut dyn BrowserSummaryProvider>,
     cancellation: &dyn CancellationToken,
 ) -> Result<String, PageSummaryError> {
+    let prompt = prepare_page_summary(request_id, request, authority, browser_api)?;
+    summarize_prepared_page(&prompt, provider, cancellation)
+}
+
+/// Acquire policy-checked context on its owning thread. The immutable result
+/// carries only untrusted data; moving it to a worker grants no authority.
+/// Owners must revalidate live context and sharing before displaying a reply.
+pub fn prepare_page_summary(
+    request_id: u64,
+    request: ContextRequest,
+    authority: &(impl ContextAuthority + ?Sized),
+    browser_api: &mut (impl PublicBrowserContextApi + ?Sized),
+) -> Result<PageSummaryPrompt, PageSummaryError> {
     let context = ContextResolver.resolve_with_browser_api(request, authority, browser_api)?;
-    let prompt = PageSummaryPrompt {
+    Ok(PageSummaryPrompt {
         request_id,
         context,
-    };
+    })
+}
+
+/// Generate from a snapshot obtained through the public Browser API. This
+/// function does not establish caller provenance, consent or context freshness.
+pub fn summarize_prepared_page(
+    prompt: &PageSummaryPrompt,
+    provider: Option<&mut dyn BrowserSummaryProvider>,
+    cancellation: &dyn CancellationToken,
+) -> Result<String, PageSummaryError> {
+    let request_id = prompt.request_id;
     let provider = provider.ok_or(PageSummaryError::ProviderUnavailable)?;
     let summary = provider
-        .summarize_page(&prompt, cancellation)
+        .summarize_page(prompt, cancellation)
         .map_err(|error| match error {
             BrowserSummaryProviderError::Unavailable => PageSummaryError::ProviderUnavailable,
             BrowserSummaryProviderError::InvalidResponse => {

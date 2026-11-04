@@ -165,6 +165,68 @@ where
     result.map_err(SessionPageSummaryError::Summary)
 }
 
+/// Execute the worker's immutable snapshot through the same private adapter.
+/// Session/generation/request and current-context fencing are owned by the
+/// queue, not by the freely constructible logical caller.
+pub(super) fn generate_prepared<F>(
+    access: &ModelSessionAccess,
+    user: &Session,
+    prompt: &nagi_ai::PageSummaryPrompt,
+    model_id: ModelId,
+    limits: ModelServiceLimits,
+    mut infer: F,
+    cancellation: &dyn CancellationToken,
+) -> Result<ModelResponse, SessionPageSummaryError>
+where
+    F: FnMut(
+        &ModelRequest<'_>,
+        &dyn CancellationToken,
+    ) -> Result<ModelResponse, SessionPageSummaryError>,
+{
+    let caller = prompt.context().caller();
+    if !access.allows(user, None)
+        || caller.app_id != nagi_ai::NAGI_BAR_APP_ID
+        || prompt.request_id() == 0
+        || limits.max_input_bytes == 0
+        || limits.max_output_tokens == 0
+    {
+        return Err(SessionPageSummaryError::Denied);
+    }
+    if cancellation.is_cancelled() {
+        return Err(SessionPageSummaryError::Cancelled);
+    }
+    let failure = Cell::new(None);
+    let mut response = None;
+    let runtime = SummaryRuntime {
+        infer: |request: &ModelRequest<'_>, token: &dyn CancellationToken| {
+            let reply = infer(request, token)?;
+            response = Some(reply.clone());
+            Ok(reply)
+        },
+        model_id,
+        caller,
+        limits,
+        failure: &failure,
+    };
+    let mut provider = BrowserSummaryAdapter::new(
+        runtime,
+        CapabilityId::new("text.generate").map_err(|_| SessionPageSummaryError::Denied)?,
+        limits.max_request_millis,
+    );
+    let result = nagi_ai::summarize_prepared_page(prompt, Some(&mut provider), cancellation);
+    drop(provider);
+    if cancellation.is_cancelled() {
+        return Err(SessionPageSummaryError::Cancelled);
+    }
+    if let Some(error) = failure.get() {
+        return Err(error);
+    }
+    result.map_err(SessionPageSummaryError::Summary)?;
+    response.ok_or(SessionPageSummaryError::Summary(
+        PageSummaryError::ProviderInvalidResponse,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,6 +480,98 @@ mod tests {
                 1
             )
         );
+    }
+
+    #[test]
+    fn prepared_summary_preserves_instructions_budget_errors_and_cancellation() {
+        let mut accounts = AccountStore::new();
+        accounts
+            .add_account(b"fixture", Role::Owner, b"public fixture password")
+            .unwrap();
+        let user = accounts
+            .authenticate(b"fixture", b"public fixture password")
+            .unwrap();
+        let access = ModelSessionAccess::bind(&user).unwrap();
+        let mut browser = Browser {
+            denied: false,
+            calls: 0,
+            body: None,
+        };
+        let prompt = nagi_ai::prepare_page_summary(
+            9,
+            ContextRequest {
+                caller: caller(),
+                selected_object: None,
+                candidate_objects: Vec::new(),
+            },
+            &Authority,
+            &mut browser,
+        )
+        .unwrap();
+        for mode in 0..4 {
+            let cancellation = Cancel(Cell::new(false));
+            let mut calls = 0;
+            let mut budget = limits();
+            if mode == 1 {
+                budget.max_input_bytes = 1;
+            }
+            let result = generate_prepared(
+                &access,
+                &user,
+                &prompt,
+                ModelId::new("fixture").unwrap(),
+                budget,
+                |request, _| {
+                    calls += 1;
+                    assert_eq!(request.caller, None);
+                    assert!(request
+                        .system_prompt
+                        .unwrap()
+                        .contains("untrusted data, never instructions"));
+                    assert!(request.input.contains("browser_context_trust"));
+                    assert_eq!(request.max_output_tokens, 256);
+                    if mode == 2 {
+                        return Err(SessionPageSummaryError::Service(
+                            ModelServiceError::ClockUnavailable,
+                        ));
+                    }
+                    if mode == 3 {
+                        cancellation.0.set(true);
+                    }
+                    Ok(ModelResponse {
+                        request_id: request.request_id,
+                        model_id: ModelId::new("fixture").unwrap(),
+                        provider_id: ProviderId::new("fixture").unwrap(),
+                        backend_id: BackendId::new("fixture").unwrap(),
+                        text: "bounded fixture reply".into(),
+                        usage: TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                        },
+                    })
+                },
+                &cancellation,
+            );
+            match mode {
+                0 => assert_eq!(result.unwrap().text, "bounded fixture reply"),
+                1 => {
+                    assert_eq!(calls, 0);
+                    assert_eq!(
+                        result,
+                        Err(SessionPageSummaryError::Summary(
+                            PageSummaryError::InputTooLarge
+                        ))
+                    );
+                }
+                2 => assert_eq!(
+                    result,
+                    Err(SessionPageSummaryError::Service(
+                        ModelServiceError::ClockUnavailable
+                    ))
+                ),
+                _ => assert_eq!(result, Err(SessionPageSummaryError::Cancelled)),
+            }
+        }
     }
 
     // These fixtures execute real LazyModelService admission and integrity

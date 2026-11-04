@@ -60,7 +60,7 @@ impl ContextResolver {
     pub fn resolve(
         &self,
         request: ContextRequest,
-        authority: &impl ContextAuthority,
+        authority: &(impl ContextAuthority + ?Sized),
     ) -> Result<ResolvedContext, ContextError> {
         if request
             .caller

@@ -153,6 +153,17 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-ai"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-model-manager",
+ "nagi-search",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-desktop-host-libnagi"
 version = "0.1.0"
 dependencies = [
@@ -163,6 +174,7 @@ dependencies = [
 name = "nagi-desktop-lock-host-tests"
 version = "0.1.0"
 dependencies = [
+ "nagi-ai",
  "nagi-desktop-host-libnagi",
  "nagi-localization",
  "nagi-model",

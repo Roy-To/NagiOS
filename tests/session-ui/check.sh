@@ -18,6 +18,7 @@ rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
   tests/session-ui/src/lib.rs \
   tests/session-ui/src/session_services.rs \
   tests/session-ui/src/tests.rs \
+  tests/session-ui/src/summary_tests.rs \
   tests/session-ui/desktop-host/src/lib.rs \
   tests/session-ui/desktop-host/libnagi/src/lib.rs \
   tests/session-ui/desktop-host/src/session_services.rs \
