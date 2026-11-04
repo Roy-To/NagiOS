@@ -10484,3 +10484,48 @@ candidate is not integrated; see `workstreams/m30-session-caller-contract.md`.
 Resident Browser, History/Undo, voice, successful ordinary inference, stress,
 restart/offline complete-product acceptance and distribution evidence remain
 required. No 0.2+ foundation is activated and no partial result passes M30.
+
+## Local M30 model-cache / DNS follow-up (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Protected ordinary-session
+candidate `4edf483` remains on its original local branch. This read-only runtime
+investigation and documentation are isolated on
+`codex/m30-dns-investigation-20261104`; no Browser/History/voice/distribution
+implementation or public ref is changed.
+
+A scan of the selected environment's workspace/tmp and usual mounted model/HF
+cache locations found 76 vocabulary GGUF fixtures and no inference model or
+2244011552-byte pinned Granite candidate. Expected SHA-256 remains
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`;
+there are no candidate bytes to hash. This does not establish absence in another,
+unattached environment. The enforced network policy does not allow the pinned
+Hugging Face repository; no new acquisition, mirror or network expansion was
+attempted. Ordinary successful inference remains unverified pending a verified,
+accessible pinned artifact. The 16 GiB/4 CPU cgroup and 24 GiB free disk allowed
+one 4-vCPU/8-GiB diagnostic VM; no other QEMU process was present. Probes held a
+nonblocking local resource lock for their complete lifetime; no existing shared
+slot registry was found.
+
+The existing d3a4ea2 layout image (SHA-256
+`11139581297d24903016501099117da814846454474e263e796352aa515ee986`)
+was copied into separate stopped-disk probes and passively captured at the guest
+Net boundary. Its original image remained unchanged. Both QEMU 10.0.13
+(Net queue1024) and QEMU8.2.2 (Net queue256) reproduced C POSIX failure85.
+Local real HTTP GET completed. Each DNS capture shows two example.com A queries
+from the guest to the default slirp DNS service, with valid IPv4/UDP checksums
+and lengths, and no DNS response, even with five seconds of post-failure passive
+capture. This narrows the observed failure to absence of inbound DNS at that
+boundary; the reason the slirp/managed upstream path returns no answer is not
+proven. The observations do not establish a resolver-parser defect or justify a
+static answer, timeout/gate relaxation, substitute host resolver or policy bypass.
+The existing nagi-net library's 8 host tests pass; they are not live DNS evidence.
+No retained managed network diagnostic records were available.
+
+The source-bound layout runs remain fixture diagnostics on d3a4ea2, separate
+from the 464246c ordinary-session Files evidence. Recovery/update steps beyond
+the DNS failure remain unverified. Local packet captures, command/source/image/
+disk hashes, cache inventory, resource check and scripts are recorded under
+`out/evidence/m30-dns-investigation-20261104/`; no fixture success is promoted to
+formal M30. Next: supply an authorized pinned cache artifact (verify exact size
+and hash before image integration) and verify a permitted upstream DNS path for
+the unchanged lookup, then rerun source-bound layout and normal-session gates.
