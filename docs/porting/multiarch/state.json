@@ -3,7 +3,7 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "Source FE52 inventory and pinned host Cargo verification are current. The records-only verifier passed at direct child R1 274d52f883cf0a348b1ce429fcca7d7a0a7f6e02; A/B remain pending and C is not run.",
+  "current_checkpoint": "Published ae9a56544d2c66cbbf6e641b80cd144ed52314a4 unchanged to PR #57; fresh ARM64 ELF builds match and real QEMU EL1 passes / EL2 negative condition MET. Explicit-SHA receipt verification passes, but verify.sh has two entry-point defects. Phase C remains PENDING independent rebuild/review. last_verified below retains the earlier FE52 static/host checkpoint; latest runtime evidence is evidence/arm64-ae9a5654-20261104/summary.json.",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
@@ -121,12 +121,12 @@
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "A/B acceptance remains pending live ownership/ref and architecture proposal owner review; pinned host Cargo verification and records-only validation pass. C has no AArch64-target build, new ELF, QEMU run, or VM result. Production D/E and shared registration remain gated by M30 and the owner checkpoint.",
+    "summary": "A/B still need ownership/proposal owner acceptance. The ae9a5654 runtime follow-up has actual source-bound ARM64/QEMU evidence, but overall verify.sh fails and independent rebuild/review is NOT_RUN. Production D/E and registration retain M30 and owner checkpoint gates; physical ARM hardware is NOT_RUN.",
     "reproduction_commands": [
       "Read docs/implementation_status.md and os-core registry activation_gate",
       "./nagi dev resume"
     ],
-    "failure_log_summary": "Source-bound model-free tests, pinned host Cargo tests/fmt/strict Clippy, Python/shell syntax, explicit-base inventory, and records-only validation pass. Live ownership/ref and proposal-owner review remain pending; AArch64 build/ELF/QEMU/VM/Miri/independent rebuild remain NOT_RUN.",
+    "failure_log_summary": "Runtime follow-up: initial unpinned preflight exit 101 (older Homebrew compiler); pinned preflight, fixtures, builds and QEMU runs passed, then verify.sh exit 2 (missing mandatory source SHAs). Separate explicit-SHA receipt verification passed. FE52 historical checkpoint below is preserved.",
     "attempted_fixes": [
       "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
       "Refreshed inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
@@ -142,7 +142,7 @@
       "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
     ]
   },
-  "next_action": "Keep D/E and registration gated. After the existing owner checkpoint, separately perform the source-bound host/build/QEMU acceptance and independent rebuild review; no result here implies phase C.",
+  "next_action": "Fix spike verify.sh preflight tool selection and source SHA forwarding on a bounded source candidate, refresh source-bound records and rerun. Obtain independent rebuild/review before phase C PASS. Obtain exact Integration Owner/os-core path/base/ABI/x86 parity checkpoint before production D/E. Physical hardware needs an identified authorized target and separate non-destructive boot plan; no media writes are authorized.",
   "acceptance_criteria": [
     "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
     "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",

@@ -1,5 +1,18 @@
 # PORT-MULTIARCH-01 handoff — provisional, unregistered
 
+## 2026-11-04 publication and runtime follow-up
+
+Fixed candidate ae9a56544d2c66cbbf6e641b80cd144ed52314a4 was published by an
+ordinary fast-forward to the existing PR #57 branch, preserving its SHA and
+ancestry. A fresh source-bound ARM64 build and actual QEMU EL1/EL2 runs were
+performed after the older FE52 static/host checkpoint below. EL1 passed, the
+EL2 negative condition was met, and two fresh ELF hashes matched. Phase C is
+PENDING independent rebuild/review. The overall verify.sh is still failing
+(two concrete entry-point defects); explicit-SHA receipt verification passed.
+See [runtime follow-up](evidence/arm64-ae9a5654-20261104/README.md) for exact
+results, failed attempts, commands and remaining physical-hardware limitations.
+The older NOT_RUN/no-push statements below describe their earlier checkpoints.
+
 ## Current-main refresh
 
 The canonical `Roy-To/NagiOS` main was checked by full SHA and is `0362427747e769b00558053e4c7f4c756d303802`.
