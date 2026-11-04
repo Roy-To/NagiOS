@@ -32,7 +32,28 @@ The isolated diagnostic correction keeps the existing M7 FAIL and halt, adds
 an exact BlockError reason, and preserves a transport error raised during GPT
 reads instead of reporting every read failure as a malformed partition table.
 It changes no success condition, capability, deadline, queue or disk contents.
-Guest verification of the diagnostic candidate follows separately. #48's
+The diagnostic code candidate `c33c93dbf3e49d9a730dc72f5273f77d27da0250`
+passes 165 kernel tests, formatting and its native Nagi target build. Its clean
+native image SHA-256 is
+`fab1799b37943305dc99e6a4bdf5c420d0d7db982f4b07d8358bc0e274a9585a`.
+QEMU 10.0.13 reports `Nagi M7 VirtIO Block error: timeout`; see
+`out/evidence/pr43-native-boot-1793764530493294413/`.
+
+With locally extracted Ubuntu QEMU 8.2.2 on the same reference configuration,
+the byte-identical diagnostic image passed M7 and formatted User Data. After
+QEMU stopped, a disk copy passed persistent read, on-screen Owner creation and
+unlock, ordinary Desktop rendering and signed-in SearchService startup
+(`out/evidence/pr43-native-boot-1793764762250860492/`). A further stopped-disk
+copy restored the Owner, entered unlock mode and reached signed-in readiness
+again (`out/evidence/pr43-native-boot-1793764798902022365/`). Screenshots,
+commands, serial logs and result hashes are preserved. Both copies pass
+`qemu-img check`; the pristine image hash is unchanged. This is a local
+source-bound diagnostic-candidate result, not validation of the published head
+or a same-session worker/inference claim. The QEMU 10 transport difference
+remains unresolved. An earlier copy taken before QEMU stopped reformatted and
+is excluded from restart evidence; no live-copy snapshot is counted.
+
+#48's
 Desktop consumer/native-link evidence belongs to its recorded source and is
 not substituted for #43 acceptance. Ordinary Servo/AI/History/voice/stress,
 persistence/offline demo and complete distribution review remain open.
