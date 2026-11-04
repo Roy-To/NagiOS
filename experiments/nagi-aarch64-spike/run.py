@@ -47,8 +47,7 @@ def expected_el2_rejection(returncode, serial, timed_out):
     return (
         returncode == 1
         and not timed_out
-        and FAIL_MARKER in serial
-        and b"SPIKE COMPLETE PASS" not in serial
+        and serial.splitlines() == [FAIL_MARKER]
     )
 
 
@@ -70,6 +69,10 @@ def valid_elf(data):
 
 
 def run_guest(binary, qemu, virtualization, output, timeout=15):
+    # API callers do not pass through argparse. Do not permit comma-separated
+    # machine-property additions to change the experiment's entry contract.
+    if virtualization not in ("off", "on"):
+        raise RunnerError("virtualization must be exactly off or on")
     output = Path(output).expanduser().resolve()
     if output.exists() or output.is_symlink():
         raise RunnerError(f"output already exists: {output}")

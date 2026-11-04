@@ -36,6 +36,23 @@ IDs, versioned future firmware/headless policy, mapping request bounds/W^X and
 explicit ELF machine selection. It implements neither firmware parsing nor
 MMU isolation; CPU exception/syscall parity needs later target tests.
 
+`arm64_boot` adds a separate host-only preparation proposal. It accepts only
+explicit QEMU-virt facts: a nonblank reported firmware/boot-source identity
+(including the direct-kernel loader), a bounded captured FDT v17 envelope,
+CurrentEL register encoding 4, observed SCTLR_EL1.M clear, and the experiment's
+PL011 address. Missing facts never select defaults. Physical profiles always
+reject, including a physical profile populated with QEMU-shaped fixtures.
+These caller-reported facts are unauthenticated. The envelope check validates
+header bounds, block order/alignment and a bounded reservation terminator;
+it does not parse structure tokens/properties, discover UART/RAM, authenticate
+firmware or make a blob safe for a downstream full parser. It is not wired to
+the spike or production boot path. Tests use a synthetic envelope with no
+complete device tree; their success is not hardware readiness.
+
+Envelope layout follows [DTSpec chapter 5](https://devicetree-specification.readthedocs.io/en/stable/flattened-format.html).
+The proposal deliberately supports only version 17 with compatibility version
+16; it makes no claim of accepting every future DTSpec-compatible format.
+
 Imported modules have dead-code allowances because this focused harness does
 not consume every API. IPC additionally allows baseline-only
 `unnecessary_mut_passed`/`drop_non_drop`; loader ELF allows `derivable_impls`;

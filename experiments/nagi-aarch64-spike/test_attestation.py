@@ -126,7 +126,7 @@ class AttestationFixture(unittest.TestCase):
         result_paths = {}
         for label, rc, outcome, virt, serial in (
             ("el1", 0, "PASS", "off", b"SPIKE ARM64 EL1 PL011 PASS\nSPIKE SVC VECTOR ERET PASS\nSPIKE GENERIC COUNTER PASS\nSPIKE COMPLETE PASS\n"),
-            ("el2", 1, "FAIL", "on", b"SPIKE FAIL exception-level expected EL1 got EL2\n"),
+            ("el2", 1, "FAIL", "on", b"SPIKE FAIL exception-level\n"),
         ):
             run_dir = cls.output / "runs" / label
             run_dir.mkdir(parents=True)
@@ -366,23 +366,30 @@ class AttestationFixture(unittest.TestCase):
         self.update_result(1, lambda result: result.update(returncode=2))
         with self.assertRaisesRegex(VerificationError, "expected-negative"):
             self.verify()
-        self.write_receipt()
-        record = self.reload_receipt()
-        item = record["runs"][1]
-        serial_path = self.output / item["serial_path"]
-        serial_path.write_bytes(b"SPIKE FAIL exception-level expected EL1 got EL2\nSPIKE COMPLETE PASS\n")
-        item["serial_sha256"] = sha(serial_path.read_bytes())
-        record["files"][item["serial_path"]] = item["serial_sha256"]
-        result_path = self.output / item["result_path"]
-        result = json.loads(result_path.read_text())
-        result["serial_sha256"] = item["serial_sha256"]
-        result_path.write_text(json.dumps(result) + "\n")
-        digest = sha(result_path.read_bytes())
-        item["result_json_sha256"] = digest
-        record["files"][item["result_path"]] = digest
-        self.save(record)
-        with self.assertRaisesRegex(VerificationError, "expected-negative"):
-            self.verify()
+        for serial in (
+            b"SPIKE FAIL exception-level\nSPIKE COMPLETE PASS\n",
+            b"SPIKE FAIL exception-level\nSPIKE ARM64 EL1 PL011 PASS\n",
+            b"SPIKE FAIL exception-level\nSPIKE FAIL panic\n",
+            b"prefix SPIKE FAIL exception-level\n",
+        ):
+            with self.subTest(serial=serial):
+                self.write_receipt()
+                record = self.reload_receipt()
+                item = record["runs"][1]
+                serial_path = self.output / item["serial_path"]
+                serial_path.write_bytes(serial)
+                item["serial_sha256"] = sha(serial)
+                record["files"][item["serial_path"]] = item["serial_sha256"]
+                result_path = self.output / item["result_path"]
+                result = json.loads(result_path.read_text())
+                result["serial_sha256"] = item["serial_sha256"]
+                result_path.write_text(json.dumps(result) + "\n")
+                digest = sha(result_path.read_bytes())
+                item["result_json_sha256"] = digest
+                record["files"][item["result_path"]] = digest
+                self.save(record)
+                with self.assertRaisesRegex(VerificationError, "expected-negative"):
+                    self.verify()
 
     def test_qemu_and_serial_hash_mismatches_are_rejected(self):
         self.update_result(0, lambda result: result.update(qemu_sha256="b" * 64, qemu_sha256_after="b" * 64))
@@ -582,7 +589,7 @@ class AttestationFixture(unittest.TestCase):
                 'if "virtualization=off" in machine:',
                 '    sys.stdout.buffer.write(b"SPIKE ARM64 EL1 PL011 PASS\\nSPIKE SVC VECTOR ERET PASS\\nSPIKE GENERIC COUNTER PASS\\nSPIKE COMPLETE PASS\\n")',
                 "    raise SystemExit(0)",
-                'sys.stdout.buffer.write(b"SPIKE FAIL exception-level expected EL1 got EL2\\n")',
+                'sys.stdout.buffer.write(b"SPIKE FAIL exception-level\\n")',
                 "raise SystemExit(1)",
             ]))
 
