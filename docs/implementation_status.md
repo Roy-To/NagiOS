@@ -10429,3 +10429,58 @@ scripted model seams; they do not establish guest inference. CI now runs the
 Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
 results must refer to the published successor. Actual guest/model validation
 and complete workspace checks remain pending at this checkpoint.
+
+## Local M30 ordinary-session checkpoint (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Local candidate only on
+`codex/m30-local-session-integration-20261104`; no public PR update, push or merge.
+Published #43 remains `54f2408`, #48 `5f59835`, main `87b7dea` at ref recheck.
+
+The isolated candidate merges the published #48 UI with #43 and retains release
+assertions. Real guest failures exposed device-owned VirtIO ring sizes: QEMU
+10 uses 1024-entry legacy Block/Net/RNG queues, while prior drivers assumed
+256/256/8. The bounded shared layout now uses actual sizes and volatile DMA
+access. Net retains its 256-buffer pool and includes the VirtIO header in each
+buffer stride. Modern input programs/reads back its selected 64-entry event
+queue before enabling it; legacy input rejects incompatible lengths. See
+ADR 0072. An ineffective Net queue-property pin attempt was superseded; no
+configuration-only success is claimed.
+
+Source `464246cc5972e63489a4722159b70d03eeb48c05` native image SHA-256
+`4527968fb04a70ecd665bf96add7aa57e1dd65121a88ec2a038b22513e217817`
+boots through ordinary Owner creation, Desktop, SearchService and real worker
+startup on QEMU 10.0.13 and 8.2.2 (q35, 4 vCPU, 8 GiB, UEFI). QEMU 10 records
+actual RNG completion at size 1024 and 112 input events at selected size 64.
+Its same-session Files create/rename/create/Trash/restore operations complete;
+signed Search presents search.query/files.search grants, returns one matching
+filename and reaps its child. Explicit model terms lead to a real worker
+`artifact-unavailable` response, not successful inference. Lock/relogin clears
+Bar input and terms. The same image/source passes stopped-disk restart with
+both filenames and signed Search result preserved, then offline Search and new
+file creation with the network link disabled before guest execution. The
+four-phase artifact checker verifies image/source/disk hash continuity and keeps
+M30 BLOCKED. Screenshots were inspected separately. This bounded Files evidence
+does not prove complete-product offline acceptance or ObjectId/content hashes;
+earlier b904ed5 probes remain separate evidence.
+
+Kernel 172 host tests and the actual Nagi kernel target build pass. Scoped
+release/profile/session checks (37), worker orchestration (16), UI/login checks
+and CLI image checks remain separately recorded; host seams prove no guest
+inference. Optional whole-kernel warnings-denied host Clippy has five existing
+unmodified audio/scheduler/user_process diagnostics and is not claimed passed.
+
+The retained layout fixture on source d3a4ea2 passes real Rust PAL HTTP (local
+server receives GET) but fails M13 C POSIX DNS at code 85 (example.com lookup).
+DNS root cause is unresolved; no resolver substitution, assertion skip or
+network-policy bypass was made. Recovery/update fixture steps after that failure
+are unverified. No layout PASS or complete M30 acceptance is claimed.
+
+Pinned model bytes are absent from the ordinary image; the dedicated public
+M20 inference image has different scope. Normal Browser/Albert summarization
+still requires a verified live Session/app/context-sharing bridge and a bounded
+asynchronous request preserving trusted system instructions separately from
+untrusted page data. Some(AppId) rejection stays intact. The separate M23 budget
+candidate is not integrated; see `workstreams/m30-session-caller-contract.md`.
+Resident Browser, History/Undo, voice, successful ordinary inference, stress,
+restart/offline complete-product acceptance and distribution evidence remain
+required. No 0.2+ foundation is activated and no partial result passes M30.
