@@ -1,0 +1,18 @@
+[workspace]
+
+[package]
+name = "nagi-portable-files-core"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "portable-files-demo"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

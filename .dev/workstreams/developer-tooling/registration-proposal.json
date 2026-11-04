@@ -1,0 +1,50 @@
+{
+  "checkpoint_id": "PORT-READINESS-HOST-20261104",
+  "workstream_id": "developer-tooling",
+  "owner": "Codex Integration Owner",
+  "owner_branch": "codex/0.2-developer-tooling",
+  "authority": "Explicit user instruction in the 2026-11-04 Nagi OS porting-readiness task.",
+  "objective": "Help third-party developers assess Rust, C, and C++ application source and manifest boundaries, follow migration guidance, and reuse portable existing application code in a separate host-buildable sample.",
+  "scope": [
+    "Add a static, bounded, read-only `nagi port readiness PROJECT [--format json]` command to tools/nagi-cli.",
+    "Create samples/porting/portable-files as a separate Cargo workspace with a license-noticed portable Nagi Files core excerpt and a third-party manifest fixture.",
+    "Add English and Japanese migration guidance describing evidence, adapters, permissions, SDK boundaries, and limitations.",
+    "Use the existing package validator and keep focused tests inside the authorized CLI/sample paths."
+  ],
+  "forbidden_scope": [
+    "Building, executing, installing, or launching the inspected project or any Nagi guest application.",
+    "Changing Nagi 0.1 milestones, M30 status, 0.2 runtime gates, kernel, loader, target output, SDK implementation, package-validator implementation, or first-party Nagi Files implementation.",
+    "Editing samples/hello-nagi, any SDK/package validator path, or docs/porting/multiarch owned by another active task.",
+    "Claiming arbitrary Linux binaries, general POSIX, Qt, GTK, Electron, SDL, or other framework compatibility without separate evidence."
+  ],
+  "allowed_paths": [
+    "tools/nagi-cli/**",
+    "samples/porting/portable-files/**",
+    "docs/porting/app-migration/**",
+    ".dev/workstreams/developer-tooling/**",
+    ".dev/workstreams.json",
+    "docs/0.2/WORKSTREAMS.md"
+  ],
+  "acceptance": [
+    "The report uses static text and manifest inspection only, emits bounded evidence with explicit limitations, and never certifies compatibility.",
+    "Focused host tests cover portable Rust, Rust filesystem/process use, C process/thread use, C++ GUI-framework evidence, unknown dependencies, malformed roots, and stable JSON output.",
+    "The independent Files sample builds on the host, validates with the existing package validator, and demonstrates reuse of license-compatible portable source without changing its first-party owner.",
+    "The bilingual guide explains migration assessment, the public SDK/capability boundary, required adapters, and what remains unverified.",
+    "M30 remains PARTIAL and target install/launch/runtime outcomes remain NOT_RUN."
+  ],
+  "dependencies": [
+    {
+      "workstream_id": "development-foundation",
+      "contract": "Durable workstream state, read-only host tooling, and activation gate",
+      "version": "1",
+      "status": "PASS"
+    },
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Public manifest and host package validation contract",
+      "version": "host contract at main 87b7dea",
+      "status": "PASS for committed host contract; active Hello Nagi work remains separate and is not modified or assumed accepted"
+    }
+  ],
+  "merge_boundary": "Reviewable branch only; no direct merge to main without explicit user direction."
+}

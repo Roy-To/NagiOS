@@ -289,24 +289,39 @@
     },
     {
       "id": "developer-tooling",
-      "owner": "unassigned",
+      "owner": "Codex Integration Owner (user-directed bounded host-only checkpoint)",
       "owner_branch": "codex/0.2-developer-tooling",
-      "recommended_worktree": "../NagiOS-0.2-developer-tooling",
+      "recommended_worktree": "../NagiOS-0.2-porting-readiness",
       "state_file": ".dev/workstreams/developer-tooling/state.json",
-      "dependencies": [],
+      "dependencies": [
+        "development-foundation",
+        "app-sdk-contract"
+      ],
       "allowed_paths": [
         "tools/nagi-cli/**",
-        "tools/nagi-dev/**",
-        "docs/0.2/**"
+        "samples/porting/portable-files/**",
+        "docs/porting/app-migration/**",
+        ".dev/workstreams/developer-tooling/**",
+        ".dev/workstreams.json",
+        "docs/0.2/WORKSTREAMS.md"
       ],
       "forbidden_paths": [
         "kernel/**",
+        "loader/**",
         "user/**",
         "third_party/**",
-        ".github/workflows/**"
+        "out/**",
+        "target/**",
+        ".github/workflows/**",
+        "samples/hello-nagi/**",
+        "sdk/**",
+        "tools/nagi-pkg/**",
+        "tools/nagi-dev/**",
+        "docs/porting/multiarch/**",
+        "apps/nagi-files/**"
       ],
-      "activation_gate": "Nagi 0.1 M30 PASS for product-facing developer tooling; this foundation's read-only resume/diagnostic helpers are available earlier.",
-      "merge_boundary": "0.2 integration branch after host-tool unit tests and clean-checkout verification."
+      "activation_gate": "User-directed host-only source readiness diagnostics, migration documentation, and an isolated existing Files core sample only. No Nagi guest install/launch or 0.2 runtime integration; those remain gated by Nagi 0.1 M30 PASS plus an explicit 0.2 release boundary.",
+      "merge_boundary": "Reviewable codex/0.2-developer-tooling branch only; no direct main merge without explicit user direction."
     },
     {
       "id": "ci-acceptance",

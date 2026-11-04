@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": { "major": 1, "minor": 0 },
+  "id": "org.example.portable-files",
+  "version": "0.1.0",
+  "origin": "third-party",
+  "displayName": { "en-US": "Portable Files Core" },
+  "supportedLocales": ["en-US"],
+  "entrypoint": { "kind": "portable", "target": "bin/portable-files-demo.napp" },
+  "resources": [],
+  "intents": [],
+  "requestedCapabilities": [],
+  "stateCompatibility": { "currentVersion": 1, "minimumReadableVersion": 1 }
+}
