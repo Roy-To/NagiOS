@@ -10570,29 +10570,36 @@ acceptance remain pending; M23 stays PARTIAL and existing release gates remain.
 Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Protected branches at
 `4edf483` and `335074f` remain unchanged. A new local branch
 `codex/m30-m23-boundaries-20261104` applies only the verified six-file delta
-against base87b7dea, not the unrelated newer main changes.
+against base `87b7dea`, not the unrelated newer main changes.
 
 The two transferred base64/gzip/patch layers match every supplied byte count
 and SHA-256. Temporary-index reconstruction matches source tree a437843e and
-full candidate tree518ca726, with all six candidate blob IDs verified. The
-original4ef8534 commit metadata is unavailable and is not claimed verified;
-local reconstruction909c71d has the identical candidate tree and distinct
+full candidate tree `518ca726`, with all six candidate blob IDs verified. The
+original `4ef8534` commit metadata is unavailable and is not claimed verified;
+local reconstruction `909c71d` has the identical candidate tree and distinct
 metadata. Cherry-pick conflicts only at the implementation-status append;
 both sections are preserved. All five remaining transferred blobs are exact.
 The new source retains smaller caller budgets, combined JSON/system input
 admission, 256-or-smaller output, typed ContextLimit and native prefill fencing.
 
-On the integrated M30 source: 33 AI +77 Model Manager +3 live-session-access
+On the integrated M30 source: 33 AI + 77 Model Manager + 3 session-access
 host tests PASS (113 total); 53 native boundary fixture cases PASS; AI host
 warnings-denied Clippy and package formatting PASS; AI no-std Nagi target
 check and production/Granite-acceptance Rust service leaf target Clippy PASS.
 The leaf retains eight existing nagi-posix dependency warnings. These results
-use host/native fixtures, not guest or real-model inference. Full Nagi native
-C++ linking and new guest evidence are separate checks.
+use host/native fixtures, not guest or real-model inference. Release/session
+validator tests also PASS (37); the formal M30 command still returns exit 3.
+
+The integrated source commit `7359ef3` additionally passes real Nagi native
+C++ compilation and libc++/llama provider init linking with offline Cargo.
+The link-only receipt identifies init SHA-256
+`4528fbc484a0cc21a655d5cd182c2adf0653e9c0bff9f79f47c3ba0b28c8be9f`.
+This is not a new image or guest boot result: it requires a matching
+m20-llama-memory kernel, and guest inference remains NOT_EVALUATED.
 
 No model acquisition, public write, push/merge or shared-branch change occurs.
 The live authenticated Browser worker/system-instruction transport is still
 missing; Some(AppId) rejection and untrusted Context sharing boundaries remain.
-The earlier normal-session Files evidence stays bound to source464246c and is
+The earlier normal-session Files evidence stays bound to source `464246c` and is
 not relabeled as new-source inference. Model/DNS/Browser/History/voice/stress/
 distribution blockers remain. See workstreams/m30-session-caller-contract.md.
