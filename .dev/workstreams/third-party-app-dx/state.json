@@ -3,14 +3,23 @@
   "schema_version": 1,
   "workstream_id": "third-party-app-dx",
   "current_milestone": "Host-only out-of-tree third-party app developer experience",
-  "current_checkpoint": "registered-host-only-sample-and-manifest-validation",
-  "status": "IN_PROGRESS",
+  "current_checkpoint": "out-of-tree-host-build-and-third-party-manifest-validation",
+  "status": "PARTIAL",
   "last_verified": {
-    "commit_sha": "87b7dea4061be2572526181ab559d63037f823d0",
-    "verified_at": "2026-11-04T03:01:25Z",
-    "normal_state": "Host-only workstream registration checkpoint verified on current public main. Audit confirms 0.1 M30 remains PARTIAL and 0.2 activation is closed. Existing app-sdk-contract PASS is host-side only and does not establish target runtime PASS. No sample or manifest implementation validation has been run at this checkpoint.",
+    "commit_sha": "f912191645835a05b369fdd584ebe305039786b3",
+    "verified_at": "2026-11-04T03:27:25Z",
+    "normal_state": "Host-only third-party app DX is implemented and locally verified: the copied sample builds out of tree from the pinned public SDK revision, its manifest passes the existing host validator, and the checked-in path-based sample still builds and packages offline. The workstream remains PARTIAL because full M21 acceptance, target runtime, guest installation/launch, and authority enforcement are not complete. 0.1 M30 remains PARTIAL and 0.2 activation remains closed. The existing app-sdk-contract PASS is host-side only and is not target runtime PASS.",
     "commands": [
-      ".\\nagi.ps1 dev verify (process-local rust-lld linker and Windows SDK LIB paths)"
+      ".\\nagi.ps1 dev verify (process-local rust-lld linker and Windows SDK LIB paths)",
+      "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked",
+      "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check",
+      "cargo build --locked (from an out-of-tree copy after installing Cargo.out-of-tree.toml and Cargo.out-of-tree.lock)",
+      "cargo tree --locked --depth 1 (from the out-of-tree sample copy)",
+      "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate <out-of-tree-sample>/manifest.json",
+      "cargo build --manifest-path samples/hello-nagi/Cargo.toml --offline --locked",
+      "cargo run --manifest-path samples/hello-nagi/Cargo.toml --bin hello-nagi-package --offline --locked -- <temp>/hello.napp",
+      "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- build-hello <temp>/hello.napp <temp>/hello.xapp",
+      "git diff --check"
     ],
     "tests": [
       {
@@ -18,14 +27,56 @@
         "command": ".\\nagi.ps1 dev verify",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "PASS: 33 registered workstreams and 26 state files validated; current branch codex/0.2-third-party-app-dx at base 87b7dea4061be2572526181ab559d63037f823d0. The command required process-local rust-lld and Windows SDK LIB configuration because link.exe is absent."
+        "evidence": "PASS after updating this state: registry and state validation succeeded with 33 registered workstreams and 26 state files. The command required process-local rust-lld and Windows SDK LIB configuration because link.exe is absent."
+      },
+      {
+        "name": "nagi-pkg host contract tests",
+        "command": "cargo test --manifest-path tools/nagi-pkg/Cargo.toml --locked",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "8 passed, 0 failed, including the regression test that validates the third-party Hello Nagi manifest through the existing production host validator."
+      },
+      {
+        "name": "Rust formatting check",
+        "command": "cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Formatter check completed without changes."
+      },
+      {
+        "name": "Out-of-tree Rust sample build and SDK source inspection",
+        "command": "cargo build --locked; cargo tree --locked --depth 1 (from copied sample with Cargo.out-of-tree.toml and matching lockfile installed)",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Build succeeded outside the NagiOS checkout. cargo tree showed the direct nagi-sdk dependency from public Roy-To/NagiOS revision 87b7dea4061be2572526181ab559d63037f823d0; no path dependency points back to the source checkout. The temporary verification copy was removed afterward."
+      },
+      {
+        "name": "Third-party app manifest host validation",
+        "command": "cargo run --manifest-path tools/nagi-pkg/Cargo.toml --locked -- manifest validate <out-of-tree-sample>/manifest.json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Existing nagi-pkg CLI accepted the copied manifest and reported AppId=11705920934972441566 sdk=1.0. This validates host metadata only; it does not create or install a target package."
+      },
+      {
+        "name": "Existing offline in-tree Hello Nagi artifact flow",
+        "command": "cargo build --manifest-path samples/hello-nagi/Cargo.toml --offline --locked; cargo run --manifest-path samples/hello-nagi/Cargo.toml --bin hello-nagi-package --offline --locked -- <temp>/hello.napp; cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- build-hello <temp>/hello.napp <temp>/hello.xapp",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "The checked-in path manifest built in offline/locked mode; the sample artifact command and existing nagi-pkg package builder both succeeded. The CI workflow and root manifests were not changed."
+      },
+      {
+        "name": "Patch whitespace validation",
+        "command": "git diff --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "No whitespace errors were reported."
       }
     ],
     "ci_runs": []
   },
   "release_line_gate": {
     "source": "docs/implementation_status.md and docs/Nagi_OS_0.2_Codex_Implementation_Spec.md on public main",
-    "last_checked_at": "2026-11-04T03:00:20Z",
+    "last_checked_at": "2026-11-04T03:27:25Z",
     "activation_requirement": "Host-only sample build and manifest validation are authorized by this workstream. Do not connect to target runtime, install, or launch until Nagi 0.1 M30 is PASS and an explicit 0.2 integration checkpoint opens."
   },
   "blocker": {
@@ -42,7 +93,7 @@
       "Do not change shared root manifests, CI, schemas, or public release-gate records in this workstream."
     ]
   },
-  "next_action": "Add a regression test first, adapt the existing sample to use a pinned public nagi-sdk Git dependency, validate its third-party manifest with the existing host tool, document both languages, then update this state with exact evidence.",
+  "next_action": "Keep this workstream PARTIAL. Before any target integration or guest installation/launch, wait for 0.1 M30 PASS and a newly opened explicit 0.2 integration checkpoint, then resume full M21 acceptance. Preserve the checked-in path manifest and lockfile for offline in-tree CI; use Cargo.out-of-tree.toml and its matching lockfile only in external sample copies.",
   "acceptance_criteria": [
     "The copied standalone Hello Nagi sample builds outside a NagiOS checkout after using the out-of-tree manifest and lockfile, with only a public SDK Git dependency as its direct Nagi dependency; the checked-in path manifest continues to support the existing offline host artifact flow.",
     "The sample manifest declares third-party origin and passes the existing host nagi-pkg manifest validator.",
