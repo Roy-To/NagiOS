@@ -12,9 +12,9 @@
         "current_authority_hashes": "PASS",
         "current_static_inventory": "PASS",
         "ownership_and_live_ref_snapshot": "NOT_RUN",
-        "registry_unregistered_and_record_validation": "PENDING"
+        "registry_unregistered_and_record_validation": "PASS"
       },
-      "reason": "Source0039 fixed-base inventory/authority checks pass. Records validation is pending at this direct-child checkpoint; live ownership/proposal acceptance is not inferred.",
+      "reason": "Fixed source0039/base036 inventory, authority hashes and direct-child R1 records verification pass. Live ownership/proposal acceptance remains pending; current remote-main compatibility is recorded separately.",
       "status": "PENDING"
     },
     "B": {
@@ -125,14 +125,14 @@
     }
   },
   "records_validation": {
-    "outcome": "PENDING",
-    "record_head_sha": null,
-    "record_tree_sha": null,
+    "outcome": "PASS",
+    "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+    "record_tree_sha": "caca5be0a3a8d78e97509e7240c36655b9560da5",
     "source_commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
     "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
-    "exit_code": null,
-    "stdout_path": null,
-    "stdout_sha256": null
+    "exit_code": 0,
+    "stdout_path": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
+    "stdout_sha256": "e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c"
   },
   "target_execution": {
     "cargo_check": "NOT_RUN",
@@ -237,6 +237,30 @@
       "exit_code": 0,
       "stdout_sha256": "462674003db86892f9064c1d0df54e978a4a4ff4a3e84a2807ac4498f5a0c55a",
       "stderr_sha256": "7121f1cbe2f061329789e4223ae8774f83055fd3937d2f87a7abcefc85153dc7"
+    },
+    {
+      "name": "r1-records-verify",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-records-verify.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "r1-records-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-records-fixtures.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "6b59e0142c3f69a299c71a75024d39598068e60faa2eba054799dd5ec5197063"
+    },
+    {
+      "name": "r1-runtime-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-runtime-fixtures.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "ed517e6d91bbaa8fb77f1e72ee2145963a58e7de175a821c4203949de6f8d67c"
     }
   ],
   "historical_index_file_count": 50,

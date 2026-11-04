@@ -3,12 +3,12 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "Source0039 complete ARM64 verifier and fixed-base inventory/host checks pass. Schema/3 records form a direct docs-only child; validation is PENDING before R1 is committed. Phase C awaits independent rebuild/review. Remote main87 compatibility is separate from verified base036.",
+  "current_checkpoint": "Source0039 complete spike verifier passes; direct-child R1 89c01c9ae7ca469dae362943b2537f303a00c01d/tree caca5be0a3a8d78e97509e7240c36655b9560da5 passes records validation. R2 only appends those fixed results. Phase C remains PENDING independent rebuild/review; no execution at R1/R2 is implied.",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
     "verified_at": "2026-11-04T02:18:11.624034+00:00",
-    "normal_state": "Source0039 host 99 contracts / 16 BootInfo / 5 ABI, 71 model-free fixtures, fixed-base inventory and original source-bound QEMU receipt verification pass. Actual QEMU execution belongs to source0039, not this docs-only records head. Phase C remains PENDING; FE52 and all earlier failures are archived unchanged.",
+    "normal_state": "Source0039 host 99 contract tests, 16 BootInfo and 5 ABI pass, and its complete ARM64 spike verifier (target Clippy, 30 model-free fixtures, two fresh builds, real QEMU EL1/EL2, receipt validation) exits0. The 71 model-free audit/records/spike tests include new docs summary validation; the affected 22 records + 11 runtime-summary fixtures were rechecked at fixed R1. Direct R1 records validation passes with exact commit/tree/stdout binding. Actual guest execution remains source0039/base036 only; FE52 and failed attempts remain preserved.",
     "commands": [
       "sh experiments/nagi-multiarch-contracts/verify.sh",
       "71 model-free tests: 8 audit + 22 records + 11 runtime-summary + 30 spike/attestation",
@@ -37,6 +37,13 @@
         "outcome": "NOT_RUN",
         "exit_code": null,
         "evidence": "No physical boot or Nagi production acceptance is claimed."
+      },
+      {
+        "name": "Fixed direct-child R1 records validation",
+        "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c"
       }
     ],
     "ci_runs": []
@@ -54,7 +61,7 @@
       "Read docs/implementation_status.md and os-core registry activation_gate",
       "./nagi dev resume"
     ],
-    "failure_log_summary": "FE52/ae9 failures are preserved unchanged. Source0039 spike verifier exit0 and receipt integrity pass. Inventory-exact on an edited records worktree correctly failed dirty-state validation (exit2); clean-source retry passed. R1 records validation is pending until its commit is fixed and checked.",
+    "failure_log_summary": "Earlier failures and FE52 checkpoint are preserved unchanged. Source0039 spike verifier and R1 records validation pass. The dirty-worktree inventory attempt exited2 and the clean-source retry passed. Independent rebuild/review, physical hardware and production D/E acceptance remain NOT_RUN/BLOCKED.",
     "attempted_fixes": [
       "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
       "Refreshed inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
@@ -70,7 +77,7 @@
       "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
     ]
   },
-  "next_action": "Validate direct records child R1, append exact R1 commit/tree/stdout in R2, publish ordinary fast-forward, and inspect CI at the exact published head against the latest remote main. Independent rebuild/review and production owner checkpoint remain separate.",
+  "next_action": "Publish R2 by ordinary fast-forward after checking remote head/main, then inspect CI for that exact published head. Keep source0039/base036 runtime evidence distinct from later-main87 PR CI. Independent rebuild/review and explicit production owner checkpoint remain separate.",
   "acceptance_criteria": [
     "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
     "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",
