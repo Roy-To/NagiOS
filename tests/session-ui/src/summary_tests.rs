@@ -97,10 +97,12 @@ impl Services for Transport {
         &mut self,
         user: &Session,
         id: u64,
+        current_request: &ContextRequest,
         authority: &dyn ContextAuthority,
         browser: &mut dyn PublicBrowserContextApi,
     ) -> Result<ReplyProgress, SubmitError> {
-        self.0.poll_page_summary(user, id, authority, browser)
+        self.0
+            .poll_page_summary(user, id, current_request, authority, browser)
     }
 }
 fn setup() -> (Controller, Transport, Session, Session, Owner) {
@@ -162,7 +164,13 @@ fn summary_ui_needs_live_context_before_displaying_scripted_worker_reply() {
     ui.tick(Some(&user), &mut service);
     assert_eq!(ui.status(), Status::Waiting);
     assert!(ui.output().is_empty());
-    ui.tick_page_summary(Some(&user), &mut service, &Authority, &mut browser);
+    ui.tick_page_summary(
+        Some(&user),
+        &request(),
+        &mut service,
+        &Authority,
+        &mut browser,
+    );
     assert_eq!(ui.status(), Status::Complete);
     assert_eq!(ui.output(), "scripted close/reopen reply");
 }
@@ -183,7 +191,13 @@ fn sharing_revocation_and_navigation_prevent_summary_display() {
         ));
         browser.denied = denied;
         browser.body = "different page";
-        ui.tick_page_summary(Some(&user), &mut service, &Authority, &mut browser);
+        ui.tick_page_summary(
+            Some(&user),
+            &request(),
+            &mut service,
+            &Authority,
+            &mut browser,
+        );
         assert_eq!(ui.status(), Status::Denied);
         assert!(ui.output().is_empty());
     }
@@ -235,7 +249,13 @@ fn cancelled_completed_summary_is_drained_without_display() {
         &service.0
     ));
     ui.cancel(&mut service);
-    ui.tick_page_summary(Some(&user), &mut service, &Authority, &mut browser);
+    ui.tick_page_summary(
+        Some(&user),
+        &request(),
+        &mut service,
+        &Authority,
+        &mut browser,
+    );
     assert_eq!(ui.status(), Status::Cancelled);
     assert!(ui.output().is_empty());
     assert!(!ui.is_busy());

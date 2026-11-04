@@ -10779,3 +10779,86 @@ same-session guest summary, model/VM execution, native final link, terms
 acknowledgement, public push/merge, release approval or M30 PASS is claimed.
 Private product-decision ledger contents were not read; those decisions remain
 unverified. Existing 0.1 public specifications govern this unactivated seam.
+
+
+## Ordinary Desktop page summary intent and owner lifecycle (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. This new local candidate is isolated on
+`codex/m30-desktop-summary-entry-20261104` in
+`/workspace/NagiOS-m30-desktop-summary`, based on exact parent
+b95f3360bc303270daee0c2c01be89243bfefe29/tree
+43c2a2923226df15b0e0914ca05b9a676260a374. The parent was reported to have no
+new required fixes in independent static review; no independent execution is
+transferred to this new implementation. Earlier branches, source exports,
+Space attachments and runtime evidence remain unchanged.
+
+The normal Nagi Bar now accepts an explicit page-summary mouse button and F5
+while the Bar is open, with both en-US and ja-JP labels/status. The event records
+intent only; it cannot acknowledge terms, read Browser context or become an
+ordinary plaintext inference request. The Desktop service step consumes the
+intent once, checks live Session/readiness and explicit terms, and never retries
+when an owner later appears. Cancel wins over a same-step start. Lock clears
+pending intent before login; lost readiness invalidates the old state. Every
+step cooperates, including a hidden Bar, failed readiness or absent adapter.
+The existing terms keyboard path now has the added Summary control in its Tab
+order; tests retain explicit acceptance and no implicit submit assertions.
+
+The production loop calls the ownerless service step: no normal live Albert
+owner exists here, so page-summary input displays localized Page summary
+unavailable with an empty output. It does not fabricate a caller, grant sharing,
+run a model, or reuse the acceptance-only Albert API. A separate borrowed owner
+step connects the actual Desktop Controller/Adapter to the existing summary
+queue/poll path; synthetic host owners exercise this exact step. Supplying Some
+in production remains contingent on a real reviewed owner/caller/freshness
+contract, not an activation established by these fixtures.
+
+A private Desktop-issued binding ties callbacks to a readiness-confirmed,
+adapter-bound authenticated Session and a checked generation. Lock/readiness
+loss invalidates it even if login reuses the same Session value. A retained
+private allocation identity also distinguishes different Desktop instances with
+identical Session/generation values. Its marker is allocated only after bind,
+preserving const/configuration-only Desktop construction; counter exhaustion
+fails closed. This binding grants no AppId or Browser permission and does not
+establish OS provenance for the freely constructed logical CallerIdentity.
+
+The UI retains the requesting full logical caller; polling now receives the
+owner's current ContextRequest too. Changed actor, selection or candidates
+cancel/discard the old request before another context read. Replaying the old
+request through Context Authority alone no longer counts as current selection.
+Owner loss cancels a summary; without Browser references the ordinary poll may
+drain only its cancellation failure, never successful generated text. A host
+probe injects an otherwise successful queued reply and confirms that the drain
+still returns Cancelled. Existing Session/generation/request fences, explicit
+terms, sharing policy, separate system instructions, quotas, lease/resource
+admission, typed errors and output caps remain in force. No new dependency,
+manifest/lockfile version, external app grant or release assertion is added.
+
+Producer host results PASS, with overlapping suites reported separately:
+worker23, actual service-boundary22, UI60, Desktop73, login26, localization7
+and release/session validator37. Exact Desktop input, login, Shared queue and
+renderer cases cover mouse/F5 in both locales, no owner/no implicit retry,
+terms denial before context reads, pending/completed owner-loss cancellation,
+changed caller/selection, lock/readiness binding revocation, stale binding,
+cross-Desktop identity and checked counter exhaustion. Browser state is
+explicitly synthetic and non-Send; worker completion is scripted test-only data.
+These results do not establish live Albert extraction or real inference.
+Worker/UI host all-target Clippy PASS with warnings denied. Desktop all-target
+Clippy PASS with clippy::all denied; four existing library/two test Rust unused
+warnings remain, so Desktop -D warnings is not claimed. Localization7 compiles
+the exact dependency-free lib.rs with the installed rustc --test (no root
+workspace/vendor materialization). Changed-source formatting and whitespace
+PASS. Exact worker Nagi target Clippy PASS, retaining eight existing dependency
+warnings. Exact UI target Clippy remains BLOCKED before compiling Rust: fixed
+libc0.2.191 is absent from the permitted cache and --offline forbids acquisition.
+No download, version substitution, root registry access or denied-path retry
+was performed.
+
+Still missing: a normal live Albert Context API/owner integration, OS-derived
+logical caller, trusted monotonic navigation/sharing revision and actual guest
+execution. Current-request/snapshot comparison cannot detect page/policy ABA or
+prove atomic freshness across independently mutable owners. Desktop bindings
+solve only the tested owner/Session lifecycle scope, not Browser ABA. No VM,
+model/native inference, operator terms acknowledgement, final production ELF
+link, publication/push/merge, independent review of this new candidate, or
+formal M30 acceptance is claimed. Private product decisions remain unverified;
+no private ledger was read. Public 0.1 specifications govern this partial work.

@@ -312,14 +312,23 @@ impl Shared {
         {
             return Err(SubmitError::InvalidRequestId);
         }
-        // Plaintext polling can never release a summary. Its owner must check
-        // the current public Browser API, Context Authority and logical caller.
+        // Plaintext polling can never release summary text. Its owner must
+        // check current context; only cancelled failures may drain without it.
         let slot = state.active.as_ref().ok_or(SubmitError::InvalidRequestId)?;
         if let Some(snapshot) = slot.summary.as_ref() {
-            if checked.is_none_or(|(generation, prompt)| {
-                generation != self.generation.load(Ordering::Acquire) || prompt != &snapshot.prompt
-            }) {
+            if let Some((generation, prompt)) = checked {
+                if generation != self.generation.load(Ordering::Acquire)
+                    || prompt != &snapshot.prompt
+                {
+                    return Err(SubmitError::Denied);
+                }
+            } else if !slot.cancellation.load(Ordering::Acquire) {
                 return Err(SubmitError::Denied);
+            }
+            // A cancelled summary may drain without a Browser only as a
+            // cancellation failure. Even a broken completion cannot leak text.
+            if checked.is_none() && state.reply.is_some() {
+                state.reply = Some(Err(cancelled()));
             }
         } else if checked.is_some() {
             return Err(SubmitError::Denied);
@@ -561,6 +570,7 @@ impl SessionServices {
         &mut self,
         user: &Session,
         request_id: u64,
+        current_request: &nagi_ai::ContextRequest,
         authority: &(impl nagi_ai::ContextAuthority + ?Sized),
         browser: &mut (impl nagi_ai::PublicBrowserContextApi + ?Sized),
     ) -> Result<ReplyProgress, SubmitError> {
@@ -584,12 +594,16 @@ impl SessionServices {
         // Schedule the worker before checking current owner state, never after
         // a successful recheck and before consuming its reply on this UI step.
         cooperate();
-        let fresh = nagi_ai::prepare_page_summary(request_id, snapshot.request, authority, browser);
-        if fresh.as_ref().is_err()
-            || fresh
+        // Compare the current owner request too: replaying the old selection
+        // through authority cannot establish that the user still selected it.
+        let fresh = (snapshot.request == *current_request).then(|| {
+            nagi_ai::prepare_page_summary(request_id, snapshot.request, authority, browser)
+        });
+        if !fresh.as_ref().is_some_and(|result| {
+            result
                 .as_ref()
-                .is_ok_and(|current| current != &snapshot.prompt)
-        {
+                .is_ok_and(|current| current == &snapshot.prompt)
+        }) {
             let mut state = self.shared.state.lock();
             if !state.allows(user) || self.shared.generation.load(Ordering::Acquire) != generation {
                 return Err(SubmitError::Denied);
@@ -605,8 +619,8 @@ impl SessionServices {
                 cancelled()
             } else {
                 match fresh {
-                    Err(error) => ReplyError::Context(error),
-                    Ok(_) => ReplyError::Denied,
+                    Some(Err(error)) => ReplyError::Context(error),
+                    _ => ReplyError::Denied,
                 }
             }));
         }
@@ -1239,13 +1253,13 @@ mod tests {
             .unwrap();
         assert_eq!(b.poll_reply(&user, 1), Err(SubmitError::Denied));
         assert_eq!(
-            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser),
             Ok(ReplyProgress::Pending)
         );
         step(&mut WorkerMachine::<FixtureBackend>::new(), &b);
         assert_eq!(b.poll_reply(&user, 1), Err(SubmitError::Denied));
         assert!(
-            matches!(b.poll_page_summary(&user, 1, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.request_id == 1 && reply.text == "summary orchestration fixture")
+            matches!(b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.request_id == 1 && reply.text == "summary orchestration fixture")
         );
         assert_eq!(browser.calls, 3);
     }
@@ -1267,7 +1281,7 @@ mod tests {
                 browser.denied = denied;
                 browser.body = "new navigation fixture";
                 assert!(matches!(
-                    b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+                    b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser),
                     Ok(ReplyProgress::Failed(_))
                 ));
                 assert!(old.cancellation.load(Ordering::Acquire));
@@ -1288,7 +1302,26 @@ mod tests {
         b.cancel_request(&user, 1).unwrap();
         browser.denied = true;
         assert_eq!(
-            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser),
+            Ok(ReplyProgress::Failed(cancelled()))
+        );
+    }
+
+    #[test]
+    fn cancelled_summary_plaintext_drain_cannot_release_even_injected_success() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        assert_eq!(b.poll_reply(&user, 1), Err(SubmitError::Denied));
+        b.cancel_request(&user, 1).unwrap();
+        assert_eq!(b.poll_reply(&user, 1), Ok(ReplyProgress::Pending));
+        // Deliberately bypass complete() in this host orchestration probe.
+        b.shared.state.lock().reply = Some(Ok(response(1, "must never escape")));
+        assert_eq!(
+            b.poll_reply(&user, 1),
             Ok(ReplyProgress::Failed(cancelled()))
         );
     }
@@ -1333,16 +1366,16 @@ mod tests {
         b.shared
             .complete(&old, Ok(response(1, "old session fixture")));
         assert_eq!(
-            b.poll_page_summary(&user, 1, &NoObjects, &mut browser),
+            b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser),
             Err(SubmitError::Denied)
         );
         assert_eq!(
-            b.poll_page_summary(&other, 1, &NoObjects, &mut browser),
+            b.poll_page_summary(&other, 1, &summary_context().0, &NoObjects, &mut browser),
             Ok(ReplyProgress::Pending)
         );
         step(&mut WorkerMachine::<FixtureBackend>::new(), &b);
         assert!(
-            matches!(b.poll_page_summary(&other, 1, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.text == "summary orchestration fixture")
+            matches!(b.poll_page_summary(&other, 1, &summary_context().0, &NoObjects, &mut browser), Ok(ReplyProgress::Ready(reply)) if reply.text == "summary orchestration fixture")
         );
     }
     #[test]

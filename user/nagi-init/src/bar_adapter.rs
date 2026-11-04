@@ -97,10 +97,12 @@ impl Services for Adapter {
         &mut self,
         s: &Session,
         id: u64,
+        current_request: &nagi_ai::ContextRequest,
         authority: &dyn nagi_ai::ContextAuthority,
         browser: &mut dyn nagi_ai::PublicBrowserContextApi,
     ) -> Result<Reply, SubmitError> {
-        self.service()?.poll_page_summary(s, id, authority, browser)
+        self.service()?
+            .poll_page_summary(s, id, current_request, authority, browser)
     }
     fn cancel_request(&mut self, s: &Session, id: u64) -> Result<(), SubmitError> {
         self.service()?.cancel_request(s, id)

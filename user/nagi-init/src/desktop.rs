@@ -29,6 +29,37 @@ use nagi_ui::{color, ColorRole, ThemeMode};
 
 pub(super) type UserDataVolume = Vfs<SyscallBlockDevice>;
 
+/// Opaque identity for one adapter-bound Desktop epoch. A retained marker
+/// distinguishes Desktop instances even if their Session/epoch values repeat.
+/// This grants neither an AppId nor Browser sharing permission.
+#[cfg(feature = "m20-model-service")]
+#[derive(Clone, Debug)]
+pub(crate) struct PageSummaryBinding {
+    session: libnagi::security::Session,
+    generation: u64,
+    owner: alloc::sync::Arc<()>,
+}
+#[cfg(feature = "m20-model-service")]
+impl PartialEq for PageSummaryBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.session == other.session
+            && self.generation == other.generation
+            && alloc::sync::Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+#[cfg(feature = "m20-model-service")]
+impl Eq for PageSummaryBinding {}
+/// Borrowed only for one step from a trusted live Browser owner. Production
+/// supplies None; logical caller provenance is still an owner precondition.
+#[cfg(feature = "m20-model-service")]
+pub(crate) struct DesktopPageContext<'a> {
+    pub binding: PageSummaryBinding,
+    pub caller: nagi_ai::CallerIdentity,
+    pub request: nagi_ai::ContextRequest,
+    pub authority: &'a dyn nagi_ai::ContextAuthority,
+    pub browser: &'a mut dyn nagi_ai::PublicBrowserContextApi,
+}
+
 const SYSTEM_LANGUAGE_PATH: &[u8] = b"system-language";
 
 const APP_COUNT: usize = 4;
@@ -257,6 +288,12 @@ pub struct Desktop {
     #[cfg(feature = "m20-model-service")]
     model_services: Option<bar_adapter::Adapter>,
     #[cfg(feature = "m20-model-service")]
+    summary_binding_session: Option<libnagi::security::Session>,
+    #[cfg(feature = "m20-model-service")]
+    summary_binding_generation: u64,
+    #[cfg(feature = "m20-model-service")]
+    summary_binding_owner: Option<alloc::sync::Arc<()>>,
+    #[cfg(feature = "m20-model-service")]
     lock_requested: bool,
 }
 
@@ -279,6 +316,12 @@ impl Desktop {
             model_services_ready: false,
             #[cfg(feature = "m20-model-service")]
             model_services: None,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_session: None,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_generation: 1,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_owner: None,
             #[cfg(feature = "m20-model-service")]
             lock_requested: false,
             pointer_x: POINTER_START_X,
@@ -324,31 +367,143 @@ impl Desktop {
         }
     }
 
-    /// One bounded production Desktop step for model-service orchestration.
-    /// Returns whether the open Bar needs a fresh frame after the status changes.
+    /// Minted only from a readiness-confirmed, adapter-bound Desktop Session.
+    /// This distinguishes owner callbacks even if login reuses a Session value.
+    /// It grants neither a logical AppId nor Browser sharing permission.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn page_summary_binding(&self) -> Option<PageSummaryBinding> {
+        let user = self.session?;
+        let owner = self.summary_binding_owner.as_ref()?;
+        (self.summary_binding_generation != 0
+            && self.model_services_ready
+            && self.model_services.is_some()
+            && self.summary_binding_session == Some(user)
+            && self.bar.controller.is_bound_to(&user))
+        .then(|| PageSummaryBinding {
+            session: user,
+            generation: self.summary_binding_generation,
+            owner: owner.clone(),
+        })
+    }
+    #[cfg(feature = "m20-model-service")]
+    fn refresh_page_summary_binding(&mut self) {
+        let user = self.session.filter(|user| {
+            self.model_services_ready
+                && self.model_services.is_some()
+                && self.bar.controller.is_bound_to(user)
+        });
+        if user.is_some() && self.summary_binding_owner.is_none() {
+            // Desktop::new remains const/configuration-only. Allocate this
+            // private marker only after a live Session has actually bound.
+            self.summary_binding_owner = Some(alloc::sync::Arc::new(()));
+        }
+        if user != self.summary_binding_session {
+            self.summary_binding_session = user;
+            if self.summary_binding_generation != 0 {
+                self.summary_binding_generation =
+                    self.summary_binding_generation.checked_add(1).unwrap_or(0);
+            }
+        }
+    }
+    #[cfg(feature = "m20-model-service")]
+    fn invalidate_page_summary_binding(&mut self) {
+        if self.summary_binding_session.take().is_some() && self.summary_binding_generation != 0 {
+            self.summary_binding_generation =
+                self.summary_binding_generation.checked_add(1).unwrap_or(0);
+        }
+    }
+
+    /// Production currently has no live Albert owner. Explicit summary intent
+    /// is consumed as unavailable; it never becomes plaintext model input.
     #[cfg(feature = "m20-model-service")]
     pub(crate) fn model_service_step(&mut self, yield_now: impl FnOnce()) -> bool {
+        self.model_service_step_with_page_context(None, yield_now)
+    }
+
+    /// One bounded owner step. References never enter the worker; missing or
+    /// mismatched owners cancel active summaries before any reply can display.
+    /// The normal runtime may supply Some only after a real owner/caller and
+    /// navigation/sharing freshness contract is available and reviewed.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn model_service_step_with_page_context(
+        &mut self,
+        context: Option<DesktopPageContext<'_>>,
+        yield_now: impl FnOnce(),
+    ) -> bool {
         let old_status = self.bar.controller.status();
+        let binding = self.page_summary_binding();
+        let cancel = core::mem::take(&mut self.bar.cancel_requested);
+        let summary = core::mem::take(&mut self.bar.summary_requested);
         if let Some(services) = self.model_services.as_mut() {
-            if self.bar.cancel_requested {
-                self.bar.cancel_requested = false;
-                self.bar.controller.cancel(services);
-            }
-            session_ui::idle_step(
-                &mut self.bar.controller,
-                self.session.as_ref(),
-                self.model_services_ready,
-                services,
-                yield_now,
-            );
-            if self.bar.controller.status() == session_ui::Status::Ready
-                && self.bar.controller.terms().is_none()
-            {
-                if let Some((name, reference)) = services.terms() {
-                    self.bar.controller.offer_terms(name, reference);
+            let live = self.session.as_ref();
+            if !self.model_services_ready || live.is_none_or(|user| user.is_locked()) {
+                // This helper clears pending consent and session state on lost
+                // readiness. The single real yield runs at the end of our step.
+                session_ui::idle_step(
+                    &mut self.bar.controller,
+                    live,
+                    self.model_services_ready,
+                    services,
+                    || {},
+                );
+            } else if let Some(user) = live {
+                self.bar.controller.sign_in(user, services);
+                if self.bar.controller.status() == session_ui::Status::Ready
+                    && self.bar.controller.terms().is_none()
+                {
+                    if let Some((name, reference)) = services.terms() {
+                        self.bar.controller.offer_terms(name, reference);
+                    }
+                }
+                if cancel {
+                    self.bar.controller.cancel(services);
+                }
+                let supplied = context.is_some();
+                let context = context.filter(|context| {
+                    binding.as_ref() == Some(&context.binding)
+                        && context.caller == context.request.caller
+                });
+                if summary && !cancel {
+                    if let Some(context) = context {
+                        self.bar.controller.request_page_summary(
+                            user,
+                            context.caller,
+                            context.request,
+                            context.authority,
+                            context.browser,
+                            services,
+                        );
+                    } else {
+                        let error = if supplied {
+                            session_ui::SubmitError::Denied
+                        } else {
+                            session_ui::SubmitError::Context(nagi_ai::PageSummaryError::Context(
+                                nagi_ai::BrowserContextError::ApiUnavailable,
+                            ))
+                        };
+                        self.bar.controller.reject_page_summary(error);
+                    }
+                } else if self.bar.controller.has_page_summary() {
+                    if let Some(context) = context {
+                        self.bar.controller.tick_page_summary(
+                            live,
+                            &context.request,
+                            services,
+                            context.authority,
+                            context.browser,
+                        );
+                    } else {
+                        self.bar.controller.cancel(services);
+                        self.bar.controller.tick(live, services);
+                    }
+                } else {
+                    self.bar.controller.tick(live, services);
                 }
             }
         }
+        self.refresh_page_summary_binding();
+        // Cooperate even without an adapter, with a hidden panel or on denial.
+        yield_now();
         self.bar.open && old_status != self.bar.controller.status()
     }
 
@@ -668,6 +823,7 @@ impl Desktop {
 
     #[cfg(feature = "m20-model-service")]
     fn lock_model_session(&mut self, volume: &mut UserDataVolume) {
+        self.invalidate_page_summary_binding();
         // This runs inside handle_event too, so a nested Files consent loop
         // immediately sees the invalidated session and aborts its old launch.
         if let Some(services) = self.model_services.as_mut() {

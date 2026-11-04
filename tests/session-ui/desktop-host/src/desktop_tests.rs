@@ -701,3 +701,493 @@ fn files_modal_rejects_lost_session_before_service_or_input() {
     );
     assert_eq!(libnagi::modal_counts(), (0, 0, 0));
 }
+
+// Exact Desktop input/session/renderer + Shared queue. Only public Browser data
+// and worker completion are synthetic; these cases do not prove guest inference
+// or manufacture production caller provenance.
+#[cfg(feature = "m20-model-service")]
+struct SummaryBrowserFixture {
+    _owner_thread: std::rc::Rc<()>,
+    calls: usize,
+    denied: bool,
+}
+#[cfg(feature = "m20-model-service")]
+impl nagi_ai::PublicBrowserContextApi for SummaryBrowserFixture {
+    fn current_page_context(
+        &mut self,
+        request: nagi_ai::BrowserContextRequest,
+    ) -> Result<Option<nagi_ai::BrowserPageSnapshot>, nagi_ai::BrowserContextApiError> {
+        self.calls += 1;
+        assert_eq!(request.caller(), summary_actor_fixture());
+        if self.denied {
+            return Err(nagi_ai::BrowserContextApiError::Denied);
+        }
+        Ok(Some(nagi_ai::BrowserPageSnapshot::new(
+            7,
+            None,
+            None,
+            None,
+            Some("untrusted desktop fixture page".into()),
+        )))
+    }
+}
+#[cfg(feature = "m20-model-service")]
+struct SummaryAuthorityFixture;
+#[cfg(feature = "m20-model-service")]
+impl nagi_ai::ContextAuthority for SummaryAuthorityFixture {
+    fn can_read_object(&self, _: nagi_ai::CallerIdentity, _: nagi_model::ObjectId) -> bool {
+        false
+    }
+}
+#[cfg(feature = "m20-model-service")]
+fn summary_actor_fixture() -> nagi_ai::CallerIdentity {
+    nagi_ai::CallerIdentity {
+        app_id: nagi_ai::NAGI_BAR_APP_ID,
+        app_session_id: nagi_model::AppSessionId(8),
+        node_id: nagi_model::NodeId(9),
+        workspace_id: None,
+    }
+}
+#[cfg(feature = "m20-model-service")]
+fn summary_request_fixture() -> nagi_ai::ContextRequest {
+    nagi_ai::ContextRequest {
+        caller: summary_actor_fixture(),
+        selected_object: None,
+        candidate_objects: Vec::new(),
+    }
+}
+#[cfg(feature = "m20-model-service")]
+fn summary_browser_fixture() -> SummaryBrowserFixture {
+    SummaryBrowserFixture {
+        _owner_thread: std::rc::Rc::new(()),
+        calls: 0,
+        denied: false,
+    }
+}
+#[cfg(feature = "m20-model-service")]
+fn summary_owner_step(
+    desktop: &mut Desktop,
+    user: &libnagi::security::Session,
+    request: nagi_ai::ContextRequest,
+    browser: &mut SummaryBrowserFixture,
+) -> bool {
+    let mut yields = 0;
+    let binding = desktop
+        .page_summary_binding()
+        .expect("bound fixture Desktop");
+    assert_eq!(binding.session, *user);
+    let changed = desktop.model_service_step_with_page_context(
+        Some(DesktopPageContext {
+            binding,
+            caller: request.caller,
+            request,
+            authority: &SummaryAuthorityFixture,
+            browser,
+        }),
+        || yields += 1,
+    );
+    assert_eq!(yields, 1);
+    changed
+}
+#[cfg(feature = "m20-model-service")]
+fn summary_desktop_fixture(locale: Locale, consent: bool) -> (Desktop, UserDataVolume, Vec<u32>) {
+    libnagi::set_readiness(true);
+    let (mut desktop, mut volume, surface, _) = existing_account(locale);
+    desktop.model_services = Some(bar_adapter::Adapter::new_host_shared_session(42));
+    unlock(&mut desktop, &mut volume);
+    assert!(desktop.handle_event(key(61), &mut volume)); // Ordinary F3 Bar input.
+    desktop.model_service_step(|| {});
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::TermsOffered
+    );
+    if consent {
+        // Explicit synthetic user click on the existing terms control; never
+        // an acknowledgement for an operator or real model artifact.
+        desktop.pointer_x = 29;
+        desktop.pointer_y = 155;
+        assert!(desktop.handle_event(key(libnagi::INPUT_KEY_LEFT), &mut volume));
+        desktop.model_service_step(|| {});
+        assert_eq!(
+            desktop.bar.controller.status(),
+            session_ui::Status::TermsAccepted
+        );
+    }
+    (desktop, volume, surface)
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_input_without_live_owner_is_localized_unavailable_and_never_retries() {
+    for locale in [Locale::EnUs, Locale::JaJp] {
+        for mouse in [false, true] {
+            let (mut desktop, mut volume, mut surface) = summary_desktop_fixture(locale, false);
+            assert!(desktop.bar.controller.set_input("ordinary text stays text"));
+            desktop.render(&mut surface);
+            let before = frame_hash(&surface);
+            if mouse {
+                desktop.pointer_x = bar_panel::SUMMARY.x + 2;
+                desktop.pointer_y = bar_panel::SUMMARY.y + 2;
+                assert!(desktop.handle_event(key(libnagi::INPUT_KEY_LEFT), &mut volume));
+            } else {
+                assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+            }
+            assert!(desktop.bar.summary_requested);
+            assert!(desktop.model_service_step(|| {}));
+            assert!(!desktop.bar.summary_requested);
+            assert_eq!(
+                desktop.bar.controller.status(),
+                session_ui::Status::PageSummaryUnavailable
+            );
+            assert_eq!(desktop.bar.controller.input(), "ordinary text stays text");
+            assert!(desktop.bar.controller.output().is_empty());
+            assert!(!desktop.bar.controller.terms().unwrap().acknowledged());
+            let state = desktop
+                .model_services
+                .as_ref()
+                .unwrap()
+                .host_shared_snapshot()
+                .unwrap();
+            assert!(!state.terms_confirmed);
+            assert!(!state.queued);
+            assert_eq!(state.last_request_id, 0);
+            desktop.render(&mut surface);
+            assert_ne!(frame_hash(&surface), before);
+            let user = desktop.session.unwrap();
+            let mut browser = summary_browser_fixture();
+            summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+            assert_eq!(browser.calls, 0); // Owner arrival does not replay intent.
+            assert!(
+                !desktop
+                    .model_services
+                    .as_ref()
+                    .unwrap()
+                    .host_shared_snapshot()
+                    .unwrap()
+                    .queued
+            );
+        }
+    }
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_desktop_input_requires_explicit_terms_before_any_context_read() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, false);
+    let user = desktop.session.unwrap();
+    let mut browser = summary_browser_fixture();
+    assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::TermsRequired
+    );
+    assert_eq!(browser.calls, 0);
+    assert!(
+        !desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap()
+            .terms_confirmed
+    );
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_desktop_owner_step_queues_polls_and_renders_only_current_scripted_reply() {
+    let (mut desktop, mut volume, mut surface) = summary_desktop_fixture(Locale::EnUs, true);
+    let user = desktop.session.unwrap();
+    let mut browser = summary_browser_fixture();
+    assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(desktop.bar.controller.status(), session_ui::Status::Waiting);
+    assert_eq!(browser.calls, 1);
+    let state = desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap();
+    assert!(state.queued);
+    assert_eq!(state.active_request_id, Some(1));
+    assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+    assert!(!desktop.bar.summary_requested); // Busy input cannot queue a retry.
+    desktop.render(&mut surface);
+    let waiting = frame_hash(&surface);
+    assert!(desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_test_complete_request());
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::Complete
+    );
+    assert_eq!(
+        desktop.bar.controller.output(),
+        "scripted close/reopen reply"
+    );
+    assert_eq!(browser.calls, 2);
+    desktop.render(&mut surface);
+    assert_ne!(frame_hash(&surface), waiting);
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_owner_loss_drains_only_cancelled_failure_without_browser() {
+    for complete in [false, true] {
+        let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+        let user = desktop.session.unwrap();
+        let mut browser = summary_browser_fixture();
+        desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+        summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+        if complete {
+            assert!(desktop
+                .model_services
+                .as_ref()
+                .unwrap()
+                .host_test_complete_request());
+        }
+        desktop.model_service_step(|| {}); // Real ordinary runtime has no owner.
+        assert!(desktop.bar.controller.output().is_empty());
+        if !complete {
+            assert_eq!(
+                desktop.bar.controller.status(),
+                session_ui::Status::Cancelling
+            );
+            assert!(desktop
+                .model_services
+                .as_ref()
+                .unwrap()
+                .host_test_complete_request());
+            desktop.model_service_step(|| {});
+        }
+        assert_eq!(
+            desktop.bar.controller.status(),
+            session_ui::Status::Cancelled
+        );
+        assert!(!desktop.bar.controller.is_busy());
+        assert_eq!(browser.calls, 1);
+        assert!(desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap()
+            .active_request_id
+            .is_none());
+    }
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn changed_summary_actor_or_selection_discards_completed_reply_before_context_read() {
+    for actor_changed in [false, true] {
+        let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+        let user = desktop.session.unwrap();
+        let mut browser = summary_browser_fixture();
+        desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+        summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+        assert!(desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_test_complete_request());
+        let mut changed = summary_request_fixture();
+        if actor_changed {
+            changed.caller.node_id = nagi_model::NodeId(88);
+        } else {
+            changed.candidate_objects.push(nagi_model::ObjectId(99));
+        }
+        summary_owner_step(&mut desktop, &user, changed, &mut browser);
+        assert!(desktop.bar.controller.output().is_empty());
+        assert_eq!(browser.calls, 1);
+        assert_eq!(
+            desktop.bar.controller.status(),
+            if actor_changed {
+                session_ui::Status::Cancelled
+            } else {
+                session_ui::Status::Denied
+            }
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn locked_summary_intent_is_erased_before_reauthentication() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+    assert!(desktop.bar.summary_requested);
+    desktop.handle_event(key(62), &mut volume); // Ordinary F4 lock input.
+    assert!(!desktop.bar.summary_requested);
+    assert!(desktop.session.is_none());
+    unlock(&mut desktop, &mut volume);
+    desktop.handle_event(key(61), &mut volume);
+    desktop.model_service_step(|| {});
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::TermsOffered
+    );
+    let state = desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap();
+    assert!(!state.queued);
+    assert!(!state.terms_confirmed);
+    assert!(state.active_request_id.is_none());
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_cancel_input_wins_over_same_step_start_and_never_reads_context() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    let user = desktop.session.unwrap();
+    let mut browser = summary_browser_fixture();
+    desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+    desktop.pointer_x = 110;
+    desktop.pointer_y = 70; // Ordinary Cancel button.
+    desktop.handle_event(key(libnagi::INPUT_KEY_LEFT), &mut volume);
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(browser.calls, 0);
+    assert!(!desktop.bar.summary_requested);
+    assert!(
+        !desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap()
+            .queued
+    );
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn desktop_step_cooperates_even_without_a_model_adapter() {
+    let mut desktop = Desktop::new(Locale::EnUs);
+    let mut yields = 0;
+    assert!(desktop.model_services.is_none());
+    desktop.model_service_step(|| yields += 1);
+    assert_eq!(yields, 1);
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_binding_from_before_lock_cannot_start_after_reauthentication() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    let old_binding = desktop.page_summary_binding().unwrap();
+    desktop.handle_event(key(62), &mut volume);
+    assert!(desktop.page_summary_binding().is_none());
+    unlock(&mut desktop, &mut volume);
+    desktop.handle_event(key(61), &mut volume);
+    desktop.model_service_step(|| {});
+    let current = desktop.page_summary_binding().unwrap();
+    assert_ne!(old_binding, current); // independent of possible Session-value reuse
+    desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+    let mut browser = summary_browser_fixture();
+    desktop.model_service_step_with_page_context(
+        Some(DesktopPageContext {
+            binding: old_binding,
+            caller: summary_actor_fixture(),
+            request: summary_request_fixture(),
+            authority: &SummaryAuthorityFixture,
+            browser: &mut browser,
+        }),
+        || {},
+    );
+    assert_eq!(desktop.bar.controller.status(), session_ui::Status::Denied);
+    assert_eq!(browser.calls, 0);
+    assert!(
+        !desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap()
+            .queued
+    );
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn failed_readiness_consumes_summary_intent_and_revokes_owner_binding() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    let old_binding = desktop.page_summary_binding().unwrap();
+    desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+    desktop.model_services_ready = false; // existing host readiness seam, no guest claim
+    let mut browser = summary_browser_fixture();
+    desktop.model_service_step_with_page_context(
+        Some(DesktopPageContext {
+            binding: old_binding.clone(),
+            caller: summary_actor_fixture(),
+            request: summary_request_fixture(),
+            authority: &SummaryAuthorityFixture,
+            browser: &mut browser,
+        }),
+        || {},
+    );
+    assert_eq!(browser.calls, 0);
+    assert!(!desktop.bar.summary_requested);
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::Unavailable
+    );
+    assert!(desktop.page_summary_binding().is_none());
+    desktop.model_services_ready = true;
+    desktop.model_service_step(|| {});
+    assert_ne!(desktop.page_summary_binding().unwrap(), old_binding);
+    let state = desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap();
+    assert!(!state.terms_confirmed);
+    assert!(!state.queued);
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn owner_binding_counter_exhaustion_fails_closed_across_lock_and_rebind() {
+    let (mut desktop, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    desktop.summary_binding_generation = u64::MAX;
+    assert!(desktop.page_summary_binding().is_some());
+    desktop.handle_event(key(62), &mut volume);
+    assert_eq!(desktop.summary_binding_generation, 0);
+    unlock(&mut desktop, &mut volume);
+    desktop.model_service_step(|| {});
+    assert_eq!(desktop.summary_binding_generation, 0);
+    assert!(desktop.page_summary_binding().is_none());
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn binding_from_another_desktop_instance_cannot_authorize_context_even_if_values_repeat() {
+    let (first, _, _) = summary_desktop_fixture(Locale::EnUs, true);
+    let first_binding = first.page_summary_binding().unwrap();
+    let (mut second, mut volume, _) = summary_desktop_fixture(Locale::EnUs, true);
+    let second_binding = second.page_summary_binding().unwrap();
+    assert_eq!(first_binding.session, second_binding.session); // deterministic host login fixture
+    assert_eq!(first_binding.generation, second_binding.generation);
+    assert_ne!(first_binding, second_binding); // private allocation identity still differs
+    second.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume);
+    let mut browser = summary_browser_fixture();
+    second.model_service_step_with_page_context(
+        Some(DesktopPageContext {
+            binding: first_binding,
+            caller: summary_actor_fixture(),
+            request: summary_request_fixture(),
+            authority: &SummaryAuthorityFixture,
+            browser: &mut browser,
+        }),
+        || {},
+    );
+    assert_eq!(second.bar.controller.status(), session_ui::Status::Denied);
+    assert_eq!(browser.calls, 0);
+}
