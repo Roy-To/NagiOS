@@ -44,7 +44,7 @@
   },
   "next_action": "Add a regression test first, adapt the existing sample to use a pinned public nagi-sdk Git dependency, validate its third-party manifest with the existing host tool, document both languages, then update this state with exact evidence.",
   "acceptance_criteria": [
-    "The existing standalone Hello Nagi sample builds outside a NagiOS checkout using only a public SDK Git dependency as its direct Nagi dependency.",
+    "The copied standalone Hello Nagi sample builds outside a NagiOS checkout after using the out-of-tree manifest and lockfile, with only a public SDK Git dependency as its direct Nagi dependency; the checked-in path manifest continues to support the existing offline host artifact flow.",
     "The sample manifest declares third-party origin and passes the existing host nagi-pkg manifest validator.",
     "A focused regression test covers acceptance of the third-party sample manifest.",
     "English and Japanese quick-start instructions show out-of-tree build, dependency source verification, and manifest validation.",

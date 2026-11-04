@@ -39,10 +39,12 @@ presentation IDs; they do not make an IPC call or grant authority.
 ## Third-party out-of-tree quick start
 
 For a third-party Rust app built outside a NagiOS checkout, follow the bilingual
-[Third-Party Rust App Quick Start](rust/docs/THIRD_PARTY_QUICKSTART.md). It uses
-the public `nagi-sdk` Git dependency and the existing host-side command
-`nagi-pkg manifest validate`. Manifest validation does not install or launch
-an app; the 0.1 M30 and 0.2 runtime gates remain closed.
+[Third-Party Rust App Quick Start](rust/docs/THIRD_PARTY_QUICKSTART.md). Its
+out-of-tree Cargo manifest pins the public `nagi-sdk` Git dependency; the
+checked-in path manifest remains available for the existing offline artifact
+flow. The guide uses the host-side `nagi-pkg manifest validate` command, which
+does not install or launch an app. The 0.1 M30 and 0.2 runtime gates remain
+closed.
 
 ## Existing host artifact flow and package tests
 
