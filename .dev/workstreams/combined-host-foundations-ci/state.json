@@ -1,0 +1,138 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "combined-host-foundations-ci",
+  "current_milestone": "Combined Linux/Windows standalone host-foundations verification",
+  "current_checkpoint": "Combined current-main Linux host gates PASS; exact-head Linux/Windows CI pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "edd5824fc0fcbe3cfa9cc87491d5cccf08524fe9",
+    "verified_at": "2026-10-09T12:23:41.721959+00:00",
+    "normal_state": "Current main includes PR49 and PR47. All sixteen immutable inputs match their source heads; the independently reconstructed combined source tree is 16f148ffab6ea42a9bbc857c660f2242442a916a. Difference from prior combined tree is exactly PR47 five paths. Source-owner states remain unchanged imported snapshots.",
+    "commands": [
+      "python - <<'PY'\nimport fnmatch, json, os, subprocess\nbranch = os.environ['HOST_STREAM_BRANCH']\nregistry = json.load(open('.dev/workstreams.json', encoding='utf-8'))\nrow = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)\nif row is None:\n    raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')\nif row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption', 'sheets-bounded-updates', 'combined-host-foundations-ci']:\n    # Audit the adoption delta against its current release-line base;\n    # unrelated already-main changes are not this checkpoint's edits.\n    baseline = subprocess.check_output(\n        ['git', 'merge-base', 'origin/main', 'HEAD'], text=True).strip()\nelse:\n    baseline = ('80ea6246dd394deb5158c44aa7f0012d76a9c409'\n                if row['id'] == 'provenance-sbom-integration'\n                else 'cd871f905bd06ef406ccaa9f80c484f19158209f')\nchanged = subprocess.check_output(['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines()\nprotected = ['kernel/**', 'loader/**', 'user/**', 'third_party/**', 'tests/acceptance/**',\n             'Cargo.toml', 'Cargo.lock', 'docs/implementation_status.md']\nregistration_paths = set()\nif row['id'] == 'sheets-bounded-updates':\n    # The CI/registry owner registers this branch here. Workbook source\n    # ownership stays narrow; these two exact shared paths are separate.\n    registration_paths = {'.dev/workstreams.json',\n                          '.github/workflows/0.2-host-integration.yml'}\n    expected_source_paths = ['crates/nagi-sheets-core/src/workbook.rs',\n                             '.dev/workstreams/sheets-bounded-updates/**']\n    if row['allowed_paths'] != expected_source_paths:\n        raise SystemExit('Sheets source ownership must remain workbook-only')\n    prior_registry = json.loads(subprocess.check_output(\n        ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))\n    source_registry = dict(registry)\n    source_registry['workstreams'] = [w for w in registry['workstreams']\n                                     if w['id'] != row['id']]\n    if source_registry != prior_registry and registry != prior_registry:\n        raise SystemExit('Sheets registration must preserve all existing registry rows')\nelif row['id'] == 'combined-host-foundations-ci':\n    registration_paths = {'.dev/workstreams.json',\n                          '.github/workflows/0.2-host-integration.yml'}\n    immutable_sources = {\n        '.dev/workstreams/sheets-bounded-updates/state.json':\n            ('f8e54a03591467407f3104f463a2532c432272d4', '1cda3a114d76e91a906d342ef16b5ccc41a0b8c1'),\n        'crates/nagi-sheets-core/src/workbook.rs':\n            ('f8e54a03591467407f3104f463a2532c432272d4', 'f1435a44e1d62243cdc60ba0042fa76e3aeed730'),\n        '.dev/workstreams/hark-sheets-functions/README.md':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '53286eaff290076524c27d40b1803509bea61d45'),\n        '.dev/workstreams/hark-sheets-functions/evidence.json':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '398354a5dc9de588ba7abbee034e8edf57f70628'),\n        'crates/nagi-sheets-core/src/engine.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '68f74c3e08062b768fc4d20c02315f39fa22fd27'),\n        'crates/nagi-sheets-core/src/parser.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'dd44a2aee40d3f98ba4fbef546402093bd6e8030'),\n        'tests/sheets-core/acceptance.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'aaa9ac33f7bf6c13d6035abbff98702c10bea6b0'),\n        'tests/sheets-core/ifs_round.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '59cc12dac636258bb654d35fdd5ee12e36abd032'),\n        '.dev/workstreams/hark-writer-list-numbering/README.md':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '95cda0538d85d257052d59433850fbfae5485e7b'),\n        '.dev/workstreams/hark-writer-list-numbering/new-tests-on-unfixed-code.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4ae8f917210dc41f48dd93ebf2675b1f01a9f211'),\n        '.dev/workstreams/hark-writer-list-numbering/repro-before-fix.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'f2dbc593d04ae6cf27c8007c2d2308b9f01b70f6'),\n        '.dev/workstreams/hark-writer-list-numbering/verify-after-fix.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'da23edca3e4944c6ed3d00beaf8d6cdd3e60c8e9'),\n        'crates/nagi-writer-core/src/formats.rs':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '8699f291117d32962b29d465d4f36905c3f19502'),\n        'tests/writer-core/acceptance.rs':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4019dc2cd9f186a8b3cee10eddbafa17669b0b18'),\n        '.dev/workstreams/hark-calendar-availability-boundary/HANDOFF.md':\n            ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', 'd997a793d6fdaab4885a8eacded9e1f0821869ca'),\n        'crates/nagi-calendar-core/src/availability.rs':\n            ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', '1e03d6ef8e48ffe4ffd3cd0b8baeb0055b04b7a4'),\n    }\n    expected_paths = list(immutable_sources) + ['.dev/workstreams/combined-host-foundations-ci/**']\n    if row['allowed_paths'] != expected_paths:\n        raise SystemExit('Combined CI ownership must remain fixed-source imports only')\n    import hashlib\n    row_hash = hashlib.sha256(json.dumps(row, sort_keys=True,\n        separators=(',', ':')).encode()).hexdigest()\n    if row_hash != '0eb96b7534eb0b8f2fe61c44354be2110011eac3d58b11c03fbfbb393049876f':\n        raise SystemExit('Combined CI registration contract changed')\n    for path, (source_head, expected_blob) in immutable_sources.items():\n        entry = subprocess.check_output(['git', 'ls-tree', 'HEAD', '--', path], text=True).strip()\n        fields = entry.split(None, 3)\n        if len(fields) != 4 or fields[:3] != ['100644', 'blob', expected_blob]:\n            raise SystemExit('Immutable source import changed: ' + path)\n    prior_registry = json.loads(subprocess.check_output(\n        ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))\n    prior_ids = {w['id'] for w in prior_registry['workstreams']}\n    retained = dict(registry)\n    retained['workstreams'] = [w for w in registry['workstreams']\n                               if w['id'] in prior_ids]\n    added = [w for w in registry['workstreams'] if w['id'] not in prior_ids]\n    if retained != prior_registry or any(w['id'] not in\n            ['sheets-bounded-updates', 'combined-host-foundations-ci'] for w in added):\n        raise SystemExit('Combined registration must preserve all existing registry rows')\n    import hashlib\n    sheets_row = next(w for w in registry['workstreams'] if w['id'] == 'sheets-bounded-updates')\n    sheets_hash = hashlib.sha256(json.dumps(sheets_row, sort_keys=True,\n        separators=(',', ':')).encode()).hexdigest()\n    if sheets_hash != '588b9f6777fd9e03ca69e96fa7d21d7a1efcc69f6f130fe1d14732d9a42f3828':\n        raise SystemExit('Imported Sheets source ownership changed')\ninvalid = [p for p in changed if p not in registration_paths\n           if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])\n           or not any(fnmatch.fnmatchcase(p, g) for g in row['allowed_paths'])]\nif invalid:\n    raise SystemExit('Host ownership boundary violation: ' + ', '.join(invalid))\nprint('PASS registered host boundary: ' + row['id'])\nPY",
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check\ncargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check\ncargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings\ncargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+      "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::\ncargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests\ncargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli\n./nagi dev verify",
+      "for core in calendar writer sheets; do\n  manifest=\"crates/nagi-${core}-core/Cargo.toml\"\n  if test -f \"$manifest\"; then\n    if test \"$core\" = calendar; then\n      cargo fmt --manifest-path \"$manifest\" --package nagi-calendar-core -- --check\n    else\n      cargo fmt --manifest-path \"$manifest\" -- --check\n    fi\n    cargo clippy --manifest-path \"$manifest\" --all-targets --locked -- -D warnings\n    cargo test --manifest-path \"$manifest\" --locked --offline\n  else\n    echo \"NOT STARTED: ${core} core has no owner implementation in this checkout\"\n  fi\ndone",
+      "python3 private/test-boundary.py",
+      "git diff --check"
+    ],
+    "tests": [
+      {
+        "name": "Exact source reconstruction",
+        "command": "git merge-tree --write-tree and immutable blob comparison",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "PR49 is already an ancestor of current main; Hark three source heads merged without conflicts; all sixteen inputs match, and the prior combined tree differs only by exact PR47 blobs."
+      },
+      {
+        "name": "Enforce the registered host-only path boundary",
+        "command": "python - <<'PY'\nimport fnmatch, json, os, subprocess\nbranch = os.environ['HOST_STREAM_BRANCH']\nregistry = json.load(open('.dev/workstreams.json', encoding='utf-8'))\nrow = next((w for w in registry['workstreams'] if w['owner_branch'] == branch), None)\nif row is None:\n    raise SystemExit('Unregistered branch: host checkpoint must be explicitly registered')\nif row['id'] in ['host-foundations-adoption', 'calendar-core-adoption', 'writer-sheets-core-adoption', 'sheets-bounded-updates', 'combined-host-foundations-ci']:\n    # Audit the adoption delta against its current release-line base;\n    # unrelated already-main changes are not this checkpoint's edits.\n    baseline = subprocess.check_output(\n        ['git', 'merge-base', 'origin/main', 'HEAD'], text=True).strip()\nelse:\n    baseline = ('80ea6246dd394deb5158c44aa7f0012d76a9c409'\n                if row['id'] == 'provenance-sbom-integration'\n                else 'cd871f905bd06ef406ccaa9f80c484f19158209f')\nchanged = subprocess.check_output(['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines()\nprotected = ['kernel/**', 'loader/**', 'user/**', 'third_party/**', 'tests/acceptance/**',\n             'Cargo.toml', 'Cargo.lock', 'docs/implementation_status.md']\nregistration_paths = set()\nif row['id'] == 'sheets-bounded-updates':\n    # The CI/registry owner registers this branch here. Workbook source\n    # ownership stays narrow; these two exact shared paths are separate.\n    registration_paths = {'.dev/workstreams.json',\n                          '.github/workflows/0.2-host-integration.yml'}\n    expected_source_paths = ['crates/nagi-sheets-core/src/workbook.rs',\n                             '.dev/workstreams/sheets-bounded-updates/**']\n    if row['allowed_paths'] != expected_source_paths:\n        raise SystemExit('Sheets source ownership must remain workbook-only')\n    prior_registry = json.loads(subprocess.check_output(\n        ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))\n    source_registry = dict(registry)\n    source_registry['workstreams'] = [w for w in registry['workstreams']\n                                     if w['id'] != row['id']]\n    if source_registry != prior_registry and registry != prior_registry:\n        raise SystemExit('Sheets registration must preserve all existing registry rows')\nelif row['id'] == 'combined-host-foundations-ci':\n    registration_paths = {'.dev/workstreams.json',\n                          '.github/workflows/0.2-host-integration.yml'}\n    immutable_sources = {\n        '.dev/workstreams/sheets-bounded-updates/state.json':\n            ('f8e54a03591467407f3104f463a2532c432272d4', '1cda3a114d76e91a906d342ef16b5ccc41a0b8c1'),\n        'crates/nagi-sheets-core/src/workbook.rs':\n            ('f8e54a03591467407f3104f463a2532c432272d4', 'f1435a44e1d62243cdc60ba0042fa76e3aeed730'),\n        '.dev/workstreams/hark-sheets-functions/README.md':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '53286eaff290076524c27d40b1803509bea61d45'),\n        '.dev/workstreams/hark-sheets-functions/evidence.json':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '398354a5dc9de588ba7abbee034e8edf57f70628'),\n        'crates/nagi-sheets-core/src/engine.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '68f74c3e08062b768fc4d20c02315f39fa22fd27'),\n        'crates/nagi-sheets-core/src/parser.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'dd44a2aee40d3f98ba4fbef546402093bd6e8030'),\n        'tests/sheets-core/acceptance.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', 'aaa9ac33f7bf6c13d6035abbff98702c10bea6b0'),\n        'tests/sheets-core/ifs_round.rs':\n            ('eee74ef27f228fe8bb0e87c6580aff4d6b79c434', '59cc12dac636258bb654d35fdd5ee12e36abd032'),\n        '.dev/workstreams/hark-writer-list-numbering/README.md':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '95cda0538d85d257052d59433850fbfae5485e7b'),\n        '.dev/workstreams/hark-writer-list-numbering/new-tests-on-unfixed-code.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4ae8f917210dc41f48dd93ebf2675b1f01a9f211'),\n        '.dev/workstreams/hark-writer-list-numbering/repro-before-fix.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'f2dbc593d04ae6cf27c8007c2d2308b9f01b70f6'),\n        '.dev/workstreams/hark-writer-list-numbering/verify-after-fix.txt':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', 'da23edca3e4944c6ed3d00beaf8d6cdd3e60c8e9'),\n        'crates/nagi-writer-core/src/formats.rs':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '8699f291117d32962b29d465d4f36905c3f19502'),\n        'tests/writer-core/acceptance.rs':\n            ('dd9e125dda6357e4eefadb71d690cd33b839440b', '4019dc2cd9f186a8b3cee10eddbafa17669b0b18'),\n        '.dev/workstreams/hark-calendar-availability-boundary/HANDOFF.md':\n            ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', 'd997a793d6fdaab4885a8eacded9e1f0821869ca'),\n        'crates/nagi-calendar-core/src/availability.rs':\n            ('885459dfcf9967c0306c27eaebbf1c2196e89f8a', '1e03d6ef8e48ffe4ffd3cd0b8baeb0055b04b7a4'),\n    }\n    expected_paths = list(immutable_sources) + ['.dev/workstreams/combined-host-foundations-ci/**']\n    if row['allowed_paths'] != expected_paths:\n        raise SystemExit('Combined CI ownership must remain fixed-source imports only')\n    import hashlib\n    row_hash = hashlib.sha256(json.dumps(row, sort_keys=True,\n        separators=(',', ':')).encode()).hexdigest()\n    if row_hash != '0eb96b7534eb0b8f2fe61c44354be2110011eac3d58b11c03fbfbb393049876f':\n        raise SystemExit('Combined CI registration contract changed')\n    for path, (source_head, expected_blob) in immutable_sources.items():\n        entry = subprocess.check_output(['git', 'ls-tree', 'HEAD', '--', path], text=True).strip()\n        fields = entry.split(None, 3)\n        if len(fields) != 4 or fields[:3] != ['100644', 'blob', expected_blob]:\n            raise SystemExit('Immutable source import changed: ' + path)\n    prior_registry = json.loads(subprocess.check_output(\n        ['git', 'show', baseline + ':.dev/workstreams.json'], text=True))\n    prior_ids = {w['id'] for w in prior_registry['workstreams']}\n    retained = dict(registry)\n    retained['workstreams'] = [w for w in registry['workstreams']\n                               if w['id'] in prior_ids]\n    added = [w for w in registry['workstreams'] if w['id'] not in prior_ids]\n    if retained != prior_registry or any(w['id'] not in\n            ['sheets-bounded-updates', 'combined-host-foundations-ci'] for w in added):\n        raise SystemExit('Combined registration must preserve all existing registry rows')\n    import hashlib\n    sheets_row = next(w for w in registry['workstreams'] if w['id'] == 'sheets-bounded-updates')\n    sheets_hash = hashlib.sha256(json.dumps(sheets_row, sort_keys=True,\n        separators=(',', ':')).encode()).hexdigest()\n    if sheets_hash != '588b9f6777fd9e03ca69e96fa7d21d7a1efcc69f6f130fe1d14732d9a42f3828':\n        raise SystemExit('Imported Sheets source ownership changed')\ninvalid = [p for p in changed if p not in registration_paths\n           if any(fnmatch.fnmatchcase(p, g) for g in protected + row['forbidden_paths'])\n           or not any(fnmatch.fnmatchcase(p, g) for g in row['allowed_paths'])]\nif invalid:\n    raise SystemExit('Host ownership boundary violation: ' + ', '.join(invalid))\nprint('PASS registered host boundary: ' + row['id'])\nPY",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Completed Linux local gate with original workflow commands; full log retained in private validation archive."
+      },
+      {
+        "name": "Host CLI format and warnings-denied lint",
+        "command": "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check\ncargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Completed Linux local gate with original workflow commands; full log retained in private validation archive."
+      },
+      {
+        "name": "Standalone Legal host tests",
+        "command": "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check\ncargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings\ncargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Completed Linux local gate with original workflow commands; full log retained in private validation archive."
+      },
+      {
+        "name": "Registry, fingerprint, command and legacy CLI compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::\ncargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests\ncargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli\n./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Completed Linux local gate with original workflow commands; full log retained in private validation archive."
+      },
+      {
+        "name": "Owned app host tests when an owner implementation exists",
+        "command": "for core in calendar writer sheets; do\n  manifest=\"crates/nagi-${core}-core/Cargo.toml\"\n  if test -f \"$manifest\"; then\n    if test \"$core\" = calendar; then\n      cargo fmt --manifest-path \"$manifest\" --package nagi-calendar-core -- --check\n    else\n      cargo fmt --manifest-path \"$manifest\" -- --check\n    fi\n    cargo clippy --manifest-path \"$manifest\" --all-targets --locked -- -D warnings\n    cargo test --manifest-path \"$manifest\" --locked --offline\n  else\n    echo \"NOT STARTED: ${core} core has no owner implementation in this checkout\"\n  fi\ndone",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Calendar 13 unit + 60 acceptance; Writer 39 acceptance; Sheets 5 inline + 29 acceptance; all scoped fmt and warnings-denied Clippy."
+      },
+      {
+        "name": "Ownership audit negative regression cases",
+        "command": "python3 private/test-boundary.py",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Ten test methods exercise three intended registry states and 48 negative source/path/registry/gate cases; original host step bodies and matrix remain identical."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md and docs/0.2/DEVELOPMENT_ARCHITECTURE.md",
+    "last_checked_at": "2026-10-09T12:13:07.856972+00:00",
+    "activation_requirement": "Standalone host-only source combination and shared CI registration. Runtime, providers, guest, UI and formal product acceptance remain gated separately."
+  },
+  "blocker": {
+    "active": true,
+    "class": "CI_INFRA",
+    "summary": "New combined tree requires exact-head Linux/Windows host-foundations evidence.",
+    "reproduction_commands": [
+      "Inspect this dedicated draft candidate head and host-foundations runs"
+    ],
+    "failure_log_summary": "Source-owner branch filters do not independently run all changed standalone app suites. The new combined registration is not yet verified in CI.",
+    "attempted_fixes": [
+      "Registered only the new dedicated combined branch and preserved all existing host test steps.",
+      "Pinned all source imports and preserved existing registry rows and original source ownership."
+    ],
+    "do_not_try": [
+      "Do not edit imported app source or source-owner state snapshots.",
+      "Do not broaden source ownership, suppress failed tests or promote guest/product acceptance.",
+      "Do not claim source-owner adoption, guest or product acceptance from this host CI checkpoint."
+    ]
+  },
+  "next_action": "Inspect dedicated draft candidate exact-head Linux/Windows host-foundations CI; update only this checkpoint state with completed results. Preserve PARTIAL status and guest/product gates.",
+  "acceptance_criteria": [
+    "Retain exact PR49/PR46/PR50/PR51 app and owner-evidence blobs.",
+    "Preserve all existing registry rows and workbook-only ownership.",
+    "Keep the existing Linux/Windows test matrix, pinned toolchain, timeouts and commands.",
+    "Reject foreign paths, broadened ownership, changed imported source or foreign registry edits.",
+    "Run Sheets, Writer and Calendar suites plus retained CLI/Legal gates on the combined head.",
+    "Attach exact-head remote Linux/Windows results without asserting guest or product acceptance."
+  ],
+  "deferred": [
+    "Nagi target and guest execution",
+    "Remote Calendar providers and durable production cache",
+    "Native Writer/Sheets UI and product acceptance",
+    "Main merge and formal release"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "sheets-bounded-updates",
+      "contract": "Workbook dependency preparation",
+      "version": "v1",
+      "status": "Immutable source snapshot; combined host evidence pending."
+    },
+    {
+      "workstream_id": "sheets-calc-01",
+      "contract": "IFS and directed rounding",
+      "version": "v1",
+      "status": "Immutable source snapshot; combined host evidence pending."
+    },
+    {
+      "workstream_id": "writer-core-01",
+      "contract": "Lossless ordered-list import warnings",
+      "version": "v1",
+      "status": "Immutable source snapshot; combined host evidence pending."
+    },
+    {
+      "workstream_id": "calendar-core-01",
+      "contract": "Availability grid boundary termination",
+      "version": "v1",
+      "status": "Immutable source snapshot; combined host evidence pending."
+    }
+  ]
+}

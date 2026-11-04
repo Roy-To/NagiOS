@@ -1,0 +1,22 @@
+Main base: ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8
+Prior source head: 7a13250df856554ab8e02b2a8f037344a55a614e
+Command: cargo test --locked --offline --manifest-path tests/model-session-service/Cargo.toml
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (<build-target>/debug/deps/nagi_model_session_service_check-a112b04fe3745570)
+
+running 3 tests
+test model_session_access::tests::accepts_only_the_bound_signed_in_session ... ok
+test model_session_access::tests::model_external_caller_is_not_authorized_by_a_desktop_session ... ok
+test model_session_access::tests::locking_blocks_inference_and_service_construction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nagi_model_session_service_check
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

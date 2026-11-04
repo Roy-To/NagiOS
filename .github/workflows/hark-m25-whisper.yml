@@ -1,0 +1,354 @@
+# Dedicated CI for the M25 Whisper speech-to-text provider
+# (hark/m25-whisper-production).
+#
+# Workstream-owned. This is NOT owner registration and does not replace ci.yml.
+# The provider stays PARTIAL: the guest fixture acceptance
+# (./nagi m25-whisper-inference <fixture.pcm> <expected.txt> in Nagi/QEMU) needs
+# a local fixture PCM that is not committed, so it is NOT_RUN here and no job
+# in this file stands in for it.
+#
+#   A host-tests     fmt, clippy (no real engine), 24 scripted-engine tests
+#                    incl. capacity regressions, guest-shape type check
+#   B real-engine    pinned model + pinned FLEURS ja eval clips (SHA-256
+#                    verified, mismatch/missing = FAIL), clippy with the real
+#                    engine, real whisper.cpp lifecycle checks + HOST eval
+#                    (CER/RTF/RSS recorded as evidence; no new thresholds),
+#                    fail-closed negatives
+#   C nagi-target    COMPILE-ONLY: nagi-init cross build/link with
+#                    m25-whisper-inference-acceptance against synthetic
+#                    placeholder fixture inputs. Never run; never an
+#                    acceptance or recognition result.
+#
+# No secrets, no write tokens, no paid services; only public pinned downloads
+# verified by SHA-256 (model: third_party/models.lock; audio:
+# tests/m25-whisper/eval/fleurs-ja-validation.json; sources:
+# third_party/sources.lock via nagi-bootstrap).
+name: M25 Whisper (hark)
+
+on:
+  push:
+    branches:
+      - hark/m25-whisper-production
+    paths:
+      - 'user/nagi-init/src/m25_whisper.rs'
+      - 'tools/whisper/**'
+      - 'tests/m25-whisper/**'
+      - '.dev/workstreams/hark-m25-whisper/**'
+      - '.github/workflows/hark-m25-whisper.yml'
+  pull_request:
+    paths:
+      - 'user/nagi-init/src/m25_whisper.rs'
+      - 'tools/whisper/**'
+      - 'tests/m25-whisper/**'
+      - '.dev/workstreams/hark-m25-whisper/**'
+      - '.github/workflows/hark-m25-whisper.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hark-m25-whisper-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  TOOLCHAIN: nightly-2025-08-01
+  HARNESS: tests/m25-whisper/Cargo.toml
+  LOGS: out/ci-logs
+
+jobs:
+  host-tests:
+    name: A host tests (scripted engine, capacity regressions, guest-shape check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup override set "$TOOLCHAIN"
+          rustc --version
+          mkdir -p "$LOGS"
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-whisper-cargo-host-${{ runner.os }}-${{ hashFiles('tests/m25-whisper/Cargo.lock', 'tests/m25-whisper/guest-shape/Cargo.lock') }}
+      - name: rustfmt --check (harness, guest-shape, shared provider sources)
+        run: |
+          set -o pipefail
+          {
+            cargo fmt --manifest-path "$HARNESS" -- --check
+            cargo fmt --manifest-path tests/m25-whisper/guest-shape/Cargo.toml -- --check
+            rustfmt --edition 2021 --check user/nagi-init/src/m25_whisper.rs tools/whisper/provider_session.rs tools/whisper/provider_ffi.rs
+          } 2>&1 | tee "$LOGS/fmt.log"
+      - name: clippy (no real engine) -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path "$HARNESS" --locked --all-targets -- -D warnings 2>&1 | tee "$LOGS/clippy-no-engine.log"
+      - name: Scripted-engine tests (24, incl. tests/capacity.rs regressions)
+        run: |
+          set -o pipefail
+          cargo test --manifest-path "$HARNESS" --locked 2>&1 | tee "$LOGS/tests.log"
+          passed=$(grep -Eo 'test result: ok\. [0-9]+ passed' "$LOGS/tests.log" | awk '{s+=$4} END {print s+0}')
+          echo "total passed: $passed"
+          [ "$passed" -eq 24 ] || { echo "::error::expected 24 passing standalone tests, got $passed"; exit 1; }
+          ! grep -Eq 'test result: .* [1-9][0-9]* (failed|ignored)' "$LOGS/tests.log" \
+            || { echo "::error::failed or ignored tests reported"; exit 1; }
+          cargo test --manifest-path "$HARNESS" --locked --test capacity 2>&1 | tee "$LOGS/capacity.log"
+          grep -q 'test result: ok\. 4 passed; 0 failed; 0 ignored' "$LOGS/capacity.log" \
+            || { echo "::error::capacity regressions did not report 4 passed"; exit 1; }
+      - name: Guest-shape type check (host check with relibc stub; NOT a guest result)
+        working-directory: tests/m25-whisper/guest-shape
+        run: |
+          set -o pipefail
+          cargo clippy --locked -- -D warnings 2>&1 | tee "$GITHUB_WORKSPACE/$LOGS/guest-shape.log"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-whisper-host-tests-${{ github.run_attempt }}
+          path: out/ci-logs/
+          if-no-files-found: ignore
+
+  real-engine:
+    name: B real host engine (pinned model + FLEURS ja, lifecycle checks, HOST eval)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      NAGI_WHISPER_PINNED: ${{ github.workspace }}/out/cache/whisper.cpp-pinned
+      NAGI_WHISPER_HOST_SOURCE: ${{ github.workspace }}/out/cache/whisper-cpp-host
+      NAGI_WHISPER_HOST_BUILD: ${{ github.workspace }}/out/whisper-host-build
+      NAGI_WHISPER_MODEL: ${{ github.workspace }}/out/cache/whisper-models/ggml-small.bin
+      NAGI_M25_EVAL_AUDIO: ${{ github.workspace }}/out/cache/fleurs-ja
+      EVAL_OUT: out/m25-whisper-eval
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install build and measurement dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y cmake g++ python3 time
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup override set "$TOOLCHAIN"
+          rustc --version
+          python3 --version
+          mkdir -p "$LOGS" "$EVAL_OUT"
+      - name: Cache pinned model, FLEURS clips and cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Restored files are never trusted: the model is re-verified below
+          # and by run-eval.sh, every clip by run-eval.sh.
+          path: |
+            out/cache/whisper-models/ggml-small.bin
+            out/cache/fleurs-ja
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-whisper-real-${{ runner.os }}-1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b-${{ hashFiles('tests/m25-whisper/eval/fleurs-ja-validation.json', 'tests/m25-whisper/Cargo.lock') }}
+      - name: Pinned whisper.cpp source (sources.lock revision)
+        run: |
+          set -o pipefail
+          rev=$(awk '/^\[sources.whisper_cpp\]/{s=1;next} /^\[/{s=0} s&&/^revision/{gsub(/"/,"",$3);print $3}' third_party/sources.lock)
+          repo=$(awk '/^\[sources.whisper_cpp\]/{s=1;next} /^\[/{s=0} s&&/^repository/{gsub(/"/,"",$3);print $3}' third_party/sources.lock)
+          [ ${#rev} -eq 40 ] || { echo "::error::no pinned whisper.cpp revision"; exit 1; }
+          git init --quiet "$NAGI_WHISPER_PINNED"
+          git -C "$NAGI_WHISPER_PINNED" fetch --quiet --depth 1 "$repo" "$rev"
+          git -C "$NAGI_WHISPER_PINNED" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$NAGI_WHISPER_PINNED" rev-parse HEAD)" = "$rev"
+          echo "whisper.cpp $repo @ $rev" | tee "$LOGS/whisper-source.log"
+      - name: Fetch pinned model (models.lock size + SHA-256; missing or mismatch = FAIL)
+        run: |
+          set -o pipefail
+          read -r url size sha < <(python3 - <<'PY'
+          import tomllib
+          m = tomllib.load(open("third_party/models.lock", "rb"))["models"]["whisper_small_multilingual"]
+          print(f"{m['repository']}/resolve/{m['revision']}/{m['file_name']}", m["size_bytes"], m["sha256"])
+          PY
+          )
+          mkdir -p "$(dirname "$NAGI_WHISPER_MODEL")"
+          {
+            if [ -f "$NAGI_WHISPER_MODEL" ] && echo "$sha  $NAGI_WHISPER_MODEL" | sha256sum -c --quiet -; then
+              echo "cached model verified"
+            else
+              rm -f "$NAGI_WHISPER_MODEL"
+              echo "downloading $url"
+              curl -fsSL --retry 3 -o "$NAGI_WHISPER_MODEL" "$url"
+            fi
+            test "$(stat -c %s "$NAGI_WHISPER_MODEL")" = "$size"
+            echo "$sha  $NAGI_WHISPER_MODEL" | sha256sum -c -
+          } 2>&1 | tee "$LOGS/model-fetch.log"
+      - name: Fetch pinned FLEURS ja eval clips (source WAV + PCM SHA-256; mismatch = FAIL)
+        run: |
+          set -o pipefail
+          n=$(python3 -c 'import json;print(len(json.load(open("tests/m25-whisper/eval/fleurs-ja-validation.json"))["clips"]))')
+          have=0
+          if [ -d "$NAGI_M25_EVAL_AUDIO" ]; then
+            have=$(find "$NAGI_M25_EVAL_AUDIO" -maxdepth 1 -name '*.pcm' | wc -l)
+          fi
+          if [ "$have" -ne "$n" ]; then
+            python3 tools/whisper/fetch-fleurs-ja-eval.py --output "$NAGI_M25_EVAL_AUDIO" 2>&1 | tee "$LOGS/fleurs-fetch.log"
+          else
+            echo "restored $have cached clips; run-eval.sh re-verifies every SHA-256" | tee "$LOGS/fleurs-fetch.log"
+          fi
+      - name: Build pinned + patched host whisper.cpp
+        run: |
+          set -o pipefail
+          NAGI_BUILD_JOBS=4 tools/whisper/build-host-eval.sh 2>&1 | tee "$LOGS/host-whisper-build.log"
+      - name: Fetch locked harness dependencies
+        run: cargo fetch --manifest-path "$HARNESS" --locked
+      - name: clippy (real engine linked) -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path "$HARNESS" --locked --all-targets --features real-engine -- -D warnings 2>&1 | tee "$LOGS/clippy-real-engine.log"
+      - name: Real-engine lifecycle checks + FLEURS ja HOST eval (1 thread; HOST measurement only)
+        run: |
+          set -o pipefail
+          /usr/bin/time -v tests/m25-whisper/run-eval.sh "$EVAL_OUT/host-eval.json" 2>&1 | tee "$LOGS/run-eval.log"
+          python3 - "$EVAL_OUT/host-eval.json" <<'PY' | tee "$LOGS/eval-summary.txt"
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          checks = d["lifecycle_checks"]
+          print(f"kind={d['kind']} counts_as_guest_result={d['counts_as_guest_result']} threads={d['threads']}")
+          print(f"clips={d['clips']} audio_s={d['audio_seconds']} inference_s={d['inference_seconds']}")
+          print(f"aggregate_cer={d['aggregate_cer']} aggregate_rtf={d['aggregate_rtf']}")
+          print(f"rss_kib={json.dumps(d['rss_kib'])}")
+          for c in checks:
+              print(f"check {c['name']} scope={c['session_scope']} pass={c['pass']}")
+          ok = d["lifecycle_pass"] and len(checks) == 5 and all(c["pass"] for c in checks) \
+              and d["clips"] == 12 and d["counts_as_guest_result"] is False
+          print("RESULT=" + ("PASS" if ok else "FAIL"))
+          sys.exit(0 if ok else 1)
+          PY
+      - name: Negative - missing or mismatched model/audio must FAIL
+        run: |
+          set -o pipefail
+          mkdir -p out/neg
+          expect_fail() {
+            what=$1; pattern=$2; shift 2
+            if "$@" >"$LOGS/negative-$what.log" 2>&1; then
+              echo "::error::negative check '$what' unexpectedly succeeded"; cat "$LOGS/negative-$what.log"; exit 1
+            fi
+            grep -q "$pattern" "$LOGS/negative-$what.log" \
+              || { echo "::error::negative check '$what' failed for the wrong reason"; cat "$LOGS/negative-$what.log"; exit 1; }
+            echo "OK  $what: failed closed ($(grep -m1 "$pattern" "$LOGS/negative-$what.log"))"
+          }
+          {
+            expect_fail missing-model 'does not match models.lock' \
+              env NAGI_WHISPER_MODEL=/nonexistent/ggml-small.bin tests/m25-whisper/run-eval.sh out/neg/missing-model.json
+            head -c 1048576 "$NAGI_WHISPER_MODEL" > out/neg/truncated-model.bin
+            expect_fail mismatched-model 'does not match models.lock' \
+              env NAGI_WHISPER_MODEL="$PWD/out/neg/truncated-model.bin" tests/m25-whisper/run-eval.sh out/neg/mismatched-model.json
+            cp -a "$NAGI_M25_EVAL_AUDIO" out/neg/audio-corrupt
+            first=$(ls out/neg/audio-corrupt/*.pcm | head -1)
+            printf '\x01' | dd of="$first" bs=1 seek=100 conv=notrunc status=none
+            expect_fail mismatched-audio 'SHA-256 mismatch' \
+              env NAGI_M25_EVAL_AUDIO="$PWD/out/neg/audio-corrupt" tests/m25-whisper/run-eval.sh out/neg/mismatched-audio.json
+            mkdir -p out/neg/audio-missing
+            expect_fail missing-audio 'No such file' \
+              env NAGI_M25_EVAL_AUDIO="$PWD/out/neg/audio-missing" tests/m25-whisper/run-eval.sh out/neg/missing-audio.json
+            # The real model and clips must be untouched by the negatives.
+            echo "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b  $NAGI_WHISPER_MODEL" | sha256sum -c -
+            echo "fail-closed OK"
+          } 2>&1 | tee "$LOGS/negatives.log"
+      - name: Upload HOST eval evidence and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-whisper-real-engine-host-eval-${{ github.run_attempt }}
+          path: |
+            out/ci-logs/
+            out/m25-whisper-eval/host-eval.json
+            out/m25-whisper-eval/eval-set.tsv
+          if-no-files-found: ignore
+
+  nagi-target-compile-only:
+    name: C COMPILE-ONLY Nagi-target nagi-init build (m25-whisper-inference-acceptance, synthetic placeholder fixture, not run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      NAGI_TARGET_CLANG: clang-19
+      NAGI_CXX_HEADERS: /usr/lib/llvm-19/include/c++/v1
+      NAGI_LLVM_AR: llvm-ar-19
+      NAGI_LLVM_RANLIB: llvm-ranlib-19
+      NAGI_RELIBC_HEADERS: ${{ github.workspace }}/out/m25-relibc/relibc-target/x86_64-unknown-nagi-user/include
+      NAGI_WHISPER_SOURCE: ${{ github.workspace }}/out/cache/whisper-cpp-nagi
+      NAGI_WHISPER_BUILD: ${{ github.workspace }}/out/m25-whisper-target
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install target build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm llvm-19 libc++-19-dev cmake ninja-build make python3
+          test -f "$NAGI_CXX_HEADERS/cstddef"
+          mkdir -p "$LOGS"
+      - name: Install pinned Rust target toolchain and cbindgen
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy --component rust-src
+          cargo install cbindgen --version 0.28.0 --locked
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-whisper-cargo-target-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'tools/nagi-bootstrap/Cargo.lock') }}
+      - name: Bootstrap pinned sources (incl. patched whisper.cpp, validated against sources.lock)
+        run: |
+          set -o pipefail
+          cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch 2>&1 | tee "$LOGS/bootstrap.log"
+          test -f "$NAGI_WHISPER_SOURCE/include/whisper.h"
+      - name: Generate relibc target headers
+        run: |
+          set -o pipefail
+          RUST_TARGET_PATH="$PWD/targets" RUSTUP_TOOLCHAIN="$TOOLCHAIN" \
+          CARGO_TARGET_DIR="$PWD/out/m25-relibc/relibc-target" \
+          make -C third_party/relibc TARGET=x86_64-unknown-nagi-user \
+            BUILD="$PWD/out/m25-relibc/relibc-target/x86_64-unknown-nagi-user" \
+            TARGET_HEADERS="$NAGI_RELIBC_HEADERS" headers 2>&1 | tee "$LOGS/relibc-headers.log"
+          test -f "$NAGI_RELIBC_HEADERS/pthread.h"
+      - name: Nagi-target whisper.cpp archives (pinned patched source)
+        run: |
+          set -o pipefail
+          NAGI_BUILD_JOBS=4 bash tools/whisper/build-nagi-target.sh 2>&1 | tee "$LOGS/whisper-target-build.log"
+          sha256sum "$NAGI_WHISPER_BUILD"/src/libwhisper.a "$NAGI_WHISPER_BUILD"/ggml/src/libggml*.a | tee -a "$LOGS/whisper-target-build.log"
+      - name: COMPILE-ONLY stage synthetic placeholder fixture (not the acceptance fixture)
+        run: |
+          mkdir -p out/m25-compile-only
+          # 1 s of digital silence, mono S16LE 16 kHz, and placeholder text:
+          # build.rs requires both inputs whenever the feature is enabled.
+          head -c 32000 /dev/zero > out/m25-compile-only/COMPILE-ONLY-silence.pcm
+          printf 'COMPILE-ONLY placeholder (not an acceptance fixture)' > out/m25-compile-only/COMPILE-ONLY-expected.txt
+          {
+            echo "COMPILE-ONLY: synthetic placeholder inputs; this build is never run and is NOT guest inference acceptance."
+            sha256sum out/m25-compile-only/COMPILE-ONLY-silence.pcm out/m25-compile-only/COMPILE-ONLY-expected.txt
+          } | tee "$LOGS/COMPILE-ONLY-placeholder.txt"
+      - name: COMPILE-ONLY build nagi-init (m25-whisper-inference-acceptance, x86_64-unknown-nagi-user)
+        env:
+          NAGI_M25_WHISPER_PCM_FIXTURE: ${{ github.workspace }}/out/m25-compile-only/COMPILE-ONLY-silence.pcm
+          NAGI_M25_WHISPER_EXPECTED_TEXT_FILE: ${{ github.workspace }}/out/m25-compile-only/COMPILE-ONLY-expected.txt
+        run: |
+          set -o pipefail
+          echo "COMPILE-ONLY: link check with synthetic placeholder inputs; NOT guest inference acceptance." | tee "$LOGS/COMPILE-ONLY-nagi-init-build.log"
+          cargo +"$TOOLCHAIN" build -p nagi-init --features m25-whisper-inference-acceptance \
+            --target targets/x86_64-unknown-nagi-user.json \
+            -Zbuild-std=core,alloc,compiler_builtins --release --locked 2>&1 | tee -a "$LOGS/COMPILE-ONLY-nagi-init-build.log"
+          bin=target/x86_64-unknown-nagi-user/release/nagi-init
+          test -s "$bin"
+          {
+            ls -l "$bin"
+            sha256sum "$bin"
+            echo "COMPILE-ONLY: binary linked with placeholder fixture; not executed, not an acceptance artifact."
+            echo "Guest fixture acceptance (./nagi m25-whisper-inference with the real fixture): NOT_RUN (fixture not available in CI)."
+          } 2>&1 | tee -a "$LOGS/COMPILE-ONLY-nagi-init-build.log"
+      - name: Upload COMPILE-ONLY logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-whisper-nagi-target-COMPILE-ONLY-${{ github.run_attempt }}
+          path: out/ci-logs/
+          if-no-files-found: ignore

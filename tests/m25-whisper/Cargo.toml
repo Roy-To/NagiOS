@@ -1,0 +1,21 @@
+[package]
+name = "nagi-m25-whisper-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Host harness for the M25 Whisper provider lifecycle and unseen-speech evaluation"
+
+# Standalone workspace: this harness is not a member of the root workspace.
+[workspace]
+
+[features]
+# Links the pinned, patched whisper.cpp host build (see tools/whisper/build-host-eval.sh).
+real-engine = []
+
+[dependencies]
+nagi-audio = { path = "../../user/nagi-audio" }
+
+[[bin]]
+name = "m25-whisper-eval"
+path = "src/bin/m25-whisper-eval.rs"
+required-features = ["real-engine"]

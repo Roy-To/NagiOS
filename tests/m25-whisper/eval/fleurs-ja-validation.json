@@ -1,0 +1,152 @@
+{
+  "schema": "nagi.m25-whisper.eval-set.v1",
+  "dataset": {
+    "name": "FLEURS",
+    "repository": "https://huggingface.co/datasets/google/fleurs",
+    "config": "ja_jp",
+    "split": "validation",
+    "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+    "license": "CC-BY-4.0",
+    "license_reference": "https://huggingface.co/datasets/google/fleurs (card metadata: license cc-by-4.0; 'All datasets are licensed under the Creative Commons license (CC-BY)')",
+    "citation": "Conneau, A., Ma, M., Khanuja, S., Zhang, Y., Axelrod, V., Dalmia, S., Riesa, J., Rivera, C., Bapna, A. FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech. arXiv:2205.12446, 2022. https://arxiv.org/abs/2205.12446",
+    "attribution": "Audio and transcriptions from google/fleurs (ja_jp, validation), CC BY 4.0. Converted from 32-bit float WAV to 16-bit PCM; no other modification.",
+    "redistribution": "Audio is not committed to this repository; tools/whisper/fetch-fleurs-ja-eval.py fetches it and verifies the hashes below."
+  },
+  "conversion": "source: RIFF WAVE, IEEE float32 mono 16 kHz. pcm: little-endian int16, sample = clamp(floor(x * 32768 + 0.5), -32768, 32767).",
+  "reference_field": "raw_transcription",
+  "selection": "12 ja_jp validation rows chosen before any Nagi inference was run on them; none is the M25 acceptance fixture and none is used for tuning. 'Unseen' means unseen by Nagi development; Whisper's own training data is not public, and Whisper reports FLEURS as an evaluation set.",
+  "clips": [
+    {
+      "id": "fleurs-ja-val-00-1519",
+      "row_idx": 0,
+      "original_path": "10009621509886822059.wav",
+      "gender": "male",
+      "samples": 177600,
+      "seconds": 11.1,
+      "source_wav_sha256": "9627b8f5d46806e1a433b443d692fdfb24f26a35c1a47eba26291475fc643d7b",
+      "pcm_s16le_sha256": "80a4de2eb9b203fb030bfe428c132e79bcbe97fc91bdbaca613c725f154a4db4",
+      "reference": "多くの場合、海外のギャップイヤーコースに入学することで、帰国後に実際に大学に進学しやすくなります。"
+    },
+    {
+      "id": "fleurs-ja-val-02-1607",
+      "row_idx": 2,
+      "original_path": "10339149383603832153.wav",
+      "gender": "male",
+      "samples": 127680,
+      "seconds": 7.98,
+      "source_wav_sha256": "88391f365cdecc51a56ef5f9322c441c0107ab8d0c6f7a3a09f2334ffe8c56ff",
+      "pcm_s16le_sha256": "6852d5477d4707a671750e7ded506f4fb9cb46df5bdf80af81557f83d9d55cb3",
+      "reference": "興味をそそられる村を30分ほど散策するのは価値があります。"
+    },
+    {
+      "id": "fleurs-ja-val-03-1634",
+      "row_idx": 3,
+      "original_path": "10411584430488337925.wav",
+      "gender": "male",
+      "samples": 193920,
+      "seconds": 12.12,
+      "source_wav_sha256": "091c2c7fc285593a60dc4b90db1c1c20cffa5a0551c8eb2e26df687dffbb1fd8",
+      "pcm_s16le_sha256": "d9d1c01f39c006ab08de111969abc013c6d144011c458c32d6cc028dc44b26ed",
+      "reference": "日本には約7,000の島々があり、その最大は本州列島で、世界で7番目に大きい島とされています。"
+    },
+    {
+      "id": "fleurs-ja-val-05-1572",
+      "row_idx": 5,
+      "original_path": "10564629450010212761.wav",
+      "gender": "male",
+      "samples": 145920,
+      "seconds": 9.12,
+      "source_wav_sha256": "0fcf82aa092043c81ba71b28cce19320242b8a56c46c667b8cab6941e7f3cd53",
+      "pcm_s16le_sha256": "a95e1f2f145e633019c26408e50835e745b154cff5f2910d27f7c859536fe8fa",
+      "reference": "その後2時間のうちに、さらに3つの爆弾が官庁施設の付近で爆発しました。"
+    },
+    {
+      "id": "fleurs-ja-val-06-1604",
+      "row_idx": 6,
+      "original_path": "1062963029061341657.wav",
+      "gender": "male",
+      "samples": 472320,
+      "seconds": 29.52,
+      "source_wav_sha256": "d99f4f3bd73b6140b2b0f3fd374e8aeba0c51d1ff10b57f39feb83ce605debea",
+      "pcm_s16le_sha256": "97ba421cf30aaecb8eb86b4324ded273566ccd7dc679ea4055a6900160ee1148",
+      "reference": "NSAとしてカーターを補佐し、1978年のキャンプ・デイビッド合意、1970年代後半の米中関係の正常化、1979年のイラン人質事件につながったイラン革命、1979年のソビエトのアフガニスタン侵攻など、世界問題を外交的に処理した。"
+    },
+    {
+      "id": "fleurs-ja-val-10-1598",
+      "row_idx": 10,
+      "original_path": "1103709099852339896.wav",
+      "gender": "male",
+      "samples": 147840,
+      "seconds": 9.24,
+      "source_wav_sha256": "79f4e7148a35d78e986911d939c1664737209e33c4e46dae944e28bb624afdfb",
+      "pcm_s16le_sha256": "6854fc2730aa735f1462e26d7c2cbaa4d9d5bcaea0770fb7f9a3493f6d14aae4",
+      "reference": "車の衝突時には３人が家の中にいましたが、怪我人はいませんでした。"
+    },
+    {
+      "id": "fleurs-ja-val-17-1513",
+      "row_idx": 17,
+      "original_path": "11239210393592280523.wav",
+      "gender": "male",
+      "samples": 135360,
+      "seconds": 8.46,
+      "source_wav_sha256": "e2933f26c9648af52c6cb289b4e6fd5cc2ea8c43074df42397e509a4393afc0a",
+      "pcm_s16le_sha256": "634c33abaf8eadae4affbd0a1bb37172e24ef3750f80caeea25a17998d4e2eef",
+      "reference": "アルゼンチンは、世界最高のポロチームとポロ競技選手を擁することで有名です。"
+    },
+    {
+      "id": "fleurs-ja-val-22-1582",
+      "row_idx": 22,
+      "original_path": "11650147973775460964.wav",
+      "gender": "male",
+      "samples": 120000,
+      "seconds": 7.5,
+      "source_wav_sha256": "669696f55ff10c76427e65fb5eee165ac80d87bbfdd64077c47a8430f023dde4",
+      "pcm_s16le_sha256": "335dff66d5920d6604b8432a52a1090e9818d0f5821c72df48fb21edb438e793",
+      "reference": "ヘブライ人家族はほとんど戸外で暮らしていました。"
+    },
+    {
+      "id": "fleurs-ja-val-25-1599",
+      "row_idx": 25,
+      "original_path": "11853195180145316333.wav",
+      "gender": "female",
+      "samples": 159360,
+      "seconds": 9.96,
+      "source_wav_sha256": "791a961a253abc6af431fbf7a2e63376ba573bbc4ce4f32f2d690316bdf82357",
+      "pcm_s16le_sha256": "fe1a7b0c139f55c2afe2ca357a73061792bf005b1b668f65bdcdc495c8054449",
+      "reference": "元の集団は全く変わっておらず、今でも昔と同じように適応を必要としています。"
+    },
+    {
+      "id": "fleurs-ja-val-27-1547",
+      "row_idx": 27,
+      "original_path": "11911462902173225489.wav",
+      "gender": "male",
+      "samples": 169920,
+      "seconds": 10.62,
+      "source_wav_sha256": "f6903865339c0af19ec5efa7214860d222ab9cb038ac96743366f9c099e6dc7b",
+      "pcm_s16le_sha256": "36235bd2db971b5c4ba69b6168887df63e34645c4a48c8fb94fbebc8cb3e07d1",
+      "reference": "また、NHKは新潟県の柏崎刈羽原発が正常に稼働していると報道していました。"
+    },
+    {
+      "id": "fleurs-ja-val-30-1523",
+      "row_idx": 30,
+      "original_path": "1204968976973295146.wav",
+      "gender": "female",
+      "samples": 174720,
+      "seconds": 10.92,
+      "source_wav_sha256": "a548ddfc95de96b390e9b491cef0884ecb3aaec0ea773085baa40c16450b019d",
+      "pcm_s16le_sha256": "76b081b2b0674b826d9e0421745396407708232303fb3945f9f9d9e035cc9d88",
+      "reference": "最終スコア21対20の1点差勝利で、オールブラックスの15連勝に終止符が打たれました。"
+    },
+    {
+      "id": "fleurs-ja-val-34-1612",
+      "row_idx": 34,
+      "original_path": "12387010142585874308.wav",
+      "gender": "female",
+      "samples": 130560,
+      "seconds": 8.16,
+      "source_wav_sha256": "287ea58715c3a94b2751d960d823b67060878a6861ba7f5643dacc30fb2c8c8b",
+      "pcm_s16le_sha256": "aef2f1861117d704c20cbf39da8f0452e8d49f8e2969d85ade12a6859bf2c8f9",
+      "reference": "水は幅100フィートの範囲にわたって堤防の上にこぼれ落ちています。"
+    }
+  ]
+}

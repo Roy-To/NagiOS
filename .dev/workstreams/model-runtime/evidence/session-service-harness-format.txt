@@ -1,0 +1,2 @@
+Command: cargo fmt --manifest-path tests/model-session-service/Cargo.toml -- --check
+Exit code: 0

@@ -46,3 +46,7 @@ path = "../../tests/m24-embedding/real_inference.rs"
 
 [dev-dependencies]
 nagi-model = { path = "../nagi-model" }
+
+[[test]]
+name = "m24-embedding-adversarial"
+path = "../../tests/m24-embedding/adversarial.rs"

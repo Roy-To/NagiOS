@@ -1,0 +1,31 @@
+{
+  "workstream_id": "model-runtime",
+  "base_commit": "edad2e7",
+  "owner_branch": "codex/0.1-session-model-service",
+  "scope": "Nagi 0.1 ordinary-session Model Manager/service/backend leaves, direct tests and technical workstream documentation.",
+  "additional_allowed_paths": [
+    "user/nagi-init/src/llama_backend.rs",
+    "user/nagi-init/src/m20_granite.rs",
+    "user/nagi-init/src/model_service.rs",
+    "user/nagi-init/src/model_session_access.rs",
+    "tests/model-session-service/**",
+    "docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md",
+    "docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md",
+    "docs/workstreams/NagiOS_M26_Model_Routing_Workstream.md"
+  ],
+  "shared_paths_not_edited": [
+    "main.rs",
+    "user/nagi-init/Cargo.toml",
+    "user/nagi-init/build.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "commands.rs",
+    ".github/workflows/**",
+    ".dev/workstreams.json",
+    "docs/implementation_status.md",
+    "desktop.rs",
+    "image generation",
+    "Files/Search leaves"
+  ],
+  "implementation_status_proposal": "Record the lazy resident Granite service leaf and 105 host tests plus Nagi target leaf compile as PASS evidence only. Normal startup/linking/Nagi Bar, real normal-session inference, isolated AI process and installation remain open; keep M20/M23/M26 PARTIAL."
+}

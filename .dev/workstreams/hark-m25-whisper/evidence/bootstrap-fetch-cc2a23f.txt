@@ -1,0 +1,7 @@
+== cbindgen 2026-10-09T02:43:45+00:00
+cbindgen 0.28.0
+== bootstrap fetch 2026-10-09T02:43:45+00:00
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap fetch`
+PASS fetch: Cargo registry sources fetched; pinned smoltcp, Surfman, tempfile, mozjs_sys, cc, Servo, Mesa/Softpipe, and llama.cpp sources validated; pinned whisper.cpp source and Nagi patch validated with Whisper small model metadata (out/cache/llama-cpp-nagi, third_party/surfman, third_party/tempfile-nagi, third_party/mozjs-sys-nagi, third_party/cc-nagi, third_party/servo, third_party/mesa, out/cache/whisper-cpp-nagi)
+fetch exit=0 2026-10-09T02:53:40+00:00

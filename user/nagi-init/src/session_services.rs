@@ -168,13 +168,26 @@ impl Shared {
         }
     }
     fn bind(&self, user: &Session) -> Result<(), SubmitError> {
-        if self.cleanup_failed.load(Ordering::Acquire) {
-            return Err(SubmitError::WorkerUnavailable);
-        }
-        if user.is_locked() || user.token() == 0 || self.closed.load(Ordering::Acquire) {
+        if user.is_locked() {
+            self.unbind(user);
             return Err(SubmitError::Denied);
         }
         let mut state = self.state.lock();
+        if self.cleanup_failed.load(Ordering::Acquire) {
+            // Keep the quarantined owner bound so it can consume the failure.
+            // A different valid owner revokes that generation before failing.
+            if user.token() != 0
+                && state
+                    .user
+                    .is_some_and(|bound| bound.token() != user.token())
+            {
+                self.invalidate_and_advance(&mut state);
+            }
+            return Err(SubmitError::WorkerUnavailable);
+        }
+        if user.token() == 0 || self.closed.load(Ordering::Acquire) {
+            return Err(SubmitError::Denied);
+        }
         if state.allows(user) {
             return Ok(());
         }
@@ -188,23 +201,30 @@ impl Shared {
         state.user = Some(*user);
         Ok(())
     }
+    fn invalidate_and_advance(&self, state: &mut State) {
+        state.invalidate();
+        if self
+            .generation
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .is_err()
+        {
+            self.closed.store(true, Ordering::Release);
+        }
+    }
     fn unbind(&self, user: &Session) {
         let mut state = self.state.lock();
         if state
             .user
             .is_some_and(|bound| bound.token() == user.token())
         {
-            state.invalidate();
-            if self
-                .generation
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-                .is_err()
-            {
-                self.closed.store(true, Ordering::Release);
-            }
+            self.invalidate_and_advance(&mut state);
         }
     }
     fn submit(&self, user: &Session, request_id: u64, input: &str) -> Result<(), SubmitError> {
+        if user.is_locked() {
+            self.unbind(user);
+            return Err(SubmitError::Denied);
+        }
         if input.len() > MAX_INPUT_BYTES {
             return Err(SubmitError::InputTooLarge);
         }
@@ -245,6 +265,10 @@ impl Shared {
         Ok(())
     }
     fn poll(&self, user: &Session, request_id: u64) -> Result<ReplyProgress, SubmitError> {
+        if user.is_locked() {
+            self.unbind(user);
+            return Err(SubmitError::Denied);
+        }
         let mut state = self.state.lock();
         if !state.allows(user) || self.closed.load(Ordering::Acquire) {
             return Err(SubmitError::Denied);
@@ -266,6 +290,10 @@ impl Shared {
         })
     }
     fn cancel(&self, user: &Session, request_id: u64) -> Result<(), SubmitError> {
+        if user.is_locked() {
+            self.unbind(user);
+            return Err(SubmitError::Denied);
+        }
         let mut state = self.state.lock();
         if !state.allows(user) {
             return Err(SubmitError::Denied);
@@ -382,6 +410,12 @@ impl SessionServices {
             worker: None,
         })
     }
+    /// Exact pinned terms reference for the Desktop consent UI to display and acknowledge.
+    /// Reading it does not record consent.
+    pub fn model_terms_reference(&self) -> &str {
+        &self.terms_reference
+    }
+
     /// Call only after ordinary authenticated Desktop readiness. Repeated calls
     /// for the same live Session preserve request IDs and explicit confirmation.
     pub fn on_signed_in(&mut self, user: &Session) -> Result<(), SubmitError> {
@@ -445,6 +479,10 @@ impl SessionServices {
         user: &Session,
         pinned_reference: &str,
     ) -> Result<(), SubmitError> {
+        if user.is_locked() {
+            self.shared.unbind(user);
+            return Err(SubmitError::Denied);
+        }
         let mut state = self.shared.state.lock();
         if !state.allows(user) {
             return Err(SubmitError::Denied);
@@ -787,12 +825,13 @@ mod tests {
                 1 => Err(ReplyError::Model(RuntimeError::ArtifactUnavailable.into())),
                 2 => Ok(response(job.request_id + 1, "orchestration fixture")),
                 3 => Ok(response(job.request_id, &"x".repeat(MAX_OUTPUT_BYTES + 1))),
+                5 => Err(ReplyError::Model(RuntimeError::ArtifactUnavailable.into())),
                 _ => Ok(response(job.request_id, &job.input)),
             }
         }
         fn unload(&mut self) -> Result<(), ReplyError> {
             UNLOADS.fetch_add(1, Ordering::Relaxed);
-            if MODE.load(Ordering::Relaxed) == 4 {
+            if matches!(MODE.load(Ordering::Relaxed), 4 | 5) {
                 Err(ReplyError::WorkerUnavailable)
             } else {
                 Ok(())
@@ -807,7 +846,8 @@ mod tests {
         MODE.store(0, Ordering::Relaxed);
         g
     }
-    fn users() -> (Session, Session) {
+    /// Returns two independently authenticated session tokens for the same owner account.
+    fn same_owner_sessions() -> (Session, Session) {
         let mut accounts = AccountStore::new();
         accounts
             .add_account(b"owner", Role::Owner, b"test only password")
@@ -842,14 +882,16 @@ mod tests {
             },
         }
     }
-    fn bridge(user: &Session) -> SessionServices {
+    fn bridge(owner_session: &Session) -> SessionServices {
         let bridge = SessionServices::new(42, budget()).unwrap();
-        bridge.shared.bind(user).unwrap();
+        bridge.shared.bind(owner_session).unwrap();
         bridge
     }
-    fn confirm(bridge: &mut SessionServices, user: &Session) {
-        let reference = bridge.terms_reference.clone();
-        bridge.acknowledge_model_terms(user, &reference).unwrap();
+    fn confirm(bridge: &mut SessionServices, owner_session: &Session) {
+        let reference = bridge.model_terms_reference().to_string();
+        bridge
+            .acknowledge_model_terms(owner_session, &reference)
+            .unwrap();
     }
     fn step(worker: &mut WorkerMachine<FixtureBackend>, bridge: &SessionServices) -> bool {
         worker.step(&bridge.shared, 42, budget(), &bridge.terms_reference)
@@ -875,7 +917,7 @@ mod tests {
     }
     #[test]
     fn no_host_worker_or_authority_is_created_by_configuration() {
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = SessionServices::new(42, budget()).unwrap();
         assert_eq!(b.submit_text(&user, 1, "test"), Err(SubmitError::Denied));
         assert_eq!(b.on_signed_in(&user), Err(SubmitError::WorkerUnavailable));
@@ -883,7 +925,7 @@ mod tests {
     }
     #[test]
     fn terms_and_request_bounds_require_explicit_bound_session() {
-        let (user, other) = users();
+        let (user, other) = same_owner_sessions();
         let mut b = bridge(&user);
         assert_eq!(
             b.submit_text(&user, 1, "test"),
@@ -916,7 +958,7 @@ mod tests {
     #[test]
     fn one_slot_remains_occupied_until_completion_is_consumed() {
         let _g = serial();
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
@@ -938,7 +980,7 @@ mod tests {
     fn artifact_unavailable_is_an_error_not_a_reply() {
         let _g = serial();
         MODE.store(1, Ordering::Relaxed);
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         b.submit_text(&user, 1, "fixture request").unwrap();
@@ -953,7 +995,7 @@ mod tests {
     #[test]
     fn wrong_request_and_oversized_responses_are_rejected() {
         let _g = serial();
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
@@ -973,7 +1015,7 @@ mod tests {
     #[test]
     fn cancel_before_start_skips_generation_and_completed_cancel_hides_reply() {
         let _g = serial();
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
@@ -996,7 +1038,7 @@ mod tests {
     #[test]
     fn session_change_cancels_old_job_and_late_output_cannot_replace_new_reply() {
         let _g = serial();
-        let (user, other) = users();
+        let (user, other) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
@@ -1028,7 +1070,7 @@ mod tests {
     #[test]
     fn lock_and_close_cancel_then_unload_without_publishing_output() {
         let _g = serial();
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let mut b = bridge(&user);
         confirm(&mut b, &user);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
@@ -1047,8 +1089,59 @@ mod tests {
         assert_eq!(UNLOADS.load(Ordering::Relaxed), 2);
     }
     #[test]
+    fn locked_submit_revokes_worker_and_suppresses_inflight_reply() {
+        let _g = serial();
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let mut worker = WorkerMachine::<FixtureBackend>::new();
+        step(&mut worker, &b);
+        b.submit_text(&user, 1, "old in flight").unwrap();
+        let old = b.shared.state.lock().queued.take().unwrap();
+        let generation = b.shared.generation.load(Ordering::Acquire);
+        let mut locked = user;
+        locked.lock();
+
+        assert_eq!(
+            b.submit_text(&locked, 2, "must not enter queue"),
+            Err(SubmitError::Denied)
+        );
+        assert!(old.cancellation.load(Ordering::Acquire));
+        assert_eq!(b.shared.generation.load(Ordering::Acquire), generation + 1);
+        assert!(b.shared.state.lock().user.is_none());
+        step(&mut worker, &b);
+        b.shared.complete(&old, Ok(response(1, "late")));
+        assert!(b.shared.state.lock().reply.is_none());
+        assert_eq!(UNLOADS.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn locked_cancel_revokes_worker_and_suppresses_inflight_reply() {
+        let _g = serial();
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let mut worker = WorkerMachine::<FixtureBackend>::new();
+        step(&mut worker, &b);
+        b.submit_text(&user, 1, "old in flight").unwrap();
+        let old = b.shared.state.lock().queued.take().unwrap();
+        let generation = b.shared.generation.load(Ordering::Acquire);
+        let mut locked = user;
+        locked.lock();
+
+        assert_eq!(b.cancel_request(&locked, 1), Err(SubmitError::Denied));
+        assert!(old.cancellation.load(Ordering::Acquire));
+        assert_eq!(b.shared.generation.load(Ordering::Acquire), generation + 1);
+        assert!(b.shared.state.lock().user.is_none());
+        step(&mut worker, &b);
+        b.shared.complete(&old, Ok(response(1, "late")));
+        assert!(b.shared.state.lock().reply.is_none());
+        assert_eq!(UNLOADS.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
     fn concurrent_submitters_cannot_expand_the_single_request_slot() {
-        let (user, _) = users();
+        let (user, _) = same_owner_sessions();
         let shared = Arc::new(Shared::new());
         shared.bind(&user).unwrap();
         shared.state.lock().terms_confirmed = true;
@@ -1073,32 +1166,207 @@ mod tests {
         assert!(state.reply.is_none());
     }
     #[test]
+    fn generate_failure_then_unload_failure_quarantines_new_generation() {
+        let _g = serial();
+        let (initial_session, alternate_session) = same_owner_sessions();
+        let mut b = bridge(&initial_session);
+        confirm(&mut b, &initial_session);
+        let mut worker = WorkerMachine::<FixtureBackend>::new();
+        step(&mut worker, &b);
+        MODE.store(5, Ordering::Relaxed);
+        b.submit_text(&initial_session, 1, "generation fails")
+            .unwrap();
+        step(&mut worker, &b);
+        assert!(!b.shared.cleanup_failed.load(Ordering::Acquire));
+        assert_eq!(
+            b.poll_reply(&initial_session, 1),
+            Ok(ReplyProgress::Failed(ReplyError::Model(
+                RuntimeError::ArtifactUnavailable.into()
+            )))
+        );
+
+        b.shared.bind(&alternate_session).unwrap();
+        confirm(&mut b, &alternate_session);
+        b.submit_text(&alternate_session, 1, "new generation")
+            .unwrap();
+        step(&mut worker, &b);
+        assert_eq!(BINDS.load(Ordering::Relaxed), 1);
+        assert_eq!(UNLOADS.load(Ordering::Relaxed), 1);
+        assert!(b.shared.cleanup_failed.load(Ordering::Acquire));
+        assert_eq!(worker.cleanup_error, Some(ReplyError::WorkerUnavailable));
+
+        let generation_before_locked_bind = b.shared.generation.load(Ordering::Acquire);
+        let mut locked_session = alternate_session;
+        locked_session.lock();
+        assert_eq!(b.on_signed_in(&locked_session), Err(SubmitError::Denied));
+        assert_eq!(
+            b.shared.generation.load(Ordering::Acquire),
+            generation_before_locked_bind + 1
+        );
+        {
+            let state = b.shared.state.lock();
+            assert!(state.user.is_none());
+            assert!(!state.terms_confirmed);
+            assert!(state.active.is_none());
+            assert!(state.queued.is_none());
+            assert!(state.reply.is_none());
+        }
+        assert!(b.shared.cleanup_failed.load(Ordering::Acquire));
+        assert_eq!(
+            b.poll_reply(&alternate_session, 1),
+            Err(SubmitError::Denied)
+        );
+        assert_eq!(
+            b.submit_text(&alternate_session, 2, "quarantined"),
+            Err(SubmitError::WorkerUnavailable)
+        );
+    }
+
+    fn fail_unload_after_alternate_session_switch() -> (SessionServices, Session, Session, Job) {
+        let (initial_session, alternate_session) = same_owner_sessions();
+        let mut b = bridge(&initial_session);
+        confirm(&mut b, &initial_session);
+        let mut worker = WorkerMachine::<FixtureBackend>::new();
+        step(&mut worker, &b);
+
+        b.shared.bind(&alternate_session).unwrap();
+        confirm(&mut b, &alternate_session);
+        b.submit_text(&alternate_session, 1, "cleanup failure")
+            .unwrap();
+        let late = {
+            let state = b.shared.state.lock();
+            let job = state.queued.as_ref().unwrap();
+            Job {
+                user: job.user,
+                generation: job.generation,
+                request_id: job.request_id,
+                input: job.input.clone(),
+                cancellation: job.cancellation.clone(),
+            }
+        };
+        MODE.store(4, Ordering::Relaxed);
+        step(&mut worker, &b);
+        assert!(b.shared.cleanup_failed.load(Ordering::Acquire));
+        assert_eq!(worker.cleanup_error, Some(ReplyError::WorkerUnavailable));
+        // Return the quarantined bound session before its alternate session token.
+        (b, alternate_session, initial_session, late)
+    }
+
+    #[test]
+    fn same_owner_quarantine_keeps_failure_reply_pollable() {
+        let _g = serial();
+        let (mut b, quarantined_session, _, _) = fail_unload_after_alternate_session_switch();
+        let generation = b.shared.generation.load(Ordering::Acquire);
+        assert_eq!(
+            b.on_signed_in(&quarantined_session),
+            Err(SubmitError::WorkerUnavailable)
+        );
+        assert_eq!(b.shared.generation.load(Ordering::Acquire), generation);
+        assert!(b
+            .shared
+            .state
+            .lock()
+            .user
+            .is_some_and(|bound| bound.token() == quarantined_session.token()));
+        assert_eq!(
+            b.poll_reply(&quarantined_session, 1),
+            Ok(ReplyProgress::Failed(ReplyError::WorkerUnavailable))
+        );
+    }
+
+    #[test]
+    fn quarantine_session_switch_revokes_old_access_and_fences_late_completion() {
+        let _g = serial();
+        let (mut b, quarantined_session, alternate_session, late) =
+            fail_unload_after_alternate_session_switch();
+        assert_eq!(
+            b.on_signed_in(&quarantined_session),
+            Err(SubmitError::WorkerUnavailable)
+        );
+        let old_generation = b.shared.generation.load(Ordering::Acquire);
+        {
+            let state = b.shared.state.lock();
+            assert_eq!(
+                state.user.map(|bound| bound.token()),
+                Some(quarantined_session.token())
+            );
+            assert!(state.terms_confirmed);
+            assert!(matches!(
+                state.reply.as_ref(),
+                Some(Err(ReplyError::WorkerUnavailable))
+            ));
+            assert!(state.active.is_some());
+        }
+
+        assert_eq!(
+            b.on_signed_in(&alternate_session),
+            Err(SubmitError::WorkerUnavailable)
+        );
+        assert_eq!(
+            b.shared.generation.load(Ordering::Acquire),
+            old_generation + 1
+        );
+        assert!(late.cancellation.load(Ordering::Acquire));
+        {
+            let state = b.shared.state.lock();
+            assert!(state.user.is_none());
+            assert!(!state.terms_confirmed);
+            assert!(state.active.is_none());
+            assert!(state.queued.is_none());
+            assert!(state.reply.is_none());
+        }
+        assert_eq!(
+            b.poll_reply(&quarantined_session, 1),
+            Err(SubmitError::Denied)
+        );
+        assert_eq!(
+            b.cancel_request(&quarantined_session, 1),
+            Err(SubmitError::Denied)
+        );
+        let reference = b.model_terms_reference().to_string();
+        assert_eq!(
+            b.acknowledge_model_terms(&quarantined_session, &reference),
+            Err(SubmitError::Denied)
+        );
+        b.shared
+            .complete(&late, Ok(response(1, "late quarantined reply")));
+        assert!(b.shared.state.lock().reply.is_none());
+        assert_eq!(
+            b.submit_text(&alternate_session, 2, "still quarantined"),
+            Err(SubmitError::WorkerUnavailable)
+        );
+    }
+
+    #[test]
     fn unload_failure_quarantines_later_generations_and_new_submissions() {
         let _g = serial();
-        let (user, other) = users();
-        let mut b = bridge(&user);
-        confirm(&mut b, &user);
+        let (initial_session, alternate_session) = same_owner_sessions();
+        let mut b = bridge(&initial_session);
+        confirm(&mut b, &initial_session);
         let mut worker = WorkerMachine::<FixtureBackend>::new();
         step(&mut worker, &b);
         MODE.store(4, Ordering::Relaxed);
-        b.shared.bind(&other).unwrap();
-        confirm(&mut b, &other);
-        b.submit_text(&other, 1, "new").unwrap();
+        b.shared.bind(&alternate_session).unwrap();
+        confirm(&mut b, &alternate_session);
+        b.submit_text(&alternate_session, 1, "new").unwrap();
         step(&mut worker, &b);
         assert_eq!(BINDS.load(Ordering::Relaxed), 1);
         assert_eq!(
-            b.poll_reply(&other, 1),
+            b.poll_reply(&alternate_session, 1),
             Ok(ReplyProgress::Failed(ReplyError::WorkerUnavailable))
         );
         MODE.store(0, Ordering::Relaxed);
-        b.on_lock_or_signout(&other);
-        assert_eq!(b.shared.bind(&user), Err(SubmitError::WorkerUnavailable));
+        b.on_lock_or_signout(&alternate_session);
+        assert_eq!(
+            b.shared.bind(&initial_session),
+            Err(SubmitError::WorkerUnavailable)
+        );
         step(&mut worker, &b);
         assert_eq!(BINDS.load(Ordering::Relaxed), 1);
         assert!(b.shared.cleanup_failed.load(Ordering::Acquire));
         assert_eq!(worker.cleanup_error, Some(ReplyError::WorkerUnavailable));
         assert_eq!(
-            b.submit_text(&other, 2, "quarantined"),
+            b.submit_text(&alternate_session, 2, "quarantined"),
             Err(SubmitError::WorkerUnavailable)
         );
     }

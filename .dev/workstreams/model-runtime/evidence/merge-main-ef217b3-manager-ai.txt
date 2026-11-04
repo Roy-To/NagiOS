@@ -1,0 +1,144 @@
+Main base: ef217b30c6074833ed81ff7a9a20e1a8fb0ed8b8
+Prior source head: 7a13250df856554ab8e02b2a8f037344a55a614e
+Command: cargo test --locked --offline -p nagi-model-manager -p nagi-ai
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running unittests src/lib.rs (<build-target>/debug/deps/nagi_ai-cd89127f8427aec2)
+
+running 25 tests
+test browser_context::tests::blank_stale_or_oversized_provider_result_is_rejected ... ok
+test browser_context::tests::browser_context_text_is_bounded_without_splitting_utf8 ... ok
+test browser_context::tests::model_adapter_marks_page_input_untrusted_and_checks_provider_response ... ok
+test browser_context::tests::selected_object_is_independently_authorized_before_browser_api_access ... ok
+test browser_context::tests::provider_absence_api_failure_and_empty_page_never_report_summary_success ... ok
+test browser_context::tests::summarize_uses_public_api_and_keeps_logical_context_and_page_untrusted ... ok
+test browser_context::tests::workspace_context_is_filtered_by_the_trusted_authority ... ok
+test tests::context_resolver_filters_hidden_objects_before_provider_context ... ok
+test tests::context_resolver_rejects_duplicate_candidates ... ok
+test tests::decision_confidence_and_provider_output_never_authorize_actions ... ok
+test tests::executor_passes_only_the_validated_plan_intent_to_action_handlers ... ok
+test tests::executor_reacquires_capabilities_after_each_completed_step ... ok
+test tests::executor_reports_partial_failure_after_completed_steps ... ok
+test tests::executor_rejects_results_that_name_hidden_objects ... ok
+test tests::llm_decision_adapter_is_bounded_and_returns_only_an_advisory_candidate ... ok
+test tests::orchestration_accepts_only_complete_strict_nagi_plan_v1_json ... ok
+test tests::successful_search_action_returns_a_bounded_executor_result ... ok
+test tests::schema_fixtures_are_valid_json_and_bound_action_plan_shape ... ok
+test tests::validator_denies_capability_before_any_step_executes ... ok
+test tests::validator_denies_invisible_and_out_of_context_object_ids ... ok
+test tests::validator_enforces_schema_version_plan_size_and_action_parameters ... ok
+test tests::validator_rejects_path_injection_and_out_of_range_parameters ... ok
+test tests::validator_rejects_unknown_action_and_never_runs_another_action ... ok
+test tests::registered_file_search_action_runs_search_and_returns_only_visible_ids ... ok
+test tests::planner_sends_only_filtered_action_schemas_and_rejects_incomplete_provider_output ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (<build-target>/debug/deps/nagi_model_manager-87c615a46ee77ff0)
+
+running 74 tests
+test fat32::tests::derives_stable_distinct_fat32_names_from_artifact_ids ... ok
+test fat32::tests::reads_sequential_and_random_ranges_across_fragmented_clusters ... ok
+test manifest::tests::accepts_versioned_manifest_and_retains_license_metadata ... ok
+test manifest::tests::accepts_unrecognized_future_capabilities_without_caller_changes ... ok
+test manifest::tests::manifest_v1_accepts_profiles_without_additive_runtime_and_resource_classes ... ok
+test fat32::tests::reports_missing_artifacts_and_truncated_cluster_chains ... ok
+test manifest::tests::rejects_invalid_bounds_and_integrity ... ok
+test fat32::tests::runtime_hashes_fat32_artifact_bytes_before_backend_load ... ok
+test manifest::tests::rejects_source_metadata_that_looks_like_a_filesystem_path ... ok
+test manifest::tests::rejects_unsupported_schema_and_runtime_versions ... ok
+test manifest::tests::terms_acknowledgement_requires_a_separate_terms_reference ... ok
+test manifest::tests::rejects_unknown_fields_and_malformed_json ... ok
+test registry::tests::does_not_combine_runtime_and_artifact_support_from_separate_descriptors ... ok
+test registry::tests::lifecycle_requires_valid_transitions ... ok
+test registry::tests::matches_capability_and_resource_requirements ... ok
+test registry::tests::metadata_without_integrity_is_not_selectable ... ok
+test registry::tests::rejects_one_bad_manifest_without_mutating_registered_models ... ok
+test registry::tests::reports_missing_artifact_and_backend_without_fabricating_availability ... ok
+test registry::tests::refuses_to_unregister_models_with_active_or_transitional_lifecycles ... ok
+test registry::tests::selection_preference_role_default_and_fallback_are_deterministic ... ok
+test registry::tests::system_one_runtime_class_and_capability_are_open_extension_metadata ... ok
+test registry::tests::unregisters_inactive_entries_and_allows_the_model_id_to_be_registered_again ... ok
+test registry::tests::validates_model_store_reference_as_opaque_identifier ... ok
+test routing::tests::an_unreported_provider_is_not_treated_as_available ... ok
+test registry::tests::unavailable_default_falls_back_to_standard_then_lite_candidates ... ok
+test routing::tests::keeps_configured_standard_default_and_falls_back_when_its_provider_is_unavailable ... ok
+test routing::tests::manual_override_is_validated_and_never_silently_replaced ... ok
+test runtime::tests::cancellation_timeout_and_bounds_are_structured_errors ... ok
+test runtime::tests::fake_backend_loads_generates_and_unloads_a_model_session ... ok
+test runtime::tests::exposes_backend_health_and_resource_reporting_and_handles_unavailable_backend ... ok
+test runtime::tests::load_rejects_changed_artifact_bytes_before_calling_the_backend ... ok
+test runtime::tests::cancellation_during_streaming_returns_cancelled_after_emitted_chunks ... ok
+test routing::tests::decision_routes_use_specialized_providers_then_bounded_generative_adapter_or_safe_fallback ... ok
+test runtime::tests::model_store_artifact_reader_supports_bounded_random_access ... ok
+test runtime::tests::model_without_stream_capability_rejects_streaming ... ok
+test runtime::tests::refuses_to_load_an_artifact_without_integrity_metadata ... ok
+test runtime::tests::load_hashes_large_artifacts_with_bounded_reads_and_accepts_short_reads ... ok
+test runtime::tests::rejects_artifact_identity_and_integrity_mismatches ... ok
+test runtime::tests::reports_backend_load_failure_and_repeated_load_unload_cycles ... ok
+test runtime::tests::rejects_remote_models_and_incompatible_backends ... ok
+test runtime::tests::sha256_integrity_comparison_accepts_hex_case_and_rejects_other_values ... ok
+test runtime::tests::runtime_class_support_is_extensible_without_model_specific_selection ... ok
+test runtime::tests::standalone_artifact_verifier_accepts_only_pinned_bytes ... ok
+test runtime::tests::streams_provider_neutral_text_chunks_and_usage ... ok
+test runtime::tests::structured_generation_requires_its_capability_and_rejects_unvalidated_streams ... ok
+test runtime::tests::structured_generation_validates_json_before_returning_backend_output ... ok
+test service::tests::construction_and_selection_do_not_open_or_load_a_model ... ok
+test service::tests::deadline_and_cancellation_after_inference_discard_output_and_unload ... ok
+test service::tests::blank_oversized_and_out_of_token_bound_responses_are_never_presented ... ok
+test service::tests::dropping_the_service_unloads_once_and_unload_is_idempotent ... ok
+test service::tests::inference_failure_releases_context_and_retry_loads_a_fresh_session ... ok
+test service::tests::deadline_covers_hashing_and_does_not_use_a_host_clock ... ok
+test service::tests::incompatible_capability_role_and_manual_model_selection_fail_closed ... ok
+test service::tests::load_failure_leaves_no_resident_session ... ok
+test service::tests::invalid_input_and_limits_are_rejected_before_artifact_io ... ok
+test service::tests::low_resource_budget_unloads_and_prevents_reload_until_resources_recover ... ok
+test service::tests::missing_or_corrupted_artifacts_never_invoke_the_backend ... ok
+test service::tests::ordinary_requests_use_their_actual_text_and_reuse_one_resident_session ... ok
+test service::tests::streaming_unavailable_does_not_load_and_provider_view_uses_checked_service ... ok
+test service::tests::terms_are_required_and_only_the_exact_reference_is_accepted ... ok
+test service::tests::unload_failure_disables_the_service_instead_of_loading_another_context ... ok
+test store::tests::disallows_skipping_install_verification ... ok
+test store::tests::enforces_install_verification_update_and_removal_states ... ok
+test store::tests::does_not_install_manifest_without_an_integrity_digest ... ok
+test service::tests::pre_cancelled_request_does_not_load_and_hashing_can_be_cancelled ... ok
+test store::tests::records_license_terms_before_allowing_install ... ok
+test store::tests::failed_update_keeps_the_installed_version_and_retry_target ... ok
+test structured::tests::output_and_containers_are_bounded_before_acceptance ... ok
+test structured::tests::pattern_schemas_reject_non_string_type_unions ... ok
+test structured::tests::rejects_duplicate_keys_in_schema_and_generated_json ... ok
+test structured::tests::schema_parser_rejects_unbounded_or_unsupported_definitions ... ok
+test structured::tests::rejects_invalid_plan_shape_and_security_sensitive_parameter_names ... ok
+test structured::tests::validates_nagi_plan_schema_subset_without_replacing_the_plan_validator ... ok
+test structured::tests::complexity_limits_cover_unconstrained_output_subtrees ... ok
+
+test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/manifest_schema.rs (<build-target>/debug/deps/manifest_schema-69e51aad2d8d6837)
+
+running 2 tests
+test schema_file_is_valid_json_and_declares_closed_versioned_manifest ... ok
+test bundled_model_profiles_are_valid_v1_manifest_examples ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/store_api.rs (<build-target>/debug/deps/store_api-01a2850e5cb00095)
+
+running 1 test
+test exposes_store_state_through_read_only_consumer_accessors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nagi_ai
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests nagi_model_manager
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

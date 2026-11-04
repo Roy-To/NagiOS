@@ -97,12 +97,12 @@ bytes before calling any backend.
 Using the pinned arm64 nightly toolchain:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-host-arm64 \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> test --locked --offline \
   -p nagi-model-manager --all-targets
 ```
 
@@ -111,33 +111,33 @@ passed (61 total). The CLI regression suite passed 163 unit and 21 integration
 tests.
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-clippy-arm64 \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> clippy --locked --offline \
   -p nagi-model-manager --all-targets -- -D warnings
 ```
 
 Clippy passed with warnings denied. Package formatting passed:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-/Users/tozawa/.cargo/bin/cargo fmt \
+<local-path> fmt \
   --manifest-path user/nagi-model-manager/Cargo.toml -- --check
 ```
 
 The library compiled for the Nagi user target with `no_std` core/alloc:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-target \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> -Z build-std=core,alloc check \
   --manifest-path Cargo.toml -p nagi-model-manager \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
@@ -1383,3 +1383,22 @@ on this arm64 macOS host because the kernel uses x86-specific inline assembly.
 The code fix has not yet been pushed or run in hosted QEMU. M20 remains
 `PARTIAL` until the hosted inference run passes; guest-side Model Store install
 and normal lazy model-service integration also remain open.
+
+## 2026-10-08 ordinary-session Granite service leaf
+
+The ordinary-session 0.1 implementation adds a lazy, session-bound adapter without
+reimplementing the successful inference engine. `llama_backend.rs` extracts
+the existing adapter; `m20_granite.rs` retains its dedicated acceptance.
+`ResidentModelRuntime` preserves the existing manifest/SHA-256/request/response
+checks while retaining one model between calls. `LazyModelService` admits
+bounded real input, exact terms acknowledgement, an explicit guest resource
+budget and cooperative deadline/cancellation; errors discard text and unload.
+
+The normal startup, target archive linking, desktop worker and Nagi Bar call
+remain shared-owner integration work. The saved cloud environment has no GGUF
+artifact, and no new weights were downloaded. Host orchestration/session tests
+and Nagi-target leaf compilation passed; they do not establish a normal init
+ELF link or QEMU desktop inference. M20 stays `PARTIAL`; prior dedicated
+acceptance evidence is unchanged.
+
+[API and integration proposal](../../.dev/workstreams/model-runtime/handoff.md).
