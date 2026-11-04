@@ -1,0 +1,13 @@
+[package]
+name = "hello-nagi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-sdk = { git = "https://github.com/Roy-To/NagiOS.git", rev = "87b7dea4061be2572526181ab559d63037f823d0" }
+
+[workspace]

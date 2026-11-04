@@ -2,7 +2,7 @@
 
 This is a host-only Developer Preview flow for building the standalone `Hello Nagi` Rust sample outside the NagiOS source tree and checking its app manifest with the existing host package tool.
 
-The SDK dependency is pinned to public NagiOS revision `87b7dea4061be2572526181ab559d63037f823d0`. The SDK is not published to crates.io (`publish = false`). The app directly depends only on `nagi-sdk`; Cargo may also fetch the SDK's transitive public dependencies.
+The copied sample uses an out-of-tree Cargo manifest pinned to public NagiOS revision `87b7dea4061be2572526181ab559d63037f823d0`. The SDK is not published to crates.io (`publish = false`). The app directly depends only on `nagi-sdk`; Cargo also fetches the SDK's transitive public dependencies. The checked-in `Cargo.toml` remains path-based for the existing offline host artifact flow.
 
 ## English
 
@@ -14,9 +14,20 @@ Until this workstream is integrated, use its public review branch to obtain the 
 git clone --depth 1 --branch codex/0.2-third-party-app-dx https://github.com/Roy-To/NagiOS.git nagios-sdk-source
 cp -R nagios-sdk-source/samples/hello-nagi ./hello-nagi
 cd hello-nagi
+cp Cargo.out-of-tree.toml Cargo.toml
+cp Cargo.out-of-tree.lock Cargo.lock
 ```
 
 After the sample is integrated, `main` can replace the review branch in the clone command.
+
+In PowerShell, replace the copy and directory commands with:
+
+```powershell
+Copy-Item -Recurse .\nagios-sdk-source\samples\hello-nagi .\hello-nagi
+Set-Location .\hello-nagi
+Copy-Item .\Cargo.out-of-tree.toml .\Cargo.toml -Force
+Copy-Item .\Cargo.out-of-tree.lock .\Cargo.lock -Force
+```
 
 ### 2. Build and inspect the dependency source
 
@@ -48,9 +59,20 @@ Expected output starts with `PASS nagi-pkg manifest validate`. This checks manif
 git clone --depth 1 --branch codex/0.2-third-party-app-dx https://github.com/Roy-To/NagiOS.git nagios-sdk-source
 cp -R nagios-sdk-source/samples/hello-nagi ./hello-nagi
 cd hello-nagi
+cp Cargo.out-of-tree.toml Cargo.toml
+cp Cargo.out-of-tree.lock Cargo.lock
 ```
 
 サンプル統合後は、clone コマンドのブランチを `main` に置き換えられます。
+
+PowerShell では、コピーとディレクトリ移動に次を使えます。
+
+```powershell
+Copy-Item -Recurse .\nagios-sdk-source\samples\hello-nagi .\hello-nagi
+Set-Location .\hello-nagi
+Copy-Item .\Cargo.out-of-tree.toml .\Cargo.toml -Force
+Copy-Item .\Cargo.out-of-tree.lock .\Cargo.lock -Force
+```
 
 ### 2. ビルドして依存元を確認
 

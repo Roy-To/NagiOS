@@ -14,7 +14,7 @@ Let an external developer build the existing Rust `Hello Nagi` sample out of tre
 
 ## Design
 
-Reuse `samples/hello-nagi` as the external sample instead of creating another app. Keep it as a standalone Cargo workspace. Change its direct SDK dependency from a relative path to the public repository at the audited main revision, so the sample can build without a NagiOS checkout. Add a third-party app manifest that is valid under the existing manifest schema and deliberately declares no capabilities or publisher identity.
+Reuse `samples/hello-nagi` as the external sample instead of creating another app. Keep the checked-in Cargo manifest and lockfile path-based so the existing M16 host artifact job can build offline. Add `Cargo.out-of-tree.toml` and its matching lockfile pinned to the public repository's audited main revision. The quick start copies these two files over the standard Cargo filenames only in the sample copy outside the NagiOS checkout. Keep the Rust source single-sourced. Add a third-party app manifest that is valid under the existing manifest schema and deliberately declares no capabilities or publisher identity.
 
 Extend the existing `nagi-pkg` contract tests to exercise the third-party manifest through the production host validator. The test must assert successful validation and key third-party properties. Do not add a second validator or alter runtime/package installation behavior.
 
