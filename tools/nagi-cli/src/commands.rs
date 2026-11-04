@@ -1411,45 +1411,62 @@ fn execute_fetch(root: &Path) -> CommandResult {
             );
         }
     }
-    let llama_cpp = match ensure_llama_cpp_checkout(root) {
+    let llama_cpp =
+        match crate::fetch_progress::phase("llama.cpp", || ensure_llama_cpp_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let whisper_cpp =
+        match crate::fetch_progress::phase("whisper.cpp", || ensure_whisper_cpp_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let surfman = match crate::fetch_progress::phase("surfman", || ensure_surfman_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let whisper_cpp = match ensure_whisper_cpp_checkout(root) {
+    let tempfile_nagi =
+        match crate::fetch_progress::phase("tempfile", || ensure_tempfile_nagi_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let mozjs_sys_nagi =
+        match crate::fetch_progress::phase("mozjs_sys", || ensure_mozjs_sys_nagi_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let cc_nagi = match crate::fetch_progress::phase("cc", || ensure_cc_nagi_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let surfman = match ensure_surfman_checkout(root) {
+    let servo = match crate::fetch_progress::phase("servo", || ensure_servo_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let tempfile_nagi = match ensure_tempfile_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let mozjs_sys_nagi = match ensure_mozjs_sys_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let cc_nagi = match ensure_cc_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let servo = match ensure_servo_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    if let Err(error) = crate::fonts::ensure_font_cache(root) {
+    if let Err(error) =
+        crate::fetch_progress::phase("fonts", || crate::fonts::ensure_font_cache(root))
+    {
         return failure(EXIT_CONFIG_ERROR, format!("fetch: fonts: {error}"));
     }
     let servo_relative = servo
         .strip_prefix(root)
         .unwrap_or(Path::new("third_party/servo"));
-    let servo_fetch = run_cargo_in(root, servo_relative, "Servo fetch", &["fetch", "--locked"]);
+    let servo_fetch = match crate::fetch_progress::phase("servo.cargo", || {
+        let result = run_cargo_in(root, servo_relative, "Servo fetch", &["fetch", "--locked"]);
+        if result.exit_code == EXIT_SUCCESS {
+            Ok(result)
+        } else {
+            Err(result)
+        }
+    }) {
+        // Preserve the original CommandResult on both paths; progress only
+        // observes its exit code and does not copy subprocess output.
+        Ok(result) | Err(result) => result,
+    };
     if servo_fetch.exit_code != EXIT_SUCCESS {
         return servo_fetch;
     }
-    let mesa = match ensure_mesa_checkout(root) {
+    let mesa = match crate::fetch_progress::phase("mesa", || ensure_mesa_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
@@ -11988,7 +12005,9 @@ mod qemu_timeout_caller_tests {
                 // executable can fail with ETXTBSY when another parallel spawn
                 // briefly inherits a writable descriptor before exec.
                 let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests/fixtures/qmp_timeout.py");
+                    .parent()
+                    .expect("host tools directory")
+                    .join("nagi-cli/tests/fixtures/qmp_timeout.py");
                 if stall {
                     fs::write(root.join("stall"), "").unwrap();
                 }
