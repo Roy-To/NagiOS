@@ -8,6 +8,7 @@ use nagi_model_manager::ResourceBudget;
 use std::{borrow::ToOwned, rc::Rc};
 
 struct Owner {
+    epoch: nagi_ai::BrowserContextEpoch,
     // Deliberately !Send. Browser owner state must never enter a worker job.
     _owner_thread: Rc<()>,
     denied: bool,
@@ -27,13 +28,10 @@ impl PublicBrowserContextApi for Owner {
         if self.denied {
             return Err(nagi_ai::BrowserContextApiError::Denied);
         }
-        Ok(Some(nagi_ai::BrowserPageSnapshot::new(
-            1,
-            None,
-            None,
-            None,
-            Some(self.body.into()),
-        )))
+        Ok(Some(
+            nagi_ai::BrowserPageSnapshot::new(1, None, None, None, Some(self.body.into()))
+                .with_revision(self.epoch.revision()),
+        ))
     }
 }
 struct Authority;
@@ -141,6 +139,7 @@ fn setup() -> (Controller, Transport, Session, Session, Owner) {
         user,
         other,
         Owner {
+            epoch: nagi_ai::BrowserContextEpoch::new(),
             _owner_thread: Rc::new(()),
             denied: false,
             body: "untrusted fixture",

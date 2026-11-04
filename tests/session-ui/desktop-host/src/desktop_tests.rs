@@ -707,6 +707,7 @@ fn files_modal_rejects_lost_session_before_service_or_input() {
 // or manufacture production caller provenance.
 #[cfg(feature = "m20-model-service")]
 struct SummaryBrowserFixture {
+    epoch: nagi_ai::BrowserContextEpoch,
     _owner_thread: std::rc::Rc<()>,
     calls: usize,
     denied: bool,
@@ -722,13 +723,16 @@ impl nagi_ai::PublicBrowserContextApi for SummaryBrowserFixture {
         if self.denied {
             return Err(nagi_ai::BrowserContextApiError::Denied);
         }
-        Ok(Some(nagi_ai::BrowserPageSnapshot::new(
-            7,
-            None,
-            None,
-            None,
-            Some("untrusted desktop fixture page".into()),
-        )))
+        Ok(Some(
+            nagi_ai::BrowserPageSnapshot::new(
+                7,
+                None,
+                None,
+                None,
+                Some("untrusted desktop fixture page".into()),
+            )
+            .with_revision(self.epoch.revision()),
+        ))
     }
 }
 #[cfg(feature = "m20-model-service")]
@@ -759,6 +763,7 @@ fn summary_request_fixture() -> nagi_ai::ContextRequest {
 #[cfg(feature = "m20-model-service")]
 fn summary_browser_fixture() -> SummaryBrowserFixture {
     SummaryBrowserFixture {
+        epoch: nagi_ai::BrowserContextEpoch::new(),
         _owner_thread: std::rc::Rc::new(()),
         calls: 0,
         denied: false,
@@ -933,6 +938,36 @@ fn summary_desktop_owner_step_queues_polls_and_renders_only_current_scripted_rep
     assert_eq!(browser.calls, 2);
     desktop.render(&mut surface);
     assert_ne!(frame_hash(&surface), waiting);
+}
+
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn summary_desktop_discards_completed_reply_after_page_aba_with_identical_text() {
+    let (mut desktop, mut volume, mut surface) = summary_desktop_fixture(Locale::EnUs, true);
+    let user = desktop.session.unwrap();
+    let mut browser = summary_browser_fixture();
+    assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(desktop.bar.controller.status(), session_ui::Status::Waiting);
+    assert!(desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_test_complete_request());
+    browser.epoch.invalidate(); // Navigation A -> B on the owner event thread.
+    browser.epoch.invalidate(); // B -> A; same URL/tab/title/body at next read.
+    summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+    assert_eq!(desktop.bar.controller.status(), session_ui::Status::Denied);
+    assert_eq!(desktop.bar.controller.output(), "");
+    desktop.render(&mut surface);
+    assert!(desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap()
+        .active_request_id
+        .is_none());
 }
 
 #[test]

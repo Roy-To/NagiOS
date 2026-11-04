@@ -10926,3 +10926,96 @@ page/policy ABA and guest execution remain unproven. No VM/model/native inferenc
 operator consent, production ELF link, new independent review, push/merge or
 formal M30 PASS is claimed. Existing private-product decisions remain unverified;
 no private ledger is read.
+
+
+## Async summary Browser epoch boundary (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent glyph review of df470ee
+reported no mandatory finding. This follow-up preserves that exact parent
+`df470eebb38bd071f3b68ac8b61d51805618cc5b`, full tree
+`64c7a4613fbc67019b3f3cfe7d26a4d3bbabf682`, its branch/export/evidence, and uses
+new isolated branch `codex/m30-summary-browser-epoch-20261104` at
+`/workspace/NagiOS-m30-summary-browser-epoch`.
+
+Source investigation confirms the remaining production connection gaps:
+
+- `desktop.rs::model_service_step` still supplies None. The borrowed
+  DesktopPageContext seam is exercised only by synthetic host owners, and
+  does not authenticate the public CallerIdentity fields. Desktop's opaque
+  Session/generation/instance binding remains a lifecycle fence, not a
+  logical application credential.
+- `supervisor.rs::resolve` and `libnagi::launch::LaunchRegistry::resolve` can
+  resolve an actual kernel-stamped sender to its live launch record. Existing
+  `action_ipc.rs::receive_request` uses ChannelReceiveResult.sender_process_id
+  for that purpose. No corresponding ordinary Bar summary endpoint/owner
+  binding to that sender, authenticated Session and current request is present.
+  Calling resolve with an invented PID or constructing NAGI_BAR_APP_ID does
+  not provide that missing trust chain. No such shortcut is introduced.
+- Albert's `assistant_context.rs` supplies sharing policy and snapshot helpers;
+  the only live PublicBrowserContextApi implementation is LiveBrowserContext
+  inside `m18_acceptance.rs`, not ordinary Desktop wiring. Its selected/visible
+  text evaluation may pump Servo events, so simply stamping the final DTO
+  cannot establish coherent extraction across navigation. A real adapter must
+  capture its epoch before extraction, process relevant changes as revocations,
+  and reject a changed/revoked epoch after any asynchronous extraction step.
+- Equality of tab/URL/title/text at two UI polls cannot detect navigation,
+  active-tab, selection/content or policy A -> B -> A between those polls.
+  Browser navigation IDs alone do not describe sharing/content changes.
+
+Implemented the independently testable async boundary, without inventing a
+production owner or changing permissions. BrowserContextEpoch is a non-cloned,
+non-Send/non-Sync owner lifetime tied to its event thread; its snapshots clone opaque revocable revisions. Invalidation
+revokes the old revision before replacement. Owner destruction revokes it too.
+A retained Arc identity prevents counter wrap and owner recreation/address reuse
+from reviving old snapshots. This is owner metadata only, excluded from serialized
+untrusted model context, and does not mint OS identity/capability/grants. The
+trusted event-thread owner must invalidate BEFORE every relevant state change,
+including restored identical values, and extract a coherent snapshot. A dishonest
+or incomplete event adapter can still omit invalidation; runtime ABA is not
+claimed solved until the real owner implements and tests this contract.
+
+Existing synchronous public API consumers may keep unversioned snapshots. The
+asynchronous SessionServices queue now rejects absent/revoked revisions before
+consuming the request ID or queuing work. Each context poll checks both current
+revision validity and full snapshot/request equality; checked reply consumption
+also fences revocation after extraction. RequestCancellation observes revocation
+even before the next UI poll, so the worker skips revoked queued generation and
+passes the revocation into its cooperative cancellation token during inference.
+Backend cancellation latency remains its existing contract. Existing explicit
+cancel precedence, lock/sign-out/generation/request fences, terms-before-context,
+separate system instructions, budgets/lease and typed errors are preserved.
+The normal production owner remains None; acceptance's legacy live API is not
+silently promoted to a versioned/OS-authenticated async owner.
+
+Producer checks on this final implementation:
+
+- Worker host27 PASS, including unversioned rejection without request-ID use,
+  page/sharing ABA at queued/running/completed stages, explicit-cancel precedence,
+  late completion fencing, owner destruction and checked-reply revocation;
+  cooperative token revocation prevents fixture generation before another poll.
+- Exact AI source35 PASS through a separate standalone manifest importing this
+  worktree's source and unchanged cached dependency versions. New tests cover
+  invalidate/restore/recreate/drop, revoked-token reattachment and serialization
+  equivalence without revision metadata. No dependency/version changes.
+- `CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh` PASS: UI72, Desktop78,
+  login26, formatting and feature-graph checks. The real Desktop input/controller/
+  adapter/queue/renderer regression suppresses completed synthetic reply text
+  after two owner epoch changes with identical final public page fields.
+- Worker, UI and exact standalone AI all-target host Clippy PASS with `-D warnings`.
+  Worker Nagi target Clippy PASS with `--target
+  targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked --offline
+  -- -D warnings`; dependencies still emit eight pre-existing nagi-posix warnings.
+  This compiles the exact production model service/worker/AI leaves, not a full
+  Desktop ELF or guest runtime.
+
+Full UI target was NOT RUN again: its unchanged pinned libc0.2.191 was already
+known unavailable offline, so no duplicate missing-dependency attempt or registry
+access was made. No dependency download/version substitution, root-registry
+probe, denied Browser export retry/alternate access, network/authentication
+operation, VM/model/native inference, operator terms acknowledgement, publication,
+push or merge occurred. No operation was denied or had uncertain outcome during
+this source/host task. Production live owner/event wiring, authenticated Bar actor
+and channel/capability binding, coherent Servo extraction, real policy/navigation
+ABA and real guest cancellation/display remain absent/unverified. Host synthetic
+results do not prove them. Private product decisions remain unverified; no private
+ledger was read. Formal release gates remain unchanged.

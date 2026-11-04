@@ -271,6 +271,14 @@ impl Shared {
         if !state.terms_confirmed {
             return Err(SubmitError::TermsRequired);
         }
+        if summary
+            .as_ref()
+            .is_some_and(|snapshot| !snapshot.prompt.page().has_current_revision())
+        {
+            return Err(SubmitError::Context(nagi_ai::PageSummaryError::Context(
+                nagi_ai::BrowserContextError::ApiUnavailable,
+            )));
+        }
         state.last_request_id = request_id;
         let prompt = summary.as_ref().map(|snapshot| snapshot.prompt.clone());
         state.active = Some(Slot {
@@ -324,6 +332,17 @@ impl Shared {
                 }
             } else if !slot.cancellation.load(Ordering::Acquire) {
                 return Err(SubmitError::Denied);
+            }
+            if !snapshot.prompt.page().has_current_revision() {
+                let cancelled_before = slot.cancellation.swap(true, Ordering::AcqRel);
+                state.queued = None;
+                if !matches!(state.reply, Some(Err(_))) {
+                    state.reply = Some(Err(if cancelled_before {
+                        cancelled()
+                    } else {
+                        ReplyError::Denied
+                    }));
+                }
             }
             // A cancelled summary may drain without a Browser only as a
             // cancellation failure. Even a broken completion cannot leak text.
@@ -407,11 +426,15 @@ struct RequestCancellation<'a> {
     shared: &'a Shared,
     generation: u64,
     cancelled: &'a AtomicBool,
+    summary: Option<&'a nagi_ai::PageSummaryPrompt>,
 }
 #[cfg(any(target_os = "nagi", test))]
 impl CancellationToken for RequestCancellation<'_> {
     fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
+            || self
+                .summary
+                .is_some_and(|prompt| !prompt.page().has_current_revision())
             || self.shared.closed.load(Ordering::Acquire)
             || self.shared.generation.load(Ordering::Acquire) != self.generation
     }
@@ -600,9 +623,9 @@ impl SessionServices {
             nagi_ai::prepare_page_summary(request_id, snapshot.request, authority, browser)
         });
         if !fresh.as_ref().is_some_and(|result| {
-            result
-                .as_ref()
-                .is_ok_and(|current| current == &snapshot.prompt)
+            result.as_ref().is_ok_and(|current| {
+                current.page().has_current_revision() && current == &snapshot.prompt
+            })
         }) {
             let mut state = self.shared.state.lock();
             if !state.allows(user) || self.shared.generation.load(Ordering::Acquire) != generation {
@@ -763,6 +786,7 @@ impl<B: WorkerBackend> WorkerMachine<B> {
                 shared,
                 generation: job.generation,
                 cancelled: &job.cancellation,
+                summary: job.summary.as_ref(),
             };
             let result = if cancellation.is_cancelled() {
                 Err(cancelled())
@@ -1143,6 +1167,7 @@ mod tests {
         body: &'static str,
         calls: usize,
         rebind: Option<(Arc<Shared>, Session)>,
+        epoch: Option<nagi_ai::BrowserContextEpoch>,
     }
     impl nagi_ai::ContextAuthority for ContextOwner {
         fn can_read_object(&self, _: nagi_ai::CallerIdentity, _: nagi_model::ObjectId) -> bool {
@@ -1163,13 +1188,12 @@ mod tests {
             if self.denied {
                 return Err(nagi_ai::BrowserContextApiError::Denied);
             }
-            Ok(Some(nagi_ai::BrowserPageSnapshot::new(
-                7,
-                None,
-                None,
-                None,
-                Some(self.body.into()),
-            )))
+            let snapshot =
+                nagi_ai::BrowserPageSnapshot::new(7, None, None, None, Some(self.body.into()));
+            Ok(Some(match &self.epoch {
+                Some(epoch) => snapshot.with_revision(epoch.revision()),
+                None => snapshot,
+            }))
         }
     }
     struct NoObjects;
@@ -1195,9 +1219,160 @@ mod tests {
                 body: "untrusted page fixture",
                 calls: 0,
                 rebind: None,
+                epoch: Some(nagi_ai::BrowserContextEpoch::new()),
             },
         )
     }
+    #[test]
+    fn unversioned_browser_cannot_queue_async_summary_or_consume_request_id() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        browser.epoch = None;
+        assert_eq!(
+            b.submit_page_summary(
+                &user,
+                request.caller,
+                1,
+                request.clone(),
+                &NoObjects,
+                &mut browser
+            ),
+            Err(SubmitError::Context(nagi_ai::PageSummaryError::Context(
+                nagi_ai::BrowserContextError::ApiUnavailable,
+            )))
+        );
+        assert!(b.shared.state.lock().active.is_none());
+        assert!(b.shared.state.lock().queued.is_none());
+        browser.epoch = Some(nagi_ai::BrowserContextEpoch::new());
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+    }
+
+    #[test]
+    fn page_and_sharing_aba_fence_queued_running_and_completed_replies() {
+        for phase in 0..3 {
+            for sharing in [false, true] {
+                for explicit_cancel in [false, true] {
+                    let (user, _) = same_owner_sessions();
+                    let mut b = bridge(&user);
+                    confirm(&mut b, &user);
+                    let (request, mut browser) = summary_context();
+                    b.submit_page_summary(
+                        &user,
+                        request.caller,
+                        1,
+                        request.clone(),
+                        &NoObjects,
+                        &mut browser,
+                    )
+                    .unwrap();
+                    let old = if phase > 0 {
+                        b.shared.state.lock().queued.take()
+                    } else {
+                        None
+                    };
+                    if phase == 2 {
+                        b.shared
+                            .complete(old.as_ref().unwrap(), Ok(response(1, "old page reply")));
+                    }
+                    // Both transitions occur between UI polls. All public
+                    // fields have their original values at the next read.
+                    browser.epoch.as_mut().unwrap().invalidate();
+                    if sharing {
+                        browser.denied = true;
+                    } else {
+                        browser.body = "B";
+                    }
+                    browser.epoch.as_mut().unwrap().invalidate();
+                    browser.denied = false;
+                    browser.body = "untrusted page fixture";
+                    if explicit_cancel {
+                        b.cancel_request(&user, 1).unwrap();
+                    }
+                    assert_eq!(
+                        b.poll_page_summary(&user, 1, &request, &NoObjects, &mut browser),
+                        Ok(ReplyProgress::Failed(if explicit_cancel {
+                            cancelled()
+                        } else {
+                            ReplyError::Denied
+                        }))
+                    );
+                    if let Some(old) = old.as_ref() {
+                        assert!(old.cancellation.load(Ordering::Acquire));
+                    }
+                    b.submit_text(&user, 2, "new request").unwrap();
+                    if let Some(old) = old.as_ref() {
+                        b.shared.complete(old, Ok(response(1, "late old page")));
+                    }
+                    assert_eq!(b.poll_reply(&user, 2), Ok(ReplyProgress::Pending));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn revoked_epoch_reaches_worker_cancellation_before_next_ui_poll() {
+        let _g = serial();
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        let prompt = b
+            .shared
+            .state
+            .lock()
+            .active
+            .as_ref()
+            .unwrap()
+            .summary
+            .as_ref()
+            .unwrap()
+            .prompt
+            .clone();
+        let cancel = AtomicBool::new(false);
+        let cancellation = RequestCancellation {
+            shared: &b.shared,
+            generation: b.shared.generation.load(Ordering::Acquire),
+            cancelled: &cancel,
+            summary: Some(&prompt),
+        };
+        assert!(!cancellation.is_cancelled());
+        browser.epoch.as_mut().unwrap().invalidate();
+        assert!(cancellation.is_cancelled());
+        let mut worker = WorkerMachine::<FixtureBackend>::new();
+        assert!(step(&mut worker, &b));
+        assert_eq!(GENERATES.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            b.poll_page_summary(&user, 1, &summary_context().0, &NoObjects, &mut browser),
+            Ok(ReplyProgress::Failed(ReplyError::Denied))
+        );
+    }
+
+    #[test]
+    fn revoked_revision_cannot_release_success_through_checked_queue() {
+        let (user, _) = same_owner_sessions();
+        let mut b = bridge(&user);
+        confirm(&mut b, &user);
+        let (request, mut browser) = summary_context();
+        b.submit_page_summary(&user, request.caller, 1, request, &NoObjects, &mut browser)
+            .unwrap();
+        let old = b.shared.state.lock().queued.take().unwrap();
+        b.shared.complete(&old, Ok(response(1, "revoked reply")));
+        let prompt = old.summary.as_ref().unwrap();
+        let generation = b.shared.generation.load(Ordering::Acquire);
+        // Destroying the owner also revokes all retained snapshot clones.
+        browser.epoch = None;
+        assert_eq!(
+            b.shared.poll_checked(&user, 1, Some((generation, prompt))),
+            Ok(ReplyProgress::Failed(ReplyError::Denied))
+        );
+        assert!(old.cancellation.load(Ordering::Acquire));
+    }
+
     #[test]
     fn summary_requires_terms_and_full_bar_identity_before_context_extraction() {
         let (user, _) = same_owner_sessions();
@@ -1532,6 +1707,7 @@ mod tests {
             shared: &shared,
             generation: old.generation,
             cancelled: &old.cancellation,
+            summary: old.summary.as_ref(),
         };
         b.shared.bind(&other).unwrap();
         assert!(cancellation.is_cancelled());
