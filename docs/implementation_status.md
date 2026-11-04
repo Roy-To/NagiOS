@@ -1,3 +1,57 @@
+## PR 90 final serial capture race candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated follow-up to protected candidate
+`781971b9626d3879b71f1a6cfd181f596334559b` (tree
+`5bf3b990a00ae4f1a10ff96739a93f38343b0675`). Public PR starting head remains
+`06e0600fd01b71cc30573b22b944f7900b890ab1`; public base/merge-base remains
+`87b7dea4061be2572526181ab559d63037f823d0`. No push, merge, or milestone PASS.
+
+Independent review found that the diagnostic reservation left a race: kernel
+and acceptance serial emitted during diagnostics was absent from the final
+log, allowing a false pre-guest firmware retry. Headless QEMU's file log was
+overwritten with a pre-diagnostic snapshot; GUI serial was not read during the
+QMP diagnostic exchange.
+
+Headless timeout now kills/reaps the file writer and appends diagnostics without
+replacing its final serial file. GUI timeout drains serial concurrently with
+QMP diagnostics, kills/reaps QEMU, then drains the bytes already queued before
+saving the complete collected serial and appending diagnostics. Nonblocking
+serial reads and a completion signal avoid allocating another timed grace
+period after the existing absolute deadline. A serial capture or final-log
+write error fails outside the firmware-timeout retry signature, since a partial
+log cannot establish that the kernel never started. The existing retry wrapper
+continues to classify from the persisted final log. Acceptance emitted after
+the guest waiting cutoff remains a timeout; it is preserved as evidence rather
+than retroactively reported as success.
+
+Linux production-caller regressions run both public headless/GUI entry points.
+They emit a 213,045-byte serial payload containing `Nagi Kernel started`, the
+acceptance marker, and a final tail either on query-status (including a stalled
+QMP reply) or immediately before the last primary diagnostic reply. All six
+late-serial cases require complete payload preservation, exactly one kernel
+and acceptance marker, retry suppression, original timeout bounds, and child
+reaping. Four existing no-late-serial cases retain positive firmware retry
+classification or reject stalled diagnostics as before. The local fixture
+requires /usr/bin/python3, loopback TCP, and /proc; it verifies host orchestration,
+not real Nagi guest acceptance.
+
+Validation with nightly-2025-08-01:
+- Focused caller tests: all ten cases passed (three Rust tests after splitting
+  the CLI and GUI race regressions for independent negative controls).
+- Negative controls: temporarily restoring only image.rs to 781971b made both
+  CLI and GUI race tests fail on missing final serial (only 511 log bytes).
+  The fix was restored before final validation.
+- `cargo test --locked -p nagi-cli --lib`: 366 passed, 2 ignored; includes
+  existing handshake/shutdown deadline, firmware retry, and disk-integrity tests.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Windows CI and real Nagi guest acceptance: NOT RUN for this follow-up.
+
+The earlier candidate/worktree remains unchanged. Generated dependency sources
+were reused locally without dependency/lockfile changes. Process kill/reap,
+nonblocking draining, filesystem I/O and OS scheduling retain normal overhead;
+no hard real-time guarantee is claimed.
+
 ## PR #90 timeout diagnostic reservation candidate — 2026-11-04
 
 Status: `PARTIAL`; isolated local candidate, no push or merge, no milestone PASS.
