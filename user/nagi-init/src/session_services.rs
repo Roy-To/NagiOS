@@ -598,6 +598,8 @@ impl<B: WorkerBackend> WorkerMachine<B> {
             } else {
                 Err(ReplyError::WorkerUnavailable)
             };
+            #[cfg(target_os = "nagi")]
+            guest::report_backend_result(&result);
             shared.complete(&job, result);
         }
         true
@@ -610,6 +612,39 @@ mod guest {
     use crate::model_service::{SessionModelError, SessionModelService};
     use alloc::boxed::Box;
     use nagi_model_manager::{CapabilityId, GenerationOptions, ModelRequest, RoleId};
+
+    // Fixed diagnostic codes only: never log prompts, generated text, Session
+    // identities, request IDs or model paths. A backend result is not evidence
+    // that the current UI generation accepted it; Shared still fences replies.
+    pub(super) fn report_backend_result(result: &Result<ModelResponse, ReplyError>) {
+        let code: &[u8] = match result {
+            Ok(_) => b"ready",
+            Err(ReplyError::Denied) => b"denied",
+            Err(ReplyError::WorkerUnavailable) => b"worker-unavailable",
+            Err(ReplyError::Model(ModelServiceError::ResourceLimit)) => b"resource-limit",
+            Err(ReplyError::Model(ModelServiceError::ModelUnavailable)) => b"model-unavailable",
+            Err(ReplyError::Model(ModelServiceError::ClockUnavailable)) => b"clock-unavailable",
+            Err(ReplyError::Model(ModelServiceError::Store(_))) => b"model-store",
+            Err(ReplyError::Model(ModelServiceError::Runtime(error))) => match error {
+                RuntimeError::ArtifactUnavailable => b"artifact-unavailable",
+                RuntimeError::IntegrityRequired => b"integrity-required",
+                RuntimeError::ArtifactMismatch => b"artifact-mismatch",
+                RuntimeError::IntegrityMismatch => b"integrity-mismatch",
+                RuntimeError::Cancelled => b"cancelled",
+                RuntimeError::Timeout => b"timeout",
+                RuntimeError::InvalidRequest => b"invalid-request",
+                RuntimeError::BackendUnavailable => b"backend-unavailable",
+                RuntimeError::LoadFailed => b"load-failed",
+                RuntimeError::InferenceFailed => b"inference-failed",
+                RuntimeError::UnloadFailed => b"unload-failed",
+                RuntimeError::SessionClosed => b"session-closed",
+                _ => b"runtime-error",
+            },
+        };
+        let _ = libnagi::console_write(b"Nagi session worker backend-result=");
+        let _ = libnagi::console_write(code);
+        let _ = libnagi::console_write(b"\r\n");
+    }
     impl From<SessionModelError> for ReplyError {
         fn from(value: SessionModelError) -> Self {
             match value {
@@ -693,6 +728,7 @@ mod guest {
     extern "C" fn nagi_session_services_worker_entry(argument: usize) {
         // Unique Box ownership transfers only after successful native creation.
         let start = unsafe { Box::from_raw(argument as *mut Start) };
+        let _ = libnagi::console_write(b"Nagi session worker started\r\n");
         let mut machine = WorkerMachine::<SessionModelService>::new();
         while machine.step(
             &start.shared,

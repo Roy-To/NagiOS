@@ -1,3 +1,42 @@
+## Local M30 Desktop/Files/worker integration — 2026-11-04
+
+Status: `PARTIAL`; formal M30 remains `BLOCKED`. Local integration source
+`b904ed5ba189d5cc0770ef54f0dca340a65e33cb` combines the isolated VirtIO
+failure diagnostics and published #48 head `5f59835858813b756ac4f09628166ddffb06953e`.
+Only this dedicated local branch is changed; no public PR/branch is updated.
+Its real native image builds with profile `native-provider-session-v1`, matching
+kernel memory feature and empty Model Store. Image SHA-256:
+`2cf5072bfe762a80249b3cb384ff3003cf2b3ce27036dcbf3c3ab025520fe8b9`.
+The session UI host suites pass 49/54/26 tests; release/profile/session tests
+pass 37. Counts overlap and do not establish runtime acceptance.
+
+On QEMU 8.2.2/q35/4 vCPU/8 GiB/OVMF, normal on-screen Owner creation/unlock,
+Files create/rename/Trash/restore and signed Files Search pass in one ordinary
+session. Search traverses both presented consent prompts and the real signed
+child, which exits and is reaped; the screen shows `Matches: 1` and `mthirtyb`.
+Nagi Bar rejects submission before explicit terms acknowledgement, then obtains
+a real worker failure reply. F4/relogin clears old input and requires terms
+again. This tests lock after a completed failed request, not active inference
+or late native cancellation. Evidence:
+`out/evidence/m30-session-1793769080431054839/`.
+
+After QEMU stopped, a copied disk restored the Owner, Files names and signed
+Search result without prompting again for the persisted Files grants. Evidence:
+`out/evidence/m30-session-1793769383032816507/`. Each run binds the pristine
+image/source and disk start/end hashes, commands, serial log, screenshots and
+input transcript. No same-image validator PASS is claimed; ObjectId/content
+hash collection and broader acceptance remain open.
+
+The pinned model is absent. The GitHub connector rejected retrieval of the
+existing 2,288,418,265-byte M20 artifact because its maximum is 536,870,912
+bytes; this was a tool size limit, not an inference result or permission denial.
+No network expansion or alternate model was used. Fixed-code guest worker
+start/result diagnostics are added to distinguish artifact/resource/runtime
+failures without logging prompts, output, identities, request IDs or paths.
+Worker host tests and actual target-leaf Clippy pass. Native guest validation of
+these new diagnostic lines follows separately. Ordinary inference, resident
+Servo/History/Undo/voice/stress and distribution review are still incomplete.
+
 ## PR #43 formal M30 and ordinary native guest investigation — 2026-11-04
 
 Status: formal M30 `BLOCKED`; no milestone is promoted. Baseline source
