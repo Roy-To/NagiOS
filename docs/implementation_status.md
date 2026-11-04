@@ -1,10 +1,80 @@
+## PR 90 GUI serial completion ordering candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local follow-up to protected public head
+`5ecef8e7d9d98861b62f1838db66aeaadb9c13cf` (tree
+`3f95febdad1db7da5a731538e5f535095c455228`). Source base/merge-base is
+`87b7dea4061be2572526181ab559d63037f823d0`. This new completion-ordering
+candidate has not been pushed or run in hosted CI; no merge is performed.
+
+**Published baseline, distinct from this new candidate:** 5ecef8e was published
+with approval. [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+completed successfully at that head: target_classification, ubuntu-host,
+windows-launcher, nagi-target and nagi-m20-inference all succeeded. Ubuntu
+reported 366 library tests passed / 2 ignored; target ran the existing M17,
+M18, M19, M22, M27, M29 and M30 acceptance steps, and M20 reported real Granite
+inference acceptance PASS. The separate host-foundations workflow 41826127505
+was skipped. The earlier failing run 41821444900 was at 0342cc7 and is historical.
+Neither the successful baseline CI nor the old failure establishes the result
+of this new completion-ordering change. No new milestone PASS is recorded.
+
+Full-tree review found a serial-reader race even in the successful baseline:
+a read returns WouldBlock, final kernel/acceptance bytes arrive, the caller
+kills/reaps QEMU and publishes finished=true, then the reader observes that
+flag and exits using its stale empty-read observation. A missing kernel marker
+could then falsely satisfy the existing pre-guest firmware timeout signature.
+
+The production reader loop is extracted into a shared private helper for a
+focused regression. It now acquires the completion flag *before* the socket
+read. An empty read made before completion cannot terminate capture: the loop
+must perform another nonblocking read after observing completion, drain every
+available chunk and only then accept an empty result. QMP's original absolute
+deadline, kill/wait ordering, serial persistence, partial-capture error handling,
+and the existing 1 ms polling interval are unchanged; no fresh timed grace
+period is introduced.
+
+The deterministic real-TCP regression pauses exactly after an actual WouldBlock
+but before it reaches the completion check. The coordinator writes a payload
+larger than the reader buffer containing kernel-start, acceptance and final-tail
+markers, confirms all bytes are queued with a non-consuming peek, publishes
+completion, then releases the paused read. Synchronous channels establish that
+order without scheduling sleeps. The writer socket remains open so success
+requires a bounded nonblocking drain rather than EOF. The test checks exact byte
+preservation, including the kernel marker. Existing production-caller tests
+continue to verify final-log retry classification, the full timeout budget and
+real child termination/reaping; their assertions and budgets are unchanged.
+
+Validation with nightly-2025-08-01:
+- The extracted baseline loop retained the original 5ecef8e ordering. The new
+  deterministic test failed 10/10 executions on missing final serial (zero
+  captured bytes), proving the previously static review report by execution.
+- After fixing the ordering, the same exact-payload regression passed 100/100
+  executions, at most four concurrently.
+- `cargo test --locked -p nagi-cli --lib`: 367 passed / 2 ignored, including all
+  previous GUI/CLI late-serial, firmware retry, handshake/shutdown deadline and
+  child-reap regressions.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust file rustfmt and git diff check: passed.
+- Hosted Windows/target/inference CI for this new candidate: NOT RUN.
+
+The original public-CI startup failure's OS cause and the separately observed
+one-off QMP connection reset remain unconfirmed; this deterministic completion
+race is a separate reproduced defect. Previous candidates remain protected.
+
+## Historical candidate preparation records
+
+The sections below retain observations made before those candidates were
+published. Statements about an unpushed candidate or pending hosted CI describe
+that earlier preparation point, not the current published 5ecef8e baseline.
+The published CI result and the newer unpushed completion-ordering candidate
+are distinguished above.
+
 ## PR 90 public CI fixture startup failure candidate — 2026-11-04
 
 Status: `PARTIAL`; isolated test-only follow-up to public PR 90 head
 `0342cc71c1fb1835bf8ca5992eb6d02c5c7620b2` (tree
-`6068b35371e41bb91256187596cd1f6b2d61d578`). Base remains
-`87b7dea4061be2572526181ab559d63037f823d0`. This candidate is not pushed;
-no approval, merge, workflow rerun, or other external mutation was performed.
+`6068b35371e41bb91256187596cd1f6b2d61d578`). At preparation time the base was
+`87b7dea4061be2572526181ab559d63037f823d0` and this candidate was not pushed;
+no approval, merge, workflow rerun, or other external mutation had been performed.
 
 Public [Nagi CI run 41821444900](https://github.com/Roy-To/NagiOS/actions/runs/41821444900)
 completed with failure at the above head (checkout merge 2421aa8a):
@@ -47,9 +117,10 @@ Candidate validation with nightly-2025-08-01:
 - `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
 - Changed-file rustfmt and git diff check: passed.
 
-Public CI has not run this follow-up. Review and an authorized publication/CI
-run are needed to establish whether it resolves the observed hosted startup
-failure. Public 0342cc7 and both previous candidate worktrees remain protected.
+At preparation time public CI had not run this follow-up. Subsequent approved
+publication as 5ecef8e and its successful CI are recorded in the current entry
+above. That success does not establish the original startup failure's OS cause.
+The earlier candidate worktrees remain protected.
 
 ## PR 90 final serial capture race candidate — 2026-11-04
 

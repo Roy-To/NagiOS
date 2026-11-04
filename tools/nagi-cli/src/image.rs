@@ -3316,21 +3316,7 @@ fn capture_gui_timeout_and_reap(
             stream
                 .set_nonblocking(true)
                 .map_err(|error| format!("cannot configure final GUI serial capture: {error}"))?;
-            let mut buffer = [0_u8; 4096];
-            loop {
-                match stream.read(&mut buffer) {
-                    Ok(0) => return Ok(()),
-                    Ok(count) => serial.extend_from_slice(&buffer[..count]),
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        if finished.load(Ordering::Acquire) {
-                            return Ok(());
-                        }
-                        thread::sleep(Duration::from_millis(1));
-                    }
-                    Err(error) => return Err(format!("cannot capture final GUI serial: {error}")),
-                }
-            }
+            read_gui_serial_until_finished(stream, serial, &finished)
         });
         let diagnostics = capture_qmp_timeout_diagnostics_until(qmp, deadline);
         let _ = child.kill();
@@ -3344,6 +3330,33 @@ fn capture_gui_timeout_and_reap(
         };
         (diagnostics, captured)
     })
+}
+
+fn read_gui_serial_until_finished(
+    stream: &mut impl Read,
+    serial: &mut Vec<u8>,
+    finished: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        // Completion must precede the read that establishes the socket is
+        // empty. A WouldBlock from before completion is a stale observation:
+        // the producer may have queued its final serial before being reaped.
+        let producer_finished = finished.load(Ordering::Acquire);
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(count) => serial.extend_from_slice(&buffer[..count]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if producer_finished {
+                    return Ok(());
+                }
+                thread::sleep(Duration::from_millis(1));
+            }
+            Err(error) => return Err(format!("cannot capture final GUI serial: {error}")),
+        }
+    }
 }
 
 fn append_qmp_timeout_diagnostics(path: &Path, diagnostics: &[String]) -> Result<(), String> {
@@ -3600,6 +3613,101 @@ mod tests {
         REFERENCE_DISK_SECTORS, ROOT_ENTRY_COUNT, ROOT_OFFSET, SECTOR_SIZE, USER_DATA_START_LBA,
     };
     use super::{send_qmp_events, QmpEventStage};
+
+    #[test]
+    fn gui_serial_completion_requires_a_read_after_observing_finished() {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+
+        struct PausedEmptyRead {
+            stream: TcpStream,
+            empty: mpsc::SyncSender<()>,
+            resume: mpsc::Receiver<()>,
+            paused: bool,
+        }
+        impl Read for PausedEmptyRead {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let result = self.stream.read(buffer);
+                if !self.paused
+                    && result
+                        .as_ref()
+                        .is_err_and(|error| error.kind() == std::io::ErrorKind::WouldBlock)
+                {
+                    self.paused = true;
+                    self.empty
+                        .send(())
+                        .expect("signal actual empty socket read");
+                    self.resume
+                        .recv_timeout(Duration::from_secs(5))
+                        .expect("release empty read after completion");
+                }
+                result
+            }
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let mut writer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (socket, _) = listener.accept().unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let observer = socket.try_clone().unwrap();
+        let (empty_tx, empty_rx) = mpsc::sync_channel(0);
+        let (resume_tx, resume_rx) = mpsc::sync_channel(0);
+        let mut reader = PausedEmptyRead {
+            stream: socket,
+            empty: empty_tx,
+            resume: resume_rx,
+            paused: false,
+        };
+        let finished = AtomicBool::new(false);
+        let payload = "queued final serial\n".repeat(512)
+            + "Nagi Kernel started\nnever accepted\nfinal tail\n";
+        let captured = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let mut serial = Vec::new();
+                super::read_gui_serial_until_finished(&mut reader, &mut serial, &finished).unwrap();
+                serial
+            });
+            empty_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("reader must observe WouldBlock before producer writes");
+            writer.write_all(payload.as_bytes()).unwrap();
+            // Confirm the complete payload is queued without consuming it.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut peek = vec![0; payload.len()];
+            loop {
+                match observer.peek(&mut peek) {
+                    Ok(count) if count == payload.len() => break,
+                    Ok(_) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(error) => panic!("cannot inspect queued final serial: {error}"),
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "final payload did not reach reader socket"
+                );
+                std::thread::yield_now();
+            }
+            // The real caller publishes completion after killing/reaping QEMU.
+            // Keep the socket open to require a bounded nonblocking drain,
+            // rather than relying on EOF or a new timeout to release the reader.
+            finished.store(true, Ordering::Release);
+            resume_tx.send(()).unwrap();
+            worker.join().unwrap()
+        });
+        assert!(
+            captured == payload.as_bytes(),
+            "completion must not validate the stale WouldBlock read: captured {} of {} bytes",
+            captured.len(),
+            payload.len()
+        );
+        assert!(String::from_utf8(captured)
+            .unwrap()
+            .contains("Nagi Kernel started"));
+    }
 
     #[test]
     fn m20_fixture_filename_uses_the_model_manager_artifact_id_contract() {
