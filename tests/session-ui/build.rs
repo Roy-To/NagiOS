@@ -110,6 +110,31 @@ fn main() {
     if is_desktop_host {
         println!("cargo:rustc-cfg=nagi_desktop_host_test");
     }
+    if is_desktop_host {
+        // Compile the exact modal loop, without launching a signed guest child
+        // or substituting a host implementation of its authority boundary.
+        let path = path_guard::canonical_file_within_root(
+            &repo_root,
+            &repo_root.join("user/nagi-init/src/m19_files_client.rs"),
+            "Files consent wait source",
+        )
+        .expect("validate Files consent wait source");
+        println!("cargo:rerun-if-changed={}", path.display());
+        let source = fs::read_to_string(path).expect("read Files consent wait source");
+        let start = "fn wait_for_answer(";
+        let end = "\nfn abort_and_reap(";
+        assert_eq!(source.matches(start).count(), 1);
+        assert_eq!(source.matches(end).count(), 1);
+        let function = source
+            .split_once(start)
+            .unwrap()
+            .1
+            .split_once(end)
+            .unwrap()
+            .0;
+        let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("files_consent_wait.rs");
+        fs::write(output, format!("{start}{function}")).expect("write exact Files consent wait");
+    }
     let source_path = path_guard::canonical_file_within_root(
         &repo_root,
         &repo_root.join("user/nagi-init/src/session_services.rs"),

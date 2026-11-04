@@ -30,3 +30,22 @@ pub mod session_services;
 pub mod supervisor;
 #[path = "../../../../user/nagi-init/src/ui.rs"]
 pub mod ui;
+
+#[cfg(all(test, feature = "consent-dialog"))]
+pub(crate) mod files_consent_wait {
+    // Retained to compile the historical pause-only loop for red/green checks.
+    use crate::desktop::{Desktop, UserDataVolume as PromptVolume};
+    #[allow(unused_imports)]
+    use core::arch::asm;
+    use libnagi::launch::GrantCheck;
+    use libnagi::{display_present, input_read, InputEvent};
+    include!(concat!(env!("OUT_DIR"), "/files_consent_wait.rs"));
+    pub(crate) fn run(
+        desktop: &mut Desktop,
+        surface: &mut [u32],
+        volume: &mut PromptVolume,
+        user: &libnagi::security::Session,
+    ) -> Option<(libnagi::launch::ConsentRequest, GrantCheck)> {
+        wait_for_answer(desktop, 1, 2, surface, volume, user)
+    }
+}

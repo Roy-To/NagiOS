@@ -20,3 +20,14 @@ real `Shared` state, as well as Desktop lock/relogin rendering, consent-modal
 lock-precedence, and close/reopen while a scripted reply drains through the real
 Shared queue. The scripted backend does not spawn the Nagi worker. No guest
 result or inference acceptance is claimed.
+
+The Files consent regression compiles `wait_for_answer` verbatim from
+`m19_files_client.rs` into the host harness (the build script validates the
+source path and unique function boundaries). It uses finite input, display and
+yield syscall scripts, real Desktop/modal handlers and the real Shared reply
+queue. It covers no input, continuous modal input, reply collection, pending
+cancel, lock/session loss, absent adapter and failed redraw. A locally created
+unregistered request deliberately fails closed with `NotLive`; the tests neither
+launch a signed child nor manufacture a granted Files permission. The scripted
+reply is ready before the loop starts. Yield counts verify scheduler handoff
+calls, not execution of the Nagi worker or native inference.

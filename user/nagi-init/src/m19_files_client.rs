@@ -1,7 +1,5 @@
 //! One-shot, signed first-party Files client route (ADR 0069).
 
-use core::arch::asm;
-
 use libnagi::launch::{GrantCheck, LaunchPlacement};
 use libnagi::storage::{SyscallBlockDevice, Vfs};
 use libnagi::{channel_send, display_present, input_read, ChannelSendRequest, InputEvent};
@@ -177,9 +175,21 @@ fn wait_for_answer(
         if desktop.signed_in_session() != Some(*user) {
             return None;
         }
+        // The outer Desktop loop is suspended during this modal wait. Keep
+        // its bounded model orchestration alive without reentering Files or
+        // routing modal input to the Bar. No Supervisor lock is held here.
+        #[cfg(feature = "m20-model-service")]
+        if desktop.model_service_step(|| {}) {
+            desktop.render(surface);
+            if !display_present(display_capability) {
+                return None;
+            }
+        }
+        // Always hand off, even without an adapter or with continuous input.
+        // A CPU pause does not schedule the cooperative model worker.
+        let _ = libnagi::thread_yield();
         let mut event = InputEvent::default();
         if !input_read(input_capability, &mut event) {
-            unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
             continue;
         }
         let _ = desktop.handle_event(event, volume);

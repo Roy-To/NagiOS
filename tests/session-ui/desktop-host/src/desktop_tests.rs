@@ -516,3 +516,188 @@ fn generated_control_characters_render_as_safe_glyphs() {
         "head??[2J?日本語"
     );
 }
+
+// Exact Files wait loop + actual Desktop/consent UI and Shared queue. The reply
+// is deliberately scripted orchestration data; this does not run inference.
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn pending_model_with_consent() -> (Desktop, UserDataVolume, Vec<u32>) {
+    use libnagi::launch::{AppManifest, LaunchPlacement, LaunchRegistry};
+    use nagi_model::{AppSessionId, NodeId};
+    libnagi::set_readiness(true);
+    let (mut desktop, mut volume, surface, _) = existing_account(Locale::EnUs);
+    desktop.model_services = Some(bar_adapter::Adapter::new_host_shared_session(42));
+    unlock(&mut desktop, &mut volume);
+    desktop.bar.toggle();
+    desktop.model_service_step(|| {});
+    assert!(desktop.bar.controller.accept_request());
+    desktop.model_service_step(|| {});
+    assert!(desktop
+        .bar
+        .controller
+        .set_input("pending during Files consent"));
+    assert!(desktop.bar.controller.request_submit());
+    desktop.model_service_step(|| {});
+    assert_eq!(desktop.bar.controller.status(), session_ui::Status::Waiting);
+    let manifest =
+        AppManifest::from_declaration(b"org.nagi.host-modal", [b"test.display".as_slice()])
+            .unwrap();
+    let app = manifest.app_id();
+    let mut registry = LaunchRegistry::new();
+    registry.register_manifest(manifest).unwrap();
+    let placement = LaunchPlacement {
+        app_session_id: AppSessionId(0x601),
+        node_id: NodeId(0x602),
+        workspace_id: None,
+    };
+    registry.record_launch(7, app, placement).unwrap();
+    let request = registry
+        .request_consent(app, placement.app_session_id, b"test.display")
+        .unwrap();
+    // This registry is deliberately separate from Supervisor: answering it
+    // fails closed with NotLive. No grant or signed launch is fabricated.
+    desktop.open_consent(crate::consent_dialog::ConsentDialog::new(request));
+    desktop.arm_consent();
+    (desktop, volume, surface)
+}
+
+#[test]
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn files_modal_drains_reply_and_yields_with_idle_or_continuous_input() {
+    for idle in [true, false] {
+        let (mut desktop, mut volume, mut surface) = pending_model_with_consent();
+        assert!(desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_test_complete_request());
+        let user = desktop.signed_in_session().unwrap();
+        let ignored = key(61); // F3 stays captured by the modal, never toggles Bar.
+        let mut input = vec![if idle { None } else { Some(ignored) }; 3];
+        input.push(Some(key(libnagi::INPUT_KEY_ESCAPE)));
+        libnagi::script_modal(input, false);
+        let answer = crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user);
+        assert_eq!(answer.unwrap().1, libnagi::launch::GrantCheck::NotLive);
+        assert_eq!(libnagi::modal_counts().0, 4);
+        assert_eq!(libnagi::modal_counts().1, 4);
+        assert_eq!(
+            desktop.bar.controller.status(),
+            session_ui::Status::Complete
+        );
+        assert_eq!(
+            desktop.bar.controller.output(),
+            "scripted close/reopen reply"
+        );
+        assert!(desktop.bar.open);
+        assert_eq!(desktop.signed_in_session(), Some(user));
+        assert!(
+            !desktop
+                .model_services
+                .as_ref()
+                .unwrap()
+                .host_shared_snapshot()
+                .unwrap()
+                .has_reply
+        );
+    }
+}
+
+#[test]
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn files_modal_lock_cancels_pending_work_and_aborts_without_answer() {
+    let (mut desktop, mut volume, mut surface) = pending_model_with_consent();
+    let user = desktop.signed_in_session().unwrap();
+    let before = desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap();
+    libnagi::script_modal(vec![None, None, Some(key(62))], false);
+    assert!(
+        crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user).is_none()
+    );
+    assert_eq!(libnagi::modal_counts().0, 3);
+    let after = desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_shared_snapshot()
+        .unwrap();
+    assert!(after.generation > before.generation);
+    assert_eq!(after.user_token, None);
+    assert!(!after.queued && !after.has_reply);
+    assert!(desktop.session.is_none());
+    assert!(desktop.consent.is_none());
+    assert!(desktop.take_consent_decision().is_none());
+    assert_eq!(desktop.bar.controller.output(), "");
+}
+
+#[test]
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn files_modal_redraw_failure_aborts_before_reading_or_granting() {
+    let (mut desktop, mut volume, mut surface) = pending_model_with_consent();
+    assert!(desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_test_complete_request());
+    let user = desktop.signed_in_session().unwrap();
+    libnagi::script_modal(vec![Some(key(62))], true);
+    assert!(
+        crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user).is_none()
+    );
+    assert_eq!(libnagi::modal_counts(), (0, 0, 1));
+    assert!(desktop.consent.is_some());
+    assert!(desktop.take_consent_decision().is_none());
+}
+
+#[test]
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn files_modal_without_adapter_still_yields_and_handles_lock() {
+    let (mut desktop, mut volume, mut surface) = pending_model_with_consent();
+    desktop.model_services = None;
+    let user = desktop.signed_in_session().unwrap();
+    libnagi::script_modal(vec![None, Some(key(62))], false);
+    assert!(
+        crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user).is_none()
+    );
+    assert_eq!(libnagi::modal_counts().0, 2);
+}
+
+#[test]
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+fn files_modal_processes_cancel_and_discards_completed_reply() {
+    let (mut desktop, mut volume, mut surface) = pending_model_with_consent();
+    desktop.bar.cancel_requested = true;
+    assert!(desktop
+        .model_services
+        .as_ref()
+        .unwrap()
+        .host_test_complete_request());
+    let user = desktop.signed_in_session().unwrap();
+    libnagi::script_modal(vec![None, Some(key(libnagi::INPUT_KEY_ESCAPE))], false);
+    let answer = crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user);
+    assert_eq!(answer.unwrap().1, libnagi::launch::GrantCheck::NotLive);
+    assert_eq!(
+        desktop.bar.controller.status(),
+        session_ui::Status::Cancelled
+    );
+    assert_eq!(desktop.bar.controller.output(), "");
+    assert!(!desktop.bar.cancel_requested);
+    assert_eq!(libnagi::modal_counts().0, 2);
+}
+
+#[test]
+#[cfg(feature = "consent-dialog")]
+fn files_modal_rejects_lost_session_before_service_or_input() {
+    libnagi::set_readiness(true);
+    let (mut desktop, mut volume, mut surface, _) = existing_account(Locale::EnUs);
+    unlock(&mut desktop, &mut volume);
+    let user = desktop.signed_in_session().unwrap();
+    desktop.session = None;
+    libnagi::script_modal(vec![], false);
+    assert!(
+        crate::files_consent_wait::run(&mut desktop, &mut surface, &mut volume, &user).is_none()
+    );
+    assert_eq!(libnagi::modal_counts(), (0, 0, 0));
+}
