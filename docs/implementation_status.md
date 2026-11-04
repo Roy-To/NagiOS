@@ -10862,3 +10862,67 @@ model/native inference, operator terms acknowledgement, final production ELF
 link, publication/push/merge, independent review of this new candidate, or
 formal M30 acceptance is claimed. Private product decisions remain unverified;
 no private ledger was read. Public 0.1 specifications govern this partial work.
+
+
+## Page summary Japanese glyph and pixel regression fix (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent static review of 1cba265
+identified missing bootstrap-font glyphs for the new Japanese summary button
+and unavailable message. The parent 1cba265ae80cfdae7a7e9a51c5ca81fe92fe6529/tree
+d55301b1d73d98be65d25b4bbfd6226c934a63e6, its branch, Space transfer and evidence
+remain unchanged. This fix is isolated on
+`codex/m30-summary-ja-font-20261104` in `/workspace/NagiOS-m30-summary-ja-font`.
+The independent reviewer's broader host suite stopped before compilation on
+uncached libc0.2.191; no independent execution result is inherited here.
+
+Auditing every actual desktop.ai localization and desktop.lock found 63 missing
+Japanese scalars and five missing English ASCII characters. The hand-authored
+7x7 bootstrap subset now covers those surrounding labels and states as well as
+ページ要約 and ページ要約を利用できません. Japanese advance remains8 pixels,
+Latin advance7 and height7; no layout, localization text or authority behavior
+changes. Complete UTF-8 scalar matching also handles the fullwidth parentheses
+without rendering three replacement cells. ASCII q/v/parentheses/slash are added
+to the existing fixed table. シ and voiced ジ retain the same clear base stroke
+with distinct dakuten pixels; ペ has a hollow handakuten. Unknown glyphs keep
+the visible replacement. This is first-party Bar coverage, not a general CJK
+font or arbitrary generated-text/shaping completeness claim. No third-party
+font acquisition or new dependency is introduced.
+
+New regressions inspect actual pixels from production font.rs, not merely frame
+hashes: exact seven-row goldens for the summary/unavailable strings, foreground
+and background cells in the real Panel, spacing and control bounds, voicing
+marks, all Bar localization characters in both locales, clipping/guard pixels,
+representative unchanged glyphs and preserved unsupported-character fallback.
+The real Panel pixel probes retain unaccepted terms and assert no acknowledgement
+or submit events. Rendered bootstrap glyph previews were inspected separately;
+those synthetic diagnostic images are not guest screenshots or release evidence.
+
+`tests/session-ui/font-host.rs` compiles the exact production font with only the
+public 320x200 u32 surface geometry. It is an x86-64 dependency-free probe using
+an already installed rustc, so a reviewer does not need to resolve libc/model
+packages to verify this bug:
+
+```sh
+rustc --edition 2021 --test tests/session-ui/font-host.rs -o /tmp/nagi-font-tests
+/tmp/nagi-font-tests
+```
+
+The same final six raster tests against exact parent font.rs reproduce four
+failures (two unaffected controls pass); candidate font.rs passes all six.
+Producer UI68 (including six font probes and two real Panel pixel cases),
+existing Desktop73 and login26 PASS offline. The UI script's formatting and
+feature graph checks PASS. UI and font-only host all-target Clippy PASS with
+warnings denied. The exact no_std font leaf also passes Nagi target Clippy
+with -Zbuild-std=core and warnings denied, through an external dependency-free
+manifest pointing at this checked-in probe. It does not compile/link the whole
+Desktop. Exact full UI target Clippy remains BLOCKED before Rust compilation by
+uncached pinned libc0.2.191 under --offline; no download, version substitution,
+root-registry access or denied-operation retry is used.
+
+Only font source, test plumbing/pixel regressions and this status record change.
+Session/caller authorization, terms, budgets/lease, cancellation and late-reply
+fences remain untouched. Normal live Albert/OS-caller/revision integration,
+page/policy ABA and guest execution remain unproven. No VM/model/native inference,
+operator consent, production ELF link, new independent review, push/merge or
+formal M30 PASS is claimed. Existing private-product decisions remain unverified;
+no private ledger is read.

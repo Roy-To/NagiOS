@@ -857,3 +857,77 @@ fn bar_catalogs_remain_key_value_rows_after_windows_checkout() {
         }
     }
 }
+
+#[test]
+fn japanese_summary_panel_has_exact_label_and_status_pixels_without_accepting_terms() {
+    use nagi_localization::{text, Locale};
+    use nagi_ui::{color, ColorRole, ThemeMode};
+    let (session, _) = sessions();
+    let mut service = FakeServices::default();
+    let mut panel = crate::bar_panel::Panel::new();
+    panel.controller.sign_in(&session, &mut service);
+    assert!(panel
+        .controller
+        .offer_terms("Model fixture", "pinned reference"));
+    panel
+        .controller
+        .reject_page_summary(SubmitError::Context(nagi_ai::PageSummaryError::Context(
+            nagi_ai::BrowserContextError::ApiUnavailable,
+        )));
+    panel.toggle();
+    let foreground = color(ThemeMode::Light, ColorRole::TextPrimary).to_pixel();
+    let background = color(ThemeMode::Light, ColorRole::Surface).to_pixel();
+    assert_ne!(foreground, background);
+    let mut surface = vec![0; (libnagi::SURFACE_WIDTH * libnagi::SURFACE_HEIGHT) as usize];
+    panel.render(&mut crate::ui::Painter::new(&mut surface), Locale::JaJp);
+    let label = text(Locale::JaJp, "desktop.ai.summarize_page");
+    let status = text(Locale::JaJp, "desktop.ai.status.summary_unavailable");
+    crate::font_tests::assert_summary_pixels(&surface, 193, 71, label, foreground, background);
+    crate::font_tests::assert_summary_pixels(&surface, 25, 88, status, foreground, background);
+    assert!(
+        193 + label.chars().count() * 8
+            <= (crate::bar_panel::SUMMARY.x + crate::bar_panel::SUMMARY.width - 4) as usize
+    );
+    assert!(25 + status.chars().count() * 8 <= 295);
+    assert!(!panel.controller.terms().unwrap().acknowledged());
+    assert_eq!(service.events, vec![Event::SignedIn(session)]);
+}
+
+#[test]
+fn english_unavailable_panel_renders_v_pixels_instead_of_a_replacement() {
+    use nagi_localization::{text, Locale};
+    use nagi_ui::{color, ColorRole, ThemeMode};
+    let (session, _) = sessions();
+    let mut service = FakeServices::default();
+    let mut panel = crate::bar_panel::Panel::new();
+    panel.controller.sign_in(&session, &mut service);
+    panel
+        .controller
+        .reject_page_summary(SubmitError::Context(nagi_ai::PageSummaryError::Context(
+            nagi_ai::BrowserContextError::ApiUnavailable,
+        )));
+    panel.toggle();
+    let foreground = color(ThemeMode::Light, ColorRole::TextPrimary).to_pixel();
+    let background = color(ThemeMode::Light, ColorRole::Surface).to_pixel();
+    assert_ne!(foreground, background);
+    let mut surface = vec![0; (libnagi::SURFACE_WIDTH * libnagi::SURFACE_HEIGHT) as usize];
+    panel.render(&mut crate::ui::Painter::new(&mut surface), Locale::EnUs);
+    let text = text(Locale::EnUs, "desktop.ai.status.summary_unavailable");
+    let x = 25 + text.find('v').unwrap() * 7;
+    for (row, bits) in [0x00u8, 0x22, 0x22, 0x22, 0x22, 0x14, 0x08]
+        .into_iter()
+        .enumerate()
+    {
+        for column in 0..7 {
+            let expected = if column < 6 && bits & (1 << (5 - column)) != 0 {
+                foreground
+            } else {
+                background
+            };
+            assert_eq!(
+                surface[(88 + row) * libnagi::SURFACE_WIDTH as usize + x + column],
+                expected
+            );
+        }
+    }
+}

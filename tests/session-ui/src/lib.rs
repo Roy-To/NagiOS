@@ -24,3 +24,6 @@ pub mod ui;
 
 #[cfg(test)]
 mod summary_tests;
+
+#[cfg(test)]
+mod font_tests;
