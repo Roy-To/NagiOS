@@ -7,9 +7,12 @@ import socket
 import sys
 import time
 
-root = Path(__file__).parent
-(root / "pid").write_text(str(os.getpid()))
 args = sys.argv[1:]
+# The first firmware drive is unique to the test case. Keep writable evidence
+# beside that drive so concurrent callers share only this immutable script.
+firmware = args[args.index("-drive") + 1]
+root = Path(firmware.split("file=", 1)[1].replace(",,", ",")).parent
+(root / "pid").write_text(str(os.getpid()))
 qmp = args[args.index("-qmp") + 1]
 serial = args[args.index("-serial") + 1]
 
