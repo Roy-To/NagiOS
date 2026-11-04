@@ -3775,81 +3775,108 @@ mod tests {
         use std::net::TcpListener;
         use std::process::{Command, Stdio};
 
-        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
-        let qmp_port = listener.local_addr().expect("fake QMP address").port();
-        drop(listener);
+        // Exercise shutdown directly after the protocol setup is acknowledged.
+        // Startup/acceptance scheduling must not choose the branch under test;
+        // the separate handshake regression covers the earlier lifecycle stage.
+        for already_expired in [false, true] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+            let qmp_port = listener.local_addr().expect("fake QMP address").port();
+            drop(listener);
+            let serial_log = unique_persistent_disk_path("qemu-host-shutdown-deadline");
+            let serial = b"Nagi fake acceptance\n";
+            std::fs::write(&serial_log, serial).expect("write accepted serial log");
+            let executable = std::env::current_exe().expect("current test executable");
+            let mut child = Command::new(executable)
+                .args([
+                    "--exact",
+                    "image::tests::qemu_host_deadline_fixture_child",
+                    "--ignored",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+                .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+                .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "0")
+                // A broken renewed deadline must fail after a bounded fixture
+                // exit, rather than leaving the test waiting for 30 seconds.
+                .env("NAGI_QEMU_DEADLINE_HOLD_QUIT_MS", "3000")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn fake QMP child");
 
-        let serial_log = unique_persistent_disk_path("qemu-host-shutdown-deadline");
-        std::fs::File::create(&serial_log).expect("create fake QEMU serial log");
-        let timeout = Duration::from_secs(2);
-        let qemu_started_at = Instant::now();
-        let deadline = qemu_started_at + timeout;
-        let executable = std::env::current_exe().expect("current test executable");
-        let mut child = Command::new(executable)
-            .args([
-                "--exact",
-                "image::tests::qemu_host_deadline_fixture_child",
-                "--ignored",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
-            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
-            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "200")
-            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_PATH", &serial_log)
-            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_DELAY_MS", "1400")
-            .env("NAGI_QEMU_DEADLINE_HOLD_QUIT", "1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn fake QMP child");
+            // This is only a bounded readiness guard, outside the tested
+            // shutdown budget. No production runner timeout is changed.
+            let setup_deadline = Instant::now() + Duration::from_secs(10);
+            let setup = (|| {
+                let mut stream = super::connect_guest_tcp(
+                    &mut child,
+                    qmp_port,
+                    setup_deadline,
+                    "fake QMP endpoint",
+                )?;
+                let greeting = read_qmp_line(&mut stream, setup_deadline)?;
+                super::validate_qmp_greeting(&greeting)?;
+                super::qmp_exchange(
+                    &mut stream,
+                    r#"{"execute":"qmp_capabilities"}"#,
+                    setup_deadline,
+                )?;
+                Ok::<_, String>(stream)
+            })();
+            let mut stream = match setup {
+                Ok(stream) => stream,
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&serial_log);
+                    panic!("fake QMP setup failed before shutdown test: {error}");
+                }
+            };
 
-        let result = super::run_qemu_after_spawn(
-            &mut child,
-            qmp_port,
-            &serial_log,
-            &["Nagi fake acceptance"],
-            deadline,
-            timeout,
-        );
-        let elapsed = qemu_started_at.elapsed();
-        println!(
-            "fake QMP shutdown timeout elapsed_ms={}",
-            elapsed.as_millis()
-        );
-        let status_after = child
-            .try_wait()
-            .expect("poll fake QMP child after shutdown timeout");
-        if status_after.is_none() {
-            let _ = child.kill();
-            let _ = child.wait();
+            let timeout = if already_expired {
+                Duration::ZERO
+            } else {
+                Duration::from_secs(2)
+            };
+            let started_at = Instant::now();
+            let deadline = started_at + timeout;
+            let result =
+                quit_qemu_after_acceptance(&mut child, &mut stream, &serial_log, serial, deadline);
+            let elapsed = started_at.elapsed();
+            println!(
+                "fake QMP shutdown already_expired={already_expired} elapsed_ms={}",
+                elapsed.as_millis()
+            );
+            let status_after = child.try_wait().expect("poll child after shutdown timeout");
+            if status_after.is_none() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            let persisted = std::fs::read(&serial_log).expect("read shutdown serial log");
+            std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
+
+            let error = result.expect_err("QMP shutdown must not get a fresh timeout");
+            assert!(
+                error.contains("QEMU host deadline expired"),
+                "shutdown timeout classification should be preserved: {error}"
+            );
+            assert!(
+                status_after.is_some(),
+                "the shutdown timeout path must terminate and reap its fake QEMU child"
+            );
+            assert!(
+                !status_after.expect("asserted reaped status").success(),
+                "the fake child must be killed before its bounded clean exit"
+            );
+            assert!(
+                elapsed < timeout + Duration::from_millis(500),
+                "QMP shutdown time was renewed: elapsed={elapsed:?}, budget={timeout:?}"
+            );
+            assert!(elapsed >= timeout, "timeout must include QMP shutdown");
+            assert_eq!(persisted, serial);
         }
-        let serial = std::fs::read_to_string(&serial_log).expect("read shutdown serial log");
-        std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
-
-        let error = result.expect_err("QMP shutdown must not get a fresh timeout");
-        assert!(
-            error.contains("QEMU host deadline expired"),
-            "shutdown timeout classification should be preserved: {error}"
-        );
-        assert!(
-            status_after.is_some(),
-            "the shutdown timeout path must terminate and reap the fake QEMU child"
-        );
-        assert!(
-            !status_after
-                .as_ref()
-                .expect("asserted reaped status")
-                .success(),
-            "the fake child should be killed when QMP quit exceeds the host deadline"
-        );
-        assert!(
-            elapsed < timeout + Duration::from_millis(500),
-            "QMP shutdown time was renewed after startup: elapsed={elapsed:?}, budget={timeout:?}"
-        );
-        assert!(elapsed >= timeout, "timeout must include QMP shutdown");
-        assert!(serial.contains("Nagi fake acceptance"));
     }
 
     #[test]
@@ -4195,11 +4222,11 @@ mod tests {
                 Ok(_) => {}
                 Err(_) => return,
             }
-            if request.contains("\"execute\":\"quit\"")
-                && std::env::var_os("NAGI_QEMU_DEADLINE_HOLD_QUIT").is_some()
-            {
-                loop {
-                    std::thread::sleep(Duration::from_secs(60));
+            if request.contains("\"execute\":\"quit\"") {
+                if let Ok(delay) = std::env::var("NAGI_QEMU_DEADLINE_HOLD_QUIT_MS") {
+                    let delay = delay.parse::<u64>().expect("valid fake QMP quit hold");
+                    std::thread::sleep(Duration::from_millis(delay));
+                    return;
                 }
             }
             writer

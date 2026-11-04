@@ -1,3 +1,29 @@
+## QMP shutdown deadline regression follow-up — 2026-11-04
+
+PR #90 head `9d13cd70` CI run `41759758392` failed the Windows shutdown
+regression: at 2,003 ms the fixed 200 ms handshake plus 1,400 ms acceptance
+schedule had not reached acceptance, so the runner correctly returned an
+acceptance timeout rather than the shutdown timeout expected by the test.
+Ubuntu's real diskless QMP check passed on that head.
+
+The follow-up changes tests only. It completes and acknowledges protocol setup
+under a bounded readiness guard, then directly tests the shutdown helper with
+an absolute two-second deadline and an already-expired deadline. The existing
+two-second handshake/lifecycle regression remains unchanged. The shutdown
+budget, 500 ms upper slack, error classification, unsuccessful child status,
+process reaping and serial preservation checks remain enforced. The fixture
+now exits cleanly after a bounded three-second quit hold, so a broken deadline
+renewal fails promptly rather than waiting for an unrelated long timeout.
+
+Pinned local checks passed: the shutdown boundary cases, full default-parallel
+bootstrap suite (same CLI source: 362 library tests / 2 ignored, 33 CLI tests),
+explicit real diskless QMP 1/1, all-target Clippy with warnings denied and
+changed-file formatting. A temporary negative control renewing the shutdown
+deadline to 30 seconds failed as intended after 3,040 ms by returning a false
+success. The mutation was restored and production source was compared unchanged
+with `9d13cd70`. Windows validation of this test correction awaits latest-head
+public CI; no test was skipped and no production timeout or CI gate was changed.
+
 ## QMP deadline/parser integration candidate — 2026-11-04
 
 Status: `PARTIAL`. Ported the QMP-only changes from candidate
