@@ -1,5 +1,27 @@
 # PORT-MULTIARCH-01 handoff — provisional, unregistered
 
+## Source0039 repair and direct-child records
+
+Source `0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13`, tree
+`0b2597ae1b707c0a2fa8d42e16e42d46566d56c5`, fixes both spike entrypoint
+defects. Its complete verifier exits 0, including real QEMU EL1 and negative
+EL2. The receipt was reverified without rebuilding during this docs refresh.
+These records descendants do not claim new execution of each records head.
+
+Prior FE52 files/state/index/handoff are byte-preserved in the
+[checkpoint archive](checkpoints/fe52-through-511ec126/manifest.json). Failed
+attempts retain their results, including the correctly rejected dirty-worktree
+inventory check and the successful clean-source retry. Schema/3 checks source
+identity, unsigned summary/serial integrity, build and run outcomes; phase C
+remains PENDING. Host metadata names derive from source SHA, and v1/v2 evidence
+remains supported. The 11 new docs tests are model-free summary checks.
+
+See the [source0039 run](runtime/arm64-0039f0c3-20261104/README.md). R1 records
+validation is pending until this direct child is committed and checked; R2 will
+record the exact successful R1 commit/tree and stdout. Verified base036 remains
+fixed. Remote main87 advanced separately; its diff/PR compatibility and final
+head CI must be checked before claiming latest-main acceptance.
+
 ## 2026-11-04 publication and runtime follow-up
 
 Fixed candidate ae9a56544d2c66cbbf6e641b80cd144ed52314a4 was published by an

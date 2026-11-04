@@ -1,28 +1,15 @@
 # Acceptance and bounded migration plan
 
-## Current-main status
+## Source0039 fixed-base checkpoint
 
-The earlier A/B/C PASS statements later in this document describe historical
-evidence collected against 379d19eadb6f8792c27b9bc3f147e1ea48eac4a2. They are
-retained as historical detail only. The current explicit main baseline is
-0362427747e769b00558053e4c7f4c756d303802; A/B remain PENDING and C is NOT_RUN for that
-baseline. The fixed 1b3637ea-to-current diff changes 35 paths outside the
-three owned prefixes, including automation, calendar/search, Identity, and TTS
-crates/workflows/tests. Source stability does not transfer old inventory or run
-evidence. No current-main Cargo build, ARM64 ELF, QEMU run, or VM acceptance was
-performed in this phase.
-
-The immutable historical input is indexed in
-[evidence/HISTORICAL.json](evidence/HISTORICAL.json). The current static inventory is bound to explicit full --base and source
-commit SHAs; the superseded main record has a separate exact-hash index. The
-ARM64 receipt entry point is experiments/nagi-aarch64-spike/attest.py; the
-standalone runner observes a binary but makes no source claim. A receipt JSON
-and its hashes are not tamper-proof proof of execution; an independent rebuild
-and review remain required.
-
-None of these checks implies M30, Nagi ARM64, x86 guest regression, Pi or phone
-support. D/E remain BLOCKED by M30 and the owner checkpoint; no implementation
-was attempted.
+Source0039 has real source-bound ARM64 ELF/QEMU evidence and a successful
+complete spike verifier against fixed base036. Phase C remains PENDING
+independent rebuild/review; A/B ownership/proposal acceptance is pending.
+D/E/registration retain M30/owner gates; physical hardware is NOT_RUN.
+Remote main87 is a later compatibility/CI check, not this run's source/base.
+The previous FE52 records are preserved as a separate immutable snapshot.
+See the [run](runtime/arm64-0039f0c3-20261104/README.md) and
+[archive](checkpoints/fe52-through-511ec126/manifest.json).
 
 ## Historical verification on the original 379d19e baseline (not current acceptance)
 

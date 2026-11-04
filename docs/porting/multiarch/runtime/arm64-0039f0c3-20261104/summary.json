@@ -1,0 +1,157 @@
+{
+  "schema": "nagi-multiarch-runtime-followup/1",
+  "recorded_at": "2026-11-04T02:15:41.662104+00:00",
+  "scope": "Independent freestanding ARM64 feasibility spike; not Nagi kernel, services, or hardware acceptance",
+  "source_commit": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+  "source_tree": "0b2597ae1b707c0a2fa8d42e16e42d46566d56c5",
+  "main": "0362427747e769b00558053e4c7f4c756d303802",
+  "source_spike_subtree": "eb27c8571b5af7f5c252f010f04fc68baf348712",
+  "source_tracked_clean": true,
+  "toolchain": "rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)\nbinary: rustc\ncommit-hash: adcb3d3b4cd3b7c4cde642f3ed537037f293738e\ncommit-date: 2025-07-31\nhost: aarch64-apple-darwin\nrelease: 1.90.0-nightly\nLLVM version: 20.1.8",
+  "qemu": {
+    "version": "QEMU emulator version 11.1.1",
+    "sha256": "474267559a97a51990575aaf47f9f430caa1bb5cbd48e24cbfdce212ed586f64"
+  },
+  "builds": [
+    {
+      "id": "a",
+      "exit_code": 0,
+      "elf_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b",
+      "elf_bytes": 79464,
+      "elf_machine": 183
+    },
+    {
+      "id": "b",
+      "exit_code": 0,
+      "elf_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b",
+      "elf_bytes": 79464,
+      "elf_machine": 183
+    }
+  ],
+  "build_comparison": {
+    "two_builds_match": true,
+    "status": "MATCHED",
+    "interpretation": "same source snapshot and pinned tools, separate empty Cargo homes and target dirs; same-host diagnostic only, not a path-independent or independent rebuild proof"
+  },
+  "runs": [
+    {
+      "id": "el1",
+      "argv": [
+        "qemu-system-aarch64",
+        "-machine",
+        "virt,gic-version=2,virtualization=off",
+        "-cpu",
+        "cortex-a53",
+        "-accel",
+        "tcg",
+        "-smp",
+        "1",
+        "-m",
+        "128M",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-serial",
+        "stdio",
+        "-no-reboot",
+        "-nic",
+        "none",
+        "-semihosting-config",
+        "enable=on,target=native",
+        "-kernel",
+        "<fresh-build-a-ELF>"
+      ],
+      "runner_exit_code": 0,
+      "qemu_exit_code": 0,
+      "timed_out": false,
+      "run_outcome": "PASS",
+      "acceptance_verdict": "PASS",
+      "serial_path": "el1-serial.log",
+      "serial_sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5",
+      "stderr_path": "el1-stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "el2",
+      "argv": [
+        "qemu-system-aarch64",
+        "-machine",
+        "virt,gic-version=2,virtualization=on",
+        "-cpu",
+        "cortex-a53",
+        "-accel",
+        "tcg",
+        "-smp",
+        "1",
+        "-m",
+        "128M",
+        "-display",
+        "none",
+        "-monitor",
+        "none",
+        "-serial",
+        "stdio",
+        "-no-reboot",
+        "-nic",
+        "none",
+        "-semihosting-config",
+        "enable=on,target=native",
+        "-kernel",
+        "<fresh-build-a-ELF>"
+      ],
+      "runner_exit_code": 1,
+      "qemu_exit_code": 1,
+      "timed_out": false,
+      "run_outcome": "FAIL",
+      "acceptance_verdict": "MET",
+      "serial_path": "el2-serial.log",
+      "serial_sha256": "1b7e493e4e939cc2ee17098a1ed95923bc6d98a3e92b4e39e89f8e827d4f129b",
+      "stderr_path": "el2-stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "acceptance": {
+    "el1": "PASS",
+    "el2_negative": "MET",
+    "source_bound_runs": "PASS",
+    "two_build_comparison": "MATCHED",
+    "phase_c": "PENDING",
+    "independent_rebuild": "NOT_RUN",
+    "independent_rebuild_note": "receipt JSON and hashes are not a trusted signature; independent rebuild review is required"
+  },
+  "receipt_integrity": {
+    "exit_code": 0,
+    "raw_attestation_sha256": "f27e033b3d54869244724cc5a938cd7979bf2b47ce80e7a65e01e03b8f25721d",
+    "verifier_stdout_sha256": "8e17e10a4d33292cdd053265aeb8067400f81b0c5e26386e6eae42ba49157abc",
+    "manifested_files": 33,
+    "raw_receipt_location": "private-evidence/pr57-arm64-verifier-fix-20261104-01/source-bound-run-01/attestation.json",
+    "limitation": "Public summary and serial excerpts are not the complete unsigned receipt, a trusted execution signature, or independent rebuild acceptance."
+  },
+  "verification_attempts": [
+    {
+      "name": "spike-verify",
+      "source_commit": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "c71a5e081b2acbba28aa0b0185042acb9f9f1c35a6387154963af017febcd515",
+      "stderr_sha256": "aba505680d268ec0a4642b629dec4d4a70ce2773379de5ae2b1b4ef754469cd0"
+    }
+  ],
+  "hardware": {
+    "physical_boot": "NOT_RUN",
+    "media_writes": "NOT_RUN",
+    "connection": "No external ARM target was identified in available serial/USB/Thunderbolt inventory; no network target was provided or probed.",
+    "limitations": "Local inventory cannot establish that no remote target exists."
+  },
+  "not_run": [
+    "MMU/EL0",
+    "timer IRQ/GIC",
+    "PSCI/SMP",
+    "VirtIO/DMA",
+    "Nagi services",
+    "x86 guest regression",
+    "Miri",
+    "independent rebuild review",
+    "Pi/mobile/physical hardware"
+  ]
+}
