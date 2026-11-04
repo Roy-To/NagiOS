@@ -1,3 +1,51 @@
+## PR #90 timeout diagnostic reservation candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local candidate, no push or merge, no milestone PASS.
+Starting public PR head: `06e0600fd01b71cc30573b22b944f7900b890ab1`.
+Fetched public main/base and merge-base: `87b7dea4061be2572526181ab559d63037f823d0`.
+
+The headless and GUI acceptance waiters previously started timeout diagnostics
+with an already expired host deadline, skipping query-status and preventing the
+existing pre-guest firmware retry signature from matching. Both waiters now
+reserve the final min(5 seconds, 10% of the configured timeout) for diagnostics.
+Guest waiting therefore ends that much earlier. Successful QMP shutdown still
+uses the original absolute deadline. GUI serial polling and periodic register
+tracing respect the reservation; diagnostic exchanges keep the original hard
+deadline, including when QMP stops responding. No new timeout is allocated.
+Startup/protocol failures and firmware retry disk-integrity guards retain their
+existing behavior. Process kill/reap and local log I/O have normal scheduling
+and syscall overhead; the timeout is not a hard real-time guarantee.
+
+The Linux production-caller regression launches a test-only Python QMP peer
+through actual `run_qemu` and `run_qemu_gui` entry points, including production
+spawn/handshake/serial handling. Four cases cover responsive/stalled QMP for
+both callers, actual query receipt, persisted diagnostics, timeout errors,
+firmware retry signature eligibility (and rejection after a kernel marker),
+and absence of the child including zombie state in /proc. It does not simulate
+Nagi guest acceptance. Python 3 at /usr/bin/python3 is a Linux test prerequisite.
+The existing retry tests continue to cover bounded retry and disk-change guards.
+
+Validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 364 passed, 2 ignored (fixture child
+  and opt-in real QEMU test).
+- Focused new production-caller test: four cases passed; observed 2918/3007 ms
+  headless and 2928/3007 ms GUI with a 3000 ms total budget. Assertions allow
+  400 ms scheduling/cleanup slack, without extending production deadlines.
+- Negative control: restoring only image.rs to the specified public head made
+  the new test fail: no diagnostic query was sent, only qmp_capabilities.
+  Restored the fix and reran the full library suite.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Opt-in diskless real QMP compatibility: passed on QEMU 10.0.13 with local
+  library/BIOS paths; initial unconfigured launch lacked its BIOS, and the
+  configured run emitted a missing optional kvmvapic ROM warning. This verifies
+  protocol compatibility only; full Nagi guest and Windows CI remain NOT RUN.
+
+Generated dependency sources were reused from the existing workspace to resolve
+Cargo's workspace graph; no dependency or lockfile changes are part of this
+candidate. The private product ledger was not needed for this existing host
+orchestration bug fix; product behavior and milestone activation are unchanged.
+
 ## QMP acceptance caller deadline coverage — 2026-11-04
 
 The independent review of PR #90 head `e1e63460` found that the direct shutdown
