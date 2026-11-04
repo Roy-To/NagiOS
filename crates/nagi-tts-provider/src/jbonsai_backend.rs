@@ -177,6 +177,9 @@ impl DictionaryBytes {
         {
             return Err(LoadError::DictionaryInvalid);
         }
+        // Reject the inconsistencies the upstream loaders and lookups would
+        // index past (or panic on) before handing them the bytes.
+        let shape = crate::validate::check_dictionary_bytes(&self)?;
         let invalid = |_| LoadError::DictionaryInvalid;
         let metadata = Metadata::load(&self.metadata_json).map_err(invalid)?;
         // Both loaders copy into a 16-byte-aligned buffer before rkyv access.
@@ -193,13 +196,15 @@ impl DictionaryBytes {
             true,
         )
         .map_err(invalid)?;
-        Ok(Dictionary {
+        let dictionary = Dictionary {
             prefix_dictionary,
             connection_cost_matrix,
             character_definition,
             unknown_dictionary,
             metadata,
-        })
+        };
+        crate::validate::check_loaded_dictionary(&dictionary, shape)?;
+        Ok(dictionary)
     }
 }
 
@@ -277,6 +282,10 @@ impl JbonsaiBackend {
             return Err(LoadError::VoiceInvalid);
         }
         check_voice_layout(voice)?;
+        // jbonsai trusts tree/PDF cross references and header arithmetic; a
+        // malformed voice must fail here, not panic in the parser or later
+        // in the middle of synthesis.
+        crate::validate::check_voice_structure(voice)?;
         let engine = Engine::load_from_bytes([voice]).map_err(|_| LoadError::VoiceInvalid)?;
         let rate = engine.condition.get_sampling_frequency();
         if rate != ENGINE_SAMPLE_RATE as usize {
@@ -295,10 +304,24 @@ impl JbonsaiBackend {
     }
 
     /// Runs the text front end and the duration model only, and predicts the
-    /// emitted length. `Ok(None)` means nothing speakable.
+    /// emitted length. `Ok(None)` means nothing speakable. A duration plan
+    /// whose frame count does not fit in `usize` is [`BackendError::TooLong`].
     pub fn plan(
         &self,
         text: &str,
+    ) -> Result<Option<(UtterancePlan, Vec<jlabel::Label>)>, BackendError> {
+        self.plan_within(text, usize::MAX)
+    }
+
+    /// [`Self::plan`] with a ceiling on the frames the engine would vocode:
+    /// every state duration and every running sum is checked against
+    /// `frame_limit` before it is added, so an oversized duration (for
+    /// example from a hostile duration PDF) is [`BackendError::TooLong`]
+    /// rather than an arithmetic overflow.
+    pub fn plan_within(
+        &self,
+        text: &str,
+        frame_limit: usize,
     ) -> Result<Option<(UtterancePlan, Vec<jlabel::Label>)>, BackendError> {
         let loaded = self.loaded.as_ref().ok_or(BackendError::Unavailable)?;
         let labels = loaded
@@ -328,29 +351,12 @@ impl JbonsaiBackend {
         if nstate == 0 || durations.len() != labels.len() * nstate {
             return Err(BackendError::Failed);
         }
-        let per_label: Vec<usize> = durations.chunks(nstate).map(|d| d.iter().sum()).collect();
-        let total_frames: usize = per_label.iter().sum();
-        let (mut first_frame, mut end_frame) = (0, total_frames);
-        if self.trim.enabled {
-            let leading: usize = labels
-                .iter()
-                .zip(&per_label)
-                .take_while(|(label, _)| is_silence(label))
-                .map(|(_, frames)| frames)
-                .sum();
-            let trailing: usize = labels
-                .iter()
-                .zip(&per_label)
-                .rev()
-                .take_while(|(label, _)| is_silence(label))
-                .map(|(_, frames)| frames)
-                .sum();
-            first_frame = leading.saturating_sub(self.trim.pad_frames);
-            end_frame = (total_frames - trailing + self.trim.pad_frames).min(total_frames);
-        }
-        if first_frame >= end_frame {
+        let silence: Vec<bool> = labels.iter().map(is_silence).collect();
+        let Some((total_frames, first_frame, end_frame)) =
+            plan_frames(&durations, nstate, &silence, self.trim, frame_limit)?
+        else {
             return Ok(None);
-        }
+        };
         let plan = UtterancePlan {
             labels: labels.len(),
             total_frames,
@@ -394,6 +400,74 @@ impl JbonsaiBackend {
             .map(|labels| labels.len())
             .map_err(|_| BackendError::Failed)
     }
+}
+
+/// Edge-silence frames (vocoded or planned but not emitted) allowed beyond
+/// the output frame budget: 20 s at 5 ms frames. The pinned voice's edge
+/// `sil` labels total about 1 s per utterance.
+pub const MAX_TRIMMED_EDGE_FRAMES: usize = 4_000;
+
+/// Turns per-state durations into `(total, first, end)` frame indices with
+/// checked arithmetic. `silence[i]` says whether label `i` is `sil`/`pau`.
+///
+/// Every state duration is compared with `frame_limit` *before* it is
+/// added, and every running sum is `checked_add`ed and compared again, so
+/// nothing can overflow or exceed the limit: such plans are
+/// [`BackendError::TooLong`]. `Ok(None)` means nothing would be emitted.
+pub(crate) fn plan_frames(
+    durations: &[usize],
+    nstate: usize,
+    silence: &[bool],
+    trim: SilenceTrim,
+    frame_limit: usize,
+) -> Result<Option<(usize, usize, usize)>, BackendError> {
+    if nstate == 0 || Some(durations.len()) != silence.len().checked_mul(nstate) {
+        return Err(BackendError::Failed);
+    }
+    let bounded_add = |sum: usize, frames: usize| -> Result<usize, BackendError> {
+        if frames > frame_limit {
+            return Err(BackendError::TooLong);
+        }
+        match sum.checked_add(frames) {
+            Some(next) if next <= frame_limit => Ok(next),
+            _ => Err(BackendError::TooLong),
+        }
+    };
+    let mut per_label = Vec::with_capacity(silence.len());
+    let mut total_frames = 0usize;
+    for states in durations.chunks_exact(nstate) {
+        let frames = states
+            .iter()
+            .try_fold(0usize, |sum, d| bounded_add(sum, *d))?;
+        total_frames = bounded_add(total_frames, frames)?;
+        per_label.push(frames);
+    }
+    let (mut first_frame, mut end_frame) = (0, total_frames);
+    if trim.enabled {
+        // Both edge sums are bounded by `total_frames`, already checked.
+        let leading: usize = silence
+            .iter()
+            .zip(&per_label)
+            .take_while(|(silent, _)| **silent)
+            .map(|(_, frames)| frames)
+            .sum();
+        let trailing: usize = silence
+            .iter()
+            .zip(&per_label)
+            .rev()
+            .take_while(|(silent, _)| **silent)
+            .map(|(_, frames)| frames)
+            .sum();
+        first_frame = leading.saturating_sub(trim.pad_frames);
+        end_frame = total_frames
+            .saturating_sub(trailing)
+            .saturating_add(trim.pad_frames)
+            .min(total_frames);
+    }
+    if first_frame >= end_frame {
+        return Ok(None);
+    }
+    Ok(Some((total_frames, first_frame, end_frame)))
 }
 
 /// Rejects an `.htsvoice` whose `[POSITION]` ranges point outside its
@@ -485,7 +559,14 @@ impl SynthesisBackend for JbonsaiBackend {
             // English with it.
             SpeechSynthesisLanguage::English => return Err(BackendError::UnsupportedLanguage),
         }
-        let Some((plan, labels)) = self.plan(text)? else {
+        // Frames outside the emitted window are edge silence; allow a bounded
+        // amount of it on top of the output budget.
+        let edge = if self.trim.enabled {
+            MAX_TRIMMED_EDGE_FRAMES
+        } else {
+            0
+        };
+        let Some((plan, labels)) = self.plan_within(text, max_frames.saturating_add(edge))? else {
             return Ok(None);
         };
         if plan.emitted_frames() > max_frames {
@@ -569,6 +650,99 @@ mod layout_tests {
         assert_eq!(
             check_voice_layout(b"[POSITION]\nA:0-1\n"),
             Err(LoadError::VoiceInvalid)
+        );
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::{plan_frames, SilenceTrim};
+    use crate::BackendError;
+
+    const TRIM: SilenceTrim = SilenceTrim {
+        enabled: true,
+        pad_frames: 2,
+    };
+
+    #[test]
+    fn ordinary_durations_plan_as_before() {
+        // sil(2 states) a(2) sil(2), 2 states per label.
+        let durations = [10, 10, 3, 4, 6, 6];
+        let silence = [true, false, true];
+        assert_eq!(
+            plan_frames(&durations, 2, &silence, TRIM, usize::MAX),
+            Ok(Some((39, 18, 29)))
+        );
+        assert_eq!(
+            plan_frames(&durations, 2, &silence, SilenceTrim::DISABLED, usize::MAX),
+            Ok(Some((39, 0, 39)))
+        );
+        // All silence after trimming: nothing to emit.
+        let no_pad = SilenceTrim {
+            enabled: true,
+            pad_frames: 0,
+        };
+        assert_eq!(
+            plan_frames(&[5, 5], 1, &[true, true], no_pad, usize::MAX),
+            Ok(None)
+        );
+    }
+
+    /// Review finding 1: jbonsai turns a `+inf`/`f32::MAX` duration mean
+    /// into `usize::MAX` frames. Unchecked sums panicked in debug builds
+    /// and wrapped in release builds (passing the budget check); the
+    /// checked planner reports `TooLong` instead.
+    #[test]
+    fn saturated_durations_are_too_long_not_overflow() {
+        let silence = [true, false, true];
+        for durations in [
+            [1, usize::MAX, 1, 1, 1, 1],
+            [usize::MAX, usize::MAX, 1, 1, 1, 1],
+            [1, 1, usize::MAX / 2 + 1, 1, usize::MAX / 2 + 1, 1],
+            [usize::MAX / 3, 1, usize::MAX / 3, 1, usize::MAX / 3, 2],
+        ] {
+            for trim in [TRIM, SilenceTrim::DISABLED] {
+                assert_eq!(
+                    plan_frames(&durations, 2, &silence, trim, usize::MAX),
+                    Err(BackendError::TooLong),
+                    "{durations:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn frame_limit_is_checked_per_state_before_summing() {
+        let silence = [true, false, true];
+        let durations = [10, 10, 3, 4, 6, 6];
+        assert_eq!(
+            plan_frames(&durations, 2, &silence, TRIM, 39),
+            Ok(Some((39, 18, 29)))
+        );
+        assert_eq!(
+            plan_frames(&durations, 2, &silence, TRIM, 38),
+            Err(BackendError::TooLong)
+        );
+        // A single state over the limit is rejected before any addition.
+        assert_eq!(
+            plan_frames(&[1, 1, 100, 1, 1, 1], 2, &silence, TRIM, 99),
+            Err(BackendError::TooLong)
+        );
+    }
+
+    #[test]
+    fn inconsistent_shapes_fail() {
+        assert_eq!(
+            plan_frames(&[1, 2, 3], 2, &[false, false], TRIM, usize::MAX),
+            Err(BackendError::Failed)
+        );
+        assert_eq!(
+            plan_frames(&[1, 2], 0, &[false], TRIM, usize::MAX),
+            Err(BackendError::Failed)
+        );
+        assert_eq!(
+            plan_frames(&[1], 1, &[false; 0], TRIM, usize::MAX),
+            Err(BackendError::Failed)
         );
     }
 }

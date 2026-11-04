@@ -1,0 +1,109 @@
+name: M25 local TTS provider candidate
+
+on:
+  pull_request:
+    paths:
+      - 'crates/nagi-tts-provider-candidate/**'
+      - 'user/nagi-audio/**'
+      - 'user/libnagi/**'
+      - 'crates/nagi-abi/**'
+      - 'crates/nagi-model/**'
+      - 'third_party/libc/**'
+      - 'tools/tts/tts-artifacts.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/nagi-tts-provider-candidate.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/nagi-tts-provider-candidate/**'
+      - 'user/nagi-audio/**'
+      - 'user/libnagi/**'
+      - 'crates/nagi-abi/**'
+      - 'crates/nagi-model/**'
+      - 'third_party/libc/**'
+      - 'tools/tts/tts-artifacts.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/nagi-tts-provider-candidate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: Model-free host checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TOOLCHAIN: nightly-2025-08-01
+      RUSTUP_TOOLCHAIN: nightly-2025-08-01
+      MANIFEST: crates/nagi-tts-provider-candidate/Cargo.toml
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustc +"$TOOLCHAIN" --version
+          cargo +"$TOOLCHAIN" --version
+
+      - name: Check candidate asset pins against artifact lock
+        run: |
+          python3 - <<'PY'
+          import re
+          import tomllib
+          from pathlib import Path
+
+          assets = Path("crates/nagi-tts-provider-candidate/src/assets.rs").read_text(encoding="utf-8")
+          lock = tomllib.loads(Path("tools/tts/tts-artifacts.lock").read_text(encoding="utf-8"))
+          voice = lock["artifacts"]["tohoku_f01_neutral"]
+          dictionary = lock["artifacts"]["naist_jdic_jpreprocess"]["files"]
+          size_match = re.search(r"LOCKED_VOICE_BYTES: usize = ([0-9_]+)", assets)
+          sha_match = re.search(r'const VOICE_SHA256: &str = "([0-9a-f]{64})"', assets)
+          if size_match is None or sha_match is None:
+              raise SystemExit("candidate voice pin constants were not found")
+          dictionary_body = assets.split("const DICTIONARY_SHA256:", 1)[1].split("];", 1)[0]
+          pins = {
+              filename: digest
+              for digest, filename in re.findall(
+                  r'"([0-9a-f]{64})",\s*//\s*([A-Za-z0-9_.]+)', dictionary_body
+              )
+          }
+          candidate_size = int(size_match.group(1).replace("_", ""))
+          if candidate_size != voice["size_bytes"] or sha_match.group(1) != voice["sha256"]:
+              raise SystemExit("candidate voice pins differ from tools/tts/tts-artifacts.lock")
+          if len(pins) != 8 or pins != dictionary:
+              raise SystemExit("candidate dictionary pins differ from tools/tts/tts-artifacts.lock")
+          print("verified candidate voice and dictionary pins against the artifact lock; no asset bytes read")
+          PY
+
+      - name: rustfmt --check
+        run: cargo +"$TOOLCHAIN" fmt --manifest-path "$MANIFEST" -- --check
+
+      - name: clippy --all-targets --locked -D warnings
+        run: cargo +"$TOOLCHAIN" clippy --manifest-path "$MANIFEST" --all-targets --locked -- -D warnings
+
+      - name: Model-free tests (must have tests and no ignored tests)
+        shell: bash
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/nagi-tts-provider-candidate-tests.log"
+          cargo +"$TOOLCHAIN" test --manifest-path "$MANIFEST" --locked -- --test-threads=1 2>&1 | tee "$log"
+          python3 - "$log" <<'PY'
+          import re
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              results = [line.strip() for line in stream if line.startswith("test result: ")]
+          if not results:
+              raise SystemExit("no Rust test result summaries were found")
+          totals = [re.match(r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored;", line) for line in results]
+          if any(result is None for result in totals):
+              raise SystemExit("a test target did not report a successful result")
+          passed = sum(int(result.group(1)) for result in totals)
+          ignored = sum(int(result.group(3)) for result in totals)
+          if passed < 1 or ignored != 0:
+              raise SystemExit(f"expected at least one passed test and zero ignored tests; got passed={passed}, ignored={ignored}")
+          print(f"verified passed={passed}, ignored={ignored}")
+          PY

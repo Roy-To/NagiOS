@@ -162,7 +162,8 @@ impl Formula {
         use FunctionId::*;
         let valid = match f {
             If => args.len() == 3,
-            IfError | Round | Left | Right => args.len() == 2,
+            IfError | Round | RoundUp | RoundDown | Left | Right => args.len() == 2,
+            Ifs => true,
             Mid => args.len() == 3,
             Not | Len | Trim => args.len() == 1,
             _ => !args.is_empty(),
@@ -175,6 +176,7 @@ impl Formula {
                 let cond = boolean(self.scalar(args[0], book)?)?;
                 self.scalar(args[if cond { 1 } else { 2 }], book)
             }
+            Ifs => crate::functions::ifs::evaluate(args, |index| self.scalar(index, book)),
             IfError => match self.scalar(args[0], book) {
                 Ok(v) => Ok(v),
                 Err(_) => self.scalar(args[1], book),
@@ -209,6 +211,13 @@ impl Formula {
                     (n / factor).round() * factor
                 };
                 finite(result)
+            }
+            RoundUp | RoundDown => {
+                let value = number(self.scalar(args[0], book)?)?;
+                let digits = number(self.scalar(args[1], book)?)?;
+                let places = crate::functions::rounding::decimal_places(digits)?;
+                crate::functions::rounding::apply(value, places, f == RoundUp)
+                    .map(CellValue::Number)
             }
             Left | Right | Mid | Len | Trim => {
                 let s = text(self.scalar(args[0], book)?)?;

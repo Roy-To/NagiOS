@@ -1,0 +1,95 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "sheets-bounded-updates",
+  "current_milestone": "Sheets host-only bounded batch dependency preparation",
+  "current_checkpoint": "Workbook source published in draft PR #49; dedicated host CI registration implemented; exact-head CI pending",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "eafae27e61a8e919da872d232fa8e3fd7d967b6e",
+    "verified_at": "2026-10-09T09:47:55.868911+00:00",
+    "normal_state": "Public source head eafae27e61a8e919da872d232fa8e3fd7d967b6e (tree e4952049c1b5182f445d911de31e481015089111) is unchanged. Linux host validation is rerun with the dedicated branch registration. Workbook source ownership remains limited to workbook.rs and its inline tests; the CI/registry owner adds only the workflow, registry row and this state. Staged dependency sets are bounded; there is no process-wide memory cap. Windows and guest execution remain unverified until exact-head CI completes.",
+    "commands": [
+      "./nagi dev verify",
+      "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+      "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+      "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check"
+    ],
+    "tests": [
+      {
+        "name": "Sheets host tests",
+        "command": "cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Linux host: all 19 existing acceptance tests and 5 inline regression tests passed; Workbook blob f1435a44e1d62243cdc60ba0042fa76e3aeed730 remains unchanged."
+      },
+      {
+        "name": "Sheets all-target Clippy",
+        "command": "cargo clippy --manifest-path crates/nagi-sheets-core/Cargo.toml --all-targets --locked --offline -- -D warnings",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Linux host all-target Clippy passed with -D warnings and locked offline dependencies."
+      },
+      {
+        "name": "Sheets scoped fmt",
+        "command": "cargo fmt --manifest-path crates/nagi-sheets-core/Cargo.toml -- --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Scoped Sheets formatter passed without source changes."
+      },
+      {
+        "name": "Development registry validation",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "31 registered workstreams and 24 state files validated on the dedicated branch."
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md",
+    "last_checked_at": "2026-10-09T09:47:55.868911+00:00",
+    "activation_requirement": "Standalone host-only core. Guest/runtime/UI/provider activation and full product acceptance remain separate."
+  },
+  "blocker": {
+    "active": true,
+    "class": "CI_INFRA",
+    "summary": "Dedicated Linux/Windows host CI for this registration checkpoint is pending.",
+    "reproduction_commands": [
+      "Inspect draft PR #49 exact-head host-foundations workflow runs"
+    ],
+    "failure_log_summary": "The source-only head skipped the dedicated host job; the registration checkpoint has not yet run in CI.",
+    "attempted_fixes": [
+      "Added this branch to push/job allowlists and merge-base ownership audit, preserving the existing host gates.",
+      "Registered a workbook-only source owner and kept the two exact CI/registry registration paths separate."
+    ],
+    "do_not_try": [
+      "Do not broaden workbook ownership to Hark parser, engine or acceptance test paths.",
+      "Do not claim skipped CI, Windows or guest acceptance passed."
+    ]
+  },
+  "next_action": "Verify exact-head Linux and Windows host-foundations CI for draft PR #49; preserve PARTIAL status and deferred guest/product acceptance.",
+  "acceptance_criteria": [
+    "Preserve the 1,000,000-edge and 100,000-expanded-visit limits.",
+    "Prepare staged unique dependency sets within remaining budget before mutation.",
+    "Valid replacement and deletion batches fit independent of input order.",
+    "Validation failure preserves cells, formula bindings and both graph directions.",
+    "Run all original and inline Sheets host tests, scoped formatter and warnings-denied Clippy.",
+    "Obtain dedicated Linux/Windows host CI evidence after registration."
+  ],
+  "deferred": [
+    "Windows execution pending exact-head CI",
+    "Nagi target/guest execution",
+    "Full Sheets product acceptance",
+    "Hark PR #46 integration into this source branch"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "sheets-calc-01",
+      "contract": "UI-independent host calculation core and ObjectId identity",
+      "version": "v1",
+      "status": "Existing source contract retained; Hark functions separately validated."
+    }
+  ]
+}
