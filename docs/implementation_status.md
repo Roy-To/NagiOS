@@ -7,6 +7,11 @@ Status: `PARTIAL`. Ported the QMP-only changes from candidate
 common ancestor, so unrelated candidate APIs, guest changes and milestone
 claims are excluded. Public QEMU runner APIs remain compatible with main.
 
+The subsequent main `87b7dea4061be2572526181ab559d63037f823d0`
+(Calendar PR #89 boundary tests) was integrated without conflicts or changes
+to the QMP source. Full default-parallel CLI, real diskless QMP and Calendar
+host suites passed again on this combined candidate.
+
 The runner retains its original host deadline across handshake, acceptance,
 diagnostics and shutdown; parses greeting/response JSON; validates known
 command result shapes and asynchronous-event timestamps. A real diskless QEMU
