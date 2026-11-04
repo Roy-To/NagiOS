@@ -21,3 +21,6 @@ pub mod session_ui;
 mod tests;
 #[path = "../../../user/nagi-init/src/ui.rs"]
 pub mod ui;
+
+#[cfg(test)]
+mod summary_tests;

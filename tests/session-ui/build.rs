@@ -4,7 +4,7 @@ use std::{env, fs, path::PathBuf};
 mod path_guard;
 
 const HOST_TEST_HELPERS: &str = r#"
-#[cfg(test)]
+#[cfg(all(test, nagi_desktop_host_test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct HostTestSnapshot {
     pub user_token: Option<u64>,
@@ -25,7 +25,7 @@ pub(crate) fn host_test_bind_for_test(
     service.shared.bind(user)
 }
 
-#[cfg(test)]
+#[cfg(all(test, nagi_desktop_host_test))]
 pub(crate) fn host_test_snapshot_for_test(service: &SessionServices) -> HostTestSnapshot {
     let state = service.shared.state.lock();
     HostTestSnapshot {
@@ -181,11 +181,7 @@ fn main() {
         .join("\n");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("build output dir"));
     let output = out_dir.join("session_services.rs");
-    let host_test_helpers = if is_desktop_host {
-        HOST_TEST_HELPERS
-    } else {
-        ""
-    };
-    fs::write(output, format!("{materialized}\n{host_test_helpers}"))
+    let host_test_helpers = HOST_TEST_HELPERS;
+    fs::write(output, format!("{host_test_helpers}\n{materialized}"))
         .expect("write host SessionServices module");
 }

@@ -337,3 +337,27 @@ fn cancellation_after_synchronous_failure_takes_precedence_over_service_error() 
     );
     assert_eq!(result, Err(SessionPageSummaryError::Cancelled));
 }
+
+#[test]
+fn prepared_worker_entry_keeps_live_session_and_typed_terms_gate() {
+    let (user, other, mut service, mut browser) = setup();
+    browser.policy.enable_by_user();
+    let prompt =
+        nagi_ai::prepare_page_summary(7, request(actor()), &Authority, &mut browser).unwrap();
+    assert_eq!(
+        service.generate_page_summary(&other, &prompt, &Never),
+        Err(SessionPageSummaryError::Denied)
+    );
+    assert_eq!(
+        service.generate_page_summary(&user, &prompt, &Never),
+        Err(SessionPageSummaryError::Service(ModelServiceError::Store(
+            StoreError::LicenseAcknowledgementRequired
+        )))
+    );
+    let mut locked = user;
+    locked.lock();
+    assert_eq!(
+        service.generate_page_summary(&locked, &prompt, &Never),
+        Err(SessionPageSummaryError::Denied)
+    );
+}

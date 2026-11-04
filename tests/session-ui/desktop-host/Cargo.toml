@@ -10,7 +10,7 @@ members = ["libnagi"]
 
 [features]
 default = ["m20-model-service"]
-m20-model-service = ["production-session", "dep:nagi-model-manager"]
+m20-model-service = ["production-session", "dep:nagi-model-manager", "dep:nagi-ai"]
 production-session = ["desktop-login", "m19-files-search-production"]
 desktop-login = ["m10-desktop", "m19-runtime"]
 m10-desktop = []
@@ -20,6 +20,7 @@ desktop-login-acceptance = ["desktop-login"]
 consent-dialog = []
 
 [dependencies]
+nagi-ai = { path = "../../../services/nagi-ai", optional = true }
 libnagi = { package = "nagi-desktop-host-libnagi", path = "libnagi" }
 nagi-model-manager = { path = "../../../user/nagi-model-manager", optional = true }
 nagi-model = { path = "../../../crates/nagi-model" }

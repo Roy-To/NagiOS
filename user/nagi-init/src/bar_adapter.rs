@@ -81,6 +81,27 @@ impl Services for Adapter {
     fn poll_reply(&mut self, s: &Session, id: u64) -> Result<Reply, SubmitError> {
         self.service()?.poll_reply(s, id)
     }
+    fn submit_page_summary(
+        &mut self,
+        s: &Session,
+        caller: nagi_ai::CallerIdentity,
+        id: u64,
+        request: nagi_ai::ContextRequest,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<(), SubmitError> {
+        self.service()?
+            .submit_page_summary(s, caller, id, request, authority, browser)
+    }
+    fn poll_page_summary(
+        &mut self,
+        s: &Session,
+        id: u64,
+        authority: &dyn nagi_ai::ContextAuthority,
+        browser: &mut dyn nagi_ai::PublicBrowserContextApi,
+    ) -> Result<Reply, SubmitError> {
+        self.service()?.poll_page_summary(s, id, authority, browser)
+    }
     fn cancel_request(&mut self, s: &Session, id: u64) -> Result<(), SubmitError> {
         self.service()?.cancel_request(s, id)
     }
