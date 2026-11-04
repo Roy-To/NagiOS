@@ -172,15 +172,24 @@ int nagi_m20_llama_generate(
     char prompt[MAX_FORMATTED_PROMPT_BYTES];
     const int32_t prompt_size = llama_chat_apply_template(
         model_template, chat, message_count, true, prompt, sizeof(prompt));
-    if (prompt_size <= 0 || static_cast<size_t>(prompt_size) >= sizeof(prompt)) {
+    if (prompt_size <= 0) {
         return 1;
+    }
+    if (static_cast<size_t>(prompt_size) >= sizeof(prompt)) {
+        return 2;
     }
     prompt[prompt_size] = '\0';
 
     llama_token tokens[MAX_PROMPT_TOKENS];
     const int32_t token_count = llama_tokenize(
         vocab, prompt, prompt_size, tokens, MAX_PROMPT_TOKENS, true, true);
-    if (token_count <= 0) {
+    // llama_tokenize returns the negative required capacity on exhaustion,
+    // or INT32_MIN on overflow. Do not negate it: both exceed this fixed
+    // buffer and must propagate as a context limit before any prefill.
+    if (token_count < 0) {
+        return 2;
+    }
+    if (token_count == 0) {
         return 1;
     }
     if (static_cast<uint64_t>(token_count) + static_cast<uint64_t>(max_output_tokens) >

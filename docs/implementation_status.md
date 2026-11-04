@@ -10529,3 +10529,70 @@ disk hashes, cache inventory, resource check and scripts are recorded under
 formal M30. Next: supply an authorized pinned cache artifact (verify exact size
 and hash before image integration) and verify a permitted upstream DNS path for
 the unchanged lookup, then rerun source-bound layout and normal-session gates.
+
+## M23 combined summary budget and tokenizer boundary candidate (2026-11-04)
+
+Status: `PARTIAL`. Isolated candidate based on public main
+`87b7dea4061be2572526181ab559d63037f823d0`, combining the independently reviewed
+output-budget source and input-boundary transfer. Summary output is capped at
+256 tokens, with smaller trusted caller budgets preserved. Admission counts
+serialized JSON plus system instructions against `self.budget.max_input_bytes`,
+never a fixed 24 KiB fallback. ContextLimit remains InputTooLarge. All existing
+caller/object/workspace authorization and untrusted-context contracts remain.
+
+The native adapter returns context-limit status for template-buffer exhaustion
+and negative tokenizer required-capacity results, including INT32_MIN, before
+KV clearing or prefill. Empty tokenization and unsupported templates remain
+failures. No model, service or native context/buffer cap is increased.
+
+Integration reproduced E0063 from the input candidate's SummaryModel initializer;
+its missing error/max_output_tokens fields are now initialized. Combined Rust
+regressions cover maximal UTF-8 prefixes, escaped JSON round trips, exact byte
+edges at four budgets (including smaller caller limits), output ceilings and
+typed error propagation. A fixed-24-KiB mutation fails the small-budget test;
+restoring the caller budget passes. The native fixture fails against the
+baseline adapter and passes all 53 boundaries with the candidate adapter.
+
+Validation: 33 AI, 74 Model Manager unit, 3 Model Manager integration and
+3 session-authentication host tests PASS (113 total). AI warnings-denied Clippy,
+package formatting, the Nagi no-std AI target check, actual service/FFI leaf
+target Clippy and native orchestration PASS. The leaf check retains eight
+existing nagi-posix dependency warnings. Native tests compile the production adapter against pinned llama headers
+with deterministic fixtures; no real tokenizer, model or guest inference is
+claimed. See `tests/m23-summary/README.md` for reproducible commands.
+
+No actual worker/session wiring, shared branch, PR, model or VM was modified.
+Authenticated ordinary-session browser summarization and same-image guest
+acceptance remain pending; M23 stays PARTIAL and existing release gates remain.
+
+## Local M30 integration of transferred M23 boundaries (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Protected branches at
+`4edf483` and `335074f` remain unchanged. A new local branch
+`codex/m30-m23-boundaries-20261104` applies only the verified six-file delta
+against base87b7dea, not the unrelated newer main changes.
+
+The two transferred base64/gzip/patch layers match every supplied byte count
+and SHA-256. Temporary-index reconstruction matches source tree a437843e and
+full candidate tree518ca726, with all six candidate blob IDs verified. The
+original4ef8534 commit metadata is unavailable and is not claimed verified;
+local reconstruction909c71d has the identical candidate tree and distinct
+metadata. Cherry-pick conflicts only at the implementation-status append;
+both sections are preserved. All five remaining transferred blobs are exact.
+The new source retains smaller caller budgets, combined JSON/system input
+admission, 256-or-smaller output, typed ContextLimit and native prefill fencing.
+
+On the integrated M30 source: 33 AI +77 Model Manager +3 live-session-access
+host tests PASS (113 total); 53 native boundary fixture cases PASS; AI host
+warnings-denied Clippy and package formatting PASS; AI no-std Nagi target
+check and production/Granite-acceptance Rust service leaf target Clippy PASS.
+The leaf retains eight existing nagi-posix dependency warnings. These results
+use host/native fixtures, not guest or real-model inference. Full Nagi native
+C++ linking and new guest evidence are separate checks.
+
+No model acquisition, public write, push/merge or shared-branch change occurs.
+The live authenticated Browser worker/system-instruction transport is still
+missing; Some(AppId) rejection and untrusted Context sharing boundaries remain.
+The earlier normal-session Files evidence stays bound to source464246c and is
+not relabeled as new-source inference. Model/DNS/Browser/History/voice/stress/
+distribution blockers remain. See workstreams/m30-session-caller-contract.md.
