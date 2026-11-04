@@ -7,6 +7,7 @@ pub mod development;
 pub mod diagnostics;
 pub mod doctor;
 pub mod fat32;
+pub(crate) mod fetch_progress;
 pub(crate) mod fonts;
 pub(crate) mod freetype_sys;
 pub mod gpt;

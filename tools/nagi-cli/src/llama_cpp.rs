@@ -123,18 +123,22 @@ fn fetch_upstream_checkout(
             &temporary,
             ["remote", "add", "origin", spec.repository.as_str()],
         )?;
-        git_output(
-            &temporary,
-            [
-                "fetch",
-                "--depth",
-                "1",
-                "--filter=blob:none",
-                "origin",
-                spec.revision.as_str(),
-            ],
-        )?;
-        git_output(&temporary, ["checkout", "--detach", "FETCH_HEAD"])?;
+        crate::fetch_progress::phase("llama.cpp.git.fetch", || {
+            git_output(
+                &temporary,
+                [
+                    "fetch",
+                    "--depth",
+                    "1",
+                    "--filter=blob:none",
+                    "origin",
+                    spec.revision.as_str(),
+                ],
+            )
+        })?;
+        crate::fetch_progress::phase("llama.cpp.git.checkout", || {
+            git_output(&temporary, ["checkout", "--detach", "FETCH_HEAD"])
+        })?;
         validate_checkout(&temporary, spec)?;
         if checkout.exists() {
             return Err(format!(

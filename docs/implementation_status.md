@@ -1,10 +1,99 @@
-## PR 90 GUI serial completion ordering candidate — 2026-11-04
+## PR 90 bootstrap fetch diagnosis candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local diagnostics candidate based on published
+`91e4043a624bd13357609967faefdeb150820642` (tree
+`bdae0b5848a41671fea3ca696c9c32806e77030d`), source base
+`87b7dea4061be2572526181ab559d63037f823d0`. No new push, hosted CI rerun,
+workflow change, timeout extension or merge was performed for this investigation.
+
+**Current public result:** [Nagi CI 41919875669](https://github.com/Roy-To/NagiOS/actions/runs/41919875669)
+completed cancelled at 91e4043. Classification succeeded; Ubuntu and Windows
+were cancelled inside Bootstrap pinned Servo source dependencies; target and
+M20 inference were skipped. The public check-run annotations for both host jobs
+explicitly say "The job has exceeded the maximum execution time of 30m0s".
+Both bootstrap binaries compiled successfully, then their `fetch` executions
+produced no further phase output before cancellation. No QMP regression test
+ran in that CI attempt. The current fetch wait's underlying cause is UNKNOWN.
+
+**Comparison with successful baseline:** [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+was successful at 5ecef8e. Its fetch execution took about 178 seconds on Ubuntu
+and 272 seconds on Windows. Between 5ecef8e and 91e4043, only image.rs and the
+status document changed; the fetch implementation, all source/font pins, Cargo
+locks, bootstrap manifest and CI workflow are identical. Ubuntu's runner image
+changed from 20261025.353.1 to 20261101.360.1; Windows retained image
+20261025.346.1. Git remained 2.56.0 on Ubuntu and 2.56.0.windows.3 on Windows.
+The Ubuntu image difference alone does not establish a common cause for both
+host jobs. The cancelled run has no uploaded diagnostic artifacts.
+
+The workflow step label does not identify the active source. `execute_fetch`
+prepares llama.cpp first, then whisper.cpp, Surfman, registry-based tempfile,
+mozjs_sys and cc, Servo and its registry dependencies, fonts and Mesa. Direct
+Git endpoints are github.com/ggml-org/llama.cpp, github.com/ggml-org/whisper.cpp,
+github.com/servo/surfman, github.com/servo/servo and gitlab.freedesktop.org/mesa/mesa.
+Registry archives come from the exact crates.io URLs in sources.lock; font URLs
+and hashes are pinned in fonts.lock. Servo Cargo.lock also identifies transitive
+Git dependencies. These pins and verification checks are unchanged.
+
+**Confirmed observability defect:** the Git/Cargo helpers use Command::output,
+which retains subprocess output until exit, and fetch previously emitted its
+result only after all phases completed. Consequently, the cancelled CI logs do
+not establish which component, network request, checkout or Cargo operation
+was waiting. They do not prove that the step was stuck in Servo, nor that the
+new QMP reader caused the wait.
+
+The candidate emits a static phase start record to stderr and flushes it before
+each potentially blocking source-preparation operation. Completion/failure
+records include elapsed time. It additionally distinguishes initial llama.cpp
+Git fetch/checkout and Servo Git fetch/checkout/unpatched Cargo operations.
+Labels contain no command arguments, URLs, environment or error text. Fetch
+stdout, original return values, failure codes, source validation, endpoints,
+revision/hash pins and existing retry policies remain unchanged. Logging failure
+does not skip or retry the operation. This is a diagnostics fix, not a claimed
+repair of the unidentified hosted wait.
+
+**Bounded local reproduction attempts:** a fresh shallow blobless fetch of the
+first pinned llama.cpp revision completed in 1.17 seconds. One complete fresh
+source bootstrap with the new diagnostics completed successfully in 125.81
+seconds, within a six-minute diagnostic probe bound. Its live phase records
+showed llama.cpp preparation about 11.9 seconds, Servo about 65.5 seconds and
+Mesa about 37.4 seconds. Source checkouts were fresh, but Cargo/registry caches
+were reused and the managed network/proxy differs from GitHub runners. No
+network route, credential or trust setting was changed. The original CI wait
+was not reproduced; no repeated CI runs were used to obtain a pass.
+
+**Separate pre-existing test entry-point defect:** the standalone bootstrap
+manifest shares CLI library sources, but the immutable QMP fixture path used
+CARGO_MANIFEST_DIR as though it always named tools/nagi-cli. Running the full
+bootstrap library suite therefore reproduced three ENOENT fixture failures.
+The candidate resolves the fixture from the common tools directory, preserving
+all assertions and immutable executable behavior. This cfg(test) path issue
+cannot explain the CI fetch cancellation, which occurred in the normal binary.
+
+Validation with nightly-2025-08-01:
+- Three new diagnostics tests prove a start record is flushed before a blocked
+  operation completes; success/error identity is preserved without logging
+  opaque error text; and a broken stderr sink neither skips nor retries work.
+- Ordinary CLI library: 370 passed / 2 ignored.
+- Standalone bootstrap library after the fixture-path fix: 370 passed / 2 ignored.
+  The initial pre-fix run reported 367 passed / 3 fixture-path failures / 2 ignored.
+- Ordinary CLI and standalone bootstrap Clippy, --lib --tests with warnings
+  denied: passed. Changed Rust formatting and git diff check: passed.
+- New candidate hosted Windows/target/inference CI: NOT RUN.
+
+The next hosted attempt needs approved publication of the diagnostic candidate
+if it is selected after review; its phase records would identify any remaining
+wait without weakening the 30-minute gate. The original wait cause remains an
+open blocker. Earlier public results below are historical preparation records.
+
+## Historical PR 90 GUI serial completion ordering preparation — 2026-11-04
 
 Status: `PARTIAL`; isolated local follow-up to protected public head
 `5ecef8e7d9d98861b62f1838db66aeaadb9c13cf` (tree
 `3f95febdad1db7da5a731538e5f535095c455228`). Source base/merge-base is
 `87b7dea4061be2572526181ab559d63037f823d0`. This new completion-ordering
-candidate has not been pushed or run in hosted CI; no merge is performed.
+candidate had not been pushed or run in hosted CI at preparation time. It was
+subsequently published as 91e4043; its cancelled fetch-stage CI is recorded in
+the current entry above. No merge was performed.
 
 **Published baseline, distinct from this new candidate:** 5ecef8e was published
 with approval. [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
