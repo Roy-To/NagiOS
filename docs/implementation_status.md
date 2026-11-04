@@ -11019,3 +11019,102 @@ and channel/capability binding, coherent Servo extraction, real policy/navigatio
 ABA and real guest cancellation/display remain absent/unverified. Host synthetic
 results do not prove them. Private product decisions remain unverified; no private
 ledger was read. Formal release gates remain unchanged.
+
+
+## Albert coherent extraction owner prerequisite (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. The cloud exec-server connection recovered;
+this turn verified exact parent `4b274b2f8aa204d09840204c8cd1fa30c31dd0d6`,
+full tree `97779771130d7935b9b740ab16b00d7c3fd5aa75`, clean before creating
+`codex/m30-albert-coherent-context-20261104` in
+`/workspace/NagiOS-m30-albert-coherent-context`. The parent branch/worktree,
+source exports and older evidence remain unchanged. No duplicate epoch
+implementation is added; this uses the parent's BrowserContextEpoch.
+
+The source investigation rechecked the existing trusted receive path:
+`action_ipc.rs::receive_request` calls real libnagi::channel_receive on the
+Supervisor-owned launched endpoint, uses kernel-selected
+ChannelReceiveResult.sender_process_id, then resolves the live registry through
+supervisor::resolve. Launch identities/grants derive from signed manifests,
+and process exit revokes the launch. This is the existing path to reuse for a
+future summary connector, rather than caller fields supplied in a payload.
+No normal Bar summary receive endpoint or authenticated actor/session binding
+exists in the current Desktop path. The declared acceptance launch packages
+are not a live Bar actor, and the foreground Albert launch cannot be relabeled
+as NAGI_BAR_APP_ID. No receive helper that accepts a user-supplied PID/LaunchRecord
+is introduced or presented as kernel authentication. Existing Action IPC and
+Supervisor authorization code are unchanged.
+
+Albert's ordinary guest FirstPixelDelegate handles new frame, URL and load
+status callbacks, but does not expose a normal page Context API to Desktop or
+invalidate the summary epoch. The live API in m18_acceptance.rs is an
+acceptance-only local wrapper: evaluate_page_string spins Servo and yields
+between asynchronous JavaScript results, separately collecting selection and
+visible text. A final URL/content equality check or freshly attached token
+cannot by itself establish a single consistent page/policy capture.
+
+Implemented BrowserContextOwner in Albert's actual assistant_context.rs:
+
+- Owns the existing disabled-by-default ContextSharingPolicy and the parent's
+  event-thread-only epoch. It does not authenticate the caller or grant terms,
+  model, object or OS authority. The existing app-ID sharing check is still
+  only one check downstream of the required OS-authenticated connector.
+- Trusted chrome sharing controls invalidate the old epoch BEFORE changing
+  policy. A change back to the original policy never revives retained snapshots.
+- extract captures the epoch BEFORE the engine callback. After it returns,
+  sharing is checked again and a revoked capture fails unavailable. Only an
+  unchanged successful capture gets that original revision. The callback's
+  attempt to return a newly stamped page cannot repair a revoked transaction.
+  No implicit extraction retry, model invocation or terms acknowledgement.
+- The real event dispatcher must still call invalidate_page_context BEFORE
+  navigation/tab/selection/relevant content changes, including A-B-A. The helper
+  cannot observe omitted events or authenticate an arbitrary CallerIdentity.
+  It is not wired into ordinary Servo or the production Desktop owner seam.
+
+The minimal missing production contracts remain explicit:
+
+1. An owned Bar-summary endpoint/actor lifecycle using actual kernel sender
+   metadata and Supervisor live-launch resolution, tied to the authenticated
+   Desktop Session and active request. In-process Bar currently has no such
+   registered launch/receiver. A trusted in-process actor issuance contract or
+   real signed Bar launch must be implemented/reviewed before accepting Some.
+   Never substitute the foreground browser's identity for the requesting actor.
+2. Albert's owner event dispatcher must invalidate the SAME retained owner on
+   every relevant mutation, including sharing/tab changes and page changes
+   during JavaScript extraction. URL/load callbacks alone are insufficient.
+3. A bounded real Servo extraction adapter must capture a coherent set of
+   fields across asynchronous callbacks, propagate failures, observe revocation
+   after each event-pumping step, and bind the result/reply to the current
+   actor/Session/request. It must not stamp a mixed-page result as current.
+4. Only then can the normal Desktop step supply this live owner; current None
+   behavior is retained. Lock/sign-out/reap/readiness must discard the binding
+   and late replies. Host fixtures do not satisfy these production contracts.
+
+New standalone tests/albert-context imports the exact production Albert module
+without resolving unrelated Servo target dependencies. Its lock closure retains
+all 21 registry name/version/source/checksum identities from the existing source
+check seed; no dependency download or upgrade. Tests cover deny-before-read,
+unchanged versioned untrusted snapshots/blank filtering, navigation and sharing
+ABA during extraction, malicious re-stamping after invalidation, post-read
+sharing denial, restored-policy and owner-drop revocation, engine failure and
+absent page, and no retry. The existing Desktop host harness also imports the
+exact Albert owner and drives its public API via synthetic engine/actor fixtures
+through real Desktop input/controller/adapter/Shared queue/renderer. Completed
+fixture reply text is discarded for policy ABA between polls and page ABA during
+the extraction callback. No kernel caller provenance or Servo execution is claimed.
+
+Producer validation: standalone Albert9 PASS and all-target Clippy with
+-D warnings PASS; UI72/Desktop88/login26 PASS through existing check.sh, including
+format/feature graph checks. Desktop all-target Clippy with -D clippy::all PASS,
+with pre-existing Rust warnings retained (four library, two test warnings).
+A test enum naming Clippy error was fixed by renaming the fixture variant; the
+final strict check passed. git diff --check PASS. Full Albert/Servo target build,
+full UI target (known offline libc0.2.191 blocker), guest display/extraction,
+model inference, OS sender authentication and release acceptance are NOT RUN
+or remain unimplemented as described above. No target or guest success is
+inferred from host results. No network/authentication/dependency acquisition,
+root-registry probe, denied export retry/alternate route, private ledger/log
+read, operator consent, public operation, push or merge occurred. No action was
+denied or uncertain in this recovered source/host task. Private decisions remain
+unverified; this is independent existing 0.1 prerequisite work under unchanged
+release gates.
