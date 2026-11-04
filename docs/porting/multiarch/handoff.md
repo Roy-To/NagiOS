@@ -16,9 +16,9 @@ identity, unsigned summary/serial integrity, build and run outcomes; phase C
 remains PENDING. Host metadata names derive from source SHA, and v1/v2 evidence
 remains supported. The 11 new docs tests are model-free summary checks.
 
-See the [source0039 run](runtime/arm64-0039f0c3-20261104/README.md). R1 records
-validation is pending until this direct child is committed and checked; R2 will
-record the exact successful R1 commit/tree and stdout. Verified base036 remains
+See the [source0039 run](runtime/arm64-0039f0c3-20261104/README.md). R1 `89c01c9ae7ca469dae362943b2537f303a00c01d` (tree
+`caca5be0a3a8d78e97509e7240c36655b9560da5`) passed records validation; R2
+records its exact stdout hash `e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c`. Verified base036 remains
 fixed. Remote main87 advanced separately; its diff/PR compatibility and final
 head CI must be checked before claiming latest-main acceptance.
 
