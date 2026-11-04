@@ -1,0 +1,38 @@
+Calendar buffer-boundary successor verification
+Date: 2026-11-03
+
+Source base: 317853bd21412739dbd3410cf391359386b31064
+Base tree: 6cd89f10de3f931e3d6573441c88af8b0169752e
+Branch: codex/calendar-buffer-edge-successor
+Scope: tests only; no production source, registry, milestone state, or lockfile edits.
+
+Changes in availability_boundary_contract.rs:
+- Positive before/after buffers that land exactly on i64::MIN/i64::MAX both
+  succeed, produce the expected slot, and match reference_enumeration.
+- Buffered busy ranges are clipped at both window edges; an expanded overlap
+  and an expanded endpoint touch are merged by normalize_busy, with exact
+  normalized intervals and availability output checked against the reference.
+- The expanded overlapping ranges satisfy Interval::overlaps; the expanded
+  endpoint-touching pair does not, preserving half-open overlap semantics.
+
+Verification (host-only, offline, serialized with CARGO_BUILD_JOBS=1 and a
+dedicated /tmp target directory; pinned nightly-2025-08-01-aarch64-apple-darwin):
+- cargo fmt --manifest-path crates/nagi-calendar-core/Cargo.toml --package
+  nagi-calendar-core -- --check: PASS.
+- cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --target
+  aarch64-apple-darwin --locked --offline: PASS; 1 unit, 60 acceptance,
+  12 availability boundary, 4 recurrence validation, 16 snapshot tests;
+  93 passed total, 0 failed, 0 ignored; 0 doctests.
+- cargo clippy --manifest-path crates/nagi-calendar-core/Cargo.toml --target
+  aarch64-apple-darwin --all-targets --locked --offline -- -D warnings: PASS.
+- git diff --check: PASS.
+
+The first test/lint invocations selected Homebrew x86_64 tools on this arm64
+host. Reruns explicitly selected the pinned arm64 compiler, rustdoc, and Clippy
+driver path; the final checks above passed. No source or toolchain configuration
+was changed to resolve that host routing issue.
+
+No network access, Nagi target build, VM/QEMU, API call, or publication was
+performed. A process-list read (`ps`) was denied by the environment. Commands
+were run sequentially with one Cargo build job and an isolated target directory;
+whether another thread had active work could not be independently confirmed.
