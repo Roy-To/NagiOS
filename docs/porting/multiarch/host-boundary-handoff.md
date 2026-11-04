@@ -65,3 +65,30 @@ must be captured and reviewed before designing a physical backend. The
 preparation proposal deliberately cannot authorize physical execution.
 No media/physical writes, network configuration changes, public push or merge
 were performed.
+
+## Independent-review P2 repair — 2026-11-04
+
+Review of `d5bd77b9a5d4ec59e2bb797e73dcefdf9d6096ef` found that the envelope
+check accepted structure lengths 1/2/3 and other nonmultiples of 4. The repair
+requires at least one complete four-byte token and a length divisible by four.
+A new fixture holds all ranges within bounds and keeps the strings block out
+of the tested ranges, isolating the length condition. It rejects lengths
+0/1/2/3/5/6/7/9/10/11/13/14/15 and accepts envelope lengths 4/8/12/16 without
+claiming that those synthetic envelopes contain valid structure tokens.
+
+The new regression failed against the preceding implementation at length 1
+(`Ok(())` instead of `Err(DeviceTreeEnvelope)`), then passed with the repair.
+The complete pinned contracts verifier exits 0: 105 contract tests, 30
+audit/records fixtures, 16 BootInfo tests, 5 ABI tests, format and warning-denied
+Clippy. The unchanged runner/receipt suite was rerun: 32 pass. Total host tests
+for the repaired candidate: 188. Local repair logs are
+`/tmp/arm64-host-p2-before.log`, `/tmp/arm64-host-p2-after.log` and
+`/tmp/arm64-host-p2-runner.log`; prior logs and runtime receipts are untouched.
+
+The delegation reports that the independent reviewer also verified 187 host
+tests, a pinned AArch64 build, QEMU EL1 success and expected EL2 rejection for
+the preceding candidate. Those reported results are not reruns of this repair
+and do not establish a source-bound receipt for it. Repair review, fresh
+repaired-source AArch64/QEMU checks and attestation are NOT_RUN here. Physical
+profiles remain unsupported; firmware authentication and full DT property
+parsing remain unimplemented. No hardware or publication action was taken.
