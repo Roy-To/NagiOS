@@ -1,3 +1,33 @@
+## Local modern input queue negotiation / M23 contract — 2026-11-04
+
+Formal M30 remains `BLOCKED`. The shared block/Net implementation at `d3a4ea2`
+builds image SHA-256
+`fb625117e24c14b92583dc811c40447afc3a0dabad4ab81c101ad80f99103074`.
+Both QEMU 8/10 format/write User Data; QEMU 8 reaches normal Owner/Desktop and
+worker startup. QEMU 10 reaches login, but long scripted input duplicates or
+loses characters and fails sign-in. Explicit HID press/release reproduces it.
+QMP shows its modern keyboard/mouse queues still at 1024 while software wraps
+at 64 (`out/evidence/m30-session-1793772240092097471/virtio-state.json`).
+The input driver now programs/read-backs the chosen modern queue length before
+enable, and rejects incompatible legacy geometry. Its 172 kernel tests and
+native target kernel build pass; guest validation follows separately.
+
+The retained QEMU 10 layout run at `d3a4ea2` passes M7, M12 and real Rust PAL
+HTTP (host fixture logs a GET), then fails C POSIX probe code 85. That is the
+nonzero/failed `example.com` DNS result (70+15), not a disk or HTTP result.
+Evidence: `out/evidence/m30-layout-1793771659111867600/reference-disk-restart.log`.
+The managed environment is restricted and retains no network diagnostic bundle;
+its precise DNS failure cause is not established. No resolver substitution,
+network expansion, skipped assertion or layout PASS is claimed.
+
+M23 contract inspection confirms Some(AppId) versus the ordinary service's
+None-only Session route, separate system-prompt/worker API gaps and current
+2048-versus-256 output limits. See
+`docs/workstreams/m30-session-caller-contract.md`. The separately reviewed
+budget candidate `ed67d36954e520122ee889715846ad513bd0ccdf` is unavailable from
+origin (`not our ref`), uninspected and not merged. Existing external-caller
+rejection remains unchanged.
+
 ## Local shared block/Net queue geometry — 2026-11-04
 
 Formal M30 remains `BLOCKED`. Pinning RX/TX properties to 256 did not change

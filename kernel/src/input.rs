@@ -213,11 +213,13 @@ fn setup_legacy_device(index: usize, io_base: u16) -> Result<DeviceState, usize>
             io_base + LEGACY_DEVICE_STATUS,
             STATUS_ACKNOWLEDGE | STATUS_DRIVER,
         );
+        io_write16(io_base + LEGACY_QUEUE_SELECT, 0);
         let queue_size = io_read16(io_base + LEGACY_QUEUE_SIZE) as usize;
-        if queue_size == 0 {
+        // Legacy ring offsets are fixed by its device-owned length.
+        if queue_size != QUEUE_SIZE {
             return Err(3);
         }
-        let count = queue_size.min(QUEUE_SIZE);
+        let count = QUEUE_SIZE;
         ptr::write_bytes(
             ptr::addr_of_mut!(QUEUES[index]).cast::<u8>(),
             0,
@@ -267,11 +269,7 @@ fn setup_modern_device(index: usize, device: u8, function: u8) -> Result<DeviceS
         mmio_write32(common, 8, 0);
         mmio_write32(common, 12, 0);
         mmio_write16(common, 22, 0);
-        let queue_size = usize::from(mmio_read16(common, 24));
-        if queue_size == 0 {
-            return Err(3);
-        }
-        let count = queue_size.min(QUEUE_SIZE);
+        let count = configure_modern_event_queue_size(common)?;
         ptr::write_bytes(
             ptr::addr_of_mut!(QUEUES[index]).cast::<u8>(),
             0,
@@ -314,6 +312,20 @@ fn setup_modern_device(index: usize, device: u8, function: u8) -> Result<DeviceS
             used_index: 0,
         })
     }
+}
+
+unsafe fn configure_modern_event_queue_size(common: u64) -> Result<usize, usize> {
+    let count = usize::from(mmio_read16(common, 24)).min(QUEUE_SIZE);
+    if count == 0 || !count.is_power_of_two() {
+        return Err(3);
+    }
+    // Modern queues have independently programmed ring addresses, but the
+    // device must also use our bounded ring length when wrapping used entries.
+    mmio_write16(common, 24, count as u16);
+    if usize::from(mmio_read16(common, 24)) != count {
+        return Err(3);
+    }
+    Ok(count)
 }
 
 fn poll_devices() {
@@ -589,5 +601,32 @@ mod tests {
         assert_eq!(event.event_type, 2);
         assert_eq!(event.code, 1);
         assert_eq!(event.value, -5);
+    }
+
+    #[test]
+    fn modern_device_is_programmed_to_the_bounded_event_ring_length() {
+        // Explicit MMIO-register unit fixture, not a guest input result.
+        let mut common = [0_u64; 8];
+        let base = common.as_mut_ptr() as u64;
+        unsafe {
+            super::mmio_write16(base, 24, 1024);
+            assert_eq!(super::configure_modern_event_queue_size(base), Ok(64));
+            assert_eq!(super::mmio_read16(base, 24), 64);
+            super::mmio_write16(base, 24, 32);
+            assert_eq!(super::configure_modern_event_queue_size(base), Ok(32));
+            assert_eq!(super::mmio_read16(base, 24), 32);
+        }
+    }
+
+    #[test]
+    fn invalid_modern_event_queue_lengths_fail_closed() {
+        let mut common = [0_u64; 8];
+        let base = common.as_mut_ptr() as u64;
+        unsafe {
+            for size in [0, 3, 63] {
+                super::mmio_write16(base, 24, size);
+                assert_eq!(super::configure_modern_event_queue_size(base), Err(3));
+            }
+        }
     }
 }
