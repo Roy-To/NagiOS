@@ -137,6 +137,17 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-ai"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-model-manager",
+ "nagi-search",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-localization"
 version = "0.1.0"
 
@@ -181,10 +192,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-search"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
 name = "nagi-session-ui-tests"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-ai",
  "nagi-localization",
  "nagi-model",
  "nagi-model-manager",

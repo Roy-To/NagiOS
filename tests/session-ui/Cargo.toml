@@ -21,6 +21,7 @@ nagi-localization = { path = "../../user/nagi-localization" }
 nagi-ui = { path = "../../user/nagi-ui" }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
+nagi-ai = { path = "../../services/nagi-ai" }
 nagi-posix = { path = "../../user/nagi-posix", features = ["m20-llama-memory"] }
 
 [lints.rust]
