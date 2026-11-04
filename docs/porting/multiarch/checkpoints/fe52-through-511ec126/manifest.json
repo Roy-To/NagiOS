@@ -1,0 +1,41 @@
+{
+  "schema": "nagi-multiarch-checkpoint-archive/1",
+  "copied_from_commit": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+  "source_checkpoint": "fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
+  "original_published_records_head": "511ec1265251bc498eda08a4ecdad8ec326f003e",
+  "current_acceptance": false,
+  "files": [
+    {
+      "path": "state.json",
+      "sha256": "2b7c37c144f43e01396c68a4fa8edf8c33b69d31ef8d14ad0f5a24b6030e1ff8"
+    },
+    {
+      "path": "handoff.md",
+      "sha256": "b5910295568d580ca4aa98a1c01070e54280c0d4d6b9a2c6cb532a61e7b9317b"
+    },
+    {
+      "path": "evidence/main-records-index.json",
+      "sha256": "b101dc3ac40682a85d5ed2925385fd1a823fe763b1d07e4198879926aaf65871"
+    },
+    {
+      "path": "evidence/main-0362427747e769b00558053e4c7f4c756d303802/authority-sources.json",
+      "sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a"
+    },
+    {
+      "path": "evidence/main-0362427747e769b00558053e4c7f4c756d303802/baseline-drift.json",
+      "sha256": "4e0bafa2e443bb5b619e9a672018f46327d1e4a9c9d2368e2fbd3a7d9ee9cce0"
+    },
+    {
+      "path": "evidence/main-0362427747e769b00558053e4c7f4c756d303802/current-status.json",
+      "sha256": "90cb04c1f8168cde688319e05602510b4df036cf95d0685cb8185eb86091ea5e"
+    },
+    {
+      "path": "evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
+      "sha256": "172e7648eafbbb59ec7dabbee61e83c79c16f4bbbd300c347694f984f6df6194"
+    },
+    {
+      "path": "evidence/main-0362427747e769b00558053e4c7f4c756d303802/source-inventory.json",
+      "sha256": "9a6b4b9ae0ed1df8b1d4edd7e109978eab7572365c6867091031da341ec33850"
+    }
+  ]
+}

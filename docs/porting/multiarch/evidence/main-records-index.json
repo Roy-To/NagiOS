@@ -12,19 +12,15 @@
         },
         {
           "path": "main-0362427747e769b00558053e4c7f4c756d303802/baseline-drift.json",
-          "sha256": "4e0bafa2e443bb5b619e9a672018f46327d1e4a9c9d2368e2fbd3a7d9ee9cce0"
+          "sha256": "0a69ed1c736aa14d2015d409228e7a13833cf5ddf4feb4c42e9b93c03e2fe5fb"
         },
         {
           "path": "main-0362427747e769b00558053e4c7f4c756d303802/current-status.json",
-          "sha256": "90cb04c1f8168cde688319e05602510b4df036cf95d0685cb8185eb86091ea5e"
-        },
-        {
-          "path": "main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
-          "sha256": "172e7648eafbbb59ec7dabbee61e83c79c16f4bbbd300c347694f984f6df6194"
+          "sha256": "bc6b9be3dbb24f2fc8a7e40c370b53075b6833920e070989cc500b4e68813a8d"
         },
         {
           "path": "main-0362427747e769b00558053e4c7f4c756d303802/source-inventory.json",
-          "sha256": "9a6b4b9ae0ed1df8b1d4edd7e109978eab7572365c6867091031da341ec33850"
+          "sha256": "fe1dfcf7f852145d42d2419f73e98e384c3dbdecb1ff43eda3eea9fe47fd1a07"
         }
       ]
     },

@@ -349,7 +349,7 @@ def validate_host_cargo_acceptance(root, status, tools, source_commit, source_tr
     require_sha256(record.get("stderr_sha256"), "host_Cargo_contract_tests.stderr_sha256")
     metadata_file = record.get("metadata_file")
     if (not isinstance(metadata_file, str) or metadata_file.startswith("/")
-            or metadata_file != "host-cargo-verify-fe52fedc/verify.meta.json"):
+            or metadata_file != f"host-cargo-verify-{source_commit[:8]}/verify.meta.json"):
         raise RecordsError("host Cargo metadata path must be the fixed relative private-evidence reference")
     attempts = record.get("prior_attempts")
     attempt_fields = {"name", "record_head_sha", "result", "exit_code", "failure", "index_sha256"}
@@ -372,7 +372,7 @@ def validate_host_cargo_acceptance(root, status, tools, source_commit, source_tr
     if not isinstance(log_metadata, list):
         raise RecordsError("private tool log metadata must be an array")
     matches = [entry for entry in log_metadata if isinstance(entry, dict)
-        and entry.get("name") == "host-cargo-verify-fe52fedc" and entry.get("metadata_file") == metadata_file]
+        and entry.get("name") == f"host-cargo-verify-{source_commit[:8]}" and entry.get("metadata_file") == metadata_file]
     if len(matches) != 1:
         raise RecordsError("host Cargo result must bind to exactly one private metadata entry")
     entry = matches[0]
@@ -383,12 +383,94 @@ def validate_host_cargo_acceptance(root, status, tools, source_commit, source_tr
     return "PASS"
 
 
+def validate_runtime_record(root, status, baseline, source_commit, source_tree):
+    """Check an unsigned public runtime summary; never imply independent execution."""
+    reference = status.get("runtime_record")
+    if not isinstance(reference, dict) or set(reference) != {
+        "path", "sha256", "raw_attestation_sha256", "verifier_stdout_sha256"
+    }:
+        raise RecordsError("runtime record reference has missing or extra fields")
+    relative = reference.get("path")
+    prefix = "docs/porting/multiarch/runtime/"
+    if (not isinstance(relative, str) or not relative.startswith(prefix)
+            or Path(relative).name != "summary.json" or ".." in Path(relative).parts):
+        raise RecordsError("runtime summary path must stay under the owned runtime directory")
+    root = Path(root).resolve()
+    path = root / relative
+    if (not path.resolve().is_relative_to(root / prefix)
+            or any(part.is_symlink() for part in (path, *path.parents) if part != root)):
+        raise RecordsError("runtime summary path is unsafe")
+    for field in ("sha256", "raw_attestation_sha256", "verifier_stdout_sha256"):
+        require_sha256(reference[field], "runtime_record." + field)
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != reference["sha256"]:
+        raise RecordsError("runtime summary digest mismatch")
+    record = json_file(path, "runtime summary")
+    if (record.get("schema") != "nagi-multiarch-runtime-followup/1"
+            or record.get("source_commit") != source_commit
+            or record.get("source_tree") != source_tree or record.get("main") != baseline
+            or record.get("source_tracked_clean") is not True):
+        raise RecordsError("runtime summary source/main identity mismatch")
+    subtree = git(root, "rev-parse", f"{source_commit}:experiments/nagi-aarch64-spike").strip()
+    if record.get("source_spike_subtree") != subtree:
+        raise RecordsError("runtime spike subtree mismatch")
+    integrity = record.get("receipt_integrity", {})
+    if (type(integrity.get("exit_code")) is not int or integrity["exit_code"] != 0
+            or integrity.get("raw_attestation_sha256") != reference["raw_attestation_sha256"]
+            or integrity.get("verifier_stdout_sha256") != reference["verifier_stdout_sha256"]):
+        raise RecordsError("runtime receipt verification binding mismatch")
+    acceptance = record.get("acceptance", {})
+    for key, value in {"el1": "PASS", "el2_negative": "MET", "source_bound_runs": "PASS",
+            "two_build_comparison": "MATCHED", "phase_c": "PENDING", "independent_rebuild": "NOT_RUN"}.items():
+        if acceptance.get(key) != value:
+            raise RecordsError("runtime acceptance must retain pending independent review: " + key)
+    builds = record.get("builds")
+    if not isinstance(builds, list) or len(builds) != 2 or [b.get("id") for b in builds] != ["a", "b"]:
+        raise RecordsError("runtime summary must contain the two fresh builds")
+    for build in builds:
+        require_sha256(build.get("elf_sha256"), "runtime build ELF hash")
+        if (type(build.get("exit_code")) is not int or build["exit_code"] != 0
+                or build.get("elf_machine") != 183 or type(build.get("elf_bytes")) is not int
+                or build["elf_bytes"] < 64):
+            raise RecordsError("runtime summary build result is invalid")
+    if builds[0]["elf_sha256"] != builds[1]["elf_sha256"]:
+        raise RecordsError("runtime summary build hashes differ")
+    qemu = record.get("qemu", {})
+    require_sha256(qemu.get("sha256"), "runtime QEMU hash")
+    if not isinstance(qemu.get("version"), str) or not qemu["version"].startswith("QEMU emulator version "):
+        raise RecordsError("runtime summary QEMU version is missing")
+    runs = record.get("runs")
+    if not isinstance(runs, list) or len(runs) != 2 or [run.get("id") for run in runs] != ["el1", "el2"]:
+        raise RecordsError("runtime summary must contain EL1 and EL2 runs")
+    expected_serial = {
+        "el1": b"SPIKE ARM64 EL1 PL011 PASS\nSPIKE SVC VECTOR ERET PASS\nSPIKE GENERIC COUNTER PASS\nSPIKE COMPLETE PASS\n",
+        "el2": b"SPIKE FAIL exception-level\n",
+    }
+    for run, code, outcome, verdict in zip(runs, (0, 1), ("PASS", "FAIL"), ("PASS", "MET")):
+        if (type(run.get("runner_exit_code")) is not int or run["runner_exit_code"] != code
+                or type(run.get("qemu_exit_code")) is not int or run["qemu_exit_code"] != code
+                or run.get("timed_out") is not False or run.get("run_outcome") != outcome
+                or run.get("acceptance_verdict") != verdict):
+            raise RecordsError("runtime run outcome is invalid: " + run["id"])
+        for kind in ("serial", "stderr"):
+            name = run.get(kind + "_path")
+            if name != run["id"] + "-" + kind + ".log":
+                raise RecordsError("runtime log path is not the fixed relative file")
+            artifact = path.parent / name
+            require_sha256(run.get(kind + "_sha256"), "runtime log digest")
+            if (artifact.is_symlink() or not artifact.is_file()
+                    or hashlib.sha256(artifact.read_bytes()).hexdigest() != run[kind + "_sha256"]):
+                raise RecordsError("runtime log hash mismatch")
+        if (path.parent / run["serial_path"]).read_bytes() != expected_serial[run["id"]]:
+            raise RecordsError("runtime serial markers do not meet the bounded spike condition")
+    return record
+
+
 def validate_current_status(root, status_path, inventory_path, drift_path, baseline, source_commit, source_tree, head):
     status = json_file(status_path, "current status record")
     if not isinstance(status, dict):
         raise RecordsError("current status record must be an object")
     status_schema = status.get("schema")
-    if status_schema not in {"nagi-multiarch-current-status/1", "nagi-multiarch-current-status/2"}:
+    if status_schema not in {"nagi-multiarch-current-status/1", "nagi-multiarch-current-status/2", "nagi-multiarch-current-status/3"}:
         raise RecordsError("unsupported current status schema")
     expected_tree = git(root, "rev-parse", f"{baseline}^{{tree}}").strip()
     if status.get("main_sha") != baseline or status.get("main_tree_sha") != expected_tree:
@@ -419,6 +501,10 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
         "C": ("NOT_RUN", {"new_ELF": "NOT_RUN", "QEMU_EL1": "NOT_RUN",
             "QEMU_EL2_negative": "NOT_RUN", "independent_rebuild": "NOT_RUN"}),
     }
+    if status_schema == "nagi-multiarch-current-status/3":
+        validate_runtime_record(root, status, baseline, source_commit, source_tree)
+        expected_phases["C"] = ("PENDING", {"new_ELF": "PASS", "QEMU_EL1": "PASS",
+            "QEMU_EL2_negative": "MET", "independent_rebuild": "NOT_RUN"})
     phases = status.get("phases")
     if not isinstance(phases, dict) or set(phases) != set(expected_phases):
         raise RecordsError("current status phases must contain exactly A, B, and C")
@@ -431,11 +517,14 @@ def validate_current_status(root, status_path, inventory_path, drift_path, basel
     expected_execution = {"cargo_check": "NOT_RUN", "cargo_clippy": "NOT_RUN", "cargo_build": "NOT_RUN",
         "new_ELF_generation": "NOT_RUN", "QEMU": "NOT_RUN", "VM": "NOT_RUN", "Miri": "NOT_RUN",
         "independent_rebuild": "NOT_RUN"}
+    if status_schema == "nagi-multiarch-current-status/3":
+        expected_execution.update({"cargo_clippy": "PASS", "cargo_build": "PASS",
+            "new_ELF_generation": "PASS", "QEMU": "PASS"})
     if status_schema == "nagi-multiarch-current-status/1":
         if status.get("execution") != expected_execution or "target_execution" in status:
             raise RecordsError("current status v1 execution fields must all remain NOT_RUN")
     elif status.get("target_execution") != expected_execution or "execution" in status:
-        raise RecordsError("current status v2 target_execution fields must all remain NOT_RUN")
+        raise RecordsError("current status target_execution fields do not match the schema acceptance boundary")
     validation = status.get("records_validation")
     required_validation = {"outcome", "record_head_sha", "record_tree_sha", "source_commit_sha", "command", "exit_code", "stdout_path", "stdout_sha256"}
     if not isinstance(validation, dict) or set(validation) != required_validation:

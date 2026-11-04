@@ -1,0 +1,172 @@
+{
+  "schema_ref": "../../../.dev/schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "PORT-MULTIARCH-01",
+  "current_milestone": "Independent multiarchitecture preparation (unregistered)",
+  "current_checkpoint": "Published ae9a56544d2c66cbbf6e641b80cd144ed52314a4 unchanged to PR #57; fresh ARM64 ELF builds match and real QEMU EL1 passes / EL2 negative condition MET. Explicit-SHA receipt verification passes, but verify.sh has two entry-point defects. Phase C remains PENDING independent rebuild/review. last_verified below retains the earlier FE52 static/host checkpoint; latest runtime evidence is runtime/arm64-ae9a5654-20261104/summary.json.",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
+    "verified_at": "2026-11-03T14:32:54Z",
+    "normal_state": "Current main 0362427747e769b00558053e4c7f4c756d303802: 579 source files, 2,234 matches, 153 BootInfo field references and 13 authority hashes are bound to source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50. The fixed 1b3637ea-to-main diff has 36 paths and zero changes in the three owned prefixes; the main-fa0 record remains SUPERSEDED. 60 model-free Python tests, nine-file Python syntax, two shell syntax checks, and explicit-base inventory/check pass. Pinned host verification on nightly-2025-08-01 passes 99 contract tests, fmt, strict Clippy, 16 BootInfo tests and 5 ABI tests; prior E0658 and intermediate strict-Clippy failures remain recorded as failures. The records-only verifier passes on direct child 274d52f883cf0a348b1ce429fcca7d7a0a7f6e02 (tree c23394d8cc02ad3bfd81f83ba5dff169d5c5a8ee) with captured stdout committed to current-main evidence. A/B remain PENDING because live ownership/ref review and proposal-owner review are incomplete; C remains NOT_RUN. No AArch64-target build, new ELF, actual QEMU/VM, Miri or independent rebuild was performed; historical 379d evidence remains invalid for current acceptance.",
+    "commands": [
+      "python3 experiments/nagi-multiarch-contracts/test_audit.py -v (8 tests)",
+      "python3 experiments/nagi-multiarch-contracts/test_records.py -v (22 tests)",
+      "python3 experiments/nagi-aarch64-spike/test_runner.py -v (8 tests)",
+      "python3 experiments/nagi-aarch64-spike/test_attestation.py -v (22 tests)",
+      "compile() on the nine Python tools/tests",
+      "/bin/sh -n experiments/nagi-multiarch-contracts/verify.sh experiments/nagi-aarch64-spike/verify.sh",
+      "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50 --output <private-evidence>/records-refresh-fe52fedc/generated/source-inventory.json --authority-output <private-evidence>/records-refresh-fe52fedc/generated/authority-sources.json",
+      "same explicit-base/source audit command with --check",
+      "./experiments/nagi-multiarch-contracts/verify.sh (pinned nightly-2025-08-01; locked/offline; host-only PASS)",
+      "NOT_RUN: AArch64 target build, new ELF, actual QEMU/VM, Miri, independent rebuild",
+      "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802 (PASS at direct records-only child 274d52f883cf0a348b1ce429fcca7d7a0a7f6e02)",
+      "python3 experiments/nagi-multiarch-contracts/test_records.py -v (22 tests; records verifier update at R1)",
+      "python3 experiments/nagi-multiarch-contracts/test_audit.py -v (8 tests; records verifier update at R1)",
+      "compile() on the nine Python tools/tests at R1"
+    ],
+    "tests": [
+      {
+        "name": "Contracts audit fixtures (8 tests)",
+        "command": "python3 experiments/nagi-multiarch-contracts/test_audit.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/contracts-audit-tests.stderr.log sha256 1436d478d9498a87fcfc8b00a4944844a6b2295e81702b04a2e05503ea1c5a69 sha256 1436d478d9498a87fcfc8b00a4944844a6b2295e81702b04a2e05503ea1c5a69"
+      },
+      {
+        "name": "Contracts records fixtures (22 tests)",
+        "command": "python3 experiments/nagi-multiarch-contracts/test_records.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/contracts-records-tests.stderr.log sha256 eaeadfddb02b96b6b1e160ae051e99e90f9a1293ba85d989049e8381c1a38830 sha256 eaeadfddb02b96b6b1e160ae051e99e90f9a1293ba85d989049e8381c1a38830"
+      },
+      {
+        "name": "Spike runner fixtures (8 tests; fake QEMU/ELF only)",
+        "command": "python3 experiments/nagi-aarch64-spike/test_runner.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/spike-runner-tests.stdout.log sha256 a8f571cef07e4531a68e1bde0d1705c0bc0e0c03756e8a62fac7b81ea3788cd4 sha256 a8f571cef07e4531a68e1bde0d1705c0bc0e0c03756e8a62fac7b81ea3788cd4"
+      },
+      {
+        "name": "Spike attestation fixtures (22 tests; fake Cargo/rustup/QEMU/ELF E2E)",
+        "command": "python3 experiments/nagi-aarch64-spike/test_attestation.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/spike-attestation-tests.stderr.log sha256 35831088b7f03a3e1bb632c8f1493b6f591ce14bcc2ed6e7ec1e44daad889642 sha256 35831088b7f03a3e1bb632c8f1493b6f591ce14bcc2ed6e7ec1e44daad889642"
+      },
+      {
+        "name": "Python syntax compilation (9 files)",
+        "command": "compile() over the nine Python tools/tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/r1-verification-274d52f8/python-syntax.meta.json sha256 6cc8f1b3d453a82fad28ed5425ba23d9c0e2ee0eec43028e2026dcbf0bb35a27"
+      },
+      {
+        "name": "Shell syntax (2 standalone verify.sh scripts)",
+        "command": "/bin/sh -n experiments/nagi-multiarch-contracts/verify.sh experiments/nagi-aarch64-spike/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/shell-syntax.meta.json sha256 e378b55792ced131d47bd6aaca67cde5902f8a622cf62a5940bf7c6b36e102e4 sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "Current-main static inventory",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/static-inventory-generate.stdout.log sha256 76ee5582ce22e2ff515e2641e48066a3ae457a661080b7463a95ff15c68ce71f"
+      },
+      {
+        "name": "Explicit-main inventory byte-exact check",
+        "command": "audit.py --base 0362427747e769b00558053e4c7f4c756d303802 --source-commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50 --check",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/records-refresh-fe52fedc/static-inventory-exact-check.stdout.log sha256 76ee5582ce22e2ff515e2641e48066a3ae457a661080b7463a95ff15c68ce71f sha256 76ee5582ce22e2ff515e2641e48066a3ae457a661080b7463a95ff15c68ce71f"
+      },
+      {
+        "name": "Records-only verifier",
+        "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 172e7648eafbbb59ec7dabbee61e83c79c16f4bbbd300c347694f984f6df6194; record_head 274d52f883cf0a348b1ce429fcca7d7a0a7f6e02, tree c23394d8cc02ad3bfd81f83ba5dff169d5c5a8ee"
+      },
+      {
+        "name": "Host Cargo contract suite on pinned nightly",
+        "command": "./experiments/nagi-multiarch-contracts/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/host-cargo-verify-fe52fedc/verify.meta.json sha256 9b7bd5730fdefc2c74c3f669cfb23a473de48a9dd4c1dbb3c24fbc923bbd0c1b stdout sha256 5716f79065a6ea3de2c092a4d61fcf048aad10dda5784261fd327b0768ad3910 stderr sha256 30f02d721b9d256822a945bd761623ba7d4a0c2d6a10464129c4199ae0a4e25b"
+      },
+      {
+        "name": "AArch64 build/ELF/QEMU/VM/Miri/independent rebuild",
+        "command": "NOT_RUN by phase boundary",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No AArch64-target build, new ELF, actual QEMU/VM, Miri or independent rebuild."
+      },
+      {
+        "name": "Records-verifier fixture regression at R1 (22 records and 8 audit tests)",
+        "command": "python3 experiments/nagi-multiarch-contracts/test_records.py -v; python3 experiments/nagi-multiarch-contracts/test_audit.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "private-evidence/pr57-review-399d-followup-20261103-01/r1-verification-274d52f8/index.json sha256 be1326f03f3b3a6d3a70a2961e81fb31d9badb2bbd03d9cf74d70db572b5baee"
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams.json os-core",
+    "last_checked_at": "2026-10-11T11:02:42.148840Z",
+    "activation_requirement": "M30 PASS plus explicit Integration Owner/os-core bounded milestone naming exact source base, allowed paths, ABI/BootInfo contracts and x86 guest parity acceptance. Generic portability request is not that exception."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "A/B still need ownership/proposal owner acceptance. The ae9a5654 runtime follow-up has actual source-bound ARM64/QEMU evidence, but overall verify.sh fails and independent rebuild/review is NOT_RUN. Production D/E and registration retain M30 and owner checkpoint gates; physical ARM hardware is NOT_RUN.",
+    "reproduction_commands": [
+      "Read docs/implementation_status.md and os-core registry activation_gate",
+      "./nagi dev resume"
+    ],
+    "failure_log_summary": "Runtime follow-up: initial unpinned preflight exit 101 (older Homebrew compiler); pinned preflight, fixtures, builds and QEMU runs passed, then verify.sh exit 2 (missing mandatory source SHAs). Separate explicit-SHA receipt verification passed. FE52 historical checkpoint below is preserved.",
+    "attempted_fixes": [
+      "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
+      "Refreshed inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
+      "Allowed only commit-hash-verified Cargo config from the archived source snapshot while rejecting external and isolated Cargo-home config",
+      "Fixed generator return/source/blob handling and added fake-tool end-to-end receipt generation plus DIFFERENT build rejection",
+      "Bound records validation to zero exit, saved stdout hash/path, and a direct records-only child commit",
+      "Pinned the host contract verification entry point to nightly-2025-08-01 for cargo, rustc, rustdoc, rustfmt, and Clippy; preserved earlier E0658 and strict-Clippy failures separately from the FE52 PASS."
+    ],
+    "do_not_try": [
+      "Do not relax M30 or v5 validation, rewrite production ABI or bypass rights",
+      "Do not edit shared registry/CI/root workspace or another owner State",
+      "Do not merge or force-push shared branches or delete other worktrees",
+      "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
+    ]
+  },
+  "next_action": "Fix spike verify.sh preflight tool selection and source SHA forwarding on a bounded source candidate, refresh source-bound records and rerun. Obtain independent rebuild/review before phase C PASS. Obtain exact Integration Owner/os-core path/base/ABI/x86 parity checkpoint before production D/E. Physical hardware needs an identified authorized target and separate non-destructive boot plan; no media writes are authorized.",
+  "acceptance_criteria": [
+    "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
+    "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",
+    "Current C is PASS only after a source-bound freshly built ARM64 ELF, actual QEMU guest evidence, and independent rebuild review",
+    "D/E remain blocked without the M30 owner checkpoint and actual production target acceptance"
+  ],
+  "deferred": [
+    "Integration Owner registry adoption and architecture acceptance",
+    "Production x86 extraction, BootInfo/ABI changes and ARM64 Nagi guest",
+    "MMU isolation, interrupt timer/GIC, PSCI/SMP, DMA/VirtIO and Nagi userspace",
+    "Pi 5/tablet/phone physical hardware and power/input/display acceptance"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "os-core",
+      "contract": "Production kernel/ABI ownership and bounded M30 checkpoint",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
+      "status": "BLOCKED"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Shared registration, ABI consumers, workspace/CI and release boundary",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
+      "status": "Registration proposed; no adoption requested or applied"
+    }
+  ]
+}
