@@ -774,7 +774,7 @@ fn summary_owner_step(
     desktop: &mut Desktop,
     user: &libnagi::security::Session,
     request: nagi_ai::ContextRequest,
-    browser: &mut SummaryBrowserFixture,
+    browser: &mut dyn nagi_ai::PublicBrowserContextApi,
 ) -> bool {
     let mut yields = 0;
     let binding = desktop
@@ -1225,4 +1225,92 @@ fn binding_from_another_desktop_instance_cannot_authorize_context_even_if_values
     );
     assert_eq!(second.bar.controller.status(), session_ui::Status::Denied);
     assert_eq!(browser.calls, 0);
+}
+
+// Exact Albert transaction owner + exact Desktop/queue. The engine output and
+// requesting actor are synthetic, never kernel-sender/Servo/guest evidence.
+#[cfg(feature = "m20-model-service")]
+struct AlbertTransactionFixture {
+    owner: crate::albert_assistant_context::BrowserContextOwner,
+    mutate_during_read: bool,
+    calls: usize,
+}
+#[cfg(feature = "m20-model-service")]
+impl nagi_ai::PublicBrowserContextApi for AlbertTransactionFixture {
+    fn current_page_context(
+        &mut self,
+        request: nagi_ai::BrowserContextRequest,
+    ) -> Result<Option<nagi_ai::BrowserPageSnapshot>, nagi_ai::BrowserContextApiError> {
+        assert_eq!(request.caller(), summary_actor_fixture());
+        let mutate = self.mutate_during_read;
+        let calls = &mut self.calls;
+        self.owner.extract(request, |owner, request| {
+            *calls += 1;
+            if mutate {
+                owner.invalidate_page_context();
+                owner.invalidate_page_context();
+            }
+            Ok(Some(crate::albert_assistant_context::page_snapshot(
+                7,
+                Some("https://example.net/".into()),
+                Some("page".into()),
+                None,
+                Some("same page fixture".into()),
+                request.includes_selected_text(),
+                request.includes_visible_text(),
+            )))
+        })
+    }
+}
+#[test]
+#[cfg(feature = "m20-model-service")]
+fn albert_transaction_owner_discards_desktop_reply_on_policy_or_extraction_aba() {
+    for during_read in [false, true] {
+        let (mut desktop, mut volume, mut surface) = summary_desktop_fixture(Locale::EnUs, true);
+        let user = desktop.session.unwrap();
+        let mut owner = crate::albert_assistant_context::BrowserContextOwner::new();
+        owner.set_sharing_by_user(true); // Explicit synthetic sharing choice.
+        let mut browser = AlbertTransactionFixture {
+            owner,
+            mutate_during_read: false,
+            calls: 0,
+        };
+        assert!(desktop.handle_event(key(bar_panel::SUMMARY_KEY), &mut volume));
+        summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+        assert_eq!(desktop.bar.controller.status(), session_ui::Status::Waiting);
+        assert!(desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_test_complete_request());
+        if during_read {
+            browser.mutate_during_read = true;
+        } else {
+            browser.owner.set_sharing_by_user(false);
+            browser.owner.set_sharing_by_user(true);
+        }
+        summary_owner_step(&mut desktop, &user, summary_request_fixture(), &mut browser);
+        assert_eq!(
+            desktop.bar.controller.status(),
+            if during_read {
+                session_ui::Status::PageSummaryUnavailable
+            } else {
+                session_ui::Status::Denied
+            }
+        );
+        assert_eq!(desktop.bar.controller.output(), "");
+        assert_eq!(
+            browser.calls, 2,
+            "one bounded extraction per UI step, no retry"
+        );
+        assert!(desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap()
+            .active_request_id
+            .is_none());
+        desktop.render(&mut surface);
+    }
 }

@@ -2,6 +2,9 @@
 // The imported Desktop source has a larger production feature matrix than this host harness.
 #![allow(unexpected_cfgs)]
 extern crate alloc;
+#[cfg(all(test, feature = "m20-model-service"))]
+#[path = "../../../../user/nagi-albert/src/assistant_context.rs"]
+pub(crate) mod albert_assistant_context;
 #[cfg(feature = "consent-dialog")]
 #[path = "../../../../user/nagi-init/src/consent_dialog.rs"]
 pub mod consent_dialog;

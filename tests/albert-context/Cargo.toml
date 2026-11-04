@@ -1,0 +1,11 @@
+[package]
+name = "nagi-albert-context-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+nagi-ai = { path = "../../services/nagi-ai" }
+nagi-model = { path = "../../crates/nagi-model" }
