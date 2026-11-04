@@ -37,6 +37,13 @@ fails. This is not formal M30 acceptance.
 - Publish only those 256 RX descriptor heads into the actual available ring.
   Recycle returned heads only after checking their buffer bounds. Include the
   10-byte VirtIO header in each buffer stride, and notify RX after DRIVER_OK.
+- Entropy uses its actual legacy queue length after reset/selection, with
+  power-of-two lengths 8 through 1024 and the same bounded shared DMA storage.
+  It still submits one descriptor and at most 256 random bytes per call, with
+  unchanged timeout, lock and completion validation. Block/Net retain their
+  separate 256-entry minimum. After the input fix, QEMU 10 reached Owner
+  credential creation but the old fixed-eight RNG offsets caused a real
+  `SYS_RANDOM_GET` timeout; no synthetic entropy or credential fallback is used.
 
 A local attempt to pin QEMU `rx_queue_size=256,tx_queue_size=256` did not restore
 this contract: QMP still reported 1024-entry device rings. That attempt is

@@ -1,7 +1,8 @@
+use crate::virtqueue::{Descriptor, LegacyQueue, QueueLayout, QueueView};
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -20,11 +21,6 @@ const STATUS_ACKNOWLEDGE: u8 = 1;
 const STATUS_DRIVER: u8 = 2;
 const STATUS_DRIVER_OK: u8 = 4;
 const DESC_F_WRITE: u16 = 2;
-const QUEUE_SIZE: usize = 8;
-const QUEUE_USED_RING_OFFSET: usize = 4096;
-const QUEUE_AVAILABLE_END: usize =
-    size_of::<Descriptor>() * QUEUE_SIZE + 2 + 2 + 2 * QUEUE_SIZE + 2;
-
 pub const MAX_RANDOM_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,61 +37,10 @@ pub enum RandomError {
     Busy,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Descriptor {
-    address: u64,
-    length: u32,
-    flags: u16,
-    next: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct UsedElement {
-    id: u32,
-    length: u32,
-}
-
-#[repr(C, align(4096))]
-struct LegacyQueue {
-    descriptors: [Descriptor; QUEUE_SIZE],
-    available_flags: u16,
-    available_index: u16,
-    available_ring: [u16; QUEUE_SIZE],
-    used_event: u16,
-    _padding: [u8; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-    used_flags: u16,
-    used_index: u16,
-    used_ring: [UsedElement; QUEUE_SIZE],
-    available_event: u16,
-}
-
-impl LegacyQueue {
-    const fn empty() -> Self {
-        Self {
-            descriptors: [Descriptor {
-                address: 0,
-                length: 0,
-                flags: 0,
-                next: 0,
-            }; QUEUE_SIZE],
-            available_flags: 0,
-            available_index: 0,
-            available_ring: [0; QUEUE_SIZE],
-            used_event: 0,
-            _padding: [0; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-            used_flags: 0,
-            used_index: 0,
-            used_ring: [UsedElement { id: 0, length: 0 }; QUEUE_SIZE],
-            available_event: 0,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct DeviceState {
     io_base: u16,
+    queue_layout: QueueLayout,
 }
 
 static REQUEST_LOCK: AtomicBool = AtomicBool::new(false);
@@ -114,15 +59,6 @@ pub fn initialize() -> Result<(), RandomError> {
     if candidate.io_base == 0 {
         return Err(RandomError::InvalidBar);
     }
-    let queue_size = unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) } as usize;
-    if queue_size < QUEUE_SIZE {
-        return Err(RandomError::UnsupportedQueue);
-    }
-    let queue_address = ptr::addr_of!(QUEUE) as u64;
-    if !queue_address_is_usable(queue_address) {
-        return Err(RandomError::AddressOutOfRange);
-    }
-
     unsafe {
         io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
         io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
@@ -130,6 +66,18 @@ pub fn initialize() -> Result<(), RandomError> {
             candidate.io_base + LEGACY_DEVICE_STATUS,
             STATUS_ACKNOWLEDGE | STATUS_DRIVER,
         );
+        io_write16(candidate.io_base + LEGACY_QUEUE_SELECT, 0);
+    }
+    let queue_layout = QueueLayout::for_entropy_size(unsafe {
+        io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) as usize
+    })
+    .ok_or(RandomError::UnsupportedQueue)?;
+    let queue_address = ptr::addr_of!(QUEUE) as u64;
+    if !queue_address_is_usable(queue_address) {
+        return Err(RandomError::AddressOutOfRange);
+    }
+
+    unsafe {
         io_write32(candidate.io_base + 0x04, 0);
         io_write16(candidate.io_base + LEGACY_QUEUE_SELECT, 0);
         ptr::write_bytes(
@@ -151,6 +99,7 @@ pub fn initialize() -> Result<(), RandomError> {
             ptr::addr_of_mut!(DEVICE),
             Some(DeviceState {
                 io_base: candidate.io_base,
+                queue_layout,
             }),
         );
     }
@@ -181,7 +130,10 @@ pub fn fill(destination: &mut [u8]) -> Result<(), RandomError> {
 }
 
 unsafe fn fill_locked(device: DeviceState, destination: &mut [u8]) -> Result<(), RandomError> {
-    let queue = &mut *ptr::addr_of_mut!(QUEUE);
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(QUEUE).cast::<u8>(),
+        layout: device.queue_layout,
+    };
     let buffer_address = ptr::addr_of!(RANDOM_BUFFER) as u64;
     if buffer_address > u64::from(u32::MAX) << 12 {
         return Err(RandomError::AddressOutOfRange);
@@ -190,30 +142,28 @@ unsafe fn fill_locked(device: DeviceState, destination: &mut [u8]) -> Result<(),
     let mut offset = 0;
     while offset < destination.len() {
         let request_length = destination.len() - offset;
-        let previous_used = queue.used_index;
-        queue.descriptors[0] = Descriptor {
-            address: buffer_address,
-            length: request_length as u32,
-            flags: DESC_F_WRITE,
-            next: 0,
-        };
-        let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-        queue.available_ring[available_slot] = 0;
-        fence(Ordering::SeqCst);
-        queue.available_index = queue.available_index.wrapping_add(1);
-        fence(Ordering::SeqCst);
+        let previous_used = queue.used_index();
+        queue.descriptor(
+            0,
+            Descriptor {
+                address: buffer_address,
+                length: request_length as u32,
+                flags: DESC_F_WRITE,
+                next: 0,
+            },
+        );
+        queue.publish(0);
         io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
 
         let mut spins = 0;
-        while ptr::read_volatile(&queue.used_index) == previous_used {
+        while queue.used_index() == previous_used {
             if spins == MAX_REQUEST_SPINS {
                 return Err(RandomError::RequestTimeout);
             }
             spins += 1;
             core::hint::spin_loop();
         }
-        let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-        let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+        let used = queue.completion(previous_used);
         if used.id != 0 || used.length == 0 || used.length > request_length as u32 {
             return Err(RandomError::QueueCorrupt);
         }
@@ -335,10 +285,7 @@ unsafe fn io_write32(port: u16, value: u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        is_rng_device, pci_config_address, queue_address_is_usable, LegacyQueue, QUEUE_SIZE,
-        QUEUE_USED_RING_OFFSET, VIRTIO_VENDOR_ID,
-    };
+    use super::{is_rng_device, pci_config_address, queue_address_is_usable, VIRTIO_VENDOR_ID};
 
     #[test]
     fn recognizes_transitional_and_modern_entropy_device_ids() {
@@ -359,12 +306,5 @@ mod tests {
         assert!(queue_address_is_usable(0x0020_0000));
         assert!(!queue_address_is_usable(0x0020_0001));
         assert!(!queue_address_is_usable((u64::from(u32::MAX) + 1) << 12));
-    }
-
-    #[test]
-    fn uses_a_single_descriptor_entropy_queue() {
-        assert_eq!(QUEUE_SIZE, 8);
-        assert_eq!(core::mem::size_of::<LegacyQueue>() % 4096, 0);
-        assert_eq!(QUEUE_USED_RING_OFFSET, 4096);
     }
 }

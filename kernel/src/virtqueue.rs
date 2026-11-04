@@ -1,4 +1,4 @@
-//! Bounded legacy split-ring layout shared by block and network drivers.
+//! Bounded legacy split-ring layout shared by block, network and entropy drivers.
 use core::mem::size_of;
 use core::ptr;
 use core::sync::atomic::{fence, Ordering};
@@ -45,7 +45,17 @@ pub(crate) struct QueueLayout {
 
 impl QueueLayout {
     pub(crate) fn for_size(size: usize) -> Option<Self> {
-        if !(MIN_QUEUE_SIZE..=MAX_QUEUE_SIZE).contains(&size) || !size.is_power_of_two() {
+        Self::for_bounded_size(size, MIN_QUEUE_SIZE)
+    }
+
+    // Entropy submits one descriptor at a time, including on QEMU's historical
+    // eight-entry ring. Block/Net retain their independent 256-entry minimum.
+    pub(crate) fn for_entropy_size(size: usize) -> Option<Self> {
+        Self::for_bounded_size(size, 8)
+    }
+
+    fn for_bounded_size(size: usize, minimum: usize) -> Option<Self> {
+        if !(minimum..=MAX_QUEUE_SIZE).contains(&size) || !size.is_power_of_two() {
             return None;
         }
         let available = size * size_of::<Descriptor>();
@@ -218,6 +228,46 @@ mod tests {
                 0
             );
         }
+    }
+
+    #[test]
+    fn entropy_uses_device_ring_layout_without_changing_block_net_minimum() {
+        for size in [8, 16, 32, 64, 128, 256, 512, 1024] {
+            let layout = QueueLayout::for_entropy_size(size).unwrap();
+            assert_eq!(layout.available, size * 16);
+            assert_eq!(layout.used % 4096, 0);
+            let mut storage = LegacyQueue::empty();
+            let queue = QueueView {
+                base: storage.storage.as_mut_ptr(),
+                layout,
+            };
+            unsafe {
+                // Multiple RNG requests must also wrap at the device length.
+                for index in 0..size + 1 {
+                    queue.publish(0);
+                    ptr::write_volatile(
+                        queue
+                            .base
+                            .add(layout.used + 4 + (index % size) * 8)
+                            .cast::<UsedElement>(),
+                        UsedElement { id: 0, length: 32 },
+                    );
+                    assert_eq!(
+                        queue.completion(index as u16),
+                        UsedElement { id: 0, length: 32 }
+                    );
+                }
+                assert_eq!(
+                    ptr::read_volatile(queue.base.add(layout.available + 2).cast::<u16>()),
+                    (size + 1) as u16
+                );
+            }
+        }
+        for size in [0, 4, 7, 9, 1025, 2048, usize::MAX] {
+            assert_eq!(QueueLayout::for_entropy_size(size), None);
+        }
+        assert_eq!(QueueLayout::for_size(8), None);
+        assert_eq!(QueueLayout::for_size(128), None);
     }
 
     #[test]
