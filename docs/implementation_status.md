@@ -1,3 +1,44 @@
+## Local M30 guest diagnostics and variable VirtIO queue repair — 2026-11-04
+
+Formal M30 remains `BLOCKED`. Native source
+`fd5972b8c22ddaae2b8e943c6ef547d420bd4073` built image SHA-256
+`06c7cab0921f8c2e241d6e94734e51ec947321655a19bd13daea5d89b8cc761a`.
+Its QEMU 8.2.2 ordinary Desktop reports `Nagi session worker started` and
+`backend-result=artifact-unavailable` after explicit terms and normal input.
+The same signed-in session creates `workerfile`, queries it through both live
+signed Files grants, then receives the worker's typed artifact error. After a
+lock/relogin, the worker remains usable and terms must be accepted again.
+The fast submit/lock probe completed the missing-artifact request before lock;
+it does not establish cancellation during active inference. Evidence:
+`out/evidence/m30-session-1793769620812240826/`.
+
+The earlier `b904ed5` image also passes an offline boot, restored signed Search
+and new Files creation with network link disabled through QMP before any guest
+execution (`out/evidence/m30-session-1793769504516357245/`). The scoped artifact
+checker validates its format/session/restart/offline disk hash chain and rejects
+a mixed-source diagnostic image. It does not replace formal session validation;
+Search/Bar frame review and ObjectId/content/inference proof remain separate.
+Release preflight for the native partial image fails closed with unsupported
+provenance fields; no release assembly or readiness is claimed.
+
+QEMU queue introspection on byte-identical source/image establishes a concrete
+host compatibility bug: QEMU 10 exposes 1024 descriptors with available/used
+addresses at base+16384/base+20480; the old driver accepted that queue but wrote
+its 256-entry rings at base+4096/base+8192. Trace shows notification with no
+request consumption and M7 times out. QEMU 8 uses 256 descriptors and completes
+requests. Evidence:
+`out/evidence/m30-session-1793770161886629272/virtio-state.json` and
+`out/evidence/m30-session-1793770163370719080/virtio-state.json`.
+
+The driver now reads queue zero's size after reset, computes descriptor/available/
+used offsets for device lengths 256/512/1024, and keeps a bounded page-aligned
+32 KiB region. DMA accesses use volatile pointers; wrap and completion indexing
+use the actual length. Unsupported lengths fail closed. Timeouts, capability
+checks and acceptance assertions are unchanged. All 168 kernel tests and the
+Nagi target kernel build pass, including 1024-entry publication/completion,
+16-bit index wrap, original 256 layout and unsupported-size regressions. Guest
+acceptance of the repaired driver follows separately; no result is assumed.
+
 ## Local M30 Desktop/Files/worker integration — 2026-11-04
 
 Status: `PARTIAL`; formal M30 remains `BLOCKED`. Local integration source
