@@ -48,6 +48,7 @@ const REFERENCE_DISK_SECTORS: u64 = REFERENCE_DISK_SIZE_BYTES / 512;
 const MIB_SECTORS: u64 = 1024 * 1024 / 512;
 const GIB_SECTORS: u64 = 1024 * MIB_SECTORS;
 const QMP_MAX_LINE_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 const QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1797,6 +1798,7 @@ fn run_qemu_with_qmp_file_markers(
     drop(qmp_listener);
 
     let serial_device = format!("file:{}", external_path(config.serial_log));
+    let deadline = Instant::now() + config.timeout;
     let mut child = spawn_qemu_with_display_mode_and_vars(
         config,
         &serial_device,
@@ -1806,46 +1808,100 @@ fn run_qemu_with_qmp_file_markers(
         reuse_ovmf_vars,
         false,
     )?;
-    let deadline = Instant::now() + config.timeout;
-    let mut qmp_stream = match connect_guest_tcp(&mut child, qmp_port, deadline, "QMP endpoint") {
+    run_qemu_after_spawn(
+        &mut child,
+        qmp_port,
+        config.serial_log,
+        acceptance_markers,
+        deadline,
+        config.timeout,
+    )
+}
+
+fn validate_qmp_greeting(greeting: &str) -> Result<(), String> {
+    let value = serde_json::from_str::<serde_json::Value>(greeting)
+        .map_err(|error| format!("invalid QMP greeting JSON: {error}"))?;
+    let valid = value
+        .get("QMP")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|qmp| {
+            let Some(version) = qmp.get("version").and_then(serde_json::Value::as_object) else {
+                return false;
+            };
+            let Some(qemu) = version.get("qemu").and_then(serde_json::Value::as_object) else {
+                return false;
+            };
+            let version_numbers_are_integers =
+                ["major", "minor", "micro"].into_iter().all(|field| {
+                    qemu.get(field)
+                        .and_then(serde_json::Value::as_i64)
+                        .is_some()
+                });
+            let package_is_string = version
+                .get("package")
+                .and_then(serde_json::Value::as_str)
+                .is_some();
+            let capabilities_are_strings = qmp
+                .get("capabilities")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|values| values.iter().all(serde_json::Value::is_string));
+            version_numbers_are_integers && package_is_string && capabilities_are_strings
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("unexpected QMP greeting: {greeting}"))
+    }
+}
+
+fn run_qemu_after_spawn(
+    child: &mut Child,
+    qmp_port: u16,
+    serial_log: &Path,
+    acceptance_markers: &[&str],
+    deadline: Instant,
+    timeout: Duration,
+) -> Result<i32, String> {
+    let mut qmp_stream = match connect_guest_tcp(child, qmp_port, deadline, "QMP endpoint") {
         Ok(stream) => stream,
         Err(error) => {
-            terminate_qemu(&mut child, config.serial_log, &[]);
+            terminate_qemu(child, serial_log, &[]);
             return Err(error);
         }
     };
     qmp_stream
         .set_read_timeout(Some(Duration::from_millis(100)))
         .map_err(|error| {
-            terminate_qemu(&mut child, config.serial_log, &[]);
+            terminate_qemu(child, serial_log, &[]);
             format!("cannot configure QMP read timeout: {error}")
         })?;
     let greeting = match read_qmp_line(&mut qmp_stream, deadline) {
         Ok(greeting) => greeting,
         Err(error) => {
-            terminate_qemu(&mut child, config.serial_log, &[]);
+            terminate_qemu(child, serial_log, &[]);
             return Err(error);
         }
     };
-    if !greeting.contains("\"QMP\"") {
-        terminate_qemu(&mut child, config.serial_log, &[]);
-        return Err(format!("unexpected QMP greeting: {greeting}"));
+    if let Err(error) = validate_qmp_greeting(&greeting) {
+        terminate_qemu(child, serial_log, &[]);
+        return Err(error);
     }
     if let Err(error) = qmp_exchange(
         &mut qmp_stream,
         r#"{"execute":"qmp_capabilities"}"#,
         deadline,
     ) {
-        terminate_qemu(&mut child, config.serial_log, &[]);
+        terminate_qemu(child, serial_log, &[]);
         return Err(error);
     }
 
     wait_for_qemu_any_with_qmp(
-        &mut child,
+        child,
         &mut qmp_stream,
-        config.serial_log,
+        serial_log,
         acceptance_markers,
-        config.timeout,
+        deadline,
+        timeout,
     )
 }
 
@@ -1854,25 +1910,13 @@ fn wait_for_qemu_any_with_qmp(
     qmp_stream: &mut TcpStream,
     serial_log: &Path,
     acceptance_markers: &[&str],
+    deadline: Instant,
     timeout: Duration,
 ) -> Result<i32, String> {
-    let deadline = Instant::now() + timeout;
     loop {
         let serial = fs::read(serial_log).unwrap_or_default();
-        if acceptance_markers
-            .iter()
-            .any(|marker| bytes_contain(&serial, marker.as_bytes()))
-        {
-            return quit_qemu_after_acceptance(child, qmp_stream, serial_log, &serial);
-        }
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|error| format!("cannot poll QEMU: {error}"))?
-        {
-            return Ok(status.code().unwrap_or(-1));
-        }
         if Instant::now() >= deadline {
-            let diagnostics = capture_qmp_timeout_diagnostics(qmp_stream);
+            let diagnostics = capture_qmp_timeout_diagnostics_until(qmp_stream, deadline);
             terminate_qemu(child, serial_log, &serial);
             let log_result = append_qmp_timeout_diagnostics(serial_log, &diagnostics);
             let persisted = match log_result {
@@ -1883,6 +1927,18 @@ fn wait_for_qemu_any_with_qmp(
                 "QEMU did not reach acceptance within {} seconds; {persisted}",
                 timeout.as_secs(),
             ));
+        }
+        if acceptance_markers
+            .iter()
+            .any(|marker| bytes_contain(&serial, marker.as_bytes()))
+        {
+            return quit_qemu_after_acceptance(child, qmp_stream, serial_log, &serial, deadline);
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("cannot poll QEMU: {error}"))?
+        {
+            return Ok(status.code().unwrap_or(-1));
         }
         thread::sleep(Duration::from_millis(2));
     }
@@ -1904,8 +1960,8 @@ pub fn run_qemu_interactive(config: &InteractiveQemuConfig<'_>) -> Result<i32, S
         .port();
     drop(listener);
     let serial_device = format!("tcp:127.0.0.1:{port},server,nowait");
-    let mut child = spawn_qemu(config, &serial_device)?;
     let deadline = Instant::now() + timeout;
+    let mut child = spawn_qemu(config, &serial_device)?;
     let mut stream = None;
     while stream.is_none() {
         if let Ok(stream_value) = TcpStream::connect(("127.0.0.1", port)) {
@@ -1926,7 +1982,8 @@ pub fn run_qemu_interactive(config: &InteractiveQemuConfig<'_>) -> Result<i32, S
                 timeout.as_secs()
             ));
         }
-        thread::sleep(Duration::from_millis(20));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        thread::sleep(remaining.min(Duration::from_millis(20)));
     }
     let mut stream = stream.expect("serial stream assigned");
     stream
@@ -1937,6 +1994,19 @@ pub fn run_qemu_interactive(config: &InteractiveQemuConfig<'_>) -> Result<i32, S
     let marker = acceptance_marker.as_bytes();
     let mut buffer = [0_u8; 4096];
     loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            terminate_qemu(&mut child, serial_log, &serial);
+            return Err(format!(
+                "interactive QEMU did not reach acceptance within {} seconds",
+                timeout.as_secs()
+            ));
+        }
+        if let Err(error) = stream.set_read_timeout(Some(remaining.min(Duration::from_millis(100))))
+        {
+            terminate_qemu(&mut child, serial_log, &serial);
+            return Err(format!("cannot configure serial TCP read timeout: {error}"));
+        }
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(count) => {
@@ -1961,6 +2031,13 @@ pub fn run_qemu_interactive(config: &InteractiveQemuConfig<'_>) -> Result<i32, S
                     input_receiver = Some(receiver);
                 }
                 if bytes_contain(&serial, marker) {
+                    if Instant::now() >= deadline {
+                        terminate_qemu(&mut child, serial_log, &serial);
+                        return Err(format!(
+                            "interactive QEMU did not reach acceptance within {} seconds",
+                            timeout.as_secs()
+                        ));
+                    }
                     child.kill().map_err(|error| {
                         format!("guest reached acceptance but termination failed: {error}")
                     })?;
@@ -2150,7 +2227,14 @@ fn send_qmp_events(
     for (index, event) in events.iter().enumerate() {
         qmp_exchange(qmp_stream, event, deadline)?;
         if index + 1 < events.len() && !inter_event_delay.is_zero() {
-            thread::sleep(inter_event_delay);
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("GUI QEMU absolute deadline expired".to_owned());
+            }
+            thread::sleep(inter_event_delay.min(remaining));
+            if Instant::now() >= deadline {
+                return Err("GUI QEMU absolute deadline expired".to_owned());
+            }
         }
     }
     Ok(())
@@ -2422,6 +2506,8 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     }
 
     let serial_device = format!("tcp:127.0.0.1:{serial_port},server,nowait");
+    let qemu_started_at = Instant::now();
+    let deadline = qemu_started_at + config.timeout;
     let mut child = spawn_qemu_with_display_mode_and_vars(
         config,
         &serial_device,
@@ -2431,8 +2517,6 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         mode.reuse_ovmf_vars,
         true,
     )?;
-    let qemu_started_at = Instant::now();
-    let deadline = qemu_started_at + config.timeout;
     let mut serial = Vec::new();
     let mut serial_log = match fs::File::create(config.serial_log) {
         Ok(file) => file,
@@ -2479,9 +2563,9 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
             return Err(error);
         }
     };
-    if !greeting.contains("\"QMP\"") {
+    if let Err(error) = validate_qmp_greeting(&greeting) {
         terminate_qemu(&mut child, config.serial_log, &serial);
-        return Err(format!("unexpected QMP greeting: {greeting}"));
+        return Err(error);
     }
     if let Err(error) = qmp_exchange(
         &mut qmp_stream,
@@ -2612,6 +2696,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                         &mut qmp_stream,
                         config.serial_log,
                         &serial,
+                        deadline,
                     )?;
                     return Ok(QemuGuiOutcome {
                         exit_status,
@@ -2649,7 +2734,8 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                 let _ = diagnostics.flush();
             }
             drop(qmp_diagnostics);
-            let timeout_diagnostics = capture_qmp_timeout_diagnostics(&mut qmp_stream);
+            let timeout_diagnostics =
+                capture_qmp_timeout_diagnostics_until(&mut qmp_stream, deadline);
             let _ = serial_log.flush();
             let _ = child.kill();
             let _ = child.wait();
@@ -2683,7 +2769,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         if last_qmp_trace.elapsed() >= Duration::from_secs(20) {
             last_qmp_trace = Instant::now();
             if let Some(diagnostics) = qmp_diagnostics.as_mut() {
-                let trace_deadline = Instant::now() + Duration::from_secs(5);
+                let trace_deadline = (Instant::now() + Duration::from_secs(5)).min(deadline);
                 let response = qmp_exchange_response(
                     &mut qmp_stream,
                     r#"{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}"#,
@@ -2925,20 +3011,37 @@ fn quit_qemu_after_acceptance(
     qmp_stream: &mut TcpStream,
     serial_log: &Path,
     serial: &[u8],
+    deadline: Instant,
 ) -> Result<i32, String> {
-    let quit_request = qmp_exchange(
-        qmp_stream,
-        r#"{"execute":"quit"}"#,
-        Instant::now() + Duration::from_secs(5),
-    );
-    let deadline = Instant::now() + Duration::from_secs(30);
+    if Instant::now() >= deadline {
+        terminate_qemu(child, serial_log, serial);
+        return Err("QEMU host deadline expired before the QMP quit request".to_owned());
+    }
+    let quit_request = qmp_exchange(qmp_stream, r#"{"execute":"quit"}"#, deadline);
     if let Err(error) = quit_request {
+        if Instant::now() >= deadline {
+            terminate_qemu(child, serial_log, serial);
+            return Err(format!(
+                "QEMU host deadline expired while requesting QMP quit after acceptance: {error}"
+            ));
+        }
         let qmp_disconnected = error.starts_with("QMP closed before sending a response")
-            || error.starts_with("cannot read QMP response:");
+            || error.starts_with("cannot read QMP response:")
+            // macOS can report EINVAL while setting a timeout after QEMU has
+            // closed the socket. Only a clean process exit within the original
+            // deadline below can turn this shutdown race into success.
+            || error.starts_with("cannot configure QMP read timeout:");
         if qmp_disconnected {
             loop {
                 match child.try_wait() {
                     Ok(Some(status)) => {
+                        if Instant::now() >= deadline {
+                            terminate_qemu(child, serial_log, serial);
+                            return Err(
+                                "QEMU host deadline expired after the QMP disconnect following acceptance"
+                                    .to_owned(),
+                            );
+                        }
                         fs::write(serial_log, serial).map_err(|error| {
                             format!("cannot write serial log {}: {error}", serial_log.display())
                         })?;
@@ -2951,13 +3054,15 @@ fn quit_qemu_after_acceptance(
                         ));
                     }
                     Ok(None) if Instant::now() < deadline => {
-                        thread::sleep(Duration::from_millis(20));
+                        let remaining = deadline.saturating_duration_since(Instant::now());
+                        thread::sleep(remaining.min(Duration::from_millis(20)));
                     }
                     Ok(None) => {
                         terminate_qemu(child, serial_log, serial);
-                        return Err(format!(
-                            "cannot request QEMU to quit after acceptance: {error}; QEMU remained running after the QMP disconnect"
-                        ));
+                        return Err(
+                            "QEMU host deadline expired while waiting after the QMP disconnect"
+                                .to_owned(),
+                        );
                     }
                     Err(poll_error) => {
                         terminate_qemu(child, serial_log, serial);
@@ -2977,15 +3082,27 @@ fn quit_qemu_after_acceptance(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                if Instant::now() >= deadline {
+                    terminate_qemu(child, serial_log, serial);
+                    return Err(
+                        "QEMU host deadline expired before process shutdown completed".to_owned(),
+                    );
+                }
                 fs::write(serial_log, serial).map_err(|error| {
                     format!("cannot write serial log {}: {error}", serial_log.display())
                 })?;
                 return Ok(status.code().unwrap_or(-1));
             }
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) if Instant::now() < deadline => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                thread::sleep(remaining.min(Duration::from_millis(20)));
+            }
             Ok(None) => {
                 terminate_qemu(child, serial_log, serial);
-                return Err("QEMU did not exit after the QMP quit request".to_owned());
+                return Err(
+                    "QEMU did not exit before the host deadline after the QMP quit request"
+                        .to_owned(),
+                );
             }
             Err(error) => {
                 terminate_qemu(child, serial_log, serial);
@@ -3033,7 +3150,8 @@ fn connect_guest_tcp(
                 "QEMU did not open {description} within the timeout"
             ));
         }
-        thread::sleep(Duration::from_millis(20));
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        thread::sleep(remaining.min(Duration::from_millis(20)));
     }
 }
 
@@ -3041,6 +3159,13 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
     let mut bytes = Vec::new();
     let mut byte = [0_u8; 1];
     loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("QMP response timed out".into());
+        }
+        stream
+            .set_read_timeout(Some(remaining.min(Duration::from_millis(100))))
+            .map_err(|error| format!("cannot configure QMP read timeout: {error}"))?;
         match stream.read(&mut byte) {
             Ok(0) => return Err("QMP closed before sending a response".into()),
             Ok(1) => {
@@ -3051,6 +3176,9 @@ fn read_qmp_line(stream: &mut TcpStream, deadline: Instant) -> Result<String, St
                 }
                 bytes.push(byte[0]);
                 if byte[0] == b'\n' {
+                    if Instant::now() >= deadline {
+                        return Err("QMP response timed out".into());
+                    }
                     return Ok(String::from_utf8_lossy(&bytes).into_owned());
                 }
             }
@@ -3101,13 +3229,26 @@ const QMP_TIMEOUT_QUERIES: [(&str, &str); 7] = [
     ),
 ];
 
+#[cfg(test)]
 fn capture_qmp_timeout_diagnostics(stream: &mut TcpStream) -> Vec<String> {
+    capture_qmp_timeout_diagnostics_until(stream, Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT)
+}
+
+fn capture_qmp_timeout_diagnostics_until(stream: &mut TcpStream, deadline: Instant) -> Vec<String> {
     let queries = QMP_TIMEOUT_QUERIES;
-    let deadline = Instant::now() + QMP_TIMEOUT_DIAGNOSTIC_TIMEOUT;
     let mut diagnostics = Vec::with_capacity(queries.len());
     for (label, command) in queries {
+        if Instant::now() >= deadline {
+            diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
+            break;
+        }
         if label.ends_with("after 1s") && label.starts_with("QMP CPU registers") {
-            thread::sleep(Duration::from_secs(1));
+            let delay = Duration::from_secs(1);
+            if deadline.saturating_duration_since(Instant::now()) <= delay {
+                diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
+                break;
+            }
+            thread::sleep(delay);
         }
         if Instant::now() >= deadline {
             diagnostics.push(format!("{label} skipped: diagnostic time budget exhausted"));
@@ -3146,22 +3287,103 @@ fn qmp_exchange_response(
     command: &str,
     deadline: Instant,
 ) -> Result<String, String> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("QMP command timed out before send".to_owned());
+    }
+    stream
+        .set_write_timeout(Some(remaining.min(Duration::from_millis(100))))
+        .map_err(|error| format!("cannot configure QMP write timeout: {error}"))?;
     stream
         .write_all(command.as_bytes())
         .and_then(|_| stream.write_all(b"\r\n"))
         .map_err(|error| format!("cannot send QMP command: {error}"))?;
     loop {
         let response = read_qmp_line(stream, deadline)?;
-        if response.contains("\"event\"") {
-            continue;
-        }
-        if response.contains("\"error\"") {
-            return Err(format!("QMP command failed: {response}"));
-        }
-        if !response.contains("\"return\"") {
+        let value = serde_json::from_str::<serde_json::Value>(&response)
+            .map_err(|error| format!("invalid QMP response JSON: {error}"))?;
+        let Some(object) = value.as_object() else {
+            return Err(format!("unexpected QMP response: {response}"));
+        };
+        let has_event = object.contains_key("event");
+        let has_return = object.contains_key("return");
+        let has_error = object.contains_key("error");
+        if has_event {
+            if has_return || has_error {
+                return Err(format!("ambiguous QMP event response: {response}"));
+            }
+            if object
+                .get("event")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+            {
+                let valid_timestamp = object
+                    .get("timestamp")
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|timestamp| {
+                        timestamp
+                            .get("seconds")
+                            .is_some_and(serde_json::Value::is_number)
+                            && timestamp
+                                .get("microseconds")
+                                .is_some_and(serde_json::Value::is_number)
+                    });
+                if !valid_timestamp {
+                    return Err(format!("invalid QMP event timestamp: {response}"));
+                }
+                continue;
+            }
             return Err(format!("unexpected QMP response: {response}"));
         }
-        return Ok(response);
+        if has_error {
+            return Err(format!("QMP command failed: {response}"));
+        }
+        if let Some(result) = object.get("return") {
+            validate_qmp_command_result(command, result)?;
+            return Ok(response);
+        }
+        return Err(format!("unexpected QMP response: {response}"));
+    }
+}
+
+fn validate_qmp_command_result(command: &str, result: &serde_json::Value) -> Result<(), String> {
+    let request = match serde_json::from_str::<serde_json::Value>(command) {
+        Ok(request) => request,
+        Err(_) => return Ok(()),
+    };
+    let Some(command_name) = request.get("execute").and_then(serde_json::Value::as_str) else {
+        return Ok(());
+    };
+    let expected = match command_name {
+        "qmp_capabilities" | "quit" | "input-send-event" | "screendump" | "query-status" => {
+            Some("object")
+        }
+        "human-monitor-command" => Some("string"),
+        _ => None,
+    };
+    let Some(expected) = expected else {
+        // QMP results are command-defined; unknown commands may return any JSON value.
+        return Ok(());
+    };
+    let valid = match expected {
+        "object" => result.is_object(),
+        "string" => result.is_string(),
+        _ => unreachable!("known QMP result shape"),
+    };
+    if valid {
+        Ok(())
+    } else {
+        let actual = match result {
+            serde_json::Value::Null => "null",
+            serde_json::Value::Bool(_) => "boolean",
+            serde_json::Value::Number(_) => "number",
+            serde_json::Value::String(_) => "string",
+            serde_json::Value::Array(_) => "array",
+            serde_json::Value::Object(_) => "object",
+        };
+        Err(format!(
+            "QMP {command_name} returned {actual}; expected {expected}"
+        ))
     }
 }
 
@@ -3468,6 +3690,605 @@ mod tests {
     }
 
     #[test]
+    fn qemu_host_deadline_includes_qmp_handshake_and_reaps_child() {
+        use std::net::TcpListener;
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let qmp_port = listener.local_addr().expect("fake QMP address").port();
+        drop(listener);
+
+        let serial_log = unique_persistent_disk_path("qemu-host-deadline");
+        std::fs::File::create(&serial_log).expect("create fake QEMU serial log");
+        let timeout = Duration::from_secs(2);
+        let qemu_started_at = Instant::now();
+        let deadline = qemu_started_at + timeout;
+        let executable = std::env::current_exe().expect("current test executable");
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "image::tests::qemu_host_deadline_fixture_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "1200")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake QMP child");
+
+        let result = super::run_qemu_after_spawn(
+            &mut child,
+            qmp_port,
+            &serial_log,
+            &["Nagi fake acceptance"],
+            deadline,
+            timeout,
+        );
+        let elapsed = qemu_started_at.elapsed();
+        println!(
+            "fake QMP handshake timeout elapsed_ms={}",
+            elapsed.as_millis()
+        );
+        let status_after = child.try_wait().expect("poll fake QMP child after runner");
+        if status_after.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let serial = std::fs::read_to_string(&serial_log).expect("read timeout serial log");
+        std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
+
+        let error = result.expect_err("QEMU must time out before acceptance");
+        assert!(
+            error.contains("QEMU did not reach acceptance"),
+            "timeout classification should be preserved: {error}"
+        );
+        assert!(
+            status_after.is_some(),
+            "the timeout path must terminate and reap the fake QEMU child"
+        );
+        assert!(
+            !status_after
+                .as_ref()
+                .expect("asserted reaped status")
+                .success(),
+            "the fake child should be killed on the host timeout"
+        );
+        assert!(
+            elapsed < timeout + Duration::from_millis(500),
+            "QMP handshake time was renewed after startup: elapsed={elapsed:?}, budget={timeout:?}"
+        );
+        assert!(
+            elapsed >= timeout,
+            "timeout must include the handshake delay"
+        );
+        assert!(serial.contains("Nagi QEMU timeout diagnostics:"));
+        assert!(serial.contains("QMP query-status skipped: diagnostic time budget exhausted"));
+    }
+
+    #[test]
+    fn qemu_host_deadline_also_bounds_qmp_shutdown_and_reaps_child() {
+        use std::net::TcpListener;
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let qmp_port = listener.local_addr().expect("fake QMP address").port();
+        drop(listener);
+
+        let serial_log = unique_persistent_disk_path("qemu-host-shutdown-deadline");
+        std::fs::File::create(&serial_log).expect("create fake QEMU serial log");
+        let timeout = Duration::from_secs(2);
+        let qemu_started_at = Instant::now();
+        let deadline = qemu_started_at + timeout;
+        let executable = std::env::current_exe().expect("current test executable");
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "image::tests::qemu_host_deadline_fixture_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "200")
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_PATH", &serial_log)
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_DELAY_MS", "1400")
+            .env("NAGI_QEMU_DEADLINE_HOLD_QUIT", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake QMP child");
+
+        let result = super::run_qemu_after_spawn(
+            &mut child,
+            qmp_port,
+            &serial_log,
+            &["Nagi fake acceptance"],
+            deadline,
+            timeout,
+        );
+        let elapsed = qemu_started_at.elapsed();
+        println!(
+            "fake QMP shutdown timeout elapsed_ms={}",
+            elapsed.as_millis()
+        );
+        let status_after = child
+            .try_wait()
+            .expect("poll fake QMP child after shutdown timeout");
+        if status_after.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let serial = std::fs::read_to_string(&serial_log).expect("read shutdown serial log");
+        std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
+
+        let error = result.expect_err("QMP shutdown must not get a fresh timeout");
+        assert!(
+            error.contains("QEMU host deadline expired"),
+            "shutdown timeout classification should be preserved: {error}"
+        );
+        assert!(
+            status_after.is_some(),
+            "the shutdown timeout path must terminate and reap the fake QEMU child"
+        );
+        assert!(
+            !status_after
+                .as_ref()
+                .expect("asserted reaped status")
+                .success(),
+            "the fake child should be killed when QMP quit exceeds the host deadline"
+        );
+        assert!(
+            elapsed < timeout + Duration::from_millis(500),
+            "QMP shutdown time was renewed after startup: elapsed={elapsed:?}, budget={timeout:?}"
+        );
+        assert!(elapsed >= timeout, "timeout must include QMP shutdown");
+        assert!(serial.contains("Nagi fake acceptance"));
+    }
+
+    #[test]
+    fn qmp_handshake_rejects_eof_and_malformed_json() {
+        for (stage, expected_error) in [
+            ("malformed-greeting", "invalid QMP greeting JSON"),
+            ("empty-greeting", "unexpected QMP greeting"),
+            ("malformed-capabilities", "invalid QMP response JSON"),
+            (
+                "capabilities-null",
+                "QMP qmp_capabilities returned null; expected object",
+            ),
+            ("capabilities-error", "QMP command failed"),
+            ("greeting-eof", "QMP closed before sending a response"),
+            ("capabilities-eof", "QMP closed before sending a response"),
+        ] {
+            assert_fake_qmp_handshake_stage_rejected(stage, expected_error);
+        }
+    }
+
+    #[test]
+    fn qmp_event_before_command_reply_is_skipped() {
+        use std::net::TcpListener;
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let qmp_port = listener.local_addr().expect("fake QMP address").port();
+        drop(listener);
+
+        let serial_log = unique_persistent_disk_path("qmp-event-before-reply");
+        std::fs::File::create(&serial_log).expect("create fake QEMU serial log");
+        let timeout = Duration::from_secs(2);
+        let started_at = Instant::now();
+        let deadline = started_at + timeout;
+        let executable = std::env::current_exe().expect("current test executable");
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "image::tests::qemu_host_deadline_fixture_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "0")
+            .env("NAGI_QEMU_DEADLINE_QMP_STAGE", "capabilities-event")
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_PATH", &serial_log)
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_DELAY_MS", "10")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake QMP child");
+
+        let result = super::run_qemu_after_spawn(
+            &mut child,
+            qmp_port,
+            &serial_log,
+            &["Nagi fake acceptance"],
+            deadline,
+            timeout,
+        );
+        let elapsed = started_at.elapsed();
+        let status_after = child.try_wait().expect("poll fake QMP child after runner");
+        if status_after.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let serial = std::fs::read_to_string(&serial_log).expect("read fake QEMU serial log");
+        std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
+
+        assert_eq!(
+            result.expect("valid event must not replace the command response"),
+            0
+        );
+        assert!(
+            status_after
+                .as_ref()
+                .is_some_and(std::process::ExitStatus::success),
+            "the fake QMP child must exit successfully and be reaped"
+        );
+        assert!(serial.contains("Nagi fake acceptance"));
+        assert!(
+            elapsed < timeout,
+            "valid event handling exceeded the deadline"
+        );
+    }
+
+    #[test]
+    fn qmp_event_without_timestamp_is_rejected() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let address = listener.local_addr().expect("fake QMP address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept fake QMP client");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone fake QMP stream"));
+            let mut writer = stream;
+            let mut request = String::new();
+            reader
+                .read_line(&mut request)
+                .expect("read fake QMP request");
+            assert!(
+                request.contains("query-status"),
+                "unexpected fake QMP request: {request}"
+            );
+            writer
+                .write_all(
+                    b"{\"event\":\"RTC_CHANGE\"}\r\n{\"return\":{\"running\":true,\"singlestep\":false,\"status\":\"running\"}}\r\n",
+                )
+                .and_then(|()| writer.flush())
+                .expect("send fake QMP event without timestamp and command response");
+        });
+        let mut stream = TcpStream::connect(address).expect("connect fake QMP client");
+        let error = super::qmp_exchange_response(
+            &mut stream,
+            r#"{"execute":"query-status"}"#,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .expect_err("QMP event without timestamp must be rejected");
+        server.join().expect("join fake QMP server");
+        assert!(
+            error.contains("invalid QMP event timestamp"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn qmp_untyped_result_can_be_json_null() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let address = listener.local_addr().expect("fake QMP address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept fake QMP client");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone fake QMP stream"));
+            let mut writer = stream;
+            let mut request = String::new();
+            reader
+                .read_line(&mut request)
+                .expect("read fake QMP request");
+            assert!(
+                request.contains("qmp-any-result"),
+                "unexpected fake QMP request: {request}"
+            );
+            writer
+                .write_all(b"{\"return\":null}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send generic nullable QMP result");
+        });
+        let mut stream = TcpStream::connect(address).expect("connect fake QMP client");
+        let response = super::qmp_exchange_response(
+            &mut stream,
+            r#"{"execute":"qmp-any-result"}"#,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .expect("generic QMP JSON result permits null");
+        server.join().expect("join fake QMP server");
+        let value = serde_json::from_str::<serde_json::Value>(&response)
+            .expect("parse generic QMP response");
+        assert!(value.get("return").is_some_and(serde_json::Value::is_null));
+    }
+
+    fn assert_fake_qmp_handshake_stage_rejected(stage: &str, expected_error: &str) {
+        use std::net::TcpListener;
+        use std::process::{Command, Stdio};
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve fake QMP port");
+        let qmp_port = listener.local_addr().expect("fake QMP address").port();
+        drop(listener);
+
+        let serial_log = unique_persistent_disk_path(&format!("qmp-handshake-{stage}"));
+        std::fs::File::create(&serial_log).expect("create fake QEMU serial log");
+        let timeout = Duration::from_secs(2);
+        let started_at = Instant::now();
+        let deadline = started_at + timeout;
+        let executable = std::env::current_exe().expect("current test executable");
+        let mut child = Command::new(executable)
+            .args([
+                "--exact",
+                "image::tests::qemu_host_deadline_fixture_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("NAGI_QEMU_DEADLINE_CHILD", "1")
+            .env("NAGI_QEMU_DEADLINE_QMP_PORT", qmp_port.to_string())
+            .env("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS", "0")
+            .env("NAGI_QEMU_DEADLINE_QMP_STAGE", stage)
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_PATH", &serial_log)
+            .env("NAGI_QEMU_DEADLINE_ACCEPTANCE_DELAY_MS", "10")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fake QMP child");
+
+        let result = super::run_qemu_after_spawn(
+            &mut child,
+            qmp_port,
+            &serial_log,
+            &["Nagi fake acceptance"],
+            deadline,
+            timeout,
+        );
+        let elapsed = started_at.elapsed();
+        println!("fake QMP {stage} elapsed_ms={}", elapsed.as_millis());
+        let status_after = child.try_wait().expect("poll fake QMP child after runner");
+        if status_after.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        std::fs::remove_file(serial_log).expect("remove fake QEMU serial log");
+
+        let error = result.expect_err("invalid or closed QMP handshake must not succeed");
+        assert!(
+            error.contains(expected_error),
+            "QMP {stage} should be classified as {expected_error:?}: {error}"
+        );
+        assert!(
+            status_after.is_some(),
+            "QMP {stage} failure must terminate and reap the fake child"
+        );
+        assert!(
+            elapsed < timeout,
+            "QMP {stage} should fail before the host deadline: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    #[ignore = "spawned by QEMU host deadline regression"]
+    fn qemu_host_deadline_fixture_child() {
+        if std::env::var_os("NAGI_QEMU_DEADLINE_CHILD").is_none() {
+            return;
+        }
+
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+
+        let port = std::env::var("NAGI_QEMU_DEADLINE_QMP_PORT")
+            .expect("fake QMP port")
+            .parse::<u16>()
+            .expect("valid fake QMP port");
+        let delay = std::env::var("NAGI_QEMU_DEADLINE_HANDSHAKE_DELAY_MS")
+            .expect("fake QMP handshake delay")
+            .parse::<u64>()
+            .expect("valid fake QMP handshake delay");
+        let stage = std::env::var("NAGI_QEMU_DEADLINE_QMP_STAGE").unwrap_or_default();
+        let listener = TcpListener::bind(("127.0.0.1", port)).expect("bind fake QMP port");
+        let (stream, _) = listener.accept().expect("accept fake QMP connection");
+        let mut reader = BufReader::new(stream.try_clone().expect("clone fake QMP stream"));
+        let mut writer = stream;
+
+        if stage == "greeting-eof" {
+            drop(reader);
+            drop(writer);
+            return;
+        }
+        if stage == "empty-greeting" {
+            writer
+                .write_all(b"{\"QMP\":{}}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send incomplete fake QMP greeting");
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(delay));
+        if stage == "malformed-greeting" {
+            writer
+                .write_all(b"not-json \"QMP\"\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send malformed fake QMP greeting");
+            return;
+        }
+        writer
+            .write_all(
+                b"{\"QMP\":{\"version\":{\"qemu\":{\"major\":9,\"minor\":2,\"micro\":50},\"package\":\"\"},\"capabilities\":[]}}\r\n",
+            )
+            .and_then(|()| writer.flush())
+            .expect("send delayed fake QMP greeting");
+
+        let mut capabilities = String::new();
+        reader
+            .read_line(&mut capabilities)
+            .expect("read fake QMP capabilities");
+        assert!(
+            capabilities.contains("qmp_capabilities"),
+            "expected qmp_capabilities, received {capabilities:?}"
+        );
+        if stage == "capabilities-eof" {
+            drop(reader);
+            drop(writer);
+            return;
+        }
+        if stage == "capabilities-event" {
+            writer
+                .write_all(
+                    b"{\"event\":\"RTC_CHANGE\",\"data\":{\"offset\":0,\"qom-path\":\"/machine\"},\"timestamp\":{\"seconds\":-1,\"microseconds\":-1}}\r\n",
+                )
+                .and_then(|()| writer.flush())
+                .expect("send fake QMP event before command response");
+        }
+        if stage == "capabilities-error" {
+            writer
+                .write_all(b"{\"error\":{\"class\":\"GenericError\",\"desc\":\"injected\"}}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send fake QMP error response");
+            return;
+        }
+        if stage == "capabilities-null" {
+            writer
+                .write_all(b"{\"return\":null}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send null fake QMP capabilities result");
+        } else if stage == "malformed-capabilities" {
+            writer
+                .write_all(b"not-json \"return\"\r\n")
+                .and_then(|()| writer.flush())
+                .expect("send malformed fake QMP capabilities response");
+        } else {
+            writer
+                .write_all(b"{\"return\":{}}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("reply to fake QMP capabilities");
+        }
+
+        if let Some(path) = std::env::var_os("NAGI_QEMU_DEADLINE_ACCEPTANCE_PATH") {
+            let acceptance_delay = std::env::var("NAGI_QEMU_DEADLINE_ACCEPTANCE_DELAY_MS")
+                .expect("fake QMP acceptance delay")
+                .parse::<u64>()
+                .expect("valid fake QMP acceptance delay");
+            std::thread::sleep(Duration::from_millis(acceptance_delay));
+            std::fs::write(path, b"Nagi fake acceptance\n")
+                .expect("write fake QEMU acceptance marker");
+        }
+
+        loop {
+            let mut request = String::new();
+            match reader.read_line(&mut request) {
+                Ok(0) => return,
+                Ok(_) => {}
+                Err(_) => return,
+            }
+            if request.contains("\"execute\":\"quit\"")
+                && std::env::var_os("NAGI_QEMU_DEADLINE_HOLD_QUIT").is_some()
+            {
+                loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                }
+            }
+            writer
+                .write_all(b"{\"return\":{}}\r\n")
+                .and_then(|()| writer.flush())
+                .expect("reply to fake QMP request");
+            if request.contains("\"execute\":\"quit\"") {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires an explicitly selected real QEMU binary; no guest disks"]
+    fn real_qmp_diskless_compatibility() {
+        use std::net::TcpListener;
+        use std::process::{Command, Stdio};
+        struct OwnedQemu(std::process::Child);
+        impl Drop for OwnedQemu {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let qemu = std::env::var_os("NAGI_QMP_COMPAT_QEMU")
+            .expect("select a real QEMU with NAGI_QMP_COMPAT_QEMU");
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("reserve QMP port");
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let endpoint = format!("tcp:127.0.0.1:{port},server=on,wait=off");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut child = OwnedQemu(
+            Command::new(qemu)
+                .args([
+                    "-no-user-config",
+                    "-nodefaults",
+                    "-machine",
+                    "q35,accel=tcg",
+                    "-m",
+                    "32M",
+                    "-S",
+                    "-display",
+                    "none",
+                    "-monitor",
+                    "none",
+                    "-serial",
+                    "none",
+                    "-nic",
+                    "none",
+                    "-qmp",
+                    &endpoint,
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .spawn()
+                .expect("spawn diskless QEMU"),
+        );
+        let mut stream = super::connect_guest_tcp(&mut child.0, port, deadline, "diskless QMP")
+            .expect("connect real QMP");
+        let greeting = read_qmp_line(&mut stream, deadline).expect("real greeting");
+        println!("real QMP greeting: {}", greeting.trim());
+        super::validate_qmp_greeting(&greeting).expect("validate real greeting");
+        for command in [
+            r#"{"execute":"qmp_capabilities"}"#,
+            r#"{"execute":"query-status"}"#,
+            r#"{"execute":"human-monitor-command","arguments":{"command-line":"info version"}}"#,
+            r#"{"execute":"cont"}"#,
+            r#"{"execute":"stop"}"#,
+            r#"{"execute":"query-status"}"#,
+        ] {
+            let response = super::qmp_exchange_response(&mut stream, command, deadline)
+                .expect("real QMP command and asynchronous event parsing");
+            println!("real QMP {command}: {}", response.trim());
+        }
+        let serial_log = unique_persistent_disk_path("real-qmp-diskless");
+        std::fs::write(&serial_log, b"").expect("create isolated protocol log");
+        let result = super::quit_qemu_after_acceptance(
+            &mut child.0,
+            &mut stream,
+            &serial_log,
+            b"",
+            deadline,
+        );
+        std::fs::remove_file(serial_log).expect("remove isolated protocol log");
+        assert_eq!(result.expect("real QMP quit and clean process exit"), 0);
+        println!("real QMP quit: process exited cleanly within original deadline");
+    }
+
+    #[test]
     fn qmp_timeout_diagnostics_append_to_the_serial_log() {
         let path = unique_persistent_disk_path("qmp-timeout");
         std::fs::write(&path, b"guest serial output\n").expect("write serial fixture");
@@ -3534,8 +4355,14 @@ mod tests {
 
         let mut qmp = TcpStream::connect(address).expect("connect QMP fixture");
         let serial_log = unique_persistent_disk_path("qmp-quit-disconnect");
-        let status = quit_qemu_after_acceptance(&mut child, &mut qmp, &serial_log, b"accepted\n")
-            .expect("accept a clean QEMU exit after the QMP socket closes");
+        let status = quit_qemu_after_acceptance(
+            &mut child,
+            &mut qmp,
+            &serial_log,
+            b"accepted\n",
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("accept a clean QEMU exit after the QMP socket closes");
         server.join().expect("QMP fixture thread");
 
         assert_eq!(status, 0);
