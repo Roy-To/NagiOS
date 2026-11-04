@@ -208,13 +208,17 @@ pub fn initialize() -> Result<(), BlockError> {
         update_capability: 0,
         flush_supported,
     };
+    // Keep transport failures distinct from malformed on-disk GPT data.
+    let mut read_error = None;
     let partitions = crate::gpt::find_partitions(
         |sector, destination| unsafe {
-            transfer_locked(raw_device, sector, destination, false).map_err(|_| ())
+            transfer_locked(raw_device, sector, destination, false).map_err(|error| {
+                read_error = Some(error);
+            })
         },
         candidate.capacity_sectors,
     )
-    .map_err(|_| BlockError::InvalidPartitionTable)?;
+    .map_err(|_| read_error.unwrap_or(BlockError::InvalidPartitionTable))?;
     let data_extent = partitions.user_data;
     if data_extent.sector_count < MAX_USER_DATA_SECTORS {
         return Err(BlockError::UserDataPartitionTooSmall);
