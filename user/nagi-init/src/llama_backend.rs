@@ -1,6 +1,8 @@
 //! Shared adapter for the proven target llama.cpp library.
 //! No host runtime, HTTP server, or replacement inference implementation.
 
+#[cfg(all(test, not(target_os = "nagi")))]
+use super::boundary_tests::posix as nagi_posix;
 use alloc::{ffi::CString, string::String, vec};
 use core::ffi::{c_char, c_void};
 

@@ -5,10 +5,11 @@
 //! untrusted snapshot; `nagi-ai` wraps it as untrusted context.
 
 use nagi_ai::{BrowserContextApiError, BrowserPageSnapshot, CallerIdentity};
+#[cfg(test)]
 use nagi_model::AppId;
 
 /// Logical identity of the Nagi Bar assistant.
-pub const NAGI_BAR_APP_ID: AppId = AppId::from_identifier(b"org.nagi.bar");
+pub use nagi_ai::NAGI_BAR_APP_ID;
 
 /// User-controlled permission for the assistant to read the current page.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
