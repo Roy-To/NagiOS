@@ -12,5 +12,8 @@ nagi-model-manager = { path = "../../../user/nagi-model-manager" }
 nagi-model = { path = "../../../crates/nagi-model" }
 nagi-posix = { path = "../../../user/nagi-posix", features = ["m20-llama-memory"] }
 
+[target.'cfg(target_os = "nagi")'.dependencies]
+nagi-ai = { path = "../../../services/nagi-ai" }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

@@ -10667,3 +10667,38 @@ host lifecycle tests are not substituted for those summary guarantees. Actor
 OS provenance, real Browser extraction and same-session guest inference remain
 unverified. Existing coordinator lease, admission quota, explicit per-session
 terms and all release gates are unchanged; M30 is not complete.
+
+## Summary bridge standalone harness dependency follow-up (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent review found that the
+15acc318 summary bridge's nagi-ai references were absent from the standalone
+worker and session UI harness dependency graphs. The original 15acc318 candidate
+and its source export remain unchanged. This fix is isolated on
+`codex/m30-summary-bridge-harness-deps-20261104`, based on exact parent
+15acc3188d67631cacd19bf62dd4d65e56845250/tree
+0d79baaae4dfce2d4658b507b218f9de31085a2d.
+
+The mandatory worker Nagi target Clippy reproduces E0432/E0433 on the parent.
+Both standalone manifests now declare nagi-ai only under target_os=nagi.
+Their lockfiles add only nagi-ai/nagi-search and the direct dependency edge;
+all pre-existing registry versions/checksums are unchanged. No worker/model
+source, caller/terms checks, quota, lease or CI assertion is changed.
+
+After the fix, mandatory worker formatting,16 host tests, warnings-denied host
+all-target Clippy and actual Nagi target Clippy PASS. The target retains eight
+existing nagi-posix dependency warnings. The exact model-service host suite20
+and UI check script49/54/26 tests PASS offline, including its formatting and
+feature-graph checks. These are host orchestration and compile results only.
+The session UI standalone target Clippy stops before compiling its Rust source:
+fixed pre-existing libc0.2.191 is not cached, and offline mode forbids acquisition.
+Its target result is BLOCKED, not PASS; no version downgrade or substitute crate
+is used. A separate full metadata command updated the expected lock additions
+before reporting the same missing-cache error. Fixed-dependency acquisition is
+pending explicit clarification of the previous no-install restriction.
+
+No VM/model/inference, actual terms acknowledgement, public write/push/merge or
+new software acquisition occurred. An optional search of /root/.cargo/registry
+was denied by OS permissions; that lookup was stopped without retry/escalation.
+No bytes from that directory were read and no private data was accessed. Missing
+UI target cache is an independent blocker from the resolved nagi-ai dependency
+regression; summary runtime/UI and M30 acceptance remain incomplete.
