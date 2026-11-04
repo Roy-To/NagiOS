@@ -1,3 +1,30 @@
+## QMP acceptance caller deadline coverage — 2026-11-04
+
+The independent review of PR #90 head `e1e63460` found that the direct shutdown
+helper regression did not detect deadline renewal by its production acceptance
+caller. An additional regression now acknowledges fake QMP readiness, supplies
+a partially consumed absolute deadline to `wait_for_qemu_any_with_qmp`, and
+follows its actual acceptance-to-shutdown branch. Two of an original four
+seconds are represented as already consumed; two seconds remain, without any
+startup or acceptance sleep spending that remainder. The test requires a
+fixture-written witness that the quit command was actually received, the
+original deadline's exhaustion, an unsuccessful/reaped child, preserved serial
+bytes and the existing 500 ms upper slack.
+
+A temporary negative control changed only the production acceptance caller to
+pass `Instant::now() + timeout` to the quit helper. The new regression observed
+quit receipt and failed on the resulting false success after the fixture's
+bounded three-second clean exit. The mutation was restored. Production source
+is unchanged from `e1e63460`; the prior handshake and direct shutdown tests
+remain. This adds coverage without changing production budgets, assertions,
+CI gates or ignored tests.
+
+Pinned local verification passed: new acceptance/shutdown regression; full
+default-parallel bootstrap CLI suite (same production source: 363 library tests
+passed / 2 ignored, 33 CLI passed); real diskless QMP 1/1; all-target Clippy
+with warnings denied; changed-file formatting. Latest-head Windows/platform CI
+is still required. Nagi guest/VM acceptance remains unclaimed.
+
 ## QMP shutdown deadline regression follow-up — 2026-11-04
 
 PR #90 head `9d13cd70` CI run `41759758392` failed the Windows shutdown
