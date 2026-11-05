@@ -2685,7 +2685,9 @@ fn run_gui_qemu_with_serial_reader(
         } else {
             read_serial(&mut serial_stream, &mut buffer)
         } {
-            Ok(0) => break,
+            // Serial EOF does not mean QEMU exited. Continue polling the
+            // owned child and the original diagnostic/deadline checks below.
+            Ok(0) => thread::sleep(remaining.min(Duration::from_millis(1))),
             Ok(count) => {
                 serial.extend_from_slice(&buffer[..count]);
                 if let Err(error) = serial_log
@@ -2893,16 +2895,6 @@ fn run_gui_qemu_with_serial_reader(
             }
         }
     }
-    let _ = fs::write(config.serial_log, &serial);
-    Ok(QemuGuiOutcome {
-        exit_status: child
-            .wait()
-            .ok()
-            .and_then(|status| status.code())
-            .unwrap_or(-1),
-        ready_after,
-        acceptance_reached: false,
-    })
 }
 
 fn spawn_qemu(config: &QemuConfig<'_>, serial_device: &str) -> Result<Child, String> {
