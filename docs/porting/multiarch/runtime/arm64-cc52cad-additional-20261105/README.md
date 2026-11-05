@@ -96,11 +96,11 @@ and completed record still need independent review/owner adoption. No public
 operation, push, merge, dispatch resend, physical/media write or network change
 was performed.
 
-This candidate passed 235 host tests: 18 supplemental metadata/CLI tests,
+Pending predecessor `86444bdc8e4d594a46dca8a5526c98ef04b23eaf` passed 235 host tests: 18 supplemental metadata/CLI tests,
 8 source-scope tests, 11 runtime-summary tests, 10 backend-helper tests,
 30 audit/records tests, 105 contracts, 16 BootInfo, 5 ABI and 32 runner/receipt
 fixtures. Pinned formatting and warning-denied Clippy passed. On the actual
-pending record the CLI returned exit 2 with exactly the two missing summaries;
+predecessor's pending record the CLI returned exit 2 with exactly the two missing summaries;
 synthetic complete fixtures return metadata-only exit 0. There is no new guest
 run or raw-receipt recheck behind these host checks.
 
@@ -147,3 +147,13 @@ Derived formal summary SHA-256:
 `35adb7c4c87814650c712afa0846575d05872a79e6d02b8299098ed0a0be84d0`.
 Derived manual summary SHA-256:
 `c2cb41ace14a40f5d521afad7d86c3a88a0cc84e3e205113d8ab5f8e14e14333`.
+
+Measured records commit `3bddcdcfeb7dd43336e56595cedde58dce50af5a`, tree
+`b7983fa00ea6d2ebe607674e9f3844c2c6b1ea2e`, passed the unchanged supplemental
+validator with exit 0, COMPLETE_METADATA_ONLY and no missing input. Formal
+verification remained REPORTED_VERIFIED, manual observation remained
+DIGESTS_MATCH_NO_FORMAL_RECEIPT, and Phase C remained PENDING. Sixty-nine tests
+were rerun: 18 supplemental positive/negative/CLI tests, 8 source-scope tests,
+11 runtime-summary tests and 32 runner/receipt fixtures. No implementation,
+schema or assertion was changed to accept the measured summaries. The final
+documentation-only child records these results; no runtime was reexecuted.
