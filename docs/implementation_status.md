@@ -1,4 +1,179 @@
-## PR #92 required-file CI guard candidate - 2026-11-05
+## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
+
+Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
+`PARTIAL` for an isolated CI evidence-retention correction based on public
+`f927cef91e9070187a689277ed4af9c174e38e7e`. No CI rerun, public update or
+GitHub merge was performed during this investigation.
+
+Nagi CI 41959780494 at that head completed with change-scope,
+target_classification, Ubuntu, Windows and M20 inference successful.
+nagi-target passed M17, M18, M19 Files/login and M22, then failed M27:
+readiness QEMU boot 2 did not reach acceptance within 180 seconds (exit 4).
+M29 and M30 were skipped. The failed promotion uses the headless runner
+reusing OVMF variables; the recent GUI EOF change is not on that path.
+The headless failure's underlying cause remains UNKNOWN.
+
+The official job log names
+out/evidence/m27-ab-rollback-1793854380240094000/readiness-promotion/promotion-boot.log,
+but neither uploaded target artifact contains that file or the M27 trial log.
+Downloaded artifact 13389567679 matches SHA-256
+5a0aab015cf9a29283f7c0ee1dc2f09ffa200ea25a3292d229e1b21f2c94420e;
+artifact 13390110191 matches SHA-256
+cbe3c1d4f4d074948fe9fd76ce9e3b2fa9d41f1987c9431249f8f75cd6f1455a.
+Their ZIP inventories contain M17 logs/reports and runner resource state.
+The workflow uploads out/logs/m17-* and acceptance reports, but never
+out/evidence/m27-ab-rollback-*. This is a confirmed observability defect,
+not evidence for a longer guest timeout or a changed readiness criterion.
+
+The isolated workflow correction retains *.log within each M27 evidence
+run, plus serial snapshots named *.log.pre-guest-timeout-* and retry reason
+*.log.pre-guest-retry-*.txt. It keeps the existing always() upload path and
+pinned action. OVMF binary snapshots, firmware variables and disk images
+remain outside those selections. Runtime/QMP/guest code, source pins,
+180-second budget, retry policy and acceptance markers are unchanged.
+
+Validation: three new tests exercise the workflow's actual selected paths
+against a temporary reproduction of the M27 evidence tree: nested promotion,
+trial, confirmed and rollback logs; retry serial and reason; exclusion of
+OVMF snapshots and raw/qcow2 disks; and preservation of M17 diagnostics when
+M27 has not run. With the original workflow, two tests fail because M27 logs
+are absent. With the correction, all 17 Python regressions pass, including
+the existing CI guard suite. These are local path-selection tests, not a
+hosted upload-action or guest execution. Whitespace checks pass.
+
+The original promotion serial/QMP trace and boot state were not uploaded,
+and this environment lacks qemu-system-x86_64 and that failed guest state;
+an exact replay is unavailable. Resource capture after failure reports
+available memory but cannot rule out an earlier transient resource problem.
+The next diagnostic run must preserve promotion-boot.log, trial-boot.log and
+any pre-guest retry evidence before deciding whether the cause lies in
+firmware, guest startup/readiness, input state or host scheduling. No timeout
+extension, repeated rerun, speculative runtime fix or milestone PASS is claimed.
+
+## PR 90 GUI serial EOF deadline follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to reviewed EINTR candidate
+`177805c9069df1cd8b9d573cabcdb0dc8227fd8b`. It retains integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5`, and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. Previous candidates remain
+protected. No public push, hosted CI rerun or GitHub merge was performed.
+
+Independent review identified a second total-budget bypass: GUI serial EOF
+broke out of the acceptance loop into an unconditional child.wait(). The
+serial connection can close while QEMU remains alive. The new production-caller
+fixture confirms this after a completed QMP handshake, keeps QMP available,
+and exits naturally only after six seconds. With the original code and a
+three-second budget, the exact new regression returned Ok(0) in 6,044 ms
+instead of timing out. An initial one-second version also returned Ok(0) in
+3,044 ms with its three-second natural-exit bound.
+
+EOF now continues through the existing child-status and original absolute
+budget checks, with a sleep of at most one millisecond to avoid a busy loop.
+The unbounded post-loop wait is removed. A genuinely exited child still
+returns its original exit status and persisted serial before deadline. A
+live child reaches the original reserved diagnostics window, final serial
+capture, kill/wait and timeout classification. No new timeout, grace period,
+retry policy or acceptance marker is introduced. The previous completion-drain
+and EINTR fixes, diagnostic queries and CI guard remain unchanged.
+
+Validation with nightly-2025-08-01:
+- New EOF production-caller cases cover normal/stalled QMP crossed with
+  absent/present kernel-start serial. They verify real EOF after handshake,
+  diagnostics requests, final log contents, retry classification, original
+  budget and actual process termination/reaping. The four cases complete in
+  approximately 2.92–3.01 seconds with the unchanged 400 ms scheduling slack.
+- A separate real EOF plus early natural child exit returns Ok(0) in about
+  125 ms, preserving the existing child-exit behavior and serial tail.
+- Focused caller suite: 7 passed, including earlier late-serial and EINTR cases.
+- Ordinary and bootstrap CLI library: 374 passed / 2 ignored each.
+- Both library/test Clippy configurations with warnings denied: passed.
+- Python CI regression suite: 14 passed. Changed Rust formatting and whitespace
+  checks: passed. QMP fixture executable Git mode remains 100755.
+- Initial fixed one-second test returned the correct timeout, but its 100 ms
+  diagnostics reserve exhausted before all firmware signature queries finished.
+  The final regression uses the existing caller suite's three-second budget
+  and 300 ms reserve to test complete normal diagnostics and retry classification;
+  no production budget or assertion was weakened. That initial log is retained.
+
+Real diskless QEMU, Windows and hosted target/inference checks for this new
+candidate are NOT RUN. The original OS signal causing the earlier EINTR is
+still UNKNOWN; its handling is fixed, not its provenance. No milestone PASS.
+
+## PR 90 GUI serial interrupted read follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, which retains public PR 90
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. The original integration candidate
+is protected. No publication, hosted CI rerun or GitHub merge was performed.
+
+The first integration test's real GUI serial read returned Interrupted
+(os error 4). Its signal/source remains UNKNOWN. Code inspection confirmed
+that the ordinary GUI acceptance loop treated Interrupted as fatal, while
+the final-drain reader already retried it. A deterministic injected Interrupted
+at the ordinary read reproduced the same fatal error category in 43 ms on
+the extracted unchanged loop. This reproduces error handling, not the OS
+signal that caused the original intermittent event.
+
+The ordinary loop now treats Interrupted as no progress, then executes its
+existing child-status and original absolute-deadline checks. It does not
+restart a timeout or bypass timeout diagnostics. The internal loop accepts a
+serial-read closure for deterministic tests; every public production entry
+supplies the original TcpStream read. A Linux-only test adapter supplies an
+Interrupted before real TCP reads; a second mode interrupts repeatedly after
+one normal read. QMP sockets, actual fixture process, diagnostic collection,
+serial persistence, final drain, kill/reap and retry classification use the
+same production path and existing assertions. All earlier assertions remain.
+
+Validation with nightly-2025-08-01:
+- Negative control retaining the original match: new injected-EINTR regression
+  fails on the fatal GUI serial error in 43 ms.
+- Focused caller tests: 5 passed, covering the original scenarios plus single
+  EINTR with normal/stalled diagnostics and query/final late serial, and
+  repeated EINTR through timeout. Original 3-second budgets and reap checks pass.
+- Ordinary and bootstrap CLI library: 372 passed / 2 ignored each.
+- Both configurations of library/test Clippy with warnings denied pass.
+- Python CI guard regressions: 14 passed. PR 92 workflow guard and test are
+  unchanged; the retained QMP workflow step remains.
+- QEMU executable unavailable here; real diskless QMP, Windows and hosted
+  target/inference checks for this new candidate are NOT RUN. No milestone PASS.
+
+## PR 90 integration with main CI guard — 2026-11-05
+
+Status: `PARTIAL`; isolated merge candidate with first parent public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and second parent main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb` (PR 92). The only textual conflict
+was concurrent additions at the beginning of this status document. Both
+preparation histories below are preserved and explicitly historical. PR 92
+has been merged into main; PR 90 publication and hosted checks for this
+combined candidate remain pending independent review. No public push or
+GitHub merge was performed during this integration.
+
+QMP production sources, fetch diagnostics and the immutable executable
+fixture are byte-for-byte identical to d0d9e4a. The CI workflow combines
+main's required-file guard, docs-only classifier and job conditions with
+PR 90's real diskless QMP step. Removing only that step reproduces main's
+workflow exactly. PR 92's regression test file is unchanged. No source pin,
+timeout, assertion, retry policy or guest behavior was changed.
+
+Validation with nightly-2025-08-01:
+- Python CI regression suite: 14 passed, including the real workflow Bash
+  guard, required-file deletion/rename and code-versus-docs classification.
+- Bootstrap CLI library: 370 passed / 2 ignored.
+- Ordinary CLI library, run separately: 370 passed / 2 ignored.
+- Initial overlapping ordinary/bootstrap library runs produced one ordinary
+  GUI serial read error, Interrupted system call (os error 4), with 369 passed /
+  1 failed / 2 ignored. The exact four-case production-caller test then passed
+  independently, followed by the full ordinary suite above. The error's cause
+  is unconfirmed; it is not claimed fixed or attributed to the merge. Assertions
+  and production sources are unchanged; the original failure log is retained.
+- Both library/test Clippy configurations with warnings denied passed.
+- No guest or milestone PASS is claimed. Real diskless QEMU was not run in
+  this environment because qemu-system-x86_64 is unavailable; hosted Windows,
+  target and inference checks for this combined candidate are NOT RUN.
+
+## Historical PR 92 required-file CI guard preparation - 2026-11-05
 
 Status: `PARTIAL` (isolated host regression candidate; not published).
 Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
@@ -16,6 +191,413 @@ docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
 The inventory is checked against the existing Rust repository check.
 No target or guest acceptance and no hosted CI result are claimed for
 this unpublished candidate. No milestone status changes.
+
+## Historical PR 90 bootstrap fetch diagnosis preparation — 2026-11-04
+
+Status: `PARTIAL`; isolated local diagnostics candidate based on published
+`91e4043a624bd13357609967faefdeb150820642` (tree
+`bdae0b5848a41671fea3ca696c9c32806e77030d`), source base
+`87b7dea4061be2572526181ab559d63037f823d0`. No new push, hosted CI rerun,
+workflow change, timeout extension or merge was performed for this investigation.
+
+**Current public result:** [Nagi CI 41919875669](https://github.com/Roy-To/NagiOS/actions/runs/41919875669)
+completed cancelled at 91e4043. Classification succeeded; Ubuntu and Windows
+were cancelled inside Bootstrap pinned Servo source dependencies; target and
+M20 inference were skipped. The public check-run annotations for both host jobs
+explicitly say "The job has exceeded the maximum execution time of 30m0s".
+Both bootstrap binaries compiled successfully, then their `fetch` executions
+produced no further phase output before cancellation. No QMP regression test
+ran in that CI attempt. The current fetch wait's underlying cause is UNKNOWN.
+
+**Comparison with successful baseline:** [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+was successful at 5ecef8e. Its fetch execution took about 178 seconds on Ubuntu
+and 272 seconds on Windows. Between 5ecef8e and 91e4043, only image.rs and the
+status document changed; the fetch implementation, all source/font pins, Cargo
+locks, bootstrap manifest and CI workflow are identical. Ubuntu's runner image
+changed from 20261025.353.1 to 20261101.360.1; Windows retained image
+20261025.346.1. Git remained 2.56.0 on Ubuntu and 2.56.0.windows.3 on Windows.
+The Ubuntu image difference alone does not establish a common cause for both
+host jobs. The cancelled run has no uploaded diagnostic artifacts.
+
+The workflow step label does not identify the active source. `execute_fetch`
+prepares llama.cpp first, then whisper.cpp, Surfman, registry-based tempfile,
+mozjs_sys and cc, Servo and its registry dependencies, fonts and Mesa. Direct
+Git endpoints are github.com/ggml-org/llama.cpp, github.com/ggml-org/whisper.cpp,
+github.com/servo/surfman, github.com/servo/servo and gitlab.freedesktop.org/mesa/mesa.
+Registry archives come from the exact crates.io URLs in sources.lock; font URLs
+and hashes are pinned in fonts.lock. Servo Cargo.lock also identifies transitive
+Git dependencies. These pins and verification checks are unchanged.
+
+**Confirmed observability defect:** the Git/Cargo helpers use Command::output,
+which retains subprocess output until exit, and fetch previously emitted its
+result only after all phases completed. Consequently, the cancelled CI logs do
+not establish which component, network request, checkout or Cargo operation
+was waiting. They do not prove that the step was stuck in Servo, nor that the
+new QMP reader caused the wait.
+
+The candidate emits a static phase start record to stderr and flushes it before
+each potentially blocking source-preparation operation. Completion/failure
+records include elapsed time. It additionally distinguishes initial llama.cpp
+Git fetch/checkout and Servo Git fetch/checkout/unpatched Cargo operations.
+Labels contain no command arguments, URLs, environment or error text. Fetch
+stdout, original return values, failure codes, source validation, endpoints,
+revision/hash pins and existing retry policies remain unchanged. Logging failure
+does not skip or retry the operation. This is a diagnostics fix, not a claimed
+repair of the unidentified hosted wait.
+
+**Bounded local reproduction attempts:** a fresh shallow blobless fetch of the
+first pinned llama.cpp revision completed in 1.17 seconds. One complete fresh
+source bootstrap with the new diagnostics completed successfully in 125.81
+seconds, within a six-minute diagnostic probe bound. Its live phase records
+showed llama.cpp preparation about 11.9 seconds, Servo about 65.5 seconds and
+Mesa about 37.4 seconds. Source checkouts were fresh, but Cargo/registry caches
+were reused and the managed network/proxy differs from GitHub runners. No
+network route, credential or trust setting was changed. The original CI wait
+was not reproduced; no repeated CI runs were used to obtain a pass.
+
+**Separate pre-existing test entry-point defect:** the standalone bootstrap
+manifest shares CLI library sources, but the immutable QMP fixture path used
+CARGO_MANIFEST_DIR as though it always named tools/nagi-cli. Running the full
+bootstrap library suite therefore reproduced three ENOENT fixture failures.
+The candidate resolves the fixture from the common tools directory, preserving
+all assertions and immutable executable behavior. This cfg(test) path issue
+cannot explain the CI fetch cancellation, which occurred in the normal binary.
+
+Validation with nightly-2025-08-01:
+- Three new diagnostics tests prove a start record is flushed before a blocked
+  operation completes; success/error identity is preserved without logging
+  opaque error text; and a broken stderr sink neither skips nor retries work.
+- Ordinary CLI library: 370 passed / 2 ignored.
+- Standalone bootstrap library after the fixture-path fix: 370 passed / 2 ignored.
+  The initial pre-fix run reported 367 passed / 3 fixture-path failures / 2 ignored.
+- Ordinary CLI and standalone bootstrap Clippy, --lib --tests with warnings
+  denied: passed. Changed Rust formatting and git diff check: passed.
+- New candidate hosted Windows/target/inference CI: NOT RUN.
+
+The next hosted attempt needs approved publication of the diagnostic candidate
+if it is selected after review; its phase records would identify any remaining
+wait without weakening the 30-minute gate. The original wait cause remains an
+open blocker. Earlier public results below are historical preparation records.
+
+## Historical PR 90 GUI serial completion ordering preparation — 2026-11-04
+
+Status: `PARTIAL`; isolated local follow-up to protected public head
+`5ecef8e7d9d98861b62f1838db66aeaadb9c13cf` (tree
+`3f95febdad1db7da5a731538e5f535095c455228`). Source base/merge-base is
+`87b7dea4061be2572526181ab559d63037f823d0`. This new completion-ordering
+candidate had not been pushed or run in hosted CI at preparation time. It was
+subsequently published as 91e4043; its cancelled fetch-stage CI is recorded in
+the current entry above. No merge was performed.
+
+**Published baseline, distinct from this new candidate:** 5ecef8e was published
+with approval. [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+completed successfully at that head: target_classification, ubuntu-host,
+windows-launcher, nagi-target and nagi-m20-inference all succeeded. Ubuntu
+reported 366 library tests passed / 2 ignored; target ran the existing M17,
+M18, M19, M22, M27, M29 and M30 acceptance steps, and M20 reported real Granite
+inference acceptance PASS. The separate host-foundations workflow 41826127505
+was skipped. The earlier failing run 41821444900 was at 0342cc7 and is historical.
+Neither the successful baseline CI nor the old failure establishes the result
+of this new completion-ordering change. No new milestone PASS is recorded.
+
+Full-tree review found a serial-reader race even in the successful baseline:
+a read returns WouldBlock, final kernel/acceptance bytes arrive, the caller
+kills/reaps QEMU and publishes finished=true, then the reader observes that
+flag and exits using its stale empty-read observation. A missing kernel marker
+could then falsely satisfy the existing pre-guest firmware timeout signature.
+
+The production reader loop is extracted into a shared private helper for a
+focused regression. It now acquires the completion flag *before* the socket
+read. An empty read made before completion cannot terminate capture: the loop
+must perform another nonblocking read after observing completion, drain every
+available chunk and only then accept an empty result. QMP's original absolute
+deadline, kill/wait ordering, serial persistence, partial-capture error handling,
+and the existing 1 ms polling interval are unchanged; no fresh timed grace
+period is introduced.
+
+The deterministic real-TCP regression pauses exactly after an actual WouldBlock
+but before it reaches the completion check. The coordinator writes a payload
+larger than the reader buffer containing kernel-start, acceptance and final-tail
+markers, confirms all bytes are queued with a non-consuming peek, publishes
+completion, then releases the paused read. Synchronous channels establish that
+order without scheduling sleeps. The writer socket remains open so success
+requires a bounded nonblocking drain rather than EOF. The test checks exact byte
+preservation, including the kernel marker. Existing production-caller tests
+continue to verify final-log retry classification, the full timeout budget and
+real child termination/reaping; their assertions and budgets are unchanged.
+
+Validation with nightly-2025-08-01:
+- The extracted baseline loop retained the original 5ecef8e ordering. The new
+  deterministic test failed 10/10 executions on missing final serial (zero
+  captured bytes), proving the previously static review report by execution.
+- After fixing the ordering, the same exact-payload regression passed 100/100
+  executions, at most four concurrently.
+- `cargo test --locked -p nagi-cli --lib`: 367 passed / 2 ignored, including all
+  previous GUI/CLI late-serial, firmware retry, handshake/shutdown deadline and
+  child-reap regressions.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust file rustfmt and git diff check: passed.
+- Hosted Windows/target/inference CI for this new candidate: NOT RUN.
+
+The original public-CI startup failure's OS cause and the separately observed
+one-off QMP connection reset remain unconfirmed; this deterministic completion
+race is a separate reproduced defect. Previous candidates remain protected.
+
+## Historical candidate preparation records
+
+The sections below retain observations made before those candidates were
+published. Statements about an unpushed candidate or pending hosted CI describe
+that earlier preparation point, not the current published 5ecef8e baseline.
+The published CI result and the newer unpushed completion-ordering candidate
+are distinguished above.
+
+## PR 90 public CI fixture startup failure candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated test-only follow-up to public PR 90 head
+`0342cc71c1fb1835bf8ca5992eb6d02c5c7620b2` (tree
+`6068b35371e41bb91256187596cd1f6b2d61d578`). At preparation time the base was
+`87b7dea4061be2572526181ab559d63037f823d0` and this candidate was not pushed;
+no approval, merge, workflow rerun, or other external mutation had been performed.
+
+Public [Nagi CI run 41821444900](https://github.com/Roy-To/NagiOS/actions/runs/41821444900)
+completed with failure at the above head (checkout merge 2421aa8a):
+- target_classification: success.
+- windows-launcher: success (Linux-only fixture cases do not execute here).
+- ubuntu-host: failure in Test host-compatible workspace. Format, diagnostic
+  parser tests, host lint/build, real diskless QMP and Legal preparation passed.
+- nagi-target: skipped, not a target acceptance PASS.
+- nagi-m20-inference: skipped, not an inference PASS.
+The separate host-foundations run 41821444770 was skipped.
+
+The sole Ubuntu library failure was
+`commands::qemu_timeout_caller_tests::gui_preserves_serial_emitted_during_diagnostics_and_shutdown`:
+its first GUI case returned in 0 ms, then reading the fixture's nonexistent PID
+file panicked at commands.rs:12027. The suite reported 365 passed / 1 failed /
+2 ignored; headless race and the four-case production timeout test passed.
+The test unwrapped the PID read before checking the runner's Result, hiding the
+actual startup error. The original CI OS error is therefore UNCONFIRMED.
+
+The candidate checks and reports the original runner error before consulting
+PID evidence. It also uses the immutable, executable checkout Python fixture
+rather than writing and immediately executing a per-case script. The fixture
+locates its per-case state beside the first firmware drive passed by the real
+production caller. All timeout/serial/retry/reap assertions and budgets remain;
+no automatic retry or assertion weakening is added. image.rs production source
+is byte-for-byte unchanged.
+
+Potential mechanism, not a confirmed CI diagnosis: another concurrent spawn can
+briefly inherit a writable executable descriptor before exec. A controlled local
+experiment reproduced Linux errno 26 Text file busy while a forked child held
+that descriptor, followed by success once it closed. A fixed executable source
+avoids creating that writable-executable window during parallel tests. Twelve
+baseline caller-suite processes (four concurrently, 120 total scenario runs)
+with improved error reporting did not reproduce the original CI failure.
+
+Candidate validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 366 passed / 2 ignored.
+- 12 additional caller-suite processes, four concurrently: all 36 Rust test
+  executions / 120 scenario runs passed.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed-file rustfmt and git diff check: passed.
+
+At preparation time public CI had not run this follow-up. Subsequent approved
+publication as 5ecef8e and its successful CI are recorded in the current entry
+above. That success does not establish the original startup failure's OS cause.
+The earlier candidate worktrees remain protected.
+
+## PR 90 final serial capture race candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated follow-up to protected candidate
+`781971b9626d3879b71f1a6cfd181f596334559b` (tree
+`5bf3b990a00ae4f1a10ff96739a93f38343b0675`). Public PR starting head remains
+`06e0600fd01b71cc30573b22b944f7900b890ab1`; public base/merge-base remains
+`87b7dea4061be2572526181ab559d63037f823d0`. No push, merge, or milestone PASS.
+
+Independent review found that the diagnostic reservation left a race: kernel
+and acceptance serial emitted during diagnostics was absent from the final
+log, allowing a false pre-guest firmware retry. Headless QEMU's file log was
+overwritten with a pre-diagnostic snapshot; GUI serial was not read during the
+QMP diagnostic exchange.
+
+Headless timeout now kills/reaps the file writer and appends diagnostics without
+replacing its final serial file. GUI timeout drains serial concurrently with
+QMP diagnostics, kills/reaps QEMU, then drains the bytes already queued before
+saving the complete collected serial and appending diagnostics. Nonblocking
+serial reads and a completion signal avoid allocating another timed grace
+period after the existing absolute deadline. A serial capture or final-log
+write error fails outside the firmware-timeout retry signature, since a partial
+log cannot establish that the kernel never started. The existing retry wrapper
+continues to classify from the persisted final log. Acceptance emitted after
+the guest waiting cutoff remains a timeout; it is preserved as evidence rather
+than retroactively reported as success.
+
+Linux production-caller regressions run both public headless/GUI entry points.
+They emit a 213,045-byte serial payload containing `Nagi Kernel started`, the
+acceptance marker, and a final tail either on query-status (including a stalled
+QMP reply) or immediately before the last primary diagnostic reply. All six
+late-serial cases require complete payload preservation, exactly one kernel
+and acceptance marker, retry suppression, original timeout bounds, and child
+reaping. Four existing no-late-serial cases retain positive firmware retry
+classification or reject stalled diagnostics as before. The local fixture
+requires /usr/bin/python3, loopback TCP, and /proc; it verifies host orchestration,
+not real Nagi guest acceptance.
+
+Validation with nightly-2025-08-01:
+- Focused caller tests: all ten cases passed (three Rust tests after splitting
+  the CLI and GUI race regressions for independent negative controls).
+- Negative controls: temporarily restoring only image.rs to 781971b made both
+  CLI and GUI race tests fail on missing final serial (only 511 log bytes).
+  The fix was restored before final validation.
+- `cargo test --locked -p nagi-cli --lib`: 366 passed, 2 ignored; includes
+  existing handshake/shutdown deadline, firmware retry, and disk-integrity tests.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Windows CI and real Nagi guest acceptance: NOT RUN for this follow-up.
+
+The earlier candidate/worktree remains unchanged. Generated dependency sources
+were reused locally without dependency/lockfile changes. Process kill/reap,
+nonblocking draining, filesystem I/O and OS scheduling retain normal overhead;
+no hard real-time guarantee is claimed.
+
+## PR #90 timeout diagnostic reservation candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local candidate, no push or merge, no milestone PASS.
+Starting public PR head: `06e0600fd01b71cc30573b22b944f7900b890ab1`.
+Fetched public main/base and merge-base: `87b7dea4061be2572526181ab559d63037f823d0`.
+
+The headless and GUI acceptance waiters previously started timeout diagnostics
+with an already expired host deadline, skipping query-status and preventing the
+existing pre-guest firmware retry signature from matching. Both waiters now
+reserve the final min(5 seconds, 10% of the configured timeout) for diagnostics.
+Guest waiting therefore ends that much earlier. Successful QMP shutdown still
+uses the original absolute deadline. GUI serial polling and periodic register
+tracing respect the reservation; diagnostic exchanges keep the original hard
+deadline, including when QMP stops responding. No new timeout is allocated.
+Startup/protocol failures and firmware retry disk-integrity guards retain their
+existing behavior. Process kill/reap and local log I/O have normal scheduling
+and syscall overhead; the timeout is not a hard real-time guarantee.
+
+The Linux production-caller regression launches a test-only Python QMP peer
+through actual `run_qemu` and `run_qemu_gui` entry points, including production
+spawn/handshake/serial handling. Four cases cover responsive/stalled QMP for
+both callers, actual query receipt, persisted diagnostics, timeout errors,
+firmware retry signature eligibility (and rejection after a kernel marker),
+and absence of the child including zombie state in /proc. It does not simulate
+Nagi guest acceptance. Python 3 at /usr/bin/python3 is a Linux test prerequisite.
+The existing retry tests continue to cover bounded retry and disk-change guards.
+
+Validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 364 passed, 2 ignored (fixture child
+  and opt-in real QEMU test).
+- Focused new production-caller test: four cases passed; observed 2918/3007 ms
+  headless and 2928/3007 ms GUI with a 3000 ms total budget. Assertions allow
+  400 ms scheduling/cleanup slack, without extending production deadlines.
+- Negative control: restoring only image.rs to the specified public head made
+  the new test fail: no diagnostic query was sent, only qmp_capabilities.
+  Restored the fix and reran the full library suite.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Opt-in diskless real QMP compatibility: passed on QEMU 10.0.13 with local
+  library/BIOS paths; initial unconfigured launch lacked its BIOS, and the
+  configured run emitted a missing optional kvmvapic ROM warning. This verifies
+  protocol compatibility only; full Nagi guest and Windows CI remain NOT RUN.
+
+Generated dependency sources were reused from the existing workspace to resolve
+Cargo's workspace graph; no dependency or lockfile changes are part of this
+candidate. The private product ledger was not needed for this existing host
+orchestration bug fix; product behavior and milestone activation are unchanged.
+
+## QMP acceptance caller deadline coverage — 2026-11-04
+
+The independent review of PR #90 head `e1e63460` found that the direct shutdown
+helper regression did not detect deadline renewal by its production acceptance
+caller. An additional regression now acknowledges fake QMP readiness, supplies
+a partially consumed absolute deadline to `wait_for_qemu_any_with_qmp`, and
+follows its actual acceptance-to-shutdown branch. Two of an original four
+seconds are represented as already consumed; two seconds remain, without any
+startup or acceptance sleep spending that remainder. The test requires a
+fixture-written witness that the quit command was actually received, the
+original deadline's exhaustion, an unsuccessful/reaped child, preserved serial
+bytes and the existing 500 ms upper slack.
+
+A temporary negative control changed only the production acceptance caller to
+pass `Instant::now() + timeout` to the quit helper. The new regression observed
+quit receipt and failed on the resulting false success after the fixture's
+bounded three-second clean exit. The mutation was restored. Production source
+is unchanged from `e1e63460`; the prior handshake and direct shutdown tests
+remain. This adds coverage without changing production budgets, assertions,
+CI gates or ignored tests.
+
+Pinned local verification passed: new acceptance/shutdown regression; full
+default-parallel bootstrap CLI suite (same production source: 363 library tests
+passed / 2 ignored, 33 CLI passed); real diskless QMP 1/1; all-target Clippy
+with warnings denied; changed-file formatting. Latest-head Windows/platform CI
+is still required. Nagi guest/VM acceptance remains unclaimed.
+
+## QMP shutdown deadline regression follow-up — 2026-11-04
+
+PR #90 head `9d13cd70` CI run `41759758392` failed the Windows shutdown
+regression: at 2,003 ms the fixed 200 ms handshake plus 1,400 ms acceptance
+schedule had not reached acceptance, so the runner correctly returned an
+acceptance timeout rather than the shutdown timeout expected by the test.
+Ubuntu's real diskless QMP check passed on that head.
+
+The follow-up changes tests only. It completes and acknowledges protocol setup
+under a bounded readiness guard, then directly tests the shutdown helper with
+an absolute two-second deadline and an already-expired deadline. The existing
+two-second handshake/lifecycle regression remains unchanged. The shutdown
+budget, 500 ms upper slack, error classification, unsuccessful child status,
+process reaping and serial preservation checks remain enforced. The fixture
+now exits cleanly after a bounded three-second quit hold, so a broken deadline
+renewal fails promptly rather than waiting for an unrelated long timeout.
+
+Pinned local checks passed: the shutdown boundary cases, full default-parallel
+bootstrap suite (same CLI source: 362 library tests / 2 ignored, 33 CLI tests),
+explicit real diskless QMP 1/1, all-target Clippy with warnings denied and
+changed-file formatting. A temporary negative control renewing the shutdown
+deadline to 30 seconds failed as intended after 3,040 ms by returning a false
+success. The mutation was restored and production source was compared unchanged
+with `9d13cd70`. Windows validation of this test correction awaits latest-head
+public CI; no test was skipped and no production timeout or CI gate was changed.
+
+## QMP deadline/parser integration candidate — 2026-11-04
+
+Status: `PARTIAL`. Ported the QMP-only changes from candidate
+`03e48e1404c1ad6a2bb6d059d176928424603b78` (tree
+`5eccfd1541a1fa47e7bb0ab59d345d87149f293a`) onto main
+`0362427747e769b00558053e4c7f4c756d303802`. The source histories have no
+common ancestor, so unrelated candidate APIs, guest changes and milestone
+claims are excluded. Public QEMU runner APIs remain compatible with main.
+
+The subsequent main `87b7dea4061be2572526181ab559d63037f823d0`
+(Calendar PR #89 boundary tests) was integrated without conflicts or changes
+to the QMP source. Full default-parallel CLI, real diskless QMP and Calendar
+host suites passed again on this combined candidate.
+
+The runner retains its original host deadline across handshake, acceptance,
+diagnostics and shutdown; parses greeting/response JSON; validates known
+command result shapes and asynchronous-event timestamps. A real diskless QEMU
+11.1.1 check on macOS found a closed-socket timeout-configuration race during
+quit. Shutdown accepts this only after observing a clean owned-process exit
+within the original deadline. The diskless regression is opt-in locally and
+runs in the existing Ubuntu host CI job.
+
+Pinned nightly-2025-08-01 local verification: QMP filter 12 passed / 1 ignored;
+explicit real diskless QMP 1 passed; standalone bootstrap (same CLI production
+source) full serial suite 362 library tests passed / 2 ignored, 33 CLI tests
+passed, 0 doctests; Clippy all targets with warnings denied and Python
+regression passed. The initial full parallel run failed the shutdown timing
+assertion under load and a missing generated mozjs fixture. The official
+registry-source preparation supplied the pinned fixture; the serial rerun
+passed without changing assertions. Parallel-load timing remains a CI risk.
+The ordinary workspace run initially stopped before tests because generated
+third-party sources were absent; full workspace/platform CI is still required.
+
+No Nagi guest, existing disk, image, overlay, receipt or launch claim was used.
+Diskless QMP compatibility is not Nagi guest/VM acceptance. Nagi 0.1 and all
+milestone statuses remain unchanged. Candidate bundle, original available
+logs, failed and successful verification logs are preserved in an isolated
+SSD evidence directory for this integration task.
 
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
