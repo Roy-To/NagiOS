@@ -239,7 +239,7 @@ fn scripted_presentation_state_is_cleared_by_desktop_lock_and_relogin_render() {
             }
             assert!(desktop.session.is_none());
             assert!(!desktop.model_services_ready);
-            assert!(!desktop.bar.open);
+            assert!(!desktop.bar.is_open());
             assert!(!desktop.bar.cancel_requested);
             let ui = &desktop.bar.controller;
             assert_eq!(ui.session(), None);
@@ -400,7 +400,7 @@ fn desktop_service_step_binds_acknowledges_submits_cancels_and_unbinds_real_shar
     desktop.pointer_y = bar_panel::LOCK_BUTTON.y + 2;
     assert!(desktop.handle_event(key(libnagi::INPUT_KEY_LEFT), &mut volume));
     assert!(desktop.session.is_none());
-    assert!(!desktop.bar.open);
+    assert!(!desktop.bar.is_open());
     assert_eq!(desktop.bar.controller.status(), Status::SignedOut);
     let unbound = desktop
         .model_services
@@ -445,7 +445,7 @@ fn closed_bar_keeps_draining_shared_request_and_reopens_with_reply() {
     unlock(&mut desktop, &mut volume);
 
     assert!(desktop.handle_event(key(61), &mut volume));
-    assert!(desktop.bar.open);
+    assert!(desktop.bar.is_open());
     assert!(desktop.model_service_step(|| {}));
     assert_eq!(desktop.bar.controller.status(), Status::TermsOffered);
     assert!(desktop.bar.controller.accept_request());
@@ -467,7 +467,7 @@ fn closed_bar_keeps_draining_shared_request_and_reopens_with_reply() {
     assert!(submitted.queued);
 
     assert!(desktop.handle_event(key(libnagi::INPUT_KEY_ESCAPE), &mut volume));
-    assert!(!desktop.bar.open);
+    assert!(!desktop.bar.is_open());
     assert_eq!(desktop.bar.controller.request_id(), Some(request_id));
 
     let adapter = desktop.model_services.as_ref().unwrap();
@@ -497,7 +497,7 @@ fn closed_bar_keeps_draining_shared_request_and_reopens_with_reply() {
     desktop.render(&mut surface);
     let closed_frame = frame_hash(&surface);
     assert!(desktop.handle_event(key(61), &mut volume));
-    assert!(desktop.bar.open);
+    assert!(desktop.bar.is_open());
     assert_eq!(desktop.bar.controller.status(), Status::Complete);
     assert_eq!(
         desktop.bar.controller.output(),
@@ -587,7 +587,7 @@ fn files_modal_drains_reply_and_yields_with_idle_or_continuous_input() {
             desktop.bar.controller.output(),
             "scripted close/reopen reply"
         );
-        assert!(desktop.bar.open);
+        assert!(desktop.bar.is_open());
         assert_eq!(desktop.signed_in_session(), Some(user));
         assert!(
             !desktop

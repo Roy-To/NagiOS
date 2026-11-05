@@ -510,7 +510,7 @@ impl Desktop {
         self.refresh_page_summary_binding();
         // Cooperate even without an adapter, with a hidden panel or on denial.
         yield_now();
-        self.bar.open && old_status != self.bar.controller.status()
+        self.bar.is_open() && old_status != self.bar.controller.status()
     }
 
     pub fn render(&self, surface: &mut [u32]) {
@@ -708,12 +708,12 @@ impl Desktop {
                 self.files_panel.open = false;
                 return true;
             }
-            if self.bar.open {
+            if self.bar.is_open() {
                 if event.value == 1
                     && event.code == libnagi::INPUT_KEY_LEFT
                     && SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y)
                 {
-                    self.bar.open = false;
+                    self.bar.close();
                 } else {
                     return self.bar.event(event, self.pointer_x, self.pointer_y);
                 }

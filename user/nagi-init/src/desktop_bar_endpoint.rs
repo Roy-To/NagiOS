@@ -789,4 +789,153 @@ mod tests {
             .offer_with(&mut desktop, 102, |_| Some(record()), |_, _| true)
             .unwrap();
     }
+    fn key_event(desktop: &mut Desktop, volume: &mut super::super::UserDataVolume, code: u16) {
+        assert!(desktop.handle_event(
+            libnagi::InputEvent {
+                event_type: libnagi::INPUT_EVENT_KEY,
+                code,
+                value: 1,
+            },
+            volume
+        ));
+    }
+    fn close_and_reopen(
+        desktop: &mut Desktop,
+        volume: &mut super::super::UserDataVolume,
+        route: u8,
+    ) {
+        match route {
+            0 => key_event(desktop, volume, libnagi::INPUT_KEY_ESCAPE),
+            1 => key_event(desktop, volume, 61), // F3 close
+            2 => {
+                desktop.pointer_x = super::super::SETTINGS_BUTTON.x + 1;
+                desktop.pointer_y = super::super::SETTINGS_BUTTON.y + 1;
+                key_event(desktop, volume, libnagi::INPUT_KEY_LEFT);
+                assert!(desktop.settings_open);
+                assert!(!desktop.bar.is_open());
+                key_event(desktop, volume, libnagi::INPUT_KEY_LEFT);
+                assert!(!desktop.settings_open);
+            }
+            _ => desktop.bar.clear_presentation(),
+        }
+        assert!(!desktop.bar.is_open());
+        key_event(desktop, volume, 61); // F3 open, no new summary gesture
+        assert!(desktop.bar.is_open());
+    }
+    #[test]
+    fn all_close_routes_reject_old_validated_actor_and_terminal_until_new_gesture() {
+        for route in 0..4 {
+            let (mut desktop, mut volume) = fixture();
+            let mut endpoint = bound_endpoint(&mut desktop);
+            gesture(&mut desktop, &mut volume);
+            let old = desktop.bar.summary_intent().unwrap();
+            endpoint
+                .offer_with(&mut desktop, 100, |_| Some(record()), |_, _| true)
+                .unwrap();
+            let mut token = endpoint
+                .consume_envelope_with(
+                    &desktop,
+                    record(),
+                    &response(old),
+                    || 101,
+                    |_| Some(record()),
+                )
+                .ok()
+                .unwrap();
+            assert!(token
+                .actor_with(&desktop, 102, |_| Some(record()))
+                .is_some());
+            close_and_reopen(&mut desktop, &mut volume, route);
+            assert!(
+                token
+                    .actor_with(&desktop, 103, |_| Some(record()))
+                    .is_none(),
+                "close route {route}"
+            );
+            assert!(endpoint
+                .finish_with(
+                    &desktop,
+                    &mut token,
+                    wire::Terminal::Denied,
+                    103,
+                    |_| Some(record()),
+                    |_, _| panic!("closed intent terminal")
+                )
+                .is_err());
+            assert!(endpoint
+                .offer_with(
+                    &mut desktop,
+                    103,
+                    |_| Some(record()),
+                    |_, _| panic!("no new gesture")
+                )
+                .is_err());
+            gesture(&mut desktop, &mut volume);
+            let new = desktop.bar.summary_intent().unwrap();
+            assert!(new > old);
+            endpoint
+                .offer_with(&mut desktop, 104, |_| Some(record()), |_, _| true)
+                .unwrap();
+            let current = endpoint
+                .consume_envelope_with(
+                    &desktop,
+                    record(),
+                    &response(new),
+                    || 105,
+                    |_| Some(record()),
+                )
+                .ok()
+                .unwrap();
+            assert!(current
+                .actor_with(&desktop, 106, |_| Some(record()))
+                .is_some());
+            assert!(token
+                .actor_with(&desktop, 106, |_| Some(record()))
+                .is_none());
+        }
+    }
+    #[test]
+    fn all_close_routes_reject_pending_frame_then_allow_fresh_explicit_request() {
+        for route in 0..4 {
+            let (mut desktop, mut volume) = fixture();
+            let mut endpoint = bound_endpoint(&mut desktop);
+            gesture(&mut desktop, &mut volume);
+            let old = desktop.bar.summary_intent().unwrap();
+            endpoint
+                .offer_with(&mut desktop, 100, |_| Some(record()), |_, _| true)
+                .unwrap();
+            close_and_reopen(&mut desktop, &mut volume, route);
+            assert!(
+                endpoint
+                    .consume_envelope_with(
+                        &desktop,
+                        record(),
+                        &response(old),
+                        || 101,
+                        |_| Some(record())
+                    )
+                    .is_err(),
+                "close route {route}"
+            );
+            gesture(&mut desktop, &mut volume);
+            let new = desktop.bar.summary_intent().unwrap();
+            assert!(new > old);
+            endpoint
+                .offer_with(&mut desktop, 102, |_| Some(record()), |_, _| true)
+                .unwrap();
+            let current = endpoint
+                .consume_envelope_with(
+                    &desktop,
+                    record(),
+                    &response(new),
+                    || 103,
+                    |_| Some(record()),
+                )
+                .ok()
+                .unwrap();
+            assert!(current
+                .actor_with(&desktop, 104, |_| Some(record()))
+                .is_some());
+        }
+    }
 }

@@ -11477,3 +11477,45 @@ decisions remain unverified; public 0.1 gates are unchanged. No VM/model/guest,
 terms acknowledgement, private log/ledger read, public operation/push/merge,
 permission change or access-denial retry/bypass occurred in this task. No new
 operation was denied, pending approval or of uncertain outcome.
+
+
+### 2026-11-05 — consume summary intent on every Bar close (M23 PARTIAL / M30 BLOCKED)
+
+Isolated follow-up to e1aa11deb858b1ffb945b749ee4cfbb9d5a10e3e
+(tree 889750ed9e00c23bf47993e2576114ec8edf3189); original candidate/export retained.
+Independent review identified Esc-close retaining summary_requested. F3 reopening
+could expose the previous gesture and permit a still-fresh validated token.
+Audit also found Settings-button close directly changing open without consuming
+intent. Toggle close and clear_presentation already cleared intent.
+
+Panel now has a private open field, a read-only is_open accessor and one close
+method that clears summary intent while preserving nonce/claim history. Esc,
+F3/button toggle, Settings-button close and presentation clearing share this
+method. Reopening alone produces no intent; an explicit subsequent summary
+gesture gets a higher nonce. No terms, sharing, model, cancel or session
+permissions are granted by close/open. The existing raw BarMessage caller_for
+remains an identity receipt only, explicitly not a protocol/intent authorization;
+ValidatedSummaryRequest actor conversion and negative terminal use still require
+the current claimed gesture, live Desktop binding, launch record and clock.
+
+Three new regressions were added before the fix and all three failed on the
+parent implementation: unclaimed/claimed Esc intent persistence, accepted token
+reuse after close/reopen, and pending-frame acceptance after close/reopen. After
+the fix they pass. Endpoint tables exercise actual Desktop Esc, F3, Settings
+click/close and presentation reset paths, reject old token/terminal/pending
+response without a new gesture, then accept a fresh explicit summary request
+while the old token remains invalid. Host launch/IPC seams remain synthetic.
+
+Final offline host validation: CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh
+PASS (UI76, Desktop116, login26, formatting and feature-graph checks). Focused
+close_ filter PASS 6 tests, including the 3 new regressions. Desktop all-target
+Clippy -D clippy::all PASS with existing Rust warnings. git diff --check PASS.
+No dependencies/lockfiles/protocol changed. No new target build was attempted;
+prior whole-root cc-nagi/offline dependency blockers remain unresolved here.
+
+Actual runtime Bar/IPC/reaper/Browser ownership and guest/inference/release
+acceptance remain unconnected/unverified. M23 PARTIAL/M30 BLOCKED and existing
+gates are unchanged. No VM/model/guest execution, terms acknowledgement, new
+acquisition, private log/ledger read, public operation/push/merge, permission
+change, denied-path retry or bypass occurred. No new action was denied, pending
+approval or of uncertain outcome.
