@@ -1,3 +1,40 @@
+## PR 48 main c170ebf conflict resolution candidate — 2026-11-05
+
+Status: `PARTIAL`; local tree only, not committed or pushed. The published
+PR 48 head remains `542db0878d4bd46e40e871cf8369f674c26d8a9d` (reviewed source
+tree `6bfe5cf032fbcf3c78c5d49c790bdbc1847bbadb`). This isolated candidate
+combines that source with main `c170ebf1d056aea277e3aa5f464d148d4ecff7fb`
+after PR 92, using common ancestor
+`0362427747e769b00558053e4c7f4c756d303802`. No additional push, force,
+PR merge, CI cancellation/retry or old-dispatch inspection/resubmit occurred.
+Independent review is required before publication of this candidate.
+
+Only the status document needed manual content conflict resolution; both
+histories are retained. The CI workflow merged automatically, preserving all
+published PR 48 job steps, runners, concurrency/timeouts, outputs and actual
+signed-package/guest acceptance commands. Main's docs-only change-scope job,
+required-file guard, trigger changes and heavy-job dependencies/conditions
+are retained. The original M20 job is unchanged. All CLI, kernel, storage,
+Desktop, login, VirtQueue and test-fixture source remains byte-identical to
+published head 542db087, including the EOF deadline P2 fix and PR 90 d0d9e4a
+fetch diagnostics. Manifests, locks, pins and runtime permissions are unchanged.
+
+Independent local pinned-nightly validation:
+- Actual Bash docs-only/required-file classifier regressions: 13 PASS.
+- Full Python test discovery under tests/: 14 PASS.
+- CLI bootstrap library: 379 PASS, 2 ignored; CLI integration: 33 PASS, using
+  canonical pinned mozjs preparation and the prepared Legal dependency cache.
+- Workflow YAML parses; every pre-existing job's step list and runner,
+  concurrency, timeout, permissions and output fields match published head.
+  M20's job definition is identical. Whitespace checks pass.
+
+Public CI snapshot during preparation, for published 542db087 only:
+PR run 41955146204 has successful Ubuntu/Windows host jobs; nagi-target and
+nagi-m20-inference have started. Push run 41955137854 is separate automatic
+CI for that same source. Neither run validates this new workflow combination.
+Native/guest outcomes are pending, and no new milestone PASS is recorded.
+All prior preparation and CI records below refer to their stated source IDs.
+
 ## Local PR 48 preacceptance serial EOF deadline fix — 2026-11-04
 
 Status: `PARTIAL`; isolated host candidate, superseding local tree
@@ -532,6 +569,25 @@ Diskless QMP compatibility is not Nagi guest/VM acceptance. Nagi 0.1 and all
 milestone statuses remain unchanged. Candidate bundle, original available
 logs, failed and successful verification logs are preserved in an isolated
 SSD evidence directory for this integration task.
+
+## PR #92 required-file CI guard candidate - 2026-11-05
+
+Status: `PARTIAL` (isolated host regression candidate; not published).
+Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
+`87b7dea4061be2572526181ab559d63037f823d0`. The lightweight change-scope
+job checks all five files required by `check_repository_layout` before
+allowing a documentation-only skip. Missing files fail that job even on
+manual dispatch. `docs/implementation_status.md` is no longer ignored by
+the workflow trigger, so its deletion cannot avoid this guard. Other
+Markdown-only changes still skip heavy host and target jobs.
+
+Local regression tests execute the workflow's Bash in temporary Git
+repositories: required-file deletion and rename, directory substitution,
+ordinary docs edits and optional docs renames/deletions, code mixed with
+docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
+The inventory is checked against the existing Rust repository check.
+No target or guest acceptance and no hosted CI result are claimed for
+this unpublished candidate. No milestone status changes.
 
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
