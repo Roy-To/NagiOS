@@ -1,3 +1,30 @@
+## Local PR 48 integration of merged PR 97 — 2026-11-05
+
+Status: `PARTIAL`; isolated review candidate, not published. Fixed inputs are
+published PR 48 `46a3649b8aec1419a6afcd33971b774df2c6fc1b` and actual main
+`d67897b4c27566ecc4353e3b7d9b16efd59bb559` (merged PR 97). Only the appended
+state record conflicted; both parents' full record additions are preserved.
+The complete Search tree matches main exactly, including bounded fallible
+allowlist scratch/top-k output, denial/retry/leak tests and full-sort parity.
+Every other executable source, test, workflow, manifest and lock stays exactly
+as published PR 48, retaining Files/Trash/UI, sync guards and QMP/EOF fixes.
+
+Pinned nightly-2025-08-01 offline/locked Linux host validation: Search 42
+passed / 1 ignored (opt-in synthetic timing); Search all-target warnings-denied
+Clippy passed; Files 32; Session 49; Desktop 58; login host 28; CLI library
+383 passed / 2 ignored; CLI integration 33; CI Python 17; release/evidence
+Python 37. These counts overlap. Host syscall/model seams and socket/child
+fixtures do not establish target or guest functionality. Commands and logs
+are recorded in the accompanying fixed candidate evidence.
+Historical main benchmark and target-check entries below remain scoped to
+their original source and environment; they are not new results for this
+composition. No public branch/PR/CI was changed, restarted or dispatched.
+No guest, real QEMU, Windows, target/native link, old image/build, claim,
+receipt, writer exclusion or real-media operation was performed. Legacy
+BTreeMap startup/owned/outer-state OOM and writer/durability blockers remain;
+M24 is PARTIAL and guest/writer HOLD remains. Independent review and separate
+publication authorization are required for this candidate.
+
 ## Local PR 48 / merged PR 90 integration — 2026-11-05
 
 Status: `PARTIAL`; isolated review candidate, not published. This combines
@@ -11469,3 +11496,53 @@ remains identical to the conditional plan and 21736930; read APIs are inherited
 from main once, not replayed as another Search patch. Both prior state records
 remain intact. Local host checks and hosted CI are distinct; no new hosted CI,
 writer, old-build, guest or real-media result is inferred. M24 remains PARTIAL.
+
+## M24 bounded semantic read allocation candidate revised (2026-11-05)
+
+M24 remains PARTIAL. This revision supersedes the linear-allowlist candidate
+`0328d682a731a61c5c0c864a9d400fba50bf7778`, based on public main
+`2c9532943a6624980892d01ce7e91f6d32545d25`. `PersistentVectorIndex::search`
+now fallibly reserves an ObjectId scratch Vec, copies/sorts/deduplicates the
+validated allowlist in place, and uses binary search for membership. Scratch
+requests at most 65,536 ObjectIds (512 KiB, excluding allocator overhead).
+The output Vec holds at most `limit` matches and is reserved fallibly only on
+the first hit. A worst-first heap bounds replacement to O(log limit); final
+`sort_unstable_by` restores canonical rank without another allocation.
+Both reservation failures return the existing `VectorIndexError::Capacity`,
+drop scratch/partial output, and permit retry. Empty allowlists/indices request
+no storage; disjoint nonempty allowlists request scratch only. Similarity,
+best-chunk ties, ObjectId order, duplicate semantics and validation precedence
+are retained. Snapshot format, update paths, writer coordination and DTOs are
+unchanged.
+
+Validation: 42 host tests pass, including all 1,800 comparisons with the previous
+full-sort search (limits 1..=100), full chunk/allowlist boundaries, and both
+reservation positions under transient/persistent null denial, live-byte leak
+checks and successful retries. The maximum-size duplicate allowlist also tests
+both failures and deduplication before output reservation. All-target Clippy
+with warnings denied, formatting and the Nagi custom-target library check pass.
+
+The bounded release-mode comparison runs original full-sort search, 0328d68
+linear search and this revision in one process on identical fixtures. It uses
+4,096 one-chunk objects, 2/384 dimensions, shuffled/sorted/no-hit/duplicate/short
+allowlists, limits 1/100, two warmups and nine samples of three calls with
+rotating algorithm order. Final medians in milliseconds for 2 dimensions,
+65,536 allowlist entries and limit 100 were:
+
+| Input | Original | 0328d68 | Revised |
+| --- | ---: | ---: | ---: |
+| Shuffled all objects permitted | 2.198437 | 49.250993 | 1.329543 |
+| Shuffled no hits | 1.752725 | 99.693478 | 1.301575 |
+| Sorted all objects permitted | 1.019333 | 3.214919 | 0.272238 |
+| Sorted no hits | 0.639960 | 98.821325 | 0.221432 |
+
+These are synthetic shared Linux-host observations, not guest performance
+estimates or acceptance. Across the 16 measured conditions the revised median
+was below the original and 0328d68. Two finite timing passes ran (12 then 16
+conditions, about 46 seconds total measured test time). Evidence, commands,
+compiler/host information and logs are local under
+`out/evidence/semantic-read-top-k-performance-20261105/`.
+
+Target latency, real guest OOM, allocator overhead, initial decoding, update
+clones and caller/provider allocations remain unverified or outside this
+change. No VM execution or public write was performed; no milestone is promoted.
