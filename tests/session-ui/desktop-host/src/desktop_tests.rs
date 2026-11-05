@@ -701,3 +701,67 @@ fn files_modal_rejects_lost_session_before_service_or_input() {
     );
     assert_eq!(libnagi::modal_counts(), (0, 0, 0));
 }
+
+// Reproduce the CI sequence with the real LoginScreen and VFS. This excludes
+// QEMU, VirtIO, kernel buffer validation and physical power-loss semantics.
+#[test]
+fn persisted_three_failure_throttle_unlocks_and_resets_after_remount() {
+    libnagi::set_readiness(true);
+    let (mut desktop, mut volume, _, _) = existing_account(Locale::JaJp);
+    for failures in 1u32..=3 {
+        // nagi0 is syntactically valid but does not match the stored nagi1.
+        for code in [49, 30, 34, 23, 11, libnagi::INPUT_KEY_ENTER] {
+            desktop.handle_event(key(code), &mut volume);
+        }
+        assert!(desktop.session.is_none());
+        let handle = volume.open_path(b"login-throttle").unwrap();
+        let mut bytes = [0; 8];
+        assert_eq!(volume.read(handle, &mut bytes), Ok(8));
+        assert_eq!(&bytes[..4], b"NLT1");
+        assert_eq!(u32::from_le_bytes(bytes[4..].try_into().unwrap()), failures);
+    }
+    let mut volume = Vfs::mount_existing(volume.into_device()).unwrap();
+    let mut desktop = Desktop::new(Locale::JaJp);
+    let mut login = crate::login_screen::LoginScreen::new(crate::login_screen::load(&mut volume));
+    login.resume_throttle(&mut volume);
+    desktop.login = Some(login);
+    // Correct password is still refused immediately after restart.
+    for code in [49, 30, 34, 23, 2, libnagi::INPUT_KEY_ENTER] {
+        desktop.handle_event(key(code), &mut volume);
+    }
+    assert!(desktop.session.is_none());
+    libnagi::set_ticks(6000);
+    assert!(desktop.tick_login());
+    unlock(&mut desktop, &mut volume);
+    let mut volume = Vfs::mount_existing(volume.into_device()).unwrap();
+    let handle = volume.open_path(b"login-throttle").unwrap();
+    let mut bytes = [0; 8];
+    assert_eq!(volume.read(handle, &mut bytes), Ok(8));
+    assert_eq!(&bytes, b"NLT1\0\0\0\0");
+    let serial = libnagi::console_text();
+    assert!(serial.contains("Nagi login throttle restored failures=3"));
+    assert!(serial.contains("Nagi login retry allowed"));
+    assert!(!serial.contains("persistence FAIL"));
+}
+
+#[test]
+fn throttle_write_transport_failure_reports_stage_without_credentials() {
+    libnagi::set_readiness(true);
+    let (mut desktop, mut volume, _, _) = existing_account(Locale::EnUs);
+    // Ensure the failure occurs on an existing throttle record, like the CI
+    // successful-unlock path, rather than during first-time record creation.
+    let handle = volume.create_path(b"login-throttle").unwrap();
+    volume.write(handle, b"NLT1\x03\0\0\0").unwrap();
+    volume.flush().unwrap();
+    libnagi::fail_writes(true);
+    unlock(&mut desktop, &mut volume);
+    libnagi::fail_writes(false);
+    let serial = libnagi::console_text();
+    assert!(serial.contains("Nagi login throttle storage error=Block stage=write"));
+    assert!(serial.contains("Nagi login throttle persistence FAIL"));
+    assert!(!serial.contains("nagi1"));
+    // Diagnostic instrumentation preserves the failed write and stored count.
+    let mut bytes = [0; 8];
+    assert_eq!(volume.read(handle, &mut bytes), Ok(8));
+    assert_eq!(&bytes, b"NLT1\x03\0\0\0");
+}

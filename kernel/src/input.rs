@@ -268,10 +268,14 @@ fn setup_modern_device(index: usize, device: u8, function: u8) -> Result<DeviceS
         mmio_write32(common, 12, 0);
         mmio_write16(common, 22, 0);
         let queue_size = usize::from(mmio_read16(common, 24));
-        if queue_size == 0 {
+        if queue_size < QUEUE_SIZE {
             return Err(3);
         }
-        let count = queue_size.min(QUEUE_SIZE);
+        mmio_write16(common, 24, QUEUE_SIZE as u16);
+        if mmio_read16(common, 24) != QUEUE_SIZE as u16 {
+            return Err(3);
+        }
+        let count = QUEUE_SIZE;
         ptr::write_bytes(
             ptr::addr_of_mut!(QUEUES[index]).cast::<u8>(),
             0,

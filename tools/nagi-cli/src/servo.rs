@@ -231,9 +231,13 @@ pub(crate) fn ensure_servo_checkout(root: &Path) -> Result<PathBuf, String> {
             "origin".to_owned(),
             spec.revision.clone(),
         ];
-        git_output(&temporary, fetch_args)?;
-        git_output(&temporary, ["checkout", "--detach", "FETCH_HEAD"])?;
-        fetch_unpatched_dependencies(&temporary)?;
+        crate::fetch_progress::phase("servo.git.fetch", || git_output(&temporary, fetch_args))?;
+        crate::fetch_progress::phase("servo.git.checkout", || {
+            git_output(&temporary, ["checkout", "--detach", "FETCH_HEAD"])
+        })?;
+        crate::fetch_progress::phase("servo.cargo.unpatched", || {
+            fetch_unpatched_dependencies(&temporary)
+        })?;
         ensure_mio_servo_checkout(root)?;
         ensure_socket2_servo_checkout(root)?;
         ensure_tokio_servo_checkout(root)?;

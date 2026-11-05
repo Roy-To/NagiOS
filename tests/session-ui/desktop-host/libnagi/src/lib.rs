@@ -11,6 +11,8 @@ struct Platform {
     readiness: bool,
     readiness_calls: usize,
     console: Vec<u8>,
+    ticks: u64,
+    fail_writes: bool,
 }
 thread_local! { static PLATFORM: RefCell<Platform> = RefCell::new(Platform::default()); }
 pub fn set_readiness(ready: bool) {
@@ -36,7 +38,16 @@ pub fn console_write(bytes: &[u8]) -> usize {
     bytes.len()
 }
 pub fn time_ticks() -> u64 {
-    100
+    PLATFORM.with(|state| 100 + state.borrow().ticks)
+}
+pub fn set_ticks(ticks: u64) {
+    PLATFORM.with(|state| state.borrow_mut().ticks = ticks);
+}
+pub fn fail_writes(fail: bool) {
+    PLATFORM.with(|state| state.borrow_mut().fail_writes = fail);
+}
+pub fn console_text() -> String {
+    PLATFORM.with(|state| String::from_utf8(state.borrow().console.clone()).unwrap())
 }
 pub fn random_fill(_: &mut [u8]) -> bool {
     panic!("existing-account regression must not request entropy or create credentials")
@@ -76,6 +87,9 @@ pub mod storage {
             sector: u64,
             source: &[u8; SECTOR_SIZE],
         ) -> Result<(), StorageError> {
+            if super::PLATFORM.with(|state| state.borrow().fail_writes) {
+                return Err(StorageError::Block);
+            }
             self.sectors
                 .get_mut(sector as usize)
                 .ok_or(StorageError::Block)?
