@@ -274,7 +274,7 @@ impl<B: SnapshotBackend> Runtime<B> {
                         visibility: VisibilityScope::Private,
                     })
                     .map_err(|_| RuntimeError::InvalidMetadata)?;
-                if self.service.get_object(FILES_ACCESS, object_id).as_ref() != Some(&record) {
+                if self.service.get_object_ref(FILES_ACCESS, object_id) != Some(&record) {
                     self.service
                         .upsert_record(record)
                         .map_err(|_| RuntimeError::SearchUnavailable)?;
@@ -295,21 +295,27 @@ impl<B: SnapshotBackend> Runtime<B> {
                 .map_err(|_| RuntimeError::SearchUnavailable)?;
         }
 
-        let old_records =
+        // Stage only scalar deletion inputs before mutating the service. The
+        // borrowed producer scan does not clone each record's strings/BTree.
+        let stale_records = self
+            .service
+            .try_stale_producer_records(
+                FILES_PRODUCER_ID,
+                FILES_APP_ID,
+                FILES_SESSION_ID,
+                &present_keys,
+            )
+            .map_err(|error| match error {
+                nagi_search::ProducerScanError::Allocation => RuntimeError::SearchUnavailable,
+                nagi_search::ProducerScanError::MissingProducerKey => RuntimeError::InvalidMetadata,
+            })?;
+        for (object_id, modified_at) in stale_records {
             self.service
-                .producer_records(FILES_PRODUCER_ID, FILES_APP_ID, FILES_SESSION_ID);
-        for record in old_records {
-            let Some(key) = record.attributes.get(PRODUCER_KEY_ATTRIBUTE) else {
-                return Err(RuntimeError::InvalidMetadata);
-            };
-            if !present_keys.contains(key) {
-                self.service
-                    .remove_workspace_object(FILES_WORKSPACE_ID, record.object_id)
-                    .map_err(|_| RuntimeError::SearchUnavailable)?;
-                self.service
-                    .remove_record(record.object_id, record.modified_at.unwrap_or_default())
-                    .map_err(|_| RuntimeError::SearchUnavailable)?;
-            }
+                .remove_workspace_object(FILES_WORKSPACE_ID, object_id)
+                .map_err(|_| RuntimeError::SearchUnavailable)?;
+            self.service
+                .remove_record(object_id, modified_at.unwrap_or_default())
+                .map_err(|_| RuntimeError::SearchUnavailable)?;
         }
         self.synchronized = true;
         Ok((present_ids.len(), restored_records))
@@ -512,22 +518,10 @@ impl<B: SnapshotBackend> Runtime<B> {
         if !self.synchronized {
             return None;
         }
-        let workspace = self
-            .service
-            .get_workspace(FILES_ACCESS, FILES_WORKSPACE_ID)?;
-        let mut titles = Vec::with_capacity(object_ids.len());
-        for raw_id in object_ids {
-            let object_id = ObjectId(*raw_id);
-            if !workspace.objects.contains(&object_id) {
-                return None;
-            }
-            let record = self.service.get_object(FILES_ACCESS, object_id)?;
-            if record.kind != ObjectKind::File {
-                return None;
-            }
-            titles.push(record.title);
-        }
-        Some(titles)
+        self.service
+            .try_workspace_file_titles(FILES_ACCESS, FILES_WORKSPACE_ID, object_ids)
+            .ok()
+            .flatten()
     }
 
     #[cfg(feature = "desktop-login-acceptance")]

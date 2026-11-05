@@ -752,3 +752,34 @@ fn interrupted_create_never_aliases_the_next_inode() {
     assert!(Vfs::check_existing(&mut disk.clone()).is_ok());
     assert!(files::list(&mut remounted).unwrap().contains(&kept));
 }
+
+#[test]
+#[cfg(feature = "m19-files-search-production")]
+fn fallible_title_lookup_hides_unsynchronized_metadata_then_recovers() {
+    let (_, mut volume) = volume();
+    let selected = files::create(&mut volume, b"old.txt").unwrap();
+    let backend = Backend::default();
+    let mut search = runtime(backend.clone());
+    search.sync_files(&mut volume).unwrap();
+    let id = search.search_files("old.txt").unwrap()[0];
+    assert_eq!(
+        search.visible_file_titles(&[id.0, id.0]),
+        Some(vec!["old.txt".to_string(), "old.txt".to_string()])
+    );
+    backend.0.borrow_mut().1 = true;
+    files::rename(&mut volume, &selected, b"new.txt").unwrap();
+    assert_eq!(
+        search.sync_files(&mut volume),
+        Err(RuntimeError::SearchUnavailable)
+    );
+    assert_eq!(search.visible_file_titles(&[id.0]), None);
+    assert_eq!(search.visible_file_titles(&[]), None);
+    backend.0.borrow_mut().1 = false;
+    search.sync_files(&mut volume).unwrap();
+    assert_eq!(search.search_files("new.txt").unwrap(), vec![id]);
+    assert_eq!(
+        search.visible_file_titles(&[id.0]),
+        Some(vec!["new.txt".to_string()])
+    );
+    assert_eq!(search.visible_file_titles(&[u64::MAX]), None);
+}
