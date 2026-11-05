@@ -31,3 +31,14 @@ unregistered request deliberately fails closed with `NotLive`; the tests neither
 launch a signed child nor manufacture a granted Files permission. The scripted
 reply is ready before the loop starts. Yield counts verify scheduler handoff
 calls, not execution of the Nagi worker or native inference.
+
+The Files search wait tests additionally compile the complete production client
+and service sources with explicit Channel and process-exit syscall scripts.
+They cover request/relay delays, normal result validation, clean reap, Lock in
+receive/reap, Escape/edit/resubmit invalidation, timeout, failed presentation,
+late replies, wrong sender/changed relay, deferred exit collection, and model
+reply progress with idle/continuous input. The real Supervisor registry uses a
+clearly marked test fixture granting a synthetic launch; the embedded host
+package is empty and never launched. These tests exercise orchestration and
+live grant checks, not signature verification, kernel scheduling or guest exit.
+Blocking receive/wait seams panic if the foreground path accidentally calls them.

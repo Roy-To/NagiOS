@@ -765,3 +765,6 @@ fn throttle_write_transport_failure_reports_stage_without_credentials() {
     assert_eq!(volume.read(handle, &mut bytes), Ok(8));
     assert_eq!(&bytes, b"NLT1\x03\0\0\0");
 }
+
+#[cfg(feature = "m19-files-search-production")]
+mod files_wait_tests;

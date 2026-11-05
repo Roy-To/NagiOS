@@ -156,3 +156,79 @@ pub fn display_present(_: u64) -> bool {
         !state.fail_present
     })
 }
+
+// Explicit orchestration-only Channel/process script. No kernel execution.
+#[derive(Default)]
+struct FilesScript {
+    incoming: std::collections::VecDeque<Option<ChannelReceiveResult>>,
+    exits: std::collections::VecDeque<Option<ProcessExitStatus>>,
+    sent: Vec<ChannelSendRequest>,
+    closed: Vec<u64>,
+    peer_closed: bool,
+    receives: usize,
+    polls: usize,
+}
+thread_local! { static FILES: RefCell<FilesScript> = RefCell::new(FilesScript::default()); }
+pub fn script_files(
+    incoming: Vec<Option<ChannelReceiveResult>>,
+    exits: Vec<Option<ProcessExitStatus>>,
+) {
+    FILES.with(|s| {
+        *s.borrow_mut() = FilesScript {
+            incoming: incoming.into(),
+            exits: exits.into(),
+            ..FilesScript::default()
+        }
+    });
+}
+pub fn files_counts() -> (usize, usize, usize, Vec<u64>) {
+    FILES.with(|s| {
+        let s = s.borrow();
+        (s.receives, s.polls, s.sent.len(), s.closed.clone())
+    })
+}
+pub fn channel_try_receive(_: u64, message: &mut ChannelReceiveResult) -> Option<bool> {
+    FILES.with(|s| {
+        let mut s = s.borrow_mut();
+        s.receives += 1;
+        match s
+            .incoming
+            .pop_front()
+            .expect("Files receive script exhausted")
+        {
+            Some(next) => {
+                *message = next;
+                Some(true)
+            }
+            None => Some(false),
+        }
+    })
+}
+pub fn channel_send(_: u64, request: &ChannelSendRequest) -> bool {
+    FILES.with(|s| {
+        let mut s = s.borrow_mut();
+        s.sent.push(*request);
+        !s.peer_closed
+    })
+}
+pub fn process_try_wait(_: u32) -> Option<Option<ProcessExitStatus>> {
+    FILES.with(|s| {
+        let mut s = s.borrow_mut();
+        s.polls += 1;
+        let next = s.exits.pop_front().expect("Files exit script exhausted");
+        if next.is_some() {
+            s.peer_closed = true;
+        }
+        Some(next)
+    })
+}
+pub fn handle_close(handle: u64) -> bool {
+    FILES.with(|s| s.borrow_mut().closed.push(handle));
+    true
+}
+pub fn channel_receive(_: u64, _: &mut ChannelReceiveResult) -> Option<()> {
+    panic!("blocking Channel receive must not run on the Desktop foreground")
+}
+pub fn process_wait(_: u32) -> Option<ProcessExitStatus> {
+    panic!("blocking process wait must not run on the Desktop foreground")
+}

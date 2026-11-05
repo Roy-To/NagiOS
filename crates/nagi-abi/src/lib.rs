@@ -60,6 +60,8 @@ pub const SYS_UPDATE_SLOT_CLAIM: u64 = 38;
 /// Ask the loader to trial the inactive slot on the next boot. Requires the
 /// claimed update capability; one-shot per boot.
 pub const SYS_UPDATE_SLOT_STAGE: u64 = 39;
+/// Init-only nonblocking exit poll: 0 ready, 1 pending, otherwise invalid.
+pub const SYS_PROCESS_TRY_WAIT: u64 = 40;
 pub const PROCESS_WAIT_RETRY: u64 = 1;
 pub const PROCESS_EXIT_KIND_EXITED: u32 = 1;
 pub const PROCESS_EXIT_KIND_FAULTED: u32 = 2;

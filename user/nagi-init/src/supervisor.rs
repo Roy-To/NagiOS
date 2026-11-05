@@ -306,8 +306,29 @@ pub fn check(app_id: AppId, placement: LaunchPlacement) -> Result<(), LaunchFail
 /// confirm the kernel closed its handles, then revoke its launch record and
 /// release the endpoint. Returns the consumed exit status.
 pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
+    let status = process_wait(launched.record.process_id)?;
+    finish_reap(&launched, status)
+}
+
+/// Poll without surrendering ownership while the child is live.
+pub fn try_reap(launched: &Launched) -> Option<Option<ProcessExitStatus>> {
+    let Some(status) = libnagi::process_try_wait(launched.record.process_id)? else {
+        return Some(None);
+    };
+    finish_reap(launched, status).map(Some)
+}
+
+/// Invalidate authority and close the endpoint immediately, retaining the PID
+/// for later exit collection. This does not assert that the child has exited.
+pub fn retire(launched: Launched) -> u32 {
+    let pid = launched.record.process_id;
+    let _ = with_registry(|registry| registry.record_exit(pid));
+    let _ = handle_close(launched.endpoint);
+    pid
+}
+
+fn finish_reap(launched: &Launched, status: ProcessExitStatus) -> Option<ProcessExitStatus> {
     let process_id = launched.record.process_id;
-    let status = process_wait(process_id)?;
     // After exit no process can reach the peer endpoint.
     let peer_closed = !channel_send(launched.endpoint, &ChannelSendRequest::new(0, 0, 0, 0));
     let revoked = with_registry(|registry| registry.record_exit(process_id))
@@ -326,3 +347,7 @@ pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
 pub fn exited_cleanly(status: &ProcessExitStatus) -> bool {
     status.kind == PROCESS_EXIT_KIND_EXITED && status.code == 0
 }
+
+#[cfg(all(test, nagi_desktop_host_test))]
+#[path = "../../../tests/session-ui/desktop-host/src/files_registry_fixture.rs"]
+pub(crate) mod host_fixture;

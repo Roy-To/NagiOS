@@ -241,6 +241,8 @@ pub struct Desktop {
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_pending: bool,
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_search_generation: u64,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_complete: bool,
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_unavailable: bool,
@@ -311,6 +313,8 @@ impl Desktop {
             files_search_query_len: 0,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_pending: false,
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_search_generation: 0,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_complete: false,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
@@ -1532,6 +1536,7 @@ impl Desktop {
         }
         match code {
             libnagi::INPUT_KEY_ENTER => {
+                self.files_search_generation = self.files_search_generation.wrapping_add(1);
                 if !self.focused[2] {
                     return self.activate_application(2, true);
                 }
@@ -1583,11 +1588,26 @@ impl Desktop {
 
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     fn reset_files_search_results(&mut self) {
+        self.files_search_generation = self.files_search_generation.wrapping_add(1);
         self.files_search_complete = false;
         self.files_search_unavailable = false;
         self.files_search_result_count = 0;
         self.files_search_first_title = [0; FILES_SEARCH_TITLE_CAPACITY];
         self.files_search_first_title_len = 0;
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    pub(super) fn files_search_generation(&self) -> u64 {
+        self.files_search_generation
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    pub(super) fn files_search_is_current(
+        &self,
+        user: &libnagi::security::Session,
+        generation: u64,
+    ) -> bool {
+        self.signed_in_session() == Some(*user) && self.files_search_generation == generation
     }
 
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
@@ -1752,7 +1772,16 @@ pub fn run(
         }
         LocalePreference::Restored(_) | LocalePreference::Missing => {}
     }
+    #[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+    let mut files_cleanup = None;
     loop {
+        #[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+        crate::m19_files_client::poll_cleanup(&mut files_cleanup);
+        #[cfg(feature = "m20-model-service")]
+        if desktop.lock_requested {
+            desktop.lock_requested = false;
+            search_runtime = None;
+        }
         #[cfg(feature = "m20-model-service")]
         {
             if desktop.model_service_step(|| {
@@ -1920,6 +1949,8 @@ pub fn run(
                                 feature = "m19-files-search-production"
                             ))]
                             {
+                                let request_user = desktop.signed_in_session();
+                                let request_generation = desktop.files_search_generation();
                                 let response = crate::m19_files_client::search(
                                     runtime,
                                     &query,
@@ -1928,7 +1959,13 @@ pub fn run(
                                     display_capability,
                                     surface,
                                     &mut volume,
+                                    &mut files_cleanup,
                                 );
+                                if request_user != desktop.signed_in_session()
+                                    || request_generation != desktop.files_search_generation()
+                                {
+                                    continue;
+                                }
                                 let mapped = response.and_then(|results| {
                                     runtime
                                         .visible_file_titles(results.ids())
@@ -2305,3 +2342,10 @@ mod regression;
 ))]
 #[path = "m19_runtime.rs"]
 pub(super) mod host_m19_runtime;
+
+#[cfg(all(test, nagi_desktop_host_test, feature = "m19-files-search-production"))]
+#[path = "m19_files_client.rs"]
+pub(crate) mod host_files_client;
+#[cfg(all(test, nagi_desktop_host_test, feature = "m19-files-search-production"))]
+#[path = "m19_search_service.rs"]
+pub(crate) mod host_search_service;
