@@ -81,12 +81,12 @@ python3 -B docs/porting/multiarch/verify-additional-runtime.py \
 
 The CLI returns exit 2 while either approved summary is missing. This is an
 explicit input gate, not a permission denial. It returns exit 0 only for
-complete, consistent metadata, while runtime adoption remains pending. Sixteen
+complete, consistent metadata, while runtime adoption remains pending. Eighteen
 isolated synthetic regression tests cover complete/pending metadata, wrong
 source/tree/main, changed summary bytes, failed or incomplete formal checks,
 manual PASS/receipt injection, invalid/mismatching digests, phase promotion,
 false raw-recheck claims, historical artifact mutation, invented serial, root
-status changes and summary path escapes. No fixture is published as real
+status changes, summary path escapes and CLI pending/complete exit codes. No fixture is published as real
 execution evidence.
 
 The remaining input is the two authorized public summaries with actual measured
@@ -96,3 +96,11 @@ new receipt; this candidate makes no such claim. The new supplemental contract
 and completed record still need independent review/owner adoption. No public
 operation, push, merge, dispatch resend, physical/media write or network change
 was performed.
+
+This candidate passed 235 host tests: 18 supplemental metadata/CLI tests,
+8 source-scope tests, 11 runtime-summary tests, 10 backend-helper tests,
+30 audit/records tests, 105 contracts, 16 BootInfo, 5 ABI and 32 runner/receipt
+fixtures. Pinned formatting and warning-denied Clippy passed. On the actual
+pending record the CLI returned exit 2 with exactly the two missing summaries;
+synthetic complete fixtures return metadata-only exit 0. There is no new guest
+run or raw-receipt recheck behind these host checks.
