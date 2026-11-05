@@ -1854,14 +1854,26 @@ pub fn run(
                                 search_sync_failure_reported = false;
                             }
                         }
-                        Err(_) => {
+                        Err(error) => {
                             #[cfg(feature = "desktop-login-acceptance")]
                             {
+                                print(
+                                    alloc::format!(
+                                        "Nagi M19 SearchService startup error={error:?}\r\n"
+                                    )
+                                    .as_bytes(),
+                                );
                                 print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
                                 libnagi::exit(1);
                             }
                             #[cfg(not(feature = "desktop-login-acceptance"))]
                             if !search_startup_failure_reported {
+                                print(
+                                    alloc::format!(
+                                        "Nagi M19 SearchService startup error={error:?}\r\n"
+                                    )
+                                    .as_bytes(),
+                                );
                                 print(b"Nagi M19 signed-in desktop SearchService unavailable\r\n");
                                 search_startup_failure_reported = true;
                             }
@@ -2053,9 +2065,10 @@ pub fn run(
             if cfg!(feature = "m29-settings-acceptance") {
                 print(message!(NAGI_M29_ACCEPTANCE, 35));
             }
-            loop {
-                unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };
-            }
+            // CPL3 cannot execute HLT. End the completed bootstrap fixture
+            // through its existing process-exit syscall instead of faulting
+            // after the acceptance marker.
+            libnagi::exit(0);
         }
     }
 }

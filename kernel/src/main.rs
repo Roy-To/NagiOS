@@ -278,8 +278,26 @@ extern "win64" fn nagi_kernel_entry(boot_info: *const nagi_bootinfo::BootInfo) -
     serial_write(b"Nagi M4 wait primitives PASS\r\n");
     serial_write(b"Nagi M4 acceptance PASS\r\n");
     serial_write(b"Nagi M7 storage START\r\n");
-    if nagi_kernel::virtio::initialize().is_err() {
-        serial_write(b"Nagi M7 VirtIO Block FAIL\r\n");
+    if let Err(error) = nagi_kernel::virtio::initialize() {
+        serial_write(b"Nagi M7 VirtIO Block FAIL: ");
+        serial_write(match error {
+            nagi_kernel::virtio::BlockError::NotInitialized => b"not-initialized\r\n",
+            nagi_kernel::virtio::BlockError::PciUnavailable => b"pci\r\n",
+            nagi_kernel::virtio::BlockError::InvalidBar => b"bar\r\n",
+            nagi_kernel::virtio::BlockError::UnsupportedQueue => b"queue\r\n",
+            nagi_kernel::virtio::BlockError::AddressOutOfRange => b"address\r\n",
+            nagi_kernel::virtio::BlockError::DeviceFailure => b"device\r\n",
+            nagi_kernel::virtio::BlockError::RequestTimeout => b"timeout\r\n",
+            nagi_kernel::virtio::BlockError::QueueCorrupt => b"corrupt\r\n",
+            nagi_kernel::virtio::BlockError::SectorOutOfRange => b"sector\r\n",
+            nagi_kernel::virtio::BlockError::InvalidPartitionTable => b"partition-table\r\n",
+            nagi_kernel::virtio::BlockError::UserDataPartitionTooSmall => {
+                b"user-data-too-small\r\n"
+            }
+            nagi_kernel::virtio::BlockError::InvalidCapability => b"capability\r\n",
+            nagi_kernel::virtio::BlockError::Busy => b"busy\r\n",
+            nagi_kernel::virtio::BlockError::UnsupportedFeature => b"feature\r\n",
+        });
         halt_forever();
     }
     serial_write(b"Nagi M7 VirtIO Block PASS\r\n");

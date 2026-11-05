@@ -1770,13 +1770,19 @@ fn copy_user_value_from_user<T: Copy>(address: u64) -> T {
 
 #[cfg(not(test))]
 fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
-    if !nagi_kernel::virtio::readable_capability_matches(capability)
-        || !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE)
-    {
+    if !nagi_kernel::virtio::readable_capability_matches(capability) {
+        report_block_failure(b"read", b"capability", sector);
+        return u64::MAX;
+    }
+    if !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE) {
+        report_block_failure(b"read", b"user buffer", sector);
         return u64::MAX;
     }
     let mut buffer = [0_u8; BLOCK_SECTOR_SIZE];
-    if nagi_kernel::virtio::read_sector_for_capability(capability, sector, &mut buffer).is_err() {
+    if let Err(error) =
+        nagi_kernel::virtio::read_sector_for_capability(capability, sector, &mut buffer)
+    {
+        report_block_failure(b"read", block_write_error_name(error), sector);
         return u64::MAX;
     }
     for (index, byte) in buffer.iter().enumerate() {
@@ -1791,6 +1797,7 @@ fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
 fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
     // The extent bound is enforced per capability by the block driver.
     if !nagi_kernel::virtio::writable_capability_matches(capability) {
+        report_block_failure(b"write", b"capability", sector);
         #[cfg(feature = "m20-llama-memory")]
         report_m20_block_write_failure(b"capability", sector);
         return u64::MAX;
@@ -1798,6 +1805,7 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
     // The disk capability above is writable; the user buffer is an input.
     // A read-only user image page is therefore valid for this syscall.
     if !nagi_kernel::user_process::is_user_readable_range_mapped(address, BLOCK_SECTOR_SIZE) {
+        report_block_failure(b"write", b"user buffer", sector);
         #[cfg(feature = "m20-llama-memory")]
         report_m20_block_write_failure(b"user buffer", sector);
         return u64::MAX;
@@ -1809,10 +1817,9 @@ fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
     if let Err(error) =
         nagi_kernel::virtio::write_sector_for_capability(capability, sector, &buffer)
     {
+        report_block_failure(b"write", block_write_error_name(error), sector);
         #[cfg(feature = "m20-llama-memory")]
         report_m20_block_write_failure(block_write_error_name(error), sector);
-        #[cfg(not(feature = "m20-llama-memory"))]
-        let _ = error;
         return u64::MAX;
     }
     BLOCK_SECTOR_SIZE as u64
@@ -1827,7 +1834,7 @@ fn report_m20_block_write_failure(reason: &[u8], sector: u64) {
     serial_write(b"\r\n");
 }
 
-#[cfg(all(not(test), feature = "m20-llama-memory"))]
+#[cfg(not(test))]
 fn block_write_error_name(error: nagi_kernel::virtio::BlockError) -> &'static [u8] {
     use nagi_kernel::virtio::BlockError;
     match error {
@@ -1851,12 +1858,25 @@ fn block_write_error_name(error: nagi_kernel::virtio::BlockError) -> &'static [u
 #[cfg(not(test))]
 fn block_flush(capability: u64) -> u64 {
     if !nagi_kernel::virtio::writable_capability_matches(capability) {
+        report_block_failure(b"flush", b"capability", 0);
         return u64::MAX;
     }
-    if nagi_kernel::virtio::flush().is_err() {
+    if let Err(error) = nagi_kernel::virtio::flush() {
+        report_block_failure(b"flush", block_write_error_name(error), 0);
         return u64::MAX;
     }
     0
+}
+
+#[cfg(not(test))]
+fn report_block_failure(operation: &[u8], reason: &[u8], sector: u64) {
+    serial_write(b"Nagi block failure operation=");
+    serial_write(operation);
+    serial_write(b" reason=");
+    serial_write(reason);
+    serial_write(b" sector=");
+    serial_write_decimal(usize::try_from(sector).unwrap_or(usize::MAX));
+    serial_write(b"\r\n");
 }
 
 #[cfg(not(test))]

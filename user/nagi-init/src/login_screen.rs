@@ -438,21 +438,32 @@ fn load_failures(volume: &mut UserDataVolume) -> u32 {
 }
 
 fn store_failures(volume: &mut UserDataVolume, failures: u32) -> bool {
-    let handle = match volume.open_path(THROTTLE_PATH) {
-        Ok(handle) => handle,
-        Err(StorageError::NotFound) => match volume.create_path(THROTTLE_PATH) {
+    let mut stage = "open";
+    let result = (|| {
+        let handle = match volume.open_path(THROTTLE_PATH) {
             Ok(handle) => handle,
-            Err(_) => return false,
-        },
-        Err(_) => return false,
-    };
-    let mut bytes = [0u8; 8];
-    bytes[..4].copy_from_slice(THROTTLE_MAGIC);
-    bytes[4..].copy_from_slice(&failures.to_le_bytes());
-    volume
-        .write(handle, &bytes)
-        .and_then(|()| volume.flush())
-        .is_ok()
+            Err(StorageError::NotFound) => {
+                stage = "create";
+                volume.create_path(THROTTLE_PATH)?
+            }
+            Err(error) => return Err(error),
+        };
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(THROTTLE_MAGIC);
+        bytes[4..].copy_from_slice(&failures.to_le_bytes());
+        stage = "write";
+        volume.write(handle, &bytes)?;
+        stage = "flush";
+        volume.flush()
+    })();
+    if let Err(error) = result {
+        // Fixed operation names and typed errors only; no credential bytes.
+        libnagi::console_write(
+            alloc::format!("Nagi login throttle storage error={error:?} stage={stage}\r\n")
+                .as_bytes(),
+        );
+    }
+    result.is_ok()
 }
 
 /// Read the owner account from User Data.
