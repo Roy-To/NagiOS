@@ -11311,3 +11311,108 @@ denied or uncertain during implementation; missing target source is the exact
 compile blocker. No success is inferred for real Servo, live Bar/Session binding,
 registry atomicity/time limits, model admission, guest rendering or formal M30
 acceptance. Private decisions remain unverified and release gates unchanged.
+
+
+## Launch-mediated Desktop Bar endpoint binding (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independently reviewed parent
+1b5a940dad33401291cae0aed0b9b1a6c8aadebc / full tree
+2e621a08b1a663b41c2935dbfc6d593884495400 was clean and is preserved with its
+branch/source transfer. New isolated candidate work is on
+`codex/m30-desktop-bar-launch-binding-20261105` in
+`/workspace/NagiOS-m30-desktop-bar-launch-binding`. The parent's independent
+Nagi target/cbindgen success is reported by its reviewer, not rerun or inherited
+as proof that this new Desktop integration compiles on target or executes Servo.
+
+Implemented the launch/session ownership prerequisite in desktop_bar_endpoint.rs,
+behind m20-model-service plus consent-dialog, using actual Supervisor APIs:
+
+- Only a ready, adapter-bound, unlocked current Desktop epoch may initiate
+  launch_bar_endpoint. Its opaque instance/Session/generation binding is captured
+  BEFORE calling Supervisor::launch. The expected application is fixed to
+  NAGI_BAR_APP_ID; Supervisor still verifies the package signature and signed
+  application declaration. Package/placement are trusted init inputs, not
+  Browser page or client-payload caller identity. There is no public adopt,
+  register-existing-endpoint, attach-Session-later or arbitrary-caller constructor.
+- The current Desktop binding and full live registry record are checked after
+  launch; a foreign app, absent/changed record or lost readiness is rejected.
+  A rejected spawned Launched value is returned for explicit cleanup, rather
+  than silently discarding ownership. Typed Supervisor failures are preserved.
+- BarEndpoint retains that exact launch-time binding. try_receive_for checks
+  the CURRENT Desktop and live record before/after the existing real nonblocking
+  Supervisor receive. BarMessage is privately constructed only from the actual
+  Supervisor receipt, and caller_for/envelope_for recheck the current Desktop
+  epoch and live launch at use. Logical caller fields come from that launch
+  record, not the untrusted message payload or the foreground Albert identity.
+  Wire version/opcode/request identity/intent, Context Authority, sharing,
+  terms, budgets and cancellation remain independent required checks.
+- Old endpoints cannot be rebound to another Desktop, a new sign-in epoch or
+  even an equal-valued Session/generation on a different Desktop instance.
+  Locked/stale/unready states reject before touching the endpoint. Copying an
+  old Session value is not an adoption path. No terms acknowledgement, model
+  request, Browser extraction, display/input right transfer or capability
+  strengthening occurs in this API.
+
+This is a staged production source path, NOT an activated signed Bar client.
+There is still no selected/installed signed Bar package, normal summary wire
+consumer, stored ordinary runtime endpoint owner or teardown/reaper coordinator.
+Normal main/model_service_step therefore do not call launch_bar_endpoint and
+still supply owner=None. The APIs do not invent an authenticated endpoint when
+one is unavailable. Callers must retain successful endpoints, explicitly discard
+outstanding receipts before transferring a revoked launch to the process reaper,
+and handle BarLaunchFailure::Rejected's owned child. into_launch_for_reaping
+transfers ownership only: it does not itself revoke/wait/terminate, and Drop
+is NOT automatic process teardown. A future runtime must complete this lifecycle
+before activation and must not block its UI loop on a running process reap.
+The launch/signature verification path itself has no proved latency bound.
+
+Registry resolution still uses the reviewed Supervisor spinlock; neither its
+wait time nor validation-to-use atomicity is proved. This code does not turn a
+Session value, a launch record read or the new receipt into a global atomic
+user authorization transaction. Normal Desktop live epoch checks remain needed
+at each model request/reply boundary, and revocation/grants must still be checked
+by the service that performs a side effect. No existing auth/terms/cancel gate
+was relaxed to construct this prerequisite.
+
+Browser surface/input investigation confirms why no unsafe activation was added:
+NagiSurface::acquire describes the kernel-owned full display mapping, and
+copy_rgba_frame requires full Surface dimensions. It is not a Desktop child
+window/compositor slot. The first-pixel constructor still owns/presents that
+surface; handing it the ordinary Desktop's capability would create competing
+whole-frame owners. Desktop consumes its input capability, while Albert's input
+helpers only translate/hit-test events; they are not a focus-safe OS event route.
+Normal integration still needs a bounded Browser window/frame sink with damage/
+clipping/ownership, focus/lock-aware routed input, coordinated step/shutdown and
+coherent epoch-tagged extraction. No display/input capability is passed to a Bar
+child, no second raw input consumer is installed, and existing partial Servo
+callback coverage/dispatch time limits remain unproved. A shared token cannot
+replace those resource and lifecycle contracts.
+
+Producer final host validation:
+
+- Six focused Bar endpoint regressions PASS: not-ready/locked pre-launch denial,
+  launch-time fixed app identity, unaccepted terms/empty queue preservation,
+  foreign/missing/changed registry rejection, readiness loss during launch with
+  cleanup ownership, typed launch failure, old epoch/readiness denial before
+  receive and equal-value cross-Desktop binding rejection. Launch/resolve are
+  injected ONLY through private test seams. Their synthetic endpoint/records
+  are not evidence of actual signature verification, kernel IPC or a Bar process.
+- CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh PASS: UI72, Desktop103,
+  login26, format and feature-graph checks. The only existing fixture visibility
+  change is pub(super) on the test-only Desktop setup for this child test module.
+  No production Session fields or receipt constructors were made public.
+- Desktop all-target Clippy -D clippy::all PASS with the existing four library
+  and two test Rust warnings; git diff --check PASS. No dependency or lock changes.
+
+No new target check was attempted: this producer checkout still lacks the fixed
+third_party/cc-nagi source identified on the parent attempt, and its prior full
+UI pinned libc0.2.191 offline blocker has not been resolved here. The independent
+reviewer's different environment's successful dependency preparation does not
+establish availability in this checkout. New target compilation, real package
+launch/IPC, actual BarMessage receipt-to-caller flow, final link, real Servo,
+guest Desktop/Browser/session operation and release acceptance remain NOT RUN.
+No source/cache transfer, new dependency/software/model acquisition, network/auth
+operation, guest/VM/model run, operator terms acknowledgement, public operation,
+push/merge, private ledger/log read or denied-path retry/bypass occurred. No
+operation was denied or uncertain during this source/host task. Private product
+decisions remain unverified; existing public 0.1 gates remain in force.

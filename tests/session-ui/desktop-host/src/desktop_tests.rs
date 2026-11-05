@@ -795,7 +795,10 @@ fn summary_owner_step(
     changed
 }
 #[cfg(feature = "m20-model-service")]
-fn summary_desktop_fixture(locale: Locale, consent: bool) -> (Desktop, UserDataVolume, Vec<u32>) {
+pub(super) fn summary_desktop_fixture(
+    locale: Locale,
+    consent: bool,
+) -> (Desktop, UserDataVolume, Vec<u32>) {
     libnagi::set_readiness(true);
     let (mut desktop, mut volume, surface, _) = existing_account(locale);
     desktop.model_services = Some(bar_adapter::Adapter::new_host_shared_session(42));
