@@ -2,6 +2,8 @@
 //! its live authenticated Session; model input cannot establish caller authority.
 //! This is an in-process bootstrap adapter, not an isolated AI process.
 
+#[cfg(all(test, not(target_os = "nagi")))]
+use self::boundary_tests::syscalls as libnagi;
 use libnagi::security::Session;
 use nagi_model_manager::{
     ArtifactReadError, ArtifactReference, CancellationToken, CapabilityId, Fat32ArtifactReader,
@@ -17,6 +19,9 @@ use llama_backend::LlamaCppBackend;
 #[path = "model_session_access.rs"]
 mod model_session_access;
 use model_session_access::ModelSessionAccess;
+#[path = "session_page_summary.rs"]
+mod session_page_summary;
+pub use session_page_summary::SessionPageSummaryError;
 
 const MODEL_STORE_SECTORS: u64 = 67_108_864;
 // These are service admission bounds, not model package metadata changes.
@@ -184,6 +189,98 @@ impl SessionModelService {
             .map_err(SessionModelError::Service)
     }
 
+    /// Explicit OS-owned summary operation. `trusted_caller` is the requesting
+    /// assistant identity supplied by OS-owned state, not the browser identity.
+    /// This freely constructible value is a trusted-caller precondition, not
+    /// proof of OS provenance. No ordinary transport supplies it yet. Browser
+    /// policy still enforces disclosure; external AppIds remain unauthorized.
+    #[allow(clippy::too_many_arguments)]
+    pub fn summarize_page(
+        &mut self,
+        user: &Session,
+        trusted_caller: nagi_ai::CallerIdentity,
+        request_id: u64,
+        request: nagi_ai::ContextRequest,
+        authority: &impl nagi_ai::ContextAuthority,
+        browser: &mut impl nagi_ai::PublicBrowserContextApi,
+        cancellation: &dyn CancellationToken,
+    ) -> Result<alloc::string::String, SessionPageSummaryError> {
+        self.authorize(user)
+            .map_err(|_| SessionPageSummaryError::Denied)?;
+        let access = ModelSessionAccess::bind(user).ok_or(SessionPageSummaryError::Denied)?;
+        let role = RoleId::new("standard").map_err(|_| SessionPageSummaryError::Denied)?;
+        let capability =
+            CapabilityId::new("text.generate").map_err(|_| SessionPageSummaryError::Denied)?;
+        let model_id = self
+            .selected_model(&capability, Some(&role))
+            .map_err(|error| match error {
+                SessionModelError::Denied => SessionPageSummaryError::Denied,
+                SessionModelError::Service(error) => SessionPageSummaryError::Service(error),
+            })?
+            .clone();
+        session_page_summary::summarize(
+            &access,
+            user,
+            trusted_caller,
+            request_id,
+            request,
+            authority,
+            browser,
+            model_id,
+            LIMITS,
+            |request, cancellation| {
+                self.generate(user, Some(&role), None, request, cancellation)
+                    .map_err(|error| match error {
+                        SessionModelError::Denied => SessionPageSummaryError::Denied,
+                        SessionModelError::Service(error) => {
+                            SessionPageSummaryError::Service(error)
+                        }
+                    })
+            },
+            cancellation,
+        )
+    }
+
+    /// Queue-owned summary snapshot, after public API extraction. Only the
+    /// OS-owned SessionServices worker calls this; no external IPC is exposed.
+    pub(super) fn generate_page_summary(
+        &mut self,
+        user: &Session,
+        prompt: &nagi_ai::PageSummaryPrompt,
+        cancellation: &dyn CancellationToken,
+    ) -> Result<ModelResponse, SessionPageSummaryError> {
+        self.authorize(user)
+            .map_err(|_| SessionPageSummaryError::Denied)?;
+        let role = RoleId::new("standard").map_err(|_| SessionPageSummaryError::Denied)?;
+        let capability =
+            CapabilityId::new("text.generate").map_err(|_| SessionPageSummaryError::Denied)?;
+        let model_id = self
+            .selected_model(&capability, Some(&role))
+            .map_err(|error| match error {
+                SessionModelError::Denied => SessionPageSummaryError::Denied,
+                SessionModelError::Service(error) => SessionPageSummaryError::Service(error),
+            })?
+            .clone();
+        let access = ModelSessionAccess::bind(user).ok_or(SessionPageSummaryError::Denied)?;
+        session_page_summary::generate_prepared(
+            &access,
+            user,
+            prompt,
+            model_id,
+            LIMITS,
+            |request, token| {
+                self.generate(user, Some(&role), None, request, token)
+                    .map_err(|error| match error {
+                        SessionModelError::Denied => SessionPageSummaryError::Denied,
+                        SessionModelError::Service(error) => {
+                            SessionPageSummaryError::Service(error)
+                        }
+                    })
+            },
+            cancellation,
+        )
+    }
+
     pub fn selected_model(
         &self,
         capability: &CapabilityId,
@@ -209,3 +306,7 @@ impl SessionModelService {
         self.service.unload().map_err(SessionModelError::Service)
     }
 }
+
+#[cfg(all(test, not(target_os = "nagi")))]
+#[path = "../../../tests/model-session-service/src/model_service_boundary.rs"]
+mod boundary_tests;

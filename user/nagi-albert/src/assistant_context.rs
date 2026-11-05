@@ -5,10 +5,15 @@
 //! untrusted snapshot; `nagi-ai` wraps it as untrusted context.
 
 use nagi_ai::{BrowserContextApiError, BrowserPageSnapshot, CallerIdentity};
+#[cfg(test)]
 use nagi_model::AppId;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 /// Logical identity of the Nagi Bar assistant.
-pub const NAGI_BAR_APP_ID: AppId = AppId::from_identifier(b"org.nagi.bar");
+pub use nagi_ai::NAGI_BAR_APP_ID;
 
 /// User-controlled permission for the assistant to read the current page.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -42,6 +47,131 @@ impl ContextSharingPolicy {
         } else {
             Err(BrowserContextApiError::Denied)
         }
+    }
+}
+
+/// Event-thread owner for coherent, versioned public page extraction.
+///
+/// This owns freshness and Albert's sharing decision, NOT OS caller provenance.
+/// A production connector must authenticate the request using its kernel-stamped
+/// sender and live Supervisor launch record, and bind the authenticated Session
+/// before invoking it. A freely constructed CallerIdentity cannot satisfy that
+/// missing connector. This helper itself launches no channel or Browser runtime.
+#[derive(Debug)]
+pub struct BrowserContextOwner {
+    state: Rc<OwnerState>,
+}
+
+#[derive(Debug)]
+struct OwnerState {
+    policy: Cell<ContextSharingPolicy>,
+    epoch: RefCell<Option<nagi_ai::BrowserContextEpoch>>,
+}
+
+/// Event-thread-only invalidation handle for engine callbacks. It cannot read
+/// page data, enable sharing, mint revisions, authenticate callers or keep the
+/// owner's authority alive. Clones only refer to the same revocation state.
+#[derive(Clone, Debug)]
+pub struct BrowserContextEvents {
+    state: Rc<OwnerState>,
+}
+
+impl BrowserContextEvents {
+    /// Call before a relevant mutation. False means the owner has closed.
+    /// No owner-wide RefCell borrow is held while extraction pumps engine events.
+    pub fn invalidate(&self) -> bool {
+        let mut current = self.state.epoch.borrow_mut();
+        if let Some(epoch) = current.as_mut() {
+            epoch.invalidate();
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for BrowserContextOwner {
+    fn default() -> Self {
+        Self {
+            state: Rc::new(OwnerState {
+                policy: Cell::new(ContextSharingPolicy::disabled()),
+                epoch: RefCell::new(Some(nagi_ai::BrowserContextEpoch::new())),
+            }),
+        }
+    }
+}
+
+impl Drop for BrowserContextOwner {
+    fn drop(&mut self) {
+        // Remaining callback handles must neither keep a snapshot current nor
+        // reactivate the closed owner. Dropping the epoch revokes all revisions.
+        self.state.epoch.borrow_mut().take();
+    }
+}
+
+impl BrowserContextOwner {
+    /// Sharing starts disabled; construction grants no page access.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Clone only into the trusted engine's event-thread callback owner.
+    pub fn events(&self) -> BrowserContextEvents {
+        BrowserContextEvents {
+            state: self.state.clone(),
+        }
+    }
+
+    /// Trusted chrome/settings only. Revoke retained snapshots before changing
+    /// policy, even if the same value is restored before the next Desktop poll.
+    pub fn set_sharing_by_user(&mut self, enabled: bool) {
+        self.events().invalidate();
+        let mut policy = self.state.policy.get();
+        if enabled {
+            policy.enable_by_user();
+        } else {
+            policy.disable_by_user();
+        }
+        self.state.policy.set(policy);
+    }
+
+    /// The real event adapter must call this BEFORE navigation, active-tab,
+    /// selection or relevant DOM/text changes. IDs/text returning to their old
+    /// values must still revoke old snapshots. No content hash can replace it.
+    pub fn invalidate_page_context(&mut self) {
+        self.events().invalidate();
+    }
+
+    /// Run one extraction transaction on the owner thread. The extractor must
+    /// obey the request flags, bound its work and propagate engine failures.
+    /// If it pumps events, those events must update THIS owner before mutation.
+    /// A changed epoch is rejected, never silently retried or stamped as fresh.
+    /// No worker reference or model invocation occurs here.
+    pub fn extract(
+        &mut self,
+        request: nagi_ai::BrowserContextRequest,
+        extract: impl FnOnce(
+            &mut Self,
+            nagi_ai::BrowserContextRequest,
+        ) -> Result<Option<BrowserPageSnapshot>, BrowserContextApiError>,
+    ) -> Result<Option<BrowserPageSnapshot>, BrowserContextApiError> {
+        self.state.policy.get().check(request.caller())?;
+        // Release the short epoch borrow BEFORE invoking the engine callback.
+        let revision = self
+            .state
+            .epoch
+            .borrow()
+            .as_ref()
+            .map(nagi_ai::BrowserContextEpoch::revision)
+            .ok_or(BrowserContextApiError::Unavailable)?;
+        // Keep the Result until AFTER checking policy and the capture's epoch.
+        // A callback that restores identical state cannot revive this capture.
+        let result = extract(self, request);
+        self.state.policy.get().check(request.caller())?;
+        if !revision.is_current() {
+            return Err(BrowserContextApiError::Unavailable);
+        }
+        result.map(|snapshot| snapshot.map(|page| page.with_revision(revision)))
     }
 }
 
@@ -165,5 +295,261 @@ mod tests {
             policy.check(caller(NAGI_BAR_APP_ID)),
             Err(BrowserContextApiError::Denied)
         );
+    }
+    #[derive(Clone, Copy)]
+    enum Change {
+        None,
+        NavigateAndRestore,
+        Disable,
+        DisableAndRestore,
+        EngineError,
+        NoPage,
+        ReplaceStamp,
+    }
+
+    struct OwnerApi {
+        owner: BrowserContextOwner,
+        change: Change,
+        calls: usize,
+    }
+    impl PublicBrowserContextApi for OwnerApi {
+        fn current_page_context(
+            &mut self,
+            request: nagi_ai::BrowserContextRequest,
+        ) -> Result<Option<BrowserPageSnapshot>, BrowserContextApiError> {
+            let change = self.change;
+            let calls = &mut self.calls;
+            self.owner.extract(request, |owner, request| {
+                *calls += 1;
+                assert_eq!(request.caller(), caller(NAGI_BAR_APP_ID));
+                assert!(request.includes_selected_text());
+                assert!(request.includes_visible_text());
+                match change {
+                    Change::None => {}
+                    Change::NavigateAndRestore => {
+                        owner.invalidate_page_context();
+                        owner.invalidate_page_context();
+                    }
+                    Change::Disable => owner.set_sharing_by_user(false),
+                    Change::DisableAndRestore => {
+                        owner.set_sharing_by_user(false);
+                        owner.set_sharing_by_user(true);
+                    }
+                    Change::EngineError => return Err(BrowserContextApiError::Unavailable),
+                    Change::NoPage => return Ok(None),
+                    Change::ReplaceStamp => {
+                        owner.invalidate_page_context();
+                        return Ok(Some(
+                            page_snapshot(7, None, None, None, Some("page".into()), true, true)
+                                .with_revision(
+                                    owner.state.epoch.borrow().as_ref().unwrap().revision(),
+                                ),
+                        ));
+                    }
+                }
+                Ok(Some(page_snapshot(
+                    7,
+                    Some("https://example.net/".into()),
+                    Some("Page".into()),
+                    Some(" ".into()),
+                    Some("page".into()),
+                    request.includes_selected_text(),
+                    request.includes_visible_text(),
+                )))
+            })
+        }
+    }
+    fn owner_api(enabled: bool, change: Change) -> OwnerApi {
+        let mut owner = BrowserContextOwner::new();
+        if enabled {
+            owner.set_sharing_by_user(true);
+        }
+        OwnerApi {
+            owner,
+            change,
+            calls: 0,
+        }
+    }
+    fn resolve_owner(
+        api: &mut OwnerApi,
+        app_id: AppId,
+    ) -> Result<nagi_ai::ResolvedContext, BrowserContextError> {
+        // Synthetic actor only; this tests public API orchestration and makes
+        // no assertion of kernel/OS sender provenance.
+        ContextResolver.resolve_with_browser_api(
+            ContextRequest {
+                caller: caller(app_id),
+                selected_object: None,
+                candidate_objects: Vec::new(),
+            },
+            &NoObjects,
+            api,
+        )
+    }
+
+    #[test]
+    fn coherent_owner_denies_before_engine_read_without_sharing_or_bar_app() {
+        let mut api = owner_api(false, Change::None);
+        assert_eq!(
+            resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+            Some(BrowserContextError::ApiDenied)
+        );
+        assert_eq!(api.calls, 0);
+        api.owner.set_sharing_by_user(true);
+        assert_eq!(
+            resolve_owner(&mut api, AppId::from_identifier(b"org.example.other")).err(),
+            Some(BrowserContextError::ApiDenied)
+        );
+        assert_eq!(api.calls, 0);
+    }
+
+    #[test]
+    fn coherent_owner_returns_live_untrusted_snapshot_and_preserves_blank_filter() {
+        let mut api = owner_api(true, Change::None);
+        let context = resolve_owner(&mut api, NAGI_BAR_APP_ID).unwrap();
+        let page = context.browser_page().unwrap();
+        assert!(page.has_current_revision());
+        assert!(page.is_untrusted());
+        assert_eq!(page.visible_text(), Some("page"));
+        assert_eq!(page.selected_text(), None);
+        let again = resolve_owner(&mut api, NAGI_BAR_APP_ID).unwrap();
+        assert_eq!(context, again, "stable extraction uses the same epoch");
+        assert_eq!(api.calls, 2);
+    }
+
+    #[test]
+    fn navigation_and_policy_aba_during_extraction_discard_identical_final_page() {
+        for change in [
+            Change::NavigateAndRestore,
+            Change::DisableAndRestore,
+            Change::ReplaceStamp,
+        ] {
+            let mut api = owner_api(true, change);
+            assert_eq!(
+                resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+                Some(BrowserContextError::ApiUnavailable)
+            );
+            assert_eq!(api.calls, 1, "changed extraction must not retry");
+        }
+    }
+
+    #[test]
+    fn sharing_revocation_during_extraction_overrides_completed_engine_data() {
+        let mut api = owner_api(true, Change::Disable);
+        assert_eq!(
+            resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+            Some(BrowserContextError::ApiDenied)
+        );
+        assert_eq!(api.calls, 1);
+        api.change = Change::None;
+        assert_eq!(
+            resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+            Some(BrowserContextError::ApiDenied)
+        );
+        assert_eq!(api.calls, 1, "revoked policy prevents another engine read");
+    }
+
+    #[test]
+    fn retained_snapshot_is_revoked_by_policy_restore_and_owner_destruction() {
+        let mut api = owner_api(true, Change::None);
+        let old = resolve_owner(&mut api, NAGI_BAR_APP_ID).unwrap();
+        api.owner.set_sharing_by_user(false);
+        api.owner.set_sharing_by_user(true);
+        assert!(!old.browser_page().unwrap().has_current_revision());
+        let restored = resolve_owner(&mut api, NAGI_BAR_APP_ID).unwrap();
+        assert!(restored.browser_page().unwrap().has_current_revision());
+        assert_ne!(old, restored);
+        assert_eq!(
+            old.browser_page().unwrap().visible_text(),
+            restored.browser_page().unwrap().visible_text()
+        );
+        drop(api);
+        assert!(!restored.browser_page().unwrap().has_current_revision());
+    }
+
+    #[test]
+    fn coherent_owner_preserves_engine_failure_and_absent_page_without_retry() {
+        for (change, expected) in [
+            (Change::EngineError, BrowserContextError::ApiUnavailable),
+            (Change::NoPage, BrowserContextError::NoActivePage),
+        ] {
+            let mut api = owner_api(true, change);
+            assert_eq!(
+                resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+                Some(expected)
+            );
+            assert_eq!(api.calls, 1);
+        }
+    }
+    #[test]
+    fn event_callback_revokes_capture_without_reborrowing_outer_owner() {
+        struct CallbackApi {
+            owner: RefCell<BrowserContextOwner>,
+            events: BrowserContextEvents,
+        }
+        impl PublicBrowserContextApi for CallbackApi {
+            fn current_page_context(
+                &mut self,
+                request: nagi_ai::BrowserContextRequest,
+            ) -> Result<Option<BrowserPageSnapshot>, BrowserContextApiError> {
+                let events = self.events.clone();
+                // Simulate Servo pumping a delegate callback while an outer
+                // caller still holds the owner borrow for the whole extraction.
+                self.owner.borrow_mut().extract(request, |_, request| {
+                    assert!(events.invalidate());
+                    assert!(events.invalidate()); // Page A -> B -> A.
+                    Ok(Some(page_snapshot(
+                        7,
+                        None,
+                        None,
+                        None,
+                        Some("page".into()),
+                        request.includes_selected_text(),
+                        request.includes_visible_text(),
+                    )))
+                })
+            }
+        }
+        let mut owner = BrowserContextOwner::new();
+        owner.set_sharing_by_user(true);
+        let events = owner.events();
+        let mut api = CallbackApi {
+            owner: RefCell::new(owner),
+            events,
+        };
+        let result = ContextResolver.resolve_with_browser_api(
+            ContextRequest {
+                caller: caller(NAGI_BAR_APP_ID),
+                selected_object: None,
+                candidate_objects: Vec::new(),
+            },
+            &NoObjects,
+            &mut api,
+        );
+        assert_eq!(result.err(), Some(BrowserContextError::ApiUnavailable));
+    }
+
+    #[test]
+    fn retained_callback_handles_are_inert_after_owner_drop() {
+        let mut api = owner_api(true, Change::None);
+        let events = api.owner.events();
+        let clone = events.clone();
+        let context = resolve_owner(&mut api, NAGI_BAR_APP_ID).unwrap();
+        assert!(context.browser_page().unwrap().has_current_revision());
+        drop(api);
+        assert!(!context.browser_page().unwrap().has_current_revision());
+        assert!(!events.invalidate());
+        assert!(!clone.invalidate());
+    }
+
+    #[test]
+    fn callback_invalidation_grants_no_sharing_or_extraction_right() {
+        let mut api = owner_api(false, Change::None);
+        assert!(api.owner.events().invalidate());
+        assert_eq!(
+            resolve_owner(&mut api, NAGI_BAR_APP_ID).err(),
+            Some(BrowserContextError::ApiDenied)
+        );
+        assert_eq!(api.calls, 0);
     }
 }

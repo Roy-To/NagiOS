@@ -1,7 +1,8 @@
+use crate::virtqueue::{Descriptor, LegacyQueue, QueueLayout, QueueView};
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -14,10 +15,7 @@ const LEGACY_QUEUE_SIZE: u16 = 0x0c;
 const LEGACY_QUEUE_SELECT: u16 = 0x0e;
 const LEGACY_QUEUE_NOTIFY: u16 = 0x10;
 const LEGACY_DEVICE_STATUS: u16 = 0x12;
-const QUEUE_SIZE: usize = 256;
-const QUEUE_USED_RING_OFFSET: usize = 8192;
-const QUEUE_AVAILABLE_END: usize =
-    size_of::<Descriptor>() * QUEUE_SIZE + 2 + 2 + 2 * QUEUE_SIZE + 2;
+const RECEIVE_BUFFER_COUNT: usize = 256;
 const MAX_FRAME_SIZE: usize = 1536;
 const VIRTIO_NET_HEADER_SIZE: usize = 10;
 const fn device_frame_capacity(frame_size: usize) -> Option<usize> {
@@ -54,61 +52,11 @@ pub enum NetError {
     Busy,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Descriptor {
-    address: u64,
-    length: u32,
-    flags: u16,
-    next: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct UsedElement {
-    id: u32,
-    length: u32,
-}
-
-#[repr(C, align(4096))]
-struct LegacyQueue {
-    descriptors: [Descriptor; QUEUE_SIZE],
-    available_flags: u16,
-    available_index: u16,
-    available_ring: [u16; QUEUE_SIZE],
-    used_event: u16,
-    _padding: [u8; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-    used_flags: u16,
-    used_index: u16,
-    used_ring: [UsedElement; QUEUE_SIZE],
-    available_event: u16,
-}
-
-impl LegacyQueue {
-    const fn empty() -> Self {
-        Self {
-            descriptors: [Descriptor {
-                address: 0,
-                length: 0,
-                flags: 0,
-                next: 0,
-            }; QUEUE_SIZE],
-            available_flags: 0,
-            available_index: 0,
-            available_ring: [0; QUEUE_SIZE],
-            used_event: 0,
-            _padding: [0; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-            used_flags: 0,
-            used_index: 0,
-            used_ring: [UsedElement { id: 0, length: 0 }; QUEUE_SIZE],
-            available_event: 0,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct DeviceState {
     io_base: u16,
+    receive_layout: QueueLayout,
+    transmit_layout: QueueLayout,
     capability: u64,
 }
 
@@ -116,8 +64,8 @@ static RECEIVE_LOCK: AtomicBool = AtomicBool::new(false);
 static TRANSMIT_LOCK: AtomicBool = AtomicBool::new(false);
 static mut RECEIVE_QUEUE: LegacyQueue = LegacyQueue::empty();
 static mut TRANSMIT_QUEUE: LegacyQueue = LegacyQueue::empty();
-static mut RECEIVE_BUFFERS: [[u8; MAX_DEVICE_FRAME_SIZE]; QUEUE_SIZE] =
-    [[0; MAX_DEVICE_FRAME_SIZE]; QUEUE_SIZE];
+static mut RECEIVE_BUFFERS: [[u8; MAX_DEVICE_FRAME_SIZE]; RECEIVE_BUFFER_COUNT] =
+    [[0; MAX_DEVICE_FRAME_SIZE]; RECEIVE_BUFFER_COUNT];
 static mut TRANSMIT_BUFFER: [u8; MAX_DEVICE_FRAME_SIZE] = [0; MAX_DEVICE_FRAME_SIZE];
 static mut RECEIVE_LAST_USED: u16 = 0;
 static mut DEVICE: Option<DeviceState> = None;
@@ -132,17 +80,13 @@ pub fn initialize() -> Result<(), NetError> {
     if candidate.io_base == 0 {
         return Err(NetError::InvalidBar);
     }
-    let queue_size = unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) } as usize;
-    if queue_size != QUEUE_SIZE {
-        return Err(NetError::UnsupportedQueue);
-    }
     let receive_address = ptr::addr_of!(RECEIVE_QUEUE) as u64;
     let transmit_address = ptr::addr_of!(TRANSMIT_QUEUE) as u64;
     if !queue_address_is_usable(receive_address) || !queue_address_is_usable(transmit_address) {
         return Err(NetError::AddressOutOfRange);
     }
 
-    unsafe {
+    let (receive_layout, transmit_layout) = unsafe {
         io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
         io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
         io_write8(
@@ -150,14 +94,21 @@ pub fn initialize() -> Result<(), NetError> {
             STATUS_ACKNOWLEDGE | STATUS_DRIVER,
         );
         io_write32(candidate.io_base + 0x04, 0);
-        setup_queue(candidate.io_base, 0, receive_address)?;
-        setup_queue(candidate.io_base, 1, transmit_address)?;
-        prepare_receive_descriptors(candidate.io_base)?;
+        ptr::write_bytes(
+            ptr::addr_of_mut!(TRANSMIT_QUEUE).cast::<u8>(),
+            0,
+            size_of::<LegacyQueue>(),
+        );
+        let receive_layout = setup_queue(candidate.io_base, 0, receive_address)?;
+        let transmit_layout = setup_queue(candidate.io_base, 1, transmit_address)?;
+        prepare_receive_descriptors(receive_layout)?;
         io_write8(
             candidate.io_base + LEGACY_DEVICE_STATUS,
             STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_DRIVER_OK,
         );
-    }
+        io_write16(candidate.io_base + LEGACY_QUEUE_NOTIFY, 0);
+        (receive_layout, transmit_layout)
+    };
 
     let capability = make_capability(candidate.bus, candidate.device, candidate.function);
     unsafe {
@@ -165,6 +116,8 @@ pub fn initialize() -> Result<(), NetError> {
             ptr::addr_of_mut!(DEVICE),
             Some(DeviceState {
                 io_base: candidate.io_base,
+                receive_layout,
+                transmit_layout,
                 capability,
             }),
         );
@@ -221,41 +174,50 @@ pub fn receive(frame: &mut [u8]) -> Result<Option<usize>, NetError> {
     result
 }
 
-unsafe fn setup_queue(io_base: u16, index: u16, address: u64) -> Result<(), NetError> {
+unsafe fn setup_queue(io_base: u16, index: u16, address: u64) -> Result<QueueLayout, NetError> {
     io_write16(io_base + LEGACY_QUEUE_SELECT, index);
-    if (io_read16(io_base + LEGACY_QUEUE_SIZE) as usize) < QUEUE_SIZE {
-        return Err(NetError::UnsupportedQueue);
-    }
+    let layout = QueueLayout::for_size(io_read16(io_base + LEGACY_QUEUE_SIZE) as usize)
+        .ok_or(NetError::UnsupportedQueue)?;
     io_write32(io_base + LEGACY_QUEUE_ADDRESS, (address >> 12) as u32);
-    Ok(())
+    Ok(layout)
 }
 
-unsafe fn prepare_receive_descriptors(io_base: u16) -> Result<(), NetError> {
-    let queue = &mut *ptr::addr_of_mut!(RECEIVE_QUEUE);
+unsafe fn receive_buffer(index: usize) -> *mut u8 {
+    debug_assert!(index < RECEIVE_BUFFER_COUNT);
+    ptr::addr_of_mut!(RECEIVE_BUFFERS)
+        .cast::<[u8; MAX_DEVICE_FRAME_SIZE]>()
+        .add(index)
+        .cast::<u8>()
+}
+
+unsafe fn prepare_receive_descriptors(layout: QueueLayout) -> Result<(), NetError> {
     ptr::write_bytes(
         ptr::addr_of_mut!(RECEIVE_QUEUE).cast::<u8>(),
         0,
         size_of::<LegacyQueue>(),
     );
-    let buffers = ptr::addr_of_mut!(RECEIVE_BUFFERS);
-    for index in 0..QUEUE_SIZE {
-        let address = buffers.cast::<u8>().add(index * MAX_FRAME_SIZE) as u64;
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(RECEIVE_QUEUE).cast::<u8>(),
+        layout,
+    };
+    // A larger hardware ring does not expand the bounded receive-buffer pool.
+    for index in 0..RECEIVE_BUFFER_COUNT {
+        let address = receive_buffer(index) as u64;
         if !dma_address_is_usable(address) {
             return Err(NetError::AddressOutOfRange);
         }
-        queue.descriptors[index] = Descriptor {
-            address,
-            length: MAX_DEVICE_FRAME_SIZE as u32,
-            flags: DESC_F_WRITE,
-            next: 0,
-        };
-        queue.available_ring[index] = index as u16;
+        queue.descriptor(
+            index,
+            Descriptor {
+                address,
+                length: MAX_DEVICE_FRAME_SIZE as u32,
+                flags: DESC_F_WRITE,
+                next: 0,
+            },
+        );
+        queue.publish(index as u16);
     }
-    fence(Ordering::SeqCst);
-    queue.available_index = QUEUE_SIZE as u16;
     ptr::write_volatile(ptr::addr_of_mut!(RECEIVE_LAST_USED), 0);
-    fence(Ordering::SeqCst);
-    io_write16(io_base + LEGACY_QUEUE_NOTIFY, 0);
     Ok(())
 }
 
@@ -269,43 +231,45 @@ unsafe fn transmit_locked(device: DeviceState, frame: &[u8]) -> Result<(), NetEr
     for (index, byte) in frame.iter().enumerate() {
         ptr::write_volatile(buffer.add(VIRTIO_NET_HEADER_SIZE + index), *byte);
     }
-    let queue = &mut *ptr::addr_of_mut!(TRANSMIT_QUEUE);
-    let previous_used = queue.used_index;
-    queue.descriptors[0] = Descriptor {
-        address: buffer as u64,
-        length: (VIRTIO_NET_HEADER_SIZE + frame.len()) as u32,
-        flags: 0,
-        next: 0,
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(TRANSMIT_QUEUE).cast::<u8>(),
+        layout: device.transmit_layout,
     };
-    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-    queue.available_ring[available_slot] = 0;
-    fence(Ordering::SeqCst);
-    queue.available_index = queue.available_index.wrapping_add(1);
-    fence(Ordering::SeqCst);
+    let previous_used = queue.used_index();
+    queue.descriptor(
+        0,
+        Descriptor {
+            address: buffer as u64,
+            length: (VIRTIO_NET_HEADER_SIZE + frame.len()) as u32,
+            flags: 0,
+            next: 0,
+        },
+    );
+    queue.publish(0);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 1);
     wait_for_used(queue, previous_used)
 }
 
 unsafe fn receive_locked(device: DeviceState, frame: &mut [u8]) -> Result<Option<usize>, NetError> {
-    let queue = &mut *ptr::addr_of_mut!(RECEIVE_QUEUE);
-    let current_used = ptr::read_volatile(&queue.used_index);
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(RECEIVE_QUEUE).cast::<u8>(),
+        layout: device.receive_layout,
+    };
+    let current_used = queue.used_index();
     let previous_used = ptr::read_volatile(ptr::addr_of!(RECEIVE_LAST_USED));
     if current_used == previous_used {
         return Ok(None);
     }
-    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    let used = queue.completion(previous_used);
     let buffer_id = usize::try_from(used.id).map_err(|_| NetError::QueueCorrupt)?;
     let length = usize::try_from(used.length).map_err(|_| NetError::QueueCorrupt)?;
     let Some(payload_length) = guest_frame_payload_length(length) else {
         return Err(NetError::QueueCorrupt);
     };
-    if buffer_id >= QUEUE_SIZE {
+    if buffer_id >= RECEIVE_BUFFER_COUNT {
         return Err(NetError::QueueCorrupt);
     }
-    let source = ptr::addr_of!(RECEIVE_BUFFERS)
-        .cast::<u8>()
-        .add(buffer_id * MAX_FRAME_SIZE);
+    let source = receive_buffer(buffer_id);
     let mut index = 0;
     while index < payload_length {
         frame[index] = ptr::read_volatile(source.add(VIRTIO_NET_HEADER_SIZE + index));
@@ -315,24 +279,21 @@ unsafe fn receive_locked(device: DeviceState, frame: &mut [u8]) -> Result<Option
         ptr::addr_of_mut!(RECEIVE_LAST_USED),
         previous_used.wrapping_add(1),
     );
-    queue.available_ring[usize::from(queue.available_index) % QUEUE_SIZE] = buffer_id as u16;
-    queue.available_index = queue.available_index.wrapping_add(1);
-    fence(Ordering::SeqCst);
+    queue.publish(buffer_id as u16);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
     Ok(Some(payload_length))
 }
 
-unsafe fn wait_for_used(queue: &mut LegacyQueue, previous_used: u16) -> Result<(), NetError> {
+unsafe fn wait_for_used(queue: QueueView, previous_used: u16) -> Result<(), NetError> {
     let mut spins = 0;
-    while ptr::read_volatile(&queue.used_index) == previous_used {
+    while queue.used_index() == previous_used {
         if spins == MAX_REQUEST_SPINS {
             return Err(NetError::RequestTimeout);
         }
         spins += 1;
         core::hint::spin_loop();
     }
-    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    let used = queue.completion(previous_used);
     if used.id != 0 {
         return Err(NetError::QueueCorrupt);
     }
@@ -460,8 +421,18 @@ unsafe fn io_write32(port: u16, value: u32) {
 mod tests {
     use super::{
         device_frame_capacity, guest_frame_payload_length, make_capability, pci_config_address,
-        queue_address_is_usable, MAX_FRAME_SIZE, QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
+        queue_address_is_usable, MAX_FRAME_SIZE, RECEIVE_BUFFER_COUNT,
     };
+
+    #[test]
+    fn receive_descriptors_reserve_the_header_in_each_buffer_stride() {
+        unsafe {
+            let first = super::receive_buffer(0) as usize;
+            let second = super::receive_buffer(1) as usize;
+            assert_eq!(second - first, 1546);
+            assert_eq!(second - first, super::MAX_DEVICE_FRAME_SIZE);
+        }
+    }
 
     #[test]
     fn network_capability_is_nonzero_and_bdf_bound() {
@@ -471,8 +442,7 @@ mod tests {
 
     #[test]
     fn queue_contract_is_bounded() {
-        assert_eq!(QUEUE_SIZE, 256);
-        assert_eq!(QUEUE_USED_RING_OFFSET, 8192);
+        assert_eq!(RECEIVE_BUFFER_COUNT, 256);
         assert!(queue_address_is_usable(0x1000));
         assert!(!queue_address_is_usable(0x1001));
         assert!(!queue_address_is_usable((u64::from(u32::MAX) + 1) << 12));

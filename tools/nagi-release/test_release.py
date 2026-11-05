@@ -11,6 +11,88 @@ import release
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def test_shared_json_reader_rejects_nonfinite_including_overflow(self):
+        for literal in ("NaN", "Infinity", "-Infinity", "1e400", "-1e400", "1e999999"):
+            with self.subTest(literal=literal):
+                with self.assertRaisesRegex(release.ReleaseError, "nonfinite"):
+                    release.parse_json('{"nested": [{"value": ' + literal + '}]}')
+        with self.assertRaisesRegex(release.ReleaseError, "duplicate JSON key"):
+            release.parse_json('{"nested": {"x": 1, "x": 2}}')
+        for literal in ("1e308", "-1e308", "1e-400", "0", "1", "true", '"1e400"'):
+            with self.subTest(valid_literal=literal):
+                self.assertEqual(release.parse_json(literal), json.loads(literal))
+
+    def test_production_provenance_type_boundaries_raise_domain_error(self):
+        good = self.production_provenance()
+        release.require_production_image(good)
+        for field in ("components", "init_features"):
+            for value in ([], {}, None, True, 1):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(release.ReleaseError, field):
+                        release.require_production_image({**good, field: value})
+        for value in (None, [], True, 2):
+            with self.subTest(root=value):
+                with self.assertRaisesRegex(release.ReleaseError, "object"):
+                    release.require_production_image(value)
+        for value in (2.0, "2", True, None):
+            with self.subTest(format_version=value):
+                with self.assertRaises(release.ReleaseError):
+                    release.require_production_image({**good, "format_version": value})
+
+    def production_provenance(self):
+        return {
+            "format_version": 2,
+            "profile": "production-session-v1",
+            "init_features": "production-session",
+            "components": "login,files,search,servo,local-ai,history,voice",
+            "model_store_sha256": release.GRANITE_SHA256,
+        }
+
+    def test_production_configuration_rejects_fixture_partial_and_empty_store(self):
+        # These are configuration-validator fixtures, never guest evidence.
+        good = self.production_provenance()
+        release.require_production_image(good)
+        bad_records = [
+            {**good, "format_version": 1},
+            {**good, "profile": "signed-in-files-v1"},
+            {**good, "profile": "native-provider-session-v1",
+             "components": "login,files,search,native-model-provider",
+             "init_features": "production-session,m20-model-service",
+             "kernel_features": "m20-llama-memory",
+             "normal_session_inference": "NOT_EVALUATED"},
+            {**good, "profile": "layout-fixture-v1"},
+            {**good, "components": "login,files,search"},
+            {**good, "components": "login,files,search,servo,local-ai,history,history"},
+            {**good, "init_features": "production-session,m17-servo"},
+            {**good, "init_features": "production-session,desktop-login-acceptance"},
+            {**good, "init_features": "production-session,production-session"},
+            {**good, "model_store_sha256": "none"},
+            {**good, "model_store_sha256": "0" * 64},
+        ]
+        for record in bad_records:
+            with self.subTest(record=record):
+                with self.assertRaises(release.ReleaseError):
+                    release.require_production_image(record)
+
+    def test_version_two_provenance_binds_profile_and_component_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = root / "reference.qcow2"
+            image.write_bytes(b"configuration fixture")
+            revision = "a" * 40
+            fields = {"format_version": 2, "source_revision": revision,
+                      "image_sha256": release.sha256_file(image),
+                      **self.production_provenance()}
+            info_path = image.with_name(image.name + release.IMAGE_BUILD_INFO_SUFFIX)
+            info_path.write_text("".join(f"{key}={value}\n" for key, value in fields.items()),
+                                 encoding="ascii")
+            parsed = release.image_build_provenance(root, image, revision)
+            release.require_production_image(parsed)
+            self.assertEqual(parsed["components"], fields["components"])
+            info_path.write_text(info_path.read_text() + "profile=layout-fixture-v1\n")
+            with self.assertRaisesRegex(release.ReleaseError, "repeats profile"):
+                release.image_build_provenance(root, image, revision)
+
     def test_tracked_third_party_license_texts_are_selected_stably(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

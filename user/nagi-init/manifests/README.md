@@ -14,3 +14,8 @@ manifest (ADR 0049).
 | `org.nagi.acceptance.m19-search` | `nagi-m19-search-client` and `nagi-action-client` | `search.query`, `files.search`, `albert.history.search` |
 | `org.nagi.acceptance.m22-files` | `nagi-action-client` | `files.move`, `files.copy` |
 | `org.nagi.acceptance.foreign-client` | `nagi-m19-search-client` and `nagi-action-client` | `search.query` |
+
+`org.nagi.bar.manifest` is staged source for the one-shot `nagi-bar-client`
+summary transport. It has no capability grants. It is deliberately absent from
+the packaging table in `./nagi`, is not signed/embedded, and is not launched by the
+normal Desktop. The standalone source-check ELF is not a production package.

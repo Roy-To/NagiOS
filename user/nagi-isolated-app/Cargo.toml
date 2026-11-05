@@ -38,6 +38,12 @@ path = "src/bin/faulting_app.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "nagi-bar-client"
+path = "src/bin/bar_client.rs"
+test = false
+bench = false
+
 [dependencies]
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc" }
 nagi-abi = { path = "../../crates/nagi-abi" }

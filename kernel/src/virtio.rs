@@ -1,7 +1,8 @@
+use crate::virtqueue::{Descriptor, LegacyQueue, QueueLayout, QueueView};
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 const PCI_CONFIG_ADDRESS: u16 = 0x0cf8;
 const PCI_CONFIG_DATA: u16 = 0x0cfc;
@@ -18,9 +19,6 @@ const LEGACY_DEVICE_STATUS: u16 = 0x12;
 const LEGACY_DEVICE_CONFIG: u16 = 0x14;
 const LEGACY_HOST_FEATURES: u16 = 0x00;
 const LEGACY_GUEST_FEATURES: u16 = 0x04;
-const QUEUE_SIZE: usize = 256;
-const QUEUE_USED_RING_OFFSET: usize = 8192;
-const QUEUE_AVAILABLE_END: usize = 4614;
 // The first User Data write in M20 allocates QCOW2 metadata for a sparse,
 // high-LBA extent. Older QEMU TCG may need longer to complete that request;
 // keep polling bounded while allowing the reference VM to finish it.
@@ -58,58 +56,6 @@ pub enum BlockError {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Descriptor {
-    address: u64,
-    length: u32,
-    flags: u16,
-    next: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct UsedElement {
-    id: u32,
-    length: u32,
-}
-
-#[repr(C, align(4096))]
-struct LegacyQueue {
-    descriptors: [Descriptor; QUEUE_SIZE],
-    available_flags: u16,
-    available_index: u16,
-    available_ring: [u16; QUEUE_SIZE],
-    used_event: u16,
-    _padding: [u8; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-    used_flags: u16,
-    used_index: u16,
-    used_ring: [UsedElement; QUEUE_SIZE],
-    available_event: u16,
-}
-
-impl LegacyQueue {
-    const fn empty() -> Self {
-        Self {
-            descriptors: [Descriptor {
-                address: 0,
-                length: 0,
-                flags: 0,
-                next: 0,
-            }; QUEUE_SIZE],
-            available_flags: 0,
-            available_index: 0,
-            available_ring: [0; QUEUE_SIZE],
-            used_event: 0,
-            _padding: [0; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-            used_flags: 0,
-            used_index: 0,
-            used_ring: [UsedElement { id: 0, length: 0 }; QUEUE_SIZE],
-            available_event: 0,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BlockRequestHeader {
     request_type: u32,
     reserved: u32,
@@ -119,6 +65,7 @@ struct BlockRequestHeader {
 #[derive(Clone, Copy)]
 struct DeviceState {
     io_base: u16,
+    queue_layout: QueueLayout,
     physical_capacity_sectors: u64,
     data_start_lba: u64,
     capacity_sectors: u64,
@@ -156,10 +103,20 @@ pub fn initialize() -> Result<(), BlockError> {
     if candidate.io_base == 0 {
         return Err(BlockError::InvalidBar);
     }
-    let queue_size = unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) } as usize;
-    if queue_size < QUEUE_SIZE {
-        return Err(BlockError::UnsupportedQueue);
+    unsafe {
+        io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
+        io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
+        io_write8(
+            candidate.io_base + LEGACY_DEVICE_STATUS,
+            STATUS_ACKNOWLEDGE | STATUS_DRIVER,
+        );
+        io_write16(candidate.io_base + LEGACY_QUEUE_SELECT, 0);
     }
+    // Legacy queue length is device-owned. A larger queue changes both ring
+    // addresses; accepting it while using a 256-entry layout loses every kick.
+    let queue_layout =
+        QueueLayout::for_size(unsafe { io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) as usize })
+            .ok_or(BlockError::UnsupportedQueue)?;
     let queue_address = ptr::addr_of!(QUEUE) as u64;
     if queue_address & 0xfff != 0 || queue_address >> 12 > u64::from(u32::MAX) {
         return Err(BlockError::AddressOutOfRange);
@@ -173,12 +130,6 @@ pub fn initialize() -> Result<(), BlockError> {
     };
 
     unsafe {
-        io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
-        io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
-        io_write8(
-            candidate.io_base + LEGACY_DEVICE_STATUS,
-            STATUS_ACKNOWLEDGE | STATUS_DRIVER,
-        );
         io_write32(candidate.io_base + LEGACY_GUEST_FEATURES, guest_features);
         io_write16(candidate.io_base + LEGACY_QUEUE_SELECT, 0);
         ptr::write_bytes(
@@ -197,6 +148,7 @@ pub fn initialize() -> Result<(), BlockError> {
     }
     let raw_device = DeviceState {
         io_base: candidate.io_base,
+        queue_layout,
         physical_capacity_sectors: candidate.capacity_sectors,
         data_start_lba: 0,
         capacity_sectors: candidate.capacity_sectors,
@@ -208,13 +160,17 @@ pub fn initialize() -> Result<(), BlockError> {
         update_capability: 0,
         flush_supported,
     };
+    // Keep transport failures distinct from malformed on-disk GPT data.
+    let mut read_error = None;
     let partitions = crate::gpt::find_partitions(
         |sector, destination| unsafe {
-            transfer_locked(raw_device, sector, destination, false).map_err(|_| ())
+            transfer_locked(raw_device, sector, destination, false).map_err(|error| {
+                read_error = Some(error);
+            })
         },
         candidate.capacity_sectors,
     )
-    .map_err(|_| BlockError::InvalidPartitionTable)?;
+    .map_err(|_| read_error.unwrap_or(BlockError::InvalidPartitionTable))?;
     let data_extent = partitions.user_data;
     if data_extent.sector_count < MAX_USER_DATA_SECTORS {
         return Err(BlockError::UserDataPartitionTooSmall);
@@ -265,6 +221,7 @@ pub fn initialize() -> Result<(), BlockError> {
             ptr::addr_of_mut!(DEVICE),
             Some(DeviceState {
                 io_base: candidate.io_base,
+                queue_layout,
                 physical_capacity_sectors: candidate.capacity_sectors,
                 data_start_lba: data_extent.start_lba,
                 capacity_sectors: exposed_sectors,
@@ -469,37 +426,41 @@ unsafe fn flush_locked(device: DeviceState) -> Result<(), BlockError> {
         return Err(BlockError::AddressOutOfRange);
     }
 
-    let queue = &mut *ptr::addr_of_mut!(QUEUE);
-    let previous_used = queue.used_index;
-    queue.descriptors[0] = Descriptor {
-        address: header_address,
-        length: size_of::<BlockRequestHeader>() as u32,
-        flags: DESC_F_NEXT,
-        next: 1,
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(QUEUE).cast::<u8>(),
+        layout: device.queue_layout,
     };
-    queue.descriptors[1] = Descriptor {
-        address: status_address,
-        length: 1,
-        flags: DESC_F_WRITE,
-        next: 0,
-    };
-    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-    queue.available_ring[available_slot] = 0;
-    fence(Ordering::SeqCst);
-    queue.available_index = queue.available_index.wrapping_add(1);
-    fence(Ordering::SeqCst);
+    let previous_used = queue.used_index();
+    queue.descriptor(
+        0,
+        Descriptor {
+            address: header_address,
+            length: size_of::<BlockRequestHeader>() as u32,
+            flags: DESC_F_NEXT,
+            next: 1,
+        },
+    );
+    queue.descriptor(
+        1,
+        Descriptor {
+            address: status_address,
+            length: 1,
+            flags: DESC_F_WRITE,
+            next: 0,
+        },
+    );
+    queue.publish(0);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
 
     let mut spins = 0;
-    while ptr::read_volatile(&queue.used_index) == previous_used {
+    while queue.used_index() == previous_used {
         if spins == MAX_REQUEST_SPINS {
             return Err(BlockError::RequestTimeout);
         }
         spins += 1;
         core::hint::spin_loop();
     }
-    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    let used = queue.completion(previous_used);
     if used.id != 0 || used.length == 0 {
         return Err(BlockError::QueueCorrupt);
     }
@@ -577,43 +538,50 @@ unsafe fn transfer_locked(
         return Err(BlockError::AddressOutOfRange);
     }
 
-    let queue = &mut *ptr::addr_of_mut!(QUEUE);
-    let previous_used = queue.used_index;
-    queue.descriptors[0] = Descriptor {
-        address: header_address,
-        length: size_of::<BlockRequestHeader>() as u32,
-        flags: DESC_F_NEXT,
-        next: 1,
+    let queue = QueueView {
+        base: ptr::addr_of_mut!(QUEUE).cast::<u8>(),
+        layout: device.queue_layout,
     };
-    queue.descriptors[1] = Descriptor {
-        address: data_address,
-        length: BLOCK_SECTOR_SIZE as u32,
-        flags: descriptor_flags(write_request, true),
-        next: 2,
-    };
-    queue.descriptors[2] = Descriptor {
-        address: status_address,
-        length: 1,
-        flags: DESC_F_WRITE,
-        next: 0,
-    };
-    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-    queue.available_ring[available_slot] = 0;
-    fence(Ordering::SeqCst);
-    queue.available_index = queue.available_index.wrapping_add(1);
-    fence(Ordering::SeqCst);
+    let previous_used = queue.used_index();
+    queue.descriptor(
+        0,
+        Descriptor {
+            address: header_address,
+            length: size_of::<BlockRequestHeader>() as u32,
+            flags: DESC_F_NEXT,
+            next: 1,
+        },
+    );
+    queue.descriptor(
+        1,
+        Descriptor {
+            address: data_address,
+            length: BLOCK_SECTOR_SIZE as u32,
+            flags: descriptor_flags(write_request, true),
+            next: 2,
+        },
+    );
+    queue.descriptor(
+        2,
+        Descriptor {
+            address: status_address,
+            length: 1,
+            flags: DESC_F_WRITE,
+            next: 0,
+        },
+    );
+    queue.publish(0);
     io_write16(device.io_base + LEGACY_QUEUE_NOTIFY, 0);
 
     let mut spins = 0;
-    while ptr::read_volatile(&queue.used_index) == previous_used {
+    while queue.used_index() == previous_used {
         if spins == MAX_REQUEST_SPINS {
             return Err(BlockError::RequestTimeout);
         }
         spins += 1;
         core::hint::spin_loop();
     }
-    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    let used = queue.completion(previous_used);
     if used.id != 0 || used.length == 0 {
         return Err(BlockError::QueueCorrupt);
     }
@@ -842,8 +810,8 @@ mod tests {
     use super::{
         choose_largest_writable_block_device, descriptor_flags, is_readable_capability,
         is_writable_capability, make_capability, pci_config_address, request_header,
-        translate_user_sector, validate_sector, BlockRequestHeader, DeviceCandidate, LegacyQueue,
-        BLOCK_IN, DESC_F_NEXT, DESC_F_WRITE, QUEUE_SIZE, QUEUE_USED_RING_OFFSET,
+        translate_user_sector, validate_sector, BlockRequestHeader, DeviceCandidate, BLOCK_IN,
+        DESC_F_NEXT, DESC_F_WRITE,
     };
 
     #[test]
@@ -951,15 +919,5 @@ mod tests {
             choose_largest_writable_block_device(None, user_data_disk),
             Some(user_data_disk)
         );
-    }
-
-    #[test]
-    fn uses_the_legacy_queue_size_and_used_ring_alignment() {
-        assert_eq!(QUEUE_SIZE, 256);
-        assert_eq!(core::mem::size_of::<LegacyQueue>(), 12 * 1024);
-        let queue = LegacyQueue::empty();
-        let base = core::ptr::addr_of!(queue) as usize;
-        let used = core::ptr::addr_of!(queue.used_flags) as usize;
-        assert_eq!(used - base, QUEUE_USED_RING_OFFSET);
     }
 }

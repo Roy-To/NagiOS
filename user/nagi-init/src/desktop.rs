@@ -4,10 +4,67 @@ use core::arch::asm;
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::{DisplayInfo, InputEvent};
 
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login", not(test)))]
+pub(super) use crate::m19_runtime::files;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login", test))]
+use crate::m19_runtime::files;
+#[cfg(feature = "m20-model-service")]
+#[path = "bar_adapter.rs"]
+mod bar_adapter;
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+#[path = "desktop_bar_endpoint.rs"]
+pub(crate) mod bar_endpoint;
+#[cfg(feature = "m20-model-service")]
+#[path = "bar_panel.rs"]
+mod bar_panel;
+#[cfg(feature = "m20-model-service")]
+#[path = "session_ui.rs"]
+pub(crate) mod session_ui;
 use crate::ui::{Painter, Rect};
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+#[path = "m19_files_panel.rs"]
+mod files_panel;
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_MANAGE_KEY: u16 = 60; // Linux/VirtIO input F2.
+#[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+const FILES_PANEL: Rect = Rect::new(17, 25, 286, 167);
 use nagi_ui::{color, ColorRole, ThemeMode};
 
 pub(super) type UserDataVolume = Vfs<SyscallBlockDevice>;
+
+/// Opaque identity for one adapter-bound Desktop epoch. A retained marker
+/// distinguishes Desktop instances even if their Session/epoch values repeat.
+/// This grants neither an AppId nor Browser sharing permission.
+#[cfg(feature = "m20-model-service")]
+#[derive(Clone, Debug)]
+pub(crate) struct PageSummaryBinding {
+    session: libnagi::security::Session,
+    generation: u64,
+    owner: alloc::sync::Arc<()>,
+}
+#[cfg(feature = "m20-model-service")]
+impl PartialEq for PageSummaryBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.session == other.session
+            && self.generation == other.generation
+            && alloc::sync::Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+#[cfg(feature = "m20-model-service")]
+impl Eq for PageSummaryBinding {}
+/// Borrowed only for one step from a trusted live Browser owner. Production
+/// supplies None; logical caller provenance is still an owner precondition.
+/// Its Browser API must return coherent snapshots stamped with an owner-held
+/// BrowserContextEpoch, invalidated before page/selection/sharing changes.
+/// A stamp authenticates neither this freely supplied caller nor its owner.
+#[cfg(feature = "m20-model-service")]
+pub(crate) struct DesktopPageContext<'a> {
+    pub binding: PageSummaryBinding,
+    pub caller: nagi_ai::CallerIdentity,
+    pub request: nagi_ai::ContextRequest,
+    pub authority: &'a dyn nagi_ai::ContextAuthority,
+    pub browser: &'a mut dyn nagi_ai::PublicBrowserContextApi,
+}
 
 const SYSTEM_LANGUAGE_PATH: &[u8] = b"system-language";
 
@@ -215,6 +272,8 @@ pub struct Desktop {
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_query: [u8; FILES_SEARCH_QUERY_CAPACITY],
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    files_panel: files_panel::Panel,
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_query_len: usize,
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_pending: bool,
@@ -228,6 +287,20 @@ pub struct Desktop {
     files_search_first_title: [u8; FILES_SEARCH_TITLE_CAPACITY],
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     files_search_first_title_len: usize,
+    #[cfg(feature = "m20-model-service")]
+    bar: bar_panel::Panel,
+    #[cfg(feature = "m20-model-service")]
+    model_services_ready: bool,
+    #[cfg(feature = "m20-model-service")]
+    model_services: Option<bar_adapter::Adapter>,
+    #[cfg(feature = "m20-model-service")]
+    summary_binding_session: Option<libnagi::security::Session>,
+    #[cfg(feature = "m20-model-service")]
+    summary_binding_generation: u64,
+    #[cfg(feature = "m20-model-service")]
+    summary_binding_owner: Option<alloc::sync::Arc<()>>,
+    #[cfg(feature = "m20-model-service")]
+    lock_requested: bool,
 }
 
 impl Desktop {
@@ -243,6 +316,20 @@ impl Desktop {
             desktop_focus: None,
             keyboard_app_focus: [false; APP_COUNT],
             keyboard_focus_pass_printed: false,
+            #[cfg(feature = "m20-model-service")]
+            bar: bar_panel::Panel::new(),
+            #[cfg(feature = "m20-model-service")]
+            model_services_ready: false,
+            #[cfg(feature = "m20-model-service")]
+            model_services: None,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_session: None,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_generation: 1,
+            #[cfg(feature = "m20-model-service")]
+            summary_binding_owner: None,
+            #[cfg(feature = "m20-model-service")]
+            lock_requested: false,
             pointer_x: POINTER_START_X,
             pointer_y: POINTER_START_Y,
             notes_has_input: false,
@@ -268,6 +355,8 @@ impl Desktop {
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_query: [0; FILES_SEARCH_QUERY_CAPACITY],
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+            files_panel: files_panel::Panel::new(),
+            #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_query_len: 0,
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_pending: false,
@@ -282,6 +371,146 @@ impl Desktop {
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             files_search_first_title_len: 0,
         }
+    }
+
+    /// Minted only from a readiness-confirmed, adapter-bound Desktop Session.
+    /// This distinguishes owner callbacks even if login reuses a Session value.
+    /// It grants neither a logical AppId nor Browser sharing permission.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn page_summary_binding(&self) -> Option<PageSummaryBinding> {
+        let user = self.session?;
+        let owner = self.summary_binding_owner.as_ref()?;
+        (self.summary_binding_generation != 0
+            && self.model_services_ready
+            && self.model_services.is_some()
+            && self.summary_binding_session == Some(user)
+            && self.bar.controller.is_bound_to(&user))
+        .then(|| PageSummaryBinding {
+            session: user,
+            generation: self.summary_binding_generation,
+            owner: owner.clone(),
+        })
+    }
+    #[cfg(feature = "m20-model-service")]
+    fn refresh_page_summary_binding(&mut self) {
+        let user = self.session.filter(|user| {
+            self.model_services_ready
+                && self.model_services.is_some()
+                && self.bar.controller.is_bound_to(user)
+        });
+        if user.is_some() && self.summary_binding_owner.is_none() {
+            // Desktop::new remains const/configuration-only. Allocate this
+            // private marker only after a live Session has actually bound.
+            self.summary_binding_owner = Some(alloc::sync::Arc::new(()));
+        }
+        if user != self.summary_binding_session {
+            self.summary_binding_session = user;
+            if self.summary_binding_generation != 0 {
+                self.summary_binding_generation =
+                    self.summary_binding_generation.checked_add(1).unwrap_or(0);
+            }
+        }
+    }
+    #[cfg(feature = "m20-model-service")]
+    fn invalidate_page_summary_binding(&mut self) {
+        if self.summary_binding_session.take().is_some() && self.summary_binding_generation != 0 {
+            self.summary_binding_generation =
+                self.summary_binding_generation.checked_add(1).unwrap_or(0);
+        }
+    }
+
+    /// Production currently has no live Albert owner. Explicit summary intent
+    /// is consumed as unavailable; it never becomes plaintext model input.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn model_service_step(&mut self, yield_now: impl FnOnce()) -> bool {
+        self.model_service_step_with_page_context(None, yield_now)
+    }
+
+    /// One bounded owner step. References never enter the worker; missing or
+    /// mismatched owners cancel active summaries before any reply can display.
+    /// The normal runtime may supply Some only after a real owner/caller and
+    /// navigation/sharing freshness contract is available and reviewed.
+    #[cfg(feature = "m20-model-service")]
+    pub(crate) fn model_service_step_with_page_context(
+        &mut self,
+        context: Option<DesktopPageContext<'_>>,
+        yield_now: impl FnOnce(),
+    ) -> bool {
+        let old_status = self.bar.controller.status();
+        let binding = self.page_summary_binding();
+        let cancel = core::mem::take(&mut self.bar.cancel_requested);
+        let summary = core::mem::take(&mut self.bar.summary_requested);
+        if let Some(services) = self.model_services.as_mut() {
+            let live = self.session.as_ref();
+            if !self.model_services_ready || live.is_none_or(|user| user.is_locked()) {
+                // This helper clears pending consent and session state on lost
+                // readiness. The single real yield runs at the end of our step.
+                session_ui::idle_step(
+                    &mut self.bar.controller,
+                    live,
+                    self.model_services_ready,
+                    services,
+                    || {},
+                );
+            } else if let Some(user) = live {
+                self.bar.controller.sign_in(user, services);
+                if self.bar.controller.status() == session_ui::Status::Ready
+                    && self.bar.controller.terms().is_none()
+                {
+                    if let Some((name, reference)) = services.terms() {
+                        self.bar.controller.offer_terms(name, reference);
+                    }
+                }
+                if cancel {
+                    self.bar.controller.cancel(services);
+                }
+                let supplied = context.is_some();
+                let context = context.filter(|context| {
+                    binding.as_ref() == Some(&context.binding)
+                        && context.caller == context.request.caller
+                });
+                if summary && !cancel {
+                    if let Some(context) = context {
+                        self.bar.controller.request_page_summary(
+                            user,
+                            context.caller,
+                            context.request,
+                            context.authority,
+                            context.browser,
+                            services,
+                        );
+                    } else {
+                        let error = if supplied {
+                            session_ui::SubmitError::Denied
+                        } else {
+                            session_ui::SubmitError::Context(nagi_ai::PageSummaryError::Context(
+                                nagi_ai::BrowserContextError::ApiUnavailable,
+                            ))
+                        };
+                        self.bar.controller.reject_page_summary(error);
+                    }
+                } else if self.bar.controller.has_page_summary() {
+                    if let Some(context) = context {
+                        self.bar.controller.tick_page_summary(
+                            live,
+                            &context.request,
+                            services,
+                            context.authority,
+                            context.browser,
+                        );
+                    } else {
+                        self.bar.controller.cancel(services);
+                        self.bar.controller.tick(live, services);
+                    }
+                } else {
+                    self.bar.controller.tick(live, services);
+                }
+            }
+        }
+        self.refresh_page_summary_binding();
+        // Cooperate even without an adapter, with a hidden panel or on denial.
+        yield_now();
+        self.bar.is_open() && old_status != self.bar.controller.status()
     }
 
     pub fn render(&self, surface: &mut [u32]) {
@@ -354,6 +583,12 @@ impl Desktop {
             nagi_localization::text(self.locale, "desktop.terminal.title").as_bytes(),
             message!(TERMINAL_TEXT, 9),
         );
+        #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+        if self.files_panel.open {
+            self.render_files_panel(&mut painter);
+        }
+        #[cfg(feature = "m20-model-service")]
+        self.bar.render(&mut painter, self.locale);
         if self.settings_open {
             self.render_settings(&mut painter);
         }
@@ -415,7 +650,12 @@ impl Desktop {
                         print(b"Nagi consent decisions invalid; every grant asks again\r\n");
                     }
                     // Readiness means a signed-in desktop (ADR 0063).
-                    if libnagi::report_boot_ready() {
+                    let ready = libnagi::report_boot_ready();
+                    #[cfg(feature = "m20-model-service")]
+                    {
+                        self.model_services_ready = ready;
+                    }
+                    if ready {
                         print(b"Nagi login readiness reported PASS\r\n");
                     } else {
                         print(b"Nagi login readiness report FAIL\r\n");
@@ -434,6 +674,17 @@ impl Desktop {
                 return event.value != 0;
             }
         }
+        #[cfg(feature = "m20-model-service")]
+        if event.event_type == libnagi::INPUT_EVENT_KEY
+            && event.value == 1
+            && (event.code == 62 // F4 locks this OS-owned session.
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && bar_panel::LOCK_BUTTON.contains(self.pointer_x, self.pointer_y)))
+        {
+            self.lock_model_session(volume);
+            self.lock_requested = true;
+            return true;
+        }
         #[cfg(feature = "desktop-login")]
         if self.password_change.is_some() {
             return self.handle_password_change_event(event, volume);
@@ -445,6 +696,51 @@ impl Desktop {
         #[cfg(feature = "consent-dialog")]
         if self.permissions.is_some() {
             return self.handle_permissions_event(event, volume);
+        }
+        #[cfg(feature = "m20-model-service")]
+        if !self.settings_open && event.event_type == libnagi::INPUT_EVENT_KEY {
+            if event.value == 1
+                && (event.code == 61 // F3 opens the Nagi Bar.
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && bar_panel::BUTTON.contains(self.pointer_x, self.pointer_y)))
+            {
+                self.bar.toggle();
+                self.files_panel.open = false;
+                return true;
+            }
+            if self.bar.is_open() {
+                if event.value == 1
+                    && event.code == libnagi::INPUT_KEY_LEFT
+                    && SETTINGS_BUTTON.contains(self.pointer_x, self.pointer_y)
+                {
+                    self.bar.close();
+                } else {
+                    return self.bar.event(event, self.pointer_x, self.pointer_y);
+                }
+            }
+        }
+        #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+        if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 && !self.settings_open {
+            if self.files_panel.open {
+                if event.code == libnagi::INPUT_KEY_LEFT {
+                    self.click_files_panel();
+                } else if event.value == 1 {
+                    self.files_panel.key(event.code);
+                }
+                return true;
+            }
+            let window = self.windows[2];
+            let manage = Rect::new(window.x + 82, window.y + TITLE_HEIGHT + 1, 57, 11);
+            if (event.code == FILES_MANAGE_KEY
+                && self.desktop_focus == Some(DesktopFocus::Application(2)))
+                || (event.code == libnagi::INPUT_KEY_LEFT
+                    && manage.contains(self.pointer_x, self.pointer_y))
+            {
+                self.desktop_focus = Some(DesktopFocus::Application(2));
+                self.activate_application(2, false);
+                self.files_panel.open();
+                return true;
+            }
         }
         if event.event_type == libnagi::INPUT_EVENT_KEY && event.value != 0 {
             if event.code == libnagi::INPUT_KEY_TAB {
@@ -531,6 +827,42 @@ impl Desktop {
         false
     }
 
+    #[cfg(feature = "m20-model-service")]
+    fn lock_model_session(&mut self, volume: &mut UserDataVolume) {
+        self.invalidate_page_summary_binding();
+        // This runs inside handle_event too, so a nested Files consent loop
+        // immediately sees the invalidated session and aborts its old launch.
+        if let Some(services) = self.model_services.as_mut() {
+            self.bar.controller.lock_or_signout(services);
+        }
+        if let Some(session) = self.session.as_mut() {
+            session.lock();
+        }
+        self.session = None;
+        self.model_services_ready = false;
+        self.bar.clear_presentation();
+        self.files_panel = files_panel::Panel::new();
+        self.clear_files_search();
+        self.password_change = None;
+        self.settings_open = false;
+        self.settings_focus = None;
+        self.desktop_focus = None;
+        self.focused.fill(false);
+        self.keyboard_app_focus.fill(false);
+        self.keyboard_focus_pass_printed = false;
+        self.notes_has_input = false;
+        #[cfg(feature = "consent-dialog")]
+        {
+            self.consent = None;
+            self.permissions = None;
+            self.consent_decision = None;
+        }
+        let mut login = crate::login_screen::LoginScreen::new(crate::login_screen::load(volume));
+        login.focus_language(self.locale);
+        login.resume_throttle(volume);
+        self.login = Some(login);
+    }
+
     #[cfg(feature = "desktop-login")]
     pub fn login_waiting(&self) -> bool {
         self.login.as_ref().is_some_and(|login| login.is_waiting())
@@ -543,33 +875,41 @@ impl Desktop {
     }
 
     pub fn acceptance_ready(&self) -> bool {
-        #[cfg(feature = "desktop-password-change-acceptance")]
+        #[cfg(feature = "production-session")]
         {
-            return self.session.is_some() && self.password_change_succeeded;
+            false
         }
-        #[cfg(not(feature = "desktop-password-change-acceptance"))]
+        #[cfg(not(feature = "production-session"))]
         {
-            #[cfg(all(
-                feature = "desktop-login-acceptance",
-                not(feature = "m19-files-search-production")
-            ))]
-            if cfg!(feature = "desktop-login-acceptance") {
-                return self.session.is_some();
+            #[cfg(feature = "desktop-password-change-acceptance")]
+            {
+                return self.session.is_some() && self.password_change_succeeded;
             }
-            #[cfg(feature = "consent-dialog-acceptance")]
-            if self.consent_answered {
-                return true;
-            }
-            let desktop_ready = self.focused.iter().all(|focused| *focused) && self.notes_has_input;
-            if cfg!(feature = "consent-dialog-acceptance") {
-                false
-            } else if cfg!(feature = "m29-settings-acceptance") {
-                desktop_ready
-                    && self.settings_open
-                    && self.locale == nagi_localization::Locale::JaJp
-                    && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
-            } else {
-                desktop_ready
+            #[cfg(not(feature = "desktop-password-change-acceptance"))]
+            {
+                #[cfg(all(
+                    feature = "desktop-login-acceptance",
+                    not(all(target_os = "nagi", feature = "m19-files-search-production"))
+                ))]
+                if cfg!(feature = "desktop-login-acceptance") {
+                    return self.session.is_some();
+                }
+                #[cfg(feature = "consent-dialog-acceptance")]
+                if self.consent_answered {
+                    return true;
+                }
+                let desktop_ready =
+                    self.focused.iter().all(|focused| *focused) && self.notes_has_input;
+                if cfg!(feature = "consent-dialog-acceptance") {
+                    false
+                } else if cfg!(feature = "m29-settings-acceptance") {
+                    desktop_ready
+                        && self.settings_open
+                        && self.locale == nagi_localization::Locale::JaJp
+                        && !JAPANESE_OPTION.contains(self.pointer_x, self.pointer_y)
+                } else {
+                    desktop_ready
+                }
             }
         }
     }
@@ -1043,6 +1383,228 @@ impl Desktop {
     }
 
     #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn render_files_panel(&self, painter: &mut Painter<'_>) {
+        use files_panel::Focus;
+        let panel = &self.files_panel;
+        painter.fill(FILES_PANEL, PANEL);
+        painter.frame(FILES_PANEL, BORDER);
+        painter.text(
+            24,
+            31,
+            nagi_localization::text(self.locale, "desktop.files.title").as_bytes(),
+            TEXT,
+        );
+        let mut button = |rect: Rect, key: &str, focus: Focus| {
+            painter.fill(rect, PANEL);
+            painter.frame(rect, if panel.focus == focus { FOCUS } else { BORDER });
+            painter.text(
+                rect.x + 3,
+                rect.y + 3,
+                nagi_localization::text(self.locale, key).as_bytes(),
+                TEXT,
+            );
+        };
+        if panel.editing {
+            button(
+                Rect::new(24, 162, 90, 14),
+                "desktop.files.apply",
+                Focus::Apply,
+            );
+            button(
+                Rect::new(123, 162, 90, 14),
+                "desktop.files.cancel",
+                Focus::Cancel,
+            );
+        } else {
+            button(
+                Rect::new(24, 45, 125, 14),
+                if panel.trash_view {
+                    "desktop.files.show_files"
+                } else {
+                    "desktop.files.show_trash"
+                },
+                Focus::View,
+            );
+            if !panel.trash_view {
+                button(Rect::new(24, 162, 80, 14), "desktop.files.new", Focus::New);
+                button(
+                    Rect::new(114, 162, 80, 14),
+                    "desktop.files.rename",
+                    Focus::Rename,
+                );
+            }
+            button(
+                Rect::new(204, 162, 91, 14),
+                if panel.trash_view {
+                    "desktop.files.restore"
+                } else {
+                    "desktop.files.trash"
+                },
+                Focus::Trash,
+            );
+        }
+        let first_row = panel.selected.saturating_sub(7);
+        for (row, entry) in panel.entries.iter().enumerate().skip(first_row).take(8) {
+            let rect = Rect::new(24, 63 + (row - first_row) as i32 * 10, 271, 10);
+            if row == panel.selected {
+                painter.fill(
+                    rect,
+                    color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+                );
+                painter.frame(
+                    rect,
+                    if panel.focus == Focus::List {
+                        FOCUS
+                    } else {
+                        BORDER
+                    },
+                );
+            }
+            painter.text(rect.x + 3, rect.y + 1, entry.name.as_bytes(), TEXT);
+        }
+        if panel.entries.is_empty() && !panel.editing {
+            painter.text(
+                27,
+                66,
+                nagi_localization::text(self.locale, "desktop.files.list_empty").as_bytes(),
+                TEXT,
+            );
+        }
+        if panel.editing {
+            let field = Rect::new(24, 145, 271, 14);
+            painter.fill(
+                field,
+                color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+            );
+            painter.frame(
+                field,
+                if panel.focus == Focus::Name {
+                    FOCUS
+                } else {
+                    BORDER
+                },
+            );
+            painter.text(field.x + 3, field.y + 3, panel.name.as_bytes(), TEXT);
+        }
+        if !panel.status.is_empty() {
+            painter.text(
+                24,
+                180,
+                nagi_localization::text(self.locale, panel.status).as_bytes(),
+                TEXT,
+            );
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn click_files_panel(&mut self) {
+        use files_panel::Focus;
+        let x = self.pointer_x;
+        let y = self.pointer_y;
+        if self.files_panel.editing {
+            for (rect, focus) in [
+                (Rect::new(24, 145, 271, 14), Focus::Name),
+                (Rect::new(24, 162, 90, 14), Focus::Apply),
+                (Rect::new(123, 162, 90, 14), Focus::Cancel),
+            ] {
+                if rect.contains(x, y) {
+                    if focus == Focus::Name {
+                        self.files_panel.focus = focus;
+                    } else {
+                        self.files_panel.activate(focus);
+                    }
+                    return;
+                }
+            }
+        } else {
+            if Rect::new(24, 45, 125, 14).contains(x, y) {
+                self.files_panel.activate(Focus::View);
+                return;
+            }
+            let first_row = self.files_panel.selected.saturating_sub(7);
+            for row in 0..self
+                .files_panel
+                .entries
+                .len()
+                .saturating_sub(first_row)
+                .min(8)
+            {
+                if Rect::new(24, 63 + row as i32 * 10, 271, 10).contains(x, y) {
+                    self.files_panel.selected = first_row + row;
+                    self.files_panel.focus = Focus::List;
+                    return;
+                }
+            }
+            for (rect, focus) in [
+                (Rect::new(24, 162, 80, 14), Focus::New),
+                (Rect::new(114, 162, 80, 14), Focus::Rename),
+                (Rect::new(204, 162, 91, 14), Focus::Trash),
+            ] {
+                if rect.contains(x, y) {
+                    self.files_panel.activate(focus);
+                    return;
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
+    fn process_files_operations(
+        &mut self,
+        volume: &mut UserDataVolume,
+        runtime: Option<&mut crate::m19_runtime::Runtime>,
+    ) {
+        use files_panel::Operation;
+        if self.session.is_none() {
+            return;
+        }
+        if let Some(operation) = self.files_panel.pending.take() {
+            let (result, marker) = match operation {
+                Operation::Create(name) => {
+                    (files::create(volume, name.as_bytes()).map(|_| ()), "create")
+                }
+                Operation::Rename(entry, name) => (
+                    files::rename(volume, &entry, name.as_bytes()).map(|_| ()),
+                    "rename",
+                ),
+                Operation::Trash(entry) => (files::trash(volume, &entry), "trash"),
+                Operation::Restore(entry) => (files::restore(volume, &entry), "restore"),
+            };
+            self.files_panel.completed(result);
+            self.clear_files_search();
+            // Indexing failure cannot undo or block a physical Files operation.
+            // Every sync starts fail-closed, so stale IDs never reach Search.
+            let synchronized = runtime.is_some_and(|runtime| runtime.sync_files(volume).is_ok());
+            if result.is_ok() {
+                print(b"Nagi Files UI operation PASS operation=");
+                print(marker.as_bytes());
+                print(b"\r\n");
+                if !synchronized {
+                    self.files_panel.status = "desktop.files.operation.saved_search_pending";
+                }
+            }
+        }
+        if self.files_panel.open && self.files_panel.refresh {
+            self.files_panel.refresh = false;
+            let result = files::initialize(volume).and_then(|()| {
+                if self.files_panel.trash_view {
+                    files::trash_entries(volume)
+                } else {
+                    files::list(volume)
+                }
+            });
+            match result {
+                Ok(entries) => self.files_panel.replace_entries(entries),
+                Err(error) => {
+                    self.files_panel.replace_entries(alloc::vec::Vec::new());
+                    self.files_panel.completed(Err(error));
+                    self.files_panel.refresh = false;
+                }
+            }
+        }
+    }
+
+    #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
     fn render_files_search(&self, painter: &mut Painter<'_>) {
         let window = self.windows[2];
         let label_y = window.y + TITLE_HEIGHT + 3;
@@ -1076,6 +1638,16 @@ impl Desktop {
         } else {
             painter.text(field.x + 3, field.y + 2, query, TEXT);
         }
+
+        let manage = Rect::new(window.x + 82, label_y - 2, 57, 11);
+        painter.fill(manage, PANEL);
+        painter.frame(manage, BORDER);
+        painter.text(
+            manage.x + 2,
+            manage.y + 2,
+            nagi_localization::text(self.locale, "desktop.files.manage").as_bytes(),
+            TEXT,
+        );
 
         let status_y = field.y + field.height + 3;
         if self.files_search_unavailable {
@@ -1242,6 +1814,12 @@ pub fn run(
     };
     let preference = load_locale(&mut volume);
     let mut desktop = Desktop::new(preference.locale());
+    #[cfg(feature = "m20-model-service")]
+    {
+        desktop.model_services = Some(bar_adapter::Adapter::new(
+            crate::session_services::boot_model_store_capability(),
+        ));
+    }
     #[cfg(feature = "desktop-login")]
     let login_mode = {
         let screen = crate::login_screen::LoginScreen::new(crate::login_screen::load(&mut volume));
@@ -1288,6 +1866,7 @@ pub fn run(
     desktop.arm_consent();
     let initial_checksum = checksum(surface);
     // Compare every pixel: a moved 3x3 pointer can miss the sampled checksum.
+    #[cfg(not(feature = "production-session"))]
     let initial_frame = frame_hash(surface);
     print(message!(NAGI_M10_READY, 24));
     print_checksum(initial_checksum);
@@ -1336,6 +1915,17 @@ pub fn run(
         LocalePreference::Restored(_) | LocalePreference::Missing => {}
     }
     loop {
+        #[cfg(feature = "m20-model-service")]
+        {
+            if desktop.model_service_step(|| {
+                let _ = libnagi::thread_yield();
+            }) {
+                desktop.render(surface);
+                if !libnagi::display_present(display_capability) {
+                    libnagi::exit(1);
+                }
+            }
+        }
         let mut event = InputEvent::default();
         if !libnagi::input_read(input_capability, &mut event) {
             #[cfg(feature = "desktop-login")]
@@ -1346,10 +1936,16 @@ pub fn run(
                     libnagi::exit(1);
                 }
             }
-            unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
+            // Cooperate even while locked, idle or without a pending request.
+            let _ = libnagi::thread_yield();
             continue;
         }
         if desktop.handle_event(event, &mut volume) {
+            #[cfg(feature = "m20-model-service")]
+            if desktop.lock_requested {
+                desktop.lock_requested = false;
+                search_runtime = None;
+            }
             #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
             if desktop.session.is_some() {
                 if search_runtime.is_none() {
@@ -1434,6 +2030,7 @@ pub fn run(
                         }
                     }
                 }
+                desktop.process_files_operations(&mut volume, search_runtime.as_mut());
                 if let Some(query) = desktop.take_files_search_request() {
                     if let Some(runtime) = search_runtime.as_mut() {
                         match runtime.sync_files(&mut volume) {
@@ -1468,7 +2065,10 @@ pub fn run(
                             }
                         };
                         if synced {
-                            #[cfg(feature = "m19-files-search-production")]
+                            #[cfg(all(
+                                target_os = "nagi",
+                                feature = "m19-files-search-production"
+                            ))]
                             {
                                 let response = crate::m19_files_client::search(
                                     runtime,
@@ -1530,7 +2130,10 @@ pub fn run(
                                     desktop.set_files_search_unavailable();
                                 }
                             }
-                            #[cfg(not(feature = "m19-files-search-production"))]
+                            #[cfg(not(all(
+                                target_os = "nagi",
+                                feature = "m19-files-search-production"
+                            )))]
                             if let Some(titles) = runtime.search_file_titles(&query) {
                                 desktop.set_files_search_results(&titles);
                                 #[cfg(feature = "desktop-login-acceptance")]
@@ -1592,7 +2195,11 @@ pub fn run(
             if let Some(panel) = &mut desktop.permissions {
                 panel.announce();
             }
-            if frame_hash(surface) == initial_frame {
+            // The milestone fixture expects every event to change its initial
+            // frame. An ordinary session can legitimately return to that frame
+            // when it locks, so keep this failure path in acceptance builds.
+            #[cfg(not(feature = "production-session"))]
+            if unchanged_frame_fails_acceptance(frame_hash(surface), initial_frame) {
                 print(message!(NAGI_M10_FAIL, 26));
                 libnagi::exit(1);
             }
@@ -1762,6 +2369,7 @@ fn checksum(surface: &[u32]) -> u64 {
     value
 }
 
+#[cfg(any(not(feature = "production-session"), test))]
 fn frame_hash(surface: &[u32]) -> u64 {
     surface
         .iter()
@@ -1824,3 +2432,25 @@ fn append_decimal(destination: &mut [u8], mut offset: usize, mut value: u64) -> 
     }
     offset
 }
+
+// Kept separate so the real Desktop regression tests can exercise the failure
+// decision without invoking the guest process-exit syscall on the host.
+#[cfg(any(not(feature = "production-session"), test))]
+fn unchanged_frame_fails_acceptance(current: u64, initial: u64) -> bool {
+    !cfg!(feature = "production-session") && current == initial
+}
+
+#[cfg(all(test, not(target_os = "nagi"), feature = "desktop-login"))]
+#[path = "../../../tests/session-ui/desktop-host/src/desktop_tests.rs"]
+mod regression;
+
+// Test-only nesting lets the inherited Files tests see their Desktop-private
+// panel without changing any Files source or production visibility.
+#[cfg(all(
+    test,
+    not(target_os = "nagi"),
+    feature = "m19-runtime",
+    feature = "desktop-login"
+))]
+#[path = "m19_runtime.rs"]
+pub(super) mod host_m19_runtime;

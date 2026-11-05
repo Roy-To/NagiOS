@@ -1,0 +1,15 @@
+[package]
+name = "nagi-supervisor-receive-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+libnagi = { path = "../../../user/libnagi" }
+nagi-model = { path = "../../../crates/nagi-model" }
+nagi-package = { path = "../../../user/nagi-package" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))', 'cfg(feature, values("isolated-process-acceptance", "m19-search-ipc", "consent-dialog"))'] }

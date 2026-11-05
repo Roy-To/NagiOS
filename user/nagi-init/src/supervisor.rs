@@ -169,6 +169,94 @@ pub fn resolve(process_id: u32) -> Option<LaunchRecord> {
     with_registry(|registry| registry.resolve(process_id)).flatten()
 }
 
+/// Received on an endpoint owned by this Supervisor launch. Construction is
+/// private: caller identity is never accepted from a payload or supplied PID.
+/// This proves only app sender binding, NOT an authenticated Desktop Session,
+/// summary protocol, user intent, Browser sharing or model terms consent.
+/// Borrowing the launch prevents the ordinary owner from reaping it while this
+/// receipt is in use. Recheck live_launch before every authority-sensitive use.
+pub struct ReceivedAppMessage<'a> {
+    source: &'a Launched,
+    envelope: libnagi::ChannelReceiveResult,
+}
+
+impl ReceivedAppMessage<'_> {
+    pub fn live_launch(&self) -> Option<LaunchRecord> {
+        resolve(self.source.record.process_id).filter(|record| *record == self.source.record)
+    }
+
+    /// Protocol/version/opcode/request/payload remain untrusted and must be
+    /// validated by the consumer. They never select the authenticated actor.
+    pub fn envelope(&self) -> &libnagi::ChannelReceiveResult {
+        &self.envelope
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReceiveFailure {
+    LaunchExpired,
+    EndpointUnavailable,
+    SenderMismatch,
+    Malformed,
+    HandleCleanupFailed,
+}
+
+/// Bounded, nonblocking receive suitable for a future Desktop owner step.
+/// The sender comes only from the real kernel receive result; registry state
+/// is checked before and after receive. This installs no Bar endpoint or actor.
+pub fn try_receive_from(
+    source: &Launched,
+) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+    try_receive_from_with(source, libnagi::channel_try_receive, handle_close)
+}
+
+// Private injection seam for host boundary tests; callers outside this module
+// cannot mint a receipt from freely constructed ChannelReceiveResult fields.
+fn try_receive_from_with(
+    source: &Launched,
+    receive: impl FnOnce(u64, &mut libnagi::ChannelReceiveResult) -> Option<bool>,
+    mut close: impl FnMut(u64) -> bool,
+) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+    if resolve(source.record.process_id) != Some(source.record) {
+        return Err(ReceiveFailure::LaunchExpired);
+    }
+    let mut envelope = libnagi::ChannelReceiveResult::default();
+    match receive(source.endpoint, &mut envelope) {
+        Some(false) => return Ok(None),
+        None => return Err(ReceiveFailure::EndpointUnavailable),
+        Some(true) => {}
+    }
+    // This entry accepts inline data only. Reject and release every actually
+    // received handle, including malformed counts, before discarding an envelope.
+    if envelope.transfer_count != 0 {
+        let mut cleaned = true;
+        for handle in envelope
+            .handles
+            .iter()
+            .take((envelope.transfer_count as usize).min(envelope.handles.len()))
+            .copied()
+            .filter(|handle| *handle != 0)
+        {
+            cleaned &= close(handle);
+        }
+        return Err(if cleaned {
+            ReceiveFailure::Malformed
+        } else {
+            ReceiveFailure::HandleCleanupFailed
+        });
+    }
+    if envelope.payload_len as usize > envelope.payload.len() {
+        return Err(ReceiveFailure::Malformed);
+    }
+    if envelope.sender_process_id != source.record.process_id {
+        return Err(ReceiveFailure::SenderMismatch);
+    }
+    if resolve(envelope.sender_process_id) != Some(source.record) {
+        return Err(ReceiveFailure::LaunchExpired);
+    }
+    Ok(Some(ReceivedAppMessage { source, envelope }))
+}
+
 /// Whether the live application session may exercise `capability`.
 pub fn has_grant(
     app_id: AppId,
@@ -322,7 +410,315 @@ pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
     .then_some(status)
 }
 
+/// Registry authority is revoked and the parent endpoint is being closed,
+/// but process exit has NOT been observed. Only retire can construct this token.
+#[must_use = "retain for endpoint cleanup and reaping outside the UI step"]
+pub struct RetiredLaunch {
+    process_id: u32,
+    endpoint: u64,
+    endpoint_closed: bool,
+}
+#[must_use]
+pub struct RetireRejected(pub Launched);
+
+/// Detach app authority BEFORE waiting for any process exit. This calls no
+/// process_wait and creates no reaper thread. Registry spin time is unproved.
+pub fn retire(launched: Launched) -> Result<RetiredLaunch, RetireRejected> {
+    retire_with(launched, handle_close)
+}
+fn retire_with(
+    launched: Launched,
+    close: impl FnOnce(u64) -> bool,
+) -> Result<RetiredLaunch, RetireRejected> {
+    let revoked = with_registry(|registry| {
+        if registry.resolve(launched.record.process_id) != Some(launched.record) {
+            return false;
+        }
+        registry.record_exit(launched.record.process_id) == Some(launched.record)
+    })
+    .unwrap_or(false);
+    if !revoked {
+        return Err(RetireRejected(launched));
+    }
+    Ok(RetiredLaunch {
+        process_id: launched.record.process_id,
+        endpoint: launched.endpoint,
+        endpoint_closed: close(launched.endpoint),
+    })
+}
+impl RetiredLaunch {
+    pub fn endpoint_closed(&self) -> bool {
+        self.endpoint_closed
+    }
+    /// One bounded close attempt, never a retry loop; failure retains ownership.
+    pub fn close_endpoint(&mut self) -> bool {
+        self.close_with(handle_close)
+    }
+    fn close_with(&mut self, close: impl FnOnce(u64) -> bool) -> bool {
+        if !self.endpoint_closed {
+            self.endpoint_closed = close(self.endpoint);
+        }
+        self.endpoint_closed
+    }
+}
+
+/// WAITING API: only a separately budgeted reaper may call this, never the UI
+/// step. Existing process_wait can block/retry while the child is alive.
+/// An error retains the token; it is not a poll-ready/exit notification and must
+/// not be blindly retried or reported as a successfully reaped child.
+pub fn reap_retired(retired: RetiredLaunch) -> Result<ProcessExitStatus, RetiredLaunch> {
+    reap_retired_with(retired, handle_close, process_wait)
+}
+fn reap_retired_with(
+    mut retired: RetiredLaunch,
+    close: impl FnOnce(u64) -> bool,
+    wait: impl FnOnce(u32) -> Option<ProcessExitStatus>,
+) -> Result<ProcessExitStatus, RetiredLaunch> {
+    if !retired.close_with(close) {
+        return Err(retired);
+    }
+    match wait(retired.process_id) {
+        Some(status) if status.process_id == retired.process_id => Ok(status),
+        _ => Err(retired),
+    }
+}
+
 /// Whether `status` is a clean `SYS_PROCESS_EXIT(0)`.
 pub fn exited_cleanly(status: &ProcessExitStatus) -> bool {
     status.kind == PROCESS_EXIT_KIND_EXITED && status.code == 0
+}
+
+#[cfg(test)]
+mod receive_tests {
+    extern crate std;
+    use super::*;
+    use libnagi::ChannelReceiveResult;
+    use nagi_model::{AppSessionId, NodeId};
+    use std::sync::{Mutex, MutexGuard};
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    struct Fixture(MutexGuard<'static, ()>);
+    impl Fixture {
+        fn new() -> Self {
+            let guard = SERIAL.lock().unwrap();
+            with_registry(|registry| *registry = LaunchRegistry::new()).unwrap();
+            Self(guard)
+        }
+        fn launched(&self) -> Launched {
+            // Synthetic registry fixture, not a signed package/kernel launch.
+            // Tests cover receive orchestration only, never OS provenance.
+            let app = AppId::from_identifier(b"org.nagi.bar");
+            let record = with_registry(|registry| {
+                registry
+                    .register_manifest(AppManifest::from_declaration(b"org.nagi.bar", []).unwrap())
+                    .unwrap();
+                registry
+                    .record_launch(
+                        7,
+                        app,
+                        LaunchPlacement {
+                            app_session_id: AppSessionId(8),
+                            node_id: NodeId(9),
+                            workspace_id: None,
+                        },
+                    )
+                    .unwrap()
+            })
+            .unwrap();
+            Launched {
+                endpoint: 42,
+                record,
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            with_registry(|registry| *registry = LaunchRegistry::new()).unwrap();
+            let _ = &self.0;
+        }
+    }
+    fn envelope(sender: u32) -> ChannelReceiveResult {
+        let mut message = ChannelReceiveResult {
+            sender_process_id: sender,
+            request_id: 5,
+            ..ChannelReceiveResult::default()
+        };
+        let forged = b"caller=org.example.admin;pid=1";
+        message.payload[..forged.len()].copy_from_slice(forged);
+        message.payload_len = forged.len() as u32;
+        message
+    }
+    fn receive(
+        source: &Launched,
+        message: ChannelReceiveResult,
+    ) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+        try_receive_from_with(
+            source,
+            |endpoint, result| {
+                assert_eq!(endpoint, 42);
+                *result = message;
+                Some(true)
+            },
+            |_| panic!("inline fixture must not close any handle"),
+        )
+    }
+    #[test]
+    fn kernel_sender_binding_ignores_payload_identity_and_rechecks_revocation() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let receipt = receive(&source, envelope(7)).unwrap().unwrap();
+        assert_eq!(receipt.live_launch(), Some(source.record));
+        assert_eq!(receipt.envelope().request_id, 5);
+        assert!(receipt
+            .envelope()
+            .payload
+            .starts_with(b"caller=org.example.admin"));
+        with_registry(|registry| registry.record_exit(7))
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.live_launch(), None);
+    }
+    #[test]
+    fn forged_sender_cannot_use_expected_endpoint_launch() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        for sender in [0, 1, 8] {
+            assert!(matches!(
+                receive(&source, envelope(sender)),
+                Err(ReceiveFailure::SenderMismatch)
+            ));
+        }
+    }
+    #[test]
+    fn stale_or_changed_launch_is_denied_before_receiving() {
+        let fixture = Fixture::new();
+        let mut source = fixture.launched();
+        source.record.app_session_id = AppSessionId(99);
+        assert!(matches!(
+            try_receive_from_with(
+                &source,
+                |_, _| panic!("stale binding read endpoint"),
+                |_| true
+            ),
+            Err(ReceiveFailure::LaunchExpired)
+        ));
+    }
+    #[test]
+    fn launch_revoked_during_receive_cannot_mint_receipt() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let result = try_receive_from_with(
+            &source,
+            |_, message| {
+                *message = envelope(7);
+                with_registry(|registry| registry.record_exit(7))
+                    .unwrap()
+                    .unwrap();
+                Some(true)
+            },
+            |_| true,
+        );
+        assert!(matches!(result, Err(ReceiveFailure::LaunchExpired)));
+    }
+    #[test]
+    fn empty_and_failed_endpoint_are_bounded_without_retry() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        assert!(matches!(
+            try_receive_from_with(&source, |_, _| Some(false), |_| true),
+            Ok(None)
+        ));
+        assert!(matches!(
+            try_receive_from_with(&source, |_, _| None, |_| true),
+            Err(ReceiveFailure::EndpointUnavailable)
+        ));
+    }
+    #[test]
+    fn malformed_inline_and_transferred_handles_fail_closed_and_release_handles() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let mut message = envelope(7);
+        message.payload_len = u32::MAX;
+        assert!(matches!(
+            receive(&source, message),
+            Err(ReceiveFailure::Malformed)
+        ));
+        for cleanup_ok in [true, false] {
+            let mut handles = std::vec::Vec::new();
+            let result = try_receive_from_with(
+                &source,
+                |_, message| {
+                    *message = envelope(7);
+                    message.transfer_count = u32::MAX;
+                    message.handles = [51, 52, 53, 54];
+                    Some(true)
+                },
+                |handle| {
+                    handles.push(handle);
+                    cleanup_ok
+                },
+            );
+            assert!(
+                matches!(result, Err(ReceiveFailure::Malformed)) && cleanup_ok
+                    || matches!(result, Err(ReceiveFailure::HandleCleanupFailed)) && !cleanup_ok
+            );
+            assert_eq!(handles, [51, 52, 53, 54]);
+        }
+    }
+    #[test]
+    fn retirement_revokes_before_close_and_wait_only_occurs_in_explicit_reaper() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let retired = match retire_with(source, |handle| {
+            assert_eq!(handle, 42);
+            assert_eq!(resolve(7), None);
+            true
+        }) {
+            Ok(r) => r,
+            Err(_) => panic!("fixture retire"),
+        };
+        assert!(retired.endpoint_closed());
+        let status = reap_retired_with(
+            retired,
+            |_| panic!("already closed"),
+            |pid| {
+                assert_eq!(pid, 7);
+                assert_eq!(resolve(7), None);
+                Some(ProcessExitStatus {
+                    process_id: pid,
+                    kind: PROCESS_EXIT_KIND_EXITED,
+                    code: 0,
+                    fault_vector: 0,
+                })
+            },
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(status.process_id, 7);
+    }
+    #[test]
+    fn retirement_cleanup_failure_retains_token_and_does_not_wait() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let retired = retire_with(source, |_| false).ok().unwrap();
+        assert!(!retired.endpoint_closed());
+        assert_eq!(resolve(7), None);
+        let retired = reap_retired_with(
+            retired,
+            |_| false,
+            |_| panic!("close failed: must not wait"),
+        )
+        .err()
+        .unwrap();
+        assert!(!retired.endpoint_closed());
+        assert!(reap_retired_with(retired, |_| true, |_| None).is_err());
+    }
+    #[test]
+    fn retirement_rejects_changed_record_without_closing_foreign_endpoint() {
+        let fixture = Fixture::new();
+        let mut source = fixture.launched();
+        source.record.app_session_id = nagi_model::AppSessionId(999);
+        assert!(retire_with(source, |_| panic!("wrong record cannot close")).is_err());
+        assert!(resolve(7).is_some());
+    }
 }

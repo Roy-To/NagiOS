@@ -2,6 +2,9 @@ use alloc::vec::Vec;
 
 use nagi_model::{AppId, AppSessionId, NodeId, ObjectId, WorkspaceId};
 
+/// Logical requesting assistant identity; this value alone is not OS provenance.
+pub const NAGI_BAR_APP_ID: AppId = AppId::from_identifier(b"org.nagi.bar");
+
 pub const MAX_CONTEXT_OBJECTS: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,7 +60,7 @@ impl ContextResolver {
     pub fn resolve(
         &self,
         request: ContextRequest,
-        authority: &impl ContextAuthority,
+        authority: &(impl ContextAuthority + ?Sized),
     ) -> Result<ResolvedContext, ContextError> {
         if request
             .caller

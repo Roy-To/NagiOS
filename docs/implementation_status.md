@@ -17,6 +17,251 @@ The inventory is checked against the existing Rust repository check.
 No target or guest acceptance and no hosted CI result are claimed for
 this unpublished candidate. No milestone status changes.
 
+## Local modern input queue negotiation / M23 contract — 2026-11-04
+
+Formal M30 remains `BLOCKED`. The shared block/Net implementation at `d3a4ea2`
+builds image SHA-256
+`fb625117e24c14b92583dc811c40447afc3a0dabad4ab81c101ad80f99103074`.
+Both QEMU 8/10 format/write User Data; QEMU 8 reaches normal Owner/Desktop and
+worker startup. QEMU 10 reaches login, but long scripted input duplicates or
+loses characters and fails sign-in. Explicit HID press/release reproduces it.
+QMP shows its modern keyboard/mouse queues still at 1024 while software wraps
+at 64 (`out/evidence/m30-session-1793772240092097471/virtio-state.json`).
+The input driver now programs/read-backs the chosen modern queue length before
+enable, and rejects incompatible legacy geometry. Its 172 kernel tests and
+native target kernel build pass; guest validation follows separately.
+
+The retained QEMU 10 layout run at `d3a4ea2` passes M7, M12 and real Rust PAL
+HTTP (host fixture logs a GET), then fails C POSIX probe code 85. That is the
+nonzero/failed `example.com` DNS result (70+15), not a disk or HTTP result.
+Evidence: `out/evidence/m30-layout-1793771659111867600/reference-disk-restart.log`.
+The managed environment is restricted and retains no network diagnostic bundle;
+its precise DNS failure cause is not established. No resolver substitution,
+network expansion, skipped assertion or layout PASS is claimed.
+
+M23 contract inspection confirms Some(AppId) versus the ordinary service's
+None-only Session route, separate system-prompt/worker API gaps and current
+2048-versus-256 output limits. See
+`docs/workstreams/m30-session-caller-contract.md`. The separately reviewed
+budget candidate `ed67d36954e520122ee889715846ad513bd0ccdf` is unavailable from
+origin (`not our ref`), uninspected and not merged. Existing external-caller
+rejection remains unchanged.
+
+## Local shared block/Net queue geometry — 2026-11-04
+
+Formal M30 remains `BLOCKED`. Pinning RX/TX properties to 256 did not change
+QEMU 10's observed 1024-entry ring geometry, so that local attempt is superseded
+and removed from the launcher. Net now uses the same checked 256/512/1024 legacy
+split-ring layout as block. Only the existing 256 receive buffers are published;
+returned buffer IDs remain bounded by that pool. RX buffer pointers now step by
+1546 bytes (including the VirtIO header), preventing adjacent descriptors from
+overlapping. RX is notified after DRIVER_OK. Timeouts, feature negotiation,
+capability checks and acceptance requirements are unchanged. ADR 0072 records
+the evidence and superseded attempt.
+
+All 170 kernel tests and the target kernel build pass. Shared tests cover ring
+geometry, publication/completion, index wrap, the bounded RX pool inside a larger
+ring and invalid lengths. Net tests check its header-inclusive buffer stride.
+Source-bound native image/guest and real network acceptance of this shared
+implementation are pending; earlier M7 progress does not imply Net success.
+
+## Local reference Net queue contract follow-up — 2026-11-04
+
+Formal M30 remains `BLOCKED`. The variable block layout at local code
+`4f4ad9d14c1fa9801c304bdc49e304c858965f4b` builds native image SHA-256
+`88f6a44789202e6f7560f8e25cb71b4253109626fc109edb7fe00d85b372380f`.
+QEMU 10 now consumes 1024-entry block requests and reports M7 VirtIO Block PASS;
+QEMU 8 still formats/writes User Data with a 256-entry block ring. This reveals
+M12 Net `UnsupportedQueue`: QMP shows 1024-entry network queues, outside that
+driver's fixed 256-entry contract. The retained layout fixture reaches persistent
+User Data but fails its actual M13 PAL network operation and times out; evidence
+is `out/evidence/m30-layout-1793770606428462864/reference-disk-restart.log`.
+No layout or formal release PASS is claimed for that run.
+
+The reference launcher now explicitly requests RX/TX length 256, preserving the
+existing bounded Net driver contract across QEMU machine versions. Each selected
+queue is validated after reset with an exact-length check, including TX; no
+larger incompatible ring is accepted. Network remains enabled. See ADR 0072.
+All 168 kernel tests, 27 CLI image tests, format and target kernel build pass.
+The optional whole-kernel host warnings-denied Clippy check fails on five
+unchanged audio/scheduler/user_process diagnostics; none is in the affected
+VirtIO source. Guest regression of this follow-up is recorded separately.
+
+## Local M30 guest diagnostics and variable VirtIO queue repair — 2026-11-04
+
+Formal M30 remains `BLOCKED`. Native source
+`fd5972b8c22ddaae2b8e943c6ef547d420bd4073` built image SHA-256
+`06c7cab0921f8c2e241d6e94734e51ec947321655a19bd13daea5d89b8cc761a`.
+Its QEMU 8.2.2 ordinary Desktop reports `Nagi session worker started` and
+`backend-result=artifact-unavailable` after explicit terms and normal input.
+The same signed-in session creates `workerfile`, queries it through both live
+signed Files grants, then receives the worker's typed artifact error. After a
+lock/relogin, the worker remains usable and terms must be accepted again.
+The fast submit/lock probe completed the missing-artifact request before lock;
+it does not establish cancellation during active inference. Evidence:
+`out/evidence/m30-session-1793769620812240826/`.
+
+The earlier `b904ed5` image also passes an offline boot, restored signed Search
+and new Files creation with network link disabled through QMP before any guest
+execution (`out/evidence/m30-session-1793769504516357245/`). The scoped artifact
+checker validates its format/session/restart/offline disk hash chain and rejects
+a mixed-source diagnostic image. It does not replace formal session validation;
+Search/Bar frame review and ObjectId/content/inference proof remain separate.
+Release preflight for the native partial image fails closed with unsupported
+provenance fields; no release assembly or readiness is claimed.
+
+QEMU queue introspection on byte-identical source/image establishes a concrete
+host compatibility bug: QEMU 10 exposes 1024 descriptors with available/used
+addresses at base+16384/base+20480; the old driver accepted that queue but wrote
+its 256-entry rings at base+4096/base+8192. Trace shows notification with no
+request consumption and M7 times out. QEMU 8 uses 256 descriptors and completes
+requests. Evidence:
+`out/evidence/m30-session-1793770161886629272/virtio-state.json` and
+`out/evidence/m30-session-1793770163370719080/virtio-state.json`.
+
+The driver now reads queue zero's size after reset, computes descriptor/available/
+used offsets for device lengths 256/512/1024, and keeps a bounded page-aligned
+32 KiB region. DMA accesses use volatile pointers; wrap and completion indexing
+use the actual length. Unsupported lengths fail closed. Timeouts, capability
+checks and acceptance assertions are unchanged. All 168 kernel tests and the
+Nagi target kernel build pass, including 1024-entry publication/completion,
+16-bit index wrap, original 256 layout and unsupported-size regressions. Guest
+acceptance of the repaired driver follows separately; no result is assumed.
+
+## Local M30 Desktop/Files/worker integration — 2026-11-04
+
+Status: `PARTIAL`; formal M30 remains `BLOCKED`. Local integration source
+`b904ed5ba189d5cc0770ef54f0dca340a65e33cb` combines the isolated VirtIO
+failure diagnostics and published #48 head `5f59835858813b756ac4f09628166ddffb06953e`.
+Only this dedicated local branch is changed; no public PR/branch is updated.
+Its real native image builds with profile `native-provider-session-v1`, matching
+kernel memory feature and empty Model Store. Image SHA-256:
+`2cf5072bfe762a80249b3cb384ff3003cf2b3ce27036dcbf3c3ab025520fe8b9`.
+The session UI host suites pass 49/54/26 tests; release/profile/session tests
+pass 37. Counts overlap and do not establish runtime acceptance.
+
+On QEMU 8.2.2/q35/4 vCPU/8 GiB/OVMF, normal on-screen Owner creation/unlock,
+Files create/rename/Trash/restore and signed Files Search pass in one ordinary
+session. Search traverses both presented consent prompts and the real signed
+child, which exits and is reaped; the screen shows `Matches: 1` and `mthirtyb`.
+Nagi Bar rejects submission before explicit terms acknowledgement, then obtains
+a real worker failure reply. F4/relogin clears old input and requires terms
+again. This tests lock after a completed failed request, not active inference
+or late native cancellation. Evidence:
+`out/evidence/m30-session-1793769080431054839/`.
+
+After QEMU stopped, a copied disk restored the Owner, Files names and signed
+Search result without prompting again for the persisted Files grants. Evidence:
+`out/evidence/m30-session-1793769383032816507/`. Each run binds the pristine
+image/source and disk start/end hashes, commands, serial log, screenshots and
+input transcript. No same-image validator PASS is claimed; ObjectId/content
+hash collection and broader acceptance remain open.
+
+The pinned model is absent. The GitHub connector rejected retrieval of the
+existing 2,288,418,265-byte M20 artifact because its maximum is 536,870,912
+bytes; this was a tool size limit, not an inference result or permission denial.
+No network expansion or alternate model was used. Fixed-code guest worker
+start/result diagnostics are added to distinguish artifact/resource/runtime
+failures without logging prompts, output, identities, request IDs or paths.
+Worker host tests and actual target-leaf Clippy pass. Native guest validation of
+these new diagnostic lines follows separately. Ordinary inference, resident
+Servo/History/Undo/voice/stress and distribution review are still incomplete.
+
+## PR #43 formal M30 and ordinary native guest investigation — 2026-11-04
+
+Status: formal M30 `BLOCKED`; no milestone is promoted. Baseline source
+`54f24085939a40d86a451d191c4d4bb91f3f2103`, current main rechecked at
+`87b7dea4061be2572526181ab559d63037f823d0`.
+
+Public run 41757573083 completed: Ubuntu, Windows and dedicated M20 Granite
+inference passed. nagi-target passed its component/fixture steps and partial
+session image build, then failed formal M30 with exit 3. `execute_m30` still
+reports unavailable ordinary-session/distribution acceptance; the same exit was
+reproduced locally. Component fixture results and separate M20 inference are
+not same-image ordinary Desktop/worker/AI evidence.
+
+On the exact baseline, 37 release/profile/session Python tests, 16 worker host
+tests and the actual Nagi-target worker/service Clippy check passed (existing
+nagi-posix dependency warnings remain). `./nagi session-ai-link` passed with
+real libc++/llama archives and rooted worker/provider entries; init SHA-256
+`ec92ace7f82fe6608f290eee822e2784dacc1c89e0eeeb29d8cc51257f9d84b0`.
+This is final-link evidence only.
+
+`./nagi session-native-image` built the partial `native-provider-session-v1`
+image with matching `m20-llama-memory` kernel. Image SHA-256
+`0be8016c43a945d43991bd1d7163f4c3c776d1565d41246fafd9e75e43994327`;
+`qemu-img check` passed. On QEMU 10.0.13, q35/4 vCPU/8 GiB/OVMF,
+a disposable copy passed System A signature verification and M2-M4 but stopped
+at `Nagi M7 VirtIO Block FAIL` before login. Pristine image hash stayed unchanged.
+Model Store is empty; no worker startup/inference is claimed. Evidence is in
+`out/evidence/pr43-native-boot-1793764318601699068/`; native link receipt is in
+`out/evidence/session-ai-link-1793764033566235904/`.
+
+The isolated diagnostic correction keeps the existing M7 FAIL and halt, adds
+an exact BlockError reason, and preserves a transport error raised during GPT
+reads instead of reporting every read failure as a malformed partition table.
+It changes no success condition, capability, deadline, queue or disk contents.
+The diagnostic code candidate `c33c93dbf3e49d9a730dc72f5273f77d27da0250`
+passes 165 kernel tests, formatting and its native Nagi target build. Its clean
+native image SHA-256 is
+`fab1799b37943305dc99e6a4bdf5c420d0d7db982f4b07d8358bc0e274a9585a`.
+QEMU 10.0.13 reports `Nagi M7 VirtIO Block error: timeout`; see
+`out/evidence/pr43-native-boot-1793764530493294413/`.
+
+With locally extracted Ubuntu QEMU 8.2.2 on the same reference configuration,
+the byte-identical diagnostic image passed M7 and formatted User Data. After
+QEMU stopped, a disk copy passed persistent read, on-screen Owner creation and
+unlock, ordinary Desktop rendering and signed-in SearchService startup
+(`out/evidence/pr43-native-boot-1793764762250860492/`). A further stopped-disk
+copy restored the Owner, entered unlock mode and reached signed-in readiness
+again (`out/evidence/pr43-native-boot-1793764798902022365/`). Screenshots,
+commands, serial logs and result hashes are preserved. Both copies pass
+`qemu-img check`; the pristine image hash is unchanged. This is a local
+source-bound diagnostic-candidate result, not validation of the published head
+or a same-session worker/inference claim. The QEMU 10 transport difference
+remains unresolved. An earlier copy taken before QEMU stopped reformatted and
+is excluded from restart evidence; no live-copy snapshot is counted.
+
+#48's
+Desktop consumer/native-link evidence belongs to its recorded source and is
+not substituted for #43 acceptance. Ordinary Servo/AI/History/voice/stress,
+persistence/offline demo and complete distribution review remain open.
+
+## PR #48 Files consent scheduler follow-up — 2026-11-04
+
+Status: `PARTIAL`; host regression only, guest reproduction `NOT_RUN`.
+Based on published #48 head `59adf3a3081514c3a31a9d07313f0f42aea74a8d`
+in a separate worktree/branch. The signed Files query calls a modal consent
+wait synchronously when either required live grant needs consent. Its old
+no-input path used only CPU `pause`, while the bootstrap thread scheduler is
+cooperative. The wait now performs one existing bounded model service step
+and an explicit thread yield on every live-session iteration, including
+continuous input and an absent model adapter. Model status changes redraw the
+modal frame; a failed presentation returns no answer. Modal input, fresh
+press/release consent, both live grant checks and child cleanup are unchanged.
+F4 still invalidates/cancels in the Desktop handler before the loop aborts.
+No Files operation is reentered and no Supervisor or model bridge guard is
+held across the new yield.
+
+Validation: the original wait source fails all four initial modal regressions;
+the fixed source passes them. `sh tests/session-ui/check.sh` passes 49
+controller/bridge tests, 54 production Desktop/Files/Shared tests (six new
+modal regressions) and 26 legacy login/Files tests. Counts overlap existing
+suites and are not guest evidence. The consent-enabled model-disabled host
+configuration also compiles and passes its lost-session regression. The preserved
+Files suite passes 30 tests; controller/bridge all-target Clippy passes with
+warnings denied, formatting and `git diff --check` pass. Tests
+compile the actual wait function verbatim and use explicit host syscall seams;
+they collect an already-scripted Shared reply and count yield calls, without
+running the Nagi scheduler, signed child or native worker. Actual guest
+starvation/recovery, native linking and inference remain unverified here.
+M19/M20/M23 remain `PARTIAL`; formal M30 remains `BLOCKED`.
+
+Before handoff, public main advanced from `0362427747e769b00558053e4c7f4c756d303802`
+to `87b7dea4061be2572526181ab559d63037f823d0` (three unrelated host-contract
+and evidence files); none intersects this change. The #48 public head was
+unchanged. The shared #48 branch and other guest/CI work are not overwritten.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
@@ -69,7 +314,7 @@ generated checkout and receipt remain local and are not PR content.
 
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
-M23–M30 `PARTIAL`.
+M23–M29 `PARTIAL`; formal M30 `BLOCKED`.
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,
@@ -86,6 +331,16 @@ host, `cargo test -p nagi-cli -p nagi-search-ipc`, host clippy for
 release build, and a Nagi-target `cargo check` of `nagi-init` with
 `desktop-password-change-acceptance,m19-files-search-production` passed. The
 `./nagi login` guest acceptance was not run there; CI is the next evidence.
+**Ordinary-session integration foundation:** the shared bridge implements one
+bounded guest-worker request slot, live Session binding, cancellation, late-reply
+rejection and safe retired-worker lifetime rules. Model-service/backend leaves
+and ordinary-session image/release gates are included. Host tests and target
+leaf checks validate contracts and compilation only. Desktop AI consumption,
+durable terms persistence, a real guest worker/Granite reply and complete
+same-image acceptance remain unverified. Formal M30 is `BLOCKED`; the existing
+disk-layout fixture remains separately available as `m30-layout`. Embedding and
+TTS are standalone `PARTIAL` foundations. No milestone is promoted.
+
 **M18 acceptance closure, 2026-10-07:** `origin/main` commit
 `7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
 [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).
@@ -107,6 +362,24 @@ are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
 history publication is still acceptance-scoped, and a resident production
 Search service plus general Files producer synchronization remain open; M19
 stays `PARTIAL`.
+**M19 ordinary Files recovery checkpoint:** recovered owner-only
+create/rename/trash/restore controls use mirrored trash intent records and bounded
+VFS create/rename undo recovery. Contents and inode/generation are retained;
+Search failure does not disable physical Files operations. The signed Files
+Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
+tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
+Clippy. A synthetic disk written by the exact-base VFS was read without writes
+or formatting by the recovered VFS; clean new mutations remained readable by
+the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
+before init. Normal guest UI/Search operations and Browser History acceptance
+remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
+**Recovery caller follow-up:** read-only inspection diagnoses pending supported
+VFS undo; an explicit Recovery-console `recover` operation performs no-format
+writable recovery and checks full integrity before exposing a mount. Six fresh
+synthetic caller tests pass, including unchanged diagnosis bytes/counters,
+create/rename restoration, rejected input, retry and unrelated corruption after
+journal repair. This is host evidence; normal guest Recovery acceptance remains
+unproven and no Recovery milestone is marked complete.
 **M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
 the shared User Data VFS snapshot adapter and starts a bounded SearchService
 when the owner signs in. It enumerates only regular files directly under
@@ -1046,6 +1319,20 @@ formatting, and the Nagi no-std target compile pass. Live Servo extraction,
 authenticated guest policy/IPC, Nagi Bar UI, and real inference remain, so the
 page-summary acceptance is unmet. See
 `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`.
+The isolated 2026-11-04 session-summary bridge adds an OS-owned
+`SessionModelService::summarize_page` entry while preserving rejection of
+external inference callers. Its host harness passes eleven tests, warnings-denied
+Clippy, and the Nagi no-std leaf compile in its producer checkpoint. That
+producer lacked the ordinary worker/UI. The local M30 combination includes the
+plaintext Bar route, but this summary operation still lacks worker transport,
+lock cancellation and active-session/request display integration. No real inference or guest acceptance was run;
+M23 remains `PARTIAL`.
+The isolated follow-up includes system instructions in the service's combined
+24 KiB byte admission bound and returns `InputTooLarge` before service invocation
+when exceeded. It preserves exact typed service errors, including license
+acknowledgement, resource and clock failures. New host regressions execute real
+`LazyModelService` admission with an explicit synthetic backend/artifact; this
+is no proof of guest inference or worker/UI lifecycle integration.
 **M24 evidence:** Added bounded multilingual UTF-8 chunking, provider-neutral
 embedding-space identities, `PersistentVectorIndex` snapshots, and
 visibility-filtered `SearchService` semantic indexing/query orchestration.
@@ -2714,7 +3001,7 @@ confirmed the expected ABI entry point. The next Ubuntu target CI must verify
 the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
 evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Local verification after the #164 repair passed: focused M17 tests (11), the
+Local verification after the #164 repair passed: focused M18 tests (11), the
 full `nagi-cli` suite (49 unit and 18 CLI tests), focused Clippy,
 `bash -n tools/nagi-target-cc.sh`, and `git diff --check`. The Nagi wrapper
 compiled `nagi-libcpp-abi.cpp` plus the real fontsan OTS `ots.cc` and `cff.cc`
@@ -10119,6 +10406,1181 @@ context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
 
+## PR #43 current-main integration (2026-11-04)
+
+Status: M20 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public PR #43 head `909d8ee01da5ff5f62a422ea67057b5ea27cafa1`
+as its first-parent lineage and merges main `0362427747e769b00558053e4c7f4c756d303802`.
+Only the reviewed worker file through candidate `03da0373c03efdb248625e2e2b4c024c2326941c`
+is replayed from the combined candidate. No #48 Desktop/Bar UI is imported.
+Locked worker entry points revoke the matching session; quarantine retains a
+same-session failure reply while fencing alternate sessions and late output.
+The worker CI step and main's separate Ubuntu/Windows Installer checks remain.
+The layout fixture, partial production-session image build and failing formal
+M30 gate remain distinct; release acceptance requirements are unchanged.
+
+Local Linux x86-64 validation: 500 nagi-cli/model-manager/AI unit, integration
+and documentation tests; 16 worker orchestration and 3 session access tests;
+35 standalone Installer tests; 37 release/profile/session Python tests passed.
+Affected host formatting and warnings-denied Clippy passed, as did actual Nagi
+worker/model-service target-leaf Clippy (existing dependency nagi-posix warnings
+remain). Legal delegation initially failed on uncached offline dependencies;
+fetching the pinned Legal lockfile dependencies allowed the full rerun to pass.
+A direct production-session host check stopped at the required missing
+NAGI_FILES_SEARCH_PACKAGE artifact; it does not establish an init build result.
+No native init link, new guest worker/inference, durable consent, or same-image
+M30 acceptance is claimed. Hosted CI results must be assessed at the published
+integration head separately from these local checks.
+
+
+## PR #48 current-main and PR #43 integration (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public #48 head `27f844308a779c8bde93e48e49a21f0c39c8f5a0`,
+merges main `0362427747e769b00558053e4c7f4c756d303802`, and then merges published
+#43 head `54f24085939a40d86a451d191c4d4bb91f3f2103`. Its worker source exactly
+matches #43, so reviewed worker fencing is imported once through that ancestry.
+The combined candidate `746f19eb15e0bb69079b0267aa682b0ecf0a5b09` supplies
+scoped host fixtures, live Shared queue tests, cancellation-drain status and
+Desktop lock-state cleanup. The public Files panel, recoverable trash and
+Search lifecycle, production image commands, release evidence validator,
+layout fixture and formal M30 gate remain present. The combined candidate's
+whole tree is deliberately not substituted for the public PR.
+
+The production Desktop loop now calls the same bounded service step exercised
+by host regressions. Its target-only signed Files client remains target-only
+when the host harness enables the production feature graph. The existing
+Files test constructors initialize their acceptance-only fields when run in
+the login acceptance feature configuration. No production Files behavior or
+release assertion is weakened.
+
+Local Linux x86-64 validation of the integrated source: 49 UI/controller tests,
+48 Desktop/Files/worker tests, 26 login/Files tests, 16 standalone worker tests,
+and 37 release/profile/session Python tests passed. Session UI all-target
+Clippy passed with warnings denied. These host tests use explicit syscall and
+scripted model seams; they do not establish guest inference. CI now runs the
+Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
+results must refer to the published successor. Actual guest/model validation
+and complete workspace checks remain pending at this checkpoint.
+
+## Local M30 ordinary-session checkpoint (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Local candidate only on
+`codex/m30-local-session-integration-20261104`; no public PR update, push or merge.
+Published #43 remains `54f2408`, #48 `5f59835`, main `87b7dea` at ref recheck.
+
+The isolated candidate merges the published #48 UI with #43 and retains release
+assertions. Real guest failures exposed device-owned VirtIO ring sizes: QEMU
+10 uses 1024-entry legacy Block/Net/RNG queues, while prior drivers assumed
+256/256/8. The bounded shared layout now uses actual sizes and volatile DMA
+access. Net retains its 256-buffer pool and includes the VirtIO header in each
+buffer stride. Modern input programs/reads back its selected 64-entry event
+queue before enabling it; legacy input rejects incompatible lengths. See
+ADR 0072. An ineffective Net queue-property pin attempt was superseded; no
+configuration-only success is claimed.
+
+Source `464246cc5972e63489a4722159b70d03eeb48c05` native image SHA-256
+`4527968fb04a70ecd665bf96add7aa57e1dd65121a88ec2a038b22513e217817`
+boots through ordinary Owner creation, Desktop, SearchService and real worker
+startup on QEMU 10.0.13 and 8.2.2 (q35, 4 vCPU, 8 GiB, UEFI). QEMU 10 records
+actual RNG completion at size 1024 and 112 input events at selected size 64.
+Its same-session Files create/rename/create/Trash/restore operations complete;
+signed Search presents search.query/files.search grants, returns one matching
+filename and reaps its child. Explicit model terms lead to a real worker
+`artifact-unavailable` response, not successful inference. Lock/relogin clears
+Bar input and terms. The same image/source passes stopped-disk restart with
+both filenames and signed Search result preserved, then offline Search and new
+file creation with the network link disabled before guest execution. The
+four-phase artifact checker verifies image/source/disk hash continuity and keeps
+M30 BLOCKED. Screenshots were inspected separately. This bounded Files evidence
+does not prove complete-product offline acceptance or ObjectId/content hashes;
+earlier b904ed5 probes remain separate evidence.
+
+Kernel 172 host tests and the actual Nagi kernel target build pass. Scoped
+release/profile/session checks (37), worker orchestration (16), UI/login checks
+and CLI image checks remain separately recorded; host seams prove no guest
+inference. Optional whole-kernel warnings-denied host Clippy has five existing
+unmodified audio/scheduler/user_process diagnostics and is not claimed passed.
+
+The retained layout fixture on source d3a4ea2 passes real Rust PAL HTTP (local
+server receives GET) but fails M13 C POSIX DNS at code 85 (example.com lookup).
+DNS root cause is unresolved; no resolver substitution, assertion skip or
+network-policy bypass was made. Recovery/update fixture steps after that failure
+are unverified. No layout PASS or complete M30 acceptance is claimed.
+
+Pinned model bytes are absent from the ordinary image; the dedicated public
+M20 inference image has different scope. Normal Browser/Albert summarization
+still requires a verified live Session/app/context-sharing bridge and a bounded
+asynchronous request preserving trusted system instructions separately from
+untrusted page data. Some(AppId) rejection stays intact. The separate M23 budget
+candidate is not integrated; see `workstreams/m30-session-caller-contract.md`.
+Resident Browser, History/Undo, voice, successful ordinary inference, stress,
+restart/offline complete-product acceptance and distribution evidence remain
+required. No 0.2+ foundation is activated and no partial result passes M30.
+
+## Local M30 model-cache / DNS follow-up (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Protected ordinary-session
+candidate `4edf483` remains on its original local branch. This read-only runtime
+investigation and documentation are isolated on
+`codex/m30-dns-investigation-20261104`; no Browser/History/voice/distribution
+implementation or public ref is changed.
+
+A scan of the selected environment's workspace/tmp and usual mounted model/HF
+cache locations found 76 vocabulary GGUF fixtures and no inference model or
+2244011552-byte pinned Granite candidate. Expected SHA-256 remains
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`;
+there are no candidate bytes to hash. This does not establish absence in another,
+unattached environment. The enforced network policy does not allow the pinned
+Hugging Face repository; no new acquisition, mirror or network expansion was
+attempted. Ordinary successful inference remains unverified pending a verified,
+accessible pinned artifact. The 16 GiB/4 CPU cgroup and 24 GiB free disk allowed
+one 4-vCPU/8-GiB diagnostic VM; no other QEMU process was present. Probes held a
+nonblocking local resource lock for their complete lifetime; no existing shared
+slot registry was found.
+
+The existing d3a4ea2 layout image (SHA-256
+`11139581297d24903016501099117da814846454474e263e796352aa515ee986`)
+was copied into separate stopped-disk probes and passively captured at the guest
+Net boundary. Its original image remained unchanged. Both QEMU 10.0.13
+(Net queue1024) and QEMU8.2.2 (Net queue256) reproduced C POSIX failure85.
+Local real HTTP GET completed. Each DNS capture shows two example.com A queries
+from the guest to the default slirp DNS service, with valid IPv4/UDP checksums
+and lengths, and no DNS response, even with five seconds of post-failure passive
+capture. This narrows the observed failure to absence of inbound DNS at that
+boundary; the reason the slirp/managed upstream path returns no answer is not
+proven. The observations do not establish a resolver-parser defect or justify a
+static answer, timeout/gate relaxation, substitute host resolver or policy bypass.
+The existing nagi-net library's 8 host tests pass; they are not live DNS evidence.
+No retained managed network diagnostic records were available.
+
+The source-bound layout runs remain fixture diagnostics on d3a4ea2, separate
+from the 464246c ordinary-session Files evidence. Recovery/update steps beyond
+the DNS failure remain unverified. Local packet captures, command/source/image/
+disk hashes, cache inventory, resource check and scripts are recorded under
+`out/evidence/m30-dns-investigation-20261104/`; no fixture success is promoted to
+formal M30. Next: supply an authorized pinned cache artifact (verify exact size
+and hash before image integration) and verify a permitted upstream DNS path for
+the unchanged lookup, then rerun source-bound layout and normal-session gates.
+
+## M23 combined summary budget and tokenizer boundary candidate (2026-11-04)
+
+Status: `PARTIAL`. Isolated candidate based on public main
+`87b7dea4061be2572526181ab559d63037f823d0`, combining the independently reviewed
+output-budget source and input-boundary transfer. Summary output is capped at
+256 tokens, with smaller trusted caller budgets preserved. Admission counts
+serialized JSON plus system instructions against `self.budget.max_input_bytes`,
+never a fixed 24 KiB fallback. ContextLimit remains InputTooLarge. All existing
+caller/object/workspace authorization and untrusted-context contracts remain.
+
+The native adapter returns context-limit status for template-buffer exhaustion
+and negative tokenizer required-capacity results, including INT32_MIN, before
+KV clearing or prefill. Empty tokenization and unsupported templates remain
+failures. No model, service or native context/buffer cap is increased.
+
+Integration reproduced E0063 from the input candidate's SummaryModel initializer;
+its missing error/max_output_tokens fields are now initialized. Combined Rust
+regressions cover maximal UTF-8 prefixes, escaped JSON round trips, exact byte
+edges at four budgets (including smaller caller limits), output ceilings and
+typed error propagation. A fixed-24-KiB mutation fails the small-budget test;
+restoring the caller budget passes. The native fixture fails against the
+baseline adapter and passes all 53 boundaries with the candidate adapter.
+
+Validation: 33 AI, 74 Model Manager unit, 3 Model Manager integration and
+3 session-authentication host tests PASS (113 total). AI warnings-denied Clippy,
+package formatting, the Nagi no-std AI target check, actual service/FFI leaf
+target Clippy and native orchestration PASS. The leaf check retains eight
+existing nagi-posix dependency warnings. Native tests compile the production adapter against pinned llama headers
+with deterministic fixtures; no real tokenizer, model or guest inference is
+claimed. See `tests/m23-summary/README.md` for reproducible commands.
+
+No actual worker/session wiring, shared branch, PR, model or VM was modified.
+Authenticated ordinary-session browser summarization and same-image guest
+acceptance remain pending; M23 stays PARTIAL and existing release gates remain.
+
+## Local M30 integration of transferred M23 boundaries (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`. Protected branches at
+`4edf483` and `335074f` remain unchanged. A new local branch
+`codex/m30-m23-boundaries-20261104` applies only the verified six-file delta
+against base `87b7dea`, not the unrelated newer main changes.
+
+The two transferred base64/gzip/patch layers match every supplied byte count
+and SHA-256. Temporary-index reconstruction matches source tree a437843e and
+full candidate tree `518ca726`, with all six candidate blob IDs verified. The
+original `4ef8534` commit metadata is unavailable and is not claimed verified;
+local reconstruction `909c71d` has the identical candidate tree and distinct
+metadata. Cherry-pick conflicts only at the implementation-status append;
+both sections are preserved. All five remaining transferred blobs are exact.
+The new source retains smaller caller budgets, combined JSON/system input
+admission, 256-or-smaller output, typed ContextLimit and native prefill fencing.
+
+On the integrated M30 source: 33 AI + 77 Model Manager + 3 session-access
+host tests PASS (113 total); 53 native boundary fixture cases PASS; AI host
+warnings-denied Clippy and package formatting PASS; AI no-std Nagi target
+check and production/Granite-acceptance Rust service leaf target Clippy PASS.
+The leaf retains eight existing nagi-posix dependency warnings. These results
+use host/native fixtures, not guest or real-model inference. Release/session
+validator tests also PASS (37); the formal M30 command still returns exit 3.
+
+The integrated source commit `7359ef3` additionally passes real Nagi native
+C++ compilation and libc++/llama provider init linking with offline Cargo.
+The link-only receipt identifies init SHA-256
+`4528fbc484a0cc21a655d5cd182c2adf0653e9c0bff9f79f47c3ba0b28c8be9f`.
+This is not a new image or guest boot result: it requires a matching
+m20-llama-memory kernel, and guest inference remains NOT_EVALUATED.
+
+No model acquisition, public write, push/merge or shared-branch change occurs.
+The live authenticated Browser worker/system-instruction transport is still
+missing; Some(AppId) rejection and untrusted Context sharing boundaries remain.
+The earlier normal-session Files evidence stays bound to source `464246c` and is
+not relabeled as new-source inference. Model/DNS/Browser/History/voice/stress/
+distribution blockers remain. See workstreams/m30-session-caller-contract.md.
+
+
+## Isolated M30 integration of reviewed summary bridge (2026-11-04)
+
+Status: M23 `PARTIAL`; formal M30 `BLOCKED`. This candidate lives in a NEW
+worktree/branch `codex/m30-summary-bridge-integration-20261104`, with exact
+parent e3500f48c8848a39e76445d1b74d39beb9c191e4 (tree
+9fd73d4baa489248e6f8b0187792d31b970add8f). Original candidate, protected branches,
+source/runner export and prior evidence are unchanged. No VM/model/inference,
+model acquisition, public push/merge or denied export retry occurred.
+
+The supplied A/B gzip and raw patches match all four supplied sizes/SHA-256.
+Temporary-index application against base0362427/tree1cc62a0a reproduces parent
+tree30855e5d then reviewed bridge treeb6211696 exactly. Producer revision IDs
+7dd84a2/ba2ff322 identify supplied source; their commit metadata is not verified.
+The seven-file delta applies to e3500f4 without conflict.
+
+Integration adds nagi-ai to the ordinary model-service feature dependency.
+NAGI_BAR_APP_ID is a shared typed constant in nagi-ai, re-exported unchanged by
+Albert; the summary entry requires that requesting assistant identity, not the
+foreground browser's AppId, plus full request/caller equality. These values are
+freely constructible and do NOT establish OS provenance. Only a future verified
+OS invocation may supply them; no external IPC entry or new app grant is added.
+The bound Session and ordinary Some(AppId) rejection remain intact. Separate
+system instructions/untrusted context, smaller byte/output limits, typed service
+errors, request-ID validation and cancellation precedence remain enforced.
+
+Final host boundary suite PASS (20): existing bridge/access11, five actual
+SessionModelService wrapper admission/denial/cancellation cases, one synchronous
+error/cancellation precedence case, and three actual Albert policy cases.
+Production syscall/artifact/native entries have abort/panic-only host test hooks;
+no replacement model output is provided or real model/license acknowledged.
+Real LazyModelService boundary fixtures retain synthetic artifact/backend tests.
+AI33 + Model Manager77 and existing worker16 host tests PASS; release/session
+validator37 PASS. Host AI and boundary-harness all-target Clippy PASS with
+warnings denied; changed-leaf formatting/whitespace PASS. Nagi no-std service
+leaf check and target Clippy PASS with eight existing POSIX dependency warnings.
+The production init feature graph also passes the Nagi release target check,
+using existing public source/build caches; its 18 warnings include the unused
+summary entry. Full init warning-denied Clippy and a final ELF link are not
+claimed. No new software installation/download was performed.
+
+This is a synchronous service bridge, not end-to-end M23: summary worker/UI
+transport, lock/sign-out propagation into an in-flight summary, live-Session plus
+active-request display fencing, and post-acquisition navigation/context-sharing
+freshness remain unconnected/unverified. The existing plaintext Bar worker's
+host lifecycle tests are not substituted for those summary guarantees. Actor
+OS provenance, real Browser extraction and same-session guest inference remain
+unverified. Existing coordinator lease, admission quota, explicit per-session
+terms and all release gates are unchanged; M30 is not complete.
+
+## Summary bridge standalone harness dependency follow-up (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent review found that the
+15acc318 summary bridge's nagi-ai references were absent from the standalone
+worker and session UI harness dependency graphs. The original 15acc318 candidate
+and its source export remain unchanged. This fix is isolated on
+`codex/m30-summary-bridge-harness-deps-20261104`, based on exact parent
+15acc3188d67631cacd19bf62dd4d65e56845250/tree
+0d79baaae4dfce2d4658b507b218f9de31085a2d.
+
+The mandatory worker Nagi target Clippy reproduces E0432/E0433 on the parent.
+Both standalone manifests now declare nagi-ai only under target_os=nagi.
+Their lockfiles add only nagi-ai/nagi-search and the direct dependency edge;
+all pre-existing registry versions/checksums are unchanged. No worker/model
+source, caller/terms checks, quota, lease or CI assertion is changed.
+
+After the fix, mandatory worker formatting,16 host tests, warnings-denied host
+all-target Clippy and actual Nagi target Clippy PASS. The target retains eight
+existing nagi-posix dependency warnings. The exact model-service host suite20
+and UI check script49/54/26 tests PASS offline, including its formatting and
+feature-graph checks. These are host orchestration and compile results only.
+The session UI standalone target Clippy stops before compiling its Rust source:
+fixed pre-existing libc0.2.191 is not cached, and offline mode forbids acquisition.
+Its target result is BLOCKED, not PASS; no version downgrade or substitute crate
+is used. A separate full metadata command updated the expected lock additions
+before reporting the same missing-cache error. Fixed-dependency acquisition is
+pending explicit clarification of the previous no-install restriction.
+
+No VM/model/inference, actual terms acknowledgement, public write/push/merge or
+new software acquisition occurred. An optional search of /root/.cargo/registry
+was denied by OS permissions; that lookup was stopped without retry/escalation.
+No bytes from that directory were read and no private data was accessed. Missing
+UI target cache is an independent blocker from the resolved nagi-ai dependency
+regression; summary runtime/UI and M30 acceptance remain incomplete.
+
+
+## Summary worker/UI owner-context seam (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. This local-only candidate is isolated on
+`codex/m30-summary-worker-lifecycle-20261104` in
+`/workspace/NagiOS-m30-summary-worker`, based on exact parent
+62995a2d4077ebb2cd3b436c9b3fbbf87682d649/tree
+303fb9a2be177775c8d44e5467ae85ce2c4113f8. Earlier candidates and exports remain
+unchanged. No formal release gate or CI assertion is changed.
+
+The public Browser Context operation now separates policy-checked acquisition
+from generation, keeping the existing synchronous API as a composition of both.
+Only the immutable, bounded, explicitly untrusted context snapshot enters the
+existing single-slot guest worker. Browser/Context Authority references stay on
+their owner thread; no unsafe Send implementation is added. The queue checks the
+bound authenticated Session, full requesting CallerIdentity and shared
+NAGI_BAR_APP_ID, explicit per-session terms, monotonic request IDs and unchanged
+generation after extraction. This freely constructed logical identity is a
+trusted-bootstrap precondition, not proof of OS provenance. Ordinary external
+Some(AppId) inference remains refused; no new IPC, authority or consent grant is
+introduced. The worker's separate page-summary operation preserves system
+instructions separately from serialized untrusted page data, the combined input
+byte budget, 256-token output ceiling, typed service errors, cancellation
+precedence, and the existing coordinator/lease/admission policy.
+
+Controller and Adapter expose an explicit summary request and owner-context UI
+step. Normal plaintext polling cannot release a summary. Each summary poll
+reacquires through Context Authority and the public Browser API and compares
+caller/context/page snapshots before consuming a reply, including during pending
+inference. A changed or denied snapshot cancels and discards that request; an
+explicit cancellation retains precedence. Worker scheduling precedes the fresh
+recheck. Lock/sign-out cancels through the existing generation fence; Session
+and active request are checked before display, and new sessions require new
+terms consent. Output NULs, excess reported tokens and oversized summary replies
+are rejected at the queue and presentation boundaries. Host-only scripted
+completion helpers now serve both existing UI harnesses, before their test
+modules; no production model output is replaced.
+
+Host verification PASS, with overlapping suites listed separately: direct
+worker22, actual service-boundary22, UI59, existing Desktop60 and login26.
+New tests cover full caller mismatch before extraction, terms/sharing denial,
+non-Send Browser ownership, generation change during extraction, summary polling
+without current context, navigation/sharing changes before and after completion,
+lock/same-owner reauthentication with reused service request ID, late replies,
+explicit cancellation precedence, separate system instructions, smaller combined
+input admission and exact typed clock/terms failures. The actual wrapper's new
+prepared entry is checked with locked/other Sessions and the real license gate;
+host syscall/artifact/native test guards remain fail-fast. These are synthetic
+orchestration/service-boundary tests, not real inference or operator consent.
+
+Worker, service and UI host all-target Clippy PASS with warnings denied. AI33
+unit tests and strict all-target Clippy PASS through an external standalone
+manifest pointing at this exact tracked AI lib.rs and unchanged pinned path/
+registry dependencies; every registry version/checksum matches the existing
+service lock closure. Root workspace AI tests are BLOCKED by unmaterialized
+Servo patch directories (initially cc-nagi, then tokio-servo), not a source test
+failure; this standalone check does not prove the root workspace build. The UI
+script's formatting and feature-tree checks PASS, including absence of model
+manager activation in the login-only profile. Changed-leaf rustfmt/whitespace
+PASS; existing release/session validator host regressions37 PASS (synthetic). Exact worker Nagi target warnings-denied Clippy PASS, retaining eight
+existing dependency warnings. Exact UI target Clippy remains BLOCKED before
+Rust compilation by uncached fixed libc0.2.191 under --offline. No replacement
+version, dependency download, root registry access or installation is used.
+
+Remaining integration is explicit: ordinary Desktop does not invoke the new
+summary command or owner-context tick, and its normal Albert live Context API,
+OS-derived logical caller and trusted navigation/sharing revision are absent.
+Reacquired snapshot equality detects tested changes but cannot detect ABA,
+changes outside bounded fields, or establish atomic freshness across independently
+mutable owners; it is not a trusted monotonic revision contract. No complete
+post-acquisition freshness guarantee is claimed. The real live Browser owner
+must supply that contract and connect command/polling before activation. No
+same-session guest summary, model/VM execution, native final link, terms
+acknowledgement, public push/merge, release approval or M30 PASS is claimed.
+Private product-decision ledger contents were not read; those decisions remain
+unverified. Existing 0.1 public specifications govern this unactivated seam.
+
+
+## Ordinary Desktop page summary intent and owner lifecycle (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. This new local candidate is isolated on
+`codex/m30-desktop-summary-entry-20261104` in
+`/workspace/NagiOS-m30-desktop-summary`, based on exact parent
+b95f3360bc303270daee0c2c01be89243bfefe29/tree
+43c2a2923226df15b0e0914ca05b9a676260a374. The parent was reported to have no
+new required fixes in independent static review; no independent execution is
+transferred to this new implementation. Earlier branches, source exports,
+Space attachments and runtime evidence remain unchanged.
+
+The normal Nagi Bar now accepts an explicit page-summary mouse button and F5
+while the Bar is open, with both en-US and ja-JP labels/status. The event records
+intent only; it cannot acknowledge terms, read Browser context or become an
+ordinary plaintext inference request. The Desktop service step consumes the
+intent once, checks live Session/readiness and explicit terms, and never retries
+when an owner later appears. Cancel wins over a same-step start. Lock clears
+pending intent before login; lost readiness invalidates the old state. Every
+step cooperates, including a hidden Bar, failed readiness or absent adapter.
+The existing terms keyboard path now has the added Summary control in its Tab
+order; tests retain explicit acceptance and no implicit submit assertions.
+
+The production loop calls the ownerless service step: no normal live Albert
+owner exists here, so page-summary input displays localized Page summary
+unavailable with an empty output. It does not fabricate a caller, grant sharing,
+run a model, or reuse the acceptance-only Albert API. A separate borrowed owner
+step connects the actual Desktop Controller/Adapter to the existing summary
+queue/poll path; synthetic host owners exercise this exact step. Supplying Some
+in production remains contingent on a real reviewed owner/caller/freshness
+contract, not an activation established by these fixtures.
+
+A private Desktop-issued binding ties callbacks to a readiness-confirmed,
+adapter-bound authenticated Session and a checked generation. Lock/readiness
+loss invalidates it even if login reuses the same Session value. A retained
+private allocation identity also distinguishes different Desktop instances with
+identical Session/generation values. Its marker is allocated only after bind,
+preserving const/configuration-only Desktop construction; counter exhaustion
+fails closed. This binding grants no AppId or Browser permission and does not
+establish OS provenance for the freely constructed logical CallerIdentity.
+
+The UI retains the requesting full logical caller; polling now receives the
+owner's current ContextRequest too. Changed actor, selection or candidates
+cancel/discard the old request before another context read. Replaying the old
+request through Context Authority alone no longer counts as current selection.
+Owner loss cancels a summary; without Browser references the ordinary poll may
+drain only its cancellation failure, never successful generated text. A host
+probe injects an otherwise successful queued reply and confirms that the drain
+still returns Cancelled. Existing Session/generation/request fences, explicit
+terms, sharing policy, separate system instructions, quotas, lease/resource
+admission, typed errors and output caps remain in force. No new dependency,
+manifest/lockfile version, external app grant or release assertion is added.
+
+Producer host results PASS, with overlapping suites reported separately:
+worker23, actual service-boundary22, UI60, Desktop73, login26, localization7
+and release/session validator37. Exact Desktop input, login, Shared queue and
+renderer cases cover mouse/F5 in both locales, no owner/no implicit retry,
+terms denial before context reads, pending/completed owner-loss cancellation,
+changed caller/selection, lock/readiness binding revocation, stale binding,
+cross-Desktop identity and checked counter exhaustion. Browser state is
+explicitly synthetic and non-Send; worker completion is scripted test-only data.
+These results do not establish live Albert extraction or real inference.
+Worker/UI host all-target Clippy PASS with warnings denied. Desktop all-target
+Clippy PASS with clippy::all denied; four existing library/two test Rust unused
+warnings remain, so Desktop -D warnings is not claimed. Localization7 compiles
+the exact dependency-free lib.rs with the installed rustc --test (no root
+workspace/vendor materialization). Changed-source formatting and whitespace
+PASS. Exact worker Nagi target Clippy PASS, retaining eight existing dependency
+warnings. Exact UI target Clippy remains BLOCKED before compiling Rust: fixed
+libc0.2.191 is absent from the permitted cache and --offline forbids acquisition.
+No download, version substitution, root registry access or denied-path retry
+was performed.
+
+Still missing: a normal live Albert Context API/owner integration, OS-derived
+logical caller, trusted monotonic navigation/sharing revision and actual guest
+execution. Current-request/snapshot comparison cannot detect page/policy ABA or
+prove atomic freshness across independently mutable owners. Desktop bindings
+solve only the tested owner/Session lifecycle scope, not Browser ABA. No VM,
+model/native inference, operator terms acknowledgement, final production ELF
+link, publication/push/merge, independent review of this new candidate, or
+formal M30 acceptance is claimed. Private product decisions remain unverified;
+no private ledger was read. Public 0.1 specifications govern this partial work.
+
+
+## Page summary Japanese glyph and pixel regression fix (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent static review of 1cba265
+identified missing bootstrap-font glyphs for the new Japanese summary button
+and unavailable message. The parent 1cba265ae80cfdae7a7e9a51c5ca81fe92fe6529/tree
+d55301b1d73d98be65d25b4bbfd6226c934a63e6, its branch, Space transfer and evidence
+remain unchanged. This fix is isolated on
+`codex/m30-summary-ja-font-20261104` in `/workspace/NagiOS-m30-summary-ja-font`.
+The independent reviewer's broader host suite stopped before compilation on
+uncached libc0.2.191; no independent execution result is inherited here.
+
+Auditing every actual desktop.ai localization and desktop.lock found 63 missing
+Japanese scalars and five missing English ASCII characters. The hand-authored
+7x7 bootstrap subset now covers those surrounding labels and states as well as
+ページ要約 and ページ要約を利用できません. Japanese advance remains8 pixels,
+Latin advance7 and height7; no layout, localization text or authority behavior
+changes. Complete UTF-8 scalar matching also handles the fullwidth parentheses
+without rendering three replacement cells. ASCII q/v/parentheses/slash are added
+to the existing fixed table. シ and voiced ジ retain the same clear base stroke
+with distinct dakuten pixels; ペ has a hollow handakuten. Unknown glyphs keep
+the visible replacement. This is first-party Bar coverage, not a general CJK
+font or arbitrary generated-text/shaping completeness claim. No third-party
+font acquisition or new dependency is introduced.
+
+New regressions inspect actual pixels from production font.rs, not merely frame
+hashes: exact seven-row goldens for the summary/unavailable strings, foreground
+and background cells in the real Panel, spacing and control bounds, voicing
+marks, all Bar localization characters in both locales, clipping/guard pixels,
+representative unchanged glyphs and preserved unsupported-character fallback.
+The real Panel pixel probes retain unaccepted terms and assert no acknowledgement
+or submit events. Rendered bootstrap glyph previews were inspected separately;
+those synthetic diagnostic images are not guest screenshots or release evidence.
+
+`tests/session-ui/font-host.rs` compiles the exact production font with only the
+public 320x200 u32 surface geometry. It is an x86-64 dependency-free probe using
+an already installed rustc, so a reviewer does not need to resolve libc/model
+packages to verify this bug:
+
+```sh
+rustc --edition 2021 --test tests/session-ui/font-host.rs -o /tmp/nagi-font-tests
+/tmp/nagi-font-tests
+```
+
+The same final six raster tests against exact parent font.rs reproduce four
+failures (two unaffected controls pass); candidate font.rs passes all six.
+Producer UI68 (including six font probes and two real Panel pixel cases),
+existing Desktop73 and login26 PASS offline. The UI script's formatting and
+feature graph checks PASS. UI and font-only host all-target Clippy PASS with
+warnings denied. The exact no_std font leaf also passes Nagi target Clippy
+with -Zbuild-std=core and warnings denied, through an external dependency-free
+manifest pointing at this checked-in probe. It does not compile/link the whole
+Desktop. Exact full UI target Clippy remains BLOCKED before Rust compilation by
+uncached pinned libc0.2.191 under --offline; no download, version substitution,
+root-registry access or denied-operation retry is used.
+
+Only font source, test plumbing/pixel regressions and this status record change.
+Session/caller authorization, terms, budgets/lease, cancellation and late-reply
+fences remain untouched. Normal live Albert/OS-caller/revision integration,
+page/policy ABA and guest execution remain unproven. No VM/model/native inference,
+operator consent, production ELF link, new independent review, push/merge or
+formal M30 PASS is claimed. Existing private-product decisions remain unverified;
+no private ledger is read.
+
+
+## Async summary Browser epoch boundary (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independent glyph review of df470ee
+reported no mandatory finding. This follow-up preserves that exact parent
+`df470eebb38bd071f3b68ac8b61d51805618cc5b`, full tree
+`64c7a4613fbc67019b3f3cfe7d26a4d3bbabf682`, its branch/export/evidence, and uses
+new isolated branch `codex/m30-summary-browser-epoch-20261104` at
+`/workspace/NagiOS-m30-summary-browser-epoch`.
+
+Source investigation confirms the remaining production connection gaps:
+
+- `desktop.rs::model_service_step` still supplies None. The borrowed
+  DesktopPageContext seam is exercised only by synthetic host owners, and
+  does not authenticate the public CallerIdentity fields. Desktop's opaque
+  Session/generation/instance binding remains a lifecycle fence, not a
+  logical application credential.
+- `supervisor.rs::resolve` and `libnagi::launch::LaunchRegistry::resolve` can
+  resolve an actual kernel-stamped sender to its live launch record. Existing
+  `action_ipc.rs::receive_request` uses ChannelReceiveResult.sender_process_id
+  for that purpose. No corresponding ordinary Bar summary endpoint/owner
+  binding to that sender, authenticated Session and current request is present.
+  Calling resolve with an invented PID or constructing NAGI_BAR_APP_ID does
+  not provide that missing trust chain. No such shortcut is introduced.
+- Albert's `assistant_context.rs` supplies sharing policy and snapshot helpers;
+  the only live PublicBrowserContextApi implementation is LiveBrowserContext
+  inside `m18_acceptance.rs`, not ordinary Desktop wiring. Its selected/visible
+  text evaluation may pump Servo events, so simply stamping the final DTO
+  cannot establish coherent extraction across navigation. A real adapter must
+  capture its epoch before extraction, process relevant changes as revocations,
+  and reject a changed/revoked epoch after any asynchronous extraction step.
+- Equality of tab/URL/title/text at two UI polls cannot detect navigation,
+  active-tab, selection/content or policy A -> B -> A between those polls.
+  Browser navigation IDs alone do not describe sharing/content changes.
+
+Implemented the independently testable async boundary, without inventing a
+production owner or changing permissions. BrowserContextEpoch is a non-cloned,
+non-Send/non-Sync owner lifetime tied to its event thread; its snapshots clone opaque revocable revisions. Invalidation
+revokes the old revision before replacement. Owner destruction revokes it too.
+A retained Arc identity prevents counter wrap and owner recreation/address reuse
+from reviving old snapshots. This is owner metadata only, excluded from serialized
+untrusted model context, and does not mint OS identity/capability/grants. The
+trusted event-thread owner must invalidate BEFORE every relevant state change,
+including restored identical values, and extract a coherent snapshot. A dishonest
+or incomplete event adapter can still omit invalidation; runtime ABA is not
+claimed solved until the real owner implements and tests this contract.
+
+Existing synchronous public API consumers may keep unversioned snapshots. The
+asynchronous SessionServices queue now rejects absent/revoked revisions before
+consuming the request ID or queuing work. Each context poll checks both current
+revision validity and full snapshot/request equality; checked reply consumption
+also fences revocation after extraction. RequestCancellation observes revocation
+even before the next UI poll, so the worker skips revoked queued generation and
+passes the revocation into its cooperative cancellation token during inference.
+Backend cancellation latency remains its existing contract. Existing explicit
+cancel precedence, lock/sign-out/generation/request fences, terms-before-context,
+separate system instructions, budgets/lease and typed errors are preserved.
+The normal production owner remains None; acceptance's legacy live API is not
+silently promoted to a versioned/OS-authenticated async owner.
+
+Producer checks on this final implementation:
+
+- Worker host27 PASS, including unversioned rejection without request-ID use,
+  page/sharing ABA at queued/running/completed stages, explicit-cancel precedence,
+  late completion fencing, owner destruction and checked-reply revocation;
+  cooperative token revocation prevents fixture generation before another poll.
+- Exact AI source35 PASS through a separate standalone manifest importing this
+  worktree's source and unchanged cached dependency versions. New tests cover
+  invalidate/restore/recreate/drop, revoked-token reattachment and serialization
+  equivalence without revision metadata. No dependency/version changes.
+- `CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh` PASS: UI72, Desktop78,
+  login26, formatting and feature-graph checks. The real Desktop input/controller/
+  adapter/queue/renderer regression suppresses completed synthetic reply text
+  after two owner epoch changes with identical final public page fields.
+- Worker, UI and exact standalone AI all-target host Clippy PASS with `-D warnings`.
+  Worker Nagi target Clippy PASS with `--target
+  targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc --locked --offline
+  -- -D warnings`; dependencies still emit eight pre-existing nagi-posix warnings.
+  This compiles the exact production model service/worker/AI leaves, not a full
+  Desktop ELF or guest runtime.
+
+Full UI target was NOT RUN again: its unchanged pinned libc0.2.191 was already
+known unavailable offline, so no duplicate missing-dependency attempt or registry
+access was made. No dependency download/version substitution, root-registry
+probe, denied Browser export retry/alternate access, network/authentication
+operation, VM/model/native inference, operator terms acknowledgement, publication,
+push or merge occurred. No operation was denied or had uncertain outcome during
+this source/host task. Production live owner/event wiring, authenticated Bar actor
+and channel/capability binding, coherent Servo extraction, real policy/navigation
+ABA and real guest cancellation/display remain absent/unverified. Host synthetic
+results do not prove them. Private product decisions remain unverified; no private
+ledger was read. Formal release gates remain unchanged.
+
+
+## Albert coherent extraction owner prerequisite (2026-11-04)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. The cloud exec-server connection recovered;
+this turn verified exact parent `4b274b2f8aa204d09840204c8cd1fa30c31dd0d6`,
+full tree `97779771130d7935b9b740ab16b00d7c3fd5aa75`, clean before creating
+`codex/m30-albert-coherent-context-20261104` in
+`/workspace/NagiOS-m30-albert-coherent-context`. The parent branch/worktree,
+source exports and older evidence remain unchanged. No duplicate epoch
+implementation is added; this uses the parent's BrowserContextEpoch.
+
+The source investigation rechecked the existing trusted receive path:
+`action_ipc.rs::receive_request` calls real libnagi::channel_receive on the
+Supervisor-owned launched endpoint, uses kernel-selected
+ChannelReceiveResult.sender_process_id, then resolves the live registry through
+supervisor::resolve. Launch identities/grants derive from signed manifests,
+and process exit revokes the launch. This is the existing path to reuse for a
+future summary connector, rather than caller fields supplied in a payload.
+No normal Bar summary receive endpoint or authenticated actor/session binding
+exists in the current Desktop path. The declared acceptance launch packages
+are not a live Bar actor, and the foreground Albert launch cannot be relabeled
+as NAGI_BAR_APP_ID. No receive helper that accepts a user-supplied PID/LaunchRecord
+is introduced or presented as kernel authentication. Existing Action IPC and
+Supervisor authorization code are unchanged.
+
+Albert's ordinary guest FirstPixelDelegate handles new frame, URL and load
+status callbacks, but does not expose a normal page Context API to Desktop or
+invalidate the summary epoch. The live API in m18_acceptance.rs is an
+acceptance-only local wrapper: evaluate_page_string spins Servo and yields
+between asynchronous JavaScript results, separately collecting selection and
+visible text. A final URL/content equality check or freshly attached token
+cannot by itself establish a single consistent page/policy capture.
+
+Implemented BrowserContextOwner in Albert's actual assistant_context.rs:
+
+- Owns the existing disabled-by-default ContextSharingPolicy and the parent's
+  event-thread-only epoch. It does not authenticate the caller or grant terms,
+  model, object or OS authority. The existing app-ID sharing check is still
+  only one check downstream of the required OS-authenticated connector.
+- Trusted chrome sharing controls invalidate the old epoch BEFORE changing
+  policy. A change back to the original policy never revives retained snapshots.
+- extract captures the epoch BEFORE the engine callback. After it returns,
+  sharing is checked again and a revoked capture fails unavailable. Only an
+  unchanged successful capture gets that original revision. The callback's
+  attempt to return a newly stamped page cannot repair a revoked transaction.
+  No implicit extraction retry, model invocation or terms acknowledgement.
+- The real event dispatcher must still call invalidate_page_context BEFORE
+  navigation/tab/selection/relevant content changes, including A-B-A. The helper
+  cannot observe omitted events or authenticate an arbitrary CallerIdentity.
+  It is not wired into ordinary Servo or the production Desktop owner seam.
+
+The minimal missing production contracts remain explicit:
+
+1. An owned Bar-summary endpoint/actor lifecycle using actual kernel sender
+   metadata and Supervisor live-launch resolution, tied to the authenticated
+   Desktop Session and active request. In-process Bar currently has no such
+   registered launch/receiver. A trusted in-process actor issuance contract or
+   real signed Bar launch must be implemented/reviewed before accepting Some.
+   Never substitute the foreground browser's identity for the requesting actor.
+2. Albert's owner event dispatcher must invalidate the SAME retained owner on
+   every relevant mutation, including sharing/tab changes and page changes
+   during JavaScript extraction. URL/load callbacks alone are insufficient.
+3. A bounded real Servo extraction adapter must capture a coherent set of
+   fields across asynchronous callbacks, propagate failures, observe revocation
+   after each event-pumping step, and bind the result/reply to the current
+   actor/Session/request. It must not stamp a mixed-page result as current.
+4. Only then can the normal Desktop step supply this live owner; current None
+   behavior is retained. Lock/sign-out/reap/readiness must discard the binding
+   and late replies. Host fixtures do not satisfy these production contracts.
+
+New standalone tests/albert-context imports the exact production Albert module
+without resolving unrelated Servo target dependencies. Its lock closure retains
+all 21 registry name/version/source/checksum identities from the existing source
+check seed; no dependency download or upgrade. Tests cover deny-before-read,
+unchanged versioned untrusted snapshots/blank filtering, navigation and sharing
+ABA during extraction, malicious re-stamping after invalidation, post-read
+sharing denial, restored-policy and owner-drop revocation, engine failure and
+absent page, and no retry. The existing Desktop host harness also imports the
+exact Albert owner and drives its public API via synthetic engine/actor fixtures
+through real Desktop input/controller/adapter/Shared queue/renderer. Completed
+fixture reply text is discarded for policy ABA between polls and page ABA during
+the extraction callback. No kernel caller provenance or Servo execution is claimed.
+
+Producer validation: standalone Albert9 PASS and all-target Clippy with
+-D warnings PASS; UI72/Desktop88/login26 PASS through existing check.sh, including
+format/feature graph checks. Desktop all-target Clippy with -D clippy::all PASS,
+with pre-existing Rust warnings retained (four library, two test warnings).
+A test enum naming Clippy error was fixed by renaming the fixture variant; the
+final strict check passed. git diff --check PASS. Full Albert/Servo target build,
+full UI target (known offline libc0.2.191 blocker), guest display/extraction,
+model inference, OS sender authentication and release acceptance are NOT RUN
+or remain unimplemented as described above. No target or guest success is
+inferred from host results. No network/authentication/dependency acquisition,
+root-registry probe, denied export retry/alternate route, private ledger/log
+read, operator consent, public operation, push or merge occurred. No action was
+denied or uncertain in this recovered source/host task. Private decisions remain
+unverified; this is independent existing 0.1 prerequisite work under unchanged
+release gates.
+
+
+## Supervisor received app binding prerequisite (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Parent
+`5ff0229539ec5ffa290942a77a79182a09417af4`, full tree
+`d86d9801ee47132ca7914959856eafb72d6c3b9a`, was clean and is preserved with its
+independent review and fixed source export. New isolated work is on
+`codex/m30-supervisor-receive-binding-20261105` at
+`/workspace/NagiOS-m30-supervisor-receive-binding`.
+
+Rechecked the existing Action IPC and signed Supervisor launch contracts. The
+kernel fills ChannelReceiveResult.sender_process_id; Supervisor maps it to the
+live signed-manifest launch record. Payload caller strings/PIDs are not that
+trust path. The kernel's isolated-process IDs advance and fail on exhaustion
+instead of reusing/wrapping an ID. None of those facts establishes a Desktop
+user Session or creates an in-process Bar launch.
+
+Implemented the reusable nonblocking receive boundary in real supervisor.rs.
+try_receive_from borrows the Supervisor-owned Launched endpoint and performs
+one real libnagi::channel_try_receive, never a blocking wait/retry loop. It
+checks the full expected launch record before receive, requires the stamped
+sender to match that launch, and checks the full record again after receive.
+ReceivedAppMessage has private fields/constructor; no public entry mints it
+from an arbitrary ChannelReceiveResult, PID or CallerIdentity. live_launch
+rechecks revocation at use. Protocol/version/opcode/request ID and payload
+remain untrusted consumer input, not authorization. The borrowed launch cannot
+be consumed by the ordinary reap call while its receipt is still borrowed.
+This is app-sender binding only, not model, user, object or Browser authority.
+
+The boundary accepts inline messages only. It rejects oversized payload lengths
+without truncating them, rejects unexpected transferred handles and closes all
+received nonzero handles within the ABI bound before discarding the envelope.
+Cleanup failures are surfaced, and a failed close does not skip subsequent
+handles. Empty/invalid endpoints return immediately. A private generic helper
+allows host tests to inject the receive/close operations; production supplies
+the real libnagi functions. No runtime caller fields or protocol activation
+were added to the ordinary Desktop or model queue.
+
+Standalone tests/acceptance/supervisor-receive imports this exact source with
+real libnagi/nagi-package dependencies. Six host tests cover payload identity
+forgery, different kernel-metadata sender values, stale/mismatched launch before
+read, revocation during and after receive, empty/failed endpoint without retry,
+malformed inline payload/transfer counts and complete handle cleanup including
+failure. Registry entries and receive results are explicit synthetic fixtures,
+not evidence of an actual signed package, kernel Channel or guest authentication.
+The existing Desktop host suite imports the same Supervisor source and runs
+these regressions alongside the independently reviewed Albert/summary tests.
+The harness lock closure is pruned from existing pinned Desktop dependencies;
+registry name/version/source/checksum identities are unchanged. No download.
+
+Producer final validation:
+
+- New receive host6 PASS; warnings-denied all-target Clippy PASS after the
+  standalone harness declared the existing source feature cfg values for lint
+  checking. No production feature/policy/authorization was disabled to pass.
+- UI72, Desktop94, login26 PASS with format/feature graph via the final fixed
+  check.sh. An initial run passed every suite but exited127 because the script
+  was edited during its execution (format-list insertion changed the shell's
+  file offset). The unchanged final script was rerun to verify clean exit0.
+- Desktop all-target Clippy -D clippy::all PASS with the existing four library
+  and two test Rust warnings. Focused rustfmt and git diff --check PASS.
+- Genuine Nagi target leaf Clippy was attempted once with
+  --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+  --locked --offline -- -D warnings. It stopped BEFORE Rust compilation on
+  unavailable pinned libc0.2.191. No package fetch/substitution, registry-path
+  probe, alternate cache or repeated target attempt. Target success is NOT
+  claimed from host compilation.
+
+Concrete remaining runtime gaps were rechecked, not filled by fabricated IDs:
+
+1. Ordinary Bar has no registered signed launch/owned summary endpoint bound
+   to the authenticated Desktop user Session. The new receipt proves only
+   the app sender recorded by the Supervisor; user Session/lifecycle, actual
+   Bar actor, protocol envelope and current UI request still require separate
+   binding/revalidation. Foreground Albert is not the requesting Bar identity.
+   ReceivedAppMessage alone must never authorize a page summary.
+2. main.rs currently enters the m17-servo/m18 acceptance path and its diverging
+   run_first_web_pixel/run_m18_https_acceptance loop. It does not return a live
+   Browser owner to the later ordinary Desktop event loop. A bounded embedded
+   Browser lifecycle/step API and surface/input ownership are needed; merely
+   enabling both feature flags does not share an owner/session safely.
+3. FirstPixelDelegate URL/load/frame callbacks do not yet update the retained
+   BrowserContextOwner, and they do not cover all selection/relevant DOM/tab/
+   policy changes. No partial callback list is claimed to solve page ABA.
+   The acceptance-only extraction still pumps events between separate JS reads.
+   It needs coherent multi-field extraction tied to the same epoch and failed
+   on any observed revocation before ordinary Desktop may supply Some(owner).
+
+Ordinary Desktop still supplies None and fails unavailable. Parent Albert
+sharing/epoch/extraction and service terms/cancel/budget/lease boundaries are
+unchanged. Real Servo extraction, signed Bar endpoint launch, OS/user binding,
+guest operation, model inference, full production target/ELF and formal release
+acceptance remain absent/unverified. No guest, public operation, push/merge,
+network/authentication/dependency acquisition, terms acknowledgement, denied
+export retry/alternate route, private ledger or private log access occurred.
+No operation was denied or uncertain in this task; the target dependency failure
+is an explicit offline compile blocker. Private decisions remain unverified;
+existing public 0.1 specifications and release gates govern this partial work.
+
+
+## Albert single-dispatch owner and callback revocation (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Parent def7e8814f840dc25709fc8d2fc04a19d4c654d0,
+full tree 5cdef8b40da8e1b7133d27a21134c61cdc782752, was clean and remains preserved
+with its reviewed source export. This candidate is isolated on
+`codex/m30-albert-step-events-20261105` in `/workspace/NagiOS-m30-albert-step-events`.
+The initial environment wait reported ready before exec became usable; the
+first source command did not execute. Current running status and a successful
+source read were confirmed before any change. No access denial was bypassed.
+
+The reviewed Supervisor receipt boundary is unchanged. Its registry spinlock
+has no proved time bound, and checking a record then using it is not an atomic
+registry/user authorization transaction. A received app identity is not a
+Desktop user Session. Session itself is a Copy value, so retaining a Session
+copy cannot observe later lock/sign-out; only the live Desktop lifecycle and
+its current binding/generation can supply that check. A Bar launch must be
+owned by that lifecycle, not paired with a new Session after the fact. No
+wrapper here blesses arbitrary caller fields, stale Session copies, PID1 or
+the foreground Albert launch as an OS-authenticated Bar actor. Normal Desktop
+continues to pass None, with no new endpoint or protocol activation.
+
+Implemented the next independent event-loop prerequisites in Albert source:
+
+- BrowserContextOwner now keeps short-borrowed epoch state separate from an
+  outer owner borrow. BrowserContextEvents is a cloneable, non-Send/non-Sync
+  Rc handle for trusted engine callbacks, limited to invalidation. It cannot
+  read page data, stamp snapshots, change sharing or authenticate an actor.
+  The extraction code releases the epoch borrow BEFORE invoking the engine
+  callback, allowing a delegate to revoke a capture while an embedder holds
+  the outer owner RefCell borrow. Policy is rechecked and revoked captures
+  still fail, including page/policy ABA and fresh-stamp replacement attempts.
+- Dropping the owner takes/drops the underlying epoch immediately, even if
+  delegate notifier clones remain alive. Old snapshots become invalid and
+  subsequent notifications return false without recreating a live epoch.
+  Sharing remains disabled by default and can only be changed on the owner
+  through the existing trusted user-control method.
+- The cfg-Nagi first-pixel source now has start_first_web_pixel returning a
+  FirstPixelBrowser that retains the WebView/Servo/wake signal and its context
+  owner. step invokes spin_event_loop once, preserves the first-dispatch trace
+  and returns the wake hint; it contains no application retry loop or yield.
+  The standalone run_first_web_pixel remains a diverging compatibility wrapper
+  that calls step and yields on idle. This is bounded in call count only:
+  neither Servo dispatch duration nor constructor/resource latency is proved
+  bounded. False means idle hint, not shutdown or successful page extraction.
+- FirstPixelDelegate frame, URL and load callbacks notify the retained epoch.
+  Frame invalidation is deliberately conservative. These callbacks do not
+  cover all DOM/selection/tab changes or provide a coherent extraction API.
+  The owned Browser drops its context owner before WebView/Servo fields so
+  retained delegate notifications cannot keep context access alive on teardown.
+  Sharing controls and Context API are not exposed by this guest step object.
+
+The first-pixel constructor still uses the old fail-stop resource setup and
+acquires the first-pixel display surface. It is not an ordinary Desktop window,
+input or shutdown API. main.rs still uses the existing standalone runner; no
+feature combination is claimed to establish a shared Desktop/Browser owner.
+The separate m18 acceptance loop is not refactored or promoted to production.
+The remaining work includes proper normal surface/input ownership, bounded
+initialization and shutdown semantics, complete mutation/event observation,
+coherent asynchronous Servo extraction and signed Bar endpoint/current user
+Session/request binding. Partial callback coverage must not activate sharing.
+
+Producer validation against the final source:
+
+- Exact Albert host12 PASS and all-target strict Clippy -D warnings PASS.
+  Three new regressions cover callback invalidation with an outer owner borrow,
+  retained notifier clones after owner destruction, and notifier invalidation
+  granting no sharing/read access. The existing nine extraction/policy cases
+  remain intact. These callbacks/engine actors are synthetic host orchestration,
+  not Servo or kernel execution.
+- Existing check.sh UI72/Desktop97/login26 PASS, including the old terms,
+  cancellation, caller, request/Session fencing and actual renderer cases,
+  plus format/feature graph checks. Desktop all-target -D clippy::all PASS with
+  the existing four library and two test Rust warnings. Both formatting lists
+  now parse/check guest lib.rs as well as assistant_context.rs; this does NOT
+  type-check cfg-Nagi code on a host. git diff --check PASS.
+- A genuine full Albert target check was attempted once:
+  cargo check --manifest-path user/nagi-albert/Cargo.toml --target
+  targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --locked --offline.
+  It failed loading the fixed cc dependency because this isolated checkout
+  lacks third_party/cc-nagi/Cargo.toml (ENOENT), BEFORE Rust compilation.
+  No fetch, symlink/copy from another checkout, version substitution, denied
+  registry probe or alternate access was attempted. The new guest step and
+  callback wiring therefore have NOT passed target type-check or execution.
+  The previous full-UI libc0.2.191 blocker was not retried.
+
+No guest, VM/model/native inference, operator terms acknowledgement, dependency
+or software acquisition, network/authentication operation, private ledger/log
+read, denied export retry, publication, push or merge occurred. No action was
+denied or uncertain during implementation; missing target source is the exact
+compile blocker. No success is inferred for real Servo, live Bar/Session binding,
+registry atomicity/time limits, model admission, guest rendering or formal M30
+acceptance. Private decisions remain unverified and release gates unchanged.
+
+
+## Launch-mediated Desktop Bar endpoint binding (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Independently reviewed parent
+1b5a940dad33401291cae0aed0b9b1a6c8aadebc / full tree
+2e621a08b1a663b41c2935dbfc6d593884495400 was clean and is preserved with its
+branch/source transfer. New isolated candidate work is on
+`codex/m30-desktop-bar-launch-binding-20261105` in
+`/workspace/NagiOS-m30-desktop-bar-launch-binding`. The parent's independent
+Nagi target/cbindgen success is reported by its reviewer, not rerun or inherited
+as proof that this new Desktop integration compiles on target or executes Servo.
+
+Implemented the launch/session ownership prerequisite in desktop_bar_endpoint.rs,
+behind m20-model-service plus consent-dialog, using actual Supervisor APIs:
+
+- Only a ready, adapter-bound, unlocked current Desktop epoch may initiate
+  launch_bar_endpoint. Its opaque instance/Session/generation binding is captured
+  BEFORE calling Supervisor::launch. The expected application is fixed to
+  NAGI_BAR_APP_ID; Supervisor still verifies the package signature and signed
+  application declaration. Package/placement are trusted init inputs, not
+  Browser page or client-payload caller identity. There is no public adopt,
+  register-existing-endpoint, attach-Session-later or arbitrary-caller constructor.
+- The current Desktop binding and full live registry record are checked after
+  launch; a foreign app, absent/changed record or lost readiness is rejected.
+  A rejected spawned Launched value is returned for explicit cleanup, rather
+  than silently discarding ownership. Typed Supervisor failures are preserved.
+- BarEndpoint retains that exact launch-time binding. try_receive_for checks
+  the CURRENT Desktop and live record before/after the existing real nonblocking
+  Supervisor receive. BarMessage is privately constructed only from the actual
+  Supervisor receipt, and caller_for/envelope_for recheck the current Desktop
+  epoch and live launch at use. Logical caller fields come from that launch
+  record, not the untrusted message payload or the foreground Albert identity.
+  Wire version/opcode/request identity/intent, Context Authority, sharing,
+  terms, budgets and cancellation remain independent required checks.
+- Old endpoints cannot be rebound to another Desktop, a new sign-in epoch or
+  even an equal-valued Session/generation on a different Desktop instance.
+  Locked/stale/unready states reject before touching the endpoint. Copying an
+  old Session value is not an adoption path. No terms acknowledgement, model
+  request, Browser extraction, display/input right transfer or capability
+  strengthening occurs in this API.
+
+This is a staged production source path, NOT an activated signed Bar client.
+There is still no selected/installed signed Bar package, normal summary wire
+consumer, stored ordinary runtime endpoint owner or teardown/reaper coordinator.
+Normal main/model_service_step therefore do not call launch_bar_endpoint and
+still supply owner=None. The APIs do not invent an authenticated endpoint when
+one is unavailable. Callers must retain successful endpoints, explicitly discard
+outstanding receipts before transferring a revoked launch to the process reaper,
+and handle BarLaunchFailure::Rejected's owned child. into_launch_for_reaping
+transfers ownership only: it does not itself revoke/wait/terminate, and Drop
+is NOT automatic process teardown. A future runtime must complete this lifecycle
+before activation and must not block its UI loop on a running process reap.
+The launch/signature verification path itself has no proved latency bound.
+
+Registry resolution still uses the reviewed Supervisor spinlock; neither its
+wait time nor validation-to-use atomicity is proved. This code does not turn a
+Session value, a launch record read or the new receipt into a global atomic
+user authorization transaction. Normal Desktop live epoch checks remain needed
+at each model request/reply boundary, and revocation/grants must still be checked
+by the service that performs a side effect. No existing auth/terms/cancel gate
+was relaxed to construct this prerequisite.
+
+Browser surface/input investigation confirms why no unsafe activation was added:
+NagiSurface::acquire describes the kernel-owned full display mapping, and
+copy_rgba_frame requires full Surface dimensions. It is not a Desktop child
+window/compositor slot. The first-pixel constructor still owns/presents that
+surface; handing it the ordinary Desktop's capability would create competing
+whole-frame owners. Desktop consumes its input capability, while Albert's input
+helpers only translate/hit-test events; they are not a focus-safe OS event route.
+Normal integration still needs a bounded Browser window/frame sink with damage/
+clipping/ownership, focus/lock-aware routed input, coordinated step/shutdown and
+coherent epoch-tagged extraction. No display/input capability is passed to a Bar
+child, no second raw input consumer is installed, and existing partial Servo
+callback coverage/dispatch time limits remain unproved. A shared token cannot
+replace those resource and lifecycle contracts.
+
+Producer final host validation:
+
+- Six focused Bar endpoint regressions PASS: not-ready/locked pre-launch denial,
+  launch-time fixed app identity, unaccepted terms/empty queue preservation,
+  foreign/missing/changed registry rejection, readiness loss during launch with
+  cleanup ownership, typed launch failure, old epoch/readiness denial before
+  receive and equal-value cross-Desktop binding rejection. Launch/resolve are
+  injected ONLY through private test seams. Their synthetic endpoint/records
+  are not evidence of actual signature verification, kernel IPC or a Bar process.
+- CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh PASS: UI72, Desktop103,
+  login26, format and feature-graph checks. The only existing fixture visibility
+  change is pub(super) on the test-only Desktop setup for this child test module.
+  No production Session fields or receipt constructors were made public.
+- Desktop all-target Clippy -D clippy::all PASS with the existing four library
+  and two test Rust warnings; git diff --check PASS. No dependency or lock changes.
+
+No new target check was attempted: this producer checkout still lacks the fixed
+third_party/cc-nagi source identified on the parent attempt, and its prior full
+UI pinned libc0.2.191 offline blocker has not been resolved here. The independent
+reviewer's different environment's successful dependency preparation does not
+establish availability in this checkout. New target compilation, real package
+launch/IPC, actual BarMessage receipt-to-caller flow, final link, real Servo,
+guest Desktop/Browser/session operation and release acceptance remain NOT RUN.
+No source/cache transfer, new dependency/software/model acquisition, network/auth
+operation, guest/VM/model run, operator terms acknowledgement, public operation,
+push/merge, private ledger/log read or denied-path retry/bypass occurred. No
+operation was denied or uncertain during this source/host task. Private product
+decisions remain unverified; existing public 0.1 gates remain in force.
+
+
+### 2026-11-05 — staged Bar wire consumer and retirement (M23 PARTIAL / M30 BLOCKED)
+
+Isolated follow-up to reviewed 2b0dec13e95251294ec27257bffc6179cfae9aaf
+(tree 4ec27cabc93783abf37bb4eb89c9f66694580b3e). Original candidate is retained.
+
+- Added separate caller-free bar-summary@1 protocol, exact envelope/handle
+  rejection, nonzero OS gesture nonce, one pending exchange, trusted tick
+  expiry/rollback checks and one-time consumption. Claims survive endpoint
+  replacement; failed sends burn the gesture. New gesture is required to retry.
+- Staged BarEndpoint APIs use the real Supervisor receiver and launch record,
+  recheck current Desktop/session binding, request and time before actor use,
+  and keep terms/sharing/model admission separate. Negative terminals burn the
+  validation token; no positive/model-success terminal or page/prompt data exists.
+- Added actual one-shot Nagi Bar client source and grant-free manifest. Its
+  source-check harness uses local dependencies only. It accepts kernel init
+  sender1 and exact offer/result; exit0 means negative transport completion only.
+  It is not a signed/embedded package and normal main does not launch it.
+- Supervisor retirement atomically compares/removes its own record before close,
+  retains close failure ownership, and never calls process_wait. A separately
+  named waiting reaper retains failures and validates returned process ID. This
+  is not a nonblocking reaper or a proven UI time bound. No auto-wait/retry loop
+  was connected to Desktop. Broader validation/use atomicity remains unproved.
+
+Final source verification using the installed nightly-2025-08-01 and existing
+approved offline environment:
+
+- Protocol harness: 7 tests PASS, all-target Clippy with -D warnings PASS.
+- CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh PASS: UI75, Desktop113,
+  login26, formatting and feature graph. Desktop includes 10 endpoint cases,
+  including nonce replacement, late/forged/expired input and negative completion.
+- Supervisor receive harness: 9 tests PASS and strict Clippy PASS; 3 new cases
+  cover revoke-before-close, retained failures and foreign-record rejection.
+- Desktop all-target Clippy -D clippy::all PASS with the pre-existing Rust warnings
+  (4 library / 2 test). Only local action IPC dependency/lock entries were added;
+  all 33 existing registry package identities/checksums remain unchanged.
+- Real Nagi target cargo check of protocol and actual child source PASS through
+  tests/acceptance/bar-summary-wire with -Zbuild-std=core --locked --offline.
+- Real standalone child target release ELF link PASS with existing init linker
+  script and build-std core/compiler_builtins. The initial relative script path
+  failed in Cargo's link working directory; an absolute path to the SAME checkout
+  script corrected configuration. ELF64LE x86-64 executable, entry within RX load,
+  segment bounds checked and no RWX load. Final ELF 10552 bytes, SHA-256
+  c0e008495a44639457ee30cf350868874eafc98b1964e9230e6aa6ab9d25c339.
+  This is a standalone harness link, not the production package/final OS link.
+- git diff --check PASS. Host orchestration uses explicit private fixture seams;
+  synthetic launch/envelopes are not real kernel identity or real process exit.
+
+Normal runtime remains fail-closed: no live Browser surface/input ownership,
+actual signed Bar package, real endpoint exchange, bounded reaper coordinator,
+positive summary reply/lifetime integration or actual child retirement observed.
+Existing registry spinlock deadline and validation/use transaction atomicity are
+not guaranteed. Full root/Servo/init target build remains unverified here because
+of the previously identified missing cc-nagi source/pinned offline dependencies;
+no dependency acquisition or denied cache access was attempted. Real Servo,
+guest/session/inference and formal M30 acceptance were NOT RUN. Private product
+decisions remain unverified; public 0.1 gates are unchanged. No VM/model/guest,
+terms acknowledgement, private log/ledger read, public operation/push/merge,
+permission change or access-denial retry/bypass occurred in this task. No new
+operation was denied, pending approval or of uncertain outcome.
+
+
+### 2026-11-05 — consume summary intent on every Bar close (M23 PARTIAL / M30 BLOCKED)
+
+Isolated follow-up to e1aa11deb858b1ffb945b749ee4cfbb9d5a10e3e
+(tree 889750ed9e00c23bf47993e2576114ec8edf3189); original candidate/export retained.
+Independent review identified Esc-close retaining summary_requested. F3 reopening
+could expose the previous gesture and permit a still-fresh validated token.
+Audit also found Settings-button close directly changing open without consuming
+intent. Toggle close and clear_presentation already cleared intent.
+
+Panel now has a private open field, a read-only is_open accessor and one close
+method that clears summary intent while preserving nonce/claim history. Esc,
+F3/button toggle, Settings-button close and presentation clearing share this
+method. Reopening alone produces no intent; an explicit subsequent summary
+gesture gets a higher nonce. No terms, sharing, model, cancel or session
+permissions are granted by close/open. The existing raw BarMessage caller_for
+remains an identity receipt only, explicitly not a protocol/intent authorization;
+ValidatedSummaryRequest actor conversion and negative terminal use still require
+the current claimed gesture, live Desktop binding, launch record and clock.
+
+Three new regressions were added before the fix and all three failed on the
+parent implementation: unclaimed/claimed Esc intent persistence, accepted token
+reuse after close/reopen, and pending-frame acceptance after close/reopen. After
+the fix they pass. Endpoint tables exercise actual Desktop Esc, F3, Settings
+click/close and presentation reset paths, reject old token/terminal/pending
+response without a new gesture, then accept a fresh explicit summary request
+while the old token remains invalid. Host launch/IPC seams remain synthetic.
+
+Final offline host validation: CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh
+PASS (UI76, Desktop116, login26, formatting and feature-graph checks). Focused
+close_ filter PASS 6 tests, including the 3 new regressions. Desktop all-target
+Clippy -D clippy::all PASS with existing Rust warnings. git diff --check PASS.
+No dependencies/lockfiles/protocol changed. No new target build was attempted;
+prior whole-root cc-nagi/offline dependency blockers remain unresolved here.
+
+Actual runtime Bar/IPC/reaper/Browser ownership and guest/inference/release
+acceptance remain unconnected/unverified. M23 PARTIAL/M30 BLOCKED and existing
+gates are unchanged. No VM/model/guest execution, terms acknowledgement, new
+acquisition, private log/ledger read, public operation/push/merge, permission
+change, denied-path retry or bypass occurred. No new action was denied, pending
+approval or of uncertain outcome.
+
+
+### 2026-11-05 — reviewed Bar candidate local integration with current main
+
+M23 PARTIAL / M30 BLOCKED. Read-only GitHub lookup confirmed PR43 remains draft,
+open/unmerged at 54f24085939a40d86a451d191c4d4bb91f3f2103. The separately resolved
+current main is c170ebf1d056aea277e3aa5f464d148d4ecff7fb (PR metadata's older
+base_sha is not the current main). The reviewed candidate is
+06d94a9652d7fb7ec200f3ebf955ac054e60c203, tree
+adabbe2e97d6eeee588a6a0a9e1fd2b9b1da8ec9, a descendant of the public PR head.
+Independent review verified its source chain/filtered blobs and host regressions;
+that is source verification, not transferred commit-object authentication.
+
+A NEW isolated local integration branch combines the exact reviewed candidate
+with that pinned current main. The only conflict was implementation_status.md;
+main's entire added prefix and the candidate's entire status document were kept.
+CI workflow merged automatically: main's required-file/docs-only scope checks and
+candidate's host/target worker/UI regressions and formal M30 failure gate remain.
+No manual production-source conflict resolution or new runtime behavior was added.
+Main's calendar test and tracked evidence files are inherited unchanged, not new
+M30 evidence; their contents were not read for this task. Original branches,
+review exports and worktrees remain untouched. The ordinary shared origin/main
+ref was not moved; fetch used a separate local tracking ref.
+
+Validation of the integrated source, using existing installed/offline tools:
+- UI76 / Desktop116 / login26 PASS, including format and feature-graph checks.
+- Wire7 and strict protocol all-target Clippy PASS; Supervisor9 PASS.
+- Desktop all-target Clippy -D clippy::all PASS with existing Rust warnings.
+- Current-main CI change-scope regression13 and release regression37 PASS.
+- Static checks retain host/Windows UI, worker target checks, distinct partial
+  session/layout commands and formal ./nagi m30 gate. Formal gate implementation,
+  release assembler, Bar panel and endpoint sources match reviewed 06d94a9 bytes.
+- git diff --check PASS. Unrelated calendar tests were not rerun in this scope.
+
+No new target compile, final OS link, public CI, real signed Bar/IPC/child reaping,
+normal Browser ownership/dispatch, guest, inference or formal M30 acceptance was
+run. Existing root target cc-nagi/offline dependency blockers and runtime gaps
+remain. This local integration does not approve release or change milestone
+status. No public branch/PR update, push/GitHub merge, VM/model/guest run, terms
+acknowledgement, new dependency/model/software acquisition, private log/ledger
+read, permission change or denied-operation retry/bypass occurred. Public main
+source fetch succeeded; no new action was denied, pending approval or uncertain.
+
 ## M24 scoped production read boundary candidate (2026-11-05)
 
 M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
@@ -10148,3 +11610,222 @@ This read-only candidate is now reapplied on main
 Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
 target check with a normally built/signed client. This is a local candidate;
 main/public heads and guest execution are unchanged.
+
+
+### 2026-11-05 — actual PR96 main integration into published M30 lineage
+
+M23 PARTIAL / M30 BLOCKED. Writer and guest HOLD remain in force. At the initial
+read-only ref check, PR43 was draft/open at
+65108d6db2ec3e0a6f793c31fc0dc36e27be5354 (tree
+53d414db97705d2ebb4eba0d1b5171d340fe6549) and actual main was
+2c9532943a6624980892d01ce7e91f6d32545d25 (tree
+34fcfa03ba7e19081c4937a235924591d0e92e92), the public PR96 merge. A NEW isolated
+local integration worktree uses those exact parents; existing candidates and
+source handoffs remain intact. No public ref is updated by this work.
+
+Both conflicts were resolved semantically: retain the complete published M30
+status document and append main's exact 30-line M24 status addition; keep the
+M30 synchronized=false title barrier around PR96's fallible title-only helper.
+Borrowed record inspection and fallible stale scalar staging from PR96 coexist
+with M30 generic runtime, recovery/trash identity and synchronization lifecycle.
+The sync success flag is reached only after all reconciliation succeeds. No
+writer activation, session/worker authority, terms, sharing or admission is changed.
+
+Before adding the regression and this status entry, the exact resolved tree was
+9bdc100e1db13179afc5f97279c78b5e06baae7a. This matches the supplied provisional
+comparison prefix 9bdc100e. The external comparison's full tree ID/object was not
+separately available in this environment; no stronger independent identity claim
+is inferred from the short prefix alone. Final differences from that recorded
+resolved tree are limited to this status entry and one runtime regression test.
+
+The new title-boundary regression checks duplicate/order-preserving title reads,
+failed Search persistence after rename, denial of both old-ID and empty title
+reads while unsynchronized, successful reconciliation with the same ObjectId and
+new title, and rejection of an unknown ObjectId. In a temporary negative control,
+removing ONLY the synchronized title barrier reproduces Some(old.txt) leakage and
+fails the new test; the correct source was restored before all final checks.
+All disk/backend operations in this regression use explicit in-memory host fixtures.
+
+Final integrated-source validation, installed nightly-2025-08-01/offline only:
+- Search library38 and all-target warnings-denied Search Clippy PASS, selecting
+  the exact nagi-search package through the existing files-search harness graph.
+- Files/recovery31 PASS with m19-files-search-production,m27-recovery features.
+- UI76 / Desktop117 / login26 PASS, including formatting/feature graph.
+- Albert12 / Supervisor9 / wire7 PASS and their strict Clippy/format checks PASS.
+- Desktop all-target -D clippy::all PASS, with existing Rust warnings (4 library,
+  1 test). Affected runtime/Search source rustfmt and whitespace checks PASS.
+- Release regression37 PASS. No dependency or lockfile changes.
+- Nagi target cargo check of the EXISTING files-search harness, exact runtime
+  source and nagi-search PASS: --lib --features m19-files-search-production
+  --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+  --locked --offline. This is a scoped target type check, not production init
+  package construction, full init/Servo target build, final link or guest proof.
+
+No new public CI, public push/PR update/GitHub merge, real writer/media operation,
+VM/model/guest execution, actual Bar/IPC/reaper/Browser inference, terms consent,
+private log/ledger read, dependency/model acquisition, permission change or access
+bypass occurred. Full init/Servo target/link, normal runtime and formal same-image
+M30 acceptance remain unverified. Existing gate and writer/guest HOLD are intact.
+The known private product decisions remain unverified; only existing public 0.1
+contracts are integrated. No new operation was denied or has uncertain outcome.
+
+### 2026-11-05 — isolated host M30 evidence preflight/collector
+
+M30 remains BLOCKED. New read-only `tools/nagi-release/m30_preflight.py`
+collects an explicit preserved input set into JSON: independent missing/invalid
+input diagnostics, actual file sizes/hashes, existing session content validation
+and release bundle validation with expected source/selected image bindings.
+It reuses `session_acceptance.validate_session`, image provenance/production
+configuration checks and `release.verify_release`; no competing session or
+release receipt format is introduced. Duplicate/nonfinite bundle JSON is rejected
+before release validation. CLI run receipts remain host command observations,
+not substitutes for ordinary guest-session evidence.
+
+All structurally consistent inputs remain NOT_VERIFIED for acceptance. Content
+integrity is reported separately from unavailable execution-origin proof,
+independent voice-operation evidence and distribution approval. The existing
+session producer API is proposed; synthetic fixture tests prove orchestration
+only. JSON always retains M30 NOT_EVALUATED/formal gate BLOCKED; CLI exit is 1.
+No fabricated signatures, timestamps, credentials, runtime events or receipts.
+
+Isolated checkout: `/workspace/m30-evidence-preflight`. Verified fixed source
+65108d6db2ec3e0a6f793c31fc0dc36e27be5354, full tree
+53d414db97705d2ebb4eba0d1b5171d340fe6549, including main parent
+c170ebf1d056aea277e3aa5f464d148d4ecff7fb. Formal `execute_m30`, its exit code,
+success criteria, existing validators and CI workflow are byte-identical to
+that base. Existing submit_page_summary/poll_page_summary are present; no runtime
+feature was reimplemented. No other worker's active outputs were consumed.
+
+Host validation: new focused tests 13 PASS; aggregate release/session tests 50
+PASS; root CI-scope/target-link diagnostics tests 14 PASS. Python `py_compile`,
+`tabnanny` and `git diff --check` PASS. Ruff/Black are not installed, so their
+format/lint checks were NOT RUN. The existing Rust formal gate regression was
+attempted with offline/locked Cargo, but stopped before compilation because the
+fresh checkout lacks `third_party/cc-nagi/Cargo.toml`; no Rust test passed is
+claimed. No dependency acquisition or borrowed build output was used to bypass
+that environmental blocker. The next independent check is to rerun that existing
+regression in a properly provisioned fresh checkout.
+
+Default preflight invocation returned the expected diagnostic exit 1: source
+INVALID because this implementation diff is uncommitted, 19 MISSING input
+checks, and 3 NOT_VERIFIED proof/review checks. No production evidence was
+available in this isolated checkout. No final OS link, image generation,
+guest/QEMU/inference run, CI dispatch, integration, push, PR mutation, merge,
+publication or milestone acceptance was performed. No operation was denied,
+pending approval or of uncertain outcome.
+
+### 2026-11-05 — M30 preflight fixed-source preparation and Rust gate follow-up
+
+M30 remains BLOCKED. On the same isolated preflight candidate, verified the
+cached upstream cc 1.4.6 archive SHA-256 against sources.lock
+(`a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4`), then
+matched all 28 archived regular files against the cached unpacked source.
+A local std-only launcher invoked the unchanged repository
+`ensure_cc_nagi_checkout` implementation, which applied the pinned patch and
+validated its generated checkout marker. No other worker's output was used.
+
+Root offline/locked Cargo gate retry advanced past cc-nagi, then stopped before
+compilation on missing `third_party/freetype-sys/Cargo.toml` (exit 101). The
+repository's standalone bootstrap manifest compiles the same nagi-cli lib and
+its unchanged test sources without resolving unrelated root path patches:
+
+```sh
+CARGO_HOME=/workspace/.nagi-cargo RUSTUP_HOME=/workspace/.nagi-rustup \
+  /workspace/.nagi-cargo/bin/cargo test --offline --locked \
+  --manifest-path tools/nagi-bootstrap/Cargo.toml --lib \
+  formal_release_and_layout_fixture_commands_are_distinct
+```
+
+Result: 1 PASS, 0 failed, 358 filtered out; formal M30 still returns its existing
+EXIT_NOT_IMPLEMENTED/BLOCKED result and remains distinct from layout fixtures.
+The broader root Rust suite was NOT RUN; provision all pinned root path patches
+through their regular source preparation if that suite is needed. No source,
+lockfile, acceptance criteria or CI gate change was needed for this recovery.
+Private review handoff contains the fixed local commit, four-file source/test/
+documentation delta, manifest and actual logs. No public upload, push, guest,
+image generation, denial retry or access-policy change occurred.
+
+### 2026-11-05 — independent-review M30 preflight malformed-input fixes
+
+M30 remains BLOCKED. Independent review reported three P2 inputs against local
+candidate aaf5104118e313051949cf9a905654c4baf1e914: an array in production image
+components crashed the delegated validator and suppressed JSON; numeric 1e400
+became infinity and was accepted; schema_version=true was treated as integer 1.
+All three were reproduced with CLI regression tests before implementation:
+RED 3 failures, including the empty-stdout control for the AttributeError crash.
+
+The release/session consumer audit found that production image checks are shared
+by session validation, release preflight/assembly/verification and this collector.
+The real producer emits comma-separated strings, integer schema/format versions
+and a string-to-string toolchain-version map. Harden those existing contracts:
+production component/feature values require strings; schema/format versions
+require actual integers; toolchain-version entries require nonempty strings.
+Legacy build manifests may still omit their previously optional schema field;
+empty legacy toolchain maps remain structurally supported, never proof of origin.
+No new evidence format, required event or formal success criterion was added.
+
+Release and session readers now share one strict JSON parser that rejects
+duplicate keys, explicit nonfinite constants and exponent overflow to infinity
+at any nesting depth. Finite boundary values remain parseable. The collector
+also catches delegated AttributeError as INVALID with an exception-class/reason
+diagnostic, so malformed input cannot suppress the remaining report checks.
+These checks strengthen rejection in the direct release CLI as well; valid
+synthetic fixtures still prove content-validator orchestration only.
+
+Validation: review controls GREEN 3; aggregate release/session suite 59 PASS,
+including 19 collector tests, direct-release CLI negative controls, provenance
+type boundaries, boolean/float/string/null schemas, nested positive/negative
+overflow and finite-number boundaries. Existing formal gate implementation and
+CI workflow remain byte-identical to the fixed public #43 base. Existing
+session event coverage, stress limits and formal M30 BLOCKED/exit code are
+unchanged. No guest, inference, image build, public action or acceptance claim.
+Next: independent review of the fixed commit and updated private handoff.
+
+### 2026-11-05 — reviewed M30 preflight integration onto current PR43/main
+
+M30 remains BLOCKED. Read-only public source lookup resolved current main to
+2c9532943a6624980892d01ce7e91f6d32545d25 (tree
+34fcfa03ba7e19081c4937a235924591d0e92e92), which has merged PR96. PR43 is
+still open/draft/unmerged at f35d3f25320339fa69d0860c12e1a354a3852701
+(tree dcc5c1bc306a755b095c831cc16f049f794edca8). That PR head already
+contains current main. Its release/session source matches the original
+65108d6 preflight base, so the independently reviewed collector candidate
+10ea682c03159b85f300714cbc64f459d78aaf5e can integrate without code conflicts.
+
+New isolated checkout `/workspace/m30-preflight-integration` merges those two
+fixed heads locally. The only merge conflict was implementation_status.md;
+the complete current PR status was retained and the reviewed candidate's full
+status delta appended. All seven release/collector/test/README files remain
+byte-identical to reviewed 10ea682. Current PR43 CLI commands, formal gate,
+CI workflow, Cargo files, source lock, runtime and Search changes are retained
+unchanged. No hypothetical/unmerged PR96 base or other worker output was used.
+
+Shared consumer audit: production provenance checks serve release preflight,
+assembly, verification and ordinary session validation. Release/session JSON
+readers use the same strict parser. Existing producer strings, actual integer
+schema/format fields and string version maps retain their contracts, including
+optional legacy build schema/empty legacy version maps. Type mismatches,
+duplicate keys, nonfinite constants and exponent overflow fail closed. Collector
+AttributeError fallback preserves INVALID JSON diagnostics. The direct-release
+CLI negative controls, finite boundaries and synthetic positive controls remain
+in the suite. These checks prove content validation, not origin or execution.
+
+Integrated-source host validation: release/session59 PASS (collector19), root
+CI-scope/target-link diagnostics14 PASS, existing formal gate Rust regression1
+PASS via the normal standalone bootstrap manifest (358 filtered out). Python
+compile/tabnanny and diff whitespace checks PASS. The full root Cargo suite and
+external review's extra negative-test scripts were NOT RUN in this integration
+checkout; root path-source dependencies are not prepared here. Ruff/Black remain
+unavailable. Existing session coverage, stress limits and formal M30 BLOCKED/
+EXIT_NOT_IMPLEMENTED are unchanged. No production evidence is available.
+
+Public workflow lookup at the PR43 head showed Nagi CI41979034671 pending,
+local-TTS workflow41979034748 success and 0.2-host workflow41979034625 skipped.
+These are observations of existing PR-triggered runs, not CI success for this
+unpublished integration candidate. The endpoint returned no PR-triggered run
+for main's merge commit; no main CI conclusion is inferred from that absence.
+No CI dispatch/rerun/cancel, public push/merge/upload, guest/QEMU/inference,
+image generation, writer change, milestone acceptance or permission change was
+performed. Next: independent review of the fixed local integration diff and
+private handoff, then the owner's publication decision. No action was denied,
+pending approval or of uncertain outcome.

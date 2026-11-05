@@ -1,0 +1,11 @@
+[package]
+name = "nagi-desktop-host-libnagi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+real-libnagi = { package = "libnagi", path = "../../../../user/libnagi" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
