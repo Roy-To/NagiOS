@@ -1,3 +1,69 @@
+## PR 98 M27 promotion storage failure investigation — 2026-11-05
+
+Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
+No M27 PASS or repair is claimed. Fixed head is
+`d43a29e42290eacfa1dcc4819fbfeac991a1c3df` (tree
+`fff9f072a5f73810645413e8f276cc37892c1e45`). PR run 42028014093 checked out
+`cb2ee8ba975f41ee1745e984962a6aa30a9efb07`, whose tree is identical; push
+run 42028007518 checked out the fixed head. Official target job logs and
+acceptance artifacts 13423071777 / 13422034807 were compared read-only.
+
+Both legacy FAT12 readiness trials log the same initialization and signed-in
+readiness sequence. In promotion boot 2, the first 87 normalized serial lines
+match, including consumed readiness, confirmed B, matching init size 576728,
+and completed core services. The PR log then prints `Nagi M7 storage FAIL`
+and `Nagi M5 process exit FAIL`; the push log instead prints the read-only VFS
+integrity PASS, mounts storage and reaches the unlock screen. The PR timeout
+diagnostics find QEMU running but CPU 0 halted at the same RIP in two samples.
+Thus the 180-second readiness timeout follows an explicit guest storage failure;
+it is not evidence that a longer readiness timeout would repair this case.
+The unchanged source narrows the failure to the pre-mount read-only checker or
+its nonempty-report guard. Existing logs cannot distinguish I/O failure from
+metadata inconsistency or an empty valid report.
+
+Candidate diagnostic change preserves the checker, report guards, failure return,
+success markers, feature set and deadlines, and adds a reason before returning
+failure: block I/O, corrupt metadata, other storage error, or empty report.
+No scheduling, readiness policy or filesystem repair changes are made.
+
+Host boundary experiment with the exact source storage module, an in-memory
+device and the production Search runtime's `/home`, `/home/owner`,
+`/home/owner/files` creation sequence passed together with all 25 existing
+storage tests (26 total). Of 42 individual sector-write prefixes, 36 return
+`StorageError::Corrupt`; the completed sequence passes. The signed-in desktop
+prints readiness before calling `Runtime::open`, while the host requests QMP
+quit on that readiness marker. An interrupted post-readiness mutation is
+therefore a demonstrated possible mechanism, not proof of the recorded CI
+failure. The uploaded artifacts contain no persistent disk snapshot, and serial
+lines have no timestamps to identify which mutation, if any, was interrupted.
+PR and push runner image versions also differ (20261025.353.1 vs 20261101.360.1);
+post-job memory/disk snapshots do not measure pressure at failure time.
+
+Formatting and whitespace checks pass. The official CI setup selects Clang 19.
+The initial build failed to find clang on PATH; follow-up found the existing
+workspace Clang 19.1.7 at
+`/workspace/.nagi-tools/root/usr/lib/llvm-19/bin/clang`. No compiler installation
+or toolchain change was needed. Selecting this compiler explicitly, the locked
+offline Nagi-target release build and final static ELF link pass with the exact
+M27 features `m10-desktop,m27-ro-vfs-check,desktop-login` and
+`-Zbuild-std=core,alloc,compiler_builtins` on nightly-2025-08-01. ELF SHA-256 is
+`ea7d9f0ebd149bf2d2586b0eb9951bfd655b5ab1e0ba0f29afc213914ac7f817`.
+The build reports warnings; no source or assertion was changed to suppress them.
+Host libnagi tests pass (84 unit, 2 integration); CI M27 artifact selection
+regressions pass (3); the in-memory write-prefix experiment plus original
+storage tests pass again (26). Dependencies use the existing cache with
+identical sources.lock. Earlier offline sysroot resolution lacked dlmalloc;
+normal pinned registry resolution populated that cache. Cargo.lock is unchanged.
+
+Guest/VM execution, CI reruns, existing image/claim operations and publication
+were not performed. Failure-disk capture remains a proposal, not an implemented
+or activated upload: existing CI deliberately selects logs and excludes disk
+and OVMF payloads. A legacy M27 user-data image is 18 MiB and can include the
+owner credential record and private filenames/content. Next useful evidence is
+a private local failed-disk snapshot plus the new checker reason; separately
+validate a guest quiescence boundary after signed-in Search initialization
+before ending the trial boot. Root cause remains unproven.
+
 ## PR 98 staging integration after PR 97 merge — 2026-11-05
 
 Status: `PARTIAL`. Initial reviewed/published staging candidate
