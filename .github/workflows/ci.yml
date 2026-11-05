@@ -125,6 +125,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
+      - name: Real QMP compatibility without guest disks
+        env:
+          NAGI_QMP_COMPAT_QEMU: /usr/bin/qemu-system-x86_64
+        run: cargo test --locked -p nagi-cli --lib image::tests::real_qmp_diskless_compatibility -- --ignored --exact --nocapture
       - name: Prepare and verify standalone Legal before offline CLI delegation
         run: |
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
@@ -567,6 +571,9 @@ jobs:
             out/logs/m17-nagi-user-init.log
             out/logs/m17-undefined-symbols.txt
             out/logs/m17-servo.log
+            out/evidence/m27-ab-rollback-*/**/*.log
+            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-timeout-*
+            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-retry-*.txt
           if-no-files-found: ignore
 
   nagi-m20-inference:
