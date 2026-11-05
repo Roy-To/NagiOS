@@ -2489,6 +2489,68 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     serial_input: Option<(&str, &[u8])>,
     screenshot_path: Option<&Path>,
 ) -> Result<QemuGuiOutcome, String> {
+    run_gui_qemu_with_serial_reader(
+        config,
+        ready_marker,
+        events,
+        later_stages,
+        failure_marker,
+        mode,
+        serial_input,
+        screenshot_path,
+        |stream, buffer| stream.read(buffer),
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn run_qemu_gui_with_interrupted_serial_read(
+    config: &QemuConfig<'_>,
+    repeat_interruptions: bool,
+) -> Result<i32, String> {
+    let mut reads = 0;
+    let mut interrupted = false;
+    let result = run_gui_qemu_with_serial_reader(
+        config,
+        M9_GUI_READY_MARKER,
+        &M9_GUI_EVENTS,
+        &[],
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::ZERO,
+        },
+        None,
+        None,
+        |stream, buffer| {
+            reads += 1;
+            if reads == 1 || (repeat_interruptions && reads > 2) {
+                interrupted = true;
+                Err(std::io::ErrorKind::Interrupted.into())
+            } else {
+                stream.read(buffer)
+            }
+        },
+    );
+    assert!(
+        interrupted,
+        "production GUI loop must encounter the injected EINTR"
+    );
+    result.map(|outcome| outcome.exit_status)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_gui_qemu_with_serial_reader(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    failure_marker: Option<&str>,
+    mode: GuiQemuMode,
+    serial_input: Option<(&str, &[u8])>,
+    screenshot_path: Option<&Path>,
+    mut read_serial: impl FnMut(&mut TcpStream, &mut [u8]) -> std::io::Result<usize>,
+) -> Result<QemuGuiOutcome, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
     let serial_port = serial_listener
@@ -2621,7 +2683,7 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         match if remaining.is_zero() {
             Err(std::io::Error::from(std::io::ErrorKind::TimedOut))
         } else {
-            serial_stream.read(&mut buffer)
+            read_serial(&mut serial_stream, &mut buffer)
         } {
             Ok(0) => break,
             Ok(count) => {
@@ -2732,9 +2794,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                     });
                 }
             }
+            // An interrupted read made no progress. Still run the child and
+            // absolute-deadline checks below, even under repeated signals.
             Err(error)
                 if error.kind() == std::io::ErrorKind::WouldBlock
-                    || error.kind() == std::io::ErrorKind::TimedOut => {}
+                    || error.kind() == std::io::ErrorKind::TimedOut
+                    || error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => {
                 terminate_qemu(&mut child, config.serial_log, &serial);
                 return Err(format!("cannot read GUI serial TCP stream: {error}"));

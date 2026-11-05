@@ -11966,6 +11966,8 @@ mod qemu_timeout_caller_tests {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
+    type GuiRunner = fn(&QemuConfig<'_>) -> Result<i32, String>;
+
     #[test]
     fn production_callers_capture_timeout_diagnostics_and_reap_within_original_budget() {
         run_timeout_cases("", None);
@@ -11983,7 +11985,37 @@ mod qemu_timeout_caller_tests {
         run_timeout_cases("final", Some(true));
     }
 
+    #[test]
+    fn gui_interrupted_read_preserves_diagnostics_serial_retry_and_reaping() {
+        for late in ["", "query", "final"] {
+            run_timeout_cases_with_gui_runner(
+                late,
+                Some(true),
+                Some(|config| {
+                    crate::image::run_qemu_gui_with_interrupted_serial_read(config, false)
+                }),
+            );
+        }
+    }
+
+    #[test]
+    fn gui_repeated_interrupted_reads_keep_the_original_deadline() {
+        run_timeout_cases_with_gui_runner(
+            "",
+            Some(true),
+            Some(|config| crate::image::run_qemu_gui_with_interrupted_serial_read(config, true)),
+        );
+    }
+
     fn run_timeout_cases(late: &str, gui_only: Option<bool>) {
+        run_timeout_cases_with_gui_runner(late, gui_only, None);
+    }
+
+    fn run_timeout_cases_with_gui_runner(
+        late: &str,
+        gui_only: Option<bool>,
+        gui_runner: Option<GuiRunner>,
+    ) {
         for gui in [false, true] {
             if gui_only.is_some_and(|selected| selected != gui) {
                 continue;
@@ -12034,7 +12066,7 @@ mod qemu_timeout_caller_tests {
                 };
                 let start = Instant::now();
                 let result = if gui {
-                    run_qemu_gui(&config)
+                    gui_runner.unwrap_or(run_qemu_gui)(&config)
                 } else {
                     run_qemu(&config)
                 };
