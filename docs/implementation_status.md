@@ -10700,3 +10700,33 @@ M23 stays `PARTIAL`: the Nagi Bar UI, authenticated caller binding for the
 context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
+
+## M24 scoped production read boundary candidate (2026-11-05)
+
+M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
+connects the ordinary Files runtime to a fallible title-only read API, borrowed
+record inspection, and fallible scalar stale-record staging. Existing producer
+ObjectId lookup now scans borrowed metadata instead of deep-cloning all matching
+records. BTreeMap model fields and existing owned-return API signatures remain.
+
+The original 30 nagi-search tests plus eight read-boundary regressions pass.
+All-target nagi-search Clippy passes with warnings denied. The actual
+`m19-files-search-production` nagi-init custom-target cargo check passes using a
+real locally built/signed Files client package and the configured Nagi clang;
+this is a compilation check, not a linked/booted guest acceptance. The init
+configuration emitted eight warnings; this does not establish a warning-free init build.
+
+The title helper's output Vec and String requests return storage Io on injected
+null denial and drop partial output. Scalar stale-record staging returns an
+explicit allocation/missing-key error before the caller begins deletion. These
+narrow paths do not establish whole-runtime OOM safety: initial store/attribute
+BTree decoding, state clones on update, legacy owned APIs, input construction,
+other UI/IPC allocations, allocator behavior and uncertain-commit/writer
+coordination remain unresolved. No production startup model migration, guest,
+real-media, public write or merge was performed.
+
+This read-only candidate is now reapplied on main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`, preserving its CI and status changes.
+Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
+target check with a normally built/signed client. This is a local candidate;
+main/public heads and guest execution are unchanged.
