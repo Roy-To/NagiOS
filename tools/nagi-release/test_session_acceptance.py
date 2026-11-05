@@ -307,6 +307,13 @@ class SessionAcceptanceTests(unittest.TestCase):
             self.evidence.write_text(text)
             self.reject()
 
+    def test_nested_overflow_numbers_rejected_in_session_consumer(self):
+        for literal in ("1e400", "-1e400", "1e999999"):
+            with self.subTest(literal=literal):
+                with self.assertRaisesRegex(release.ReleaseError, "nonfinite"):
+                    sa._json('{"data": {"value": ' + literal + '}}')
+        self.assertEqual(sa._json('{"value": 1e308}'), {"value": 1e308})
+
     def test_production_gate(self):
         self.info.write_text(self.info.read_text().replace("init_features=production-session",
                                                          "init_features=production-session,m20-acceptance"))

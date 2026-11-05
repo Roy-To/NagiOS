@@ -27,13 +27,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import re
 import sys
 from pathlib import Path
 
 from release import (GRANITE_SHA256, ReleaseError, git_source_revision,
-                     image_build_provenance, require_production_image)
+                     image_build_provenance, parse_json, require_production_image)
 
 EVENT_PREFIX = "NAGI_SESSION_EVENT "
 PROFILE = "production-session-v1"
@@ -66,21 +65,8 @@ def require(condition: bool, message: str) -> None:
         raise ReleaseError(message)
 
 
-def _pairs(pairs):
-    result = {}
-    for key, value in pairs:
-        require(key not in result, f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
 def _json(text):
-    def nonfinite(value):
-        raise ReleaseError(f"nonfinite JSON number: {value}")
-    try:
-        return json.loads(text, object_pairs_hook=_pairs, parse_constant=nonfinite)
-    except (ValueError, RecursionError) as error:
-        raise ReleaseError(f"invalid JSON: {error}") from error
+    return parse_json(text)
 
 
 def _keys(value, keys, label):

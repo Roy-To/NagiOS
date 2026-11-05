@@ -86,6 +86,17 @@ Session validation retains its ordered events, log hashes, one session/image/
 disk identity, restart persistence, offline and stress negative controls.
 Missing referenced phase logs are identified before full session validation.
 Duplicate JSON keys and nonfinite numbers are rejected in bundle manifests too.
+The shared release/session JSON reader also rejects finite JSON number syntax
+that overflows to infinity (for example `1e400`), including nested fields.
+Release schema versions must be actual integers, so `true` and `1.0` cannot
+stand in for schema version `1`. If a legacy build manifest omits its schema
+field it remains supported; when present the field must be integer `1`.
+Production provenance requires string component/feature lists and integer
+format version `2`; toolchain version entries must be nonempty strings, matching
+the existing producer's output contract. These malformed inputs are rejected
+by the direct release validator as well as by preflight. Preflight also turns
+delegated attribute errors into an `INVALID` check and preserves the rest of
+the JSON report. None of these input checks authenticates execution.
 Each validator reports its first failure; fix it and rerun to expose later faults.
 
 All content-consistent inputs remain `NOT_VERIFIED` for acceptance: hashes and

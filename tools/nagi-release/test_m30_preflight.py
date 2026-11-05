@@ -54,6 +54,111 @@ class M30PreflightTests(unittest.TestCase):
             release.canonical_json_bytes(release.release_manifest_for(self.bundle, copied)))
         (self.bundle / release.SUMS_NAME).write_bytes(release.checksum_lines(self.bundle))
 
+    def cli_report(self):
+        result = subprocess.run([sys.executable, str(Path(preflight.__file__)),
+                                 "--root", str(self.root), "--revision", fixtures.REVISION,
+                                 "--image", str(self.fixture.image), "--evidence", str(self.fixture.evidence),
+                                 "--bundle", str(self.bundle)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertTrue(result.stdout, "preflight must preserve diagnostic JSON")
+        self.assertEqual(result.stderr, "")
+        report = json.loads(result.stdout)
+        self.assertEqual(report["formal_gate"], "BLOCKED")
+        self.assertEqual(report["m30_acceptance"], "NOT_EVALUATED")
+        return report
+
+    def invalid_bundle_cli(self, reason):
+        check = next(c for c in self.cli_report()["checks"] if c["id"] == "distribution_bundle")
+        self.assertEqual(check["status"], "INVALID")
+        self.assertEqual(check["content_integrity"], "NOT_CHECKED")
+        self.assertIn(reason, check["reason"])
+        # The direct release CLI is another consumer of these same validators.
+        direct = subprocess.run([sys.executable, release.__file__, "verify", "--directory", str(self.bundle)],
+                                capture_output=True, text=True)
+        self.assertEqual(direct.returncode, 2, direct.stderr)
+        self.assertIn(reason, direct.stderr)
+        self.assertNotIn("Traceback", direct.stderr)
+
+    def test_review_components_array_emits_invalid_json_diagnostic(self):
+        self.bundle_fixture()
+        path = self.bundle / release.BUILD_MANIFEST_NAME
+        build = json.loads(path.read_text())
+        build["image_build_provenance"]["components"] = []
+        path.write_text(json.dumps(build))
+        self.reindex()
+        self.invalid_bundle_cli("components")
+
+    def test_review_overflow_number_emits_invalid_json_diagnostic(self):
+        self.bundle_fixture()
+        path = self.bundle / release.BUILD_MANIFEST_NAME
+        build = json.loads(path.read_text())
+        build["toolchain_versions"] = {"rustc": "OVERFLOW_NUMBER"}
+        path.write_text(json.dumps(build).replace('"OVERFLOW_NUMBER"', '1e400'))
+        self.reindex()
+        self.invalid_bundle_cli("nonfinite")
+
+    def test_review_boolean_schema_emits_invalid_json_diagnostic(self):
+        self.bundle_fixture()
+        path = self.bundle / release.MANIFEST_NAME
+        manifest = json.loads(path.read_text())
+        manifest["schema_version"] = True
+        path.write_text(json.dumps(manifest))
+        (self.bundle / release.SUMS_NAME).write_bytes(release.checksum_lines(self.bundle))
+        self.invalid_bundle_cli("schema")
+
+    def test_schema_type_boundaries_in_release_and_build_manifests(self):
+        self.bundle_fixture()
+        for name in (release.MANIFEST_NAME, release.BUILD_MANIFEST_NAME):
+            path = self.bundle / name
+            original = path.read_text()
+            for value in (True, False, 1.0, "1", None, [], {}, 0, 2):
+                with self.subTest(name=name, value=value):
+                    parsed = json.loads(original)
+                    parsed["schema_version"] = value
+                    path.write_text(json.dumps(parsed))
+                    if name == release.BUILD_MANIFEST_NAME:
+                        self.reindex()
+                    else:
+                        (self.bundle / release.SUMS_NAME).write_bytes(release.checksum_lines(self.bundle))
+                    self.invalid_bundle_cli("schema")
+            path.write_text(original)
+            self.reindex()
+        # Optional legacy build schema remains optional; actual schema integer 1 works.
+        self.assertEqual(self.check("distribution_bundle")["content_integrity"], "VALIDATED_CONTRACT")
+        path = self.bundle / release.BUILD_MANIFEST_NAME
+        parsed = json.loads(path.read_text())
+        parsed["schema_version"] = 1
+        parsed["toolchain_versions"] = {"rustc": "rustc 1.97.1", "cargo": "cargo 1.97.1"}
+        path.write_text(json.dumps(parsed))
+        self.reindex()
+        self.assertEqual(self.check("distribution_bundle")["content_integrity"], "VALIDATED_CONTRACT")
+
+    def test_toolchain_version_types_preserve_string_contract(self):
+        self.bundle_fixture()
+        path = self.bundle / release.BUILD_MANIFEST_NAME
+        original = json.loads(path.read_text())
+        for versions in ([], None, True, {"rustc": 1e308}, {"rustc": True},
+                         {"rustc": None}, {"rustc": []}, {"rustc": " "}, {"": "rustc 1"}):
+            with self.subTest(versions=versions):
+                parsed = copy.deepcopy(original)
+                parsed["toolchain_versions"] = versions
+                path.write_text(json.dumps(parsed))
+                self.reindex()
+                self.invalid_bundle_cli("toolchain_versions")
+        # Text containing exponent syntax is text, not a numeric overflow.
+        original["toolchain_versions"] = {"rustc": "synthetic version 1e400"}
+        path.write_text(json.dumps(original))
+        self.reindex()
+        self.assertEqual(self.check("distribution_bundle")["content_integrity"], "VALIDATED_CONTRACT")
+
+    def test_delegated_attribute_error_preserves_all_diagnostics(self):
+        self.bundle_fixture()
+        with mock.patch.object(release, "verify_release", side_effect=AttributeError("malformed delegated input")):
+            check = self.check("distribution_bundle")
+        self.assertEqual(check["status"], "INVALID")
+        self.assertIn("AttributeError: malformed delegated input", check["reason"])
+        self.assertEqual(self.check("execution_origin")["status"], "NOT_VERIFIED")
+
     def test_consistent_synthetic_content_never_proves_acceptance_or_origin(self):
         self.bundle_fixture()
         report = self.collect()

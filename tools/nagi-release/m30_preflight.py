@@ -21,7 +21,7 @@ class MissingInput(release.ReleaseError):
 
 
 INPUT_ERRORS = (release.ReleaseError, OSError, UnicodeError, ValueError,
-                TypeError, KeyError, IndexError, RecursionError)
+                TypeError, KeyError, IndexError, AttributeError, RecursionError)
 
 
 def selected_path(root, value, *, directory=False):
@@ -75,7 +75,7 @@ def collect(root, revision, image, evidence, bundle):
         except MissingInput as error:
             result.update(status="MISSING", reason=str(error))
         except INPUT_ERRORS as error:
-            result.update(status="INVALID", reason=str(error))
+            result.update(status="INVALID", reason=f"{type(error).__name__}: {error}")
         else:
             result.update(content_integrity=integrity,
                           reason=("Nonempty regular file hashed; bundle validation is reported separately."
@@ -142,8 +142,8 @@ def collect(root, revision, image, evidence, bundle):
 
     def distribution_content():
         directory = selected_path(root, bundle, directory=True)
-        # The existing release reader predates strict JSON parsing. Reject
-        # duplicate keys and nonfinite values before using its real contract.
+        # Bound manifest sizes before delegation. Both consumers use the same
+        # strict JSON reader for duplicate keys and nonfinite numbers.
         for name in (release.MANIFEST_NAME, release.BUILD_MANIFEST_NAME):
             path = selected_path(root, directory / name)
             session._json(session._read(path, session.MAX_MANIFEST_BYTES).decode("utf-8"))
