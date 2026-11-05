@@ -1,3 +1,22 @@
+## PR #92 required-file CI guard candidate - 2026-11-05
+
+Status: `PARTIAL` (isolated host regression candidate; not published).
+Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
+`87b7dea4061be2572526181ab559d63037f823d0`. The lightweight change-scope
+job checks all five files required by `check_repository_layout` before
+allowing a documentation-only skip. Missing files fail that job even on
+manual dispatch. `docs/implementation_status.md` is no longer ignored by
+the workflow trigger, so its deletion cannot avoid this guard. Other
+Markdown-only changes still skip heavy host and target jobs.
+
+Local regression tests execute the workflow's Bash in temporary Git
+repositories: required-file deletion and rename, directory substitution,
+ordinary docs edits and optional docs renames/deletions, code mixed with
+docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
+The inventory is checked against the existing Rust repository check.
+No target or guest acceptance and no hosted CI result are claimed for
+this unpublished candidate. No milestone status changes.
+
 ## PR #80 standalone Installer host candidate - 2026-11-02
 
 Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
