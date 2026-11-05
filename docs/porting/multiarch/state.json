@@ -3,18 +3,19 @@
   "schema_version": 1,
   "workstream_id": "PORT-MULTIARCH-01",
   "current_milestone": "Independent multiarchitecture preparation (unregistered)",
-  "current_checkpoint": "Source0039 complete spike verifier passes; direct-child R1 89c01c9ae7ca469dae362943b2537f303a00c01d/tree caca5be0a3a8d78e97509e7240c36655b9560da5 passes records validation. R2 only appends those fixed results. Phase C remains PENDING independent rebuild/review; no execution at R1/R2 is implied.",
+  "current_checkpoint": "Independent cloud verification of fixed source0039/base036 PASS: two fresh ELFs match the Mac artifact; actual QEMU EL1 PASS and expected EL2 rejection MET. Added records candidate only; canonical current-status/3 and runtime /1 phase C remain PENDING until independent-evidence/schema owner adoption. P2 backend helper repair uses explicit raw/output/QEMU-root paths and refuses existing output; 10 regressions and a fresh supplemental backend check pass; raw receipt bindings reverified unchanged.",
   "status": "PARTIAL",
   "last_verified": {
     "commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
-    "verified_at": "2026-11-04T02:18:11.624034+00:00",
-    "normal_state": "Source0039 host 99 contract tests, 16 BootInfo and 5 ABI pass, and its complete ARM64 spike verifier (target Clippy, 30 model-free fixtures, two fresh builds, real QEMU EL1/EL2, receipt validation) exits0. The 71 model-free audit/records/spike tests include new docs summary validation; the affected 22 records + 11 runtime-summary fixtures were rechecked at fixed R1. Direct R1 records validation passes with exact commit/tree/stdout binding. Actual guest execution remains source0039/base036 only; FE52 and failed attempts remain preserved.",
+    "verified_at": "2026-11-04T04:50:07.614019+00:00",
+    "normal_state": "Source0039 host 99 contract tests, 16 BootInfo and 5 ABI pass, and its complete ARM64 spike verifier (target Clippy, 30 model-free fixtures, two fresh builds, real QEMU EL1/EL2, receipt validation) exits0. The 71 model-free audit/records/spike tests include new docs summary validation; the affected 22 records + 11 runtime-summary fixtures were rechecked at fixed R1. Direct R1 records validation passes with exact commit/tree/stdout binding. Actual guest execution remains source0039/base036 only; FE52 and failed attempts remain preserved. Later independent cloud verification succeeded for the same source0039/base036; earlier test rows, including their combined independent/hardware NOT_RUN checkpoint, are retained as historical results and superseded only for independent rebuild by the appended row. Physical hardware and production ARM64 remain NOT_RUN. P2 is a later records-helper repair, not a change to source0039: 10 model-free helper regressions, direct backend EL1/EL2 in new output, and unchanged raw receipt/source/ELF/run binding checks pass.",
     "commands": [
       "sh experiments/nagi-multiarch-contracts/verify.sh",
       "71 model-free tests: 8 audit + 22 records + 11 runtime-summary + 30 spike/attestation",
       "source0039 complete spike verifier with exact source/tree/main and unique output (exit 0)",
       "source0039 receipt integrity recheck (no rebuild)",
-      "explicit source0039/base036 inventory generation and clean-source byte-exact check"
+      "explicit source0039/base036 inventory generation and clean-source byte-exact check",
+      "env PATH=/workspace/.nagi-cargo/bin:$PATH RUSTUP_HOME=/workspace/.nagi-rustup CARGO_HOME=/workspace/.nagi-cargo NAGI_STORAGE_ROOT=/workspace QEMU_AARCH64=/home/agent/.local/bin/qemu-system-aarch64 sh experiments/nagi-aarch64-spike/verify.sh 0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13 0b2597ae1b707c0a2fa8d42e16e42d46566d56c5 0362427747e769b00558053e4c7f4c756d303802 /workspace/pr57-independent-evidence-20261104/run-01"
     ],
     "tests": [
       {
@@ -44,6 +45,20 @@
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c"
+      },
+      {
+        "name": "Independent cloud rebuild and real QEMU spike review (physical hardware excluded)",
+        "command": "env PATH=/workspace/.nagi-cargo/bin:$PATH RUSTUP_HOME=/workspace/.nagi-rustup CARGO_HOME=/workspace/.nagi-cargo NAGI_STORAGE_ROOT=/workspace QEMU_AARCH64=/home/agent/.local/bin/qemu-system-aarch64 sh experiments/nagi-aarch64-spike/verify.sh 0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13 0b2597ae1b707c0a2fa8d42e16e42d46566d56c5 0362427747e769b00558053e4c7f4c756d303802 /workspace/pr57-independent-evidence-20261104/run-01",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/summary.json sha256 b0f672bd96f6a499d2e0269a4aaa504596bc125ef7aad0ec9129f74e4d104c9f; two fresh ELF hashes match published Mac source0039; real EL1 exit0 / EL2 expected rejection exit1, no timeout; complete raw receipt remains local at /workspace/pr57-independent-evidence-20261104/run-01/attestation.json"
+      },
+      {
+        "name": "P2 backend helper relocation/output-preservation regressions",
+        "command": "python3 -B docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/test_check_backend.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 model-free tests; docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/P2-followup.md; raw receipt unchanged; new direct backend run under /workspace/pr57-p2-evidence-20261104/backend-run-01"
       }
     ],
     "ci_runs": []
@@ -56,12 +71,12 @@
   "blocker": {
     "active": true,
     "class": "ACCEPTANCE",
-    "summary": "A/B ownership/proposal acceptance and independent rebuild/review remain pending. Source0039 full spike entrypoint passes. D/E/registration retain M30 and owner gates; physical hardware NOT_RUN.",
+    "summary": "Independent cloud rebuild/QEMU review now passes for source0039/base036. A/B owner/proposal acceptance and canonical independent-evidence/phase-C schema adoption remain pending. D/E/registration retain M30 and owner gates; hardware NOT_RUN.",
     "reproduction_commands": [
       "Read docs/implementation_status.md and os-core registry activation_gate",
       "./nagi dev resume"
     ],
-    "failure_log_summary": "Earlier failures and FE52 checkpoint are preserved unchanged. Source0039 spike verifier and R1 records validation pass. The dirty-worktree inventory attempt exited2 and the clean-source retry passed. Independent rebuild/review, physical hardware and production D/E acceptance remain NOT_RUN/BLOCKED.",
+    "failure_log_summary": "Earlier failures and FE52 checkpoint are preserved unchanged. Source0039 spike verifier and R1 records validation pass. The dirty-worktree inventory attempt exited2 and the clean-source retry passed. Independent rebuild/review, physical hardware and production D/E acceptance remain NOT_RUN/BLOCKED. The new independent cloud check is PASS; earlier failed/NOT_RUN records remain unchanged. Existing current-status/3 is retained byte-for-byte as a prior canonical checkpoint and does not encode the later independent result.",
     "attempted_fixes": [
       "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
       "Refreshed inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
@@ -77,7 +92,7 @@
       "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
     ]
   },
-  "next_action": "Publish R2 by ordinary fast-forward after checking remote head/main, then inspect CI for that exact published head. Keep source0039/base036 runtime evidence distinct from later-main87 PR CI. Independent rebuild/review and explicit production owner checkpoint remain separate.",
+  "next_action": "Review the appended independent-cloud record and local raw receipt; decide canonical independent-evidence/schema adoption for phase C. Recheck exact remote head/main and CI before any separately authorized publication. No publication or merge in this candidate.",
   "acceptance_criteria": [
     "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
     "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",

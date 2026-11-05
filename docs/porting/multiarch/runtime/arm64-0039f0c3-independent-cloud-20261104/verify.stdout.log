@@ -1,0 +1,96 @@
+SPIKE ARM64 EL1 PL011 PASS
+SPIKE SVC VECTOR ERET PASS
+SPIKE GENERIC COUNTER PASS
+SPIKE COMPLETE PASS{
+  "scope": "independent feasibility spike; NOT Nagi runtime acceptance",
+  "source_attestation": "NOT_CLAIMED_BY_RUNNER",
+  "command": [
+    "/tmp/tmpezs56l5w/qemu",
+    "-machine",
+    "virt,gic-version=2,virtualization=off",
+    "-cpu",
+    "cortex-a53",
+    "-accel",
+    "tcg",
+    "-smp",
+    "1",
+    "-m",
+    "128M",
+    "-display",
+    "none",
+    "-monitor",
+    "none",
+    "-serial",
+    "stdio",
+    "-no-reboot",
+    "-nic",
+    "none",
+    "-semihosting-config",
+    "enable=on,target=native",
+    "-kernel",
+    "/tmp/tmpezs56l5w/external.elf"
+  ],
+  "qemu_path": "/tmp/tmpezs56l5w/qemu",
+  "qemu_sha256": "11edc8269495784751573e33ec0b9b74f3e4e2b79af5aa4bc9976b3f9037a732",
+  "qemu_sha256_after": "11edc8269495784751573e33ec0b9b74f3e4e2b79af5aa4bc9976b3f9037a732",
+  "virtualization": "off",
+  "binary_path": "/tmp/tmpezs56l5w/external.elf",
+  "binary_sha256": "6c86bf9edbe9ca8986850357a936a45855a98b64425cd8f864a896fcd6bacc88",
+  "binary_sha256_after": "4931a0b3b67ca4b6ec5a28b3006faaa914bba7060e749a43169ab14313651b97",
+  "binary_bytes": 64,
+  "serial_sha256": "c750c77bf0943d8a6812d59b673ac35b8c1ce3a49d3d291aa469bacaf3a3690f",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "returncode": 0,
+  "timed_out": false,
+  "outcome": "FAIL",
+  "qemu_version": "QEMU fixture 1"
+}
+SPIKE ARM64 EL1 PL011 PASS
+SPIKE SVC VECTOR ERET PASS
+SPIKE GENERIC COUNTER PASS
+SPIKE COMPLETE PASS{
+  "scope": "independent feasibility spike; NOT Nagi runtime acceptance",
+  "source_attestation": "NOT_CLAIMED_BY_RUNNER",
+  "command": [
+    "/tmp/tmp5272gkwo/qemu",
+    "-machine",
+    "virt,gic-version=2,virtualization=off",
+    "-cpu",
+    "cortex-a53",
+    "-accel",
+    "tcg",
+    "-smp",
+    "1",
+    "-m",
+    "128M",
+    "-display",
+    "none",
+    "-monitor",
+    "none",
+    "-serial",
+    "stdio",
+    "-no-reboot",
+    "-nic",
+    "none",
+    "-semihosting-config",
+    "enable=on,target=native",
+    "-kernel",
+    "/tmp/tmp5272gkwo/external.elf"
+  ],
+  "qemu_path": "/tmp/tmp5272gkwo/qemu",
+  "qemu_sha256": "11edc8269495784751573e33ec0b9b74f3e4e2b79af5aa4bc9976b3f9037a732",
+  "qemu_sha256_after": "11edc8269495784751573e33ec0b9b74f3e4e2b79af5aa4bc9976b3f9037a732",
+  "virtualization": "off",
+  "binary_path": "/tmp/tmp5272gkwo/external.elf",
+  "binary_sha256": "6c86bf9edbe9ca8986850357a936a45855a98b64425cd8f864a896fcd6bacc88",
+  "binary_sha256_after": "6c86bf9edbe9ca8986850357a936a45855a98b64425cd8f864a896fcd6bacc88",
+  "binary_bytes": 64,
+  "serial_sha256": "c750c77bf0943d8a6812d59b673ac35b8c1ce3a49d3d291aa469bacaf3a3690f",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "returncode": 0,
+  "timed_out": false,
+  "outcome": "PASS",
+  "qemu_version": "QEMU fixture 1"
+}
+SOURCE-BOUND RUNS: PASS; two-build comparison=MATCHED; full checkpoint remains PENDING_INDEPENDENT_REBUILD
+RECEIPT INTEGRITY VERIFIED (not phase-C acceptance); main=0362427747e769b00558053e4c7f4c756d303802 source=0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13 tree=0b2597ae1b707c0a2fa8d42e16e42d46566d56c5; 33 manifested files; two-build comparison=MATCHED; phase C=PENDING; independent rebuild=NOT_RUN
