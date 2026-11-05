@@ -1,0 +1,24 @@
+[package]
+name = "nagi-albert-owner-host-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+m18-acceptance = []
+
+[lib]
+path = "../src/lib.rs"
+
+[dependencies]
+nagi-ai = { path = "../../../services/nagi-ai" }
+nagi-model = { path = "../../../crates/nagi-model" }
+nagi-ime = { path = "../../nagi-ime" }
+nagi-clipboard = { path = "../../nagi-clipboard" }
+nagi-localization = { path = "../../nagi-localization" }
+url = "2.5"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
