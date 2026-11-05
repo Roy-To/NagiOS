@@ -118,6 +118,7 @@ mod guest {
         current_url: RefCell<String>,
         frame_diagnostics_emitted: Cell<bool>,
         chrome_rendered_emitted: Cell<bool>,
+        context_events: crate::assistant_context::BrowserContextEvents,
     }
 
     impl FirstPixelDelegate {
@@ -153,6 +154,10 @@ mod guest {
 
     impl WebViewDelegate for FirstPixelDelegate {
         fn notify_new_frame_ready(&self, webview: WebView) {
+            // Conservative invalidation for rendered-content changes. This is
+            // not coverage of every DOM/selection mutation; no context API is
+            // enabled by this callback subset.
+            self.context_events.invalidate();
             let trace_first = !self.frame_diagnostics_emitted.replace(true);
             if trace_first {
                 trace_stage(b"first web frame callback entered");
@@ -234,11 +239,13 @@ mod guest {
         }
 
         fn notify_url_changed(&self, _webview: WebView, url: Url) {
+            self.context_events.invalidate();
             *self.current_url.borrow_mut() = url.to_string();
             trace_stage(b"WebView URL changed");
         }
 
         fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+            self.context_events.invalidate();
             let stage = match status {
                 LoadStatus::Started => b"WebView load status started" as &'static [u8],
                 LoadStatus::HeadParsed => b"WebView load status head parsed",
@@ -248,7 +255,35 @@ mod guest {
         }
     }
 
-    pub fn run_first_web_pixel(display_capability: u64) -> ! {
+    /// Owns one first-pixel Browser and its event-thread state. Construction
+    /// still uses the existing fail-stop resource setup, not normal Desktop
+    /// surface/input ownership. Sharing stays disabled and no Context API or
+    /// authenticated Bar binding is exposed by this prerequisite.
+    pub struct FirstPixelBrowser {
+        // Drop the context owner first so retained delegate handles are inert
+        // before WebView/Servo teardown can dispatch more callbacks.
+        _context_owner: crate::assistant_context::BrowserContextOwner,
+        _webview: WebView,
+        servo: Servo,
+        signal: Arc<EventLoopSignal>,
+        first_spin: bool,
+    }
+
+    impl FirstPixelBrowser {
+        /// Dispatch Servo exactly once and consume the wake hint. No nested
+        /// application loop or host yield is hidden here. Servo dispatch itself
+        /// has no proven wall-clock bound; false is only an idle hint, not exit.
+        pub fn step(&mut self) -> bool {
+            self.servo.spin_event_loop();
+            if self.first_spin {
+                trace_stage(b"Servo first event-loop dispatch returned");
+                self.first_spin = false;
+            }
+            self.signal.take()
+        }
+    }
+
+    pub fn start_first_web_pixel(display_capability: u64) -> FirstPixelBrowser {
         libnagi::console_write(b"Nagi M17 trace: Servo resource reader preflight started\r\n");
         let domain_list = servo::resources::read_bytes(servo::resources::Resource::DomainList);
         if domain_list.is_empty() {
@@ -288,7 +323,9 @@ mod guest {
             .build();
         servo.setup_logging();
         libnagi::console_write(b"Nagi M17 trace: Servo constructed\r\n");
+        let context_owner = crate::assistant_context::BrowserContextOwner::new();
         let delegate = Rc::new(FirstPixelDelegate {
+            context_events: context_owner.events(),
             context: context.clone(),
             surface: RefCell::new(surface),
             browser_state: RefCell::new(BrowserState::new()),
@@ -305,16 +342,21 @@ mod guest {
             .build();
         libnagi::console_write(b"Nagi M17 trace: WebView constructed\r\n");
         libnagi::console_write(b"Nagi M17 trace: Servo event loop started\r\n");
-        let mut first_spin = true;
+        FirstPixelBrowser {
+            _context_owner: context_owner,
+            _webview,
+            servo,
+            signal,
+            first_spin: true,
+        }
+    }
+
+    /// Preserve the existing standalone first-pixel runner on top of the step
+    /// API. Ordinary Desktop does not invoke this diverging compatibility loop.
+    pub fn run_first_web_pixel(display_capability: u64) -> ! {
+        let mut browser = start_first_web_pixel(display_capability);
         loop {
-            // The pinned Servo embedder owns shutdown handling and exposes
-            // `spin_event_loop` as a unit-returning heartbeat.
-            servo.spin_event_loop();
-            if first_spin {
-                trace_stage(b"Servo first event-loop dispatch returned");
-                first_spin = false;
-            }
-            if !signal.take() {
+            if !browser.step() {
                 std::thread::yield_now();
             }
         }
@@ -322,7 +364,7 @@ mod guest {
 }
 
 #[cfg(target_os = "nagi")]
-pub use guest::run_first_web_pixel;
+pub use guest::{run_first_web_pixel, start_first_web_pixel, FirstPixelBrowser};
 
 #[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
 pub use m18_acceptance::run_m18_https_acceptance;
