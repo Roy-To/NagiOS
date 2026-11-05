@@ -14,6 +14,7 @@ on:
       - claude/0.2-sheets-calc-01
     paths-ignore:
       - '.dev/workstreams/**/state.json'
+      - '**.md'
   pull_request:
     branches:
       - main
