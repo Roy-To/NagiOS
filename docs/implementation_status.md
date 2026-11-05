@@ -1,3 +1,56 @@
+## M24 semantic indexing staging allocation — 2026-11-05
+
+Status: `PARTIAL`; isolated host candidate based on public main
+`fe0ec0b4c5d7caf0721deca4880359a59f5f2b94`, verified through the GitHub
+commit API before editing. Source `user/nagi-search/src/search.rs` Git blob:
+`833ce4fa097e607ce8784dd9108e75baffc390e5`; SHA-256:
+`190f8a2c9f6aef002b61c1905fc72515db8bcb1f3b22b05840db6e7d8c45c13c`.
+
+`SearchService::index_semantic_text` previously allocated its `IndexedChunk`
+staging Vec with infallible `with_capacity`, after authorization and chunking
+but before provider calls. It now reserves the complete chunk count with
+`try_reserve_exact`, mapping failure to existing `SemanticError::IndexCapacity`.
+All subsequent staging pushes fit that reservation. The provider loop, dimension
+checks and single final `replace_object` call are unchanged. Errors release the
+chunk Vec, remaining source strings and any completed embeddings through Rust
+ownership. This is distinct from metadata/semantic query reads, persistent-index
+replacement and serialization, snapshot decode, and chunk splitting. No other
+candidate is imported and no production code in those paths changes.
+
+Host verification (nightly-2025-08-01, locked/offline):
+- Negative control with the original production source and the new exact
+  staging-allocation test aborts with SIGABRT / Cargo exit 101: allocation of
+  672 bytes failed. The chunker's eight allocations succeed; allocation nine
+  is the six-entry staging array. No guest allocation failure is claimed.
+- Four new tests pass using the existing thread-local host allocator meter.
+  Both one-shot and persistent denial at that staging allocation return
+  IndexCapacity, make zero provider/dimensions/replacement calls, return live
+  allocated bytes to baseline, and allow a successful retry after injection.
+  Provider failure and dimension mismatch at all six passage positions, with
+  both empty and existing index dimensions (24 scenarios), never call replacement
+  and release partial arrays/embeddings. Multilingual and maximum-size (256 KiB,
+  512 chunks) success cases preserve purpose, provider input order, chunk IDs,
+  ordinals, byte ranges, vectors, result count and one final replacement.
+  Denied, tombstoned, missing and wrong-context objects allocate nothing and
+  call neither provider nor index.
+- Full nagi-search suite: 42 passed, 0 failed; doc tests: 0.
+- Package host build, all-targets Clippy with warnings denied, package format
+  check and git whitespace check pass.
+- Local logs: `out/evidence/semantic-staging-fe0ec0b/` (negative-control,
+  focused, full-test, build, clippy and fmt). Existing generated third-party
+  caches were temporarily linked into the isolated worktree for Cargo resolution;
+  their sources, manifests and lockfiles were not modified.
+
+Remaining scope: chunk_text still allocates its array and strings infallibly;
+EmbeddingProvider implementations and embedding construction may allocate or
+retain provider state; persistent-index replacement, backend, decode and query
+allocations remain separate boundaries. Provider errors are propagated but
+provider internals are not made OOM-safe or rolled back by this change. These
+fixtures establish service orchestration and cleanup, not inference quality.
+No public push/PR/comment/CI rerun, guest execution, real media operation or old
+material resend was performed. No Nagi-target, Windows or guest check is claimed;
+M24 remains PARTIAL and its model-backed natural-language acceptance is unmet.
+
 ## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
 
 Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;

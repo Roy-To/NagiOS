@@ -443,3 +443,6 @@ fn missing_producer_key_is_explicit_and_discards_prepared_deletions() {
     );
     assert!(service.get_object_ref(ACCESS, ObjectId(8)).is_some());
 }
+
+#[path = "semantic_staging_tests.rs"]
+mod semantic_staging_tests;

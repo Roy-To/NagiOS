@@ -426,7 +426,12 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
         }
 
         let chunks = chunk_text(object_id, text)?;
-        let mut indexed = Vec::with_capacity(chunks.len());
+        let mut indexed = Vec::new();
+        // Reserve the entire staging array before invoking the provider. Pushes
+        // below then cannot allocate, and failure leaves the index untouched.
+        indexed
+            .try_reserve_exact(chunks.len())
+            .map_err(|_| SemanticError::IndexCapacity)?;
         let mut dimensions = index.dimensions();
         for chunk in chunks {
             let embedding = provider.embed(EmbeddingPurpose::Passage, &chunk.text)?;
