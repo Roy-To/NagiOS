@@ -10148,3 +10148,30 @@ This read-only candidate is now reapplied on main
 Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
 target check with a normally built/signed client. This is a local candidate;
 main/public heads and guest execution are unchanged.
+
+## M24 bounded semantic read allocation candidate (2026-11-05)
+
+M24 remains PARTIAL. Based on public main
+`2c9532943a6624980892d01ce7e91f6d32545d25`, `PersistentVectorIndex::search`
+now borrows the ObjectId allowlist and maintains only the best `limit` results
+in ranking order. The single lazy output reservation uses `try_reserve_exact`
+for at most `min(limit, indexed objects, allowlist entries)` matches; a denied
+reservation returns the existing `VectorIndexError::Capacity`. Empty results
+allocate nothing, and replacement pops before insertion to avoid growth at the
+limit. Similarity, best-chunk ties, ObjectId ordering, duplicate allowlist
+semantics and validation precedence are retained. Snapshot format, update
+paths, writer coordination and DTOs are unchanged.
+
+Host validation: 42 nagi-search tests pass, including 1,800 comparisons with the
+previous full-sort implementation (all limits 1..=100), the 4,096-chunk and
+65,536-entry allowlist boundaries, and transient/persistent null-denial tests
+with leak checks and successful retries. Formatting, warnings-denied all-target
+Clippy, and the Nagi custom-target library check with core/alloc pass. Local
+logs are in `out/evidence/semantic-read-top-k-20261105/`.
+
+Borrowed allowlist membership trades temporary memory for linear membership
+checks: worst-case work is proportional to indexed objects times allowlist
+entries, plus bounded top-k insertion and vector scoring. Target latency and
+real guest OOM behavior are unverified. Initial decoding, update clones,
+provider/caller allocations and other runtime OOM paths remain outside this
+change. No VM execution or public write was performed; no milestone is promoted.
