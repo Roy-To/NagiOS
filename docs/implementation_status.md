@@ -1,3 +1,42 @@
+## PR 90 GUI serial interrupted read follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, which retains public PR 90
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. The original integration candidate
+is protected. No publication, hosted CI rerun or GitHub merge was performed.
+
+The first integration test's real GUI serial read returned Interrupted
+(os error 4). Its signal/source remains UNKNOWN. Code inspection confirmed
+that the ordinary GUI acceptance loop treated Interrupted as fatal, while
+the final-drain reader already retried it. A deterministic injected Interrupted
+at the ordinary read reproduced the same fatal error category in 43 ms on
+the extracted unchanged loop. This reproduces error handling, not the OS
+signal that caused the original intermittent event.
+
+The ordinary loop now treats Interrupted as no progress, then executes its
+existing child-status and original absolute-deadline checks. It does not
+restart a timeout or bypass timeout diagnostics. The internal loop accepts a
+serial-read closure for deterministic tests; every public production entry
+supplies the original TcpStream read. A Linux-only test adapter supplies an
+Interrupted before real TCP reads; a second mode interrupts repeatedly after
+one normal read. QMP sockets, actual fixture process, diagnostic collection,
+serial persistence, final drain, kill/reap and retry classification use the
+same production path and existing assertions. All earlier assertions remain.
+
+Validation with nightly-2025-08-01:
+- Negative control retaining the original match: new injected-EINTR regression
+  fails on the fatal GUI serial error in 43 ms.
+- Focused caller tests: 5 passed, covering the original scenarios plus single
+  EINTR with normal/stalled diagnostics and query/final late serial, and
+  repeated EINTR through timeout. Original 3-second budgets and reap checks pass.
+- Ordinary and bootstrap CLI library: 372 passed / 2 ignored each.
+- Both configurations of library/test Clippy with warnings denied pass.
+- Python CI guard regressions: 14 passed. PR 92 workflow guard and test are
+  unchanged; the retained QMP workflow step remains.
+- QEMU executable unavailable here; real diskless QMP, Windows and hosted
+  target/inference checks for this new candidate are NOT RUN. No milestone PASS.
+
 ## PR 90 integration with main CI guard — 2026-11-05
 
 Status: `PARTIAL`; isolated merge candidate with first parent public PR 90 head
