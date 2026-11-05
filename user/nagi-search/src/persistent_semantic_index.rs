@@ -52,6 +52,7 @@ struct IndexState {
 pub struct PersistentVectorIndex<B: SnapshotBackend> {
     backend: B,
     state: IndexState,
+    requires_reload: bool,
 }
 
 impl<B: SnapshotBackend> PersistentVectorIndex<B> {
@@ -63,17 +64,55 @@ impl<B: SnapshotBackend> PersistentVectorIndex<B> {
             Some(snapshot) => decode_snapshot(&snapshot)?,
             None => IndexState::default(),
         };
-        Ok(Self { backend, state })
+        Ok(Self {
+            backend,
+            state,
+            requires_reload: false,
+        })
+    }
+
+    /// Reads retain the last confirmed view while this flag is set.
+    pub fn requires_reload(&self) -> bool {
+        self.requires_reload
+    }
+
+    /// Reload and decode before permitting any further mutation.
+    pub fn reload(&mut self) -> Result<(), PersistentVectorIndexError> {
+        self.requires_reload = true;
+        let state = match self
+            .backend
+            .load_snapshot()
+            .map_err(PersistentVectorIndexError::Backend)?
+        {
+            Some(snapshot) => decode_snapshot(&snapshot)?,
+            None => IndexState::default(),
+        };
+        self.state = state;
+        self.requires_reload = false;
+        Ok(())
+    }
+
+    fn ensure_writable(&self) -> Result<(), VectorIndexError> {
+        if self.requires_reload {
+            Err(VectorIndexError::RecoveryRequired)
+        } else {
+            Ok(())
+        }
     }
 
     fn commit(&mut self, next: IndexState) -> Result<(), VectorIndexError> {
+        self.ensure_writable()?;
         let snapshot = encode_snapshot(&next).map_err(|_| VectorIndexError::Capacity)?;
-        self.backend
-            .write_snapshot(&snapshot)
-            .map_err(|error| match error {
+        if let Err(error) = self.backend.write_snapshot(&snapshot) {
+            self.requires_reload |= error == BackendError::RecoveryRequired;
+            return Err(match error {
                 BackendError::Io => VectorIndexError::Unavailable,
-                BackendError::SnapshotTooLarge => VectorIndexError::Capacity,
-            })?;
+                BackendError::SnapshotTooLarge | BackendError::Capacity => {
+                    VectorIndexError::Capacity
+                }
+                BackendError::RecoveryRequired => VectorIndexError::RecoveryRequired,
+            });
+        }
         self.state = next;
         Ok(())
     }
@@ -89,6 +128,7 @@ impl<B: SnapshotBackend> VectorIndex for PersistentVectorIndex<B> {
         object_id: ObjectId,
         chunks: &[IndexedChunk],
     ) -> Result<(), VectorIndexError> {
+        self.ensure_writable()?;
         if chunks.is_empty() {
             return self.remove_object(object_id);
         }
@@ -143,6 +183,7 @@ impl<B: SnapshotBackend> VectorIndex for PersistentVectorIndex<B> {
     }
 
     fn remove_object(&mut self, object_id: ObjectId) -> Result<(), VectorIndexError> {
+        self.ensure_writable()?;
         if !self.state.objects.contains_key(&object_id) {
             return Ok(());
         }

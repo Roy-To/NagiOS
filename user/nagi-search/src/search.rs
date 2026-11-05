@@ -60,6 +60,17 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
         })
     }
 
+    /// True after an uncertain commit or failed reload. Reads still use the
+    /// last confirmed view; callers must not treat that view as current.
+    pub fn requires_reload(&self) -> bool {
+        self.store.requires_reload()
+    }
+
+    /// Recover the complete metadata state before allowing more mutations.
+    pub fn reload(&mut self) -> Result<(), MetadataStoreError> {
+        self.store.reload()
+    }
+
     pub fn upsert_record(&mut self, record: MetadataRecord) -> Result<(), MetadataStoreError> {
         self.store.upsert_record(record)
     }
@@ -674,7 +685,8 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
 
 fn map_vector_index_error(error: crate::semantic::VectorIndexError) -> SemanticError {
     match error {
-        crate::semantic::VectorIndexError::Unavailable => SemanticError::IndexUnavailable,
+        crate::semantic::VectorIndexError::Unavailable
+        | crate::semantic::VectorIndexError::RecoveryRequired => SemanticError::IndexUnavailable,
         crate::semantic::VectorIndexError::Capacity => SemanticError::IndexCapacity,
         crate::semantic::VectorIndexError::DimensionMismatch => SemanticError::DimensionMismatch,
         crate::semantic::VectorIndexError::InvalidEmbeddingSpace => {

@@ -35,16 +35,25 @@ impl SnapshotBackend for HostFileBackend {
         let mut file = match File::open(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(BackendError::Io),
+            Err(error) => return Err(read_error(error)),
         };
         let maximum = crate::store::MAX_SNAPSHOT_BYTES;
         let mut bytes = alloc::vec::Vec::new();
-        Read::by_ref(&mut file)
-            .take((maximum + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|_| BackendError::Io)?;
-        if bytes.len() > maximum {
-            return Err(BackendError::SnapshotTooLarge);
+        let mut buffer = [0; 8192];
+        loop {
+            let count = match file.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(read_error(error)),
+            };
+            if count > maximum - bytes.len() {
+                return Err(BackendError::SnapshotTooLarge);
+            }
+            bytes
+                .try_reserve(count)
+                .map_err(|_| BackendError::Capacity)?;
+            bytes.extend_from_slice(&buffer[..count]);
         }
         Ok(Some(bytes))
     }
@@ -97,4 +106,13 @@ fn create_unique_temp(parent: &Path, name: &str) -> Result<(PathBuf, File), Back
         }
     }
     Err(BackendError::Io)
+}
+
+// Keep resource exhaustion distinct from corrupt/missing storage.
+fn read_error(error: std::io::Error) -> BackendError {
+    if error.kind() == std::io::ErrorKind::OutOfMemory {
+        BackendError::Capacity
+    } else {
+        BackendError::Io
+    }
 }

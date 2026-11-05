@@ -17,11 +17,18 @@ pub const MAX_WORKSPACES: usize = 16_384;
 pub enum BackendError {
     Io,
     SnapshotTooLarge,
+    /// A bounded snapshot buffer could not reserve memory; retry may succeed.
+    Capacity,
+    /// The commit may be visible. Stop mutations until a successful reload.
+    RecoveryRequired,
 }
 
 /// The backend persists opaque versioned snapshots; it does not define object
 /// identity, query semantics, or authorization. Implementations must replace
-/// a complete snapshot or return an error without claiming success.
+/// a complete snapshot or return an error without claiming success. A write
+/// error that cannot rule out publication MUST be RecoveryRequired. Other
+/// write errors mean the candidate was not published. Consumers must latch
+/// RecoveryRequired and reload before constructing another mutation.
 pub trait SnapshotBackend {
     fn load_snapshot(&mut self) -> Result<Option<Vec<u8>>, BackendError>;
     fn write_snapshot(&mut self, snapshot: &[u8]) -> Result<(), BackendError>;
@@ -48,6 +55,7 @@ pub(crate) struct StoreState {
 pub(crate) struct MetadataStore<B> {
     backend: B,
     state: StoreState,
+    requires_reload: bool,
 }
 
 impl<B: SnapshotBackend> MetadataStore<B> {
@@ -59,7 +67,40 @@ impl<B: SnapshotBackend> MetadataStore<B> {
             Some(snapshot) => codec::decode(&snapshot)?,
             None => StoreState::default(),
         };
-        Ok(Self { backend, state })
+        Ok(Self {
+            backend,
+            state,
+            requires_reload: false,
+        })
+    }
+
+    pub(crate) fn requires_reload(&self) -> bool {
+        self.requires_reload
+    }
+
+    /// Install only a completely loaded and decoded state. Failure leaves the
+    /// last confirmed read view intact and keeps every mutation blocked.
+    pub(crate) fn reload(&mut self) -> Result<(), MetadataStoreError> {
+        self.requires_reload = true;
+        let state = match self
+            .backend
+            .load_snapshot()
+            .map_err(MetadataStoreError::Backend)?
+        {
+            Some(snapshot) => codec::decode(&snapshot)?,
+            None => StoreState::default(),
+        };
+        self.state = state;
+        self.requires_reload = false;
+        Ok(())
+    }
+
+    fn ensure_writable(&self) -> Result<(), MetadataStoreError> {
+        if self.requires_reload {
+            Err(MetadataStoreError::Backend(BackendError::RecoveryRequired))
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn record(&self, id: ObjectId) -> Option<&MetadataRecord> {
@@ -86,6 +127,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         &mut self,
         mut record: MetadataRecord,
     ) -> Result<(), MetadataStoreError> {
+        self.ensure_writable()?;
         record
             .validate()
             .map_err(MetadataStoreError::InvalidRecord)?;
@@ -107,6 +149,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         id: ObjectId,
         deleted_at: i64,
     ) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         let Some(existing) = self.state.records.get(&id) else {
             return Ok(false);
         };
@@ -130,6 +173,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         &mut self,
         mut workspace: Workspace,
     ) -> Result<(), MetadataStoreError> {
+        self.ensure_writable()?;
         workspace
             .validate()
             .map_err(MetadataStoreError::InvalidRecord)?;
@@ -158,6 +202,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
     }
 
     pub(crate) fn remove_workspace(&mut self, id: WorkspaceId) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         if !self.state.workspaces.contains_key(&id) {
             return Ok(false);
         }
@@ -172,6 +217,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         workspace_id: WorkspaceId,
         object_id: ObjectId,
     ) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         if self
             .state
             .records
@@ -203,6 +249,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         workspace_id: WorkspaceId,
         object_id: ObjectId,
     ) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         let mut next = self.state.clone();
         let workspace = next
             .workspaces
@@ -223,6 +270,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         workspace_id: WorkspaceId,
         session: crate::WorkspaceSession,
     ) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         let mut next = self.state.clone();
         let workspace = next
             .workspaces
@@ -242,6 +290,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
     }
 
     pub(crate) fn add_relation(&mut self, relation: Relation) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         for id in [relation.source, relation.target] {
             if self
                 .state
@@ -268,6 +317,7 @@ impl<B: SnapshotBackend> MetadataStore<B> {
         &mut self,
         relation: Relation,
     ) -> Result<bool, MetadataStoreError> {
+        self.ensure_writable()?;
         if !self.state.relations.contains(&relation) {
             return Ok(false);
         }
@@ -278,10 +328,12 @@ impl<B: SnapshotBackend> MetadataStore<B> {
     }
 
     fn commit(&mut self, next: StoreState) -> Result<(), MetadataStoreError> {
+        self.ensure_writable()?;
         let bytes = codec::encode(&next)?;
-        self.backend
-            .write_snapshot(&bytes)
-            .map_err(MetadataStoreError::Backend)?;
+        if let Err(error) = self.backend.write_snapshot(&bytes) {
+            self.requires_reload |= error == BackendError::RecoveryRequired;
+            return Err(MetadataStoreError::Backend(error));
+        }
         self.state = next;
         Ok(())
     }
