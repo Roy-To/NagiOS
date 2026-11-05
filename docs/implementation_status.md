@@ -1,3 +1,53 @@
+## PR 90 GUI serial EOF deadline follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to reviewed EINTR candidate
+`177805c9069df1cd8b9d573cabcdb0dc8227fd8b`. It retains integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5`, and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. Previous candidates remain
+protected. No public push, hosted CI rerun or GitHub merge was performed.
+
+Independent review identified a second total-budget bypass: GUI serial EOF
+broke out of the acceptance loop into an unconditional child.wait(). The
+serial connection can close while QEMU remains alive. The new production-caller
+fixture confirms this after a completed QMP handshake, keeps QMP available,
+and exits naturally only after six seconds. With the original code and a
+three-second budget, the exact new regression returned Ok(0) in 6,044 ms
+instead of timing out. An initial one-second version also returned Ok(0) in
+3,044 ms with its three-second natural-exit bound.
+
+EOF now continues through the existing child-status and original absolute
+budget checks, with a sleep of at most one millisecond to avoid a busy loop.
+The unbounded post-loop wait is removed. A genuinely exited child still
+returns its original exit status and persisted serial before deadline. A
+live child reaches the original reserved diagnostics window, final serial
+capture, kill/wait and timeout classification. No new timeout, grace period,
+retry policy or acceptance marker is introduced. The previous completion-drain
+and EINTR fixes, diagnostic queries and CI guard remain unchanged.
+
+Validation with nightly-2025-08-01:
+- New EOF production-caller cases cover normal/stalled QMP crossed with
+  absent/present kernel-start serial. They verify real EOF after handshake,
+  diagnostics requests, final log contents, retry classification, original
+  budget and actual process termination/reaping. The four cases complete in
+  approximately 2.92–3.01 seconds with the unchanged 400 ms scheduling slack.
+- A separate real EOF plus early natural child exit returns Ok(0) in about
+  125 ms, preserving the existing child-exit behavior and serial tail.
+- Focused caller suite: 7 passed, including earlier late-serial and EINTR cases.
+- Ordinary and bootstrap CLI library: 374 passed / 2 ignored each.
+- Both library/test Clippy configurations with warnings denied: passed.
+- Python CI regression suite: 14 passed. Changed Rust formatting and whitespace
+  checks: passed. QMP fixture executable Git mode remains 100755.
+- Initial fixed one-second test returned the correct timeout, but its 100 ms
+  diagnostics reserve exhausted before all firmware signature queries finished.
+  The final regression uses the existing caller suite's three-second budget
+  and 300 ms reserve to test complete normal diagnostics and retry classification;
+  no production budget or assertion was weakened. That initial log is retained.
+
+Real diskless QEMU, Windows and hosted target/inference checks for this new
+candidate are NOT RUN. The original OS signal causing the earlier EINTR is
+still UNKNOWN; its handling is fixed, not its provenance. No milestone PASS.
+
 ## PR 90 GUI serial interrupted read follow-up — 2026-11-05
 
 Status: `PARTIAL`; isolated follow-up to integration candidate
