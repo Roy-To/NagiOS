@@ -10780,3 +10780,22 @@ compiler/host information and logs are local under
 Target latency, real guest OOM, allocator overhead, initial decoding, update
 clones and caller/provider allocations remain unverified or outside this
 change. No VM execution or public write was performed; no milestone is promoted.
+
+## Search backend allocation and uncertain-commit recovery candidate (2026-11-05)
+
+PARTIAL local candidate on main `d67897b4c27566ecc4353e3b7d9b16efd59bb559`.
+Backend manifest/chunk copies and snapshot assembly now reserve fallibly;
+bounded host-reference reads also return a distinct capacity error. An uncertain
+manifest write or final flush latches backend and metadata/vector-store mutations
+until a successful recovery fence, full load and decode. Normal read OOM probes
+preserve stored bytes and issue no write/remove/flush calls; blocked mutations
+after an uncertain commit preserve the bytes left by that commit. Recovery can
+flush pending data and is not a rollback or read-only durability proof.
+
+Original-source host negative controls reproduce the read allocation abort and
+the stale-memory next-mutation hazard. Isolated host tests (42 Search unit,
+9 new integration, 3 Model), warnings-denied Search Clippy and the Nagi target
+library check pass. This does not establish final linking, startup/codec OOM,
+writer coordination, guest or real-media durability. No VM, publication or
+permission change was performed. M19 and M24 remain PARTIAL. See
+`docs/workstreams/search-backend-read-recovery.md` for scope and evidence.
