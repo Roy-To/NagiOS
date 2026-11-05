@@ -6,6 +6,7 @@ from pathlib import Path
 import socket
 import sys
 import time
+import threading
 
 args = sys.argv[1:]
 # The first firmware drive is unique to the test case. Keep writable evidence
@@ -79,3 +80,14 @@ with stream, stream.makefile("rwb", buffering=0) as peer:
             if mode == "nonzero":
                 sys.exit(7)
             break
+        if command == "qmp_capabilities" and (root / "eof").exists():
+            options = json.loads((root / "eof").read_text())
+            if options["kernel"]:
+                serial_stream.sendall(b"Nagi Kernel started\nserial EOF tail\n")
+            serial_stream.close()
+            (root / "serial-closed").write_text("closed after QMP capabilities\n")
+            # Bound the old blocking-wait negative control without depending
+            # on the production caller to send another QMP request.
+            timer = threading.Timer(options["exit_after"], lambda: os._exit(0))
+            timer.daemon = True
+            timer.start()
