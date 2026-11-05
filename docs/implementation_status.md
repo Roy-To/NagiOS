@@ -11580,3 +11580,91 @@ status. No public branch/PR update, push/GitHub merge, VM/model/guest run, terms
 acknowledgement, new dependency/model/software acquisition, private log/ledger
 read, permission change or denied-operation retry/bypass occurred. Public main
 source fetch succeeded; no new action was denied, pending approval or uncertain.
+
+## M24 scoped production read boundary candidate (2026-11-05)
+
+M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
+connects the ordinary Files runtime to a fallible title-only read API, borrowed
+record inspection, and fallible scalar stale-record staging. Existing producer
+ObjectId lookup now scans borrowed metadata instead of deep-cloning all matching
+records. BTreeMap model fields and existing owned-return API signatures remain.
+
+The original 30 nagi-search tests plus eight read-boundary regressions pass.
+All-target nagi-search Clippy passes with warnings denied. The actual
+`m19-files-search-production` nagi-init custom-target cargo check passes using a
+real locally built/signed Files client package and the configured Nagi clang;
+this is a compilation check, not a linked/booted guest acceptance. The init
+configuration emitted eight warnings; this does not establish a warning-free init build.
+
+The title helper's output Vec and String requests return storage Io on injected
+null denial and drop partial output. Scalar stale-record staging returns an
+explicit allocation/missing-key error before the caller begins deletion. These
+narrow paths do not establish whole-runtime OOM safety: initial store/attribute
+BTree decoding, state clones on update, legacy owned APIs, input construction,
+other UI/IPC allocations, allocator behavior and uncertain-commit/writer
+coordination remain unresolved. No production startup model migration, guest,
+real-media, public write or merge was performed.
+
+This read-only candidate is now reapplied on main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`, preserving its CI and status changes.
+Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
+target check with a normally built/signed client. This is a local candidate;
+main/public heads and guest execution are unchanged.
+
+
+### 2026-11-05 — actual PR96 main integration into published M30 lineage
+
+M23 PARTIAL / M30 BLOCKED. Writer and guest HOLD remain in force. At the initial
+read-only ref check, PR43 was draft/open at
+65108d6db2ec3e0a6f793c31fc0dc36e27be5354 (tree
+53d414db97705d2ebb4eba0d1b5171d340fe6549) and actual main was
+2c9532943a6624980892d01ce7e91f6d32545d25 (tree
+34fcfa03ba7e19081c4937a235924591d0e92e92), the public PR96 merge. A NEW isolated
+local integration worktree uses those exact parents; existing candidates and
+source handoffs remain intact. No public ref is updated by this work.
+
+Both conflicts were resolved semantically: retain the complete published M30
+status document and append main's exact 30-line M24 status addition; keep the
+M30 synchronized=false title barrier around PR96's fallible title-only helper.
+Borrowed record inspection and fallible stale scalar staging from PR96 coexist
+with M30 generic runtime, recovery/trash identity and synchronization lifecycle.
+The sync success flag is reached only after all reconciliation succeeds. No
+writer activation, session/worker authority, terms, sharing or admission is changed.
+
+Before adding the regression and this status entry, the exact resolved tree was
+9bdc100e1db13179afc5f97279c78b5e06baae7a. This matches the supplied provisional
+comparison prefix 9bdc100e. The external comparison's full tree ID/object was not
+separately available in this environment; no stronger independent identity claim
+is inferred from the short prefix alone. Final differences from that recorded
+resolved tree are limited to this status entry and one runtime regression test.
+
+The new title-boundary regression checks duplicate/order-preserving title reads,
+failed Search persistence after rename, denial of both old-ID and empty title
+reads while unsynchronized, successful reconciliation with the same ObjectId and
+new title, and rejection of an unknown ObjectId. In a temporary negative control,
+removing ONLY the synchronized title barrier reproduces Some(old.txt) leakage and
+fails the new test; the correct source was restored before all final checks.
+All disk/backend operations in this regression use explicit in-memory host fixtures.
+
+Final integrated-source validation, installed nightly-2025-08-01/offline only:
+- Search library38 and all-target warnings-denied Search Clippy PASS, selecting
+  the exact nagi-search package through the existing files-search harness graph.
+- Files/recovery31 PASS with m19-files-search-production,m27-recovery features.
+- UI76 / Desktop117 / login26 PASS, including formatting/feature graph.
+- Albert12 / Supervisor9 / wire7 PASS and their strict Clippy/format checks PASS.
+- Desktop all-target -D clippy::all PASS, with existing Rust warnings (4 library,
+  1 test). Affected runtime/Search source rustfmt and whitespace checks PASS.
+- Release regression37 PASS. No dependency or lockfile changes.
+- Nagi target cargo check of the EXISTING files-search harness, exact runtime
+  source and nagi-search PASS: --lib --features m19-files-search-production
+  --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+  --locked --offline. This is a scoped target type check, not production init
+  package construction, full init/Servo target build, final link or guest proof.
+
+No new public CI, public push/PR update/GitHub merge, real writer/media operation,
+VM/model/guest execution, actual Bar/IPC/reaper/Browser inference, terms consent,
+private log/ledger read, dependency/model acquisition, permission change or access
+bypass occurred. Full init/Servo target/link, normal runtime and formal same-image
+M30 acceptance remain unverified. Existing gate and writer/guest HOLD are intact.
+The known private product decisions remain unverified; only existing public 0.1
+contracts are integrated. No new operation was denied or has uncertain outcome.
