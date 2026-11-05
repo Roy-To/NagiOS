@@ -11668,3 +11668,164 @@ bypass occurred. Full init/Servo target/link, normal runtime and formal same-ima
 M30 acceptance remain unverified. Existing gate and writer/guest HOLD are intact.
 The known private product decisions remain unverified; only existing public 0.1
 contracts are integrated. No new operation was denied or has uncertain outcome.
+
+### 2026-11-05 — isolated host M30 evidence preflight/collector
+
+M30 remains BLOCKED. New read-only `tools/nagi-release/m30_preflight.py`
+collects an explicit preserved input set into JSON: independent missing/invalid
+input diagnostics, actual file sizes/hashes, existing session content validation
+and release bundle validation with expected source/selected image bindings.
+It reuses `session_acceptance.validate_session`, image provenance/production
+configuration checks and `release.verify_release`; no competing session or
+release receipt format is introduced. Duplicate/nonfinite bundle JSON is rejected
+before release validation. CLI run receipts remain host command observations,
+not substitutes for ordinary guest-session evidence.
+
+All structurally consistent inputs remain NOT_VERIFIED for acceptance. Content
+integrity is reported separately from unavailable execution-origin proof,
+independent voice-operation evidence and distribution approval. The existing
+session producer API is proposed; synthetic fixture tests prove orchestration
+only. JSON always retains M30 NOT_EVALUATED/formal gate BLOCKED; CLI exit is 1.
+No fabricated signatures, timestamps, credentials, runtime events or receipts.
+
+Isolated checkout: `/workspace/m30-evidence-preflight`. Verified fixed source
+65108d6db2ec3e0a6f793c31fc0dc36e27be5354, full tree
+53d414db97705d2ebb4eba0d1b5171d340fe6549, including main parent
+c170ebf1d056aea277e3aa5f464d148d4ecff7fb. Formal `execute_m30`, its exit code,
+success criteria, existing validators and CI workflow are byte-identical to
+that base. Existing submit_page_summary/poll_page_summary are present; no runtime
+feature was reimplemented. No other worker's active outputs were consumed.
+
+Host validation: new focused tests 13 PASS; aggregate release/session tests 50
+PASS; root CI-scope/target-link diagnostics tests 14 PASS. Python `py_compile`,
+`tabnanny` and `git diff --check` PASS. Ruff/Black are not installed, so their
+format/lint checks were NOT RUN. The existing Rust formal gate regression was
+attempted with offline/locked Cargo, but stopped before compilation because the
+fresh checkout lacks `third_party/cc-nagi/Cargo.toml`; no Rust test passed is
+claimed. No dependency acquisition or borrowed build output was used to bypass
+that environmental blocker. The next independent check is to rerun that existing
+regression in a properly provisioned fresh checkout.
+
+Default preflight invocation returned the expected diagnostic exit 1: source
+INVALID because this implementation diff is uncommitted, 19 MISSING input
+checks, and 3 NOT_VERIFIED proof/review checks. No production evidence was
+available in this isolated checkout. No final OS link, image generation,
+guest/QEMU/inference run, CI dispatch, integration, push, PR mutation, merge,
+publication or milestone acceptance was performed. No operation was denied,
+pending approval or of uncertain outcome.
+
+### 2026-11-05 — M30 preflight fixed-source preparation and Rust gate follow-up
+
+M30 remains BLOCKED. On the same isolated preflight candidate, verified the
+cached upstream cc 1.4.6 archive SHA-256 against sources.lock
+(`a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4`), then
+matched all 28 archived regular files against the cached unpacked source.
+A local std-only launcher invoked the unchanged repository
+`ensure_cc_nagi_checkout` implementation, which applied the pinned patch and
+validated its generated checkout marker. No other worker's output was used.
+
+Root offline/locked Cargo gate retry advanced past cc-nagi, then stopped before
+compilation on missing `third_party/freetype-sys/Cargo.toml` (exit 101). The
+repository's standalone bootstrap manifest compiles the same nagi-cli lib and
+its unchanged test sources without resolving unrelated root path patches:
+
+```sh
+CARGO_HOME=/workspace/.nagi-cargo RUSTUP_HOME=/workspace/.nagi-rustup \
+  /workspace/.nagi-cargo/bin/cargo test --offline --locked \
+  --manifest-path tools/nagi-bootstrap/Cargo.toml --lib \
+  formal_release_and_layout_fixture_commands_are_distinct
+```
+
+Result: 1 PASS, 0 failed, 358 filtered out; formal M30 still returns its existing
+EXIT_NOT_IMPLEMENTED/BLOCKED result and remains distinct from layout fixtures.
+The broader root Rust suite was NOT RUN; provision all pinned root path patches
+through their regular source preparation if that suite is needed. No source,
+lockfile, acceptance criteria or CI gate change was needed for this recovery.
+Private review handoff contains the fixed local commit, four-file source/test/
+documentation delta, manifest and actual logs. No public upload, push, guest,
+image generation, denial retry or access-policy change occurred.
+
+### 2026-11-05 — independent-review M30 preflight malformed-input fixes
+
+M30 remains BLOCKED. Independent review reported three P2 inputs against local
+candidate aaf5104118e313051949cf9a905654c4baf1e914: an array in production image
+components crashed the delegated validator and suppressed JSON; numeric 1e400
+became infinity and was accepted; schema_version=true was treated as integer 1.
+All three were reproduced with CLI regression tests before implementation:
+RED 3 failures, including the empty-stdout control for the AttributeError crash.
+
+The release/session consumer audit found that production image checks are shared
+by session validation, release preflight/assembly/verification and this collector.
+The real producer emits comma-separated strings, integer schema/format versions
+and a string-to-string toolchain-version map. Harden those existing contracts:
+production component/feature values require strings; schema/format versions
+require actual integers; toolchain-version entries require nonempty strings.
+Legacy build manifests may still omit their previously optional schema field;
+empty legacy toolchain maps remain structurally supported, never proof of origin.
+No new evidence format, required event or formal success criterion was added.
+
+Release and session readers now share one strict JSON parser that rejects
+duplicate keys, explicit nonfinite constants and exponent overflow to infinity
+at any nesting depth. Finite boundary values remain parseable. The collector
+also catches delegated AttributeError as INVALID with an exception-class/reason
+diagnostic, so malformed input cannot suppress the remaining report checks.
+These checks strengthen rejection in the direct release CLI as well; valid
+synthetic fixtures still prove content-validator orchestration only.
+
+Validation: review controls GREEN 3; aggregate release/session suite 59 PASS,
+including 19 collector tests, direct-release CLI negative controls, provenance
+type boundaries, boolean/float/string/null schemas, nested positive/negative
+overflow and finite-number boundaries. Existing formal gate implementation and
+CI workflow remain byte-identical to the fixed public #43 base. Existing
+session event coverage, stress limits and formal M30 BLOCKED/exit code are
+unchanged. No guest, inference, image build, public action or acceptance claim.
+Next: independent review of the fixed commit and updated private handoff.
+
+### 2026-11-05 — reviewed M30 preflight integration onto current PR43/main
+
+M30 remains BLOCKED. Read-only public source lookup resolved current main to
+2c9532943a6624980892d01ce7e91f6d32545d25 (tree
+34fcfa03ba7e19081c4937a235924591d0e92e92), which has merged PR96. PR43 is
+still open/draft/unmerged at f35d3f25320339fa69d0860c12e1a354a3852701
+(tree dcc5c1bc306a755b095c831cc16f049f794edca8). That PR head already
+contains current main. Its release/session source matches the original
+65108d6 preflight base, so the independently reviewed collector candidate
+10ea682c03159b85f300714cbc64f459d78aaf5e can integrate without code conflicts.
+
+New isolated checkout `/workspace/m30-preflight-integration` merges those two
+fixed heads locally. The only merge conflict was implementation_status.md;
+the complete current PR status was retained and the reviewed candidate's full
+status delta appended. All seven release/collector/test/README files remain
+byte-identical to reviewed 10ea682. Current PR43 CLI commands, formal gate,
+CI workflow, Cargo files, source lock, runtime and Search changes are retained
+unchanged. No hypothetical/unmerged PR96 base or other worker output was used.
+
+Shared consumer audit: production provenance checks serve release preflight,
+assembly, verification and ordinary session validation. Release/session JSON
+readers use the same strict parser. Existing producer strings, actual integer
+schema/format fields and string version maps retain their contracts, including
+optional legacy build schema/empty legacy version maps. Type mismatches,
+duplicate keys, nonfinite constants and exponent overflow fail closed. Collector
+AttributeError fallback preserves INVALID JSON diagnostics. The direct-release
+CLI negative controls, finite boundaries and synthetic positive controls remain
+in the suite. These checks prove content validation, not origin or execution.
+
+Integrated-source host validation: release/session59 PASS (collector19), root
+CI-scope/target-link diagnostics14 PASS, existing formal gate Rust regression1
+PASS via the normal standalone bootstrap manifest (358 filtered out). Python
+compile/tabnanny and diff whitespace checks PASS. The full root Cargo suite and
+external review's extra negative-test scripts were NOT RUN in this integration
+checkout; root path-source dependencies are not prepared here. Ruff/Black remain
+unavailable. Existing session coverage, stress limits and formal M30 BLOCKED/
+EXIT_NOT_IMPLEMENTED are unchanged. No production evidence is available.
+
+Public workflow lookup at the PR43 head showed Nagi CI41979034671 pending,
+local-TTS workflow41979034748 success and 0.2-host workflow41979034625 skipped.
+These are observations of existing PR-triggered runs, not CI success for this
+unpublished integration candidate. The endpoint returned no PR-triggered run
+for main's merge commit; no main CI conclusion is inferred from that absence.
+No CI dispatch/rerun/cancel, public push/merge/upload, guest/QEMU/inference,
+image generation, writer change, milestone acceptance or permission change was
+performed. Next: independent review of the fixed local integration diff and
+private handoff, then the owner's publication decision. No action was denied,
+pending approval or of uncertain outcome.
