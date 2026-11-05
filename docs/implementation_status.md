@@ -1,4 +1,57 @@
-## PR 90 bootstrap fetch diagnosis candidate — 2026-11-04
+## PR 90 integration with main CI guard — 2026-11-05
+
+Status: `PARTIAL`; isolated merge candidate with first parent public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and second parent main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb` (PR 92). The only textual conflict
+was concurrent additions at the beginning of this status document. Both
+preparation histories below are preserved and explicitly historical. PR 92
+has been merged into main; PR 90 publication and hosted checks for this
+combined candidate remain pending independent review. No public push or
+GitHub merge was performed during this integration.
+
+QMP production sources, fetch diagnostics and the immutable executable
+fixture are byte-for-byte identical to d0d9e4a. The CI workflow combines
+main's required-file guard, docs-only classifier and job conditions with
+PR 90's real diskless QMP step. Removing only that step reproduces main's
+workflow exactly. PR 92's regression test file is unchanged. No source pin,
+timeout, assertion, retry policy or guest behavior was changed.
+
+Validation with nightly-2025-08-01:
+- Python CI regression suite: 14 passed, including the real workflow Bash
+  guard, required-file deletion/rename and code-versus-docs classification.
+- Bootstrap CLI library: 370 passed / 2 ignored.
+- Ordinary CLI library, run separately: 370 passed / 2 ignored.
+- Initial overlapping ordinary/bootstrap library runs produced one ordinary
+  GUI serial read error, Interrupted system call (os error 4), with 369 passed /
+  1 failed / 2 ignored. The exact four-case production-caller test then passed
+  independently, followed by the full ordinary suite above. The error's cause
+  is unconfirmed; it is not claimed fixed or attributed to the merge. Assertions
+  and production sources are unchanged; the original failure log is retained.
+- Both library/test Clippy configurations with warnings denied passed.
+- No guest or milestone PASS is claimed. Real diskless QEMU was not run in
+  this environment because qemu-system-x86_64 is unavailable; hosted Windows,
+  target and inference checks for this combined candidate are NOT RUN.
+
+## Historical PR 92 required-file CI guard preparation - 2026-11-05
+
+Status: `PARTIAL` (isolated host regression candidate; not published).
+Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
+`87b7dea4061be2572526181ab559d63037f823d0`. The lightweight change-scope
+job checks all five files required by `check_repository_layout` before
+allowing a documentation-only skip. Missing files fail that job even on
+manual dispatch. `docs/implementation_status.md` is no longer ignored by
+the workflow trigger, so its deletion cannot avoid this guard. Other
+Markdown-only changes still skip heavy host and target jobs.
+
+Local regression tests execute the workflow's Bash in temporary Git
+repositories: required-file deletion and rename, directory substitution,
+ordinary docs edits and optional docs renames/deletions, code mixed with
+docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
+The inventory is checked against the existing Rust repository check.
+No target or guest acceptance and no hosted CI result are claimed for
+this unpublished candidate. No milestone status changes.
+
+## Historical PR 90 bootstrap fetch diagnosis preparation — 2026-11-04
 
 Status: `PARTIAL`; isolated local diagnostics candidate based on published
 `91e4043a624bd13357609967faefdeb150820642` (tree
