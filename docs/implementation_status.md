@@ -1,3 +1,35 @@
+## PR 98 staging integration after PR 97 merge — 2026-11-05
+
+Status: `PARTIAL`. Initial reviewed/published staging candidate
+`8afe8aff9c192f6c8af7264e244eea70909f4163` (tree
+`3f7f77d26dabb3d78024a595981a2e4248bc2aa4`) is preserved as first-parent
+history. Main advanced during PR creation to
+`d67897b4c27566ecc4353e3b7d9b16efd59bb559` by merging PR 97. This integration
+merges that exact main and resolves the sole conflict in
+`user/nagi-search/src/read_boundary_tests.rs` by preserving main's complete
+allocator/read tests and appending the reviewed three-line staging test-module
+registration. The reviewed search.rs and semantic_staging_tests.rs are
+byte-identical; persistent_semantic_index.rs is byte-identical to main.
+Both status histories are retained. No assertions or production behavior change
+as part of conflict resolution. The staging production delta against main
+remains exactly the previously reviewed reservation change.
+
+Integrated validation: nagi-search host suite 46 passed / 0 failed / 1 ignored
+(the pre-existing opt-in synthetic timing experiment); all-target host Clippy
+with warnings denied, package formatting and whitespace checks pass. Actual
+Nagi-target library build with core/alloc passes on nightly-2025-08-01. The
+first offline build failed during dependency resolution because dlmalloc was
+absent from the sysroot cache; allowing normal pinned registry resolution
+populated the cache and the locked target-library build passed. No source pin,
+Cargo.lock, manifest, assertion or toolchain was changed. Logs are retained in
+`out/evidence/semantic-staging-main-d67897b/` including the initial failure.
+Independent review reported no P1/P2 findings and successful host/Clippy/target
+library checks on the original staging candidate; it did not review this later
+integration commit. Publication and hosted CI for the integrated head are
+tracked in PR 98. Guest execution, real provider inference and final native
+linking remain unverified; M24 remains PARTIAL. The preparation entry below
+records historical pre-publication scope and results.
+
 ## M24 semantic indexing staging allocation — 2026-11-05
 
 Status: `PARTIAL`; isolated host candidate based on public main
@@ -10783,3 +10815,53 @@ This read-only candidate is now reapplied on main
 Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
 target check with a normally built/signed client. This is a local candidate;
 main/public heads and guest execution are unchanged.
+
+## M24 bounded semantic read allocation candidate revised (2026-11-05)
+
+M24 remains PARTIAL. This revision supersedes the linear-allowlist candidate
+`0328d682a731a61c5c0c864a9d400fba50bf7778`, based on public main
+`2c9532943a6624980892d01ce7e91f6d32545d25`. `PersistentVectorIndex::search`
+now fallibly reserves an ObjectId scratch Vec, copies/sorts/deduplicates the
+validated allowlist in place, and uses binary search for membership. Scratch
+requests at most 65,536 ObjectIds (512 KiB, excluding allocator overhead).
+The output Vec holds at most `limit` matches and is reserved fallibly only on
+the first hit. A worst-first heap bounds replacement to O(log limit); final
+`sort_unstable_by` restores canonical rank without another allocation.
+Both reservation failures return the existing `VectorIndexError::Capacity`,
+drop scratch/partial output, and permit retry. Empty allowlists/indices request
+no storage; disjoint nonempty allowlists request scratch only. Similarity,
+best-chunk ties, ObjectId order, duplicate semantics and validation precedence
+are retained. Snapshot format, update paths, writer coordination and DTOs are
+unchanged.
+
+Validation: 42 host tests pass, including all 1,800 comparisons with the previous
+full-sort search (limits 1..=100), full chunk/allowlist boundaries, and both
+reservation positions under transient/persistent null denial, live-byte leak
+checks and successful retries. The maximum-size duplicate allowlist also tests
+both failures and deduplication before output reservation. All-target Clippy
+with warnings denied, formatting and the Nagi custom-target library check pass.
+
+The bounded release-mode comparison runs original full-sort search, 0328d68
+linear search and this revision in one process on identical fixtures. It uses
+4,096 one-chunk objects, 2/384 dimensions, shuffled/sorted/no-hit/duplicate/short
+allowlists, limits 1/100, two warmups and nine samples of three calls with
+rotating algorithm order. Final medians in milliseconds for 2 dimensions,
+65,536 allowlist entries and limit 100 were:
+
+| Input | Original | 0328d68 | Revised |
+| --- | ---: | ---: | ---: |
+| Shuffled all objects permitted | 2.198437 | 49.250993 | 1.329543 |
+| Shuffled no hits | 1.752725 | 99.693478 | 1.301575 |
+| Sorted all objects permitted | 1.019333 | 3.214919 | 0.272238 |
+| Sorted no hits | 0.639960 | 98.821325 | 0.221432 |
+
+These are synthetic shared Linux-host observations, not guest performance
+estimates or acceptance. Across the 16 measured conditions the revised median
+was below the original and 0328d68. Two finite timing passes ran (12 then 16
+conditions, about 46 seconds total measured test time). Evidence, commands,
+compiler/host information and logs are local under
+`out/evidence/semantic-read-top-k-performance-20261105/`.
+
+Target latency, real guest OOM, allocator overhead, initial decoding, update
+clones and caller/provider allocations remain unverified or outside this
+change. No VM execution or public write was performed; no milestone is promoted.

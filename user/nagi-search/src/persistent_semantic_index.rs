@@ -3,10 +3,7 @@
 //! The snapshot stores ObjectIds, byte ranges, and vectors only. Source text
 //! stays with its producer and is never copied into this index.
 
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    vec::Vec,
-};
+use alloc::{collections::BTreeMap, vec::Vec};
 use nagi_model::ObjectId;
 
 use crate::{
@@ -187,10 +184,21 @@ impl<B: SnapshotBackend> VectorIndex for PersistentVectorIndex<B> {
         if permitted_objects.len() > crate::store::MAX_OBJECT_RECORDS {
             return Err(VectorIndexError::Capacity);
         }
-        let permitted: BTreeSet<ObjectId> = permitted_objects.iter().copied().collect();
+        if permitted_objects.is_empty() || self.state.objects.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Sorting in place avoids BTreeSet's infallible node allocations. Bound
+        // this fallible scratch buffer by the already-validated input length.
+        let mut permitted = Vec::new();
+        permitted
+            .try_reserve_exact(permitted_objects.len())
+            .map_err(|_| VectorIndexError::Capacity)?;
+        permitted.extend_from_slice(permitted_objects);
+        permitted.sort_unstable();
+        permitted.dedup();
         let mut matches = Vec::new();
         for (object_id, chunks) in &self.state.objects {
-            if !permitted.contains(object_id) {
+            if permitted.binary_search(object_id).is_err() {
                 continue;
             }
             let mut best: Option<VectorMatch> = None;
@@ -212,18 +220,62 @@ impl<B: SnapshotBackend> VectorIndex for PersistentVectorIndex<B> {
                 }
             }
             if let Some(best) = best {
-                matches.push(best);
+                if matches.is_empty() {
+                    // Reserve output storage lazily: a disjoint allowlist needs
+                    // scratch only. Each object contributes at most one result.
+                    matches
+                        .try_reserve_exact(limit.min(self.state.objects.len()).min(permitted.len()))
+                        .map_err(|_| VectorIndexError::Capacity)?;
+                }
+                if matches.len() < limit {
+                    matches.push(best);
+                    if matches.len() == limit {
+                        // The root is the worst retained match, so rejecting a
+                        // noncompetitive candidate takes one comparison.
+                        for root in (0..matches.len() / 2).rev() {
+                            sift_worst_down(&mut matches, root);
+                        }
+                    }
+                } else if compare_matches(&best, &matches[0]).is_lt() {
+                    matches[0] = best;
+                    sift_worst_down(&mut matches, 0);
+                }
             }
         }
-        matches.sort_by(|left, right| {
-            right
-                .similarity
-                .total_cmp(&left.similarity)
-                .then_with(|| left.object_id.cmp(&right.object_id))
-                .then_with(|| left.chunk_ordinal.cmp(&right.chunk_ordinal))
-        });
-        matches.truncate(limit);
+        // Unstable sort needs no scratch allocation. ObjectId makes the rank
+        // unique across results; best-chunk selection still resolves local ties.
+        matches.sort_unstable_by(compare_matches);
         Ok(matches)
+    }
+}
+
+// Canonical output order: similarity descending, ObjectId and ordinal ascending.
+fn compare_matches(left: &VectorMatch, right: &VectorMatch) -> core::cmp::Ordering {
+    right
+        .similarity
+        .total_cmp(&left.similarity)
+        .then_with(|| left.object_id.cmp(&right.object_id))
+        .then_with(|| left.chunk_ordinal.cmp(&right.chunk_ordinal))
+}
+
+fn sift_worst_down(matches: &mut [VectorMatch], mut root: usize) {
+    loop {
+        let left = 2 * root + 1;
+        if left >= matches.len() {
+            return;
+        }
+        let right = left + 1;
+        let worse =
+            if right < matches.len() && compare_matches(&matches[right], &matches[left]).is_gt() {
+                right
+            } else {
+                left
+            };
+        if !compare_matches(&matches[root], &matches[worse]).is_lt() {
+            return;
+        }
+        matches.swap(root, worse);
+        root = worse;
     }
 }
 
@@ -802,5 +854,374 @@ mod tests {
         assert_eq!(found[0].chunk_ordinal, 0);
         assert_eq!(found[1].object_id, ObjectId(2));
         assert_eq!(found[1].chunk_ordinal, 0);
+    }
+    fn legacy_search(
+        index: &PersistentVectorIndex<MemoryBackend>,
+        query: &Embedding,
+        permitted_objects: &[ObjectId],
+        limit: usize,
+    ) -> Result<Vec<VectorMatch>, VectorIndexError> {
+        if limit == 0 || limit > MAX_SEMANTIC_RESULTS {
+            return Err(VectorIndexError::InvalidLimit);
+        }
+        let query_space = query
+            .space_id()
+            .ok_or(VectorIndexError::InvalidEmbeddingSpace)?;
+        if let Some(index_space) = index.state.space_id {
+            if query_space != index_space {
+                return Err(VectorIndexError::EmbeddingSpaceMismatch);
+            }
+            if query.dimensions() != index.state.dimensions.unwrap_or_default() {
+                return Err(VectorIndexError::DimensionMismatch);
+            }
+        }
+
+        if permitted_objects.len() > crate::store::MAX_OBJECT_RECORDS {
+            return Err(VectorIndexError::Capacity);
+        }
+        let permitted: alloc::collections::BTreeSet<ObjectId> =
+            permitted_objects.iter().copied().collect();
+        let mut matches = Vec::new();
+        for (object_id, chunks) in &index.state.objects {
+            if !permitted.contains(object_id) {
+                continue;
+            }
+            let mut best: Option<VectorMatch> = None;
+            for chunk in chunks {
+                let candidate = VectorMatch {
+                    object_id: *object_id,
+                    chunk_ordinal: chunk.ordinal,
+                    start_byte: chunk.start_byte,
+                    end_byte: chunk.end_byte,
+                    similarity: cosine_similarity(query, &chunk.embedding),
+                };
+                let replace = best.is_none_or(|current| {
+                    candidate.similarity > current.similarity
+                        || (candidate.similarity == current.similarity
+                            && candidate.chunk_ordinal < current.chunk_ordinal)
+                });
+                if replace {
+                    best = Some(candidate);
+                }
+            }
+            if let Some(best) = best {
+                matches.push(best);
+            }
+        }
+        matches.sort_by(|left, right| {
+            right
+                .similarity
+                .total_cmp(&left.similarity)
+                .then_with(|| left.object_id.cmp(&right.object_id))
+                .then_with(|| left.chunk_ordinal.cmp(&right.chunk_ordinal))
+        });
+        matches.truncate(limit);
+        Ok(matches)
+    }
+
+    fn ranking_fixture(object_count: usize) -> PersistentVectorIndex<MemoryBackend> {
+        let mut index = open_index(MemoryBackend::default());
+        index.state.space_id = Some(SPACE_A);
+        index.state.dimensions = Some(2);
+        for id in 1..=object_count as u64 {
+            let values = match id % 5 {
+                0 => vec![1.0, 0.0],
+                1 => vec![0.0, 1.0],
+                2 => vec![-1.0, 0.0],
+                3 => vec![1.0, 1.0],
+                _ => vec![1.0, -1.0],
+            };
+            let embedding = Embedding::try_from_values_in_space(values, SPACE_A).unwrap();
+            index.state.objects.insert(
+                ObjectId(id),
+                vec![
+                    StoredChunk {
+                        ordinal: 0,
+                        start_byte: 0,
+                        end_byte: 1,
+                        embedding: embedding.clone(),
+                    },
+                    StoredChunk {
+                        ordinal: 1,
+                        start_byte: 1,
+                        end_byte: 2,
+                        embedding,
+                    },
+                    StoredChunk {
+                        ordinal: 2,
+                        start_byte: 2,
+                        end_byte: 3,
+                        embedding: Embedding::try_from_values_in_space(vec![0.0, -1.0], SPACE_A)
+                            .unwrap(),
+                    },
+                    StoredChunk {
+                        ordinal: 3,
+                        start_byte: 3,
+                        end_byte: 4,
+                        embedding: Embedding::try_from_values_in_space(vec![-1.0, -1.0], SPACE_A)
+                            .unwrap(),
+                    },
+                ],
+            );
+            index.state.chunk_count += 4;
+        }
+        index
+    }
+
+    #[test]
+    fn bounded_search_matches_full_sort_for_all_limits_and_allowlists() {
+        let index = ranking_fixture(257);
+        let all: Vec<_> = (1..=257).rev().map(ObjectId).collect();
+        let duplicate: Vec<_> = all
+            .iter()
+            .copied()
+            .chain(all.iter().rev().copied())
+            .collect();
+        let allowlists = [
+            vec![],
+            vec![ObjectId(999)],
+            vec![ObjectId(257), ObjectId(1), ObjectId(257)],
+            (1..=257).step_by(3).map(ObjectId).collect(),
+            all,
+            duplicate,
+        ];
+        for values in [vec![1.0, 0.0], vec![0.0, -1.0], vec![-1.0, -1.0]] {
+            let query = Embedding::try_from_values_in_space(values, SPACE_A).unwrap();
+            for permitted in &allowlists {
+                for limit in 1..=MAX_SEMANTIC_RESULTS {
+                    let actual = index.search(&query, permitted, limit).unwrap();
+                    assert_eq!(
+                        actual,
+                        legacy_search(&index, &query, permitted, limit).unwrap()
+                    );
+                    assert!(
+                        actual.capacity()
+                            <= limit.min(permitted.len()).min(index.state.objects.len())
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn search_handles_full_chunk_and_allowlist_boundaries() {
+        let index = ranking_fixture(MAX_INDEXED_CHUNKS / 4);
+        assert_eq!(index.state.chunk_count, MAX_INDEXED_CHUNKS);
+        let query = Embedding::try_from_values_in_space(vec![1.0, 0.0], SPACE_A).unwrap();
+        let all: Vec<_> = index.state.objects.keys().copied().rev().collect();
+        for limit in [1, MAX_SEMANTIC_RESULTS] {
+            assert_eq!(
+                index.search(&query, &all, limit),
+                legacy_search(&index, &query, &all, limit)
+            );
+        }
+        let mut permitted = vec![ObjectId(5); crate::store::MAX_OBJECT_RECORDS];
+        assert_eq!(index.search(&query, &permitted, 100).unwrap().len(), 1);
+        permitted.push(ObjectId(1));
+        assert_eq!(
+            index.search(&query, &permitted, 100),
+            Err(VectorIndexError::Capacity)
+        );
+        for limit in [0, MAX_SEMANTIC_RESULTS + 1, usize::MAX] {
+            assert_eq!(
+                index.search(&query, &all, limit),
+                Err(VectorIndexError::InvalidLimit)
+            );
+        }
+    }
+
+    // Frozen 0328d68 search for same-input timing and result comparisons.
+    fn linear_search(
+        index: &PersistentVectorIndex<MemoryBackend>,
+        query: &Embedding,
+        permitted_objects: &[ObjectId],
+        limit: usize,
+    ) -> Result<Vec<VectorMatch>, VectorIndexError> {
+        if limit == 0 || limit > MAX_SEMANTIC_RESULTS {
+            return Err(VectorIndexError::InvalidLimit);
+        }
+        let query_space = query
+            .space_id()
+            .ok_or(VectorIndexError::InvalidEmbeddingSpace)?;
+        if let Some(index_space) = index.state.space_id {
+            if query_space != index_space {
+                return Err(VectorIndexError::EmbeddingSpaceMismatch);
+            }
+            if query.dimensions() != index.state.dimensions.unwrap_or_default() {
+                return Err(VectorIndexError::DimensionMismatch);
+            }
+        }
+
+        if permitted_objects.len() > crate::store::MAX_OBJECT_RECORDS {
+            return Err(VectorIndexError::Capacity);
+        }
+        // Borrow the allowlist: membership needs no allocation or deduplication.
+        let mut matches = Vec::new();
+        for (object_id, chunks) in &index.state.objects {
+            if !permitted_objects.contains(object_id) {
+                continue;
+            }
+            let mut best: Option<VectorMatch> = None;
+            for chunk in chunks {
+                let candidate = VectorMatch {
+                    object_id: *object_id,
+                    chunk_ordinal: chunk.ordinal,
+                    start_byte: chunk.start_byte,
+                    end_byte: chunk.end_byte,
+                    similarity: cosine_similarity(query, &chunk.embedding),
+                };
+                let replace = best.is_none_or(|current| {
+                    candidate.similarity > current.similarity
+                        || (candidate.similarity == current.similarity
+                            && candidate.chunk_ordinal < current.chunk_ordinal)
+                });
+                if replace {
+                    best = Some(candidate);
+                }
+            }
+            if let Some(best) = best {
+                if matches.is_empty() {
+                    // Original 0328d68 lazily reserves only output storage.
+                    matches
+                        .try_reserve_exact(
+                            limit
+                                .min(index.state.objects.len())
+                                .min(permitted_objects.len()),
+                        )
+                        .map_err(|_| VectorIndexError::Capacity)?;
+                }
+                let position = matches.partition_point(|current: &VectorMatch| {
+                    current
+                        .similarity
+                        .total_cmp(&best.similarity)
+                        .reverse()
+                        .then_with(|| current.object_id.cmp(&best.object_id))
+                        .then_with(|| current.chunk_ordinal.cmp(&best.chunk_ordinal))
+                        .is_lt()
+                });
+                if position < limit {
+                    // Remove before inserting so a full top-k never reallocates.
+                    if matches.len() == limit {
+                        matches.pop();
+                    }
+                    matches.insert(position, best);
+                }
+            }
+        }
+        Ok(matches)
+    }
+
+    #[test]
+    #[ignore = "bounded synthetic host timing experiment, not guest evidence"]
+    fn compare_semantic_search_host_performance() {
+        use std::{hint::black_box, time::Instant};
+        const OBJECTS: usize = 4096;
+        const SAMPLES: usize = 9;
+        const REPETITIONS: usize = 3;
+        fn run(
+            algorithm: usize,
+            index: &PersistentVectorIndex<MemoryBackend>,
+            query: &Embedding,
+            permitted: &[ObjectId],
+            limit: usize,
+        ) -> Vec<VectorMatch> {
+            match algorithm {
+                0 => legacy_search(
+                    black_box(index),
+                    black_box(query),
+                    black_box(permitted),
+                    black_box(limit),
+                ),
+                1 => linear_search(
+                    black_box(index),
+                    black_box(query),
+                    black_box(permitted),
+                    black_box(limit),
+                ),
+                _ => index.search(black_box(query), black_box(permitted), black_box(limit)),
+            }
+            .unwrap()
+        }
+        std::println!("Synthetic host only; one chunk/object; 4096 objects; medians of {SAMPLES} samples x {REPETITIONS} calls; two warmups/algorithm/case; rotated order. Timings include all search allocation, score, ordering and drop costs.");
+        std::println!("dimensions,case,allowlist,limit,legacy_ms,linear_0328_ms,revised_ms");
+        for dimensions in [2, 384] {
+            let mut index = open_index(MemoryBackend::default());
+            index.state.space_id = Some(SPACE_A);
+            index.state.dimensions = Some(dimensions);
+            for id in 1..=OBJECTS {
+                let mut values = vec![0.0; dimensions];
+                values[0] = (id % 257) as f32;
+                values[1] = 1.0;
+                index.state.objects.insert(
+                    ObjectId(id as u64),
+                    vec![StoredChunk {
+                        ordinal: 0,
+                        start_byte: 0,
+                        end_byte: 1,
+                        embedding: Embedding::try_from_values_in_space(values, SPACE_A).unwrap(),
+                    }],
+                );
+            }
+            index.state.chunk_count = OBJECTS;
+            let mut query_values = vec![0.0; dimensions];
+            query_values[0] = 1.0;
+            let query = Embedding::try_from_values_in_space(query_values, SPACE_A).unwrap();
+            let full: Vec<_> = (0..65536_u64)
+                .map(|i| ObjectId(1 + (i * 40503) % 65536))
+                .collect();
+            let misses: Vec<_> = full.iter().map(|id| ObjectId(id.0 + 100000)).collect();
+            let sorted: Vec<_> = (1..=65536).map(ObjectId).collect();
+            let sorted_misses: Vec<_> = sorted.iter().map(|id| ObjectId(id.0 + 100000)).collect();
+            let duplicates: Vec<_> = full.iter().map(|id| ObjectId(1 + id.0 % 8192)).collect();
+            let small: Vec<_> = (1..=128).rev().map(ObjectId).collect();
+            for (name, permitted) in [
+                ("shuffled_full", &full),
+                ("no_hits", &misses),
+                ("sorted_full", &sorted),
+                ("sorted_no_hits", &sorted_misses),
+                ("duplicates", &duplicates),
+                ("small", &small),
+            ] {
+                if dimensions == 384 && name != "shuffled_full" && name != "no_hits" {
+                    continue;
+                }
+                for limit in [1, MAX_SEMANTIC_RESULTS] {
+                    let expected = legacy_search(&index, &query, permitted, limit).unwrap();
+                    assert_eq!(
+                        linear_search(&index, &query, permitted, limit).unwrap(),
+                        expected
+                    );
+                    assert_eq!(index.search(&query, permitted, limit).unwrap(), expected);
+                    let mut timings: [Vec<f64>; 3] = core::array::from_fn(|_| Vec::new());
+                    for algorithm in 0..3 {
+                        for _ in 0..2 {
+                            drop(black_box(run(algorithm, &index, &query, permitted, limit)));
+                        }
+                    }
+                    for sample in 0..SAMPLES {
+                        for offset in 0..3 {
+                            let algorithm = (sample + offset) % 3;
+                            let start = Instant::now();
+                            for _ in 0..REPETITIONS {
+                                drop(black_box(run(algorithm, &index, &query, permitted, limit)));
+                            }
+                            timings[algorithm]
+                                .push(start.elapsed().as_secs_f64() * 1000.0 / REPETITIONS as f64);
+                        }
+                    }
+                    let medians: [f64; 3] = timings.map(|mut values| {
+                        values.sort_unstable_by(f64::total_cmp);
+                        values[SAMPLES / 2]
+                    });
+                    std::println!(
+                        "{dimensions},{name},{},{limit},{:.6},{:.6},{:.6}",
+                        permitted.len(),
+                        medians[0],
+                        medians[1],
+                        medians[2]
+                    );
+                }
+            }
+        }
     }
 }
