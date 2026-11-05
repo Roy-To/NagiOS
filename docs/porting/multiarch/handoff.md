@@ -1,5 +1,23 @@
 # PORT-MULTIARCH-01 handoff — provisional, unregistered
 
+## Independent cloud evidence candidate — 2026-11-04
+
+Fixed source0039/base036 now has a separately performed cloud rebuild and real
+QEMU EL1/EL2 review: two fresh ELF hashes equal the Mac artifact; EL1 PASS and
+EL2 expected rejection MET, with actual EL2 outcome FAIL/exit1. The unchanged
+complete spike verifier exits0, including all 30 fixtures and strict target
+Clippy. See [independent candidate](runtime/arm64-0039f0c3-independent-cloud-20261104/README.md)
+for commands, tool hashes, summary/serial bindings and complete local receipt.
+
+This entry supersedes older independent-rebuild NOT_RUN statements only for
+that fixed feasibility-spike source, not physical hardware or production Nagi.
+The original runtime/FE52/evidence records and current-status/3 are preserved.
+The existing pending-state schema remains unchanged; canonical phase-C adoption
+requires owner review of the independent evidence representation. The state adds
+a separate PASS test row without relabeling earlier attempts. A/B ownership and
+proposal gates, and M30/owner-gated D/E/registration remain. No publication,
+merge, physical-media write, or current-main guest revalidation occurred.
+
 ## Source0039 repair and direct-child records
 
 Source `0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13`, tree
