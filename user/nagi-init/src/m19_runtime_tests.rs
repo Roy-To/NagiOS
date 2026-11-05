@@ -752,3 +752,56 @@ fn interrupted_create_never_aliases_the_next_inode() {
     assert!(Vfs::check_existing(&mut disk.clone()).is_ok());
     assert!(files::list(&mut remounted).unwrap().contains(&kept));
 }
+
+#[cfg(feature = "m19-files-search-production")]
+#[test]
+fn read_overlay_keeps_unsynchronized_titles_hidden_after_sync_failure() {
+    let (_, mut volume) = volume();
+    files::create(&mut volume, b"alpha.txt").unwrap();
+    let backend = Backend::default();
+    let mut search = runtime(backend.clone());
+    search.sync_files(&mut volume).unwrap();
+    let id = search.search_files("alpha").unwrap()[0];
+    assert_eq!(
+        search.visible_file_titles(&[id.0]),
+        Some(vec![String::from("alpha.txt")])
+    );
+    backend.0.borrow_mut().1 = true;
+    files::create(&mut volume, b"beta.txt").unwrap();
+    assert!(search.sync_files(&mut volume).is_err());
+    assert!(!search.synchronized);
+    assert_eq!(search.visible_file_titles(&[id.0]), None);
+    backend.0.borrow_mut().1 = false;
+    search.sync_files(&mut volume).unwrap();
+    assert_eq!(search.search_files("alpha").unwrap(), vec![id]);
+    assert_eq!(
+        search.visible_file_titles(&[id.0, id.0]),
+        Some(vec![String::from("alpha.txt"), String::from("alpha.txt")])
+    );
+}
+
+#[cfg(feature = "m19-files-search-production")]
+#[test]
+fn read_overlay_trash_restore_retains_title_filter_and_object_id() {
+    let (_, mut volume) = volume();
+    let original = files::create(&mut volume, "資料.txt".as_bytes()).unwrap();
+    let backend = Backend::default();
+    let mut search = runtime(backend);
+    search.sync_files(&mut volume).unwrap();
+    let id = search.search_files("資料").unwrap()[0];
+    assert_eq!(
+        search.visible_file_titles(&[id.0]),
+        Some(vec![String::from("資料.txt")])
+    );
+    files::trash(&mut volume, &original).unwrap();
+    search.sync_files(&mut volume).unwrap();
+    assert_eq!(search.visible_file_titles(&[id.0]), None);
+    let selected = files::trash_entries(&mut volume).unwrap().remove(0);
+    files::restore(&mut volume, &selected).unwrap();
+    search.sync_files(&mut volume).unwrap();
+    assert_eq!(search.search_files("資料").unwrap(), vec![id]);
+    assert_eq!(
+        search.visible_file_titles(&[id.0]),
+        Some(vec![String::from("資料.txt")])
+    );
+}

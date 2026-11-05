@@ -10775,3 +10775,80 @@ scripted model seams; they do not establish guest inference. CI now runs the
 Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
 results must refer to the published successor. Actual guest/model validation
 and complete workspace checks remain pending at this checkpoint.
+
+## M24 scoped production read boundary candidate (2026-11-05)
+
+M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
+connects the ordinary Files runtime to a fallible title-only read API, borrowed
+record inspection, and fallible scalar stale-record staging. Existing producer
+ObjectId lookup now scans borrowed metadata instead of deep-cloning all matching
+records. BTreeMap model fields and existing owned-return API signatures remain.
+
+The original 30 nagi-search tests plus eight read-boundary regressions pass.
+All-target nagi-search Clippy passes with warnings denied. The actual
+`m19-files-search-production` nagi-init custom-target cargo check passes using a
+real locally built/signed Files client package and the configured Nagi clang;
+this is a compilation check, not a linked/booted guest acceptance. The init
+configuration emitted eight warnings; this does not establish a warning-free init build.
+
+The title helper's output Vec and String requests return storage Io on injected
+null denial and drop partial output. Scalar stale-record staging returns an
+explicit allocation/missing-key error before the caller begins deletion. These
+narrow paths do not establish whole-runtime OOM safety: initial store/attribute
+BTree decoding, state clones on update, legacy owned APIs, input construction,
+other UI/IPC allocations, allocator behavior and uncertain-commit/writer
+coordination remain unresolved. No production startup model migration, guest,
+real-media, public write or merge was performed.
+
+This read-only candidate is now reapplied on main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`, preserving its CI and status changes.
+Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
+target check with a normally built/signed client. This is a local candidate;
+main/public heads and guest execution are unchanged.
+
+
+## M24 read overlay on current Desktop head (2026-11-05)
+
+A separate local candidate layers only the reviewed M24 read APIs and actual
+Files caller changes on `d769d7a79b48b6a01f1bf56c007181b15cfe678f`. The previous
+read overlay's base was `542db087`; it is not treated as the current head.
+The current CI scope gates, QMP/EOF shutdown code and all pre-existing status
+notes remain intact. Runtime synchronized/Trash guards and existing test bodies
+are preserved; the two appended read regressions check sync failure suppression
+and stable title/ObjectId restoration. M24 remains PARTIAL: legacy BTree OOM,
+writer coordination, guest/media safety and the unknown old build are not
+resolved by these scoped read changes. No public head, CI job, push or merge
+operation is part of this candidate.
+
+Current-base host checks passed: Search 38, Files 32, Session 49, normal Desktop
+host 58, login-acceptance host 28, CI classification 13, plus three selected
+QMP/EOF host tests using sockets/scripted fixture children rather than real
+QEMU. Search Clippy passes with warnings denied. No new target/guest/media
+acceptance is claimed by this host-only refresh.
+
+
+## Conditional Desktop composition after the pinned #96 source (2026-11-05)
+
+This is a local one-parent snapshot on c32341ce, composed with the fixed
+Desktop source d769d7a. It prepares the case in which #96's read changes are
+adopted; it does not claim #96 has merged or that any current CI run passed.
+Search read implementation is inherited once from the parent without another
+Search patch. The resulting executable source matches the reviewed 21736930
+Desktop read candidate. Both original state-record additions are retained above.
+CI/QMP/EOF, synchronized/Trash guards and release status are not weakened.
+No push, repository merge, guest, real-media, writer-exclusion or old-build
+operation is part of this conditional preparation. M24 remains PARTIAL.
+
+
+## Local real-history integration after verified #96 merge (2026-11-05)
+
+The conditional composition above records plan 65ff62d and remains historical.
+The real main commit 2c9532943a6624980892d01ce7e91f6d32545d25 has now been
+read-verified with tree 34fcfa03ba7e19081c4937a235924591d0e92e92, identical
+to the reviewed c32341ce source. This separate local Desktop candidate retains
+d769d7a as first-parent history and imports that actual main as its second
+parent. No public PR/head is updated by this local operation. Executable source
+remains identical to the conditional plan and 21736930; read APIs are inherited
+from main once, not replayed as another Search patch. Both prior state records
+remain intact. Local host checks and hosted CI are distinct; no new hosted CI,
+writer, old-build, guest or real-media result is inferred. M24 remains PARTIAL.
