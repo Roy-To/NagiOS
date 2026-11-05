@@ -31,6 +31,8 @@ pub struct Panel {
     pub open: bool,
     pub cancel_requested: bool,
     pub summary_requested: bool,
+    summary_epoch: Option<u64>,
+    wire_claimed_epoch: Option<u64>,
     focus: Focus,
     scroll: usize,
 }
@@ -41,13 +43,41 @@ impl Panel {
             open: false,
             cancel_requested: false,
             summary_requested: false,
+            summary_epoch: Some(0),
+            wire_claimed_epoch: None,
             focus: Focus::Input,
             scroll: 0,
         }
     }
     pub fn toggle(&mut self) {
         self.open = !self.open;
+        if !self.open {
+            self.summary_requested = false;
+        }
         self.focus = Focus::Input;
+    }
+    /// Per-instance monotonic identity of the current explicit local gesture.
+    /// Hiding/cancelling/draining intent cannot revive it; overflow latches shut.
+    pub fn summary_intent(&self) -> Option<u64> {
+        if self.open && self.summary_requested && !self.cancel_requested {
+            self.summary_epoch.filter(|id| *id != 0)
+        } else {
+            None
+        }
+    }
+    /// Claim once per Desktop gesture, even across endpoint replacement. A
+    /// failed send/clock check cannot silently retry the gesture on a new child.
+    pub fn claim_summary_wire(&mut self) -> Option<u64> {
+        let id = self.summary_intent()?;
+        if self.wire_claimed_epoch == Some(id) {
+            return None;
+        }
+        self.wire_claimed_epoch = Some(id);
+        Some(id)
+    }
+    pub fn wire_summary_intent(&self) -> Option<u64> {
+        self.summary_intent()
+            .filter(|id| self.wire_claimed_epoch == Some(*id))
     }
     pub fn clear_presentation(&mut self) {
         self.open = false;
@@ -75,7 +105,8 @@ impl Panel {
                 // Record intent only. The Desktop validates its live owner,
                 // Session/readiness and explicit terms on the next service step.
                 if !self.controller.is_busy() {
-                    self.summary_requested = true;
+                    self.summary_epoch = self.summary_epoch.and_then(|id| id.checked_add(1));
+                    self.summary_requested = self.summary_epoch.is_some();
                 }
             }
             Focus::Terms => {
@@ -270,5 +301,53 @@ pub(super) fn wrapped_line<'a>(
 impl Default for Panel {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod intent_tests {
+    use super::*;
+    #[test]
+    fn local_gesture_close_reopen_cancel_and_new_gesture_never_reuse_intent() {
+        let mut p = Panel::new();
+        p.toggle();
+        p.activate(Focus::Summary);
+        let first = p.summary_intent().unwrap();
+        p.toggle();
+        p.toggle();
+        assert_eq!(p.summary_intent(), None);
+        p.activate(Focus::Summary);
+        assert!(p.summary_intent().unwrap() > first);
+        p.activate(Focus::Cancel);
+        assert_eq!(p.summary_intent(), None);
+        p.cancel_requested = false;
+        p.activate(Focus::Summary);
+        assert!(p.summary_intent().unwrap() > first + 1);
+    }
+    #[test]
+    fn intent_overflow_stays_closed_after_more_gestures_and_presentation_reset() {
+        let mut p = Panel::new();
+        p.toggle();
+        p.summary_epoch = Some(u64::MAX);
+        p.activate(Focus::Summary);
+        assert_eq!(p.summary_intent(), None);
+        p.clear_presentation();
+        p.toggle();
+        p.activate(Focus::Summary);
+        assert_eq!(p.summary_intent(), None);
+    }
+    #[test]
+    fn wire_claim_is_once_per_gesture_and_survives_endpoint_or_presentation_changes() {
+        let mut p = Panel::new();
+        p.toggle();
+        p.activate(Focus::Summary);
+        let id = p.claim_summary_wire().unwrap();
+        assert_eq!(p.wire_summary_intent(), Some(id));
+        assert_eq!(p.claim_summary_wire(), None);
+        p.clear_presentation();
+        p.toggle();
+        assert_eq!(p.claim_summary_wire(), None);
+        p.activate(Focus::Summary);
+        assert!(p.claim_summary_wire().unwrap() > id);
     }
 }

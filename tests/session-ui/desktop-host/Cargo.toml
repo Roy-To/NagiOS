@@ -20,6 +20,7 @@ desktop-login-acceptance = ["desktop-login"]
 consent-dialog = []
 
 [dependencies]
+nagi-action-ipc = { path = "../../../crates/nagi-action-ipc" }
 nagi-ai = { path = "../../../services/nagi-ai", optional = true }
 libnagi = { package = "nagi-desktop-host-libnagi", path = "libnagi" }
 nagi-model-manager = { path = "../../../user/nagi-model-manager", optional = true }

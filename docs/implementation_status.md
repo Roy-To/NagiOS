@@ -11416,3 +11416,64 @@ operation, guest/VM/model run, operator terms acknowledgement, public operation,
 push/merge, private ledger/log read or denied-path retry/bypass occurred. No
 operation was denied or uncertain during this source/host task. Private product
 decisions remain unverified; existing public 0.1 gates remain in force.
+
+
+### 2026-11-05 — staged Bar wire consumer and retirement (M23 PARTIAL / M30 BLOCKED)
+
+Isolated follow-up to reviewed 2b0dec13e95251294ec27257bffc6179cfae9aaf
+(tree 4ec27cabc93783abf37bb4eb89c9f66694580b3e). Original candidate is retained.
+
+- Added separate caller-free bar-summary@1 protocol, exact envelope/handle
+  rejection, nonzero OS gesture nonce, one pending exchange, trusted tick
+  expiry/rollback checks and one-time consumption. Claims survive endpoint
+  replacement; failed sends burn the gesture. New gesture is required to retry.
+- Staged BarEndpoint APIs use the real Supervisor receiver and launch record,
+  recheck current Desktop/session binding, request and time before actor use,
+  and keep terms/sharing/model admission separate. Negative terminals burn the
+  validation token; no positive/model-success terminal or page/prompt data exists.
+- Added actual one-shot Nagi Bar client source and grant-free manifest. Its
+  source-check harness uses local dependencies only. It accepts kernel init
+  sender1 and exact offer/result; exit0 means negative transport completion only.
+  It is not a signed/embedded package and normal main does not launch it.
+- Supervisor retirement atomically compares/removes its own record before close,
+  retains close failure ownership, and never calls process_wait. A separately
+  named waiting reaper retains failures and validates returned process ID. This
+  is not a nonblocking reaper or a proven UI time bound. No auto-wait/retry loop
+  was connected to Desktop. Broader validation/use atomicity remains unproved.
+
+Final source verification using the installed nightly-2025-08-01 and existing
+approved offline environment:
+
+- Protocol harness: 7 tests PASS, all-target Clippy with -D warnings PASS.
+- CARGO_NET_OFFLINE=true sh tests/session-ui/check.sh PASS: UI75, Desktop113,
+  login26, formatting and feature graph. Desktop includes 10 endpoint cases,
+  including nonce replacement, late/forged/expired input and negative completion.
+- Supervisor receive harness: 9 tests PASS and strict Clippy PASS; 3 new cases
+  cover revoke-before-close, retained failures and foreign-record rejection.
+- Desktop all-target Clippy -D clippy::all PASS with the pre-existing Rust warnings
+  (4 library / 2 test). Only local action IPC dependency/lock entries were added;
+  all 33 existing registry package identities/checksums remain unchanged.
+- Real Nagi target cargo check of protocol and actual child source PASS through
+  tests/acceptance/bar-summary-wire with -Zbuild-std=core --locked --offline.
+- Real standalone child target release ELF link PASS with existing init linker
+  script and build-std core/compiler_builtins. The initial relative script path
+  failed in Cargo's link working directory; an absolute path to the SAME checkout
+  script corrected configuration. ELF64LE x86-64 executable, entry within RX load,
+  segment bounds checked and no RWX load. Final ELF 10552 bytes, SHA-256
+  c0e008495a44639457ee30cf350868874eafc98b1964e9230e6aa6ab9d25c339.
+  This is a standalone harness link, not the production package/final OS link.
+- git diff --check PASS. Host orchestration uses explicit private fixture seams;
+  synthetic launch/envelopes are not real kernel identity or real process exit.
+
+Normal runtime remains fail-closed: no live Browser surface/input ownership,
+actual signed Bar package, real endpoint exchange, bounded reaper coordinator,
+positive summary reply/lifetime integration or actual child retirement observed.
+Existing registry spinlock deadline and validation/use transaction atomicity are
+not guaranteed. Full root/Servo/init target build remains unverified here because
+of the previously identified missing cc-nagi source/pinned offline dependencies;
+no dependency acquisition or denied cache access was attempted. Real Servo,
+guest/session/inference and formal M30 acceptance were NOT RUN. Private product
+decisions remain unverified; public 0.1 gates are unchanged. No VM/model/guest,
+terms acknowledgement, private log/ledger read, public operation/push/merge,
+permission change or access-denial retry/bypass occurred in this task. No new
+operation was denied, pending approval or of uncertain outcome.

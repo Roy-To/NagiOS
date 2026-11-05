@@ -12,6 +12,8 @@ rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
   user/nagi-albert/src/lib.rs \
   user/nagi-init/src/desktop.rs \
   user/nagi-init/src/desktop_bar_endpoint.rs \
+  crates/nagi-action-ipc/src/bar_summary.rs \
+  user/nagi-isolated-app/src/bin/bar_client.rs \
   user/nagi-init/src/supervisor.rs \
   user/nagi-init/src/font.rs \
   user/nagi-init/src/m19_files_client.rs \

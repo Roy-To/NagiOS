@@ -410,6 +410,79 @@ pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
     .then_some(status)
 }
 
+/// Registry authority is revoked and the parent endpoint is being closed,
+/// but process exit has NOT been observed. Only retire can construct this token.
+#[must_use = "retain for endpoint cleanup and reaping outside the UI step"]
+pub struct RetiredLaunch {
+    process_id: u32,
+    endpoint: u64,
+    endpoint_closed: bool,
+}
+#[must_use]
+pub struct RetireRejected(pub Launched);
+
+/// Detach app authority BEFORE waiting for any process exit. This calls no
+/// process_wait and creates no reaper thread. Registry spin time is unproved.
+pub fn retire(launched: Launched) -> Result<RetiredLaunch, RetireRejected> {
+    retire_with(launched, handle_close)
+}
+fn retire_with(
+    launched: Launched,
+    close: impl FnOnce(u64) -> bool,
+) -> Result<RetiredLaunch, RetireRejected> {
+    let revoked = with_registry(|registry| {
+        if registry.resolve(launched.record.process_id) != Some(launched.record) {
+            return false;
+        }
+        registry.record_exit(launched.record.process_id) == Some(launched.record)
+    })
+    .unwrap_or(false);
+    if !revoked {
+        return Err(RetireRejected(launched));
+    }
+    Ok(RetiredLaunch {
+        process_id: launched.record.process_id,
+        endpoint: launched.endpoint,
+        endpoint_closed: close(launched.endpoint),
+    })
+}
+impl RetiredLaunch {
+    pub fn endpoint_closed(&self) -> bool {
+        self.endpoint_closed
+    }
+    /// One bounded close attempt, never a retry loop; failure retains ownership.
+    pub fn close_endpoint(&mut self) -> bool {
+        self.close_with(handle_close)
+    }
+    fn close_with(&mut self, close: impl FnOnce(u64) -> bool) -> bool {
+        if !self.endpoint_closed {
+            self.endpoint_closed = close(self.endpoint);
+        }
+        self.endpoint_closed
+    }
+}
+
+/// WAITING API: only a separately budgeted reaper may call this, never the UI
+/// step. Existing process_wait can block/retry while the child is alive.
+/// An error retains the token; it is not a poll-ready/exit notification and must
+/// not be blindly retried or reported as a successfully reaped child.
+pub fn reap_retired(retired: RetiredLaunch) -> Result<ProcessExitStatus, RetiredLaunch> {
+    reap_retired_with(retired, handle_close, process_wait)
+}
+fn reap_retired_with(
+    mut retired: RetiredLaunch,
+    close: impl FnOnce(u64) -> bool,
+    wait: impl FnOnce(u32) -> Option<ProcessExitStatus>,
+) -> Result<ProcessExitStatus, RetiredLaunch> {
+    if !retired.close_with(close) {
+        return Err(retired);
+    }
+    match wait(retired.process_id) {
+        Some(status) if status.process_id == retired.process_id => Ok(status),
+        _ => Err(retired),
+    }
+}
+
 /// Whether `status` is a clean `SYS_PROCESS_EXIT(0)`.
 pub fn exited_cleanly(status: &ProcessExitStatus) -> bool {
     status.kind == PROCESS_EXIT_KIND_EXITED && status.code == 0
@@ -591,5 +664,61 @@ mod receive_tests {
             );
             assert_eq!(handles, [51, 52, 53, 54]);
         }
+    }
+    #[test]
+    fn retirement_revokes_before_close_and_wait_only_occurs_in_explicit_reaper() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let retired = match retire_with(source, |handle| {
+            assert_eq!(handle, 42);
+            assert_eq!(resolve(7), None);
+            true
+        }) {
+            Ok(r) => r,
+            Err(_) => panic!("fixture retire"),
+        };
+        assert!(retired.endpoint_closed());
+        let status = reap_retired_with(
+            retired,
+            |_| panic!("already closed"),
+            |pid| {
+                assert_eq!(pid, 7);
+                assert_eq!(resolve(7), None);
+                Some(ProcessExitStatus {
+                    process_id: pid,
+                    kind: PROCESS_EXIT_KIND_EXITED,
+                    code: 0,
+                    fault_vector: 0,
+                })
+            },
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(status.process_id, 7);
+    }
+    #[test]
+    fn retirement_cleanup_failure_retains_token_and_does_not_wait() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let retired = retire_with(source, |_| false).ok().unwrap();
+        assert!(!retired.endpoint_closed());
+        assert_eq!(resolve(7), None);
+        let retired = reap_retired_with(
+            retired,
+            |_| false,
+            |_| panic!("close failed: must not wait"),
+        )
+        .err()
+        .unwrap();
+        assert!(!retired.endpoint_closed());
+        assert!(reap_retired_with(retired, |_| true, |_| None).is_err());
+    }
+    #[test]
+    fn retirement_rejects_changed_record_without_closing_foreign_endpoint() {
+        let fixture = Fixture::new();
+        let mut source = fixture.launched();
+        source.record.app_session_id = nagi_model::AppSessionId(999);
+        assert!(retire_with(source, |_| panic!("wrong record cannot close")).is_err());
+        assert!(resolve(7).is_some());
     }
 }
