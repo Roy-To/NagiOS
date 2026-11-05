@@ -12476,23 +12476,6 @@ mod qemu_timeout_caller_tests {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
-    #[test]
-    fn production_callers_capture_timeout_diagnostics_and_reap_within_original_budget() {
-        run_timeout_cases("", None);
-    }
-
-    #[test]
-    fn headless_preserves_serial_emitted_during_diagnostics_and_shutdown() {
-        run_timeout_cases("query", Some(false));
-        run_timeout_cases("final", Some(false));
-    }
-
-    #[test]
-    fn gui_preserves_serial_emitted_during_diagnostics_and_shutdown() {
-        run_timeout_cases("query", Some(true));
-        run_timeout_cases("final", Some(true));
-    }
-
     fn qmp_fixture() -> std::path::PathBuf {
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         manifest
@@ -12568,7 +12551,176 @@ mod qemu_timeout_caller_tests {
         }
     }
 
+    type GuiRunner = fn(&QemuConfig<'_>) -> Result<i32, String>;
+
+    #[test]
+    fn production_callers_capture_timeout_diagnostics_and_reap_within_original_budget() {
+        run_timeout_cases("", None);
+    }
+
+    #[test]
+    fn headless_preserves_serial_emitted_during_diagnostics_and_shutdown() {
+        run_timeout_cases("query", Some(false));
+        run_timeout_cases("final", Some(false));
+    }
+
+    #[test]
+    fn gui_preserves_serial_emitted_during_diagnostics_and_shutdown() {
+        run_timeout_cases("query", Some(true));
+        run_timeout_cases("final", Some(true));
+    }
+
+    #[test]
+    fn gui_interrupted_read_preserves_diagnostics_serial_retry_and_reaping() {
+        for late in ["", "query", "final"] {
+            run_timeout_cases_with_gui_runner(
+                late,
+                Some(true),
+                Some(|config| {
+                    crate::image::run_qemu_gui_with_interrupted_serial_read(config, false)
+                }),
+            );
+        }
+    }
+
+    #[test]
+    fn gui_repeated_interrupted_reads_keep_the_original_deadline() {
+        run_timeout_cases_with_gui_runner(
+            "",
+            Some(true),
+            Some(|config| crate::image::run_qemu_gui_with_interrupted_serial_read(config, true)),
+        );
+    }
+
+    #[test]
+    fn gui_serial_eof_keeps_diagnostics_deadline_and_reaps_a_live_child() {
+        for kernel in [false, true] {
+            for stall in [false, true] {
+                run_gui_eof_case(kernel, stall, false);
+            }
+        }
+    }
+
+    #[test]
+    fn gui_serial_eof_preserves_a_child_exit_before_deadline() {
+        run_gui_eof_case(true, false, true);
+    }
+
+    fn run_gui_eof_case(kernel: bool, stall: bool, exits_early: bool) {
+        let root = std::env::temp_dir().join(format!(
+            "nagi-eof-caller-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("nagi-cli/tests/fixtures/qmp_timeout.py");
+        fs::write(
+            root.join("eof"),
+            serde_json::json!({
+                "kernel": kernel, "exit_after": if exits_early { 0.08 } else { 6.0 }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        if stall {
+            fs::write(root.join("stall"), "").unwrap();
+        }
+        let template = root.join("template");
+        fs::write(&template, b"vars").unwrap();
+        let vars = root.join("vars");
+        let disk = root.join("disk");
+        fs::write(&disk, b"disk").unwrap();
+        let serial = root.join("serial");
+        let timeout = Duration::from_secs(3);
+        let config = QemuConfig {
+            qemu: &qemu,
+            ovmf_code: &template,
+            ovmf_vars_template: &template,
+            disk_image: &disk,
+            persistent_disk: &disk,
+            vars_copy: &vars,
+            serial_log: &serial,
+            acceptance_marker: "never accepted",
+            timeout,
+        };
+        let start = Instant::now();
+        let result = run_qemu_gui(&config);
+        let elapsed = start.elapsed();
+        println!(
+            "EOF kernel={kernel} stall={stall} early={exits_early} elapsed_ms={} result={result:?}",
+            elapsed.as_millis()
+        );
+        let pid = fs::read_to_string(root.join("pid")).unwrap();
+        assert!(
+            !std::path::Path::new("/proc").join(pid.trim()).exists(),
+            "child must be terminated and reaped"
+        );
+        assert!(
+            root.join("serial-closed").exists(),
+            "fixture must actually close serial after handshake"
+        );
+        let log = fs::read_to_string(&serial).unwrap();
+        let requests = fs::read_to_string(root.join("requests")).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        assert!(log.starts_with("serial before diagnostics\n"));
+        assert_eq!(
+            log.contains("Nagi Kernel started\nserial EOF tail\n"),
+            kernel
+        );
+        if exits_early {
+            assert_eq!(result.unwrap(), 0);
+            assert!(
+                elapsed < timeout,
+                "normal child exit must be preserved: {elapsed:?}"
+            );
+            assert!(!requests.contains("query-status"));
+        } else {
+            let error = result.expect_err("serial EOF is not child exit or acceptance");
+            assert!(
+                error.contains("QEMU did not reach acceptance within"),
+                "{error}"
+            );
+            assert!(
+                elapsed >= timeout - timeout / 10,
+                "premature EOF return: {elapsed:?}"
+            );
+            assert!(
+                elapsed < timeout + Duration::from_millis(400),
+                "EOF bypassed original budget: {elapsed:?}"
+            );
+            assert!(
+                requests.contains("query-status"),
+                "diagnostics must run after EOF"
+            );
+            assert!(log.contains("QEMU timeout diagnostics:"));
+            assert_eq!(
+                has_pre_guest_firmware_timeout_signature(&error, &log),
+                !kernel && !stall,
+                "{error}\n{log}"
+            );
+            assert!(log.contains(if stall {
+                "QMP query-status failed:"
+            } else {
+                "QMP CPU instruction window:"
+            }));
+        }
+    }
+
     fn run_timeout_cases(late: &str, gui_only: Option<bool>) {
+        run_timeout_cases_with_gui_runner(late, gui_only, None);
+    }
+
+    fn run_timeout_cases_with_gui_runner(
+        late: &str,
+        gui_only: Option<bool>,
+        gui_runner: Option<GuiRunner>,
+    ) {
         for gui in [false, true] {
             if gui_only.is_some_and(|selected| selected != gui) {
                 continue;
@@ -12589,7 +12741,10 @@ mod qemu_timeout_caller_tests {
                 // Execute the immutable checkout fixture. A freshly written
                 // executable can fail with ETXTBSY when another parallel spawn
                 // briefly inherits a writable descriptor before exec.
-                let qemu = qmp_fixture();
+                let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .expect("host tools directory")
+                    .join("nagi-cli/tests/fixtures/qmp_timeout.py");
                 if stall {
                     fs::write(root.join("stall"), "").unwrap();
                 }
@@ -12616,7 +12771,7 @@ mod qemu_timeout_caller_tests {
                 };
                 let start = Instant::now();
                 let result = if gui {
-                    run_qemu_gui(&config)
+                    gui_runner.unwrap_or(run_qemu_gui)(&config)
                 } else {
                     run_qemu(&config)
                 };

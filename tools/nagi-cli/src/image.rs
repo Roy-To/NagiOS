@@ -2489,6 +2489,68 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
     serial_input: Option<(&str, &[u8])>,
     screenshot_path: Option<&Path>,
 ) -> Result<QemuGuiOutcome, String> {
+    run_gui_qemu_with_serial_reader(
+        config,
+        ready_marker,
+        events,
+        later_stages,
+        failure_marker,
+        mode,
+        serial_input,
+        screenshot_path,
+        |stream, buffer| stream.read(buffer),
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn run_qemu_gui_with_interrupted_serial_read(
+    config: &QemuConfig<'_>,
+    repeat_interruptions: bool,
+) -> Result<i32, String> {
+    let mut reads = 0;
+    let mut interrupted = false;
+    let result = run_gui_qemu_with_serial_reader(
+        config,
+        M9_GUI_READY_MARKER,
+        &M9_GUI_EVENTS,
+        &[],
+        None,
+        GuiQemuMode {
+            boot_disk_read_only: false,
+            reuse_ovmf_vars: false,
+            inter_event_delay: Duration::ZERO,
+        },
+        None,
+        None,
+        |stream, buffer| {
+            reads += 1;
+            if reads == 1 || (repeat_interruptions && reads > 2) {
+                interrupted = true;
+                Err(std::io::ErrorKind::Interrupted.into())
+            } else {
+                stream.read(buffer)
+            }
+        },
+    );
+    assert!(
+        interrupted,
+        "production GUI loop must encounter the injected EINTR"
+    );
+    result.map(|outcome| outcome.exit_status)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_gui_qemu_with_serial_reader(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    failure_marker: Option<&str>,
+    mode: GuiQemuMode,
+    serial_input: Option<(&str, &[u8])>,
+    screenshot_path: Option<&Path>,
+    mut read_serial: impl FnMut(&mut TcpStream, &mut [u8]) -> std::io::Result<usize>,
+) -> Result<QemuGuiOutcome, String> {
     let serial_listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|error| format!("cannot reserve GUI serial TCP port: {error}"))?;
     let serial_port = serial_listener
@@ -2621,9 +2683,11 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
         match if remaining.is_zero() {
             Err(std::io::Error::from(std::io::ErrorKind::TimedOut))
         } else {
-            serial_stream.read(&mut buffer)
+            read_serial(&mut serial_stream, &mut buffer)
         } {
-            Ok(0) => break,
+            // Serial EOF does not mean QEMU exited. Continue polling the
+            // owned child and the original diagnostic/deadline checks below.
+            Ok(0) => thread::sleep(remaining.min(Duration::from_millis(1))),
             Ok(count) => {
                 serial.extend_from_slice(&buffer[..count]);
                 if let Err(error) = serial_log
@@ -2738,9 +2802,12 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                     });
                 }
             }
+            // An interrupted read made no progress. Still run the child and
+            // absolute-deadline checks below, even under repeated signals.
             Err(error)
                 if error.kind() == std::io::ErrorKind::WouldBlock
-                    || error.kind() == std::io::ErrorKind::TimedOut => {}
+                    || error.kind() == std::io::ErrorKind::TimedOut
+                    || error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => {
                 terminate_qemu(&mut child, config.serial_log, &serial);
                 return Err(format!("cannot read GUI serial TCP stream: {error}"));
@@ -2831,47 +2898,6 @@ fn run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
                     ),
                 };
                 let _ = diagnostics.flush();
-            }
-        }
-    }
-    // Serial EOF does not prove that QEMU exited. Keep the original host
-    // deadline while waiting for its process, even before acceptance.
-    if let Err(error) = fs::write(config.serial_log, &serial) {
-        terminate_qemu(&mut child, config.serial_log, &serial);
-        return Err(format!(
-            "cannot write GUI serial log {} after serial EOF: {error}",
-            config.serial_log.display()
-        ));
-    }
-    loop {
-        if Instant::now() >= deadline {
-            terminate_qemu(&mut child, config.serial_log, &serial);
-            return Err(
-                "GUI QEMU host deadline expired after serial EOF before acceptance".to_owned(),
-            );
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if Instant::now() >= deadline {
-                    terminate_qemu(&mut child, config.serial_log, &serial);
-                    return Err(
-                        "GUI QEMU host deadline expired after serial EOF before acceptance"
-                            .to_owned(),
-                    );
-                }
-                return Ok(QemuGuiOutcome {
-                    exit_status: status.code().unwrap_or(-1),
-                    ready_after,
-                    acceptance_reached: false,
-                });
-            }
-            Ok(None) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                thread::sleep(remaining.min(Duration::from_millis(20)));
-            }
-            Err(error) => {
-                terminate_qemu(&mut child, config.serial_log, &serial);
-                return Err(format!("cannot poll GUI QEMU after serial EOF: {error}"));
             }
         }
     }
@@ -4968,10 +4994,16 @@ mod tests {
                 !Path::new("/proc").join(pid.trim()).exists(),
                 "{mode}: child not reaped"
             );
-            assert_eq!(
-                fs::read_to_string(&log).unwrap(),
-                "serial before diagnostics\n"
-            );
+            let captured = fs::read_to_string(&log).unwrap();
+            assert!(captured.starts_with("serial before diagnostics\n"));
+            if mode == "stall" {
+                // The merged #90 path retains diagnostics after EOF using
+                // the same original deadline; no serial bytes may be lost.
+                assert!(captured.contains("Nagi QEMU timeout diagnostics:"));
+                assert!(captured.contains("QMP query-status failed:"));
+            } else {
+                assert_eq!(captured, "serial before diagnostics\n");
+            }
             fs::remove_dir_all(root).unwrap();
             println!(
                 "GUI EOF mode={mode} elapsed_ms={} budget_ms={}",
@@ -4981,7 +5013,7 @@ mod tests {
             if mode == "stall" {
                 let error = result.expect_err("EOF must not renew or ignore the host deadline");
                 assert!(
-                    error.contains("deadline") && error.contains("serial EOF"),
+                    error.contains("GUI QEMU did not reach acceptance within"),
                     "{error}"
                 );
                 assert!(elapsed >= timeout - timeout / 10);
