@@ -11217,3 +11217,97 @@ export retry/alternate route, private ledger or private log access occurred.
 No operation was denied or uncertain in this task; the target dependency failure
 is an explicit offline compile blocker. Private decisions remain unverified;
 existing public 0.1 specifications and release gates govern this partial work.
+
+
+## Albert single-dispatch owner and callback revocation (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Parent def7e8814f840dc25709fc8d2fc04a19d4c654d0,
+full tree 5cdef8b40da8e1b7133d27a21134c61cdc782752, was clean and remains preserved
+with its reviewed source export. This candidate is isolated on
+`codex/m30-albert-step-events-20261105` in `/workspace/NagiOS-m30-albert-step-events`.
+The initial environment wait reported ready before exec became usable; the
+first source command did not execute. Current running status and a successful
+source read were confirmed before any change. No access denial was bypassed.
+
+The reviewed Supervisor receipt boundary is unchanged. Its registry spinlock
+has no proved time bound, and checking a record then using it is not an atomic
+registry/user authorization transaction. A received app identity is not a
+Desktop user Session. Session itself is a Copy value, so retaining a Session
+copy cannot observe later lock/sign-out; only the live Desktop lifecycle and
+its current binding/generation can supply that check. A Bar launch must be
+owned by that lifecycle, not paired with a new Session after the fact. No
+wrapper here blesses arbitrary caller fields, stale Session copies, PID1 or
+the foreground Albert launch as an OS-authenticated Bar actor. Normal Desktop
+continues to pass None, with no new endpoint or protocol activation.
+
+Implemented the next independent event-loop prerequisites in Albert source:
+
+- BrowserContextOwner now keeps short-borrowed epoch state separate from an
+  outer owner borrow. BrowserContextEvents is a cloneable, non-Send/non-Sync
+  Rc handle for trusted engine callbacks, limited to invalidation. It cannot
+  read page data, stamp snapshots, change sharing or authenticate an actor.
+  The extraction code releases the epoch borrow BEFORE invoking the engine
+  callback, allowing a delegate to revoke a capture while an embedder holds
+  the outer owner RefCell borrow. Policy is rechecked and revoked captures
+  still fail, including page/policy ABA and fresh-stamp replacement attempts.
+- Dropping the owner takes/drops the underlying epoch immediately, even if
+  delegate notifier clones remain alive. Old snapshots become invalid and
+  subsequent notifications return false without recreating a live epoch.
+  Sharing remains disabled by default and can only be changed on the owner
+  through the existing trusted user-control method.
+- The cfg-Nagi first-pixel source now has start_first_web_pixel returning a
+  FirstPixelBrowser that retains the WebView/Servo/wake signal and its context
+  owner. step invokes spin_event_loop once, preserves the first-dispatch trace
+  and returns the wake hint; it contains no application retry loop or yield.
+  The standalone run_first_web_pixel remains a diverging compatibility wrapper
+  that calls step and yields on idle. This is bounded in call count only:
+  neither Servo dispatch duration nor constructor/resource latency is proved
+  bounded. False means idle hint, not shutdown or successful page extraction.
+- FirstPixelDelegate frame, URL and load callbacks notify the retained epoch.
+  Frame invalidation is deliberately conservative. These callbacks do not
+  cover all DOM/selection/tab changes or provide a coherent extraction API.
+  The owned Browser drops its context owner before WebView/Servo fields so
+  retained delegate notifications cannot keep context access alive on teardown.
+  Sharing controls and Context API are not exposed by this guest step object.
+
+The first-pixel constructor still uses the old fail-stop resource setup and
+acquires the first-pixel display surface. It is not an ordinary Desktop window,
+input or shutdown API. main.rs still uses the existing standalone runner; no
+feature combination is claimed to establish a shared Desktop/Browser owner.
+The separate m18 acceptance loop is not refactored or promoted to production.
+The remaining work includes proper normal surface/input ownership, bounded
+initialization and shutdown semantics, complete mutation/event observation,
+coherent asynchronous Servo extraction and signed Bar endpoint/current user
+Session/request binding. Partial callback coverage must not activate sharing.
+
+Producer validation against the final source:
+
+- Exact Albert host12 PASS and all-target strict Clippy -D warnings PASS.
+  Three new regressions cover callback invalidation with an outer owner borrow,
+  retained notifier clones after owner destruction, and notifier invalidation
+  granting no sharing/read access. The existing nine extraction/policy cases
+  remain intact. These callbacks/engine actors are synthetic host orchestration,
+  not Servo or kernel execution.
+- Existing check.sh UI72/Desktop97/login26 PASS, including the old terms,
+  cancellation, caller, request/Session fencing and actual renderer cases,
+  plus format/feature graph checks. Desktop all-target -D clippy::all PASS with
+  the existing four library and two test Rust warnings. Both formatting lists
+  now parse/check guest lib.rs as well as assistant_context.rs; this does NOT
+  type-check cfg-Nagi code on a host. git diff --check PASS.
+- A genuine full Albert target check was attempted once:
+  cargo check --manifest-path user/nagi-albert/Cargo.toml --target
+  targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --locked --offline.
+  It failed loading the fixed cc dependency because this isolated checkout
+  lacks third_party/cc-nagi/Cargo.toml (ENOENT), BEFORE Rust compilation.
+  No fetch, symlink/copy from another checkout, version substitution, denied
+  registry probe or alternate access was attempted. The new guest step and
+  callback wiring therefore have NOT passed target type-check or execution.
+  The previous full-UI libc0.2.191 blocker was not retried.
+
+No guest, VM/model/native inference, operator terms acknowledgement, dependency
+or software acquisition, network/authentication operation, private ledger/log
+read, denied export retry, publication, push or merge occurred. No action was
+denied or uncertain during implementation; missing target source is the exact
+compile blocker. No success is inferred for real Servo, live Bar/Session binding,
+registry atomicity/time limits, model admission, guest rendering or formal M30
+acceptance. Private decisions remain unverified and release gates unchanged.

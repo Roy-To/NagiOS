@@ -9,6 +9,7 @@ rustfmt=$(rustup which rustfmt --toolchain "$toolchain")
 rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
 "$rustfmt" --check --edition 2021 --config skip_children=true \
   user/nagi-albert/src/assistant_context.rs \
+  user/nagi-albert/src/lib.rs \
   user/nagi-init/src/desktop.rs \
   user/nagi-init/src/supervisor.rs \
   user/nagi-init/src/font.rs \
