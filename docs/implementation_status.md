@@ -11118,3 +11118,102 @@ read, operator consent, public operation, push or merge occurred. No action was
 denied or uncertain in this recovered source/host task. Private decisions remain
 unverified; this is independent existing 0.1 prerequisite work under unchanged
 release gates.
+
+
+## Supervisor received app binding prerequisite (2026-11-05)
+
+Status: M23 `PARTIAL`; M30 `BLOCKED`. Parent
+`5ff0229539ec5ffa290942a77a79182a09417af4`, full tree
+`d86d9801ee47132ca7914959856eafb72d6c3b9a`, was clean and is preserved with its
+independent review and fixed source export. New isolated work is on
+`codex/m30-supervisor-receive-binding-20261105` at
+`/workspace/NagiOS-m30-supervisor-receive-binding`.
+
+Rechecked the existing Action IPC and signed Supervisor launch contracts. The
+kernel fills ChannelReceiveResult.sender_process_id; Supervisor maps it to the
+live signed-manifest launch record. Payload caller strings/PIDs are not that
+trust path. The kernel's isolated-process IDs advance and fail on exhaustion
+instead of reusing/wrapping an ID. None of those facts establishes a Desktop
+user Session or creates an in-process Bar launch.
+
+Implemented the reusable nonblocking receive boundary in real supervisor.rs.
+try_receive_from borrows the Supervisor-owned Launched endpoint and performs
+one real libnagi::channel_try_receive, never a blocking wait/retry loop. It
+checks the full expected launch record before receive, requires the stamped
+sender to match that launch, and checks the full record again after receive.
+ReceivedAppMessage has private fields/constructor; no public entry mints it
+from an arbitrary ChannelReceiveResult, PID or CallerIdentity. live_launch
+rechecks revocation at use. Protocol/version/opcode/request ID and payload
+remain untrusted consumer input, not authorization. The borrowed launch cannot
+be consumed by the ordinary reap call while its receipt is still borrowed.
+This is app-sender binding only, not model, user, object or Browser authority.
+
+The boundary accepts inline messages only. It rejects oversized payload lengths
+without truncating them, rejects unexpected transferred handles and closes all
+received nonzero handles within the ABI bound before discarding the envelope.
+Cleanup failures are surfaced, and a failed close does not skip subsequent
+handles. Empty/invalid endpoints return immediately. A private generic helper
+allows host tests to inject the receive/close operations; production supplies
+the real libnagi functions. No runtime caller fields or protocol activation
+were added to the ordinary Desktop or model queue.
+
+Standalone tests/acceptance/supervisor-receive imports this exact source with
+real libnagi/nagi-package dependencies. Six host tests cover payload identity
+forgery, different kernel-metadata sender values, stale/mismatched launch before
+read, revocation during and after receive, empty/failed endpoint without retry,
+malformed inline payload/transfer counts and complete handle cleanup including
+failure. Registry entries and receive results are explicit synthetic fixtures,
+not evidence of an actual signed package, kernel Channel or guest authentication.
+The existing Desktop host suite imports the same Supervisor source and runs
+these regressions alongside the independently reviewed Albert/summary tests.
+The harness lock closure is pruned from existing pinned Desktop dependencies;
+registry name/version/source/checksum identities are unchanged. No download.
+
+Producer final validation:
+
+- New receive host6 PASS; warnings-denied all-target Clippy PASS after the
+  standalone harness declared the existing source feature cfg values for lint
+  checking. No production feature/policy/authorization was disabled to pass.
+- UI72, Desktop94, login26 PASS with format/feature graph via the final fixed
+  check.sh. An initial run passed every suite but exited127 because the script
+  was edited during its execution (format-list insertion changed the shell's
+  file offset). The unchanged final script was rerun to verify clean exit0.
+- Desktop all-target Clippy -D clippy::all PASS with the existing four library
+  and two test Rust warnings. Focused rustfmt and git diff --check PASS.
+- Genuine Nagi target leaf Clippy was attempted once with
+  --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=core,alloc
+  --locked --offline -- -D warnings. It stopped BEFORE Rust compilation on
+  unavailable pinned libc0.2.191. No package fetch/substitution, registry-path
+  probe, alternate cache or repeated target attempt. Target success is NOT
+  claimed from host compilation.
+
+Concrete remaining runtime gaps were rechecked, not filled by fabricated IDs:
+
+1. Ordinary Bar has no registered signed launch/owned summary endpoint bound
+   to the authenticated Desktop user Session. The new receipt proves only
+   the app sender recorded by the Supervisor; user Session/lifecycle, actual
+   Bar actor, protocol envelope and current UI request still require separate
+   binding/revalidation. Foreground Albert is not the requesting Bar identity.
+   ReceivedAppMessage alone must never authorize a page summary.
+2. main.rs currently enters the m17-servo/m18 acceptance path and its diverging
+   run_first_web_pixel/run_m18_https_acceptance loop. It does not return a live
+   Browser owner to the later ordinary Desktop event loop. A bounded embedded
+   Browser lifecycle/step API and surface/input ownership are needed; merely
+   enabling both feature flags does not share an owner/session safely.
+3. FirstPixelDelegate URL/load/frame callbacks do not yet update the retained
+   BrowserContextOwner, and they do not cover all selection/relevant DOM/tab/
+   policy changes. No partial callback list is claimed to solve page ABA.
+   The acceptance-only extraction still pumps events between separate JS reads.
+   It needs coherent multi-field extraction tied to the same epoch and failed
+   on any observed revocation before ordinary Desktop may supply Some(owner).
+
+Ordinary Desktop still supplies None and fails unavailable. Parent Albert
+sharing/epoch/extraction and service terms/cancel/budget/lease boundaries are
+unchanged. Real Servo extraction, signed Bar endpoint launch, OS/user binding,
+guest operation, model inference, full production target/ELF and formal release
+acceptance remain absent/unverified. No guest, public operation, push/merge,
+network/authentication/dependency acquisition, terms acknowledgement, denied
+export retry/alternate route, private ledger or private log access occurred.
+No operation was denied or uncertain in this task; the target dependency failure
+is an explicit offline compile blocker. Private decisions remain unverified;
+existing public 0.1 specifications and release gates govern this partial work.

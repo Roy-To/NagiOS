@@ -169,6 +169,94 @@ pub fn resolve(process_id: u32) -> Option<LaunchRecord> {
     with_registry(|registry| registry.resolve(process_id)).flatten()
 }
 
+/// Received on an endpoint owned by this Supervisor launch. Construction is
+/// private: caller identity is never accepted from a payload or supplied PID.
+/// This proves only app sender binding, NOT an authenticated Desktop Session,
+/// summary protocol, user intent, Browser sharing or model terms consent.
+/// Borrowing the launch prevents the ordinary owner from reaping it while this
+/// receipt is in use. Recheck live_launch before every authority-sensitive use.
+pub struct ReceivedAppMessage<'a> {
+    source: &'a Launched,
+    envelope: libnagi::ChannelReceiveResult,
+}
+
+impl ReceivedAppMessage<'_> {
+    pub fn live_launch(&self) -> Option<LaunchRecord> {
+        resolve(self.source.record.process_id).filter(|record| *record == self.source.record)
+    }
+
+    /// Protocol/version/opcode/request/payload remain untrusted and must be
+    /// validated by the consumer. They never select the authenticated actor.
+    pub fn envelope(&self) -> &libnagi::ChannelReceiveResult {
+        &self.envelope
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReceiveFailure {
+    LaunchExpired,
+    EndpointUnavailable,
+    SenderMismatch,
+    Malformed,
+    HandleCleanupFailed,
+}
+
+/// Bounded, nonblocking receive suitable for a future Desktop owner step.
+/// The sender comes only from the real kernel receive result; registry state
+/// is checked before and after receive. This installs no Bar endpoint or actor.
+pub fn try_receive_from(
+    source: &Launched,
+) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+    try_receive_from_with(source, libnagi::channel_try_receive, handle_close)
+}
+
+// Private injection seam for host boundary tests; callers outside this module
+// cannot mint a receipt from freely constructed ChannelReceiveResult fields.
+fn try_receive_from_with(
+    source: &Launched,
+    receive: impl FnOnce(u64, &mut libnagi::ChannelReceiveResult) -> Option<bool>,
+    mut close: impl FnMut(u64) -> bool,
+) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+    if resolve(source.record.process_id) != Some(source.record) {
+        return Err(ReceiveFailure::LaunchExpired);
+    }
+    let mut envelope = libnagi::ChannelReceiveResult::default();
+    match receive(source.endpoint, &mut envelope) {
+        Some(false) => return Ok(None),
+        None => return Err(ReceiveFailure::EndpointUnavailable),
+        Some(true) => {}
+    }
+    // This entry accepts inline data only. Reject and release every actually
+    // received handle, including malformed counts, before discarding an envelope.
+    if envelope.transfer_count != 0 {
+        let mut cleaned = true;
+        for handle in envelope
+            .handles
+            .iter()
+            .take((envelope.transfer_count as usize).min(envelope.handles.len()))
+            .copied()
+            .filter(|handle| *handle != 0)
+        {
+            cleaned &= close(handle);
+        }
+        return Err(if cleaned {
+            ReceiveFailure::Malformed
+        } else {
+            ReceiveFailure::HandleCleanupFailed
+        });
+    }
+    if envelope.payload_len as usize > envelope.payload.len() {
+        return Err(ReceiveFailure::Malformed);
+    }
+    if envelope.sender_process_id != source.record.process_id {
+        return Err(ReceiveFailure::SenderMismatch);
+    }
+    if resolve(envelope.sender_process_id) != Some(source.record) {
+        return Err(ReceiveFailure::LaunchExpired);
+    }
+    Ok(Some(ReceivedAppMessage { source, envelope }))
+}
+
 /// Whether the live application session may exercise `capability`.
 pub fn has_grant(
     app_id: AppId,
@@ -325,4 +413,183 @@ pub fn reap(launched: Launched) -> Option<ProcessExitStatus> {
 /// Whether `status` is a clean `SYS_PROCESS_EXIT(0)`.
 pub fn exited_cleanly(status: &ProcessExitStatus) -> bool {
     status.kind == PROCESS_EXIT_KIND_EXITED && status.code == 0
+}
+
+#[cfg(test)]
+mod receive_tests {
+    extern crate std;
+    use super::*;
+    use libnagi::ChannelReceiveResult;
+    use nagi_model::{AppSessionId, NodeId};
+    use std::sync::{Mutex, MutexGuard};
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    struct Fixture(MutexGuard<'static, ()>);
+    impl Fixture {
+        fn new() -> Self {
+            let guard = SERIAL.lock().unwrap();
+            with_registry(|registry| *registry = LaunchRegistry::new()).unwrap();
+            Self(guard)
+        }
+        fn launched(&self) -> Launched {
+            // Synthetic registry fixture, not a signed package/kernel launch.
+            // Tests cover receive orchestration only, never OS provenance.
+            let app = AppId::from_identifier(b"org.nagi.bar");
+            let record = with_registry(|registry| {
+                registry
+                    .register_manifest(AppManifest::from_declaration(b"org.nagi.bar", []).unwrap())
+                    .unwrap();
+                registry
+                    .record_launch(
+                        7,
+                        app,
+                        LaunchPlacement {
+                            app_session_id: AppSessionId(8),
+                            node_id: NodeId(9),
+                            workspace_id: None,
+                        },
+                    )
+                    .unwrap()
+            })
+            .unwrap();
+            Launched {
+                endpoint: 42,
+                record,
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            with_registry(|registry| *registry = LaunchRegistry::new()).unwrap();
+            let _ = &self.0;
+        }
+    }
+    fn envelope(sender: u32) -> ChannelReceiveResult {
+        let mut message = ChannelReceiveResult {
+            sender_process_id: sender,
+            request_id: 5,
+            ..ChannelReceiveResult::default()
+        };
+        let forged = b"caller=org.example.admin;pid=1";
+        message.payload[..forged.len()].copy_from_slice(forged);
+        message.payload_len = forged.len() as u32;
+        message
+    }
+    fn receive(
+        source: &Launched,
+        message: ChannelReceiveResult,
+    ) -> Result<Option<ReceivedAppMessage<'_>>, ReceiveFailure> {
+        try_receive_from_with(
+            source,
+            |endpoint, result| {
+                assert_eq!(endpoint, 42);
+                *result = message;
+                Some(true)
+            },
+            |_| panic!("inline fixture must not close any handle"),
+        )
+    }
+    #[test]
+    fn kernel_sender_binding_ignores_payload_identity_and_rechecks_revocation() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let receipt = receive(&source, envelope(7)).unwrap().unwrap();
+        assert_eq!(receipt.live_launch(), Some(source.record));
+        assert_eq!(receipt.envelope().request_id, 5);
+        assert!(receipt
+            .envelope()
+            .payload
+            .starts_with(b"caller=org.example.admin"));
+        with_registry(|registry| registry.record_exit(7))
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.live_launch(), None);
+    }
+    #[test]
+    fn forged_sender_cannot_use_expected_endpoint_launch() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        for sender in [0, 1, 8] {
+            assert!(matches!(
+                receive(&source, envelope(sender)),
+                Err(ReceiveFailure::SenderMismatch)
+            ));
+        }
+    }
+    #[test]
+    fn stale_or_changed_launch_is_denied_before_receiving() {
+        let fixture = Fixture::new();
+        let mut source = fixture.launched();
+        source.record.app_session_id = AppSessionId(99);
+        assert!(matches!(
+            try_receive_from_with(
+                &source,
+                |_, _| panic!("stale binding read endpoint"),
+                |_| true
+            ),
+            Err(ReceiveFailure::LaunchExpired)
+        ));
+    }
+    #[test]
+    fn launch_revoked_during_receive_cannot_mint_receipt() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let result = try_receive_from_with(
+            &source,
+            |_, message| {
+                *message = envelope(7);
+                with_registry(|registry| registry.record_exit(7))
+                    .unwrap()
+                    .unwrap();
+                Some(true)
+            },
+            |_| true,
+        );
+        assert!(matches!(result, Err(ReceiveFailure::LaunchExpired)));
+    }
+    #[test]
+    fn empty_and_failed_endpoint_are_bounded_without_retry() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        assert!(matches!(
+            try_receive_from_with(&source, |_, _| Some(false), |_| true),
+            Ok(None)
+        ));
+        assert!(matches!(
+            try_receive_from_with(&source, |_, _| None, |_| true),
+            Err(ReceiveFailure::EndpointUnavailable)
+        ));
+    }
+    #[test]
+    fn malformed_inline_and_transferred_handles_fail_closed_and_release_handles() {
+        let fixture = Fixture::new();
+        let source = fixture.launched();
+        let mut message = envelope(7);
+        message.payload_len = u32::MAX;
+        assert!(matches!(
+            receive(&source, message),
+            Err(ReceiveFailure::Malformed)
+        ));
+        for cleanup_ok in [true, false] {
+            let mut handles = std::vec::Vec::new();
+            let result = try_receive_from_with(
+                &source,
+                |_, message| {
+                    *message = envelope(7);
+                    message.transfer_count = u32::MAX;
+                    message.handles = [51, 52, 53, 54];
+                    Some(true)
+                },
+                |handle| {
+                    handles.push(handle);
+                    cleanup_ok
+                },
+            );
+            assert!(
+                matches!(result, Err(ReceiveFailure::Malformed)) && cleanup_ok
+                    || matches!(result, Err(ReceiveFailure::HandleCleanupFailed)) && !cleanup_ok
+            );
+            assert_eq!(handles, [51, 52, 53, 54]);
+        }
+    }
 }
