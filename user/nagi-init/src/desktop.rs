@@ -11,6 +11,9 @@ use crate::m19_runtime::files;
 #[cfg(feature = "m20-model-service")]
 #[path = "bar_adapter.rs"]
 mod bar_adapter;
+#[cfg(all(feature = "m20-model-service", feature = "consent-dialog"))]
+#[path = "desktop_bar_endpoint.rs"]
+pub(crate) mod bar_endpoint;
 #[cfg(feature = "m20-model-service")]
 #[path = "bar_panel.rs"]
 mod bar_panel;
