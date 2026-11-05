@@ -1,3 +1,22 @@
+## PR #92 required-file CI guard candidate - 2026-11-05
+
+Status: `PARTIAL` (isolated host regression candidate; not published).
+Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
+`87b7dea4061be2572526181ab559d63037f823d0`. The lightweight change-scope
+job checks all five files required by `check_repository_layout` before
+allowing a documentation-only skip. Missing files fail that job even on
+manual dispatch. `docs/implementation_status.md` is no longer ignored by
+the workflow trigger, so its deletion cannot avoid this guard. Other
+Markdown-only changes still skip heavy host and target jobs.
+
+Local regression tests execute the workflow's Bash in temporary Git
+repositories: required-file deletion and rename, directory substitution,
+ordinary docs edits and optional docs renames/deletions, code mixed with
+docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
+The inventory is checked against the existing Rust repository check.
+No target or guest acceptance and no hosted CI result are claimed for
+this unpublished candidate. No milestone status changes.
+
 ## Local modern input queue negotiation / M23 contract — 2026-11-04
 
 Formal M30 remains `BLOCKED`. The shared block/Net implementation at `d3a4ea2`
@@ -11519,3 +11538,45 @@ gates are unchanged. No VM/model/guest execution, terms acknowledgement, new
 acquisition, private log/ledger read, public operation/push/merge, permission
 change, denied-path retry or bypass occurred. No new action was denied, pending
 approval or of uncertain outcome.
+
+
+### 2026-11-05 — reviewed Bar candidate local integration with current main
+
+M23 PARTIAL / M30 BLOCKED. Read-only GitHub lookup confirmed PR43 remains draft,
+open/unmerged at 54f24085939a40d86a451d191c4d4bb91f3f2103. The separately resolved
+current main is c170ebf1d056aea277e3aa5f464d148d4ecff7fb (PR metadata's older
+base_sha is not the current main). The reviewed candidate is
+06d94a9652d7fb7ec200f3ebf955ac054e60c203, tree
+adabbe2e97d6eeee588a6a0a9e1fd2b9b1da8ec9, a descendant of the public PR head.
+Independent review verified its source chain/filtered blobs and host regressions;
+that is source verification, not transferred commit-object authentication.
+
+A NEW isolated local integration branch combines the exact reviewed candidate
+with that pinned current main. The only conflict was implementation_status.md;
+main's entire added prefix and the candidate's entire status document were kept.
+CI workflow merged automatically: main's required-file/docs-only scope checks and
+candidate's host/target worker/UI regressions and formal M30 failure gate remain.
+No manual production-source conflict resolution or new runtime behavior was added.
+Main's calendar test and tracked evidence files are inherited unchanged, not new
+M30 evidence; their contents were not read for this task. Original branches,
+review exports and worktrees remain untouched. The ordinary shared origin/main
+ref was not moved; fetch used a separate local tracking ref.
+
+Validation of the integrated source, using existing installed/offline tools:
+- UI76 / Desktop116 / login26 PASS, including format and feature-graph checks.
+- Wire7 and strict protocol all-target Clippy PASS; Supervisor9 PASS.
+- Desktop all-target Clippy -D clippy::all PASS with existing Rust warnings.
+- Current-main CI change-scope regression13 and release regression37 PASS.
+- Static checks retain host/Windows UI, worker target checks, distinct partial
+  session/layout commands and formal ./nagi m30 gate. Formal gate implementation,
+  release assembler, Bar panel and endpoint sources match reviewed 06d94a9 bytes.
+- git diff --check PASS. Unrelated calendar tests were not rerun in this scope.
+
+No new target compile, final OS link, public CI, real signed Bar/IPC/child reaping,
+normal Browser ownership/dispatch, guest, inference or formal M30 acceptance was
+run. Existing root target cc-nagi/offline dependency blockers and runtime gaps
+remain. This local integration does not approve release or change milestone
+status. No public branch/PR update, push/GitHub merge, VM/model/guest run, terms
+acknowledgement, new dependency/model/software acquisition, private log/ledger
+read, permission change or denied-operation retry/bypass occurred. Public main
+source fetch succeeded; no new action was denied, pending approval or uncertain.
