@@ -27,7 +27,7 @@ pub use model::{
     Workspace, WorkspaceGroup, WorkspaceHit, WorkspaceSession, MAX_SEARCH_RESULTS,
 };
 pub use persistent_semantic_index::{PersistentVectorIndex, PersistentVectorIndexError};
-pub use search::{DenyAllVisibility, SearchService};
+pub use search::{DenyAllVisibility, ProducerScanError, SearchService};
 pub use semantic::{
     chunk_text, chunk_text_with_limit, Embedding, EmbeddingProvider, EmbeddingPurpose,
     EmbeddingSpaceId, IndexedChunk, SemanticError, SemanticHit, TextChunk, VectorIndex,
@@ -39,3 +39,6 @@ pub use store::{BackendError, MetadataStoreError, SnapshotBackend, CURRENT_STORE
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod read_boundary_tests;
