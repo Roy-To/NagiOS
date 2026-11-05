@@ -1,0 +1,40 @@
+{
+  "schema": "nagi-multiarch-source-record-composition/1",
+  "base": {
+    "commit": "b50e8ff181efcf5093c928472fc729d5c9e231cd",
+    "tree": "d7bb5a69687e0c604791c277008d60635dddab15"
+  },
+  "current_source": {
+    "commit": "e6c2c08860df75c84a85c31151e8c32b2613433b",
+    "tree": "4cafbdc218e87954cf5ef20c6779f2cd67a0d3ae"
+  },
+  "historical_records": {
+    "commit": "dc11f55d934ae73f508858458a09a3994889520c",
+    "tree": "26beb4905c44132d63a6db377e23da0521448ab3"
+  },
+  "historical_runtime": {
+    "source": {
+      "commit": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "tree": "0b2597ae1b707c0a2fa8d42e16e42d46566d56c5"
+    },
+    "main": "0362427747e769b00558053e4c7f4c756d303802",
+    "spike_tree": "eb27c8571b5af7f5c252f010f04fc68baf348712",
+    "summaries": [
+      "docs/porting/multiarch/runtime/arm64-0039f0c3-20261104/summary.json",
+      "docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/summary.json"
+    ]
+  },
+  "root_status": {
+    "path": "docs/implementation_status.md",
+    "base_sha256": "b7a78e8c31b08bfc0eb5818ff9e969e90c652c264032e8e5b0c1ce484de82131",
+    "source_sha256": "8da086e9809ae1cc8ca37d150dfa4b7a7fc89436504222c8670c3e0538faadf1",
+    "change_kind": "prepend-only-exact-reviewed-source"
+  },
+  "acceptance": {
+    "current_source_runtime": "NOT_RUN",
+    "phase_c": "PENDING",
+    "physical": "NOT_RUN",
+    "owner_scope_adoption": "PENDING",
+    "scope_owner": "Integration Owner/os-core"
+  }
+}

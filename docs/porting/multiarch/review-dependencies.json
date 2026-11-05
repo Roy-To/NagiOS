@@ -1,0 +1,20 @@
+{
+  "schema": "nagi-pr57-offline-review-objects/1",
+  "bundle": "review-dependencies.bundle",
+  "bytes": 34088,
+  "sha256": "8de10b5e5ba10efb3c3347ec3bb81762d190d8578713cb06309b19b14b2ce52a",
+  "current_records": {
+    "commit": "2b394ca5e0795ae1b5a355f5e48fd9d02791d5cc",
+    "tree": "1a5b3cab6cc477edc54115a01cdfd10a3596c8df"
+  },
+  "prior_composition": {
+    "commit": "482cac3f13ca7ad78f37bf98c67a4a16ef004351",
+    "tree": "e881ca57cea0865dca24af0a5629d92c48c4550c"
+  },
+  "historical_records": {
+    "commit": "dc11f55d934ae73f508858458a09a3994889520c",
+    "tree": "26beb4905c44132d63a6db377e23da0521448ab3"
+  },
+  "prerequisites": "The bundle contains these 2 refs:\n482cac3f13ca7ad78f37bf98c67a4a16ef004351 refs/heads/codex/arm64-integration-gates-57\ndc11f55d934ae73f508858458a09a3994889520c refs/heads/codex/arm64-records-restored-57\nThe bundle requires these 2 refs:\nb50e8ff181efcf5093c928472fc729d5c9e231cd \ne6c2c08860df75c84a85c31151e8c32b2613433b \nThe bundle uses this hash algorithm: sha1\n",
+  "scope": "Only exact reviewed 482/dc tracked-source history absent from 2b closure; no external private evidence artifacts. Existing current cc52 anchors and historical source0039 anchors are unchanged."
+}

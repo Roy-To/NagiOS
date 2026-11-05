@@ -1,0 +1,20 @@
+# Proposal only: owner must adopt as .github/workflows/arm64-records.yml.
+# This file itself does not activate a GitHub Actions job.
+name: ARM64 fixed records snapshots
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixed-records:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify offline dependencies, fixed records and rejection regressions
+        run: python3 -B docs/porting/multiarch/verify-self-contained-records.py --regressions
