@@ -48,8 +48,8 @@ use nagi_abi::{
 #[cfg(not(test))]
 use nagi_abi::{
     ProcessExitStatus, ProcessSpawnRequest, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
-    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT, SYS_UPDATE_SLOT_CLAIM,
-    SYS_UPDATE_SLOT_STAGE,
+    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_TRY_WAIT, SYS_PROCESS_WAIT,
+    SYS_UPDATE_SLOT_CLAIM, SYS_UPDATE_SLOT_STAGE,
 };
 #[cfg(not(test))]
 use nagi_kernel::process_exit::{ExitKind, ExitTable, WaitOutcome};
@@ -575,6 +575,41 @@ fn sync_address_space() {
 static mut EXIT_TABLE: ExitTable = ExitTable::new();
 
 #[cfg(not(test))]
+fn process_try_wait(process_id: u64, address: u64, length: u64) -> u64 {
+    if length != core::mem::size_of::<ProcessExitStatus>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<ProcessExitStatus>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let Ok(process_id) = u32::try_from(process_id) else {
+        return u64::MAX;
+    };
+    match exit_table().try_wait(process_id) {
+        Some(Some(record)) => {
+            let (kind, fault_vector) = match record.kind {
+                ExitKind::Exited => (PROCESS_EXIT_KIND_EXITED, 0),
+                ExitKind::Faulted { vector } => (PROCESS_EXIT_KIND_FAULTED, u64::from(vector)),
+            };
+            copy_kernel_bytes_to_user(
+                address,
+                &ProcessExitStatus {
+                    process_id: record.process_id,
+                    kind,
+                    code: record.code,
+                    fault_vector,
+                },
+            );
+            0
+        }
+        Some(None) => 1,
+        None => u64::MAX,
+    }
+}
+
+#[cfg(not(test))]
 fn exit_table() -> &'static mut ExitTable {
     unsafe { &mut *core::ptr::addr_of_mut!(EXIT_TABLE) }
 }
@@ -889,6 +924,7 @@ fn dispatch_init(frame: &SyscallFrame) -> u64 {
         SYS_HANDLE_CLOSE => handle_close(frame.arg1),
         SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
         SYS_PROCESS_SPAWN => process_spawn(frame.arg1, frame.arg2),
+        SYS_PROCESS_TRY_WAIT => process_try_wait(frame.arg1, frame.arg2, frame.arg3),
         SYS_PROCESS_WAIT => process_wait(frame.arg1, frame.arg2, frame.arg3, frame),
         SYS_UPDATE_SLOT_CLAIM => update_slot_claim(frame.arg1, frame.arg2),
         SYS_UPDATE_SLOT_STAGE => update_slot_stage(frame.arg1),

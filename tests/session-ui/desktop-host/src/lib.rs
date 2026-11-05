@@ -49,3 +49,15 @@ pub(crate) mod files_consent_wait {
         wait_for_answer(desktop, 1, 2, surface, volume, user)
     }
 }
+
+#[cfg(all(feature = "m19-files-search-production", not(test)))]
+#[path = "../../../../user/nagi-init/src/m19_files_client.rs"]
+pub mod m19_files_client;
+#[cfg(all(feature = "m19-files-search-production", not(test)))]
+#[path = "../../../../user/nagi-init/src/m19_search_service.rs"]
+pub mod m19_search_service;
+
+#[cfg(all(feature = "m19-files-search-production", test))]
+pub(crate) use desktop::{
+    host_files_client as m19_files_client, host_search_service as m19_search_service,
+};

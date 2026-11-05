@@ -11546,3 +11546,44 @@ compiler/host information and logs are local under
 Target latency, real guest OOM, allocator overhead, initial decoding, update
 clones and caller/provider allocations remain unverified or outside this
 change. No VM execution or public write was performed; no milestone is promoted.
+
+## PR 48 responsive Files Search waiting — 2026-11-05
+
+Status: `PARTIAL`. Isolated local candidate based on published PR 48 head
+`3882b2c3cbe06073122d7e196a01b2e7046f50e3`. The existing consent-progress
+branch is already in that head; no separate request/relay/reap fix was found
+in the visible PR/history/remote Files and Desktop branches. No public update,
+CI or VM operation was performed. The private product ledger returned an
+authenticated 404 and remains unverified; scope is the existing public waiting
+and revocation contract.
+
+The foreground request/relay/exit wait now processes Desktop input and bounded
+model steps and yields, using a shared 3000-tick budget after consent. Owner
+session/query revision and live launch/grants gate adoption. Lock, Escape,
+editing and resubmission invalidate old work. Failure aborts, revokes launch
+and closes the endpoint immediately; one retained PID is polled on idle/locked
+iterations, with further Files launches refused until exit collection. A stalled
+child can still occupy that one slot indefinitely; no termination is claimed.
+The new init-only process exit poll does not register a waiter. Existing
+blocking process wait and Channel receive contracts remain unchanged. Kernel
+and init must be updated together for this ABI addition.
+
+Host validation: session-ui check passes 49 controller/bridge, 65 production
+Desktop/Files/Shared (including seven new wait tests), and 28 legacy
+configuration tests. Seven focused wait tests pass after adding model progress
+and reap timeout coverage; five applicable wait tests also pass with the model
+service disabled. Preserved Files suite: 30 tests pass. Pure process
+exit state-machine: eight tests pass, including two new poll tests. Formatting
+and whitespace checks pass. Counts overlap; they are not a combined total.
+The complete changed kernel compiles for the x86-64 Nagi target in an isolated
+manifest. A target leaf manifest compiles the actual Desktop/Files/client/service/
+Supervisor sources with production-session and actual libnagi; it embeds an
+empty compile-only package and excludes native model linking. Warnings from
+unused fixture entrypoints/configuration remain. These are compile-only checks,
+not final linked image or syscall execution evidence.
+
+Full signed launch/normal Desktop loop, actual kernel scheduling, native model
+worker, guest exit/wakeup, final linking and real guest acceptance remain
+NOT_RUN. VFS synchronization and synchronous runtime search evaluation are
+outside this wait-only correction. No milestone status is upgraded. See
+`docs/decisions/ADR-pr48-responsive-files-wait.md` and host test README.

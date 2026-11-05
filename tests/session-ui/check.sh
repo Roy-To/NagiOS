@@ -10,6 +10,8 @@ rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
 "$rustfmt" --check --edition 2021 --config skip_children=true \
   user/nagi-init/src/desktop.rs \
   user/nagi-init/src/m19_files_client.rs \
+  user/nagi-init/src/m19_search_service.rs \
+  user/nagi-init/src/supervisor.rs \
   user/nagi-init/src/bar_adapter.rs \
   user/nagi-init/src/bar_panel.rs \
   user/nagi-init/src/session_ui.rs \
@@ -21,6 +23,8 @@ rustdoc=$(rustup which rustdoc --toolchain "$toolchain")
   tests/session-ui/desktop-host/src/lib.rs \
   tests/session-ui/desktop-host/libnagi/src/lib.rs \
   tests/session-ui/desktop-host/src/session_services.rs \
+  tests/session-ui/desktop-host/src/files_registry_fixture.rs \
+  tests/session-ui/desktop-host/src/files_wait_tests.rs \
   tests/session-ui/desktop-host/src/desktop_tests.rs
 RUSTC="$rustc" RUSTDOC="$rustdoc" "$cargo" test --manifest-path tests/session-ui/Cargo.toml --locked -- --test-threads=1
 desktop_login_tree=$("$cargo" tree --manifest-path tests/session-ui/desktop-host/Cargo.toml \

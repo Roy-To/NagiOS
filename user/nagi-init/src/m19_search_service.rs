@@ -22,10 +22,16 @@ use crate::supervisor;
 
 const SEARCH_QUERY_GRANT: &[u8] = b"search.query";
 const FILES_SEARCH_GRANT: &[u8] = b"files.search";
-#[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+#[cfg(all(
+    any(target_os = "nagi", nagi_desktop_host_test),
+    feature = "m19-files-search-production"
+))]
 const FILES_SEARCH_REQUEST_ID: u64 = 1;
 
-#[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+#[cfg(all(
+    any(target_os = "nagi", nagi_desktop_host_test),
+    feature = "m19-files-search-production"
+))]
 fn abort_files_client(endpoint: u64) {
     let abort = ChannelSendRequest::new(
         PROTOCOL_ID,
@@ -78,14 +84,46 @@ pub(super) fn evaluate_files(
 /// Serve one request from a first-party Files child on its private launch
 /// Channel, then require that same live process to relay the exact bounded
 /// result set before init presents any ObjectId.
-#[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+#[cfg(all(
+    any(target_os = "nagi", nagi_desktop_host_test),
+    feature = "m19-files-search-production"
+))]
 pub(super) fn serve_files_one(
     runtime: &crate::m19_runtime::Runtime,
     endpoint: u64,
     expected_process_id: u32,
 ) -> Option<SearchResults> {
+    serve_files_one_with_receive(runtime, endpoint, expected_process_id, channel_receive)
+}
+
+/// Same authority/relay validation with a caller-owned responsive wait.
+#[cfg(all(
+    any(target_os = "nagi", nagi_desktop_host_test),
+    feature = "m19-files-search-production"
+))]
+pub(super) fn serve_files_one_with_receive(
+    runtime: &crate::m19_runtime::Runtime,
+    endpoint: u64,
+    expected_process_id: u32,
+    receive: impl FnMut(u64, &mut ChannelReceiveResult) -> Option<()>,
+) -> Option<SearchResults> {
+    exchange_files_one(endpoint, expected_process_id, receive, |access, query| {
+        runtime.search_files_for_application(access, query)
+    })
+}
+
+#[cfg(all(
+    any(target_os = "nagi", nagi_desktop_host_test),
+    feature = "m19-files-search-production"
+))]
+pub(super) fn exchange_files_one(
+    endpoint: u64,
+    expected_process_id: u32,
+    mut receive: impl FnMut(u64, &mut ChannelReceiveResult) -> Option<()>,
+    search: impl FnOnce(AccessContext, &str) -> Option<Vec<ObjectId>>,
+) -> Option<SearchResults> {
     let mut message = ChannelReceiveResult::default();
-    channel_receive(endpoint, &mut message)?;
+    receive(endpoint, &mut message)?;
 
     // A caller must not be able to smuggle unrelated handles through this
     // query endpoint. Close every kernel-delivered handle before rejecting.
@@ -115,9 +153,7 @@ pub(super) fn serve_files_one(
     let results = if malformed_envelope || message.sender_process_id != expected_process_id {
         SearchResults::status_only(ResultStatus::InvalidRequest)
     } else {
-        evaluate_files(launch, &message.payload[..payload_len], |access, query| {
-            runtime.search_files_for_application(access, query)
-        })
+        evaluate_files(launch, &message.payload[..payload_len], search)
     };
 
     let mut reply = ChannelSendRequest::new(
@@ -137,7 +173,7 @@ pub(super) fn serve_files_one(
     }
 
     let mut relay = ChannelReceiveResult::default();
-    if channel_receive(endpoint, &mut relay).is_none() {
+    if receive(endpoint, &mut relay).is_none() {
         abort_files_client(endpoint);
         return None;
     }

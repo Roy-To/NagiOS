@@ -111,6 +111,15 @@ fn main() {
         println!("cargo:rustc-cfg=nagi_desktop_host_test");
     }
     if is_desktop_host {
+        // Compile the full Files client, but never launch this empty host-only
+        // package. Signed package launch remains a guest acceptance requirement.
+        let empty_package =
+            PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("no-guest-package.xapp");
+        fs::write(&empty_package, []).expect("empty host package");
+        println!(
+            "cargo:rustc-env=NAGI_FILES_SEARCH_PACKAGE={}",
+            empty_package.display()
+        );
         // Compile the exact modal loop, without launching a signed guest child
         // or substituting a host implementation of its authority boundary.
         let path = path_guard::canonical_file_within_root(
@@ -122,7 +131,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         let source = fs::read_to_string(path).expect("read Files consent wait source");
         let start = "fn wait_for_answer(";
-        let end = "\nfn abort_and_reap(";
+        let end = "\npub(super) fn abort_and_reap(";
         assert_eq!(source.matches(start).count(), 1);
         assert_eq!(source.matches(end).count(), 1);
         let function = source

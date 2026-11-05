@@ -479,6 +479,25 @@ pub fn process_wait(process_id: u32) -> Option<nagi_abi::ProcessExitStatus> {
     }
 }
 
+/// Poll an isolated process exit without blocking or registering a waiter.
+/// Some(None) is pending; Some(Some(status)) consumes the exit; None is invalid.
+#[inline]
+pub fn process_try_wait(process_id: u32) -> Option<Option<ProcessExitStatus>> {
+    let mut status = ProcessExitStatus::default();
+    let mut result = nagi_abi::SYS_PROCESS_TRY_WAIT;
+    unsafe {
+        asm!("syscall", inlateout("rax") result, in("rdi") u64::from(process_id),
+            in("rsi") &mut status as *mut ProcessExitStatus,
+            in("rdx") core::mem::size_of::<ProcessExitStatus>(),
+            lateout("rcx") _, lateout("r11") _, options(nostack));
+    }
+    match result {
+        0 => Some(Some(status)),
+        1 => Some(None),
+        _ => None,
+    }
+}
+
 /// Close a handle returned by the bootstrap Channel ABI or a Channel transfer.
 #[inline]
 pub fn handle_close(handle: u64) -> bool {
