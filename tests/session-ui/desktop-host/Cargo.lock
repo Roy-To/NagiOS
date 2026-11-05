@@ -153,6 +153,13 @@ name = "nagi-abi"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-action-ipc"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
 name = "nagi-ai"
 version = "0.1.0"
 dependencies = [
@@ -174,6 +181,7 @@ dependencies = [
 name = "nagi-desktop-lock-host-tests"
 version = "0.1.0"
 dependencies = [
+ "nagi-action-ipc",
  "nagi-ai",
  "nagi-desktop-host-libnagi",
  "nagi-localization",

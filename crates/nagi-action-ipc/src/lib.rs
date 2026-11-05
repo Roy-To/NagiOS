@@ -7,6 +7,8 @@
 //! capability, or Object ID chosen by the client.
 #![no_std]
 
+pub mod bar_summary;
+
 use nagi_abi::MAX_CHANNEL_INLINE_PAYLOAD;
 
 pub const PROTOCOL_ID: u16 = 0x4143;

@@ -1,0 +1,23 @@
+[package]
+name = "nagi-bar-summary-wire-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+nagi-abi = { path = "../../../crates/nagi-abi" }
+nagi-action-ipc = { path = "../../../crates/nagi-action-ipc" }
+
+[lib]
+path = "../../../crates/nagi-action-ipc/src/lib.rs"
+
+[[bin]]
+name = "nagi-bar-client-source-check"
+path = "../../../user/nagi-isolated-app/src/bin/bar_client.rs"
+test = false
+bench = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

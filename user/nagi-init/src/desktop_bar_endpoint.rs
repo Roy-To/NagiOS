@@ -6,11 +6,13 @@
 use super::{Desktop, PageSummaryBinding};
 use crate::supervisor::{self, LaunchFailure, Launched, ReceiveFailure, ReceivedAppMessage};
 use libnagi::launch::{LaunchPlacement, LaunchRecord};
+use nagi_action_ipc::bar_summary as wire;
 
 #[must_use = "retain this endpoint or explicitly transfer it to the process reaper"]
 pub struct BarEndpoint {
     launched: Launched,
     binding: PageSummaryBinding,
+    exchange: wire::Exchange,
 }
 
 /// A rejected spawned launch stays owned by the caller for explicit reaping.
@@ -25,6 +27,56 @@ pub enum BarLaunchFailure {
 pub enum BarReceiveFailure {
     Unbound,
     Receive(ReceiveFailure),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BarWireFailure {
+    Inactive,
+    SendUnavailable,
+    Receive(BarReceiveFailure),
+    Wire(wire::Error),
+}
+
+/// One consumed wire exchange, not a model/Browser permission. The current
+/// Desktop intent, epoch, live actor and clock must still match at use.
+#[must_use]
+pub struct ValidatedSummaryRequest {
+    binding: PageSummaryBinding,
+    record: LaunchRecord,
+    request: wire::ValidatedRequest,
+    terminal_sent: bool,
+}
+impl ValidatedSummaryRequest {
+    pub fn into_actor_for(self, desktop: &Desktop) -> Option<(nagi_ai::CallerIdentity, u64)> {
+        // Resolve first: registry waiting must not make an earlier clock read
+        // appear fresh. This still is not an atomic authorization transaction.
+        let live = supervisor::resolve(self.record.process_id);
+        self.actor_with(desktop, libnagi::time_ticks(), |_| live)
+    }
+    fn actor_with(
+        &self,
+        desktop: &Desktop,
+        now: u64,
+        resolve: impl Fn(u32) -> Option<LaunchRecord>,
+    ) -> Option<(nagi_ai::CallerIdentity, u64)> {
+        if self.terminal_sent
+            || current_binding(desktop).as_ref() != Some(&self.binding)
+            || desktop.bar.wire_summary_intent() != Some(self.request.id())
+            || !self.request.is_fresh(now)
+            || resolve(self.record.process_id) != Some(self.record)
+        {
+            return None;
+        }
+        Some((
+            nagi_ai::CallerIdentity {
+                app_id: self.record.app_id,
+                app_session_id: self.record.app_session_id,
+                node_id: self.record.node_id,
+                workspace_id: self.record.workspace_id,
+            },
+            self.request.id(),
+        ))
+    }
 }
 
 /// Can only be produced from the real Supervisor receiver below. This carries
@@ -86,7 +138,11 @@ fn launch_bound(
     {
         return Err(BarLaunchFailure::Rejected(launched));
     }
-    Ok(BarEndpoint { launched, binding })
+    Ok(BarEndpoint {
+        launched,
+        binding,
+        exchange: wire::Exchange::new(),
+    })
 }
 
 impl BarEndpoint {
@@ -119,6 +175,165 @@ impl BarEndpoint {
             received,
             binding: self.binding.clone(),
         }))
+    }
+
+    /// Issue only for the current explicit local UI gesture; the client never
+    /// chooses the request ID. This transports no page/model data or identity.
+    pub fn offer_summary_wire(&mut self, desktop: &mut Desktop) -> Result<(), BarWireFailure> {
+        self.offer_with(
+            desktop,
+            libnagi::time_ticks(),
+            supervisor::resolve,
+            libnagi::channel_send,
+        )
+    }
+    fn offer_with(
+        &mut self,
+        desktop: &mut Desktop,
+        now: u64,
+        resolve: impl Fn(u32) -> Option<LaunchRecord>,
+        send: impl FnOnce(u64, &libnagi::ChannelSendRequest) -> bool,
+    ) -> Result<(), BarWireFailure> {
+        if !self.is_current_with(desktop, resolve) {
+            self.exchange.cancel();
+            return Err(BarWireFailure::Inactive);
+        }
+        let id = desktop
+            .bar
+            .claim_summary_wire()
+            .ok_or(BarWireFailure::Inactive)?;
+        let offer = self.exchange.begin(id, now).map_err(BarWireFailure::Wire)?;
+        if !send(self.launched.endpoint, &offer) {
+            self.exchange.cancel();
+            return Err(BarWireFailure::SendUnavailable);
+        }
+        Ok(())
+    }
+
+    /// Read at most one authenticated frame, then consume that pending intent.
+    /// No model submission/terms/sharing acknowledgement follows automatically.
+    pub fn consume_summary_wire(
+        &mut self,
+        desktop: &Desktop,
+    ) -> Result<Option<ValidatedSummaryRequest>, BarWireFailure> {
+        if !self.is_current_with(desktop, supervisor::resolve)
+            || desktop.bar.wire_summary_intent().is_none()
+        {
+            self.exchange.cancel();
+            return Err(BarWireFailure::Inactive);
+        }
+        let received = match self.try_receive_for(desktop) {
+            Ok(received) => received,
+            Err(error) => {
+                self.exchange.cancel();
+                return Err(BarWireFailure::Receive(error));
+            }
+        };
+        let Some(message) = received else {
+            self.exchange
+                .expire(libnagi::time_ticks())
+                .map_err(BarWireFailure::Wire)?;
+            return Ok(None);
+        };
+        let record = message
+            .received
+            .live_launch()
+            .ok_or(BarWireFailure::Inactive)?;
+        let envelope = *message
+            .envelope_for(desktop)
+            .ok_or(BarWireFailure::Inactive)?;
+        // End the immutable endpoint borrow before mutating the exchange.
+        drop(message);
+        self.consume_envelope_with(
+            desktop,
+            record,
+            &envelope,
+            libnagi::time_ticks,
+            supervisor::resolve,
+        )
+        .map(Some)
+    }
+    // Private seam follows the real receiver above; host fixtures are never
+    // presented as actual kernel receipts or authorized client processes.
+    fn consume_envelope_with(
+        &mut self,
+        desktop: &Desktop,
+        record: LaunchRecord,
+        message: &libnagi::ChannelReceiveResult,
+        now: impl FnOnce() -> u64,
+        resolve: impl Fn(u32) -> Option<LaunchRecord>,
+    ) -> Result<ValidatedSummaryRequest, BarWireFailure> {
+        if !self.is_current_with(desktop, resolve)
+            || record != self.launched.record
+            || message.sender_process_id != record.process_id
+            || desktop.bar.wire_summary_intent() != Some(message.request_id)
+        {
+            self.exchange.cancel();
+            return Err(BarWireFailure::Inactive);
+        }
+        let request = self
+            .exchange
+            .accept(message, now())
+            .map_err(BarWireFailure::Wire)?;
+        Ok(ValidatedSummaryRequest {
+            binding: self.binding.clone(),
+            record,
+            request,
+            terminal_sent: false,
+        })
+    }
+
+    /// Finish an unavailable/denied/cancelled transport only. No positive
+    /// model-result terminal is defined; this burns the validation token too.
+    /// A failed send is burned; cleanup is explicit retirement, not hidden retry.
+    pub fn finish_summary_wire(
+        &self,
+        desktop: &Desktop,
+        request: &mut ValidatedSummaryRequest,
+        status: wire::Terminal,
+    ) -> Result<(), BarWireFailure> {
+        let live = supervisor::resolve(self.launched.record.process_id);
+        self.finish_with(
+            desktop,
+            request,
+            status,
+            libnagi::time_ticks(),
+            |_| live,
+            libnagi::channel_send,
+        )
+    }
+    fn finish_with(
+        &self,
+        desktop: &Desktop,
+        request: &mut ValidatedSummaryRequest,
+        status: wire::Terminal,
+        now: u64,
+        resolve: impl Fn(u32) -> Option<LaunchRecord>,
+        send: impl FnOnce(u64, &libnagi::ChannelSendRequest) -> bool,
+    ) -> Result<(), BarWireFailure> {
+        if request.terminal_sent {
+            return Err(BarWireFailure::Wire(wire::Error::Stale));
+        }
+        if request.record != self.launched.record
+            || request.binding != self.binding
+            || request.actor_with(desktop, now, resolve).is_none()
+        {
+            return Err(BarWireFailure::Inactive);
+        }
+        request.terminal_sent = true;
+        let message = wire::terminal(request.request.id(), status).map_err(BarWireFailure::Wire)?;
+        if !send(self.launched.endpoint, &message) {
+            return Err(BarWireFailure::SendUnavailable);
+        }
+        Ok(())
+    }
+
+    /// Revoke registry authority and close this endpoint without process_wait.
+    /// The returned child still needs a reaper outside the UI step; retirement
+    /// is not proof of process exit or successful status consumption.
+    pub fn retire(mut self) -> Result<supervisor::RetiredLaunch, supervisor::RetireRejected> {
+        self.exchange.cancel();
+        supervisor::retire(self.launched)
     }
 
     /// The lifecycle owner must explicitly reap/revoke the launch outside the
@@ -344,5 +559,234 @@ mod tests {
         other.summary_binding_generation = endpoint.binding.generation;
         assert!(current_binding(&other).is_some());
         assert!(!endpoint.is_current_with(&other, |_| Some(record())));
+    }
+    fn gesture(desktop: &mut Desktop, volume: &mut super::super::UserDataVolume) {
+        desktop.handle_event(
+            libnagi::InputEvent {
+                event_type: libnagi::INPUT_EVENT_KEY,
+                code: super::super::bar_panel::SUMMARY_KEY,
+                value: 1,
+            },
+            volume,
+        );
+    }
+    fn response(id: u64) -> libnagi::ChannelReceiveResult {
+        let offer = wire::offer(id).unwrap();
+        let received = libnagi::ChannelReceiveResult {
+            sender_process_id: 1,
+            protocol_id: offer.protocol_id,
+            version: offer.version,
+            opcode: offer.opcode,
+            request_id: id,
+            payload_len: offer.payload_len,
+            payload: offer.payload,
+            ..libnagi::ChannelReceiveResult::default()
+        };
+        let request = wire::request_for_offer(&received).unwrap();
+        libnagi::ChannelReceiveResult {
+            sender_process_id: 7,
+            protocol_id: request.protocol_id,
+            version: request.version,
+            opcode: request.opcode,
+            request_id: id,
+            payload_len: request.payload_len,
+            payload: request.payload,
+            ..libnagi::ChannelReceiveResult::default()
+        }
+    }
+    #[test]
+    fn wire_requires_explicit_local_intent_and_accepts_one_current_frame_without_model_rights() {
+        let (mut desktop, mut volume) = fixture();
+        let mut endpoint = bound_endpoint(&mut desktop);
+        assert!(matches!(
+            endpoint.offer_with(
+                &mut desktop,
+                100,
+                |_| Some(record()),
+                |_, _| panic!("no gesture")
+            ),
+            Err(BarWireFailure::Inactive)
+        ));
+        gesture(&mut desktop, &mut volume);
+        let id = desktop.bar.summary_intent().unwrap();
+        endpoint
+            .offer_with(
+                &mut desktop,
+                100,
+                |_| Some(record()),
+                |handle, p| {
+                    assert_eq!(handle, 42);
+                    assert_eq!(p.request_id, id);
+                    assert_eq!(p.payload_len, 1);
+                    true
+                },
+            )
+            .unwrap();
+        let mut validated = endpoint
+            .consume_envelope_with(
+                &desktop,
+                record(),
+                &response(id),
+                || 101,
+                |_| Some(record()),
+            )
+            .ok()
+            .unwrap();
+        let (actor, wire_id) = validated
+            .actor_with(&desktop, 102, |_| Some(record()))
+            .unwrap();
+        assert_eq!(actor.app_id, nagi_ai::NAGI_BAR_APP_ID);
+        assert_eq!(wire_id, id);
+        endpoint
+            .finish_with(
+                &desktop,
+                &mut validated,
+                wire::Terminal::Unavailable,
+                102,
+                |_| Some(record()),
+                |_, p| {
+                    assert_eq!(p.opcode, wire::RESULT);
+                    assert_eq!(p.request_id, id);
+                    assert_eq!(p.payload[0], wire::Terminal::Unavailable as u8);
+                    true
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            endpoint.finish_with(
+                &desktop,
+                &mut validated,
+                wire::Terminal::Denied,
+                102,
+                |_| Some(record()),
+                |_, _| panic!("terminal replay")
+            ),
+            Err(BarWireFailure::Wire(wire::Error::Stale))
+        ));
+        assert!(
+            validated
+                .actor_with(&desktop, 102, |_| Some(record()))
+                .is_none(),
+            "a negative terminal must not leave an admissible model token"
+        );
+        assert!(endpoint
+            .consume_envelope_with(
+                &desktop,
+                record(),
+                &response(id),
+                || 102,
+                |_| Some(record())
+            )
+            .is_err());
+        let state = desktop
+            .model_services
+            .as_ref()
+            .unwrap()
+            .host_shared_snapshot()
+            .unwrap();
+        assert!(!state.terms_confirmed);
+        assert!(!state.queued);
+    }
+    #[test]
+    fn pending_wire_rejects_new_gesture_clock_expiry_sender_and_old_desktop_epoch() {
+        for mode in 0..5 {
+            let (mut desktop, mut volume) = fixture();
+            let mut endpoint = bound_endpoint(&mut desktop);
+            gesture(&mut desktop, &mut volume);
+            let id = desktop.bar.summary_intent().unwrap();
+            endpoint
+                .offer_with(&mut desktop, 100, |_| Some(record()), |_, _| true)
+                .unwrap();
+            let mut frame = response(id);
+            let mut now = 101;
+            match mode {
+                0 => gesture(&mut desktop, &mut volume),
+                1 => now = 100 + wire::MAX_PENDING_TICKS,
+                2 => frame.sender_process_id = 8,
+                3 => {
+                    desktop.invalidate_page_summary_binding();
+                    desktop.refresh_page_summary_binding();
+                }
+                _ => now = 99,
+            }
+            assert!(endpoint
+                .consume_envelope_with(&desktop, record(), &frame, || now, |_| Some(record()))
+                .is_err());
+        }
+    }
+    #[test]
+    fn send_failure_burns_gesture_and_validated_frame_does_not_survive_cancel_or_clock_rollback() {
+        let (mut desktop, mut volume) = fixture();
+        let mut endpoint = bound_endpoint(&mut desktop);
+        gesture(&mut desktop, &mut volume);
+        assert!(matches!(
+            endpoint.offer_with(&mut desktop, 100, |_| Some(record()), |_, _| false),
+            Err(BarWireFailure::SendUnavailable)
+        ));
+        assert!(matches!(
+            endpoint.offer_with(&mut desktop, 101, |_| Some(record()), |_, _| true),
+            Err(BarWireFailure::Inactive)
+        ));
+        gesture(&mut desktop, &mut volume);
+        let id = desktop.bar.summary_intent().unwrap();
+        endpoint
+            .offer_with(&mut desktop, 102, |_| Some(record()), |_, _| true)
+            .unwrap();
+        let validated = endpoint
+            .consume_envelope_with(
+                &desktop,
+                record(),
+                &response(id),
+                || 103,
+                |_| Some(record()),
+            )
+            .ok()
+            .unwrap();
+        assert!(validated
+            .actor_with(&desktop, 102, |_| Some(record()))
+            .is_none());
+        gesture(&mut desktop, &mut volume);
+        let id = desktop.bar.summary_intent().unwrap();
+        endpoint
+            .offer_with(&mut desktop, 104, |_| Some(record()), |_, _| true)
+            .unwrap();
+        let validated = endpoint
+            .consume_envelope_with(
+                &desktop,
+                record(),
+                &response(id),
+                || 105,
+                |_| Some(record()),
+            )
+            .ok()
+            .unwrap();
+        desktop.bar.cancel_requested = true;
+        assert!(validated
+            .actor_with(&desktop, 106, |_| Some(record()))
+            .is_none());
+    }
+    #[test]
+    fn replacing_endpoint_does_not_reoffer_an_already_claimed_ui_gesture() {
+        let (mut desktop, mut volume) = fixture();
+        let mut first = bound_endpoint(&mut desktop);
+        gesture(&mut desktop, &mut volume);
+        assert!(matches!(
+            first.offer_with(&mut desktop, 100, |_| Some(record()), |_, _| false),
+            Err(BarWireFailure::SendUnavailable)
+        ));
+        let mut replacement = bound_endpoint(&mut desktop);
+        assert!(matches!(
+            replacement.offer_with(
+                &mut desktop,
+                101,
+                |_| Some(record()),
+                |_, _| panic!("gesture already claimed")
+            ),
+            Err(BarWireFailure::Inactive)
+        ));
+        gesture(&mut desktop, &mut volume);
+        replacement
+            .offer_with(&mut desktop, 102, |_| Some(record()), |_, _| true)
+            .unwrap();
     }
 }
