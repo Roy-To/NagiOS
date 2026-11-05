@@ -1,15 +1,16 @@
 # Supplemental cc52 runtime metadata candidate
 
-Status: PENDING_INPUT. Phase C remains PENDING. This additional record does not
+Status: COMPLETE_METADATA_ONLY. Phase C remains PENDING. This additional record does not
 replace the source0039 records or any previous failed e6 attempt.
 
 The independent comparison owner's report states that exact cc52's original
 formal receipt passed the original verifier with 33 referenced artifacts and
 exit 0. A different environment matched the source archive, ELF and EL1/EL2
 serial artifacts by manual observation without generating a formal receipt.
-These are recorded as owner-reported observations. This environment has not
-received the public-summary bytes or measured hashes, and does not revalidate
-the private raw receipt/artifacts or rerun QEMU.
+The original formal verifier's exit 0 is retained as a recorded verification,
+not a new formal-verifier execution here. The authorized transferred artifact
+bytes have now been hash-checked to derive both summaries, as detailed below.
+No Cargo, QEMU or formal attestation verifier was executed in this update.
 
 ## Fixed source and preservation
 
@@ -38,15 +39,14 @@ the four supplemental tool/record/document paths and two referenced summary
 paths may be added. Modes are checked; guessed serial files and unrelated
 paths reject. Existing schema/verifier changes reject.
 
-The two summary references are deliberately null. No unknown hash is inferred
-from matching source code, old ELF expectations or expected serial strings.
-No serial or raw receipt is synthesized. Qualitative owner reports remain
-distinct from complete hash-bound public metadata.
+The initial candidate `86444bdc8e4d594a46dca8a5526c98ef04b23eaf` deliberately
+left both summary references null. This records commit replaces those null
+references with hashes of the two newly derived, measured summaries. The
+pending version remains in Git history. No hash is inferred from expected ELF
+or serial values. No serial or receipt file is added to this candidate.
 
-When the authorized measured public-summary bytes become available, retain
-this pending record as history and prepare a new reviewed records commit with
-the fixed summary references and SHA-256 values. Do not overwrite old runtime
-records or rewrite any receipt. The required summaries are:
+The summaries use these strict formats. Old runtime records and the original
+receipt are not overwritten or rewritten:
 
 - `formal-summary.json`: schema `nagi-receipt-verification-summary/1`, kind
   `REPORTED_FORMAL_RECEIPT_VERIFICATION`, exact `source` object, actual
@@ -89,10 +89,9 @@ false raw-recheck claims, historical artifact mutation, invented serial, root
 status changes, summary path escapes and CLI pending/complete exit codes. No fixture is published as real
 execution evidence.
 
-The remaining input is the two authorized public summaries with actual measured
-hashes, not another run of the already verified original cc52 receipt. Any
-formal-receipt claim for the separate manual environment would require its own
-new receipt; this candidate makes no such claim. The new supplemental contract
+Both authorized summaries are now present with measured hashes. Any formal
+receipt claim for the separate manual environment would require its own new
+receipt; this candidate makes no such claim. The new supplemental contract
 and completed record still need independent review/owner adoption. No public
 operation, push, merge, dispatch resend, physical/media write or network change
 was performed.
@@ -104,3 +103,47 @@ fixtures. Pinned formatting and warning-denied Clippy passed. On the actual
 pending record the CLI returned exit 2 with exactly the two missing summaries;
 synthetic complete fixtures return metadata-only exit 0. There is no new guest
 run or raw-receipt recheck behind these host checks.
+
+## Measured summary derivation
+
+Both packages were read through the authorized private Page's official file
+reader as exact UTF-8 source bytes and copied only into private scratch storage.
+The formal transfer is 94,383 bytes with SHA-256
+`3ccda4d51abc57d1d061232b53cfbd5ee9d46fcf5437146398bdeb44bc188e9f`;
+the manual transfer is 72,628 bytes with SHA-256
+`bd6848184cc72596bcc33517efb098dde69e8c0d54877ba52140cfc47ccd4aab`.
+The decoded formal gzip/tar and all 39 declared files matched their supplied
+sizes and hashes. Only declared regular relative members were accepted; unsafe,
+duplicate or unexpected members reject. The receipt manifest exactly covered
+its 33 referenced files with matching hashes. The other five files retained the
+original generator/verifier records. Original attestation SHA-256 is
+`1d7ff8f4ae72a1b140833d6108c43854fb356cbec2bfd3ba1bd3fd212efff72c`.
+The source commit/tree/main and clean before/after metadata matched cc52.
+Every source-snapshot file matched its Git blob, and `source/spike.tar` matched
+`git archive` of cc52 byte-for-byte. Both actual retained ELF files matched.
+The stored verifier command selects exact cc52/tree/main and records exit 0;
+its stdout SHA-256 is
+`5816d581e29050c2c2fc9a048b0565436ae204abc5780ec2523137648bb75374`.
+
+All 22 files in the manual package matched their individual sizes and hashes,
+including gzip-encoded archive and retained ELF. No attestation.json was present;
+the observation explicitly says formal attestation NOT_RUN. Its actual archive
+and retained ELF matched the formal package. Both manual build descriptors
+reported the same retained ELF hash and exit 0; the manual package retains one
+ELF binary, not two separately retained binaries. EL1 and EL2 serial/stderr
+digests, binary and QEMU before/after digests, result-file hashes, exit codes and
+no-timeout observations were checked in both packages. Cross-package archive,
+ELF and serial byte comparisons matched; the summaries contain those measured
+digests without publishing any raw artifact or operational path.
+
+`raw_receipt_rechecked_here=false` remains a property of the supplemental
+metadata checker: it does not run the formal receipt verifier or reexecute a
+build/guest. The separate derivation above checks received artifact bytes and
+the stored original verifier record. It does not claim a newly executed formal
+verifier result, a signed proof of execution or formal manual-environment
+acceptance. No encoded raw package is included in this source candidate.
+
+Derived formal summary SHA-256:
+`35adb7c4c87814650c712afa0846575d05872a79e6d02b8299098ed0a0be84d0`.
+Derived manual summary SHA-256:
+`c2cb41ace14a40f5d521afad7d86c3a88a0cc84e3e205113d8ab5f8e14e14333`.
