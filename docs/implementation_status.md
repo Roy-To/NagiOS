@@ -11580,3 +11580,79 @@ status. No public branch/PR update, push/GitHub merge, VM/model/guest run, terms
 acknowledgement, new dependency/model/software acquisition, private log/ledger
 read, permission change or denied-operation retry/bypass occurred. Public main
 source fetch succeeded; no new action was denied, pending approval or uncertain.
+
+### 2026-11-05 — isolated host M30 evidence preflight/collector
+
+M30 remains BLOCKED. New read-only `tools/nagi-release/m30_preflight.py`
+collects an explicit preserved input set into JSON: independent missing/invalid
+input diagnostics, actual file sizes/hashes, existing session content validation
+and release bundle validation with expected source/selected image bindings.
+It reuses `session_acceptance.validate_session`, image provenance/production
+configuration checks and `release.verify_release`; no competing session or
+release receipt format is introduced. Duplicate/nonfinite bundle JSON is rejected
+before release validation. CLI run receipts remain host command observations,
+not substitutes for ordinary guest-session evidence.
+
+All structurally consistent inputs remain NOT_VERIFIED for acceptance. Content
+integrity is reported separately from unavailable execution-origin proof,
+independent voice-operation evidence and distribution approval. The existing
+session producer API is proposed; synthetic fixture tests prove orchestration
+only. JSON always retains M30 NOT_EVALUATED/formal gate BLOCKED; CLI exit is 1.
+No fabricated signatures, timestamps, credentials, runtime events or receipts.
+
+Isolated checkout: `/workspace/m30-evidence-preflight`. Verified fixed source
+65108d6db2ec3e0a6f793c31fc0dc36e27be5354, full tree
+53d414db97705d2ebb4eba0d1b5171d340fe6549, including main parent
+c170ebf1d056aea277e3aa5f464d148d4ecff7fb. Formal `execute_m30`, its exit code,
+success criteria, existing validators and CI workflow are byte-identical to
+that base. Existing submit_page_summary/poll_page_summary are present; no runtime
+feature was reimplemented. No other worker's active outputs were consumed.
+
+Host validation: new focused tests 13 PASS; aggregate release/session tests 50
+PASS; root CI-scope/target-link diagnostics tests 14 PASS. Python `py_compile`,
+`tabnanny` and `git diff --check` PASS. Ruff/Black are not installed, so their
+format/lint checks were NOT RUN. The existing Rust formal gate regression was
+attempted with offline/locked Cargo, but stopped before compilation because the
+fresh checkout lacks `third_party/cc-nagi/Cargo.toml`; no Rust test passed is
+claimed. No dependency acquisition or borrowed build output was used to bypass
+that environmental blocker. The next independent check is to rerun that existing
+regression in a properly provisioned fresh checkout.
+
+Default preflight invocation returned the expected diagnostic exit 1: source
+INVALID because this implementation diff is uncommitted, 19 MISSING input
+checks, and 3 NOT_VERIFIED proof/review checks. No production evidence was
+available in this isolated checkout. No final OS link, image generation,
+guest/QEMU/inference run, CI dispatch, integration, push, PR mutation, merge,
+publication or milestone acceptance was performed. No operation was denied,
+pending approval or of uncertain outcome.
+
+### 2026-11-05 — M30 preflight fixed-source preparation and Rust gate follow-up
+
+M30 remains BLOCKED. On the same isolated preflight candidate, verified the
+cached upstream cc 1.4.6 archive SHA-256 against sources.lock
+(`a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4`), then
+matched all 28 archived regular files against the cached unpacked source.
+A local std-only launcher invoked the unchanged repository
+`ensure_cc_nagi_checkout` implementation, which applied the pinned patch and
+validated its generated checkout marker. No other worker's output was used.
+
+Root offline/locked Cargo gate retry advanced past cc-nagi, then stopped before
+compilation on missing `third_party/freetype-sys/Cargo.toml` (exit 101). The
+repository's standalone bootstrap manifest compiles the same nagi-cli lib and
+its unchanged test sources without resolving unrelated root path patches:
+
+```sh
+CARGO_HOME=/workspace/.nagi-cargo RUSTUP_HOME=/workspace/.nagi-rustup \
+  /workspace/.nagi-cargo/bin/cargo test --offline --locked \
+  --manifest-path tools/nagi-bootstrap/Cargo.toml --lib \
+  formal_release_and_layout_fixture_commands_are_distinct
+```
+
+Result: 1 PASS, 0 failed, 358 filtered out; formal M30 still returns its existing
+EXIT_NOT_IMPLEMENTED/BLOCKED result and remains distinct from layout fixtures.
+The broader root Rust suite was NOT RUN; provision all pinned root path patches
+through their regular source preparation if that suite is needed. No source,
+lockfile, acceptance criteria or CI gate change was needed for this recovery.
+Private review handoff contains the fixed local commit, four-file source/test/
+documentation delta, manifest and actual logs. No public upload, push, guest,
+image generation, denial retry or access-policy change occurred.

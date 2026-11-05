@@ -56,3 +56,54 @@ offers, extra model packages and Gemma terms remain separate decisions.
 
 Use disposable image copies for VM checks; guest writes change the image hash.
 Preserve the assembled image untouched and verify it again after validation.
+
+Read-only machine-readable inventory and preflight:
+
+```sh
+python3 tools/nagi-release/m30_preflight.py --root . \
+  --revision 65108d6db2ec3e0a6f793c31fc0dc36e27be5354 \
+  --image out/artifacts/Nagi-OS-0.1-devpreview.qcow2 \
+  --evidence evidence/session.json \
+  --bundle out/release/Nagi-OS-0.1-devpreview > /tmp/m30-preflight.json
+```
+
+Replace the revision with the full expected source commit when checking another
+checkout. These paths are the defaults, except `--root` and `--revision`, which
+are required. Select one preserved input set inside the root; there is no search
+through unrelated runs or workers' outputs. The collector only reads files and
+writes its JSON report to stdout; it does not build, run QEMU, fetch artifacts,
+create receipts, copy evidence, or modify the formal `./nagi m30` gate.
+
+Report schema version 1 contains `checks` and a sorted `artifacts` inventory
+(relative path, actual size and SHA-256). Check statuses are `MISSING`, `INVALID`,
+or `NOT_VERIFIED`, with a reason. `content_integrity=VALIDATED_CONTRACT` means
+the existing image/session/release content validator accepted the supplied
+bytes; `FILE_HASHED` means only a nonempty distribution file was inventoried.
+`NOT_CHECKED` means content validation did not finish or no applicable contract
+exists. Each required distribution input is checked independently, then the
+whole bundle is validated, including its source and selected image bindings.
+Session validation retains its ordered events, log hashes, one session/image/
+disk identity, restart persistence, offline and stress negative controls.
+Missing referenced phase logs are identified before full session validation.
+Duplicate JSON keys and nonfinite numbers are rejected in bundle manifests too.
+Each validator reports its first failure; fix it and rerun to expose later faults.
+
+All content-consistent inputs remain `NOT_VERIFIED` for acceptance: hashes and
+self-declared profiles do not authenticate a producer, signed-in guest, model
+execution or image contents. In particular, the existing session producer API
+is proposed and its synthetic tests prove validator orchestration only. CLI run
+receipts record host command outcomes; they cannot replace session evidence.
+The collector separately reports unavailable execution-origin proof, the lack
+of an independent voice-operation evidence contract, and distribution review.
+It never invents signatures, timestamps, credentials or guest results. Its JSON
+always says `m30_acceptance=NOT_EVALUATED`, `formal_gate=BLOCKED`, and its exit
+code is always **1**, including with a consistent synthetic fixture. This is a
+diagnostic command, not a replacement CI or milestone gate. Use stable preserved
+inputs: the collector does not lock them against concurrent modification.
+
+Regression commands (host only):
+
+```sh
+python3 -m unittest discover -s tools/nagi-release -p 'test_m30_preflight.py' -v
+python3 -m unittest discover -s tools/nagi-release -p 'test_*.py' -v
+```
