@@ -1,11 +1,13 @@
 """Synthetic metadata fixtures only; no runtime execution or receipt is fabricated."""
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("additional", Path(__file__).with_name("verify-additional-runtime.py"))
 v = importlib.util.module_from_spec(SPEC)
@@ -95,6 +97,26 @@ class AdditionalTests(unittest.TestCase):
         self.assertEqual(result["manual_observation"], "DIGESTS_MATCH_NO_FORMAL_RECEIPT")
         self.assertEqual(result["phase_c"], "PENDING")
         self.assertFalse(result["raw_receipt_rechecked_here"])
+
+    def cli(self):
+        with patch.object(v, "ROOT", self.root), patch.object(v.sys, "argv", [
+            "verify-additional-runtime.py", "--base", self.base, "--source", self.source,
+            "--records", self.records, "--main", self.base,
+        ]), patch.object(v.sys, "stdout", io.StringIO()) as output:
+            code = v.main()
+            return code, json.loads(output.getvalue())
+
+    def test_cli_pending_returns_exit_2(self):
+        code, result = self.cli()
+        self.assertEqual(code, 2)
+        self.assertEqual(result["record_completeness"], "PENDING_INPUT")
+
+    def test_cli_complete_fixture_returns_metadata_only_exit_0(self):
+        self.summary("formal"); self.summary("manual")
+        code, result = self.cli()
+        self.assertEqual(code, 0)
+        self.assertEqual(result["record_completeness"], "COMPLETE_METADATA_ONLY")
+        self.assertEqual(result["manual_formal_receipt"], "NOT_GENERATED")
 
     def test_formal_only_keeps_manual_input_pending(self):
         self.summary("formal")
