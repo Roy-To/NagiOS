@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -73,6 +74,32 @@ GRANITE_PIN_REPOSITORY_REVISION = "c40945d71cd90f249a56985e8155551a9188dc30"
 
 class ReleaseError(Exception):
     """A missing, inconsistent, or unverifiable release input."""
+
+
+def parse_json(text: str) -> Any:
+    """Shared evidence JSON reader: reject ambiguous keys and nonfinite numbers."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ReleaseError(f"duplicate JSON key: {key}")
+            result[key] = value
+        return result
+
+    def nonfinite(value):
+        raise ReleaseError(f"nonfinite JSON number: {value}")
+
+    def finite_float(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            nonfinite(value)
+        return parsed
+
+    try:
+        return json.loads(text, object_pairs_hook=pairs, parse_constant=nonfinite,
+                          parse_float=finite_float)
+    except (ValueError, RecursionError) as error:
+        raise ReleaseError(f"invalid JSON: {error}") from error
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -160,15 +187,21 @@ def image_build_provenance(root: Path, image_path: Path, expected_revision: str)
 
 def require_production_image(provenance: dict[str, Any]) -> None:
     """Configuration gate only; this cannot establish guest acceptance."""
-    if provenance.get("format_version") != 2:
+    if not isinstance(provenance, dict):
+        raise ReleaseError("production image provenance must be an object")
+    if type(provenance.get("format_version")) is not int or provenance["format_version"] != 2:
         raise ReleaseError("legacy layout/fixture provenance cannot be assembled as Nagi 0.1")
     if provenance.get("profile") != "production-session-v1":
         raise ReleaseError("partial or fixture session profile cannot be assembled as Nagi 0.1")
-    components = provenance.get("components", "").split(",")
+    if not isinstance(provenance.get("components"), str):
+        raise ReleaseError("production image components must be a comma-separated string")
+    components = provenance["components"].split(",")
     expected = {"login", "files", "search", "servo", "local-ai", "history", "voice"}
     if len(components) != len(expected) or set(components) != expected:
         raise ReleaseError("production session lacks required integrated components")
-    features = provenance.get("init_features", "").split(",")
+    if not isinstance(provenance.get("init_features"), str):
+        raise ReleaseError("production image init_features must be a comma-separated string")
+    features = provenance["init_features"].split(",")
     if "production-session" not in features or len(features) != len(set(features)):
         raise ReleaseError("production session lacks its ordinary init feature")
     if any(not re.fullmatch(r"[a-z0-9-]+", feature)
@@ -634,12 +667,12 @@ def verify_release(directory: Path) -> None:
         _regular_file(directory / package_name, "required release documentation")
 
     try:
-        manifest = json.loads((directory / MANIFEST_NAME).read_text(encoding="utf-8"))
+        manifest = parse_json((directory / MANIFEST_NAME).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ReleaseError(f"cannot read release manifest: {error}") from error
     if not isinstance(manifest, dict):
         raise ReleaseError("release manifest root must be a JSON object")
-    if manifest.get("schema_version") != SCHEMA_VERSION:
+    if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != SCHEMA_VERSION:
         raise ReleaseError("unsupported release manifest schema")
     if manifest.get("assembly_status") != "ASSEMBLED":
         raise ReleaseError("release manifest has an unsupported assembly status")
@@ -650,13 +683,19 @@ def verify_release(directory: Path) -> None:
     verify_checksum_index(directory)
 
     try:
-        build_manifest = json.loads(
+        build_manifest = parse_json(
             (directory / BUILD_MANIFEST_NAME).read_text(encoding="utf-8")
         )
     except (OSError, json.JSONDecodeError) as error:
         raise ReleaseError(f"cannot read build manifest: {error}") from error
     if not isinstance(build_manifest, dict):
         raise ReleaseError("build manifest root must be a JSON object")
+    # Historical fixtures may omit this optional field; the producer emits int 1.
+    if "schema_version" in build_manifest and (
+        type(build_manifest["schema_version"]) is not int
+        or build_manifest["schema_version"] != SCHEMA_VERSION
+    ):
+        raise ReleaseError("unsupported build manifest schema")
     verify_tracked_license_inventory(directory, build_manifest)
     required_build_fields = {
         "nagi_version",
@@ -672,6 +711,13 @@ def verify_release(directory: Path) -> None:
     if not required_build_fields.issubset(build_manifest):
         absent = sorted(required_build_fields - set(build_manifest))
         raise ReleaseError(f"build manifest lacks provenance fields: {absent}")
+    versions = build_manifest["toolchain_versions"]
+    if not isinstance(versions, dict) or any(
+        not isinstance(name, str) or not name
+        or not isinstance(value, str) or not value.strip()
+        for name, value in versions.items()
+    ):
+        raise ReleaseError("toolchain_versions must map tool names to nonempty version strings")
     revision_text = (directory / SOURCE_REVISION_NAME).read_text(encoding="ascii").strip()
     if revision_text != build_manifest["source_revision"]:
         raise ReleaseError("source revision record disagrees with the build manifest")
