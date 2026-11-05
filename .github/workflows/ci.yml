@@ -61,7 +61,7 @@ jobs:
           fi
           docs_only=true
           while IFS= read -r path; do
-            if [[ ! "$path" =~ \.md$ ]]; then
+            if [[ ! "$path" =~ ^docs/.*\.md$ && ! "$path" =~ ^[^/]+\.md$ ]]; then
               docs_only=false
               break
             fi
