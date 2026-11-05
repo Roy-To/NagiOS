@@ -28,7 +28,7 @@ enum Focus {
 }
 pub struct Panel {
     pub controller: Controller,
-    pub open: bool,
+    open: bool,
     pub cancel_requested: bool,
     pub summary_requested: bool,
     summary_epoch: Option<u64>,
@@ -49,12 +49,23 @@ impl Panel {
             scroll: 0,
         }
     }
-    pub fn toggle(&mut self) {
-        self.open = !self.open;
-        if !self.open {
-            self.summary_requested = false;
-        }
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+    /// Every close consumes summary intent. Keep nonce/claim history so neither
+    /// reopening nor replacing an endpoint can revive a prior gesture/token.
+    pub fn close(&mut self) {
+        self.open = false;
+        self.summary_requested = false;
         self.focus = Focus::Input;
+    }
+    pub fn toggle(&mut self) {
+        if self.open {
+            self.close();
+        } else {
+            self.open = true;
+            self.focus = Focus::Input;
+        }
     }
     /// Per-instance monotonic identity of the current explicit local gesture.
     /// Hiding/cancelling/draining intent cannot revive it; overflow latches shut.
@@ -80,10 +91,8 @@ impl Panel {
             .filter(|id| self.wire_claimed_epoch == Some(*id))
     }
     pub fn clear_presentation(&mut self) {
-        self.open = false;
+        self.close();
         self.cancel_requested = false;
-        self.summary_requested = false;
-        self.focus = Focus::Input;
         self.scroll = 0;
     }
     fn terms_needed(&self) -> bool {
@@ -134,7 +143,7 @@ impl Panel {
         }
         match event.code {
             SUMMARY_KEY => self.activate(Focus::Summary),
-            libnagi::INPUT_KEY_ESCAPE => self.open = false,
+            libnagi::INPUT_KEY_ESCAPE => self.close(),
             libnagi::INPUT_KEY_TAB => {
                 self.focus = match self.focus {
                     Focus::Input => Focus::Send,
@@ -349,5 +358,40 @@ mod intent_tests {
         assert_eq!(p.claim_summary_wire(), None);
         p.activate(Focus::Summary);
         assert!(p.claim_summary_wire().unwrap() > id);
+    }
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+    #[test]
+    fn escape_close_reopen_consumes_unclaimed_and_claimed_intent() {
+        for claimed in [false, true] {
+            let mut p = Panel::new();
+            p.toggle();
+            p.activate(Focus::Summary);
+            let old = p.summary_intent().unwrap();
+            if claimed {
+                assert_eq!(p.claim_summary_wire(), Some(old));
+            }
+            assert!(p.event(
+                InputEvent {
+                    event_type: libnagi::INPUT_EVENT_KEY,
+                    code: libnagi::INPUT_KEY_ESCAPE,
+                    value: 1
+                },
+                0,
+                0
+            ));
+            assert!(!p.open);
+            assert!(!p.summary_requested);
+            p.toggle();
+            assert_eq!(p.summary_intent(), None);
+            assert_eq!(p.wire_summary_intent(), None);
+            assert_eq!(p.claim_summary_wire(), None);
+            p.activate(Focus::Summary);
+            assert!(p.summary_intent().unwrap() > old);
+            assert!(p.claim_summary_wire().unwrap() > old);
+        }
     }
 }
