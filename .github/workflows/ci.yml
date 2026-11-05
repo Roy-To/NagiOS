@@ -571,6 +571,9 @@ jobs:
             out/logs/m17-nagi-user-init.log
             out/logs/m17-undefined-symbols.txt
             out/logs/m17-servo.log
+            out/evidence/m27-ab-rollback-*/**/*.log
+            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-timeout-*
+            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-retry-*.txt
           if-no-files-found: ignore
 
   nagi-m20-inference:

@@ -1,3 +1,55 @@
+## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
+
+Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
+`PARTIAL` for an isolated CI evidence-retention correction based on public
+`f927cef91e9070187a689277ed4af9c174e38e7e`. No CI rerun, public update or
+GitHub merge was performed during this investigation.
+
+Nagi CI 41959780494 at that head completed with change-scope,
+target_classification, Ubuntu, Windows and M20 inference successful.
+nagi-target passed M17, M18, M19 Files/login and M22, then failed M27:
+readiness QEMU boot 2 did not reach acceptance within 180 seconds (exit 4).
+M29 and M30 were skipped. The failed promotion uses the headless runner
+reusing OVMF variables; the recent GUI EOF change is not on that path.
+The headless failure's underlying cause remains UNKNOWN.
+
+The official job log names
+out/evidence/m27-ab-rollback-1793854380240094000/readiness-promotion/promotion-boot.log,
+but neither uploaded target artifact contains that file or the M27 trial log.
+Downloaded artifact 13389567679 matches SHA-256
+5a0aab015cf9a29283f7c0ee1dc2f09ffa200ea25a3292d229e1b21f2c94420e;
+artifact 13390110191 matches SHA-256
+cbe3c1d4f4d074948fe9fd76ce9e3b2fa9d41f1987c9431249f8f75cd6f1455a.
+Their ZIP inventories contain M17 logs/reports and runner resource state.
+The workflow uploads out/logs/m17-* and acceptance reports, but never
+out/evidence/m27-ab-rollback-*. This is a confirmed observability defect,
+not evidence for a longer guest timeout or a changed readiness criterion.
+
+The isolated workflow correction retains *.log within each M27 evidence
+run, plus serial snapshots named *.log.pre-guest-timeout-* and retry reason
+*.log.pre-guest-retry-*.txt. It keeps the existing always() upload path and
+pinned action. OVMF binary snapshots, firmware variables and disk images
+remain outside those selections. Runtime/QMP/guest code, source pins,
+180-second budget, retry policy and acceptance markers are unchanged.
+
+Validation: three new tests exercise the workflow's actual selected paths
+against a temporary reproduction of the M27 evidence tree: nested promotion,
+trial, confirmed and rollback logs; retry serial and reason; exclusion of
+OVMF snapshots and raw/qcow2 disks; and preservation of M17 diagnostics when
+M27 has not run. With the original workflow, two tests fail because M27 logs
+are absent. With the correction, all 17 Python regressions pass, including
+the existing CI guard suite. These are local path-selection tests, not a
+hosted upload-action or guest execution. Whitespace checks pass.
+
+The original promotion serial/QMP trace and boot state were not uploaded,
+and this environment lacks qemu-system-x86_64 and that failed guest state;
+an exact replay is unavailable. Resource capture after failure reports
+available memory but cannot rule out an earlier transient resource problem.
+The next diagnostic run must preserve promotion-boot.log, trial-boot.log and
+any pre-guest retry evidence before deciding whether the cause lies in
+firmware, guest startup/readiness, input state or host scheduling. No timeout
+extension, repeated rerun, speculative runtime fix or milestone PASS is claimed.
+
 ## PR 90 GUI serial EOF deadline follow-up — 2026-11-05
 
 Status: `PARTIAL`; isolated follow-up to reviewed EINTR candidate
