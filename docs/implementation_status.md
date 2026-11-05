@@ -11656,3 +11656,39 @@ lockfile, acceptance criteria or CI gate change was needed for this recovery.
 Private review handoff contains the fixed local commit, four-file source/test/
 documentation delta, manifest and actual logs. No public upload, push, guest,
 image generation, denial retry or access-policy change occurred.
+
+### 2026-11-05 — independent-review M30 preflight malformed-input fixes
+
+M30 remains BLOCKED. Independent review reported three P2 inputs against local
+candidate aaf5104118e313051949cf9a905654c4baf1e914: an array in production image
+components crashed the delegated validator and suppressed JSON; numeric 1e400
+became infinity and was accepted; schema_version=true was treated as integer 1.
+All three were reproduced with CLI regression tests before implementation:
+RED 3 failures, including the empty-stdout control for the AttributeError crash.
+
+The release/session consumer audit found that production image checks are shared
+by session validation, release preflight/assembly/verification and this collector.
+The real producer emits comma-separated strings, integer schema/format versions
+and a string-to-string toolchain-version map. Harden those existing contracts:
+production component/feature values require strings; schema/format versions
+require actual integers; toolchain-version entries require nonempty strings.
+Legacy build manifests may still omit their previously optional schema field;
+empty legacy toolchain maps remain structurally supported, never proof of origin.
+No new evidence format, required event or formal success criterion was added.
+
+Release and session readers now share one strict JSON parser that rejects
+duplicate keys, explicit nonfinite constants and exponent overflow to infinity
+at any nesting depth. Finite boundary values remain parseable. The collector
+also catches delegated AttributeError as INVALID with an exception-class/reason
+diagnostic, so malformed input cannot suppress the remaining report checks.
+These checks strengthen rejection in the direct release CLI as well; valid
+synthetic fixtures still prove content-validator orchestration only.
+
+Validation: review controls GREEN 3; aggregate release/session suite 59 PASS,
+including 19 collector tests, direct-release CLI negative controls, provenance
+type boundaries, boolean/float/string/null schemas, nested positive/negative
+overflow and finite-number boundaries. Existing formal gate implementation and
+CI workflow remain byte-identical to the fixed public #43 base. Existing
+session event coverage, stress limits and formal M30 BLOCKED/exit code are
+unchanged. No guest, inference, image build, public action or acceptance claim.
+Next: independent review of the fixed commit and updated private handoff.

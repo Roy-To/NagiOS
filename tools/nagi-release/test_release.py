@@ -11,6 +11,34 @@ import release
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def test_shared_json_reader_rejects_nonfinite_including_overflow(self):
+        for literal in ("NaN", "Infinity", "-Infinity", "1e400", "-1e400", "1e999999"):
+            with self.subTest(literal=literal):
+                with self.assertRaisesRegex(release.ReleaseError, "nonfinite"):
+                    release.parse_json('{"nested": [{"value": ' + literal + '}]}')
+        with self.assertRaisesRegex(release.ReleaseError, "duplicate JSON key"):
+            release.parse_json('{"nested": {"x": 1, "x": 2}}')
+        for literal in ("1e308", "-1e308", "1e-400", "0", "1", "true", '"1e400"'):
+            with self.subTest(valid_literal=literal):
+                self.assertEqual(release.parse_json(literal), json.loads(literal))
+
+    def test_production_provenance_type_boundaries_raise_domain_error(self):
+        good = self.production_provenance()
+        release.require_production_image(good)
+        for field in ("components", "init_features"):
+            for value in ([], {}, None, True, 1):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(release.ReleaseError, field):
+                        release.require_production_image({**good, field: value})
+        for value in (None, [], True, 2):
+            with self.subTest(root=value):
+                with self.assertRaisesRegex(release.ReleaseError, "object"):
+                    release.require_production_image(value)
+        for value in (2.0, "2", True, None):
+            with self.subTest(format_version=value):
+                with self.assertRaises(release.ReleaseError):
+                    release.require_production_image({**good, "format_version": value})
+
     def production_provenance(self):
         return {
             "format_version": 2,
