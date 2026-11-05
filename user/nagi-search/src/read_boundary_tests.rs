@@ -444,5 +444,132 @@ fn missing_producer_key_is_explicit_and_discards_prepared_deletions() {
     assert!(service.get_object_ref(ACCESS, ObjectId(8)).is_some());
 }
 
+#[test]
+fn semantic_top_k_denial_returns_capacity_without_leaks_and_retries() {
+    let mut index = PersistentVectorIndex::open(Memory::default()).unwrap();
+    let space = EmbeddingSpaceId([0x24; 32]);
+    for id in 1..=128 {
+        let embedding =
+            Embedding::try_from_values_in_space(vec![id as f32, 129.0 - id as f32], space).unwrap();
+        index
+            .replace_object(
+                ObjectId(id),
+                &[IndexedChunk {
+                    chunk: TextChunk {
+                        object_id: ObjectId(id),
+                        ordinal: 0,
+                        start_byte: 0,
+                        end_byte: 1,
+                        text: "x".into(),
+                    },
+                    embedding,
+                }],
+            )
+            .unwrap();
+    }
+    let query = Embedding::try_from_values_in_space(vec![1.0, 0.0], space).unwrap();
+    let permitted: Vec<_> = (1..=128)
+        .rev()
+        .map(ObjectId)
+        .chain([ObjectId(128), ObjectId(1)])
+        .collect();
+    for limit in [1, 2, MAX_SEMANTIC_RESULTS] {
+        let expected = index.search(&query, &permitted, limit).unwrap();
+        let (result, meter, baseline) =
+            measured(0, false, || index.search(&query, &permitted, limit));
+        assert_eq!(result.as_ref().unwrap(), &expected);
+        assert_eq!(meter.calls, 2, "allowlist scratch and bounded output only");
+        assert_eq!(result.as_ref().unwrap().capacity(), limit);
+        drop(result);
+        assert_eq!(live(), baseline);
+        for persistent in [false, true] {
+            for ordinal in 1..=2 {
+                let (result, meter, baseline) = measured(ordinal, persistent, || {
+                    index.search(&query, &permitted, limit)
+                });
+                assert_eq!(result, Err(VectorIndexError::Capacity));
+                assert_eq!(meter.calls, ordinal);
+                assert_eq!(meter.denials, 1);
+                drop(result);
+                assert_eq!(live(), baseline);
+                assert_eq!(index.search(&query, &permitted, limit).unwrap(), expected);
+            }
+        }
+        // Refuse all requests after scratch/output reservation: heap operations
+        // and the final in-place sort must not allocate.
+        let (result, meter, baseline) =
+            measured(3, true, || index.search(&query, &permitted, limit));
+        assert_eq!(result.as_ref().unwrap(), &expected);
+        assert_eq!(meter.calls, 2);
+        assert_eq!(meter.denials, 0);
+        drop(result);
+        assert_eq!(live(), baseline);
+    }
+    let large = vec![ObjectId(1); crate::store::MAX_OBJECT_RECORDS];
+    let expected = index.search(&query, &large, MAX_SEMANTIC_RESULTS).unwrap();
+    assert_eq!(expected.len(), 1);
+    assert_eq!(
+        expected.capacity(),
+        1,
+        "deduplication bounds the output reservation"
+    );
+    for persistent in [false, true] {
+        for ordinal in 1..=2 {
+            let (result, meter, baseline) = measured(ordinal, persistent, || {
+                index.search(&query, &large, MAX_SEMANTIC_RESULTS)
+            });
+            assert_eq!(result, Err(VectorIndexError::Capacity));
+            assert_eq!(meter.calls, ordinal);
+            assert_eq!(meter.denials, 1);
+            drop(result);
+            assert_eq!(live(), baseline);
+            assert_eq!(
+                index.search(&query, &large, MAX_SEMANTIC_RESULTS).unwrap(),
+                expected
+            );
+        }
+    }
+
+    let (result, meter, baseline) = measured(1, true, || index.search(&query, &[], 1));
+    assert_eq!(result, Ok(vec![]));
+    assert_eq!(meter.calls, 0);
+    drop(result);
+    assert_eq!(live(), baseline);
+    let (result, meter, baseline) = measured(2, true, || index.search(&query, &[ObjectId(999)], 1));
+    assert_eq!(result, Ok(vec![]));
+    assert_eq!(
+        meter.calls, 1,
+        "no output allocation for disjoint allowlist"
+    );
+    drop(result);
+    assert_eq!(live(), baseline);
+}
+
+#[test]
+fn semantic_search_validation_and_empty_index_need_no_allocations() {
+    let index = PersistentVectorIndex::open(Memory::default()).unwrap();
+    let query =
+        Embedding::try_from_values_in_space(vec![1.0, 0.0], EmbeddingSpaceId([0x24; 32])).unwrap();
+    let too_many = vec![ObjectId(1); crate::store::MAX_OBJECT_RECORDS + 1];
+    for (permitted, limit, expected) in [
+        (&[][..], 1, Ok(vec![])),
+        (&[ObjectId(1)][..], 1, Ok(vec![])),
+        (&too_many[..], 1, Err(VectorIndexError::Capacity)),
+        (&too_many[..], 0, Err(VectorIndexError::InvalidLimit)),
+        (
+            &[][..],
+            MAX_SEMANTIC_RESULTS + 1,
+            Err(VectorIndexError::InvalidLimit),
+        ),
+    ] {
+        let (result, meter, baseline) =
+            measured(1, true, || index.search(&query, permitted, limit));
+        assert_eq!(result, expected);
+        assert_eq!(meter.calls, 0);
+        drop(result);
+        assert_eq!(live(), baseline);
+    }
+}
+
 #[path = "semantic_staging_tests.rs"]
 mod semantic_staging_tests;
