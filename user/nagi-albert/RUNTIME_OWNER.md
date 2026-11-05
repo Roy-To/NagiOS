@@ -1,5 +1,97 @@
 # Albert runtime owner control core
 
+## Ordinary engine step prerequisite — 2026-11-05
+
+M23 PARTIAL / formal M30 BLOCKED. This local, unpublished follow-up starts
+at public PR43 head `d0a45f678c33c9a8907b8b9aaf67b95a5d1bda3c` (verified
+through read-only PR metadata and Git fetch). The original core and FirstPixel
+implementation below are unchanged. This section supersedes the historical
+validation counts below for this candidate; it does not claim later integration
+items 1–3 are complete. Only five paths under user/nagi-albert change; the
+explicit Albert-only scope leaves docs/implementation_status.md untouched.
+
+### Duplication check and scope
+
+Read Required later integration 1–3 before implementing. FirstPixelBrowser in
+src/lib.rs owns the M17 Servo and the FirstPixelDelegate-owned Surface and has
+its own step method; m18_acceptance.rs has separate acceptance WebViews, input
+translation, and loops. Neither is ordinary Albert ownership. No changes to
+those implementations, Surface service, Servo sources/patches or Desktop are
+made. EngineBackend deliberately has no production implementation or default
+success backend. The new engine_step.rs wraps the existing AlbertRuntimeOwner;
+it does not duplicate BrowserState, UI dispatch, ticket checks, or rendering.
+
+AlbertEngineStep owns one backend by value and its local runtime core on the
+same event thread (Rc tokens make the wrapper non-Send/non-Sync). A future
+backend must own actual Servo/WebViews/Surface/input resources, validate the
+live Session and resource record before construction, and release resources
+and local input state on Drop. Passing SurfaceBinding or implementing the trait
+provides no authentication or ownership proof. No real resources are acquired
+by this candidate.
+
+- step calls spin_once once, without an application loop, queue drain or hidden
+  yield. Its bool is an idle/wake hint; Servo execution has no proven time bound.
+- Input goes through the existing owner sequence/focus checks, then immediately
+  through validate_page_input before a synchronous, by-value backend call.
+  No deferred input queue, public raw InputOutcome submission or automatic retry.
+- Focus changes and chrome transitions clear backend input. Tab synchronization
+  keeps opaque per-WebView tokens, removes old routes before backend removal,
+  and never equates a token with a numeric tab ID or authorization. activate
+  must select visible content without overriding address/chrome input focus.
+- Each navigation retains its original NavigationRequest in a separate opaque
+  token. Same-URL reload, duplicate/late completion, stop, removed view and
+  foreign owner callbacks are rejected. Redirect/failure use the existing core.
+  Source navigation preserves its existing IgnoredStale result while a load is
+  pending; it must not consume that load's completion mapping.
+- Page work captures the original PageTicket before asynchronous work. Existing
+  invalidation/composition checks reject old frame bytes before destination
+  mutation. Real Surface presentation still requires a final same-ticket check
+  without an intervening yield. No present method or frame-source adapter exists.
+- retire closes/invalidate the owner and routes before backend cleanup/drop.
+  Explicit retirement reports input-release failure but always drops resources.
+  Backend failures close/drop immediately, making no further backend calls,
+  including no retry of failed input, navigation, clear_input or dispatch.
+- PublicBrowserContextApi always returns Unavailable, live or retired. No
+  source switch, extraction connector, authenticated actor, terms or sharing
+  policy change is introduced. Desktop continues its existing None path.
+
+### Validation and remaining integration
+
+`sh user/nagi-albert/host-tests/check.sh`: 134 host tests PASS (18 new synthetic
+engine tests, 116 existing tests), locked offline all-target/all-feature check,
+strict Clippy (-D warnings), and affected-source rustfmt PASS.
+`sh tests/albert-context/check.sh`: existing 12 tests and strict Clippy PASS.
+`git diff --check` PASS. Nightly 2025-08-01 and the existing isolated host lock
+were used; no dependency, root lockfile or target configuration changed.
+These are actual source host orchestration tests with a test-only synthetic
+backend, not real Servo rendering, input or guest evidence. No independent
+review of this new candidate is claimed.
+
+Still required before any ordinary connection:
+
+1. A Nagi-only backend acquiring and retaining actual Servo, WebViews, rendering
+   context, Surface and input capabilities, with verified live Session/resource
+   records and dimensions. No ordinary backend constructor is implemented here.
+2. Trusted lifecycle delivery before dispatch; retire/recreate on lock, signout,
+   exit, workspace/session or Surface replacement/resize. Real pressed state
+   clearing, pointer motion/release/scroll, complete IME/key translation,
+   permissions, clipboard/file services and OS input require target integration.
+3. A proven per-WebView/load mapping. Pinned Servo's
+   WebViewDelegate::notify_load_status_changed takes WebView and LoadStatus,
+   not NavigationId; URL equality or looking up the current pending request
+   cannot establish original load provenance. Do not relabel late callbacks
+   with a new NavigationToken/PageTicket. This wrapper tests token rejection;
+   it does not solve missing engine callback IDs or complete DOM/selection
+   mutation coverage.
+4. Required later integration 4–5 below: authenticated Bar/Albert connector and
+   coherent bounded extraction. Neither is enabled by this prerequisite.
+
+Full target compile/link, actual ordinary guest execution, Surface present,
+real input/callback fidelity, authenticated Context, summary/inference and
+formal M30 acceptance were NOT RUN. No public push, PR update, merge, hosted
+CI, permission change or denied-operation retry was performed.
+
+
 M23 PARTIAL / M30 BLOCKED. Writer and guest HOLD remain. The implementation
 originated on f35d3f25320339fa69d0860c12e1a354a3852701 (tree
 dcc5c1bc306a755b095c831cc16f049f794edca8). Only user/nagi-albert is changed.
