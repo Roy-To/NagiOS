@@ -15,12 +15,12 @@
   "runtime_main": "0362427747e769b00558053e4c7f4c756d303802",
   "spike_tree": "4dac311883b7e6299662514ece2c61576916a070",
   "formal_summary": {
-    "path": null,
-    "sha256": null
+    "path": "docs/porting/multiarch/runtime/arm64-cc52cad-additional-20261105/formal-summary.json",
+    "sha256": "35adb7c4c87814650c712afa0846575d05872a79e6d02b8299098ed0a0be84d0"
   },
   "manual_summary": {
-    "path": null,
-    "sha256": null
+    "path": "docs/porting/multiarch/runtime/arm64-cc52cad-additional-20261105/manual-summary.json",
+    "sha256": "c2cb41ace14a40f5d521afad7d86c3a88a0cc84e3e205113d8ab5f8e14e14333"
   },
   "reported_observations": {
     "formal": "OWNER_REPORT_VERIFIER_EXIT_0_AND_33_ARTIFACTS",

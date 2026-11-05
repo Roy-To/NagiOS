@@ -1,0 +1,17 @@
+{
+  "schema": "nagi-manual-artifact-comparison/1",
+  "kind": "MANUAL_OBSERVATION_ONLY",
+  "source": {
+    "commit": "cc52cadcf0ef7c8b6c0683b1a9be3a85ef4d7e4e",
+    "tree": "83214d70643e016087b53f1fb5f27e45005676cb",
+    "main": "0362427747e769b00558053e4c7f4c756d303802",
+    "spike_tree": "4dac311883b7e6299662514ece2c61576916a070"
+  },
+  "formal_receipt_generated": false,
+  "artifacts": {
+    "source_archive_sha256": "e3aafa3c308a3f702d8880acc15d42dc36eaa17268b542397219df6a6f7de41d",
+    "elf_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b",
+    "el1_serial_sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5",
+    "el2_serial_sha256": "1b7e493e4e939cc2ee17098a1ed95923bc6d98a3e92b4e39e89f8e827d4f129b"
+  }
+}
