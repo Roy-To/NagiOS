@@ -13,6 +13,19 @@ the explicit Recovery console path calls the no-format recovery API. This
 reintegration candidate also adds a standalone Recovery host-CI step; it does
 not establish normal guest Files lifecycle acceptance.
 
+## Adoption status labels - 2026-11-06
+
+Development progress remains `PARTIAL`; the formal M30 release gate remains
+`BLOCKED`, retaining public PR42 head d817c0a6's restriction. Main's newer
+implementation/history record was kept to avoid losing work, not as approval
+of formal guest/release acceptance. No host result, previous fixture or
+ancestry-only integration promotes that gate. The status summary, M30 release
+row and public-head feature map now state this distinction explicitly.
+
+The separate owner Files ADR rename-path verification remains UNCONFIRMED.
+This label-only correction neither performs that check nor resolves it.
+Existing guest, media, sector-zero and cross-process ownership HOLDs remain.
+
 ## Implemented seam
 
 `m19_runtime::files::{initialize,list,trash_entries,create,rename,trash,restore}`
