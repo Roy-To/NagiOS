@@ -1,3 +1,237 @@
+## Development progress and formal release gate - 2026-11-06
+
+**Development progress:** M19 and the recorded M23–M30 implementation work remain
+`PARTIAL`. This describes accumulated engineering progress, not formal release
+acceptance. Historical per-feature and fixture successes below retain their
+original scope and do not certify this PR42 candidate's guest or release path.
+
+**Formal M30 release gate:** `BLOCKED`. The limitation recorded by public PR42
+head d817c0a6 is retained. Outstanding formal guest/release acceptance and other
+recorded release requirements are not waived by host tests or ancestry
+integration. Main's newer progress/history was preserved to avoid erasing work,
+not to relax this gate. No receipt, acceptance marker or manifest value is
+changed; `m30_acceptance=NOT_EVALUATED` remains unevaluated.
+
+## PR42 absent Trash destination identity validation - 2026-11-06
+
+Status: PARTIAL. This single-parent successor preserves frozen integration 03210261290c9bad823ca8267861de5506f64b83. Independent review found that an absent generated Trash destination bypassed the source identity check. A persisted intent with both names absent or with a reused source name could be treated as an empty Trash set. The new exact-source host regressions reproduced both cases before the production edit: 1 positive case passed, 2 negative cases returned Ok([]) instead of CorruptJournal (RC101).
+
+Both absent and occupied/mismatched destination paths now use the same original regular-file/inode/generation check. Missing or reused sources fail closed; other source storage failures propagate. The fix neither discards/rewrites an intent nor adopts an unrelated file, and it does not change format, lock scope or cross-process ownership. ADR-0012 now lists supported VFS create/mkdir, same-directory rename and delete metadata journals, separately from NH16 undo and generic file-content/Trash-journal repair.
+
+After the fix the focused three cases pass. Both negative cases verify unchanged complete disk bytes, failed Search sync with no stale title exposure, and refusal after normal mount and explicit VFS Recovery; a replacement file's contents remain intact. The positive case verifies an unapplied live source across remount, then normal Trash/restore and stable Search identity/content.
+
+Pinned nightly-2025-08-01 ARM64-host Rust with existing x86_64-apple-darwin/Rosetta, offline jobs1: exact-source storage64/Runtime43 (including the existing unsynchronized title regression), formal libnagi123 plus renderer2, explicit delete-Recovery subset5, standalone Recovery6 and CI Python16 pass. Formal libnagi/Recovery Clippy denies warnings; source harness Clippy denies standard Clippy lints but retains partial-module Rust dead-code warnings. Package init/libnagi/Recovery fmt and diff-check pass. The Linux-only adapter binary runs zero tests on Mac, not an adapter PASS. No environment or toolchain settings were changed; the earlier reviewer's pre-test xcrun failure is not counted as Rust success.
+
+Independent re-review, Linux/hosted CI, formal nagi-init target/guest, actual media, unknown sector0 compatibility and process-shared ownership remain unverified/HOLD. Previous damaged journal and partial write/replace limitations remain. No public/history integration, upload, guest/target, VM, real-volume repair or old-claim operation. See docs/superpowers/specs/2026-11-06-pr42-absent-trash-source-identity.md.
+
+## PR42 source integration on current main - 2026-11-06
+
+Status: PARTIAL. Single-parent source successor on d67897b4 (PR97 merged), importing the fixed source candidate 321d1b89. The two textual conflicts are resolved by retaining both independent status histories and combining unsynchronized Files refusal with main's fallible workspace-title API. Main's borrowed object lookup, fallible stale-record scan, QMP/fetch/Search changes, CI change-scope and M27 evidence retention are preserved. No merge commit or public/history integration is performed.
+
+Current pinned Mac host validation passed formal libnagi 123 unit/2 renderer tests, standalone Recovery 6, Search 42 (one pre-existing ignored test), exact-source storage 64 and Runtime/Files/Search 40 including a new production-feature regression, and CI Python 16. The new regression checks initial unsynchronized refusal, synchronized title lookup, unknown identity rejection, a consumed read failure invalidating the previous snapshot, and recovery after resynchronization. Formal libnagi/Search/Recovery Clippy with warnings denied passed. The source harness checks all standard Clippy lints as errors while retaining ordinary partial-module dead-code warnings; a test-only thread-local initializer was made const without changing locking behavior. Package formatting passes. Workspace-wide --all formatting fails in existing dependency Servo/relibc sources; those dependencies were not reformatted. Initial new-test ID type compile errors and the test-helper lint failure remain in the local evidence, distinct from successful reruns. Older candidate successes below remain historical. Independent review, Linux/hosted CI, production target/guest, actual media, unknown sector-zero compatibility, and cross-process coordination are not claimed. The separately refused process-shared ownership operation is not retried. See docs/superpowers/specs/2026-11-06-pr42-current-main-source-integration.md.
+
+## PR42 public-head/main integration successor - 2026-11-05
+
+Status: PARTIAL. Local integration of frozen repair candidate 9f808734, public PR42 head d817c0a6 and main c170ebf1 (PR92 merged). Main's required-file/change-scope CI, Calendar boundary regressions and history are retained; PR42's Recovery host CI and test-count gate remain. The only textual integration conflict was the two independent status preambles; both were preserved.
+
+The only production-source increment from 9f808734 combines the delete-undo reject predicate to satisfy strict Clippy without changing its condition. Its earlier Mac formal libnagi 123 unit/2 renderer and Recovery 6 results, and independently reported Linux adapter 69/storage64 results, describe 9f808734, not a fresh run of this successor. Current pinned Mac host verification passed: formal libnagi 123 unit tests and 2 renderer tests, standalone Recovery 6, exact-source storage 64 and Runtime/Files/Search 39 (also all harness workspace dependencies, with diagnostic features enabled), main CI change-scope 13 and Calendar boundary 12 tests. Formal libnagi and Recovery strict Clippy and libnagi/init/Recovery fmt checks passed. Initial Clippy rejected the nested delete predicate; that log is retained separately. The Linux-only adapter test binary ran zero tests on Mac and is not reported as adapter success. The official-helper-prepared dependency sources are reused read-only from the frozen predecessor; no dependency revisions or patches change. Independent review, hosted CI, Nagi target/guest, sector-zero compatibility, arbitrary real-media ordering and process-shared ownership remain open. This source successor is not yet fast-forwardable from the public head: the reviewed-history integration remains a later gate. No merge, public publication or milestone PASS is claimed. See docs/superpowers/specs/2026-11-05-pr42-public-main-successor.md.
+
+## PR42 directory rename result and delete failure-boundary follow-up - 2026-11-05
+
+Status: PARTIAL. This successor starts at aa0a17cbf2bdd7d584212a3de0239e65880c0a4c, whose unfiltered source host run had storage 61/61 and Runtime/Files/Search 37/39. The two failures were investigated separately; the fixed parent and failed logs are preserved.
+
+The directory failure is a product defect: rename_child_inode committed a same-parent directory rename and then called regular-file-only handle_for, returning InvalidHandle after applying the rename. It now resolves and validates the source and captures its inode/generation identity before mutation, then returns that identity after the existing rename transaction. Directory identities remain rejected by ordinary file I/O and open_path; no file access rights or on-disk format are changed. Root/nested, cached/write-through fault regressions verify directory identity, child handles and contents, neighbor contents, rollback/explicit Recovery and retry.
+
+The delete failure was a test expectation error. A failure of the transaction first flush occurs before metadata mutation, so the file must remain after reconciliation. The test now checks unchanged identity and Search ObjectId for that case, then separately fails the trailing runtime flush after the delete transaction and checks physical absence and Search tombstoning after reconciliation. Both injected faults must be reached.
+
+Independent static review also identified a pre-existing reserved-name corruption path: rename accepted old/new dot and dotdot directory entries. The successor rejects both names before lookup, no-op or mutation; root/nested tests through both rename APIs require InvalidName, zero write/flush calls, an unchanged full disk image and integrity. Final independent static review found no remaining new P1/P2 and source hashes matched at both ends.
+
+Focused 4 tests plus the reserved-name test and the unfiltered source host suites pass: storage 64/64 and Runtime/Files/Search 39/39, no ignored tests or filters in the full run. This pinned-nightly ARM64 standalone harness directly compiles current VFS, runtime, Search, Files and panel source with memory devices and host transport seams; it is not the official package or guest. Partial-module dead_code warnings remain visible and strict Clippy is not claimed. The unchanged official-manifest dependency blocker was confirmed on parent aa0a17cb: third_party/cc-nagi/Cargo.toml absent, stopping before Rust compile. Formal package, Linux adapter, target, guest, physical media and process-shared ownership gates remain unresolved. No public, merge or guest operation is performed.
+
+## PR42 initial Trash journal publication follow-up - 2026-11-05
+
+Status: PARTIAL, source prepared and not compiled/tested. Based on fixed integration 809690ca34ca9e3ec1ea6fcff9216686098f0575. Code tracing confirms that old Journal::save committed an empty create before writing initial NAGITR01 contents. A later payload write error could leave an empty reserved slot that later save refuses as CorruptJournal; ordinary VFS Recovery has no pending create undo at that point. This is static confirmation, not an executed RED result.
+
+The successor adds bounded Vfs::create_path_with_initial_contents (at most one block), retaining the existing Create undo format, validation, flush and explicit-Recovery behavior. It writes the initialized zero-padded new data block before inode and parent publication. Ordinary create delegates with an empty payload. Journal::save uses this operation only when the chosen slot is absent. Existing slots still require a valid journal before overwrite; foreign empty slots remain protected.
+
+Regression source includes all successful-operation write and flush fault positions for initialized create in cached/write-through FaultDisk, absent-after-Recovery and safe retry, size bounds, existing-file protection and retained neighbor contents. A runtime test specifically fails the first NAGITR01 payload write and checks remount/Recovery, retained source identity/content, Search synchronization and Trash/restore retry. Another regression preserves identity and contents of foreign empty files at both journal paths.
+
+Independent static review found no new P1/P2 in the three source/test files; all start/end source hashes matched. Pinned rustfmt parsing/check and git diff whitespace checks pass. Compile/test are pending; the denied mkdir host test and process-shared ownership operation are not retried through another directory or environment. The repair prevents new stranded empty slots but does not automatically adopt/remove older empty or damaged files of unknown ownership. Failure during overwrite of an existing journal is a separate unresolved scope. Physical media, torn-sector/cache ordering and target/guest claims are unchanged.
+See docs/superpowers/specs/2026-11-05-pr42-initial-journal-publication.md.
+
+## PR #42 mkdir and truncate source integration - 2026-11-05
+
+Status: PARTIAL. This isolated successor starts at 1fd06dde27375ce4c426266f5f5ffa80df4c2ad7. It applies only the storage.rs part of the preserved PR42 mkdir a7 snapshot (candidate.diff SHA-256 d50b4c6f8202a0a5c3cfd17b598ec2f33084440e4a4c0197915dbd7f254f148e). Three-way integration was conflict-free. The original source snapshots and owner worktrees are preserved.
+
+mkdir now uses UndoAction::Create and the existing explicit-Recovery transaction, preserving block 14 for undo backup. Its four fault regressions and test-device sector-failure helper are carried forward. Hardened parent/root validation, M24 create zeroing, legacy write gaps, and truncate extension zeroing remain present.
+
+Independent static review found no new P1/P2 in the merged mkdir transaction, hardened Undo compatibility, or shared FaultDisk helper. The reviewed storage SHA-256 is eb51a5b9f8b737dd2dfdaa66e6475645d2da35fb5cf11afc57a6728b321baddf. This integrated source has passed pinned rustfmt parsing/check and git diff whitespace checks only. No integrated compile or test has run. Previous 73/73 truncate harness results and mkdir snapshot 47/47 storage plus 3/3 Files are separate prior sources. The independently reviewed #48 tree cae5719f6b33686ae32770c3d248dd6e3f0db39b is a separate six-file candidate, not the identity of this integration. Its 56/94/28 successes are not attributed here.
+
+The old mkdir host-test denial is preserved; no rejected operation is retried or moved to another host. Linux and guest validation of this integrated source remain pending identification of an independently authorized exact execution route. Existing process-shared ownership, sector-0 compatibility, physical-media ordering, official manifest and target/guest holds remain. No public push, PR update, merge, target build, or VM is performed by this integration.
+
+## PR #42 M19 Files/Trash re-integration candidate - 2026-11-03
+
+Status: `PARTIAL`. This is an isolated local candidate based on the reviewed
+explicit-Recovery work at `ead5ee8b`; it has not been pushed, attached to the
+public PR, or merged. M19 remains `PARTIAL`.
+
+The candidate re-integrates the old PR's Files UI, Trash/restore operations,
+M19 runtime wiring and localized status messages while keeping the reviewed
+VFS contract: ordinary mount/access does not repair a pending journal, and
+repair remains an explicit `Vfs::recover_existing` operation. The current
+`implementation_status.md` history below is preserved; the old PR's status
+file was not copied over it. The old PR's `tools/nagi-cli/src/diagnostics.rs`
+diff removes about 2,448 lines of the current diagnostic sanitizer, and it
+deletes the current job-scheduler diagnostics module. Those broad changes were
+excluded. The M19 fixed-token storage diagnostic trace and its error mapping
+remain in the candidate.
+
+On the pinned `nightly-2025-08-01` arm64 macOS host, a private offline source
+harness compiled the candidate's actual `libnagi/src/storage.rs`, M19 Files,
+panel, and storage adapter sources. It passed 39 tests, including the storage
+unit tests, Trash/restore identity and bytes, RecoveryRequired versus
+Indeterminate UI status, and the fixed diagnostic trace. Pinned rustfmt checks
+passed for `tests/files-search`, `user/nagi-init`, and
+`user/nagi-localization`. The harness does not compile the complete
+`nagi-init` desktop/runtime module graph. An actual `nagi-init` host
+compile-only attempt stopped before project compilation because
+`third_party/cc-nagi/Cargo.toml` is absent from this worktree. The earlier
+Debian results for `ead5ee8b` cover the recovery-only candidate, not this
+combined Files UI candidate.
+
+Not verified here: the combined candidate's Ubuntu CI, full Nagi target or
+guest acceptance, and M27. Existing HOLDs remain for compatibility with unknown
+nonzero sector-0 volumes, cross-process volume ownership, real-media power-loss
+behavior, and POSIX `EIO` state confirmation. The previous target failure on
+old PR head `d817c0a6` remains historical and has not been diagnosed or rerun
+against this candidate.
+
+**Local trash-safety follow-up — 2026-11-03:** A follow-up to `b47d9112`
+keeps existing `.nagi-trash-` files visible and searchable unless both the
+journal identity and generated trash name match. It preserves
+`RecoveryRequired` during selection checks, refuses to overwrite unrecognized
+content in either journal slot, and rejects the legacy-name self-trash
+collision without hiding the file. Files/Search regression coverage and the
+actual M19 runtime test module passed in a private, offline host source harness:
+70 tests passed on pinned `nightly-2025-08-01-aarch64-apple-darwin`; pinned
+rustfmt checks and `git diff --check` passed. This harness is not the official
+`nagi-init` package build. That manifest remains blocked before source
+compilation by the absent `third_party/cc-nagi/Cargo.toml`. The follow-up has
+not been pushed or attached to the public PR; Nagi-target and VM acceptance
+remain unverified.
+
+**PR #42 Trash destination collision follow-up — 2026-11-03:** The local
+candidate based on `c6f3d7dd` checks the generated `.nagi-trash-<inode>-<generation>`
+path before writing either mirrored journal copy. If it is occupied, the
+operation returns `Conflict` before journal mutation. A host regression checks
+both files' identities and bytes, confirms both journal slots remain absent,
+keeps Files/Search usable, and retries successfully after the legacy occupant
+is moved. A persisted-intent race fixture skips a mismatched regular-file
+destination only while the exact source identity remains live; a
+missing/reused source still yields `CorruptJournal`. Search also remains available after injected
+journal preparation and flush failures. The private host source harness passed
+73 tests on the pinned `nightly-2025-08-01-aarch64-apple-darwin` toolchain at
+commit `9b516e3f`, before the directory-target follow-up below.
+
+The preflight rejects an occupant observed before journaling. If a competing
+actor fills the destination after that check and a stale intent is left, the
+reader now ignores a mismatched regular-file or non-file destination only
+when the original name still resolves to the same regular-file
+inode/generation. A missing or reused original still yields
+`CorruptJournal`. The added directory-target regressions cover recovery and
+Search continuity while the source is live, plus fail-closed behavior when it
+is missing. These two new tests have not been run; no PASS is claimed for this
+follow-up.
+
+This is not an atomic reservation: metadata inspection, journal writes, and
+rename are separate VFS calls, and the access gate is not held across them.
+Another same-volume actor can still race the rename; cross-process ownership
+remains a HOLD. The synthetic persisted-intent tests do not inject a live
+concurrent interleaving or rollback failure. No full `nagi-init` package
+build, Nagi-target build, guest acceptance, Ubuntu CI, or VM/QEMU run is
+claimed here.
+
+## PR #42 delete recovery and Files serialization successor — 2026-11-03
+
+Status: `IN PROGRESS`, saved in a local-only commit in an isolated successor
+worktree based on frozen `9f00f6033db9465d192db43d7ef05efe8e486f0f` (tree
+`1ceb3575170cdb2c2a9d5e32a23ebda92f3bb75c`). It remains unpushed,
+unattached to the public PR, and unmerged. The frozen candidate was not
+changed. The successor adds version-2 delete undo while retaining version-1
+create/rename undo parsing, and applies it to path unlink, empty-directory
+removal, and root-name removal. FaultDisk source tests cover modeled write and
+flush failure points for path unlink, root-name remove, and rmdir, plus explicit
+recovery retries. The delete validator matches the existing integrity-check
+exception for an empty file with `size == 0` and `blocks == 0`, while still
+requiring/restoring its allocated direct block; regression source covers both
+unlink entrypoints in cached and write-through modes.
+
+The M19 Files APIs now take the existing process-local VFS gate over their full
+read/update/rename sequence. A source test pauses one Trash call inside the gate,
+waits for the second to reach the access wrapper, requires it not to complete
+during a bounded contention window, then checks both journal intents after
+release. The gate does not coordinate another process.
+
+**Native host verification — 2026-11-04:** Pinned rustfmt and git diff --check pass.
+A private offline harness compiled the exact current storage.rs module and M19
+m19_files.rs module on the arm64 macOS host using
+nightly-2025-08-01-aarch64-apple-darwin: the storage unit suite passed 43/43,
+and the M19 Files suite passed 3/3. The harness stubs the unused syscall entry
+points and does not compile the complete libnagi/src/lib.rs or the full
+nagi-init runtime graph; it is not an official package build. Harness and
+raw output are in the local SSD private-evidence/pr42-2b01aa9-host-20261104/.
+
+These runs exposed missing test-only imports and an undo-validator regression:
+both create and delete validation treated the fixed root directory block 13 as
+an allocatable data block, rejecting valid nested operations. The tests now pass
+after validating the root inode's fixed layout separately and checking
+non-root directories as allocated data blocks. The older fixed commit remains
+unchanged; these fixes are in its local successor.
+
+No full nagi-init manifest build, Clippy, Ubuntu CI, Nagi-target build, guest
+acceptance, M27, VM, or QEMU run is claimed. The host tests model FaultDisk
+states; they do not demonstrate real-media power-loss ordering.
+
+**Undo-parent validation hardening — 2026-11-04:** A checksum-consistent
+legacy v1 nested-create journal that forged a non-root parent as block 13 was
+accepted as pending by the pre-fix source harness. Undo validation now binds
+block 13 exclusively to the canonical root inode, requires canonical root and
+parent directory layouts, and rejects a parent data block referenced by any
+other allocated inode, including direct, extra, indirect, and indirect-table
+pointers. Regressions reject the forged parent, a reserved non-root block, a
+noncanonical root during nested rename, and a parent-block owner collision.
+They verify that mount, mount-or-format, read-only check, and explicit recovery
+return Corrupt without changing the live or durable image or write/flush
+counts. A valid v1 nested-create undo remains recoverable. On the pinned
+nightly-2025-08-01 arm64 macOS source harness, storage tests passed 48/48 and
+M19 Files tests passed 3/3; rustfmt and diff-check pass. The repository's CI
+workflow includes Linux workspace and nonzero libnagi/block_write_adapter
+suite checks, but no CI run was triggered for this local candidate. The harness
+is not an official package build and FaultDisk is not a real-media test.
+
+Vfs::replace partial-mutation rollback, multi-block write_at partial-error
+semantics, process-shared ownership, unknown sector-0 compatibility, physical
+media failure behavior, and target/guest integration remain unresolved.
+This was a separate current-candidate host harness; the previously rejected host command was not retried.
+This verified local successor remains unpushed, unattached to the public PR, and unmerged.
+
+**M24 create zeroing and ranged-write accounting carry-forward — 2026-11-04:** This isolated detached candidate is based on 4c811136; the owner branch and its worktree remain unchanged. It carries only the two M24 production changes: zero the newly allocated file block inside the existing create undo transaction before inode/directory publication, and normalize an inode with blocks == 0 through resize_file_blocks in write_at. Regression source covers initial ranged-write accounting, reused-block gap zeroing, failure of either zero-data sector with rollback and retry, and a root/nested parent-boundary second-sector failure followed by read-only RecoveryRequired, explicit recovery, integrity, and safe retry.
+
+The first unfiltered run of the combined host harness had 61 passes and 8 failures. The eight failures came from duplicated short-entry cases that scheduled a second-sector failure for the short name ghost.bin, although creating that name changes only the first parent sector. The failure injector was therefore not reached; this did not show a product failure. The original M24 validation files and logs are preserved. For the corrected rerun, evidence-only copies now inject the first sector for short-entry rollback/alias cases, while the unchanged-second-sector control stays explicit and long legal names exercise the second-sector path. The tracked storage regression runs that boundary case for both root and nested parents.
+
+The full combined host harness then passed 69/69 with no filters. Pinned rustfmt and git diff --check HEAD passed. This is a source-level host harness, not an official package build, Linux CI, Nagi-target or guest run. FaultDisk uses synthetic sector writes and does not establish physical power-loss ordering. The candidate remains local and detached; no public push, PR update, merge, target build, or VM run was performed.
+
+**Legacy empty-inode ranged-write gap follow-up — 2026-11-04:** This local successor is based on fixed M24 candidate c62be188. The parent 4c811136 create path allocated a direct block for an empty file and wrote size == 0 / blocks == 0 without zeroing the reused block, so that state is accepted by the current integrity rules. The synthetic legacy fixture writes 0xA5 to a file block, deletes the file, recreates an empty file on the same block, seeds the durable image with the old bytes, and remounts it before the ranged write.
+
+write_at now zeroes the range [old_size, offset) after ensuring blocks are allocated and before storing the payload or publishing the new inode size. The first regression reproduced the independent review finding on c62: reading after an offset-59 write returned 0xA5 in the gap (RC 101). The successor's focused tests pass. Failure injection covers the gap-zero and payload block writes at both sectors, in cached and write-through modes; after reconnect and explicit recover_existing, the inode remains empty, the unrelated neighbor remains intact, and retry exposes zero gap bytes. The failure has no pending undo journal; Recovery remounts without writes or flushes, and the test does not claim transaction rollback for ordinary file-data writes.
+
+The final unfiltered source host harness passed 71/71; pinned rustfmt and diff-check pass. The official package manifest, Linux CI, Nagi target, guest, and physical power-loss behavior remain unverified. A separate PR #42 mkdir candidate was not present in the local worktree/branch inventory at this check; this successor does not claim to include it. The older c62 candidate and its evidence remain preserved.
+
+**Legacy empty-inode truncate-extension follow-up - 2026-11-04:** This isolated detached successor starts from the fixed ranged-write candidate `990cfaeacd64f54001a0bc41055093e55a4f939c`; earlier candidates and their evidence remain unchanged. A legacy empty inode can own a recycled direct block while its logical size is zero. After writing `range` at offset 59, extending that file to 128 bytes previously exposed the recycled block's old `0xA5` bytes at offsets 64-127. The corrected RED test reproduced this before the fix (RC 101; log `truncate-gap-red-corrected.raw.log`).
+
+`truncate` now zeroes the newly visible gap inside already-owned blocks before resizing, then relies on `resize_file_blocks` to zero newly allocated blocks before publishing the larger inode size. The success regression checks the same-block extension and a second extension across the block boundary to `BLOCK_SIZE + 64`; it verifies all gap bytes are zero and the neighboring file is unchanged in cached and write-through modes. The failure regression injects a one-shot failure at either sector of the reused block tail-zero write in both modes. After reconnect and explicit `recover_existing`, the old size and contents remain valid, the neighbor is intact, no pending journal is written or flushed, retry succeeds, and the final integrity check passes. These are synthetic `FaultDisk` sector and durable-image checks, not physical-media or arbitrary write-order power-loss proof.
+
+The pinned nightly host harness passed the two focused truncate tests and the full unfiltered suite (73/73). An initial harness attempt selected the Homebrew x86_64 rustc from `PATH` and failed while linking the `generic-array` build script because the installed xcrun lacks its x86_64 slice; no test ran in that attempt. The successful run explicitly selected the pinned ARM64 nightly `rustc`/`rustdoc`, ran offline with one job on `aarch64-apple-darwin`, and used the private evidence harness and target directory. The official `user/libnagi` manifest, Linux CI, Nagi target, guest, physical media, and process-shared ownership remain unverified.
 ## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
 
 Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
@@ -650,8 +884,10 @@ generated checkout and receipt remain local and are not PR content.
 # 1. Current status
 
 **Current milestone:** `M19 — Semantic Layer / Search`
-**Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
-M23–M30 `PARTIAL`.
+**Development progress:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
+M23–M30 `PARTIAL` (implementation progress only).
+**Formal M30 release gate:** `BLOCKED`; the development labels do not establish
+formal guest/release acceptance.
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,
@@ -3993,7 +4229,7 @@ Use only these statuses:
 | M27 | A/B / Recovery | PARTIAL | Both current-source M27 sub-runs in `out/evidence/m28-run-20261003T035340Z-63277/` passed GPT A/B rollback, healthy-B readiness promotion, Recovery journal preservation, and committed M22 Undo across restart; manifests verify. Repetition 1 reproduced the 90-second pre-guest OVMF loop at Recovery Undo restart verification; unchanged writable-disk SHA-256 permitted one retry, which reached the original marker. The archived 18 MiB User Data images are raw GPT disks with valid primary/backup header and table CRCs; `qemu-img check` does not support raw images. Intermittent firmware stalls remain unexplained. Authenticated update/readiness authority, authenticated slot manifests, full session readiness, and remaining Recovery work remain. See `docs/workstreams/NagiOS_M27_AB_Recovery_Workstream.md`. |
 | M28 | Integration / Stress | PARTIAL | The latest current-source run `out/evidence/m28-run-20261003T035340Z-63277/` passed two consecutive repetitions of M19 Search, three-boot M22 Move/Copy + NH16/NAL1 grouped Undo, and M27 GPT A/B/Recovery; the archive and M27 sub-run manifests verify. Repetition 1 exercised M27's guarded Recovery restart retry. The previous current-source run `out/evidence/m28-run-20261003T033818Z-60771/` also passed 2/2; `out/evidence/m28-run-20261003T032603Z-59318/` passed 0/2 after M22 boot 3 stopped pre-guest and remains a failed archived run. Formal Desktop/Files/Notes/Albert combined load, real Granite inference/fairness, audio pressure, OOM, and leak soak remain unmeasured. See `docs/workstreams/NagiOS_M28_Integration_Stress_Workstream.md`. |
 | M29 | Developer Preview Polish | PARTIAL | Current `./nagi m29` QEMU run `out/evidence/m29-settings-1790896342100947000/` passed Japanese Settings selection and same-disk restart restoration; READY arrived in 2,444 ms. Its eight-entry SHA256SUMS verifies the screenshot, image, User Data, OVMF vars, three serial logs, and README; the screenshot is byte-identical to the tracked acceptance image. Cross-process language propagation, onboarding, complete localization/accessibility, broader UI/performance evidence, user-facing provider/recovery UX, and human license review remain. See `docs/workstreams/NagiOS_M29_Developer_Preview_Polish_Workstream.md`. |
-| M30 | Nagi OS 0.1 Release | PARTIAL | Completion Sweep commit `65f4d6f8773e0b373f237067960738f66e454f3b` produced a source-bound 64 GiB GPT qcow2 with SHA-256 `bda4e15274f52b9005497d05dff0ff732d01aac93d8fec5cd26fe87b50929258`. Fresh QEMU run `1790926329664045000` passed System A, User Data persistence, Recovery, unstaged System B rejection, post-Recovery restart, M19 Search, M22 Ledger/Move/Copy, and the separate M20 Model Store reader fixture. Clean-source release preflight, assembly to `out/artifacts/m30-release-bundle-65f4d6f/`, verification, all 23 bundle checksums, image byte identity, and pristine/bundle `qemu-img check` passed. Evidence manifest: `out/evidence/m30-release-1790926329664045000/SHA256SUMS`. The release manifest retains `m30_acceptance=NOT_EVALUATED`; QEMU has no host audio input driver. A stale image bound to `25e0b54` was preserved with verified checksums under `out/evidence/m30-release-symlink-stale-image-65f4d6f/`. Authenticated updates/System B acceptance, remaining M18–M29 work, and human redistribution review keep M30 `PARTIAL`. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. On 2026-10-03, clean source commit `4fae6875d64752db8fbe0508a932c28da246e8af` rebuilt the reference qcow2 (SHA-256 `1e81c7a89b4295bcadebfd835d4942ad53849ee1f81be3cb7ff5cc05395f379d`) and passed `./nagi m30` run `1790985901890315000`: System A, User Data restart persistence, Recovery, unstaged System B rejection, post-Recovery restart, M19 Search, M22 grouped undo/ledger, and separate M20 Model Store reader fixture. Clean-source release preflight, assembly to `out/artifacts/m30-release-bundle-4fae687/`, verify, all 23 bundle checksums, byte identity, and bundled qcow2 check also passed. Evidence and a verified manifest are under `out/evidence/m30-release-1790985901890315000/`; the superseded source-65f4d6f image/sidecar are preserved under `out/evidence/m30-stale-image-pre-4fae687-20261003/`. `m30_acceptance=NOT_EVALUATED` remains correct; human redistribution review and authenticated update acceptance remain open. Current-source clean commit `9b16eaae729b8c61403aa929912de5ab5da19d4b` rebuilt the reference image (SHA-256 `e815da59636642c91b06fb6d9f75b038113eabadf7dfd2eb4a251cd61ac2f349`) and passed `./nagi m30` run `1790988888019354000`; preflight, assembly to `out/artifacts/m30-release-bundle-9b16eaa/`, all 23 checksums, image identity, and qcow2 verification passed. The 11-entry run manifest is at `out/evidence/m30-release-1790988888019354000/`. `m30_acceptance=NOT_EVALUATED` remains the correct release-manifest value. |
+| M30 | Nagi OS 0.1 Release | BLOCKED | Development progress remains PARTIAL; the formal M30 gate is BLOCKED. The following historical fixture/assembly evidence does not complete the outstanding formal guest/release acceptance.  Completion Sweep commit `65f4d6f8773e0b373f237067960738f66e454f3b` produced a source-bound 64 GiB GPT qcow2 with SHA-256 `bda4e15274f52b9005497d05dff0ff732d01aac93d8fec5cd26fe87b50929258`. Fresh QEMU run `1790926329664045000` passed System A, User Data persistence, Recovery, unstaged System B rejection, post-Recovery restart, M19 Search, M22 Ledger/Move/Copy, and the separate M20 Model Store reader fixture. Clean-source release preflight, assembly to `out/artifacts/m30-release-bundle-65f4d6f/`, verification, all 23 bundle checksums, image byte identity, and pristine/bundle `qemu-img check` passed. Evidence manifest: `out/evidence/m30-release-1790926329664045000/SHA256SUMS`. The release manifest retains `m30_acceptance=NOT_EVALUATED`; QEMU has no host audio input driver. A stale image bound to `25e0b54` was preserved with verified checksums under `out/evidence/m30-release-symlink-stale-image-65f4d6f/`. Authenticated updates/System B acceptance, remaining M18–M29 work, and human redistribution review keep development progress `PARTIAL` and the formal M30 gate `BLOCKED`. See `docs/workstreams/NagiOS_M30_Release_Workstream.md` and `docs/decisions/ADR-0013-m30-reference-disk-layout.md`. On 2026-10-03, clean source commit `4fae6875d64752db8fbe0508a932c28da246e8af` rebuilt the reference qcow2 (SHA-256 `1e81c7a89b4295bcadebfd835d4942ad53849ee1f81be3cb7ff5cc05395f379d`) and passed `./nagi m30` run `1790985901890315000`: System A, User Data restart persistence, Recovery, unstaged System B rejection, post-Recovery restart, M19 Search, M22 grouped undo/ledger, and separate M20 Model Store reader fixture. Clean-source release preflight, assembly to `out/artifacts/m30-release-bundle-4fae687/`, verify, all 23 bundle checksums, byte identity, and bundled qcow2 check also passed. Evidence and a verified manifest are under `out/evidence/m30-release-1790985901890315000/`; the superseded source-65f4d6f image/sidecar are preserved under `out/evidence/m30-stale-image-pre-4fae687-20261003/`. `m30_acceptance=NOT_EVALUATED` remains correct; human redistribution review and authenticated update acceptance remain open. Current-source clean commit `9b16eaae729b8c61403aa929912de5ab5da19d4b` rebuilt the reference image (SHA-256 `e815da59636642c91b06fb6d9f75b038113eabadf7dfd2eb4a251cd61ac2f349`) and passed `./nagi m30` run `1790988888019354000`; preflight, assembly to `out/artifacts/m30-release-bundle-9b16eaa/`, all 23 checksums, image identity, and qcow2 verification passed. The 11-entry run manifest is at `out/evidence/m30-release-1790988888019354000/`. `m30_acceptance=NOT_EVALUATED` remains the correct release-manifest value. |
 
 ---
 
