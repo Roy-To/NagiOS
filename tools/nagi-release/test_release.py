@@ -11,6 +11,98 @@ import release
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def test_root_license_documents_are_required_regular_nonempty_inputs(self):
+        for name in ("LICENSE", "LICENSE_SCOPE.md"):
+            for state in ("missing", "empty", "symlink"):
+                with self.subTest(name=name, state=state), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    for source, _ in release.DOC_INPUTS:
+                        path = root / source
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(b"synthetic documentation\n")
+                    document = root / name
+                    document.unlink(missing_ok=True)
+                    if state == "empty":
+                        document.touch()
+                    elif state == "symlink":
+                        target = root / "external-document"
+                        target.write_bytes(b"synthetic license\n")
+                        document.symlink_to(target)
+                    with self.assertRaisesRegex(release.ReleaseError, name):
+                        release.required_document_inputs(root)
+
+    def test_assembly_preserves_and_indexes_root_license_documents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            root.mkdir()
+            for source, _ in release.DOC_INPUTS:
+                path = root / source
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"synthetic documentation\n")
+            documents = {
+                "LICENSE": b"Synthetic license fixture only.\r\n\xc2\xa9 Example\n",
+                "LICENSE_SCOPE.md": b"# Synthetic scope fixture\nNo legal grant.\r\n",
+            }
+            for name, content in documents.items():
+                (root / name).write_bytes(content)
+            image = root / "synthetic-image"
+            image.write_bytes(b"synthetic image fixture only")
+            upstream = root / "third_party/example/LICENSE"
+            upstream.parent.mkdir(parents=True)
+            upstream.write_bytes(b"Synthetic upstream license fixture\n")
+            revision = "a" * 40
+            metadata = {
+                "nagi_version": "test",
+                "kernel_build_id": "sha256:" + "b" * 64,
+                "reference_disk_gib": 64,
+                "servo_revision": "c" * 40,
+                "mesa_revision": "d" * 40,
+                "llama_cpp_revision": "e" * 40,
+                "granite_sha256": "f" * 64,
+                "granite_pin_source": "synthetic pin",
+                "granite_model_bytes_bundled": False,
+            }
+            bundle = Path(temporary) / "bundle"
+            # Only build/tool provenance is mocked; copying and both indexes and
+            # the complete bundle verifier exercise their production paths.
+            with (
+                patch.object(release, "tracked_license_inputs", return_value=[
+                    (upstream, "licenses/source-tree/third_party/example/LICENSE"),
+                ]),
+                patch.object(release, "git_source_revision", return_value=revision),
+                patch.object(release, "repository_metadata", return_value=metadata),
+                patch.object(release, "validate_qcow2"),
+                patch.object(release, "image_build_provenance", return_value={
+                    "format_version": 1,
+                    "source_revision": revision,
+                    "image_sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                }),
+                patch.object(release, "toolchain_versions", return_value={"fixture": "only"}),
+            ):
+                release.assemble(root, image, root / "synthetic-kernel", bundle)
+            manifest = json.loads((bundle / release.MANIFEST_NAME).read_bytes())
+            records = {record["path"]: record for record in manifest["artifacts"]}
+            sums = (bundle / release.SUMS_NAME).read_text(encoding="ascii")
+            self.assertEqual(manifest["m30_acceptance"], "NOT_EVALUATED")
+            for name, content in documents.items():
+                with self.subTest(name=name):
+                    packaged = bundle / name
+                    self.assertEqual(packaged.read_bytes(), content)
+                    digest = hashlib.sha256(content).hexdigest()
+                    self.assertEqual(records[name], {
+                        "path": name, "size_bytes": len(content),
+                        "sha256": digest, "source": name,
+                    })
+                    self.assertIn(f"{digest}  {name}\n", sums)
+                    packaged.unlink()
+                    with self.assertRaisesRegex(release.ReleaseError, name):
+                        release.verify_release(bundle)
+                    packaged.write_bytes(content + b"tampered")
+                    with self.assertRaisesRegex(release.ReleaseError, "SHA-256 mismatch"):
+                        release.verify_release(bundle)
+                    packaged.write_bytes(content)
+            release.verify_release(bundle)
+
     def test_tracked_third_party_license_texts_are_selected_stably(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
