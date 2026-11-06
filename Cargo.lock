@@ -3599,6 +3599,7 @@ dependencies = [
 name = "nagi-search"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "nagi-model",
 ]
 
