@@ -41,6 +41,8 @@ LICENSE_FILENAME_PATTERN = re.compile(
 )
 
 DOC_INPUTS = (
+    ("LICENSE", "LICENSE"),
+    ("LICENSE_SCOPE.md", "LICENSE_SCOPE.md"),
     ("RELEASE_NOTES.md", "RELEASE_NOTES.md"),
     ("THIRD_PARTY_NOTICES.md", "licenses/THIRD_PARTY_NOTICES.md"),
     ("docs/architecture/README.md", "docs/architecture/README.md"),
