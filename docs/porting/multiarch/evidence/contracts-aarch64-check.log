@@ -1,0 +1,4 @@
+    Checking nagi-bootinfo v0.1.0 (/workspace/worktrees/port-multiarch-foundation-01/crates/nagi-bootinfo)
+    Checking nagi-abi v0.1.0 (/workspace/worktrees/port-multiarch-foundation-01/crates/nagi-abi)
+    Checking nagi-multiarch-contracts-experiment v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-multiarch-contracts)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s

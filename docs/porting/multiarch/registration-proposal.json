@@ -1,0 +1,47 @@
+{
+  "registration_status": "PROPOSED_UNREGISTERED",
+  "id": "PORT-MULTIARCH-01",
+  "owner": "Codex, bounded independent preparation requested by repository owner",
+  "owner_branch": "PR #57 existing branch; preserve published ancestry and update only by ordinary fast-forward",
+  "source_base": "0362427747e769b00558053e4c7f4c756d303802",
+  "recommended_worktree": "Guarded private SSD worktree; do not publish its local path",
+  "allowed_paths": [
+    "docs/porting/multiarch/**",
+    "experiments/nagi-multiarch-contracts/**",
+    "experiments/nagi-aarch64-spike/**"
+  ],
+  "forbidden_paths": [
+    "kernel/**",
+    "loader/**",
+    "user/**",
+    "crates/**",
+    "targets/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".cargo/**",
+    ".github/**",
+    ".dev/**",
+    "docs/implementation_status.md",
+    "docs/decisions/**",
+    "third_party/**"
+  ],
+  "state_file": "docs/porting/multiarch/state.json",
+  "dependencies": [],
+  "activation_gate": "Current user request authorizes A/B and independent C when exclusively owned. New proposal/experiment paths are absent on all inspected remote branches and not specifically claimed by any stream. No production Nagi activation. Shared registration pending Integration Owner review.",
+  "merge_boundary": "The local candidate retains PR #57 head as an ancestor and includes exact current main 0362427747e769b00558053e4c7f4c756d303802 as an ancestor via an ordinary local merge. The branch remains fast-forwardable from its prior published tip. No push, PR mutation, or remote merge was performed.",
+  "production_checkpoint_required": {
+    "owner": "os-core + Integration Owner + loader/platform-apis owners as applicable",
+    "requirements": [
+      "M30 PASS",
+      "bounded milestone with exact source base and allowed paths",
+      "agreed ABI/BootInfo migration and consumers",
+      "x86-64 guest parity acceptance and rollback plan"
+    ],
+    "status": "BLOCKED"
+  },
+  "acceptance": [
+    "A live source/ownership/PR inventory with anchored evidence",
+    "B reviewable architecture proposal, migration map and host-only negative tests",
+    "C isolated ARM64 ELF, real QEMU serial/traps/counter evidence and negative boot rejection"
+  ]
+}

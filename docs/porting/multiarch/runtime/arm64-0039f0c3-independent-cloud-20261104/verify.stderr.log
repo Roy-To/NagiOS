@@ -1,0 +1,40 @@
+    Checking nagi-aarch64-feasibility-spike v0.0.1 (/workspace/verification-pr57-20261104/experiments/nagi-aarch64-spike)
+    Finished `release` profile [optimized] target(s) in 0.14s
+test_complete_ordered_guest_and_zero_exit (test_runner.AcceptanceTests.test_complete_ordered_guest_and_zero_exit) ... ok
+test_crash_failure_and_timeout_even_with_markers (test_runner.AcceptanceTests.test_crash_failure_and_timeout_even_with_markers) ... ok
+test_el2_negative_requires_exact_failure_shape (test_runner.AcceptanceTests.test_el2_negative_requires_exact_failure_shape) ... ok
+test_existing_output_is_refused (test_runner.AcceptanceTests.test_existing_output_is_refused) ... ok
+test_missing_duplicate_and_reordered_markers (test_runner.AcceptanceTests.test_missing_duplicate_and_reordered_markers) ... ok
+test_mutated_binary_during_run_is_failure (test_runner.AcceptanceTests.test_mutated_binary_during_run_is_failure) ... ok
+test_runner_binds_binary_qemu_and_serial_digests_without_claiming_source (test_runner.AcceptanceTests.test_runner_binds_binary_qemu_and_serial_digests_without_claiming_source) ... ok
+test_runner_cli_has_no_source_claim_flags (test_runner.AcceptanceTests.test_runner_cli_has_no_source_claim_flags) ... usage: python3 -m unittest [-h] [--qemu QEMU] [--binary BINARY]
+                           [--virtualization {off,on}] --output OUTPUT
+python3 -m unittest: error: unrecognized arguments: --source-commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --source-tree bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+ok
+test_build_environment_discards_overrides_and_reports_injection_names (test_attestation.AttestationFixture.test_build_environment_discards_overrides_and_reports_injection_names) ... ok
+test_build_source_binding_and_elf_hash_are_verified (test_attestation.AttestationFixture.test_build_source_binding_and_elf_hash_are_verified) ... ok
+test_build_time_config_mutation_fails_and_preserves_logs (test_attestation.AttestationFixture.test_build_time_config_mutation_fails_and_preserves_logs) ... ok
+test_cli_reports_integrity_only_and_differing_builds_fail (test_attestation.AttestationFixture.test_cli_reports_integrity_only_and_differing_builds_fail) ... ok
+test_committed_cargo_config_blob_mismatch_is_rejected (test_attestation.AttestationFixture.test_committed_cargo_config_blob_mismatch_is_rejected) ... ok
+test_committed_cargo_config_snapshot_symlink_is_rejected (test_attestation.AttestationFixture.test_committed_cargo_config_snapshot_symlink_is_rejected) ... ok
+test_committed_snapshot_cargo_config_must_keep_its_commit_hash (test_attestation.AttestationFixture.test_committed_snapshot_cargo_config_must_keep_its_commit_hash) ... ok
+test_el2_timeout_wrong_return_and_complete_marker_are_rejected (test_attestation.AttestationFixture.test_el2_timeout_wrong_return_and_complete_marker_are_rejected) ... ok
+test_existing_output_is_refused_without_overwrite (test_attestation.AttestationFixture.test_existing_output_is_refused_without_overwrite) ... ok
+test_external_elf_path_and_missing_build_block_are_rejected (test_attestation.AttestationFixture.test_external_elf_path_and_missing_build_block_are_rejected) ... ok
+test_generator_end_to_end_with_fake_cargo_rustup_and_qemu (test_attestation.AttestationFixture.test_generator_end_to_end_with_fake_cargo_rustup_and_qemu) ... ok
+test_generator_has_no_arbitrary_binary_input_and_requires_source_sha (test_attestation.AttestationFixture.test_generator_has_no_arbitrary_binary_input_and_requires_source_sha) ... ok
+test_isolated_cargo_home_config_is_rejected (test_attestation.AttestationFixture.test_isolated_cargo_home_config_is_rejected) ... ok
+test_manifest_rejects_missing_extra_symlink_and_hash_mismatch (test_attestation.AttestationFixture.test_manifest_rejects_missing_extra_symlink_and_hash_mismatch) ... ok
+test_missing_short_and_nonexistent_source_commits_are_rejected (test_attestation.AttestationFixture.test_missing_short_and_nonexistent_source_commits_are_rejected) ... ok
+test_nonancestor_source_is_rejected (test_attestation.AttestationFixture.test_nonancestor_source_is_rejected) ... ok
+test_parent_cargo_config_is_rejected (test_attestation.AttestationFixture.test_parent_cargo_config_is_rejected) ... ok
+test_qemu_and_serial_hash_mismatches_are_rejected (test_attestation.AttestationFixture.test_qemu_and_serial_hash_mismatches_are_rejected) ... ok
+test_source_snapshot_tamper_is_rejected_even_with_updated_manifest (test_attestation.AttestationFixture.test_source_snapshot_tamper_is_rejected_even_with_updated_manifest) ... ok
+test_source_substitution_and_tree_object_substitution_are_rejected (test_attestation.AttestationFixture.test_source_substitution_and_tree_object_substitution_are_rejected) ... ok
+test_tree_and_dirty_claim_mismatches_are_rejected (test_attestation.AttestationFixture.test_tree_and_dirty_claim_mismatches_are_rejected) ... ok
+test_valid_receipt_binds_source_snapshot_and_artifacts (test_attestation.AttestationFixture.test_valid_receipt_binds_source_snapshot_and_artifacts) ... ok
+
+----------------------------------------------------------------------
+Ran 30 tests in 1.780s
+
+OK

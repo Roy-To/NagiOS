@@ -1,0 +1,274 @@
+{
+  "schema": "nagi-multiarch-current-status/3",
+  "main_sha": "0362427747e769b00558053e4c7f4c756d303802",
+  "main_tree_sha": "1cc62a0a93201bb35c85ae89afca677650cd96ea",
+  "source_commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+  "source_tree_sha": "0b2597ae1b707c0a2fa8d42e16e42d46566d56c5",
+  "pr_head_sha": "511ec1265251bc498eda08a4ecdad8ec326f003e",
+  "identity_merge_scope": "36 paths from old main to current main; zero paths in the three owned prefixes",
+  "phases": {
+    "A": {
+      "checks": {
+        "current_authority_hashes": "PASS",
+        "current_static_inventory": "PASS",
+        "ownership_and_live_ref_snapshot": "NOT_RUN",
+        "registry_unregistered_and_record_validation": "PASS"
+      },
+      "reason": "Fixed source0039/base036 inventory, authority hashes and direct-child R1 records verification pass. Live ownership/proposal acceptance remains pending; current remote-main compatibility is recorded separately.",
+      "status": "PENDING"
+    },
+    "B": {
+      "checks": {
+        "host_Cargo_contract_tests": "PASS",
+        "model_free_tool_acceptance": "PASS"
+      },
+      "reason": "Pinned host Cargo tests, formatting, strict Clippy, and model-free fixtures pass for their recorded snapshots; the architecture proposal remains PROPOSED_UNREGISTERED and still needs owner review.",
+      "status": "PENDING"
+    },
+    "C": {
+      "status": "PENDING",
+      "checks": {
+        "new_ELF": "PASS",
+        "QEMU_EL1": "PASS",
+        "QEMU_EL2_negative": "MET",
+        "independent_rebuild": "NOT_RUN"
+      },
+      "reason": "Source0039 complete spike verifier passed with two fresh ELFs and real QEMU EL1/EL2; independent rebuild/review remains NOT_RUN. No Nagi production or physical hardware acceptance."
+    }
+  },
+  "tool_acceptance": {
+    "cargo_fmt": {
+      "basis": "Pinned host verification and complete spike verifier passed formatting on source0039; target build and Clippy are separate outcomes. Formatting itself does not build.",
+      "build_performed": false,
+      "outcome": "PASS",
+      "packages": 2
+    },
+    "model_free_python_tests": {
+      "contracts_audit_and_records": 41,
+      "outcome": "PASS",
+      "runner_and_receipt": 30,
+      "tests": 71
+    },
+    "python_syntax": {
+      "files": 10,
+      "outcome": "PASS"
+    },
+    "shell_syntax": {
+      "outcome": "PASS",
+      "scripts": 2
+    },
+    "static_inventory": {
+      "authority_files": 13,
+      "bootinfo_field_references": 153,
+      "matches": 2234,
+      "outcome": "PASS",
+      "source_files": 579
+    },
+    "static_inventory_exact_check": {
+      "outcome": "PASS",
+      "source_commit_explicit": true
+    },
+    "host_Cargo_contract_tests": {
+      "outcome": "PASS",
+      "source_commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "source_tree_sha": "0b2597ae1b707c0a2fa8d42e16e42d46566d56c5",
+      "command": "./experiments/nagi-multiarch-contracts/verify.sh",
+      "toolchain": "nightly-2025-08-01",
+      "rustc_version": "rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)",
+      "locked": true,
+      "offline": true,
+      "cargo_tests": 99,
+      "doctests": 0,
+      "bootinfo_tests": 16,
+      "abi_tests": 5,
+      "clippy_outcome": "PASS",
+      "fmt_outcome": "PASS",
+      "clippy_deny_warnings": true,
+      "exit_code": 0,
+      "stdout_sha256": "462674003db86892f9064c1d0df54e978a4a4ff4a3e84a2807ac4498f5a0c55a",
+      "stderr_sha256": "7121f1cbe2f061329789e4223ae8774f83055fd3937d2f87a7abcefc85153dc7",
+      "metadata_file": "host-cargo-verify-0039f0c3/verify.meta.json",
+      "prior_attempts": [
+        {
+          "name": "host-cargo-validation-ca0a8d2f",
+          "record_head_sha": "ca0a8d2fdcb974c9bb69509945225b98d5660889",
+          "result": "FAIL",
+          "exit_code": 101,
+          "failure": "E0658 unsigned_is_multiple_of under an unpinned stable cargo/rustc invocation; per-command metadata did not capture the effective rustc version.",
+          "index_sha256": "c6e69deb487f7f650f616e49b527dbfbccc5fe94fa16b4bc6d881a6e0f07f9af"
+        },
+        {
+          "name": "host-cargo-validation-nightly-ca0a8d2f",
+          "record_head_sha": "ca0a8d2fdcb974c9bb69509945225b98d5660889",
+          "result": "FAIL",
+          "exit_code": 101,
+          "failure": "E0658 persisted in the nightly-labeled cargo attempt; the effective cargo child rustc path was not attested.",
+          "index_sha256": "b9b9db1fc44259206e9461408653112f92002125c99e95bd98f3d0626119ec0d"
+        },
+        {
+          "name": "host-cargo-validation-38f95bac",
+          "record_head_sha": "38f95baccee57009783893f05bf5e9eb48e9df89",
+          "result": "FAIL",
+          "exit_code": 101,
+          "failure": "Temporary unsigned_is_multiple_of feature attribute failed with E0554; rustc selection remained inconsistent.",
+          "index_sha256": "ef3ecb918adbe659c7688870c112ce16abd00e6dfa76d99b7ddd085b2aae7e73"
+        },
+        {
+          "name": "host-cargo-validation-pinned-38f95bac",
+          "record_head_sha": "38f95baccee57009783893f05bf5e9eb48e9df89",
+          "result": "PARTIAL_FAIL",
+          "exit_code": 101,
+          "failure": "Pinned nightly tests passed, but strict Clippy rejected the temporary feature attribute because the feature was already stable and -D warnings was active.",
+          "index_sha256": "a4833b2f8aa6db9fe00df96e7f0244466103410cd7c4f0edcb50717e1fe09886"
+        }
+      ]
+    }
+  },
+  "records_validation": {
+    "outcome": "PASS",
+    "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+    "record_tree_sha": "caca5be0a3a8d78e97509e7240c36655b9560da5",
+    "source_commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+    "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
+    "exit_code": 0,
+    "stdout_path": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log",
+    "stdout_sha256": "e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c"
+  },
+  "target_execution": {
+    "cargo_check": "NOT_RUN",
+    "cargo_clippy": "PASS",
+    "cargo_build": "PASS",
+    "new_ELF_generation": "PASS",
+    "QEMU": "PASS",
+    "VM": "NOT_RUN",
+    "Miri": "NOT_RUN",
+    "independent_rebuild": "NOT_RUN"
+  },
+  "artifact_hashes": {
+    "source_inventory_sha256": "fe1dfcf7f852145d42d2419f73e98e384c3dbdecb1ff43eda3eea9fe47fd1a07",
+    "authority_sources_sha256": "15dd6d0727dbd2aa196aec4d2817f3e4c5f6ad436648f2fb7a69e970a197ae7a",
+    "baseline_drift_sha256": "0a69ed1c736aa14d2015d409228e7a13833cf5ddf4feb4c42e9b93c03e2fe5fb"
+  },
+  "private_tool_log_metadata": [
+    {
+      "name": "audit-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/audit-fixtures.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "ef2df09e0c57c7c09f0835b6745149277a3871a375cf2115c0086c80e12dd424"
+    },
+    {
+      "name": "records-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/records-fixtures.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "ac4a5c54e58e8e1672aab4d5915438137bad253ae767dbc0d2b566b84f6e3d2d"
+    },
+    {
+      "name": "runtime-records-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/runtime-records-fixtures.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "c51a03f3b7aff0b6b0c6ef05f3d08add81c7014d585e6f1edd5359190fe67514"
+    },
+    {
+      "name": "spike-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/spike-fixtures.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "67cdda0949fef4df8ce6ba9dc5b8164607a8e5efe5124b855517e68026104c34",
+      "stderr_sha256": "14ae1d11e2c0988271cb681df17a11353a4866a1704e556973da94151b67c2ed"
+    },
+    {
+      "name": "receipt-verify",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/receipt-verify.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "8e17e10a4d33292cdd053265aeb8067400f81b0c5e26386e6eae42ba49157abc",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "inventory",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/inventory.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "6deadf1501bca1f5df69c1ec0682f91f79f89be3d09dc412cb79895c1e4704f9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "inventory-exact",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/inventory-exact.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 2,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "5b9f4f784f1bbdcd3b4ae8cb3a15aaeb4860a9bff9a6611d805b5452080bb8dc"
+    },
+    {
+      "name": "inventory-exact-clean-source",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/inventory-exact-clean-source.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "6deadf1501bca1f5df69c1ec0682f91f79f89be3d09dc412cb79895c1e4704f9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "shell-syntax",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/shell-syntax.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "python-syntax",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/python-syntax.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "host-cargo-verify-0039f0c3",
+      "metadata_file": "host-cargo-verify-0039f0c3/verify.meta.json",
+      "record_head_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+      "exit_code": 0,
+      "stdout_sha256": "462674003db86892f9064c1d0df54e978a4a4ff4a3e84a2807ac4498f5a0c55a",
+      "stderr_sha256": "7121f1cbe2f061329789e4223ae8774f83055fd3937d2f87a7abcefc85153dc7"
+    },
+    {
+      "name": "r1-records-verify",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-records-verify.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "r1-records-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-records-fixtures.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "6b59e0142c3f69a299c71a75024d39598068e60faa2eba054799dd5ec5197063"
+    },
+    {
+      "name": "r1-runtime-fixtures",
+      "metadata_file": "private-evidence/pr57-records-0039f0c3-20261104-01/r1-runtime-fixtures.meta.json",
+      "record_head_sha": "89c01c9ae7ca469dae362943b2537f303a00c01d",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "ed517e6d91bbaa8fb77f1e72ee2145963a58e7de175a821c4203949de6f8d67c"
+    }
+  ],
+  "historical_index_file_count": 50,
+  "remote_publish_or_PR_mutation": "NOT_RUN",
+  "runtime_record": {
+    "path": "docs/porting/multiarch/runtime/arm64-0039f0c3-20261104/summary.json",
+    "sha256": "34ea3d90d435c1dd9dcc624ca266fdc32dd0a0158424fbb800c8ff4eccfdd8fc",
+    "raw_attestation_sha256": "f27e033b3d54869244724cc5a938cd7979bf2b47ce80e7a65e01e03b8f25721d",
+    "verifier_stdout_sha256": "8e17e10a4d33292cdd053265aeb8067400f81b0c5e26386e6eae42ba49157abc"
+  }
+}

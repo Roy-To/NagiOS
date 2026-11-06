@@ -1,0 +1,15 @@
+{
+  "schema": "nagi-pr57-main-compatibility/1",
+  "checked_at": "2026-11-04T02:18:57.418616+00:00",
+  "verified_source": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+  "verified_base": "0362427747e769b00558053e4c7f4c756d303802",
+  "later_remote_main": "87b7dea4061be2572526181ab559d63037f823d0",
+  "remote_head_before_update": "511ec1265251bc498eda08a4ecdad8ec326f003e",
+  "main_changed_paths": [
+    "A\t.dev/workstreams/calendar-buffer-edge-successor/evidence/endpoint-assertion-followup.txt",
+    "A\t.dev/workstreams/calendar-buffer-edge-successor/evidence/host-verification.txt",
+    "M\tcrates/nagi-calendar-core/tests/availability_boundary_contract.rs"
+  ],
+  "changes_in_multiarch_owned_paths": [],
+  "interpretation": "Later main changes only Calendar tests and its workstream evidence. No later-main local guest result is claimed. Recheck PR mergeability and CI at the exact newly published head; preserve source0039/base036 receipts."
+}

@@ -1,0 +1,15 @@
+{
+  "AGENTS.md": "c3f516802a76f67e7a2bec51b2b43bc3aadb51dfaef70999ccf98623835800f2",
+  "docs/implementation_status.md": "630e3082460c85de1dafe322844ece9ac9e5088b5708a4c214450a82fbf2c32a",
+  "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md": "9e62dae03682e12f7577691314b32e734dcafd6e083b9e0867c08a5994c576b3",
+  "docs/Nagi_OS_0.2_Codex_Implementation_Spec.md": "096eeba4d4678e29130bbdd6c0250ba250aa3706d8f43a3e77b1b2a51634f3c3",
+  "docs/Nagi_OS_0.3_Architecture_Roadmap.md": "13af5d5fc03cab8916d4bff8be1dd63e8e56c83feb39630597dd61d2dc672ca5",
+  "docs/0.2/DEVELOPMENT_ARCHITECTURE.md": "9e2de4170d87db36b22b1ba6b544b0bc153d90a35167cff3123a8f7d8c6b62f5",
+  "docs/0.2/WORKSTREAMS.md": "196cbb2103d1d1206308c39de54a4bd12c013e0984da1d921fcd5dfb8fe78648",
+  "docs/0.2/Nagi_OS_0.2_Parallel_Execution_Rules.md": "3c5ec3f1b30cd138a9028d324bdaac19233c87e45a72d862bafed833a9436129",
+  ".dev/workstreams.json": "2353a8966db8d33ad0d0a9270eca159b5f16804f64bf3e18c88090645d537b56",
+  ".dev/workstreams/integration-next-phase/state.json": "56ac7f39f0fd50711cc16a2bdaceee4d012044459da2c084371af6e3b7e715cb",
+  "docs/decisions/ADR-0001-hybrid-kernel.md": "ff31eb273ebf855fdba8813c10fdb76ca52e40282410ac1fd906cb08fbfcd4b5",
+  "docs/decisions/0014-unified-device-application-model.md": "d440770fddbfd58efd6eea856b80668a6513655e7d22fd38542ee2d602767ad8",
+  "docs/architecture/unified-device-application-model.md": "de5faac9e2a17395e1213a81a44d213940ec6fd5e105f4c1c0fc3ba8102b096c"
+}

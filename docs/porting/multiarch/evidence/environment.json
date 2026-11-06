@@ -1,0 +1,62 @@
+{
+  "host": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "architecture": "x86_64",
+  "rustc": "rustc 1.90.0-nightly (adcb3d3b4 2025-07-31)",
+  "qemu": "10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)",
+  "local_install_only": true,
+  "packages": [
+    {
+      "file": "libaio1t64_0.3.113-8+b1_amd64.deb",
+      "sha256": "490c8a2d116001a5f3b0a6d7a7aabf6a7b629366590dc5c3f75b078e931dd129"
+    },
+    {
+      "file": "libcapstone5_5.0.7-1~deb13u1_amd64.deb",
+      "sha256": "775187a7be26bb0b076d1979a02163b943dbc13eb4adb0efc503223a03c75422"
+    },
+    {
+      "file": "libdaxctl1_81-1_amd64.deb",
+      "sha256": "6296eb5c976743ba0defb7a061ef081238ca072cf569c6bb96fd3f9095c58a30"
+    },
+    {
+      "file": "libfdt1_1.7.2-2+b1_amd64.deb",
+      "sha256": "8e37034d7864807ae2063efcc82fc79aad59069546212e6e0908ed67f9f7e107"
+    },
+    {
+      "file": "libndctl6_81-1_amd64.deb",
+      "sha256": "fe60a05d42e61cb9f49a90b872aa5ca569363b13459ee0d405243c37a7de7c93"
+    },
+    {
+      "file": "libpmem1_1.13.1-1.1+b1_amd64.deb",
+      "sha256": "7d972d6958e915ce602e4b90debc6b4b91a01dfea1fe003d0b013756e7d9d863"
+    },
+    {
+      "file": "libslirp0_4.8.0-1+deb13u1_amd64.deb",
+      "sha256": "6125698173f8be0d0de01ff897a0df3c5e50fb09f70238b26dd6574aaa0934e1"
+    },
+    {
+      "file": "liburing2_2.9-1_amd64.deb",
+      "sha256": "4b589c00c7a51172aace2cb2fb3d3ff32daf86c644023126dcfcaa840cc941ea"
+    },
+    {
+      "file": "libvdeplug2t64_4.0.1-5.1+b1_amd64.deb",
+      "sha256": "01291e2c8e28e91eac6b59c983a3a44e29ad0ddb8622699fbb84cbd5f26334a4"
+    },
+    {
+      "file": "qemu-system-arm_1%3a10.0.13+ds-0+deb13u1_amd64.deb",
+      "sha256": "babb8ab3c9f5f045184bd8c20604237d28c1b5e6a578d7f400566b9f257b59e7"
+    },
+    {
+      "file": "qemu-system-common_1%3a10.0.13+ds-0+deb13u1_amd64.deb",
+      "sha256": "3a99dc23c42c66bb7e96dc1f2ba12b1797d154a472fbdb1cfcd822d9fb69e85b"
+    },
+    {
+      "file": "qemu-system-data_1%3a10.0.13+ds-0+deb13u1_all.deb",
+      "sha256": "a0e03c526cc09d4c2ab20aa19a8c12e916cdc49a170acb16a6563c28f70eafd3"
+    }
+  ],
+  "reproducibility": {
+    "first_target_dir": "experiments/nagi-aarch64-spike/target",
+    "second_target_dir": "/workspace/port-tools/spike-repro",
+    "both_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b"
+  }
+}

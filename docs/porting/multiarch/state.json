@@ -1,0 +1,122 @@
+{
+  "schema_ref": "../../../.dev/schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "PORT-MULTIARCH-01",
+  "current_milestone": "Independent multiarchitecture preparation (unregistered)",
+  "current_checkpoint": "Independent cloud verification of fixed source0039/base036 PASS: two fresh ELFs match the Mac artifact; actual QEMU EL1 PASS and expected EL2 rejection MET. Added records candidate only; canonical current-status/3 and runtime /1 phase C remain PENDING until independent-evidence/schema owner adoption. P2 backend helper repair uses explicit raw/output/QEMU-root paths and refuses existing output; 10 regressions and a fresh supplemental backend check pass; raw receipt bindings reverified unchanged.",
+  "status": "PARTIAL",
+  "last_verified": {
+    "commit_sha": "0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13",
+    "verified_at": "2026-11-04T04:50:07.614019+00:00",
+    "normal_state": "Source0039 host 99 contract tests, 16 BootInfo and 5 ABI pass, and its complete ARM64 spike verifier (target Clippy, 30 model-free fixtures, two fresh builds, real QEMU EL1/EL2, receipt validation) exits0. The 71 model-free audit/records/spike tests include new docs summary validation; the affected 22 records + 11 runtime-summary fixtures were rechecked at fixed R1. Direct R1 records validation passes with exact commit/tree/stdout binding. Actual guest execution remains source0039/base036 only; FE52 and failed attempts remain preserved. Later independent cloud verification succeeded for the same source0039/base036; earlier test rows, including their combined independent/hardware NOT_RUN checkpoint, are retained as historical results and superseded only for independent rebuild by the appended row. Physical hardware and production ARM64 remain NOT_RUN. P2 is a later records-helper repair, not a change to source0039: 10 model-free helper regressions, direct backend EL1/EL2 in new output, and unchanged raw receipt/source/ELF/run binding checks pass.",
+    "commands": [
+      "sh experiments/nagi-multiarch-contracts/verify.sh",
+      "71 model-free tests: 8 audit + 22 records + 11 runtime-summary + 30 spike/attestation",
+      "source0039 complete spike verifier with exact source/tree/main and unique output (exit 0)",
+      "source0039 receipt integrity recheck (no rebuild)",
+      "explicit source0039/base036 inventory generation and clean-source byte-exact check",
+      "env PATH=/workspace/.nagi-cargo/bin:$PATH RUSTUP_HOME=/workspace/.nagi-rustup CARGO_HOME=/workspace/.nagi-cargo NAGI_STORAGE_ROOT=/workspace QEMU_AARCH64=/home/agent/.local/bin/qemu-system-aarch64 sh experiments/nagi-aarch64-spike/verify.sh 0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13 0b2597ae1b707c0a2fa8d42e16e42d46566d56c5 0362427747e769b00558053e4c7f4c756d303802 /workspace/pr57-independent-evidence-20261104/run-01"
+    ],
+    "tests": [
+      {
+        "name": "Host contracts/fmt/strict Clippy plus BootInfo/ABI",
+        "command": "./experiments/nagi-multiarch-contracts/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "host-cargo-verify-0039f0c3/verify.meta.json stdout sha256 462674003db86892f9064c1d0df54e978a4a4ff4a3e84a2807ac4498f5a0c55a"
+      },
+      {
+        "name": "Source0039 real ARM64 QEMU and receipt verification",
+        "command": "sh experiments/nagi-aarch64-spike/verify.sh SOURCE TREE BASE NEW_SSD_OUTPUT",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/runtime/arm64-0039f0c3-20261104/summary.json sha256 34ea3d90d435c1dd9dcc624ca266fdc32dd0a0158424fbb800c8ff4eccfdd8fc"
+      },
+      {
+        "name": "Independent rebuild / physical hardware / production Nagi ARM64",
+        "command": "NOT_RUN",
+        "outcome": "NOT_RUN",
+        "exit_code": null,
+        "evidence": "No physical boot or Nagi production acceptance is claimed."
+      },
+      {
+        "name": "Fixed direct-child R1 records validation",
+        "command": "python3 docs/porting/multiarch/verify-records.py --main 0362427747e769b00558053e4c7f4c756d303802 --evidence-dir docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/evidence/main-0362427747e769b00558053e4c7f4c756d303802/records-validation.stdout.log sha256 e7a102a7daafa5f066c207b5e3aa5118a7a7ab6498ab754e8b7c0ae00512328c"
+      },
+      {
+        "name": "Independent cloud rebuild and real QEMU spike review (physical hardware excluded)",
+        "command": "env PATH=/workspace/.nagi-cargo/bin:$PATH RUSTUP_HOME=/workspace/.nagi-rustup CARGO_HOME=/workspace/.nagi-cargo NAGI_STORAGE_ROOT=/workspace QEMU_AARCH64=/home/agent/.local/bin/qemu-system-aarch64 sh experiments/nagi-aarch64-spike/verify.sh 0039f0c3ad6df56fee57fcdeca7ea02bd1f9db13 0b2597ae1b707c0a2fa8d42e16e42d46566d56c5 0362427747e769b00558053e4c7f4c756d303802 /workspace/pr57-independent-evidence-20261104/run-01",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/summary.json sha256 b0f672bd96f6a499d2e0269a4aaa504596bc125ef7aad0ec9129f74e4d104c9f; two fresh ELF hashes match published Mac source0039; real EL1 exit0 / EL2 expected rejection exit1, no timeout; complete raw receipt remains local at /workspace/pr57-independent-evidence-20261104/run-01/attestation.json"
+      },
+      {
+        "name": "P2 backend helper relocation/output-preservation regressions",
+        "command": "python3 -B docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/test_check_backend.py -v",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "10 model-free tests; docs/porting/multiarch/runtime/arm64-0039f0c3-independent-cloud-20261104/P2-followup.md; raw receipt unchanged; new direct backend run under /workspace/pr57-p2-evidence-20261104/backend-run-01"
+      }
+    ],
+    "ci_runs": []
+  },
+  "release_line_gate": {
+    "source": "docs/implementation_status.md and .dev/workstreams.json os-core",
+    "last_checked_at": "2026-10-11T11:02:42.148840Z",
+    "activation_requirement": "M30 PASS plus explicit Integration Owner/os-core bounded milestone naming exact source base, allowed paths, ABI/BootInfo contracts and x86 guest parity acceptance. Generic portability request is not that exception."
+  },
+  "blocker": {
+    "active": true,
+    "class": "ACCEPTANCE",
+    "summary": "Independent cloud rebuild/QEMU review now passes for source0039/base036. A/B owner/proposal acceptance and canonical independent-evidence/phase-C schema adoption remain pending. D/E/registration retain M30 and owner gates; hardware NOT_RUN.",
+    "reproduction_commands": [
+      "Read docs/implementation_status.md and os-core registry activation_gate",
+      "./nagi dev resume"
+    ],
+    "failure_log_summary": "Earlier failures and FE52 checkpoint are preserved unchanged. Source0039 spike verifier and R1 records validation pass. The dirty-worktree inventory attempt exited2 and the clean-source retry passed. Independent rebuild/review, physical hardware and production D/E acceptance remain NOT_RUN/BLOCKED. The new independent cloud check is PASS; earlier failed/NOT_RUN records remain unchanged. Existing current-status/3 is retained byte-for-byte as a prior canonical checkpoint and does not encode the later independent result.",
+    "attempted_fixes": [
+      "Preserved historical 379d19e evidence and marked it invalid for current-main acceptance",
+      "Refreshed inventory and authority records to explicit current main 0362427747e769b00558053e4c7f4c756d303802 and fixed source commit fe52fedcbfe4bb90dd8a6f66ad5912f0bd3b2b50",
+      "Allowed only commit-hash-verified Cargo config from the archived source snapshot while rejecting external and isolated Cargo-home config",
+      "Fixed generator return/source/blob handling and added fake-tool end-to-end receipt generation plus DIFFERENT build rejection",
+      "Bound records validation to zero exit, saved stdout hash/path, and a direct records-only child commit",
+      "Pinned the host contract verification entry point to nightly-2025-08-01 for cargo, rustc, rustdoc, rustfmt, and Clippy; preserved earlier E0658 and strict-Clippy failures separately from the FE52 PASS."
+    ],
+    "do_not_try": [
+      "Do not relax M30 or v5 validation, rewrite production ABI or bypass rights",
+      "Do not edit shared registry/CI/root workspace or another owner State",
+      "Do not merge or force-push shared branches or delete other worktrees",
+      "Do not relabel independent spike as production ARM64/Pi/phone acceptance"
+    ]
+  },
+  "next_action": "Review the appended independent-cloud record and local raw receipt; decide canonical independent-evidence/schema adoption for phase C. Recheck exact remote head/main and CI before any separately authorized publication. No publication or merge in this candidate.",
+  "acceptance_criteria": [
+    "Current A is PASS only after explicit-main inventory, current authority/ownership/ref audit, and anchored portability matrix are regenerated and verified",
+    "Current B is PASS only after current-main proposal scope and host/ABI/negative tests pass",
+    "Current C is PASS only after a source-bound freshly built ARM64 ELF, actual QEMU guest evidence, and independent rebuild review",
+    "D/E remain blocked without the M30 owner checkpoint and actual production target acceptance"
+  ],
+  "deferred": [
+    "Integration Owner registry adoption and architecture acceptance",
+    "Production x86 extraction, BootInfo/ABI changes and ARM64 Nagi guest",
+    "MMU isolation, interrupt timer/GIC, PSCI/SMP, DMA/VirtIO and Nagi userspace",
+    "Pi 5/tablet/phone physical hardware and power/input/display acceptance"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "os-core",
+      "contract": "Production kernel/ABI ownership and bounded M30 checkpoint",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
+      "status": "BLOCKED"
+    },
+    {
+      "workstream_id": "integration-next-phase",
+      "contract": "Shared registration, ABI consumers, workspace/CI and release boundary",
+      "version": "existing registry at current main 0362427747e769b00558053e4c7f4c756d303802",
+      "status": "Registration proposed; no adoption requested or applied"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "command": [
+    "/workspace/port-tools/root/usr/bin/qemu-system-aarch64",
+    "-machine",
+    "virt,gic-version=2,virtualization=on",
+    "-cpu",
+    "cortex-a53",
+    "-accel",
+    "tcg",
+    "-smp",
+    "1",
+    "-m",
+    "128M",
+    "-display",
+    "none",
+    "-monitor",
+    "none",
+    "-serial",
+    "stdio",
+    "-no-reboot",
+    "-nic",
+    "none",
+    "-semihosting-config",
+    "enable=on,target=native",
+    "-kernel",
+    "/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-aarch64-spike/target/aarch64-unknown-none/release/nagi-aarch64-feasibility-spike"
+  ],
+  "exit_code": 1,
+  "expected": "nonzero exit, EL mismatch, no COMPLETE PASS",
+  "outcome": "PASS"
+}

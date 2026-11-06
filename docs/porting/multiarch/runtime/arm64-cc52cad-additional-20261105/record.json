@@ -1,0 +1,36 @@
+{
+  "schema": "nagi-multiarch-additional-runtime/1",
+  "base": {
+    "commit": "b50e8ff181efcf5093c928472fc729d5c9e231cd",
+    "tree": "d7bb5a69687e0c604791c277008d60635dddab15"
+  },
+  "current_source": {
+    "commit": "cc52cadcf0ef7c8b6c0683b1a9be3a85ef4d7e4e",
+    "tree": "83214d70643e016087b53f1fb5f27e45005676cb"
+  },
+  "historical_records": {
+    "commit": "dc11f55d934ae73f508858458a09a3994889520c",
+    "tree": "26beb4905c44132d63a6db377e23da0521448ab3"
+  },
+  "runtime_main": "0362427747e769b00558053e4c7f4c756d303802",
+  "spike_tree": "4dac311883b7e6299662514ece2c61576916a070",
+  "formal_summary": {
+    "path": "docs/porting/multiarch/runtime/arm64-cc52cad-additional-20261105/formal-summary.json",
+    "sha256": "35adb7c4c87814650c712afa0846575d05872a79e6d02b8299098ed0a0be84d0"
+  },
+  "manual_summary": {
+    "path": "docs/porting/multiarch/runtime/arm64-cc52cad-additional-20261105/manual-summary.json",
+    "sha256": "c2cb41ace14a40f5d521afad7d86c3a88a0cc84e3e205113d8ab5f8e14e14333"
+  },
+  "reported_observations": {
+    "formal": "OWNER_REPORT_VERIFIER_EXIT_0_AND_33_ARTIFACTS",
+    "manual": "OWNER_REPORT_MATCHING_ARCHIVE_ELF_EL1_EL2_NO_FORMAL_RECEIPT"
+  },
+  "acceptance": {
+    "phase_c": "PENDING",
+    "physical": "NOT_RUN",
+    "production_arm64": "NOT_RUN",
+    "manual_formal_receipt": "NOT_GENERATED",
+    "raw_receipt_rechecked_here": false
+  }
+}

@@ -1,0 +1,89 @@
+    Checking nagi-aarch64-feasibility-spike v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-aarch64-spike)
+    Finished `release` profile [optimized] target(s) in 0.07s
+    Finished `release` profile [optimized] target(s) in 0.03s
+test_complete_ordered_guest_and_zero_exit (test_runner.AcceptanceTests.test_complete_ordered_guest_and_zero_exit) ... ok
+test_crash_failure_and_timeout_even_with_markers (test_runner.AcceptanceTests.test_crash_failure_and_timeout_even_with_markers) ... ok
+test_missing_duplicate_and_reordered_markers (test_runner.AcceptanceTests.test_missing_duplicate_and_reordered_markers) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+SPIKE ARM64 EL1 PL011 PASS
+SPIKE SVC VECTOR ERET PASS
+SPIKE GENERIC COUNTER PASS
+SPIKE COMPLETE PASS
+{
+  "scope": "independent feasibility spike; NOT Nagi runtime acceptance",
+  "command": [
+    "/workspace/port-tools/root/usr/bin/qemu-system-aarch64",
+    "-machine",
+    "virt,gic-version=2,virtualization=off",
+    "-cpu",
+    "cortex-a53",
+    "-accel",
+    "tcg",
+    "-smp",
+    "1",
+    "-m",
+    "128M",
+    "-display",
+    "none",
+    "-monitor",
+    "none",
+    "-serial",
+    "stdio",
+    "-no-reboot",
+    "-nic",
+    "none",
+    "-semihosting-config",
+    "enable=on,target=native",
+    "-kernel",
+    "/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-aarch64-spike/target/aarch64-unknown-none/release/nagi-aarch64-feasibility-spike"
+  ],
+  "binary_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b",
+  "binary_bytes": 79464,
+  "serial_sha256": "e23d936731f6eb4e40886689fd8a8e5b9adc5144c993d471e05f38936c72cbb5",
+  "returncode": 0,
+  "timed_out": false,
+  "outcome": "PASS",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)"
+}
+SPIKE FAIL exception-level
+{
+  "scope": "independent feasibility spike; NOT Nagi runtime acceptance",
+  "command": [
+    "/workspace/port-tools/root/usr/bin/qemu-system-aarch64",
+    "-machine",
+    "virt,gic-version=2,virtualization=on",
+    "-cpu",
+    "cortex-a53",
+    "-accel",
+    "tcg",
+    "-smp",
+    "1",
+    "-m",
+    "128M",
+    "-display",
+    "none",
+    "-monitor",
+    "none",
+    "-serial",
+    "stdio",
+    "-no-reboot",
+    "-nic",
+    "none",
+    "-semihosting-config",
+    "enable=on,target=native",
+    "-kernel",
+    "/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-aarch64-spike/target/aarch64-unknown-none/release/nagi-aarch64-feasibility-spike"
+  ],
+  "binary_sha256": "47a0f88035087945ac27f763d7ff43ba2a13afc4da6677ebbef626fa35c5cc3b",
+  "binary_bytes": 79464,
+  "serial_sha256": "1b7e493e4e939cc2ee17098a1ed95923bc6d98a3e92b4e39e89f8e827d4f129b",
+  "returncode": 1,
+  "timed_out": false,
+  "outcome": "FAIL",
+  "qemu_version": "QEMU emulator version 10.0.13 (Debian 1:10.0.13+ds-0+deb13u1)"
+}
+PASS negative guest: rejects EL2 without success marker

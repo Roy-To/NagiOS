@@ -1,0 +1,4 @@
+Get:1 https://deb.debian.org/debian trixie/main amd64 libdaxctl1 amd64 81-1 [22.2 kB]
+Get:2 https://deb.debian.org/debian trixie/main amd64 libndctl6 amd64 81-1 [62.3 kB]
+Fetched 84.5 kB in 1s (71.7 kB/s)
+W: Unable to read /etc/apt/apt.conf.d/80-applied-apt-retries - open (13: Permission denied)

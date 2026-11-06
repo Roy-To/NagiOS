@@ -1,0 +1,153 @@
+    Checking nagi-abi v0.1.0 (/workspace/worktrees/port-multiarch-foundation-01/crates/nagi-abi)
+    Checking nagi-bootinfo v0.1.0 (/workspace/worktrees/port-multiarch-foundation-01/crates/nagi-bootinfo)
+    Checking nagi-multiarch-contracts-experiment v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-multiarch-contracts)
+error: manual implementation of `.is_multiple_of()`
+  --> src/lib.rs:86:12
+   |
+86 |         || start % 4096 != 0
+   |            ^^^^^^^^^^^^^^^^^ help: replace with: `!start.is_multiple_of(4096)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_is_multiple_of
+   = note: `-D clippy::manual-is-multiple-of` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: manual implementation of `.is_multiple_of()`
+  --> src/lib.rs:87:12
+   |
+87 |         || bytes % 4096 != 0
+   |            ^^^^^^^^^^^^^^^^^ help: replace with: `!bytes.is_multiple_of(4096)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#manual_is_multiple_of
+
+error: could not compile `nagi-multiarch-contracts-experiment` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: the method `send` doesn't need a mutable reference
+  --> src/../../../kernel/src/ipc.rs:77:17
+   |
+77 |                 &mut fixture.registry,
+   |                 ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+   = note: `-D clippy::unnecessary-mut-passed` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::unnecessary_mut_passed)]`
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:116:17
+    |
+116 |                 &mut fixture.registry,
+    |                 ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:161:17
+    |
+161 |                 &mut fixture.registry,
+    |                 ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:195:17
+    |
+195 |                 &mut fixture.registry,
+    |                 ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:254:21
+    |
+254 |                     &mut filled.registry,
+    |                     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:264:17
+    |
+264 |                 &mut filled.registry,
+    |                 ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: the method `send` doesn't need a mutable reference
+   --> src/../../../kernel/src/ipc.rs:281:17
+    |
+281 |                 &mut restricted.registry,
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#unnecessary_mut_passed
+
+error: call to `std::mem::drop` with a value that does not implement `Drop`. Dropping such a type only extends its contained lifetimes
+   --> src/../../../kernel/src/ipc.rs:427:9
+    |
+427 |         drop(items);
+    |         ^^^^^^^^^^^
+    |
+note: argument has type `[ipc::WaitItem<'_>; 2]`
+   --> src/../../../kernel/src/ipc.rs:427:14
+    |
+427 |         drop(items);
+    |              ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#drop_non_drop
+    = note: `-D clippy::drop-non-drop` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::drop_non_drop)]`
+
+error: call to `std::mem::drop` with a value that does not implement `Drop`. Dropping such a type only extends its contained lifetimes
+   --> src/../../../kernel/src/ipc.rs:443:9
+    |
+443 |         drop(event_ready);
+    |         ^^^^^^^^^^^^^^^^^
+    |
+note: argument has type `[ipc::WaitItem<'_>; 2]`
+   --> src/../../../kernel/src/ipc.rs:443:14
+    |
+443 |         drop(event_ready);
+    |              ^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#drop_non_drop
+
+error: this `impl` can be derived
+  --> src/../../../loader/src/elf.rs:23:1
+   |
+23 | / impl Default for LoadSegment {
+24 | |     fn default() -> Self {
+25 | |         Self {
+26 | |             file_offset: 0,
+...  |
+33 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#derivable_impls
+   = note: `-D clippy::derivable-impls` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute
+   |
+15 + #[derive(Default)]
+16 ~ pub struct LoadSegment {
+   |
+
+error: you should consider adding a `Default` implementation for `BootstrapUserThreads`
+   --> src/../../../kernel/src/scheduler.rs:112:5
+    |
+112 | /     pub const fn new() -> Self {
+113 | |         let mut slots = [ThreadSlot::EMPTY; BOOTSTRAP_USER_THREAD_COUNT];
+114 | |         slots[0].state = UserThreadState::Running;
+115 | |         Self {
+...   |
+120 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#new_without_default
+    = note: `-D clippy::new-without-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::new_without_default)]`
+help: try adding this
+    |
+111 + impl Default for BootstrapUserThreads {
+112 +     fn default() -> Self {
+113 +         Self::new()
+114 +     }
+115 + }
+    |
+
+error: could not compile `nagi-multiarch-contracts-experiment` (lib test) due to 13 previous errors

@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `tools/nagi-bootstrap/target/debug/nagi-bootstrap dev resume`
+FAIL branch `codex/port-multiarch-foundation-01` is not registered in .dev/workstreams.json; create/assign a workstream before using dev status

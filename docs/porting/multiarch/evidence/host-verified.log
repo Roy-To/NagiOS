@@ -1,0 +1,146 @@
+   Compiling nagi-multiarch-contracts-experiment v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-multiarch-contracts)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.91s
+     Running unittests src/lib.rs (target/debug/deps/nagi_multiarch_contracts_experiment-e87b09f890ae7bd2)
+
+running 99 tests
+test acpi::tests::accepts_local_apic_address_override ... ok
+test acpi::tests::discovers_four_enabled_processors_and_bsp ... ok
+test acpi::tests::rejects_bad_root_checksum ... ok
+test acpi::tests::rejects_malformed_local_apic_entry ... ok
+test acpi::tests::rejects_more_than_reference_cpu_bound ... ok
+test cpu_tables::tests::ap_gdt_has_kernel_segments_and_tss_at_bsp_selectors ... ok
+test cpu_tables::tests::gates_and_error_code_vectors_follow_the_sdm ... ok
+test cpu_tables::tests::nmi_double_fault_and_machine_check_use_distinct_ist_slots ... ok
+test cpu_tables::tests::tss_descriptor_encodes_base_limit_and_type ... ok
+test cpu_tables::tests::tss_layout_matches_the_architecture ... ok
+test handles::object_security_tests::object_generation_changes_after_last_reference_is_released ... ok
+test handles::object_security_tests::resolving_with_the_wrong_object_kind_fails_closed ... ok
+test handles::tests::a_non_transferable_handle_cannot_cross_process_boundary ... ok
+test handles::tests::closing_and_reusing_a_slot_rejects_the_stale_handle ... ok
+test handles::tests::generation_exhaustion_does_not_release_a_live_capability ... ok
+test handles::tests::handle_round_trip_resolves_the_stored_object_and_rights ... ok
+test handles::tests::transfer_can_only_attenuate_rights ... ok
+test ipc::tests::channel_queue_and_endpoint_rights_are_bounded ... ok
+test ipc::tests::channel_round_trip_preserves_header_and_payload ... ok
+test ipc::tests::draining_a_channel_releases_queued_transfer_references ... ok
+test ipc::tests::channel_send_notifies_a_blocked_readable_waiter ... ok
+test ipc::tests::event_and_timer_mutation_require_process_capabilities ... ok
+test ipc::tests::event_notification_wakes_each_matching_registered_waiter_once ... ok
+test ipc::tests::event_timer_and_wait_many_have_level_triggered_readiness ... ok
+test ipc::tests::received_sender_identity_comes_from_the_kernel_process_not_payload ... ok
+test ipc::tests::transfer_is_escrowed_until_receive_and_read_only_cannot_be_strengthened ... ok
+test ipc::tests::receiver_capacity_failure_keeps_transfer_in_queue_escrow ... ok
+test loader_elf::tests::parses_a_valid_identity_mapped_kernel ... ok
+test ipc::tests::wait_registry_capacity_does_not_drop_level_triggered_wakes ... ok
+test loader_elf::tests::rejects_non_identity_segments ... ok
+test loader_elf::tests::rejects_segment_file_bounds ... ok
+test loader_elf::tests::rejects_truncated_headers ... ok
+test memory::tests::builds_allocator_from_conventional_uefi_pages_and_reuses_freed_page ... ok
+test memory::tests::encodes_page_table_entries_and_allocates_aligned_heap_blocks ... ok
+test memory::tests::maps_and_unmaps_entries_in_a_page_table ... ok
+test memory::tests::rejects_invalid_frees_and_exhausts_a_single_range ... ok
+test memory::tests::exposes_raw_entries_and_clears_the_table ... ok
+test process_exit::tests::cancelled_waits_and_stale_exits_are_ignored ... ok
+test process_exit::tests::concurrent_processes_have_independent_waiters ... ok
+test process_exit::tests::exited_status_is_consumed_exactly_once ... ok
+test process_exit::tests::process_ids_are_monotonic_and_never_reused ... ok
+test process_exit::tests::unconsumed_records_bound_further_spawns ... ok
+test proposal_tests::elf_routing_is_explicit_and_production_still_rejects_arm64 ... ok
+test proposal_tests::firmware_and_headless_proposal_are_separate_from_v5 ... ok
+test process_exit::tests::a_blocked_waiter_is_woken_once_with_the_fault_status ... ok
+test proposal_tests::mapping_proposal_rejects_overflow_unaligned_out_of_range_and_wx ... ok
+test proposal_tests::variable_topology_rejects_duplicates_missing_bsp_empty_and_capacity ... ok
+test scheduler::tests::a_target_cannot_be_claimed_by_a_second_joiner ... ok
+test scheduler::tests::an_unproductive_channel_wait_can_be_aborted_without_stranding_current ... ok
+test scheduler::tests::channel_wait_blocks_and_wakes_only_the_registered_thread ... ok
+test scheduler::tests::allocation_is_bounded_and_reuses_released_slots ... ok
+test scheduler::tests::detached_threads_release_on_exit_and_cannot_be_joined ... ok
+test scheduler::tests::exiting_spawned_process_removes_only_its_threads_and_selects_init ... ok
+test scheduler::tests::join_blocks_then_receives_exit_value_and_releases_target ... ok
+test scheduler::tests::join_can_reap_a_completed_thread_exactly_once ... ok
+test scheduler::tests::joiner_runs_before_other_runnable_threads_can_reuse_the_child_id ... ok
+test scheduler::tests::kernel_task_wake_transition_only_wakes_blocked_tasks ... ok
+test scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout ... ok
+test scheduler::tests::scheduler_dispatch_fairness_rejects_starvation_and_excess_skew ... ok
+test scheduler::tests::sleeping_thread_wakes_at_its_guest_deadline ... ok
+test scheduler::tests::spawned_process_threads_are_owned_and_isolated_from_init_join_and_detach ... ok
+test scheduler::tests::yield_switches_round_robin_and_returns_to_the_initial_thread ... ok
+test user_elf::tests::parses_a_bounded_executable_user_segment ... ok
+test user_elf::tests::accepts_an_empty_tls_program_header_as_no_tls_template ... ok
+test user_elf::tests::parses_a_zero_initialized_tls_template_without_file_bytes ... ok
+test user_elf::tests::parses_a_static_tls_template_covered_by_the_data_load_segment ... ok
+test user_elf::tests::rejects_duplicate_tls_program_headers ... ok
+test user_elf::tests::rejects_entry_outside_executable_file_bytes ... ok
+test user_elf::tests::rejects_identity_only_addresses ... ok
+test user_elf::tests::rejects_more_than_sixteen_load_segments_before_segment_validation ... ok
+test user_elf::tests::rejects_segments_outside_the_bounded_image_range ... ok
+test user_elf::tests::rejects_overlapping_load_segments ... ok
+test user_elf::tests::rejects_tls_headers_with_incongruent_file_and_memory_alignment ... ok
+test user_elf::tests::rejects_tls_data_outside_the_init_image ... ok
+test user_elf::tests::rejects_tls_templates_not_backed_by_a_loadable_segment ... ok
+test user_elf::tests::rejects_writable_executable_segments ... ok
+test user_elf::tests::rejects_tls_templates_larger_than_the_fixed_static_tls_page ... ok
+test user_ipc::tests::bootstrap_channel_round_trip_stamps_process_and_ignores_payload_identity ... ok
+test user_ipc::tests::closing_last_roots_collects_cross_channel_escrow_cycles ... ok
+test user_ipc::tests::exited_process_releases_handles_and_peer_send_reports_closed ... ok
+test user_ipc::tests::forged_or_stale_endpoint_handles_are_rejected ... ok
+test user_ipc::tests::only_init_spawns_and_isolated_slots_are_bounded ... ok
+test user_ipc::tests::queue_full_and_invalid_bounds_fail_without_consuming_messages ... ok
+test user_ipc::tests::spawn_cannot_strengthen_rights ... ok
+test user_ipc::tests::spawn_moves_the_endpoint_and_handle_tables_stay_process_local ... ok
+test user_ipc::tests::spawned_process_messages_carry_kernel_pid_not_payload_identity ... ok
+test user_ipc::tests::transferred_channel_rights_are_attenuated_and_closed_slots_are_reused ... ok
+test vmo::tests::address_space_retains_its_object_identity ... ok
+test vmo::tests::anonymous_vmo_backing_is_zeroed ... ok
+test vmo::tests::mapping_protection_can_only_be_attenuated ... ok
+test vmo::tests::mapping_requires_vmo_map_right_and_rejects_overlap ... ok
+test vmo::tests::maps_and_unmaps_page_aligned_vmo_range ... ok
+test vmo::tests::process_vmo_operations_require_handle_rights ... ok
+test vmo::tests::rejects_unaligned_or_out_of_bounds_mapping ... ok
+test vmo::tests::shared_vmo_writes_and_reports_bounded_metadata ... ok
+test vmo::tests::unmapping_an_unknown_range_is_rejected ... ok
+test user_ipc::tests::channel_wait_is_level_triggered_requires_wait_right_and_cleans_cancelled_ids ... ok
+test user_ipc::tests::channel_wait_registers_before_block_and_send_returns_one_wakeup ... ok
+test scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+   Doc-tests nagi_multiarch_contracts_experiment
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+    Checking nagi-multiarch-contracts-experiment v0.0.1 (/workspace/worktrees/port-multiarch-foundation-01/experiments/nagi-multiarch-contracts)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.80s
+
+running 16 tests
+test tests::boot_control_writer_must_be_in_runtime_services_code ... ok
+test tests::boot_control_context_rejects_partial_or_out_of_policy_values ... ok
+test tests::boot_ready_record_rejects_invalid_trial_coordinates ... ok
+test tests::boot_info_v5_layout_is_c_compatible_and_stable ... ok
+test tests::boot_ready_record_round_trips_and_rejects_corruption ... ok
+test tests::empty_init_image_is_rejected ... ok
+test tests::boot_stage_record_round_trips_and_rejects_corruption ... ok
+test tests::firmware_time_conversion_applies_timezone_offset ... ok
+test tests::firmware_time_conversion_handles_epoch_leap_day_and_nanoseconds ... ok
+test tests::invalid_magic_is_rejected ... ok
+test tests::pre_m5_validation_allows_absent_init_image_but_bootstrap_rejects_it ... ok
+test tests::invalid_unavailable_and_daylight_adjusted_firmware_times_fail_closed ... ok
+test tests::valid_boot_info_is_accepted ... ok
+test tests::short_memory_map_stride_is_rejected ... ok
+test tests::valid_boot_info_requires_a_persistent_init_image ... ok
+test tests::zero_address_init_image_is_rejected_for_user_bootstrap ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test tests::bootstrap_thread_capacity_matches_the_selected_milestone_contract ... ok
+test tests::bootstrap_thread_stack_rounding_preserves_default_and_servo_limit ... ok
+test channel_abi_tests::bootstrap_channel_syscall_numbers_and_layout_are_stable ... ok
+test tests::kernel_thread_stack_contract_requires_aligned_bounded_sizes ... ok
+test tests::realtime_clock_preserves_unavailable_and_fails_closed_on_overflow ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
