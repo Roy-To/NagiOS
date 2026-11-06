@@ -1,3 +1,154 @@
+## PR 98 M27 promotion storage failure investigation — 2026-11-05
+
+Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
+No M27 PASS or repair is claimed. Fixed head is
+`d43a29e42290eacfa1dcc4819fbfeac991a1c3df` (tree
+`fff9f072a5f73810645413e8f276cc37892c1e45`). PR run 42028014093 checked out
+`cb2ee8ba975f41ee1745e984962a6aa30a9efb07`, whose tree is identical; push
+run 42028007518 checked out the fixed head. Official target job logs and
+acceptance artifacts 13423071777 / 13422034807 were compared read-only.
+
+Both legacy FAT12 readiness trials log the same initialization and signed-in
+readiness sequence. In promotion boot 2, the first 87 normalized serial lines
+match, including consumed readiness, confirmed B, matching init size 576728,
+and completed core services. The PR log then prints `Nagi M7 storage FAIL`
+and `Nagi M5 process exit FAIL`; the push log instead prints the read-only VFS
+integrity PASS, mounts storage and reaches the unlock screen. The PR timeout
+diagnostics find QEMU running but CPU 0 halted at the same RIP in two samples.
+Thus the 180-second readiness timeout follows an explicit guest storage failure;
+it is not evidence that a longer readiness timeout would repair this case.
+The unchanged source narrows the failure to the pre-mount read-only checker or
+its nonempty-report guard. Existing logs cannot distinguish I/O failure from
+metadata inconsistency or an empty valid report.
+
+Candidate diagnostic change preserves the checker, report guards, failure return,
+success markers, feature set and deadlines, and adds a reason before returning
+failure: block I/O, corrupt metadata, other storage error, or empty report.
+No scheduling, readiness policy or filesystem repair changes are made.
+
+Host boundary experiment with the exact source storage module, an in-memory
+device and the production Search runtime's `/home`, `/home/owner`,
+`/home/owner/files` creation sequence passed together with all 25 existing
+storage tests (26 total). Of 42 individual sector-write prefixes, 36 return
+`StorageError::Corrupt`; the completed sequence passes. The signed-in desktop
+prints readiness before calling `Runtime::open`, while the host requests QMP
+quit on that readiness marker. An interrupted post-readiness mutation is
+therefore a demonstrated possible mechanism, not proof of the recorded CI
+failure. The uploaded artifacts contain no persistent disk snapshot, and serial
+lines have no timestamps to identify which mutation, if any, was interrupted.
+PR and push runner image versions also differ (20261025.353.1 vs 20261101.360.1);
+post-job memory/disk snapshots do not measure pressure at failure time.
+
+Formatting and whitespace checks pass. The official CI setup selects Clang 19.
+The initial build failed to find clang on PATH; follow-up found the existing
+workspace Clang 19.1.7 at
+`/workspace/.nagi-tools/root/usr/lib/llvm-19/bin/clang`. No compiler installation
+or toolchain change was needed. Selecting this compiler explicitly, the locked
+offline Nagi-target release build and final static ELF link pass with the exact
+M27 features `m10-desktop,m27-ro-vfs-check,desktop-login` and
+`-Zbuild-std=core,alloc,compiler_builtins` on nightly-2025-08-01. ELF SHA-256 is
+`ea7d9f0ebd149bf2d2586b0eb9951bfd655b5ab1e0ba0f29afc213914ac7f817`.
+The build reports warnings; no source or assertion was changed to suppress them.
+Host libnagi tests pass (84 unit, 2 integration); CI M27 artifact selection
+regressions pass (3); the in-memory write-prefix experiment plus original
+storage tests pass again (26). Dependencies use the existing cache with
+identical sources.lock. Earlier offline sysroot resolution lacked dlmalloc;
+normal pinned registry resolution populated that cache. Cargo.lock is unchanged.
+
+Guest/VM execution, CI reruns, existing image/claim operations and publication
+were not performed. Failure-disk capture remains a proposal, not an implemented
+or activated upload: existing CI deliberately selects logs and excludes disk
+and OVMF payloads. A legacy M27 user-data image is 18 MiB and can include the
+owner credential record and private filenames/content. Next useful evidence is
+a private local failed-disk snapshot plus the new checker reason; separately
+validate a guest quiescence boundary after signed-in Search initialization
+before ending the trial boot. Root cause remains unproven.
+
+## PR 98 staging integration after PR 97 merge — 2026-11-05
+
+Status: `PARTIAL`. Initial reviewed/published staging candidate
+`8afe8aff9c192f6c8af7264e244eea70909f4163` (tree
+`3f7f77d26dabb3d78024a595981a2e4248bc2aa4`) is preserved as first-parent
+history. Main advanced during PR creation to
+`d67897b4c27566ecc4353e3b7d9b16efd59bb559` by merging PR 97. This integration
+merges that exact main and resolves the sole conflict in
+`user/nagi-search/src/read_boundary_tests.rs` by preserving main's complete
+allocator/read tests and appending the reviewed three-line staging test-module
+registration. The reviewed search.rs and semantic_staging_tests.rs are
+byte-identical; persistent_semantic_index.rs is byte-identical to main.
+Both status histories are retained. No assertions or production behavior change
+as part of conflict resolution. The staging production delta against main
+remains exactly the previously reviewed reservation change.
+
+Integrated validation: nagi-search host suite 46 passed / 0 failed / 1 ignored
+(the pre-existing opt-in synthetic timing experiment); all-target host Clippy
+with warnings denied, package formatting and whitespace checks pass. Actual
+Nagi-target library build with core/alloc passes on nightly-2025-08-01. The
+first offline build failed during dependency resolution because dlmalloc was
+absent from the sysroot cache; allowing normal pinned registry resolution
+populated the cache and the locked target-library build passed. No source pin,
+Cargo.lock, manifest, assertion or toolchain was changed. Logs are retained in
+`out/evidence/semantic-staging-main-d67897b/` including the initial failure.
+Independent review reported no P1/P2 findings and successful host/Clippy/target
+library checks on the original staging candidate; it did not review this later
+integration commit. Publication and hosted CI for the integrated head are
+tracked in PR 98. Guest execution, real provider inference and final native
+linking remain unverified; M24 remains PARTIAL. The preparation entry below
+records historical pre-publication scope and results.
+
+## M24 semantic indexing staging allocation — 2026-11-05
+
+Status: `PARTIAL`; isolated host candidate based on public main
+`fe0ec0b4c5d7caf0721deca4880359a59f5f2b94`, verified through the GitHub
+commit API before editing. Source `user/nagi-search/src/search.rs` Git blob:
+`833ce4fa097e607ce8784dd9108e75baffc390e5`; SHA-256:
+`190f8a2c9f6aef002b61c1905fc72515db8bcb1f3b22b05840db6e7d8c45c13c`.
+
+`SearchService::index_semantic_text` previously allocated its `IndexedChunk`
+staging Vec with infallible `with_capacity`, after authorization and chunking
+but before provider calls. It now reserves the complete chunk count with
+`try_reserve_exact`, mapping failure to existing `SemanticError::IndexCapacity`.
+All subsequent staging pushes fit that reservation. The provider loop, dimension
+checks and single final `replace_object` call are unchanged. Errors release the
+chunk Vec, remaining source strings and any completed embeddings through Rust
+ownership. This is distinct from metadata/semantic query reads, persistent-index
+replacement and serialization, snapshot decode, and chunk splitting. No other
+candidate is imported and no production code in those paths changes.
+
+Host verification (nightly-2025-08-01, locked/offline):
+- Negative control with the original production source and the new exact
+  staging-allocation test aborts with SIGABRT / Cargo exit 101: allocation of
+  672 bytes failed. The chunker's eight allocations succeed; allocation nine
+  is the six-entry staging array. No guest allocation failure is claimed.
+- Four new tests pass using the existing thread-local host allocator meter.
+  Both one-shot and persistent denial at that staging allocation return
+  IndexCapacity, make zero provider/dimensions/replacement calls, return live
+  allocated bytes to baseline, and allow a successful retry after injection.
+  Provider failure and dimension mismatch at all six passage positions, with
+  both empty and existing index dimensions (24 scenarios), never call replacement
+  and release partial arrays/embeddings. Multilingual and maximum-size (256 KiB,
+  512 chunks) success cases preserve purpose, provider input order, chunk IDs,
+  ordinals, byte ranges, vectors, result count and one final replacement.
+  Denied, tombstoned, missing and wrong-context objects allocate nothing and
+  call neither provider nor index.
+- Full nagi-search suite: 42 passed, 0 failed; doc tests: 0.
+- Package host build, all-targets Clippy with warnings denied, package format
+  check and git whitespace check pass.
+- Local logs: `out/evidence/semantic-staging-fe0ec0b/` (negative-control,
+  focused, full-test, build, clippy and fmt). Existing generated third-party
+  caches were temporarily linked into the isolated worktree for Cargo resolution;
+  their sources, manifests and lockfiles were not modified.
+
+Remaining scope: chunk_text still allocates its array and strings infallibly;
+EmbeddingProvider implementations and embedding construction may allocate or
+retain provider state; persistent-index replacement, backend, decode and query
+allocations remain separate boundaries. Provider errors are propagated but
+provider internals are not made OOM-safe or rolled back by this change. These
+fixtures establish service orchestration and cleanup, not inference quality.
+No public push/PR/comment/CI rerun, guest execution, real media operation or old
+material resend was performed. No Nagi-target, Windows or guest check is claimed;
+M24 remains PARTIAL and its model-backed natural-language acceptance is unmet.
+
 ## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
 
 Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
@@ -10780,3 +10931,41 @@ compiler/host information and logs are local under
 Target latency, real guest OOM, allocator overhead, initial decoding, update
 clones and caller/provider allocations remain unverified or outside this
 change. No VM execution or public write was performed; no milestone is promoted.
+
+## Search backend allocation and uncertain-commit recovery candidate (2026-11-05)
+
+PARTIAL local candidate on main `d67897b4c27566ecc4353e3b7d9b16efd59bb559`.
+Backend manifest/chunk copies and snapshot assembly now reserve fallibly;
+bounded host-reference reads also return a distinct capacity error. An uncertain
+manifest write or final flush latches backend and metadata/vector-store mutations
+until a successful recovery fence, full load and decode. Normal read OOM probes
+preserve stored bytes and issue no write/remove/flush calls; blocked mutations
+after an uncertain commit preserve the bytes left by that commit. Recovery can
+flush pending data and is not a rollback or read-only durability proof.
+
+Original-source host negative controls reproduce the read allocation abort and
+the stale-memory next-mutation hazard. Isolated host tests (42 Search unit,
+9 new integration, 3 Model), warnings-denied Search Clippy and the Nagi target
+library check pass. This does not establish final linking, startup/codec OOM,
+writer coordination, guest or real-media durability. No VM, publication or
+permission change was performed. M19 and M24 remain PARTIAL. See
+`docs/workstreams/search-backend-read-recovery.md` for scope and evidence.
+
+## Host snapshot read path allocation correction (2026-11-06)
+
+PARTIAL local follow-up on published PR #98 `3e5a755`. Windows CI exposed an
+infallible UTF-16 path allocation inside std File::open before the fallible
+snapshot reservation. Extended input also reproduces the analogous long-path
+CString abort on Linux. Host read adapters now use bounded native path buffers
+and read-only OS opens, retaining path/share/handle and snapshot semantics.
+The allocator window and all existing assertions remain; relative/Unicode/long
+paths, NUL, namespace/surrogate and overflow regressions are added.
+
+The exact-source isolated Linux suite passes 61 tests, with warnings-denied
+Clippy, Windows/MSVC library cross-build/all-target Clippy, macOS cross-Clippy
+and the Nagi target library check passing. These are not native Windows/macOS
+execution results. Root package tests cannot start without the existing
+third_party/cc-nagi materialization. Original CI remains failed; no push,
+CI rerun, VM or guest execution was performed. Native host revalidation and
+independent review of this correction remain pending. M24 remains PARTIAL.
+See `docs/workstreams/search-host-path-allocation.md` for evidence and limits.

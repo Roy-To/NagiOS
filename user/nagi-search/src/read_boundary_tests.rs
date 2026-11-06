@@ -570,3 +570,6 @@ fn semantic_search_validation_and_empty_index_need_no_allocations() {
         assert_eq!(live(), baseline);
     }
 }
+
+#[path = "semantic_staging_tests.rs"]
+mod semantic_staging_tests;

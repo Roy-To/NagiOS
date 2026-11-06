@@ -562,15 +562,31 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     #[cfg(feature = "m27-ro-vfs-check")]
     {
         let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-        let report = libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
-            &mut device,
-        )
-        .ok()?;
+        let report =
+            match libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
+                &mut device,
+            ) {
+                Ok(report) => report,
+                Err(error) => {
+                    let detail: &[u8] = match error {
+                        libnagi::storage::StorageError::Block => b"block I/O",
+                        libnagi::storage::StorageError::Corrupt => b"corrupt volume metadata",
+                        _ => b"other storage error",
+                    };
+                    libnagi::console_write(b"Nagi M27 read-only VFS check FAIL: ");
+                    libnagi::console_write(detail);
+                    libnagi::console_write(b"\r\n");
+                    return None;
+                }
+            };
         if report.regular_files == 0
             || report.directories == 0
             || report.allocated_data_blocks == 0
             || report.directory_entries == 0
         {
+            libnagi::console_write(
+                b"Nagi M27 read-only VFS check FAIL: empty integrity report\r\n",
+            );
             return None;
         }
         libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
