@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use sha2::{Digest, Sha256};
+
 fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
@@ -43,6 +45,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_PCM_FIXTURE");
     println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_EXPECTED_TEXT_FILE");
     println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
+    println!("cargo:rerun-if-env-changed=NAGI_RELIBC_HEADERS");
+    println!("cargo:rerun-if-env-changed=NAGI_TARGET");
+    println!("cargo:rerun-if-env-changed=NAGI_TARGET_LD");
+    println!("cargo:rerun-if-env-changed=PATH");
+    println!("cargo:rerun-if-env-changed=ProgramFiles");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
     let package_output = out_dir.join("m16-package.xapp");
     if env::var_os("CARGO_FEATURE_M16_PACKAGE").is_some() {
@@ -65,6 +72,14 @@ fn main() {
         return;
     }
 
+    if env::var_os("CARGO_FEATURE_M17_SERVO").is_some()
+        || env::var_os("CARGO_FEATURE_M20_LLAMA_LINK_SMOKE").is_some()
+        || env::var_os("CARGO_FEATURE_M20_LLAMA_INFERENCE_ACCEPTANCE").is_some()
+        || env::var_os("CARGO_FEATURE_M25_WHISPER_INFERENCE_ACCEPTANCE").is_some()
+    {
+        track_target_cc_inputs();
+    }
+
     if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
         // Keep rust-lld from truncating the undefined-symbol inventory at its
         // default error cap. This is the authoritative M17 target link; seeing
@@ -76,6 +91,11 @@ fn main() {
             .expect("NAGI_MESA_BUILD must point to the guest Mesa build for m17-servo");
         let mesa_archive_root = mesa_build.parent().unwrap_or(&mesa_build);
         let mesa_archive = mesa_archive_root.join("libnagi_mesa.a");
+        println!("cargo:rerun-if-changed={}", mesa_archive.display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            mesa_archive_root.join("libnagi_mesa_roots.a").display()
+        );
         if !mesa_archive.is_file() {
             panic!(
                 "NAGI_MESA_BUILD does not contain the target-owned Mesa archive: {}",
@@ -275,6 +295,7 @@ fn main() {
                 "clang"
             })
         });
+    track_configured_compiler_input(&compiler);
     for source in &sources {
         let stem = source.file_stem().expect("C source stem");
         let output = out_dir.join(stem).with_extension("o");
@@ -820,9 +841,58 @@ fn main() {
     }
 }
 
+// Track the wrapper's selected inputs without running the compiler or wrapper.
+fn track_target_cc_inputs() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("tools/nagi-target-cc.sh").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("tools/mesa/nagi-headers").display()
+    );
+    let nonempty = |name| env::var_os(name).filter(|value| !value.is_empty());
+    let target = nonempty("NAGI_TARGET").unwrap_or_else(|| "x86_64-unknown-nagi-user".into());
+    let relibc_headers = nonempty("NAGI_RELIBC_HEADERS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = nonempty("NAGI_MESA_BUILD")
+                .map(PathBuf::from)
+                .map(|path| {
+                    let path = fs::canonicalize(&path).unwrap_or(path);
+                    if path.file_name() == Some(std::ffi::OsStr::new("mesa-build")) {
+                        path.parent().expect("Mesa build parent").to_path_buf()
+                    } else {
+                        path
+                    }
+                })
+                .unwrap_or_else(|| root.join("out/m17-mesa"));
+            base.join("relibc-target").join(target).join("include")
+        });
+    println!("cargo:rerun-if-changed={}", relibc_headers.display());
+    if let Some(headers) = nonempty("NAGI_CXX_HEADERS") {
+        println!(
+            "cargo:rerun-if-changed={}",
+            PathBuf::from(headers).display()
+        );
+    }
+    track_configured_compiler_input(&PathBuf::from(
+        nonempty("NAGI_TARGET_CLANG").unwrap_or_else(|| "clang".into()),
+    ));
+}
+
+fn track_configured_compiler_input(compiler: &std::path::Path) {
+    // Explicit paths identify a file we can watch. Bare command names remain
+    // PATH-selected: track PATH above, but do not guess executable resolution.
+    if compiler.components().count() > 1 {
+        println!("cargo:rerun-if-changed={}", compiler.display());
+    }
+}
+
 /// Generate `system_fonts.rs`: the pinned fonts from `./nagi fetch`
 /// (`NAGI_FONT_DIR/manifest.tsv`) for Servo builds, or an empty list.
-/// `./nagi fetch` verified each file's SHA-256; the size is checked again here.
+/// Recheck the manifest against the source lock and hash the bytes we stage.
 fn stage_system_fonts(out_dir: &std::path::Path) {
     let mut generated = String::from(
         "/// Generated by user/nagi-init/build.rs from out/cache/fonts/manifest.tsv.\n\
@@ -836,11 +906,16 @@ fn stage_system_fonts(out_dir: &std::path::Path) {
         println!("cargo:rerun-if-changed={}", manifest_path.display());
         let manifest = fs::read_to_string(&manifest_path)
             .expect("read system font manifest; run `./nagi fetch`");
+        let lock_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../third_party/fonts.lock");
+        println!("cargo:rerun-if-changed={}", lock_path.display());
+        let pins = system_font_pins(&fs::read_to_string(&lock_path).expect("read fonts.lock"));
+        let mut seen = std::collections::BTreeSet::new();
         let staged = out_dir.join("system-fonts");
         fs::create_dir_all(&staged).expect("create staged font directory");
         for line in manifest.lines().filter(|line| !line.is_empty()) {
             let fields: Vec<&str> = line.split('\t').collect();
-            let [guest_path, file_name, size, _sha256] = fields[..] else {
+            let [guest_path, file_name, size, sha256] = fields[..] else {
                 panic!("malformed system font manifest line: {line}");
             };
             assert!(
@@ -849,17 +924,103 @@ fn stage_system_fonts(out_dir: &std::path::Path) {
                     && !file_name.contains('"'),
                 "unexpected system font manifest entry: {line}"
             );
+            let (pinned_guest_path, pinned_size, pinned_sha256) = pins
+                .get(file_name)
+                .expect("font manifest entry is not in fonts.lock");
+            assert!(seen.insert(file_name), "duplicate font manifest entry");
+            assert_eq!(
+                guest_path, pinned_guest_path,
+                "font guest path pin mismatch"
+            );
+            assert_eq!(sha256, pinned_sha256, "font manifest SHA-256 pin mismatch");
             let source = font_dir.join(file_name);
             println!("cargo:rerun-if-changed={}", source.display());
             let bytes = fs::read(&source).expect("read pinned system font");
             let expected: usize = size.parse().expect("font size");
+            assert_eq!(expected, *pinned_size, "font manifest size pin mismatch");
             assert_eq!(bytes.len(), expected, "{file_name} does not match its pin");
+            let actual: String = Sha256::digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            assert_eq!(&actual, pinned_sha256, "font content SHA-256 pin mismatch");
             fs::write(staged.join(file_name), bytes).expect("stage system font");
             generated.push_str(&format!(
                 "    (b\"{guest_path}\", include_bytes!(concat!(env!(\"OUT_DIR\"), \"/system-fonts/{file_name}\"))),\n"
             ));
         }
+        assert_eq!(seen.len(), pins.len(), "font manifest omits pinned files");
     }
     generated.push_str("];\n");
     fs::write(out_dir.join("system_fonts.rs"), generated).expect("write system font table");
+}
+
+// Read only the scalar font pin fields emitted into manifest.tsv. This is a
+// deliberately strict subset of the checked-in lock format, not a TOML parser.
+fn system_font_pins(lock: &str) -> std::collections::BTreeMap<String, (String, usize, String)> {
+    assert!(
+        lock.lines().any(|line| line.trim() == "format_version = 1"),
+        "unsupported fonts.lock"
+    );
+    let mut pins = std::collections::BTreeMap::new();
+    for entry in lock.split("\n[fonts.").skip(1) {
+        let (_, body) = entry.split_once(']').expect("font lock section header");
+        let body = body.split("\n[").next().unwrap_or(body);
+        let field = |name: &str| {
+            let values: Vec<_> = body
+                .lines()
+                .filter_map(|line| {
+                    let (key, value) = line.split_once('=')?;
+                    (key.trim() == name).then_some(value.trim())
+                })
+                .collect();
+            assert_eq!(
+                values.len(),
+                1,
+                "missing or duplicate font lock field {name}"
+            );
+            values[0]
+        };
+        let quoted = |name: &str| {
+            field(name)
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .expect("font lock field must be quoted")
+                .to_owned()
+        };
+        let file_name = quoted("file_name");
+        assert!(
+            !file_name.is_empty()
+                && !file_name.starts_with('.')
+                && file_name.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')
+                }),
+            "invalid font lock file name"
+        );
+        let guest_path = quoted("guest_path");
+        assert_eq!(
+            guest_path,
+            format!("/system/fonts/{file_name}"),
+            "invalid font lock guest path"
+        );
+        let size: usize = field("size_bytes").parse().expect("font lock size");
+        assert!(
+            (1..=16 * 1024 * 1024).contains(&size),
+            "invalid font lock size"
+        );
+        let sha256 = quoted("sha256");
+        assert!(
+            sha256.len() == 64
+                && sha256
+                    .bytes()
+                    .all(|byte| { byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) }),
+            "invalid font lock SHA-256"
+        );
+        assert!(
+            pins.insert(file_name, (guest_path, size, sha256)).is_none(),
+            "duplicate font lock file name"
+        );
+    }
+    assert!(!pins.is_empty(), "fonts.lock has no font pins");
+    pins
 }

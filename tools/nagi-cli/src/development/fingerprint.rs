@@ -22,6 +22,7 @@ const ENVIRONMENT_ALLOWLIST: &[&str] = &[
     "CARGO_ENCODED_RUSTFLAGS",
     "CARGO_BUILD_RUSTFLAGS",
     "CARGO_INCREMENTAL",
+    "CARGO_HOME",
     "CFLAGS",
     "CPPFLAGS",
     "CXX",
@@ -29,12 +30,17 @@ const ENVIRONMENT_ALLOWLIST: &[&str] = &[
     "LD",
     "LDFLAGS",
     "NAGI_CXX_HEADERS",
+    "NAGI_FONT_DIR",
+    "NAGI_LIBCXX_ARCHIVE",
+    "NAGI_LLAMA_BUILD",
+    "NAGI_LLAMA_SOURCE",
     "NAGI_M16_PACKAGE",
     "NAGI_MESA_BUILD",
     "NAGI_QEMU",
     "NAGI_RELIBC_HEADERS",
     "NAGI_TARGET",
     "NAGI_TARGET_CLANG",
+    "NAGI_TARGET_LD",
     "OVMF_CODE",
     "OVMF_CODE_PATH",
     "OVMF_HOME",
@@ -43,12 +49,17 @@ const ENVIRONMENT_ALLOWLIST: &[&str] = &[
     "OVMF_VARS_PATH",
     "RUSTC_WRAPPER",
     "RUSTFLAGS",
+    "RUSTUP_TOOLCHAIN",
     "CC_x86_64_unknown_nagi_user",
     "CXX_x86_64_unknown_nagi_user",
     "__CARGO_TESTS_ONLY_SRC_ROOT",
 ];
 const ENVIRONMENT_PATHS_CAPTURED_BY_CONTENT: &[&str] = &[
     "NAGI_CXX_HEADERS",
+    "NAGI_FONT_DIR",
+    "NAGI_LIBCXX_ARCHIVE",
+    "NAGI_LLAMA_BUILD",
+    "NAGI_LLAMA_SOURCE",
     "NAGI_M16_PACKAGE",
     "NAGI_MESA_BUILD",
     "NAGI_QEMU",
@@ -846,6 +857,39 @@ fn third_party_inputs(root: &Path) -> Result<ThirdPartyInputs, crate::commands::
                         },
                     );
                 }
+            } else if checkout.try_exists().map_err(|error| {
+                config_error(format!(
+                    "cannot inspect generated dependency `{value}`: {error}"
+                ))
+            })? {
+                // Registry-generated checkouts and extracted sources have no
+                // Git identity. Hash their actual bytes, not a bootstrap marker.
+                let canonical_root = fs::canonicalize(root).map_err(|error| {
+                    config_error(format!(
+                        "cannot resolve dependency repository root: {error}"
+                    ))
+                })?;
+                let canonical_checkout = fs::canonicalize(&checkout).map_err(|error| {
+                    config_error(format!("cannot resolve generated dependency: {error}"))
+                })?;
+                if !canonical_checkout.starts_with(&canonical_root) {
+                    return Err(config_error(
+                        "generated dependency path escapes the repository".into(),
+                    ));
+                }
+                let content_digest = if component == "llvm_libcxx" {
+                    // LLVM preparation permits release symlinks, including
+                    // dangling links outside its selected source subset. Observe
+                    // exactly that tree policy, never the links' target bytes.
+                    let digest =
+                        crate::llvm_libcxx::source_tree_content_sha256(&canonical_checkout)
+                            .map_err(config_error)?;
+                    digest_serializable(&(logical_path(root, &canonical_checkout)?, digest))?
+                } else {
+                    let input = dependency_identity(root, &value)?;
+                    digest_serializable(&input)?
+                };
+                revisions.insert(format!("{component}.checkout_content"), content_digest);
             }
         }
     }
@@ -1032,8 +1076,15 @@ fn file_identity(root: &Path, input: &str) -> Result<FileIdentity, crate::comman
 }
 
 fn hash_directory(path: &Path) -> Result<(String, u64), crate::commands::CliError> {
+    hash_directory_with_git_metadata(path, false)
+}
+
+fn hash_directory_with_git_metadata(
+    path: &Path,
+    skip_git_metadata: bool,
+) -> Result<(String, u64), crate::commands::CliError> {
     let mut inventory = BTreeMap::new();
-    collect_directory_inventory(path, Path::new(""), &mut inventory)?;
+    collect_directory_inventory(path, Path::new(""), &mut inventory, skip_git_metadata)?;
     let byte_length = inventory
         .values()
         .try_fold(0u64, |total, entry: &FilePayload| {
@@ -1047,7 +1098,13 @@ fn collect_directory_inventory(
     root: &Path,
     relative: &Path,
     inventory: &mut BTreeMap<String, FilePayload>,
+    skip_git_metadata: bool,
 ) -> Result<(), crate::commands::CliError> {
+    if skip_git_metadata && relative.components().count() > 128 {
+        return Err(config_error(
+            "dependency input directory exceeds the depth limit".into(),
+        ));
+    }
     let current = root.join(relative);
     let entries = fs::read_dir(&current).map_err(|error| {
         config_error(format!(
@@ -1061,6 +1118,9 @@ fn collect_directory_inventory(
         .map_err(|error| config_error(format!("cannot read generated input entry: {error}")))?;
     entries.sort();
     for entry in entries {
+        if skip_git_metadata && entry.file_name().is_some_and(|name| name == ".git") {
+            continue;
+        }
         let metadata = fs::symlink_metadata(&entry).map_err(|error| {
             config_error(format!(
                 "cannot inspect generated input {}: {error}",
@@ -1098,7 +1158,7 @@ fn collect_directory_inventory(
                     entry.display()
                 )));
             }
-            collect_directory_inventory(root, &child_relative, inventory)?;
+            collect_directory_inventory(root, &child_relative, inventory, skip_git_metadata)?;
         } else if resolved_metadata.is_file() {
             if inventory.len() >= MAX_DIRECTORY_FILES {
                 return Err(config_error(format!(
@@ -1117,9 +1177,50 @@ fn collect_directory_inventory(
                     sha256,
                 },
             );
+        } else if skip_git_metadata {
+            return Err(config_error(
+                "dependency input contains a non-regular entry".into(),
+            ));
         }
     }
     Ok(())
+}
+
+/// Content identity for consumed dependency trees. Git bookkeeping is not
+/// source input; ignored generated source files still are. This is a bounded
+/// observation, not an immutable snapshot or source-lock attestation.
+fn dependency_identity(
+    root: &Path,
+    input: &str,
+) -> Result<FileIdentity, crate::commands::CliError> {
+    if has_secret_assignment(input) {
+        return Err(config_error(
+            "dependency input contains a secret-like assignment".into(),
+        ));
+    }
+    let requested = resolve_input_path(root, input);
+    let path = fs::canonicalize(&requested).map_err(|error| {
+        config_error(format!(
+            "cannot resolve dependency input {}: {error}",
+            requested.display()
+        ))
+    })?;
+    let metadata = fs::metadata(&path).map_err(|error| {
+        config_error(format!(
+            "cannot inspect dependency input {}: {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_dir() {
+        return file_identity(root, input);
+    }
+    let (sha256, byte_length) = hash_directory_with_git_metadata(&path, true)?;
+    Ok(FileIdentity {
+        kind: "directory".into(),
+        path: logical_path(root, &path)?,
+        byte_length,
+        sha256,
+    })
 }
 
 fn collect_firmware_inputs(
@@ -1384,13 +1485,47 @@ fn environment_generated_inputs(
     let mut commands = BTreeMap::new();
     for name in [
         "NAGI_CXX_HEADERS",
+        "NAGI_FONT_DIR",
+        "NAGI_LIBCXX_ARCHIVE",
+        "NAGI_LLAMA_BUILD",
+        "NAGI_LLAMA_SOURCE",
         "NAGI_RELIBC_HEADERS",
         "NAGI_M16_PACKAGE",
         "__CARGO_TESTS_ONLY_SRC_ROOT",
     ] {
         if let Some(path) = env::var_os(name) {
             let path = PathBuf::from(path);
-            inputs.push(file_identity(root, &path.to_string_lossy())?);
+            let private_selector = matches!(
+                name,
+                "NAGI_FONT_DIR" | "NAGI_LIBCXX_ARCHIVE" | "NAGI_LLAMA_BUILD" | "NAGI_LLAMA_SOURCE"
+            );
+            let mut input =
+                dependency_identity(root, &path.to_string_lossy()).map_err(|error| {
+                    if private_selector {
+                        // Filesystem errors can contain the canonical target of a
+                        // symlink. Report the selector, never its private path.
+                        config_error(format!("cannot fingerprint dependency selected by {name}"))
+                    } else {
+                        error
+                    }
+                })?;
+            if private_selector {
+                // Preserve the selector's role without serializing host names,
+                // including a potentially sensitive canonical symlink target.
+                input.path = format!("environment/{name}");
+            }
+            inputs.push(input);
+        }
+    }
+    // The build consumes this patched checkout by default, rather than the
+    // upstream Git checkout named by sources.lock. Do not record an unused
+    // default when the caller selects a different source tree.
+    if env::var_os("NAGI_LLAMA_SOURCE").is_none() {
+        let default = "out/cache/llama-cpp-nagi";
+        if root.join(default).try_exists().map_err(|error| {
+            config_error(format!("cannot inspect default llama source: {error}"))
+        })? {
+            inputs.push(dependency_identity(root, default)?);
         }
     }
     if let Some(target_triple) = target_triple {
@@ -1447,6 +1582,7 @@ fn environment_generated_inputs(
         "CC",
         "CXX",
         "LD",
+        "NAGI_TARGET_LD",
         "RUSTC_WRAPPER",
         "CC_x86_64_unknown_nagi_user",
         "CXX_x86_64_unknown_nagi_user",
@@ -1458,7 +1594,13 @@ fn environment_generated_inputs(
     for (label, command) in commands {
         if let Some(path) = resolve_executable(root, &command) {
             let canonical = fs::canonicalize(&path).unwrap_or(path);
-            let (sha256, byte_length) = hash_file(&canonical)?;
+            let (sha256, byte_length) = hash_file(&canonical).map_err(|error| {
+                if label == "nagi_target_ld" {
+                    config_error("cannot fingerprint tool selected by NAGI_TARGET_LD".into())
+                } else {
+                    error
+                }
+            })?;
             inputs.push(FileIdentity {
                 kind: "tool".into(),
                 path: format!("toolchain/{label}"),
@@ -2677,5 +2819,157 @@ mod tests {
         assert_eq!(options.features, vec!["alloc", "servo"]);
         assert_eq!(options.artifacts[0].0.as_deref(), Some("kernel"));
         assert_eq!(options.generated_inputs, vec!["out/generated.json"]);
+    }
+
+    #[test]
+    fn dependency_selectors_are_hashed_without_recording_secret_values() {
+        let captured = capture_environment_inputs_from(
+            &[
+                ("CARGO_HOME", "/fixture/cache"),
+                ("RUSTUP_TOOLCHAIN", "fixture-nightly"),
+                ("NAGI_TARGET_LD", "/fixture/linker"),
+                ("OTHER_TOKEN", "private"),
+                ("CARGO_PROFILE_RELEASE_CUSTOM", "token=private"),
+            ],
+            "/fixture/repo",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(captured.len(), 3);
+        assert!(captured.values().all(|value| is_sha256(value)));
+        let changed = capture_environment_inputs_from(
+            &[("RUSTUP_TOOLCHAIN", "other-nightly")],
+            "/fixture/repo",
+            None,
+            None,
+            None,
+        );
+        assert_ne!(
+            captured.get("RUSTUP_TOOLCHAIN"),
+            changed.get("RUSTUP_TOOLCHAIN")
+        );
+    }
+
+    #[test]
+    fn registry_dependency_content_changes_with_a_constant_marker() {
+        let temp = TestDirectory::new("registry-content");
+        fs::create_dir_all(temp.path().join("third_party/generated/src")).unwrap();
+        fs::write(
+            temp.path().join("third_party/sources.lock"),
+            "[sources.fixture]\nvendored_path = \"third_party/generated\"\n",
+        )
+        .unwrap();
+        let source = temp.path().join("third_party/generated/src/lib.rs");
+        fs::write(&source, "original bytes").unwrap();
+        fs::write(
+            temp.path().join("third_party/generated/.nagi-marker"),
+            "same marker",
+        )
+        .unwrap();
+        let first = third_party_inputs(temp.path()).unwrap();
+        fs::write(source, "modified bytes").unwrap();
+        let second = third_party_inputs(temp.path()).unwrap();
+        assert_ne!(first.revisions, second.revisions);
+        assert_eq!(first.patch_inventory, second.patch_inventory);
+    }
+
+    #[test]
+    fn generated_source_hashes_ignored_bytes_but_excludes_git_bookkeeping() {
+        let temp = TestDirectory::new("dependency-content");
+        let source = temp.path().join("source");
+        fs::create_dir_all(source.join(".git")).unwrap();
+        fs::write(source.join(".git/index"), "index A").unwrap();
+        fs::write(source.join("ignored-generated.cpp"), "source A").unwrap();
+        let first = dependency_identity(temp.path(), "source").unwrap();
+        fs::write(source.join(".git/index"), "index B").unwrap();
+        assert_eq!(first, dependency_identity(temp.path(), "source").unwrap());
+        fs::write(source.join("ignored-generated.cpp"), "source B").unwrap();
+        assert_ne!(first, dependency_identity(temp.path(), "source").unwrap());
+    }
+
+    #[test]
+    fn generated_dependency_depth_is_bounded_and_secret_paths_are_not_echoed() {
+        let temp = TestDirectory::new("dependency-depth");
+        let error = dependency_identity(temp.path(), "token=fixture-secret").unwrap_err();
+        assert!(!error.to_string().contains("fixture-secret"));
+        let mut deep = temp.path().join("source");
+        fs::create_dir(&deep).unwrap();
+        for _ in 0..129 {
+            deep.push("d");
+            fs::create_dir(&deep).unwrap();
+        }
+        assert!(dependency_identity(temp.path(), "source")
+            .unwrap_err()
+            .to_string()
+            .contains("depth limit"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn llvm_source_links_are_observed_without_traversing_their_targets() {
+        use std::os::unix::fs::symlink;
+        let temp = TestDirectory::new("llvm-source-links");
+        let source = temp.path().join("out/cache/llvm-fixture");
+        for subtree in [
+            "cmake",
+            "libc/hdr",
+            "libcxx",
+            "libcxxabi",
+            "llvm/cmake",
+            "llvm/utils/llvm-lit",
+            "runtimes",
+        ] {
+            fs::create_dir_all(source.join(subtree)).unwrap();
+        }
+        fs::create_dir(temp.path().join("third_party")).unwrap();
+        fs::write(
+            temp.path().join("third_party/sources.lock"),
+            "[sources.llvm_libcxx]\nvendored_path = \"out/cache/llvm-fixture\"\n",
+        )
+        .unwrap();
+        let target = temp.path().join("outside-subtree");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("bytes"), "not consumed").unwrap();
+        symlink("missing", source.join("libcxx/dangling")).unwrap();
+        symlink(&target, source.join("libcxx/directory-link")).unwrap();
+        let first = third_party_inputs(temp.path()).unwrap();
+        fs::write(target.join("bytes"), "changed outside").unwrap();
+        assert_eq!(
+            first.revisions,
+            third_party_inputs(temp.path()).unwrap().revisions
+        );
+        fs::remove_file(source.join("libcxx/dangling")).unwrap();
+        symlink("different-missing", source.join("libcxx/dangling")).unwrap();
+        assert_ne!(
+            first.revisions,
+            third_party_inputs(temp.path()).unwrap().revisions
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_lock_sources_cannot_escape_and_directory_symlinks_fail_closed() {
+        use std::os::unix::fs::symlink;
+        let root = TestDirectory::new("dependency-root");
+        let outside = TestDirectory::new("dependency-outside");
+        fs::create_dir(root.path().join("third_party")).unwrap();
+        symlink(outside.path(), root.path().join("third_party/generated")).unwrap();
+        fs::write(
+            root.path().join("third_party/sources.lock"),
+            "[sources.fixture]\nvendored_path = \"third_party/generated\"\n",
+        )
+        .unwrap();
+        assert!(third_party_inputs(root.path())
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("escapes"));
+        fs::create_dir(root.path().join("source")).unwrap();
+        symlink(outside.path(), root.path().join("source/link")).unwrap();
+        assert!(dependency_identity(root.path(), "source")
+            .unwrap_err()
+            .to_string()
+            .contains("directory symlink"));
     }
 }

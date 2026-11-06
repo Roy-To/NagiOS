@@ -5,6 +5,9 @@ edition = "2021"
 build = "build.rs"
 publish = false
 
+[build-dependencies]
+sha2 = { version = "=0.10.9", default-features = false }
+
 [features]
 m8-shell = []
 m9-window = []

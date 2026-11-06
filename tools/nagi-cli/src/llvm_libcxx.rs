@@ -5,13 +5,15 @@
 //! [`ensure_libcxx_source`], which downloads the tarball into `out/cache/`
 //! when it is missing or mismatched, verifies it, and extracts only the
 //! directories the libc++ runtimes build reads into the lock's
-//! `vendored_path`. A marker records the verified digest so a stale or
-//! partial extraction is replaced instead of reused.
+//! `vendored_path`. Reuse checks a generated-tree digest under an OS lock;
+//! inconsistent or legacy extractions are rejected intact.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
@@ -185,25 +187,226 @@ fn marker_contents(pin: &LibcxxPin) -> String {
     )
 }
 
+// Locks coordinate cooperating preparers only. Consumers must not mutate the
+// returned source; this is not a lease preventing edits after this call returns.
+const PREPARATION_LOCK: &str = ".llvm-libcxx-source.lock";
+static NEXT_STAGING: AtomicU64 = AtomicU64::new(0);
+
+fn real_directory(path: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(format!(
+            "libc++ cache requires a real directory: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn cache_directory(root: &Path) -> Result<PathBuf, String> {
+    real_directory(root)?;
+    let mut current = root.to_path_buf();
+    for part in ["out", "cache"] {
+        current.push(part);
+        match fs::create_dir(&current) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+            Err(error) => return Err(format!("cannot create {}: {error}", current.display())),
+        }
+        real_directory(&current)?;
+    }
+    Ok(current)
+}
+
+fn preparation_lock(cache: &Path) -> Result<File, String> {
+    let path = cache.join(PREPARATION_LOCK);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if !metadata.file_type().is_file() => {
+            return Err(format!(
+                "libc++ preparation lock is not a regular file: {}",
+                path.display()
+            ));
+        }
+        Ok(_) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(format!("cannot inspect {}: {error}", path.display())),
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+    lock.lock()
+        .map_err(|error| format!("cannot lock {}: {error}", path.display()))?;
+    Ok(lock)
+}
+
+struct Staging(PathBuf);
+impl Staging {
+    fn new(cache: &Path) -> Result<Self, String> {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("cannot read libc++ preparation clock: {error}"))?
+            .as_nanos();
+        let path = cache.join(format!(
+            ".libcxx-{}-{nonce}-{}.extracting",
+            std::process::id(),
+            NEXT_STAGING.fetch_add(1, Ordering::Relaxed)
+        ));
+        // Exclusive creation: never clear a leftover or another preparer's work.
+        fs::create_dir(&path)
+            .map_err(|error| format!("cannot create {}: {error}", path.display()))?;
+        Ok(Self(path))
+    }
+}
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn tree_sha256(source: &Path) -> Result<String, String> {
+    real_directory(source)?;
+    for subtree in EXTRACTED_SUBTREES {
+        real_directory(&source.join(subtree))?;
+    }
+    source_tree_content_sha256(source)
+}
+
+// Shared observation only: fingerprinting records available bytes and link text;
+// preparation separately validates required subtrees, markers and archive pins.
+pub(crate) fn source_tree_content_sha256(source: &Path) -> Result<String, String> {
+    fn field(hasher: &mut Sha256, bytes: &[u8]) {
+        hasher.update((bytes.len() as u64).to_le_bytes());
+        hasher.update(bytes);
+    }
+    fn visit(source: &Path, directory: &Path, hasher: &mut Sha256) -> Result<(), String> {
+        let mut entries = fs::read_dir(directory)
+            .map_err(|error| format!("cannot list {}: {error}", directory.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("cannot enumerate {}: {error}", directory.display()))?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            if path == source.join(EXTRACTED_MARKER) {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(source)
+                .map_err(|error| error.to_string())?;
+            let name = relative
+                .to_str()
+                .ok_or_else(|| format!("non-UTF-8 libc++ path: {}", path.display()))?;
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
+            field(hasher, name.as_bytes());
+            if metadata.is_dir() {
+                field(hasher, b"directory");
+                visit(source, &path, hasher)?;
+            } else if metadata.is_file() {
+                field(hasher, b"file");
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    field(
+                        hasher,
+                        &(metadata.permissions().mode() & 0o111).to_le_bytes(),
+                    );
+                }
+                field(hasher, file_sha256(&path)?.as_bytes());
+            } else if metadata.file_type().is_symlink() {
+                // Hash link text without traversing it (including dangling links
+                // present in a release subtree). The pinned archive is the origin.
+                field(hasher, b"symlink");
+                let target = fs::read_link(&path)
+                    .map_err(|error| format!("cannot read link {}: {error}", path.display()))?;
+                field(
+                    hasher,
+                    target
+                        .to_str()
+                        .ok_or_else(|| format!("non-UTF-8 libc++ link: {}", path.display()))?
+                        .as_bytes(),
+                );
+            } else {
+                return Err(format!(
+                    "unsupported libc++ source entry: {}",
+                    path.display()
+                ));
+            }
+        }
+        Ok(())
+    }
+    real_directory(source)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"nagi-libcxx-tree-v1\0");
+    visit(source, source, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn verified_marker(pin: &LibcxxPin, digest: &str) -> String {
+    format!("{}tree_sha256={digest}\n", marker_contents(pin))
+}
+
 /// Ensure the pinned libc++ source subset is extracted and verified.
-/// Returns the extracted source root (the `llvm-project-*.src` equivalent).
+/// Reuse rehashes the complete tree; legacy/inconsistent caches are rejected
+/// intact and require an explicit rebuild. The consumer shell's marker-only
+/// check does not independently provide this guarantee.
 pub(crate) fn ensure_libcxx_source(root: &Path) -> Result<PathBuf, String> {
     let lock = fs::read_to_string(root.join(SOURCES_LOCK))
         .map_err(|error| format!("cannot read {SOURCES_LOCK}: {error}"))?;
     let pin = parse_libcxx_pin(&lock)?;
+    let cache = cache_directory(root)?;
+    let _lock = preparation_lock(&cache)?;
     let source = root.join(&pin.vendored_path);
-    let marker = source.join(EXTRACTED_MARKER);
-    if fs::read_to_string(&marker).ok().as_deref() == Some(marker_contents(&pin).as_str()) {
-        return Ok(source);
+    // Check each ancestor rather than traversing a redirected source parent.
+    let mut parent = root.to_path_buf();
+    let relative = Path::new(&pin.vendored_path);
+    for part in relative
+        .parent()
+        .ok_or("missing libc++ source parent")?
+        .components()
+    {
+        let std::path::Component::Normal(name) = part else {
+            return Err("invalid libc++ source parent".into());
+        };
+        parent.push(name);
+        real_directory(&parent)?;
     }
-
-    let cache = root.join("out").join("cache");
-    fs::create_dir_all(&cache)
-        .map_err(|error| format!("cannot create {}: {error}", cache.display()))?;
+    match fs::symlink_metadata(&source) {
+        Ok(_) => {
+            real_directory(&source)?;
+            let marker = source.join(EXTRACTED_MARKER);
+            if !fs::symlink_metadata(&marker)
+                .map_err(|error| format!("unverified libc++ cache {}: {error}", source.display()))?
+                .file_type()
+                .is_file()
+            {
+                return Err(format!(
+                    "libc++ source marker is not a regular file: {}",
+                    marker.display()
+                ));
+            }
+            let saved = fs::read_to_string(&marker)
+                .map_err(|error| format!("cannot read {}: {error}", marker.display()))?;
+            let digest = tree_sha256(&source)?;
+            if saved != verified_marker(&pin, &digest) {
+                return Err(format!(
+                    "libc++ cache tree or marker mismatch at {}; preserved for explicit rebuild",
+                    source.display()
+                ));
+            }
+            return Ok(source);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(format!("cannot inspect {}: {error}", source.display())),
+    }
+    let staging = Staging::new(&cache)?;
     let tarball = cache.join(pin.tarball_name());
     if verify_tarball(&tarball, &pin).is_err() {
-        let partial = cache.join(format!("{}.partial", pin.tarball_name()));
-        let _ = fs::remove_file(&partial);
+        let partial = staging.0.join("source.tar.xz.partial");
         run(
             ProcessCommand::new("curl")
                 .args(["--fail", "--silent", "--show-error", "--location"])
@@ -212,47 +415,33 @@ pub(crate) fn ensure_libcxx_source(root: &Path) -> Result<PathBuf, String> {
                 .arg(&pin.url),
             &format!("curl {}", pin.url),
         )?;
-        if let Err(error) = verify_tarball(&partial, &pin) {
-            let _ = fs::remove_file(&partial);
-            return Err(format!("downloaded LLVM source rejected: {error}"));
-        }
+        verify_tarball(&partial, &pin)
+            .map_err(|error| format!("downloaded LLVM source rejected: {error}"))?;
         fs::rename(&partial, &tarball)
             .map_err(|error| format!("cannot install {}: {error}", tarball.display()))?;
     }
-
-    // Extract into a fresh staging directory, then replace the vendored path,
-    // so an interrupted extraction never looks complete.
-    let staging = cache.join(format!("{}.extracting", pin.top_directory()));
-    if staging.exists() {
-        fs::remove_dir_all(&staging)
-            .map_err(|error| format!("cannot clear {}: {error}", staging.display()))?;
-    }
-    fs::create_dir_all(&staging)
-        .map_err(|error| format!("cannot create {}: {error}", staging.display()))?;
     let top = pin.top_directory();
     let mut extract = ProcessCommand::new("tar");
-    extract.arg("-xJf").arg(&tarball).arg("-C").arg(&staging);
+    extract.arg("-xJf").arg(&tarball).arg("-C").arg(&staging.0);
     for subtree in EXTRACTED_SUBTREES {
         extract.arg(format!("{top}/{subtree}"));
     }
     run(&mut extract, "tar extraction of the pinned LLVM source")?;
-    let extracted = staging.join(&top);
-    for subtree in EXTRACTED_SUBTREES {
-        if !extracted.join(subtree).is_dir() {
-            return Err(format!(
-                "pinned LLVM source is missing {top}/{subtree} after extraction"
-            ));
-        }
-    }
-    fs::write(extracted.join(EXTRACTED_MARKER), marker_contents(&pin))
-        .map_err(|error| format!("cannot write libc++ source marker: {error}"))?;
-    if source.exists() {
-        fs::remove_dir_all(&source)
-            .map_err(|error| format!("cannot replace {}: {error}", source.display()))?;
+    let extracted = staging.0.join(&top);
+    let digest = tree_sha256(&extracted)?;
+    fs::write(
+        extracted.join(EXTRACTED_MARKER),
+        verified_marker(&pin, &digest),
+    )
+    .map_err(|error| format!("cannot write libc++ source marker: {error}"))?;
+    if fs::symlink_metadata(&source).is_ok() {
+        return Err(format!(
+            "libc++ source destination appeared during preparation: {}",
+            source.display()
+        ));
     }
     fs::rename(&extracted, &source)
         .map_err(|error| format!("cannot install {}: {error}", source.display()))?;
-    let _ = fs::remove_dir_all(&staging);
     Ok(source)
 }
 
@@ -323,3 +512,7 @@ vendored_path = \"out/cache/llvm-libcxx-19.1.7\"\n";
         let _ = fs::remove_dir_all(&directory);
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/libcxx-source-cache-host.rs"]
+mod cache_host_tests;
