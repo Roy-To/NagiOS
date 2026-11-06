@@ -188,10 +188,7 @@ pub(crate) fn ensure_servo_checkout(root: &Path) -> Result<PathBuf, String> {
     let spec = validate_servo_source_lock(root)?;
     let checkout = root.join(&spec.vendored_path);
     if checkout.exists() {
-        let validated = validate_servo_checkout(root, &spec)?;
-        ensure_freetype_sys_checkout(root)?;
-        ensure_hyper_util_servo_checkout(root)?;
-        return Ok(validated);
+        return validate_existing_servo_checkout(root, &spec);
     }
 
     let cache = root.join("out").join("cache");
@@ -296,6 +293,45 @@ pub(crate) fn ensure_servo_checkout(root: &Path) -> Result<PathBuf, String> {
         }
     }?;
     validate_servo_checkout(root, &spec)
+}
+
+fn validate_existing_servo_checkout(
+    root: &Path,
+    spec: &ServoSourceSpec,
+) -> Result<PathBuf, String> {
+    let validated = validate_servo_checkout(root, spec)?;
+    validate_existing_servo_dependencies(root)?;
+    Ok(validated)
+}
+
+// Reuse is validation-only: a missing dependency must not trigger a fetch or
+// silently regenerate part of an otherwise existing Servo source graph.
+fn validate_existing_servo_dependencies(root: &Path) -> Result<(), String> {
+    for name in [
+        "mio-servo",
+        "socket2-servo",
+        "tokio-servo",
+        "libc-servo",
+        "freetype-sys",
+        "hyper-util-servo",
+    ] {
+        let path = root.join("third_party").join(name);
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("existing Servo dependency {name} is unavailable at {}; refusing to regenerate it: {error}", path.display()))?;
+        if !metadata.is_dir() {
+            return Err(format!(
+                "existing Servo dependency {name} is not a directory; refusing to regenerate {}",
+                path.display()
+            ));
+        }
+    }
+    ensure_mio_servo_checkout(root)?;
+    ensure_socket2_servo_checkout(root)?;
+    ensure_tokio_servo_checkout(root)?;
+    ensure_libc_servo_checkout(root)?;
+    ensure_freetype_sys_checkout(root)?;
+    ensure_hyper_util_servo_checkout(root)?;
+    Ok(())
 }
 
 fn fetch_unpatched_dependencies(checkout: &Path) -> Result<(), String> {
@@ -1206,6 +1242,106 @@ mod tests {
         let error = validate_servo_checkout(&root, &spec).unwrap_err();
         assert!(error.contains("patch fingerprint"), "{error}");
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn reuse_fixture(label: &str) -> (PathBuf, ServoSourceSpec) {
+        let root = temp_root(label);
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("third_party/sources.lock"),
+            root.join("third_party/sources.lock"),
+        )
+        .unwrap();
+        let lock = fs::read_to_string(root.join("third_party/sources.lock")).unwrap();
+        for (component, package, version) in [
+            ("mio-servo", "mio", "1.2.3"),
+            ("socket2-servo", "socket2", "0.6.5"),
+            ("tokio-servo", "tokio", "1.53.1"),
+            ("libc-servo", "libc", "0.2.189"),
+            ("freetype-sys", "freetype-sys", "0.23.0"),
+            ("hyper-util-servo", "hyper-util", "0.1.20"),
+        ] {
+            let section = format!("sources.{}", component.replace('-', "_"));
+            let hash = super::lock_value(&lock, &section, "source_hash").unwrap();
+            let directory = root.join("third_party").join(component);
+            fs::create_dir_all(&directory).unwrap();
+            fs::create_dir_all(
+                root.join("third_party")
+                    .join(format!("{component}-patches")),
+            )
+            .unwrap();
+            let manifest = format!("[package]\nname = \"{package}\"\nversion = \"{version}\"\n");
+            fs::write(directory.join("Cargo.toml"), &manifest).unwrap();
+            let mut fingerprint = super::Fnv1a::new();
+            fingerprint.update(b"Cargo.toml\0");
+            fingerprint.update(manifest.as_bytes());
+            fingerprint.update(&[0]);
+            let format_version = 2;
+            fs::write(directory.join(format!(".nagi-{component}-checkout")), format!(
+                "format_version = {format_version}\nsource_hash = {hash}\npatch_fingerprint = fnv1a64:cbf29ce484222325\ncheckout_fingerprint = {}\n", fingerprint.finish())).unwrap();
+        }
+        let checkout = root.join("third_party/servo");
+        fs::create_dir_all(root.join("third_party/servo-patches")).unwrap();
+        fs::create_dir_all(&checkout).unwrap();
+        fs::write(
+            checkout.join("Cargo.toml"),
+            b"[package]\nname = \"servo\"\n",
+        )
+        .unwrap();
+        init_git(&checkout);
+        let mut spec = expected_spec();
+        spec.revision = git_head(&checkout);
+        spec.source_hash = format!("git:{}", spec.revision);
+        fs::write(checkout.join("REVISION"), format!("{}\n", spec.revision)).unwrap();
+        write_generated_marker(&root, &checkout, &spec).unwrap();
+        (root, spec)
+    }
+
+    #[test]
+    fn existing_servo_rechecks_each_registry_dependency_without_repair() {
+        let (root, spec) = reuse_fixture("existing-dependencies");
+        assert!(super::validate_existing_servo_checkout(&root, &spec).is_ok());
+        for name in ["mio-servo", "socket2-servo", "tokio-servo", "libc-servo"] {
+            let manifest = root.join("third_party").join(name).join("Cargo.toml");
+            let original = fs::read(&manifest).unwrap();
+            let mut tampered = original.clone();
+            tampered.extend_from_slice(b"# changed after generation\n");
+            fs::write(&manifest, &tampered).unwrap();
+            let error = super::validate_existing_servo_checkout(&root, &spec).unwrap_err();
+            assert!(error.contains("state does not match"), "{name}: {error}");
+            assert_eq!(fs::read(&manifest).unwrap(), tampered);
+            fs::write(manifest, original).unwrap();
+        }
+        // Existing Servo fingerprint validation remains mandatory too.
+        let manifest = root.join("third_party/servo/Cargo.toml");
+        fs::write(&manifest, "changed Servo").unwrap();
+        let error = super::validate_existing_servo_checkout(&root, &spec).unwrap_err();
+        assert!(error.contains("state does not match"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn existing_servo_rejects_missing_dependencies_before_any_generation() {
+        let (root, spec) = reuse_fixture("missing-dependencies");
+        for name in ["mio-servo", "socket2-servo", "tokio-servo", "libc-servo"] {
+            let dependency = root.join("third_party").join(name);
+            let held = root.join(format!("held-{name}"));
+            fs::rename(&dependency, &held).unwrap();
+            let error = super::validate_existing_servo_checkout(&root, &spec).unwrap_err();
+            assert!(
+                error.contains(name) && error.contains("refusing to regenerate"),
+                "{error}"
+            );
+            assert!(!dependency.exists());
+            assert!(!root.join("out").exists());
+            fs::rename(held, dependency).unwrap();
+        }
+        assert!(super::validate_existing_servo_checkout(&root, &spec).is_ok());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn init_git(checkout: &Path) {

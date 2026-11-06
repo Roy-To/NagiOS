@@ -63,7 +63,8 @@ fn identical_inputs_reuse_bytes_and_preserve_source_timestamps() {
     let f = Fixture::new();
     let first = f.prepare("compiler-1").unwrap();
     assert!(!first.reused);
-    let file = first.library.join("test.rs");
+    let library = first.library.clone();
+    let file = library.join("test.rs");
     let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1000);
     OpenOptions::new()
         .write(true)
@@ -72,9 +73,10 @@ fn identical_inputs_reuse_bytes_and_preserve_source_timestamps() {
         .set_times(fs::FileTimes::new().set_modified(modified))
         .unwrap();
     let before = tree_hash(&f.generated()).unwrap();
+    drop(first);
     let second = f.prepare("compiler-1").unwrap();
     assert!(second.reused);
-    assert_eq!(first.library, second.library);
+    assert_eq!(library, second.library);
     assert_eq!(tree_hash(&f.generated()).unwrap(), before);
     assert_eq!(fs::metadata(file).unwrap().modified().unwrap(), modified);
 }
@@ -208,6 +210,16 @@ fn symlink_corruption_is_replaced_without_changing_its_target() {
 
 #[test]
 fn an_os_lock_is_released_with_its_handle_despite_the_leftover_file() {
+    // Parallel tests spawn children. A fork may briefly inherit another test's
+    // locked descriptor until exec; isolate these immediate drop/try_lock checks.
+    if std::env::var_os("NAGI_STD_LOCK_RELEASE_CHILD").is_none() {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "rust_std_source::tests::an_os_lock_is_released_with_its_handle_despite_the_leftover_file", "--nocapture"])
+            .env("NAGI_STD_LOCK_RELEASE_CHILD", "1")
+            .status().unwrap();
+        assert!(status.success());
+        return;
+    }
     let f = Fixture::new();
     fs::create_dir_all(f.root.join("out")).unwrap();
     let path = f.root.join("out/rust-src.lock");
@@ -229,4 +241,102 @@ fn an_os_lock_is_released_with_its_handle_despite_the_leftover_file() {
     second.try_lock().unwrap();
     drop(second);
     assert!(!f.prepare("compiler").unwrap().reused);
+}
+
+#[test]
+#[ignore = "child of isolated prepared-source lease fixture"]
+fn competing_preparation_child() {
+    let root = PathBuf::from(std::env::var_os("NAGI_STD_LEASE_ROOT").unwrap());
+    fs::write(root.join("attempting"), "ready").unwrap();
+    let prepared = prepare(
+        &root,
+        &root.join("alternative"),
+        "compiler-2",
+        &root.join("nagi.patch"),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(prepared.library.join("untouched.rs")).unwrap(),
+        "two\n"
+    );
+    fs::write(root.join("completed"), "done").unwrap();
+}
+
+#[test]
+fn a_returned_source_keeps_competing_inputs_out_until_consumption_finishes() {
+    use std::time::{Duration, Instant};
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    for reuse in [false, true] {
+        let f = Fixture::new();
+        if reuse {
+            drop(f.prepare("compiler-1").unwrap());
+        }
+        let prepared = f.prepare("compiler-1").unwrap();
+        assert_eq!(prepared.reused, reuse);
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(f.root.join("out/rust-src.lock"))
+            .unwrap();
+        assert!(
+            contender.try_lock().is_err(),
+            "returned guard must own the OS lock (reuse={reuse})"
+        );
+        drop(contender);
+        copy_tree(&f.source, &f.root.join("alternative")).unwrap();
+        fs::write(f.root.join("alternative/library/untouched.rs"), "two\n").unwrap();
+        let mut child = Child(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "rust_std_source::tests::competing_preparation_child",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("NAGI_STD_LEASE_ROOT", &f.root)
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !f.root.join("attempting").exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            f.root.join("attempting").exists(),
+            "child never attempted preparation"
+        );
+        let observation_end = Instant::now() + Duration::from_millis(250);
+        while !f.root.join("completed").exists() && Instant::now() < observation_end {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            fs::read_to_string(prepared.library.join("untouched.rs")).unwrap(),
+            "one\n",
+            "a live consumer saw another compiler's prepared bytes (reuse={reuse})"
+        );
+        assert!(
+            !f.root.join("completed").exists(),
+            "preparation replaced a live consumer's source"
+        );
+        drop(prepared);
+        while child.0.try_wait().unwrap().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(child
+            .0
+            .try_wait()
+            .unwrap()
+            .is_some_and(|status| status.success()));
+        assert!(f.root.join("completed").exists());
+        assert_eq!(
+            fs::read_to_string(f.generated().join("library/untouched.rs")).unwrap(),
+            "two\n"
+        );
+    }
 }
