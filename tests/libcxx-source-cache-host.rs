@@ -8,6 +8,8 @@ const FIXTURE_ENTRY: &str = include_str!("../third_party/sources.lock");
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
     root: PathBuf,
+    tar: PathBuf,
+    worker: PathBuf,
 }
 impl Fixture {
     fn new() -> Self {
@@ -25,7 +27,8 @@ impl Fixture {
         fs::write(top.join("libcxx/header"), b"original source\n").unwrap();
         fs::create_dir_all(root.join("out/cache")).unwrap();
         let archive = root.join("out/cache").join(pin.tarball_name());
-        assert!(ProcessCommand::new("/usr/bin/tar")
+        let tar = host_tar();
+        assert!(ProcessCommand::new(&tar)
             .args(["-cJf"])
             .arg(&archive)
             .arg("-C")
@@ -42,25 +45,40 @@ impl Fixture {
         )
         .unwrap();
         fs::create_dir(root.join("bin")).unwrap();
-        // Only child workers receive this PATH. Curl cannot reach a network.
-        fs::write(
-            root.join("bin/curl"),
-            "#!/bin/sh\necho forbidden-network >&2\nexit 91\n",
+        // Compile a native executable: Windows cannot execute a /bin/sh script.
+        // Only isolated workers receive this bin directory in their PATH.
+        let shim_source = root.join("cache-tool.rs");
+        fs::write(&shim_source, include_str!("fixtures/libcxx-cache-tool.rs")).unwrap();
+        let shim = root
+            .join("bin")
+            .join(format!("tar{}", std::env::consts::EXE_SUFFIX));
+        let output =
+            ProcessCommand::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+                .arg("--edition=2021")
+                .arg(&shim_source)
+                .arg("-o")
+                .arg(&shim)
+                .output()
+                .expect("compile native fixture tool with installed rustc");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::copy(
+            &shim,
+            root.join("bin")
+                .join(format!("curl{}", std::env::consts::EXE_SUFFIX)),
         )
         .unwrap();
-        fs::write(root.join("bin/tar"), "#!/bin/sh\nif [ -f \"$FIXTURE_ROOT/fail-tar\" ]; then exit 7; fi\nif [ -f \"$FIXTURE_ROOT/block-tar\" ] && mkdir \"$FIXTURE_ROOT/first-tar\" 2>/dev/null; then\n touch \"$FIXTURE_ROOT/tar-entered\"\n n=0\n while [ ! -f \"$FIXTURE_ROOT/release-tar\" ]; do n=$((n+1)); if [ \"$n\" -gt 500 ]; then exit 8; fi; sleep 0.01; done\nfi\n/usr/bin/tar \"$@\"\nstatus=$?\ntouch \"$FIXTURE_ROOT/tar-finished-$FIXTURE_WORKER\"\nexit $status\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            for name in ["curl", "tar"] {
-                fs::set_permissions(
-                    root.join("bin").join(name),
-                    fs::Permissions::from_mode(0o700),
-                )
-                .unwrap();
-            }
-        }
-        Self { root }
+        // Windows searches the application's directory before System32 and the
+        // inherited PATH. Run a private worker copy beside the native shims so
+        // unmodified production Command::new("tar"/"curl") cannot bypass them.
+        let worker = root
+            .join("bin")
+            .join(format!("cache-worker{}", std::env::consts::EXE_SUFFIX));
+        fs::copy(std::env::current_exe().unwrap(), &worker).unwrap();
+        Self { root, tar, worker }
     }
     fn source(&self) -> PathBuf {
         self.root.join("out/cache/llvm-libcxx-19.1.7")
@@ -71,7 +89,7 @@ impl Fixture {
         ))
         .unwrap();
         let out = fs::File::create(self.root.join(format!("{name}.log"))).unwrap();
-        ProcessCommand::new(std::env::current_exe().unwrap())
+        ProcessCommand::new(&self.worker)
             .args([
                 "--exact",
                 &format!("{}::worker", module_path!().split_once("::").unwrap().1),
@@ -79,6 +97,7 @@ impl Fixture {
                 "--nocapture",
             ])
             .env("FIXTURE_ROOT", &self.root)
+            .env("FIXTURE_REAL_TAR", &self.tar)
             .env("FIXTURE_WORKER", name)
             .env("PATH", path)
             .stdout(out.try_clone().unwrap())
@@ -96,9 +115,41 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        // The interrupted worker's shim writes its marker just before exiting.
+        // Windows may still have its executable mapped for that brief interval.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match fs::remove_dir_all(&self.root) {
+                Ok(()) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::PermissionDenied
+                        && Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    if std::thread::panicking() {
+                        eprintln!("fixture cleanup failed: {error}");
+                    } else {
+                        panic!("fixture cleanup failed: {error}");
+                    }
+                    break;
+                }
+            }
+        }
     }
 }
+// Resolve before adding the fixture shims; never delegate to the shim itself.
+fn host_tar() -> PathBuf {
+    let name = format!("tar{}", std::env::consts::EXE_SUFFIX);
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|directory| directory.join(&name))
+        .find(|path| path.is_file())
+        .map(|path| fs::canonicalize(path).expect("resolve host tar"))
+        .expect("host tar executable in PATH (tar.exe on Windows)")
+}
+
 fn until_file(path: &Path) {
     let deadline = Instant::now() + Duration::from_secs(8);
     while !path.exists() {
@@ -138,6 +189,15 @@ fn valid_cache_reuses_without_extraction() {
     assert!(f.prepare(), "{}", f.log("prepare"));
     fs::write(f.root.join("fail-tar"), b"fail").unwrap();
     assert!(f.prepare(), "{}", f.log("prepare"));
+}
+#[test]
+fn missing_archive_uses_fixture_curl_without_network() {
+    let f = Fixture::new();
+    let pin = parse_libcxx_pin(&fs::read_to_string(f.root.join(SOURCES_LOCK)).unwrap()).unwrap();
+    fs::remove_file(f.root.join("out/cache").join(pin.tarball_name())).unwrap();
+    assert!(!f.prepare());
+    assert!(f.log("prepare").contains("fixture-curl-blocked"));
+    assert!(!f.source().exists());
 }
 #[test]
 fn correct_marker_does_not_authorize_one_byte_mutation() {
@@ -203,6 +263,7 @@ fn failed_extraction_publishes_nothing_and_next_attempt_is_safe() {
     let f = Fixture::new();
     fs::write(f.root.join("fail-tar"), b"fail").unwrap();
     assert!(!f.prepare());
+    assert!(f.log("prepare").contains("fixture-tar-failed"));
     assert!(!f.source().exists());
     fs::remove_file(f.root.join("fail-tar")).unwrap();
     assert!(f.prepare());
@@ -262,7 +323,7 @@ fn link_text_and_executable_mode_changes_are_rejected() {
         let pin =
             parse_libcxx_pin(&fs::read_to_string(f.root.join(SOURCES_LOCK)).unwrap()).unwrap();
         let archive = f.root.join("out/cache").join(pin.tarball_name());
-        assert!(ProcessCommand::new("/usr/bin/tar")
+        assert!(ProcessCommand::new(&f.tar)
             .arg("-cJf")
             .arg(&archive)
             .arg("-C")
