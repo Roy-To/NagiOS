@@ -1,0 +1,18 @@
+[package]
+name = "nagi-vfs-recovery-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+m27-recovery = []
+m27-recovery-undo-acceptance = ["m27-recovery"]
+
+[dependencies]
+libnagi = { path = "../../user/libnagi" }
+nagi-history = { path = "../../user/nagi-history" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

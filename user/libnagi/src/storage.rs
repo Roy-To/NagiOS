@@ -1,4 +1,8 @@
-use core::ptr;
+use core::{
+    ptr,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
+use sha2::{Digest, Sha256};
 
 pub const SECTOR_SIZE: usize = 512;
 pub const BLOCK_SIZE: usize = 1024;
@@ -33,10 +37,83 @@ const SUPERBLOCK_BLOCK: u32 = 1;
 /// Blocks 0..15 are reserved metadata and are never file data.
 const RESERVED_BLOCKS: u32 = 15;
 const GROUP_DESCRIPTOR_BLOCK: u32 = 2;
+// Already reserved by the Nagi format, never allocated as file contents.
+const UNDO_BLOCK: u32 = 14;
+const LEGACY_UNDO_MAGIC: &[u8; 8] = b"NAGIVTX1";
+const UNDO_MAGIC: &[u8; 8] = b"NAGIVTX2";
+const UNDO_FORMAT_V1: u8 = 1;
+const UNDO_FORMAT_V2: u8 = 2;
+const UNDO_CREATE: u8 = 1;
+const UNDO_RENAME: u8 = 2;
+const UNDO_DELETE: u8 = 3;
+
+// This gate and the active-instance ID are process-local. Block authority
+// must remain exclusive to one userspace storage service across processes.
+// Nested API calls on the active Vfs are allowed; BlockDevice callbacks must
+// not reenter Vfs.
+static VOLUME_ACCESS: AtomicBool = AtomicBool::new(false);
+static NEXT_ACCESS_ID: AtomicU64 = AtomicU64::new(1);
+static ACTIVE_ACCESS_ID: AtomicU64 = AtomicU64::new(0);
+
+fn allocate_access_id() -> Result<u64, StorageError> {
+    NEXT_ACCESS_ID
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+        .map_err(|_| StorageError::Capacity)
+}
+
+struct VolumeAccess;
+impl VolumeAccess {
+    fn acquire() -> Self {
+        while VOLUME_ACCESS
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+        Self
+    }
+}
+impl Drop for VolumeAccess {
+    fn drop(&mut self) {
+        VOLUME_ACCESS.store(false, Ordering::Release);
+    }
+}
+
+struct ResetAccess(u64);
+impl Drop for ResetAccess {
+    fn drop(&mut self) {
+        // A guard may clear only the active ID it installed. This remains
+        // correct even if the gate's drop order changes.
+        let _ = ACTIVE_ACCESS_ID.compare_exchange(self.0, 0, Ordering::Release, Ordering::Relaxed);
+    }
+}
+
+struct Undo {
+    kind: u8,
+    directory_inode: u32,
+    directory_block: u32,
+    inode: u32,
+    data_block: u32,
+    previous_inode: [u8; EXT2_INODE_SIZE as usize],
+    previous_indirect_checksum: [u8; 32],
+    directory: [u8; BLOCK_SIZE],
+}
+
+#[derive(Clone, Copy)]
+enum UndoAction {
+    Create { inode: u32, data_block: u32 },
+    Rename,
+    Delete { inode: u32 },
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageError {
+    /// A block-device operation failed. A started mutation whose rollback
+    /// cannot be confirmed returns Indeterminate instead.
     Block,
+    /// A mutation may have taken effect, but durable rollback could not be
+    /// confirmed. Inspect the volume or run explicit Recovery before retrying.
+    Indeterminate,
     Corrupt,
     NameTooLong,
     InvalidName,
@@ -50,6 +127,8 @@ pub enum StorageError {
     FileTooLarge,
     BufferTooSmall,
     Capacity,
+    /// A valid undo transaction exists and requires an explicit Recovery action.
+    RecoveryRequired,
 }
 
 pub trait ReadOnlyBlockDevice {
@@ -245,33 +324,79 @@ impl FileMapping {
 
 pub struct Vfs<D> {
     device: D,
+    access_id: u64,
+    recovery_required: bool,
 }
 
 impl<D: BlockDevice> Vfs<D> {
-    /// Mount an existing Nagi VFS without formatting or initializing it.
-    /// This only validates the fixed superblock geometry; callers that need
-    /// an integrity guarantee must run `check_existing` first.
+    /// Mount an existing Nagi VFS without formatting, initializing, or repairing it.
+    /// A valid pending undo transaction returns StorageError::RecoveryRequired; use the
+    /// explicit Recovery path to restore it. Callers that need an integrity
+    /// guarantee must run check_existing first.
     pub fn mount_existing(device: D) -> Result<Self, StorageError> {
-        let mut volume = Self { device };
+        let _access = VolumeAccess::acquire();
+        let mut volume = Self {
+            device,
+            access_id: allocate_access_id()?,
+            recovery_required: false,
+        };
         let mut superblock = [0; BLOCK_SIZE];
         volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
         if read_u16(&superblock, 56) != EXT2_MAGIC {
             return Err(StorageError::Corrupt);
         }
         validate_superblock(&superblock)?;
+        if load_undo(&mut volume.device)?.is_some() {
+            return Err(StorageError::RecoveryRequired);
+        }
         Ok(volume)
     }
 
+    /// Mount an existing volume or format a blank device, without repairing
+    /// pending undo. A valid pending transaction returns StorageError::RecoveryRequired.
     pub fn mount_or_format(device: D) -> Result<(Self, bool), StorageError> {
-        let mut volume = Self { device };
+        let _access = VolumeAccess::acquire();
+        let mut volume = Self {
+            device,
+            access_id: allocate_access_id()?,
+            recovery_required: false,
+        };
         let mut superblock = [0; BLOCK_SIZE];
         volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
         if read_u16(&superblock, 56) != EXT2_MAGIC {
+            let mut header = [0; SECTOR_SIZE];
+            volume.device.read_sector(0, &mut header)?;
+            if header.iter().any(|byte| *byte != 0) {
+                return Err(StorageError::Corrupt);
+            }
             volume.format()?;
             return Ok((volume, true));
         }
         validate_superblock(&superblock)?;
+        if load_undo(&mut volume.device)?.is_some() {
+            return Err(StorageError::RecoveryRequired);
+        }
         Ok((volume, false))
+    }
+
+    /// Explicitly restore a valid pending undo transaction without formatting.
+    /// This is intended for the Recovery console; ordinary mounts and VFS
+    /// operations only inspect the journal and return StorageError::RecoveryRequired.
+    pub fn recover_existing(device: D) -> Result<Self, StorageError> {
+        let _access = VolumeAccess::acquire();
+        let mut volume = Self {
+            device,
+            access_id: allocate_access_id()?,
+            recovery_required: false,
+        };
+        let mut superblock = [0; BLOCK_SIZE];
+        volume.read_block(SUPERBLOCK_BLOCK, &mut superblock)?;
+        if read_u16(&superblock, 56) != EXT2_MAGIC {
+            return Err(StorageError::Corrupt);
+        }
+        validate_superblock(&superblock)?;
+        volume.recover_undo()?;
+        Ok(volume)
     }
 
     pub fn into_device(self) -> D {
@@ -283,55 +408,80 @@ impl<D: BlockDevice> Vfs<D> {
     /// conventional guest `/tmp` directory; an existing non-directory is an
     /// error rather than being treated as a successful setup.
     pub fn ensure_directory_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        match self.resolve_path(path) {
+        self.with_access(|volume| match volume.resolve_path(path) {
             Ok(inode) => {
-                self.directory_inode(inode)?;
+                volume.directory_inode(inode)?;
                 Ok(())
             }
-            Err(StorageError::NotFound) => self.mkdir_path(path),
+            Err(StorageError::NotFound) => volume.mkdir_path(path),
             Err(error) => Err(error),
-        }
+        })
     }
 
     pub fn create_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        let (parent, name) = self.resolve_parent_path(path, false)?;
-        self.create_in_directory(parent, name)
+        self.with_access(|volume| {
+            let (parent, name) = volume.resolve_parent_path(path, false)?;
+            volume.create_in_directory(parent, name)
+        })
+    }
+
+    /// Create a new single-block file with its initial bytes inside the create
+    /// undo transaction. Existing paths are never replaced. Reported I/O errors
+    /// follow the same rollback/explicit-Recovery contract as ordinary create.
+    pub fn create_path_with_initial_contents(
+        &mut self,
+        path: &[u8],
+        contents: &[u8],
+    ) -> Result<FileHandle, StorageError> {
+        self.with_access(|volume| {
+            if contents.len() > BLOCK_SIZE {
+                return Err(StorageError::FileTooLarge);
+            }
+            let (parent, name) = volume.resolve_parent_path(path, false)?;
+            volume.create_in_directory_with_initial_contents(parent, name, contents)
+        })
     }
 
     pub fn mkdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        let (parent, name) = self.resolve_parent_path(path, true)?;
-        self.mkdir_in_directory(parent, name)
+        self.with_access(|volume| {
+            let (parent, name) = volume.resolve_parent_path(path, true)?;
+            volume.mkdir_in_directory(parent, name)
+        })
     }
 
     pub fn open_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        let inode_number = self.resolve_path(path)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 == 0x4000 {
-            return Err(StorageError::IsDirectory);
-        }
-        if inode.mode & 0xf000 != 0x8000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        self.handle_for(inode_number)
+        self.with_access(|volume| {
+            let inode_number = volume.resolve_path(path)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 == 0x4000 {
+                return Err(StorageError::IsDirectory);
+            }
+            if inode.mode & 0xf000 != 0x8000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            volume.handle_for(inode_number)
+        })
     }
 
     pub fn metadata_path(&mut self, path: &[u8]) -> Result<FileMetadata, StorageError> {
-        let inode_number = self.resolve_path(path)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        Ok(metadata_from_inode(inode_number, inode))
+        self.with_access(|volume| {
+            let inode_number = volume.resolve_path(path)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            Ok(metadata_from_inode(inode_number, inode))
+        })
     }
 
     /// Remove a regular file by path. Directory removal has a separate POSIX
     /// operation so `unlink` cannot silently remove a directory.
     pub fn remove_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        self.remove_path_with_kind(path, Some(false), false)
+        self.with_access(|volume| volume.remove_path_with_kind(path, Some(false), false))
     }
 
     pub fn rmdir_path(&mut self, path: &[u8]) -> Result<(), StorageError> {
-        self.remove_path_with_kind(path, Some(true), true)
+        self.with_access(|volume| volume.remove_path_with_kind(path, Some(true), true))
     }
 
     pub fn list_directory_path(
@@ -339,13 +489,17 @@ impl<D: BlockDevice> Vfs<D> {
         path: &[u8],
         entries: &mut [DirectoryEntry],
     ) -> Result<usize, StorageError> {
-        let inode = self.resolve_path(path)?;
-        self.list_directory_inode(inode, entries)
+        self.with_access(|volume| {
+            let inode = volume.resolve_path(path)?;
+            volume.list_directory_inode(inode, entries)
+        })
     }
 
     pub fn create(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
-        validate_name(name)?;
-        self.create_in_directory(ROOT_INODE, name)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            volume.create_in_directory(ROOT_INODE, name)
+        })
     }
 
     fn create_in_directory(
@@ -353,56 +507,67 @@ impl<D: BlockDevice> Vfs<D> {
         parent_inode: u32,
         name: &[u8],
     ) -> Result<FileHandle, StorageError> {
+        self.create_in_directory_with_initial_contents(parent_inode, name, &[])
+    }
+
+    fn create_in_directory_with_initial_contents(
+        &mut self,
+        parent_inode: u32,
+        name: &[u8],
+        contents: &[u8],
+    ) -> Result<FileHandle, StorageError> {
+        if contents.len() > BLOCK_SIZE {
+            return Err(StorageError::FileTooLarge);
+        }
         validate_name(name)?;
         self.directory_inode(parent_inode)?;
         if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
-        let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
-        let generation = match self.next_generation(inode) {
-            Ok(generation) => generation,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let data_block = match self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT) {
-            Ok(block) => block,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let now = current_timestamp();
-        self.write_inode(
-            inode,
-            InodeInfo {
-                mode: 0x8000,
-                uid: 0,
-                gid: 0,
-                size: 0,
-                atime: now,
-                ctime: now,
-                mtime: now,
-                blocks: 0,
-                direct_block: data_block,
-                extra_blocks: [0; DIRECT_BLOCKS - 1],
-                indirect_block: 0,
-                generation,
+        let inode = self.find_free_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)? + 1;
+        let data_block = self.find_free_bit(BLOCK_BITMAP, RESERVED_BLOCKS, EXT2_BLOCK_COUNT)?;
+        let generation = self.next_generation(inode)?;
+        self.transaction(
+            parent_inode,
+            UndoAction::Create { inode, data_block },
+            |volume| {
+                volume.set_allocated(INODE_BITMAP, inode - 1)?;
+                volume.set_allocated(BLOCK_BITMAP, data_block)?;
+                // Initialize only this newly allocated block before publishing
+                // the inode or directory entry. Empty create still zeroes it.
+                let mut initial = [0; BLOCK_SIZE];
+                initial[..contents.len()].copy_from_slice(contents);
+                volume.write_block(data_block, &initial)?;
+                let now = current_timestamp();
+                volume.write_inode(
+                    inode,
+                    InodeInfo {
+                        mode: 0x8000,
+                        uid: 0,
+                        gid: 0,
+                        size: contents.len() as u32,
+                        atime: now,
+                        ctime: now,
+                        mtime: now,
+                        blocks: if contents.is_empty() { 0 } else { 2 },
+                        direct_block: data_block,
+                        extra_blocks: [0; DIRECT_BLOCKS - 1],
+                        indirect_block: 0,
+                        generation,
+                    },
+                )?;
+                volume.add_directory_entry_in_directory(parent_inode, name, inode, 1)?;
+                volume.adjust_free_counts(-1, -1)?;
+                Ok(FileHandle { inode, generation })
             },
-        )?;
-        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 1) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        self.adjust_free_counts(-1, -1)?;
-        Ok(FileHandle { inode, generation })
+        )
     }
 
     pub fn mkdir(&mut self, name: &[u8]) -> Result<(), StorageError> {
-        validate_name(name)?;
-        self.mkdir_in_directory(ROOT_INODE, name)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            volume.mkdir_in_directory(ROOT_INODE, name)
+        })
     }
 
     fn mkdir_in_directory(&mut self, parent_inode: u32, name: &[u8]) -> Result<(), StorageError> {
@@ -411,102 +576,108 @@ impl<D: BlockDevice> Vfs<D> {
         if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
-        let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
-        let data_block = match self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT) {
-            Ok(block) => block,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let generation = match self.next_generation(inode) {
-            Ok(generation) => generation,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                self.clear_bit(BLOCK_BITMAP, data_block)?;
-                return Err(error);
-            }
-        };
-        let now = current_timestamp();
-        self.write_inode(
-            inode,
-            InodeInfo {
-                mode: 0x4000,
-                uid: 0,
-                gid: 0,
-                size: BLOCK_SIZE as u32,
-                atime: now,
-                ctime: now,
-                mtime: now,
-                blocks: 2,
-                direct_block: data_block,
-                extra_blocks: [0; DIRECT_BLOCKS - 1],
-                indirect_block: 0,
-                generation,
+        let inode = self.find_free_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)? + 1;
+        // Block 14 is the persistent undo backup. Keep mkdir on the same
+        // allocatable range as create so it cannot overwrite its own journal.
+        let data_block = self.find_free_bit(BLOCK_BITMAP, RESERVED_BLOCKS, EXT2_BLOCK_COUNT)?;
+        let generation = self.next_generation(inode)?;
+        self.transaction(
+            parent_inode,
+            UndoAction::Create { inode, data_block },
+            |volume| {
+                volume.set_allocated(INODE_BITMAP, inode - 1)?;
+                volume.set_allocated(BLOCK_BITMAP, data_block)?;
+                let now = current_timestamp();
+                volume.write_inode(
+                    inode,
+                    InodeInfo {
+                        mode: 0x4000,
+                        uid: 0,
+                        gid: 0,
+                        size: BLOCK_SIZE as u32,
+                        atime: now,
+                        ctime: now,
+                        mtime: now,
+                        blocks: 2,
+                        direct_block: data_block,
+                        extra_blocks: [0; DIRECT_BLOCKS - 1],
+                        indirect_block: 0,
+                        generation,
+                    },
+                )?;
+                let mut directory = [0; BLOCK_SIZE];
+                let dot = [b'.'];
+                let dot_dot = [b'.', b'.'];
+                write_directory_record(&mut directory, 0, inode, 12, 1, 2, &dot);
+                write_directory_record(&mut directory, 12, parent_inode, 12, 2, 2, &dot_dot);
+                write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
+                volume.write_block(data_block, &directory)?;
+                volume.add_directory_entry_in_directory(parent_inode, name, inode, 2)?;
+                volume.adjust_free_counts(-1, -1)?;
+                Ok(())
             },
-        )?;
-        let mut directory = [0; BLOCK_SIZE];
-        let dot = [b'.'];
-        let dot_dot = [b'.', b'.'];
-        write_directory_record(&mut directory, 0, inode, 12, 1, 2, &dot);
-        write_directory_record(&mut directory, 12, parent_inode, 12, 2, 2, &dot_dot);
-        write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
-        if let Err(error) = self.write_block(data_block, &directory) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 2) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        self.adjust_free_counts(-1, -1)
+        )
     }
 
     pub fn remove(&mut self, name: &[u8]) -> Result<(), StorageError> {
-        validate_name(name)?;
-        let (directory_offset, inode_number) = self
-            .find_directory_entry(name)?
-            .ok_or(StorageError::NotFound)?;
-        let inode = self.read_inode(inode_number)?;
-        if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
-            return Err(StorageError::InvalidHandle);
-        }
-        if inode.mode & 0xf000 == 0x4000 && !self.directory_is_empty(inode.direct_block)? {
-            return Err(StorageError::DirectoryFull);
-        }
-        let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
-        write_u32(&mut directory, directory_offset, 0);
-        self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
-        self.clear_bit(INODE_BITMAP, inode_number - 1)?;
-        let released = self.release_inode_blocks(&inode)?;
-        self.clear_inode(inode_number)?;
-        self.adjust_free_counts(released as i32, 1)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            let (directory_offset, inode_number) = volume
+                .find_directory_entry(name)?
+                .ok_or(StorageError::NotFound)?;
+            let inode = volume.read_inode(inode_number)?;
+            if inode.mode & 0xf000 != 0x8000 && inode.mode & 0xf000 != 0x4000 {
+                return Err(StorageError::InvalidHandle);
+            }
+            if inode.mode & 0xf000 == 0x4000 && !volume.directory_is_empty(inode.direct_block)? {
+                return Err(StorageError::DirectoryFull);
+            }
+            let mut directory = [0; BLOCK_SIZE];
+            volume.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+            write_u32(&mut directory, directory_offset, 0);
+            volume.transaction(
+                ROOT_INODE,
+                UndoAction::Delete {
+                    inode: inode_number,
+                },
+                |volume| {
+                    volume.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
+                    volume.clear_bit(INODE_BITMAP, inode_number - 1)?;
+                    let released = volume.release_inode_blocks(&inode)?;
+                    volume.clear_inode(inode_number)?;
+                    volume.adjust_free_counts(released as i32, 1)
+                },
+            )
+        })
     }
 
     pub fn open(&mut self, name: &[u8]) -> Result<FileHandle, StorageError> {
-        validate_name(name)?;
-        let inode = self.find_inode(name)?.ok_or(StorageError::NotFound)?;
-        self.handle_for(inode)
+        self.with_access(|volume| {
+            validate_name(name)?;
+            let inode = volume.find_inode(name)?.ok_or(StorageError::NotFound)?;
+            volume.handle_for(inode)
+        })
     }
 
     pub fn rename(&mut self, old_name: &[u8], new_name: &[u8]) -> Result<FileHandle, StorageError> {
-        self.rename_child_inode(ROOT_INODE, old_name, new_name)
+        self.with_access(|volume| volume.rename_child_inode(ROOT_INODE, old_name, new_name))
     }
 
     /// Rename an entry in the directory at `directory_path` without changing
     /// its inode or generation. Both names must be direct children of that
     /// directory; moving entries between directories is a separate operation.
+    /// The returned value identifies either a regular file or directory; file
+    /// I/O continues to reject directory identities.
     pub fn rename_child(
         &mut self,
         directory_path: &[u8],
         old_name: &[u8],
         new_name: &[u8],
     ) -> Result<FileHandle, StorageError> {
-        let directory_inode = self.resolve_path(directory_path)?;
-        self.rename_child_inode(directory_inode, old_name, new_name)
+        self.with_access(|volume| {
+            let directory_inode = volume.resolve_path(directory_path)?;
+            volume.rename_child_inode(directory_inode, old_name, new_name)
+        })
     }
 
     fn rename_child_inode(
@@ -517,11 +688,28 @@ impl<D: BlockDevice> Vfs<D> {
     ) -> Result<FileHandle, StorageError> {
         validate_name(old_name)?;
         validate_name(new_name)?;
+        if old_name == b"." || old_name == b".." || new_name == b"." || new_name == b".." {
+            return Err(StorageError::InvalidName);
+        }
+        // Resolve and validate the result before starting mutation. Directory
+        // rename must not commit and then fail regular-file handle validation.
+        let source_inode = self
+            .find_inode_in_directory(directory_inode, old_name)?
+            .ok_or(StorageError::NotFound)?;
+        let source = self.read_inode(source_inode)?;
+        let identity = match source.mode & 0xf000 {
+            0x8000 => self.handle_for(source_inode)?,
+            0x4000 => {
+                self.directory_inode(source_inode)?;
+                FileHandle {
+                    inode: source_inode,
+                    generation: effective_generation(source.generation),
+                }
+            }
+            _ => return Err(StorageError::InvalidHandle),
+        };
         if old_name == new_name {
-            let inode = self
-                .find_inode_in_directory(directory_inode, old_name)?
-                .ok_or(StorageError::NotFound)?;
-            return self.handle_for(inode);
+            return Ok(identity);
         }
         if self
             .find_inode_in_directory(directory_inode, new_name)?
@@ -626,11 +814,10 @@ impl<D: BlockDevice> Vfs<D> {
                 b"",
             );
         }
-        self.write_block(directory.direct_block, &compacted)?;
-        let inode = self
-            .find_inode_in_directory(directory_inode, new_name)?
-            .ok_or(StorageError::Corrupt)?;
-        self.handle_for(inode)
+        self.transaction(directory_inode, UndoAction::Rename, |volume| {
+            volume.write_changed_block(directory.direct_block, &compacted)
+        })?;
+        Ok(identity)
     }
 
     /// Replace a root entry in one directory-block update. The destination
@@ -642,37 +829,39 @@ impl<D: BlockDevice> Vfs<D> {
         source_name: &[u8],
         destination_name: &[u8],
     ) -> Result<FileHandle, StorageError> {
-        validate_name(source_name)?;
-        validate_name(destination_name)?;
-        if source_name == destination_name {
-            return self.open(source_name);
-        }
-        let (source_offset, source_inode_number) = self
-            .find_directory_entry(source_name)?
-            .ok_or(StorageError::NotFound)?;
-        let (destination_offset, destination_inode_number) = self
-            .find_directory_entry(destination_name)?
-            .ok_or(StorageError::NotFound)?;
-        let source_inode = self.read_inode(source_inode_number)?;
-        let destination_inode = self.read_inode(destination_inode_number)?;
-        if source_inode.mode & 0xf000 != 0x8000 || destination_inode.mode & 0xf000 != 0x8000 {
-            return Err(StorageError::InvalidHandle);
-        }
+        self.with_access(|volume| {
+            validate_name(source_name)?;
+            validate_name(destination_name)?;
+            if source_name == destination_name {
+                return volume.open(source_name);
+            }
+            let (source_offset, source_inode_number) = volume
+                .find_directory_entry(source_name)?
+                .ok_or(StorageError::NotFound)?;
+            let (destination_offset, destination_inode_number) = volume
+                .find_directory_entry(destination_name)?
+                .ok_or(StorageError::NotFound)?;
+            let source_inode = volume.read_inode(source_inode_number)?;
+            let destination_inode = volume.read_inode(destination_inode_number)?;
+            if source_inode.mode & 0xf000 != 0x8000 || destination_inode.mode & 0xf000 != 0x8000 {
+                return Err(StorageError::InvalidHandle);
+            }
 
-        let mut directory = [0; BLOCK_SIZE];
-        self.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
-        write_u32(&mut directory, destination_offset, source_inode_number);
-        write_u32(&mut directory, source_offset, 0);
-        self.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
-        self.clear_bit(INODE_BITMAP, destination_inode_number - 1)?;
-        let released = self.release_inode_blocks(&destination_inode)?;
-        self.clear_inode(destination_inode_number)?;
-        self.adjust_free_counts(released as i32, 1)?;
-        self.handle_for(source_inode_number)
+            let mut directory = [0; BLOCK_SIZE];
+            volume.read_block(ROOT_DIRECTORY_BLOCK, &mut directory)?;
+            write_u32(&mut directory, destination_offset, source_inode_number);
+            write_u32(&mut directory, source_offset, 0);
+            volume.write_block(ROOT_DIRECTORY_BLOCK, &directory)?;
+            volume.clear_bit(INODE_BITMAP, destination_inode_number - 1)?;
+            let released = volume.release_inode_blocks(&destination_inode)?;
+            volume.clear_inode(destination_inode_number)?;
+            volume.adjust_free_counts(released as i32, 1)?;
+            volume.handle_for(source_inode_number)
+        })
     }
 
     pub fn list_root(&mut self, entries: &mut [DirectoryEntry]) -> Result<usize, StorageError> {
-        self.list_directory_inode(ROOT_INODE, entries)
+        self.with_access(|volume| volume.list_directory_inode(ROOT_INODE, entries))
     }
 
     fn list_directory_inode(
@@ -713,20 +902,22 @@ impl<D: BlockDevice> Vfs<D> {
 
     /// Replace the whole file contents with `data`.
     pub fn write(&mut self, handle: FileHandle, data: &[u8]) -> Result<(), StorageError> {
-        if data.len() > MAX_FILE_SIZE {
-            return Err(StorageError::FileTooLarge);
-        }
-        let mut inode = self.validate_handle(handle)?;
-        let current = data_blocks_for_size(inode.size as usize);
-        let needed = data_blocks_for_size(data.len());
-        self.resize_file_blocks(&mut inode, current, needed)?;
-        self.store_file_range(&inode, 0, data)?;
-        self.clear_past_end(&inode, data.len())?;
-        inode.size = data.len() as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            if data.len() > MAX_FILE_SIZE {
+                return Err(StorageError::FileTooLarge);
+            }
+            let mut inode = volume.validate_handle(handle)?;
+            let current = data_blocks_for_size(inode.size as usize);
+            let needed = data_blocks_for_size(data.len());
+            volume.resize_file_blocks(&mut inode, current, needed)?;
+            volume.store_file_range(&inode, 0, data)?;
+            volume.clear_past_end(&inode, data.len())?;
+            inode.size = data.len() as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     /// Write `data` at `offset`, growing the file as needed. A gap between
@@ -737,55 +928,76 @@ impl<D: BlockDevice> Vfs<D> {
         offset: usize,
         data: &[u8],
     ) -> Result<(), StorageError> {
-        let end = offset
-            .checked_add(data.len())
-            .filter(|end| *end <= MAX_FILE_SIZE)
-            .ok_or(StorageError::FileTooLarge)?;
-        let mut inode = self.validate_handle(handle)?;
-        let size = inode.size as usize;
-        let new_size = size.max(end);
-        let current = data_blocks_for_size(size);
-        let needed = data_blocks_for_size(new_size);
-        if needed > current {
-            self.resize_file_blocks(&mut inode, current, needed)?;
-        }
-        self.store_file_range(&inode, offset, data)?;
-        inode.size = new_size as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let end = offset
+                .checked_add(data.len())
+                .filter(|end| *end <= MAX_FILE_SIZE)
+                .ok_or(StorageError::FileTooLarge)?;
+            let mut inode = volume.validate_handle(handle)?;
+            let size = inode.size as usize;
+            let new_size = size.max(end);
+            let current = data_blocks_for_size(size);
+            let needed = data_blocks_for_size(new_size);
+            if needed > current || inode.blocks == 0 {
+                volume.resize_file_blocks(&mut inode, current, needed)?;
+            }
+            if offset > size {
+                volume.zero_file_range(&inode, size, offset)?;
+            }
+            volume.store_file_range(&inode, offset, data)?;
+            inode.size = new_size as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn truncate(&mut self, handle: FileHandle, length: usize) -> Result<(), StorageError> {
-        if length > MAX_FILE_SIZE {
-            return Err(StorageError::FileTooLarge);
-        }
-        let mut inode = self.validate_handle(handle)?;
-        let size = inode.size as usize;
-        if length < size {
-            self.clear_past_end(&inode, length)?;
-        }
-        let current = data_blocks_for_size(size);
-        let needed = data_blocks_for_size(length);
-        self.resize_file_blocks(&mut inode, current, needed)?;
-        inode.size = length as u32;
-        let now = current_timestamp();
-        inode.ctime = now;
-        inode.mtime = now;
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            if length > MAX_FILE_SIZE {
+                return Err(StorageError::FileTooLarge);
+            }
+            let mut inode = volume.validate_handle(handle)?;
+            let size = inode.size as usize;
+            let current = data_blocks_for_size(size);
+            let needed = data_blocks_for_size(length);
+            if length < size {
+                volume.clear_past_end(&inode, length)?;
+            } else if length > size {
+                // Zero only the already-owned tail before allocating more
+                // blocks; resize_file_blocks zeros every newly allocated block.
+                let existing_capacity = current
+                    .checked_mul(BLOCK_SIZE)
+                    .ok_or(StorageError::Corrupt)?;
+                let existing_end = length.min(existing_capacity);
+                if existing_end > size {
+                    volume.zero_file_range(&inode, size, existing_end)?;
+                }
+            }
+            volume.resize_file_blocks(&mut inode, current, needed)?;
+            inode.size = length as u32;
+            let now = current_timestamp();
+            inode.ctime = now;
+            inode.mtime = now;
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn metadata(&mut self, handle: FileHandle) -> Result<FileMetadata, StorageError> {
-        let inode = self.validate_handle(handle)?;
-        Ok(metadata_from_inode(handle.inode, inode))
+        self.with_access(|volume| {
+            let inode = volume.validate_handle(handle)?;
+            Ok(metadata_from_inode(handle.inode, inode))
+        })
     }
 
     pub fn set_mode(&mut self, handle: FileHandle, mode: u16) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        inode.mode = (inode.mode & 0xf000) | (mode & 0x0fff);
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            inode.mode = (inode.mode & 0xf000) | (mode & 0x0fff);
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn set_owner(
@@ -794,15 +1006,17 @@ impl<D: BlockDevice> Vfs<D> {
         uid: Option<u16>,
         gid: Option<u16>,
     ) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        if let Some(uid) = uid {
-            inode.uid = uid;
-        }
-        if let Some(gid) = gid {
-            inode.gid = gid;
-        }
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            if let Some(uid) = uid {
+                inode.uid = uid;
+            }
+            if let Some(gid) = gid {
+                inode.gid = gid;
+            }
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn set_times(
@@ -811,15 +1025,17 @@ impl<D: BlockDevice> Vfs<D> {
         atime: u32,
         mtime: u32,
     ) -> Result<(), StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        inode.atime = atime;
-        inode.mtime = mtime;
-        inode.ctime = current_timestamp();
-        self.write_inode(handle.inode, inode)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            inode.atime = atime;
+            inode.mtime = mtime;
+            inode.ctime = current_timestamp();
+            volume.write_inode(handle.inode, inode)
+        })
     }
 
     pub fn flush(&mut self) -> Result<(), StorageError> {
-        self.device.flush()
+        self.with_access(|volume| volume.device.flush())
     }
 
     pub fn read(
@@ -827,18 +1043,20 @@ impl<D: BlockDevice> Vfs<D> {
         handle: FileHandle,
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
-        let mut inode = self.validate_handle(handle)?;
-        let length = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
-        if length > MAX_FILE_SIZE {
-            return Err(StorageError::Corrupt);
-        }
-        if destination.len() < length {
-            return Err(StorageError::BufferTooSmall);
-        }
-        self.copy_file_range(&inode, 0, &mut destination[..length])?;
-        inode.atime = current_timestamp();
-        self.write_inode(handle.inode, inode)?;
-        Ok(length)
+        self.with_access(|volume| {
+            let mut inode = volume.validate_handle(handle)?;
+            let length = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
+            if length > MAX_FILE_SIZE {
+                return Err(StorageError::Corrupt);
+            }
+            if destination.len() < length {
+                return Err(StorageError::BufferTooSmall);
+            }
+            volume.copy_file_range(&inode, 0, &mut destination[..length])?;
+            inode.atime = current_timestamp();
+            volume.write_inode(handle.inode, inode)?;
+            Ok(length)
+        })
     }
 
     /// Read up to `destination.len()` bytes starting at `offset`. Returns
@@ -849,26 +1067,32 @@ impl<D: BlockDevice> Vfs<D> {
         offset: usize,
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
-        let inode = self.validate_handle(handle)?;
-        self.copy_file_range(&inode, offset, destination)
+        self.with_access(|volume| {
+            let inode = volume.validate_handle(handle)?;
+            volume.copy_file_range(&inode, offset, destination)
+        })
     }
 
     pub fn mmap(&mut self, handle: FileHandle) -> Result<FileMapping, StorageError> {
-        let mut mapping = FileMapping {
-            handle,
-            bytes: [0; MAX_SMALL_FILE_SIZE],
-            length: 0,
-        };
-        let length = self.read(handle, &mut mapping.bytes)?;
-        mapping.length = length;
-        Ok(mapping)
+        self.with_access(|volume| {
+            let mut mapping = FileMapping {
+                handle,
+                bytes: [0; MAX_SMALL_FILE_SIZE],
+                length: 0,
+            };
+            let length = volume.read(handle, &mut mapping.bytes)?;
+            mapping.length = length;
+            Ok(mapping)
+        })
     }
 
     pub fn flush_mapping(&mut self, mapping: &FileMapping) -> Result<(), StorageError> {
-        self.write(mapping.handle, mapping.bytes())
+        self.with_access(|volume| volume.write(mapping.handle, mapping.bytes()))
     }
 
     fn format(&mut self) -> Result<(), StorageError> {
+        self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+        self.device.flush()?;
         let mut superblock = [0; BLOCK_SIZE];
         write_u32(&mut superblock, 0, EXT2_INODE_COUNT);
         write_u32(&mut superblock, 4, EXT2_BLOCK_COUNT);
@@ -931,6 +1155,272 @@ impl<D: BlockDevice> Vfs<D> {
         write_directory_record(&mut directory, 12, ROOT_INODE, 12, 2, 2, &dot_dot);
         write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
         self.write_block(ROOT_DIRECTORY_BLOCK, &directory)
+    }
+
+    /// Run a complete logical operation under this process local VFS access gate.
+    /// Nested calls through the same Vfs remain reentrant; this does not coordinate
+    /// other processes or callers that bypass the VFS and use the block device.
+    pub fn with_access<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Self) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
+        if self.recovery_required {
+            return Err(StorageError::RecoveryRequired);
+        }
+        if ACTIVE_ACCESS_ID.load(Ordering::Acquire) == self.access_id {
+            return operation(self);
+        }
+        let _gate = VolumeAccess::acquire();
+        ACTIVE_ACCESS_ID.store(self.access_id, Ordering::Release);
+        let _reset = ResetAccess(self.access_id);
+        if load_undo(&mut self.device)?.is_some() {
+            self.recovery_required = true;
+            return Err(StorageError::RecoveryRequired);
+        }
+        operation(self)
+    }
+
+    fn find_free_bit(
+        &mut self,
+        bitmap_block: u32,
+        start: u32,
+        end: u32,
+    ) -> Result<u32, StorageError> {
+        let mut bitmap = [0; BLOCK_SIZE];
+        self.read_block(bitmap_block, &mut bitmap)?;
+        (start..end)
+            .find(|bit| !is_bit_set(&bitmap, *bit))
+            .ok_or(StorageError::Capacity)
+    }
+
+    fn set_allocated(&mut self, block: u32, bit: u32) -> Result<(), StorageError> {
+        let mut bitmap = [0; BLOCK_SIZE];
+        self.read_block(block, &mut bitmap)?;
+        if is_bit_set(&bitmap, bit) {
+            return Err(StorageError::Corrupt);
+        }
+        set_bit(&mut bitmap, bit);
+        self.write_changed_block(block, &bitmap)
+    }
+
+    fn write_changed_block(
+        &mut self,
+        block: u32,
+        bytes: &[u8; BLOCK_SIZE],
+    ) -> Result<(), StorageError> {
+        let mut previous = [0; BLOCK_SIZE];
+        self.read_block(block, &mut previous)?;
+        for index in 0..2 {
+            let offset = index * SECTOR_SIZE;
+            if previous[offset..offset + SECTOR_SIZE] != bytes[offset..offset + SECTOR_SIZE] {
+                let sector: &[u8; SECTOR_SIZE] = bytes[offset..offset + SECTOR_SIZE]
+                    .try_into()
+                    .map_err(|_| StorageError::Corrupt)?;
+                self.device
+                    .write_sector(u64::from(block) * 2 + index as u64, sector)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn transaction<T>(
+        &mut self,
+        directory_inode: u32,
+        action: UndoAction,
+        operation: impl FnOnce(&mut Self) -> Result<T, StorageError>,
+    ) -> Result<T, StorageError> {
+        let mut rollback_undo = None;
+        let mut operation_started = false;
+        let result = (|| {
+            // A preceding header-clear flush may have failed after reads began
+            // seeing zero. Make that zero durable before reusing the backup.
+            self.device.flush()?;
+            check_vfs_integrity(&mut self.device)?;
+            let directory_block = self.directory_inode(directory_inode)?.direct_block;
+            let mut undo = Undo {
+                kind: UNDO_RENAME,
+                directory_inode,
+                directory_block,
+                inode: 0,
+                data_block: 0,
+                previous_inode: [0; EXT2_INODE_SIZE as usize],
+                previous_indirect_checksum: [0; 32],
+                directory: [0; BLOCK_SIZE],
+            };
+            self.read_block(directory_block, &mut undo.directory)?;
+            match action {
+                UndoAction::Create { inode, data_block } => {
+                    undo.kind = UNDO_CREATE;
+                    undo.inode = inode;
+                    undo.data_block = data_block;
+                    let table_block = INODE_TABLE + (inode - 1) / 8;
+                    let offset = ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+                    let mut table = [0; BLOCK_SIZE];
+                    self.read_block(table_block, &mut table)?;
+                    undo.previous_inode
+                        .copy_from_slice(&table[offset..offset + EXT2_INODE_SIZE as usize]);
+                }
+                UndoAction::Rename => {}
+                UndoAction::Delete { inode } => {
+                    undo.kind = UNDO_DELETE;
+                    undo.inode = inode;
+                    let table_block = INODE_TABLE + (inode - 1) / 8;
+                    let offset = ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+                    let mut table = [0; BLOCK_SIZE];
+                    self.read_block(table_block, &mut table)?;
+                    undo.previous_inode
+                        .copy_from_slice(&table[offset..offset + EXT2_INODE_SIZE as usize]);
+                    let deleted = self.read_inode(inode)?;
+                    if deleted.indirect_block != 0 {
+                        let mut indirect = [0; BLOCK_SIZE];
+                        self.read_block(deleted.indirect_block, &mut indirect)?;
+                        undo.previous_indirect_checksum
+                            .copy_from_slice(&Sha256::digest(indirect));
+                    }
+                }
+            }
+            validate_undo(&mut self.device, &undo, UNDO_FORMAT_V2)?;
+            self.write_changed_block(UNDO_BLOCK, &undo.directory)?;
+            self.device.flush()?;
+            let header = undo.header();
+            // Retain the validated undo in memory before attempting to publish
+            // its header. It also lets this failed transaction roll back if a
+            // header-clear write became visible but its flush failed.
+            rollback_undo = Some((undo, header));
+            self.device.write_sector(0, &header)?;
+            self.device.flush()?;
+            operation_started = true;
+            let value = operation(self)?;
+            self.device.flush()?;
+            self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+            self.device.flush()?;
+            Ok(value)
+        })();
+        match result {
+            Err(error) => {
+                if let Some((undo, header)) = rollback_undo {
+                    // A prior clear write can be visible even when its flush
+                    // failed. Re-publish and flush the validated undo marker
+                    // before restoring any data, so a power cut during undo
+                    // can always resume through explicit Recovery.
+                    let marker_durable = self
+                        .device
+                        .write_sector(0, &header)
+                        .and_then(|()| self.device.flush())
+                        .is_ok();
+                    let rollback_complete = marker_durable
+                        && validate_undo(&mut self.device, &undo, UNDO_FORMAT_V2).is_ok()
+                        && self.apply_undo(&undo).is_ok();
+                    if !rollback_complete {
+                        self.recovery_required = true;
+                        return Err(if operation_started {
+                            StorageError::Indeterminate
+                        } else {
+                            error
+                        });
+                    }
+                }
+                Err(error)
+            }
+            Ok(value) => Ok(value),
+        }
+    }
+
+    fn recover_undo(&mut self) -> Result<(), StorageError> {
+        let Some(undo) = load_undo(&mut self.device)? else {
+            return Ok(());
+        };
+        self.apply_undo(&undo)
+    }
+
+    fn apply_undo(&mut self, undo: &Undo) -> Result<(), StorageError> {
+        if undo.kind == UNDO_DELETE {
+            self.restore_deleted_inode(undo)?;
+        } else {
+            self.write_changed_block(undo.directory_block, &undo.directory)?;
+            if undo.kind == UNDO_CREATE {
+                let table_block = INODE_TABLE + (undo.inode - 1) / 8;
+                let offset = ((undo.inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+                let mut table = [0; BLOCK_SIZE];
+                self.read_block(table_block, &mut table)?;
+                table[offset..offset + EXT2_INODE_SIZE as usize]
+                    .copy_from_slice(&undo.previous_inode);
+                self.write_changed_block(table_block, &table)?;
+                for (block, bit) in [
+                    (INODE_BITMAP, undo.inode - 1),
+                    (BLOCK_BITMAP, undo.data_block),
+                ] {
+                    let mut bitmap = [0; BLOCK_SIZE];
+                    self.read_block(block, &mut bitmap)?;
+                    clear_bit_value(&mut bitmap, bit);
+                    self.write_changed_block(block, &bitmap)?;
+                }
+                let mut bitmap = [0; BLOCK_SIZE];
+                self.read_block(BLOCK_BITMAP, &mut bitmap)?;
+                let free_blocks = (0..EXT2_BLOCK_COUNT)
+                    .filter(|bit| !is_bit_set(&bitmap, *bit))
+                    .count() as u32;
+                self.read_block(INODE_BITMAP, &mut bitmap)?;
+                let free_inodes = (0..EXT2_INODE_COUNT)
+                    .filter(|bit| !is_bit_set(&bitmap, *bit))
+                    .count() as u32;
+                let mut metadata = [0; BLOCK_SIZE];
+                self.read_block(SUPERBLOCK_BLOCK, &mut metadata)?;
+                write_u32(&mut metadata, 12, free_blocks);
+                write_u32(&mut metadata, 16, free_inodes);
+                self.write_changed_block(SUPERBLOCK_BLOCK, &metadata)?;
+                self.read_block(GROUP_DESCRIPTOR_BLOCK, &mut metadata)?;
+                write_u16(&mut metadata, 12, free_blocks as u16);
+                write_u16(&mut metadata, 14, free_inodes as u16);
+                self.write_changed_block(GROUP_DESCRIPTOR_BLOCK, &metadata)?;
+            }
+        }
+        self.device.flush()?;
+        self.device.write_sector(0, &[0; SECTOR_SIZE])?;
+        self.device.flush()
+    }
+
+    fn restore_deleted_inode(&mut self, undo: &Undo) -> Result<(), StorageError> {
+        let (blocks, block_count) =
+            deleted_inode_block_list(&mut self.device, &undo.previous_inode)?;
+        let inode_table_block = INODE_TABLE + (undo.inode - 1) / 8;
+        let inode_offset = ((undo.inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+
+        self.write_changed_block(undo.directory_block, &undo.directory)?;
+
+        let mut inode_table = [0; BLOCK_SIZE];
+        self.read_block(inode_table_block, &mut inode_table)?;
+        inode_table[inode_offset..inode_offset + EXT2_INODE_SIZE as usize]
+            .copy_from_slice(&undo.previous_inode);
+        self.write_changed_block(inode_table_block, &inode_table)?;
+
+        let mut block_bitmap = [0; BLOCK_SIZE];
+        self.read_block(BLOCK_BITMAP, &mut block_bitmap)?;
+        for block in blocks[..block_count].iter().copied() {
+            set_bit(&mut block_bitmap, block);
+        }
+        self.write_changed_block(BLOCK_BITMAP, &block_bitmap)?;
+
+        let mut inode_bitmap = [0; BLOCK_SIZE];
+        self.read_block(INODE_BITMAP, &mut inode_bitmap)?;
+        set_bit(&mut inode_bitmap, undo.inode - 1);
+        self.write_changed_block(INODE_BITMAP, &inode_bitmap)?;
+
+        let free_blocks = (0..EXT2_BLOCK_COUNT)
+            .filter(|bit| !is_bit_set(&block_bitmap, *bit))
+            .count() as u32;
+        let free_inodes = (0..EXT2_INODE_COUNT)
+            .filter(|bit| !is_bit_set(&inode_bitmap, *bit))
+            .count() as u32;
+        let mut metadata = [0; BLOCK_SIZE];
+        self.read_block(SUPERBLOCK_BLOCK, &mut metadata)?;
+        write_u32(&mut metadata, 12, free_blocks);
+        write_u32(&mut metadata, 16, free_inodes);
+        self.write_changed_block(SUPERBLOCK_BLOCK, &metadata)?;
+        self.read_block(GROUP_DESCRIPTOR_BLOCK, &mut metadata)?;
+        write_u16(&mut metadata, 12, free_blocks as u16);
+        write_u16(&mut metadata, 14, free_inodes as u16);
+        self.write_changed_block(GROUP_DESCRIPTOR_BLOCK, &metadata)
     }
 
     fn find_inode(&mut self, name: &[u8]) -> Result<Option<u32>, StorageError> {
@@ -1001,7 +1491,7 @@ impl<D: BlockDevice> Vfs<D> {
                 write_u8(&mut directory, offset + 6, name.len() as u8);
                 write_u8(&mut directory, offset + 7, file_type);
                 copy_bytes_to_offset(&mut directory, offset + 8, name);
-                return self.write_block(directory_inode.direct_block, &directory);
+                return self.write_changed_block(directory_inode.direct_block, &directory);
             }
             offset += record_length;
         }
@@ -1155,11 +1645,19 @@ impl<D: BlockDevice> Vfs<D> {
         let mut directory = [0; BLOCK_SIZE];
         self.read_block(parent_inode.direct_block, &mut directory)?;
         write_u32(&mut directory, directory_offset, 0);
-        self.write_block(parent_inode.direct_block, &directory)?;
-        self.clear_bit(INODE_BITMAP, inode_number - 1)?;
-        let released = self.release_inode_blocks(&inode)?;
-        self.clear_inode(inode_number)?;
-        self.adjust_free_counts(released as i32, 1)
+        self.transaction(
+            parent,
+            UndoAction::Delete {
+                inode: inode_number,
+            },
+            |volume| {
+                volume.write_block(parent_inode.direct_block, &directory)?;
+                volume.clear_bit(INODE_BITMAP, inode_number - 1)?;
+                let released = volume.release_inode_blocks(&inode)?;
+                volume.clear_inode(inode_number)?;
+                volume.adjust_free_counts(released as i32, 1)
+            },
+        )
     }
 
     fn directory_inode(&mut self, inode_number: u32) -> Result<InodeInfo, StorageError> {
@@ -1451,6 +1949,24 @@ impl<D: BlockDevice> Vfs<D> {
         Ok(())
     }
 
+    /// Zero a file range without changing its length. This is needed for
+    /// gaps in blocks that were already allocated by older on-disk versions.
+    fn zero_file_range(
+        &mut self,
+        inode: &InodeInfo,
+        start: usize,
+        end: usize,
+    ) -> Result<(), StorageError> {
+        let zeros = [0; BLOCK_SIZE];
+        let mut cursor = start;
+        while cursor < end {
+            let chunk = (BLOCK_SIZE - cursor % BLOCK_SIZE).min(end - cursor);
+            self.store_file_range(inode, cursor, &zeros[..chunk])?;
+            cursor += chunk;
+        }
+        Ok(())
+    }
+
     /// Zero the bytes at and after `end` in the block that contains the new
     /// end of the file, keeping the invariant that bytes past the end of a
     /// file read as zero. Blocks wholly past `end` are released by resizing.
@@ -1607,8 +2123,542 @@ impl<D: ReadOnlyBlockDevice> Vfs<D> {
     /// Inspect an existing volume without formatting, writing, or flushing it.
     /// Invalid or unsupported on-disk state returns `StorageError::Corrupt`.
     pub fn check_existing(device: &mut D) -> Result<VfsIntegrityReport, StorageError> {
+        let _access = VolumeAccess::acquire();
+        if load_undo(device)?.is_some() {
+            return Err(StorageError::RecoveryRequired);
+        }
         check_vfs_integrity(device)
     }
+}
+
+impl Undo {
+    fn header(&self) -> [u8; SECTOR_SIZE] {
+        let mut header = [0; SECTOR_SIZE];
+        header[..8].copy_from_slice(UNDO_MAGIC);
+        header[8] = self.kind;
+        write_u32(&mut header, 12, self.directory_inode);
+        write_u32(&mut header, 16, self.directory_block);
+        write_u32(&mut header, 20, self.inode);
+        write_u32(&mut header, 24, self.data_block);
+        header[32..64].copy_from_slice(&Sha256::digest(self.directory));
+        header[64..192].copy_from_slice(&self.previous_inode);
+        header[192..224].copy_from_slice(&self.previous_indirect_checksum);
+        let digest = Sha256::digest(&header[..480]);
+        header[480..].copy_from_slice(&digest);
+        header
+    }
+}
+
+fn load_undo<D: ReadOnlyBlockDevice>(device: &mut D) -> Result<Option<Undo>, StorageError> {
+    let mut header = [0; SECTOR_SIZE];
+    device.read_sector(0, &mut header)?;
+    if header.iter().all(|byte| *byte == 0) {
+        return Ok(None);
+    }
+    // Zero is the only supported legacy header. Unknown boot/reserved bytes
+    // are never overwritten, interpreted as authority, or auto-formatted.
+    let format_version = if &header[..8] == UNDO_MAGIC {
+        UNDO_FORMAT_V2
+    } else if &header[..8] == LEGACY_UNDO_MAGIC {
+        UNDO_FORMAT_V1
+    } else {
+        return Err(StorageError::Corrupt);
+    };
+    if Sha256::digest(&header[..480])[..] != header[480..] {
+        return Err(StorageError::Corrupt);
+    }
+    let mut undo = Undo {
+        kind: header[8],
+        directory_inode: read_u32(&header, 12),
+        directory_block: read_u32(&header, 16),
+        inode: read_u32(&header, 20),
+        data_block: read_u32(&header, 24),
+        previous_inode: [0; EXT2_INODE_SIZE as usize],
+        previous_indirect_checksum: [0; 32],
+        directory: [0; BLOCK_SIZE],
+    };
+    undo.previous_inode.copy_from_slice(&header[64..192]);
+    undo.previous_indirect_checksum
+        .copy_from_slice(&header[192..224]);
+    read_device_block(device, UNDO_BLOCK, &mut undo.directory)?;
+    if Sha256::digest(undo.directory)[..] != header[32..64] {
+        return Err(StorageError::Corrupt);
+    }
+    validate_undo(device, &undo, format_version)?;
+    Ok(Some(undo))
+}
+
+const MAX_DELETE_BLOCKS: usize = DIRECT_BLOCKS + INDIRECT_POINTERS + 1;
+
+fn deleted_inode_info(raw: &[u8; EXT2_INODE_SIZE as usize]) -> InodeInfo {
+    let mut extra_blocks = [0; DIRECT_BLOCKS - 1];
+    for (index, block) in extra_blocks.iter_mut().enumerate() {
+        *block = read_u32(raw, 44 + index * 4);
+    }
+    InodeInfo {
+        mode: read_u16(raw, 0),
+        uid: read_u16(raw, 2),
+        gid: read_u16(raw, 24),
+        size: read_u32(raw, 4),
+        atime: read_u32(raw, 8),
+        ctime: read_u32(raw, 12),
+        mtime: read_u32(raw, 16),
+        blocks: read_u32(raw, 28),
+        direct_block: read_u32(raw, 40),
+        extra_blocks,
+        indirect_block: read_u32(raw, 40 + DIRECT_BLOCKS * 4),
+        generation: read_u32(raw, 100),
+    }
+}
+
+fn deleted_inode_block_list<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    raw: &[u8; EXT2_INODE_SIZE as usize],
+) -> Result<([u32; MAX_DELETE_BLOCKS], usize), StorageError> {
+    let inode = deleted_inode_info(raw);
+    let mut blocks = [0; MAX_DELETE_BLOCKS];
+    let mut count = 0;
+    let mut add = |block: u32| -> Result<(), StorageError> {
+        if block == 0 {
+            return Err(StorageError::Corrupt);
+        }
+        check_data_block(block)?;
+        if blocks[..count].contains(&block) {
+            return Err(StorageError::Corrupt);
+        }
+        blocks[count] = block;
+        count += 1;
+        Ok(())
+    };
+
+    match inode.mode & 0xf000 {
+        0x8000 => {
+            let size = usize::try_from(inode.size).map_err(|_| StorageError::Corrupt)?;
+            if size > MAX_FILE_SIZE || inode.direct_block == 0 {
+                return Err(StorageError::Corrupt);
+            }
+            let data_count = data_blocks_for_size(size).min(DIRECT_BLOCKS + INDIRECT_POINTERS);
+            let needs_indirect = data_count > DIRECT_BLOCKS;
+            if needs_indirect != (inode.indirect_block != 0) {
+                return Err(StorageError::Corrupt);
+            }
+            for index in data_count..DIRECT_BLOCKS {
+                let pointer = if index == 0 {
+                    inode.direct_block
+                } else {
+                    inode.extra_blocks[index - 1]
+                };
+                if pointer != 0 {
+                    return Err(StorageError::Corrupt);
+                }
+            }
+
+            let mut indirect = [0; BLOCK_SIZE];
+            if inode.indirect_block != 0 {
+                check_data_block(inode.indirect_block)?;
+                read_device_block(device, inode.indirect_block, &mut indirect)?;
+            }
+            for index in 0..data_count {
+                let pointer = match index {
+                    0 => inode.direct_block,
+                    1..DIRECT_BLOCKS => inode.extra_blocks[index - 1],
+                    _ => read_u32(&indirect, (index - DIRECT_BLOCKS) * 4),
+                };
+                add(pointer)?;
+            }
+            if inode.indirect_block != 0 {
+                add(inode.indirect_block)?;
+            }
+            let indirect_block_count = if inode.indirect_block == 0 { 0 } else { 1 };
+            let expected_sectors = 2 * (data_count + indirect_block_count) as u32;
+            if inode.blocks != expected_sectors && !(inode.blocks == 0 && size == 0) {
+                return Err(StorageError::Corrupt);
+            }
+        }
+        0x4000 => {
+            if inode.size != BLOCK_SIZE as u32
+                || inode.blocks != 2
+                || inode.direct_block == 0
+                || inode.indirect_block != 0
+                || inode.extra_blocks.iter().any(|block| *block != 0)
+            {
+                return Err(StorageError::Corrupt);
+            }
+            add(inode.direct_block)?;
+        }
+        _ => return Err(StorageError::Corrupt),
+    }
+    Ok((blocks, count))
+}
+
+fn read_inode_bytes_from_device<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    inode: u32,
+) -> Result<[u8; EXT2_INODE_SIZE as usize], StorageError> {
+    if inode == 0 || inode > EXT2_INODE_COUNT {
+        return Err(StorageError::Corrupt);
+    }
+    let block = INODE_TABLE + (inode - 1) / 8;
+    let offset = ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+    let mut table = [0; BLOCK_SIZE];
+    read_device_block(device, block, &mut table)?;
+    let mut raw = [0; EXT2_INODE_SIZE as usize];
+    raw.copy_from_slice(&table[offset..offset + EXT2_INODE_SIZE as usize]);
+    Ok(raw)
+}
+
+fn delete_entry_offset(
+    directory: &[u8; BLOCK_SIZE],
+    deleted_inode: u32,
+) -> Result<usize, StorageError> {
+    let mut offset = 0;
+    let mut found = None;
+    while offset < BLOCK_SIZE {
+        let inode = read_u32(directory, offset);
+        let length = usize::from(read_u16(directory, offset + 4));
+        if inode == deleted_inode {
+            if found.is_some() {
+                return Err(StorageError::Corrupt);
+            }
+            found = Some(offset);
+        }
+        offset += length;
+    }
+    found.ok_or(StorageError::Corrupt)
+}
+
+// clear_inode may reach stable storage before the inode-bitmap update on a
+// cached device. Under the atomic-sector assumption, that sector is either the
+// prior inode or exactly the cleared record with its generation retained.
+fn cleared_inode_matches(
+    current: &[u8; EXT2_INODE_SIZE as usize],
+    previous: &[u8; EXT2_INODE_SIZE as usize],
+) -> bool {
+    let mut cleared = *previous;
+    write_u16(&mut cleared, 0, 0);
+    write_u16(&mut cleared, 2, 0);
+    write_u32(&mut cleared, 4, 0);
+    write_u32(&mut cleared, 8, 0);
+    write_u32(&mut cleared, 12, 0);
+    write_u32(&mut cleared, 16, 0);
+    write_u16(&mut cleared, 24, 0);
+    write_u32(&mut cleared, 28, 0);
+    write_u32(&mut cleared, 40, 0);
+    for index in 0..(DIRECT_BLOCKS - 1) {
+        write_u32(&mut cleared, 44 + index * 4, 0);
+    }
+    write_u32(&mut cleared, 40 + DIRECT_BLOCKS * 4, 0);
+    cleared == *current
+}
+
+fn validate_undo<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    undo: &Undo,
+    format_version: u8,
+) -> Result<(), StorageError> {
+    let kind_supported = match format_version {
+        UNDO_FORMAT_V1 => matches!(undo.kind, UNDO_CREATE | UNDO_RENAME),
+        UNDO_FORMAT_V2 => matches!(undo.kind, UNDO_CREATE | UNDO_RENAME | UNDO_DELETE),
+        _ => false,
+    };
+    if !kind_supported
+        || !(ROOT_INODE..=EXT2_INODE_COUNT).contains(&undo.directory_inode)
+        || (undo.directory_inode == ROOT_INODE && undo.directory_block != ROOT_DIRECTORY_BLOCK)
+        || (undo.directory_inode != ROOT_INODE
+            && !(RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&undo.directory_block))
+    {
+        return Err(StorageError::Corrupt);
+    }
+    if undo.kind == UNDO_CREATE {
+        if !(FIRST_FILE_INODE..=EXT2_INODE_COUNT).contains(&undo.inode)
+            || undo.inode == undo.directory_inode
+            || !(RESERVED_BLOCKS..EXT2_BLOCK_COUNT).contains(&undo.data_block)
+            || undo.data_block == undo.directory_block
+            || undo.previous_indirect_checksum != [0; 32]
+        {
+            return Err(StorageError::Corrupt);
+        }
+    } else if undo.kind == UNDO_RENAME {
+        if undo.inode != 0
+            || undo.data_block != 0
+            || undo.previous_inode.iter().any(|byte| *byte != 0)
+            || undo.previous_indirect_checksum != [0; 32]
+        {
+            return Err(StorageError::Corrupt);
+        }
+    } else if undo.kind == UNDO_DELETE
+        && (!(FIRST_FILE_INODE..=EXT2_INODE_COUNT).contains(&undo.inode)
+            || undo.inode == undo.directory_inode
+            || undo.data_block != 0)
+    {
+        return Err(StorageError::Corrupt);
+    }
+
+    let mut superblock = [0; BLOCK_SIZE];
+    read_device_block(device, SUPERBLOCK_BLOCK, &mut superblock)?;
+    if read_u16(&superblock, 56) != EXT2_MAGIC {
+        return Err(StorageError::Corrupt);
+    }
+    validate_superblock(&superblock)?;
+    let mut group = [0; BLOCK_SIZE];
+    read_device_block(device, GROUP_DESCRIPTOR_BLOCK, &mut group)?;
+    if read_u32(&group, 0) != BLOCK_BITMAP
+        || read_u32(&group, 4) != INODE_BITMAP
+        || read_u32(&group, 8) != INODE_TABLE
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let mut block_bitmap = [0; BLOCK_SIZE];
+    let mut inode_bitmap = [0; BLOCK_SIZE];
+    read_device_block(device, BLOCK_BITMAP, &mut block_bitmap)?;
+    read_device_block(device, INODE_BITMAP, &mut inode_bitmap)?;
+    if (0..RESERVED_BLOCKS).any(|bit| !is_bit_set(&block_bitmap, bit))
+        || !is_bit_set(&block_bitmap, undo.directory_block)
+        || !is_bit_set(&inode_bitmap, ROOT_INODE - 1)
+        || !is_bit_set(&inode_bitmap, undo.directory_inode - 1)
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let root = read_inode_from_device(device, ROOT_INODE)?;
+    if root.mode & 0xf000 != 0x4000
+        || root.size != BLOCK_SIZE as u32
+        || root.blocks != 2
+        || root.direct_block != ROOT_DIRECTORY_BLOCK
+        || root.indirect_block != 0
+        || root.extra_blocks.iter().any(|pointer| *pointer != 0)
+    {
+        return Err(StorageError::Corrupt);
+    }
+    let parent = read_inode_from_device(device, undo.directory_inode)?;
+    if parent.mode & 0xf000 != 0x4000
+        || parent.direct_block != undo.directory_block
+        || parent.size != BLOCK_SIZE as u32
+        || parent.blocks != 2
+        || parent.indirect_block != 0
+        || parent.extra_blocks.iter().any(|pointer| *pointer != 0)
+    {
+        return Err(StorageError::Corrupt);
+    }
+    validate_undo_directory_block_owner(
+        device,
+        &inode_bitmap,
+        undo.directory_inode,
+        undo.directory_block,
+    )?;
+
+    let forbidden_inode = if undo.kind == UNDO_DELETE {
+        0
+    } else {
+        undo.inode
+    };
+    validate_undo_directory(&undo.directory, undo.directory_inode, forbidden_inode)?;
+
+    if undo.kind == UNDO_CREATE {
+        // Neither a forged/corrupt journal nor an overlapping writer may free
+        // storage owned by another allocated inode or directory entry.
+        for inode in ROOT_INODE..=EXT2_INODE_COUNT {
+            if inode == undo.inode || !is_bit_set(&inode_bitmap, inode - 1) {
+                continue;
+            }
+            let info = read_inode_from_device(device, inode)?;
+            if info.direct_block == undo.data_block
+                || info.extra_blocks.contains(&undo.data_block)
+                || info.indirect_block == undo.data_block
+            {
+                return Err(StorageError::Corrupt);
+            }
+            if info.mode & 0xf000 == 0x8000 && info.indirect_block != 0 {
+                check_data_block(info.indirect_block)?;
+                let mut table = [0; BLOCK_SIZE];
+                read_device_block(device, info.indirect_block, &mut table)?;
+                if (0..INDIRECT_POINTERS)
+                    .any(|index| read_u32(&table, index * 4) == undo.data_block)
+                {
+                    return Err(StorageError::Corrupt);
+                }
+            }
+            if info.mode & 0xf000 == 0x4000 && inode != undo.directory_inode {
+                if inode == ROOT_INODE {
+                    if info.size != BLOCK_SIZE as u32
+                        || info.blocks != 2
+                        || info.direct_block != ROOT_DIRECTORY_BLOCK
+                        || info.indirect_block != 0
+                        || info.extra_blocks.iter().any(|pointer| *pointer != 0)
+                    {
+                        return Err(StorageError::Corrupt);
+                    }
+                } else {
+                    check_data_block(info.direct_block)?;
+                }
+                let mut directory = [0; BLOCK_SIZE];
+                read_device_block(device, info.direct_block, &mut directory)?;
+                validate_undo_directory(&directory, inode, undo.inode)?;
+            }
+        }
+    } else if undo.kind == UNDO_DELETE {
+        let (deleted_blocks, deleted_block_count) =
+            deleted_inode_block_list(device, &undo.previous_inode)?;
+        let deleted_info = deleted_inode_info(&undo.previous_inode);
+        if deleted_info.indirect_block == 0 {
+            if undo.previous_indirect_checksum != [0; 32] {
+                return Err(StorageError::Corrupt);
+            }
+        } else {
+            let mut indirect = [0; BLOCK_SIZE];
+            read_device_block(device, deleted_info.indirect_block, &mut indirect)?;
+            let indirect_checksum = Sha256::digest(indirect);
+            if indirect_checksum[..] != undo.previous_indirect_checksum[..] {
+                return Err(StorageError::Corrupt);
+            }
+        }
+
+        let entry_offset = delete_entry_offset(&undo.directory, undo.inode)?;
+        let mut removed_directory = undo.directory;
+        write_u32(&mut removed_directory, entry_offset, 0);
+        let mut current_directory = [0; BLOCK_SIZE];
+        read_device_block(device, undo.directory_block, &mut current_directory)?;
+        for start in (0..BLOCK_SIZE).step_by(SECTOR_SIZE) {
+            let end = start + SECTOR_SIZE;
+            let current = &current_directory[start..end];
+            let original = &undo.directory[start..end];
+            let removed = &removed_directory[start..end];
+            if current != original && current != removed {
+                return Err(StorageError::Corrupt);
+            }
+        }
+
+        if is_bit_set(&inode_bitmap, undo.inode - 1) {
+            let current_inode = read_inode_bytes_from_device(device, undo.inode)?;
+            if current_inode != undo.previous_inode
+                && !cleared_inode_matches(&current_inode, &undo.previous_inode)
+            {
+                return Err(StorageError::Corrupt);
+            }
+        }
+
+        // A pending delete may restore only blocks that no other live inode
+        // has claimed. The marker blocks normal allocation on this process.
+        for inode in ROOT_INODE..=EXT2_INODE_COUNT {
+            if inode == undo.inode || !is_bit_set(&inode_bitmap, inode - 1) {
+                continue;
+            }
+            let info = read_inode_from_device(device, inode)?;
+            let references_deleted_block = deleted_blocks[..deleted_block_count]
+                .contains(&info.direct_block)
+                || info.extra_blocks.iter().any(|block| {
+                    *block != 0 && deleted_blocks[..deleted_block_count].contains(block)
+                })
+                || (info.indirect_block != 0
+                    && deleted_blocks[..deleted_block_count].contains(&info.indirect_block));
+            if references_deleted_block {
+                return Err(StorageError::Corrupt);
+            }
+            if info.mode & 0xf000 == 0x8000 && info.indirect_block != 0 {
+                check_data_block(info.indirect_block)?;
+                let mut table = [0; BLOCK_SIZE];
+                read_device_block(device, info.indirect_block, &mut table)?;
+                if (0..INDIRECT_POINTERS).any(|index| {
+                    deleted_blocks[..deleted_block_count].contains(&read_u32(&table, index * 4))
+                }) {
+                    return Err(StorageError::Corrupt);
+                }
+            }
+            if info.mode & 0xf000 == 0x4000 && inode != undo.directory_inode {
+                if inode == ROOT_INODE {
+                    if info.size != BLOCK_SIZE as u32
+                        || info.blocks != 2
+                        || info.direct_block != ROOT_DIRECTORY_BLOCK
+                        || info.indirect_block != 0
+                        || info.extra_blocks.iter().any(|pointer| *pointer != 0)
+                    {
+                        return Err(StorageError::Corrupt);
+                    }
+                } else {
+                    check_data_block(info.direct_block)?;
+                }
+                let mut directory = [0; BLOCK_SIZE];
+                read_device_block(device, info.direct_block, &mut directory)?;
+                validate_undo_directory(&directory, inode, undo.inode)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_undo_directory_block_owner<D: ReadOnlyBlockDevice>(
+    device: &mut D,
+    inode_bitmap: &[u8; BLOCK_SIZE],
+    parent_inode: u32,
+    parent_block: u32,
+) -> Result<(), StorageError> {
+    for inode in ROOT_INODE..=EXT2_INODE_COUNT {
+        if inode == parent_inode || !is_bit_set(inode_bitmap, inode - 1) {
+            continue;
+        }
+        let info = read_inode_from_device(device, inode)?;
+        if info.direct_block == parent_block
+            || info.extra_blocks.contains(&parent_block)
+            || info.indirect_block == parent_block
+        {
+            return Err(StorageError::Corrupt);
+        }
+        if info.indirect_block != 0 {
+            check_data_block(info.indirect_block)?;
+            let mut table = [0; BLOCK_SIZE];
+            read_device_block(device, info.indirect_block, &mut table)?;
+            if (0..INDIRECT_POINTERS).any(|index| read_u32(&table, index * 4) == parent_block) {
+                return Err(StorageError::Corrupt);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_undo_directory(
+    directory: &[u8; BLOCK_SIZE],
+    inode: u32,
+    forbidden_inode: u32,
+) -> Result<(), StorageError> {
+    let mut offset = 0;
+    let mut dot = 0;
+    let mut dot_dot = 0;
+    while offset < BLOCK_SIZE {
+        let target = read_u32(directory, offset);
+        let length = usize::from(read_u16(directory, offset + 4));
+        let name_length = usize::from(directory[offset + 6]);
+        if length < 8
+            || length % 4 != 0
+            || offset + length > BLOCK_SIZE
+            || name_length > length - 8
+            || name_length > MAX_NAME_LENGTH
+        {
+            return Err(StorageError::Corrupt);
+        }
+        if target != 0 {
+            if target > EXT2_INODE_COUNT || target == forbidden_inode {
+                return Err(StorageError::Corrupt);
+            }
+            let name = &directory[offset + 8..offset + 8 + name_length];
+            if name == b"." {
+                if target != inode || directory[offset + 7] != 2 {
+                    return Err(StorageError::Corrupt);
+                }
+                dot += 1;
+            } else if name == b".." {
+                if target < ROOT_INODE || directory[offset + 7] != 2 {
+                    return Err(StorageError::Corrupt);
+                }
+                dot_dot += 1;
+            } else {
+                validate_name(name)?;
+            }
+        }
+        offset += length;
+    }
+    if dot != 1 || dot_dot != 1 {
+        return Err(StorageError::Corrupt);
+    }
+    Ok(())
 }
 
 fn metadata_from_inode(inode: u32, info: InodeInfo) -> FileMetadata {
@@ -2214,12 +3264,19 @@ fn clear_bit_value(bitmap: &mut [u8; BLOCK_SIZE], bit: u32) {
 mod tests {
     extern crate std;
 
+    use core::sync::atomic::Ordering;
+    use sha2::{Digest, Sha256};
     use std::vec;
     use std::vec::Vec;
 
     use super::{
-        BlockDevice, DirectoryEntry, FileHandle, FileMapping, StorageError, Vfs, BLOCK_SIZE,
-        DIRECT_BLOCKS, EXT2_BLOCK_COUNT, MAX_FILE_SIZE, ROOT_DIRECTORY_BLOCK, SECTOR_SIZE,
+        allocate_access_id, cleared_inode_matches, is_bit_set, read_device_block,
+        read_inode_bytes_from_device, read_u16, read_u32, BlockDevice, DirectoryEntry, FileHandle,
+        FileMapping, FileMetadata, ResetAccess, StorageError, Undo, Vfs, VolumeAccess,
+        ACTIVE_ACCESS_ID, BLOCK_BITMAP, BLOCK_SIZE, DIRECT_BLOCKS, EXT2_BLOCK_COUNT,
+        EXT2_INODE_COUNT, EXT2_INODE_SIZE, FIRST_FILE_INODE, GROUP_DESCRIPTOR_BLOCK, INODE_BITMAP,
+        INODE_TABLE, LEGACY_UNDO_MAGIC, MAX_FILE_SIZE, MAX_NAME_LENGTH, RESERVED_BLOCKS,
+        ROOT_DIRECTORY_BLOCK, ROOT_INODE, SECTOR_SIZE, SUPERBLOCK_BLOCK, UNDO_BLOCK, UNDO_RENAME,
     };
 
     /// A device backing the whole 8 MiB volume, for multi-block files.
@@ -2923,6 +3980,157 @@ mod tests {
     }
 
     #[test]
+    fn rename_reserved_dot_entries_is_rejected_without_any_write() {
+        for parent in ["/", "/parent"] {
+            let disk = FaultDisk::new(false);
+            let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+            volume.mkdir_path(b"/parent").unwrap();
+            let root_file = volume.create(b"before").unwrap();
+            volume.write(root_file, b"root retained").unwrap();
+            let nested = volume.create_path(b"/parent/before").unwrap();
+            volume.write(nested, b"nested retained").unwrap();
+            volume.flush().unwrap();
+            for (old, new) in [
+                (b".".as_slice(), b"after".as_slice()),
+                (b"..", b"after"),
+                (b"before", b"."),
+                (b"before", b".."),
+                (b".", b"."),
+                (b"..", b".."),
+            ] {
+                let before = disk.0.lock().unwrap().live.clone();
+                disk.inject(None, None, false);
+                assert_eq!(
+                    volume.rename_child(parent.as_bytes(), old, new),
+                    Err(StorageError::InvalidName)
+                );
+                if parent == "/" {
+                    assert_eq!(volume.rename(old, new), Err(StorageError::InvalidName));
+                }
+                let state = disk.0.lock().unwrap();
+                assert_eq!((state.writes, state.flushes), (0, 0));
+                assert_eq!(state.live, before);
+            }
+            drop(volume);
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+        }
+    }
+
+    #[test]
+    fn directory_rename_returns_identity_and_preserves_children_without_file_io() {
+        let disk = FaultDisk::new(false);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        volume.mkdir_path(b"/parent").unwrap();
+        volume.mkdir_path(b"/parent/before").unwrap();
+        let child = volume.create_path(b"/parent/before/child").unwrap();
+        volume.write(child, b"directory child").unwrap();
+        let before = volume.metadata_path(b"/parent/before").unwrap();
+        let identity = volume
+            .rename_child(b"/parent", b"before", b"after")
+            .unwrap();
+        assert_eq!(identity.inode(), before.inode);
+        assert_eq!(volume.metadata_path(b"/parent/after").unwrap(), before);
+        assert_eq!(
+            volume.metadata_path(b"/parent/before"),
+            Err(StorageError::NotFound)
+        );
+        assert_eq!(
+            volume.rename_child(b"/parent", b"after", b"after"),
+            Ok(identity)
+        );
+        assert_eq!(volume.open_path(b"/parent/after/child"), Ok(child));
+        let mut bytes = [0; 32];
+        assert_eq!(volume.read(child, &mut bytes), Ok(15));
+        assert_eq!(&bytes[..15], b"directory child");
+        assert_eq!(
+            volume.write(identity, b"not a regular file"),
+            Err(StorageError::InvalidHandle)
+        );
+        assert_eq!(
+            volume.read(identity, &mut bytes),
+            Err(StorageError::InvalidHandle)
+        );
+        assert_eq!(
+            volume.open_path(b"/parent/after"),
+            Err(StorageError::IsDirectory)
+        );
+        drop(volume);
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn directory_rename_faults_preserve_identity_children_and_retry() {
+        for cached in [false, true] {
+            for parent in ["/", "/parent"] {
+                let baseline = failure_baseline(cached, false);
+                let mut volume = Vfs::mount_existing(baseline.clone()).unwrap();
+                if parent != "/" {
+                    volume.mkdir_path(parent.as_bytes()).unwrap();
+                }
+                let old = std::format!("{}/before", parent.trim_end_matches('/'));
+                let new = std::format!("{}/after", parent.trim_end_matches('/'));
+                let old_child = std::format!("{old}/child");
+                let new_child = std::format!("{new}/child");
+                volume.mkdir_path(old.as_bytes()).unwrap();
+                let child = volume.create_path(old_child.as_bytes()).unwrap();
+                volume.write(child, b"retained child").unwrap();
+                let before = volume.metadata_path(old.as_bytes()).unwrap();
+                volume.flush().unwrap();
+                drop(volume);
+                let probe = baseline.fork();
+                let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+                probe.inject(None, None, false);
+                volume
+                    .rename_child(parent.as_bytes(), b"before", b"after")
+                    .unwrap();
+                let (writes, flushes) = {
+                    let state = probe.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                drop(volume);
+                for flush_fault in [false, true] {
+                    let limit = if flush_fault { flushes } else { writes };
+                    for after in 0..limit {
+                        let disk = baseline.fork();
+                        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                        disk.inject(
+                            (!flush_fault).then_some(after),
+                            flush_fault.then_some(after),
+                            false,
+                        );
+                        assert!(volume
+                            .rename_child(parent.as_bytes(), b"before", b"after")
+                            .is_err());
+                        drop(volume);
+                        disk.reconnect(true);
+                        let mut volume = Vfs::recover_existing(disk.clone()).unwrap();
+                        assert_eq!(volume.metadata_path(old.as_bytes()).unwrap(), before);
+                        assert_eq!(
+                            volume.metadata_path(new.as_bytes()),
+                            Err(StorageError::NotFound)
+                        );
+                        assert_eq!(volume.open_path(old_child.as_bytes()), Ok(child));
+                        let result = volume
+                            .rename_child(parent.as_bytes(), b"before", b"after")
+                            .unwrap();
+                        assert_eq!(result.inode(), before.inode);
+                        assert_eq!(volume.metadata_path(new.as_bytes()).unwrap(), before);
+                        assert_eq!(volume.open_path(new_child.as_bytes()), Ok(child));
+                        let mut bytes = [0; 32];
+                        assert_eq!(volume.read(child, &mut bytes), Ok(14));
+                        assert_eq!(&bytes[..14], b"retained child");
+                        let kept = volume.open(b"kept.txt").unwrap();
+                        let length = volume.read(kept, &mut bytes).unwrap();
+                        assert_eq!(&bytes[..length], b"retained neighbor");
+                        drop(volume);
+                        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn replaces_a_file_without_a_remove_then_rename_gap() {
         let (mut volume, _) = Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
         let old = volume.create(b"old-package").expect("old package");
@@ -2974,5 +4182,2548 @@ mod tests {
             Vfs::mount_or_format(device),
             Err(StorageError::Corrupt)
         ));
+    }
+    #[derive(Clone)]
+    struct FaultDisk(std::sync::Arc<std::sync::Mutex<FaultState>>);
+    // `live` includes volatile cache state. A write-through sector write or
+    // a cached-device flush advances `durable`; power cuts occur after those
+    // explicit durability boundaries.
+    struct FaultState {
+        live: Vec<u8>,
+        durable: Vec<u8>,
+        cached: bool,
+        fail_write: Option<usize>,
+        fail_flush: Option<usize>,
+        fail_sector_writes: Vec<(u64, usize)>,
+        cut_after_durable_event: Option<usize>,
+        persistent: bool,
+        offline: bool,
+        writes: usize,
+        flushes: usize,
+        durable_events: usize,
+        write_sectors: Vec<u64>,
+    }
+    impl FaultDisk {
+        fn new(cached: bool) -> Self {
+            Self(std::sync::Arc::new(std::sync::Mutex::new(FaultState {
+                live: vec![0; super::EXT2_BLOCK_COUNT as usize * BLOCK_SIZE],
+                durable: vec![0; super::EXT2_BLOCK_COUNT as usize * BLOCK_SIZE],
+                cached,
+                fail_write: None,
+                fail_flush: None,
+                fail_sector_writes: Vec::new(),
+                cut_after_durable_event: None,
+                persistent: false,
+                offline: false,
+                writes: 0,
+                flushes: 0,
+                durable_events: 0,
+                write_sectors: Vec::new(),
+            })))
+        }
+        fn fork(&self) -> Self {
+            let state = self.0.lock().unwrap();
+            let disk = Self::new(state.cached);
+            {
+                let mut copy = disk.0.lock().unwrap();
+                copy.live.clone_from(&state.live);
+                copy.durable.clone_from(&state.durable);
+            }
+            disk
+        }
+        fn inject(&self, write: Option<usize>, flush: Option<usize>, persistent: bool) {
+            self.inject_with_cut(write, flush, persistent, None);
+        }
+        fn inject_with_cut(
+            &self,
+            write: Option<usize>,
+            flush: Option<usize>,
+            persistent: bool,
+            cut_after_durable_event: Option<usize>,
+        ) {
+            let mut state = self.0.lock().unwrap();
+            state.fail_write = write;
+            state.fail_flush = flush;
+            state.fail_sector_writes.clear();
+            state.cut_after_durable_event = cut_after_durable_event;
+            state.persistent = persistent;
+            state.offline = false;
+            state.writes = 0;
+            state.flushes = 0;
+            state.durable_events = 0;
+            state.write_sectors.clear();
+        }
+        // Fail selected attempts to specific sectors. Each tuple contains a
+        // sector number and the number of earlier writes to that sector to
+        // allow. Multiple entries can target successive rollback attempts.
+        fn inject_sector_failures(&self, failures: &[(u64, usize)]) {
+            let mut state = self.0.lock().unwrap();
+            state.fail_write = None;
+            state.fail_flush = None;
+            state.fail_sector_writes = failures.to_vec();
+            state.cut_after_durable_event = None;
+            state.persistent = false;
+            state.offline = false;
+            state.writes = 0;
+            state.flushes = 0;
+            state.durable_events = 0;
+            state.write_sectors.clear();
+        }
+        fn reconnect(&self, power_cut: bool) {
+            let mut state = self.0.lock().unwrap();
+            if power_cut {
+                let durable = state.durable.clone();
+                state.live = durable;
+            }
+            state.offline = false;
+            state.fail_write = None;
+            state.fail_flush = None;
+            state.fail_sector_writes.clear();
+        }
+        // Construct one selected-sector writeback order that a whole-cache
+        // flush cannot produce by itself. This is a synthetic atomic-sector
+        // persistence fixture, not a physical-device power-cut simulation.
+        fn persist_durable_sector_from(&self, source: &Self, sector: u64) {
+            let offset = sector as usize * SECTOR_SIZE;
+            let mut bytes = [0; SECTOR_SIZE];
+            {
+                let state = source.0.lock().unwrap();
+                bytes.copy_from_slice(&state.durable[offset..offset + SECTOR_SIZE]);
+            }
+            let mut state = self.0.lock().unwrap();
+            state.durable[offset..offset + SECTOR_SIZE].copy_from_slice(&bytes);
+            state.live[offset..offset + SECTOR_SIZE].copy_from_slice(&bytes);
+        }
+    }
+    fn fault(counter: &mut Option<usize>) -> bool {
+        match counter {
+            Some(0) => {
+                *counter = None;
+                true
+            }
+            Some(value) => {
+                *value -= 1;
+                false
+            }
+            None => false,
+        }
+    }
+    fn fault_sector_write(failures: &mut Vec<(u64, usize)>, sector: u64) -> bool {
+        let mut index = 0;
+        while index < failures.len() {
+            if failures[index].0 == sector {
+                if failures[index].1 == 0 {
+                    failures.swap_remove(index);
+                    return true;
+                }
+                failures[index].1 -= 1;
+            }
+            index += 1;
+        }
+        false
+    }
+    impl super::ReadOnlyBlockDevice for FaultDisk {
+        fn read_sector(
+            &mut self,
+            sector: u64,
+            output: &mut [u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            let state = self.0.lock().unwrap();
+            let offset = sector as usize * SECTOR_SIZE;
+            output.copy_from_slice(
+                state
+                    .live
+                    .get(offset..offset + SECTOR_SIZE)
+                    .ok_or(StorageError::Block)?,
+            );
+            Ok(())
+        }
+    }
+    impl BlockDevice for FaultDisk {
+        fn write_sector(
+            &mut self,
+            sector: u64,
+            bytes: &[u8; SECTOR_SIZE],
+        ) -> Result<(), StorageError> {
+            let mut state = self.0.lock().unwrap();
+            if state.offline {
+                return Err(StorageError::Block);
+            }
+            if fault(&mut state.fail_write)
+                || fault_sector_write(&mut state.fail_sector_writes, sector)
+            {
+                state.offline = state.persistent;
+                return Err(StorageError::Block);
+            }
+            let offset = sector as usize * SECTOR_SIZE;
+            let cached = state.cached;
+            state
+                .live
+                .get_mut(offset..offset + SECTOR_SIZE)
+                .ok_or(StorageError::Block)?
+                .copy_from_slice(bytes);
+            if !cached {
+                state.durable[offset..offset + SECTOR_SIZE].copy_from_slice(bytes);
+            }
+            state.writes += 1;
+            state.write_sectors.push(sector);
+            if !cached {
+                state.durable_events += 1;
+                if fault(&mut state.cut_after_durable_event) {
+                    state.offline = true;
+                    return Err(StorageError::Block);
+                }
+            }
+            Ok(())
+        }
+        fn flush(&mut self) -> Result<(), StorageError> {
+            let mut state = self.0.lock().unwrap();
+            if state.offline {
+                return Err(StorageError::Block);
+            }
+            if fault(&mut state.fail_flush) {
+                state.offline = state.persistent;
+                return Err(StorageError::Block);
+            }
+            let cached = state.cached;
+            if cached {
+                let live = state.live.clone();
+                state.durable = live;
+            }
+            state.flushes += 1;
+            if cached {
+                state.durable_events += 1;
+                if fault(&mut state.cut_after_durable_event) {
+                    state.offline = true;
+                    return Err(StorageError::Block);
+                }
+            }
+            Ok(())
+        }
+    }
+    fn crowded_name(index: usize) -> Vec<u8> {
+        std::format!("{index:02}{}", "x".repeat(30)).into_bytes()
+    }
+    fn failure_baseline(cached: bool, crowded: bool) -> FaultDisk {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let kept = volume.create(b"kept.txt").unwrap();
+        volume.write(kept, b"retained neighbor").unwrap();
+        if crowded {
+            for index in 0..14 {
+                let name = crowded_name(index);
+                let handle = volume.create(&name).unwrap();
+                volume.write(handle, &name).unwrap();
+            }
+        }
+        volume.flush().unwrap();
+        disk
+    }
+    fn failure_operation(
+        volume: &mut Vfs<FaultDisk>,
+        rename: bool,
+    ) -> Result<FileHandle, StorageError> {
+        if rename {
+            volume.rename(&crowded_name(0), b"renamed")
+        } else {
+            volume.create(b"created")
+        }
+    }
+    fn assert_recovered(disk: FaultDisk, rename: bool, success: bool, context: &str) {
+        let before = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        let mut volume = match Vfs::mount_existing(disk.clone()) {
+            Ok(volume) => volume,
+            Err(StorageError::RecoveryRequired) => {
+                assert_eq!(
+                    Vfs::mount_or_format(disk.clone()).err(),
+                    Some(StorageError::RecoveryRequired)
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::RecoveryRequired)
+                );
+                let state = disk.0.lock().unwrap();
+                assert_eq!((state.live.clone(), state.writes, state.flushes), before);
+                drop(state);
+                Vfs::recover_existing(disk.clone()).expect("explicit recovery")
+            }
+            Err(error) => panic!("mount failed before recovery: {error:?}"),
+        };
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("recovered integrity");
+        let mut output = [0; 64];
+        let kept = volume.open(b"kept.txt").unwrap();
+        let count = volume.read_at(kept, 0, &mut output).unwrap();
+        assert_eq!(&output[..count], b"retained neighbor");
+        let mut entries = [DirectoryEntry::empty(); 64];
+        let count = volume.list_root(&mut entries).unwrap();
+        for (index, entry) in entries[..count].iter().enumerate() {
+            assert!(
+                entries[..index]
+                    .iter()
+                    .all(|other| other.inode != entry.inode),
+                "inode alias"
+            );
+        }
+        if rename {
+            let old = volume.open(&crowded_name(0));
+            let new = volume.open(b"renamed");
+            assert_eq!(old.is_ok(), !success, "old rename name state: {context}");
+            assert_eq!(new.is_ok(), success, "new rename name state: {context}");
+            for index in 1..14 {
+                let name = crowded_name(index);
+                let handle = volume.open(&name).unwrap();
+                let count = volume.read_at(handle, 0, &mut output).unwrap();
+                assert_eq!(&output[..count], &name);
+            }
+            let handle = old.or(new).unwrap();
+            let count = volume.read_at(handle, 0, &mut output).unwrap();
+            assert_eq!(&output[..count], crowded_name(0));
+            assert_eq!(count, 32);
+        } else {
+            assert_eq!(
+                volume.open(b"created").is_ok(),
+                success,
+                "create state: {context}"
+            );
+            let next = volume.create(b"next").unwrap();
+            if let Ok(created) = volume.open(b"created") {
+                assert_ne!(created.inode(), next.inode());
+            }
+        }
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    const SPLIT_ENTRY_NAME: &[u8] = b"cross-sector-dir-entry";
+    const SPLIT_ENTRY_PATH: &[u8] = b"/cross-sector-dir-entry";
+
+    #[derive(Clone, Copy, Debug)]
+    enum CreateKind {
+        RegularFile,
+        Directory,
+    }
+
+    fn create_entry(
+        volume: &mut Vfs<FaultDisk>,
+        kind: CreateKind,
+        name: &[u8],
+    ) -> Result<(), StorageError> {
+        match kind {
+            CreateKind::RegularFile => volume.create(name).map(|_| ()),
+            CreateKind::Directory => volume.mkdir(name),
+        }
+    }
+
+    fn split_entry_baseline(cached: bool) -> FaultDisk {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).expect("synthetic format");
+        let kept = volume.create(b"kept.txt").expect("kept file");
+        volume
+            .write(kept, b"retained neighbor")
+            .expect("kept contents");
+        for index in 0..10 {
+            volume
+                .create(&crowded_name(index))
+                .expect("crowded root entry");
+        }
+        // The kept file and ten 32-byte names leave the free record at 440.
+        // Two legal 20-byte names each consume a 28-byte record, placing it
+        // at byte 496 so the next entry crosses the 512-byte sector boundary.
+        for name in [b"aaaaaaaaaaaaaaaaaaaa", b"bbbbbbbbbbbbbbbbbbbb"] {
+            assert_eq!(name.len(), 20);
+            assert!(name.len() <= MAX_NAME_LENGTH);
+            volume.create(name).expect("legal padding root entry");
+        }
+        volume.flush().expect("flush synthetic baseline");
+
+        let mut device = disk.clone();
+        let mut directory = [0; BLOCK_SIZE];
+        read_device_block(&mut device, ROOT_DIRECTORY_BLOCK, &mut directory)
+            .expect("read synthetic root");
+        assert_eq!(
+            read_u32(&directory, 496),
+            0,
+            "free record starts at byte 496"
+        );
+        assert_eq!(read_u16(&directory, 500), 528, "rec_len is at byte 500");
+        disk
+    }
+
+    fn successful_create_trace(baseline: &FaultDisk, kind: CreateKind) -> (Vec<u64>, usize) {
+        let disk = baseline.fork();
+        let mut volume = Vfs::mount_existing(disk.clone()).expect("mount probe baseline");
+        disk.inject(None, None, false);
+        create_entry(&mut volume, kind, SPLIT_ENTRY_NAME)
+            .expect("successful synthetic create probe");
+        let state = disk.0.lock().unwrap();
+        (state.write_sectors.clone(), state.flushes)
+    }
+
+    fn assert_kept_neighbor(volume: &mut Vfs<FaultDisk>, context: &str) {
+        let kept = volume
+            .open_path(b"/kept.txt")
+            .unwrap_or_else(|error| panic!("kept neighbor open: {error:?}: {context}"));
+        let mut output = [0; 32];
+        let count = volume
+            .read_at(kept, 0, &mut output)
+            .unwrap_or_else(|error| panic!("kept neighbor read: {error:?}: {context}"));
+        assert_eq!(&output[..count], b"retained neighbor", "{context}");
+    }
+
+    fn assert_create_rolled_back(
+        disk: &FaultDisk,
+        volume: &mut Vfs<FaultDisk>,
+        kind: CreateKind,
+        context: &str,
+    ) {
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+            .unwrap_or_else(|error| panic!("integrity after rollback: {error:?}: {context}"));
+        assert_eq!(
+            volume.open_path(SPLIT_ENTRY_PATH),
+            Err(StorageError::NotFound),
+            "failed create must not leave a parent reference: {context}"
+        );
+        assert_kept_neighbor(volume, context);
+        create_entry(volume, kind, SPLIT_ENTRY_NAME)
+            .unwrap_or_else(|error| panic!("create retry: {error:?}: {context}"));
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+            .unwrap_or_else(|error| panic!("integrity after retry: {error:?}: {context}"));
+        match kind {
+            CreateKind::RegularFile => assert!(
+                volume.open_path(SPLIT_ENTRY_PATH).is_ok(),
+                "regular file must exist after retry: {context}"
+            ),
+            CreateKind::Directory => assert_eq!(
+                volume.open_path(SPLIT_ENTRY_PATH),
+                Err(StorageError::IsDirectory),
+                "directory must exist after retry: {context}"
+            ),
+        }
+        assert_kept_neighbor(volume, context);
+    }
+
+    #[test]
+    fn create_and_mkdir_undo_restore_every_single_write_and_flush_failure() {
+        for cached in [false, true] {
+            for kind in [CreateKind::RegularFile, CreateKind::Directory] {
+                let baseline = split_entry_baseline(cached);
+                let (write_sectors, flushes) = successful_create_trace(&baseline, kind);
+                let root_first_sector = u64::from(ROOT_DIRECTORY_BLOCK) * 2;
+                let first_parent_write = write_sectors
+                    .iter()
+                    .position(|sector| *sector == root_first_sector)
+                    .expect("parent first sector write");
+                let second_parent_write = write_sectors
+                    .iter()
+                    .position(|sector| *sector == root_first_sector + 1)
+                    .expect("parent second sector write");
+                assert!(
+                    first_parent_write < second_parent_write,
+                    "cached={cached} {kind:?}"
+                );
+
+                for fail_after in 0..write_sectors.len() {
+                    let disk = baseline.fork();
+                    let mut volume = Vfs::mount_existing(disk.clone()).expect("mount write case");
+                    disk.inject(Some(fail_after), None, false);
+                    let context = std::format!("cached={cached} kind={kind:?} write={fail_after}");
+                    assert_eq!(
+                        create_entry(&mut volume, kind, SPLIT_ENTRY_NAME),
+                        Err(StorageError::Block),
+                        "one-shot write fault: {context}"
+                    );
+                    assert_create_rolled_back(&disk, &mut volume, kind, &context);
+                }
+
+                for fail_after in 0..flushes {
+                    let disk = baseline.fork();
+                    let mut volume = Vfs::mount_existing(disk.clone()).expect("mount flush case");
+                    disk.inject(None, Some(fail_after), false);
+                    let context = std::format!("cached={cached} kind={kind:?} flush={fail_after}");
+                    assert_eq!(
+                        create_entry(&mut volume, kind, SPLIT_ENTRY_NAME),
+                        Err(StorageError::Block),
+                        "one-shot flush fault: {context}"
+                    );
+                    assert_create_rolled_back(&disk, &mut volume, kind, &context);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn create_and_mkdir_persistent_parent_fault_requires_explicit_recovery() {
+        for cached in [false, true] {
+            for kind in [CreateKind::RegularFile, CreateKind::Directory] {
+                let baseline = split_entry_baseline(cached);
+                let (write_sectors, _) = successful_create_trace(&baseline, kind);
+                let parent_second_sector = u64::from(ROOT_DIRECTORY_BLOCK) * 2 + 1;
+                let fail_after = write_sectors
+                    .iter()
+                    .position(|sector| *sector == parent_second_sector)
+                    .expect("parent second-sector write");
+                let disk = baseline.fork();
+                let mut volume = Vfs::mount_existing(disk.clone()).expect("mount baseline");
+                disk.inject(Some(fail_after), None, true);
+                assert_eq!(
+                    create_entry(&mut volume, kind, SPLIT_ENTRY_NAME),
+                    Err(StorageError::Indeterminate),
+                    "cached={cached} kind={kind:?}"
+                );
+                assert_eq!(
+                    create_entry(&mut volume, kind, b"blocked-while-recovery-pending"),
+                    Err(StorageError::RecoveryRequired),
+                    "same Vfs must fail closed: cached={cached} kind={kind:?}"
+                );
+
+                disk.reconnect(true);
+                let before_inspection = {
+                    let state = disk.0.lock().unwrap();
+                    (state.live.clone(), state.writes, state.flushes)
+                };
+                assert_eq!(
+                    Vfs::mount_existing(disk.clone()).err(),
+                    Some(StorageError::RecoveryRequired),
+                    "ordinary remount must not repair: cached={cached} kind={kind:?}"
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::RecoveryRequired),
+                    "read-only check must report pending undo: cached={cached} kind={kind:?}"
+                );
+                {
+                    let state = disk.0.lock().unwrap();
+                    assert_eq!(
+                        (state.live.clone(), state.writes, state.flushes),
+                        before_inspection,
+                        "inspection must not mutate pending state: cached={cached} kind={kind:?}"
+                    );
+                }
+
+                let mut recovered = Vfs::recover_existing(disk.clone()).unwrap_or_else(|error| {
+                    panic!("explicit recovery: {error:?}: cached={cached} kind={kind:?}")
+                });
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after explicit recovery");
+                assert_eq!(
+                    recovered.open_path(SPLIT_ENTRY_PATH),
+                    Err(StorageError::NotFound)
+                );
+                assert_kept_neighbor(&mut recovered, "persistent parent-sector failure");
+                create_entry(&mut recovered, kind, SPLIT_ENTRY_NAME)
+                    .expect("retry after explicit recovery");
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after recovered retry");
+            }
+        }
+    }
+
+    #[test]
+    fn create_and_mkdir_parent_rollback_failure_keeps_allocations_until_recovery_retry() {
+        for kind in [CreateKind::RegularFile, CreateKind::Directory] {
+            for fail_second_parent_restore_sector in [false, true] {
+                let baseline = split_entry_baseline(false);
+                let disk = baseline.fork();
+                let mut volume = Vfs::mount_existing(disk.clone()).expect("mount baseline");
+                let inode_bit = volume
+                    .find_free_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)
+                    .expect("free inode");
+                let inode = inode_bit + 1;
+                let data_block = volume
+                    .find_free_bit(BLOCK_BITMAP, RESERVED_BLOCKS, EXT2_BLOCK_COUNT)
+                    .expect("free data block");
+
+                let root_first_sector = u64::from(ROOT_DIRECTORY_BLOCK) * 2;
+                let root_second_sector = root_first_sector + 1;
+                if fail_second_parent_restore_sector {
+                    // Let the operation write the complete parent block, then fail the
+                    // free-count update and the second-sector undo write.
+                    disk.inject_sector_failures(&[
+                        (root_second_sector, 1),
+                        (u64::from(GROUP_DESCRIPTOR_BLOCK) * 2, 0),
+                    ]);
+                } else {
+                    // Fail the second parent-sector write, then fail rollback
+                    // before it can restore the first sector's entry header.
+                    disk.inject_sector_failures(&[(root_second_sector, 0), (root_first_sector, 1)]);
+                }
+                assert_eq!(
+                    create_entry(&mut volume, kind, SPLIT_ENTRY_NAME),
+                    Err(StorageError::Indeterminate),
+                    "kind={kind:?} fail_second_parent_restore_sector={fail_second_parent_restore_sector}"
+                );
+                assert_eq!(
+                    create_entry(&mut volume, kind, b"blocked-while-rollback-pending"),
+                    Err(StorageError::RecoveryRequired)
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::RecoveryRequired)
+                );
+                assert_eq!(
+                    Vfs::mount_existing(disk.clone()).err(),
+                    Some(StorageError::RecoveryRequired)
+                );
+
+                let mut device = disk.clone();
+                let mut inode_bitmap = [0; BLOCK_SIZE];
+                let mut block_bitmap = [0; BLOCK_SIZE];
+                let mut parent = [0; BLOCK_SIZE];
+                read_device_block(&mut device, INODE_BITMAP, &mut inode_bitmap)
+                    .expect("read pending inode bitmap");
+                read_device_block(&mut device, BLOCK_BITMAP, &mut block_bitmap)
+                    .expect("read pending block bitmap");
+                read_device_block(&mut device, ROOT_DIRECTORY_BLOCK, &mut parent)
+                    .expect("read pending parent");
+                assert!(
+                    is_bit_set(&inode_bitmap, inode - 1),
+                    "child inode stays allocated"
+                );
+                assert!(
+                    is_bit_set(&block_bitmap, data_block),
+                    "child data block stays allocated"
+                );
+                assert_eq!(
+                    read_u32(&parent, 496),
+                    if fail_second_parent_restore_sector {
+                        0
+                    } else {
+                        inode
+                    },
+                    "parent ref state while undo is pending"
+                );
+                assert_eq!(
+                    read_u16(&parent, 500),
+                    if fail_second_parent_restore_sector {
+                        528
+                    } else {
+                        32
+                    },
+                    "parent rec_len state while undo is pending"
+                );
+
+                // Fail one explicit recovery attempt as well. The marker and
+                // allocations must survive so recovery can retry safely.
+                disk.inject(Some(0), None, true);
+                assert_eq!(
+                    Vfs::recover_existing(disk.clone()).err(),
+                    Some(StorageError::Block)
+                );
+                disk.reconnect(false);
+                let mut recovered = Vfs::recover_existing(disk.clone()).expect("recovery retry");
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after recovery retry");
+                assert_eq!(
+                    recovered.open_path(SPLIT_ENTRY_PATH),
+                    Err(StorageError::NotFound)
+                );
+
+                let mut device = disk.clone();
+                read_device_block(&mut device, INODE_BITMAP, &mut inode_bitmap)
+                    .expect("read recovered inode bitmap");
+                read_device_block(&mut device, BLOCK_BITMAP, &mut block_bitmap)
+                    .expect("read recovered block bitmap");
+                assert!(
+                    !is_bit_set(&inode_bitmap, inode - 1),
+                    "recovery releases child inode"
+                );
+                assert!(
+                    !is_bit_set(&block_bitmap, data_block),
+                    "recovery releases child block"
+                );
+                assert_kept_neighbor(&mut recovered, "rollback parent retry");
+                create_entry(&mut recovered, kind, SPLIT_ENTRY_NAME)
+                    .expect("create after recovery retry");
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after post-recovery create");
+            }
+        }
+    }
+
+    #[test]
+    fn create_and_mkdir_reject_inconsistent_zero_free_counts_without_writes() {
+        for kind in [CreateKind::RegularFile, CreateKind::Directory] {
+            let disk = FaultDisk::new(false);
+            let (mut volume, _) = Vfs::mount_or_format(disk.clone()).expect("synthetic format");
+            {
+                let mut state = disk.0.lock().unwrap();
+                let superblock = SUPERBLOCK_BLOCK as usize * BLOCK_SIZE;
+                state.live[superblock + 12..superblock + 20].fill(0);
+                state.durable[superblock + 12..superblock + 20].fill(0);
+                let group = GROUP_DESCRIPTOR_BLOCK as usize * BLOCK_SIZE;
+                state.live[group + 12..group + 16].fill(0);
+                state.durable[group + 12..group + 16].fill(0);
+            }
+            let before = disk.0.lock().unwrap().live.clone();
+            disk.inject(None, None, false);
+            assert_eq!(
+                create_entry(&mut volume, kind, b"zero-free-count"),
+                Err(StorageError::Corrupt),
+                "kind={kind:?}"
+            );
+            let state = disk.0.lock().unwrap();
+            assert_eq!(state.writes, 0, "kind={kind:?}");
+            assert_eq!(state.live, before, "kind={kind:?}");
+            assert_eq!(state.durable, before, "kind={kind:?}");
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum DeleteMode {
+        PathFile,
+        RootFile,
+        Directory,
+    }
+
+    fn delete_baseline(cached: bool, mode: DeleteMode) -> (FaultDisk, std::vec::Vec<u8>) {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let kept = volume.create(b"kept.txt").unwrap();
+        volume.write(kept, b"retained neighbor").unwrap();
+        let contents = match mode {
+            DeleteMode::Directory => {
+                volume.mkdir_path(b"/empty").unwrap();
+                std::vec::Vec::new()
+            }
+            DeleteMode::PathFile | DeleteMode::RootFile => {
+                let file = volume.create(b"removed").unwrap();
+                let length = (DIRECT_BLOCKS + 2) * BLOCK_SIZE + 37;
+                let contents = (0..length)
+                    .map(|index| (index as u8).wrapping_mul(37))
+                    .collect::<std::vec::Vec<_>>();
+                volume.write(file, &contents).unwrap();
+                contents
+            }
+        };
+        volume.flush().unwrap();
+        (disk, contents)
+    }
+
+    fn delete_operation(volume: &mut Vfs<FaultDisk>, mode: DeleteMode) -> Result<(), StorageError> {
+        match mode {
+            DeleteMode::PathFile => volume.remove_path(b"/removed"),
+            DeleteMode::RootFile => volume.remove(b"removed"),
+            DeleteMode::Directory => volume.rmdir_path(b"/empty"),
+        }
+    }
+
+    fn delete_identity(disk: &FaultDisk) -> (FileHandle, FileMetadata) {
+        let mut volume = Vfs::mount_existing(disk.clone()).expect("baseline mount");
+        let handle = volume.open_path(b"/removed").expect("baseline file");
+        let metadata = volume.metadata(handle).expect("baseline metadata");
+        (handle, metadata)
+    }
+
+    fn delete_metadata_differs(baseline: &FaultDisk, candidate: &FaultDisk, inode: u32) -> bool {
+        let inode_block = INODE_TABLE + (inode - 1) / 8;
+        let inode_offset = ((inode - 1) % 8) * EXT2_INODE_SIZE as u32;
+        let inode_sector = inode_block * 2 + inode_offset / SECTOR_SIZE as u32;
+        let sectors = [
+            ROOT_DIRECTORY_BLOCK * 2,
+            BLOCK_BITMAP * 2,
+            INODE_BITMAP * 2,
+            inode_sector,
+            SUPERBLOCK_BLOCK * 2,
+            GROUP_DESCRIPTOR_BLOCK * 2,
+        ];
+        let baseline_state = baseline.0.lock().unwrap();
+        let candidate_state = candidate.0.lock().unwrap();
+        sectors.into_iter().any(|sector| {
+            let offset = sector as usize * SECTOR_SIZE;
+            baseline_state.durable[offset..offset + SECTOR_SIZE]
+                != candidate_state.durable[offset..offset + SECTOR_SIZE]
+        })
+    }
+
+    fn assert_delete_identity_restored(
+        disk: FaultDisk,
+        expected_handle: FileHandle,
+        expected_metadata: FileMetadata,
+        expected_contents: &[u8],
+        context: &str,
+    ) {
+        let mut volume = match Vfs::mount_existing(disk.clone()) {
+            Ok(volume) => volume,
+            Err(StorageError::RecoveryRequired) => {
+                Vfs::recover_existing(disk.clone()).expect("retry explicit recovery")
+            }
+            Err(error) => panic!("mount failed after recovery fault: {error:?}: {context}"),
+        };
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("recovered integrity");
+        let handle = volume.open_path(b"/removed").expect("restored file");
+        assert_eq!(handle, expected_handle, "handle identity: {context}");
+        let metadata = volume.metadata(handle).expect("restored metadata");
+        assert_eq!(metadata.inode, expected_metadata.inode, "inode: {context}");
+        assert_eq!(
+            metadata.generation, expected_metadata.generation,
+            "generation: {context}"
+        );
+
+        let mut bytes = std::vec![0; expected_contents.len()];
+        let count = volume
+            .read_at(handle, 0, &mut bytes)
+            .expect("restored read");
+        assert_eq!(count, expected_contents.len(), "file length: {context}");
+        assert_eq!(
+            &bytes[..count],
+            expected_contents,
+            "file contents: {context}"
+        );
+
+        let kept = volume.open_path(b"/kept.txt").expect("kept neighbor");
+        let mut kept_bytes = [0; 32];
+        let count = volume
+            .read_at(kept, 0, &mut kept_bytes)
+            .expect("kept neighbor read");
+        assert_eq!(
+            &kept_bytes[..count],
+            b"retained neighbor",
+            "neighbor: {context}"
+        );
+    }
+
+    fn retry_delete_from_each_recovery_fault(
+        pending: &FaultDisk,
+        expected_handle: FileHandle,
+        expected_metadata: FileMetadata,
+        expected_contents: &[u8],
+        context: &str,
+    ) {
+        let probe = pending.fork();
+        probe.inject(None, None, false);
+        Vfs::recover_existing(probe.clone()).expect("recovery probe");
+        let (writes, flushes) = {
+            let state = probe.0.lock().unwrap();
+            (state.writes, state.flushes)
+        };
+        assert!(writes > 0, "recovery must write: {context}");
+        assert!(flushes > 0, "recovery must flush: {context}");
+
+        for after in 0..writes {
+            let attempt = pending.fork();
+            attempt.inject(Some(after), None, true);
+            assert!(
+                Vfs::recover_existing(attempt.clone()).is_err(),
+                "recovery write fault {after} should fail: {context}"
+            );
+            attempt.reconnect(true);
+            assert_delete_identity_restored(
+                attempt,
+                expected_handle,
+                expected_metadata,
+                expected_contents,
+                &std::format!("{context}; recovery write fault {after}"),
+            );
+        }
+        for after in 0..flushes {
+            let attempt = pending.fork();
+            attempt.inject(None, Some(after), true);
+            assert!(
+                Vfs::recover_existing(attempt.clone()).is_err(),
+                "recovery flush fault {after} should fail: {context}"
+            );
+            attempt.reconnect(true);
+            assert_delete_identity_restored(
+                attempt,
+                expected_handle,
+                expected_metadata,
+                expected_contents,
+                &std::format!("{context}; recovery flush fault {after}"),
+            );
+        }
+    }
+
+    fn assert_delete_recovered(
+        disk: FaultDisk,
+        mode: DeleteMode,
+        removed: bool,
+        expected_data: &[u8],
+        context: &str,
+    ) {
+        let before = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        let mut volume = match Vfs::mount_existing(disk.clone()) {
+            Ok(volume) => volume,
+            Err(StorageError::RecoveryRequired) => {
+                assert_eq!(
+                    Vfs::mount_or_format(disk.clone()).err(),
+                    Some(StorageError::RecoveryRequired),
+                    "ordinary format mount must not repair: {context}"
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::RecoveryRequired),
+                    "read-only check must report the pending delete: {context}"
+                );
+                let state = disk.0.lock().unwrap();
+                assert_eq!(
+                    (state.live.clone(), state.writes, state.flushes),
+                    before,
+                    "mount/check changed a pending delete: {context}"
+                );
+                drop(state);
+                Vfs::recover_existing(disk.clone()).expect("explicit delete recovery")
+            }
+            Err(error) => panic!("mount failed before delete recovery: {error:?}: {context}"),
+        };
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("delete recovery integrity");
+
+        let kept = volume.open_path(b"/kept.txt").expect("kept neighbor");
+        let mut kept_bytes = [0; 32];
+        let kept_count = volume.read_at(kept, 0, &mut kept_bytes).unwrap();
+        assert_eq!(&kept_bytes[..kept_count], b"retained neighbor", "{context}");
+
+        match mode {
+            DeleteMode::Directory => {
+                assert_eq!(
+                    volume.metadata_path(b"/empty").is_ok(),
+                    !removed,
+                    "{context}"
+                );
+            }
+            DeleteMode::PathFile | DeleteMode::RootFile => {
+                let handle = volume.open_path(b"/removed");
+                assert_eq!(handle.is_ok(), !removed, "delete outcome: {context}");
+                if let Ok(handle) = handle {
+                    let mut bytes = std::vec![0; expected_data.len()];
+                    let count = volume.read_at(handle, 0, &mut bytes).unwrap();
+                    assert_eq!(count, expected_data.len(), "file length: {context}");
+                    assert_eq!(&bytes[..count], expected_data, "file data: {context}");
+                }
+            }
+        }
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("final delete integrity");
+    }
+
+    fn empty_file_with_zero_block_count(cached: bool) -> FaultDisk {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let empty = volume.create(b"empty").unwrap();
+        let mut inode = volume.read_inode(empty.inode()).unwrap();
+        assert_eq!(inode.size, 0);
+        inode.blocks = 0;
+        volume.write_inode(empty.inode(), inode).unwrap();
+        let kept = volume.create(b"kept.txt").unwrap();
+        volume.write(kept, b"retained neighbor").unwrap();
+        volume.flush().unwrap();
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+        disk
+    }
+
+    #[test]
+    fn zero_block_count_empty_files_unlink_through_both_entrypoints() {
+        for cached in [false, true] {
+            for mode in [DeleteMode::PathFile, DeleteMode::RootFile] {
+                let disk = empty_file_with_zero_block_count(cached);
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                let metadata = volume.metadata_path(b"/empty").unwrap();
+                assert_eq!(metadata.size, 0);
+                assert_eq!(metadata.blocks, 0);
+
+                let result = match mode {
+                    DeleteMode::PathFile => volume.remove_path(b"/empty"),
+                    DeleteMode::RootFile => volume.remove(b"empty"),
+                    DeleteMode::Directory => unreachable!(),
+                };
+                assert_eq!(result, Ok(()), "cached={cached} mode={mode:?}");
+                assert_eq!(volume.open_path(b"/empty"), Err(StorageError::NotFound));
+                let kept = volume.open_path(b"/kept.txt").unwrap();
+                let mut bytes = [0; 32];
+                let count = volume.read_at(kept, 0, &mut bytes).unwrap();
+                assert_eq!(&bytes[..count], b"retained neighbor");
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn all_remove_entrypoints_recover_every_write_and_flush_failure() {
+        for cached in [false, true] {
+            for mode in [
+                DeleteMode::PathFile,
+                DeleteMode::RootFile,
+                DeleteMode::Directory,
+            ] {
+                let (baseline, expected_data) = delete_baseline(cached, mode);
+                let probe = baseline.fork();
+                let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+                delete_operation(&mut volume, mode).unwrap();
+                let (writes, flushes) = {
+                    let state = probe.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                for persistent in [false, true] {
+                    for flush_fault in [false, true] {
+                        let limit = if flush_fault { flushes } else { writes };
+                        for after in 0..=limit {
+                            let disk = baseline.fork();
+                            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                            disk.inject(
+                                (!flush_fault).then_some(after),
+                                flush_fault.then_some(after),
+                                persistent,
+                            );
+                            let result = delete_operation(&mut volume, mode);
+                            disk.reconnect(cached && persistent);
+                            let commit_visible_after_error =
+                                !cached && persistent && flush_fault && after + 1 == flushes;
+                            let removed = result.is_ok() || commit_visible_after_error;
+                            let context = std::format!(
+                                "cached={cached} mode={mode:?} persistent={persistent} flush_fault={flush_fault} after={after}"
+                            );
+                            assert_delete_recovered(disk, mode, removed, &expected_data, &context);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn root_remove_uses_delete_undo() {
+        let (baseline, expected_data) = delete_baseline(false, DeleteMode::RootFile);
+        let disk = baseline.fork();
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(Some(4), None, true);
+        assert_eq!(
+            delete_operation(&mut volume, DeleteMode::RootFile),
+            Err(StorageError::Indeterminate)
+        );
+        disk.reconnect(false);
+        assert_delete_recovered(
+            disk,
+            DeleteMode::RootFile,
+            false,
+            &expected_data,
+            "root remove after persistent directory-write failure",
+        );
+    }
+
+    #[test]
+    fn pending_delete_recovery_retries_from_progressed_power_cut_states() {
+        for cached in [false, true] {
+            let (baseline, expected_contents) = delete_baseline(cached, DeleteMode::PathFile);
+            let (expected_handle, expected_metadata) = delete_identity(&baseline);
+
+            let probe = baseline.fork();
+            let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+            probe.inject(None, None, false);
+            delete_operation(&mut probe_volume, DeleteMode::PathFile).unwrap();
+            let events = probe.0.lock().unwrap().durable_events;
+            assert!(events > 0, "cached={cached}");
+
+            let mut progressed_states = 0;
+            for after in 0..events {
+                let disk = baseline.fork();
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                disk.inject_with_cut(None, None, false, Some(after));
+                assert!(
+                    delete_operation(&mut volume, DeleteMode::PathFile).is_err(),
+                    "power cut after event {after} must interrupt deletion: cached={cached}"
+                );
+                disk.reconnect(true);
+
+                let progressed = delete_metadata_differs(&baseline, &disk, expected_handle.inode());
+                match Vfs::mount_existing(disk.clone()) {
+                    Err(StorageError::RecoveryRequired) if progressed => {
+                        progressed_states += 1;
+                        assert_eq!(
+                            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                            Err(StorageError::RecoveryRequired),
+                            "pending cut remains read-only: cached={cached} event={after}"
+                        );
+                        retry_delete_from_each_recovery_fault(
+                            &disk,
+                            expected_handle,
+                            expected_metadata,
+                            &expected_contents,
+                            &std::format!("cached={cached}; delete cut after event {after}"),
+                        );
+                    }
+                    Err(StorageError::RecoveryRequired) => {
+                        // The journal reached stable storage before the delete
+                        // mutation did. The existing marker-only case is covered
+                        // by the general recovery tests.
+                    }
+                    Ok(mut volume) if progressed => {
+                        Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                            .expect("committed delete integrity");
+                        assert_eq!(
+                            volume.open_path(b"/removed"),
+                            Err(StorageError::NotFound),
+                            "delete completed before journal clear became visible: cached={cached} event={after}"
+                        );
+                    }
+                    Ok(mut volume) => {
+                        assert_eq!(
+                            volume.open_path(b"/removed"),
+                            Ok(expected_handle),
+                            "delete had not started: cached={cached} event={after}"
+                        );
+                    }
+                    Err(error) => panic!(
+                        "unexpected mount after delete cut: {error:?}; cached={cached} event={after}"
+                    ),
+                }
+            }
+
+            assert!(
+                progressed_states >= if cached { 1 } else { 4 },
+                "expected several progressed pending states, got {progressed_states}: cached={cached}"
+            );
+        }
+    }
+
+    #[test]
+    fn cached_delete_recovery_accepts_inode_sector_persisted_before_bitmap() {
+        let (baseline, expected_contents) = delete_baseline(true, DeleteMode::PathFile);
+        let (expected_handle, expected_metadata) = delete_identity(&baseline);
+
+        let completed = baseline.fork();
+        let mut completed_volume = Vfs::mount_existing(completed.clone()).unwrap();
+        delete_operation(&mut completed_volume, DeleteMode::PathFile).unwrap();
+
+        let probe = baseline.fork();
+        let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+        probe.inject(None, None, false);
+        delete_operation(&mut probe_volume, DeleteMode::PathFile).unwrap();
+        let events = probe.0.lock().unwrap().durable_events;
+
+        let mut marker_only = None;
+        for after in 0..events {
+            let candidate = baseline.fork();
+            let mut volume = Vfs::mount_existing(candidate.clone()).unwrap();
+            candidate.inject_with_cut(None, None, false, Some(after));
+            assert!(delete_operation(&mut volume, DeleteMode::PathFile).is_err());
+            candidate.reconnect(true);
+            if Vfs::mount_existing(candidate.clone()).err() == Some(StorageError::RecoveryRequired)
+                && !delete_metadata_differs(&baseline, &candidate, expected_handle.inode())
+            {
+                marker_only = Some(candidate);
+                break;
+            }
+        }
+        let pending = marker_only.expect("cached cut after journal publication");
+        let inode_block = INODE_TABLE + (expected_handle.inode() - 1) / 8;
+        let inode_offset = ((expected_handle.inode() - 1) % 8) * EXT2_INODE_SIZE as u32;
+        let inode_sector = inode_block * 2 + inode_offset / SECTOR_SIZE as u32;
+        pending.persist_durable_sector_from(&completed, u64::from(inode_sector));
+
+        let mut inode_bitmap = [0; BLOCK_SIZE];
+        read_device_block(&mut pending.clone(), INODE_BITMAP, &mut inode_bitmap).unwrap();
+        assert!(
+            is_bit_set(&inode_bitmap, expected_handle.inode() - 1),
+            "the synthetic reordered state leaves the inode bitmap allocated"
+        );
+        let current_inode =
+            read_inode_bytes_from_device(&mut pending.clone(), expected_handle.inode()).unwrap();
+        let previous_inode = expected_metadata_inode(&baseline, expected_handle.inode());
+        assert!(cleared_inode_matches(&current_inode, &previous_inode));
+
+        let before = {
+            let state = pending.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        assert_eq!(
+            Vfs::mount_existing(pending.clone()).err(),
+            Some(StorageError::RecoveryRequired)
+        );
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut pending.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+
+        let corrupt = pending.fork();
+        let inode_record_offset = inode_block as usize * BLOCK_SIZE
+            + ((expected_handle.inode() - 1) % 8) as usize * EXT2_INODE_SIZE as usize;
+        {
+            let mut state = corrupt.0.lock().unwrap();
+            state.live[inode_record_offset + 2] = 1;
+            state.durable[inode_record_offset + 2] = 1;
+        }
+        assert_eq!(
+            Vfs::mount_existing(corrupt.clone()).err(),
+            Some(StorageError::Corrupt),
+            "unrecognized changes to an allocated inode must remain fail-closed"
+        );
+
+        {
+            let state = pending.0.lock().unwrap();
+            assert_eq!(
+                (state.live.clone(), state.writes, state.flushes),
+                before,
+                "ordinary inspection must not repair reordered pending state"
+            );
+        }
+
+        assert_delete_identity_restored(
+            pending,
+            expected_handle,
+            expected_metadata,
+            &expected_contents,
+            "cached inode-sector writeback before inode bitmap",
+        );
+    }
+
+    fn expected_metadata_inode(disk: &FaultDisk, inode: u32) -> [u8; EXT2_INODE_SIZE as usize] {
+        read_inode_bytes_from_device(&mut disk.clone(), inode).expect("baseline inode")
+    }
+
+    fn v1_create_undo_fixture(
+        nested: bool,
+        with_owner_file: bool,
+    ) -> (FaultDisk, Undo, u32, Option<u32>) {
+        let disk = FaultDisk::new(false);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        if nested {
+            volume.mkdir_path(b"/nested").unwrap();
+        }
+        let owner_inode = if with_owner_file {
+            Some(volume.create(b"owner").unwrap().inode())
+        } else {
+            None
+        };
+        let directory_inode = if nested {
+            volume.resolve_path(b"/nested").unwrap()
+        } else {
+            super::ROOT_INODE
+        };
+        let parent = volume.read_inode(directory_inode).unwrap();
+        let mut directory = [0; BLOCK_SIZE];
+        read_device_block(&mut disk.clone(), parent.direct_block, &mut directory).unwrap();
+
+        let mut inode_bitmap = [0; BLOCK_SIZE];
+        read_device_block(&mut disk.clone(), super::INODE_BITMAP, &mut inode_bitmap).unwrap();
+        let inode = (super::FIRST_FILE_INODE..=super::EXT2_INODE_COUNT)
+            .find(|candidate| !is_bit_set(&inode_bitmap, candidate - 1))
+            .expect("free inode for an uncommitted create");
+        let mut block_bitmap = [0; BLOCK_SIZE];
+        read_device_block(&mut disk.clone(), super::BLOCK_BITMAP, &mut block_bitmap).unwrap();
+        let data_block = (super::RESERVED_BLOCKS..super::EXT2_BLOCK_COUNT)
+            .find(|candidate| !is_bit_set(&block_bitmap, *candidate))
+            .expect("free block for an uncommitted create");
+        drop(volume);
+
+        (
+            disk,
+            Undo {
+                kind: super::UNDO_CREATE,
+                directory_inode,
+                directory_block: parent.direct_block,
+                inode,
+                data_block,
+                previous_inode: [0; EXT2_INODE_SIZE as usize],
+                previous_indirect_checksum: [0; 32],
+                directory,
+            },
+            directory_inode,
+            owner_inode,
+        )
+    }
+
+    fn install_v1_undo(disk: &FaultDisk, undo: &Undo) {
+        let mut header = undo.header();
+        header[..8].copy_from_slice(LEGACY_UNDO_MAGIC);
+        let digest = Sha256::digest(&header[..480]);
+        header[480..].copy_from_slice(&digest);
+        let backup_start = super::UNDO_BLOCK as usize * BLOCK_SIZE;
+        let mut state = disk.0.lock().unwrap();
+        state.live[backup_start..backup_start + BLOCK_SIZE].copy_from_slice(&undo.directory);
+        state.durable[backup_start..backup_start + BLOCK_SIZE].copy_from_slice(&undo.directory);
+        state.live[..SECTOR_SIZE].copy_from_slice(&header);
+        state.durable[..SECTOR_SIZE].copy_from_slice(&header);
+    }
+
+    fn set_inode_u32(disk: &FaultDisk, inode: u32, field_offset: usize, value: u32) {
+        let block = super::INODE_TABLE + (inode - 1) / 8;
+        let offset = block as usize * BLOCK_SIZE
+            + ((inode - 1) % 8) as usize * EXT2_INODE_SIZE as usize
+            + field_offset;
+        let bytes = value.to_le_bytes();
+        let mut state = disk.0.lock().unwrap();
+        state.live[offset..offset + 4].copy_from_slice(&bytes);
+        state.durable[offset..offset + 4].copy_from_slice(&bytes);
+    }
+
+    fn assert_corrupt_undo_is_read_only(disk: FaultDisk) {
+        let before = {
+            let state = disk.0.lock().unwrap();
+            (
+                state.live.clone(),
+                state.durable.clone(),
+                state.writes,
+                state.flushes,
+            )
+        };
+        assert_eq!(
+            Vfs::mount_existing(disk.clone()).err(),
+            Some(StorageError::Corrupt)
+        );
+        assert_eq!(
+            Vfs::mount_or_format(disk.clone()).err(),
+            Some(StorageError::Corrupt)
+        );
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(
+            Vfs::recover_existing(disk.clone()).err(),
+            Some(StorageError::Corrupt)
+        );
+        let state = disk.0.lock().unwrap();
+        assert_eq!(
+            (
+                state.live.clone(),
+                state.durable.clone(),
+                state.writes,
+                state.flushes,
+            ),
+            before,
+            "invalid undo must leave the full volume and journal untouched"
+        );
+    }
+
+    #[test]
+    fn undo_rejects_nonroot_parent_alias_to_root_directory_block() {
+        let (disk, mut undo, parent_inode, _) = v1_create_undo_fixture(true, false);
+        let mut forged_directory = [0; BLOCK_SIZE];
+        read_device_block(
+            &mut disk.clone(),
+            ROOT_DIRECTORY_BLOCK,
+            &mut forged_directory,
+        )
+        .unwrap();
+        forged_directory[..4].copy_from_slice(&parent_inode.to_le_bytes());
+        set_inode_u32(&disk, parent_inode, 40, ROOT_DIRECTORY_BLOCK);
+        undo.directory_block = ROOT_DIRECTORY_BLOCK;
+        undo.directory = forged_directory;
+        install_v1_undo(&disk, &undo);
+
+        assert_corrupt_undo_is_read_only(disk);
+    }
+
+    #[test]
+    fn undo_rejects_reserved_nonroot_parent_block() {
+        let (disk, mut undo, parent_inode, _) = v1_create_undo_fixture(true, false);
+        let reserved_nonroot_block = ROOT_DIRECTORY_BLOCK + 1;
+        set_inode_u32(&disk, parent_inode, 40, reserved_nonroot_block);
+        undo.directory_block = reserved_nonroot_block;
+        install_v1_undo(&disk, &undo);
+
+        assert_corrupt_undo_is_read_only(disk);
+    }
+
+    #[test]
+    fn undo_rejects_noncanonical_root_layout_before_recovery() {
+        let (disk, mut undo, _, _) = v1_create_undo_fixture(true, false);
+        undo.kind = super::UNDO_RENAME;
+        undo.inode = 0;
+        undo.data_block = 0;
+        set_inode_u32(&disk, super::ROOT_INODE, 28, 4);
+        install_v1_undo(&disk, &undo);
+
+        assert_corrupt_undo_is_read_only(disk);
+    }
+
+    #[test]
+    fn undo_rejects_parent_block_owned_by_another_inode() {
+        let (disk, undo, _, owner_inode) = v1_create_undo_fixture(true, true);
+        set_inode_u32(
+            &disk,
+            owner_inode.expect("fixture owner file"),
+            40,
+            undo.directory_block,
+        );
+        install_v1_undo(&disk, &undo);
+
+        assert_corrupt_undo_is_read_only(disk);
+    }
+
+    #[test]
+    fn legacy_v1_nested_create_undo_remains_recoverable() {
+        let (disk, undo, parent_inode, _) = v1_create_undo_fixture(true, false);
+        install_v1_undo(&disk, &undo);
+        assert_ne!(parent_inode, super::ROOT_INODE);
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+
+        let mut recovered = Vfs::recover_existing(disk.clone()).expect("legacy nested recovery");
+        assert_eq!(
+            recovered.open_path(b"/nested/not-created"),
+            Err(StorageError::NotFound)
+        );
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("recovered volume integrity");
+    }
+
+    fn legacy_empty_reused_block_fixture(cached: bool) -> (FaultDisk, u32) {
+        let disk = FaultDisk::new(cached);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let neighbor = volume.create_path(b"/neighbor").unwrap();
+        volume.write(neighbor, b"neighbor payload").unwrap();
+
+        let old = volume.create_path(b"/old-payload").unwrap();
+        volume.write(old, &[0xa5; BLOCK_SIZE]).unwrap();
+        let old_block = volume.read_inode(old.inode()).unwrap().direct_block;
+        volume.remove_path(b"/old-payload").unwrap();
+
+        // This empty inode has the on-disk form written by the old create
+        // path: size and i_blocks are zero, but it owns a direct data block.
+        let empty = volume.create_path(b"/legacy-empty").unwrap();
+        let inode = volume.read_inode(empty.inode()).unwrap();
+        assert_eq!(inode.size, 0);
+        assert_eq!(inode.blocks, 0);
+        assert_eq!(inode.direct_block, old_block);
+        let neighbor_inode = volume.read_inode(neighbor.inode()).unwrap();
+        assert_ne!(neighbor_inode.direct_block, old_block);
+
+        // Model an older image where the reused empty-file block still
+        // contains the deleted file's bytes. Keep both live and durable state
+        // aligned so the fixture remains valid across a simulated restart.
+        let offset = old_block as usize * BLOCK_SIZE;
+        {
+            let mut state = disk.0.lock().unwrap();
+            state.live[offset..offset + BLOCK_SIZE].fill(0xa5);
+            state.durable[offset..offset + BLOCK_SIZE].fill(0xa5);
+        }
+        drop(volume);
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+            .expect("legacy-compatible empty inode remains valid");
+        (disk, old_block)
+    }
+
+    #[test]
+    fn initialized_create_preserves_payload_or_recovers_absent_at_every_fault() {
+        for cached in [false, true] {
+            let baseline = failure_baseline(cached, false);
+            let payload = b"NAGITR01 initial journal payload";
+            let path = b"/initialized";
+            let probe = baseline.fork();
+            let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+            probe.inject(None, None, false);
+            let handle = volume
+                .create_path_with_initial_contents(path, payload)
+                .unwrap();
+            let (writes, flushes) = {
+                let state = probe.0.lock().unwrap();
+                (state.writes, state.flushes)
+            };
+            assert!(writes > 0 && flushes > 0);
+            assert_eq!(volume.metadata(handle).unwrap().size, payload.len() as u32);
+            let mut bytes = [0; 64];
+            assert_eq!(volume.read(handle, &mut bytes), Ok(payload.len()));
+            assert_eq!(&bytes[..payload.len()], payload);
+            assert_eq!(
+                volume.create_path_with_initial_contents(path, b"replacement"),
+                Err(StorageError::AlreadyExists)
+            );
+            probe.inject(None, None, false);
+            assert_eq!(
+                volume.create_path_with_initial_contents(b"/oversized", &[0; BLOCK_SIZE + 1]),
+                Err(StorageError::FileTooLarge)
+            );
+            {
+                let state = probe.0.lock().unwrap();
+                assert_eq!((state.writes, state.flushes), (0, 0));
+            }
+            drop(volume);
+            for flush_fault in [false, true] {
+                let limit = if flush_fault { flushes } else { writes };
+                for after in 0..limit {
+                    let disk = baseline.fork();
+                    let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                    disk.inject(
+                        (!flush_fault).then_some(after),
+                        flush_fault.then_some(after),
+                        false,
+                    );
+                    assert!(volume
+                        .create_path_with_initial_contents(path, payload)
+                        .is_err());
+                    drop(volume);
+                    disk.reconnect(true);
+                    let mut volume = Vfs::recover_existing(disk.clone()).unwrap();
+                    assert_eq!(volume.open_path(path), Err(StorageError::NotFound));
+                    let kept = volume.open(b"kept.txt").unwrap();
+                    let mut bytes = [0; 64];
+                    let length = volume.read(kept, &mut bytes).unwrap();
+                    assert_eq!(&bytes[..length], b"retained neighbor");
+                    let handle = volume
+                        .create_path_with_initial_contents(path, payload)
+                        .unwrap();
+                    assert_eq!(volume.read(handle, &mut bytes), Ok(payload.len()));
+                    assert_eq!(&bytes[..payload.len()], payload);
+                    drop(volume);
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_empty_reused_block_first_ranged_write_zeroes_gap() {
+        for cached in [false, true] {
+            let (disk, old_block) = legacy_empty_reused_block_fixture(cached);
+            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+            let empty = volume.open_path(b"/legacy-empty").unwrap();
+            let inode = volume.read_inode(empty.inode()).unwrap();
+            assert_eq!(inode.direct_block, old_block);
+            assert_eq!(inode.blocks, 0);
+
+            volume.write_at(empty, 59, b"range").unwrap();
+            volume.flush().unwrap();
+
+            let mut bytes = [0xff; 64];
+            assert_eq!(volume.read(empty, &mut bytes), Ok(64));
+            assert_eq!(
+                &bytes[..59],
+                &[0; 59],
+                "cached={cached}: an old empty inode must not expose bytes from a reused block"
+            );
+            assert_eq!(&bytes[59..], b"range");
+
+            let neighbor = volume.open_path(b"/neighbor").unwrap();
+            let mut neighbor_bytes = [0; 32];
+            let expected = b"neighbor payload";
+            assert_eq!(
+                volume.read(neighbor, &mut neighbor_bytes),
+                Ok(expected.len())
+            );
+            assert_eq!(&neighbor_bytes[..expected.len()], expected);
+            drop(volume);
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                .expect("integrity after legacy empty-file write");
+        }
+    }
+
+    #[test]
+    fn legacy_empty_reused_block_truncate_extension_zeroes_tail_and_boundary() {
+        for cached in [false, true] {
+            let (disk, old_block) = legacy_empty_reused_block_fixture(cached);
+            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+            let empty = volume.open_path(b"/legacy-empty").unwrap();
+            assert_eq!(
+                volume.read_inode(empty.inode()).unwrap().direct_block,
+                old_block
+            );
+
+            volume.write_at(empty, 59, b"range").unwrap();
+            volume.flush().unwrap();
+            assert_eq!(volume.truncate(empty, 128), Ok(()));
+            volume.flush().unwrap();
+
+            let mut same_block = [0xff; 128];
+            assert_eq!(volume.read(empty, &mut same_block), Ok(128));
+            assert_eq!(&same_block[..59], &[0; 59]);
+            assert_eq!(&same_block[59..64], b"range");
+            assert_eq!(
+                &same_block[64..128],
+                &[0; 64],
+                "cached={cached}: truncate must not expose the old block tail"
+            );
+
+            let extended = BLOCK_SIZE + 64;
+            volume.truncate(empty, extended).unwrap();
+            volume.flush().unwrap();
+            let mut bytes = [0xff; BLOCK_SIZE + 64];
+            assert_eq!(volume.read(empty, &mut bytes), Ok(extended));
+            assert_eq!(&bytes[..59], &[0; 59]);
+            assert_eq!(&bytes[59..64], b"range");
+            assert_eq!(&bytes[64..], &[0; BLOCK_SIZE + 64 - 64]);
+            let neighbor = volume.open_path(b"/neighbor").unwrap();
+            let mut neighbor_bytes = [0; 32];
+            let expected = b"neighbor payload";
+            assert_eq!(
+                volume.read(neighbor, &mut neighbor_bytes),
+                Ok(expected.len())
+            );
+            assert_eq!(&neighbor_bytes[..expected.len()], expected);
+            drop(volume);
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                .expect("integrity after legacy truncate extension");
+        }
+    }
+
+    #[test]
+    fn legacy_empty_reused_block_truncate_failures_recover_and_retry() {
+        for cached in [false, true] {
+            let (baseline, old_block) = legacy_empty_reused_block_fixture(cached);
+            let mut setup = Vfs::mount_existing(baseline.clone()).unwrap();
+            let empty = setup.open_path(b"/legacy-empty").unwrap();
+            setup.write_at(empty, 59, b"range").unwrap();
+            setup.flush().unwrap();
+            drop(setup);
+
+            let extended = BLOCK_SIZE + 64;
+            let probe = baseline.fork();
+            let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+            let probe_handle = probe_volume.open_path(b"/legacy-empty").unwrap();
+            probe.inject(None, None, false);
+            probe_volume
+                .truncate(probe_handle, extended)
+                .expect("probe boundary extension");
+            let (first_sector_indices, second_sector_indices) = {
+                let state = probe.0.lock().unwrap();
+                let first_sector = u64::from(old_block) * 2;
+                let first = state
+                    .write_sectors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, sector)| (*sector == first_sector).then_some(index))
+                    .collect::<Vec<_>>();
+                let second = state
+                    .write_sectors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, sector)| (*sector == first_sector + 1).then_some(index))
+                    .collect::<Vec<_>>();
+                (first, second)
+            };
+            assert_eq!(
+                first_sector_indices.len(),
+                1,
+                "truncate clears the existing tail once before allocating"
+            );
+            assert_eq!(
+                second_sector_indices.len(),
+                1,
+                "truncate clears both sectors of the existing block tail"
+            );
+            drop(probe_volume);
+
+            for (sector_name, write_index) in [
+                ("first sector", first_sector_indices[0]),
+                ("second sector", second_sector_indices[0]),
+            ] {
+                let disk = baseline.fork();
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                let empty = volume.open_path(b"/legacy-empty").unwrap();
+                disk.inject(Some(write_index), None, false);
+                assert_eq!(
+                    volume.truncate(empty, extended),
+                    Err(StorageError::Block),
+                    "cached={cached} fault={sector_name}"
+                );
+                assert!(
+                    disk.0.lock().unwrap().fail_write.is_none(),
+                    "the selected {sector_name} fault must be reached"
+                );
+                drop(volume);
+
+                // Gap clearing precedes allocation and inode-size publication.
+                disk.reconnect(true);
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after interrupted truncate expansion");
+                let recovery_counts = {
+                    let state = disk.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                let mut recovered =
+                    Vfs::recover_existing(disk.clone()).expect("explicit Recovery remount");
+                assert_eq!(
+                    {
+                        let state = disk.0.lock().unwrap();
+                        (state.writes, state.flushes)
+                    },
+                    recovery_counts,
+                    "no undo marker exists; Recovery must not mutate this volume"
+                );
+
+                let empty = recovered.open_path(b"/legacy-empty").unwrap();
+                assert_eq!(recovered.metadata(empty).unwrap().size, 64);
+                let mut visible = [0xff; 64];
+                assert_eq!(recovered.read(empty, &mut visible), Ok(64));
+                assert_eq!(&visible[..59], &[0; 59]);
+                assert_eq!(&visible[59..], b"range");
+                let neighbor = recovered.open_path(b"/neighbor").unwrap();
+                let mut neighbor_bytes = [0; 32];
+                let expected = b"neighbor payload";
+                assert_eq!(
+                    recovered.read(neighbor, &mut neighbor_bytes),
+                    Ok(expected.len())
+                );
+                assert_eq!(&neighbor_bytes[..expected.len()], expected);
+
+                recovered
+                    .truncate(empty, extended)
+                    .expect("retry boundary extension after Recovery");
+                recovered.flush().unwrap();
+                let mut bytes = [0xff; BLOCK_SIZE + 64];
+                assert_eq!(recovered.read(empty, &mut bytes), Ok(extended));
+                assert_eq!(&bytes[..59], &[0; 59]);
+                assert_eq!(&bytes[59..64], b"range");
+                assert_eq!(&bytes[64..], &[0; BLOCK_SIZE + 64 - 64]);
+                neighbor_bytes.fill(0);
+                assert_eq!(
+                    recovered.read(neighbor, &mut neighbor_bytes),
+                    Ok(expected.len())
+                );
+                assert_eq!(&neighbor_bytes[..expected.len()], expected);
+                drop(recovered);
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after Recovery and truncate retry");
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_empty_reused_block_gap_failures_recover_and_retry() {
+        for cached in [false, true] {
+            let (baseline, old_block) = legacy_empty_reused_block_fixture(cached);
+            let probe = baseline.fork();
+            let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+            let probe_handle = probe_volume.open_path(b"/legacy-empty").unwrap();
+            probe.inject(None, None, false);
+            probe_volume
+                .write_at(probe_handle, 59, b"range")
+                .expect("probe successful old-volume write");
+            let (first_sector_indices, second_sector_indices) = {
+                let state = probe.0.lock().unwrap();
+                let first_sector = u64::from(old_block) * 2;
+                let first = state
+                    .write_sectors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, sector)| (*sector == first_sector).then_some(index))
+                    .collect::<Vec<_>>();
+                let second = state
+                    .write_sectors
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, sector)| (*sector == first_sector + 1).then_some(index))
+                    .collect::<Vec<_>>();
+                (first, second)
+            };
+            assert_eq!(
+                first_sector_indices.len(),
+                2,
+                "the first sector is written once for gap zeroing and once for payload"
+            );
+            assert_eq!(
+                second_sector_indices.len(),
+                2,
+                "the second sector is written once in each block update"
+            );
+            drop(probe_volume);
+
+            for (phase, write_index) in [
+                ("gap zero first sector", first_sector_indices[0]),
+                ("gap zero second sector", second_sector_indices[0]),
+                ("payload first sector", first_sector_indices[1]),
+                ("payload second sector", second_sector_indices[1]),
+            ] {
+                let disk = baseline.fork();
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                let empty = volume.open_path(b"/legacy-empty").unwrap();
+                disk.inject(Some(write_index), None, false);
+                assert_eq!(
+                    volume.write_at(empty, 59, b"range"),
+                    Err(StorageError::Block),
+                    "cached={cached} phase={phase}"
+                );
+                assert!(
+                    disk.0.lock().unwrap().fail_write.is_none(),
+                    "the selected {phase} failure must be reached"
+                );
+                drop(volume);
+
+                // This failure occurs outside an undo transaction. Recovery
+                // must reopen the old empty inode without changing its size;
+                // retry then zeros the gap before publishing the new length.
+                disk.reconnect(true);
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("old empty volume remains structurally valid after failure");
+                let recovery_counts = {
+                    let state = disk.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                let mut recovered =
+                    Vfs::recover_existing(disk.clone()).expect("explicit Recovery remount");
+                assert_eq!(
+                    {
+                        let state = disk.0.lock().unwrap();
+                        (state.writes, state.flushes)
+                    },
+                    recovery_counts,
+                    "no pending undo exists; explicit Recovery must not mutate the volume"
+                );
+
+                let empty = recovered.open_path(b"/legacy-empty").unwrap();
+                assert_eq!(recovered.metadata(empty).unwrap().size, 0);
+                let mut bytes = [0xff; 64];
+                assert_eq!(recovered.read(empty, &mut bytes), Ok(0));
+                let neighbor = recovered.open_path(b"/neighbor").unwrap();
+                let mut neighbor_bytes = [0; 32];
+                let expected_neighbor = b"neighbor payload";
+                assert_eq!(
+                    recovered.read(neighbor, &mut neighbor_bytes),
+                    Ok(expected_neighbor.len())
+                );
+                assert_eq!(
+                    &neighbor_bytes[..expected_neighbor.len()],
+                    expected_neighbor
+                );
+
+                recovered
+                    .write_at(empty, 59, b"range")
+                    .expect("retry after explicit Recovery");
+                recovered.flush().unwrap();
+                bytes.fill(0xff);
+                assert_eq!(recovered.read(empty, &mut bytes), Ok(64));
+                assert_eq!(&bytes[..59], &[0; 59]);
+                assert_eq!(&bytes[59..], b"range");
+                neighbor_bytes.fill(0);
+                assert_eq!(
+                    recovered.read(neighbor, &mut neighbor_bytes),
+                    Ok(expected_neighbor.len())
+                );
+                assert_eq!(
+                    &neighbor_bytes[..expected_neighbor.len()],
+                    expected_neighbor
+                );
+                drop(recovered);
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone())
+                    .expect("integrity after Recovery and retry");
+            }
+        }
+    }
+
+    fn m24_fixture(nested: bool) -> (FaultDisk, Vfs<FaultDisk>, std::string::String, u32) {
+        let disk = FaultDisk::new(false);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let prefix = if nested {
+            volume.mkdir_path(b"/parent").unwrap();
+            "/parent"
+        } else {
+            ""
+        };
+        let keep_path = std::format!("{prefix}/keep.bin");
+        let keep = volume.create_path(keep_path.as_bytes()).unwrap();
+        volume.write(keep, b"live neighbor remains").unwrap();
+        volume.flush().unwrap();
+        let parent_inode = if nested {
+            volume.resolve_path(b"/parent").unwrap()
+        } else {
+            super::ROOT_INODE
+        };
+        let parent_block = volume.read_inode(parent_inode).unwrap().direct_block;
+        (disk, volume, prefix.into(), parent_block)
+    }
+
+    #[test]
+    fn m24_initial_ranged_write_accounting_survives_integrity() {
+        let (disk, mut volume, _, _) = m24_fixture(false);
+        let fresh = volume.create_path(b"/fresh.bin").unwrap();
+        volume.write_at(fresh, 59, b"range").unwrap();
+        volume.flush().unwrap();
+
+        assert_eq!(volume.metadata(fresh).unwrap().blocks, 2);
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("integrity after ranged write");
+    }
+
+    #[test]
+    fn m24_reused_block_gap_does_not_disclose_deleted_bytes() {
+        let (disk, mut volume, prefix, _) = m24_fixture(false);
+        let deleted_path = std::format!("{prefix}/deleted.bin");
+        let deleted = volume.create_path(deleted_path.as_bytes()).unwrap();
+        volume.write(deleted, &[0xa5; BLOCK_SIZE]).unwrap();
+        let deleted_block = volume.read_inode(deleted.inode()).unwrap().direct_block;
+        volume.remove_path(deleted_path.as_bytes()).unwrap();
+        volume.flush().unwrap();
+
+        let fresh_path = std::format!("{prefix}/fresh.bin");
+        let fresh = volume.create_path(fresh_path.as_bytes()).unwrap();
+        assert_eq!(
+            volume.read_inode(fresh.inode()).unwrap().direct_block,
+            deleted_block,
+            "the regression must exercise reuse of the stale-data block"
+        );
+        volume.write_at(fresh, 59, b"range").unwrap();
+        volume.flush().unwrap();
+
+        let mut bytes = [0xff; 64];
+        assert_eq!(volume.read(fresh, &mut bytes), Ok(64));
+        assert_eq!(&bytes[..59], &[0; 59]);
+        assert_eq!(&bytes[59..], b"range");
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("integrity after block reuse");
+    }
+
+    #[test]
+    fn m24_nested_zero_write_sector_failures_rollback_and_retry() {
+        let (baseline, mut volume, prefix, parent_block) = m24_fixture(true);
+        let deleted_path = std::format!("{prefix}/deleted.bin");
+        let deleted = volume.create_path(deleted_path.as_bytes()).unwrap();
+        volume.write(deleted, &[0xa5; BLOCK_SIZE]).unwrap();
+        let reused_block = volume.read_inode(deleted.inode()).unwrap().direct_block;
+        volume.remove_path(deleted_path.as_bytes()).unwrap();
+        volume.flush().unwrap();
+        drop(volume);
+
+        let fresh_path = std::format!("{prefix}/fresh.bin");
+        let probe = baseline.fork();
+        let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+        probe.inject(None, None, false);
+        let created = probe_volume.create_path(fresh_path.as_bytes()).unwrap();
+        assert_eq!(
+            probe_volume
+                .read_inode(created.inode())
+                .unwrap()
+                .direct_block,
+            reused_block
+        );
+        let zero_write_offsets = {
+            let state = probe.0.lock().unwrap();
+            [0u64, 1].map(|half| {
+                state
+                    .write_sectors
+                    .iter()
+                    .position(|sector| *sector == u64::from(reused_block) * 2 + half)
+                    .expect("create must write both zeroed data sectors")
+            })
+        };
+
+        for offset in zero_write_offsets {
+            let disk = baseline.fork();
+            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+            let mut parent_before = [0; BLOCK_SIZE];
+            read_device_block(&mut disk.clone(), parent_block, &mut parent_before).unwrap();
+
+            disk.inject(Some(offset), None, false);
+            assert_eq!(
+                volume.create_path(fresh_path.as_bytes()),
+                Err(StorageError::Block),
+                "a one-shot zero-sector failure must roll back the create"
+            );
+            assert!(
+                disk.0.lock().unwrap().fail_write.is_none(),
+                "the selected zero-sector fault must actually be reached"
+            );
+            assert_eq!(
+                volume.open_path(fresh_path.as_bytes()),
+                Err(StorageError::NotFound)
+            );
+            let mut parent_after = [0; BLOCK_SIZE];
+            read_device_block(&mut disk.clone(), parent_block, &mut parent_after).unwrap();
+            assert_eq!(parent_after, parent_before);
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("rollback integrity");
+
+            let retry = volume.create_path(fresh_path.as_bytes()).unwrap();
+            volume.write_at(retry, 59, b"retry").unwrap();
+            volume.flush().unwrap();
+            let mut bytes = [0xff; 64];
+            assert_eq!(volume.read(retry, &mut bytes), Ok(64));
+            assert_eq!(&bytes[..59], &[0; 59]);
+            assert_eq!(&bytes[59..], b"retry");
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("retry integrity");
+        }
+    }
+
+    #[test]
+    fn m24_nested_parent_second_sector_failure_requires_explicit_recovery() {
+        for nested in [false, true] {
+            let (baseline, mut prep, prefix, parent_block) = m24_fixture(nested);
+            for index in 0..11 {
+                let filler = std::format!("{prefix}/{index:032}");
+                prep.create_path(filler.as_bytes()).unwrap();
+            }
+            prep.flush().unwrap();
+            drop(prep);
+
+            let new_path = std::format!("{prefix}/{}", "t".repeat(32));
+            let probe = baseline.fork();
+            let mut probe_volume = Vfs::mount_existing(probe.clone()).unwrap();
+            probe.inject(None, None, false);
+            probe_volume.create_path(new_path.as_bytes()).unwrap();
+            let second_sector_attempt = {
+                let state = probe.0.lock().unwrap();
+                let first_sector = state
+                    .write_sectors
+                    .iter()
+                    .position(|sector| *sector == u64::from(parent_block) * 2)
+                    .expect("boundary create must write the first parent sector");
+                let second_sector = state
+                    .write_sectors
+                    .iter()
+                    .position(|sector| *sector == u64::from(parent_block) * 2 + 1)
+                    .expect("boundary create must write the second parent sector");
+                assert!(first_sector < second_sector);
+                second_sector
+            };
+
+            let disk = baseline.fork();
+            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+            disk.inject(Some(second_sector_attempt), None, true);
+            assert_eq!(
+                volume.create_path(new_path.as_bytes()),
+                Err(StorageError::Indeterminate),
+                "second-sector failure plus failed immediate rollback must retain intent"
+            );
+            assert!(disk.0.lock().unwrap().offline);
+            disk.reconnect(false);
+
+            let before_read_only_checks = {
+                let state = disk.0.lock().unwrap();
+                (
+                    state.live.clone(),
+                    state.durable.clone(),
+                    state.writes,
+                    state.flushes,
+                )
+            };
+            assert_eq!(
+                Vfs::mount_existing(disk.clone()).err(),
+                Some(StorageError::RecoveryRequired)
+            );
+            assert_eq!(
+                Vfs::mount_or_format(disk.clone()).err(),
+                Some(StorageError::RecoveryRequired)
+            );
+            assert_eq!(
+                Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                Err(StorageError::RecoveryRequired)
+            );
+            assert_eq!(
+                volume.open_path(new_path.as_bytes()),
+                Err(StorageError::RecoveryRequired)
+            );
+            {
+                let state = disk.0.lock().unwrap();
+                assert_eq!(
+                    (
+                        state.live.clone(),
+                        state.durable.clone(),
+                        state.writes,
+                        state.flushes,
+                    ),
+                    before_read_only_checks,
+                    "ordinary inspection must leave pending recovery untouched"
+                );
+            }
+
+            let mut recovered = Vfs::recover_existing(disk.clone()).expect("explicit recovery");
+            assert_eq!(
+                recovered.open_path(new_path.as_bytes()),
+                Err(StorageError::NotFound)
+            );
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("recovery integrity");
+            let retry = recovered.create_path(new_path.as_bytes()).unwrap();
+            recovered.write_at(retry, 59, b"retry").unwrap();
+            let mut bytes = [0xff; 64];
+            assert_eq!(recovered.read(retry, &mut bytes), Ok(64));
+            assert_eq!(&bytes[..59], &[0; 59]);
+            assert_eq!(&bytes[59..], b"retry");
+            let keep_path = std::format!("{prefix}/keep.bin");
+            let keep = recovered.open_path(keep_path.as_bytes()).unwrap();
+            let mut neighbor = [0; 64];
+            assert_eq!(recovered.read(keep, &mut neighbor), Ok(21));
+            assert_eq!(&neighbor[..21], b"live neighbor remains");
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).expect("retry integrity");
+        }
+    }
+
+    #[test]
+    fn legacy_v1_rename_journal_fixture_remains_recoverable() {
+        let disk = FaultDisk::new(false);
+        let (mut volume, _) = Vfs::mount_or_format(disk.clone()).unwrap();
+        let handle = volume.create(b"before").unwrap();
+        volume.write(handle, b"legacy journal").unwrap();
+        volume.flush().unwrap();
+
+        let mut previous_directory = [0; BLOCK_SIZE];
+        read_device_block(
+            &mut disk.clone(),
+            ROOT_DIRECTORY_BLOCK,
+            &mut previous_directory,
+        )
+        .unwrap();
+        volume.rename(b"before", b"after").unwrap();
+        volume.flush().unwrap();
+
+        let undo = Undo {
+            kind: UNDO_RENAME,
+            directory_inode: ROOT_INODE,
+            directory_block: ROOT_DIRECTORY_BLOCK,
+            inode: 0,
+            data_block: 0,
+            previous_inode: [0; EXT2_INODE_SIZE as usize],
+            previous_indirect_checksum: [0; 32],
+            directory: previous_directory,
+        };
+        let mut header = undo.header();
+        header[..8].copy_from_slice(LEGACY_UNDO_MAGIC);
+        let digest = Sha256::digest(&header[..480]);
+        header[480..].copy_from_slice(&digest);
+        {
+            let mut state = disk.0.lock().unwrap();
+            let backup_start = UNDO_BLOCK as usize * BLOCK_SIZE;
+            state.live[backup_start..backup_start + BLOCK_SIZE].copy_from_slice(&undo.directory);
+            state.durable[backup_start..backup_start + BLOCK_SIZE].copy_from_slice(&undo.directory);
+            state.live[..SECTOR_SIZE].copy_from_slice(&header);
+            state.durable[..SECTOR_SIZE].copy_from_slice(&header);
+        }
+
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+        let mut recovered = Vfs::recover_existing(disk.clone()).expect("legacy explicit recovery");
+        assert_eq!(recovered.open_path(b"/before"), Ok(handle));
+        assert_eq!(recovered.open_path(b"/after"), Err(StorageError::NotFound));
+        let metadata = recovered.metadata(handle).expect("legacy file metadata");
+        assert_eq!(metadata.inode, handle.inode());
+        assert_eq!(metadata.generation, handle.generation());
+        let mut bytes = [0; 32];
+        let count = recovered.read(handle, &mut bytes).unwrap();
+        assert_eq!(&bytes[..count], b"legacy journal");
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn pending_delete_recovery_is_idempotent_at_every_recovery_write() {
+        let (baseline, expected_data) = delete_baseline(false, DeleteMode::PathFile);
+        let pending = baseline.fork();
+        let mut volume = Vfs::mount_existing(pending.clone()).unwrap();
+        pending.inject(Some(4), None, true);
+        assert_eq!(
+            delete_operation(&mut volume, DeleteMode::PathFile),
+            Err(StorageError::Indeterminate)
+        );
+        pending.reconnect(false);
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut pending.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+
+        let probe = pending.fork();
+        probe.inject(None, None, false);
+        Vfs::recover_existing(probe.clone()).expect("delete recovery probe");
+        let writes = probe.0.lock().unwrap().writes;
+        for after in 0..writes {
+            let disk = pending.fork();
+            disk.inject(Some(after), None, true);
+            assert!(
+                Vfs::recover_existing(disk.clone()).is_err(),
+                "recovery write {after} unexpectedly passed"
+            );
+            disk.reconnect(false);
+            let context = std::format!("recovery write failure after {after}");
+            assert_delete_recovered(disk, DeleteMode::PathFile, false, &expected_data, &context);
+        }
+    }
+
+    #[test]
+    fn create_and_crowded_rename_recover_every_write_and_flush_failure() {
+        for cached in [false, true] {
+            for rename in [false, true] {
+                let baseline = failure_baseline(cached, rename);
+                let probe = baseline.fork();
+                let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+                failure_operation(&mut volume, rename).unwrap();
+                let (writes, flushes) = {
+                    let state = probe.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                for persistent in [false, true] {
+                    for flush_fault in [false, true] {
+                        for after in 0..=if flush_fault { flushes } else { writes } {
+                            let disk = baseline.fork();
+                            let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                            disk.inject(
+                                (!flush_fault).then_some(after),
+                                flush_fault.then_some(after),
+                                persistent,
+                            );
+                            let result = failure_operation(&mut volume, rename);
+                            if disk.0.lock().unwrap().offline {
+                                assert!(volume.create(b"blocked").is_err());
+                            }
+                            disk.reconnect(cached && persistent);
+                            // A write-through device may have made the operation
+                            // durable before its final journal-clear flush failed.
+                            // If persistent I/O loss also prevents rollback, the
+                            // complete new state is an indeterminate commit outcome.
+                            let commit_visible_after_error =
+                                !cached && persistent && flush_fault && after + 1 == flushes;
+                            let expected_new = result.is_ok() || commit_visible_after_error;
+                            let context = std::format!("cached={cached} rename={rename} persistent={persistent} flush_fault={flush_fault} after={after}");
+                            assert_recovered(disk, rename, expected_new, &context);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn undo_header_is_durable_before_each_power_cut_during_rollback() {
+        for cached in [false, true] {
+            for rename in [false, true] {
+                let baseline = failure_baseline(cached, rename);
+                let success_probe = baseline.fork();
+                let mut success_volume = Vfs::mount_existing(success_probe.clone()).unwrap();
+                failure_operation(&mut success_volume, rename).unwrap();
+                let (success_events, success_flushes, success_write_count) = {
+                    let state = success_probe.0.lock().unwrap();
+                    (
+                        state.durable_events,
+                        state.flushes,
+                        state.write_sectors.len(),
+                    )
+                };
+                assert!(success_events > 0);
+                assert!(success_flushes > 0);
+
+                let rollback_probe = baseline.fork();
+                let mut rollback_volume = Vfs::mount_existing(rollback_probe.clone()).unwrap();
+                rollback_probe.inject(None, Some(success_flushes - 1), false);
+                assert_eq!(
+                    failure_operation(&mut rollback_volume, rename),
+                    Err(StorageError::Block),
+                    "transient final clear-flush failure should complete rollback"
+                );
+                {
+                    let state = rollback_probe.0.lock().unwrap();
+                    assert_eq!(
+                        state.write_sectors.get(success_write_count),
+                        Some(&0),
+                        "rollback must re-publish sector-zero header before data writes: cached={cached} rename={rename}"
+                    );
+                }
+                let total_events = rollback_probe.0.lock().unwrap().durable_events;
+                assert_recovered(
+                    rollback_probe.clone(),
+                    rename,
+                    false,
+                    "successful rollback after transient final flush failure",
+                );
+                let before_rollback = if cached {
+                    success_events - 1
+                } else {
+                    success_events
+                };
+                assert!(total_events > before_rollback);
+                for offset in 0..(total_events - before_rollback) {
+                    let disk = baseline.fork();
+                    let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                    disk.inject_with_cut(
+                        None,
+                        Some(success_flushes - 1),
+                        false,
+                        Some(before_rollback + offset),
+                    );
+                    assert_eq!(
+                        failure_operation(&mut volume, rename),
+                        Err(StorageError::Indeterminate),
+                        "rollback interrupted after durable event {offset}: cached={cached} rename={rename}"
+                    );
+                    {
+                        let state = disk.0.lock().unwrap();
+                        assert!(state.offline);
+                        assert_eq!(
+                            state.write_sectors.get(success_write_count),
+                            Some(&0),
+                            "sector-zero header must precede every undo write: cached={cached} rename={rename} event={offset}"
+                        );
+                    }
+                    disk.reconnect(true);
+                    let context = std::format!(
+                        "rollback cached={cached} rename={rename} after durable event {offset}"
+                    );
+                    assert_recovered(disk, rename, false, &context);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pending_create_recovery_is_idempotent_at_every_persistent_recovery_write() {
+        let baseline = failure_baseline(false, false);
+        let pending = baseline.fork();
+        let mut volume = Vfs::mount_existing(pending.clone()).unwrap();
+        // Stop after mutation has begun while keeping a durable undo header.
+        pending.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        pending.reconnect(false);
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut pending.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+        let probe = pending.fork();
+        probe.inject(None, None, false);
+        Vfs::recover_existing(probe.clone()).unwrap();
+        let writes = probe.0.lock().unwrap().writes;
+        for after in 0..writes {
+            let disk = pending.fork();
+            disk.inject(Some(after), None, true);
+            assert!(Vfs::mount_existing(disk.clone()).is_err());
+            disk.reconnect(false);
+            assert_recovered(disk, false, false, "pending-create recovery write fault");
+        }
+    }
+
+    #[test]
+    fn unsupported_or_corrupt_undo_never_formats_or_writes() {
+        let baseline = failure_baseline(false, false);
+        for mode in 0..4 {
+            let disk = baseline.fork();
+            {
+                let mut state = disk.0.lock().unwrap();
+                match mode {
+                    0 => state.live[0] = 0xff,
+                    _ => {
+                        drop(state);
+                        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                        disk.inject(Some(6), None, true);
+                        assert!(volume.create(b"created").is_err());
+                        disk.reconnect(false);
+                        state = disk.0.lock().unwrap();
+                        match mode {
+                            1 => state.live[480] ^= 1,
+                            2 => state.live[super::UNDO_BLOCK as usize * BLOCK_SIZE] ^= 1,
+                            _ => {
+                                state.live[20..24].copy_from_slice(&1u32.to_le_bytes());
+                                let digest = sha2::Sha256::digest(&state.live[..480]);
+                                state.live[480..512].copy_from_slice(&digest);
+                            }
+                        }
+                    }
+                }
+                let before = state.live.clone();
+                let writes = state.writes;
+                let flushes = state.flushes;
+                drop(state);
+                assert_eq!(
+                    Vfs::mount_or_format(disk.clone()).err(),
+                    Some(StorageError::Corrupt)
+                );
+                assert_eq!(
+                    Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+                    Err(StorageError::Corrupt)
+                );
+                let state = disk.0.lock().unwrap();
+                assert_eq!(state.live, before);
+                assert_eq!(state.writes, writes);
+                assert_eq!(state.flushes, flushes);
+            }
+        }
+    }
+
+    #[test]
+    fn read_only_pending_check_and_mounts_do_not_write_or_flush() {
+        let disk = failure_baseline(false, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(false);
+        let before = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        assert_eq!(
+            Vfs::<FaultDisk>::check_existing(&mut disk.clone()),
+            Err(StorageError::RecoveryRequired)
+        );
+        assert_eq!(
+            Vfs::mount_existing(disk.clone()).err(),
+            Some(StorageError::RecoveryRequired)
+        );
+        assert_eq!(
+            Vfs::mount_or_format(disk.clone()).err(),
+            Some(StorageError::RecoveryRequired)
+        );
+        assert_eq!(
+            volume.open(b"kept.txt"),
+            Err(StorageError::RecoveryRequired)
+        );
+        {
+            let state = disk.0.lock().unwrap();
+            assert_eq!((state.live.clone(), state.writes, state.flushes), before);
+        }
+        let mut recovered = Vfs::recover_existing(disk.clone()).expect("explicit recovery");
+        assert!(recovered.open(b"kept.txt").is_ok());
+        assert_eq!(recovered.open(b"created"), Err(StorageError::NotFound));
+    }
+
+    #[test]
+    fn cached_header_clear_failure_rolls_back_before_next_transaction() {
+        let disk = failure_baseline(true, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(None, Some(4), false); // Fail the first header-clear flush.
+        assert!(volume.create(b"first").is_err());
+        assert_eq!(volume.open(b"first"), Err(StorageError::NotFound));
+        {
+            let state = disk.0.lock().unwrap();
+            assert!(state.live[..SECTOR_SIZE].iter().all(|byte| *byte == 0));
+            assert!(state.durable[..SECTOR_SIZE].iter().all(|byte| *byte == 0));
+        }
+        disk.reconnect(true);
+        let mut volume = Vfs::mount_existing(disk.clone()).expect("clean remount");
+        let second = volume.create(b"second").expect("next transaction");
+        assert_eq!(volume.open(b"first"), Err(StorageError::NotFound));
+        assert_eq!(volume.open(b"second"), Ok(second));
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn recovery_flush_failures_keep_idempotent_durable_recovery() {
+        let disk = failure_baseline(true, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(true);
+        let probe = disk.fork();
+        probe.inject(None, None, false);
+        Vfs::recover_existing(probe.clone()).unwrap();
+        let flushes = probe.0.lock().unwrap().flushes;
+        for after in 0..flushes {
+            let attempt = disk.fork();
+            attempt.inject(None, Some(after), true);
+            assert!(Vfs::mount_existing(attempt.clone()).is_err());
+            attempt.reconnect(true);
+            assert_recovered(attempt, false, false, "pending recovery flush fault");
+        }
+    }
+
+    #[test]
+    fn invalid_superblock_with_unknown_or_pending_header_is_never_formatted() {
+        for pending in [false, true] {
+            let disk = failure_baseline(false, false);
+            if pending {
+                let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                disk.inject(Some(6), None, true);
+                assert!(volume.create(b"created").is_err());
+                disk.reconnect(false);
+            }
+            {
+                let mut state = disk.0.lock().unwrap();
+                if !pending {
+                    state.live[0] = 0xff;
+                }
+                state.live[BLOCK_SIZE + 56] = 0;
+            }
+            let (before, writes, flushes) = {
+                let state = disk.0.lock().unwrap();
+                (state.live.clone(), state.writes, state.flushes)
+            };
+            assert_eq!(
+                Vfs::mount_or_format(disk.clone()).err(),
+                Some(StorageError::Corrupt)
+            );
+            let state = disk.0.lock().unwrap();
+            assert_eq!(state.live, before);
+            assert_eq!(state.writes, writes);
+            assert_eq!(state.flushes, flushes);
+        }
+    }
+
+    #[test]
+    fn checksummed_undo_cannot_free_an_existing_files_data() {
+        let disk = failure_baseline(false, false);
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        let kept_inode = volume.open(b"kept.txt").unwrap().inode();
+        let kept_data = volume.read_inode(kept_inode).unwrap().direct_block;
+        disk.inject(Some(6), None, true);
+        assert!(volume.create(b"created").is_err());
+        disk.reconnect(false);
+        {
+            let mut state = disk.0.lock().unwrap();
+            state.live[24..28].copy_from_slice(&kept_data.to_le_bytes());
+            let digest = sha2::Sha256::digest(&state.live[..480]);
+            state.live[480..512].copy_from_slice(&digest);
+        }
+        let (before, writes, flushes) = {
+            let state = disk.0.lock().unwrap();
+            (state.live.clone(), state.writes, state.flushes)
+        };
+        assert_eq!(
+            Vfs::mount_existing(disk.clone()).err(),
+            Some(StorageError::Corrupt)
+        );
+        let state = disk.0.lock().unwrap();
+        assert_eq!(state.live, before);
+        assert_eq!(state.writes, writes);
+        assert_eq!(state.flushes, flushes);
+    }
+
+    #[test]
+    fn reset_access_does_not_clear_another_active_instance_id() {
+        let _gate = VolumeAccess::acquire();
+        let stale_id = allocate_access_id().unwrap();
+        let active_id = allocate_access_id().unwrap();
+        ACTIVE_ACCESS_ID.store(active_id, Ordering::Release);
+        let _active_reset = ResetAccess(active_id);
+
+        drop(ResetAccess(stale_id));
+
+        assert_eq!(ACTIVE_ACCESS_ID.load(Ordering::Acquire), active_id);
+    }
+
+    #[test]
+    fn separately_mounted_instances_serialize_and_unwind_releases_access() {
+        use std::sync::mpsc;
+        let disk = failure_baseline(false, false);
+        let mut first = Vfs::mount_existing(disk.clone()).unwrap();
+        let mut second = Vfs::mount_existing(disk.clone()).unwrap();
+        let (held_send, held_receive) = mpsc::channel();
+        let (release_send, release_receive) = mpsc::channel();
+        let (started_send, started_receive) = mpsc::channel();
+        let (done_send, done_receive) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            first
+                .with_access(|volume| {
+                    held_send.send(()).unwrap();
+                    release_receive.recv().unwrap();
+                    volume.create(b"first")
+                })
+                .unwrap()
+        });
+        held_receive.recv().unwrap();
+        let waiter = std::thread::spawn(move || {
+            started_send.send(()).unwrap();
+            let result = second.create(b"second");
+            done_send.send(result).unwrap();
+        });
+        started_receive.recv().unwrap();
+        assert!(done_receive
+            .recv_timeout(std::time::Duration::from_millis(20))
+            .is_err());
+        release_send.send(()).unwrap();
+        let first = worker.join().unwrap();
+        let second = done_receive
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("second Vfs instance did not acquire the released access gate")
+            .unwrap();
+        waiter.join().unwrap();
+        assert_ne!(first.inode(), second.inode());
+
+        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+        let volume_access_id = volume.access_id;
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<(), StorageError> =
+                volume.with_access(|_| panic!("injected operation unwind"));
+        }));
+        assert!(panic.is_err());
+        assert_ne!(
+            ACTIVE_ACCESS_ID.load(Ordering::Acquire),
+            volume_access_id,
+            "unwind left this Vfs instance's access ID active"
+        );
+
+        let (recovered_send, recovered_receive) = mpsc::channel();
+        let recovered = std::thread::spawn(move || {
+            recovered_send.send(volume.create(b"after-unwind")).unwrap();
+        });
+        recovered_receive
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("another Vfs operation remained blocked after unwind")
+            .unwrap();
+        recovered.join().unwrap();
+        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
     }
 }

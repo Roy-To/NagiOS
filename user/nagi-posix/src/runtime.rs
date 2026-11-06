@@ -190,10 +190,12 @@ pub enum RuntimeError {
 }
 
 pub fn initialize(capability: u64) -> bool {
+    let mut filesystem = FILESYSTEM.lock();
+    *filesystem = None;
     let Ok((volume, _formatted)) = Vfs::mount_or_format(SyscallBlockDevice::new(capability)) else {
         return false;
     };
-    *FILESYSTEM.lock() = Some(volume);
+    *filesystem = Some(volume);
     true
 }
 
@@ -245,6 +247,14 @@ pub fn browser_storage_write(bytes: &[u8]) -> Result<(), RuntimeError> {
         .create(BROWSER_STORAGE_PENDING_FILE)
         .map_err(RuntimeError::Storage)?;
     if let Err(error) = volume.write(pending, bytes) {
+        if matches!(
+            error,
+            StorageError::Indeterminate | StorageError::RecoveryRequired
+        ) {
+            // A failed write may already be durable; do not compensate by
+            // issuing a second mutation until explicit recovery resolves it.
+            return Err(RuntimeError::Storage(error));
+        }
         let _ = volume.remove(BROWSER_STORAGE_PENDING_FILE);
         return Err(RuntimeError::Storage(error));
     }
@@ -1517,6 +1527,9 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::Storage(StorageError::DirectoryFull) => 28,
         RuntimeError::Storage(StorageError::FileTooLarge) => 27,
         RuntimeError::Storage(StorageError::Capacity) => 12,
+        // EIO does not establish whether a mutation took effect; callers must
+        // inspect or recover the volume before deciding whether to retry.
+        RuntimeError::Storage(StorageError::Indeterminate) => 5,
         RuntimeError::Network(error) => crate::net::network_errno(error),
         RuntimeError::NotConnected => 107,
         RuntimeError::Shutdown => 108,
@@ -1526,6 +1539,20 @@ pub fn map_error(error: RuntimeError) -> i32 {
         RuntimeError::ReadOnly => 30,
         RuntimeError::CallbackReadFailed => 5,
         RuntimeError::Storage(_) => 5,
+    }
+}
+
+#[cfg(test)]
+mod error_mapping_tests {
+    use super::{map_error, RuntimeError};
+    use libnagi::storage::StorageError;
+
+    #[test]
+    fn indeterminate_storage_mutation_maps_to_eio() {
+        assert_eq!(
+            map_error(RuntimeError::Storage(StorageError::Indeterminate)),
+            5
+        );
     }
 }
 

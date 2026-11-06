@@ -134,8 +134,38 @@ jobs:
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
-      - name: Test host-compatible workspace
-        run: cargo test --workspace --exclude nagi-kernel --locked
+      - name: Test host-compatible workspace and Linux libnagi suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          trap 'rm -f "$log"' EXIT
+          cargo test --workspace --exclude nagi-kernel --locked 2>&1 | tee "$log"
+          python3 - "$log" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          lines = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines()
+          suites = {
+              "libnagi unit tests": re.compile(r"^Running .*[/\\]libnagi-[^)]+\)$"),
+              "block_write_adapter integration tests": re.compile(r"^Running tests/block_write_adapter\.rs \(.*[/\\]block_write_adapter-[^)]+\)$"),
+          }
+          for label, marker in suites.items():
+              starts = [i for i, line in enumerate(lines) if marker.match(line.strip())]
+              if len(starts) != 1:
+                  raise SystemExit(f"{label}: expected one Linux test binary, found {len(starts)}")
+              start = starts[0]
+              end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("Running ")), len(lines))
+              counts = [
+                  int(match.group(1))
+                  for line in lines[start:end]
+                  if (match := re.match(r"test result: ok\. (\d+) passed;", line.strip()))
+              ]
+              if not counts or counts[-1] == 0:
+                  raise SystemExit(f"{label}: no tests passed; cfg-gated zero-test suites are not accepted")
+              print(f"{label}: {counts[-1]} tests passed")
+          PY
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
@@ -151,6 +181,11 @@ jobs:
           cargo fmt --manifest-path crates/nagi-search-core/Cargo.toml -- --check
           cargo clippy --manifest-path crates/nagi-search-core/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path crates/nagi-search-core/Cargo.toml --locked
+      - name: Standalone VFS recovery core (M27)
+        run: |
+          cargo fmt --manifest-path tests/files-search/Cargo.toml -- --check
+          cargo clippy --manifest-path tests/files-search/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path tests/files-search/Cargo.toml --locked
       - name: Focused host acceptance (M0)
         run: ./nagi test --acceptance --host-only --ci
       - name: Upload Ubuntu acceptance reports and logs

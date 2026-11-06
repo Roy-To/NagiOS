@@ -9,11 +9,12 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::m19_storage::{self, VfsSnapshotFiles};
+use crate::m19_storage::{self, trace_error, trace_search, trace_storage, VfsSnapshotFiles};
 #[cfg(feature = "desktop-login-acceptance")]
 use libnagi::storage::MAX_SMALL_FILE_SIZE;
 use libnagi::storage::{
-    DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH, MAX_PATH_LENGTH,
+    BlockDevice, DirectoryEntry, StorageError, SyscallBlockDevice, Vfs, MAX_NAME_LENGTH,
+    MAX_PATH_LENGTH,
 };
 use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 use nagi_search::{
@@ -22,12 +23,13 @@ use nagi_search::{
         PRODUCER_KEY_ATTRIBUTE,
     },
     AccessContext, GuestSnapshotBackend, MetadataRecord, ObjectKind, SearchService,
-    VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession,
+    SnapshotBackend, VisibilityFilter, VisibilityScope, Workspace, WorkspaceSession,
 };
 
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 type SearchBackend = GuestSnapshotBackend<VfsSnapshotFiles<SyscallBlockDevice>>;
-type OwnerFilesSearchService = SearchService<SearchBackend, OwnerFilesVisibility>;
+#[path = "m19_files.rs"]
+pub(super) mod files;
 
 const FILES_ROOT: &[u8] = b"/home/owner/files";
 const FILES_APP_ID: AppId = AppId::from_identifier(b"org.nagi.files");
@@ -102,9 +104,25 @@ pub(super) enum RuntimeError {
     InvalidName,
 }
 
+fn trace_runtime_sync(error: RuntimeError) -> RuntimeError {
+    trace_error(
+        b"runtime.sync",
+        match error {
+            RuntimeError::Storage => b"RuntimeError.Storage",
+            RuntimeError::SearchUnavailable => b"RuntimeError.SearchUnavailable",
+            RuntimeError::TooManyFiles => b"RuntimeError.TooManyFiles",
+            RuntimeError::TooManyDirectories => b"RuntimeError.TooManyDirectories",
+            RuntimeError::InvalidMetadata => b"RuntimeError.InvalidMetadata",
+            RuntimeError::InvalidName => b"RuntimeError.InvalidName",
+        },
+    );
+    error
+}
+
 /// Persistent Search service active during the signed-in owner desktop.
-pub(super) struct Runtime {
-    service: OwnerFilesSearchService,
+pub(super) struct Runtime<B: SnapshotBackend = SearchBackend> {
+    service: SearchService<B, OwnerFilesVisibility>,
+    synchronized: bool,
     #[cfg(feature = "desktop-login-acceptance")]
     acceptance_record_restored: bool,
     #[cfg(feature = "desktop-login-acceptance")]
@@ -118,8 +136,17 @@ impl Runtime {
     ) -> Result<Self, RuntimeError> {
         volume
             .ensure_directory_path(b"/home")
-            .and_then(|()| volume.ensure_directory_path(b"/home/owner"))
-            .and_then(|()| volume.ensure_directory_path(FILES_ROOT))
+            .map_err(|error| trace_storage(b"runtime.ensure-base", error))
+            .and_then(|()| {
+                volume
+                    .ensure_directory_path(b"/home/owner")
+                    .map_err(|error| trace_storage(b"runtime.ensure-owner", error))
+            })
+            .and_then(|()| {
+                volume
+                    .ensure_directory_path(FILES_ROOT)
+                    .map_err(|error| trace_storage(b"runtime.ensure-files", error))
+            })
             .map_err(|_| RuntimeError::Storage)?;
         #[cfg(feature = "desktop-login-acceptance")]
         {
@@ -132,7 +159,11 @@ impl Runtime {
                 block_capability,
                 OwnerFilesVisibility,
             )
-            .map_err(|_| RuntimeError::SearchUnavailable)?,
+            .map_err(|error| {
+                trace_search(b"runtime.search-open", error);
+                RuntimeError::SearchUnavailable
+            })?,
+            synchronized: false,
             #[cfg(feature = "desktop-login-acceptance")]
             acceptance_record_restored: false,
             #[cfg(feature = "desktop-login-acceptance")]
@@ -140,15 +171,16 @@ impl Runtime {
         };
         #[cfg(feature = "desktop-login-acceptance")]
         {
-            let metadata = volume
-                .metadata_path(ACCEPTANCE_FILE)
-                .map_err(|_| RuntimeError::Storage)?;
+            let metadata = volume.metadata_path(ACCEPTANCE_FILE).map_err(|error| {
+                trace_storage(b"runtime.fixture.metadata", error);
+                RuntimeError::Storage
+            })?;
             let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
             runtime.acceptance_record_restored = runtime
                 .service
                 .producer_object_id(FILES_PRODUCER_ID, &key, FILES_APP_ID, FILES_SESSION_ID)
                 .is_some();
-            runtime.sync_files(volume)?;
+            runtime.sync_files(volume).map_err(trace_runtime_sync)?;
             runtime.acceptance_object_id = runtime.service.producer_object_id(
                 FILES_PRODUCER_ID,
                 &key,
@@ -157,17 +189,37 @@ impl Runtime {
             );
         }
         #[cfg(not(feature = "desktop-login-acceptance"))]
-        runtime.sync_files(volume)?;
+        runtime.sync_files(volume).map_err(trace_runtime_sync)?;
         Ok(runtime)
     }
+}
 
+impl<B: SnapshotBackend> Runtime<B> {
     /// Reconcile producer metadata after a Files operation. Only names and VFS
     /// identity/timestamps are indexed; file contents are never read.
-    pub(super) fn sync_files(
+    pub(super) fn sync_files<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
     ) -> Result<(usize, usize), RuntimeError> {
-        let mut present_keys = BTreeSet::new();
+        self.synchronized = false;
+        let trash_entries = files::trash_entries(volume).map_err(|error| {
+            trace_error(
+                b"runtime.sync.trash",
+                match error {
+                    files::Error::InvalidName => b"FilesError.InvalidName",
+                    files::Error::Conflict => b"FilesError.Conflict",
+                    files::Error::StaleSelection => b"FilesError.StaleSelection",
+                    files::Error::Capacity => b"FilesError.Capacity",
+                    files::Error::CorruptJournal => b"FilesError.CorruptJournal",
+                    files::Error::RecoveryRequired => b"FilesError.RecoveryRequired",
+                    files::Error::Storage => b"FilesError.Storage",
+                    files::Error::DurabilityUnknown => b"FilesError.DurabilityUnknown",
+                },
+            );
+            RuntimeError::Storage
+        })?;
+        let mut present_keys: BTreeSet<String> =
+            trash_entries.iter().map(files::Entry::key).collect();
         let mut present_ids = Vec::new();
         let mut restored_records = 0;
         let mut pending_directories = Vec::new();
@@ -191,7 +243,10 @@ impl Runtime {
             let mut entries = [DirectoryEntry::empty(); DIRECTORY_ENTRY_BUFFER_CAPACITY];
             let count = volume
                 .list_directory_path(directory_path.as_bytes(), &mut entries)
-                .map_err(|_| RuntimeError::Storage)?;
+                .map_err(|error| {
+                    trace_storage(b"runtime.sync.list", error);
+                    RuntimeError::Storage
+                })?;
             for entry in &entries[..count] {
                 // Search metadata is UTF-8. Keep arbitrary POSIX names out of
                 // the text index without failing the owner's whole runtime.
@@ -213,17 +268,28 @@ impl Runtime {
                 if entry.file_type != 1 {
                     continue;
                 }
+                let metadata = volume.metadata_path(path.as_bytes()).map_err(|error| {
+                    trace_storage(b"runtime.sync.metadata", error);
+                    RuntimeError::Storage
+                })?;
+                if metadata.inode != entry.inode {
+                    return Err(RuntimeError::InvalidMetadata);
+                }
+                let current = files::Entry {
+                    name: String::from(name),
+                    inode: metadata.inode,
+                    generation: metadata.generation,
+                };
+                if directory_path.as_bytes() == FILES_ROOT
+                    && files::is_managed_trash(&current, &trash_entries)
+                {
+                    continue;
+                }
                 regular_file_count += 1;
                 if regular_file_count > MAX_FILES {
                     return Err(RuntimeError::TooManyFiles);
                 }
-                let metadata = volume
-                    .metadata_path(path.as_bytes())
-                    .map_err(|_| RuntimeError::Storage)?;
-                if metadata.inode != entry.inode {
-                    return Err(RuntimeError::InvalidMetadata);
-                }
-                let key = alloc::format!("{}:{}", metadata.inode, metadata.generation);
+                let key = current.key();
                 present_keys.insert(key.clone());
                 let restored_id = self.service.producer_object_id(
                     FILES_PRODUCER_ID,
@@ -305,17 +371,21 @@ impl Runtime {
                 .remove_record(object_id, modified_at.unwrap_or_default())
                 .map_err(|_| RuntimeError::SearchUnavailable)?;
         }
+        self.synchronized = true;
         Ok((present_ids.len(), restored_records))
     }
 
     /// Rename a direct child of the owner Files directory and reconcile its
     /// searchable metadata before reporting success to the caller.
-    pub(super) fn rename_file(
+    pub(super) fn rename_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         old_name: &[u8],
         new_name: &[u8],
     ) -> Result<(), RuntimeError> {
+        owner_file_path(old_name)?;
+        owner_file_path(new_name)?;
+        self.synchronized = false;
         volume
             .rename_child(FILES_ROOT, old_name, new_name)
             .and_then(|_| volume.flush())
@@ -326,9 +396,9 @@ impl Runtime {
 
     /// Create an empty direct child in the owner Files directory, then publish
     /// its metadata before returning the stable Search ObjectId.
-    pub(super) fn create_file(
+    pub(super) fn create_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         name: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let path = owner_file_path(name)?;
@@ -350,6 +420,7 @@ impl Runtime {
             return Err(RuntimeError::TooManyFiles);
         }
 
+        self.synchronized = false;
         volume.create_path(&path).map_err(|error| {
             let message: &[u8] = match error {
                 StorageError::AlreadyExists => {
@@ -382,11 +453,10 @@ impl Runtime {
             );
             RuntimeError::Storage
         })?;
-        self.sync_files(volume).map_err(|error| {
+        self.sync_files(volume).inspect_err(|_| {
             trace_acceptance_failure(
                 b"Nagi M19 lifecycle trace: Search sync after create failed\r\n",
             );
-            error
         })?;
         self.file_object_id(volume, &path)
     }
@@ -394,13 +464,14 @@ impl Runtime {
     /// Permanently remove a direct child and tombstone its Search record before
     /// reporting success. A restore creates a new file identity if the VFS
     /// inode was reused in the meantime.
-    pub(super) fn delete_file(
+    pub(super) fn delete_file<D: BlockDevice>(
         &mut self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         name: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let path = owner_file_path(name)?;
         let object_id = self.file_object_id(volume, &path)?;
+        self.synchronized = false;
         volume
             .remove_path(&path)
             .map_err(|_| RuntimeError::Storage)?;
@@ -409,9 +480,9 @@ impl Runtime {
         Ok(object_id)
     }
 
-    fn file_object_id(
+    fn file_object_id<D: BlockDevice>(
         &self,
-        volume: &mut UserDataVolume,
+        volume: &mut Vfs<D>,
         path: &[u8],
     ) -> Result<ObjectId, RuntimeError> {
         let metadata = volume
@@ -441,6 +512,9 @@ impl Runtime {
     }
 
     fn search_files_as(&self, access: AccessContext, query: &str) -> Option<Vec<ObjectId>> {
+        if !self.synchronized {
+            return None;
+        }
         let response = self
             .service
             .search(
@@ -466,6 +540,9 @@ impl Runtime {
     /// applies the same private Files workspace and visibility policy as the
     /// ObjectId-facing API; the UI never reads file contents.
     pub(super) fn search_file_titles(&self, query: &str) -> Option<Vec<String>> {
+        if !self.synchronized {
+            return None;
+        }
         let response = self
             .service
             .search(
@@ -492,6 +569,9 @@ impl Runtime {
     /// checked again before a title reaches the UI.
     #[cfg(feature = "m19-files-search-production")]
     pub(super) fn visible_file_titles(&self, object_ids: &[u64]) -> Option<Vec<String>> {
+        if !self.synchronized {
+            return None;
+        }
         self.service
             .try_workspace_file_titles(FILES_ACCESS, FILES_WORKSPACE_ID, object_ids)
             .ok()
@@ -650,7 +730,8 @@ impl Runtime {
 }
 
 fn owner_file_path(name: &[u8]) -> Result<Vec<u8>, RuntimeError> {
-    if name.is_empty()
+    if !files::valid_name(name)
+        || name.is_empty()
         || name.len() > MAX_NAME_LENGTH
         || name == b"."
         || name == b".."
@@ -692,25 +773,41 @@ fn ensure_acceptance_file(volume: &mut UserDataVolume) -> Result<(), RuntimeErro
     match volume.open_path(ACCEPTANCE_FILE) {
         Ok(handle) => {
             let mut contents = [0; MAX_SMALL_FILE_SIZE];
-            let length = volume
-                .read(handle, &mut contents)
-                .map_err(|_| RuntimeError::Storage)?;
+            let length = volume.read(handle, &mut contents).map_err(|error| {
+                trace_storage(b"runtime.fixture-primary.read", error);
+                RuntimeError::Storage
+            })?;
             if contents[..length] == *ACCEPTANCE_CONTENT {
                 Ok(())
             } else {
-                Err(RuntimeError::InvalidMetadata)
+                {
+                    trace_error(
+                        b"runtime.fixture-primary.validate",
+                        b"RuntimeError.InvalidMetadata",
+                    );
+                    Err(RuntimeError::InvalidMetadata)
+                }
             }
         }
         Err(StorageError::NotFound) => {
-            let handle = volume
-                .create_path(ACCEPTANCE_FILE)
-                .map_err(|_| RuntimeError::Storage)?;
+            let handle = volume.create_path(ACCEPTANCE_FILE).map_err(|error| {
+                trace_storage(b"runtime.fixture-primary.create", error);
+                RuntimeError::Storage
+            })?;
             volume
                 .write(handle, ACCEPTANCE_CONTENT)
-                .and_then(|()| volume.flush())
+                .map_err(|error| trace_storage(b"runtime.fixture-primary.write", error))
+                .and_then(|()| {
+                    volume
+                        .flush()
+                        .map_err(|error| trace_storage(b"runtime.fixture-primary.flush", error))
+                })
                 .map_err(|_| RuntimeError::Storage)
         }
-        Err(_) => Err(RuntimeError::Storage),
+        Err(error) => {
+            trace_storage(b"runtime.fixture-primary.open", error);
+            Err(RuntimeError::Storage)
+        }
     }
 }
 
@@ -718,14 +815,25 @@ fn ensure_acceptance_file(volume: &mut UserDataVolume) -> Result<(), RuntimeErro
 fn ensure_nested_acceptance_file(volume: &mut UserDataVolume) -> Result<(), RuntimeError> {
     volume
         .ensure_directory_path(b"/home/owner/files/.nagi-m19-folder")
-        .map_err(|_| RuntimeError::Storage)?;
+        .map_err(|error| {
+            trace_storage(b"runtime.fixture-nested.ensure", error);
+            RuntimeError::Storage
+        })?;
     match volume.open_path(ACCEPTANCE_NESTED_FILE) {
         Ok(_) => Ok(()),
         Err(StorageError::NotFound) => volume
             .create_path(ACCEPTANCE_NESTED_FILE)
-            .and_then(|_| volume.flush())
+            .map_err(|error| trace_storage(b"runtime.fixture-nested.create", error))
+            .and_then(|_| {
+                volume
+                    .flush()
+                    .map_err(|error| trace_storage(b"runtime.fixture-nested.flush", error))
+            })
             .map_err(|_| RuntimeError::Storage),
-        Err(_) => Err(RuntimeError::Storage),
+        Err(error) => {
+            trace_storage(b"runtime.fixture-nested.open", error);
+            Err(RuntimeError::Storage)
+        }
     }
 }
 
@@ -735,8 +843,20 @@ fn ensure_non_utf8_name_fixture(volume: &mut UserDataVolume) -> Result<(), Runti
         Ok(_) => Ok(()),
         Err(StorageError::NotFound) => volume
             .create_path(NON_UTF8_NAME_FIXTURE)
-            .and_then(|_| volume.flush())
+            .map_err(|error| trace_storage(b"runtime.fixture-name.create", error))
+            .and_then(|_| {
+                volume
+                    .flush()
+                    .map_err(|error| trace_storage(b"runtime.fixture-name.flush", error))
+            })
             .map_err(|_| RuntimeError::Storage),
-        Err(_) => Err(RuntimeError::Storage),
+        Err(error) => {
+            trace_storage(b"runtime.fixture-name.open", error);
+            Err(RuntimeError::Storage)
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "m19_runtime_tests.rs"]
+mod tests;

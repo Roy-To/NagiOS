@@ -1,5 +1,15 @@
 # Nagi OS M19 — Semantic Layer / Search
 
+## Files UI / recovery reintegration — 2026-11-03
+
+The local candidate layers the former owner Files panel and Trash operations
+on the ead5ee8b recovery core. Ordinary mount and VFS operations diagnose a
+pending journal with `RecoveryRequired`; only the explicit Recovery console
+repairs it. The old d817c0a M19 target failure is historical and is not a
+result for this candidate. The combined UI host suite and guest lifecycle are
+still pending, so M19 remains PARTIAL. See the Files handoff and VFS recovery
+proposal for scope and evidence limits.
+
 **Status: PARTIAL**
 
 ## Provenance and scope

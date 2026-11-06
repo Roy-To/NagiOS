@@ -442,16 +442,27 @@ fn store_failures(volume: &mut UserDataVolume, failures: u32) -> bool {
         Ok(handle) => handle,
         Err(StorageError::NotFound) => match volume.create_path(THROTTLE_PATH) {
             Ok(handle) => handle,
-            Err(_) => return false,
+            Err(error) => {
+                crate::m19_storage::trace_storage(b"throttle.create", error);
+                return false;
+            }
         },
-        Err(_) => return false,
+        Err(error) => {
+            crate::m19_storage::trace_storage(b"throttle.open", error);
+            return false;
+        }
     };
     let mut bytes = [0u8; 8];
     bytes[..4].copy_from_slice(THROTTLE_MAGIC);
     bytes[4..].copy_from_slice(&failures.to_le_bytes());
     volume
         .write(handle, &bytes)
-        .and_then(|()| volume.flush())
+        .map_err(|error| crate::m19_storage::trace_storage(b"throttle.write", error))
+        .and_then(|()| {
+            volume
+                .flush()
+                .map_err(|error| crate::m19_storage::trace_storage(b"throttle.flush", error))
+        })
         .is_ok()
 }
 
