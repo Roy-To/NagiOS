@@ -28,15 +28,7 @@ impl Fixture {
         fs::create_dir_all(root.join("out/cache")).unwrap();
         let archive = root.join("out/cache").join(pin.tarball_name());
         let tar = host_tar();
-        assert!(ProcessCommand::new(&tar)
-            .args(["-cJf"])
-            .arg(&archive)
-            .arg("-C")
-            .arg(root.join("input"))
-            .arg(pin.top_directory())
-            .status()
-            .unwrap()
-            .success());
+        create_fixture_archive(&root, &pin, &archive);
         let digest = file_sha256(&archive).unwrap();
         fs::create_dir(root.join("third_party")).unwrap();
         fs::write(
@@ -140,6 +132,37 @@ impl Drop for Fixture {
         }
     }
 }
+// Windows' inbox tar can read archives without supporting xz creation.
+// Generate only these tiny private inputs using Python's stdlib lzma support.
+// Extraction still executes the unmodified production tar -xJf path.
+fn create_fixture_archive(root: &Path, pin: &LibcxxPin, archive: &Path) {
+    let output = ProcessCommand::new("python3")
+        .args([
+            "-c",
+            r#"
+import pathlib, sys, tarfile
+source, top, destination = sys.argv[1:]
+with tarfile.open(destination, "w:xz", dereference=False) as archive:
+    archive.add(pathlib.Path(source) / top, arcname=top)
+"#,
+        ])
+        .arg(root.join("input"))
+        .arg(pin.top_directory())
+        .arg(archive)
+        .output()
+        .expect("Python 3 with stdlib lzma is required for host cache fixtures");
+    assert!(
+        output.status.success(),
+        "fixture archive creation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let bytes = fs::read(archive).unwrap();
+    assert!(
+        bytes.starts_with(b"\xfd7zXZ\0"),
+        "fixture must remain a real xz archive"
+    );
+}
+
 // Resolve before adding the fixture shims; never delegate to the shim itself.
 fn host_tar() -> PathBuf {
     let name = format!("tar{}", std::env::consts::EXE_SUFFIX);
@@ -323,15 +346,7 @@ fn link_text_and_executable_mode_changes_are_rejected() {
         let pin =
             parse_libcxx_pin(&fs::read_to_string(f.root.join(SOURCES_LOCK)).unwrap()).unwrap();
         let archive = f.root.join("out/cache").join(pin.tarball_name());
-        assert!(ProcessCommand::new(&f.tar)
-            .arg("-cJf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(f.root.join("input"))
-            .arg(pin.top_directory())
-            .status()
-            .unwrap()
-            .success());
+        create_fixture_archive(&f.root, &pin, &archive);
         let lock = fs::read_to_string(f.root.join(SOURCES_LOCK))
             .unwrap()
             .replace(&pin.sha256, &file_sha256(&archive).unwrap());
