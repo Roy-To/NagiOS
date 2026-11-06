@@ -1,3 +1,4 @@
+use crate::virtqueue::{Descriptor, SplitQueue as LegacyQueue};
 use core::arch::asm;
 use core::mem::size_of;
 use core::ptr;
@@ -18,8 +19,6 @@ const LEGACY_DEVICE_STATUS: u16 = 0x12;
 const LEGACY_DEVICE_CONFIG: u16 = 0x14;
 const QUEUE_COUNT: usize = 4;
 const QUEUE_SIZE: usize = 64;
-const QUEUE_USED_RING_OFFSET: usize = 2048;
-const QUEUE_AVAILABLE_END: usize = 6 + QUEUE_SIZE * 2;
 const MAX_REQUEST_SPINS: usize = 5_000_000;
 const STATUS_ACKNOWLEDGE: u8 = 1;
 const STATUS_DRIVER: u8 = 2;
@@ -56,58 +55,6 @@ pub enum SoundError {
     InvalidBuffer,
     UnsupportedFormat,
     Busy,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Descriptor {
-    address: u64,
-    length: u32,
-    flags: u16,
-    next: u16,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct UsedElement {
-    id: u32,
-    length: u32,
-}
-
-#[repr(C, align(4096))]
-struct LegacyQueue {
-    descriptors: [Descriptor; QUEUE_SIZE],
-    available_flags: u16,
-    available_index: u16,
-    available_ring: [u16; QUEUE_SIZE],
-    used_event: u16,
-    _padding: [u8; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-    used_flags: u16,
-    used_index: u16,
-    used_ring: [UsedElement; QUEUE_SIZE],
-    available_event: u16,
-}
-
-impl LegacyQueue {
-    const fn empty() -> Self {
-        Self {
-            descriptors: [Descriptor {
-                address: 0,
-                length: 0,
-                flags: 0,
-                next: 0,
-            }; QUEUE_SIZE],
-            available_flags: 0,
-            available_index: 0,
-            available_ring: [0; QUEUE_SIZE],
-            used_event: 0,
-            _padding: [0; QUEUE_USED_RING_OFFSET - QUEUE_AVAILABLE_END],
-            used_flags: 0,
-            used_index: 0,
-            used_ring: [UsedElement { id: 0, length: 0 }; QUEUE_SIZE],
-            available_event: 0,
-        }
-    }
 }
 
 #[repr(C)]
@@ -260,7 +207,7 @@ pub fn initialize() -> Result<(), SoundError> {
             addresses
         } else {
             let queue_size = io_read16(candidate.io_base + LEGACY_QUEUE_SIZE) as usize;
-            if queue_size < QUEUE_SIZE {
+            if queue_size < QUEUE_SIZE || !LegacyQueue::supports(queue_size) {
                 return Err(SoundError::UnsupportedQueue);
             }
             io_write8(candidate.io_base + LEGACY_DEVICE_STATUS, 0);
@@ -597,25 +544,25 @@ unsafe fn submit_chain(
     }
     let queue = &mut *ptr::addr_of_mut!(QUEUES[queue_index]);
     for (index, descriptor) in descriptors.iter().take(descriptor_count).enumerate() {
-        queue.descriptors[index] = *descriptor;
+        queue.set_descriptor(index, *descriptor);
     }
-    let previous_used = ptr::read_volatile(&queue.used_index);
-    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-    queue.available_ring[available_slot] = 0;
+    let previous_used = queue.used_index();
+    let available_slot = usize::from(queue.available_index()) % queue.size();
+    queue.set_available(available_slot, 0);
     fence(Ordering::SeqCst);
-    queue.available_index = queue.available_index.wrapping_add(1);
+    queue.set_available_index(queue.available_index().wrapping_add(1));
     fence(Ordering::SeqCst);
     notify_queue(device, queue_index);
     let mut spins = 0;
-    while ptr::read_volatile(&queue.used_index) == previous_used {
+    while queue.used_index() == previous_used {
         if spins == MAX_REQUEST_SPINS {
             return Err(SoundError::RequestTimeout);
         }
         spins += 1;
         core::hint::spin_loop();
     }
-    let used_slot = usize::from(previous_used) % QUEUE_SIZE;
-    let used = ptr::read_volatile(queue.used_ring.as_ptr().add(used_slot));
+    let used_slot = usize::from(previous_used) % queue.size();
+    let used = queue.used(used_slot);
     if used.id != 0 {
         return Err(SoundError::QueueCorrupt);
     }
@@ -636,18 +583,14 @@ unsafe fn setup_queue(io_base: u16, queue_index: usize) -> Result<(), SoundError
     }
     io_write16(io_base + LEGACY_QUEUE_SELECT, queue_index as u16);
     let queue_size = io_read16(io_base + LEGACY_QUEUE_SIZE) as usize;
-    if queue_size < QUEUE_SIZE {
+    if queue_size < QUEUE_SIZE || !LegacyQueue::supports(queue_size) {
         return Err(SoundError::UnsupportedQueue);
     }
     let queue_address = ptr::addr_of!(QUEUES[queue_index]) as u64;
     if queue_address & 0xfff != 0 || queue_address >> 12 > u64::from(u32::MAX) {
         return Err(SoundError::AddressOutOfRange);
     }
-    ptr::write_bytes(
-        ptr::addr_of_mut!(QUEUES[queue_index]).cast::<u8>(),
-        0,
-        size_of::<LegacyQueue>(),
-    );
+    (*ptr::addr_of_mut!(QUEUES[queue_index])).initialize(queue_size);
     io_write32(io_base + LEGACY_QUEUE_ADDRESS, (queue_address >> 12) as u32);
     Ok(())
 }
@@ -660,15 +603,14 @@ unsafe fn setup_modern_queues(config: ModernConfig) -> Result<[u64; QUEUE_COUNT]
         if usize::from(mmio_read16(common, 24)) < QUEUE_SIZE {
             return Err(SoundError::UnsupportedQueue);
         }
-        mmio_write16(common, 26, QUEUE_SIZE as u16);
-        ptr::write_bytes(
-            ptr::addr_of_mut!(QUEUES[queue_index]).cast::<u8>(),
-            0,
-            size_of::<LegacyQueue>(),
-        );
-        let descriptor_address = ptr::addr_of!(QUEUES[queue_index].descriptors) as u64;
-        let driver_address = ptr::addr_of!(QUEUES[queue_index].available_flags) as u64;
-        let device_address = ptr::addr_of!(QUEUES[queue_index].used_flags) as u64;
+        mmio_write16(common, 24, QUEUE_SIZE as u16);
+        if mmio_read16(common, 24) != QUEUE_SIZE as u16 {
+            return Err(SoundError::UnsupportedQueue);
+        }
+        (*ptr::addr_of_mut!(QUEUES[queue_index])).initialize(QUEUE_SIZE);
+        let descriptor_address = (*ptr::addr_of!(QUEUES[queue_index])).descriptor_address();
+        let driver_address = (*ptr::addr_of!(QUEUES[queue_index])).available_address();
+        let device_address = (*ptr::addr_of!(QUEUES[queue_index])).used_address();
         if descriptor_address & 0xfff != 0 || driver_address & 1 != 0 || device_address & 1 != 0 {
             return Err(SoundError::AddressOutOfRange);
         }
@@ -717,16 +659,19 @@ unsafe fn populate_event_queue() -> Result<(), SoundError> {
         return Err(SoundError::AddressOutOfRange);
     }
     let queue = &mut *ptr::addr_of_mut!(QUEUES[1]);
-    queue.descriptors[0] = Descriptor {
-        address: event_address,
-        length: 8,
-        flags: DESC_F_WRITE,
-        next: 0,
-    };
-    let available_slot = usize::from(queue.available_index) % QUEUE_SIZE;
-    queue.available_ring[available_slot] = 0;
+    queue.set_descriptor(
+        0,
+        Descriptor {
+            address: event_address,
+            length: 8,
+            flags: DESC_F_WRITE,
+            next: 0,
+        },
+    );
+    let available_slot = usize::from(queue.available_index()) % queue.size();
+    queue.set_available(available_slot, 0);
     fence(Ordering::SeqCst);
-    queue.available_index = queue.available_index.wrapping_add(1);
+    queue.set_available_index(queue.available_index().wrapping_add(1));
     fence(Ordering::SeqCst);
     Ok(())
 }
@@ -980,6 +925,26 @@ unsafe fn copy_bytes(destination: &mut [u8], source: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{make_capability, stream_is_supported, SoundPcmFormat, AUDIO_DEVICE_ID};
+
+    #[test]
+    fn modern_queue_negotiation_preserves_the_msix_vector() {
+        let mut registers = [0_u64; 8];
+        let common = registers.as_mut_ptr() as u64;
+        unsafe {
+            super::mmio_write16(common, 24, 1024);
+            super::mmio_write16(common, 26, 0xffff);
+            let config = super::ModernConfig {
+                common_address: common,
+                notify_address: 0x1000,
+                notify_multiplier: 4,
+                device_config: 0,
+            };
+            assert!(super::setup_modern_queues(config).is_ok());
+            assert_eq!(super::mmio_read16(common, 24), 64);
+            assert_eq!(super::mmio_read16(common, 26), 0xffff);
+            assert_eq!(super::mmio_read16(common, 28), 1);
+        }
+    }
 
     #[test]
     fn recognizes_the_virtio_sound_device_and_derives_a_capability() {

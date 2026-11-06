@@ -130,11 +130,15 @@ def image_build_provenance(root: Path, image_path: Path, expected_revision: str)
         if key in fields:
             raise ReleaseError(f"release image build provenance repeats {key}")
         fields[key] = value
-    if set(fields) != {"format_version", "source_revision", "image_sha256"}:
+    required = {"format_version", "source_revision", "image_sha256"}
+    version = fields.get("format_version")
+    if version == "2":
+        required |= {"profile", "init_features", "components", "model_store_sha256"}
+    if set(fields) != required:
         raise ReleaseError("release image build provenance has unsupported fields")
     revision = fields["source_revision"]
     image_sha256 = fields["image_sha256"]
-    if fields["format_version"] != "1":
+    if version not in {"1", "2"}:
         raise ReleaseError("unsupported release image build provenance version")
     if len(revision) not in {40, 64} or re.fullmatch(r"[0-9a-f]+", revision) is None:
         raise ReleaseError("release image provenance lacks a full source revision")
@@ -144,11 +148,35 @@ def image_build_provenance(root: Path, image_path: Path, expected_revision: str)
         raise ReleaseError("release image provenance lacks a valid image SHA-256")
     if sha256_file(image) != image_sha256:
         raise ReleaseError("release image SHA-256 disagrees with its build provenance")
-    return {
-        "format_version": 1,
+    result = {
+        "format_version": int(version),
         "source_revision": revision,
         "image_sha256": image_sha256,
     }
+    if version == "2":
+        result.update({key: fields[key] for key in required - set(result)})
+    return result
+
+
+def require_production_image(provenance: dict[str, Any]) -> None:
+    """Configuration gate only; this cannot establish guest acceptance."""
+    if provenance.get("format_version") != 2:
+        raise ReleaseError("legacy layout/fixture provenance cannot be assembled as Nagi 0.1")
+    if provenance.get("profile") != "production-session-v1":
+        raise ReleaseError("partial or fixture session profile cannot be assembled as Nagi 0.1")
+    components = provenance.get("components", "").split(",")
+    expected = {"login", "files", "search", "servo", "local-ai", "history", "voice"}
+    if len(components) != len(expected) or set(components) != expected:
+        raise ReleaseError("production session lacks required integrated components")
+    features = provenance.get("init_features", "").split(",")
+    if "production-session" not in features or len(features) != len(set(features)):
+        raise ReleaseError("production session lacks its ordinary init feature")
+    if any(not re.fullmatch(r"[a-z0-9-]+", feature)
+           or "acceptance" in feature or "fixture" in feature
+           or re.match(r"m[0-9]+-", feature) for feature in features):
+        raise ReleaseError("production session contains a milestone/fixture feature")
+    if provenance.get("model_store_sha256") != GRANITE_SHA256:
+        raise ReleaseError("production session lacks the pinned Granite Model Store bytes")
 
 
 def _reject_symlink_components(root: Path, relative: PurePosixPath, label: str) -> Path:
@@ -653,11 +681,16 @@ def verify_release(directory: Path) -> None:
         image_provenance = build_manifest["image_build_provenance"]
         if (
             not isinstance(image_provenance, dict)
-            or image_provenance.get("format_version") != 1
+            or image_provenance.get("format_version") != 2
             or image_provenance.get("source_revision") != build_manifest["source_revision"]
             or image_provenance.get("image_sha256") != build_manifest["reference_image_sha256"]
         ):
             raise ReleaseError("build manifest image provenance disagrees with source or qcow2")
+        require_production_image(image_provenance)
+        if build_manifest.get("granite_model_bytes_bundled") is not True:
+            raise ReleaseError("production build manifest must record bundled Granite bytes")
+    else:
+        raise ReleaseError("build manifest lacks production image provenance")
 
     records = manifest.get("artifacts")
     if not isinstance(records, list):
@@ -722,6 +755,7 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
     metadata = repository_metadata(root, kernel_path)
     validate_qcow2(image_path, root, metadata["reference_disk_gib"])
     image_provenance = image_build_provenance(root, image_path, revision)
+    require_production_image(image_provenance)
     versions = toolchain_versions(root)
 
     image_path = _regular_file(image_path, "release qcow2 image").resolve(strict=True)
@@ -737,7 +771,8 @@ def assemble(root: Path, image_path: Path, kernel_path: Path, output: Path) -> N
         "llama_cpp_revision": metadata["llama_cpp_revision"],
         "granite_sha256": metadata["granite_sha256"],
         "granite_pin_source": metadata["granite_pin_source"],
-        "granite_model_bytes_bundled": metadata["granite_model_bytes_bundled"],
+        "granite_model_bytes_bundled": image_provenance["model_store_sha256"] == GRANITE_SHA256,
+        "distribution_review": "NOT_EVALUATED",
         "reference_disk_gib": metadata["reference_disk_gib"],
         "toolchain_versions": versions,
         "tracked_license_texts": [
@@ -820,7 +855,7 @@ def main(argv: list[str] | None = None) -> int:
             image = _rooted(root, args.image)
             metadata = repository_metadata(root, kernel)
             validate_qcow2(image, root, metadata["reference_disk_gib"])
-            image_build_provenance(root, image, revision)
+            require_production_image(image_build_provenance(root, image, revision))
             toolchain_versions(root)
             print(
                 "Release inputs and provenance verified; M30 guest acceptance is a separate, "

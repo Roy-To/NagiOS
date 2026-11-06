@@ -1,0 +1,16 @@
+[package]
+name = "nagi-session-services-check"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+libnagi = { path = "../../../user/libnagi" }
+nagi-model-manager = { path = "../../../user/nagi-model-manager" }
+nagi-model = { path = "../../../crates/nagi-model" }
+nagi-posix = { path = "../../../user/nagi-posix", features = ["m20-llama-memory"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

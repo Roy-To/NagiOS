@@ -56,6 +56,8 @@ pub struct ExitTable {
     /// Live isolated processes and, per process, the thread waiting on it.
     live: [Option<(u32, Option<u8>)>; MAX_LIVE_PROCESSES],
     records: [Option<ExitRecord>; MAX_EXIT_RECORDS],
+    /// Preserve a blocking waiter's ownership until its record is consumed.
+    record_waiters: [Option<u8>; MAX_EXIT_RECORDS],
 }
 
 impl Default for ExitTable {
@@ -70,6 +72,7 @@ impl ExitTable {
             next_process_id: FIRST_ISOLATED_PROCESS_ID,
             live: [None; MAX_LIVE_PROCESSES],
             records: [None; MAX_EXIT_RECORDS],
+            record_waiters: [None; MAX_EXIT_RECORDS],
         }
     }
 
@@ -126,7 +129,13 @@ impl ExitTable {
             .find(|slot| slot.is_some_and(|(live, _)| live == process_id))?;
         let (_, waiter) = live.take().expect("matched live process");
         // `reserve` kept a free record for every live process.
-        if let Some(slot) = self.records.iter_mut().find(|slot| slot.is_none()) {
+        if let Some((index, slot)) = self
+            .records
+            .iter_mut()
+            .enumerate()
+            .find(|(_, slot)| slot.is_none())
+        {
+            self.record_waiters[index] = waiter;
             *slot = Some(ExitRecord {
                 process_id,
                 code,
@@ -166,6 +175,26 @@ impl ExitTable {
                 WaitOutcome::Blocked
             }
             _ => WaitOutcome::Invalid,
+        }
+    }
+
+    /// Poll without registering a waiter. A blocking waiter owns its exit.
+    /// Some(None) is live, Some(Some(_)) consumes an exit, None is invalid.
+    pub fn try_wait(&mut self, process_id: u32) -> Option<Option<ExitRecord>> {
+        if let Some((index, slot)) = self
+            .records
+            .iter_mut()
+            .enumerate()
+            .find(|(_, slot)| slot.is_some_and(|record| record.process_id == process_id))
+        {
+            if self.record_waiters[index].is_some() {
+                return None;
+            }
+            return Some(slot.take());
+        }
+        match self.live.iter().flatten().find(|(id, _)| *id == process_id) {
+            Some((_, None)) => Some(None),
+            _ => None,
         }
     }
 
@@ -304,5 +333,41 @@ mod tests {
         );
         assert!(matches!(table.wait(first, 1), WaitOutcome::Ready(record) if record.code == 141));
         assert!(matches!(table.wait(second, 2), WaitOutcome::Ready(record) if record.code == 0));
+    }
+}
+
+#[cfg(test)]
+mod poll_tests {
+    use super::*;
+    #[test]
+    fn pending_poll_never_registers_waiter_and_exit_is_consumed_once() {
+        let mut table = ExitTable::new();
+        let id = table.reserve().unwrap();
+        assert!(table.commit_spawn(id));
+        for _ in 0..8 {
+            assert_eq!(table.try_wait(id), Some(None));
+        }
+        assert_eq!(
+            table.record_exit(id, 5, ExitKind::Faulted { vector: 14 }),
+            None
+        );
+        assert_eq!(table.try_wait(id).unwrap().unwrap().code, 5);
+        assert_eq!(table.try_wait(id), None);
+        assert_eq!(table.try_wait(999), None);
+    }
+    #[test]
+    fn poll_does_not_replace_a_blocking_waiter() {
+        let mut table = ExitTable::new();
+        let id = table.reserve().unwrap();
+        assert!(table.commit_spawn(id));
+        assert_eq!(table.wait(id, 3), WaitOutcome::Blocked);
+        assert_eq!(table.try_wait(id), None);
+        assert_eq!(table.record_exit(id, 0, ExitKind::Exited), Some(3));
+        assert_eq!(
+            table.try_wait(id),
+            None,
+            "a poll cannot steal the woken waiter's status"
+        );
+        assert!(matches!(table.wait(id, 3), WaitOutcome::Ready(_)));
     }
 }

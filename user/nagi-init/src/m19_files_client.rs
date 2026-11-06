@@ -1,7 +1,5 @@
 //! One-shot, signed first-party Files client route (ADR 0069).
 
-use core::arch::asm;
-
 use libnagi::launch::{GrantCheck, LaunchPlacement};
 use libnagi::storage::{SyscallBlockDevice, Vfs};
 use libnagi::{channel_send, display_present, input_read, ChannelSendRequest, InputEvent};
@@ -24,7 +22,8 @@ const PRODUCT_PACKAGE: &[u8] = include_bytes!(env!("NAGI_FILES_SEARCH_PACKAGE"))
 type PromptVolume = Vfs<SyscallBlockDevice>;
 
 /// Run one bounded Files query through a real signed launch. Every failure
-/// aborts/reaps the child and returns no IDs to the UI.
+/// retires the child, collects its exit without blocking, and returns no IDs.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn search(
     runtime: &Runtime,
     query: &str,
@@ -33,8 +32,14 @@ pub(super) fn search(
     display_capability: u64,
     surface: &mut [u32],
     volume: &mut UserDataVolume,
+    cleanup: &mut Option<u32>,
 ) -> Option<SearchResults> {
+    poll_cleanup(cleanup);
+    if cleanup.is_some() {
+        return None;
+    }
     let user = desktop.signed_in_session()?;
+    let generation = desktop.files_search_generation();
     let mut session_bytes = [0_u8; 8];
     if !libnagi::random_fill(&mut session_bytes) {
         return None;
@@ -74,7 +79,7 @@ pub(super) fn search(
         FILES_SEARCH,
     );
     if !grants_ready {
-        abort_and_reap(launched, 0);
+        abort_and_reap(launched, 0, cleanup);
         print(b"Nagi M19 Files Search consent denied or unavailable\r\n");
         return None;
     }
@@ -87,32 +92,124 @@ pub(super) fn search(
         },
         &mut bootstrap.payload,
     ) else {
-        abort_and_reap(launched, 0);
+        abort_and_reap(launched, 0, cleanup);
         return None;
     };
     bootstrap.payload_len = length as u32;
     if !channel_send(launched.endpoint, &bootstrap) {
-        abort_and_reap(launched, 0);
+        abort_and_reap(launched, 0, cleanup);
         return None;
     }
 
-    let response =
-        m19_search_service::serve_files_one(runtime, launched.endpoint, launched.record.process_id);
+    let started = libnagi::time_ticks();
+    let mut progress = || {
+        wait_progress(
+            desktop,
+            input_capability,
+            display_capability,
+            surface,
+            volume,
+            &user,
+            generation,
+            started,
+        ) && supervisor::resolve(launched.record.process_id) == Some(launched.record)
+            && supervisor::has_grant(APP_ID, app_session_id, SEARCH_QUERY)
+            && supervisor::has_grant(APP_ID, app_session_id, FILES_SEARCH)
+    };
+    let response = m19_search_service::serve_files_one_with_receive(
+        runtime,
+        launched.endpoint,
+        launched.record.process_id,
+        |endpoint, message| receive_responsive(endpoint, message, &mut progress),
+    );
     if response.is_none() {
-        abort_and_reap(launched, 1);
+        abort_and_reap(launched, 1, cleanup);
         return None;
     }
-    let Some(status) = supervisor::reap(launched) else {
-        print(b"Nagi M19 Files Search child cleanup FAIL\r\n");
-        return None;
-    };
-    if !supervisor::exited_cleanly(&status) {
-        print(b"Nagi M19 Files Search child cleanup FAIL\r\n");
+    let status = reap_responsive(&launched, &mut progress);
+    if !status.is_some_and(|status| supervisor::exited_cleanly(&status)) {
+        abort_and_reap(launched, 1, cleanup);
         return None;
     }
     print(b"Nagi M19 Files Search child reaped PASS\r\n");
-    let response = response?;
-    (response.status == ResultStatus::Ok).then_some(response)
+    response.filter(|result| result.status == ResultStatus::Ok)
+}
+
+pub(super) fn reap_responsive(
+    launched: &supervisor::Launched,
+    mut progress: impl FnMut() -> bool,
+) -> Option<libnagi::ProcessExitStatus> {
+    loop {
+        if !progress() {
+            return None;
+        }
+        if let Some(status) = supervisor::try_reap(launched)? {
+            return Some(status);
+        }
+    }
+}
+
+pub(super) const WAIT_TICKS: u64 = 3000;
+
+pub(super) fn receive_responsive(
+    endpoint: u64,
+    message: &mut libnagi::ChannelReceiveResult,
+    mut progress: impl FnMut() -> bool,
+) -> Option<()> {
+    loop {
+        if !progress() {
+            return None;
+        }
+        match libnagi::channel_try_receive(endpoint, message)? {
+            true => return Some(()),
+            false => continue,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn wait_progress(
+    desktop: &mut Desktop,
+    input_capability: u64,
+    display_capability: u64,
+    surface: &mut [u32],
+    volume: &mut UserDataVolume,
+    user: &libnagi::security::Session,
+    generation: u64,
+    started: u64,
+) -> bool {
+    if !desktop.files_search_is_current(user, generation)
+        || libnagi::time_ticks().wrapping_sub(started) >= WAIT_TICKS
+    {
+        return false;
+    }
+    #[cfg(feature = "m20-model-service")]
+    let mut changed = desktop.model_service_step(|| {});
+    #[cfg(not(feature = "m20-model-service"))]
+    let mut changed = false;
+    let _ = libnagi::thread_yield();
+    let mut event = InputEvent::default();
+    if input_read(input_capability, &mut event) {
+        changed |= desktop.handle_event(event, volume);
+    }
+    if changed {
+        desktop.render(surface);
+        if !display_present(display_capability) {
+            return false;
+        }
+    }
+    desktop.files_search_is_current(user, generation)
+        && libnagi::time_ticks().wrapping_sub(started) < WAIT_TICKS
+}
+
+/// Called even on idle/locked Desktop iterations. Never blocks on a child.
+pub(super) fn poll_cleanup(cleanup: &mut Option<u32>) {
+    if let Some(pid) = *cleanup {
+        match libnagi::process_try_wait(pid) {
+            Some(None) => {}
+            Some(Some(_)) | None => *cleanup = None,
+        }
+    }
 }
 
 fn ensure_grant(
@@ -177,9 +274,21 @@ fn wait_for_answer(
         if desktop.signed_in_session() != Some(*user) {
             return None;
         }
+        // The outer Desktop loop is suspended during this modal wait. Keep
+        // its bounded model orchestration alive without reentering Files or
+        // routing modal input to the Bar. No Supervisor lock is held here.
+        #[cfg(feature = "m20-model-service")]
+        if desktop.model_service_step(|| {}) {
+            desktop.render(surface);
+            if !display_present(display_capability) {
+                return None;
+            }
+        }
+        // Always hand off, even without an adapter or with continuous input.
+        // A CPU pause does not schedule the cooperative model worker.
+        let _ = libnagi::thread_yield();
         let mut event = InputEvent::default();
         if !input_read(input_capability, &mut event) {
-            unsafe { asm!("pause", options(nomem, nostack, preserves_flags)) };
             continue;
         }
         let _ = desktop.handle_event(event, volume);
@@ -194,17 +303,15 @@ fn wait_for_answer(
     }
 }
 
-fn abort_and_reap(launched: supervisor::Launched, request_id: u64) {
+pub(super) fn abort_and_reap(
+    launched: supervisor::Launched,
+    request_id: u64,
+    cleanup: &mut Option<u32>,
+) {
     let abort = ChannelSendRequest::new(PROTOCOL_ID, PROTOCOL_VERSION, request_id, OPCODE_ABORT);
-    if channel_send(launched.endpoint, &abort) {
-        if supervisor::reap(launched).is_some_and(|status| supervisor::exited_cleanly(&status)) {
-            print(b"Nagi M19 Files Search child reaped after denial PASS\r\n");
-            return;
-        }
-    } else {
-        let _ = supervisor::reap(launched);
-    }
-    print(b"Nagi M19 Files Search child cleanup FAIL\r\n");
+    let _ = channel_send(launched.endpoint, &abort);
+    *cleanup = Some(supervisor::retire(launched));
+    poll_cleanup(cleanup);
 }
 
 #[cfg(feature = "desktop-login-acceptance")]

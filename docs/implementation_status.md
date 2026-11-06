@@ -1,3 +1,637 @@
+## Local PR 48 integration of merged PR 97 — 2026-11-05
+
+Status: `PARTIAL`; isolated review candidate, not published. Fixed inputs are
+published PR 48 `46a3649b8aec1419a6afcd33971b774df2c6fc1b` and actual main
+`d67897b4c27566ecc4353e3b7d9b16efd59bb559` (merged PR 97). Only the appended
+state record conflicted; both parents' full record additions are preserved.
+The complete Search tree matches main exactly, including bounded fallible
+allowlist scratch/top-k output, denial/retry/leak tests and full-sort parity.
+Every other executable source, test, workflow, manifest and lock stays exactly
+as published PR 48, retaining Files/Trash/UI, sync guards and QMP/EOF fixes.
+
+Pinned nightly-2025-08-01 offline/locked Linux host validation: Search 42
+passed / 1 ignored (opt-in synthetic timing); Search all-target warnings-denied
+Clippy passed; Files 32; Session 49; Desktop 58; login host 28; CLI library
+383 passed / 2 ignored; CLI integration 33; CI Python 17; release/evidence
+Python 37. These counts overlap. Host syscall/model seams and socket/child
+fixtures do not establish target or guest functionality. Commands and logs
+are recorded in the accompanying fixed candidate evidence.
+Historical main benchmark and target-check entries below remain scoped to
+their original source and environment; they are not new results for this
+composition. No public branch/PR/CI was changed, restarted or dispatched.
+No guest, real QEMU, Windows, target/native link, old image/build, claim,
+receipt, writer exclusion or real-media operation was performed. Legacy
+BTreeMap startup/owned/outer-state OOM and writer/durability blockers remain;
+M24 is PARTIAL and guest/writer HOLD remains. Independent review and separate
+publication authorization are required for this candidate.
+
+## Local PR 48 / merged PR 90 integration — 2026-11-05
+
+Status: `PARTIAL`; isolated review candidate, not published. This combines
+published PR 48 `ca563913e744cf3eca1027307c45b520ff2636ce` and actual main
+`fe0ec0b4c5d7caf0721deca4880359a59f5f2b94` (the PR 90 merge). Older records
+below retain their original source scope. Neither public branch is changed.
+
+Four conflicts are resolved by retaining both sets of behavior: main's
+injected Interrupted-read seam, original EOF diagnostic/deadline loop and
+M27 CI artifact retention; Desktop's post-acceptance serial drain, late
+failure-marker validation, session/release commands and regression fixtures.
+The duplicate post-EOF wait is removed because main now retains process
+polling and diagnostics in the original loop. Both EOF fixture modes and
+all main QMP tests are retained. Desktop's old EOF assertion is updated to
+require the newly retained timeout diagnostics while preserving exact serial
+bytes and clean/nonzero exit status/deadline checks. Both status histories
+are kept; the shared PR 92 preparation heading uses main's historical label.
+
+Pinned nightly-2025-08-01 offline/locked Linux host checks: CLI library
+383 passed / 2 ignored; CLI integration 33; Search 38; Files production fixture 32; Session 49;
+Desktop 58; login acceptance host 28; Python CI regressions 17; release/evidence
+Python regressions 37; CLI/Search all-target Clippy with warnings denied. These are
+host tests with explicit syscall/model or Python socket/child seams, not
+real QEMU or guest acceptance. The initial CLI integration run passed 31 and
+failed two Legal delegations because five pinned standalone Legal crates were
+absent from the cache. Standard locked Cargo fetch supplied those crates;
+the unchanged offline suite then passed all 33. The original failure log is
+retained. Supporting logs and parent/tree information
+are delivered separately for independent review. No target/native link,
+Windows execution, diskless QEMU, guest, old build, image/claim/receipt,
+real media, inference or writer experiment was performed. Legacy BTreeMap
+startup/owned OOM and writer/durability blockers remain. M24 stays PARTIAL;
+writer and guest HOLD remain unchanged. Review is required before publishing
+this new candidate; the prior publication approval applied only to ca563913.
+
+## PR 48 main c170ebf conflict resolution candidate — 2026-11-05
+
+Status: `PARTIAL`; local tree only, not committed or pushed. The published
+PR 48 head remains `542db0878d4bd46e40e871cf8369f674c26d8a9d` (reviewed source
+tree `6bfe5cf032fbcf3c78c5d49c790bdbc1847bbadb`). This isolated candidate
+combines that source with main `c170ebf1d056aea277e3aa5f464d148d4ecff7fb`
+after PR 92, using common ancestor
+`0362427747e769b00558053e4c7f4c756d303802`. No additional push, force,
+PR merge, CI cancellation/retry or old-dispatch inspection/resubmit occurred.
+Independent review is required before publication of this candidate.
+
+Only the status document needed manual content conflict resolution; both
+histories are retained. The CI workflow merged automatically, preserving all
+published PR 48 job steps, runners, concurrency/timeouts, outputs and actual
+signed-package/guest acceptance commands. Main's docs-only change-scope job,
+required-file guard, trigger changes and heavy-job dependencies/conditions
+are retained. The original M20 job is unchanged. All CLI, kernel, storage,
+Desktop, login, VirtQueue and test-fixture source remains byte-identical to
+published head 542db087, including the EOF deadline P2 fix and PR 90 d0d9e4a
+fetch diagnostics. Manifests, locks, pins and runtime permissions are unchanged.
+
+Independent local pinned-nightly validation:
+- Actual Bash docs-only/required-file classifier regressions: 13 PASS.
+- Full Python test discovery under tests/: 14 PASS.
+- CLI bootstrap library: 379 PASS, 2 ignored; CLI integration: 33 PASS, using
+  canonical pinned mozjs preparation and the prepared Legal dependency cache.
+- Workflow YAML parses; every pre-existing job's step list and runner,
+  concurrency, timeout, permissions and output fields match published head.
+  M20's job definition is identical. Whitespace checks pass.
+
+Public CI snapshot during preparation, for published 542db087 only:
+PR run 41955146204 has successful Ubuntu/Windows host jobs; nagi-target and
+nagi-m20-inference have started. Push run 41955137854 is separate automatic
+CI for that same source. Neither run validates this new workflow combination.
+Native/guest outcomes are pending, and no new milestone PASS is recorded.
+All prior preparation and CI records below refer to their stated source IDs.
+
+## Local PR 48 preacceptance serial EOF deadline fix — 2026-11-04
+
+Status: `PARTIAL`; isolated host candidate, superseding local tree
+`1e37eb4bf2915ea9a71c0f2432682fb4a2719758`. This candidate integrates the
+fixed public PR 90 commit `d0d9e4a68f780984280563d6f672c35b5f0c92d5`;
+the previous candidate used `91e4043a624bd13357609967faefdeb150820642`.
+All earlier entries below are historical records, not new CI evidence.
+No publication, push, PR merge, remote CI or old-dispatch inspection/resubmit
+was performed. The old PR 48 dispatch result remains unknown.
+
+Independent review identified a P2 shared by both original candidates:
+serial EOF before acceptance left the GUI runner in an unbounded child.wait.
+A host TCP/QMP fixture reproduces the original behavior with a one-second
+budget: it returned exit status 0 after 6.046 seconds without acceptance.
+The new regression fails against that code. The EOF path now persists its
+serial snapshot and polls try_wait using the original absolute host deadline,
+sleeping for at most the remaining budget. Expiry and polling/persistence
+errors terminate and reap the child. Successful observed exits retain their
+real status and acceptance_reached=false; EOF does not create acceptance.
+
+The corrected regression passes: the stalled child is killed/reaped at
+1.000 seconds; clean and nonzero exits are reaped at approximately 62/63 ms.
+All cases retain the exact serial prefix; Linux /proc checks verify no live
+or zombie fixture remains. This is a host orchestration fixture, not QEMU or
+guest acceptance.
+
+PR 90's fetch_progress module, execute_fetch implementation, llama.cpp and
+Servo diagnostic changes are retained exactly. The overlapping immutable
+fixture-path adjustment is consolidated in the shared test helper with PR 90's
+host-manifest-parent lookup. Storage, Desktop, login, kernel and VirtQueue
+sources are byte-identical to the previously tested integrated candidate.
+Pins, validation rules, retries, timeouts, Cargo manifests and lockfiles are
+not changed by the diagnostic integration.
+
+Independent pinned-nightly results on this candidate:
+- CLI bootstrap library: 378 PASS, 1 environment failure, 2 ignored. The
+  pre-existing mozjs configure test still needs the missing generated
+  third_party/mozjs-sys-nagi/build.rs; no assertion was skipped or weakened.
+- The EOF regression, all existing deadline/late-serial/reaping regressions,
+  and all three fetch_progress regressions pass.
+- CLI library/tests Clippy with warnings denied, changed Rust formatting,
+  Python fixture syntax and whitespace checks pass.
+
+The prior kernel 172, libnagi 94+41+2, session UI 49+56+28 and Calendar 12 host
+results belong to unchanged source from tree 1e37eb4; they were not rerun for
+this host-CLI-only follow-up. Real DMA, guest login/acceptance, target linking,
+actual QEMU/OVMF compatibility and newly authorized CI remain unverified.
+
+## Local PR 48 + PR 90 integration candidate — 2026-11-04
+
+Status: `PARTIAL`; local host validation only. No guest, remote CI, push or
+PR merge was performed. The earlier PR 48 dispatch remains unknown and was
+neither inspected nor resubmitted.
+
+Inputs are the independently reconstructed PR 48 source tree
+`fe4ae9554c20a673ab3a7798631999ac020c152d`, its two VirtQueue model tests
+(tree with tests `e67cf37f772595e46cfd3468fd0afa37b2a23d9e`), and the fixed
+public PR 90 commit `91e4043a624bd13357609967faefdeb150820642`.
+Integration uses common ancestor `0362427747e769b00558053e4c7f4c756d303802`;
+newer public PR 90 commits are outside this candidate. Existing PR 48 storage,
+Desktop, login and VirtQueue source is retained. Both historical status blocks
+are preserved below; their reported CI results are not evidence for this tree.
+
+The GUI acceptance shutdown combines PR 48's concurrent serial capture to EOF
+and post-drain failure checks with PR 90's original absolute host deadline.
+The serial receiver uses nonblocking reads and the same deadline; no fresh
+40-second drain budget is introduced. Shutdown errors still persist collected
+serial. The immutable Python QMP fixture resolves from both CLI host manifests.
+New host tests exercise a live fixture with a large late failure tail, normal
+QMP reply, disconnect, stalled quit, and an open serial socket past successful
+QMP completion. They validate capture, rejection, reaping and deadline bounds;
+they do not run QEMU, DMA, OVMF or guest code.
+
+Independent pinned-nightly host results for this integrated source:
+- CLI bootstrap library: 374 PASS, 1 environment failure, 2 ignored. The sole
+  failure is the pre-existing mozjs configure test reading missing generated
+  `third_party/mozjs-sys-nagi/build.rs`; real diskless QEMU is ignored.
+- Kernel library: 172 PASS, including all six VirtQueue tests.
+- libnagi: 94 unit + 41 adapter + 2 renderer PASS (counts overlap).
+- `sh tests/session-ui/check.sh`: 49 controller + 56 Desktop + 28 acceptance
+  configuration PASS, including formatting and dependency-boundary checks.
+- Calendar availability boundary contracts inherited through PR 90: 12 PASS.
+- CLI library/tests Clippy with warnings denied, Rust formatting, Python
+  fixture syntax and whitespace checks: PASS.
+
+Kernel/libnagi use separate minimal host manifests referencing the exact
+integrated source because the full workspace's generated third-party trees
+are unavailable. Required remaining evidence includes the generated dependency
+check, target build, actual QEMU login/EOF/deadline compatibility, regression
+acceptance on affected targets, and separately authorized CI. Host outcomes
+are not real DMA, power-loss, guest acceptance or milestone PASS.
+
+## PR #48 Files consent scheduler follow-up — 2026-11-04
+
+Status: `PARTIAL`; host regression only, guest reproduction `NOT_RUN`.
+Based on published #48 head `59adf3a3081514c3a31a9d07313f0f42aea74a8d`
+in a separate worktree/branch. The signed Files query calls a modal consent
+wait synchronously when either required live grant needs consent. Its old
+no-input path used only CPU `pause`, while the bootstrap thread scheduler is
+cooperative. The wait now performs one existing bounded model service step
+and an explicit thread yield on every live-session iteration, including
+continuous input and an absent model adapter. Model status changes redraw the
+modal frame; a failed presentation returns no answer. Modal input, fresh
+press/release consent, both live grant checks and child cleanup are unchanged.
+F4 still invalidates/cancels in the Desktop handler before the loop aborts.
+No Files operation is reentered and no Supervisor or model bridge guard is
+held across the new yield.
+
+Validation: the original wait source fails all four initial modal regressions;
+the fixed source passes them. `sh tests/session-ui/check.sh` passes 49
+controller/bridge tests, 54 production Desktop/Files/Shared tests (six new
+modal regressions) and 26 legacy login/Files tests. Counts overlap existing
+suites and are not guest evidence. The consent-enabled model-disabled host
+configuration also compiles and passes its lost-session regression. The preserved
+Files suite passes 30 tests; controller/bridge all-target Clippy passes with
+warnings denied, formatting and `git diff --check` pass. Tests
+compile the actual wait function verbatim and use explicit host syscall seams;
+they collect an already-scripted Shared reply and count yield calls, without
+running the Nagi scheduler, signed child or native worker. Actual guest
+starvation/recovery, native linking and inference remain unverified here.
+M19/M20/M23 remain `PARTIAL`; formal M30 remains `BLOCKED`.
+
+Before handoff, public main advanced from `0362427747e769b00558053e4c7f4c756d303802`
+to `87b7dea4061be2572526181ab559d63037f823d0` (three unrelated host-contract
+and evidence files); none intersects this change. The #48 public head was
+unchanged. The shared #48 branch and other guest/CI work are not overwritten.
+
+
+## PR 90 bootstrap fetch diagnosis candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local diagnostics candidate based on published
+`91e4043a624bd13357609967faefdeb150820642` (tree
+`bdae0b5848a41671fea3ca696c9c32806e77030d`), source base
+`87b7dea4061be2572526181ab559d63037f823d0`. No new push, hosted CI rerun,
+workflow change, timeout extension or merge was performed for this investigation.
+
+**Current public result:** [Nagi CI 41919875669](https://github.com/Roy-To/NagiOS/actions/runs/41919875669)
+completed cancelled at 91e4043. Classification succeeded; Ubuntu and Windows
+were cancelled inside Bootstrap pinned Servo source dependencies; target and
+M20 inference were skipped. The public check-run annotations for both host jobs
+explicitly say "The job has exceeded the maximum execution time of 30m0s".
+Both bootstrap binaries compiled successfully, then their `fetch` executions
+produced no further phase output before cancellation. No QMP regression test
+ran in that CI attempt. The current fetch wait's underlying cause is UNKNOWN.
+
+**Comparison with successful baseline:** [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+was successful at 5ecef8e. Its fetch execution took about 178 seconds on Ubuntu
+and 272 seconds on Windows. Between 5ecef8e and 91e4043, only image.rs and the
+status document changed; the fetch implementation, all source/font pins, Cargo
+locks, bootstrap manifest and CI workflow are identical. Ubuntu's runner image
+changed from 20261025.353.1 to 20261101.360.1; Windows retained image
+20261025.346.1. Git remained 2.56.0 on Ubuntu and 2.56.0.windows.3 on Windows.
+The Ubuntu image difference alone does not establish a common cause for both
+host jobs. The cancelled run has no uploaded diagnostic artifacts.
+
+The workflow step label does not identify the active source. `execute_fetch`
+prepares llama.cpp first, then whisper.cpp, Surfman, registry-based tempfile,
+mozjs_sys and cc, Servo and its registry dependencies, fonts and Mesa. Direct
+Git endpoints are github.com/ggml-org/llama.cpp, github.com/ggml-org/whisper.cpp,
+github.com/servo/surfman, github.com/servo/servo and gitlab.freedesktop.org/mesa/mesa.
+Registry archives come from the exact crates.io URLs in sources.lock; font URLs
+and hashes are pinned in fonts.lock. Servo Cargo.lock also identifies transitive
+Git dependencies. These pins and verification checks are unchanged.
+
+**Confirmed observability defect:** the Git/Cargo helpers use Command::output,
+which retains subprocess output until exit, and fetch previously emitted its
+result only after all phases completed. Consequently, the cancelled CI logs do
+not establish which component, network request, checkout or Cargo operation
+was waiting. They do not prove that the step was stuck in Servo, nor that the
+new QMP reader caused the wait.
+
+The candidate emits a static phase start record to stderr and flushes it before
+each potentially blocking source-preparation operation. Completion/failure
+records include elapsed time. It additionally distinguishes initial llama.cpp
+Git fetch/checkout and Servo Git fetch/checkout/unpatched Cargo operations.
+Labels contain no command arguments, URLs, environment or error text. Fetch
+stdout, original return values, failure codes, source validation, endpoints,
+revision/hash pins and existing retry policies remain unchanged. Logging failure
+does not skip or retry the operation. This is a diagnostics fix, not a claimed
+repair of the unidentified hosted wait.
+
+**Bounded local reproduction attempts:** a fresh shallow blobless fetch of the
+first pinned llama.cpp revision completed in 1.17 seconds. One complete fresh
+source bootstrap with the new diagnostics completed successfully in 125.81
+seconds, within a six-minute diagnostic probe bound. Its live phase records
+showed llama.cpp preparation about 11.9 seconds, Servo about 65.5 seconds and
+Mesa about 37.4 seconds. Source checkouts were fresh, but Cargo/registry caches
+were reused and the managed network/proxy differs from GitHub runners. No
+network route, credential or trust setting was changed. The original CI wait
+was not reproduced; no repeated CI runs were used to obtain a pass.
+
+**Separate pre-existing test entry-point defect:** the standalone bootstrap
+manifest shares CLI library sources, but the immutable QMP fixture path used
+CARGO_MANIFEST_DIR as though it always named tools/nagi-cli. Running the full
+bootstrap library suite therefore reproduced three ENOENT fixture failures.
+The candidate resolves the fixture from the common tools directory, preserving
+all assertions and immutable executable behavior. This cfg(test) path issue
+cannot explain the CI fetch cancellation, which occurred in the normal binary.
+
+Validation with nightly-2025-08-01:
+- Three new diagnostics tests prove a start record is flushed before a blocked
+  operation completes; success/error identity is preserved without logging
+  opaque error text; and a broken stderr sink neither skips nor retries work.
+- Ordinary CLI library: 370 passed / 2 ignored.
+- Standalone bootstrap library after the fixture-path fix: 370 passed / 2 ignored.
+  The initial pre-fix run reported 367 passed / 3 fixture-path failures / 2 ignored.
+- Ordinary CLI and standalone bootstrap Clippy, --lib --tests with warnings
+  denied: passed. Changed Rust formatting and git diff check: passed.
+- New candidate hosted Windows/target/inference CI: NOT RUN.
+
+The next hosted attempt needs approved publication of the diagnostic candidate
+if it is selected after review; its phase records would identify any remaining
+wait without weakening the 30-minute gate. The original wait cause remains an
+open blocker. Earlier public results below are historical preparation records.
+
+## Historical PR 90 GUI serial completion ordering preparation — 2026-11-04
+
+Status: `PARTIAL`; isolated local follow-up to protected public head
+`5ecef8e7d9d98861b62f1838db66aeaadb9c13cf` (tree
+`3f95febdad1db7da5a731538e5f535095c455228`). Source base/merge-base is
+`87b7dea4061be2572526181ab559d63037f823d0`. This new completion-ordering
+candidate had not been pushed or run in hosted CI at preparation time. It was
+subsequently published as 91e4043; its cancelled fetch-stage CI is recorded in
+the current entry above. No merge was performed.
+
+**Published baseline, distinct from this new candidate:** 5ecef8e was published
+with approval. [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+completed successfully at that head: target_classification, ubuntu-host,
+windows-launcher, nagi-target and nagi-m20-inference all succeeded. Ubuntu
+reported 366 library tests passed / 2 ignored; target ran the existing M17,
+M18, M19, M22, M27, M29 and M30 acceptance steps, and M20 reported real Granite
+inference acceptance PASS. The separate host-foundations workflow 41826127505
+was skipped. The earlier failing run 41821444900 was at 0342cc7 and is historical.
+Neither the successful baseline CI nor the old failure establishes the result
+of this new completion-ordering change. No new milestone PASS is recorded.
+
+Full-tree review found a serial-reader race even in the successful baseline:
+a read returns WouldBlock, final kernel/acceptance bytes arrive, the caller
+kills/reaps QEMU and publishes finished=true, then the reader observes that
+flag and exits using its stale empty-read observation. A missing kernel marker
+could then falsely satisfy the existing pre-guest firmware timeout signature.
+
+The production reader loop is extracted into a shared private helper for a
+focused regression. It now acquires the completion flag *before* the socket
+read. An empty read made before completion cannot terminate capture: the loop
+must perform another nonblocking read after observing completion, drain every
+available chunk and only then accept an empty result. QMP's original absolute
+deadline, kill/wait ordering, serial persistence, partial-capture error handling,
+and the existing 1 ms polling interval are unchanged; no fresh timed grace
+period is introduced.
+
+The deterministic real-TCP regression pauses exactly after an actual WouldBlock
+but before it reaches the completion check. The coordinator writes a payload
+larger than the reader buffer containing kernel-start, acceptance and final-tail
+markers, confirms all bytes are queued with a non-consuming peek, publishes
+completion, then releases the paused read. Synchronous channels establish that
+order without scheduling sleeps. The writer socket remains open so success
+requires a bounded nonblocking drain rather than EOF. The test checks exact byte
+preservation, including the kernel marker. Existing production-caller tests
+continue to verify final-log retry classification, the full timeout budget and
+real child termination/reaping; their assertions and budgets are unchanged.
+
+Validation with nightly-2025-08-01:
+- The extracted baseline loop retained the original 5ecef8e ordering. The new
+  deterministic test failed 10/10 executions on missing final serial (zero
+  captured bytes), proving the previously static review report by execution.
+- After fixing the ordering, the same exact-payload regression passed 100/100
+  executions, at most four concurrently.
+- `cargo test --locked -p nagi-cli --lib`: 367 passed / 2 ignored, including all
+  previous GUI/CLI late-serial, firmware retry, handshake/shutdown deadline and
+  child-reap regressions.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust file rustfmt and git diff check: passed.
+- Hosted Windows/target/inference CI for this new candidate: NOT RUN.
+
+The original public-CI startup failure's OS cause and the separately observed
+one-off QMP connection reset remain unconfirmed; this deterministic completion
+race is a separate reproduced defect. Previous candidates remain protected.
+
+## Historical candidate preparation records
+
+The sections below retain observations made before those candidates were
+published. Statements about an unpushed candidate or pending hosted CI describe
+that earlier preparation point, not the current published 5ecef8e baseline.
+The published CI result and the newer unpushed completion-ordering candidate
+are distinguished above.
+
+## PR 90 public CI fixture startup failure candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated test-only follow-up to public PR 90 head
+`0342cc71c1fb1835bf8ca5992eb6d02c5c7620b2` (tree
+`6068b35371e41bb91256187596cd1f6b2d61d578`). At preparation time the base was
+`87b7dea4061be2572526181ab559d63037f823d0` and this candidate was not pushed;
+no approval, merge, workflow rerun, or other external mutation had been performed.
+
+Public [Nagi CI run 41821444900](https://github.com/Roy-To/NagiOS/actions/runs/41821444900)
+completed with failure at the above head (checkout merge 2421aa8a):
+- target_classification: success.
+- windows-launcher: success (Linux-only fixture cases do not execute here).
+- ubuntu-host: failure in Test host-compatible workspace. Format, diagnostic
+  parser tests, host lint/build, real diskless QMP and Legal preparation passed.
+- nagi-target: skipped, not a target acceptance PASS.
+- nagi-m20-inference: skipped, not an inference PASS.
+The separate host-foundations run 41821444770 was skipped.
+
+The sole Ubuntu library failure was
+`commands::qemu_timeout_caller_tests::gui_preserves_serial_emitted_during_diagnostics_and_shutdown`:
+its first GUI case returned in 0 ms, then reading the fixture's nonexistent PID
+file panicked at commands.rs:12027. The suite reported 365 passed / 1 failed /
+2 ignored; headless race and the four-case production timeout test passed.
+The test unwrapped the PID read before checking the runner's Result, hiding the
+actual startup error. The original CI OS error is therefore UNCONFIRMED.
+
+The candidate checks and reports the original runner error before consulting
+PID evidence. It also uses the immutable, executable checkout Python fixture
+rather than writing and immediately executing a per-case script. The fixture
+locates its per-case state beside the first firmware drive passed by the real
+production caller. All timeout/serial/retry/reap assertions and budgets remain;
+no automatic retry or assertion weakening is added. image.rs production source
+is byte-for-byte unchanged.
+
+Potential mechanism, not a confirmed CI diagnosis: another concurrent spawn can
+briefly inherit a writable executable descriptor before exec. A controlled local
+experiment reproduced Linux errno 26 Text file busy while a forked child held
+that descriptor, followed by success once it closed. A fixed executable source
+avoids creating that writable-executable window during parallel tests. Twelve
+baseline caller-suite processes (four concurrently, 120 total scenario runs)
+with improved error reporting did not reproduce the original CI failure.
+
+Candidate validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 366 passed / 2 ignored.
+- 12 additional caller-suite processes, four concurrently: all 36 Rust test
+  executions / 120 scenario runs passed.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed-file rustfmt and git diff check: passed.
+
+At preparation time public CI had not run this follow-up. Subsequent approved
+publication as 5ecef8e and its successful CI are recorded in the current entry
+above. That success does not establish the original startup failure's OS cause.
+The earlier candidate worktrees remain protected.
+
+## PR 90 final serial capture race candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated follow-up to protected candidate
+`781971b9626d3879b71f1a6cfd181f596334559b` (tree
+`5bf3b990a00ae4f1a10ff96739a93f38343b0675`). Public PR starting head remains
+`06e0600fd01b71cc30573b22b944f7900b890ab1`; public base/merge-base remains
+`87b7dea4061be2572526181ab559d63037f823d0`. No push, merge, or milestone PASS.
+
+Independent review found that the diagnostic reservation left a race: kernel
+and acceptance serial emitted during diagnostics was absent from the final
+log, allowing a false pre-guest firmware retry. Headless QEMU's file log was
+overwritten with a pre-diagnostic snapshot; GUI serial was not read during the
+QMP diagnostic exchange.
+
+Headless timeout now kills/reaps the file writer and appends diagnostics without
+replacing its final serial file. GUI timeout drains serial concurrently with
+QMP diagnostics, kills/reaps QEMU, then drains the bytes already queued before
+saving the complete collected serial and appending diagnostics. Nonblocking
+serial reads and a completion signal avoid allocating another timed grace
+period after the existing absolute deadline. A serial capture or final-log
+write error fails outside the firmware-timeout retry signature, since a partial
+log cannot establish that the kernel never started. The existing retry wrapper
+continues to classify from the persisted final log. Acceptance emitted after
+the guest waiting cutoff remains a timeout; it is preserved as evidence rather
+than retroactively reported as success.
+
+Linux production-caller regressions run both public headless/GUI entry points.
+They emit a 213,045-byte serial payload containing `Nagi Kernel started`, the
+acceptance marker, and a final tail either on query-status (including a stalled
+QMP reply) or immediately before the last primary diagnostic reply. All six
+late-serial cases require complete payload preservation, exactly one kernel
+and acceptance marker, retry suppression, original timeout bounds, and child
+reaping. Four existing no-late-serial cases retain positive firmware retry
+classification or reject stalled diagnostics as before. The local fixture
+requires /usr/bin/python3, loopback TCP, and /proc; it verifies host orchestration,
+not real Nagi guest acceptance.
+
+Validation with nightly-2025-08-01:
+- Focused caller tests: all ten cases passed (three Rust tests after splitting
+  the CLI and GUI race regressions for independent negative controls).
+- Negative controls: temporarily restoring only image.rs to 781971b made both
+  CLI and GUI race tests fail on missing final serial (only 511 log bytes).
+  The fix was restored before final validation.
+- `cargo test --locked -p nagi-cli --lib`: 366 passed, 2 ignored; includes
+  existing handshake/shutdown deadline, firmware retry, and disk-integrity tests.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Windows CI and real Nagi guest acceptance: NOT RUN for this follow-up.
+
+The earlier candidate/worktree remains unchanged. Generated dependency sources
+were reused locally without dependency/lockfile changes. Process kill/reap,
+nonblocking draining, filesystem I/O and OS scheduling retain normal overhead;
+no hard real-time guarantee is claimed.
+
+## PR #90 timeout diagnostic reservation candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local candidate, no push or merge, no milestone PASS.
+Starting public PR head: `06e0600fd01b71cc30573b22b944f7900b890ab1`.
+Fetched public main/base and merge-base: `87b7dea4061be2572526181ab559d63037f823d0`.
+
+The headless and GUI acceptance waiters previously started timeout diagnostics
+with an already expired host deadline, skipping query-status and preventing the
+existing pre-guest firmware retry signature from matching. Both waiters now
+reserve the final min(5 seconds, 10% of the configured timeout) for diagnostics.
+Guest waiting therefore ends that much earlier. Successful QMP shutdown still
+uses the original absolute deadline. GUI serial polling and periodic register
+tracing respect the reservation; diagnostic exchanges keep the original hard
+deadline, including when QMP stops responding. No new timeout is allocated.
+Startup/protocol failures and firmware retry disk-integrity guards retain their
+existing behavior. Process kill/reap and local log I/O have normal scheduling
+and syscall overhead; the timeout is not a hard real-time guarantee.
+
+The Linux production-caller regression launches a test-only Python QMP peer
+through actual `run_qemu` and `run_qemu_gui` entry points, including production
+spawn/handshake/serial handling. Four cases cover responsive/stalled QMP for
+both callers, actual query receipt, persisted diagnostics, timeout errors,
+firmware retry signature eligibility (and rejection after a kernel marker),
+and absence of the child including zombie state in /proc. It does not simulate
+Nagi guest acceptance. Python 3 at /usr/bin/python3 is a Linux test prerequisite.
+The existing retry tests continue to cover bounded retry and disk-change guards.
+
+Validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 364 passed, 2 ignored (fixture child
+  and opt-in real QEMU test).
+- Focused new production-caller test: four cases passed; observed 2918/3007 ms
+  headless and 2928/3007 ms GUI with a 3000 ms total budget. Assertions allow
+  400 ms scheduling/cleanup slack, without extending production deadlines.
+- Negative control: restoring only image.rs to the specified public head made
+  the new test fail: no diagnostic query was sent, only qmp_capabilities.
+  Restored the fix and reran the full library suite.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Opt-in diskless real QMP compatibility: passed on QEMU 10.0.13 with local
+  library/BIOS paths; initial unconfigured launch lacked its BIOS, and the
+  configured run emitted a missing optional kvmvapic ROM warning. This verifies
+  protocol compatibility only; full Nagi guest and Windows CI remain NOT RUN.
+
+Generated dependency sources were reused from the existing workspace to resolve
+Cargo's workspace graph; no dependency or lockfile changes are part of this
+candidate. The private product ledger was not needed for this existing host
+orchestration bug fix; product behavior and milestone activation are unchanged.
+
+## QMP acceptance caller deadline coverage — 2026-11-04
+
+The independent review of PR #90 head `e1e63460` found that the direct shutdown
+helper regression did not detect deadline renewal by its production acceptance
+caller. An additional regression now acknowledges fake QMP readiness, supplies
+a partially consumed absolute deadline to `wait_for_qemu_any_with_qmp`, and
+follows its actual acceptance-to-shutdown branch. Two of an original four
+seconds are represented as already consumed; two seconds remain, without any
+startup or acceptance sleep spending that remainder. The test requires a
+fixture-written witness that the quit command was actually received, the
+original deadline's exhaustion, an unsuccessful/reaped child, preserved serial
+bytes and the existing 500 ms upper slack.
+
+A temporary negative control changed only the production acceptance caller to
+pass `Instant::now() + timeout` to the quit helper. The new regression observed
+quit receipt and failed on the resulting false success after the fixture's
+bounded three-second clean exit. The mutation was restored. Production source
+is unchanged from `e1e63460`; the prior handshake and direct shutdown tests
+remain. This adds coverage without changing production budgets, assertions,
+CI gates or ignored tests.
+
+Pinned local verification passed: new acceptance/shutdown regression; full
+default-parallel bootstrap CLI suite (same production source: 363 library tests
+passed / 2 ignored, 33 CLI passed); real diskless QMP 1/1; all-target Clippy
+with warnings denied; changed-file formatting. Latest-head Windows/platform CI
+is still required. Nagi guest/VM acceptance remains unclaimed.
+
+## QMP shutdown deadline regression follow-up — 2026-11-04
+
+PR #90 head `9d13cd70` CI run `41759758392` failed the Windows shutdown
+regression: at 2,003 ms the fixed 200 ms handshake plus 1,400 ms acceptance
+schedule had not reached acceptance, so the runner correctly returned an
+acceptance timeout rather than the shutdown timeout expected by the test.
+Ubuntu's real diskless QMP check passed on that head.
+
+The follow-up changes tests only. It completes and acknowledges protocol setup
+under a bounded readiness guard, then directly tests the shutdown helper with
+an absolute two-second deadline and an already-expired deadline. The existing
+two-second handshake/lifecycle regression remains unchanged. The shutdown
+budget, 500 ms upper slack, error classification, unsuccessful child status,
+process reaping and serial preservation checks remain enforced. The fixture
+now exits cleanly after a bounded three-second quit hold, so a broken deadline
+renewal fails promptly rather than waiting for an unrelated long timeout.
+
+Pinned local checks passed: the shutdown boundary cases, full default-parallel
+bootstrap suite (same CLI source: 362 library tests / 2 ignored, 33 CLI tests),
+explicit real diskless QMP 1/1, all-target Clippy with warnings denied and
+changed-file formatting. A temporary negative control renewing the shutdown
+deadline to 30 seconds failed as intended after 3,040 ms by returning a false
+success. The mutation was restored and production source was compared unchanged
+with `9d13cd70`. Windows validation of this test correction awaits latest-head
+public CI; no test was skipped and no production timeout or CI gate was changed.
+
+## QMP deadline/parser integration candidate — 2026-11-04
+
+Status: `PARTIAL`. Ported the QMP-only changes from candidate
+`03e48e1404c1ad6a2bb6d059d176928424603b78` (tree
+`5eccfd1541a1fa47e7bb0ab59d345d87149f293a`) onto main
+`0362427747e769b00558053e4c7f4c756d303802`. The source histories have no
+common ancestor, so unrelated candidate APIs, guest changes and milestone
+claims are excluded. Public QEMU runner APIs remain compatible with main.
+
+The subsequent main `87b7dea4061be2572526181ab559d63037f823d0`
+(Calendar PR #89 boundary tests) was integrated without conflicts or changes
+to the QMP source. Full default-parallel CLI, real diskless QMP and Calendar
+host suites passed again on this combined candidate.
+
+The runner retains its original host deadline across handshake, acceptance,
+diagnostics and shutdown; parses greeting/response JSON; validates known
+command result shapes and asynchronous-event timestamps. A real diskless QEMU
+11.1.1 check on macOS found a closed-socket timeout-configuration race during
+quit. Shutdown accepts this only after observing a clean owned-process exit
+within the original deadline. The diskless regression is opt-in locally and
+runs in the existing Ubuntu host CI job.
+
+Pinned nightly-2025-08-01 local verification: QMP filter 12 passed / 1 ignored;
+explicit real diskless QMP 1 passed; standalone bootstrap (same CLI production
+source) full serial suite 362 library tests passed / 2 ignored, 33 CLI tests
+passed, 0 doctests; Clippy all targets with warnings denied and Python
+regression passed. The initial full parallel run failed the shutdown timing
+assertion under load and a missing generated mozjs fixture. The official
+registry-source preparation supplied the pinned fixture; the serial rerun
+passed without changing assertions. Parallel-load timing remains a CI risk.
+The ordinary workspace run initially stopped before tests because generated
+third-party sources were absent; full workspace/platform CI is still required.
+
+No Nagi guest, existing disk, image, overlay, receipt or launch claim was used.
+Diskless QMP compatibility is not Nagi guest/VM acceptance. Nagi 0.1 and all
+milestone statuses remain unchanged. Candidate bundle, original available
+logs, failed and successful verification logs are preserved in an isolated
+SSD evidence directory for this integration task.
+
 ## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
 
 Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
@@ -651,7 +1285,7 @@ generated checkout and receipt remain local and are not PR content.
 
 **Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
-M23–M30 `PARTIAL`.
+M23–M29 `PARTIAL`; formal M30 `BLOCKED`.
 **M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
 signed first-party `org.nagi.files` client to the ordinary Files Search path.
 The client is built as a separate product package, receives only Object IDs,
@@ -668,6 +1302,16 @@ host, `cargo test -p nagi-cli -p nagi-search-ipc`, host clippy for
 release build, and a Nagi-target `cargo check` of `nagi-init` with
 `desktop-password-change-acceptance,m19-files-search-production` passed. The
 `./nagi login` guest acceptance was not run there; CI is the next evidence.
+**Ordinary-session integration foundation:** the shared bridge implements one
+bounded guest-worker request slot, live Session binding, cancellation, late-reply
+rejection and safe retired-worker lifetime rules. Model-service/backend leaves
+and ordinary-session image/release gates are included. Host tests and target
+leaf checks validate contracts and compilation only. Desktop AI consumption,
+durable terms persistence, a real guest worker/Granite reply and complete
+same-image acceptance remain unverified. Formal M30 is `BLOCKED`; the existing
+disk-layout fixture remains separately available as `m30-layout`. Embedding and
+TTS are standalone `PARTIAL` foundations. No milestone is promoted.
+
 **M18 acceptance closure, 2026-10-07:** `origin/main` commit
 `7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
 [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).
@@ -689,6 +1333,24 @@ are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
 history publication is still acceptance-scoped, and a resident production
 Search service plus general Files producer synchronization remain open; M19
 stays `PARTIAL`.
+**M19 ordinary Files recovery checkpoint:** recovered owner-only
+create/rename/trash/restore controls use mirrored trash intent records and bounded
+VFS create/rename undo recovery. Contents and inode/generation are retained;
+Search failure does not disable physical Files operations. The signed Files
+Search client remains in source. Fresh host validation passed 24 Files tests, 93 libnagi unit plus 2 renderer
+tests, 40 Search/IPC/localization regressions, formatting and warnings-denied
+Clippy. A synthetic disk written by the exact-base VFS was read without writes
+or formatting by the recovered VFS; clean new mutations remained readable by
+the old VFS. Imported target/guest logs are historical. Imported guest evidence stopped at M7
+before init. Normal guest UI/Search operations and Browser History acceptance
+remain open; M19 stays `PARTIAL`. See the Files handoff and VFS recovery proposal.
+**Recovery caller follow-up:** read-only inspection diagnoses pending supported
+VFS undo; an explicit Recovery-console `recover` operation performs no-format
+writable recovery and checks full integrity before exposing a mount. Six fresh
+synthetic caller tests pass, including unchanged diagnosis bytes/counters,
+create/rename restoration, rejected input, retry and unrelated corruption after
+journal repair. This is host evidence; normal guest Recovery acceptance remains
+unproven and no Recovery milestone is marked complete.
 **M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
 the shared User Data VFS snapshot adapter and starts a bounded SearchService
 when the owner signs in. It enumerates only regular files directly under
@@ -3296,7 +3958,7 @@ confirmed the expected ABI entry point. The next Ubuntu target CI must verify
 the duplicate is gone in the final link. UEFI and real QEMU first-web-pixel
 evidence remain pending. M17 remains `BLOCKED`; M18 remains `NOT STARTED`.
 
-Local verification after the #164 repair passed: focused M17 tests (11), the
+Local verification after the #164 repair passed: focused M18 tests (11), the
 full `nagi-cli` suite (49 unit and 18 CLI tests), focused Clippy,
 `bash -n tools/nagi-target-cc.sh`, and `git diff --check`. The Nagi wrapper
 compiled `nagi-libcpp-abi.cpp` plus the real fontsan OTS `ots.cc` and `cff.cc`
@@ -10701,6 +11363,63 @@ context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
 
+## PR #43 current-main integration (2026-11-04)
+
+Status: M20 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public PR #43 head `909d8ee01da5ff5f62a422ea67057b5ea27cafa1`
+as its first-parent lineage and merges main `0362427747e769b00558053e4c7f4c756d303802`.
+Only the reviewed worker file through candidate `03da0373c03efdb248625e2e2b4c024c2326941c`
+is replayed from the combined candidate. No #48 Desktop/Bar UI is imported.
+Locked worker entry points revoke the matching session; quarantine retains a
+same-session failure reply while fencing alternate sessions and late output.
+The worker CI step and main's separate Ubuntu/Windows Installer checks remain.
+The layout fixture, partial production-session image build and failing formal
+M30 gate remain distinct; release acceptance requirements are unchanged.
+
+Local Linux x86-64 validation: 500 nagi-cli/model-manager/AI unit, integration
+and documentation tests; 16 worker orchestration and 3 session access tests;
+35 standalone Installer tests; 37 release/profile/session Python tests passed.
+Affected host formatting and warnings-denied Clippy passed, as did actual Nagi
+worker/model-service target-leaf Clippy (existing dependency nagi-posix warnings
+remain). Legal delegation initially failed on uncached offline dependencies;
+fetching the pinned Legal lockfile dependencies allowed the full rerun to pass.
+A direct production-session host check stopped at the required missing
+NAGI_FILES_SEARCH_PACKAGE artifact; it does not establish an init build result.
+No native init link, new guest worker/inference, durable consent, or same-image
+M30 acceptance is claimed. Hosted CI results must be assessed at the published
+integration head separately from these local checks.
+
+
+## PR #48 current-main and PR #43 integration (2026-11-04)
+
+Status: M20/M23 `PARTIAL`; formal M30 `BLOCKED`.
+The integration retains public #48 head `27f844308a779c8bde93e48e49a21f0c39c8f5a0`,
+merges main `0362427747e769b00558053e4c7f4c756d303802`, and then merges published
+#43 head `54f24085939a40d86a451d191c4d4bb91f3f2103`. Its worker source exactly
+matches #43, so reviewed worker fencing is imported once through that ancestry.
+The combined candidate `746f19eb15e0bb69079b0267aa682b0ecf0a5b09` supplies
+scoped host fixtures, live Shared queue tests, cancellation-drain status and
+Desktop lock-state cleanup. The public Files panel, recoverable trash and
+Search lifecycle, production image commands, release evidence validator,
+layout fixture and formal M30 gate remain present. The combined candidate's
+whole tree is deliberately not substituted for the public PR.
+
+The production Desktop loop now calls the same bounded service step exercised
+by host regressions. Its target-only signed Files client remains target-only
+when the host harness enables the production feature graph. The existing
+Files test constructors initialize their acceptance-only fields when run in
+the login acceptance feature configuration. No production Files behavior or
+release assertion is weakened.
+
+Local Linux x86-64 validation of the integrated source: 49 UI/controller tests,
+48 Desktop/Files/worker tests, 26 login/Files tests, 16 standalone worker tests,
+and 37 release/profile/session Python tests passed. Session UI all-target
+Clippy passed with warnings denied. These host tests use explicit syscall and
+scripted model seams; they do not establish guest inference. CI now runs the
+Nagi Bar host suite on Windows as well as Ubuntu; new public CI and Windows
+results must refer to the published successor. Actual guest/model validation
+and complete workspace checks remain pending at this checkpoint.
+
 ## M24 scoped production read boundary candidate (2026-11-05)
 
 M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
@@ -10730,6 +11449,53 @@ This read-only candidate is now reapplied on main
 Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
 target check with a normally built/signed client. This is a local candidate;
 main/public heads and guest execution are unchanged.
+
+
+## M24 read overlay on current Desktop head (2026-11-05)
+
+A separate local candidate layers only the reviewed M24 read APIs and actual
+Files caller changes on `d769d7a79b48b6a01f1bf56c007181b15cfe678f`. The previous
+read overlay's base was `542db087`; it is not treated as the current head.
+The current CI scope gates, QMP/EOF shutdown code and all pre-existing status
+notes remain intact. Runtime synchronized/Trash guards and existing test bodies
+are preserved; the two appended read regressions check sync failure suppression
+and stable title/ObjectId restoration. M24 remains PARTIAL: legacy BTree OOM,
+writer coordination, guest/media safety and the unknown old build are not
+resolved by these scoped read changes. No public head, CI job, push or merge
+operation is part of this candidate.
+
+Current-base host checks passed: Search 38, Files 32, Session 49, normal Desktop
+host 58, login-acceptance host 28, CI classification 13, plus three selected
+QMP/EOF host tests using sockets/scripted fixture children rather than real
+QEMU. Search Clippy passes with warnings denied. No new target/guest/media
+acceptance is claimed by this host-only refresh.
+
+
+## Conditional Desktop composition after the pinned #96 source (2026-11-05)
+
+This is a local one-parent snapshot on c32341ce, composed with the fixed
+Desktop source d769d7a. It prepares the case in which #96's read changes are
+adopted; it does not claim #96 has merged or that any current CI run passed.
+Search read implementation is inherited once from the parent without another
+Search patch. The resulting executable source matches the reviewed 21736930
+Desktop read candidate. Both original state-record additions are retained above.
+CI/QMP/EOF, synchronized/Trash guards and release status are not weakened.
+No push, repository merge, guest, real-media, writer-exclusion or old-build
+operation is part of this conditional preparation. M24 remains PARTIAL.
+
+
+## Local real-history integration after verified #96 merge (2026-11-05)
+
+The conditional composition above records plan 65ff62d and remains historical.
+The real main commit 2c9532943a6624980892d01ce7e91f6d32545d25 has now been
+read-verified with tree 34fcfa03ba7e19081c4937a235924591d0e92e92, identical
+to the reviewed c32341ce source. This separate local Desktop candidate retains
+d769d7a as first-parent history and imports that actual main as its second
+parent. No public PR/head is updated by this local operation. Executable source
+remains identical to the conditional plan and 21736930; read APIs are inherited
+from main once, not replayed as another Search patch. Both prior state records
+remain intact. Local host checks and hosted CI are distinct; no new hosted CI,
+writer, old-build, guest or real-media result is inferred. M24 remains PARTIAL.
 
 ## M24 bounded semantic read allocation candidate revised (2026-11-05)
 
@@ -10780,3 +11546,44 @@ compiler/host information and logs are local under
 Target latency, real guest OOM, allocator overhead, initial decoding, update
 clones and caller/provider allocations remain unverified or outside this
 change. No VM execution or public write was performed; no milestone is promoted.
+
+## PR 48 responsive Files Search waiting — 2026-11-05
+
+Status: `PARTIAL`. Isolated local candidate based on published PR 48 head
+`3882b2c3cbe06073122d7e196a01b2e7046f50e3`. The existing consent-progress
+branch is already in that head; no separate request/relay/reap fix was found
+in the visible PR/history/remote Files and Desktop branches. No public update,
+CI or VM operation was performed. The private product ledger returned an
+authenticated 404 and remains unverified; scope is the existing public waiting
+and revocation contract.
+
+The foreground request/relay/exit wait now processes Desktop input and bounded
+model steps and yields, using a shared 3000-tick budget after consent. Owner
+session/query revision and live launch/grants gate adoption. Lock, Escape,
+editing and resubmission invalidate old work. Failure aborts, revokes launch
+and closes the endpoint immediately; one retained PID is polled on idle/locked
+iterations, with further Files launches refused until exit collection. A stalled
+child can still occupy that one slot indefinitely; no termination is claimed.
+The new init-only process exit poll does not register a waiter. Existing
+blocking process wait and Channel receive contracts remain unchanged. Kernel
+and init must be updated together for this ABI addition.
+
+Host validation: session-ui check passes 49 controller/bridge, 65 production
+Desktop/Files/Shared (including seven new wait tests), and 28 legacy
+configuration tests. Seven focused wait tests pass after adding model progress
+and reap timeout coverage; five applicable wait tests also pass with the model
+service disabled. Preserved Files suite: 30 tests pass. Pure process
+exit state-machine: eight tests pass, including two new poll tests. Formatting
+and whitespace checks pass. Counts overlap; they are not a combined total.
+The complete changed kernel compiles for the x86-64 Nagi target in an isolated
+manifest. A target leaf manifest compiles the actual Desktop/Files/client/service/
+Supervisor sources with production-session and actual libnagi; it embeds an
+empty compile-only package and excludes native model linking. Warnings from
+unused fixture entrypoints/configuration remain. These are compile-only checks,
+not final linked image or syscall execution evidence.
+
+Full signed launch/normal Desktop loop, actual kernel scheduling, native model
+worker, guest exit/wakeup, final linking and real guest acceptance remain
+NOT_RUN. VFS synchronization and synchronous runtime search evaluation are
+outside this wait-only correction. No milestone status is upgraded. See
+`docs/decisions/ADR-pr48-responsive-files-wait.md` and host test README.

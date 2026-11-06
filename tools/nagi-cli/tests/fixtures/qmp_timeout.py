@@ -33,6 +33,10 @@ else:
     Path(serial.removeprefix("file:")).write_text("serial before diagnostics\n")
 if serial_listener:
     serial_stream.sendall(b"serial before diagnostics\n")
+acceptance_mode = (root / "acceptance").read_text() if (root / "acceptance").exists() else ""
+if acceptance_mode:
+    assert serial_listener, "acceptance fixture requires GUI serial TCP"
+    serial_stream.sendall(b"Nagi M10 desktop READY\nNagi login acceptance PASS\n")
 stream, _ = qmp_listener.accept()
 with stream, stream.makefile("rwb", buffering=0) as peer:
     peer.write(b'{"QMP":{"version":{"qemu":{"major":9,"minor":2,"micro":0},"package":""},"capabilities":[]}}\r\n')
@@ -41,6 +45,15 @@ with stream, stream.makefile("rwb", buffering=0) as peer:
         command = request["execute"]
         with (root / "requests").open("a") as log:
             log.write(line.decode())
+        if command == "quit" and acceptance_mode:
+            payload = b"acceptance shutdown payload\n" * 8192 + b"Nagi init process fault vector=13 error=0\nserial final tail\n"
+            serial_stream.sendall(payload)
+            (root / "late-sent").write_text(str(len(payload)))
+            if acceptance_mode == "stall-quit":
+                time.sleep(30)
+            if acceptance_mode == "tail-ack":
+                peer.write(b'{"return":{}}\r\n')
+            break
         late_mode = (root / "late").read_text() if (root / "late").exists() else ""
         last_primary = request.get("arguments", {}).get("command-line") == "x/32i $pc - 0x60"
         if (late_mode == "query" and command == "query-status") or (late_mode == "final" and last_primary):
@@ -57,6 +70,16 @@ with stream, stream.makefile("rwb", buffering=0) as peer:
         if command == "human-monitor-command":
             value = "RIP=000000007eb84171 firmware instruction"
         peer.write((json.dumps({"return": value}) + "\r\n").encode())
+        if command == "qmp_capabilities" and (root / "serial-eof").exists():
+            mode = (root / "serial-eof").read_text()
+            assert serial_listener, "serial EOF fixture requires GUI TCP"
+            serial_stream.shutdown(socket.SHUT_WR)
+            serial_stream.close()
+            if mode == "stall":
+                time.sleep(6)
+            if mode == "nonzero":
+                sys.exit(7)
+            break
         if command == "qmp_capabilities" and (root / "eof").exists():
             options = json.loads((root / "eof").read_text())
             if options["kernel"]:

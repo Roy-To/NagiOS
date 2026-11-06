@@ -22,4 +22,5 @@ pub mod user_elf;
 pub mod user_ipc;
 pub mod user_process;
 pub mod virtio;
+pub(crate) mod virtqueue;
 pub mod vmo;

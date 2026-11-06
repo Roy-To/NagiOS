@@ -52,13 +52,20 @@ fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
         change < verify,
         "credential verification must follow the change"
     );
+    let create = login.find("\"create\",create_events,").unwrap();
+    let throttle = login.find("\"throttle\",throttle_events,").unwrap();
+    let create_phase = &login[create..throttle];
+    assert!(create_phase.contains("NagiloginreadinessreportedPASS"));
+    assert!(create_phase.contains("NagiM19signed-indesktopFilesObjectIdinitialpersistPASS"));
+    assert!(create_phase.contains("NagiM19signed-indesktopSearchServicereadyPASS"));
+    assert!(!create_phase.contains("DESKTOP_SIGNED_IN_MARKER"));
     let change_phase = &login[change..verify];
     assert!(change_phase.contains("NagipasswordchangeREJECTEDcurrent"));
     assert!(change_phase.contains("NagipasswordchangePASS"));
     for marker in [
         "Nagi M19 signed-in desktop Files query PASS",
         "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
-        "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
+        "Nagi M19 signed-in desktop Files ObjectId restore PASS",
         "Nagi M19 signed-in desktop SearchService ready PASS",
         "Nagi M19 signed-in desktop Files UI Search PASS",
         "Nagi M19 signed-in desktop nested Files Search PASS",

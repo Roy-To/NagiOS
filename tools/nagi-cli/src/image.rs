@@ -2782,13 +2782,19 @@ fn run_gui_qemu_with_serial_reader(
                             ));
                         }
                     }
-                    let exit_status = quit_qemu_after_acceptance(
+                    let exit_status = quit_gui_qemu_after_acceptance(
                         &mut child,
                         &mut qmp_stream,
+                        &mut serial_stream,
                         config.serial_log,
-                        &serial,
+                        &mut serial,
                         deadline,
                     )?;
+                    if let Some(marker) =
+                        failure_marker.filter(|marker| guest_reached_failure(&serial, marker))
+                    {
+                        return Err(format!("GUI QEMU guest printed failure marker `{marker}`"));
+                    }
                     return Ok(QemuGuiOutcome {
                         exit_status,
                         ready_after: Some(ready_after),
@@ -3098,6 +3104,77 @@ fn terminate_qemu(child: &mut Child, serial_log: &Path, serial: &[u8]) {
     let _ = child.kill();
     let _ = child.wait();
     let _ = fs::write(serial_log, serial);
+}
+
+/// Keep receiving while QMP shuts down QEMU, including bytes already queued
+/// when the process exits. Waiting for EOF rather than one idle read prevents
+/// a success marker from hiding a failure in a later TCP read.
+fn quit_gui_qemu_after_acceptance(
+    child: &mut Child,
+    qmp_stream: &mut TcpStream,
+    serial_stream: &mut TcpStream,
+    serial_log: &Path,
+    serial: &mut Vec<u8>,
+    deadline: Instant,
+) -> Result<i32, String> {
+    let before_shutdown = serial.clone();
+    let (shutdown, drained) = thread::scope(|scope| {
+        let receiver = thread::Builder::new().spawn_scoped(scope, || {
+            serial_stream.set_nonblocking(true).map_err(|error| {
+                format!("cannot configure GUI serial shutdown capture: {error}")
+            })?;
+            drain_gui_serial_until_eof(serial_stream, serial, deadline)
+        });
+        let shutdown =
+            quit_qemu_after_acceptance(child, qmp_stream, serial_log, &before_shutdown, deadline);
+        let drained = match receiver {
+            Ok(receiver) => receiver
+                .join()
+                .unwrap_or_else(|_| Err("GUI serial receiver panicked during shutdown".to_owned())),
+            Err(error) => Err(format!("cannot start GUI serial shutdown capture: {error}")),
+        };
+        (shutdown, drained)
+    });
+    // The shutdown helper persists its snapshot even on errors. Replace that
+    // snapshot with every byte received before evaluating any acceptance gate.
+    fs::write(serial_log, serial).map_err(|error| {
+        format!(
+            "cannot write GUI serial log {}: {error}",
+            serial_log.display()
+        )
+    })?;
+    let status = shutdown?;
+    drained?;
+    Ok(status)
+}
+
+fn drain_gui_serial_until_eof(
+    stream: &mut impl Read,
+    serial: &mut Vec<u8>,
+    deadline: Instant,
+) -> Result<(), String> {
+    let mut buffer = [0_u8; 4096];
+    loop {
+        if Instant::now() >= deadline {
+            return Err("GUI serial stream did not close after QEMU shutdown".to_owned());
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(count) => serial.extend_from_slice(&buffer[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                thread::sleep(remaining.min(Duration::from_millis(1)));
+            }
+            Err(error) => return Err(format!("cannot drain GUI serial TCP stream: {error}")),
+        }
+    }
 }
 
 fn quit_qemu_after_acceptance(
@@ -4780,6 +4857,288 @@ mod tests {
             b"accepted\n"
         );
         std::fs::remove_file(serial_log).expect("remove serial fixture");
+    }
+
+    #[test]
+    fn gui_shutdown_collects_later_tcp_reads_before_login_failure_validation() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::process::{Command, Stdio};
+
+        for (index, failure) in [
+            "",
+            "Nagi login throttle persistence FAIL",
+            "Nagi init process fault vector=13 error=0",
+            "Nagi M5 process exit FAIL",
+            "Nagi M19 signed-in desktop SearchService unavailable",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let serial_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let serial_address = serial_listener.local_addr().unwrap();
+            let qmp_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let qmp_address = qmp_listener.local_addr().unwrap();
+            let accepted = b"Nagi login acceptance PASS\r\n";
+            let tail = format!("{failure}\r\n");
+            let expected = [accepted.as_slice(), tail.as_bytes()].concat();
+            let server = std::thread::spawn(move || {
+                let (mut serial, _) = serial_listener.accept().unwrap();
+                serial.write_all(accepted).unwrap();
+                let (qmp, _) = qmp_listener.accept().unwrap();
+                let mut qmp = BufReader::new(qmp);
+                let mut command = String::new();
+                qmp.read_line(&mut command).unwrap();
+                assert_eq!(command.trim(), r#"{"execute":"quit"}"#);
+                // The client has already consumed acceptance and requested
+                // shutdown. This tail necessarily arrives in a later read.
+                serial.write_all(tail.as_bytes()).unwrap();
+                drop(serial);
+                // Exercise both normal QMP acknowledgement and disconnect.
+                if index % 2 == 0 {
+                    qmp.get_mut().write_all(b"{\"return\":{}}\r\n").unwrap();
+                }
+            });
+            let mut serial_stream = TcpStream::connect(serial_address).unwrap();
+            serial_stream
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
+            let mut serial = vec![0; accepted.len()];
+            serial_stream.read_exact(&mut serial).unwrap();
+            assert_eq!(serial, accepted);
+            let mut qmp = TcpStream::connect(qmp_address).unwrap();
+            qmp.set_read_timeout(Some(Duration::from_millis(100)))
+                .unwrap();
+            let mut child = Command::new(std::env::current_exe().unwrap())
+                .arg("--list")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            assert!(child.wait().unwrap().success());
+            let log = unique_persistent_disk_path("gui-shutdown-later-serial");
+            assert_eq!(
+                super::quit_gui_qemu_after_acceptance(
+                    &mut child,
+                    &mut qmp,
+                    &mut serial_stream,
+                    &log,
+                    &mut serial,
+                    Instant::now() + Duration::from_secs(5),
+                )
+                .unwrap(),
+                0,
+            );
+            server.join().unwrap();
+            assert_eq!(serial, expected);
+            assert_eq!(std::fs::read(&log).unwrap(), expected);
+            let captured = std::fs::read_to_string(&log).unwrap();
+            let result = crate::commands::reject_login_runtime_failures(&captured);
+            if failure.is_empty() {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.unwrap_err().contains(failure));
+            }
+            std::fs::remove_file(log).unwrap();
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn gui_serial_eof_before_acceptance_keeps_deadline_and_reaps_child() {
+        use std::fs;
+        for mode in ["stall", "clean", "nonzero"] {
+            let root = unique_persistent_disk_path("gui-eof-before-acceptance");
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join("serial-eof"), mode).unwrap();
+            let template = root.join("template");
+            fs::write(&template, b"vars").unwrap();
+            let disk = root.join("disk");
+            fs::write(&disk, b"disk").unwrap();
+            let vars = root.join("vars");
+            let log = root.join("serial");
+            let qemu = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join("nagi-cli/tests/fixtures/qmp_timeout.py");
+            let timeout = Duration::from_secs(1);
+            let config = super::QemuConfig {
+                qemu: &qemu,
+                ovmf_code: &template,
+                ovmf_vars_template: &template,
+                disk_image: &disk,
+                persistent_disk: &disk,
+                vars_copy: &vars,
+                serial_log: &log,
+                acceptance_marker: "not accepted",
+                timeout,
+            };
+            let started = Instant::now();
+            let result = super::run_qemu_gui_with_events_mode_and_serial_input_and_screenshot_timed(
+                &config,
+                "not ready",
+                &[],
+                &[],
+                None,
+                super::GuiQemuMode {
+                    boot_disk_read_only: false,
+                    reuse_ovmf_vars: false,
+                    inter_event_delay: Duration::ZERO,
+                },
+                None,
+                None,
+            );
+            let elapsed = started.elapsed();
+            let pid = fs::read_to_string(root.join("pid")).unwrap();
+            assert!(
+                !Path::new("/proc").join(pid.trim()).exists(),
+                "{mode}: child not reaped"
+            );
+            let captured = fs::read_to_string(&log).unwrap();
+            assert!(captured.starts_with("serial before diagnostics\n"));
+            if mode == "stall" {
+                // The merged #90 path retains diagnostics after EOF using
+                // the same original deadline; no serial bytes may be lost.
+                assert!(captured.contains("Nagi QEMU timeout diagnostics:"));
+                assert!(captured.contains("QMP query-status failed:"));
+            } else {
+                assert_eq!(captured, "serial before diagnostics\n");
+            }
+            fs::remove_dir_all(root).unwrap();
+            println!(
+                "GUI EOF mode={mode} elapsed_ms={} budget_ms={}",
+                elapsed.as_millis(),
+                timeout.as_millis()
+            );
+            if mode == "stall" {
+                let error = result.expect_err("EOF must not renew or ignore the host deadline");
+                assert!(
+                    error.contains("GUI QEMU did not reach acceptance within"),
+                    "{error}"
+                );
+                assert!(elapsed >= timeout - timeout / 10);
+                assert!(
+                    elapsed < timeout + Duration::from_millis(400),
+                    "unbounded EOF wait: {elapsed:?}"
+                );
+            } else {
+                let outcome = result.unwrap();
+                assert!(!outcome.acceptance_reached);
+                assert_eq!(outcome.exit_status, if mode == "clean" { 0 } else { 7 });
+                assert!(elapsed < timeout + Duration::from_millis(400));
+            }
+        }
+    }
+
+    #[test]
+    fn integrated_gui_shutdown_requires_eof_within_the_original_deadline() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::{TcpListener, TcpStream};
+        use std::process::{Command, Stdio};
+        let serial_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let qmp_listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let mut serial_stream = TcpStream::connect(serial_listener.local_addr().unwrap()).unwrap();
+        let (mut producer, _) = serial_listener.accept().unwrap();
+        let mut qmp = TcpStream::connect(qmp_listener.local_addr().unwrap()).unwrap();
+        let (peer, _) = qmp_listener.accept().unwrap();
+        let (release, held) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let mut peer = BufReader::new(peer);
+            let mut command = String::new();
+            peer.read_line(&mut command).unwrap();
+            assert_eq!(command.trim(), r#"{"execute":"quit"}"#);
+            producer
+                .write_all(b"Nagi init process fault vector=13\n")
+                .unwrap();
+            peer.get_mut().write_all(b"{\"return\":{}}\r\n").unwrap();
+            // Hold serial open past clean QMP completion. Bound this fixture
+            // independently so a renewed production deadline cannot hang it.
+            let _ = held.recv_timeout(Duration::from_secs(2));
+        });
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        let log = unique_persistent_disk_path("integrated-gui-eof-deadline");
+        let mut serial = b"Nagi login acceptance PASS\n".to_vec();
+        let started = Instant::now();
+        let result = super::quit_gui_qemu_after_acceptance(
+            &mut child,
+            &mut qmp,
+            &mut serial_stream,
+            &log,
+            &mut serial,
+            started + Duration::from_millis(150),
+        );
+        let elapsed = started.elapsed();
+        let _ = release.send(());
+        server.join().unwrap();
+        assert!(result.unwrap_err().contains("did not close"));
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "renewed serial deadline: {elapsed:?}"
+        );
+        assert_eq!(std::fs::read(&log).unwrap(), serial);
+        assert!(crate::commands::reject_login_runtime_failures(
+            std::str::from_utf8(&serial).unwrap()
+        )
+        .is_err());
+        std::fs::remove_file(log).unwrap();
+    }
+
+    #[test]
+    fn gui_serial_drain_keeps_split_failures_across_idle_reads_and_requires_eof() {
+        use std::collections::VecDeque;
+        use std::io::{self, Read};
+
+        struct Reads(VecDeque<io::Result<Vec<u8>>>);
+        impl Read for Reads {
+            fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+                let bytes = self.0.pop_front().expect("unexpected read after EOF")?;
+                output[..bytes.len()].copy_from_slice(&bytes);
+                Ok(bytes.len())
+            }
+        }
+        let mut reads = Reads(VecDeque::from([
+            Err(io::ErrorKind::TimedOut.into()),
+            Ok(b"Nagi init proc".to_vec()),
+            Err(io::ErrorKind::Interrupted.into()),
+            Err(io::ErrorKind::WouldBlock.into()),
+            Ok(b"ess fault vector=13\r\n".to_vec()),
+            Ok(Vec::new()),
+        ]));
+        let mut serial = b"Nagi login acceptance PASS\r\n".to_vec();
+        super::drain_gui_serial_until_eof(
+            &mut reads,
+            &mut serial,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(
+            serial,
+            b"Nagi login acceptance PASS\r\nNagi init process fault vector=13\r\n"
+        );
+        assert!(crate::commands::reject_login_runtime_failures(
+            std::str::from_utf8(&serial).unwrap(),
+        )
+        .is_err());
+        let error = super::drain_gui_serial_until_eof(
+            &mut Reads(VecDeque::new()),
+            &mut serial,
+            Instant::now(),
+        )
+        .unwrap_err();
+        assert!(error.contains("did not close"));
+        let error = super::drain_gui_serial_until_eof(
+            &mut Reads(VecDeque::from([Err(io::ErrorKind::ConnectionReset.into())])),
+            &mut serial,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap_err();
+        assert!(error.contains("cannot drain"));
     }
 
     #[test]

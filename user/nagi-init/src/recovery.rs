@@ -121,21 +121,29 @@ pub fn run(block_capability: u64) -> ! {
 
 fn checked_mount(block_capability: u64) -> Option<GuestVolume> {
     let mut device = SyscallBlockDevice::new(block_capability);
-    match GuestVolume::check_existing(&mut device) {
-        Ok(report) => match GuestVolume::mount_existing(device) {
-            Ok(volume) => {
-                libnagi::console_write(b"Nagi M27 Recovery VFS check PASS files=");
-                write_decimal(report.regular_files as usize);
-                libnagi::console_write(b" directories=");
-                write_decimal(report.directories as usize);
-                libnagi::console_write(b"\r\n");
-                Some(volume)
+    match crate::vfs_recovery::inspect(&mut device) {
+        Ok(crate::vfs_recovery::Inspection::Clean(report)) => {
+            match GuestVolume::mount_existing(device) {
+                Ok(volume) => {
+                    libnagi::console_write(b"Nagi M27 Recovery VFS check PASS files=");
+                    write_decimal(report.regular_files as usize);
+                    libnagi::console_write(b" directories=");
+                    write_decimal(report.directories as usize);
+                    libnagi::console_write(b"\r\n");
+                    Some(volume)
+                }
+                Err(_) => {
+                    libnagi::console_write(b"Nagi M27 Recovery VFS mount FAIL (not formatted)\r\n");
+                    None
+                }
             }
-            Err(_) => {
-                libnagi::console_write(b"Nagi M27 Recovery VFS mount FAIL (not formatted)\r\n");
-                None
-            }
-        },
+        }
+        Ok(crate::vfs_recovery::Inspection::RecoveryRequired) => {
+            libnagi::console_write(
+                b"Nagi M27 Recovery VFS recovery REQUIRED (read-only; not formatted); use recover\r\n",
+            );
+            None
+        }
         Err(_) => {
             libnagi::console_write(
                 b"Nagi M27 Recovery VFS check FAIL (read-only; not formatted)\r\n",
@@ -145,17 +153,39 @@ fn checked_mount(block_capability: u64) -> Option<GuestVolume> {
     }
 }
 
+fn recover_volume(block_capability: u64) -> Option<GuestVolume> {
+    match crate::vfs_recovery::recover_existing(SyscallBlockDevice::new(block_capability)) {
+        Ok((volume, report)) => {
+            libnagi::console_write(b"Nagi M27 Recovery VFS recover PASS files=");
+            write_decimal(report.regular_files as usize);
+            libnagi::console_write(b" directories=");
+            write_decimal(report.directories as usize);
+            libnagi::console_write(b"\r\n");
+            Some(volume)
+        }
+        Err(_) => {
+            libnagi::console_write(b"Nagi M27 Recovery VFS recover FAIL (not formatted)\r\n");
+            None
+        }
+    }
+}
+
 fn dispatch(command: &[u8], volume: &mut Option<GuestVolume>, block_capability: u64) {
     match command {
         b"help" | b"" => {
             libnagi::console_write(
-                b"Commands: check, files, help, history, log, slots, undo\r\n\
+                b"Commands: check, files, help, history, log, recover, slots, undo\r\n\
+                  check diagnoses without repair; recover explicitly restores valid pending VFS undo without formatting\r\n\
                   slots are selected in the UEFI boot menu; undo applies the latest committed NH16 transaction\r\n",
             );
             libnagi::console_write(b"Nagi M27 Recovery command help PASS\r\n");
         }
         b"check" => {
             *volume = checked_mount(block_capability);
+        }
+        b"recover" => {
+            *volume = None;
+            *volume = recover_volume(block_capability);
         }
         b"files" => match volume.as_mut() {
             Some(volume) => {
@@ -691,7 +721,6 @@ fn undo_conflict_fixture(volume: &mut GuestVolume) -> UndoFixtureResult {
         }
     }
 
-    drop(backend);
     if undo_latest(volume) != UndoResult::Applied {
         return UndoFixtureResult::RetryFailed;
     }

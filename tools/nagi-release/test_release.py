@@ -11,6 +11,60 @@ import release
 
 
 class ReleaseToolTests(unittest.TestCase):
+    def production_provenance(self):
+        return {
+            "format_version": 2,
+            "profile": "production-session-v1",
+            "init_features": "production-session",
+            "components": "login,files,search,servo,local-ai,history,voice",
+            "model_store_sha256": release.GRANITE_SHA256,
+        }
+
+    def test_production_configuration_rejects_fixture_partial_and_empty_store(self):
+        # These are configuration-validator fixtures, never guest evidence.
+        good = self.production_provenance()
+        release.require_production_image(good)
+        bad_records = [
+            {**good, "format_version": 1},
+            {**good, "profile": "signed-in-files-v1"},
+            {**good, "profile": "native-provider-session-v1",
+             "components": "login,files,search,native-model-provider",
+             "init_features": "production-session,m20-model-service",
+             "kernel_features": "m20-llama-memory",
+             "normal_session_inference": "NOT_EVALUATED"},
+            {**good, "profile": "layout-fixture-v1"},
+            {**good, "components": "login,files,search"},
+            {**good, "components": "login,files,search,servo,local-ai,history,history"},
+            {**good, "init_features": "production-session,m17-servo"},
+            {**good, "init_features": "production-session,desktop-login-acceptance"},
+            {**good, "init_features": "production-session,production-session"},
+            {**good, "model_store_sha256": "none"},
+            {**good, "model_store_sha256": "0" * 64},
+        ]
+        for record in bad_records:
+            with self.subTest(record=record):
+                with self.assertRaises(release.ReleaseError):
+                    release.require_production_image(record)
+
+    def test_version_two_provenance_binds_profile_and_component_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = root / "reference.qcow2"
+            image.write_bytes(b"configuration fixture")
+            revision = "a" * 40
+            fields = {"format_version": 2, "source_revision": revision,
+                      "image_sha256": release.sha256_file(image),
+                      **self.production_provenance()}
+            info_path = image.with_name(image.name + release.IMAGE_BUILD_INFO_SUFFIX)
+            info_path.write_text("".join(f"{key}={value}\n" for key, value in fields.items()),
+                                 encoding="ascii")
+            parsed = release.image_build_provenance(root, image, revision)
+            release.require_production_image(parsed)
+            self.assertEqual(parsed["components"], fields["components"])
+            info_path.write_text(info_path.read_text() + "profile=layout-fixture-v1\n")
+            with self.assertRaisesRegex(release.ReleaseError, "repeats profile"):
+                release.image_build_provenance(root, image, revision)
+
     def test_tracked_third_party_license_texts_are_selected_stably(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
