@@ -15,3 +15,13 @@ The candidate retains the original Files/Trash UI, localizations, runtime integr
 Check exact source hashes, all three ancestry relations, main-only paths, combined workflow regression tests and full local diff. Run the pinned Mac host-only libnagi formal tests, standalone Recovery tests, exact-source Runtime/Files/Search harness, Calendar boundary tests and formatting checks. Mac's Linux-only adapter binary running zero tests is not a PASS for that suite. The prior candidate's Linux adapter 69/storage64 results are historical and are not this successor's run.
 
 Remain PARTIAL: independent source review and Linux/hosted CI for this successor are pending. No Nagi target or guest/VM acceptance, real-media arbitrary persistence ordering, unknown existing sector-zero compatibility, or cross-process ownership is established. The separately denied process-shared ownership work is not retried. Existing replace/write partial-update and damaged legacy journal limitations remain. No public push, PR update or public merge is authorized before independent review.
+
+## Formal release gate continuity - 2026-11-06
+
+Main's M23–M30 `PARTIAL` record was retained as development progress so that
+integration would not erase newer implementation history. It does not replace
+public PR42's formal M30 `BLOCKED` limitation. The formal release gate remains
+`BLOCKED` until its outstanding guest/release acceptance and existing release
+requirements are met. Host tests, prior fixtures and a correct ancestry graph
+are not release acceptance. No code, CI/gate rule, receipt or
+`m30_acceptance=NOT_EVALUATED` value changes in this documentation correction.
