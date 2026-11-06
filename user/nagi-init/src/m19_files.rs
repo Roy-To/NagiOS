@@ -338,6 +338,23 @@ fn checksum(bytes: &[u8]) -> u64 {
     })
 }
 
+fn ensure_unapplied_intent_source<D: BlockDevice>(
+    volume: &mut Vfs<D>,
+    entry: &Entry,
+) -> Result<(), Error> {
+    match volume.metadata_path(&raw_path(entry.name.as_bytes())) {
+        Ok(source)
+            if source.mode & 0xf000 == 0x8000
+                && source.inode == entry.inode
+                && source.generation == entry.generation =>
+        {
+            Ok(())
+        }
+        Ok(_) | Err(StorageError::NotFound) => Err(Error::CorruptJournal),
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(crate) fn trash_entries<D: BlockDevice>(volume: &mut Vfs<D>) -> Result<Vec<Entry>, Error> {
     with_files_access(volume, |volume| {
         let journal = Journal::load(volume)?;
@@ -350,20 +367,16 @@ pub(crate) fn trash_entries<D: BlockDevice>(volume: &mut Vfs<D>) -> Result<Vec<E
                     // mismatched file or non-file destination is unapplied while
                     // the original identity remains live at its source name.
                     // Missing or reused sources remain a corrupt journal.
-                    match volume.metadata_path(&raw_path(entry.name.as_bytes())) {
-                        Ok(source)
-                            if source.mode & 0xf000 == 0x8000
-                                && source.inode == entry.inode
-                                && source.generation == entry.generation => {}
-                        Ok(_) | Err(StorageError::NotFound) => {
-                            return Err(Error::CorruptJournal);
-                        }
-                        Err(error) => return Err(error.into()),
-                    }
+                    ensure_unapplied_intent_source(volume, &entry)?;
                 }
                 Err(Error::Storage)
                     if volume.metadata_path(&raw_path(entry.trash_name().as_bytes()))
-                        == Err(StorageError::NotFound) => {}
+                        == Err(StorageError::NotFound) =>
+                {
+                    // An absent destination alone does not prove the intent was
+                    // never applied: its recorded source must still be live.
+                    ensure_unapplied_intent_source(volume, &entry)?;
+                }
                 Err(error) => return Err(error),
             }
         }

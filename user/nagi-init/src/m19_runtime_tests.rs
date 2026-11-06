@@ -1314,3 +1314,117 @@ fn fallible_title_lookup_refuses_stale_snapshot_until_resynchronized() {
         Some(vec![String::from("visible-title.txt")])
     );
 }
+
+fn absent_trash_destination_requires_original_source(reuse_name: bool) {
+    let (disk, mut volume) = volume();
+    let original = files::create(&mut volume, b"intent-source.txt").unwrap();
+    let original_path = files::path(original.name.as_bytes()).unwrap();
+    let original_handle = volume.open_path(&original_path).unwrap();
+    volume
+        .write(original_handle, b"original source bytes")
+        .unwrap();
+    let mut search = runtime(Backend::default());
+    search.sync_files(&mut volume).unwrap();
+    let original_ids = search.search_files("intent-source").unwrap();
+    assert_eq!(original_ids.len(), 1);
+    files::persist_test_trash_intent(&mut volume, &original).unwrap();
+    volume.remove_path(&original_path).unwrap();
+    if reuse_name {
+        let replacement = files::create(&mut volume, original.name.as_bytes()).unwrap();
+        assert!(!same_identity_for_test(&original, &replacement));
+        let handle = volume.open_path(&original_path).unwrap();
+        volume
+            .write(handle, b"unrelated replacement bytes")
+            .unwrap();
+    }
+    volume.flush().unwrap();
+    let destination = format!(
+        "/home/owner/files/.nagi-trash-{:x}-{:x}",
+        original.inode, original.generation
+    );
+    assert_eq!(
+        volume.metadata_path(destination.as_bytes()),
+        Err(StorageError::NotFound)
+    );
+    let before = disk.0.borrow().bytes.clone();
+    assert_eq!(
+        files::trash_entries(&mut volume),
+        Err(files::Error::CorruptJournal)
+    );
+    assert_eq!(search.sync_files(&mut volume), Err(RuntimeError::Storage));
+    assert!(search.search_files("intent-source").is_none());
+    #[cfg(feature = "m19-files-search-production")]
+    {
+        let ids: Vec<u64> = original_ids.iter().map(|id| id.0).collect();
+        assert_eq!(search.visible_file_titles(&ids), None);
+    }
+    assert_eq!(disk.0.borrow().bytes, before);
+    drop(volume);
+    let mut mounted = Vfs::mount_existing(disk.clone()).unwrap();
+    assert_eq!(
+        files::trash_entries(&mut mounted),
+        Err(files::Error::CorruptJournal)
+    );
+    drop(mounted);
+    let mut recovered = Vfs::recover_existing(disk.clone()).unwrap();
+    assert_eq!(
+        files::trash_entries(&mut recovered),
+        Err(files::Error::CorruptJournal)
+    );
+    if reuse_name {
+        assert_eq!(
+            contents(&mut recovered, &original.name),
+            b"unrelated replacement bytes"
+        );
+    } else {
+        assert_eq!(
+            recovered.metadata_path(&original_path),
+            Err(StorageError::NotFound)
+        );
+    }
+    assert_eq!(disk.0.borrow().bytes, before);
+}
+
+#[test]
+fn absent_trash_destination_with_missing_source_fails_closed() {
+    absent_trash_destination_requires_original_source(false);
+}
+
+#[test]
+fn absent_trash_destination_with_reused_source_fails_closed() {
+    absent_trash_destination_requires_original_source(true);
+}
+
+#[test]
+fn absent_trash_destination_with_live_source_can_retry_and_restore() {
+    let (disk, mut volume) = volume();
+    let original = files::create(&mut volume, b"unapplied-source.txt").unwrap();
+    let handle = volume
+        .open_path(&files::path(original.name.as_bytes()).unwrap())
+        .unwrap();
+    volume.write(handle, b"retryable source bytes").unwrap();
+    files::persist_test_trash_intent(&mut volume, &original).unwrap();
+    let before = disk.0.borrow().bytes.clone();
+    assert!(files::trash_entries(&mut volume).unwrap().is_empty());
+    assert_eq!(disk.0.borrow().bytes, before);
+    drop(volume);
+    let mut volume = Vfs::mount_existing(disk).unwrap();
+    let mut search = runtime(Backend::default());
+    search.sync_files(&mut volume).unwrap();
+    let ids = search.search_files("unapplied-source").unwrap();
+    assert_eq!(ids.len(), 1);
+    files::trash(&mut volume, &original).unwrap();
+    assert_eq!(
+        files::trash_entries(&mut volume).unwrap(),
+        vec![original.clone()]
+    );
+    search.sync_files(&mut volume).unwrap();
+    assert!(search.search_files("unapplied-source").unwrap().is_empty());
+    files::restore(&mut volume, &original).unwrap();
+    search.sync_files(&mut volume).unwrap();
+    assert_eq!(search.search_files("unapplied-source").unwrap(), ids);
+    assert_eq!(
+        contents(&mut volume, &original.name),
+        b"retryable source bytes"
+    );
+}

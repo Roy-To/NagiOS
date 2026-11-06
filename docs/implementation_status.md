@@ -1,3 +1,15 @@
+## PR42 absent Trash destination identity validation - 2026-11-06
+
+Status: PARTIAL. This single-parent successor preserves frozen integration 03210261290c9bad823ca8267861de5506f64b83. Independent review found that an absent generated Trash destination bypassed the source identity check. A persisted intent with both names absent or with a reused source name could be treated as an empty Trash set. The new exact-source host regressions reproduced both cases before the production edit: 1 positive case passed, 2 negative cases returned Ok([]) instead of CorruptJournal (RC101).
+
+Both absent and occupied/mismatched destination paths now use the same original regular-file/inode/generation check. Missing or reused sources fail closed; other source storage failures propagate. The fix neither discards/rewrites an intent nor adopts an unrelated file, and it does not change format, lock scope or cross-process ownership. ADR-0012 now lists supported VFS create/mkdir, same-directory rename and delete metadata journals, separately from NH16 undo and generic file-content/Trash-journal repair.
+
+After the fix the focused three cases pass. Both negative cases verify unchanged complete disk bytes, failed Search sync with no stale title exposure, and refusal after normal mount and explicit VFS Recovery; a replacement file's contents remain intact. The positive case verifies an unapplied live source across remount, then normal Trash/restore and stable Search identity/content.
+
+Pinned nightly-2025-08-01 ARM64-host Rust with existing x86_64-apple-darwin/Rosetta, offline jobs1: exact-source storage64/Runtime43 (including the existing unsynchronized title regression), formal libnagi123 plus renderer2, explicit delete-Recovery subset5, standalone Recovery6 and CI Python16 pass. Formal libnagi/Recovery Clippy denies warnings; source harness Clippy denies standard Clippy lints but retains partial-module Rust dead-code warnings. Package init/libnagi/Recovery fmt and diff-check pass. The Linux-only adapter binary runs zero tests on Mac, not an adapter PASS. No environment or toolchain settings were changed; the earlier reviewer's pre-test xcrun failure is not counted as Rust success.
+
+Independent re-review, Linux/hosted CI, formal nagi-init target/guest, actual media, unknown sector0 compatibility and process-shared ownership remain unverified/HOLD. Previous damaged journal and partial write/replace limitations remain. No public/history integration, upload, guest/target, VM, real-volume repair or old-claim operation. See docs/superpowers/specs/2026-11-06-pr42-absent-trash-source-identity.md.
+
 ## PR42 source integration on current main - 2026-11-06
 
 Status: PARTIAL. Single-parent source successor on d67897b4 (PR97 merged), importing the fixed source candidate 321d1b89. The two textual conflicts are resolved by retaining both independent status histories and combining unsynchronized Files refusal with main's fallible workspace-title API. Main's borrowed object lookup, fallible stale-record scan, QMP/fetch/Search changes, CI change-scope and M27 evidence retention are preserved. No merge commit or public/history integration is performed.

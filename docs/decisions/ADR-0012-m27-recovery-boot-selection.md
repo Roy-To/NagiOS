@@ -53,9 +53,12 @@ and promotion, but that test setup is not a production updater.
   and by `check`; those paths do not repair it. The physical-console `recover`
   command explicitly uses `Vfs::recover_existing` without formatting, then runs
   the full read-only integrity check before exposing the recovered volume. Unknown,
-  corrupt or unformatted input is rejected. This recovers only the supported
-  create/same-directory-rename journal and is separate from NH16 `undo`. All
-  inspection/mount steps require exclusive authority over a quiescent volume.
+  corrupt or unformatted input is rejected. This rolls back only supported VFS
+  metadata journals: create (including mkdir), same-directory rename, and delete
+  (UNDO_DELETE). It is separate from NH16 `undo` and does not provide generic
+  file-content repair or repair of the Files/Trash application journal. All
+  inspection/mount steps require exclusive authority over a quiescent volume;
+  the process-local gate does not establish cross-process ownership.
 - The Recovery payloads live under `EFI/NAGI/RECOVERY` in the current FAT
   acceptance fixture. M30 will place the Recovery environment in its dedicated
   GPT Recovery partition; that packaging change does not alter the boot-menu
