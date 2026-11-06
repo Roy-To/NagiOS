@@ -572,6 +572,9 @@ fn all_backend_load_allocations_are_fallible_read_only_and_retryable() {
         "host-valid",
         "host-empty",
         "host-missing",
+        "host-relative",
+        "host-unicode",
+        "host-long",
     ] {
         let normal = run_load(kind, 1_000_000, false);
         let count: usize = normal
@@ -649,7 +652,18 @@ fn recovery_load_oom_keeps_both_guards_latched() {
 fn host_load_child(kind: &str, nth: isize, persistent: bool) {
     let directory = std::env::temp_dir().join(format!("nagi-backend-load-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
-    let path = directory.join("snapshot");
+    let mut storage = directory.clone();
+    if kind == "host-long" {
+        for index in 0..8 {
+            storage.push(format!("segment-{index:02}-{}", "a".repeat(32)));
+        }
+        std::fs::create_dir_all(&storage).unwrap();
+    }
+    let path = storage.join(if kind == "host-unicode" {
+        "snapshot-日本語-🦀"
+    } else {
+        "snapshot"
+    });
     let bytes = if kind == "host-empty" {
         Vec::new()
     } else {
@@ -660,7 +674,19 @@ fn host_load_child(kind: &str, nth: isize, persistent: bool) {
         std::fs::write(&path, &bytes).unwrap();
     }
     let modified = present.then(|| std::fs::metadata(&path).unwrap().modified().unwrap());
-    let mut backend = nagi_search::host::HostFileBackend::new(&path);
+    let previous_directory = if kind == "host-relative" {
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&directory).unwrap();
+        Some(previous)
+    } else {
+        None
+    };
+    let backend_path = if kind == "host-relative" {
+        std::path::PathBuf::from("snapshot")
+    } else {
+        path.clone()
+    };
+    let mut backend = nagi_search::host::HostFileBackend::new(backend_path);
     arm_alloc(nth, persistent);
     let result = backend.load_snapshot();
     let (attempts, failures, balance) = disarm_alloc();
@@ -682,6 +708,9 @@ fn host_load_child(kind: &str, nth: isize, persistent: bool) {
         );
     } else {
         assert!(!path.exists());
+    }
+    if let Some(previous) = previous_directory {
+        std::env::set_current_dir(previous).unwrap();
     }
     std::fs::remove_dir_all(&directory).unwrap();
     println!("LOAD attempts={attempts} failures={failures}");
@@ -775,5 +804,162 @@ fn write_preflight_oom_never_reaches_file_mutations() {
             backend.write_snapshot(b"retry").unwrap();
             assert_eq!(backend.load_snapshot().unwrap(), Some(b"retry".to_vec()));
         }
+    }
+}
+
+// Compile the exact production path preparation on every host, with a fake
+// GetFullPathNameW boundary. Native Windows file opening is still exercised by
+// the existing real HostFileBackend probes, without narrowing their OOM window.
+#[path = "../src/host/windows_path.rs"]
+mod windows_path;
+
+#[test]
+fn windows_path_preparation_never_allocates_and_preserves_path_semantics() {
+    fn check(input: &[u16], normalized: Option<&[u16]>, expected: &[u16]) {
+        let mut terminated = input.to_vec();
+        terminated.push(0);
+        let mut wanted = expected.to_vec();
+        wanted.push(0);
+        for persistent in [false, true] {
+            let mut path = [0; 512];
+            let mut absolute = [0; 512];
+            let mut calls = 0;
+            let mut valid_input = true;
+            arm_alloc(0, persistent);
+            let result = windows_path::prepare_path(
+                input.iter().copied(),
+                &mut path,
+                &mut absolute,
+                |input, output| {
+                    calls += 1;
+                    valid_input &= input == terminated;
+                    if let Some(normalized) = normalized {
+                        output[..normalized.len()].copy_from_slice(normalized);
+                        output[normalized.len()] = 0;
+                        Ok(normalized.len())
+                    } else {
+                        Err(std::io::Error::from_raw_os_error(123))
+                    }
+                },
+            );
+            let (attempts, failures, balance) = disarm_alloc();
+            assert_eq!((attempts, failures, balance), (0, 0, 0));
+            assert!(valid_input);
+            assert_eq!(calls, usize::from(normalized.is_some()));
+            assert_eq!(&path[..result.unwrap()], wanted.as_slice());
+        }
+    }
+    let wide = |s: &str| s.encode_utf16().collect::<Vec<_>>();
+    for spelling in [
+        r"C:\snapshot.",
+        r"C:/snapshot ",
+        r"\\server\share\snapshot",
+        r"//server/share/snapshot",
+        r"\\?\C:\snapshot",
+        r"\??\C:\snapshot",
+        r"C:",
+        "",
+        r"C:\日本語-🦀",
+    ] {
+        let path = wide(spelling);
+        check(&path, None, &path);
+    }
+    for (input, normalized, expected) in [
+        (
+            r"sub\..\snapshot",
+            r"C:\cwd\snapshot",
+            r"\\?\C:\cwd\snapshot",
+        ),
+        (
+            r"C:snapshot",
+            r"C:\drive\snapshot",
+            r"\\?\C:\drive\snapshot",
+        ),
+        (r"\snapshot", r"C:\snapshot", r"\\?\C:\snapshot"),
+        (r"device", r"\\.\NUL", r"\\?\NUL"),
+        (r"verbatim", r"\\?\C:\snapshot", r"\\?\C:\snapshot"),
+    ] {
+        check(&wide(input), Some(&wide(normalized)), &wide(expected));
+    }
+    let long_drive = format!(r"C:\{}\snapshot", "a".repeat(300));
+    check(
+        &wide(&long_drive),
+        Some(&wide(&long_drive)),
+        &wide(&format!(r"\\?\{long_drive}")),
+    );
+    let long_unc = format!(r"\\server\share\{}\snapshot", "a".repeat(300));
+    check(
+        &wide(&long_unc),
+        Some(&wide(&long_unc)),
+        &wide(&format!(r"\\?\UNC\{}", &long_unc[2..])),
+    );
+    // OsStr's unpaired UTF-16 surrogates must not be converted through String.
+    let surrogate = [b'C' as u16, b':' as u16, b'\\' as u16, 0xd800];
+    check(&surrogate, None, &surrogate);
+}
+
+#[test]
+fn windows_path_bounds_and_errors_need_no_allocator() {
+    for (input, capacity, normalized, error) in [
+        (vec![b'a' as u16, 0, b'b' as u16], 16, None, 123),
+        (vec![1; 4], 4, None, 206),
+        (vec![], 0, None, 206),
+        (vec![b'x' as u16], 8, Some(16), 206),
+        (vec![b'x' as u16], 8, Some(7), 206),
+        (vec![b'x' as u16], 8, None, 5),
+    ] {
+        let mut path = [0; 16];
+        let mut absolute = [0; 16];
+        arm_alloc(0, true);
+        let result = windows_path::prepare_path(
+            input.iter().copied(),
+            &mut path[..capacity],
+            &mut absolute,
+            |_, output| {
+                if let Some(length) = normalized {
+                    output[..3].copy_from_slice(&[b'C' as u16, b':' as u16, b'\\' as u16]);
+                    Ok(length)
+                } else {
+                    Err(std::io::Error::from_raw_os_error(5))
+                }
+            },
+        );
+        let (attempts, failures, balance) = disarm_alloc();
+        assert_eq!((attempts, failures, balance), (0, 0, 0));
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(error));
+    }
+    let mut input = vec![b'a' as u16; windows_path::MAX_PATH_UNITS - 1];
+    input[..4].copy_from_slice(&[92, 92, 63, 92]);
+    let mut path = [0; windows_path::MAX_PATH_UNITS];
+    let mut absolute = [0; windows_path::MAX_PATH_UNITS];
+    arm_alloc(0, true);
+    let result =
+        windows_path::prepare_path(input.iter().copied(), &mut path, &mut absolute, |_, _| {
+            Err(std::io::Error::from_raw_os_error(5))
+        });
+    let meter = disarm_alloc();
+    assert_eq!(meter, (0, 0, 0));
+    assert_eq!(result.unwrap(), windows_path::MAX_PATH_UNITS);
+    input.push(b'a' as u16);
+    arm_alloc(0, true);
+    let result =
+        windows_path::prepare_path(input.iter().copied(), &mut path, &mut absolute, |_, _| {
+            Err(std::io::Error::from_raw_os_error(5))
+        });
+    let meter = disarm_alloc();
+    assert_eq!(meter, (0, 0, 0));
+    assert_eq!(result.unwrap_err().raw_os_error(), Some(206));
+}
+
+#[test]
+fn host_nul_path_is_rejected_without_allocating_or_opening() {
+    let path = std::path::PathBuf::from("bad\0snapshot");
+    let mut backend = nagi_search::host::HostFileBackend::new(path);
+    for persistent in [false, true] {
+        arm_alloc(0, persistent);
+        let result = backend.load_snapshot();
+        let meter = disarm_alloc();
+        assert_eq!(meter, (0, 0, 0));
+        assert_eq!(result, Err(BackendError::Io));
     }
 }

@@ -10950,3 +10950,22 @@ library check pass. This does not establish final linking, startup/codec OOM,
 writer coordination, guest or real-media durability. No VM, publication or
 permission change was performed. M19 and M24 remain PARTIAL. See
 `docs/workstreams/search-backend-read-recovery.md` for scope and evidence.
+
+## Host snapshot read path allocation correction (2026-11-06)
+
+PARTIAL local follow-up on published PR #98 `3e5a755`. Windows CI exposed an
+infallible UTF-16 path allocation inside std File::open before the fallible
+snapshot reservation. Extended input also reproduces the analogous long-path
+CString abort on Linux. Host read adapters now use bounded native path buffers
+and read-only OS opens, retaining path/share/handle and snapshot semantics.
+The allocator window and all existing assertions remain; relative/Unicode/long
+paths, NUL, namespace/surrogate and overflow regressions are added.
+
+The exact-source isolated Linux suite passes 61 tests, with warnings-denied
+Clippy, Windows/MSVC library cross-build/all-target Clippy, macOS cross-Clippy
+and the Nagi target library check passing. These are not native Windows/macOS
+execution results. Root package tests cannot start without the existing
+third_party/cc-nagi materialization. Original CI remains failed; no push,
+CI rerun, VM or guest execution was performed. Native host revalidation and
+independent review of this correction remain pending. M24 remains PARTIAL.
+See `docs/workstreams/search-host-path-allocation.md` for evidence and limits.

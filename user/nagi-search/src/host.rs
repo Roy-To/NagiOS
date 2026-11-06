@@ -13,6 +13,22 @@ use std::{
 
 use crate::{BackendError, SnapshotBackend};
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix_read;
+#[cfg(windows)]
+mod windows_path;
+#[cfg(windows)]
+mod windows_read;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use unix_read::open_snapshot;
+#[cfg(windows)]
+use windows_read::open_snapshot;
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+fn open_snapshot(path: &Path) -> std::io::Result<File> {
+    File::open(path)
+}
+
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
@@ -32,7 +48,7 @@ impl HostFileBackend {
 
 impl SnapshotBackend for HostFileBackend {
     fn load_snapshot(&mut self) -> Result<Option<alloc::vec::Vec<u8>>, BackendError> {
-        let mut file = match File::open(&self.path) {
+        let mut file = match open_snapshot(&self.path) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(read_error(error)),
