@@ -341,6 +341,7 @@ pub enum Command {
     Lint,
     Dev,
     Legal,
+    PortReadiness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -558,6 +559,13 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "lint" => Command::Lint,
         "dev" => Command::Dev,
         "legal" => Command::Legal,
+        "port" if args.get(1).is_some_and(|arg| arg == "readiness") => Command::PortReadiness,
+        "port" => {
+            return Err(CliError::new(
+                "port: expected subcommand `readiness`",
+                EXIT_USAGE,
+            ));
+        }
         other => {
             return Err(CliError::new(
                 format!("unknown command `{other}`"),
@@ -576,6 +584,24 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::Smoke => {
             parse_report_options(name, &args[1..], false, true)?;
         }
+        Command::PortReadiness => {
+            let options = args.get(3..).unwrap_or(&[]);
+            if options.is_empty() {
+                // Default output is the concise text report.
+            } else if options.len() == 2 && options[0] == "--format" {
+                if !matches!(options[1].as_str(), "text" | "json") {
+                    return Err(CliError::new(
+                        "port readiness: format must be text or json",
+                        EXIT_USAGE,
+                    ));
+                }
+            } else {
+                return Err(CliError::new(
+                    "port readiness: expected [--format text|json]",
+                    EXIT_USAGE,
+                ));
+            }
+        }
         _ => {}
     }
 
@@ -593,6 +619,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         Command::M26Gemma => args.len() == 3 && args[2] == "--accept-gemma-terms",
         Command::M25Whisper => args.len() == 2,
         Command::M25WhisperInference => args.len() == 4,
+        Command::PortReadiness => args.len() == 3 || args.len() == 5,
         Command::Help
         | Command::Fetch
         | Command::Build
@@ -757,8 +784,10 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         return help();
     }
 
-    if let Err(error) = validate_project(root) {
-        return failure(EXIT_CONFIG_ERROR, format!("project: {error}"));
+    if command != Command::PortReadiness {
+        if let Err(error) = validate_project(root) {
+            return failure(EXIT_CONFIG_ERROR, format!("project: {error}"));
+        }
     }
 
     match command {
@@ -767,6 +796,7 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::Diagnostics => execute_diagnostics(&args[1..], root, probe),
         Command::Verify => execute_verify(&args[1..], root, probe),
         Command::Smoke => execute_smoke(&args[1..], root, probe),
+        Command::PortReadiness => execute_port_readiness(args),
         Command::Fetch => execute_fetch(root),
         Command::Build => run_cargo(root, "build", &host_workspace_args("build")),
         Command::Test => run_cargo(root, "test", &host_workspace_args("test")),
@@ -822,6 +852,131 @@ fn execute_dev(args: &[String], root: &Path) -> CommandResult {
         },
         Err(error) => failure(error.exit_code(), error.to_string()),
     }
+}
+
+fn execute_port_readiness(args: &[String]) -> CommandResult {
+    let project = Path::new(&args[2]);
+    let report = match crate::porting::analyze(project) {
+        Ok(report) => report,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, error),
+    };
+    let format = args.get(4).map(String::as_str).unwrap_or("text");
+    if format == "json" {
+        return match serde_json::to_string(&report) {
+            Ok(line) => CommandResult {
+                exit_code: EXIT_SUCCESS,
+                lines: vec![line],
+            },
+            Err(error) => failure(EXIT_CONFIG_ERROR, format!("port readiness report: {error}")),
+        };
+    }
+
+    let conclusion = report["analysis"]["conclusion"]
+        .as_str()
+        .unwrap_or("requires-review");
+    let languages = report["detected_languages"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let mut lines = vec![
+        format!("Porting readiness (heuristic): {conclusion}"),
+        format!(
+            "Languages: {}",
+            if languages.is_empty() {
+                "none detected"
+            } else {
+                &languages
+            }
+        ),
+        format!(
+            "Files inspected: {}",
+            report["analysis"]["files_scanned"].as_u64().unwrap_or(0)
+        ),
+        format!(
+            "Scan truncated: {}",
+            if report["analysis"]["truncated"].as_bool().unwrap_or(true) {
+                "yes"
+            } else {
+                "no"
+            }
+        ),
+    ];
+    append_report_section(&mut lines, "Manifests", &report["manifests"], None);
+    append_report_section(
+        &mut lines,
+        "Direct dependencies (requires review)",
+        &report["dependencies"],
+        Some("name"),
+    );
+    if let Some(findings) = report["findings"].as_array() {
+        if findings.is_empty() {
+            lines.push("Review findings: none detected".into());
+        } else {
+            lines.push("Review findings:".into());
+            for finding in findings {
+                let path = safe_report_text(finding["path"].as_str().unwrap_or("?"));
+                let evidence = safe_report_text(finding["evidence"].as_str().unwrap_or(""));
+                let category = safe_report_text(finding["category"].as_str().unwrap_or("boundary"));
+                lines.push(format!(
+                    "  Review {category} at {path}:{} ({evidence})",
+                    finding["line"].as_u64().unwrap_or(0)
+                ));
+            }
+        }
+    }
+    if let Some(limitations) = report["limitations"].as_array() {
+        lines.push("Limitations:".into());
+        for limitation in limitations.iter().filter_map(serde_json::Value::as_str) {
+            lines.push(format!("  {}", safe_report_text(limitation)));
+        }
+    }
+    CommandResult {
+        exit_code: EXIT_SUCCESS,
+        lines,
+    }
+}
+
+fn append_report_section(
+    lines: &mut Vec<String>,
+    title: &str,
+    values: &serde_json::Value,
+    display_field: Option<&str>,
+) {
+    let Some(values) = values.as_array() else {
+        return;
+    };
+    lines.push(format!("{title}:"));
+    if values.is_empty() {
+        lines.push("  none detected".into());
+        return;
+    }
+    for value in values {
+        let display = display_field
+            .and_then(|field| value.get(field))
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| value.as_str())
+            .unwrap_or("?");
+        let display = safe_report_text(display);
+        let source = value
+            .get("source")
+            .and_then(serde_json::Value::as_str)
+            .map(safe_report_text);
+        if let Some(source) = source {
+            lines.push(format!("  {display} ({source})"));
+        } else {
+            lines.push(format!("  {display}"));
+        }
+    }
+}
+
+fn safe_report_text(value: &str) -> String {
+    crate::diagnostics::escape_terminal_controls(value)
 }
 
 fn execute_legal(args: &[String], root: &Path) -> CommandResult {
@@ -11088,7 +11243,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], port readiness <project-dir> [--format text|json], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
