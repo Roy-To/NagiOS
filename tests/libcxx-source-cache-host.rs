@@ -88,6 +88,9 @@ impl Fixture {
         self.root.join("out/cache/llvm-libcxx-19.1.7")
     }
     fn spawn(&self, name: &str) -> Child {
+        self.try_spawn(name).unwrap()
+    }
+    fn try_spawn(&self, name: &str) -> std::io::Result<Child> {
         let path = std::env::join_paths(std::iter::once(self.root.join("bin")).chain(
             std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
         ))
@@ -107,7 +110,6 @@ impl Fixture {
             .stdout(out.try_clone().unwrap())
             .stderr(out)
             .spawn()
-            .unwrap()
     }
     fn prepare(&self) -> bool {
         let mut child = self.spawn("prepare");
@@ -275,6 +277,49 @@ fn linux_worker_uses_immutable_running_executable_and_path_shims() {
     fs::remove_file(f.root.join("out/cache").join(pin.tarball_name())).unwrap();
     assert!(!f.prepare());
     assert!(f.log("prepare").contains("fixture-curl-blocked"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn held_legacy_writer_blocks_only_the_old_worker_path_and_cleanup_is_confined() {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut f = Fixture::new();
+    let root = f.root.clone();
+    let running = f.worker.clone();
+    let legacy = f.root.join("bin/legacy-worker-copy");
+    fs::copy(&running, &legacy).unwrap();
+    let writer = fs::OpenOptions::new().write(true).open(&legacy).unwrap();
+
+    // Use the same constructor, arguments, environment and temporary log name.
+    // Only the executable path differs; retain the writer through both calls.
+    f.worker = legacy.clone();
+    let error = f.try_spawn("controlled-writer").unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ExecutableFileBusy);
+    f.worker = running.clone();
+    let mut child = f.try_spawn("controlled-writer").unwrap();
+    assert!(
+        child.wait().unwrap().success(),
+        "{}",
+        f.log("controlled-writer")
+    );
+    assert_eq!(
+        writer.metadata().unwrap().ino(),
+        fs::metadata(&legacy).unwrap().ino()
+    );
+    assert!(f.source().join("libcxx/header").is_file());
+
+    // The curl alias still identifies the exact compiled shim, without a copy.
+    let tar = fs::metadata(f.root.join("bin/tar")).unwrap();
+    let curl = fs::metadata(f.root.join("bin/curl")).unwrap();
+    assert_eq!((tar.dev(), tar.ino()), (curl.dev(), curl.ino()));
+    drop(writer);
+    drop(f);
+    assert!(!root.exists(), "only the owned fixture should be removed");
+    assert!(
+        running.is_file(),
+        "cleanup must preserve the running executable"
+    );
 }
 #[test]
 fn correct_marker_does_not_authorize_one_byte_mutation() {
