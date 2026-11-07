@@ -34,6 +34,12 @@ const ENVIRONMENT_ALLOWLIST: &[&str] = &[
     "NAGI_LIBCXX_ARCHIVE",
     "NAGI_LLAMA_BUILD",
     "NAGI_LLAMA_SOURCE",
+    "NAGI_WHISPER_BUILD",
+    "NAGI_WHISPER_SOURCE",
+    "NAGI_M25_WHISPER_PCM_FIXTURE",
+    "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE",
+    "NAGI_ACCEPTANCE_PACKAGES",
+    "NAGI_FILES_SEARCH_PACKAGE",
     "NAGI_M16_PACKAGE",
     "NAGI_MESA_BUILD",
     "NAGI_QEMU",
@@ -60,6 +66,12 @@ const ENVIRONMENT_PATHS_CAPTURED_BY_CONTENT: &[&str] = &[
     "NAGI_LIBCXX_ARCHIVE",
     "NAGI_LLAMA_BUILD",
     "NAGI_LLAMA_SOURCE",
+    "NAGI_WHISPER_BUILD",
+    "NAGI_WHISPER_SOURCE",
+    "NAGI_M25_WHISPER_PCM_FIXTURE",
+    "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE",
+    "NAGI_ACCEPTANCE_PACKAGES",
+    "NAGI_FILES_SEARCH_PACKAGE",
     "NAGI_M16_PACKAGE",
     "NAGI_MESA_BUILD",
     "NAGI_QEMU",
@@ -1489,6 +1501,12 @@ fn environment_generated_inputs(
         "NAGI_LIBCXX_ARCHIVE",
         "NAGI_LLAMA_BUILD",
         "NAGI_LLAMA_SOURCE",
+        "NAGI_WHISPER_BUILD",
+        "NAGI_WHISPER_SOURCE",
+        "NAGI_M25_WHISPER_PCM_FIXTURE",
+        "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE",
+        "NAGI_ACCEPTANCE_PACKAGES",
+        "NAGI_FILES_SEARCH_PACKAGE",
         "NAGI_RELIBC_HEADERS",
         "NAGI_M16_PACKAGE",
         "__CARGO_TESTS_ONLY_SRC_ROOT",
@@ -1497,7 +1515,16 @@ fn environment_generated_inputs(
             let path = PathBuf::from(path);
             let private_selector = matches!(
                 name,
-                "NAGI_FONT_DIR" | "NAGI_LIBCXX_ARCHIVE" | "NAGI_LLAMA_BUILD" | "NAGI_LLAMA_SOURCE"
+                "NAGI_FONT_DIR"
+                    | "NAGI_LIBCXX_ARCHIVE"
+                    | "NAGI_LLAMA_BUILD"
+                    | "NAGI_LLAMA_SOURCE"
+                    | "NAGI_WHISPER_BUILD"
+                    | "NAGI_WHISPER_SOURCE"
+                    | "NAGI_M25_WHISPER_PCM_FIXTURE"
+                    | "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE"
+                    | "NAGI_ACCEPTANCE_PACKAGES"
+                    | "NAGI_FILES_SEARCH_PACKAGE"
             );
             let mut input =
                 dependency_identity(root, &path.to_string_lossy()).map_err(|error| {

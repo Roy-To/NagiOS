@@ -21,10 +21,14 @@ def run_git(args, check=True):
                    env=env, check=check)
 
 
-def run(binary, baseline):
+def run(binary, baseline, additional_only=False):
     cases = ["NAGI_FONT_DIR", "NAGI_LIBCXX_ARCHIVE", "NAGI_LLAMA_BUILD",
              "NAGI_LLAMA_SOURCE", "NAGI_TARGET_LD", "RUSTUP_TOOLCHAIN",
              "CARGO_HOME", "registry_bytes", "llvm_bytes", "patched_llama_bytes"]
+    additional = ["NAGI_WHISPER_BUILD", "NAGI_WHISPER_SOURCE",
+                  "NAGI_M25_WHISPER_PCM_FIXTURE", "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE",
+                  "NAGI_ACCEPTANCE_PACKAGES", "NAGI_FILES_SEARCH_PACKAGE"]
+    cases = additional if additional_only else cases + additional
     rows = []
     for case in cases:
         with tempfile.TemporaryDirectory(prefix="fingerprint-inputs-") as temporary:
@@ -64,7 +68,7 @@ def run(binary, baseline):
                 changed.parent.mkdir(parents=True, exist_ok=True)
                 changed.write_bytes(b"fixture-A")
                 if not relative:
-                    env[case] = str(changed if case in ["NAGI_LIBCXX_ARCHIVE", "NAGI_TARGET_LD"] else changed.parent)
+                    env[case] = str(changed if case in ["NAGI_LIBCXX_ARCHIVE", "NAGI_TARGET_LD", "NAGI_M25_WHISPER_PCM_FIXTURE", "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE", "NAGI_FILES_SEARCH_PACKAGE"] else changed.parent)
                 # A constant marker is deliberately insufficient evidence.
                 (changed.parent / ".nagi-source-marker").write_text("constant marker")
 
@@ -89,7 +93,7 @@ def run(binary, baseline):
             assert "constant marker" not in json.dumps(second)
             assert "fixture-B" not in json.dumps(second)
             rows.append({"case": case, "equal_digest": equal, "rc": 0})
-    if not baseline:
+    if not baseline and not additional_only:
         for case in ["secret_symlink_target", "secret_symlink_error", "role_swap", "fifo", "missing"]:
             with tempfile.TemporaryDirectory(prefix="fingerprint-boundary-") as temporary:
                 root = Path(temporary)
@@ -154,5 +158,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("binary", type=Path)
     parser.add_argument("--baseline", action="store_true")
+    parser.add_argument("--additional-selectors-only", action="store_true")
     args = parser.parse_args()
-    run(args.binary.resolve(), args.baseline)
+    run(args.binary.resolve(), args.baseline, args.additional_selectors_only)
