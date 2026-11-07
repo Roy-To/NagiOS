@@ -57,19 +57,31 @@ impl Fixture {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        fs::copy(
-            &shim,
-            root.join("bin")
-                .join(format!("curl{}", std::env::consts::EXE_SUFFIX)),
-        )
-        .unwrap();
+        let curl = root
+            .join("bin")
+            .join(format!("curl{}", std::env::consts::EXE_SUFFIX));
+        #[cfg(windows)]
+        fs::copy(&shim, &curl).unwrap();
+        // The compiler has exited and closed this executable. Linking another
+        // name avoids opening a writable copy that a parallel spawn can inherit.
+        #[cfg(not(windows))]
+        fs::hard_link(&shim, &curl).unwrap();
         // Windows searches the application's directory before System32 and the
         // inherited PATH. Run a private worker copy beside the native shims so
         // unmodified production Command::new("tar"/"curl") cannot bypass them.
-        let worker = root
-            .join("bin")
-            .join(format!("cache-worker{}", std::env::consts::EXE_SUFFIX));
-        fs::copy(std::env::current_exe().unwrap(), &worker).unwrap();
+        #[cfg(windows)]
+        let worker = {
+            let worker = root
+                .join("bin")
+                .join(format!("cache-worker{}", std::env::consts::EXE_SUFFIX));
+            fs::copy(std::env::current_exe().unwrap(), &worker).unwrap();
+            worker
+        };
+        // Unix resolves tar/curl from the worker's PATH. Reuse the running
+        // executable, which cannot be held open for writing, instead of copying
+        // it while other test threads may be spawning children.
+        #[cfg(not(windows))]
+        let worker = std::env::current_exe().unwrap();
         Self { root, tar, worker }
     }
     fn source(&self) -> PathBuf {
@@ -221,6 +233,48 @@ fn missing_archive_uses_fixture_curl_without_network() {
     assert!(!f.prepare());
     assert!(f.log("prepare").contains("fixture-curl-blocked"));
     assert!(!f.source().exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn writable_private_copy_reproduces_text_file_busy() {
+    let f = Fixture::new();
+    let copy = f.root.join("writable-worker-copy");
+    fs::copy(std::env::current_exe().unwrap(), &copy).unwrap();
+    let writer = fs::OpenOptions::new().write(true).open(&copy).unwrap();
+    let error = ProcessCommand::new(&copy)
+        .arg("--list")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ExecutableFileBusy);
+    drop(writer);
+    assert!(ProcessCommand::new(&copy)
+        .arg("--list")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_worker_uses_immutable_running_executable_and_path_shims() {
+    let f = Fixture::new();
+    assert_eq!(f.worker, std::env::current_exe().unwrap());
+    let error = fs::OpenOptions::new()
+        .write(true)
+        .open(&f.worker)
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::ExecutableFileBusy);
+    assert!(f.prepare(), "{}", f.log("prepare"));
+    let pin = parse_libcxx_pin(&fs::read_to_string(f.root.join(SOURCES_LOCK)).unwrap()).unwrap();
+    fs::remove_dir_all(f.source()).unwrap();
+    fs::remove_file(f.root.join("out/cache").join(pin.tarball_name())).unwrap();
+    assert!(!f.prepare());
+    assert!(f.log("prepare").contains("fixture-curl-blocked"));
 }
 #[test]
 fn correct_marker_does_not_authorize_one_byte_mutation() {
