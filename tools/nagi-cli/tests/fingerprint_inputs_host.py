@@ -21,14 +21,16 @@ def run_git(args, check=True):
                    env=env, check=check)
 
 
-def run(binary, baseline, additional_only=False):
+def run(binary, baseline, additional_only=False, cargo_for_selectors=None, config_only=False):
     cases = ["NAGI_FONT_DIR", "NAGI_LIBCXX_ARCHIVE", "NAGI_LLAMA_BUILD",
              "NAGI_LLAMA_SOURCE", "NAGI_TARGET_LD", "RUSTUP_TOOLCHAIN",
-             "CARGO_HOME", "registry_bytes", "llvm_bytes", "patched_llama_bytes"]
+             "CARGO_HOME", "registry_bytes", "llvm_bytes", "patched_llama_bytes", "compiler_bytes"]
     additional = ["NAGI_WHISPER_BUILD", "NAGI_WHISPER_SOURCE",
                   "NAGI_M25_WHISPER_PCM_FIXTURE", "NAGI_M25_WHISPER_EXPECTED_TEXT_FILE",
                   "NAGI_ACCEPTANCE_PACKAGES", "NAGI_FILES_SEARCH_PACKAGE"]
     cases = additional if additional_only else cases + additional
+    if cargo_for_selectors:
+        cases = ["compiler_config"] if config_only else cases + ["compiler_config"]
     rows = []
     for case in cases:
         with tempfile.TemporaryDirectory(prefix="fingerprint-inputs-") as temporary:
@@ -60,6 +62,18 @@ def run(binary, baseline, additional_only=False):
             if case in ["RUSTUP_TOOLCHAIN", "CARGO_HOME"]:
                 env[case] = "fixture-a"
                 changed = None
+            elif case == "compiler_config":
+                env.pop("RUSTC", None)
+                env["CARGO"] = str(cargo_for_selectors)
+                other = tools / "rustc-other"
+                other.write_text((tools / "rustc").read_text() + "\n# distinct compiler bytes\n")
+                other.chmod(0o700)
+                # Ancestor configuration is outside root's tracked config list.
+                changed = temp / ".cargo/config.toml"
+                changed.parent.mkdir()
+                changed.write_text('[build]\nrustc="bin/rustc"\n')
+            elif case == "compiler_bytes":
+                changed = tools / "rustc"
             else:
                 relative = {"registry_bytes": "third_party/generated/src/lib.rs",
                             "llvm_bytes": "out/cache/llvm-libcxx-fixture/libcxx/src/fixture.cpp",
@@ -83,6 +97,10 @@ def run(binary, baseline, additional_only=False):
             assert first["compatibility"] == repeated["compatibility"], case
             if changed is None:
                 env[case] = "fixture-b"
+            elif case == "compiler_config":
+                changed.write_text('[build]\nrustc="bin/rustc-other"\n')
+            elif case == "compiler_bytes":
+                changed.write_text(changed.read_text() + "\n# changed compiler bytes, same version output\n")
             else:
                 changed.write_bytes(b"fixture-B")
             second = fingerprint()
@@ -93,7 +111,7 @@ def run(binary, baseline, additional_only=False):
             assert "constant marker" not in json.dumps(second)
             assert "fixture-B" not in json.dumps(second)
             rows.append({"case": case, "equal_digest": equal, "rc": 0})
-    if not baseline and not additional_only:
+    if not baseline and not additional_only and not config_only:
         for case in ["secret_symlink_target", "secret_symlink_error", "role_swap", "fifo", "missing"]:
             with tempfile.TemporaryDirectory(prefix="fingerprint-boundary-") as temporary:
                 root = Path(temporary)
@@ -159,5 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("binary", type=Path)
     parser.add_argument("--baseline", action="store_true")
     parser.add_argument("--additional-selectors-only", action="store_true")
+    parser.add_argument("--cargo-for-selectors", type=Path)
+    parser.add_argument("--config-selector-only", action="store_true")
     args = parser.parse_args()
-    run(args.binary.resolve(), args.baseline, args.additional_selectors_only)
+    run(args.binary.resolve(), args.baseline, args.additional_selectors_only, args.cargo_for_selectors, args.config_selector_only)
