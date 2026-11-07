@@ -2,6 +2,7 @@ pub mod acceptance;
 pub(crate) mod cc_nagi;
 pub(crate) mod cli_output;
 pub mod commands;
+pub(crate) mod compiler_selector;
 pub mod config;
 pub mod development;
 pub mod diagnostics;

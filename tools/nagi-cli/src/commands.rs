@@ -8148,7 +8148,8 @@ fn prepare_nagi_rust_std_source(
 ) -> Result<crate::rust_std_source::PreparedSource, String> {
     let discovery_start = std::time::Instant::now();
     // Match Cargo's compiler selection and its repository working directory.
-    let rustc_program = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let rustc_program = crate::compiler_selector::selected_rustc(root)
+        .map_err(|error| format!("cannot query rustc sysroot: {error}"))?;
     let rustc = ProcessCommand::new(&rustc_program)
         .args(["--print", "sysroot"])
         .current_dir(root)

@@ -23,6 +23,7 @@ const ENVIRONMENT_ALLOWLIST: &[&str] = &[
     "CARGO_BUILD_RUSTFLAGS",
     "CARGO_INCREMENTAL",
     "CARGO_HOME",
+    "CARGO_BUILD_RUSTC",
     "CFLAGS",
     "CPPFLAGS",
     "CXX",
@@ -556,10 +557,7 @@ fn create_fingerprint(
 }
 
 fn toolchain_identity(root: &Path) -> Result<ToolchainIdentity, crate::commands::CliError> {
-    let rustc_path = env::var_os("RUSTC")
-        .map(PathBuf::from)
-        .or_else(|| pinned_tool_path(root, "rustc"))
-        .unwrap_or_else(|| PathBuf::from("rustc"));
+    let rustc_path = crate::compiler_selector::selected_rustc(root).map_err(config_error)?;
     let rustc_output = required_command_output(
         &rustc_path,
         &["--version", "--verbose"],
@@ -579,6 +577,10 @@ fn toolchain_identity(root: &Path) -> Result<ToolchainIdentity, crate::commands:
             rustc.insert("version".into(), line.trim().to_owned());
         }
     }
+    let executable = &rustc_path;
+    let (digest, _) = hash_file(executable)
+        .map_err(|_| config_error("cannot hash selected Rust compiler executable".into()))?;
+    rustc.insert("executable_sha256".into(), digest);
     let cargo_path = env::var_os("CARGO")
         .map(PathBuf::from)
         .or_else(|| pinned_tool_path(root, "cargo"))
