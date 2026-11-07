@@ -44,13 +44,9 @@ if ([string]::IsNullOrWhiteSpace($cargoPath)) {
     exit 4
 }
 
-$bootstrapMode = $Arguments.Count -gt 0 -and ($Arguments[0] -eq 'fetch' -or $Arguments[0] -eq 'dev' -or $Arguments[0] -eq 'legal')
-$manifestPath = if ($bootstrapMode) {
-    Join-Path $repositoryRoot 'tools\nagi-bootstrap\Cargo.toml'
-} else {
-    Join-Path $repositoryRoot 'Cargo.toml'
-}
-$packageName = if ($bootstrapMode) { 'nagi-bootstrap' } else { 'nagi-cli' }
+# All entry commands use the independent bootstrap workspace.
+$manifestPath = Join-Path $repositoryRoot 'tools\nagi-bootstrap\Cargo.toml'
+$packageName = 'nagi-bootstrap'
 Push-Location -LiteralPath $repositoryRoot
 try {
     $llvmLinker = Join-Path ${env:ProgramFiles} 'LLVM\bin\lld-link.exe'

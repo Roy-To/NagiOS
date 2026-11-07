@@ -1606,7 +1606,7 @@ fn execute_image_with_std(root: &Path, image_name: &str) -> CommandResult {
         "--locked",
         "--offline",
     ];
-    execute_image_with_init_build(root, &init_args, Some(&source_root), image_name)
+    execute_image_with_init_build(root, &init_args, Some(&source_root.library), image_name)
 }
 
 fn execute_image_with_init_build(
@@ -7204,12 +7204,13 @@ fn execute_m17(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
-        Some(&rust_std_source),
+        Some(&rust_std_source.library),
         "nagi-0.1-m17-servo.img",
         &init_build_env,
         write_m17_fat12_image,
         ImageBuildFeatures::default(),
     );
+    drop(rust_std_source);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -8142,10 +8143,16 @@ fn finish_tool(
     }
 }
 
-fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
+fn prepare_nagi_rust_std_source(
+    root: &Path,
+) -> Result<crate::rust_std_source::PreparedSource, String> {
     let discovery_start = std::time::Instant::now();
-    let rustc = ProcessCommand::new("rustc")
+    // Match Cargo's compiler selection and its repository working directory.
+    let rustc_program = crate::compiler_selector::selected_rustc(root)
+        .map_err(|error| format!("cannot query rustc sysroot: {error}"))?;
+    let rustc = ProcessCommand::new(&rustc_program)
         .args(["--print", "sysroot"])
+        .current_dir(root)
         .output()
         .map_err(|error| format!("cannot query rustc sysroot: {error}"))?;
     if !rustc.status.success() {
@@ -8167,8 +8174,9 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let version = ProcessCommand::new("rustc")
+    let version = ProcessCommand::new(&rustc_program)
         .args(["--version", "--verbose"])
+        .current_dir(root)
         .output()
         .map_err(|error| format!("cannot query rustc identity: {error}"))?;
     if !version.status.success() {
@@ -8196,7 +8204,7 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
             "fresh preparation"
         }
     ));
-    Ok(prepared.library)
+    Ok(prepared)
 }
 
 fn command_output(output: &std::process::Output) -> String {
@@ -8355,7 +8363,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result = execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
-        Some(&rust_std_source),
+        Some(&rust_std_source.library),
         "nagi-0.1-m18-albert.img",
         &init_build_env,
         write_m17_fat12_image,
@@ -8364,6 +8372,7 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             loader: &[],
         },
     );
+    drop(rust_std_source);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -8955,7 +8964,7 @@ fn execute_m19_browser_image(root: &Path, image_name: &str) -> CommandResult {
     execute_image_with_init_build_env_using_writer(
         root,
         &init_args,
-        Some(&rust_std_source),
+        Some(&rust_std_source.library),
         image_name,
         &init_build_env,
         write_m17_fat12_image,
@@ -12261,3 +12270,7 @@ mod qemu_timeout_caller_tests {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "commands/rust_std_source_tests.rs"]
+mod rust_std_source_boundary_tests;
