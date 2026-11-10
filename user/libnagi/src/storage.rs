@@ -489,57 +489,40 @@ impl<D: BlockDevice> Vfs<D> {
         if self.find_inode_in_directory(parent_inode, name)?.is_some() {
             return Err(StorageError::AlreadyExists);
         }
-        let inode = self.allocate_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)?;
-        let data_block = match self.allocate_bit(BLOCK_BITMAP, FIRST_FILE_BLOCK, EXT2_BLOCK_COUNT) {
-            Ok(block) => block,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                return Err(error);
-            }
-        };
-        let generation = match self.next_generation(inode) {
-            Ok(generation) => generation,
-            Err(error) => {
-                self.clear_bit(INODE_BITMAP, inode - 1)?;
-                self.clear_bit(BLOCK_BITMAP, data_block)?;
-                return Err(error);
-            }
-        };
-        let now = current_timestamp();
-        self.write_inode(
-            inode,
-            InodeInfo {
-                mode: 0x4000,
-                uid: 0,
-                gid: 0,
-                size: BLOCK_SIZE as u32,
-                atime: now,
-                ctime: now,
-                mtime: now,
-                blocks: 2,
-                direct_block: data_block,
-                extra_blocks: [0; DIRECT_BLOCKS - 1],
-                indirect_block: 0,
-                generation,
-            },
-        )?;
-        let mut directory = [0; BLOCK_SIZE];
-        let dot = [b'.'];
-        let dot_dot = [b'.', b'.'];
-        write_directory_record(&mut directory, 0, inode, 12, 1, 2, &dot);
-        write_directory_record(&mut directory, 12, parent_inode, 12, 2, 2, &dot_dot);
-        write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
-        if let Err(error) = self.write_block(data_block, &directory) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        if let Err(error) = self.add_directory_entry_in_directory(parent_inode, name, inode, 2) {
-            self.clear_bit(INODE_BITMAP, inode - 1)?;
-            self.clear_bit(BLOCK_BITMAP, data_block)?;
-            return Err(error);
-        }
-        self.adjust_free_counts(-1, -1)
+        let inode = self.find_free_bit(INODE_BITMAP, FIRST_FILE_INODE - 1, EXT2_INODE_COUNT)? + 1;
+        let data_block = self.find_free_bit(BLOCK_BITMAP, RESERVED_BLOCKS, EXT2_BLOCK_COUNT)?;
+        let generation = self.next_generation(inode)?;
+        self.transaction(parent_inode, Some((inode, data_block)), |volume| {
+            volume.set_allocated(INODE_BITMAP, inode - 1)?;
+            volume.set_allocated(BLOCK_BITMAP, data_block)?;
+            let now = current_timestamp();
+            volume.write_inode(
+                inode,
+                InodeInfo {
+                    mode: 0x4000,
+                    uid: 0,
+                    gid: 0,
+                    size: BLOCK_SIZE as u32,
+                    atime: now,
+                    ctime: now,
+                    mtime: now,
+                    blocks: 2,
+                    direct_block: data_block,
+                    extra_blocks: [0; DIRECT_BLOCKS - 1],
+                    indirect_block: 0,
+                    generation,
+                },
+            )?;
+            let mut directory = [0; BLOCK_SIZE];
+            let dot = [b'.'];
+            let dot_dot = [b'.', b'.'];
+            write_directory_record(&mut directory, 0, inode, 12, 1, 2, &dot);
+            write_directory_record(&mut directory, 12, parent_inode, 12, 2, 2, &dot_dot);
+            write_directory_record(&mut directory, 24, 0, BLOCK_SIZE as u16 - 24, 0, 0, b"");
+            volume.write_block(data_block, &directory)?;
+            volume.add_directory_entry_in_directory(parent_inode, name, inode, 2)?;
+            volume.adjust_free_counts(-1, -1)
+        })
     }
 
     pub fn remove(&mut self, name: &[u8]) -> Result<(), StorageError> {
@@ -3906,5 +3889,61 @@ mod tests {
         assert!(!volume.access_active);
         volume.create(b"after-unwind").unwrap();
         Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+    }
+
+    #[test]
+    fn mkdir_recovers_every_write_and_flush_interruption_before_next_create() {
+        for cached in [false, true] {
+            for nested in [false, true] {
+                let baseline = failure_baseline(cached, false);
+                let mut initial = Vfs::mount_existing(baseline.clone()).unwrap();
+                if nested {
+                    initial.mkdir_path(b"/parent").unwrap();
+                }
+                initial.flush().unwrap();
+                let path: &[u8] = if nested { b"/parent/home" } else { b"/home" };
+                let probe = baseline.fork();
+                let mut volume = Vfs::mount_existing(probe.clone()).unwrap();
+                probe.inject(None, None, false);
+                volume.mkdir_path(path).unwrap();
+                let (writes, flushes) = {
+                    let state = probe.0.lock().unwrap();
+                    (state.writes, state.flushes)
+                };
+                for flush_fault in [false, true] {
+                    let limit = if flush_fault { flushes } else { writes };
+                    for after in 0..=limit {
+                        let disk = baseline.fork();
+                        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                        disk.inject(
+                            (!flush_fault).then_some(after),
+                            flush_fault.then_some(after),
+                            true,
+                        );
+                        let success = volume.mkdir_path(path).is_ok();
+                        drop(volume);
+                        disk.reconnect(true);
+                        let mut volume = Vfs::mount_existing(disk.clone()).unwrap();
+                        assert!(
+                            Vfs::<FaultDisk>::check_existing(&mut disk.clone()).is_ok(),
+                            "mkdir corrupted volume: cached={cached} nested={nested} flush_fault={flush_fault} after={after}"
+                        );
+                        if success {
+                            assert_eq!(volume.metadata_path(path).unwrap().mode & 0xf000, 0x4000);
+                        }
+                        let kept = volume.open(b"kept.txt").unwrap();
+                        let mut bytes = [0; 64];
+                        let length = volume.read_at(kept, 0, &mut bytes).unwrap();
+                        assert_eq!(&bytes[..length], b"retained neighbor");
+                        // Same operation that failed after the interrupted
+                        // desktop Search mkdir: a later throttle-file create.
+                        let throttle = volume.create_path(b"login-throttle").unwrap();
+                        volume.write(throttle, b"NLT1\0\0\0\0").unwrap();
+                        volume.ensure_directory_path(path).unwrap();
+                        Vfs::<FaultDisk>::check_existing(&mut disk.clone()).unwrap();
+                    }
+                }
+            }
+        }
     }
 }
