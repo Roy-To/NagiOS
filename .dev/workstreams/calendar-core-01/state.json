@@ -3,65 +3,74 @@
   "schema_version": 1,
   "workstream_id": "calendar-core-01",
   "current_milestone": "C1-C5 Calendar host foundation",
-  "current_checkpoint": "C4 adapter buffer-boundary regression reproduced and fixed; committed-source CI pending",
-  "status": "PARTIAL",
+  "current_checkpoint": "C4 boundary-buffer correction PASS; 65 host tests and Linux/Windows CI PASS; runtime gated",
+  "status": "PASS",
   "last_verified": {
-    "commit_sha": "2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96",
-    "verified_at": "2026-10-08T12:45:00.330704+00:00",
-    "normal_state": "Historical C1-C5 host PASS at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. A subsequent static handoff identified an adapter boundary-buffer defect. Newly added host regressions reproduced it (3 of 4 fail before fix). The owned adapter fix is in progress; this historical 61-test/CI evidence does not establish acceptance for the new correction.",
+    "commit_sha": "d681823a1582db50ca3ae33d1c897ce111ae1a81",
+    "verified_at": "2026-11-11T23:18:14.915696+00:00",
+    "normal_state": "PASS for host foundation with corrected C4 adapter buffer boundaries at d681823a1582db50ca3ae33d1c897ce111ae1a81. On baseline fb00ad7, four added adapter regressions yielded three failures and one pass: adjacent outside events and recurring occurrences lost buffers before overlap filtering, and padding overflow was not checked. LocalAdapter now expands with checked [window.start-buffer_after, window.end+buffer_before), then buffers/clips to the original window, preserving its slot grid. Negative buffers and overflow fail explicitly; half-open buffer contacts remain free. All 65 host tests (1 unit + 64 acceptance), fmt, -D warnings Clippy and DF-01 verify pass. CI run 43118449848 succeeds on Ubuntu and Windows; both job logs explicitly report 1+64 tests passed. Four owned files changed from baseline; no registry/root Cargo/CI/guest or other stream change. Repository 1378490406 moved from RT-NISH/NagiOS to Roy-To/NagiOS; ordinary git push followed that redirect successfully. Runtime/product acceptance remains gated; no timezone DB, provider delivery, guest integration, Jobs or notifications added.",
     "commands": [
+      "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline adapter_availability",
       "bash crates/nagi-calendar-core/verify.sh",
       "./nagi dev verify",
-      "./nagi dev resume",
-      "./nagi dev status",
       "git diff --check",
-      "GitHub Git API create_blob/create_tree/create_commit/update_ref with lease; exact tree comparison"
+      "git push --set-upstream origin codex/0.2-calendar-core-01",
+      "git ls-remote origin refs/heads/codex/0.2-calendar-core-01"
     ],
     "tests": [
       {
-        "name": "Standalone Calendar host acceptance",
-        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "61 passed: 1 unit + 60 integration acceptance. Zero failures/ignored. Exact published source SHA 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Reproduced in Linux and Windows CI run 37778691144."
+        "name": "C4 boundary regression before correction",
+        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline adapter_availability",
+        "outcome": "FAIL",
+        "exit_code": 101,
+        "evidence": "Baseline fb00ad7 with four added regressions: 3 fail/1 pass. Adjacent and recurring outside events incorrectly retain [0,30) and [210,240) as candidates; padding overflow test receives slots instead of Overflow."
       },
       {
-        "name": "Calendar fmt and warnings-denied Clippy",
+        "name": "C4 focused regressions after correction",
+        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline adapter_availability",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "All four pass: asymmetric before/after and both-sided buffers, outside recurring occurrences, exact half-open contacts, and negative/overflowing padding."
+      },
+      {
+        "name": "Complete host tests, fmt and Clippy",
         "command": "bash crates/nagi-calendar-core/verify.sh",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "Pinned nightly-2025-08-01; fmt --all --check and Clippy --all-targets --locked --offline -D warnings pass."
+        "evidence": "65 tests (1 unit + 64 acceptance), zero failures or ignored tests. Pinned nightly-2025-08-01; fmt --all --check and Clippy --all-targets --locked --offline -D warnings pass at d681823a1582db50ca3ae33d1c897ce111ae1a81."
       },
       {
-        "name": "DF-01 registration and State verification",
-        "command": "./nagi dev verify",
+        "name": "DF-01 State and ownership",
+        "command": "./nagi dev verify; git diff --name-only fb00ad7 HEAD; git diff --check",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": "27 registered workstreams, 16 State files validated at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96."
+        "evidence": "27 registered workstreams / 16 States validated. Four changed paths all owned by calendar-core-01. Root manifests/lock, registry, workflows, other streams and guest sources unchanged."
       },
       {
-        "name": "Mutation checks",
-        "command": "Three temporary source mutations followed by exact regression tests, with finally-restored sources",
+        "name": "Cross-platform host CI",
+        "command": "Nagi 0.2 host foundations run 43118449848",
         "outcome": "PASS",
         "exit_code": 0,
-        "evidence": ".dev/workstreams/calendar-core-01/evidence/mutations.json: stale revision, DST fold rejection and exact output-limit boundary all caught."
-      },
-      {
-        "name": "Calendar-specific cross-platform CI",
-        "command": "Nagi 0.2 host foundations run 37778691144",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "https://github.com/RT-NISH/NagiOS/actions/runs/37778691144 at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Jobs 113315994016 (Windows) and 113315994379 (Ubuntu): Calendar fmt/Clippy and 1 unit + 60 acceptance tests pass; shared host CLI checks also pass."
-      },
-      {
-        "name": "Owned-path and exact publication audit",
-        "command": "git diff --name-only cd871f9 HEAD; Git blob/tree comparisons; git ls-remote origin refs/heads/codex/0.2-calendar-core-01",
-        "outcome": "PASS",
-        "exit_code": 0,
-        "evidence": "17 owned paths at tested source SHA; shared registry/root Cargo/workflows byte-identical to owner checkpoint. Source remote SHA equals local 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Tree comparison succeeded on Git API import."
+        "evidence": "https://github.com/Roy-To/NagiOS/actions/runs/43118449848 at d681823a1582db50ca3ae33d1c897ce111ae1a81. Jobs 130852420658 (Windows) and 130852420959 (Ubuntu) pass; both logs show 1 unit and 64 acceptance tests passed, with Calendar fmt/Clippy and shared CLI compatibility checks successful."
       }
     ],
     "ci_runs": [
+      {
+        "run_id": 43118449848,
+        "url": "https://github.com/Roy-To/NagiOS/actions/runs/43118449848",
+        "head_sha": "d681823a1582db50ca3ae33d1c897ce111ae1a81",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "C4 buffer-boundary correction: Calendar fmt/Clippy and 65 tests pass on Ubuntu and Windows; shared host CLI checks also pass."
+      },
+      {
+        "run_id": 43118449847,
+        "url": "https://github.com/Roy-To/NagiOS/actions/runs/43118449847",
+        "head_sha": "d681823a1582db50ca3ae33d1c897ce111ae1a81",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Root Nagi CI intentionally skips this dedicated host branch. Separate host-foundations CI ran Calendar tests. No target/runtime activation."
+      },
       {
         "run_id": 37778691144,
         "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778691144",
@@ -123,7 +132,7 @@
       "Do not claim shared CI executes Calendar without a Calendar-specific step."
     ]
   },
-  "next_action": "Verify and publish the focused C4 buffer-window fix, run Linux/Windows host CI on its exact source SHA, and replace the historical host PASS evidence with the new acceptance result.",
+  "next_action": "The delegated C4 boundary-buffer correction is complete. Integration Owner may review/adopt the Calendar-owned fix at source d681823 with CI run 43118449848. No additional C1-C5 correction is pending from this handoff. Guest/runtime/provider integration still requires M30 PASS and a separate Integration Owner checkpoint.",
   "acceptance_criteria": [
     "PASS CAL-H01: stable domain IDs and Calendar/Event CRUD with no ID reuse within bounded store lifetime.",
     "PASS CAL-H02: Instant/Zoned/Floating/AllDay remain distinct; explicit zone context required.",
@@ -131,12 +140,12 @@
     "PASS CAL-H04: gap errors, explicit fold choice, resolver roundtrip/order validation, 23/25-hour all-day semantics.",
     "PASS CAL-H05: Daily/Weekly/Monthly/InstantEvery bounded subset, typed Count/Until, EXDATE and stable original-key overrides.",
     "PASS CAL-H06: month-end skip, leap/century/year boundaries, overnight overlap and maximum-date Until.",
-    "PASS CAL-H07: instant-axis busy union, clipping/buffers, participant intersection, window-anchored candidate grid.",
+    "PASS CAL-H07: instant-axis busy union, clipping/buffers including outside-window adjacent events and recurrence, participant intersection, original-window anchored candidate grid.",
     "PASS CAL-H08: revision CAS, atomic failure, overflow, invalid ranges/limits, skipped-candidate and no-output scan bounds.",
     "PASS CAL-H09: injected fixed clocks/IDs reproduce results; unavailable/rollback/precision-loss clocks fail.",
     "PASS CAL-H10: invite/response classified EXTERNAL; confirmed execution returns unavailable, no delivery success.",
     "PASS CAL-H11: Japanese/English UTF-8 and empty/long/invalid fields fail or succeed deterministically without panic.",
-    "PASS CAL-H12: pinned host toolchain, 61 tests/fmt/Clippy, own State, exact committed/published SHA and Ubuntu/Windows Calendar CI evidence."
+    "PASS CAL-H12: pinned host toolchain, 65 tests/fmt/Clippy, own State, exact committed/published SHA and Ubuntu/Windows Calendar CI evidence."
   ],
   "deferred": [
     "Integration Owner adoption of the host-only feature diff on reviewed integration branch",
