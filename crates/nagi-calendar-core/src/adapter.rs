@@ -125,9 +125,25 @@ impl<S: EventStore> LocalAdapter<S> {
             .into_iter()
             .map(|event| event.draft)
             .collect::<Vec<_>>();
+        if request.buffer_before_micros < 0 || request.buffer_after_micros < 0 {
+            return Err(Error::InvalidRange);
+        }
+        // An event outside the requested window can still block it through its
+        // buffer. Keep those events through expansion/clip; the final candidate
+        // calculation applies buffers and clips back to the original window.
+        let event_window = crate::model::Interval::new(
+            request
+                .window
+                .start()
+                .checked_add(-request.buffer_after_micros)?,
+            request
+                .window
+                .end()
+                .checked_add(request.buffer_before_micros)?,
+        )?;
         let busy = crate::availability::busy_from_events(
             &drafts,
-            request.window,
+            event_window,
             resolver,
             context,
             limits,
