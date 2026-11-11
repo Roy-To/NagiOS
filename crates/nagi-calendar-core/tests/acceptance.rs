@@ -1160,3 +1160,120 @@ fn recurrence_rejects_exactly_one_occurrence_over_output_limit() {
         Err(Error::OutputLimitExceeded)
     );
 }
+
+#[test]
+fn adapter_availability_keeps_buffers_from_events_touching_both_window_edges() {
+    let mut adapter = LocalAdapter { store: store() };
+    let busy = [interval(-30, 0).unwrap(), interval(240, 270).unwrap()];
+    for event in busy {
+        adapter
+            .create_event(draft(Schedule::Instant(event)))
+            .unwrap();
+    }
+    let calendar = CalendarId::new("cal_1").unwrap();
+    for (before, after) in [(0, 15), (15, 0), (15, 15)] {
+        let mut request = request();
+        request.buffer_before_micros = before;
+        request.buffer_after_micros = after;
+        let slots = adapter
+            .find_availability(&calendar, &request, &fixed(), None, limits())
+            .unwrap();
+        assert_eq!(slots, find_availability(&request, &busy).unwrap());
+        assert_eq!(
+            slots.first().unwrap().start(),
+            Instant(if after == 0 { 0 } else { 30 })
+        );
+        assert_eq!(
+            slots.last().unwrap().end(),
+            Instant(if before == 0 { 240 } else { 210 })
+        );
+    }
+}
+
+#[test]
+fn adapter_availability_buffers_outside_recurring_occurrences() {
+    let mut adapter = LocalAdapter { store: store() };
+    let mut event = draft(Schedule::Instant(interval(-30, 0).unwrap()));
+    event.recurrence = Some(recurrence(
+        Frequency::InstantEvery { micros: 270 },
+        RecurrenceBound::Count(2),
+    ));
+    adapter.create_event(event).unwrap();
+    let mut request = request();
+    request.buffer_before_micros = 15;
+    request.buffer_after_micros = 15;
+    let slots = adapter
+        .find_availability(
+            &CalendarId::new("cal_1").unwrap(),
+            &request,
+            &fixed(),
+            None,
+            limits(),
+        )
+        .unwrap();
+    assert_eq!(
+        pairs(slots),
+        vec![
+            (30, 60),
+            (60, 90),
+            (90, 120),
+            (120, 150),
+            (150, 180),
+            (180, 210)
+        ]
+    );
+}
+
+#[test]
+fn adapter_availability_preserves_half_open_buffer_contacts() {
+    let mut adapter = LocalAdapter { store: store() };
+    for event in [interval(-30, -15).unwrap(), interval(255, 270).unwrap()] {
+        adapter
+            .create_event(draft(Schedule::Instant(event)))
+            .unwrap();
+    }
+    let mut request = request();
+    request.buffer_before_micros = 15;
+    request.buffer_after_micros = 15;
+    let slots = adapter
+        .find_availability(
+            &CalendarId::new("cal_1").unwrap(),
+            &request,
+            &fixed(),
+            None,
+            limits(),
+        )
+        .unwrap();
+    assert_eq!(slots, find_availability(&request, &[]).unwrap());
+}
+
+#[test]
+fn adapter_availability_rejects_negative_or_overflowing_window_padding() {
+    let adapter = LocalAdapter { store: store() };
+    let calendar = CalendarId::new("cal_1").unwrap();
+    for (window, before, after, expected) in [
+        (
+            interval(i64::MIN, i64::MIN + 240).unwrap(),
+            0,
+            1,
+            Error::Overflow,
+        ),
+        (
+            interval(i64::MAX - 240, i64::MAX).unwrap(),
+            1,
+            0,
+            Error::Overflow,
+        ),
+        (interval(0, 240).unwrap(), -1, 0, Error::InvalidRange),
+        (interval(0, 240).unwrap(), 0, -1, Error::InvalidRange),
+    ] {
+        let mut request = request();
+        request.window = window;
+        request.buffer_before_micros = before;
+        request.buffer_after_micros = after;
+        assert_eq!(
+            adapter.find_availability(&calendar, &request, &fixed(), None, limits()),
+            Err(expected)
+        );
+    }
+}

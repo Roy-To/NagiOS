@@ -282,6 +282,14 @@ mean no work time. Durations/steps are positive; arithmetic, input counts, scans
 and output counts are bounded. Adjacent half-open intervals share no busy time.
 No remote participant lookup or scheduling service is invoked.
 
+Adapter event expansion uses a checked padded query window
+`[window.start - buffer_after, window.end + buffer_before)` so events whose
+buffers cross a requested boundary survive overlap filtering and intermediate
+clipping. The final candidate calculation applies buffers once, clips to the
+original requested window, and retains that window's slot-grid anchor. Negative
+buffers and padding overflow return structured errors. Regression tests cover
+both boundary directions, recurring occurrences, and half-open buffer contacts.
+
 ## C5: adapter boundary
 
 Action v1 classifies local/read operations and exposes CRUD, draft, availability,
