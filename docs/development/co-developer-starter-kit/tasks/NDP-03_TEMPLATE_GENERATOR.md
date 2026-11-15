@@ -1,6 +1,6 @@
 # NDP-03 — 最小アプリ雛形generator pilot
 
-状態: PROPOSED / NOT STARTED。PT-02。NDP-02の利用可能な契約と、host-only実装・検証の開始承認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-02。NDP-02の利用可能な契約と、host-only実装・検証の開始承認が必要。
 
 ## 目的
 

@@ -1,6 +1,6 @@
 # NDP-11 — 比較runと実測・改善
 
-状態: PROPOSED / NOT STARTED。PT-06。NDP-10と、使用するPT-02〜05の利用可能範囲・実行許可が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-06。NDP-10と、使用するPT-02〜05の利用可能範囲・実行許可が必要。
 
 ## 目的
 
