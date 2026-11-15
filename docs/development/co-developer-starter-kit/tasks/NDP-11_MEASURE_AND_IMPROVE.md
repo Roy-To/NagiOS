@@ -1,6 +1,6 @@
 # NDP-11 — 比較runと実測・改善
 
-状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-06。NDP-10と、使用するPT-02〜05の利用可能範囲・実行許可が必要。
+状態: PARTIAL（2026-11-15）。NDP-06を用いたUI-01の非AI構造解析runを実施。手動比較・性能評価・target受入は未実施。
 
 ## 目的
 
@@ -27,3 +27,5 @@
 診断rules、generator、UI mapping、検証adapter、SDK不足のどこが原因かを分け、担当へ小さな再現例を返す。他ownerのコードを直接修正する許可にはしない。NDP-12で次の作業を整理する。
 
 共通: [規則](../03_COMMON_RULES.md)、[レビュー](../06_REVIEW_INTEGRATION_RESUME.md)。
+
+限定runの入力・tool版・結果と比較限界は[担当内記録](../../developer-platform/contract-audit.md)に記載。

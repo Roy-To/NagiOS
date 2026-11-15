@@ -1,6 +1,6 @@
 # NDP-08 — 正規tool利用表とStage契約
 
-状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-05。NDP-01、CLI/Package owner確認、担当記録の許可が必要。
+状態: PARTIAL（2026-11-15）。正規toolの読取利用表を作成。CLI/Package owner確認と実接続待ち。
 
 ## 目的
 
@@ -35,3 +35,5 @@ NDP-09が使う正規tool表と小さな内部adapter案。未提供tool、曖�
 許可されたStage範囲が決まればNDP-09へ。tool本体の変更は既存ownerへ最小提案で渡す。
 
 共通: [規則](../03_COMMON_RULES.md)、[レビュー](../06_REVIEW_INTEGRATION_RESUME.md)。
+
+調査結果: [担当内の接続調査](../../developer-platform/contract-audit.md)。実行していない検証やowner合意を完了扱いにしない。

@@ -1,6 +1,6 @@
 # NDP-02 — Level 0アプリ雛形の契約
 
-状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-02。開始にはNDP-01、SDK ownerとの接続確認、担当pathの承認が必要。
+状態: PARTIAL（2026-11-15）。SDK/Manifestの読取照合済み。正式SDK参照方式と実validator確認待ち。
 
 ## 目的
 
@@ -34,3 +34,5 @@ SDKの配送・pin方法、repo外の依存解決、現行Manifestの必須field
 契約が利用可能になったらNDP-03へ渡す。SDK本体改修が必要ならownerへ最小提案を返し、別の承認済みtaskを進める。
 
 共通: [規則](../03_COMMON_RULES.md)、[権限](../04_SCOPE_AND_AUTHORITY.md)。
+
+調査結果: [担当内の接続調査](../../developer-platform/contract-audit.md)。実行していない検証やowner合意を完了扱いにしない。
