@@ -1,6 +1,6 @@
 # NDP-08 — 正規tool利用表とStage契約
 
-状態: PROPOSED / NOT STARTED。PT-05。NDP-01、CLI/Package owner確認、担当記録の許可が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-05。NDP-01、CLI/Package owner確認、担当記録の許可が必要。
 
 ## 目的
 

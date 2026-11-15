@@ -1,6 +1,6 @@
 # NDP-10 — 評価fixtureの選定・権利・作成準備
 
-状態: PROPOSED / NOT STARTED。PT-06。NDP-01と、fixture作成path・host実行範囲の承認が必要。
+状態: 開始承認済み（2026-11-15、[開始記録](../START_AUTHORIZATION.md)）/ NOT STARTED。PT-06。NDP-01と、fixture作成path・host実行範囲の承認が必要。
 
 ## 目的
 

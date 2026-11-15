@@ -1,6 +1,6 @@
 # NDP-06 — 宣言的UIのbounded static analysis pilot
 
-状態: PROPOSED / NOT STARTED。PT-04。NDP-01、対象UI形式、現行UI契約、担当pathとhost条件の確認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-04。NDP-01、対象UI形式、現行UI契約、担当pathとhost条件の確認が必要。
 
 ## 目的
 

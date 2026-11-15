@@ -1,6 +1,6 @@
 # NDP-07 — UI対応表と未対応レポート
 
-状態: PROPOSED / NOT STARTED。PT-04。NDP-06の利用可能な出力、UI ownerとの接続点、担当pathの承認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-04。NDP-06の利用可能な出力、UI ownerとの接続点、担当pathの承認が必要。
 
 ## 目的
 
