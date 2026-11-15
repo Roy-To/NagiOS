@@ -1,6 +1,6 @@
 # NDP-06 — 宣言的UIのbounded static analysis pilot
 
-状態: PARTIAL（2026-11-15）。Qt Designer XMLのhost pilot実装・16テスト成功。独立レビューとNDP-07/UI owner接続は未実施。
+状態: PASS（2026-11-15、Qt Designer XMLのhost pilot限定）。18テストと独立再レビューが成功。NDP-07/UI owner接続・target受入は別途。
 
 ## 目的
 
@@ -36,4 +36,4 @@ Qt Designer UI、GTK UI、XAML等は候補で、確定済みの対応一覧で�
 
 ## 2026-11-15 実装結果
 
-担当内の技術判断としてQt Designer XMLを初回形式に選択し、既存のUI契約を照合。実装・テスト・手順は `tools/nagi-developer-platform/ui/analysis/**`。入力と階層の上限、DTD/entity・symlink・範囲外path拒否、未対応と未接続の保持を実コードで確認した。既存renderer/SDK/共有registryは変更していない。対象はhost静的解析のみ。DEC-051の別担当レビューは未実施。
+担当内の技術判断としてQt Designer XMLを初回形式に選択し、既存のUI契約を照合。実装・テスト・手順は `tools/nagi-developer-platform/ui/analysis/**`。入力と階層の上限、DTD/entity・symlink・範囲外path拒否、未対応と未接続の保持を実コードで確認した。既存renderer/SDK/共有registryは変更していない。対象はhost静的解析のみ。独立レビューで発見・確認した情報欠落を9b68295で修正し、再レビューで未解決P1/P2なし。詳細は [Codexレビュー](../../../../reviews/ndp-host-pilots.md)。

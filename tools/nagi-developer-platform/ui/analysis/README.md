@@ -60,8 +60,8 @@ malformed forms, duplicate identities, invalid encodings, XML declaration
 attacks, byte/element/depth bounds, symlinks/traversal/FIFO rejection, bounded
 file reading, deterministic results, input preservation and sanitized errors.
 No dependencies were installed. This focused result does not make the normal
-Python 3.10+ Nagi host or cargo-based doctor pass. Target execution and the
-independent review required by DEC-051 are not performed.
+Python 3.10+ Nagi host or cargo-based doctor pass. Target execution is not performed. Independent review and re-review found
+no remaining P1/P2 issues; see the [Codex review](../../../../reviews/ndp-host-pilots.md).
 
 ## Review fixes
 

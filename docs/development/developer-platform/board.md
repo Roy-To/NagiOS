@@ -9,18 +9,18 @@
 | NDP-03 | NOT STARTED | なし | SDK参照契約待ち |
 | NDP-04 | NOT STARTED | なし | PT-01正規入力の接続待ち |
 | NDP-05 | NOT STARTED | なし | PT-01正規入力の接続待ち |
-| NDP-06 | PARTIAL | cb37e91、実コード16テスト成功 | 方式Aの独立レビュー待ち |
+| NDP-06 | PASS | 9b68295、18テスト・再レビュー成功 | Qt XMLのhost pilot限定 |
 | NDP-07 | NOT STARTED | なし | UI owner接続待ち |
 | NDP-08 | PARTIAL | 正規toolの副作用・終了値を照合 | 実validatorとowner確認 |
 | NDP-09 | NOT STARTED | なし | 正規tool実接続の条件待ち |
-| NDP-10 | PASS | 715d308、自作入力の限定成果 | 独立レビュー・後続評価 |
+| NDP-10 | PASS | 715d308、独立レビュー済み | 後続の比較評価 |
 | NDP-11 | PARTIAL | UI-01構造解析run成功 | 手動比較・速度測定なし |
 | NDP-12 | NOT STARTED | 上流統合なし | 統合・登録担当の指定待ち |
 
 SDKとtoolの読取結果・具体的な不足は[接続調査](contract-audit.md)。PASSは上記の限定作業のみで、Nagi image受入ではない。
 
-確認結果: portable Cの警告エラー付きbuild・境界条件・繰返し一致・入力不変が成功。NDP-06は実際のNDP-10入力とCLIを含む16テストが成功。標準host全体のdoctor、SDK validator、VM/targetは未実施。
+確認結果: portable Cの警告エラー付きbuild・境界条件・繰返し一致・入力不変が成功。NDP-06は実際のNDP-10入力とCLIを含む18テストが成功。標準host全体のdoctor、SDK validator、VM/targetは未実施。
 
-Codexレビュー: 未実施。方式Aの別担当への対象はNDP-10がe8071ec..715d308、NDP-06がe7900aa..cb37e91。レビュー結果は得られておらず、自己確認を独立レビューとは数えない。
+Codexレビュー: 初回P2を修正し、9b68295の独立再レビューで未解決P1/P2なし。詳細は[レビュー記録](../../../reviews/ndp-host-pilots.md)。
 
-DeepSeek: 未実施。方式Aで追加が必要な重要変更・未収束の指摘が判明した場合、該当対象を記載して指定経路へ渡す。
+DeepSeek: 方式Aの追加条件は非該当と独立担当が判断。重要なOS権限等の変更や未解決・見解不一致はなく、今回の追加送信は不要。実送信はしていない。
