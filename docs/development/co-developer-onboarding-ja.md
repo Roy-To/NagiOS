@@ -56,7 +56,7 @@ PRには目的、対象pathとworkstream、関連するDEC、実行した確認�
 
 ## 7. 最初の1タスク
 
-まずFounderに小さく独立した担当を依頼し、既存workstreamと競合しない範囲を一緒に確定します。着手前にtask briefへ次を記録してください。
+PT-02〜PT-06の候補バックログは[共同開発者の担当案と実行バックログ](CO_DEVELOPER_ALLOCATION_PROPOSAL.md)にあります。これはPROVISIONALで、担当・workstream・branch/path・権限・開始許可を確定しません。まずFounderに小さく独立した担当を依頼し、既存workstreamと競合しない範囲を一緒に確定します。着手前にtask briefへ次を記録してください。
 
 1. 目的と成果物、担当owner / workstream
 2. 使用branchまたは既存worktree、変更可能・禁止path

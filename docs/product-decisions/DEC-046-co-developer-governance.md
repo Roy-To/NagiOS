@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（全体方針と担当領域の役割）／未決定（個別担当・GitHub権限・運用設定）
 **最終合意日:** 2026-11-15
 **適用対象:** Nagi OSの人間による共同開発体制
-**関連:** [DEC-044 — Linux移行開発の開始承認](DEC-044-linux-migration-development-authorization.md)、[製品決定の運用規則](OPERATING_RULES.md)、[0.3 Architecture Roadmap §16・§34](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
+**関連:** [DEC-044 — Linux移行開発の開始承認](DEC-044-linux-migration-development-authorization.md)、[製品決定の運用規則](OPERATING_RULES.md)、[共同開発者の担当案（PROVISIONAL）](../development/CO_DEVELOPER_ALLOCATION_PROPOSAL.md)、[0.3 Architecture Roadmap §16・§34](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
 ## 目的
 
@@ -26,7 +26,7 @@
 
 ## 未決定事項
 
-- 共同開発者の具体的な担当領域、workstream owner、integration owner、着手時期。
+- 共同開発者の具体的な担当領域、workstream owner、integration owner、着手時期。PT-02〜PT-06の案は別文書にPROVISIONALとして記録しており、個別担当・path・開始許可は未確定。
 - GitHubの対象repositoryと個別アカウント権限、branch／PR／review運用、利用する開発環境・検証資源。
 - 必要に応じた成果物・ライセンス等の取り決め。
 
@@ -39,3 +39,4 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-15 | ユーザーが確定した創設者の全体方針・最終判断と、共同開発者の担当領域における自律的な設計・実装を記録。既存権限・Gateは維持。 |
+| 2026-11-15 | PT-02〜PT-06の具体的な担当案への参照を追加。割当・workstream owner・path・着手・GitHub権限はPROVISIONAL／未決定のまま。 |
