@@ -40,7 +40,7 @@ NDP-09はこの既存validatorへの1本のadapterから始める候補。任意
 - PT-01: 別案とPR #91の正規interface選択が未確定。NDP-04/05で別scanner/report正本を作らない。
 - UI: NDP-06は構造事実の抽出まで実装済み。NDP-07はUI ownerとの接続・mappingの根拠確認が残る。
 - 環境: Cargo/Rustと標準host Python 3.10以上の導入範囲、共有pathの登録・統合先、push先は未指定。
-- レビュー: 現在の[DEC-051方式A](../../product-decisions/DEC-051-review-methods.md)に従い別担当レビューを待つ。旧DEC-049の全レーンDeepSeek必須を新しい停止条件にしない。
+- レビュー: 現在の[DEC-051方式A](../../product-decisions/DEC-051-review-methods.md)による別担当レビューと修正後の再レビューを実施済み。[記録](../../../reviews/ndp-host-pilots.md)を参照。旧DEC-049の全レーンDeepSeek必須を新しい停止条件にしない。
 
 ## NDP-11: UI-01の限定run
 
