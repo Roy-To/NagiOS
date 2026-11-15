@@ -1,4 +1,7 @@
 # Nagi OS 0.2 Platform Foundation
+
+> **Linux移行の補足(2026-11-13、2026-11-15公開):** Nagiは独自カーネルからLinuxカーネル + Nagi専用ユーザーランドへ方針を変更した([DEC-042](../product-decisions/DEC-042-linux-kernel-transition.md)・[DEC-043](../product-decisions/DEC-043-nagi-userland-independent-os.md))。この仕様の旧起動連鎖・参照targetとの適用関係は [0.2 Linux移行補足](../Nagi_OS_0.2_Linux_Migration_Addendum.md) を参照。
+
 ## Codex Implementation Specification
 
 **Document ID:** `NAGI-OS-0.2-CODEX-IMPLEMENTATION-SPEC`  

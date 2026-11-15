@@ -1,5 +1,8 @@
 # NAGI OS 0.3 Architecture Roadmap
 
+> **2026-11-15:** 改訂版は [docs/product-decisions/roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md](product-decisions/roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md) にある。この文書は初版として残す。
+
+
 **Project:** NAGI — Native Agentic General Interface  
 **Document Type:** Architecture Roadmap  
 **Target Version:** 0.3  
