@@ -53,7 +53,7 @@ NDP-07 mapping and UI-owner agreement remain separate work.
 
 ## Verification — 2026-11-15
 
-16 real-parser/CLI tests pass on the existing Python 3.9.6: the actual NDP-10
+18 real-parser/CLI tests pass on the existing Python 3.9.6: the actual NDP-10
 input, Unicode/accessibility properties, hierarchy, unknown widgets/layouts,
 bindings/scripts as data, unexecuted external resources, unresolved references,
 malformed forms, duplicate identities, invalid encodings, XML declaration
@@ -62,3 +62,13 @@ file reading, deterministic results, input preservation and sanitized errors.
 No dependencies were installed. This focused result does not make the normal
 Python 3.10+ Nagi host or cargo-based doctor pass. Target execution and the
 independent review required by DEC-051 are not performed.
+
+## Review fixes
+
+Layout source attributes and item attributes (grid row/column/spans/alignment),
+contained object identities and spacer properties are retained. Custom-widget
+class/extends/header declarations and their metadata are retained as data;
+headers are never loaded and custom widgets are not promoted to supported
+Nagi controls. Two regression tests fail on the original implementation and
+pass on the fixed code. The existing scope/encoding/resource-limit checks
+remain in place.
