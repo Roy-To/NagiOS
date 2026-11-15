@@ -20,8 +20,9 @@ The current Nagi OS 0.1 implementation is a from-scratch operating system with
 its own kernel and user-space stack; QEMU x86-64 is its official target.
 Product decisions [DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)
 and [DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
-confirm a Linux kernel with a Nagi-owned userland as the product direction. This does not mean the 0.1 implementation or its
-acceptance evidence has migrated. Nagi will not adopt an existing Linux
+confirm a Linux kernel with a Nagi-owned userland as the product direction.
+This does not mean the 0.1 implementation or its acceptance evidence has
+migrated. Nagi will not adopt an existing Linux
 distribution as its product OS base. Linux, Windows, and macOS remain
 development hosts for the 0.1 line.
 
@@ -175,9 +176,11 @@ See [ROADMAP.md](ROADMAP.md), the
 [0.2 implementation specification](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md),
 and the [0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md).
 
-Nagi is moving from its own kernel to the Linux kernel with a Nagi-owned
-userland ([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md),
-[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)).
+The confirmed product direction is a Linux kernel with a Nagi-owned userland
+([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md),
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)). The
+current 0.1 implementation still uses its own kernel, and its acceptance
+evidence does not establish Linux-target acceptance.
 The user-approved product decisions, the revised 0.3, 0.4+ and 0.5–1.0
 roadmaps, and the long-term vision are kept in
 [docs/product-decisions](docs/product-decisions/README.md).
