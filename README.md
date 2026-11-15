@@ -169,6 +169,12 @@ See [ROADMAP.md](ROADMAP.md), the
 [0.2 implementation specification](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md),
 and the [0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md).
 
+Nagi is moving from its own kernel to the Linux kernel with a Nagi-owned
+userland ([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)).
+The user-approved product decisions, the revised 0.3, 0.4+ and 0.5–1.0
+roadmaps, and the long-term vision are kept in
+[docs/product-decisions](docs/product-decisions/README.md).
+
 ## Getting Started
 
 Nagi 0.1 targets QEMU x86-64 with UEFI/OVMF, q35, four virtual CPUs, and 8 GiB
@@ -216,6 +222,9 @@ Use and redistribution follow [LICENSE_SCOPE.md](LICENSE_SCOPE.md), [LICENSE](LI
 and the applicable exclusions, third-party terms, and notices.
 
 ## Contributing
+
+Japanese collaborators using ChatGPT, Codex, or Claude can start with the
+[co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md),
 [AGENTS.md](AGENTS.md), the current
