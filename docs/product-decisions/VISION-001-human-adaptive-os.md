@@ -4,6 +4,7 @@
 
 **文書種別:** 長期的な製品ビジョン（DEC・Implementation Specificationではない）  
 **記録日:** 2026-11-14  
+**追記日:** 2026-11-15  
 **位置付け:** ユーザーが示した高水準の方向を記録する。具体的な技術、対象機器、性能条件、適用時期は決めない。
 
 ## ビジョン
@@ -26,6 +27,12 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 同じ作業をすべての画面や入力方式へ一律に押し込むのではなく、その場で使える表示と操作に応じて、人が目的を達成しやすい体験へ整えることを目指す。
 
+### 利用傾向からの潜在的な不便の発見
+
+利用者が課題を明示する前でも、現行のPermission／Privacy条件で利用できるMemoryと実際の利用傾向を手がかりに、反復操作、UI上の不便、回り道の多い処理手順に気づき、観測根拠と不確かさを添えて改善案を提案することを目指す。候補には、操作順序や画面配置の見直し、必要に応じた小規模アプリの改善・作成案も含み得る。これは利用者の感情を断定することや、無断で変更することを意味しない。
+
+**高水準の提案方針は[DEC-052](DEC-052-proactive-friction-discovery.md)でCONFIRMED。** 参照する具体的な利用データ、収集・解析・Score・UI・適用方法、実装版は未確定であり、新たなTelemetry収集や権限を認めない。Memory／Privacy／Permission、明示設定優先、既存Workspaceを無断変更しない方針を維持する。
+
 ### 不確かな入力や指し示しの補助
 
 ポインティングデバイスでは、入力された座標だけでは、人が意図した対象を実際に選んだのか判断しにくい場合がある。立体表示では、どの位置や奥行きを指したのか、人がその対象に触れようとしたのかがさらに曖昧になる可能性がある。
@@ -42,6 +49,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - **DEC-010:** Intent-first UI、作業に応じた表示・Workspace配置の提案と、既存Workspaceや手動配置を尊重する方針を引き継ぐ。
 - **DEC-013:** Hardware-Adaptive Memory EngineはMemory検索等の適応方針であり、低スペック機器上のLLM性能や快適さを実証したものではない。
 - **DEC-017:** 現時点のアプリ移植支援はPC／Desktopを重点とし、Androidは将来のMobile／Tablet検討対象である。本ビジョンはその優先順位を変更しない。
+- **DEC-052:** 許可された利用傾向から潜在的な不便を見つけ、根拠付きの改善案を出す高水準方針をCONFIRMEDとする。具体的なSignals、Telemetry、診断、UI、自動適用、実装版はPROVISIONALで、既存の承認・権限・データ境界を変更しない。
 - **DEC-020:** 小さく構造化されたContext、型付きPublic Action、決定論的な認可、非特権AI、前景の人間操作を優先する資源配分を維持する。性能向上や省資源効果は測定前に保証しない。
 - **DEC-023／026／027:** 作業・データ中心の考え方、検証可能な変更、正規Public Action優先と限定されたGUI fallbackを維持する。
 - **DEC-042／043:** LinuxカーネルとNagi専用ユーザーランドの製品方針を前提にするが、特定の機器、ユーザーランド構成、表示・入力技術を追加で決めない。
@@ -55,15 +63,17 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - ローカルLLM、モデル規模・種類、学習・推論・資源管理の技術方式。
 - PC、タブレット、モバイル、車載、立体表示等の具体的な対象機器、対応時期、提供範囲、移行順序。
 - ポインティング、タッチ、音声、視線、ジェスチャー、空間入力等の方式と、個々の方式を使う条件。
+- 潜在的な不便の検知に使える利用傾向・Event・Memoryの種類、収集・保持・監査条件、AI診断方式、Score／確信度、提案UI、頻度・タイミング、自動適用の条件。
+- 小規模アプリの改善案を実開発へ進める際の利用者向け開発体験、Model・Package・配布方式。
 - 本ビジョンを個別の実装仕様、Release、Workstream、Acceptanceへ割り当てるかどうか。
 
 ## 実装・安全境界
 
 本ビジョンの記録は、実装開始、Release activation、Workstream登録、端末対応、性能達成、既存Gateの変更を許可しない。0.1から1.0までの版境界・既存Acceptance・実装仕様を変更しない。
 
-通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。
+通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。潜在的な不便の探索は、新たなTelemetry収集、Memory・アプリ・ファイルへのアクセス許可、Task開始、自動変更、アプリ配布の許可を生まない。既存の明示設定や承認境界を優先する。
 
-この文書はPrivateの長期ビジョンであり、Publicリポジトリへ転載する許可を含まない。
+この文書は長期ビジョンであり、具体的なImplementation Specification、Release commitment、実装開始許可ではない。公開仕様正本への保存はDEC-050に従う。
 
 ## 参照文書
 
@@ -71,12 +81,21 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - [DEC-010 — Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md)
 - [DEC-013 — Hardware-Adaptive Memory Engine](DEC-013-lightweight-memory-engine-benchmark.md)
 - [DEC-017 — 第三者アプリ開発・参入環境](DEC-017-third-party-developer-ecosystem.md)
+- [DEC-052 — 許可された利用傾向からの潜在的な不便の発見と改善提案](DEC-052-proactive-friction-discovery.md)
 - [DEC-020 — AIのOS操作経路と計算資源の活用](DEC-020-ai-os-interaction-path.md)
 - [DEC-042 — Linuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md)
 - [DEC-043 — Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md)
 - [0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 - [0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 - [0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+
+---
+
+## 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-15 | DEC-052を参照し、許可されたMemory・利用傾向から潜在的な不便を見つけ、根拠付き改善案を出す高水準方針を追記。詳細は未決定のまま既存のPrivacy・Permission・明示設定・UI保護境界を明記。 |
 
 ---
 
