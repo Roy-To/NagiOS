@@ -4,7 +4,8 @@ Nagi OS is an independent operating system in active Developer Preview work.
 Contributions should preserve the architecture and should leave acceptance
 evidence clear enough for someone else to reproduce.
 
-For AI-assisted collaboration, start with the [Japanese co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
+For AI-assisted collaboration, start with the
+[Japanese co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
 
 ## Before changing code or documentation
 
