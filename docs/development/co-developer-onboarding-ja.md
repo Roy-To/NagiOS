@@ -15,7 +15,7 @@ Nagiは、AIを安全に活用しながら利用者が主導権を保つ独立OS
 | Founder（創設者） | Nagi全体の方向性と最終判断を担う。 |
 | Core Developer（共同開発者） | 割り当てられた領域の設計・実装を主体的に進める。担当内の日常判断に毎回の事前承認は要しない。 |
 
-この裁量は、確定仕様、セキュリティ境界、workstreamの所有範囲、統合条件、レビュー、受入条件、release gateの内側で使います。他の担当に影響する変更や製品全体の決定はFounderと関係するownerに相談してから統合します。[DEC-046](../product-decisions/DEC-046-co-developer-governance.md)は、個別の担当・実装開始・GitHub権限・開発環境を自動で割り当てるものではありません。
+この裁量は、確定仕様、セキュリティ境界、workstreamの所有範囲、統合条件、レビュー、受入条件、release gateの内側で使います。他の担当に影響する変更や製品全体の決定はFounderと関係するownerに相談してから統合します。[DEC-046](../product-decisions/DEC-046-co-developer-governance.md)は、個別の担当・実装開始・GitHub権限・開発環境を自動で割り当てるものではありません。 0.3のTeam Profileはデータ共有とPermissionの境界、0.4+ Multi-Agent Organizationは将来の製品機能の構想であり、人間の共同開発体制とは別です。DEC-046はこれらの実装やactivationを許可しません。
 
 ## 3. GitHubとAIアカウント
 
