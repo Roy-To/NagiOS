@@ -1,5 +1,11 @@
 # Development
 
+## Co-developer guides
+
+- [AI-assisted co-developer onboarding (Japanese)](co-developer-onboarding-ja.md)
+- [Allocation proposal and execution backlog (Japanese)](CO_DEVELOPER_ALLOCATION_PROPOSAL.md)
+- [Claude / Codex co-developer starter kit (Japanese)](co-developer-starter-kit/00_START_HERE.md): founder handoff, setup, shared rules, twelve task briefs, implementation/review/resume prompts, and minimal templates. This kit does not itself activate workstreams or grant account permissions.
+
 Use the repository-level `nagi` command for build, test, image, run, and host
 diagnostic workflows. Tool versions are pinned in `rust-toolchain.toml` and
 `nagi.toml`.
