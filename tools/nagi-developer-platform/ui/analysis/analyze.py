@@ -58,6 +58,23 @@ def _properties(element):
     ]
 
 
+def _layout_items(element):
+    return [
+        {
+            "attributes": dict(sorted(item.attrib.items())),
+            "objects": [
+                {
+                    "kind": child.tag,
+                    "attributes": dict(sorted(child.attrib.items())),
+                    "properties": _properties(child),
+                }
+                for child in item
+            ],
+        }
+        for item in element if item.tag == "item"
+    ]
+
+
 def analyze_bytes(data):
     """Return internal source facts; no renderer, mapping or SDK is invoked."""
     if len(data) > MAX_BYTES:
@@ -115,6 +132,7 @@ def analyze_bytes(data):
             item = {
                 "name": name, "class": kind, "parent_widget": widget_parent,
                 "parent_layout": layout_parent, "properties": _properties(element),
+                "attributes": dict(sorted(element.attrib.items())),
             }
             if element.tag == "widget":
                 item["recognized"] = kind in WIDGETS
@@ -122,6 +140,7 @@ def analyze_bytes(data):
                 widget_parent, layout_parent, owner = name, None, name
             else:
                 item["recognized"] = kind in LAYOUTS
+                item["items"] = _layout_items(element)
                 layouts.append(item)
                 layout_parent = name
             if not item["recognized"]:
@@ -153,12 +172,33 @@ def analyze_bytes(data):
         for key in ("sender", "receiver"):
             if fact[key] not in widget_names:
                 unresolved.append({"kind": key, "name": fact[key]})
+    custom_widgets = [
+        {
+            "class": declaration.findtext("class", ""),
+            "extends": declaration.findtext("extends", ""),
+            "header": {
+                "text": _text(declaration.find("header")),
+                "attributes": dict(sorted(declaration.find("header").attrib.items()))
+                if declaration.find("header") is not None else {},
+            },
+            "metadata": [
+                {
+                    "kind": child.tag, "text": _text(child),
+                    "attributes": dict(sorted(child.attrib.items())),
+                }
+                for child in declaration
+            ],
+            "execution": "not_run",
+        }
+        for declaration in root.findall("./customwidgets/customwidget")
+    ]
     return {
         "analysis_version": 1, "format": "qt-designer-ui",
         "form_class": root.findtext("class", ""), "widgets": widgets,
         "layouts": layouts, "connections": connections, "tab_order": tab_order,
         "declared_slots": [_text(item) for item in root.findall("./slots/slot")],
         "bindings": bindings, "resources": resources, "unknown": unknown,
+        "custom_widgets": custom_widgets,
         "unresolved_references": unresolved,
         "limitations": [
             "Source structure only; no Qt or Nagi compatibility verdict.",

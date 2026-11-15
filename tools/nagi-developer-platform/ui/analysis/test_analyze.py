@@ -69,6 +69,50 @@ class QtAnalysisTests(unittest.TestCase):
         self.assertEqual(result["bindings"][0]["text"], "state.title")
         self.assertEqual([x["tag"] for x in result["unknown"]], ["binding", "script"])
 
+    def test_layout_placement_attributes_and_spacers_are_preserved(self):
+        def grid(row):
+            return form(
+                '<layout class="QGridLayout" name="grid" rowstretch="1,2">'
+                '<item row="' + row + '" column="3" colspan="2" alignment="Qt::AlignLeft">'
+                '<widget class="QPushButton" name="button"/></item>'
+                '<item row="4" column="0"><spacer name="gap">'
+                '<property name="orientation"><enum>Qt::Vertical</enum></property>'
+                '</spacer></item></layout>'
+            )
+        first = analyze.analyze_bytes(grid("0"))
+        other = analyze.analyze_bytes(grid("2"))
+        self.assertNotEqual(first, other)
+        layout = first["layouts"][0]
+        self.assertEqual(layout["attributes"]["rowstretch"], "1,2")
+        self.assertEqual(layout["items"][0]["attributes"],
+                         {"row": "0", "column": "3", "colspan": "2",
+                          "alignment": "Qt::AlignLeft"})
+        self.assertEqual(layout["items"][0]["objects"][0]["attributes"]["name"], "button")
+        spacer = layout["items"][1]["objects"][0]
+        self.assertEqual(spacer["kind"], "spacer")
+        self.assertEqual(spacer["attributes"]["name"], "gap")
+        self.assertEqual(spacer["properties"][0]["values"][0]["text"], "Qt::Vertical")
+
+    def test_custom_widget_declarations_are_preserved_without_loading(self):
+        source = form('<widget class="VendorBadge" name="badge"/>',
+                      '<customwidgets><customwidget>'
+                      '<class>VendorBadge</class><extends>QWidget</extends>'
+                      '<header location="global">vendor/badge.h</header>'
+                      '<container>0</container></customwidget></customwidgets>')
+        with patch("builtins.open", side_effect=AssertionError("header read forbidden")), \
+                patch("socket.socket", side_effect=AssertionError("network forbidden")):
+            result = analyze.analyze_bytes(source)
+        declaration = result["custom_widgets"][0]
+        self.assertEqual(declaration["class"], "VendorBadge")
+        self.assertEqual(declaration["extends"], "QWidget")
+        self.assertEqual(declaration["header"],
+                         {"text": "vendor/badge.h", "attributes": {"location": "global"}})
+        self.assertEqual(declaration["metadata"][-1]["text"], "0")
+        self.assertEqual(declaration["execution"], "not_run")
+        self.assertFalse(result["widgets"][1]["recognized"])
+        self.assertIn({"kind": "widget", "name": "badge", "class": "VendorBadge"},
+                      result["unknown"])
+
     def test_external_resources_are_not_loaded(self):
         source = form(
             '<property name="pixmap"><pixmap>file:///unreadable/secret</pixmap></property>',
