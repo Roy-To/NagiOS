@@ -18,6 +18,9 @@ minimum information needed to establish a private conversation.
 Please include the affected revision, component, reproduction conditions, and
 impact assessment only after a private channel is established.
 
+For community conduct concerns, see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Accessibility barriers are covered by [ACCESSIBILITY.md](ACCESSIBILITY.md).
+
 ## Supported versions
 
 No production-supported release line is currently declared. The repository
