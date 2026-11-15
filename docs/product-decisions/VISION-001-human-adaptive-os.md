@@ -4,7 +4,8 @@
 
 **文書種別:** 長期的な製品ビジョン（DEC・Implementation Specificationではない）  
 **記録日:** 2026-11-14  
-**位置付け:** ユーザーが示した高水準の方向を記録する。具体的な技術、対象機器、性能条件、適用時期は決めない。
+**最終更新日:** 2026-11-16  
+**位置付け:** ユーザーが示した高水準の方向を記録する。個別の確定事項は関連DECを正本とし、具体的な技術、対象機器、性能条件、適用時期は決めない。
 
 ## ビジョン
 
@@ -34,6 +35,12 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 解釈が曖昧なときには、候補の提示や確認を通じて利用者が意図を直せる設計が望ましい。AIの推定や学習は、操作権限や承認を生み出さず、重要な操作を曖昧な入力だけで実行する根拠にもならない。
 
+### 人間が管理する階層型AI組織（DEC-052）
+
+長期的には、**利用者1人が唯一の人間Managerとなり、複数の統括AI（Supervisor AI）がそれぞれの専門Worker Agentを率いる組織型OS**を目指す。端末の計算能力や利用可能なResourceが高まるにつれ、必要に応じて組織の規模や階層を拡張できる方向を確認する。資源の増加だけでAgentを自動的に増やすことや、具体的な性能効果を保証するものではない。
+
+ユーザーとの一貫した窓口は既存決定に従いNagiとする。Nagiが複数のSupervisorの一員か、別の調整役かは決めない。SupervisorとWorkerは組織上の役割であり、それぞれに独立したProcess、Session、Modelを持たせることや、同時実行を必須とするものではない。詳細な製品決定は[DEC-052](DEC-052-human-led-agent-organization.md)を参照する。
+
 ## 既存の決定との関係
 
 このビジョンは、既存の製品決定をまとめて置き換えず、その先にある長期的な方向を示す。
@@ -43,6 +50,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - **DEC-013:** Hardware-Adaptive Memory EngineはMemory検索等の適応方針であり、低スペック機器上のLLM性能や快適さを実証したものではない。
 - **DEC-017:** 現時点のアプリ移植支援はPC／Desktopを重点とし、Androidは将来のMobile／Tablet検討対象である。本ビジョンはその優先順位を変更しない。
 - **DEC-020:** 小さく構造化されたContext、型付きPublic Action、決定論的な認可、非特権AI、前景の人間操作を優先する資源配分を維持する。性能向上や省資源効果は測定前に保証しない。
+- **DEC-052:** 人間をManager、複数のSupervisorとその配下の専門AgentをStaffとする階層型AI組織を長期方向として確認する。具体的な構造・技術・版割当は未確定。
 - **DEC-023／026／027:** 作業・データ中心の考え方、検証可能な変更、正規Public Action優先と限定されたGUI fallbackを維持する。
 - **DEC-042／043:** LinuxカーネルとNagi専用ユーザーランドの製品方針を前提にするが、特定の機器、ユーザーランド構成、表示・入力技術を追加で決めない。
 
@@ -56,14 +64,14 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - PC、タブレット、モバイル、車載、立体表示等の具体的な対象機器、対応時期、提供範囲、移行順序。
 - ポインティング、タッチ、音声、視線、ジェスチャー、空間入力等の方式と、個々の方式を使う条件。
 - 本ビジョンを個別の実装仕様、Release、Workstream、Acceptanceへ割り当てるかどうか。
+- 組織階層の数、SupervisorとWorkerの役割・数、Nagiの位置付け、並列実行、Model配置、Resource scheduler、Taskの承認・監督UI、適用Versionと受入条件。
 
 ## 実装・安全境界
 
 本ビジョンの記録は、実装開始、Release activation、Workstream登録、端末対応、性能達成、既存Gateの変更を許可しない。0.1から1.0までの版境界・既存Acceptance・実装仕様を変更しない。
 
-通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。
+通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。組織上の上下関係やSupervisorの役割は権限を生まず、委譲されたScopeは親の権限を超えない。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。
 
-この文書はPrivateの長期ビジョンであり、Publicリポジトリへ転載する許可を含まない。
 
 ## 参照文書
 
@@ -74,6 +82,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - [DEC-020 — AIのOS操作経路と計算資源の活用](DEC-020-ai-os-interaction-path.md)
 - [DEC-042 — Linuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md)
 - [DEC-043 — Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md)
+- [DEC-052 — 人間が管理する階層型AI組織](DEC-052-human-led-agent-organization.md)
 - [0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 - [0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 - [0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
