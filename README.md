@@ -16,10 +16,15 @@ remain unresolved. See [Licensing](#licensing) and [LICENSE_SCOPE.md](LICENSE_SC
 
 ## Project Overview
 
-Nagi is a from-scratch operating system project with its own kernel and
-user-space stack. Linux, Windows, and macOS are development hosts only; Nagi is
-not a Linux distribution. The current implementation line is Nagi OS 0.1
-Developer Preview, with QEMU x86-64 as its official target.
+The current Nagi OS 0.1 implementation is a from-scratch operating system with
+its own kernel and user-space stack; QEMU x86-64 is its official target.
+Product decisions [DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)
+and [DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
+confirm a Linux kernel with a Nagi-owned userland as the product direction.
+This does not mean the 0.1 implementation or its acceptance evidence has
+migrated. Nagi will not adopt an existing Linux
+distribution as its product OS base. Linux, Windows, and macOS remain
+development hosts for the 0.1 line.
 
 The project explores a local-first desktop where normal keyboard, pointer, and
 GUI use remains central while AI can help with user-directed work. The AI
@@ -58,8 +63,9 @@ future architecture, not a completed 0.1 feature.
 
 ## Why Nagi OS?
 
-- **An operating system built as an operating system:** Nagi has its own kernel,
-  ABI, services, and native desktop rather than a custom shell on Linux.
+- **An operating system built as an operating system:** the current 0.1
+  implementation has its own kernel, ABI, services, and native desktop. The
+  confirmed product direction is a Nagi-owned userland on Linux.
 - **The user keeps authority:** capabilities and explicit permissions define
   what software can do; probabilistic AI output does not grant access.
 - **Local data is the default direction:** user objects, history, and planned
@@ -98,11 +104,12 @@ User-space services · Nagi ABI · SDK / PAL / relibc
 Native applications · Albert browser (Servo)
 ~~~
 
-The kernel is Nagi's own, not Linux-based. The architecture places filesystem,
-networking, desktop, audio, packages, and AI policy in user space. Albert uses
-Servo as its browser engine. Some preview services still run inside init, so
-the diagram describes the target boundary and does not imply full production
-service isolation.
+The current 0.1 kernel is Nagi's own. DEC-042/043 separately confirm the
+Linux-kernel product direction; that direction has not migrated this
+implementation. The architecture places filesystem, networking, desktop,
+audio, packages, and AI policy in user space. Albert uses Servo as its browser
+engine. Some preview services still run inside init, so the diagram describes
+the target boundary and does not imply full production service isolation.
 
 For the design contracts, see the
 [0.1 implementation specification](docs/Nagi_OS_0.1_Codex_Implementation_Spec.md)
@@ -169,8 +176,11 @@ See [ROADMAP.md](ROADMAP.md), the
 [0.2 implementation specification](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md),
 and the [0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md).
 
-Nagi is moving from its own kernel to the Linux kernel with a Nagi-owned
-userland ([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)).
+The confirmed product direction is a Linux kernel with a Nagi-owned userland
+([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md),
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)). The
+current 0.1 implementation still uses its own kernel, and its acceptance
+evidence does not establish Linux-target acceptance.
 The user-approved product decisions, the revised 0.3, 0.4+ and 0.5–1.0
 roadmaps, and the long-term vision are kept in
 [docs/product-decisions](docs/product-decisions/README.md).
@@ -235,6 +245,10 @@ separate verified behavior from plans and partial implementations.
 Useful contributions include reproducible QEMU failures, focused fixes,
 documentation improvements, and reviews that identify concrete evidence or
 remaining limits.
+
+Community guidance: [Code of Conduct](CODE_OF_CONDUCT.md) ·
+[Accessibility](ACCESSIBILITY.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md) · [License](LICENSE).
 
 This documentation prepares Nagi for OSS publication and a Codex for Open Source
 application. The [application preparation notes](docs/oss/codex-application-preparation.md)
