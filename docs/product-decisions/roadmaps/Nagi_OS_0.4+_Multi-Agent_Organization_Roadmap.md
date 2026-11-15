@@ -37,13 +37,15 @@
 
 Nagiはユーザーに対して一貫した窓口と調整役であり続ける。専門Roleは権限を生まない。Permission、Capability、Action実行、取消、永続状態の決定権はOSにある。
 
+**人間がManagerとなる長期的な組織方向（DEC-052）:** 長期的には、ユーザー1人が唯一の人間Managerとなり、複数の統括AIがそれぞれの専門Worker Agentをまとめる階層型の組織を目指す。端末資源に応じて組織の規模や階層を拡張できる方向を確認する。Nagiを一貫したユーザー窓口とする既存方針は維持するが、Nagiが統括AIの一員か別の調整役か、Supervisorや階層の数、実行・資源管理の仕組み、Version割当ては未確定。本方向は将来の製品構想であり、0.4初期の単一Nagi builder Role方式、0.4 Entry Gate、既存Permissionを変更しない。
+
 段階的な規模拡張を想定する。
 
 ```text
 0.3: 単一Personal Agentと正規のクロスアプリAction
 0.4: 1ユーザー・1端末、Nagiが専門Roleを切り替えて実行する限定Workflow
 0.5以降: ローカル組織の拡張、共有Workflow、必要に応じた複数端末連携
-将来: GovernanceとSecurityの証拠が整ったAI組織・会社の運用
+将来: 人間がManagerとなる階層型AI組織。GovernanceとSecurityの証拠が整った範囲で拡張
 ```
 
 0.3以降のVersion番号は計画上の案であり、正式なrelease決定に従う。最初の0.4では規模より小さく有用なWorkflowを成立させる。
