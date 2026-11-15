@@ -2,7 +2,17 @@
 
 Nagi OS is an independent operating system in active Developer Preview work.
 Contributions should preserve the architecture and should leave acceptance
-evidence clear enough for someone else to reproduce.
+evidence clear enough for someone else to reproduce. Follow the [Code of
+Conduct](CODE_OF_CONDUCT.md) and see [ACCESSIBILITY.md](ACCESSIBILITY.md) for
+accessibility goals and barrier reporting.
+
+The 0.1 documentation below describes the current own-kernel implementation.
+[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md) and
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
+confirm the Linux-kernel plus Nagi-owned-userland product direction; they do not
+mean the 0.1 implementation or its acceptance evidence has migrated. Linux
+migration work follows its assigned lane, workstream ownership, and existing
+acceptance evidence.
 
 For AI-assisted collaboration, start with the
 [Japanese co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
@@ -15,7 +25,8 @@ the current [implementation status](docs/implementation_status.md), and the
 workstream that owns the change. Inspect `git status` and the relevant diff
 first so existing work is preserved.
 
-Implement milestones in their specified order. Keep each milestone state as
+For Nagi OS 0.1 implementation work, implement milestones in their specified
+order. Keep each milestone state as
 `PASS`, `PARTIAL`, `BLOCKED`, or `NOT STARTED`; report a `PASS` only when its
 acceptance criteria have fresh evidence. If an implementation is independent
 of a blocked dependency, record the exact dependent acceptance that remains
@@ -23,8 +34,11 @@ blocked and continue the independent work.
 
 ## Architecture and security
 
-- Nagi is not a Linux, Windows, or macOS runtime. Host tools may build and run
-  QEMU, but guest behavior must execute inside Nagi.
+- For the current Nagi OS 0.1 Developer Preview, host tools may build and run
+  QEMU, but guest behavior must execute inside Nagi. Nagi's product direction is
+  a Linux kernel with a Nagi-owned userland, not an existing Linux distribution.
+  This does not mean the 0.1 implementation has migrated or its acceptance can
+  be inferred from host-only results.
 - Keep files, network protocols, windows, audio, packages, and AI in user-space
   services. Do not add high-level kernel syscalls for those services.
 - Preserve capability checks and least privilege. Do not use allow-all access,
