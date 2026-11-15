@@ -1,4 +1,21 @@
 # Nagi OS 0.1 Developer Preview
+> **2026-11-15:** The following Linux notes were moved here from the former private repository by [DEC-050](product-decisions/DEC-050-public-specification-repository.md). Later decisions [DEC-047](product-decisions/DEC-047-linux-migration-workspaces-and-integration.md) and [DEC-049](product-decisions/DEC-049-development-process-speed-priority.md) supersede the restrictions on worktrees, Git, build and VM operations stated below.
+
+## Linux baseline interpretation (2026-11-13)
+
+**Historical implementation baseline:** the original “Nagi Kernel, not Linux-based”, own-kernel, loader, syscall/ABI and milestone text below describes the retained 0.1 foundation. The approved future direction is Linux kernel plus Nagi-owned userland (DEC-042/043). DEC-044 and the 2026-11-12 scoped note below permit assigned Linux migration development without requiring old-kernel-only completion first; they do not declare release acceptance or production cutover.
+
+See the [section-by-section impact matrix](product-decisions/KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md) and [0.2 Linux migration addendum](Nagi_OS_0.2_Linux_Migration_Addendum.md). Security, user-data protection, typed Actions, ownership and honest target evidence remain mandatory. Original text and historical acceptance records remain preserved.
+
+
+## Scoped Linux migration development authorization (2026-11-12)
+
+The user's later explicit authorization is recorded in [DEC-044](product-decisions/DEC-044-linux-migration-development-authorization.md) and the [migration development ADR](decisions/2026-11-12-linux-migration-development-scope.md). For explicitly assigned Linux migration development only, this dated note takes precedence over this document's old independent-Nagi-kernel / “not Linux-based” / development-host-only assumptions and old-kernel-only milestone ordering as a prerequisite to starting that development. Linux kernel plus Nagi-owned userland is the approved direction; an existing distribution is not the product OS base.
+
+This is not a blanket release activation, M30 PASS, removal of existing acceptance Gates, or authorization for unrelated future features. Original text and historical evidence below remain preserved. Production cutover, publication/distribution, user-data migration and compatibility guarantees require separate decisions. AI remains unprivileged; typed Public Actions, deterministic policy, capability/security boundaries, user data integrity and honest same-code target evidence remain mandatory.
+
+Each task must have an actual permitted source location, bounded files/interfaces, owner, integration destination and test/resource conditions. Existing workstream ownership, Files preservation, SSD/Git prohibitions, denied operations, unknown-result protections and individual permissions remain in force. This note does not authorize new worktrees/clones/environments, permission changes, or bypasses. Host/portable results are not Linux-image acceptance. Read DEC-044 and the ADR before acting; a saved rule is not proof that any task has started.
+
 ## Codex Implementation Specification
 
 **Status:** Implementation baseline  

@@ -1,3 +1,13 @@
+## Kernel-policy documentation checkpoint — 2026-11-13
+
+This entry records documentation reconciliation only. DEC-042/043 confirm Linux kernel plus Nagi-owned userland; DEC-044 permits bounded Linux migration development. It is not a Linux implementation start, build/test result, release activation or milestone PASS.
+
+This entry was first written in the former private repository, whose copy of this file held an older 2026-09-19 snapshot. The entries below are this repository's implementation record; they are a separate code/evidence baseline and not Linux acceptance.
+
+See [kernel transition impact and evidence matrix](product-decisions/KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md) and [0.2 Linux migration addendum](Nagi_OS_0.2_Linux_Migration_Addendum.md). The latest actual assignment, source and target evidence must be checked before implementation. No existing status table is promoted or overwritten.
+
+> **2026-11-15:** Moved here from the former private repository by [DEC-050](product-decisions/DEC-050-public-specification-repository.md). The "NOT ASSIGNED" snapshot above was later superseded by [DEC-047](product-decisions/DEC-047-linux-migration-workspaces-and-integration.md) (lane worktrees, integration branch `codex/linux-integration-20261114`).
+
 ## PR 98 M27 promotion storage failure investigation — 2026-11-05
 
 Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
