@@ -216,7 +216,8 @@ fetch は pinned third-party source の取得にネットワーク接続と大�
 
 ## コントリビューション
 
-ChatGPT／Codex／Claudeを使って参加する方は、[共同開発者向けオンボーディングガイド](docs/development/co-developer-onboarding-ja.md)から始めてください。
+ChatGPT／Codex／Claudeを使って参加する方は、
+[共同開発者向けオンボーディングガイド](docs/development/co-developer-onboarding-ja.md)から始めてください。
 
 [CONTRIBUTING.md](CONTRIBUTING.md)、[AGENTS.md](AGENTS.md)、
 [現在の実装状況](docs/implementation_status.md)、変更を担当する

@@ -32,6 +32,7 @@ AIは実装支援者です。提案や生成差分は人間が確認し、許可
 - [Development資料](README.md)：0.2の開発状態・workstream参照手順。
 - toolchainと依存の定義：[rust-toolchain.toml](../../rust-toolchain.toml)、[nagi.toml](../../nagi.toml)。
 - repoの規則：[AGENTS.md](../../AGENTS.md)、[実装仕様](../Nagi_OS_0.1_Codex_Implementation_Spec.md)、[現在の実装状況](../implementation_status.md)。
+- AI向け引き継ぎ：[CODEX_START_HERE.md](../product-decisions/CODEX_START_HERE.md)。
 
 Linux移行laneの作業場所と操作許可は[DEC-044](../product-decisions/DEC-044-linux-migration-development-authorization.md)、[DEC-047](../product-decisions/DEC-047-linux-migration-workspaces-and-integration.md)、[移行開発ADR](../decisions/2026-11-12-linux-migration-development-scope.md)の範囲に従います。DEC-047のLinux移行向け許可を別laneに一般化しないでください。
 
@@ -45,7 +46,7 @@ Linux移行laneの作業場所と操作許可は[DEC-044](../product-decisions/D
 
 既存担当のpath、branch、worktree、生成物を横取り・上書きしません。作業範囲や所有者が不明なら、編集を始める前にFounderまたは記載されたownerと範囲を決めます。割当branchから作業し、PRのbaseと統合先はregistry／laneのmerge boundaryに合わせます。共有履歴を書き換えたり、gateを迂回してmergeしたりしません。
 
-PRには目的、対象pathとworkstream、関連するDEC、実行した確認と結果、CI、未検証事項・blockerを記載します。CI成功はそのcommitのcheck結果であり、release acceptanceとは別です。host-only test、Linux test、Nagi image内のtarget acceptanceを混同せず、条件を満たしていないmilestoneやreleaseをPASSと報告しません。
+PRには目的、対象pathとworkstream、関連するDEC、実行した確認と結果、CI、未検証事項・blockerを記載します。 統合はreview、CI、受入条件を確認し、merge_boundaryが認める担当者・手順で行います。CI成功はそのcommitのcheck結果であり、release acceptanceとは別です。host-only test、Linux test、Nagi image内のtarget acceptanceを混同せず、条件を満たしていないmilestoneやreleaseをPASSと報告しません。
 
 ## 6. 仕様を変えるとき
 
