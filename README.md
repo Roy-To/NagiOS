@@ -223,6 +223,8 @@ and the applicable exclusions, third-party terms, and notices.
 
 ## Contributing
 
+Japanese collaborators using ChatGPT, Codex, or Claude can start with the [co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
+
 Start with [CONTRIBUTING.md](CONTRIBUTING.md),
 [AGENTS.md](AGENTS.md), the current
 [implementation status](docs/implementation_status.md), and the workstream
