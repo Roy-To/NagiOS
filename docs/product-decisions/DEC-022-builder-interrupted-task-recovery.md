@@ -25,6 +25,8 @@ Builderによる作業中にOSのクラッシュ、電源断、再起動、実�
 6. **反映・復旧・整理の境界を維持する。** 反映済みローカル変更、未反映Patch、部分適用、実行途中の作業を区別し、古い成果で最新のユーザーファイルを上書きしない。復旧待ちの成果物や証拠を通常の自動整理対象に含めない（DEC-018／019）。
 7. **中止は明示的な終了である。** ユーザーが中止を選んだら、新しいActionの実行を止め、現存する変更・副作用を正確に報告する。中止操作を既存の変更の完全巻戻し・成果物即時削除と同一視しない。
 
+> **2026-11-16 Foundation Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、共通Nagi Recovery Coordinator＋各Serviceの所有データ復旧という高水準B案をCONFIRMED。本DECの中断Builder Taskのユーザー選択（再開／やり直し／中止）、副作用Actionの無断再実行禁止、結果不明の照合、現行Permission／Revision再検証は変更しない。具体State Machine・Linux検証は未決定。
+
 ## 例外・禁止・安全境界
 
 - Workspaceのチェックポイントの復元（DEC-014）は、AI Taskの自動再開や再実行を意味しない。本決定もその区別を維持する。
@@ -42,6 +44,8 @@ Builderによる作業中にOSのクラッシュ、電源断、再起動、実�
 ## Roadmapとの関係
 
 0.4+ RoadmapのTask Log、Activity Ledger、Idempotency、Stop、有限Retry、Revision検査、Waybackに整合する。初回はNagi一体が`builder` Roleに切り替えてTaskを実行する方式C（DEC-015）とし、0.3のTarget Acceptanceおよび明示的な0.4起動Gateを変更しない。
+
+> **2026-11-16 Data Persistence後続決定 — Taskの保存状態と復旧時の権限境界:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagi共通Persistence契約＋用途別分散正本のB案をCONFIRMED。Task／Attempt／Actionの保存結果が不明な場合は照合を要し、ログやCheckpointが存在しても副作用Actionを勝手に再送しない。中断後の再開／やり直し／中止のユーザー選択と現行権限・Revision再評価は不変。具体的なDurability／復旧ステートマシン・Linux target試験は未確定。
 
 ## 決定履歴
 

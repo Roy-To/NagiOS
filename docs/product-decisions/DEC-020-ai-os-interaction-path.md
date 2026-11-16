@@ -8,6 +8,8 @@
 **対象:** Nagi OSとAIの情報受け渡し・OS操作経路。実装バージョンと採用時期は確定しない  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-008](DEC-008-proactive-behavior.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Decision / Generative AI architecture](../architecture/decision-and-generative-ai-architecture.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)
 
+> **2026-11-16 Linux上のPermission強制方針の後続決定:** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、Nagi Permission／Capabilityの認可判断とLinux保護機構による実効隔離を併用し、Linux syscall／device／filesystem等の直接経路からの権限迂回も防ぐB案をCONFIRMED。本文の「Linux上の強制機構は未確定」は個別技術・適用境界・実機受入の未決定を示す。型付きPublic Action、GUI fallbackの限定条件、AI非特権の方針は変更しない。
+
 ## 背景と目的
 
 Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を人間向けの画面・言語へ変換してAIが解釈し、その後また人間向けの操作経路へ戻す流れでは、避けられる変換や推論負荷が生じ得るというもの。これを減らし、限られた計算資源を必要な判断に集中させることを目指す。
