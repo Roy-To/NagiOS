@@ -84,3 +84,7 @@ NagiをOS操作の第一の窓口としながら、ユーザーが従来のGUI�
 | 2026-10-29 | Nagi-first、Nagi Home / Desktop、ログイン時表示、Workspace再開時のTask実行・復元境界を確認 |
 | 2026-11-04 | 選択Cを確定。通常は複数ディスプレイを含むWorkspace全体を切り替え、ユーザー指定の画面を維持または単独切り替えできる。状態保持・手動配置・Task再実行禁止を継承 |
 | 2026-11-15 | Nagiに委任したTaskの作業中は原則Nagi Homeを維持する方針を確定。アプリの直接起動時にDesktopへ切り替える既存規則は維持する。 |
+
+## Foundation #28の後続決定（2026-11-16）
+
+[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)により、通常a11y基盤を先行整備し、将来のAI-nativeで正確なポインティングに依存しない操作思想と両立させる方針を確定した。Home／Desktopの切替やナビゲーション等の具体的なa11y方式は引き続き未決定。GUI・keyboard／mouseとAI不在時の通常操作を維持する。

@@ -98,7 +98,7 @@
 | [25](#f25) | Resource Manager / Scheduler | P0 | 前景優先確定／host Jobs等／Linux制御未定 |
 | [26](#f26) | App Lifecycle | P0 | manifest host契約／runtime統合別 |
 | [27](#f27) | Settings / Notification | P1 | scoped契約・host foundation／runtime別 |
-| [28](#f28) | Time / Locale / Accessibility | P1 | en-US／ja-JP基盤あり／時刻・a11y残件 |
+| [28](#f28) | Time / Locale / Accessibility | P1 | 通常a11y先行・長期AI-nativeと両立／time・locale詳細未定 |
 | [29](#f29) | Diagnostics / Logging | P0 | 旧診断・host構造化契約／Linux接続別 |
 
 ### 第6群 インストール・更新・端末間連携・品質保証
@@ -417,12 +417,12 @@
 ### 28 Time / Locale / Accessibility
 
 - **検討対象:** monotonic／wall clock／timezone／時刻同期、locale、入力言語、a11y tree／keyboard／screen reader等。
-- **製品決定:** CONFIRMED＝GUI利用維持・限定Accessibility fallback [DEC-009][D09]／[027][D27]。既存契約＝英語内部識別子、en-US／ja-JP同格。OPEN＝時刻同期・a11y機能範囲と方式。
+- **製品決定:** CONFIRMED＝keyboard／navigation・screen-reader等の通常a11y基盤を先に整備し、将来のAI-nativeで正確なポインティングに依存しない操作思想と矛盾しない設計にする [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)。長期ビジョンは別に維持。従来GUI・keyboard／mouse、AI不在時の通常操作、Permission／Policy／confirmationと限定fallback [DEC-009][D09]／[027][D27]を維持。既存の英語内部識別子・en-US／ja-JP同格は継承。PROVISIONAL／OPEN＝time／locale詳細、a11y具体方式・範囲、視線／ジェスチャー／空間入力等の採否・提供時期。
 - **技術設計:** language architectureとlocalization契約あり。locale／input／AI会話言語を分離。期限認可を巻き戻せるwall clockだけに依存させない設計が必要。
 - **実装・target受入:** localization資産・host契約あり。Linux clock／RTC／timezone、実screen reader、全UI a11y受入は未確認。
 - **依存・責任候補:** 7, 9, 14, 19, 20, 24, 27。`localization-i18n`／UI／clock／a11y候補。
 - **根拠:** [language architecture][LANG]、[0.2 §14・22・M06][S02]、[純正仕様 §98][FP]、[IME PR][PR120]。
-- **次に決める:** time authorityとoffline時刻ずれ、timezone保存、a11yの最初の操作・読み上げ・権限契約。
+- **次に決める:** 通常a11yの最初の対象画面、keyboard／focus／navigation・読み上げ・権限契約とAI不在時の受入。time authorityとoffline時刻ずれ、timezone保存は別途検討。長期入力技術を今回確定しない。
 
 <a id="f29"></a>
 ### 29 Diagnostics / Logging
@@ -434,6 +434,7 @@
 - **依存・責任候補:** 4, 7, 8, 9, 14, 35。`diagnostics`／`ci-acceptance`候補。
 - **根拠:** [0.1 §66–69][S01]、[0.2 §17・M04][S02]、[status][STATUS]、[registry][REG]。
 - **次に決める:** 最小boot／service証拠、sink failureと容量境界、誰が何をexportできるか・redaction検証。
+- **REVIEW NOTE（2026-11-16、検討開始・新規採用未決定）:** 既存0.2 §17／M04のstructured event・severity／category・bounded metadata／sink・redaction・crash／health snapshot・correlation／build identity・明示Activity bridgeを出発点とする。まずローカルのboot／service障害診断から整えるか、利用者向け統合診断・選択式report exportまで共通基盤として設計するかを判断する。AIによる説明は通常診断から分離した将来候補。Linux収集backend、保持・rate／容量の値、閲覧／export権限、秘密除去の検証、外部送信の許可条件はOPEN。debug logを自動的にActivity／Memory／学習データとせず、外部送信を今回許可しない。
 
 <a id="f30"></a>
 ### 30 Installer / First Setup
@@ -598,6 +599,8 @@ Linux／実機検証:
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | 28 | [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)：通常a11y基盤を先行、長期AI-nativeと設計両立。time／locale詳細と入力技術・時期は未決定 | 文書・参照の確認のみ。Linux／screen reader／実機の新規受入なし |
+| 2026-11-16 | 29 | REVIEW NOTE：既存0.2 §17／M04を元に次の検討論点を整理。新規製品方式の採用決定なし | 既存仕様の読取。runtime検証なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md

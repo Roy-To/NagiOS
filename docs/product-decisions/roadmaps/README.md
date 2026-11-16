@@ -55,6 +55,14 @@
 
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
 
+## Foundation #28：通常a11yと長期操作思想（2026-11-16）
+
+[DEC-097](../DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)で、keyboard／navigation・screen-reader等の通常a11y基盤を先に整え、将来のAI-nativeで正確なポインティングに依存しない操作体系と矛盾しない設計にする方針をCONFIRMEDとした。短期の整備と長期ビジョンを分け、視線／ジェスチャー／空間入力等の採用・時期、time／localeの詳細方式は未決定。従来GUI・keyboard／mouse、AI不在時の通常操作、Permission／Policyと必要なconfirmationを維持する。
+
+0.2の基盤、0.3のPersonal Agent、0.5–1.0のoffline／accessibilityテーマへ接続するが、特定Versionへの割当て、既存Release／Activation／Acceptance Gate、担当を変更せず、実装済みを示さない。
+
+変更履歴: 2026-11-16 — DEC-097とFoundation #28の短期／長期・確定／未確定を参照追加。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
