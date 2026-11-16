@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討項目・順序はREVIEW NOTE／PROVISIONAL。PX-06のB基本＋将来C方向はCONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの個別決定と独立PRはこの変更では扱わない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -27,8 +27,14 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 |---|---|---|---|
 | PX-04 | **音声・テキスト対話の統合** | 音声開始・停止、割り込み・誤認識、テキストとの引継ぎ、録音と文字起こしの管理 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
 | PX-05 | **AIの自律実行・承認レベル** | 具体的操作ごとのリスク区分、画面最終確認、未判定時の停止・確認・復元可能性表示 | [関連DEC 1](DEC-001-agent-autonomy-actions.md)・[関連DEC 2](DEC-026-ai-change-verification-and-recovery.md) |
-| PX-06 | **長時間Task・並行作業の管理** | Task一覧、Queue・優先順位、割り込み、待機と停止の区別、再開時の確認 | [関連DEC 1](DEC-011-task-approval-progress-ui.md)・[関連DEC 2](DEC-022-builder-interrupted-task-recovery.md) |
+| PX-06 | **長時間Task・並行作業の管理** | **B＋将来Cの高水準方針CONFIRMED:** Nagiが管理する長時間・複数Taskの統合Taskセンター型の把握・操作、将来は依存関係・資源・優先度を踏まえる高度な実行調整。Queue／Priority／状態表示の詳細、依存関係、Scheduler、並列度、技術・版はPROVISIONAL | [関連DEC 1](DEC-011-task-approval-progress-ui.md)・[関連DEC 2](DEC-022-builder-interrupted-task-recovery.md) |
 | PX-07 | **先回り提案・自発的な働きかけ** | 提案の表示条件・頻度、作業中の抑制、却下・再提示制御、重大警告との区別 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-073-proactive-friction-discovery.md) |
+
+### PX-06の決定記録（2026-11-17）
+
+- **CONFIRMED:** Bの統合Taskセンター型を基本とし、将来CのTask依存・資源・優先度・期限に配慮した高度なTaskオーケストレーションへ発展させる高水準方針。正本は[DEC-011](DEC-011-task-approval-progress-ui.md)のPX-06節。既存の前景優先、Task状態と停止・復旧の区別、権限・Gateを維持する。
+- **PROVISIONAL／OPEN:** Task一覧・Queue・Priority・状態表示の具体UIと制御、依存関係・Scheduler・並列度／安全検証の詳細、技術・性能・提供版。既存DECでCONFIRMEDの「状態理由を区別する」「明示的に優先度を指定できる」等を撤回する意味ではない。
+- **進捗:** PARTIALLY_RECORDED（高水準の採用方針をDECへ記録。機能実装やAcceptanceの完了を意味しない）。他PXの独立PRの内容を今回の分岐で確定・上書きしない。
 
 ### 第3群：Memory・学習・Personalization
 
@@ -74,8 +80,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**この分岐ではPX-06がPARTIALLY_RECORDED（B基本＋将来C方向CONFIRMED、細部PROVISIONAL）。** 他PXは個別DEC・独立PRの統合状況を確認し、ここでOPEN／CONFIRMEDを一括上書きしない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-06の統合TaskセンターBと将来の高度オーケストレーションCを高水準方針として採用。既存の前景優先・待機と停止／復旧の区別・Scope／Permission・Gateを維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、Queue・Priority・表示・依存関係・Scheduler・並列度・実装・版はPROVISIONAL |
