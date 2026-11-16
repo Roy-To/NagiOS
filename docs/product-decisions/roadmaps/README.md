@@ -21,6 +21,10 @@
 
 **接続方針の変更履歴（2026-11-16）:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)で初期は同一Wi-Fi／LANのNagi端末、共通Device Connectivity／Trust／Transport、Offline-firstと認可境界を確定。近距離直接通信・遠隔接続は拡張可能性を保持し、初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーは必須にしない。具体方式・対象機器・運用費用・版・時期・性能は未確定。DEC-014の選択式移行／同期とCloud別許可を維持し、無断転送・同期・Task再実行なし、Clipboard未採用。各ロードマップの既存Gate・版割当ては変更しない。
 
+**Foundation #32 Device Connectivity（2026-11-16）:** [DEC-101](../DEC-101-device-connectivity-nagi-protocol-linux-research.md)で、Linux／OSSの既存通信技術とNagi独自Connectivity Serviceを組み合わせるBを製品基本とし、Nagi Share／Handoff等のPC／Tablet／Phone間で共通利用するNagi独自の意味的連携Protocolを設計すること、必要な独自通信技術を並行研究することをCONFIRMED。上位Protocolの設計とTransport／暗号機構は分離し、全面独自通信Stackや自作暗号は今回採用しない。研究成果の製品採否は実測と別判断で決定する。DEC-066の同一LAN初期接続・後続直接／遠隔拡張余地、DEC-014／064／065の独立した認可・移行・Share／Handoff契約、Offline-firstと無断同期・転送／Task再実行禁止を維持する。具体Schema・OSS／Transport・暗号方式・遠隔／Relay・端末／版・性能・Linux受入はPROVISIONAL。既存Gateや版割当てを変更せず実装済みを示さない。
+
+変更履歴: 2026-11-16 — DEC-101でFoundation #32のB標準＋Nagi上位Protocol＋必要な独自通信研究を記録。通信実装の採否・版は未決定。
+
 ## 当面の優先順位（2026-11-16）
 
 [DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。各Roadmapに日付付き注記を反映した。具体的な提供版・階層数・実装順序は未確定であり、0.3の単一Personal Agent、初期0.4の単一Nagi builder Role、既存Gate・Acceptanceは維持する。
@@ -63,7 +67,55 @@
 
 
 
+**Foundation #25 Resource Manager / Scheduler（2026-11-16）:** [DEC-094](../DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)でB＋C研究案をCONFIRMED。Linux標準scheduler／資源制御を製品の基本とし、Nagi Resource Managerで前景UI／アプリ・音声・AI Task／Job／Memory／Nagi Powerの予算と優先度を協調する。独自スケジューリング（sched_ext／eBPF等は候補）の比較研究を進め、実機の応答性・AI品質／所要時間・RAM・電力／熱・公平性／安定性を評価し、十分な改善を確認できた部分のみ後続採否を判断する。Linux標準への退避を保つ。具体的制御機構・測定値・独自方式正式採用・端末・Release割当てはPROVISIONAL、既存Gate維持。
+
+**Foundation #26 App Lifecycle（2026-11-16）:** [DEC-095](../DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)で、Linuxの標準process／隔離機構＋Nagi App Supervisorを製品の基本とするB案と、独自Runtimeの並行比較研究をCONFIRMED。新規Runtimeの隔離、起動／ready速度、RAM／電力、Workspace／Public API連携、移植・保守負担の効果をLinux標準経路と実測比較し、部分採用するかを後続判断する。独自Runtime・WASM等の具体技術、アプリ分類、対応端末、導入Version・性能はPROVISIONAL。0.2 M12／M13／M21のManifest・Supervisor・SDK契約、Nagi Native Apps専用方針、試用／更新／削除の承認・Permission／Policy、既存Release／Activation／Acceptance Gateは維持する。
+
+**Foundation #27 Settings / Notification（2026-11-16）:** [DEC-096](../DEC-096-settings-notifications-context-adaptive-staged.md)でCの状況適応型Settings／Notificationを最終製品目標にする方針をCONFIRMED。Bの共通Settings／Notification Serviceと統合Settings UI・通知センターを途中段階で導入し、許可されたWorkspace／Task・Profile文脈、明示設定、Habit-first学習に基づく通知の提示・集約・タイミング調整へ段階的に発展させる。これはCを単なる研究候補に留める判断ではない。一方、手動制御・AI不在時の通常動作、DEC-008の重大警告と控えめな働きかけ、DEC-004／057／058の学習・訂正・忘却、Permission／Privacyを維持する。具体的自動化・UI・端末・提供版／受入はPROVISIONAL、0.2 M11／M14と既存Release／Activation／Acceptance Gateは変更しない。
+
+
+
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
+
+## Foundation #28：通常a11yと長期操作思想（2026-11-16）
+
+[DEC-097](../DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)で、keyboard／navigation・screen-reader等の通常a11y基盤を先に整え、将来のAI-nativeで正確なポインティングに依存しない操作体系と矛盾しない設計にする方針をCONFIRMEDとした。短期の整備と長期ビジョンを分け、視線／ジェスチャー／空間入力等の採用・時期、time／localeの詳細方式は未決定。従来GUI・keyboard／mouse、AI不在時の通常操作、Permission／Policyと必要なconfirmationを維持する。
+
+0.2の基盤、0.3のPersonal Agent、0.5–1.0のoffline／accessibilityテーマへ接続するが、特定Versionへの割当て、既存Release／Activation／Acceptance Gate、担当を変更せず、実装済みを示さない。
+
+変更履歴: 2026-11-16 — DEC-097とFoundation #28の短期／長期・確定／未確定を参照追加。
+
+## Foundation #29：Nagi統合DiagnosticsとAI支援診断（2026-11-16）
+
+[DEC-098](../DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)で、Linuxの診断／crash／service情報をNagi Diagnosticsで統合するB方式を基本にし、CのAI支援による原因候補の分析・根拠付き説明・対処提案を将来の正式製品目標として段階導入することをCONFIRMED。AI不在時の通常診断、Debug／Activityの分離、Redaction、User／Profile／Permission／Policy、観測事実とAI推測の区別、無断の修復・Cloud exportをしない境界を維持する。具体Linux収集backend・Log容量／Retention／export・AI方式・自動修復の採否・実装／受入・適用VersionはPROVISIONALで、0.2 M04と既存Release／Activation／Acceptance Gateを変更しない。
+
+変更履歴: 2026-11-16 — DEC-098とFoundation #29のB製品基盤／C将来目標・未決事項を参照追加。
+
+## Foundation #30：Nagi専用GUI Installer（2026-11-16）
+
+[DEC-099](../DEC-099-installer-first-setup-linux-nagi-gui.md)でLinuxの既存disk／storage機構を利用するNagi専用GUI InstallerのB方式をCONFIRMED。初期OS／Owner／Locale等の導入操作とディスク破壊前の明示確認をユーザーが行えるようにし、Offline-first／AI非依存で基本セットアップを成立させる方針とする。ローカルLLMに高度な自動インストール判断を求めるCは今回採用しない。DEC-079のread-only System／User Data分離・A/B・Recoveryを継承し、対応機種・partition／暗号化方式・Recovery Key／UI・実機受入・提供版はPROVISIONAL。0.2 §16のPackage／Update契約とOSを物理ディスクへ導入する処理は混同せず、既存Release／Activation／Acceptance Gateは変更しない。
+
+変更履歴: 2026-11-16 — DEC-099とFoundation #30のGUI＋Linux／Offline／明示確認・未決事項を参照追加。
+
+## Foundation #31：System Update（2026-11-16）
+
+[DEC-100](../DEC-100-system-update-linux-nagi-coordinated-ab.md)で、Linuxの既存更新機構＋Nagi統合Update Serviceの方式BをCONFIRMED。DEC-079の通常時read-only System／User Data分離、A/B更新・復旧、AI Modelの論理的分離を引き継ぎ、Nagiが署名・互換検証、Update状態管理、A/B切替と失敗時の復旧を統合する。System／App／Model更新は別のPolicy domainとし、builder Appの正式更新はDEC-035の別承認を維持。Linux採用backend、署名鍵・配布／Offline更新、slot・boot health／rollback、Data Migration、適用UI・自動化・対象端末／ReleaseとLinux実機受入はPROVISIONAL。方式Cの差分更新・段階配信・端末状況による自動最適化は今回未採用。既存Release／Activation／Acceptance Gateを変更せず、仕様記録は実装・実機成功の証拠ではない。
+
+変更履歴: 2026-11-16 — DEC-100とFoundation #31のB統合Update方針、C未採用・Linux受入未確認を参照追加。
+
+## Foundation #33：段階的Hardware Support（2026-11-16）
+
+[DEC-102](../DEC-102-hardware-support-staged-multidevice-linux-drivers.md)で、Linuxの既存Driver／Hardware機構を活用し、PC／ARM64／Tablet等へ段階的に展開し、機種・機能別の実機検証を経て正式な製品対応範囲を判断するB方式をCONFIRMED。QEMU x86-64・x86-64 UEFI mini-PC・generic ARM64→Raspberry Piという0.2の開発・検証境界、DEC-052のRaspberry Pi（型番未選定）／PineTab2／Phone未選定の候補、DEC-078の端末別Boot、Desktop firstを維持する。Linux Driverの存在とNagi Linux実機での対応完了を同一視せず、Display／Input／Radio／Powerなどの未受入機能を対応済みとしない。具体機器・Driver／Firmware、必須Device Matrix・サポート保証・提供Version／実機結果はPROVISIONAL。既存Release／Activation／Acceptance Gate、Workstream許可と実装済み状態を変更しない。
+
+変更履歴: 2026-11-16 — DEC-102でFoundation #33のLinux Driver活用と段階的マルチデバイス検証の製品方針を追加。
+
+## Foundation #34：検証B先行と自動化・AI支援Cの将来目標（2026-11-16）
+
+[DEC-103](../DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)で、Host→Nagi Linux Image／QEMU→対象実機の段階的・証拠に基づく検証Bを先に整備し、複数環境の自動テスト・障害注入・テスト不足分析・AIによる失敗原因調査等のCを将来の正式製品目標として段階導入する方針をCONFIRMED。Cは単なる研究候補ではない。AIの分析は原因仮説・補助であり、PASS／FAILは決定論的な試験結果と既存Acceptanceで評価する。未実行・部分成功・結果不明と実際の成功を区別し、Host成功をLinux Image／実機PASSへ読み替えない。
+
+DEC-049の速度優先、コード不変時の環境・限界付き過去結果再利用、統合の節目でのLinux Image受入、短い証拠記録を維持する。0.1 M30、0.2 M21／Activation、0.3仕様化・Activation／Acceptance、0.4 Entry Gate等を保持し、全35項目完了やC完成を一律の新Gateにしない。具体試験網・AIモデル／テスト生成・ツール・費用・スケジュール・提供Version・Linux受入結果はPROVISIONAL。各Roadmapの版割当て・Workstream許可・実装状態を変更しない。
+
+変更履歴: 2026-11-16 — DEC-103とFoundation #34のB先行／C正式将来目標・合否境界を参照追加。文書記録のみで新規runtime受入を示さない。
 
 ## 実機テスト候補（2026-11-16）
 
