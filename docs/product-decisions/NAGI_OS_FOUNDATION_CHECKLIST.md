@@ -164,12 +164,12 @@
 ### 5 基本ユーザーランド
 
 - **検討対象:** libc、runtime、shell／基礎tool、filesystem layout、ABI、必要なOSSとNagi所有境界。
-- **製品決定:** CONFIRMED＝Linux + Nagi専用userland、OSS選択的再利用可 [DEC-043][D43]、Nagi Native Apps標準 [DEC-017][D17]。PROVISIONAL＝libc／互換方式。
+- **製品決定:** CONFIRMED＝Linux + Nagi専用userland／Nagi Native Apps [DEC-043][D43] [DEC-017][D17]、Nagi固有サービス・API・アプリ環境は独自設計、libc・汎用ライブラリ・基礎ツールはOSSを積極的に選択活用、既存Linux distributionのユーザーランド一式は製品基盤に流用しない [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)。PROVISIONAL＝具体libc／ABI・OSS／互換方式。
 - **技術設計:** PAL／relibc／spawn等の旧契約と実装あり。Linux ABIの対応表が必要。全面POSIX／既存binary互換は確定していない。
 - **実装・target受入:** `user/libnagi/`、`user/nagi-pal/`等は既存資産。Linux向けbuildだけで同じ権限・サービス契約の成立とはしない。
 - **依存・責任候補:** 1, 3, 4, 8, 9, 26, 35。`os-core`／`sdk`／`developer-tooling`。
 - **根拠:** [0.1 §6・60–65][S01]、[0.2 §26・M21][S02]、[移行補足][ADD]。
-- **次に決める:** 最小component一覧、ABI／libc責務、可逆的開発構成と製品採用判断を分ける。
+- **次に決める:** Nagi独自の契約／選択的OSS活用の確定方針に従い、最小component一覧・libc／Rust runtime・ABI・rootfs配置と実際の採用OSSを比較し、可逆的開発構成と正式採用を分けて判断する。
 
 <a id="f06"></a>
 ### 6 電源ライフサイクル
@@ -674,3 +674,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #4 Init／Service Managerの選定プロセス
 
 [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)に、A（最小Nagi独自PID 1＋独自Service Manager）を第一候補とし、B（既存軽量Init＋Nagi Service Manager）との短期実装比較で最終決定する方針をCONFIRMEDとして保存。方式の恒久採用、検証期間の数値・結果、Linux target受入・適用版は未決定。既存のLinux移行権限／Release Gateを維持する。
+
+### 2026-11-16 Foundation #5 基本ユーザーランド方針
+
+[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有サービス／API／アプリ環境の独自設計と、汎用libc・ライブラリ・基礎ツールのOSS選択利用、既存Linuxディストリビューション完成ユーザーランド非採用をCONFIRMED。具体OSS・ABI・POSIX／relibc等は未決定。B1の#1〜#5は方針検討が一巡したが、#4のA/B比較と正式採用、Linux image／実機acceptance・Release条件は完了ではない。
