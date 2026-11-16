@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（Foundation #22の方式B：USBストレージ・基本HIDを標準対象、カメラ・プリンター・スキャナーの段階対応、Linux／OSS活用とNagi管理・権限・通常UI連携）／PROVISIONAL（具体機種・対応範囲・API・プロトコル・実装版・実機受入）
 **最終合意日:** 2026-11-16
 **適用候補:** Nagi OS Foundation #22。特定Releaseへの割当ては未確定
-**関連:** [Foundation Checklist #22](NAGI_OS_FOUNDATION_CHECKLIST.md#f22)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)、[DEC-084](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)、[DEC-086](DEC-086-input-system-cross-device-linux-foundation.md)、[Roadmaps](roadmaps/README.md)
+**関連:** [Foundation Checklist #22](NAGI_OS_FOUNDATION_CHECKLIST.md#f22)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)、[DEC-107](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験
 
@@ -12,16 +12,16 @@
 ## 確定した仕様（CONFIRMED：方式B）
 
 1. **USBストレージを標準対象とする。** USBメモリ・外付SSDをNagi OSの標準的な周辺機器の製品対象に含める。具体的な機種・接続規格・filesystem・操作範囲は別途定める。
-2. **基本的なHID入力機器を標準対象とする。** キーボード・マウス等の基本入力機器を対象とし、DEC-086のNagi Input Service／共通入力契約と連携する。すべてのHID機能や特殊機器への対応を確定するものではない。
+2. **基本的なHID入力機器を標準対象とする。** キーボード・マウス等の基本入力機器を対象とし、DEC-109のNagi Input Service／共通入力契約と連携する。すべてのHID機能や特殊機器への対応を確定するものではない。
 3. **カメラ・プリンター・スキャナーは段階的に対応する。** 製品対象から除外せず、機器・機能ごとに対応を進める。全機能の初期実装や提供順序は確定しない。
-4. **Linuxの既存ドライバーとOSSを活用する。** DEC-043の選択的OSS利用とDEC-083の機器管理方針に従い、既存の低レイヤー基盤を再利用し、Nagi Device Manager／Permission／Privacy／通常UIと連携する。特定のdaemon・ライブラリ・API・プロトコルは本決定では選定しない。
+4. **Linuxの既存ドライバーとOSSを活用する。** DEC-043の選択的OSS利用とDEC-106の機器管理方針に従い、既存の低レイヤー基盤を再利用し、Nagi Device Manager／Permission／Privacy／通常UIと連携する。特定のdaemon・ライブラリ・API・プロトコルは本決定では選定しない。
 5. **全Linux対応機器の動作保証とはしない。** Linux側のdriverの存在、機器の認識、Nagiでの機能対応、実機受入を区別する。標準対象という製品方針だけで、特定機種の正式対応・実装済み・動作確認済みとは扱わない。
 
 ## 例外・安全境界
 
 - 機器の接続・認識だけでアプリやAIへ包括的な利用権限を与えない。ストレージ内データ、撮影・スキャン内容、印刷対象も既存Permission／Privacy／Policyに従う。
 - AIが利用不能でも通常UIの基本操作を維持し、AIによる操作は既存の型付きPublic Actionと認可境界を迂回しない。
-- DEC-083のローカル周辺機器と他のNagi端末の責務分離、DEC-084のBluetooth段階対応、DEC-086の共通入力・秘密入力保護を維持する。基本HIDを標準対象とすることはBluetooth全機器の初期対応を意味しない。
+- DEC-106のローカル周辺機器と他のNagi端末の責務分離、DEC-107のBluetooth段階対応、DEC-109の共通入力・秘密入力保護を維持する。基本HIDを標準対象とすることはBluetooth全機器の初期対応を意味しない。
 
 ## 未確定事項（PROVISIONAL／OPEN）
 

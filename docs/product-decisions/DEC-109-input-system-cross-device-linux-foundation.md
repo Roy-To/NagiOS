@@ -1,9 +1,9 @@
-# DEC-086 — Input System：Linux入力基盤とNagi共通Input Service
+# DEC-109 — Input System：Linux入力基盤とNagi共通Input Service
 
 **状態:** CONFIRMED（Foundation #20の方式B：Linuxの既存入力基盤の活用と、Keyboard／Mouse／Touchを共通Nagi Input Serviceで扱う端末横断方針）／PROVISIONAL（具体Linux stack・IME接続・focus／seat契約・対応device・遅延値・版・受入）  
 **最終合意日:** 2026-11-16  
 **適用候補:** Nagi OS Foundation #20。特定Releaseへの割当ては未確定  
-**関連:** [Foundation Checklist #20](NAGI_OS_FOUNDATION_CHECKLIST.md#f20)、[DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-060](DEC-060-responsive-ime-ai-learning.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[Roadmaps](roadmaps/README.md)
+**関連:** [Foundation Checklist #20](NAGI_OS_FOUNDATION_CHECKLIST.md#f20)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-060](DEC-060-responsive-ime-ai-learning.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験
 
@@ -34,7 +34,7 @@ PCのキーボード・マウス、タブレット／スマートフォンのタ
 
 ## Roadmapとの関連
 
-[DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)で確定した「Nagi独自Shell＋Linux／OSS描画基盤」と整合させ、Nagi固有の画面体験は維持しつつ、入力デバイスの低レイヤーを適切に再利用する。[DEC-010](DEC-010-intent-first-adaptive-ui.md)のPC・タブレット・モバイルへ適応する製品目標とDesktop firstを維持する。0.2／0.3／将来版への新規割当てやAcceptance変更は行わない。
+[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)で確定した「Nagi独自Shell＋Linux／OSS描画基盤」と整合させ、Nagi固有の画面体験は維持しつつ、入力デバイスの低レイヤーを適切に再利用する。[DEC-010](DEC-010-intent-first-adaptive-ui.md)のPC・タブレット・モバイルへ適応する製品目標とDesktop firstを維持する。0.2／0.3／将来版への新規割当てやAcceptance変更は行わない。
 
 ## 決定履歴
 

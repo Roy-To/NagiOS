@@ -1,4 +1,4 @@
-# DEC-083 — Device Manager：内部の責務分離と統合管理UI
+# DEC-106 — Device Manager：内部の責務分離と統合管理UI
 
 **状態:** CONFIRMED（Foundation #17の方式B：ローカル周辺機器管理と他のNagi端末管理の内部責務分離、Settings／DevicesのUI統合、Linux機器基盤の活用）／PROVISIONAL（具体stack・対象機器・UI細部・適用版・受入）  
 **最終合意日:** 2026-11-16  
