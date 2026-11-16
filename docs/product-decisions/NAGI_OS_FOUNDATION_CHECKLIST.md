@@ -428,12 +428,12 @@
 ### 29 Diagnostics / Logging
 
 - **検討対象:** boot／crash／service health、structured log／trace／correlation、redaction・保持・export・測定負荷。
-- **製品決定:** CONFIRMED＝結果の正直な表示・検証可能性 [DEC-022][D22]／[026][D26]。OPEN＝Linux収集backend・運用保持値。
-- **技術設計:** 0.2診断・fingerprint契約あり。debug logとActivity、privileged diagnosticsと通常閲覧を区別する。
+- **製品決定:** CONFIRMED＝Linuxの利用可能な診断情報とNagi独自の構造化Diagnostics Serviceを組み合わせるBを製品基本とし、CのAI支援による原因分析・安全な対処提案を将来の正式目標として段階導入 [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)。観測された事実とAIの推測を区別し、AIなしでも通常診断可能、結果の正直な表示・検証可能性 [DEC-022][D22]／[026][D26]、Permission／Privacy／Redactionを維持。PROVISIONAL＝AI方式・自動修復採否・提供版・実機受入。
+- **技術設計:** 0.2 M04のstructured event／severity／correlation／bounded sink／crash／health／source-build fingerprint／snapshotをNagi統合診断の正規基盤として保持し、Linux収集backendは後続選択。debug logとActivity、privileged diagnosticsと通常閲覧を区別する。Cでは許可された診断証拠からAIが原因候補・検証方法・対処案を提示するが、診断結果の確定・修復Action認可は決定論的に扱う。
 - **実装・target受入:** 旧serial／crash診断とhost構造化契約あり。Linux image crash収集・実機・秘密除去の統合受入は未確認。
 - **依存・責任候補:** 4, 7, 8, 9, 14, 35。`diagnostics`／`ci-acceptance`候補。
 - **根拠:** [0.1 §66–69][S01]、[0.2 §17・M04][S02]、[status][STATUS]、[registry][REG]。
-- **次に決める:** 最小boot／service証拠、sink failureと容量境界、誰が何をexportできるか・redaction検証。
+- **次に決める:** Linux boot／service／crash収集backend・診断証拠とfingerprint、sink failure／容量／Retention、redaction検証とProfile別閲覧／export、AIの根拠・不確実性・誤診評価・対処案の承認／再検証・Linux target受入。
 - **REVIEW NOTE（2026-11-16、検討開始・新規採用未決定）:** 既存0.2 §17／M04のstructured event・severity／category・bounded metadata／sink・redaction・crash／health snapshot・correlation／build identity・明示Activity bridgeを出発点とする。まずローカルのboot／service障害診断から整えるか、利用者向け統合診断・選択式report exportまで共通基盤として設計するかを判断する。AIによる説明は通常診断から分離した将来候補。Linux収集backend、保持・rate／容量の値、閲覧／export権限、秘密除去の検証、外部送信の許可条件はOPEN。debug logを自動的にActivity／Memory／学習データとせず、外部送信を今回許可しない。
 
 <a id="f30"></a>
