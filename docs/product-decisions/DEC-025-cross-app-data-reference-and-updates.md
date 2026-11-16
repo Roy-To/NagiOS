@@ -11,6 +11,8 @@
 
 異なるアプリの資料を、利用者の目的・Task・Workspaceのもとで関係付ける。ある資料が変更された場合に、関係する成果物をユーザーが適切に更新できるよう支援する。アプリを横断するデータの正本をOSへ強制的に集約しない。
 
+> **2026-11-16 Storage／Filesystem後続決定:** [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)で、実際の保存下層はLinux標準Filesystemを用途別に利用し、Nagi Storage／Files APIで上位契約を保持するB案をCONFIRMED。元アプリ・Providerが保持する分散正本、Resource／Revision／Provenanceの現在確認、ファイルのpath／inodeと論理IDの分離、変更提案を標準とする本DECの境界は不変。Filesystem snapshotが自動的な関連成果物更新やWaybackを意味するわけではない。具体FS・mapping・実装版は未確定。
+
 ## 確定した仕様
 
 ### 共通参照モデル（思想⑦・選択A）
