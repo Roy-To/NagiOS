@@ -494,12 +494,12 @@
 ### 35 Build / Supply Chain
 
 - **検討対象:** toolchain／source pin／patch、reproducibility、provenance／SBOM／NOTICE、artifact配布・署名・再利用。
-- **製品決定:** CONFIRMED＝OSS選択的利用可 [DEC-043][D43]、公開正本 [DEC-050][D50]。OPEN＝Linux依存構成と配布条件の個別判断。
-- **技術設計:** 固定revision・patchと0.2 fingerprint／SBOM契約あり。SBOM出力はlicense適法性の自動認定ではない。
+- **製品決定:** CONFIRMED＝[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)のB先行・C将来正式目標。Bはkernel／rootfs／Nagi userland／apps等の入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証と成果物整合性の統合管理。Cは隔離／独立検証・複数Architecture継続検証・強化セキュリティ自動化を段階導入。PROVISIONAL＝ツール・CI規模・予算・日程・閾値・必須Release・Linux実証。
+- **技術設計:** 固定revision・patchと0.2 fingerprint／SBOM契約を継承。SBOMはlicense適法性の自動認定ではなく、不明点と個別確認を残す。LLM推測を証拠・署名検証の代替にしない。具体方式・隔離境界・独立性・鍵運用は未決定。
 - **実装・target受入:** `sources.lock`、provenance／release tools等のhost資産あり。[PR #99][PR99]のcache修正は未マージ。Linux kernel／rootfs／moduleを含む再現build・配布受入未確認。
 - **依存・責任候補:** 1, 3, 5, 10, 11, 31, 34。`developer-tooling`／`build-provenance`／`license-sbom`／release候補。
-- **根拠:** [0.1 §71–80][S01]、[0.2 §18–19・M02/M03][S02]、[registry][REG]、[PR #99][PR99]。
-- **次に決める:** Linux入力と許可環境の固定、再利用可否・artifact照合、license不明／未署名／改ざん時の明示的扱い。
+- **根拠:** [DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)、[0.1 §71–80][S01]、[0.2 §18–19・M02/M03][S02]、[registry][REG]、[PR #99][PR99]。
+- **次に決める:** Bの最小対象と固定入力／成果物照合・再現性・license確認・署名検証の技術契約、未署名／改ざん／不明時の具体処置、Cの独立性とArchitecture検証Matrixを設計する。Cは単なる研究候補ではない。既存Gate・担当・版は変更しない。
 
 ## 4. 7つの今後の検討束
 
@@ -678,3 +678,9 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #5 基本ユーザーランド方針
 
 [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有サービス／API／アプリ環境の独自設計と、汎用libc・ライブラリ・基礎ツールのOSS選択利用、既存Linuxディストリビューション完成ユーザーランド非採用をCONFIRMED。具体OSS・ABI・POSIX／relibc等は未決定。B1の#1〜#5は方針検討が一巡したが、#4のA/B比較と正式採用、Linux image／実機acceptance・Release条件は完了ではない。
+
+### 2026-11-16 Foundation #35 Build / Supply Chain
+
+[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)でBの統合供給網管理を先行し、隔離／独立検証・複数Architecture継続検証・より厳格な改ざん検出／セキュリティ自動化Cを正式な将来製品目標とする方針をCONFIRMEDとして記録。Bにも再現性・署名・改ざん検証を含む。技術・規模・費用・日程・閾値・必須ReleaseとLinux target実証は未確定。
+
+**REVIEW NOTE:** 35項目の方針検討は一巡（別PRの未統合記録を含む）。本main基準の台帳に他PRの全決定が統合済みという意味ではない。技術詳細・未確定点・実装・Linux／実機・Release受入は未完であり、製品決定欄の更新から実装・target受入欄をPASSへ変更しない。
