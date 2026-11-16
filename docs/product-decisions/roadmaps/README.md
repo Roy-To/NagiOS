@@ -51,6 +51,8 @@
 
 **Foundation #19 Display / GPU（2026-11-16）:** [DEC-085](../DEC-085-display-gpu-nagi-shell-oss-graphics.md)で「Nagi独自Shell＋Linux／OSS描画基盤」のB改良案をCONFIRMED。Nagi Home／Desktop、Workspace、ウィンドウ管理方針、PC／Tablet／Mobile共通の適応UIをNagi独自に設計し、GPU／Display・画面合成の基礎層はOSS再利用を優先する。Wayland／Smithay等の具体採否、software描画fallback、対応端末・性能・適用版はPROVISIONAL。既存Desktop first・Release／Activation／Acceptance Gateを維持する。
 
+**Foundation #20 Input System（2026-11-16）:** [DEC-086](../DEC-086-input-system-cross-device-linux-foundation.md)で、Linux既存input基盤を活用し、Nagi共通Input Serviceでkeyboard／mouse／touchを統合する方式BをCONFIRMED。DEC-085のNagi独自Shell／端末適応UIとDEC-060の高速IME・AI学習／秘密入力保護に整合。evdev／libinput等の具体stack、focus／seat／IME契約、device・版・Linux実機受入はPROVISIONAL。PC／Desktop firstと既存Release／Activation／Acceptance Gateを変更しない。
+
 
 
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
