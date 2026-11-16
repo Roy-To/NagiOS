@@ -296,23 +296,23 @@
 ### 17 Device Manager
 
 - **検討対象:** USB／Bluetooth／Wi-Fi／周辺機器の列挙・hotplug・driver／firmware・権限・診断、信頼端末管理との境界。
-- **製品決定:** CONFIRMED＝純正Devices／Trustの既存契約 [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]。OPEN＝ローカルDevice Managerの採用範囲・具体構成。台帳化だけで全機器対応を確定しない。
-- **技術設計:** remote Nagi Deviceのuntrusted／pending／trusted／revokedと、ローカルbus機器認識を区別。udev／独自service等の採否は未定。
+- **製品決定:** CONFIRMED＝ローカル機器管理と他のNagi端末管理を内部責務として分離、Nagi Settings／Devices UIは統合、Linux既存機器基盤を活用しNagi側で機器状態・Permission・Eventを管理する方式B [DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)。純正Devices／Trust [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]を継承。OPEN＝具体stack・機器／bus・実装方式。全機器対応は未保証。
+- **技術設計:** Linux側のローカル機器認識と他のNagi端末のTrust（untrusted／pending／trusted／revoked）を内部で区別し、管理UIに統合。udev等のstackや詳細なhotplug状態機械は未選定。
 - **実装・target受入:** 旧PCI／VirtIO等のdriver資産あり。統合ローカルdevice service・USB／BT／Wi-FiのLinux実機受入未確認。
 - **依存・責任候補:** 1, 4, 8, 9, 13, 18–22, 29, 33。device／`os-core`／Devices app候補。
 - **根拠:** [0.1 §16][S01]、[純正仕様 §27–30・65][FP]、[Connectivity][P66]／[Sleep][P68]（PR）。
-- **次に決める:** ローカルdevice／driver／remote trustの責務、最初のbus・機器クラス、抜差しと取消の状態機械。
+- **次に決める:** 最初のbus・周辺機器、driver・firmwareの選択、hotplug・切断・取消の状態機械、UIとLinux実機受入。
 
 <a id="f18"></a>
 ### 18 Network Devices
 
 - **検討対象:** Ethernet／Wi-Fi／Bluetooth controller、firmware、認証情報、radio状態、再接続・省電力。
-- **製品決定:** CONFIRMED（製品方針）＝連携の初期LANターゲット [DEC-066][P66]。OPEN＝Wi-Fi／BT対応機種・stack・pairing方式。LAN方針はBT等の技術採用ではない。
-- **技術設計:** 旧VirtIO Networkと共通network契約あり。Linux device backend・無線管理の方式は未定。
+- **製品決定:** CONFIRMED＝Ethernet・Wi-FiをNagi OSの基本機能、Bluetoothは段階的対応とする方式B [DEC-084](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)。端末間連携は初期LANターゲット [DEC-066][P66]を維持。OPEN＝Wi-Fi／BT stack・対応chipset・pairing／対象用途・適用版。全機器対応保証ではない。
+- **技術設計:** 旧VirtIO Networkと共通network契約は再利用候補。Linux既存driver活用とNagi管理層／Permission境界（DEC-083）を基本とし、無線制御・Bluetooth pairing・再接続の具体方式は未選定。
 - **実装・target受入:** 旧仮想NIC資産あり。Wi-Fi／BT実機、firmware配布、sleep後再接続は未確認。
 - **依存・責任候補:** 1, 8, 10, 17, 23, 24, 32, 33。device／network候補。
 - **根拠:** [0.1 §16・35][S01]、[0.2 §5.2][S02]、[PR #127][PR127]。
-- **次に決める:** 最初のNIC／radio対象、credentialと利用許可、接続不能・復帰後再検証の境界。
+- **次に決める:** 初期対象NIC／Wi-Fi chipset、credential／firmwareと接続許可、Bluetooth最初の用途、接続不能・sleep復帰後の再評価とLinux実機受入。
 
 <a id="f19"></a>
 ### 19 Display / GPU
