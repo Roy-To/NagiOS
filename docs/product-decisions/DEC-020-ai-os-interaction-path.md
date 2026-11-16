@@ -4,7 +4,7 @@
 
 
 **状態:** CONFIRMED（設計原則・既定方式）／PROVISIONAL（実装詳細・性能値・適用バージョン）  
-**最終合意日:** 2026-11-05  
+**最終合意日:** 2026-11-16  
 **対象:** Nagi OSとAIの情報受け渡し・OS操作経路。実装バージョンと採用時期は確定しない  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-008](DEC-008-proactive-behavior.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Decision / Generative AI architecture](../architecture/decision-and-generative-ai-architecture.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)
 
@@ -80,6 +80,16 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 **未確定（PROVISIONAL）:** 「軽快」「実用的」の定量受入閾値（入力・画面更新・スクロール遅延、AI初回応答・完了時間、RAM・swap・電力・温度等）、代表ハードウェア、アプリ同時起動のScenario、モデル・量子化の選択表、初期パッケージ構成、モデル常駐／Unload・切替閾値、同時推論数、実装担当・Release割当ては後の実測・Implementation Specで決める。すべてのAI機能が8GBで同等速度を発揮することは確定しない。
 
+### インストール済み複数モデルの軽量フォールバックと切替（2026-11-16 CONFIRMED）
+
+- **ストレージ保存とRAM常駐を区別:** モデル管理機構は、Standard／Lite等、複数の利用許可済みモデルと量子化版を端末のモデルストアに導入・保持し、必要なモデルを選択してload／unloadできる構成を目指す。複数のモデルがインストール済みであっても、同数を常時RAM／VRAMへ常駐させる必要はない。ストレージ消費、ロード時間、KV Cacheや実行時バッファのRAM消費は別々に扱う。
+- **運用原則（自動化を目指し、手動も残す）:** 通常はユーザーが許可した標準モデルを利用し、端末のメモリ圧迫、前景アプリの負荷、Taskの重さ・推論能力要件に応じて、利用可能な軽量・量子化モデルへ適応的に切り替える体験を設計目標とする。自動切替が安全・十分な品質・実測性能を満たせない段階でも、ユーザーがModel Managerから手動でモデルを選択・切替できる経路を維持する。切替によって作業が却って遅くなる場合も考慮し、モデルの入替えだけを唯一の負荷対策にしない。
+- **ユーザー選択と品質を優先:** ユーザーがモデルを固定したり自動切替を無効にしている場合、最適化のために勝手に別モデルを起動しない。許可された軽量候補が必要なTaskの日本語理解・構造化計画・Tool／Action選択・品質条件を満たさない場合は、単に小さいことを理由に危険な実行をせず、待機・負荷削減・処理分割・ユーザーへの確認など既存Task契約内の代替手段を検討する。資源不足を理由に無断でCloudモデルへ切り替えず、DEC-002の事前許可を維持する。
+- **切替と継続性:** 異なるモデル間で推論内部状態・KV Cacheをそのまま引き継げると想定せず、通常は安全な推論／Task境界での切替を候補とする。すでに実行済みのActionを、切替だけを理由に再実行しない。Taskの進捗・Pending Action・Permission／Policy・Revision等を再確認し、Nagi Profile、Canonical Memory、Preferences、Habits、ユーザー設定を保持する。瞬断のない完全シームレス切替は保証しない。操作中の体験を不必要に妨げないことを目指す。
+- **既存のRelease境界:** 0.1／0.2のGranite 4.2 3B標準モデル、Model Manager／Router契約、DEC-013のHardware-Adaptive Memory Engine、DEC-022のTask中断・再開境界、既存のRelease／Activation Gateをこの製品方針だけで変更しない。モデル・実装・検証は該当する正式な仕様・受入手順で確定する。
+
+**未確定（PROVISIONAL）:** 自動切替機構の初期版への搭載可否と実装順序、ユーザー設定の具体的UI、切替の安全境界・中断／再開方法、ロード・アンロード時間、再利用可能なContextの範囲、頻繁な切替を防ぐ条件、RAM／CPU／GPU等の閾値、候補モデルと量子化方式、常駐数、品質評価方式、性能目標と達成値、対応端末とRelease割当て。初期実装が手動切替のみとなる可能性は残す。
+
 ### 適応型・必要最小限の推論資源管理
 
 - **既定の資源配分:** Nagiは、推論を必要としない決定論的なOS／アプリ処理にLLMを使わず、必要な判断については端末の実測状況と利用可能な推論能力に応じて、**必要十分なローカル推論**を優先する。モデルの大きさそのものより、Taskの要件と品質、応答性、CPU／GPU／NPU、RAM、メモリ圧迫、消費電力を総合的に考慮する設計方針とする。
@@ -141,6 +151,7 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | 複数の利用許可済み量子化モデルをストレージにインストールし、必要時だけRAMへロードする方針を具体化。資源圧迫時の軽量モデルへの自動切替を目指し、難しい段階では手動切替を確保。ユーザーの固定指定、Task品質・権限、Memory継続、安全な切替境界を優先し、シームレス性・閾値・適用版は未確定。 |
 | 2026-11-16 | 8GB RAM級で純正アプリの日常操作と軽量量子化ローカルLLMによる実用的アプリ横断連携を両立する製品目標を確認。単なる起動成功でなく前景応答性とAI Taskの品質を実測する。具体的なモデル・閾値・達成実績・提供版は未確定。 |
 | 2026-11-05 | 別会話中の`builder`作業継続Cを確定。Nagiの前景会話優先、Scope内の安全なバックグラウンド処理、Resource待機と明示停止／クラッシュ復旧待ちの区別、Task／Context分離を記録。具体的Scheduler・Budgetは未確定 |
 | 2026-11-05 | AI資源配分は前景の人間操作の応答性を標準優先とし、AIが利用可能な余剰資源を適応的に使用する方式Aで確定。ユーザーの明示的なAI Task優先度変更を認める一方、OS安全・Permission・Task承認境界は維持する。実装方式・閾値・性能保証は未確定。 |
