@@ -68,6 +68,8 @@ Nagi 0.3のMemory Engineは、特定世代の低スペック端末向けに固�
 - **0.2:** Search/Identity/IPC/Settings/Jobs/Storage/Model RuntimeのForward Compatibility確認。既存Gateを維持。
 - **0.3:** 正式なImplementation Specとactivation後、MEMORY-01 → MEMORY-02 / LEARN-01 → CONTEXT-01等を依存関係に従い実装・統合する。Canonical MemoryとHardware依存の再生成可能な派生物を分離し、世代間移行とindex再構築を含めてHardware-Adaptive動作を評価する。Workstream候補の具体的な順序は正式版で決定する。
 
+> **2026-11-16 Data Persistence後続決定 — Canonical Memoryと派生Index／Cache:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、モデル非依存Canonical Memoryの所有・忘却／由来・Profile境界を保存正本として守り、派生Index／Cacheを再生成できる構造を維持する。今回の決定は共通永続化契約＋用途別分散正本であり、Memory Engineの具体DB／schema・暗号・保持数値・正式0.3実装開始を追加確定しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
