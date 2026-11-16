@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-01は統合Home B＋将来の高度適応Home Cの高水準方針をCONFIRMED（進捗PARTIALLY_RECORDED、詳細PROVISIONAL）。他PXの個別決定・並行PRはこの分岐では扱わない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -17,9 +17,16 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
-| PX-01 | **Nagi Home / Desktopの詳細仕様** | ログイン直後の画面、会話・アプリ・Taskの入口、Home/Desktopの遷移、AI停止時の操作 | [関連DEC 1](DEC-009-nagi-first-home-desktop.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
+| PX-01 | **Nagi Home / Desktopの詳細仕様** | **B＋将来Cの高水準方針CONFIRMED:** 会話中心のシンプルな統合Homeを基本とし、会話・アプリ・Task・Workspaceへの入口をつなぐ。将来はProject／Task等に応じた高度なHome適応へ。具体レイアウト・導線・カード数・Nagi Bar位置・AI停止時の詳細UI・技術・提供版はPROVISIONAL | [関連DEC 1](DEC-009-nagi-first-home-desktop.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
 | PX-02 | **Intent-first UI・適応型画面** | 目的に応じたカードやパネル、選択・却下・固定の方法、既存Workspaceの手動配置保護 | [関連DEC 1](DEC-010-intent-first-adaptive-ui.md)・[関連DEC 2](DEC-008-proactive-behavior.md) |
 | PX-03 | **Project / Workspaceの統合体験** | Project指定UI、複数Workspaceとの関係、資料・Task・作業状態の再発見と再開 | [関連DEC 1](DEC-055-project-folder-cross-app-context.md)・[関連DEC 2](DEC-014-workspace-state-checkpoints.md) |
+
+### PX-01の決定記録（2026-11-17）
+
+- **CONFIRMED:** 対話中心でシンプルな統合Home Bを基本とし、将来はProject・Task等に応じた高度適応Home Cへ発展する高水準方針。正本は[DEC-009](DEC-009-nagi-first-home-desktop.md)のPX-01節であり、[DEC-010](DEC-010-intent-first-adaptive-ui.md)のIntent-firstとWorkspace保護を維持する。
+- **既存仕様を維持:** Home標準表示、Homeからアプリ直接起動時のDesktopへの自動切替、委任Task中のHome維持、前回WorkspaceのDesktop復元、会話・Task・アプリ状態保持、AI停止時の通常GUI、Nagi BarからHomeへの復帰、Taskの無断再実行禁止。
+- **PROVISIONAL／OPEN:** 具体的なHome／Desktopレイアウト、各導線、カード数、Nagi Bar位置、AI停止時の詳細UI、個人化・技術・適用版・Acceptance。
+- **進捗:** PARTIALLY_RECORDED（高水準の採用方針のみDECへ反映）。他PXの並行PRの変更は未統合の可能性があり、今回の分岐で一括上書きしない。
 
 ### 第2群：AI・Personal Agentの振る舞い
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-01がPARTIALLY_RECORDED（B基本＋将来C方向CONFIRMED、詳細PROVISIONAL）。** 他PXの決定や独立PRの統合状況を別途確認し、一律にOPENまたはCONFIRMEDと扱わない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-01の対話中心の統合Home Bを基本とし、将来のProject／Taskに応じた高度適応Home Cへ発展する高水準方針を決定。DEC-009／010の既存CONFIRMEDとAI不在時の通常GUIを維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、具体画面・導線・カード数・Bar位置・AI停止時UI・技術・提供版はPROVISIONAL |
