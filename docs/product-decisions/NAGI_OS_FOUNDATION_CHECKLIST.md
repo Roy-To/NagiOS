@@ -440,12 +440,12 @@
 ### 30 Installer / First Setup
 
 - **検討対象:** boot媒体、disk選択・破壊操作、partition／暗号化、Owner初期化、locale、offline setup、recovery。
-- **製品決定:** CONFIRMED＝offline-first、Ownerと通常操作の維持 [DEC-009][D09]／[017][D17]。OPEN＝製品installer・初回設定フローと対応媒体。
-- **技術設計:** image builder／local identity／package installはあるが、OS installerとは別の機能。
+- **製品決定:** CONFIRMED＝Linuxの既存disk等の機構を利用しNagi独自GUIで導入先・初期Owner／Locale・進行を案内する方式B [DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)。ローカルLLMによる高度な自動判断は初期標準とせず、Offline-first／AI非依存の基本セットアップ、破壊操作前の明示確認、System／User Dataの分離 [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)と通常GUI [DEC-009][D09]を維持。PROVISIONAL＝採用部品・UI・機器・版・実機受入。
+- **技術設計:** Linuxの汎用disk／partition／storage機構を選択活用し、Nagi製品のGUIと決定論的な検証・Installer制御を設ける。image builder／local identity／package installのhost契約と、物理OS Installerは別。AIが危険なディスク操作を判断／実行する経路を設けない。暗号化・Recovery・Owner具体初期化・書込方式は未決定。
 - **実装・target受入:** `tools/nagi-installer/`のhost契約と旧guest owner bootstrap資産あり。host installer契約を物理diskへのinstallとしない。Linux disk installation・初回設定・実機復旧媒体は未確認。
 - **依存・責任候補:** 2, 3, 7, 10, 12, 13, 28, 31, 33。installer／identity／storage候補。
 - **根拠:** [0.1 §22・79–80][S01]、[0.2 §9・16][S02]、[boot trust][BOOT]。
-- **次に決める:** 最初のinstall target、データ破壊前確認・暗号化鍵回復、offlineで完了する最小setup。
+- **次に決める:** 最初のinstall target／Boot媒体、実ディスク識別とデータ破壊前確認、System／User Data／Model配置、暗号化鍵・Recovery、Offlineで完了する最小初期設定、失敗／電源断の扱い、Linux実機での導入・復旧Acceptance。
 
 <a id="f31"></a>
 ### 31 System Update
