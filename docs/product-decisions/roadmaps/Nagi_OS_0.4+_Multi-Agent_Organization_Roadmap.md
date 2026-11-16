@@ -26,6 +26,8 @@
 
 ## 1. Vision and release boundary
 
+> **2026-11-16 接続方針追記:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)の初期同一Wi-Fi／LAN・共通Device Connectivity／Trust／Transportを端末間連携の基礎とする。近距離直接通信・遠隔接続の拡張可能性を保持するが、Multi-device／Remote Agentの展望から初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーを必須化しない。Offline-first、認証・暗号化・明示許可・現行権限／Privacy・取消・外部ScopeとDEC-014を維持し、無断転送・同期・Task再実行なし。具体方式・機器・運用費用・版・時期・性能は未確定、Clipboard未採用。既存のRole／Agent・Release／Activation／Acceptance Gateを変更しない。
+
 **2026-11-16 後続確認（[DEC-074](../DEC-074-human-led-agent-organization.md)）:** 当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。以下の組織拡張・Phase案は具体的な提供版や実装順序を確定しない。初期0.4の単一Nagiによるbuilder Role、§2.1 Entry Gate、§12 Acceptanceは変更しない。
 
 ユーザーの主な窓口は、会話する秘書Agent **Nagi** ひとつとする。Nagiが依頼を理解して計画を説明し、Policyに応じて承認を求め、初期はNagi自身が必要なRoleで範囲限定Taskを実行する。将来は専門AgentにもTaskを委譲できるようにし、成果の証拠を確認してユーザーへ統合した結果を返す。
