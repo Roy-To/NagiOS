@@ -8,6 +8,8 @@
 - Product name: **NAGI — Native Agentic General Interface**
 - Working application names in this document are provisional unless an existing Nagi specification already fixes the name.
 
+> **2026-11-16 製品方針追記:** [DEC-063 — 電話・連絡先・SMSの端末横断採用](product-decisions/DEC-063-phone-contacts-messaging.md)で、電話・連絡先・SMS/Messagingの基本機能を純正の採用対象とした。PC／タブレット／モバイルで共通アプリ・共通モデルと適応UIを原則とし、連絡先は可能な限り第64章Peopleへ統合する。通話／SMS送受信は実際のハードウェア・モデム／SIM／eSIM・OS能力・認可・必要なネットワーク／外部サービス／キャリアに依存し、全端末での送受信を保証しない。アプリ分割・名称・最小機能・UI・プロトコル・端末間の遠隔操作／引き継ぎ／同期・学習・音声処理・適用版は未確定。本追記は通信機能の実装指示・実装済み証拠や既存Acceptanceへの追加ではない。
+
 ---
 
 ## 0. この文書の目的
@@ -2971,6 +2973,8 @@ studio.export_bundle
 ---
 
 # 64. People
+
+> **2026-11-16 関連決定:** [DEC-063](product-decisions/DEC-063-phone-contacts-messaging.md)の連絡先採用は本章のPerson／Organization／Contact point／Phone／provider identityを共通基盤として扱う。以下の可逆merge・Reference・privacy方針を維持し、別の住所録、本文の大量複製、推測による人物統合は導入しない。Phone／Messages等のアプリ構成と通信連携の詳細は同DECのPROVISIONAL事項である。
 
 ## 64.1 Purpose
 
