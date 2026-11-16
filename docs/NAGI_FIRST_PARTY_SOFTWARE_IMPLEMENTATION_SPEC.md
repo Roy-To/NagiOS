@@ -8,6 +8,12 @@
 - Product name: **NAGI — Native Agentic General Interface**
 - Working application names in this document are provisional unless an existing Nagi specification already fixes the name.
 
+> **2026-11-16 製品方針追加 — 近距離ファイル共有:** [DEC-064](product-decisions/DEC-064-nagi-share-nearby-file-transfer.md)で、Nagi Share（仮称）をPC／Tablet／PhoneのNagi端末間で写真・PDF・一般ファイルを直接渡す純正OS機能として採用した。Filesや画像ビューア等の共有UIから近くの受信可能端末を発見・選択し、受信側の確認・許可、暗号化・端末認証と既存Permission／Capability・情報区分・外部共有認可・Resource所有／Profile境界に従う。Local／Offline-firstで、Internet・Cloud account・LLMを基本利用の必須経路にしない。DEC-014のWorkspace移行・同期、本書のContinuity／Handoffとは別の範囲である。名称・通信／認証方式・互換性・保存先・距離・UI／通知／承認詳細・対応版／端末・性能はPROVISIONAL。Nagi Shareのページ／Project／Workspace／作業状態Handoffへの拡張はアイデアであり、既存のContinuity仕様を撤回しない。本注記はDesktop first、既存Milestone／Acceptance／Activationを変更せず、実装・実機対応済みを示さない。
+
+> **2026-11-16 製品方針追記:** [DEC-063 — 電話・連絡先・SMSの端末横断採用](product-decisions/DEC-063-phone-contacts-messaging.md)で、電話・連絡先・SMS/Messagingの基本機能を純正の採用対象とした。PC／タブレット／モバイルで共通アプリ・共通モデルと適応UIを原則とし、連絡先は可能な限り第64章Peopleへ統合する。通話／SMS送受信は実際のハードウェア・モデム／SIM／eSIM・OS能力・認可・必要なネットワーク／外部サービス／キャリアに依存し、全端末での送受信を保証しない。アプリ分割・名称・最小機能・UI・プロトコル・端末間の遠隔操作／引き継ぎ／同期・学習・音声処理・適用版は未確定。本追記は通信機能の実装指示・実装済み証拠や既存Acceptanceへの追加ではない。
+
+> **2026-11-16 製品決定追記:** [DEC-062](product-decisions/DEC-062-first-party-utilities.md)は、画像ビューア・簡易編集、スクリーンショット・文書スキャン、ZIP等の圧縮・解凍、動画・音楽プレイヤーの4分野すべての純正採用と、AI非必須の高速・軽量な基本機能優先を追加する。具体的なアプリ構成・対応形式／Codec／機器・OCR・連携詳細・提供版・受入基準はPROVISIONAL。本書の共通Platform原則を継承し、既存M-APPの順序・Acceptanceや実装状態を変更しない。
+
 ---
 
 ## 0. この文書の目的
@@ -550,6 +556,8 @@ Surface は width / height / DPI / orientation / input capability と合わせ�
 ## 30. Continuity
 
 Continuity は別端末で意味的に作業を継続する仕組み。
+
+> **2026-11-16 接続方針（[DEC-066](product-decisions/DEC-066-device-connectivity-lan-first.md)）:** 初期ターゲットは同一Wi-Fi／LAN上のNagi端末。Device Connectivity／Trust／Transportの共通抽象を使い、接続方法を機能へハードコードしない。近距離直接通信とインターネット越しの遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインNagiアカウント・運営サーバーは必須にしない。Offline-first、端末認証・信頼・暗号化、明示許可、現行User／Profile／Resource Permission・Privacy、取消・外部Scopeを守る。以下の共有状態や§46／71のsyncの例は許可・対応方式が成立する場合のものであり、無断転送・同期・Task再実行を認めない。DEC-014の標準移行とCloud別許可を維持し、具体技術・機器・提供版・時期・性能は未確定、Clipboardは未採用。
 
 共有するもの:
 
@@ -2972,6 +2980,8 @@ studio.export_bundle
 
 # 64. People
 
+> **2026-11-16 関連決定:** [DEC-063](product-decisions/DEC-063-phone-contacts-messaging.md)の連絡先採用は本章のPerson／Organization／Contact point／Phone／provider identityを共通基盤として扱う。以下の可逆merge・Reference・privacy方針を維持し、別の住所録、本文の大量複製、推測による人物統合は導入しない。Phone／Messages等のアプリ構成と通信連携の詳細は同DECのPROVISIONAL事項である。
+
 ## 64.1 Purpose
 
 連絡先を単なる住所録ではなく、Mail / Calendar / shared resources / Workspace から参照される標準 Person/Organization identity layer として扱う。
@@ -3077,6 +3087,8 @@ Devices は初期段階で全面的な remote desktop/control を目的としな
 - revoked
 
 新 Device が account に現れただけで自動 trusted にしない。
+
+> **2026-11-16 補足（[DEC-066](product-decisions/DEC-066-device-connectivity-lan-first.md)）:** このaccount表記は、初期LAN連携にオンラインNagiアカウントを必須化するものではない。Device Managerの発見・信頼・取消とContinuityは共通Connectivity／Trust／Transport境界を再利用する。trustedや暗号化成功だけでResource操作を認可せず、ユーザーの明示許可・現行Permission／Privacy・外部通信Scopeを別途評価し、取消を反映する。remote job observationも初期のインターネット越し接続・全面remote controlを必須にしない。
 
 ## 65.4 UI
 
@@ -4198,6 +4210,36 @@ Nagi 専用の難解な巨大 SDK を最初から要求しない。
 - [ ] accessibility basics
 - [ ] performance tests
 - [ ] no fake success
+
+---
+
+# Part XXI — PDF Reader / Editor製品方針の追加（2026-11-16）
+
+本節の正本は[DEC-061](product-decisions/DEC-061-first-party-pdf-reader-editor.md)。**CONFIRMEDなのは純正PDF Reader兼Editorの採用・段階的拡張と以下の設計境界である。** 本書の「Final Implementation Specification」という位置付けから、本追加の未決定事項を実装確約と解釈しない。既存M-APP、Phase、Releaseの割当て・順序・Acceptanceは変更しない。
+
+## PDFの基本体験と段階的拡張
+
+- まず高速PDF表示、検索、ページ操作、注釈、印刷、フォーム入力などを整える。通常の閲覧・編集はAIが無効・不在・利用不能でも使える設計とする。
+- その後、既存PDFの本文／画像の高度編集、OCR、適切な墨消し、署名関連機能を段階的に検討する。Adobe Acrobat完全互換や全機能初期実装を約束しない。
+- 墨消しは黒い図形を重ねるだけではなく、出力PDFから対象の元内容を削除し、削除結果を検証する。原本・旧Revision・Checkpoint・派生資料の一括消去や外部送信済み資料の回収とは区別する。未検証の結果を安全に墨消し済みと表示しない。
+
+## Public APIによる文書作業連携
+
+Nagi Project / Smart Paste / Writer / Sheets / Slides等と、共通のPublic Resource / Document / Object / Revision / Provenance / Action APIで連携する方向とする。Nagi Project / Smart Pasteは連携先の製品方向であり、本書§63のStudio / Workspaceの名称変更や既存実装の提供済み宣言ではない。Writer / SlidesのPDF出力と、PDF自体を読む・編集する役割は併存する。
+
+元資料の保存・編集の正本を維持し、参照・取得・Action実行時に現在の権限、機密分類、所有範囲、承認済みTask Scope、Resource / Revisionを確認する。純正だけの秘密APIや権限優遇は設けない。
+
+PDFの表抽出、文章要約、文書比較、引用等は、利用者が承認した目的・対象と元資料の権限・機密分類の範囲でAI支援対象とする。派生結果でも出典・Revision・分類を保持する。Cloud送信は[DEC-002](product-decisions/DEC-002-cloud-ai-data-sharing.md)の許可境界に従う。変更検知だけで関連文書を自動更新せず、[DEC-025](product-decisions/DEC-025-cross-app-data-reference-and-updates.md)の承認済みTaskの例外と実行時検証を維持する。
+
+## PROVISIONALと実装境界
+
+具体的な提供版・時期、高度機能の順序、PDF規格の対応範囲、表示・編集エンジン、OCR技術、電子署名・鍵管理の方式、API Schema、検証手段・合格値は未決定。高速性は目標であり測定済みの性能保証ではない。後続の技術設計で具体化し、本追加自体を実装開始・試験成功・提供済みの根拠にしない。
+
+## 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-16 | DEC-061のPDF Reader兼Editor採用方針を追加。確定した製品境界と未決定の実装詳細を分離し、既存Phase / Milestone / Acceptanceを維持。 |
 
 ---
 

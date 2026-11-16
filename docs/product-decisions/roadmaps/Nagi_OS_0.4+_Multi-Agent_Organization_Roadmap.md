@@ -1,5 +1,7 @@
 # Nagi OS 0.4+ Multi-Agent Organization Roadmap
 
+> **2026-11-16 近距離ファイル共有:** [DEC-064](../DEC-064-nagi-share-nearby-file-transfer.md)でNagi Share（仮称）を純正OS機能として採用した。これはLocal／Offline-firstの単発ファイル直接転送の製品方針であり、Team／Organization／Remote AgentやWorkspace同期の一括承認ではない。Internet・Cloud account・LLMは必須とせず、既存の認可・情報区分・所有／Profile境界とGateを維持する。技術・UI詳細・対応版／端末・性能は未確定で、Handoff拡張はアイデア段階。既存Continuity構想と初期Gateを置き換えない。詳細は[ロードマップ索引](README.md#近距離ファイル共有の製品方針2026-11-16)を参照。
+
 > **2026-11-15 公開移管:** [DEC-050](../DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 ## Linux基盤への適用注記（2026-11-13）
@@ -26,6 +28,10 @@
 
 ## 1. Vision and release boundary
 
+> **2026-11-16 接続方針追記:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)の初期同一Wi-Fi／LAN・共通Device Connectivity／Trust／Transportを端末間連携の基礎とする。近距離直接通信・遠隔接続の拡張可能性を保持するが、Multi-device／Remote Agentの展望から初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーを必須化しない。Offline-first、認証・暗号化・明示許可・現行権限／Privacy・取消・外部ScopeとDEC-014を維持し、無断転送・同期・Task再実行なし。具体方式・機器・運用費用・版・時期・性能は未確定、Clipboard未採用。既存のRole／Agent・Release／Activation／Acceptance Gateを変更しない。
+
+**2026-11-16 後続確認（[DEC-074](../DEC-074-human-led-agent-organization.md)）:** 当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。以下の組織拡張・Phase案は具体的な提供版や実装順序を確定しない。初期0.4の単一Nagiによるbuilder Role、§2.1 Entry Gate、§12 Acceptanceは変更しない。
+
 ユーザーの主な窓口は、会話する秘書Agent **Nagi** ひとつとする。Nagiが依頼を理解して計画を説明し、Policyに応じて承認を求め、初期はNagi自身が必要なRoleで範囲限定Taskを実行する。将来は専門AgentにもTaskを委譲できるようにし、成果の証拠を確認してユーザーへ統合した結果を返す。
 
 ローカル端末の能力に応じて、次のような専門Agentを追加できる。
@@ -37,13 +43,15 @@
 
 Nagiはユーザーに対して一貫した窓口と調整役であり続ける。専門Roleは権限を生まない。Permission、Capability、Action実行、取消、永続状態の決定権はOSにある。
 
+**人間がManagerとなる長期的な組織方向（DEC-074）:** 長期的には、ユーザー1人が唯一の人間Managerとなり、複数の統括AIがそれぞれの専門Worker Agentをまとめる階層型の組織を目指す。端末資源に応じて組織の規模や階層を拡張できる方向を確認する。Nagiを一貫したユーザー窓口とする既存方針は維持するが、Nagiが統括AIの一員か別の調整役か、Supervisorや階層の数、実行・資源管理の仕組み、Version割当ては未確定。本方向は将来の製品構想であり、0.4初期の単一Nagi builder Role方式、0.4 Entry Gate、既存Permissionを変更しない。
+
 段階的な規模拡張を想定する。
 
 ```text
 0.3: 単一Personal Agentと正規のクロスアプリAction
 0.4: 1ユーザー・1端末、Nagiが専門Roleを切り替えて実行する限定Workflow
 0.5以降: ローカル組織の拡張、共有Workflow、必要に応じた複数端末連携
-将来: GovernanceとSecurityの証拠が整ったAI組織・会社の運用
+将来: 人間がManagerとなる階層型AI組織。GovernanceとSecurityの証拠が整った範囲で拡張
 ```
 
 0.3以降のVersion番号は計画上の案であり、正式なrelease決定に従う。最初の0.4では規模より小さく有用なWorkflowを成立させる。
@@ -466,3 +474,9 @@ Accepted implementation specificationに記載されたrelease activationと依�
 ---
 
 **End of Proposal**
+
+## PDF Reader / Editorの製品方針（2026-11-16）
+
+[DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
+
+具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
