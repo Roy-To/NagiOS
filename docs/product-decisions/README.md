@@ -144,6 +144,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-081 | [Nagi主体の基本ユーザーランドと汎用OSSの選択的活用](DEC-081-nagi-owned-userland-selective-oss-components.md) | CONFIRMED（Nagi固有サービス／API／アプリ環境の独自設計、libc・基礎ライブラリ・基礎ツールのOSS活用、既存distributionユーザーランド一式非流用）／PROVISIONAL（具体部品・ABI・適用版） | 2026-11-16 |
 | DEC-094 | [Resource Manager：Linux標準＋Nagi独自管理、スケジューリングの並行研究](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md) | CONFIRMED（#25 B＋C研究案：Linux標準を製品基本、Nagi Resource Managerの統合配分と独自schedulerの比較研究・標準方式への退避）／PROVISIONAL（cgroup／sched_ext等、アルゴリズム・性能・実機・採用版） | 2026-11-16 |
 | DEC-095 | [App Lifecycle：Linux基盤＋Nagi App Supervisorと独自Runtimeの並行研究](DEC-095-app-lifecycle-linux-supervisor-runtime-research.md) | CONFIRMED（#26 B基本：Linux Native Process＋Nagi Supervisor、独自Runtimeの比較研究・標準経路保持）／PROVISIONAL（WASM等の採否・性能・対応機器・実装／版） | 2026-11-16 |
+| DEC-096 | [Settings / Notification：Cの状況適応を最終目標に、Bの統合基盤を段階導入](DEC-096-settings-notifications-context-adaptive-staged.md) | CONFIRMED（#27 Cが最終目標、Bの統合Settings／Notificationを段階導入。明示設定・重大警告・Privacy／Permission維持）／PROVISIONAL（状況判定・習慣連携・自動調整詳細・版／受入） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -197,6 +198,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-096](DEC-096-settings-notifications-context-adaptive-staged.md)でFoundation #27を記録。Cの文脈・習慣に合わせた状況適応型Settings／Notificationを最終製品目標とし、Bの統合Settings UI／通知センター／Scope付き設定・通知管理を先行段階として導入する。DEC-008の重大警告・控えめな提案、User明示設定、Permission／Privacy、0.2 M11／M14の契約を維持し、具体技術・自動化詳細・実装版は未決定。 |
 | 2026-11-16 | [DEC-095](DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)でFoundation #26の「B基本＋独自Runtime並行研究」を記録。Linuxのプロセス・隔離機構とNagi App Supervisorを製品標準とし、独自Runtimeの隔離・起動速度・RAM・Workspace／AI連携・開発者負担等を比較研究する。採用は実測後に別判断、WASM等の個別技術・版・実機受入は未決定。 |
 | 2026-11-16 | [DEC-094](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)でFoundation #25のB＋C研究案を記録。製品標準はLinuxのscheduler／資源制御＋Nagi Resource Manager、独自CPUスケジューリングの研究・比較を行い、有効性と安全性を実機で確認できた部分だけ後続採用を判断する。cgroup v2／PSI／sched_extは候補、性能・機器・Releaseは未確定。 |
 | 2026-11-16 | [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)でFoundation #5の基本ユーザーランド方針を追加。Nagi固有のサービス・API・アプリ環境は独自設計、libc・基本ライブラリ・基礎ツールはOSSを選択活用、既存distributionのユーザーランド一式は製品基盤にしない。具体libc・ABI・rootfs・採用版は未決定。B1 #1〜#5の方針検討は一巡したが、#4のA/B正式採用やLinux target受入は未完了。 |
