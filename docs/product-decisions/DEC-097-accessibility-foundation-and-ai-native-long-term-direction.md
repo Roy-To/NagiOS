@@ -1,8 +1,8 @@
 # DEC-097 — 通常のアクセシビリティ基盤の先行整備とAI-native操作の長期方向
 
-**状態:** CONFIRMED（Foundation #28：通常のアクセシビリティ基盤を先に整え、将来のAI-nativeで正確なポインティングに依存しない操作体系と矛盾しない設計にする）／PROVISIONAL（機能範囲・具体技術・提供時期・適用版・受入条件、time／localeの詳細方式）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #28。近い将来の基盤整備方針と遠い将来の操作思想を区別し、特定Releaseへ割り当てない  
+**状態:** CONFIRMED（Foundation #28：通常のアクセシビリティ基盤を先に整え、将来のAI-nativeで正確なポインティングに依存しない操作体系と矛盾しない設計にする）／PROVISIONAL（機能範囲・具体技術・提供時期・適用版・受入条件、time／localeの詳細方式）
+**最終合意日:** 2026-11-16
+**適用候補:** Nagi OS Foundation #28。近い将来の基盤整備方針と遠い将来の操作思想を区別し、特定Releaseへ割り当てない
 **関連:** [Foundation Checklist #28](NAGI_OS_FOUNDATION_CHECKLIST.md#f28)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[言語アーキテクチャ](../architecture/language-architecture.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験
