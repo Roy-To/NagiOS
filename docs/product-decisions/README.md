@@ -40,6 +40,14 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 ## ファイル一覧
 
+端末間連携の接続方針（2026-11-16追加）:
+
+| ID | テーマ | 状態 | 最終決定 |
+|---|---|---|---|
+| DEC-066 | [同一LANから始める共通Device Connectivity／Trust／Transport](DEC-066-device-connectivity-lan-first.md) | CONFIRMED（初期LAN・共通抽象・将来遠隔拡張・安全境界）／PROVISIONAL（具体方式・運用・時期・性能） | 2026-11-16 |
+
+**変更履歴（2026-11-16）:** DEC-066を追加。同一Wi-Fi／LANを初期ターゲットとし、近距離直接通信・遠隔接続は段階的な拡張候補として保持する。初期の常時Cloud・オンラインアカウント・運営サーバーは必須にしない。DEC-014の移行／同期とCloud別許可を維持し、Clipboard採用にはしない。Share／Handoffの並行PRの状態は同DECを参照。
+
 | ID | テーマ | 状態 | 最終決定 |
 |---|---|---|---|
 | DEC-001 | [AIの自律性とAction](DEC-001-agent-autonomy-actions.md) | CONFIRMED | 2026-10-25 |
