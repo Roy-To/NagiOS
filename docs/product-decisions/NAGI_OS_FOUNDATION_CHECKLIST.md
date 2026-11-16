@@ -473,12 +473,12 @@
 ### 33 Hardware Support
 
 - **検討対象:** architecture／VM／実機、firmware／driver matrix、必須・任意機能、候補と認定、試験環境。
-- **製品決定:** CONFIRMED＝[DEC-052][D52]の候補選定のみ。PROVISIONAL＝正式対応・時期・版。OPEN＝恒久Linux reference target・必須device matrix。
-- **技術設計:** 既存QEMU x86-64参照仕様、0.2最初の実機参照機を選定したx86-64 UEFI mini-PCとする方針、generic ARM64→Piの境界を保持。別軸の将来候補はRaspberry Pi型番未指定、PineTab2、phone未選定。
+- **製品決定:** CONFIRMED＝LinuxのDriver／低層Hardware機構を活用し、PC／ARM64／Tablet等へ段階的に対応し、機種・機能別の実機証拠で正式対応を判断するB方式 [DEC-102](DEC-102-hardware-support-staged-multidevice-linux-drivers.md)。[DEC-052][D52]のRaspberry Pi型番未定／PineTab2／Phone未選定の候補を維持。PROVISIONAL＝正式対応機種・Firmware／Driver Matrix・時期・提供Version・Linux target受入。
+- **技術設計:** 0.2のQEMU x86-64主要開発対象、選定したx86-64 UEFI mini-PCを最初の物理Referenceとする方針、QEMU generic ARM64→Raspberry Pi Portの境界を維持。Linux Driver／Firmware・Device CapabilityをNagiの共通Serviceから分離し、PC UEFI基本と各端末別Bootを両立。Display／Input／Audio／Storage／Radio／Power等は対象機器ごとに可用性と必須／任意／未対応を検証する。Broad PC／Mobileの早期対応を新しいRelease Gateとしない。
 - **実装・target受入:** 旧QEMU実績あり。[PR #57][PR57]のmultiarch spikeは未マージ。Linux実機boot／GPU／radio／sleepは未確認。
 - **依存・責任候補:** 1, 2, 17–23, 34, 35。`os-core`／porting／`ci-acceptance`候補。
 - **根拠:** [0.1 §2][S01]、[0.2 §5][S02]、[実機候補][D52]、[porting PR][PR57]。
-- **次に決める:** 開発targetと製品対応保証の区別、最小HW matrix、VM・実機ごとの受入と未対応表示。
+- **次に決める:** 開発Targetと製品正式対応の明確な区分、最小のDevice／Firmware／Driver Matrixと受入Evidence、最初のLinux実機Reference、GPU／通信／Sleep等の必須／任意・未対応表示、Raspberry Pi／PineTab2の具体構成・実機検証とVersion。
 
 <a id="f34"></a>
 ### 34 Testing / Release
