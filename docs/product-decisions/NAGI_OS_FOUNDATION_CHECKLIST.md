@@ -318,12 +318,12 @@
 ### 19 Display / GPU
 
 - **検討対象:** modesetting／compositor／renderer、multi-display／hotplug、GPU隔離、fallback、描画・compute資源。
-- **製品決定:** CONFIRMED＝GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]。PROVISIONAL＝具体配置・実装。OPEN＝Linux display backend。
-- **技術設計:** 旧compositor／VirtIO GPU／Mesa／Servo契約あり。DRM／KMS／Wayland等の採用は未決。
+- **製品決定:** CONFIRMED＝Nagi Home／Desktop・Workspace・ウィンドウ管理方針・端末適応UIはNagi独自、Linux／OSSの描画・GPU・Display基盤は選択的に活用するB改良案 [DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)。PC／Tablet／Mobileの共通契約を保持し端末別backend差を吸収。GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]を継承。OPEN＝Wayland／Smithay等の具体採否・Linux display backend・対応hardware／版。
+- **技術設計:** 上位Shell／Workspace／端末適応をNagi設計とし、画面合成やGPU／Displayの基礎層ではLinux／OSS資産を評価・再利用する。旧compositor／VirtIO GPU／Mesa／Servo契約は参照資産。DRM／KMS／Wayland／Smithay等の採否、CPU描画fallback・rendererは未決定。
 - **実装・target受入:** 旧guest描画・desktop資産あり。Linux compositor接続・実GPU・複数実画面は未確認。
 - **依存・責任候補:** 1, 5, 8, 17, 20, 25, 33。desktop／graphics／`ui-design-system`候補。
 - **根拠:** [0.1 §25–31][S01]、[純正仕様 §27–30][FP]、[影響表][IMPACT]。
-- **次に決める:** 最小display経路、CPU描画等の退避、buffer権限・切断・複数画面の受入範囲。
+- **次に決める:** OSS描画基盤／Compositorの候補比較、最小display経路とCPU描画退避、surface／buffer権限、multi-display・hotplug・端末別backendのLinux実機受入。
 
 <a id="f20"></a>
 ### 20 Input System
