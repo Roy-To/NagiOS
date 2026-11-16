@@ -98,7 +98,7 @@
 | [25](#f25) | Resource Manager / Scheduler | P0 | 前景優先確定／host Jobs等／Linux制御未定 |
 | [26](#f26) | App Lifecycle | P0 | manifest host契約／runtime統合別 |
 | [27](#f27) | Settings / Notification | P1 | scoped契約・host foundation／runtime別 |
-| [28](#f28) | Time / Locale / Accessibility | P1 | en-US／ja-JP基盤あり／時刻・a11y残件 |
+| [28](#f28) | Time / Locale / Accessibility | P1 | 通常a11y先行・長期AI-nativeと両立／time・locale詳細未定 |
 | [29](#f29) | Diagnostics / Logging | P0 | 旧診断・host構造化契約／Linux接続別 |
 
 ### 第6群 インストール・更新・端末間連携・品質保証
@@ -384,111 +384,112 @@
 ### 25 Resource Manager / Scheduler
 
 - **検討対象:** CPU／RAM／GPU／NPU／I/O／電力budget、OOM、fairness、queue／throttle／pause／cancel。
-- **製品決定:** CONFIRMED＝前景応答性、明示優先変更、安全限界とResource待機の条件付き継続 [DEC-020][D20]、適応型Memory [DEC-013][D13]。PROVISIONAL＝閾値・algorithms。
-- **技術設計:** OS scheduler、Jobs、Model Runtime、Memory検索選択は責務が異なる。独立AI schedulerの重複採用を避ける。Linux強制手段は未定。
+- **製品決定:** CONFIRMED＝Linux標準scheduler／資源制御を製品基本とし、Nagi Resource Managerで前景App・AI／Jobs・Powerの予算／優先度を協調するB案＋独自schedulerの並行比較研究C [DEC-094](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)。十分な実機検証後の部分採用判断と標準方式への退避を重視。前景応答・明示優先変更・安全限界・Resource待機の条件付き継続 [DEC-020][D20]、適応型Memory [DEC-013][D13]を継承。PROVISIONAL＝独自scheduler正式採用・具体Linux機構／閾値・性能・端末・版。
+- **技術設計:** Linux標準schedulerと既存資源管理機構を利用し、Nagiが製品固有の資源配分Policyを管理する。cgroup v2／PSIは候補、sched_ext／eBPF等は並行研究候補であり、個別採用・kernel変更は未決定。OS Resource Manager、Jobs、Model Runtime、Memory検索／Nagi Powerの責務を分離し、重複AI scheduler／特権経路を作らない。
 - **実装・target受入:** 旧scheduler／OOM・host Jobs／Model資産あり。Linux統合の応答性・飢餓・負荷・電力測定未確認。
 - **依存・責任候補:** 1, 4, 8, 14, 23, 26, 29。`job-01`／`model-runtime`／`os-core`候補。
 - **根拠:** [0.1 §13・15・43–45][S01]、[0.2 §14・47–48][S02]、[Governor案][GOV]、[Power PR][PR128]。
-- **次に決める:** 予算所有者・要求API・強制と観測、Pause／Cancel／crashと資源待機の状態分離、測定baseline。
+- **次に決める:** Resource予算・要求APIと強制／観測責任、標準Linux構成のbaselineと独自scheduler研究の比較計画、前景UI／AI／音声・RAM・電力・熱・公平性の測定条件、Linux実機／LTS対応・安全な標準fallback・後続採用判断。
 
 <a id="f26"></a>
 ### 26 App Lifecycle
 
 - **検討対象:** manifest／package／launch／ready／stop／crash／restart／upgrade／uninstall、session・data・background jobs。
-- **製品決定:** CONFIRMED＝Nagi Native Apps、Public API共通・段階統合 [DEC-017][D17]、builder更新・導入・削除の境界（関連DEC参照）。PROVISIONAL＝実装・版。
-- **技術設計:** 0.2 M12 manifest契約とM13 Supervisorを分離。package検証成功を安全なruntime起動としない。
+- **製品決定:** CONFIRMED＝Nagi Native Apps専用、Public API・Package／Manifest・Permission／Capabilityの共通契約 [DEC-017][D17]を維持し、Linux標準のprocess／隔離＋Nagi App Supervisorを製品基本とするB案と、独自Runtimeの並行比較研究 [DEC-095](DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)。実測で利点と安全性を確認した場合のみ部分採用を後続判断し、Linux標準実行経路を保持。builderの試用／導入・更新・削除の既存承認境界を維持。PROVISIONAL＝独自Runtime正式採用・方式・機器・性能・版。
+- **技術設計:** 0.2 M12 Manifest／Package契約とM13 App Supervisor／Process Lifecycle Runtimeを分離して維持する。標準はLinuxプロセス・隔離機構をNagi Supervisorが統合管理し、独自Runtime／Sandbox・起動／復帰効率を別途研究。WebAssembly／WASI等は候補例に過ぎず未採用。Package検証成功を安全なRuntime起動とみなさない。
 - **実装・target受入:** app-sdk／manifest host foundationあり。supervisor runtimeは別状態。Linux process／sandbox／lifecycle統合は未確認。
 - **依存・責任候補:** 4, 5, 7, 8, 9, 14, 25, 31。`app-sdk-contract`／`app-lifecycle-manifest`／`app-lifecycle-supervisor`候補。
 - **根拠:** [0.2 §13・16・26・M12/M13/M21][S02]、[registry][REG]、[純正仕様][FP]。
-- **次に決める:** processとlogical app identity、ready／crash／bounded restart、更新時のdata／Permission再検証と実sample受入。
+- **次に決める:** Linux processと論理AppId／Sessionの対応、ready／crash／bounded restart、Manifest／Permission・更新データ再検証、標準経路の実sample受入。並行研究は小型／builderアプリ等の候補・Baseline・起動速度・RAM・隔離・電力・移植コスト・退避条件を比較し、採否は後続判断。
 
 <a id="f27"></a>
 ### 27 Settings / Notification
 
 - **検討対象:** system／user／profile／app設定、schema／migration、購読、通知の帰属・quiet／focus・redaction・action。
-- **製品決定:** CONFIRMED＝非特権AI・正規API [DEC-020][D20]。OPEN＝Linux service接続・設定UI詳細。具体既定値は一括決定しない。
-- **技術設計:** 0.2 scoped Settings、通知記述子は権限を持たずactivation時再検証、bounded persistence契約あり。
+- **製品決定:** CONFIRMED＝Cの状況適応型Settings／Notificationを最終製品目標とし、途中段階でBの統合Settings UI・通知センター／手動Quiet・Focus／Profile・App別設定基盤を導入する [DEC-096](DEC-096-settings-notifications-context-adaptive-staged.md)。既存の控えめな働きかけ・客観的根拠の重大警告 [DEC-008](DEC-008-proactive-behavior.md)、明示設定とPrivacy／Permission、非特権AI・正規API [DEC-020][D20]を維持。PROVISIONAL＝状況判定・習慣適応の具体UI・自動適用範囲・版／実機受入。
+- **技術設計:** 0.2 M11のSystem／User／Profile／App別・型付きSettings ServiceとM14のNotification Core（権限を持たないAction記述子、activation時再認可、bounded persistence、quiet/focus）を独立の責務として連携し、Bの統合UIを構築。Cのcontext／habit適応は正規Service／Policyの範囲で段階導入する構想とし、特定AI／学習実装、デフォルト値・技術方式は未決定。
 - **実装・target受入:** notification core等のhost foundationあり。Settings runtimeは仕様snapshotでNOT_STARTED、現行stateを都度確認。Linux通知表示・設定永続化は未確認。
 - **依存・責任候補:** 7, 8, 9, 14, 26, 28。`settings-configuration`／`notify-01`／desktop候補。
 - **根拠:** [0.2 §12・15・M11/M14][S02]、[registry][REG]、[notification core](../../crates/nagi-notification-core/README.md)。
-- **次に決める:** scopeの上書き規則と変更認可、通知UI／lockscreen秘匿、action実行時の権限境界。
+- **次に決める:** BのSettings／通知UIとScopeの上書き・権限、通知センター／lockscreen秘匿と重大警告区分、Cの状況信号・ルールと習慣適応のユーザー制御、保留通知の消失防止・失敗時退避、action時の権限再検証、実機受入。
 
 <a id="f28"></a>
 ### 28 Time / Locale / Accessibility
 
 - **検討対象:** monotonic／wall clock／timezone／時刻同期、locale、入力言語、a11y tree／keyboard／screen reader等。
-- **製品決定:** CONFIRMED＝GUI利用維持・限定Accessibility fallback [DEC-009][D09]／[027][D27]。既存契約＝英語内部識別子、en-US／ja-JP同格。OPEN＝時刻同期・a11y機能範囲と方式。
+- **製品決定:** CONFIRMED＝keyboard／navigation・screen-reader等の通常a11y基盤を先に整備し、将来のAI-nativeで正確なポインティングに依存しない操作思想と矛盾しない設計にする [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)。長期ビジョンは別に維持。従来GUI・keyboard／mouse、AI不在時の通常操作、Permission／Policy／confirmationと限定fallback [DEC-009][D09]／[027][D27]を維持。既存の英語内部識別子・en-US／ja-JP同格は継承。PROVISIONAL／OPEN＝time／locale詳細、a11y具体方式・範囲、視線／ジェスチャー／空間入力等の採否・提供時期。
 - **技術設計:** language architectureとlocalization契約あり。locale／input／AI会話言語を分離。期限認可を巻き戻せるwall clockだけに依存させない設計が必要。
 - **実装・target受入:** localization資産・host契約あり。Linux clock／RTC／timezone、実screen reader、全UI a11y受入は未確認。
 - **依存・責任候補:** 7, 9, 14, 19, 20, 24, 27。`localization-i18n`／UI／clock／a11y候補。
 - **根拠:** [language architecture][LANG]、[0.2 §14・22・M06][S02]、[純正仕様 §98][FP]、[IME PR][PR120]。
-- **次に決める:** time authorityとoffline時刻ずれ、timezone保存、a11yの最初の操作・読み上げ・権限契約。
+- **次に決める:** 通常a11yの最初の対象画面、keyboard／focus／navigation・読み上げ・権限契約とAI不在時の受入。time authorityとoffline時刻ずれ、timezone保存は別途検討。長期入力技術を今回確定しない。
 
 <a id="f29"></a>
 ### 29 Diagnostics / Logging
 
 - **検討対象:** boot／crash／service health、structured log／trace／correlation、redaction・保持・export・測定負荷。
-- **製品決定:** CONFIRMED＝結果の正直な表示・検証可能性 [DEC-022][D22]／[026][D26]。OPEN＝Linux収集backend・運用保持値。
-- **技術設計:** 0.2診断・fingerprint契約あり。debug logとActivity、privileged diagnosticsと通常閲覧を区別する。
+- **製品決定:** CONFIRMED＝Linuxの利用可能な診断情報とNagi独自の構造化Diagnostics Serviceを組み合わせるBを製品基本とし、CのAI支援による原因分析・安全な対処提案を将来の正式目標として段階導入 [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)。観測された事実とAIの推測を区別し、AIなしでも通常診断可能、結果の正直な表示・検証可能性 [DEC-022][D22]／[026][D26]、Permission／Privacy／Redactionを維持。PROVISIONAL＝AI方式・自動修復採否・提供版・実機受入。
+- **技術設計:** 0.2 M04のstructured event／severity／correlation／bounded sink／crash／health／source-build fingerprint／snapshotをNagi統合診断の正規基盤として保持し、Linux収集backendは後続選択。debug logとActivity、privileged diagnosticsと通常閲覧を区別する。Cでは許可された診断証拠からAIが原因候補・検証方法・対処案を提示するが、診断結果の確定・修復Action認可は決定論的に扱う。
 - **実装・target受入:** 旧serial／crash診断とhost構造化契約あり。Linux image crash収集・実機・秘密除去の統合受入は未確認。
 - **依存・責任候補:** 4, 7, 8, 9, 14, 35。`diagnostics`／`ci-acceptance`候補。
 - **根拠:** [0.1 §66–69][S01]、[0.2 §17・M04][S02]、[status][STATUS]、[registry][REG]。
-- **次に決める:** 最小boot／service証拠、sink failureと容量境界、誰が何をexportできるか・redaction検証。
+- **次に決める:** Linux boot／service／crash収集backend・診断証拠とfingerprint、sink failure／容量／Retention、redaction検証とProfile別閲覧／export、AIの根拠・不確実性・誤診評価・対処案の承認／再検証・Linux target受入。
+- **REVIEW NOTE（2026-11-16、検討開始・新規採用未決定）:** 既存0.2 §17／M04のstructured event・severity／category・bounded metadata／sink・redaction・crash／health snapshot・correlation／build identity・明示Activity bridgeを出発点とする。まずローカルのboot／service障害診断から整えるか、利用者向け統合診断・選択式report exportまで共通基盤として設計するかを判断する。AIによる説明は通常診断から分離した将来候補。Linux収集backend、保持・rate／容量の値、閲覧／export権限、秘密除去の検証、外部送信の許可条件はOPEN。debug logを自動的にActivity／Memory／学習データとせず、外部送信を今回許可しない。
 
 <a id="f30"></a>
 ### 30 Installer / First Setup
 
 - **検討対象:** boot媒体、disk選択・破壊操作、partition／暗号化、Owner初期化、locale、offline setup、recovery。
-- **製品決定:** CONFIRMED＝offline-first、Ownerと通常操作の維持 [DEC-009][D09]／[017][D17]。OPEN＝製品installer・初回設定フローと対応媒体。
-- **技術設計:** image builder／local identity／package installはあるが、OS installerとは別の機能。
+- **製品決定:** CONFIRMED＝Linuxの既存disk等の機構を利用しNagi独自GUIで導入先・初期Owner／Locale・進行を案内する方式B [DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)。ローカルLLMによる高度な自動判断は初期標準とせず、Offline-first／AI非依存の基本セットアップ、破壊操作前の明示確認、System／User Dataの分離 [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)と通常GUI [DEC-009][D09]を維持。PROVISIONAL＝採用部品・UI・機器・版・実機受入。
+- **技術設計:** Linuxの汎用disk／partition／storage機構を選択活用し、Nagi製品のGUIと決定論的な検証・Installer制御を設ける。image builder／local identity／package installのhost契約と、物理OS Installerは別。AIが危険なディスク操作を判断／実行する経路を設けない。暗号化・Recovery・Owner具体初期化・書込方式は未決定。
 - **実装・target受入:** `tools/nagi-installer/`のhost契約と旧guest owner bootstrap資産あり。host installer契約を物理diskへのinstallとしない。Linux disk installation・初回設定・実機復旧媒体は未確認。
 - **依存・責任候補:** 2, 3, 7, 10, 12, 13, 28, 31, 33。installer／identity／storage候補。
 - **根拠:** [0.1 §22・79–80][S01]、[0.2 §9・16][S02]、[boot trust][BOOT]。
-- **次に決める:** 最初のinstall target、データ破壊前確認・暗号化鍵回復、offlineで完了する最小setup。
+- **次に決める:** 最初のinstall target／Boot媒体、実ディスク識別とデータ破壊前確認、System／User Data／Model配置、暗号化鍵・Recovery、Offlineで完了する最小初期設定、失敗／電源断の扱い、Linux実機での導入・復旧Acceptance。
 
 <a id="f31"></a>
 ### 31 System Update
 
 - **検討対象:** system／app／model更新の分離、署名・互換、原子性、A/B／rollback、停止・再起動・data migration。
-- **製品決定:** CONFIRMED＝builderアプリ更新は検証・確認後の正式更新、data保護 [DEC-035][D35]／[017][D17]。OPEN＝Linux system update方式・配信運用。
-- **技術設計:** 旧A/B・trustと0.2 install/update契約あり。system updateとapp更新は共通primitiveでもpolicy domainが異なる。
+- **製品決定:** CONFIRMED＝Linuxの既存更新／起動機構＋Nagi独自の統合Update Service（B）で更新の署名／互換検証、A/B切替、失敗時復旧を管理 [DEC-100](DEC-100-system-update-linux-nagi-coordinated-ab.md)。既存DEC-079のread-only System／User Data分離、A/B更新・復旧、モデル論理分離を維持。System／App／Model更新を別Policy・承認範囲で扱い、builder App正式更新は [DEC-035][D35]／[DEC-017][D17] に従う。PROVISIONAL＝高度な自動更新Cの各機能、Linux部品・配信・署名運用・版・実機検証。
+- **技術設計:** Linux側の更新・保存／Boot切替をNagiの統合Update Serviceから一貫して扱う。旧A/B・trustと0.2 §16／M15のatomic commit／inventory／provenance／recovery契約は参照するが、旧guest・host成功をLinux Image更新の受入成功としない。system updateとApp／Model更新は一部primitiveを共用しても別のPolicy domain。実際の署名方式・鍵・slot制御／rollbackは未選定。
 - **実装・target受入:** 旧slot／boot検証・host package planning等あり。network配信・製品鍵・update UI等の残件あり。Linux image更新・電源断復旧未確認。
 - **依存・責任候補:** 2, 3, 10, 11, 12, 14, 15, 26, 35。`update-installation`／boot／release候補。
 - **根拠:** [boot trust][BOOT]、[0.1 §21・56–58][S01]、[0.2 §16・M15][S02]。
-- **次に決める:** image／package更新単位、互換とrollback不能なdata変換、信頼鍵・配信・中断時のdurable commit条件。
+- **次に決める:** Image／Package更新単位、Linux対応slot／BootとHealth Gate、署名鍵・配信／Offline更新、データ互換と不可逆migration、atomic commit／中断時復旧、更新適用／再起動のユーザーUI・自動化方針、Linux実機での更新／電源断・Rollback証拠。
 
 <a id="f32"></a>
 ### 32 Device Connectivity
 
 - **検討対象:** discovery／Trust／Transport、pairing・暗号化・revocation、Share／Handoff、offline・競合・将来remote。
-- **製品決定:** CONFIRMED（main）＝選択式暗号化Workspace Export／Import [DEC-014][D14]。CONFIRMED（製品方針）＝Share [064][P64]／Handoff [065][P65]／初期LANと共通抽象 [066][P66]。PROVISIONAL＝protocol・名称・版・対象。
-- **技術設計:** 既存Device／Surface／Continuity契約を再利用。Share≠Handoff≠継続同期、trusted≠data操作許可。Clipboard同期は未採用。
+- **製品決定:** CONFIRMED＝Linux／OSS通信技術を活用し、Nagi独自Connectivity Serviceで端末発見・Pairing・Trust・Session／Transportを統合するB方式、Nagi独自の端末連携Protocol設計、必要な独自通信技術の並行研究 [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md)。既存の初期LANと共通抽象 [DEC-066][P66]、Share [DEC-064][P64]／Handoff [DEC-065][P65]、暗号化Workspace Export／Import [DEC-014][D14]、端末認証・明示許可・Permission／Privacyを維持。PROVISIONAL＝具体Protocol／Transport、独自技術の採用、Cloud／Relay、端末・Release・Linux受入。
+- **技術設計:** 既存Device／Surface／Continuity契約を利用し、Nagi独自の上位Protocol（Device Capability・Resource／Version・Session・結果等の意味的な連携契約）を、Linux／OSSベースのDiscovery／Trust／Transportから分離して設計する。全面独自Stack／暗号化自作は未採用。Share≠Handoff≠継続同期、trusted≠data操作許可、Clipboard同期は未採用。独自通信は必要性・安全性・性能・保守負荷を実測評価して後続採否を判断する。
 - **実装・target受入:** pure contract／appモデルは再利用候補。実端末発見・暗号化転送・Handoff／remote通信のLinux受入未確認。
 - **依存・責任候補:** 7, 8, 9, 10, 14, 17, 18, 24, 26。Devices／Connectivity／Workspace候補。
 - **根拠:** [純正仕様 §27–30・54・65・71・97][FP]、[PR #125][PR125]／[#126][PR126]／[#127][PR127]。
-- **次に決める:** LAN上の最小pairing／transport契約、実体不足・失効・取消・重複／中断の扱い。Cloud／relayの採否はOPEN。
+- **次に決める:** 初期LANのPeer discovery／Pairing／Trust・Transport候補と上位Protocolの最小契約（互換Version・Capability・Resource／Revision・認可／取消）、Share／Handoff各責務、実体不足・中断／重複・競合、独自通信の研究条件とOSS比較。Cloud／Relay採否はOPEN。
 
 <a id="f33"></a>
 ### 33 Hardware Support
 
 - **検討対象:** architecture／VM／実機、firmware／driver matrix、必須・任意機能、候補と認定、試験環境。
-- **製品決定:** CONFIRMED＝[DEC-052][D52]の候補選定のみ。PROVISIONAL＝正式対応・時期・版。OPEN＝恒久Linux reference target・必須device matrix。
-- **技術設計:** 既存QEMU x86-64参照仕様、0.2最初の実機参照機を選定したx86-64 UEFI mini-PCとする方針、generic ARM64→Piの境界を保持。別軸の将来候補はRaspberry Pi型番未指定、PineTab2、phone未選定。
+- **製品決定:** CONFIRMED＝LinuxのDriver／低層Hardware機構を活用し、PC／ARM64／Tablet等へ段階的に対応し、機種・機能別の実機証拠で正式対応を判断するB方式 [DEC-102](DEC-102-hardware-support-staged-multidevice-linux-drivers.md)。[DEC-052][D52]のRaspberry Pi型番未定／PineTab2／Phone未選定の候補を維持。PROVISIONAL＝正式対応機種・Firmware／Driver Matrix・時期・提供Version・Linux target受入。
+- **技術設計:** 0.2のQEMU x86-64主要開発対象、選定したx86-64 UEFI mini-PCを最初の物理Referenceとする方針、QEMU generic ARM64→Raspberry Pi Portの境界を維持。Linux Driver／Firmware・Device CapabilityをNagiの共通Serviceから分離し、PC UEFI基本と各端末別Bootを両立。Display／Input／Audio／Storage／Radio／Power等は対象機器ごとに可用性と必須／任意／未対応を検証する。Broad PC／Mobileの早期対応を新しいRelease Gateとしない。
 - **実装・target受入:** 旧QEMU実績あり。[PR #57][PR57]のmultiarch spikeは未マージ。Linux実機boot／GPU／radio／sleepは未確認。
 - **依存・責任候補:** 1, 2, 17–23, 34, 35。`os-core`／porting／`ci-acceptance`候補。
 - **根拠:** [0.1 §2][S01]、[0.2 §5][S02]、[実機候補][D52]、[porting PR][PR57]。
-- **次に決める:** 開発targetと製品対応保証の区別、最小HW matrix、VM・実機ごとの受入と未対応表示。
+- **次に決める:** 開発Targetと製品正式対応の明確な区分、最小のDevice／Firmware／Driver Matrixと受入Evidence、最初のLinux実機Reference、GPU／通信／Sleep等の必須／任意・未対応表示、Raspberry Pi／PineTab2の具体構成・実機検証とVersion。
 
 <a id="f34"></a>
 ### 34 Testing / Release
 
 - **検討対象:** host／adapter／image／実機の試験階層、fault／negative／security、性能測定、release gateと証拠。
-- **製品決定:** CONFIRMED＝既存Gate維持 [DEC-042][D42]／[044][D44]／[047][D47]、実行していない試験を通ったとしない [DEC-049][D49]。OPEN＝Linux版追加Acceptance。
-- **技術設計:** 0.1 M30、0.2 activation／M21、0.3仕様化・activation、0.4 Entry Gateを保持。全35項目完了を新Gateにしない。
+- **製品決定:** CONFIRMED＝[DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)：BのHost→Linux Image／QEMU→実機という段階的・証拠に基づく検証を先に整備し、複数環境の自動テスト・障害注入・テスト不足分析・AIによる失敗原因調査等のCを将来の正式製品目標として段階導入。AIは原因仮説・補助、PASS／FAILは決定論的な試験結果と既存Acceptanceで評価し、未実行を成功としない。PROVISIONAL＝具体試験網・AIモデル／テスト生成・ツール／費用・スケジュール／版・Linux受入。
+- **技術設計:** 0.1 M30、0.2 Activation／M21、0.3仕様化・Activation／Acceptance、0.4 Entry Gateを保持。全35項目完了やC完成・全実機試験を一律の新Gateにしない。DEC-049の速度優先・コード不変時の過去証拠再利用・統合の節目でのLinux受入を維持し、Host／Adapter・旧Guest・Linux Image／QEMU・実機の証拠を区別する。
 - **実装・target受入:** 既存CI／QEMU試験あり。`test-plat-01`の新platform harnessはstateでIN_PROGRESS、実装・Acceptance成功は未記録。旧statusはM19以降等にPARTIALを含む。CI単発成功をrelease全体PASSにしない。Linux release・実機未確認。
 - **依存・責任候補:** 29, 33, 35と各対象項目。`ci-acceptance`／`test-plat-01`／Integration Owner。
 - **根拠:** [0.1 §75–92][S01]、[0.2 §31–32・46–48][S02]、[roadmaps][RM]、[status][STATUS]。
-- **次に決める:** Linuxの最小統合シナリオと失敗ケース、既存Gateとの差分・証拠形式・最終受入責任。
+- **次に決める:** Linuxの最小統合シナリオと失敗ケース、対象環境・機能別の必須／任意試験網、既存Acceptanceとの差分、Cの自動化・障害注入・AI分析／テスト生成の具体化、費用・受入責任・導入時期。Linux受入結果は実測後に記録する。
 
 <a id="f35"></a>
 ### 35 Build / Supply Chain
@@ -619,6 +620,9 @@ Linux／実機検証:
 | 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 16 | [DEC-105](DEC-105-user-environment-backup-and-wayback.md)：B基本・Wayback分担連携・必要時C追加の方向を確定。対象・技術・C詳細・版は未定 | 文書・リンク・状態分離を確認。runtime PASSの追加なし |
 | 2026-11-16 | 22 | DEC-092で方式BをCONFIRMED。USBストレージ・基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応。具体機種・範囲・API・protocol・実装版・実機受入は未確定 | 文書・採番・リンクの確認。実装／runtime・実機受入の追加なし |
+| 2026-11-16 | 34 | [DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)：検証B先行、Cを将来の正式製品目標として段階導入。AI仮説と決定論的合否を分離、速度優先・既存Gate維持 | 文書・参照確認のみ。新規runtime／Linux Image／実機試験なし |
+| 2026-11-16 | 28 | [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)：通常a11y基盤を先行、長期AI-nativeと設計両立。time／locale詳細と入力技術・時期は未決定 | 文書・参照の確認のみ。Linux／screen reader／実機の新規受入なし |
+| 2026-11-16 | 29 | REVIEW NOTE：既存0.2 §17／M04を元に次の検討論点を整理。新規製品方式の採用決定なし | 既存仕様の読取。runtime検証なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md

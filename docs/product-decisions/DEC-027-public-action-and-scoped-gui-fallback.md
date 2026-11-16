@@ -56,3 +56,7 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-05 | 思想⑩の選択Aを確定。対応する正規Public Action APIを優先し、未対応アプリでは明示許可と限定Scopeの下でGUI／Accessibility fallbackを認める。権限・承認・検証・Activity・Stop／Cancelを維持し、実態を確認できない場合は手動操作へ戻す。 |
+
+## Foundation #28の後続決定（2026-11-16）
+
+[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)により、通常a11y基盤の先行整備を確定した。これは利用者向けの操作基盤の方針であり、本DECのAI向けGUI／Accessibility fallbackの許可・Scopeを拡大しない。正規Public Action優先、明示許可、認可・確認、検証とStop／Cancelを維持する。
