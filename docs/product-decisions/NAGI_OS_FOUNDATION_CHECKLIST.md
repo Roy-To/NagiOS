@@ -406,12 +406,12 @@
 ### 27 Settings / Notification
 
 - **検討対象:** system／user／profile／app設定、schema／migration、購読、通知の帰属・quiet／focus・redaction・action。
-- **製品決定:** CONFIRMED＝非特権AI・正規API [DEC-020][D20]。OPEN＝Linux service接続・設定UI詳細。具体既定値は一括決定しない。
-- **技術設計:** 0.2 scoped Settings、通知記述子は権限を持たずactivation時再検証、bounded persistence契約あり。
+- **製品決定:** CONFIRMED＝Cの状況適応型Settings／Notificationを最終製品目標とし、途中段階でBの統合Settings UI・通知センター／手動Quiet・Focus／Profile・App別設定基盤を導入する [DEC-096](DEC-096-settings-notifications-context-adaptive-staged.md)。既存の控えめな働きかけ・客観的根拠の重大警告 [DEC-008](DEC-008-proactive-behavior.md)、明示設定とPrivacy／Permission、非特権AI・正規API [DEC-020][D20]を維持。PROVISIONAL＝状況判定・習慣適応の具体UI・自動適用範囲・版／実機受入。
+- **技術設計:** 0.2 M11のSystem／User／Profile／App別・型付きSettings ServiceとM14のNotification Core（権限を持たないAction記述子、activation時再認可、bounded persistence、quiet/focus）を独立の責務として連携し、Bの統合UIを構築。Cのcontext／habit適応は正規Service／Policyの範囲で段階導入する構想とし、特定AI／学習実装、デフォルト値・技術方式は未決定。
 - **実装・target受入:** notification core等のhost foundationあり。Settings runtimeは仕様snapshotでNOT_STARTED、現行stateを都度確認。Linux通知表示・設定永続化は未確認。
 - **依存・責任候補:** 7, 8, 9, 14, 26, 28。`settings-configuration`／`notify-01`／desktop候補。
 - **根拠:** [0.2 §12・15・M11/M14][S02]、[registry][REG]、[notification core](../../crates/nagi-notification-core/README.md)。
-- **次に決める:** scopeの上書き規則と変更認可、通知UI／lockscreen秘匿、action実行時の権限境界。
+- **次に決める:** BのSettings／通知UIとScopeの上書き・権限、通知センター／lockscreen秘匿と重大警告区分、Cの状況信号・ルールと習慣適応のユーザー制御、保留通知の消失防止・失敗時退避、action時の権限再検証、実機受入。
 
 <a id="f28"></a>
 ### 28 Time / Locale / Accessibility
