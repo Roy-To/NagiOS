@@ -395,12 +395,12 @@
 ### 26 App Lifecycle
 
 - **検討対象:** manifest／package／launch／ready／stop／crash／restart／upgrade／uninstall、session・data・background jobs。
-- **製品決定:** CONFIRMED＝Nagi Native Apps、Public API共通・段階統合 [DEC-017][D17]、builder更新・導入・削除の境界（関連DEC参照）。PROVISIONAL＝実装・版。
-- **技術設計:** 0.2 M12 manifest契約とM13 Supervisorを分離。package検証成功を安全なruntime起動としない。
+- **製品決定:** CONFIRMED＝Nagi Native Apps専用、Public API・Package／Manifest・Permission／Capabilityの共通契約 [DEC-017][D17]を維持し、Linux標準のprocess／隔離＋Nagi App Supervisorを製品基本とするB案と、独自Runtimeの並行比較研究 [DEC-095](DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)。実測で利点と安全性を確認した場合のみ部分採用を後続判断し、Linux標準実行経路を保持。builderの試用／導入・更新・削除の既存承認境界を維持。PROVISIONAL＝独自Runtime正式採用・方式・機器・性能・版。
+- **技術設計:** 0.2 M12 Manifest／Package契約とM13 App Supervisor／Process Lifecycle Runtimeを分離して維持する。標準はLinuxプロセス・隔離機構をNagi Supervisorが統合管理し、独自Runtime／Sandbox・起動／復帰効率を別途研究。WebAssembly／WASI等は候補例に過ぎず未採用。Package検証成功を安全なRuntime起動とみなさない。
 - **実装・target受入:** app-sdk／manifest host foundationあり。supervisor runtimeは別状態。Linux process／sandbox／lifecycle統合は未確認。
 - **依存・責任候補:** 4, 5, 7, 8, 9, 14, 25, 31。`app-sdk-contract`／`app-lifecycle-manifest`／`app-lifecycle-supervisor`候補。
 - **根拠:** [0.2 §13・16・26・M12/M13/M21][S02]、[registry][REG]、[純正仕様][FP]。
-- **次に決める:** processとlogical app identity、ready／crash／bounded restart、更新時のdata／Permission再検証と実sample受入。
+- **次に決める:** Linux processと論理AppId／Sessionの対応、ready／crash／bounded restart、Manifest／Permission・更新データ再検証、標準経路の実sample受入。並行研究は小型／builderアプリ等の候補・Baseline・起動速度・RAM・隔離・電力・移植コスト・退避条件を比較し、採否は後続判断。
 
 <a id="f27"></a>
 ### 27 Settings / Notification
