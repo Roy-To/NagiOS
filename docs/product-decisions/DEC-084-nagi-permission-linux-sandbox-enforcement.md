@@ -21,6 +21,8 @@ Nagiの正規API上で許可しない操作が、同一ユーザーの通常プ�
 
 > **2026-11-16 IPC／Service Broker後続決定:** [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagiの型付きService／Action APIとBrokerを維持し、Linux標準IPCを利用するB案を基本とした。これによって呼出元の自己申告に依存せず実際のLinux peerとNagi Session／Permissionを結び付け、Broker外の直接アクセス迂回を防止する本DECの方針は不変。具体Transport、Linuxでの強制・失効試験は未確定。
 
+> **2026-11-16 Secrets／Key Management後続決定:** [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、Nagi独自Secrets Serviceと対応機器のTPM／TEE優先・非対応機器の暗号化Key StoreのC案をCONFIRMED。秘密情報の利用は本DECの現行Permission／CapabilityとLinux隔離・正規Service経路の内側とし、AI／アプリが生鍵・認証情報を無制限に取得しない。具体API・鍵階層・Linuxでの秘密隔離受入は未確定。
+
 ## 既存仕様との関係・安全境界
 
 - **DEC-083 Identity:** Nagi UserId／ProfileId／SessionIdが論理Identityの正本。Linux UID／GIDは保護のために活用するが、同一UIDは異なるNagi Task／App／Profileへの無制限アクセス権限ではない。
