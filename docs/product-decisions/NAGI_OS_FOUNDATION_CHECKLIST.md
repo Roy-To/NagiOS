@@ -241,45 +241,45 @@
 ### 12 Storage / Filesystem
 
 - **検討対象:** FS選択、block層、data integrity、暗号化、容量不足、Resource IDとpath／inodeの関係。
-- **製品決定:** CONFIRMED＝作業・データ中心、分散正本 [DEC-023][D23]／[025][D25]。PROVISIONAL＝移行方式。OPEN＝Linux FSとmount／暗号化構成。
-- **技術設計:** 旧ext2／VFS／stable identity契約あり。ext2採用実績をLinux製品FS決定にはしない。
+- **製品決定:** CONFIRMED＝作業・データ中心、分散正本 [DEC-023][D23]／[025][D25]、B案＝System／User Data／Model Store／一時データの用途別にLinux標準Filesystemを選択活用、Nagi独自Storage／Files APIと論理Resource IDを維持し、Filesystem snapshotとWayback／Backup／Workspace復元を分離 [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)。PROVISIONAL＝具体FS（EROFS／ext4／Btrfs等は候補）・mount／暗号化・永続化／ID対応・Linux受入／提供版。
+- **技術設計:** Linux標準Filesystemを用途別に選定し、Nagi Storage／Files契約・stable Object／Resource IDと実際のpath／inodeを分ける方針。旧ext2／VFS／stable identity契約を参照するが、ext2採用実績をLinux製品FS決定にはしない。
 - **実装・target受入:** `user/libnagi/src/storage.rs`等の旧storage資産あり。公開statusにstorage失敗診断もあり、Linux耐久性・実media未確認。
 - **依存・責任候補:** 1, 3, 8, 10, 13, 14, 15。`os-core`／Files・storage候補。
 - **根拠:** [0.1 §17・18][S01]、[0.2 §23・24][S02]、[implementation status][STATUS]。
-- **次に決める:** system／user data用FS、flush／atomicity契約とstable ID対応、fault injection条件。
+- **次に決める:** #12のB案に従うSystem／User Data／Model Store／Tempの具体Linux FS選定、flush／atomicity・容量不足／電源断時の結果契約、stable Resource IDとpath／inode対応・暗号化、fault injection・Linux target受入。
 
 <a id="f13"></a>
 ### 13 Volume / Mount
 
 - **検討対象:** volume発見・識別、mount namespace、removable media、権限、safe eject、切断・故障。
-- **製品決定:** CONFIRMED＝既存Permission／所有境界の維持 [DEC-020][D20]。OPEN＝汎用volume・mountの製品要求詳細。
-- **技術設計:** 旧storage layoutはあるが、Linux汎用mount／hotplug／外部mediaの包括設計として扱わない。
+- **製品決定:** CONFIRMED＝既存Permission／所有境界の維持 [DEC-020][D20]、B案＝Nagi Volume ManagerがVolume接続の検出・論理識別・権限・安全な取り外し・切断時状態を統括し、Linux block／mount／hotplugを利用 [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)。PROVISIONAL＝対応Volume／FS・自動mount条件・Volume ID／eject手順・Linux受入／版。
+- **技術設計:** Linux block／mount／hotplugとNagiの認可済みVolume Manager／Files APIを分離。旧storage layoutはあるが、Linux汎用mount／hotplug／外部mediaの包括設計として扱わない。
 - **実装・target受入:** 旧固定storage初期化あり。removable・multi-volume・Linux mount／safe ejectの受入未確認。
 - **依存・責任候補:** 8, 12, 14, 17, 22。storage／Device Manager候補。
 - **根拠:** [0.1 §16–18][S01]、[0.2 §10・23][S02]、[影響表][IMPACT]。
-- **次に決める:** 最初のvolume種別、mount権限・識別・切断時のhandle／未保存書込の扱い。
+- **次に決める:** 最初のVolume種別・対応FS、自動mount／許可の条件、Volume IDとNagi Resource IDの関係、safe ejectのflush／使用中handle・unmountと突然切断／再接続時の結果不明・拒否試験。
 
 <a id="f14"></a>
 ### 14 Data Persistence
 
 - **検討対象:** user／profile／app／Workspace／Task／Memoryの正本、schema migration、transaction、flushと保持・削除。
-- **製品決定:** CONFIRMED＝model-independent Canonical Memory [DEC-013][D13]、Workspace状態・本文・Taskの分離 [DEC-014][D14]、復旧時再評価 [DEC-022][D22]。PROVISIONAL＝形式・保持数値。
-- **技術設計:** versioned IDs／Revision／所有／永続化契約と複数のportable coreあり。共通DB採用は未決。
+- **製品決定:** CONFIRMED＝model-independent Canonical Memory [DEC-013][D13]、Workspace状態・本文・Taskの分離 [DEC-014][D14]、復旧時再評価 [DEC-022][D22]、B案＝Nagi共通Persistence契約と用途／App／Provider別の分散正本、保存完了／失敗／部分成功／結果不明の区別、Version／安全なSchema Migration、User／Profile所有・忘却とCanonical Memory／派生Index分離 [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)。PROVISIONAL＝DB／形式・durable commit詳細・移行方式／保持数値・Linux受入／版。
+- **技術設計:** versioned IDs／Revision／所有／永続化契約と複数のportable coreを継承し、保存／移行／復旧の共通契約と元アプリ・Provider別正本を分離する。全データ共通DBの強制採用はしない。具体DB・journal／transaction・Linux durabilityは未決。
 - **実装・target受入:** host永続化モデル・旧VFS／app保存あり。全app・Linuxでのcrash durability・migration成立は未確認。
 - **依存・責任候補:** 7, 8, 10, 12, 15, 26, 27。storage／`platform-apis`／app各owner。
 - **根拠:** [0.2 §23–24・45][S02]、[純正仕様 §87–92][FP]、[status][STATUS]。
-- **次に決める:** 保存正本一覧、durable commit定義、schema互換と不明結果・明示忘却を跨ぐ移行規則。
+- **次に決める:** #14 B案に沿う用途／App／Providerごとの保存正本一覧、durable commitのflush／transaction保証・結果不明照合、schema互換／失敗Migration・忘却済みMemoryの再導入防止、Linux target受入。
 
 <a id="f15"></a>
 ### 15 Crash Recovery
 
 - **検討対象:** crash／電源断／service restart、journal／checkpoint、結果不明、二重実行防止、回復範囲。
-- **製品決定:** CONFIRMED＝状態保持・再開／やり直し／中止の選択、無断再実行禁止 [DEC-022][D22]、Workspace保護 [DEC-014][D14]。PROVISIONAL＝形式・再構成精度。
-- **技術設計:** Wayback／Activity／Revision／idempotencyの既存契約あり。rollback・resume・通常sleep復帰を分ける。
+- **製品決定:** CONFIRMED＝状態保持・再開／やり直し／中止の選択、無断再実行禁止 [DEC-022][D22]、Workspace保護 [DEC-014][D14]、B案＝Nagi共通Recovery Coordinatorによる整合性／保存証拠・復旧状態の管理＋Service別正本の復旧、結果不明Actionの無断再実行禁止・現行権限／Revision再検証・通常Sleepと障害復旧の区別 [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)。PROVISIONAL＝形式・Journal／Checkpoint・状態機械・Linux受入／版。
+- **技術設計:** Nagi Recovery Coordinatorと各Serviceの所有データ別の責務を分離。Wayback／Activity／Revision／idempotencyの既存契約を維持し、System rollback・障害後resume・通常sleep復帰を分ける。
 - **実装・target受入:** 旧VFS／Search回復資産と残件あり。[PR #42][PR42]／[#43][PR43]は未マージ。Linux power-loss・結果不明照合・実mediaは未確認。
 - **依存・責任候補:** 4, 9, 12, 14, 26, 29, 31。`wayback-activity-ledger`／Files／Jobs候補。
 - **根拠:** [0.2 §14・24・46][S02]、[純正仕様 §90][FP]、[status][STATUS]、[Sleep PR][PR129]。
-- **次に決める:** durable state machine、処理途中の切断点、照合・安全な再試行と復旧不能表示のAcceptance。
+- **次に決める:** Recovery Coordinatorの配置とdurable state machine、Journal／Checkpoint・処理途中の切断点、結果不明の照合／安全な再試行・復旧不能表示とLinux targetでのAcceptance。
 
 <a id="f16"></a>
 ### 16 Backup / Restore
@@ -594,10 +594,29 @@ Linux／実機検証:
 - 公開originに`codex/linux*` branchの掲載を確認できなかった。DEC-047の統合先が公開されていないことは、他の許可済み環境で開発されていない証明ではない。私有環境・旧privateの新規情報は調査していない。
 - 実装状況の初回評価は公開ソースと既存記録の読取。Linux image、実機、driver、電源、性能の新規測定は未実施。全35項目を一律未着手にも、一律完了にもしていない。
 
+### 2026-11-16 Foundation #12 Storage／Filesystemの用途別Linux採用
+
+[DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)により、Nagi独自Storage／Files APIと論理Resource／Object／Revision・分散正本を維持し、Linux標準Filesystemを用途別に選択活用するB案をCONFIRMED。Filesystem snapshot／Nagi Wayback／Backup／Workspace復元を混同しない。候補EROFS・ext4・Btrfs等は未採用で、具体FS・暗号化／mount・durability／stable ID対応・Linux target試験・提供版は未確定。#13 Volume／Mountの自動mountや外部媒体対応を今回確定しない。
+
+### 2026-11-16 Foundation #13 Volume／MountのNagi主体管理
+
+[DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)で、Linuxのblock／mount／hotplugを活用しNagi Volume Managerが接続検出・論理Volume ID・現行Permission・Files表示・安全な取り外しと突然切断の状態管理を担当するB案をCONFIRMED。自動検出は自動mount／全媒体許可と同義ではない。書込み／unmount失敗を成功表示せず、再接続時に不確かなTask／Actionを勝手に再実行しない。具体初期対応媒体／FS・権限UI・mount／eject方式・Linux実機試験と版は未決定。
+
+### 2026-11-16 Foundation #14 Data Persistenceの共通契約＋分散正本
+
+[DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが共通の保存完了／Migration／復旧／所有・忘却等のPersistence契約を定めながら、正本をUser／Profile／Memory／Workspace／Task／App／Provider別に保持できるB案をCONFIRMED。Canonical Memoryと索引・Cacheを分離し、Workspace Checkpoint／本文Backup／Task再実行を混同しない。単一DBを強制せず、具体形式・commit／fsync・schema migration・Linux crash durability受入・適用版は未決定。
+
+### 2026-11-16 Foundation #15 Crash Recoveryの統合調整＋Service別復旧
+
+[DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、共通Nagi Recovery Coordinatorが障害後の整合性・保存証拠・復旧結果を調整し、各Serviceが自分の保存正本と状態を復旧するB案をCONFIRMED。Workspace／本文Backup／Taskは別、結果不明の副作用Actionと中断Taskを無断再実行せず、User／Profile／Permission／Resource Revisionを再確認。通常Sleep復帰とクラッシュ復旧を区別し、具体Journal／Checkpoint・State Machine・Linux実媒体受入／適用版は未決定。
+
 ## 8. 変更履歴
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | #15・B3 | [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md) B案確定：Nagi Recovery Coordinator＋Service別安全復旧 | 文書commitのみ。Linux実媒体・電源断／Crash Acceptance未確認 |
+| 2026-11-16 | #14・B3 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md) B案を確定：共通Persistence契約＋分散正本、Version／復旧・忘却の境界 | 文書commitのみ。Linux crash durability／migration受入未確認 |
+| 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md
