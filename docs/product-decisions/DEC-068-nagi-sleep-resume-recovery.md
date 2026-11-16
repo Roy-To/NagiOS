@@ -14,6 +14,8 @@
 
 Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定はスリープへの移行と復帰の管理を補足する。並行記録中の[Nagi Power（DEC-067、PR #128）](https://github.com/Roy-To/NagiOS/pull/128)はOS全体の継続的な電力・熱・資源管理を扱う。確認した[Power仕様](https://github.com/Roy-To/NagiOS/blob/5ce421f539d28468bdda04e543850bb647cb7857/docs/product-decisions/DEC-067-nagi-power-deterministic-resource-management.md)との責務を分け、別のAI Schedulerや保存正本を重複採用しない。並行記録の参照はmainへのマージ済みを意味しない。
 
+> **2026-11-16 電源ライフサイクル統括の後続決定:** [DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiがシャットダウン／再起動を含む電源状態遷移を一元管理し、サービスの保存・停止・復帰準備を協調させる高水準方針をCONFIRMED。失敗時は状況に応じて中止・再試行・警告とし、ユーザーデータと安全性を優先する。本DECのSleep／Resume／Hibernateの既存仕様、権限再検証・復旧／Task再実行境界は維持。具体的な順序・状態機械・タイムアウト・実装構成・対応端末は引き続き未確定。
+
 ## 確定した仕様（CONFIRMED）
 
 1. **LLMを使わず管理する。** Linuxカーネルの標準的な電源管理機構と、Nagiの決定論的なシステムサービスでスリープ／復帰を管理する。AIが無効・不在・利用不能でも基本操作を利用できる。Linuxカーネルの採用を理由に既存ディストリビューションの電源管理構成を一括採用しない（DEC-042／043）。決定論的とは推論に依存しない制御・認可を指し、実行時間が常に同一になる保証ではない。
