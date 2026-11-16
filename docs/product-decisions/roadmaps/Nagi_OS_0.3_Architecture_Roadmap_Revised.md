@@ -62,6 +62,8 @@ NAGI OS 0.3の主要目標は以下とする。
 
 ## 3. Non-Goals
 
+> **2026-11-16 接続方針追記:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)により端末間連携の初期ターゲットは同一Wi-Fi／LAN、共通Device Connectivity／Trust／Transportで方式を固定しない。将来Nagi Account Syncや遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーを必須化しない。Offline-first、認証・暗号化・明示許可・現行権限／Privacy・取消・外部Scope、DEC-014の移行／同期とCloud別許可を維持し、無断転送・同期・Task再実行なし。具体方式・UI・機器・運用・時期・性能は未確定、Clipboard未採用。0.3提供を確約せず既存Gateを変更しない。
+
 0.3では以下を必須目標としない。
 
 - 完全なクラウド同期サービスの提供
