@@ -218,6 +218,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)により、利用者の仕事・資料・長期文脈を束ねるProjectと、Workspaceの画面・アプリ状態・復元用チェックポイントを区別する。1 Projectを複数Workspaceから扱えるが、Workspace snapshotをProject本文のバックアップと扱わない。本DECの履歴・検索用メタデータ・節目要約は引き続き長期Memoryとは別管理であり、Projectへの関連付けだけで長期Memoryに自動昇格させない。現在の権限・忘却の再評価、本文巻戻し・中断Task自動再実行の禁止を維持する。
 
+> **2026-11-16 Data Persistence後続決定 — Workspace自動保存と本文・Taskの境界:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiの共通Persistence契約（保存結果・Schema Version／Migration・復旧）と用途別・分散正本のB案をCONFIRMED。Workspaceの復元用状態・名前付きCheckpointはファイル本文Backupや中断Taskの自動再実行とは別で、既存の保護・User／Profile権限・削除条件を維持する。durable commitの技術方式・Linux実機受入は未決定。
+
 ## 決定履歴
 
 ### 2026-11-16 補足：スリープ移行と復帰
