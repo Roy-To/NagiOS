@@ -142,12 +142,12 @@
 ### 3 System Image
 
 - **検討対象:** rootfs、readonly／mutable分離、system／user data境界、image生成・配布・回復領域。
-- **製品決定:** CONFIRMED＝既存distributionの完成rootfs等を製品基盤にしない [DEC-043][D43]。OPEN＝image形式・構築技術・partition構成。
+- **製品決定:** CONFIRMED＝既存distributionの完成rootfs等を製品基盤にしない [DEC-043][D43]、OS本体の通常時read-only、OS更新後の保持を目指すUser Data分離、A/B System更新・Recoveryを基本、AIモデルの論理的分離 [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)。OPEN＝image形式・構築技術・partition構成・filesystem・更新／復旧の具体方式。
 - **技術設計:** 旧image builderとA/B設計あり。Linux rootfsとNagiサービスの搭載契約は未確定。
 - **実装・target受入:** `tools/nagi-cli/src/image.rs`は旧loader／kernel／init入力。Linux image生成・boot・更新後再起動は未確認。
 - **依存・責任候補:** 1, 2, 5, 11, 12, 31, 35。`os-core`／`developer-tooling`／更新担当候補。
 - **根拠:** [0.1 §17・21・79][S01]、[0.2 §16・18][S02]、[boot trust][BOOT]、[影響表][IMPACT]。
-- **次に決める:** systemとuser dataの不変条件、最小image内容、生成入力・更新境界を定める。
+- **次に決める:** read-only System／分離User Data／モデル論理分離／A/B復旧の確定方針を前提に、最小Linux image内容、生成入力、書込み境界、schema互換、slot切替／復旧と受入条件を具体化する。
 
 <a id="f04"></a>
 ### 4 Init / Service Manager
@@ -666,3 +666,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #2 Boot Systemの起動方式方針
 
 [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)に、PCのUEFI基本とRaspberry Pi／タブレット等の機器に適したboot方式の許容、Linux起動後のNagi専用処理を共通化する方針をCONFIRMEDとして記録。Linux bootloader、署名／A-B／復旧方式の具体採否と実機起動・target受入は未確定。
+
+### 2026-11-16 Foundation #3 System Imageの基本方針
+
+[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で通常時read-only System、OS更新後も保持するUser Data分離、A/B更新と復旧、AIモデルの論理分離をCONFIRMEDとした。旧0.1の6partition/FAT32等の構成をLinuxへ自動採用せず、具体partition・filesystem・容量・Recovery・データschema・Linux target受入・提供版は未確定。
