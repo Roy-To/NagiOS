@@ -24,6 +24,8 @@ PR #133〜#140のFoundation #6〜#35に関する方針を、先行する#1〜#5�
 
 **相談はチャット、決定済み仕様の正本はこの公開リポジトリ `Roy-To/NagiOS`。** 詳細は [OPERATING_RULES.md](OPERATING_RULES.md)。2026-11-15に、それまで非公開リポジトリ `Roy-To/NagiOS-internal` に保存していた仕様・構想をここへ移した。各文書に残る「Privateに保存」「Publicへ転載しない」は移管前の記述で、DEC-050が優先する。
 
+**2026-11-16追加決定:** 公開 `Roy-To/NagiOS` はコード・決定済み仕様・必要なCIを維持し、Private `Roy-To/nagi-checkpoints` はEntireの会話履歴・関連メタデータ専用、GitHub Actions無効とする。旧 `NagiOS-internal` への新規記録は再開しない。設定・検証の実施範囲と残件は[Entire運用記録](../development/entire-private-history.md)を参照し、方針の記録を保存試験の成功と扱わない。
+
 - [ChatGPTプロジェクト指示(登録用)](CHATGPT_PROJECT_INSTRUCTIONS.md) — ChatGPTのNagi_chatプロジェクトの指示へコピーして適用。**ファイル保存だけでは設定は変わらない。**
 - [Codex開始・引き継ぎ規則](CODEX_START_HERE.md) — このリポジトリで動くCodexが決定事項を参照・記録する手順。
 - [0.3改訂・0.4+構想・0.5〜1.0 Master Roadmap](roadmaps/README.md) — ロードマップ案。
@@ -125,7 +127,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-047 | [Linux移行レーンの作業場所・操作許可・統合先](DEC-047-linux-migration-workspaces-and-integration.md) | CONFIRMED（lane別worktree・操作範囲・統合先） | 2026-11-14 |
 | DEC-048 | [DeepSeekによるNagiコード等レビューへの継続承認](DEC-048-deepseek-review-authorization.md) | CONFIRMED（全lane・全payloadのDeepSeekレビュー承認） | 2026-11-14 |
 | DEC-049 | [速度優先の開発手続き](DEC-049-development-process-speed-priority.md) | CONFIRMED（開発手続きの速度優先・継続制約） | 2026-11-14 |
-| DEC-050 | [仕様・構想の正本を公開リポジトリへ移す](DEC-050-public-specification-repository.md) | CONFIRMED | 2026-11-15 |
+| DEC-050 | [仕様・構想の公開正本とEntire履歴・CIの分離](DEC-050-public-specification-repository.md) | CONFIRMED（公開NagiOSにコード・仕様・必要なCI／Private nagi-checkpointsにEntire履歴・関連メタデータ、CI無効）／PROVISIONAL（未検証環境・既存履歴移行） | 2026-11-16 |
 | DEC-051 | [レビュー方式A/B](DEC-051-review-methods.md) | CONFIRMED（現在は方式A） | 2026-11-15 |
 | DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
@@ -397,3 +399,7 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 [DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)で「Bから始めてCを将来の正式目標にする」を記録。Linux kernel／rootfs／Nagi userland／apps等の入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証、成果物整合性をBとして先行し、隔離／独立検証・複数Architectureの継続検証・より厳格な改ざん検出／セキュリティ自動化Cへ段階導入する。SBOMによるライセンス適法性の自動認定、LLM推測による証拠・署名検証の代替をしない。具体ツール・規模・予算・日程・閾値・必須Release・Linux target実証はPROVISIONAL。既存Release／Activation／Acceptance Gateは維持する。
 
 **変更履歴:** 2026-11-16 — DEC-104、Foundation #35とロードマップ索引を追加・更新。DEC-100／103等の[PR #139](https://github.com/Roy-To/NagiOS/pull/139)の記録はmain未統合として区別し、同ブランチは変更しない。#35まで35項目の方針検討は一巡した（別PR記録を含む）が、全件main統合・技術詳細・未確定点の解消・実装／Release受入は未完。次段階の優先候補はDEC-104のREVIEW NOTEを参照。
+
+## Entire履歴・CI分離の変更履歴（2026-11-16）
+
+DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../development/entire-private-history.md)を追加した。保存先の方針と、実際のagent記録・送信・取得の実証範囲を区別する。
