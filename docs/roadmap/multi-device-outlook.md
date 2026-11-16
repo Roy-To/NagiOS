@@ -6,6 +6,23 @@
 
 This document records a user-selected direction without changing Nagi OS 0.1, 0.2, or 0.3 acceptance criteria. For actual progress, see [implementation status](../implementation_status.md) and the [0.1 roadmap](../../ROADMAP.md). For the accepted cross-device architecture, see [ADR 0014](../decisions/0014-unified-device-application-model.md).
 
+## Current decision / 後続決定（2026-11-16）
+
+[DEC-052](../product-decisions/DEC-052-physical-test-device-candidates.md)が現在の実機テスト候補選定方針の正本である。**PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定。** CONFIRMEDは候補選定のみで、起動実績・正式対応・購入決定・実装時期・対応版を確定しない。
+
+以下の2026-10-11の本文は履歴として保持する。旧Raspberry Pi 5の優先対象化とPixel 9aの第一候補指定・機種別profile・再検討条件は、現在の選定方針ではなく **SUPERSEDED（対象選定）** として読む。新しい候補から試験順序や実装時期を推定しない。
+
+旧独自カーネル前提は[DEC-042](../product-decisions/DEC-042-linux-kernel-transition.md)／[DEC-043](../product-decisions/DEC-043-nagi-userland-independent-os.md)のLinuxカーネル + Nagi専用ユーザーランド方針で置き換わる。Linuxカーネルであることだけを理由にNagiの受入を否定せず、端末付属OSや他のLinux環境の起動をNagiの起動実績とも見なさない。既存のPC-first、QEMU基準、版境界・Gateは維持する。
+
+## 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-16 | DEC-052の候補選定方針を参照し、旧対象選定を限定置換。DEC-042/043のカーネル方針を優先する注記を追加。 |
+| 2026-10-11 | 以下の複数端末構想を記録。 |
+
+## Historical proposal / 以下は旧提案
+
 ## 1. Decision summary / 方針
 
 - **PC版が最優先。** Complete and stabilize the independent x86-64/QEMU Nagi PC experience first.
