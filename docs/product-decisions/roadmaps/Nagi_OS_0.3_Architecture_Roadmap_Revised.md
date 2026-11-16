@@ -28,7 +28,7 @@ Profile／model-independent Canonical Memory、Context/Event、型付きPublic A
 
 ## 製品優先順位の確認（2026-11-16）
 
-[DEC-052](../DEC-052-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとする。単一Personal Agent、Profile／Memory、正規のPublic Actionという本書の方向を維持し、複数Supervisor・子Agent組織を0.3へ追加しない。具体的な提供版・実装順序は未確定であり、§26、§28、§34の既存Gate・Acceptanceを変更しない。
+[DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとする。単一Personal Agent、Profile／Memory、正規のPublic Actionという本書の方向を維持し、複数Supervisor・子Agent組織を0.3へ追加しない。具体的な提供版・実装順序は未確定であり、§26、§28、§34の既存Gate・Acceptanceを変更しない。
 
 ## 1. Overview
 
