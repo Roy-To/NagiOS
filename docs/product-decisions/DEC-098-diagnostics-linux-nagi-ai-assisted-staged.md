@@ -1,8 +1,8 @@
 # DEC-098 — Diagnostics / Logging：Nagi統合診断Bを基盤に、AI支援診断Cを段階導入する
 
 **状態:** CONFIRMED（Foundation #29：BのNagi統合Diagnostics／Loggingを製品の基本とし、CのAI支援診断を将来の正式な製品目標として段階導入）／PROVISIONAL（Linux収集backend・AI診断モデル／推論方式・ログ保持量・具体解析・提供版・実機受入）
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #29。特定Releaseへの新規必須割当てと実装開始の承認は行わない  
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #29。特定Releaseへの新規必須割当てと実装開始の承認は行わない\
 **関連:** [Foundation Checklist #29](NAGI_OS_FOUNDATION_CHECKLIST.md#f29)、[DEC-020（AIとOSの決定論的な境界）](DEC-020-ai-os-interaction-path.md)、[DEC-022（中断Taskの復旧）](DEC-022-builder-interrupted-task-recovery.md)、[DEC-026（証拠付き変更・復旧）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-002（Cloud送信許可）](DEC-002-cloud-ai-data-sharing.md)、[DEC-003（情報分類）](DEC-003-memory-classification.md)、[DEC-043（Linux＋Nagiユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[0.2実装仕様 §17／M04](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的・ユーザー体験

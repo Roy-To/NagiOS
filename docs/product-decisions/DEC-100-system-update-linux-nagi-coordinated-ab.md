@@ -1,8 +1,8 @@
 # DEC-100 — System Update：Linux更新機構を活用したNagi統合Update Service（方式B）
 
-**状態:** CONFIRMED（Foundation #31のB方式：Linuxの更新・起動・保存機構を活用し、Nagiが更新確認・真正性／署名・互換検証・A/B切替・失敗時の復旧を統合管理する）／PROVISIONAL（Linux更新コンポーネント、配布／署名鍵運用、更新単位、実装・UI・自動適用条件・対象端末／Release・target Acceptance）  
-**最終合意日:** 2026-11-16  
-**対象:** Nagi OS Foundation #31 System Update。製品方針の確定であり実装・Release／Activation Gateを変更しない  
+**状態:** CONFIRMED（Foundation #31のB方式：Linuxの更新・起動・保存機構を活用し、Nagiが更新確認・真正性／署名・互換検証・A/B切替・失敗時の復旧を統合管理する）／PROVISIONAL（Linux更新コンポーネント、配布／署名鍵運用、更新単位、実装・UI・自動適用条件・対象端末／Release・target Acceptance）\
+**最終合意日:** 2026-11-16\
+**対象:** Nagi OS Foundation #31 System Update。製品方針の確定であり実装・Release／Activation Gateを変更しない\
 **関連:** [Foundation Checklist #31](NAGI_OS_FOUNDATION_CHECKLIST.md#f31)、[DEC-079（read-only System・User Data分離・A/B）](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-078（Boot）](DEC-078-boot-platform-entry-and-common-nagi-startup.md)、[DEC-035（builder製App更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-017（Nagi Native Apps）](DEC-017-third-party-developer-ecosystem.md)、[DEC-043（Linux・専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-099（OS Installer）](DEC-099-installer-first-setup-linux-nagi-gui.md)、[0.2実装仕様 §16／M15](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的・背景

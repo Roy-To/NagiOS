@@ -1,8 +1,8 @@
 # DEC-095 — App Lifecycle：Linux基盤＋Nagi App Supervisorを標準に独自Runtimeを並行研究
 
-**状態:** CONFIRMED（Foundation #26：Bを基本採用し、独自Runtimeの拡張余地を保持して並行研究する方針。Linux標準プロセス・隔離機構＋Nagi独自App Supervisorを製品の基本経路とし、研究成果の製品採用は比較検証後の別判断）／PROVISIONAL（独自Runtimeの形式・用途・実装・採否・定量性能・端末／版・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #26。実装開始条件、対象Version、Release割当ては未決定  
+**状態:** CONFIRMED（Foundation #26：Bを基本採用し、独自Runtimeの拡張余地を保持して並行研究する方針。Linux標準プロセス・隔離機構＋Nagi独自App Supervisorを製品の基本経路とし、研究成果の製品採用は比較検証後の別判断）／PROVISIONAL（独自Runtimeの形式・用途・実装・採否・定量性能・端末／版・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #26。実装開始条件、対象Version、Release割当ては未決定\
 **関連:** [Foundation Checklist #26](NAGI_OS_FOUNDATION_CHECKLIST.md#f26)、[DEC-017（Nagi Native Apps）](DEC-017-third-party-developer-ecosystem.md)、[DEC-043（Linux＋Nagi専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-020（AIと通常操作）](DEC-020-ai-os-interaction-path.md)、[DEC-075（builder製アプリ試用・正式導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-035（導入済みアプリ更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-041（削除・データ保持）](DEC-041-builder-app-uninstall-and-data-deletion.md)、[DEC-094（Resource Manager／研究方針）](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)、[0.2実装仕様 §13・M12／M13](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 用語と目的

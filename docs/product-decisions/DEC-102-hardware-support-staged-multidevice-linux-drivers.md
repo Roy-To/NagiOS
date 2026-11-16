@@ -1,8 +1,8 @@
 # DEC-102 — Hardware Support：Linux Driverを活用する段階的マルチデバイス対応（B）
 
-**状態:** CONFIRMED（Foundation #33：LinuxのDriver／Hardware機構を活用し、PC・ARM64・Tablet等へ段階的に広げ、機種別の機能・実機検証に基づいて正式対応を判断するB方式）／PROVISIONAL（具体機種・Driver／Firmware Matrix・必須機能・実装・提供Version／Linux target受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #33。機種の正式製品対応やRelease／Activation Gateの変更を意味しない  
+**状態:** CONFIRMED（Foundation #33：LinuxのDriver／Hardware機構を活用し、PC・ARM64・Tablet等へ段階的に広げ、機種別の機能・実機検証に基づいて正式対応を判断するB方式）／PROVISIONAL（具体機種・Driver／Firmware Matrix・必須機能・実装・提供Version／Linux target受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #33。機種の正式製品対応やRelease／Activation Gateの変更を意味しない\
 **関連:** [Foundation Checklist #33](NAGI_OS_FOUNDATION_CHECKLIST.md#f33)、[DEC-052（実機候補）](DEC-052-physical-test-device-candidates.md)、[DEC-043（Linux＋Nagi専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-078（端末別Boot）](DEC-078-boot-platform-entry-and-common-nagi-startup.md)、[DEC-017（Desktop first／Native Apps）](DEC-017-third-party-developer-ecosystem.md)、[0.2実装仕様 §5](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験

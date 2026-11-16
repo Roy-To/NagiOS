@@ -14,6 +14,10 @@
 
 Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定はスリープへの移行と復帰の管理を補足する。並行記録中の[Nagi Power（DEC-067、PR #128）](https://github.com/Roy-To/NagiOS/pull/128)はOS全体の継続的な電力・熱・資源管理を扱う。確認した[Power仕様](https://github.com/Roy-To/NagiOS/blob/5ce421f539d28468bdda04e543850bb647cb7857/docs/product-decisions/DEC-067-nagi-power-deterministic-resource-management.md)との責務を分け、別のAI Schedulerや保存正本を重複採用しない。並行記録の参照はmainへのマージ済みを意味しない。
 
+> **2026-11-16 電源ライフサイクル統括の後続決定:** [DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiがシャットダウン／再起動を含む電源状態遷移を一元管理し、サービスの保存・停止・復帰準備を協調させる高水準方針をCONFIRMED。失敗時は状況に応じて中止・再試行・警告とし、ユーザーデータと安全性を優先する。本DECのSleep／Resume／Hibernateの既存仕様、権限再検証・復旧／Task再実行境界は維持。具体的な順序・状態機械・タイムアウト・実装構成・対応端末は引き続き未確定。
+
+> **2026-11-16 Identity／Session後続決定:** [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、NagiのUser／Profile／Session論理Identityを正本としてログイン・ログアウト・画面ロック・復帰の認証／権限確認を管理し、Linux UID／GIDを補完的な低レイヤー保護に利用する方針をCONFIRMED。本DECの「復帰だけでロック解除・権限獲得しない」条件は維持する。再認証の細部・Session lease／失効／Tokenの方式・UI・実機試験は未確定。
+
 ## 確定した仕様（CONFIRMED）
 
 1. **LLMを使わず管理する。** Linuxカーネルの標準的な電源管理機構と、Nagiの決定論的なシステムサービスでスリープ／復帰を管理する。AIが無効・不在・利用不能でも基本操作を利用できる。Linuxカーネルの採用を理由に既存ディストリビューションの電源管理構成を一括採用しない（DEC-042／043）。決定論的とは推論に依存しない制御・認可を指し、実行時間が常に同一になる保証ではない。
@@ -24,6 +28,8 @@ Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定
 6. **通常復帰と障害後の復旧を区別する。** RAMが保持された通常のスリープ復帰は、保存情報からWorkspace等を再構成する電源断・クラッシュ・再起動後の復旧と別の状態として扱う。通常復帰を「全Task再実行」、障害後の復旧を「何事もなく処理が継続した状態」と表示しない。
 7. **障害後に中断Taskや副作用Actionを無断再開・再実行しない。** 保存済み状態を用いた復旧はDEC-014／022に従い、ユーザーが選択する前に中断AI Taskを進めない。再開・やり直しを選んだ後も現行のUser／Profile、Permission／Policy、TaskのScope・期限・Budget・Cancel状態、Resource Revisionと競合、実行済み／未実行／結果不明を再検証する。結果不明のActionを盲目的に再送せず、副作用の二重実行を防ぐ。
 8. **休止状態は段階的に追加する。** Hibernationは対応実機での技術検証を経て追加する方針とし、全端末での対応を約束しない。採用する実装技術や対応機種、保存・復帰の成立は未検証であり、スリープの採用だけで休止状態対応済みとはしない。
+
+> **2026-11-16 Foundation Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、Nagi Recovery Coordinatorと各Service別のクラッシュ・電源断後復旧B案をCONFIRMED。本DECの通常Sleep（RAM保持）復帰と、保存状態からの障害後再構築の区別を維持し、結果不明の副作用Actionや中断Taskを無断再実行しない。Recovery技術・Linux target受入は未決定。
 
 ## 継続・保存・復元の境界
 
