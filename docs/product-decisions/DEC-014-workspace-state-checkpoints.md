@@ -156,6 +156,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - **移行対象の境界:** ファイル本文、アプリ、端末固有設定は別の明示的操作・Policyで扱う。移行元データを自動削除せず、AI Taskや副作用Actionを移行対象に含めず、自動再開・再実行しない。
 - **Release / Activation Gate:** 本決定は既存のRelease / Activation Gate、Acceptance、実装担当範囲を変更せず、実装開始許可を与えない。
 
+> **2026-11-16 全OS Secrets管理の後続決定:** [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、OS全体の秘密情報管理をNagi独自Secrets ServiceとTPM／TEE対応機器優先＋非対応機器の暗号化ローカル保管によるハイブリッド方式とするC案をCONFIRMED。本節の**Workspace Exportはユーザー指定パスフレーズが基本**という既存仕様、別保管の復旧キー等、クラウド自動鍵預託なし、復号とImport認可の分離、鍵喪失時の復号不能は変更しない。一般Key Store・TPM連携の採用からExport鍵方式を一律に置換すると推定しない。具体暗号・回復・Key Store APIは未確定。
+
 ### Workspace移行パッケージの暗号鍵管理と回復（選択C）
 
 - **オフラインファーストの鍵管理:** 移行パッケージの暗号鍵管理はオフラインファーストとする。ユーザー指定パスフレーズによる移行を基本とし、ユーザーが明示的に別途保管する復旧キー等の安全な回復手段も設計上許容する。
