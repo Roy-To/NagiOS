@@ -62,10 +62,15 @@ Nagiが作業の目的に即したWorkspace名を付け、一覧を分かりや�
 - **0.3:** Personal AgentのProfile、Memory、Preferenceと連携する将来のUI体験として整理する。0.3 Implementation Spec作成およびActivationの既存Gateは維持する。
 - **0.4+:** 将来Agentが追加されても、Workspaceの表示・編集権限はOS PolicyとOwner scopeに従う。Multi-AgentのActivationは本DECで許可しない。
 
+### 2026-11-16 — Nagi Projectとの区別
+
+[DEC-055](DEC-055-project-folder-cross-app-context.md)のProjectは仕事の対象・関連資料・長期文脈を束ねる単位であり、本DECのWorkspaceは作業画面・アプリ状態の単位である。1 Projectを複数Workspaceから扱える。Workspaceの命名・検索・復元は既存仕様を維持し、Projectへの関連付けで本文取得権限やTaskの自動再開を認めない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | DEC-055のProjectとWorkspaceの役割分離、1 Projectを複数Workspaceから扱う関係を補足。既存の命名・整理・復元規則を維持。 |
 | 2026-11-04 | 選択Cを確定。Workspace自動命名、固定した作業／最近の作業／過去の作業への整理、ユーザー指定の名前・並び順の優先、自動削除禁止に合意 |
 | 2026-11-04 | 選択Cを確定。過去Workspaceの自然言語意味検索、候補と復元可能状態の提示、ユーザー選択後のアプリ・資料・画面配置の復元、Permission・Privacyの遵守、AI Task自動再実行禁止に合意 |
 | 2026-11-04 | 選択Cを確定。理由付きおすすめと他候補を表示し、絞れない場合だけ短く質問。ユーザー最終選択・自動復元禁止・Permission / Privacy遵守を確認 |

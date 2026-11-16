@@ -17,7 +17,7 @@
 **Document Type:** Long-range product and architecture roadmap proposal  
 **Target:** 0.5–1.0, after the initial 0.4 bounded Nagi Role workflow  
 **Status:** CONFIRMED direction and high-level 1.0 target inherited from approved product decisions / revised 0.3 roadmap; detailed version scope and ordering are PROVISIONAL  
-**As of:** 2026-11-04  
+**As of:** 2026-11-16  
 **Companion:** [0.3 Revised Architecture Roadmap](Nagi_OS_0.3_Architecture_Roadmap_Revised.md) / [0.4+ Multi-Agent Organization Roadmap](Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)  
 **Decision record:** [DEC-021 — 0.5–1.0 roadmap boundaries and sequencing](../DEC-021-roadmap-0.5-1.0.md)
 
@@ -37,10 +37,15 @@ A CONFIRMED boundary does not make every roadmap item CONFIRMED. Version mapping
 
 ## 2. Confirmed direction carried forward
 
+### Near-term product priority (2026-11-16, DEC-074 follow-up)
+
+Prioritize establishing Nagi as an OS where AI works naturally as a standard OS capability. Hierarchical Agent Organization remains a non-priority long-term vision. The proposed organization phases below do not make hierarchy a near-term priority or a prerequisite for 1.0. Delivery versions, hierarchy depth and implementation sequencing remain PROVISIONAL. Preserve the existing 0.3/0.4 gates and the initial single-Nagi `builder` Role workflow. See [DEC-074](../DEC-074-human-led-agent-organization.md) for the confirmed priority and illustrative experience-validation candidates.
+
 ### Release boundaries
 
 - **0.3** is the single-Personal-Agent generation: Nagi uses the user's Profile and Memory, performs approved cross-application work through typed Public Actions, and preserves offline and permission boundaries. The **Hardware-Adaptive Memory Engine** is a major 0.3 technical topic under **DEC-013**: host-only benchmark preparation may precede it, but formal runtime implementation stays behind the existing 0.3 specification and activation gates and is not shifted to 0.5. Canonical Memory remains user-owned and model-independent; hardware-dependent indexes, caches, and Context adapters are derived and rebuildable. Hardware transitions must not require relearning canonical Memory. The revised 0.3 roadmap's Implementation Specification gate remains in force.
 - **0.4** follows 0.3 acceptance and a separate 0.4 activation decision. **DEC-015 now confirms mode C:** initially, the single Personal Agent Nagi switches to the programming Role `builder` for scoped coding Tasks. Task state, workspace, permission scope and evidence remain separately tracked even though a separate Agent identity and separate LLM are not required. The earlier two-Agent Nagi + Builder proposal is superseded for the initial workflow. A specialist Agent may later execute the same `builder` Role after explicit architecture, permission/delegation, runtime and acceptance gates. **DEC-016** retains bounded autonomy for edits/tests but excludes Git commit/push by default; Nagi applies evidence-based risk-aware completion. The 0.4+ roadmap governs staged future Team expansion without treating it as initial deployment.
+- **Long-term AI organization direction (DEC-074):** The product aims for one human manager overseeing one or more AI supervisors, with specialized worker Agents under them; the organization may grow in size and depth as device resources allow. This is a confirmed high-level direction, not a release commitment. Nagi remains the consistent user-facing gateway under DEC-021, while its exact relationship to multiple supervisors is OPEN.
 - **0.5–1.0** may extend this foundation only after the applicable prior release has passed its Target Runtime acceptance and the next release has been explicitly activated.
 
 ### Product behavior and safety
@@ -154,6 +159,7 @@ The following items remain unresolved and must not be presented as settled requi
 - The implementation version and timing of the confirmed DEC-009–012 user experience; the proposed milestone mapping does not make those assignments confirmed.
 - Whether 0.8 exists as a separate milestone, and whether multi-user, multi-device, remote Agent, or synchronization features are included before 1.0.
 - Team / Organization owners, administrators, members, guests, offboarding, recovery, governance, and dispute resolution.
+- DEC-074's Agent hierarchy: number and roles of supervisors and workers, depth, Nagi's place in the hierarchy, resource-based expansion rules, and version assignment.
 - Which data may be shared, for which purpose, with which retention, export, deletion, backup, and audit rules.
 - Third-party Agent / Role packages, distribution, signing, review, and revocation.
 - Supported local Models, voice providers, Hardware profiles, event-driven scheduler, deterministic/inference boundary details, parallelism, fairness, and numerical budgets.
@@ -176,6 +182,7 @@ An item may move from OPEN or PROVISIONAL to CONFIRMED only after the user appro
 - [DEC-013 — Hardware-Adaptive Memory Engine](../DEC-013-lightweight-memory-engine-benchmark.md) keeps formal implementation in the gated 0.3 scope, preserves model-independent canonical Memory across hardware transitions, and treats indexes / Context adapters as rebuildable derived data; profile names, algorithms, thresholds, and measured results remain provisional.
 - [DEC-014 — Workspace state checkpoints](../DEC-014-workspace-state-checkpoints.md) confirms automatic restoration-state saving and named checkpoints, while leaving implementation timing and retention details open.
 - [DEC-015 — Confirmed builder role and initial mode C](../DEC-015-builder-role-review.md) and [DEC-016 — Builder autonomy and risk-based completion](../DEC-016-builder-autonomy-risk-based-completion.md) record the initial Nagi `builder` Role-switch workflow (mode C) and its user-selected autonomy/completion rules; independent specialist Agents are future options, not initial 0.4 requirements.
+- [DEC-074 — Human-managed hierarchical AI organization](../DEC-074-human-led-agent-organization.md) records the confirmed long-term hierarchy direction while leaving Agent counts, roles, implementation, resource rules, and release mapping provisional.
 - [DEC-017 — Third-party developer ecosystem](../DEC-017-third-party-developer-ecosystem.md) records staged developer goals, AI-coding priority, and the goal of making portable Rust / C / C++ apps easier to migrate; exact mechanisms and compatibility scope remain provisional.
 - [DEC-018 — Builder isolated editing and conditional apply](../DEC-018-builder-isolated-edit-conditional-apply.md) and [DEC-019 — Builder work-data cleanup](../DEC-019-builder-work-data-cleanup.md) preserve the coding Role workflow's edit, approval, recovery, and cleanup boundaries; initially Nagi executes the builder Role, with a separate Agent remaining optional for later phases.
 - [DEC-020 — AI operation path and resource use](../DEC-020-ai-os-interaction-path.md) records the confirmed structured Context / Event, deterministic-first, typed-action and event-driven principles; implementation, performance claims, and release assignment remain provisional.
@@ -186,3 +193,9 @@ An item may move from OPEN or PROVISIONAL to CONFIRMED only after the user appro
 ---
 
 **End of Proposal**
+
+## PDF Reader / Editorの製品方針（2026-11-16）
+
+[DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
+
+具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。

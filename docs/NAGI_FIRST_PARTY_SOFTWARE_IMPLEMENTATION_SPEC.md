@@ -4205,6 +4205,36 @@ Nagi 専用の難解な巨大 SDK を最初から要求しない。
 
 ---
 
+# Part XXI — PDF Reader / Editor製品方針の追加（2026-11-16）
+
+本節の正本は[DEC-061](product-decisions/DEC-061-first-party-pdf-reader-editor.md)。**CONFIRMEDなのは純正PDF Reader兼Editorの採用・段階的拡張と以下の設計境界である。** 本書の「Final Implementation Specification」という位置付けから、本追加の未決定事項を実装確約と解釈しない。既存M-APP、Phase、Releaseの割当て・順序・Acceptanceは変更しない。
+
+## PDFの基本体験と段階的拡張
+
+- まず高速PDF表示、検索、ページ操作、注釈、印刷、フォーム入力などを整える。通常の閲覧・編集はAIが無効・不在・利用不能でも使える設計とする。
+- その後、既存PDFの本文／画像の高度編集、OCR、適切な墨消し、署名関連機能を段階的に検討する。Adobe Acrobat完全互換や全機能初期実装を約束しない。
+- 墨消しは黒い図形を重ねるだけではなく、出力PDFから対象の元内容を削除し、削除結果を検証する。原本・旧Revision・Checkpoint・派生資料の一括消去や外部送信済み資料の回収とは区別する。未検証の結果を安全に墨消し済みと表示しない。
+
+## Public APIによる文書作業連携
+
+Nagi Project / Smart Paste / Writer / Sheets / Slides等と、共通のPublic Resource / Document / Object / Revision / Provenance / Action APIで連携する方向とする。Nagi Project / Smart Pasteは連携先の製品方向であり、本書§63のStudio / Workspaceの名称変更や既存実装の提供済み宣言ではない。Writer / SlidesのPDF出力と、PDF自体を読む・編集する役割は併存する。
+
+元資料の保存・編集の正本を維持し、参照・取得・Action実行時に現在の権限、機密分類、所有範囲、承認済みTask Scope、Resource / Revisionを確認する。純正だけの秘密APIや権限優遇は設けない。
+
+PDFの表抽出、文章要約、文書比較、引用等は、利用者が承認した目的・対象と元資料の権限・機密分類の範囲でAI支援対象とする。派生結果でも出典・Revision・分類を保持する。Cloud送信は[DEC-002](product-decisions/DEC-002-cloud-ai-data-sharing.md)の許可境界に従う。変更検知だけで関連文書を自動更新せず、[DEC-025](product-decisions/DEC-025-cross-app-data-reference-and-updates.md)の承認済みTaskの例外と実行時検証を維持する。
+
+## PROVISIONALと実装境界
+
+具体的な提供版・時期、高度機能の順序、PDF規格の対応範囲、表示・編集エンジン、OCR技術、電子署名・鍵管理の方式、API Schema、検証手段・合格値は未決定。高速性は目標であり測定済みの性能保証ではない。後続の技術設計で具体化し、本追加自体を実装開始・試験成功・提供済みの根拠にしない。
+
+## 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-16 | DEC-061のPDF Reader兼Editor採用方針を追加。確定した製品境界と未決定の実装詳細を分離し、既存Phase / Milestone / Acceptanceを維持。 |
+
+---
+
 # End of Specification
 
 この文書で定義した Working Name は将来変更可能である。
