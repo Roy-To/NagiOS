@@ -15,6 +15,10 @@
 
 各ロードマップにDEC-042/043/044の後続関係を追記した。[仕様・実装影響表](../KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md)を参照。
 
+## 純正ユーティリティ4分野（2026-11-16）
+
+[DEC-062](../DEC-062-first-party-utilities.md)で、画像ビューア・簡易編集、スクリーンショット・文書スキャン、ZIP等の圧縮・解凍、動画・音楽プレイヤーの全分野採用と、AIなしの高速・軽量な基本機能優先を確定した。Nagi Project / Files / Memory / 検索 / Smart Paste等との連携は必要に応じて検討する。具体的なアプリ構成・対応範囲・連携詳細・提供版・受入基準はPROVISIONALで、0.3・0.4+・0.5–1.0への版割当てや既存Release / Activation Gateを変更しない。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
