@@ -14,6 +14,10 @@
 
 Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定はスリープへの移行と復帰の管理を補足する。並行記録中の[Nagi Power（DEC-067、PR #128）](https://github.com/Roy-To/NagiOS/pull/128)はOS全体の継続的な電力・熱・資源管理を扱う。確認した[Power仕様](https://github.com/Roy-To/NagiOS/blob/5ce421f539d28468bdda04e543850bb647cb7857/docs/product-decisions/DEC-067-nagi-power-deterministic-resource-management.md)との責務を分け、別のAI Schedulerや保存正本を重複採用しない。並行記録の参照はmainへのマージ済みを意味しない。
 
+> **2026-11-16 電源ライフサイクル統括の後続決定:** [DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiがシャットダウン／再起動を含む電源状態遷移を一元管理し、サービスの保存・停止・復帰準備を協調させる高水準方針をCONFIRMED。失敗時は状況に応じて中止・再試行・警告とし、ユーザーデータと安全性を優先する。本DECのSleep／Resume／Hibernateの既存仕様、権限再検証・復旧／Task再実行境界は維持。具体的な順序・状態機械・タイムアウト・実装構成・対応端末は引き続き未確定。
+
+> **2026-11-16 Identity／Session後続決定:** [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、NagiのUser／Profile／Session論理Identityを正本としてログイン・ログアウト・画面ロック・復帰の認証／権限確認を管理し、Linux UID／GIDを補完的な低レイヤー保護に利用する方針をCONFIRMED。本DECの「復帰だけでロック解除・権限獲得しない」条件は維持する。再認証の細部・Session lease／失効／Tokenの方式・UI・実機試験は未確定。
+
 ## 確定した仕様（CONFIRMED）
 
 1. **LLMを使わず管理する。** Linuxカーネルの標準的な電源管理機構と、Nagiの決定論的なシステムサービスでスリープ／復帰を管理する。AIが無効・不在・利用不能でも基本操作を利用できる。Linuxカーネルの採用を理由に既存ディストリビューションの電源管理構成を一括採用しない（DEC-042／043）。決定論的とは推論に依存しない制御・認可を指し、実行時間が常に同一になる保証ではない。
