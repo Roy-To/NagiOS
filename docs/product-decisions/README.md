@@ -8,7 +8,7 @@
 
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
-[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、追加15項目の製品詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**する。PX-10ではB「利用に応じて安定した対話スタイルへ自然に適応する」基本方針と、将来C「Project／Task／作業状況に応じた状況適応」へ広げる高水準の方向をCONFIRMEDとし、[DEC-057](DEC-057-growing-personal-agent-os.md)に記録した。PX-10の具体的なUI・モデル／アルゴリズム・判定条件・評価・提供版／時期はPROVISIONAL。ほかのPX項目の追加詳細は各DECとChecklistの記録に従う。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
 
 ## Foundation統合とDEC改番（2026-11-16）
 
@@ -49,6 +49,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 ## 中核コンセプト — 成長するPersonal Agent OS（2026-11-16）
 
 [DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md)により、**使い続けるほどユーザーの目的・好み・習慣を理解し、許可された経験とフィードバックを実用的な作業支援に反映するOS**をNagiの中核コンセプトとしてCONFIRMEDとした。記憶・学習・継続性はモデル非依存かつユーザー所有で、訂正・自然忘却・明示忘却・Permissionの既存規則を維持する。0.3のPersonal Agent OS方針を全体の製品アイデンティティとして明確化するものであり、実装済み・性能達成・Release Gateの変更を意味しない。具体的な学習評価や適応方式・提供時期はPROVISIONAL。
+
+## PX-10 — Nagiの個人化・対話スタイル（2026-11-17）
+
+[DEC-057](DEC-057-growing-personal-agent-os.md)に、B「利用を通じて口調・説明量・説明方法などの対話スタイルが自然に適応する」基本方針と、将来C「Project／Task／作業状況に応じた高度な状況適応」へ拡張する高水準の製品目標をCONFIRMEDとして追加した。明示的なユーザー設定の優先、Profile／Memoryの所有範囲、モデル非依存の継続、ユーザーによる訂正・忘却、現在のPermission／Policyは既存どおり維持する。UI、具体的な学習・状況判定方式、モデル／アルゴリズム、評価、提供版・時期はPROVISIONAL。仕様方向の記録であり、実装・Release／Activation／Acceptance Gateの変更を示さない。
 
 ## 学習の主経路：自然な習慣学習（2026-11-16）
 
@@ -137,7 +141,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
 | DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・横断Task・Workspace分離・Project文脈）／PROVISIONAL（名称・技術・実装版） | 2026-11-16 |
 | DEC-056 | [Smart Paste — 意味付きコピー／ドラッグでの純正アプリ横断体験](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来操作維持・意味付き転送・出典／参照保持・選択式提案）／PROVISIONAL（名称・UI・形式・対応アプリ・実装時期） | 2026-11-16 |
-| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（OSの中核コンセプト・モデル非依存の継続性・ユーザー主導）／PROVISIONAL（方式・効果測定・適用版） | 2026-11-16 |
+| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（中核コンセプト・個人適応・モデル非依存の継続・ユーザー主導・PX-10 B／将来C方向）／PROVISIONAL（UI・状況判定・モデル／アルゴリズム・評価・提供版／時期） | 2026-11-17 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習の内容・経緯・根拠・支援への反映を確認できる体験）／PROVISIONAL（UI・履歴Schema・評価指標・適用版） | 2026-11-16 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
@@ -244,6 +248,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | DEC-057へPX-10のB基本方針と将来Cの高水準な状況適応方向を追記し、Checklistの進捗をPARTIALLY_RECORDEDへ更新。既存のCONFIRMEDとRelease／Activation／Acceptance Gateを維持し、詳細・技術・評価・提供版／時期は未確定。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
