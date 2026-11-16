@@ -69,3 +69,5 @@
 **End of Decision**
 
 2026-11-16: PR #112の旧DEC-052をDEC-073へ改番。実機候補DEC-052との競合のみを解消し、決定内容・状態・履歴を保持。
+
+関連する[DEC-072 — Follow／Evolution](DEC-072-follow-evolution.md)は操作支援と改善試作の長期方向を扱う。本DECは発見・根拠付き提案を扱い、試作を無許可で開始する追加権限を生まない。DEC-072の試作も既存の承認済みScope・Permission・隔離条件が成立する場合に限る。
