@@ -69,7 +69,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [標準的な働きかけ・小さな用事への静かな準備・状況中心／期限優先のリマインド](DEC-008-proactive-behavior.md) | CONFIRMED（B既定・本人による調整・個人適応・自然な用事の記録・リマインド方式C）／PROVISIONAL（具体的な取得／通知判定・頻度・UI・実装版） | 2026-11-16 |
+| DEC-008 | [標準的な働きかけ・静かな準備・自然な用事の記録／リマインド／完了判定](DEC-008-proactive-behavior.md) | CONFIRMED（B既定・個人適応・会話記録・状況＋期限優先の通知・確実なら自動完了／曖昧なら確認）／PROVISIONAL（判定方式・UI・Provider・実装版） | 2026-11-16 |
 | DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
 | DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
 | DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
@@ -308,6 +308,10 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 [統合先・DEC改番・重複範囲の対応表](PR-107-129-INTEGRATION-2026-11-16.md)を参照。DEC-052は実機候補、DEC-069はFoundation Checklistの正本として維持する。異なる仕様の番号を分離し、採用・暫定・実装・受入を区別する。過去の「main未マージ」は記録当時の履歴であり、現在の仕様は本索引の各DECを参照する。
 
 ## 小さな用事への静かな準備・変更履歴（2026-11-16）
+
+**追加決定（2026-11-16／CONFIRMED）:** 小さな用事の完了判定はB「確実なら自動完了、曖昧なら確認」。対象と結果が一致する許可済みProvider／Actionの確実な成功結果、または本人の明示的な完了申告に基づき用事を完了にできる。本人申告と実行結果確認は区別し、部分成功・結果不明は完了と誤表示しない。不要／取消／延期と完了を区別し、誤判定は訂正可能にする。完了・不要な用事は再催促しない。判定基準・UI・Schema・実装版はPROVISIONALで、閲覧／監視／再実行の追加権限を生まない。詳細は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
 
 **後続決定（2026-11-16／CONFIRMED）:** リマインド方式は**C「状況中心＋期限による優先制御」**を採用。通常の用事は、関連する会話・作業状況や自然な区切りで控えめに思い出させ、明確な期限のある用事は期限を考慮して通知の優先順位を調整する。本人の明示設定と許可された学習結果を優先し、通知がAction実行や追加データ収集の権限にはならない。通知頻度・時刻・UI・判定方式・リリース版はPROVISIONAL。記録先は[DEC-008](DEC-008-proactive-behavior.md)。
 
