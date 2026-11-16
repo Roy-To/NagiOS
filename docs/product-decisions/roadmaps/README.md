@@ -45,6 +45,12 @@
 
 ## OS基盤の検討と進捗（2026-11-16）
 
+**Foundation #17 Device Manager（2026-11-16）:** [DEC-083](../DEC-083-device-manager-local-remote-unified-ui.md)でローカル周辺機器管理と他のNagi端末管理を内部責務として分離し、Nagi Settings／DevicesのUIで統合する方式BをCONFIRMED。Linux既存driver等を活用する方針で、具体stack・対応機器・Linux実機受入・適用版は未確定。DEC-066のTrust／許可境界を維持する。
+
+**Foundation #18 Network Devices（2026-11-16）:** [DEC-084](../DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)でEthernet／Wi-Fiを基本機能とし、Bluetoothを段階的に対応する方式BをCONFIRMED。具体driver／firmware／対応機器／pairing／実装版は未確定。端末間初期LAN方針（DEC-066）、Release／Activation／Acceptance Gateを変更しない。
+
+
+
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
 
 ## 実機テスト候補（2026-11-16）
