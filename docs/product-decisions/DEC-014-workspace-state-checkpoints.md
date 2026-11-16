@@ -210,11 +210,15 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 
 0.1 / 0.2のWorkspace・Activity・Wayback等の基盤に整合する将来の製品体験。0.3 Personal Agentや後続世代への実装割当、追加Acceptance、Activationは別途判断する。
 
-## 決定履歴
+### 2026-11-16 — Nagi Projectと復元状態・Memoryの分離
 
+[DEC-055](DEC-055-project-folder-cross-app-context.md)により、利用者の仕事・資料・長期文脈を束ねるProjectと、Workspaceの画面・アプリ状態・復元用チェックポイントを区別する。1 Projectを複数Workspaceから扱えるが、Workspace snapshotをProject本文のバックアップと扱わない。本DECの履歴・検索用メタデータ・節目要約は引き続き長期Memoryとは別管理であり、Projectへの関連付けだけで長期Memoryに自動昇格させない。現在の権限・忘却の再評価、本文巻戻し・中断Task自動再実行の禁止を維持する。
+
+## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | DEC-055のProjectとの役割分離を補足。Workspaceの復元状態、Projectの文脈、長期Memoryを混同せず、既存の保存・復元・忘却規則を維持。 |
 | 2026-11-05 | 選択C：対応アプリが正規APIとアプリ独自の保存Policyに基づき保持する未保存編集の回復情報を参照可能とし、本文複製バックアップを作らず、競合プレビュー後に現状維持・回復候補利用・可能な場合の別コピーを選べるようにする。Permission / Privacy / Owner / Resource Revisionを再評価し、無断上書き・本文巻戻し・AI Task再実行を禁止。API・回復形式・競合判定・対応アプリは実装検証に委ね、既存Gateを維持 |
 | 2026-11-04 | 選択C：自動保存＋名前付きチェックポイント、履歴からの可能な範囲での復元、Workspace自動削除禁止、Permission / Privacy、ファイル内容バックアップ・Task再実行との分離を確定 |
 | 2026-11-04 | 選択C：重要な状態変更時＋定期的な補助保存、古い自動保存履歴のみ容量に応じて間引き、Workspaceと名前付きチェックポイントは自動削除せず。具体的な間隔・容量・保持期間は実装検証に委ねる |
