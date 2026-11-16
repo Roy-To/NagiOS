@@ -1,8 +1,8 @@
 # DEC-096 — Settings / Notification：Cの状況適応を最終目標に、Bの統合基盤を段階導入
 
-**状態:** CONFIRMED（Foundation #27：作業状況・習慣等に応じて設定・通知を調整するC方式を最終的な製品目標とし、その実現段階でB方式のNagi統合Settings／Notification基盤を導入する）／PROVISIONAL（状況判定・学習と調整の詳細・初期既定値・技術方式・導入時期・適用版・Linux target受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #27。製品方向の決定であり特定ReleaseのActivation／Acceptanceを変更しない  
+**状態:** CONFIRMED（Foundation #27：作業状況・習慣等に応じて設定・通知を調整するC方式を最終的な製品目標とし、その実現段階でB方式のNagi統合Settings／Notification基盤を導入する）／PROVISIONAL（状況判定・学習と調整の詳細・初期既定値・技術方式・導入時期・適用版・Linux target受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #27。製品方向の決定であり特定ReleaseのActivation／Acceptanceを変更しない\
 **関連:** [Foundation Checklist #27](NAGI_OS_FOUNDATION_CHECKLIST.md#f27)、[DEC-008（控えめな働きかけ・重大警告）](DEC-008-proactive-behavior.md)、[DEC-020（決定論的な認可／非特権AI）](DEC-020-ai-os-interaction-path.md)、[DEC-004（習慣・明示設定優先・忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-057（成長するPersonal Agent）](DEC-057-growing-personal-agent-os.md)、[DEC-058（Habit-first）](DEC-058-habit-first-learning-and-optional-teach-mode.md)、[0.2実装仕様 §12／§15／M11／M14](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験

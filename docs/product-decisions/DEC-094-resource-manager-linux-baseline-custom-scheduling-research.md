@@ -2,8 +2,8 @@
 
 **状態:** CONFIRMED（Foundation #25のB＋C研究案：Linux標準スケジューラー／資源管理を製品基本構成とし、Nagi Resource Managerからアプリ・AI・電力の配分を協調制御する。独自スケジューリングの比較研究を進め、十分な実機検証を満たした対象範囲のみ後続採用判断し、標準方式に戻れる設計を維持）／PROVISIONAL（Linux制御機構・独自アルゴリズム・測定数値・実機・導入版・正式採否）
 
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #25。特定Releaseへの割当て・実装着手時期は未確定  
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #25。特定Releaseへの割当て・実装着手時期は未確定\
 **関連:** [Foundation Checklist #25](NAGI_OS_FOUNDATION_CHECKLIST.md#f25)、[DEC-020（前景優先・資源配分）](DEC-020-ai-os-interaction-path.md)、[DEC-067（Nagi Power）](DEC-067-nagi-power-deterministic-resource-management.md)、[DEC-013（Hardware-Adaptive Memory）](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-022（Task復旧）](DEC-022-builder-interrupted-task-recovery.md)、[DEC-043（Linux／専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-077（LTS標準／Stable先行検証）](DEC-077-linux-kernel-lts-stable-policy.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的と背景

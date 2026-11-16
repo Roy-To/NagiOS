@@ -1,8 +1,8 @@
 # DEC-101 — Device Connectivity：Bを基本にNagi独自の端末連携プロトコルを設計し、独自通信技術を並行研究
 
-**状態:** CONFIRMED（Foundation #32：Linux／OSS通信技術を利用するNagi統合Connectivity ServiceのB方式を基本採用。PC・Tablet・Phone間で使うNagi独自の連携プロトコルを設計する方向を確定し、必要性が判明した独自通信技術は並行して研究する）／PROVISIONAL（プロトコルの具体Schema／Version、接続・暗号方式、独自通信技術の採否、端末・提供版・受入条件）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #32。実装開始条件、Release割当て、Linux target／実機対応は未決定  
+**状態:** CONFIRMED（Foundation #32：Linux／OSS通信技術を利用するNagi統合Connectivity ServiceのB方式を基本採用。PC・Tablet・Phone間で使うNagi独自の連携プロトコルを設計する方向を確定し、必要性が判明した独自通信技術は並行して研究する）／PROVISIONAL（プロトコルの具体Schema／Version、接続・暗号方式、独自通信技術の採否、端末・提供版・受入条件）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #32。実装開始条件、Release割当て、Linux target／実機対応は未決定\
 **関連:** [Foundation Checklist #32](NAGI_OS_FOUNDATION_CHECKLIST.md#f32)、[DEC-066（LAN-first共通接続）](DEC-066-device-connectivity-lan-first.md)、[DEC-064（Nagi Share）](DEC-064-nagi-share-nearby-file-transfer.md)、[DEC-065（Nagi Handoff）](DEC-065-nagi-handoff-work-continuation.md)、[DEC-014（Workspace移行／同期）](DEC-014-workspace-state-checkpoints.md)、[DEC-043（Linux＋Nagi Userland）](DEC-043-nagi-userland-independent-os.md)、[DEC-052（実機テスト候補）](DEC-052-physical-test-device-candidates.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験

@@ -1,8 +1,8 @@
 # DEC-099 — Installer / First Setup：Linux機構を利用するNagi専用GUI方式B
 
-**状態:** CONFIRMED（Foundation #30の方式B：Linuxの既存ディスク／インストール関連機構を活用し、Nagi独自GUIでOSインストールと初回設定を案内する。ローカルLLMによる高度な設定判断を標準構成・前提にせず、AIがなくても基本セットアップできる）／PROVISIONAL（GUI・採用部品・ディスク／暗号化／Owner初期化の実装詳細・対応機器・適用版・実機Acceptance）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #30。Release割当て・実装開始条件は未確定  
+**状態:** CONFIRMED（Foundation #30の方式B：Linuxの既存ディスク／インストール関連機構を活用し、Nagi独自GUIでOSインストールと初回設定を案内する。ローカルLLMによる高度な設定判断を標準構成・前提にせず、AIがなくても基本セットアップできる）／PROVISIONAL（GUI・採用部品・ディスク／暗号化／Owner初期化の実装詳細・対応機器・適用版・実機Acceptance）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #30。Release割当て・実装開始条件は未確定\
 **関連:** [Foundation Checklist #30](NAGI_OS_FOUNDATION_CHECKLIST.md#f30)、[DEC-043（Linux＋Nagi専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-079（read-only System／User Data分離・A/B更新）](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-009（通常GUI／AIがないときの操作）](DEC-009-nagi-first-home-desktop.md)、[DEC-017（Nagi Native Apps）](DEC-017-third-party-developer-ecosystem.md)、[DEC-020（決定論的なService／非特権AI）](DEC-020-ai-os-interaction-path.md)、[DEC-078（Boot System）](DEC-078-boot-platform-entry-and-common-nagi-startup.md)、[0.2実装仕様 §16](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験
