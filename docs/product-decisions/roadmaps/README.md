@@ -41,6 +41,10 @@
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
 
+## 端末横断の電話・連絡先・SMS（2026-11-16）
+
+[DEC-063](../DEC-063-phone-contacts-messaging.md)は、電話・連絡先・SMS/Messagingの純正採用、共通アプリ／モデルと適応UI、可能な限りPeopleへの連絡先統合を確定する。通信・連携の実可用性はハードウェア／OS能力、ユーザー認可、必要なネットワーク・サービス・キャリアに依存し、全端末での通話／SMS送受信を保証しない。各ロードマップのProfile／Permission、単一ユーザーからの段階的拡張方針と整合させ、端末間の遠隔操作・引き継ぎ・同期、アプリ構成や実装版は未確定のままとする。既存の版割当て・Gate・Acceptanceを変更しない。
+
 ## PDF Reader / Editorの製品方針（2026-11-16）
 
 [DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
