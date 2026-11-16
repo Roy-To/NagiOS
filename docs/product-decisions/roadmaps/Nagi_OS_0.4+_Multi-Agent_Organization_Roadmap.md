@@ -26,7 +26,7 @@
 
 ## 1. Vision and release boundary
 
-**2026-11-16 後続確認（[DEC-052](../DEC-052-human-led-agent-organization.md)）:** 当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。以下の組織拡張・Phase案は具体的な提供版や実装順序を確定しない。初期0.4の単一Nagiによるbuilder Role、§2.1 Entry Gate、§12 Acceptanceは変更しない。
+**2026-11-16 後続確認（[DEC-074](../DEC-074-human-led-agent-organization.md)）:** 当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。以下の組織拡張・Phase案は具体的な提供版や実装順序を確定しない。初期0.4の単一Nagiによるbuilder Role、§2.1 Entry Gate、§12 Acceptanceは変更しない。
 
 ユーザーの主な窓口は、会話する秘書Agent **Nagi** ひとつとする。Nagiが依頼を理解して計画を説明し、Policyに応じて承認を求め、初期はNagi自身が必要なRoleで範囲限定Taskを実行する。将来は専門AgentにもTaskを委譲できるようにし、成果の証拠を確認してユーザーへ統合した結果を返す。
 
@@ -39,7 +39,7 @@
 
 Nagiはユーザーに対して一貫した窓口と調整役であり続ける。専門Roleは権限を生まない。Permission、Capability、Action実行、取消、永続状態の決定権はOSにある。
 
-**人間がManagerとなる長期的な組織方向（DEC-052）:** 長期的には、ユーザー1人が唯一の人間Managerとなり、複数の統括AIがそれぞれの専門Worker Agentをまとめる階層型の組織を目指す。端末資源に応じて組織の規模や階層を拡張できる方向を確認する。Nagiを一貫したユーザー窓口とする既存方針は維持するが、Nagiが統括AIの一員か別の調整役か、Supervisorや階層の数、実行・資源管理の仕組み、Version割当ては未確定。本方向は将来の製品構想であり、0.4初期の単一Nagi builder Role方式、0.4 Entry Gate、既存Permissionを変更しない。
+**人間がManagerとなる長期的な組織方向（DEC-074）:** 長期的には、ユーザー1人が唯一の人間Managerとなり、複数の統括AIがそれぞれの専門Worker Agentをまとめる階層型の組織を目指す。端末資源に応じて組織の規模や階層を拡張できる方向を確認する。Nagiを一貫したユーザー窓口とする既存方針は維持するが、Nagiが統括AIの一員か別の調整役か、Supervisorや階層の数、実行・資源管理の仕組み、Version割当ては未確定。本方向は将来の製品構想であり、0.4初期の単一Nagi builder Role方式、0.4 Entry Gate、既存Permissionを変更しない。
 
 段階的な規模拡張を想定する。
 

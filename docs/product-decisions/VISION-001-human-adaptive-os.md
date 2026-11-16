@@ -7,6 +7,8 @@
 **最終更新日:** 2026-11-16  
 **位置付け:** ユーザーが示した高水準の方向を記録する。個別の確定事項は関連DECを正本とし、具体的な技術、対象機器、性能条件、適用時期は決めない。
 
+> **2026-11-16 後続決定:** [DEC-052](DEC-052-physical-test-device-candidates.md)に実機テスト候補の選定方針を記録した（PC＝Raspberry Pi・型番未指定、タブレット＝PineTab2、スマートフォン／モバイル＝未選定）。以下の「具体的な対象機器は未確定」は本ビジョン自体の範囲を示す。候補選定は同DECを参照し、正式対応・性能・購入・時期の確定とは区別する。
+
 ## ビジョン
 
 Nagi OSが長期的に目指すのは、**人間がコンピューターに合わせるのではなく、コンピューターが人間に合わせるOS**である。
@@ -15,7 +17,7 @@ Nagi OSが長期的に目指すのは、**人間がコンピューターに合�
 
 ## 当面の製品優先順位（2026-11-16）
 
-当面は、**AIがOS標準機能として自然に働く、AI組み込み体験型OSとしての確立を優先する**。目的に沿った操作、作業Contextと状態の連続性、対応アプリとの連携を、既存のNagi-first／Intent-firstと作業・データ中心の方針で育てる。階層型Agent Organizationは非優先の長期ビジョンとする。確定した優先順位と未確定の提供版・実装順序は[DEC-052](DEC-052-human-led-agent-organization.md)を正本とする。
+当面は、**AIがOS標準機能として自然に働く、AI組み込み体験型OSとしての確立を優先する**。目的に沿った操作、作業Contextと状態の連続性、対応アプリとの連携を、既存のNagi-first／Intent-firstと作業・データ中心の方針で育てる。階層型Agent Organizationは非優先の長期ビジョンとする。確定した優先順位と未確定の提供版・実装順序は[DEC-074](DEC-074-human-led-agent-organization.md)を正本とする。
 
 ## 長期的な方向
 
@@ -39,13 +41,13 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 解釈が曖昧なときには、候補の提示や確認を通じて利用者が意図を直せる設計が望ましい。AIの推定や学習は、操作権限や承認を生み出さず、重要な操作を曖昧な入力だけで実行する根拠にもならない。
 
-### 人間が管理する階層型AI組織（DEC-052）
+### 人間が管理する階層型AI組織（DEC-074）
 
 この構想は当面の優先項目には置かず、AI組み込みOS体験を先に確立する。複数Supervisorや階層数を初期体験の必須条件にしない。
 
 長期的には、**利用者1人が唯一の人間Managerとなり、複数の統括AI（Supervisor AI）がそれぞれの専門Worker Agentを率いる組織型OS**を目指す。端末の計算能力や利用可能なResourceが高まるにつれ、必要に応じて組織の規模や階層を拡張できる方向を確認する。資源の増加だけでAgentを自動的に増やすことや、具体的な性能効果を保証するものではない。
 
-ユーザーとの一貫した窓口は既存決定に従いNagiとする。Nagiが複数のSupervisorの一員か、別の調整役かは決めない。SupervisorとWorkerは組織上の役割であり、それぞれに独立したProcess、Session、Modelを持たせることや、同時実行を必須とするものではない。詳細な製品決定は[DEC-052](DEC-052-human-led-agent-organization.md)を参照する。
+ユーザーとの一貫した窓口は既存決定に従いNagiとする。Nagiが複数のSupervisorの一員か、別の調整役かは決めない。SupervisorとWorkerは組織上の役割であり、それぞれに独立したProcess、Session、Modelを持たせることや、同時実行を必須とするものではない。詳細な製品決定は[DEC-074](DEC-074-human-led-agent-organization.md)を参照する。
 
 ## 既存の決定との関係
 
@@ -56,7 +58,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - **DEC-013:** Hardware-Adaptive Memory EngineはMemory検索等の適応方針であり、低スペック機器上のLLM性能や快適さを実証したものではない。
 - **DEC-017:** 現時点のアプリ移植支援はPC／Desktopを重点とし、Androidは将来のMobile／Tablet検討対象である。本ビジョンはその優先順位を変更しない。
 - **DEC-020:** 小さく構造化されたContext、型付きPublic Action、決定論的な認可、非特権AI、前景の人間操作を優先する資源配分を維持する。性能向上や省資源効果は測定前に保証しない。
-- **DEC-052:** 当面はAI組み込み体験型OSの確立を優先する。人間をManager、複数のSupervisorとその配下の専門AgentをStaffとする階層型AI組織は非優先の長期ビジョン。具体的な構造・技術・版割当・実装順序は未確定。
+- **DEC-074:** 当面はAI組み込み体験型OSの確立を優先する。人間をManager、複数のSupervisorとその配下の専門AgentをStaffとする階層型AI組織は非優先の長期ビジョン。具体的な構造・技術・版割当・実装順序は未確定。
 - **DEC-023／026／027:** 作業・データ中心の考え方、検証可能な変更、正規Public Action優先と限定されたGUI fallbackを維持する。
 - **DEC-042／043:** LinuxカーネルとNagi専用ユーザーランドの製品方針を前提にするが、特定の機器、ユーザーランド構成、表示・入力技術を追加で決めない。
 
@@ -88,7 +90,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - [DEC-020 — AIのOS操作経路と計算資源の活用](DEC-020-ai-os-interaction-path.md)
 - [DEC-042 — Linuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md)
 - [DEC-043 — Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md)
-- [DEC-052 — 人間が管理する階層型AI組織](DEC-052-human-led-agent-organization.md)
+- [DEC-074 — 人間が管理する階層型AI組織](DEC-074-human-led-agent-organization.md)
 - [0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 - [0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 - [0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
@@ -99,6 +101,6 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 | 日付 | 内容 |
 |---|---|
-| 2026-11-16 | DEC-052の後続確認を反映。当面のAI組み込みOS体験を優先し、階層型AI組織を非優先の長期ビジョンとして明確化。既存Gate・初期builder Role・版境界は維持。 |
+| 2026-11-16 | DEC-074の後続確認を反映。当面のAI組み込みOS体験を優先し、階層型AI組織を非優先の長期ビジョンとして明確化。既存Gate・初期builder Role・版境界は維持。 |
 
 **End of long-term vision**
