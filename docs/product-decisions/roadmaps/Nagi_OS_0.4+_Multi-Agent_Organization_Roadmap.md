@@ -1,5 +1,7 @@
 # Nagi OS 0.4+ Multi-Agent Organization Roadmap
 
+> **2026-11-16 近距離ファイル共有:** [DEC-064](../DEC-064-nagi-share-nearby-file-transfer.md)でNagi Share（仮称）を純正OS機能として採用した。これはLocal／Offline-firstの単発ファイル直接転送の製品方針であり、Team／Organization／Remote AgentやWorkspace同期の一括承認ではない。Internet・Cloud account・LLMは必須とせず、既存の認可・情報区分・所有／Profile境界とGateを維持する。技術・UI詳細・対応版／端末・性能は未確定で、Handoff拡張はアイデア段階。既存Continuity構想と初期Gateを置き換えない。詳細は[ロードマップ索引](README.md#近距離ファイル共有の製品方針2026-11-16)を参照。
+
 > **2026-11-15 公開移管:** [DEC-050](../DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 ## Linux基盤への適用注記（2026-11-13）
