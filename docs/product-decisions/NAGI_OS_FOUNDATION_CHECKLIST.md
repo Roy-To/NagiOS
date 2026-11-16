@@ -384,12 +384,12 @@
 ### 25 Resource Manager / Scheduler
 
 - **検討対象:** CPU／RAM／GPU／NPU／I/O／電力budget、OOM、fairness、queue／throttle／pause／cancel。
-- **製品決定:** CONFIRMED＝前景応答性、明示優先変更、安全限界とResource待機の条件付き継続 [DEC-020][D20]、適応型Memory [DEC-013][D13]。PROVISIONAL＝閾値・algorithms。
-- **技術設計:** OS scheduler、Jobs、Model Runtime、Memory検索選択は責務が異なる。独立AI schedulerの重複採用を避ける。Linux強制手段は未定。
+- **製品決定:** CONFIRMED＝Linux標準scheduler／資源制御を製品基本とし、Nagi Resource Managerで前景App・AI／Jobs・Powerの予算／優先度を協調するB案＋独自schedulerの並行比較研究C [DEC-094](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)。十分な実機検証後の部分採用判断と標準方式への退避を重視。前景応答・明示優先変更・安全限界・Resource待機の条件付き継続 [DEC-020][D20]、適応型Memory [DEC-013][D13]を継承。PROVISIONAL＝独自scheduler正式採用・具体Linux機構／閾値・性能・端末・版。
+- **技術設計:** Linux標準schedulerと既存資源管理機構を利用し、Nagiが製品固有の資源配分Policyを管理する。cgroup v2／PSIは候補、sched_ext／eBPF等は並行研究候補であり、個別採用・kernel変更は未決定。OS Resource Manager、Jobs、Model Runtime、Memory検索／Nagi Powerの責務を分離し、重複AI scheduler／特権経路を作らない。
 - **実装・target受入:** 旧scheduler／OOM・host Jobs／Model資産あり。Linux統合の応答性・飢餓・負荷・電力測定未確認。
 - **依存・責任候補:** 1, 4, 8, 14, 23, 26, 29。`job-01`／`model-runtime`／`os-core`候補。
 - **根拠:** [0.1 §13・15・43–45][S01]、[0.2 §14・47–48][S02]、[Governor案][GOV]、[Power PR][PR128]。
-- **次に決める:** 予算所有者・要求API・強制と観測、Pause／Cancel／crashと資源待機の状態分離、測定baseline。
+- **次に決める:** Resource予算・要求APIと強制／観測責任、標準Linux構成のbaselineと独自scheduler研究の比較計画、前景UI／AI／音声・RAM・電力・熱・公平性の測定条件、Linux実機／LTS対応・安全な標準fallback・後続採用判断。
 
 <a id="f26"></a>
 ### 26 App Lifecycle
