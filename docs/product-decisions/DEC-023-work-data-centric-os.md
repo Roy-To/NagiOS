@@ -46,8 +46,13 @@
 - **0.3:** 既存のPersonal Agentの許可されたContextと型付きPublic Actionによるアプリ横断操作方針に接続する。新たなAgent権限を付与しない。
 - **0.4以降:** 専門Agentが加わってもアプリ境界、ユーザー所有データ、公開API、委譲権限と既存Gateを維持する。
 
+## PDF Reader / Editorとの整合（2026-11-16）
+
+[DEC-061](DEC-061-first-party-pdf-reader-editor.md)により、PDF Reader兼EditorをNagi Project / Smart Paste / Writer / Sheets / Slides等の文書作業へ接続する方向を追加する。Public Resource / Document / Object / Revision / Provenance / Action APIを基礎とし、通常GUI、元資料の権限・機密分類・分散正本を維持する。Studio等の既存名称の変更や実装済み連携を意味しない。 具体的な連携契約・適用版はPROVISIONAL。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-05 | 選択A：Nagiは作業・データ中心のOSを基本思想とし、アプリを目的達成の道具として扱うことを確定。従来の個別アプリ操作、第三者アプリの段階的統合、Permission境界を維持する。具体的な連携方式・実装時期は未確定。 |
+| 2026-11-16 | DEC-061の純正PDF Reader / Editor方針への参照を追加。既存の公開API・AI非必須・権限境界と整合させ、実装版・既存Gateは変更しない。 |
