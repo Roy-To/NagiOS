@@ -43,3 +43,8 @@ PCという区分は今回のテスト用途の分類であり、Raspberry Piの
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーの意思決定によりPC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定を記録。CONFIRMEDは選定方針のみとし、旧展望の機種選定を限定置換。 |
+
+
+## Foundation #33後続方針（2026-11-16）
+
+[DEC-102](DEC-102-hardware-support-staged-multidevice-linux-drivers.md)で、Linux Driverを活用しPC／ARM64／Tablet等へ段階的に広げ、機種別の検証で正式対応を判断するB方式をCONFIRMED。**本DECの候補（Raspberry Pi＝型番未定、PineTab2、Phone未選定）は変更しない。** 候補・QEMU／Reference Target・Linux実機起動・正式製品対応を区別し、対応Version・Driver／Firmware Matrix・Linux target受入をPROVISIONALに保つ。Desktop first／既存Release Gateも変更しない。
