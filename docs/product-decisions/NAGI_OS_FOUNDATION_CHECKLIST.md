@@ -197,12 +197,12 @@
 ### 8 Permission / Sandbox
 
 - **検討対象:** app／service／AI隔離、データ・device・network権限、最小権限・取消・狭窄・Owner操作。
-- **製品決定:** CONFIRMED＝非特権AI、正規API、現行認可と限定GUI fallback [DEC-020][D20]／[027][D27]。OPEN＝Linux強制機構。
+- **製品決定:** CONFIRMED＝非特権AI、正規API、現行認可と限定GUI fallback [DEC-020][D20]／[027][D27]、Nagi Permission／Capabilityの判断とLinux Sandboxの実効隔離を組み合わせて直接アクセス迂回を防ぐB案、最小権限・取消／失効・狭窄・AI／アプリの特権非自動付与 [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)。PROVISIONAL＝具体的Linux強制技術・配置／受入条件。
 - **技術設計:** Nagi Capability／PermissionとLinux capabilitiesは別概念。namespace／seccomp／LSM等の採否は本台帳では決めない。
 - **実装・target受入:** `crates/nagi-capability/`等のhost／旧kernel資産あり。broker外のLinux syscall・device nodeへの迂回拒否は未確認。
 - **依存・責任候補:** 1, 7, 9, 10, 11, 26。`capability-permissions`／`os-core`／security担当候補。
 - **根拠:** [0.1 §8・23・40・57][S01]、[0.2 §10・46][S02]、[移行ADR][ADR-L]。
-- **次に決める:** threat modelと迂回経路、caller・profile・resource別の拒否／失効／取消のLinux受入条件。
+- **次に決める:** Nagi判断＋Linux強制隔離方針に沿い、Threat Model／迂回経路、実装するLinux機構、caller／profile／resource別拒否・失効・取消、broker／syscall／deviceへの直接アクセス拒否のLinux target受入を具体化する。
 
 <a id="f09"></a>
 ### 9 IPC / Service Broker
@@ -686,3 +686,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #7 Identity／SessionとLinux資格情報の分担
 
 [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、Nagi独自のUserId／ProfileId／SessionIdを論理Identity正本とし、Linux UID／GIDは低レイヤーのアクセス制御に利用するB案をCONFIRMED。ログイン／ロック／復帰の認証・権限はNagiの管理下で、Profile別データ・Memory・Workspace・Task分離とAI／アプリのOwner非昇格、Guestと将来Team対応を維持。具体マッピング・認証技術・Session lease／失効・Linuxでの強制／受入・Releaseは未決定。
+
+### 2026-11-16 Foundation #8 Permission／SandboxのLinux強制隔離
+
+[DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、NagiのPermission／Capability正本＋Linuxの実効的なSandbox／アクセス制御の併用（B案）をCONFIRMED。User／Profile／Session／App／Task／Resourceの現行権限、直接経路の迂回防止、最小権限・取消／失効／狭窄、AI・アプリ非特権、重複承認不要を維持。Linux方式の具体選定、強制隔離の実装・迂回拒否／失効試験・リリース割当ては未決定。
