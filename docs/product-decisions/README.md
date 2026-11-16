@@ -144,6 +144,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-081 | [Nagi主体の基本ユーザーランドと汎用OSSの選択的活用](DEC-081-nagi-owned-userland-selective-oss-components.md) | CONFIRMED（Nagi固有サービス／API／アプリ環境の独自設計、libc・基礎ライブラリ・基礎ツールのOSS活用、既存distributionユーザーランド一式非流用）／PROVISIONAL（具体部品・ABI・適用版） | 2026-11-16 |
 | DEC-083 | [Device Manager：内部責務分離と統合UI](DEC-083-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
 | DEC-084 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
+| DEC-085 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-085-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -197,6 +198,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)でFoundation #19のB改良案を確定。Nagi Home／Desktop・Workspace等の独自ShellとPC／Tablet／Mobileの適応契約を維持し、Linux／OSSのGPU・Display・描画基盤を活用する。Wayland／Smithay等の個別技術・Linux実機受入・提供版は未確定。 |
 | 2026-11-16 | [DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)でFoundation #17の方式Bを確定。ローカル機器とNagi端末の管理責務を内部で分離し、Settings／DevicesのUIは統合。Linux機器基盤を活用し、詳細構成・対応機器・実機受入は未確定。 |
 | 2026-11-16 | [DEC-084](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)でFoundation #18の方式Bを確定。Ethernet・Wi-Fiを基本、Bluetoothを段階的に対応。driver／firmware・機種・接続方式・適用版・Linux実機受入は未確定。 |
 | 2026-11-16 | [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)でFoundation #5の基本ユーザーランド方針を追加。Nagi固有のサービス・API・アプリ環境は独自設計、libc・基本ライブラリ・基礎ツールはOSSを選択活用、既存distributionのユーザーランド一式は製品基盤にしない。具体libc・ABI・rootfs・採用版は未決定。B1 #1〜#5の方針検討は一巡したが、#4のA/B正式採用やLinux target受入は未完了。 |
