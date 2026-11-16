@@ -6,6 +6,20 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Foundation統合とDEC改番（2026-11-16）
+
+PR #133〜#140のFoundation #6〜#35に関する方針を、先行する#1〜#5の決定と共存させる。並行branchで重複したIDは以下のように分離し、内容・索引・関連参照を維持する。DEC-094〜104とFoundationの`f25`〜`f35`は改番しない。
+
+| 元のPR・ID | 統合後の正本ID | 対象 |
+|---|---|---|
+| #133 DEC-082〜087 | DEC-082〜087（維持） | 電源ライフサイクル・Identity・Permission・IPC・Secrets・Trust |
+| #135 DEC-082 | [DEC-105](DEC-105-user-environment-backup-and-wayback.md) | #16 Backup / Restore |
+| #136 DEC-083〜087 | DEC-106〜110 | #17 Device Manager・#18 Network Devices・#19 Display / GPU・#20 Input・#21 Audioの順 |
+| #136 DEC-092 | DEC-092（維持） | #22 周辺機器 |
+| #139 DEC-094〜103／#140 DEC-104 | DEC-094〜104（維持） | #25〜#35 |
+
+日付付き本文の「main未マージ」「別PR側の記録」とFoundation概要表の初回評価は、記録当時の履歴として保持する。現在の製品方針は本索引の正本DECと[Foundation各詳細欄](NAGI_OS_FOUNDATION_CHECKLIST.md)を参照する。全35項目の方針検討と技術選定・実装・Linux image／実機受入を区別し、既存Release／Activation／Acceptance Gate、担当・開始権限は変更しない。#4 InitのA/B正式選択など、各DECの未確定事項も継続する。
+
 ## 正本と記録のルール(2026-11-15、[DEC-050](DEC-050-public-specification-repository.md))
 
 **相談はチャット、決定済み仕様の正本はこの公開リポジトリ `Roy-To/NagiOS`。** 詳細は [OPERATING_RULES.md](OPERATING_RULES.md)。2026-11-15に、それまで非公開リポジトリ `Roy-To/NagiOS-internal` に保存していた仕様・構想をここへ移した。各文書に残る「Privateに保存」「Publicへ転載しない」は移管前の記述で、DEC-050が優先する。
@@ -164,6 +178,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-101 | [Device Connectivity：Linux／OSS基盤＋Nagi独自端末連携Protocol、独自通信技術の並行研究](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（#32 Bを標準、Nagiの意味的端末連携Protocolを設計、必要な低層通信は限定研究）／PROVISIONAL（具体Protocol／Transport・独自通信採否・端末／Release／受入） | 2026-11-16 |
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
 | DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
+| DEC-104 | [Build / Supply Chain：B先行と独立検証・強化自動化Cの正式な将来目標](DEC-104-build-supply-chain-baseline-independent-verification-staged.md) | CONFIRMED（統合供給網管理B先行・C正式目標）／PROVISIONAL（ツール・CI規模・予算・日程・閾値・必須Release・Linux実証） | 2026-11-16 |
 | DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・Wayback連携・必要時のC追加）／PROVISIONAL（詳細・技術・適用版） | 2026-11-16 |
 | DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
 | DEC-107 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
@@ -376,3 +391,9 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## #16 Backup / Restoreの決定・変更履歴（2026-11-16）
 
 [DEC-105](DEC-105-user-environment-backup-and-wayback.md)でB方式（ユーザー環境全体のバックアップ）を基本とし、Waybackと分担・連携し、必要に応じC方式を追加選択肢とする方向を記録した。Cの内容・対象、保存方式・鍵・保持・復元詳細・提供版は未確定。DEC-014のWorkspace保存／移行、DEC-026の実際の復元可能性、DEC-004の明示的忘却を維持し、台帳#16と関連ロードマップへ参照を追加。仕様記録であり実装・受入済みではない。
+
+## Foundation #35：Build / Supply Chain（2026-11-16）
+
+[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)で「Bから始めてCを将来の正式目標にする」を記録。Linux kernel／rootfs／Nagi userland／apps等の入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証、成果物整合性をBとして先行し、隔離／独立検証・複数Architectureの継続検証・より厳格な改ざん検出／セキュリティ自動化Cへ段階導入する。SBOMによるライセンス適法性の自動認定、LLM推測による証拠・署名検証の代替をしない。具体ツール・規模・予算・日程・閾値・必須Release・Linux target実証はPROVISIONAL。既存Release／Activation／Acceptance Gateは維持する。
+
+**変更履歴:** 2026-11-16 — DEC-104、Foundation #35とロードマップ索引を追加・更新。DEC-100／103等の[PR #139](https://github.com/Roy-To/NagiOS/pull/139)の記録はmain未統合として区別し、同ブランチは変更しない。#35まで35項目の方針検討は一巡した（別PR記録を含む）が、全件main統合・技術詳細・未確定点の解消・実装／Release受入は未完。次段階の優先候補はDEC-104のREVIEW NOTEを参照。
