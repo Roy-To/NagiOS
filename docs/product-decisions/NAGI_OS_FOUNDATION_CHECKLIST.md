@@ -230,12 +230,12 @@
 ### 11 システム信頼基盤
 
 - **検討対象:** boot／system／app署名、trust anchors、Owner／Developer Mode、失効・rollback・鍵更新。
-- **製品決定:** CONFIRMED＝Owner選択と認可境界を維持 [DEC-017][D17]／[020][D20]、Linux移行で緩和しない [DEC-043][D43]。OPEN＝Linux Secure Boot等の製品構成。
-- **技術設計:** 旧boot trust／署名slot／package chain設計あり。Secure Boot、署名検証、暗号化、データ認可を混同しない。
+- **製品決定:** CONFIRMED＝Owner選択と認可境界を維持 [DEC-017][D17]／[020][D20]、Linux移行で緩和しない [DEC-043][D43]、B案＝対応機器はハードウェア信頼機構を活用し、非対応機器も署名検証する段階的信頼基盤、限定Developer Mode／Owner認可、製品・開発署名鍵の分離と更新／失効・安全な復旧を設計対象 [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)。PROVISIONAL＝具体Secure Boot／Trust Anchor・Rollback・機器／版。
+- **技術設計:** 旧boot trust／署名slot／package chain設計あり。ハードウェア信頼の起点とソフトウェア署名検証を段階的に組み合わせる方向。特定のLinux Secure Boot／鍵／署名の採用は未決定。署名検証、暗号化、データ認可を混同しない。
 - **実装・target受入:** 旧基盤の検証経路あり。production鍵、鍵保管、rollback counter等の残件を保持。Linux trust chain・実機未確認。
 - **依存・責任候補:** 1, 2, 3, 8, 10, 31, 35。security／boot／update候補。
 - **根拠:** [boot trustと残件][BOOT]、[0.1 §21・24・56–58][S01]、[0.2 §16][S02]。
-- **次に決める:** threat model、開発鍵と製品鍵の境界、更新・失効・回復とOwner overrideの具体契約。
+- **次に決める:** #11のB案に沿ったThreat Model、機器別Trust Anchor／検証チェーン、開発鍵／製品鍵の具体運用・失効、rollback防止・失敗Recovery、Developer Mode／Owner overrideの条件とLinux target受入。
 
 <a id="f12"></a>
 ### 12 Storage / Filesystem
@@ -698,3 +698,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #10 Secrets／Key Management
 
 [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、Nagi独自Secrets ServiceとTPM／TEE等対応機器優先＋非対応機器の暗号化ローカル保管というハイブリッドC案をCONFIRMED。用途・User／Profile分離、Identity／Permissionによる認可、秘密値の不要なAI／App露出・ログ露出・自動Cloud預託の防止、更新・失効と回復限界の明示を含む。具体暗号・KDF・鍵階層／形式・用途別回復・Linux強制／実機検証・Releaseは未決定。B2 #6〜#10の方針検討は一巡したが正式実装・受入ではない。
+
+### 2026-11-16 Foundation #11 段階的な信頼基盤
+
+[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器のハードウェア信頼機構を活用し、非対応機器でもソフトウェア署名検証するB案をCONFIRMED。OS／更新／アプリの署名と改ざん検出、Ownerの認可付きDeveloper Mode、製品／開発署名鍵の分離・更新／失効・危険なRollbackの防止と安全な復旧を設計対象とする。具体的Linux trust chain／Secure Boot／鍵運用・anti-rollback・実機対応／受入・版は未決定。B2の#7〜#11が高水準方針として一巡したが、Runtime／Linux実機受入は未完了。
