@@ -1,8 +1,11 @@
 # DEC-060 — 応答速度を優先するIMEとAIを活用した学習
 
-**状態:** CONFIRMED（IME／日本語入力の賢さ、リアルタイム応答優先、許可されたデータによるAI学習、安全境界、AI不可時の通常入力とモデル非依存の継続性を目指す方針）／PROVISIONAL（具体方式・性能値・適用版）  
-**最終合意日:** 2026-11-16  
-**対象:** NagiのIME／日本語入力の将来製品方針。提供時期・版割当ては未確定。  
+**状態:** CONFIRMED（IME／日本語入力の賢さ、リアルタイム応答優先、許可されたデータによるAI学習、安全境界、AI不可時の通常入力とモデル非依存の継続性を目指す方針）／PROVISIONAL（具体方式・性能値・適用版）
+
+**最終合意日:** 2026-11-16
+
+**対象:** NagiのIME／日本語入力の将来製品方針。提供時期・版割当ては未確定。
+
 **関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[言語設計](../architecture/language-architecture.md)、[ADR-0015](../decisions/0015-language-architecture.md)、[ADR-0054（0.1のかな限定IME）](../decisions/0054-m18-japanese-ime-kana-only.md)、[ロードマップ索引](roadmaps/README.md)
 
 ## 目的とユーザーの意図
