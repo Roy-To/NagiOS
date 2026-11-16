@@ -1,5 +1,7 @@
 # NAGI OS 0.3 Architecture Roadmap
 
+> **2026-11-16 近距離ファイル共有:** [DEC-064](../DEC-064-nagi-share-nearby-file-transfer.md)で、Nagi Share（仮称）の純正OS機能としての採用を確定した。Local／Offline-firstの単発ファイル直接転送を扱い、Internet・Cloud account・LLMを必須にしない。DEC-014のWorkspace移行・同期と既存Continuity構想は別範囲であり、本機能のHandoff拡張はアイデア段階。技術・UI詳細・対応版／端末・性能は未確定で、0.3の必須機能や実装済みを意味しない。既存の認可・情報区分・所有／Profile境界とGateを維持する。詳細は[ロードマップ索引](README.md#近距離ファイル共有の製品方針2026-11-16)を参照。
+
 > **2026-11-15 公開移管:** [DEC-050](../DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 ## Linux基盤への適用注記（2026-11-13）

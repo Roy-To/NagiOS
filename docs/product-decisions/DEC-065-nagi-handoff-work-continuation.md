@@ -58,3 +58,5 @@ Nagi Share（仮称）は近距離での単発ファイル直接転送、Nagi Ha
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | Nagi Handoff（仮称）を純正OS機能として採用。Nagi端末横断の意味的な作業継続・Capabilityに応じたUI再構築と既存Continuity／Home／DEC-014の再利用、許可に基づく実体取得、現行認可・Source／Revision検証、正確な結果表示、Task／副作用Actionの自動再実行禁止を確定。名称・復元範囲・経路・クラウド・性能・適用版は未確定。単発ファイル転送のNagi Shareと区別する。 |
+
+2026-11-16 統合注記: 上記のShare未マージは作成時点の履歴。現在の正本は[DEC-064](DEC-064-nagi-share-nearby-file-transfer.md)。接続の初期LANターゲットと共通抽象は後続の[DEC-066](DEC-066-device-connectivity-lan-first.md)を参照し、具体方式・実体可用性・対応版の未確定を維持する。

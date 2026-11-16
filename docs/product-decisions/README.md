@@ -71,6 +71,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | ID | テーマ | 状態 | 最終決定 |
 |---|---|---|---|
 | DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
+| DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-001 | [AIの自律性とAction](DEC-001-agent-autonomy-actions.md) | CONFIRMED | 2026-10-25 |
 | DEC-002 | [クラウドAI・外部情報共有](DEC-002-cloud-ai-data-sharing.md) | CONFIRMED | 2026-10-25 |
 | DEC-003 | [Memoryの機密分類と所有範囲](DEC-003-memory-classification.md) | CONFIRMED | 2026-10-25 |
@@ -142,6 +143,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 - `docs/workstreams/`、`.dev/workstreams.json`: 個別実装と進捗の正本。
 
 2026-10-25にユーザーが提供した `Nagi_OS_0.3_Architecture_Roadmap_Revised.md` と `Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md` は本フォルダの内容を整合させる参照資料。**本記録を追加するだけで、それらの改訂ファイルがGitHub mainへ自動反映されたわけではない**。
+
+## 決定履歴 — 近距離ファイル共有（2026-11-16）
+
+[DEC-064](DEC-064-nagi-share-nearby-file-transfer.md)にNagi Share（仮称）の純正OS機能としての採用を記録した。写真・PDF・一般ファイルの日常の単発転送を対象とし、DEC-014の選択式Workspace移行・同期と区別する。ページ／Project／Workspace／作業状態のHandoffへの拡張は今回の確定範囲に含めない。技術・対応版・性能の確約や実装完了を意味しない。
 
 ## 将来の追加手順
 
