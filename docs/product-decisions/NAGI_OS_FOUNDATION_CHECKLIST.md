@@ -153,12 +153,12 @@
 ### 4 Init / Service Manager
 
 - **検討対象:** PID1、起動順序、依存解決、ready／health、再起動上限、shutdown、service権限。
-- **製品決定:** CONFIRMED＝Nagiがuserland責務を持つ [DEC-043][D43]、AI非依存の基本操作 [DEC-009][D09]。OPEN＝init／service managerの採用。
+- **製品決定:** CONFIRMED＝Nagiがuserland責務を持つ [DEC-043][D43]、AI非依存の基本操作 [DEC-009][D09]、A（Nagi独自の最小PID 1＋独自Service Manager）を第一候補にB（既存OSS軽量Init＋Nagi Service Manager）との短期実装比較後に最終選択する手順 [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)。PROVISIONAL＝A/B正式採用・試験詳細。OPEN＝最終方式の選択。
 - **技術設計:** 0.1 supervision、0.2 Supervisor契約あり。Linux PID1／process／service registrationの具体接続は未定。
 - **実装・target受入:** `user/nagi-init/`は旧guest用。manifest検証やhost監視モデルはLinux PID1動作を証明しない。Linux未確認。
 - **依存・責任候補:** 2, 5, 7, 8, 9, 26, 29。`os-core`／app supervisor候補。
 - **根拠:** [0.1 §68][S01]、[0.2 §13.2・M13][S02]、[移行補足][ADD]。
-- **次に決める:** 最小service graph、失敗・停止・再起動の契約、PID1とapp supervisorの責務分離。
+- **次に決める:** A第一候補／B比較方針に従い、限定的な同条件のLinux実装比較で起動・プロセス回収・失敗／再起動・工数／保守性を確認し、A/Bの正式採用を最終決定する。最小service graphとPID 1・Service Manager・app supervisorの責務分離は具体化待ち。
 
 <a id="f05"></a>
 ### 5 基本ユーザーランド
@@ -670,3 +670,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #3 System Imageの基本方針
 
 [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で通常時read-only System、OS更新後も保持するUser Data分離、A/B更新と復旧、AIモデルの論理分離をCONFIRMEDとした。旧0.1の6partition/FAT32等の構成をLinuxへ自動採用せず、具体partition・filesystem・容量・Recovery・データschema・Linux target受入・提供版は未確定。
+
+### 2026-11-16 Foundation #4 Init／Service Managerの選定プロセス
+
+[DEC-080](DEC-080-init-service-manager-ab-evaluation.md)に、A（最小Nagi独自PID 1＋独自Service Manager）を第一候補とし、B（既存軽量Init＋Nagi Service Manager）との短期実装比較で最終決定する方針をCONFIRMEDとして保存。方式の恒久採用、検証期間の数値・結果、Linux target受入・適用版は未決定。既存のLinux移行権限／Release Gateを維持する。
