@@ -175,67 +175,67 @@
 ### 6 電源ライフサイクル
 
 - **検討対象:** shutdown／reboot／sleep／hibernate／resume、ロック・保存・job・deviceの協調と失敗処理。
-- **製品決定:** CONFIRMED（main）＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]。CONFIRMED（製品方針）＝[DEC-068][P68]のSleep方針。PROVISIONAL＝方式・順序・端末・時期。
-- **技術設計:** Linux標準機構＋決定論的Nagi serviceというPR方針。s2idle／deep／swap／hibernate技術はOPEN。
+- **製品決定:** CONFIRMED＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]、[DEC-068][P68]のSleep方針、[DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)の継続的Power管理、およびNagiによる電源遷移の一元管理／サービス協調／失敗時の中止・再試行・警告／データと安全性の優先 [DEC-082](DEC-082-power-lifecycle-coordination.md)。PROVISIONAL＝状態機械・処理順序・具体強制停止条件・端末・時期。
+- **技術設計:** Linux標準機構＋決定論的NagiサービスによるSleepに加え、全電源遷移を統括する論理的Lifecycle Coordinator責務を確定。独立プロセスか既存Service Managerへ統合するか、状態機械・s2idle／deep／swap／hibernate等の実装技術はOPEN。
 - **実装・target受入:** 通常RAM保持resume、障害後の再構成、hibernateを別評価。Linux image・実機の電源遷移は未確認。
 - **依存・責任候補:** 4, 7, 10, 14, 15, 17, 23, 25, 33。Power／Sleep候補＋各サービスowner。
 - **根拠:** [PR #129][PR129]、[0.2 §5.2・13・14・48][S02]、[DEC-020][D20]。
-- **次に決める:** 保存・ロック・停止・再検証の状態機械と失敗時の扱い。既存0.2のsuspend非必須は変えない。
+- **次に決める:** 保存・ロック・停止・再検証の状態機械、各サービスの協調契約、失敗ごとの中止／再試行／警告・強制終了条件を具体化する。既存0.2のsuspend非必須は変えない。
 
 <a id="f07"></a>
 ### 7 Identity / Session
 
 - **検討対象:** local user／profile／Owner／Guest、認証、session lease、ロック、起動後復旧とdevice identity。
-- **製品決定:** CONFIRMED＝AI／Roleが権限を増やさない [DEC-009][D09]／[020][D20]、復旧時の現行権限再評価 [DEC-022][D22]。OPEN＝Linux資格情報との具体対応。
+- **製品決定:** CONFIRMED＝AI／Roleが権限を増やさない [DEC-009][D09]／[020][D20]、復旧時の現行権限再評価 [DEC-022][D22]、NagiのUserId／ProfileId／SessionIdを正本としLinux UID／GIDは低レイヤー保護に利用、ログイン／ロック等をNagi管理、Profile別データ／Memory分離とOwner自動昇格禁止 [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)。PROVISIONAL＝具体的UID／GID mapping・認証方式・Session失効・実装版。
 - **技術設計:** 0.2 stable IDs・local session契約あり。UID／PIDだけでPrincipal／Profile／Taskを代替しない。
 - **実装・target受入:** 旧認証・session資産とhost foundationあり。[PR #48][PR48]のDesktop統合は未マージ。Linux session／ロック受入未確認。
 - **依存・責任候補:** 4, 8, 9, 10, 14。`ident-01`／`capability-permissions`／session担当候補。
 - **根拠:** [0.1 §22–24][S01]、[0.2 §8–10・M08][S02]、[registry][REG]。
-- **次に決める:** kernel credentialsと論理Identityのbinding、expiry／logout／resume時の失効・再認証条件。
+- **次に決める:** Nagi論理Identityを正本にする方針に従ってLinux kernel credentialsとの具体的binding、expiry／logout／lock／resume時のSession失効・再認証条件、Guest／cross-profile拒否の実装とLinux target受入を設計する。
 
 <a id="f08"></a>
 ### 8 Permission / Sandbox
 
 - **検討対象:** app／service／AI隔離、データ・device・network権限、最小権限・取消・狭窄・Owner操作。
-- **製品決定:** CONFIRMED＝非特権AI、正規API、現行認可と限定GUI fallback [DEC-020][D20]／[027][D27]。OPEN＝Linux強制機構。
+- **製品決定:** CONFIRMED＝非特権AI、正規API、現行認可と限定GUI fallback [DEC-020][D20]／[027][D27]、Nagi Permission／Capabilityの判断とLinux Sandboxの実効隔離を組み合わせて直接アクセス迂回を防ぐB案、最小権限・取消／失効・狭窄・AI／アプリの特権非自動付与 [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)。PROVISIONAL＝具体的Linux強制技術・配置／受入条件。
 - **技術設計:** Nagi Capability／PermissionとLinux capabilitiesは別概念。namespace／seccomp／LSM等の採否は本台帳では決めない。
 - **実装・target受入:** `crates/nagi-capability/`等のhost／旧kernel資産あり。broker外のLinux syscall・device nodeへの迂回拒否は未確認。
 - **依存・責任候補:** 1, 7, 9, 10, 11, 26。`capability-permissions`／`os-core`／security担当候補。
 - **根拠:** [0.1 §8・23・40・57][S01]、[0.2 §10・46][S02]、[移行ADR][ADR-L]。
-- **次に決める:** threat modelと迂回経路、caller・profile・resource別の拒否／失効／取消のLinux受入条件。
+- **次に決める:** Nagi判断＋Linux強制隔離方針に沿い、Threat Model／迂回経路、実装するLinux機構、caller／profile／resource別拒否・失効・取消、broker／syscall／deviceへの直接アクセス拒否のLinux target受入を具体化する。
 
 <a id="f09"></a>
 ### 9 IPC / Service Broker
 
 - **検討対象:** transport、service discovery／identity、IDL／versioning、caller binding、timeout／cancel、large data。
-- **製品決定:** CONFIRMED＝typed Public Action／Serviceと決定論的実行 [DEC-020][D20]／[027][D27]。PROVISIONAL＝具体wire／配置。OPEN＝Linux transport。
-- **技術設計:** 0.2 transport-independent契約あり。旧Kernel Channel・VMOをLinuxで無変更利用できるとしない。
+- **製品決定:** CONFIRMED＝typed Public Action／Serviceと決定論的実行 [DEC-020][D20]／[027][D27]、B案＝Nagi独自の型付きIPC／Service API・Brokerを保ち低レイヤーにLinux標準IPCを活用、Transport独立の契約とNagi Identity／Permissionを強制する基本方針 [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)。PROVISIONAL＝具体transport（Unix Domain Socket候補）／wire／配置・受入。
+- **技術設計:** 0.2のtransport-independent契約を継承し、Linux標準IPC上にNagi Broker／型付きService APIを実現する方向。UDS等は比較候補で未採用。旧Kernel Channel・VMOをLinuxで無変更利用できるとしない。
 - **実装・target受入:** `crates/nagi-action-ipc/`／`crates/nagi-search-ipc/`、`sdk/rust/src/app_contract/ipc.rs`等の契約と旧IDL／channel実装あり。Linux peer認証・権限狭窄・再起動時binding未確認。
 - **依存・責任候補:** 4, 7, 8, 29。`system-service-ipc`／`platform-apis`／`os-core`。
 - **根拠:** [0.1 §9–11][S01]、[0.2 §11・M10][S02]、[影響表][IMPACT]。
-- **次に決める:** local transport、実caller確認とhandle転送、bounded message、cancel／replay／version不一致の契約。
+- **次に決める:** 採用するLinux local transport（Unix Domain Socket等）、実CallerとNagi Sessionのbinding、fd／shared memory・bounded message、cancel／replay／version不一致・Service再起動時の契約とLinux target受入。
 
 <a id="f10"></a>
 ### 10 Secrets / Key Management
 
 - **検討対象:** credentials、device／package／storage鍵、生成・保管・利用・rotation・revocation・回復・消去。
-- **製品決定:** CONFIRMED＝Workspace Exportのpassphrase基本・別保管回復手段・復号と認可の分離 [DEC-014][D14]。PROVISIONAL＝暗号方式・KDF等。OPEN＝全OS keystore／TPM等の採否。
-- **技術設計:** 旧署名・credential・trust実装は用途限定。Export鍵契約をhibernate／device pairingへ無条件転用しない。
+- **製品決定:** CONFIRMED＝Workspace Exportのpassphrase基本・別保管回復手段・復号と認可の分離 [DEC-014][D14]、C案＝Nagi独自Secrets ServiceでOS秘密情報・鍵を用途／User／Profile別に管理し、TPM／TEE等の対応機器ではハードウェア保護を優先、非対応機器は暗号化ローカル保管／回復経路を利用、Identity／Permissionによる認可・AIへの秘密値非露出・更新／失効・無断ログ／クラウド預託なし [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)。PROVISIONAL＝暗号方式・KDF・具体Key Store／TPM／用途別回復可能性・適用版。
+- **技術設計:** ハイブリッドKey Storeの論理管理契約を採用方針とするが、TPM／TEE／software保護の実装とLinux adapterは未選定。旧署名・credential・trust資産は用途限定で、Export鍵契約をhibernate／device pairingへ無条件転用しない。
 - **実装・target受入:** 旧boot／package検証資産あり。製品鍵運用・全OS秘密保管・Linux／実機の鍵保護は未確認。
 - **依存・責任候補:** 7, 8, 11, 12, 16, 31, 32。security／identity／update候補。
 - **根拠:** [boot trust][BOOT]、[0.2 §16・46][S02]、[Connectivity DEC-066][P66]／[Sleep DEC-068][P68]（PR）。
-- **次に決める:** 鍵の用途別所有者、復旧可能範囲と喪失時挙動、OS全体の保管・失効API。
+- **次に決める:** 確定したC案に従い、鍵の用途別所有・鍵階層、ハードウェア／ソフトウェア保管と回復可能範囲・全喪失時挙動、Secrets APIの認可・ローテーション／失効、Linux targetでの秘密露出／アクセス拒否受入を具体化する。
 
 <a id="f11"></a>
 ### 11 システム信頼基盤
 
 - **検討対象:** boot／system／app署名、trust anchors、Owner／Developer Mode、失効・rollback・鍵更新。
-- **製品決定:** CONFIRMED＝Owner選択と認可境界を維持 [DEC-017][D17]／[020][D20]、Linux移行で緩和しない [DEC-043][D43]。OPEN＝Linux Secure Boot等の製品構成。
-- **技術設計:** 旧boot trust／署名slot／package chain設計あり。Secure Boot、署名検証、暗号化、データ認可を混同しない。
+- **製品決定:** CONFIRMED＝Owner選択と認可境界を維持 [DEC-017][D17]／[020][D20]、Linux移行で緩和しない [DEC-043][D43]、B案＝対応機器はハードウェア信頼機構を活用し、非対応機器も署名検証する段階的信頼基盤、限定Developer Mode／Owner認可、製品・開発署名鍵の分離と更新／失効・安全な復旧を設計対象 [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)。PROVISIONAL＝具体Secure Boot／Trust Anchor・Rollback・機器／版。
+- **技術設計:** 旧boot trust／署名slot／package chain設計あり。ハードウェア信頼の起点とソフトウェア署名検証を段階的に組み合わせる方向。特定のLinux Secure Boot／鍵／署名の採用は未決定。署名検証、暗号化、データ認可を混同しない。
 - **実装・target受入:** 旧基盤の検証経路あり。production鍵、鍵保管、rollback counter等の残件を保持。Linux trust chain・実機未確認。
 - **依存・責任候補:** 1, 2, 3, 8, 10, 31, 35。security／boot／update候補。
 - **根拠:** [boot trustと残件][BOOT]、[0.1 §21・24・56–58][S01]、[0.2 §16][S02]。
-- **次に決める:** threat model、開発鍵と製品鍵の境界、更新・失効・回復とOwner overrideの具体契約。
+- **次に決める:** #11のB案に沿ったThreat Model、機器別Trust Anchor／検証チェーン、開発鍵／製品鍵の具体運用・失効、rollback防止・失敗Recovery、Developer Mode／Owner overrideの条件とLinux target受入。
 
 <a id="f12"></a>
 ### 12 Storage / Filesystem
@@ -678,3 +678,27 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #5 基本ユーザーランド方針
 
 [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有サービス／API／アプリ環境の独自設計と、汎用libc・ライブラリ・基礎ツールのOSS選択利用、既存Linuxディストリビューション完成ユーザーランド非採用をCONFIRMED。具体OSS・ABI・POSIX／relibc等は未決定。B1の#1〜#5は方針検討が一巡したが、#4のA/B比較と正式採用、Linux image／実機acceptance・Release条件は完了ではない。
+
+### 2026-11-16 Foundation #6 電源ライフサイクル協調方針
+
+[DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiによるshutdown／reboot／sleep／resume／将来のhibernateを含む電源遷移の統括、各サービスの保存・停止・復帰準備と失敗時の中止／再試行／警告、データと安全性の優先をCONFIRMED。DEC-067／068の既存正本・DEC-014／022の復旧とTask非自動実行を維持。状態機械・処理順序・timeout・実装構成／端末・Linux target受入と提供版はPROVISIONAL。
+
+### 2026-11-16 Foundation #7 Identity／SessionとLinux資格情報の分担
+
+[DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、Nagi独自のUserId／ProfileId／SessionIdを論理Identity正本とし、Linux UID／GIDは低レイヤーのアクセス制御に利用するB案をCONFIRMED。ログイン／ロック／復帰の認証・権限はNagiの管理下で、Profile別データ・Memory・Workspace・Task分離とAI／アプリのOwner非昇格、Guestと将来Team対応を維持。具体マッピング・認証技術・Session lease／失効・Linuxでの強制／受入・Releaseは未決定。
+
+### 2026-11-16 Foundation #8 Permission／SandboxのLinux強制隔離
+
+[DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、NagiのPermission／Capability正本＋Linuxの実効的なSandbox／アクセス制御の併用（B案）をCONFIRMED。User／Profile／Session／App／Task／Resourceの現行権限、直接経路の迂回防止、最小権限・取消／失効／狭窄、AI・アプリ非特権、重複承認不要を維持。Linux方式の具体選定、強制隔離の実装・迂回拒否／失効試験・リリース割当ては未決定。
+
+### 2026-11-16 Foundation #9 IPC／Service Broker選定
+
+[DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagi独自の型付きIPC／Service API・Service BrokerとLinux標準IPCを組み合わせるB案を基本方針としてCONFIRMED。Nagi論理Identity／PermissionをCallerに結び付け、Transport独立の契約を維持する。Unix Domain Socket等の具体採否、受渡し・キャンセル・再起動・失効の詳細、性能・Linux target／実機受入、適用版はPROVISIONAL。Kernel独自IPC開発は初期必須としないが将来の限定的検討を禁止しない。
+
+### 2026-11-16 Foundation #10 Secrets／Key Management
+
+[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、Nagi独自Secrets ServiceとTPM／TEE等対応機器優先＋非対応機器の暗号化ローカル保管というハイブリッドC案をCONFIRMED。用途・User／Profile分離、Identity／Permissionによる認可、秘密値の不要なAI／App露出・ログ露出・自動Cloud預託の防止、更新・失効と回復限界の明示を含む。具体暗号・KDF・鍵階層／形式・用途別回復・Linux強制／実機検証・Releaseは未決定。B2 #6〜#10の方針検討は一巡したが正式実装・受入ではない。
+
+### 2026-11-16 Foundation #11 段階的な信頼基盤
+
+[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器のハードウェア信頼機構を活用し、非対応機器でもソフトウェア署名検証するB案をCONFIRMED。OS／更新／アプリの署名と改ざん検出、Ownerの認可付きDeveloper Mode、製品／開発署名鍵の分離・更新／失効・危険なRollbackの防止と安全な復旧を設計対象とする。具体的Linux trust chain／Secure Boot／鍵運用・anti-rollback・実機対応／受入・版は未決定。B2の#7〜#11が高水準方針として一巡したが、Runtime／Linux実機受入は未完了。
