@@ -2,10 +2,10 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標）／PROVISIONAL（版別の詳細範囲・順序・実装詳細）  
-**最終確認日:** 2026-11-04  
+**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標、DEC-074の長期的な組織方向）／PROVISIONAL（版別の詳細範囲・順序・実装詳細）  
+**最終確認日:** 2026-11-16  
 **適用候補:** Nagi OS 0.5〜1.0  
-**関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的と位置付け
 
@@ -14,6 +14,10 @@
 本DECとMaster Roadmapは、実装仕様、Release commitment、Release activation、Workstream開始許可ではない。既存の0.1 / 0.2 / 0.3 / 0.4のGate、Acceptance、Workstream ownerを変更しない。各後続版も、適用される前版のTarget Runtime acceptanceと個別のactivation判断を経る。
 
 ## 確認済みの製品方針と境界
+
+### 2026-11-16 確認：当面のAI組み込みOS体験を優先
+
+[DEC-074](DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとして保持する。以下のPhase・版別配置は候補のままであり、組織の拡大を短期の優先項目や1.0の必須要件へ昇格させない。具体的な提供版、階層数、実装順序はPROVISIONAL。既存0.3／0.4 Gateと初期の単一Nagiによるbuilder Role方式は変更しない。
 
 ### 2026-11-05 確定：初期`builder`実行方式C
 
@@ -27,6 +31,7 @@
 - **隔離編集（DEC-018）:** Nagiの`builder` Roleは原本を保護した隔離領域で作業する。Nagiは差分、検証証拠、承認Scope、現在のPermission、対象Resourceの現行revision / 競合状態、原本内容の復旧可能な保護を確認する。通常・Scope内・検証済み・非競合で保護に成功した変更だけを、実行時に再認可されるPublic Action経由で条件付き反映できる。不確実・高リスク・失敗・競合・保護失敗等はユーザー確認へ回す。Git commit / push / production反映は別許可。
 - **作業データ整理（DEC-019）:** Task専用の一時データは、安全な反映・検証の後、必要な差分、証拠、Activity、復旧情報が保持されたことを確認した場合に限り整理できる。失敗、部分成功、確認待ち、停止・中断、状態不明、共有中または保護対象のデータは保持する。所有者、使用中か、参照関係、Permission、保持Policyが不明なら整理を保留する。保持期間・容量上限は未確定。
 - **Nagiをユーザー窓口とする:** Agentが増えても、対話、承認、進捗、成果報告の一貫した窓口はNagiとする。RoleやModelは権限を与えない。成果はAgentの成功申告だけでなく、再現可能な証拠に照らして判断する。
+- **DEC-074 — 人間が管理する階層型AI組織:** 長期的には、ユーザー1人が唯一の人間Managerとなり、複数の統括AIと各統括AI配下の専門Worker Agentが協働する組織を目指す。必要な規模・階層は利用可能な端末資源に応じて将来拡張できる方向を確認する。Nagiを一貫したユーザー窓口とする既存決定および初期0.4の単一Nagi builder Role方式を維持する。NagiとSupervisorの関係、組織構造・実行方式・適用版は未確定であり、本DECは版割当、独立Agent、並列実行、Permissionの変更を決めない。
 
 ### 既存製品体験（DEC-009〜014）
 
@@ -71,6 +76,7 @@
 - DEC-016 / DEC-018のRisk taxonomy、必須検証、確認閾値、保護方式、resource budget。
 - DEC-020のContext / Event schema、公開イベント、購読権限、優先順位・集約、推論scheduler、legacy-app fallback、metrics baselineと性能目標。
 - 対応Model、voice provider、hardware profile、parallelism、fairness、numerical budget。
+- DEC-074の組織構造：Supervisor数・役割・階層、各階層のAgent identity / Session、Nagiの位置付け、Manager向けの指示・監督UI、および性能に応じた構成変更の条件。
 - Task Log、Activity、Memory、ArtifactのRetention / Redaction / Promotion、API / schema versioning、migration guarantee、互換性support期間。
 - Rust / C / C++ migration優先対象、toolchain、diagnostic、公開API mapping、アプリごとの互換性。
 - 1.0のpublic launch日程、developer / distributionの詳細、Storeの役割、公開範囲、Acceptance、support policy。
@@ -99,3 +105,5 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-04 | DEC-017〜020を含む最新のProduct Decisionsと、0.3改訂・0.4+ Roadmapに整合する0.5〜1.0の方向案を記録。DEC-017で明示済みの1.0開発者環境・配布基盤目標を区別し、版別範囲・順序、Multi-user / Multi-device、Organization scope、数値・実装詳細は未確定として記録。 |
+| 2026-11-16 | DEC-074の人間が管理する階層型AI組織を長期方向として追加。既存の0.4方式とユーザー窓口を保持し、組織構造・技術・版割当は未確定のままとした。 |
+| 2026-11-16 | 後続確認：当面のAI組み込み体験型OSを優先し、階層型AI組織は非優先の長期ビジョンと明記。既存Gate・builder Roleと暫定の版別案を維持。 |

@@ -4,13 +4,27 @@
 
 **文書種別:** 長期的な製品ビジョン（DEC・Implementation Specificationではない）  
 **記録日:** 2026-11-14  
-**位置付け:** ユーザーが示した高水準の方向を記録する。具体的な技術、対象機器、性能条件、適用時期は決めない。
+**最終更新日:** 2026-11-16  
+**位置付け:** ユーザーが示した高水準の方向を記録する。個別の確定事項は関連DECを正本とし、具体的な技術、対象機器、性能条件、適用時期は決めない。
+**追記日:** 2026-11-15  
+
+> **2026-11-16 後続決定:** [DEC-052](DEC-052-physical-test-device-candidates.md)に実機テスト候補の選定方針を記録した（PC＝Raspberry Pi・型番未指定、タブレット＝PineTab2、スマートフォン／モバイル＝未選定）。以下の「具体的な対象機器は未確定」は本ビジョン自体の範囲を示す。候補選定は同DECを参照し、正式対応・性能・購入・時期の確定とは区別する。
 
 ## ビジョン
 
 Nagi OSが長期的に目指すのは、**人間がコンピューターに合わせるのではなく、コンピューターが人間に合わせるOS**である。
 
 人が機器ごとの細かな操作や正確なポインティングに慣れることを前提にせず、利用者の意図、作業中の文脈、利用可能な機器と入力方法に合わせて、コンピューター側が理解しやすい情報や操作の候補を整える。対話だけのOSにする構想ではなく、人が必要に応じてGUI、キーボード、ポインティングデバイス、その他の入力方法を選べる体験を保つ。
+
+### 継続利用で成長するPersonal Agent OS
+
+Nagi OSは、単にAI機能を載せるのではなく、許可された経験・作業・ユーザーフィードバックから学び、使い続けるほど利用者の目的・好み・習慣に合わせた実用的な支援を行えるPersonal Agent OSを中核コンセプトとする。モデルの性能向上だけでなく、ユーザーごとの理解と作業の継続性を価値とする。
+
+この製品方針の**CONFIRMED**な範囲、ユーザー所有・訂正・自然忘却とモデル非依存の継続性、権限・情報分類・実装境界は[DEC-057](DEC-057-growing-personal-agent-os.md)を正本とする。長期的な支援品質や対話の適応に関する数値・方式・実装時期はPROVISIONAL。ユーザーの明示指示、AI無効時の通常操作と現行Permissionを維持する。
+
+## 当面の製品優先順位（2026-11-16）
+
+当面は、**AIがOS標準機能として自然に働く、AI組み込み体験型OSとしての確立を優先する**。目的に沿った操作、作業Contextと状態の連続性、対応アプリとの連携を、既存のNagi-first／Intent-firstと作業・データ中心の方針で育てる。階層型Agent Organizationは非優先の長期ビジョンとする。確定した優先順位と未確定の提供版・実装順序は[DEC-074](DEC-074-human-led-agent-organization.md)を正本とする。
 
 ## 長期的な方向
 
@@ -26,6 +40,12 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 同じ作業をすべての画面や入力方式へ一律に押し込むのではなく、その場で使える表示と操作に応じて、人が目的を達成しやすい体験へ整えることを目指す。
 
+### 利用傾向からの潜在的な不便の発見
+
+利用者が課題を明示する前でも、現行のPermission／Privacy条件で利用できるMemoryと実際の利用傾向を手がかりに、反復操作、UI上の不便、回り道の多い処理手順に気づき、観測根拠と不確かさを添えて改善案を提案することを目指す。候補には、操作順序や画面配置の見直し、必要に応じた小規模アプリの改善・作成案も含み得る。これは利用者の感情を断定することや、無断で変更することを意味しない。
+
+**高水準の提案方針は[DEC-073](DEC-073-proactive-friction-discovery.md)でCONFIRMED。** 参照する具体的な利用データ、収集・解析・Score・UI・適用方法、実装版は未確定であり、新たなTelemetry収集や権限を認めない。Memory／Privacy／Permission、明示設定優先、既存Workspaceを無断変更しない方針を維持する。
+
 ### 不確かな入力や指し示しの補助
 
 ポインティングデバイスでは、入力された座標だけでは、人が意図した対象を実際に選んだのか判断しにくい場合がある。立体表示では、どの位置や奥行きを指したのか、人がその対象に触れようとしたのかがさらに曖昧になる可能性がある。
@@ -34,6 +54,14 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 解釈が曖昧なときには、候補の提示や確認を通じて利用者が意図を直せる設計が望ましい。AIの推定や学習は、操作権限や承認を生み出さず、重要な操作を曖昧な入力だけで実行する根拠にもならない。
 
+### 人間が管理する階層型AI組織（DEC-074）
+
+この構想は当面の優先項目には置かず、AI組み込みOS体験を先に確立する。複数Supervisorや階層数を初期体験の必須条件にしない。
+
+長期的には、**利用者1人が唯一の人間Managerとなり、複数の統括AI（Supervisor AI）がそれぞれの専門Worker Agentを率いる組織型OS**を目指す。端末の計算能力や利用可能なResourceが高まるにつれ、必要に応じて組織の規模や階層を拡張できる方向を確認する。資源の増加だけでAgentを自動的に増やすことや、具体的な性能効果を保証するものではない。
+
+ユーザーとの一貫した窓口は既存決定に従いNagiとする。Nagiが複数のSupervisorの一員か、別の調整役かは決めない。SupervisorとWorkerは組織上の役割であり、それぞれに独立したProcess、Session、Modelを持たせることや、同時実行を必須とするものではない。詳細な製品決定は[DEC-074](DEC-074-human-led-agent-organization.md)を参照する。
+
 ## 既存の決定との関係
 
 このビジョンは、既存の製品決定をまとめて置き換えず、その先にある長期的な方向を示す。
@@ -41,8 +69,11 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - **DEC-009:** Nagi-firstを採用しつつ、従来のGUIとAIが利用できない場合の通常操作を維持する決定を引き継ぐ。
 - **DEC-010:** Intent-first UI、作業に応じた表示・Workspace配置の提案と、既存Workspaceや手動配置を尊重する方針を引き継ぐ。
 - **DEC-013:** Hardware-Adaptive Memory EngineはMemory検索等の適応方針であり、低スペック機器上のLLM性能や快適さを実証したものではない。
+- **DEC-057:** Nagiが経験を通じてユーザーへの実用的な適応を高めるPersonal Agent OSであることを全体コンセプトとしてCONFIRMEDとし、0.3のLearning／Memory／Profile／Model Portabilityと整合させる。
 - **DEC-017:** 現時点のアプリ移植支援はPC／Desktopを重点とし、Androidは将来のMobile／Tablet検討対象である。本ビジョンはその優先順位を変更しない。
+- **DEC-073:** 許可された利用傾向から潜在的な不便を見つけ、根拠付きの改善案を出す高水準方針をCONFIRMEDとする。具体的なSignals、Telemetry、診断、UI、自動適用、実装版はPROVISIONALで、既存の承認・権限・データ境界を変更しない。
 - **DEC-020:** 小さく構造化されたContext、型付きPublic Action、決定論的な認可、非特権AI、前景の人間操作を優先する資源配分を維持する。性能向上や省資源効果は測定前に保証しない。
+- **DEC-074:** 当面はAI組み込み体験型OSの確立を優先する。人間をManager、複数のSupervisorとその配下の専門AgentをStaffとする階層型AI組織は非優先の長期ビジョン。具体的な構造・技術・版割当・実装順序は未確定。
 - **DEC-023／026／027:** 作業・データ中心の考え方、検証可能な変更、正規Public Action優先と限定されたGUI fallbackを維持する。
 - **DEC-042／043:** LinuxカーネルとNagi専用ユーザーランドの製品方針を前提にするが、特定の機器、ユーザーランド構成、表示・入力技術を追加で決めない。
 
@@ -55,29 +86,45 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - ローカルLLM、モデル規模・種類、学習・推論・資源管理の技術方式。
 - PC、タブレット、モバイル、車載、立体表示等の具体的な対象機器、対応時期、提供範囲、移行順序。
 - ポインティング、タッチ、音声、視線、ジェスチャー、空間入力等の方式と、個々の方式を使う条件。
+- 潜在的な不便の検知に使える利用傾向・Event・Memoryの種類、収集・保持・監査条件、AI診断方式、Score／確信度、提案UI、頻度・タイミング、自動適用の条件。
+- 小規模アプリの改善案を実開発へ進める際の利用者向け開発体験、Model・Package・配布方式。
 - 本ビジョンを個別の実装仕様、Release、Workstream、Acceptanceへ割り当てるかどうか。
+- 組織階層の数、SupervisorとWorkerの役割・数、Nagiの位置付け、並列実行、Model配置、Resource scheduler、Taskの承認・監督UI、適用Versionと受入条件。
 
 ## 実装・安全境界
 
 本ビジョンの記録は、実装開始、Release activation、Workstream登録、端末対応、性能達成、既存Gateの変更を許可しない。0.1から1.0までの版境界・既存Acceptance・実装仕様を変更しない。
 
-通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。
+通常のGUI、キーボードやポインティングデバイスによる直接操作は維持する。AIとModel Runtimeは非特権のまま、Context取得とAction実行は現行のPermission／Capability／Policyおよび承認済みTaskの範囲に従う。組織上の上下関係やSupervisorの役割は権限を生まず、委譲されたScopeは親の権限を超えない。AIの解釈で権限を増やしたり、正規のOS／Public Action経路や既存の確認を迂回したりしない。モデルの利用、データ共有、Memoryの保存・学習・忘却にも該当する既存決定を適用する。潜在的な不便の探索は、新たなTelemetry収集、Memory・アプリ・ファイルへのアクセス許可、Task開始、自動変更、アプリ配布の許可を生まない。既存の明示設定や承認境界を優先する。
 
-この文書はPrivateの長期ビジョンであり、Publicリポジトリへ転載する許可を含まない。
+この文書は長期ビジョンであり、具体的なImplementation Specification、Release commitment、実装開始許可ではない。公開仕様正本への保存はDEC-050に従う。
 
 ## 参照文書
 
 - [DEC-009 — Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md)
 - [DEC-010 — Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md)
 - [DEC-013 — Hardware-Adaptive Memory Engine](DEC-013-lightweight-memory-engine-benchmark.md)
+- [DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md)
 - [DEC-017 — 第三者アプリ開発・参入環境](DEC-017-third-party-developer-ecosystem.md)
+- [DEC-073 — 許可された利用傾向からの潜在的な不便の発見と改善提案](DEC-073-proactive-friction-discovery.md)
 - [DEC-020 — AIのOS操作経路と計算資源の活用](DEC-020-ai-os-interaction-path.md)
 - [DEC-042 — Linuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md)
 - [DEC-043 — Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md)
+- [DEC-074 — 人間が管理する階層型AI組織](DEC-074-human-led-agent-organization.md)
 - [0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 - [0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 - [0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
+
 ---
+
+
+## 更新履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-16 | DEC-057で確定した、継続的な学習・適応とモデル非依存の連続性をNagi OSの中核コンセプトとして追記。提供時期・技術・定量効果は未確定のまま維持。 |
+| 2026-11-16 | DEC-074の後続確認を反映。当面のAI組み込みOS体験を優先し、階層型AI組織を非優先の長期ビジョンとして明確化。既存Gate・初期builder Role・版境界は維持。 |
+| 2026-11-15 | DEC-073を参照し、許可されたMemory・利用傾向から潜在的な不便を見つけ、根拠付き改善案を出す高水準方針を追記。詳細は未決定のまま既存のPrivacy・Permission・明示設定・UI保護境界を明記。 |
 
 **End of long-term vision**

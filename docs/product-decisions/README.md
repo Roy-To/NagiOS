@@ -16,6 +16,14 @@
 
 ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIONAL`かを分け、該当DECファイルと索引を更新して**このリポジトリにcommitし、確認できた場合だけ「保存済み」**と報告する。認証情報・個人情報・ユーザー名入りのパス・チャット識別子は書かない。
 
+## 中核コンセプト — 成長するPersonal Agent OS（2026-11-16）
+
+[DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md)により、**使い続けるほどユーザーの目的・好み・習慣を理解し、許可された経験とフィードバックを実用的な作業支援に反映するOS**をNagiの中核コンセプトとしてCONFIRMEDとした。記憶・学習・継続性はモデル非依存かつユーザー所有で、訂正・自然忘却・明示忘却・Permissionの既存規則を維持する。0.3のPersonal Agent OS方針を全体の製品アイデンティティとして明確化するものであり、実装済み・性能達成・Release Gateの変更を意味しない。具体的な学習評価や適応方式・提供時期はPROVISIONAL。
+
+## 学習の主経路：自然な習慣学習（2026-11-16）
+
+[DEC-058 — 習慣学習を主軸とするPersonal Agent](DEC-058-habit-first-learning-and-optional-teach-mode.md)で、ユーザーが日々Nagiを使うことで、許可された作業の反復・採用・修正・明示指示を元に習慣を学ぶ経路を**中心**とすることをCONFIRMEDとした。**Teach Modeは任意の補助機能**であり、習慣学習の前提条件にはしない。Teachと自然言語・GUIによるWorkflow草案も同じ承認・Permission・Activity境界を維持する。Teachの具体的な記録UI・技術・提供版はPROVISIONALとし、既存Release Gateを変更しない。
+
 ## カーネル方針の確定変更（2026-11-12）
 
 [DEC-042 — Linuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md)を参照。**独自Nagi KernelからLinuxカーネルへ変更する方針はCONFIRMED**。DEC-017 / 020の独自カーネル選択前提を限定置換する。追加確定の[DEC-043 — Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md)により、**Linuxカーネル + Nagi専用ユーザーランド／既存ディストリビューション基盤非採用／個別OSS選択的利用可能／Android・ChromeOSに対抗する独立OS目標はCONFIRMED**。具体的な基本ユーザーランド構成・互換方式・Package形式・移行時期・ライセンス詳細はPROVISIONAL。現行AGENTS / ADR / 実装仕様との不整合と移行手順はDEC-042に記録し、既存0.1等のGateは変更しない。Publicへの転載・実装開始・移行完了を意味しない。
@@ -32,11 +40,13 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 ## DECとは別の長期ビジョン
 
-以下は高水準の製品ビジョンを記録する参考文書であり、CONFIRMEDなDEC、Implementation Specification、Release commitmentではない。
+**当面の優先順位（2026-11-16、[DEC-074](DEC-074-human-led-agent-organization.md)）:** AIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョン。具体的な提供版・階層数・実装順序はPROVISIONALとし、既存0.3／0.4 Gateと初期builder Role方式を維持する。
+
+以下は高水準の方向を記録する長期ビジョンであり、具体的な技術・実装時期を定める仕様ではない。個別の確定済み製品挙動は該当DECを正本とする。VISION-001の潜在的不便の発見方針は[DEC-073](DEC-073-proactive-friction-discovery.md)でCONFIRMEDとして記録する。
 
 | ID | 文書 | 位置付け |
 |---|---|---|
-| VISION-001 | [人間に合わせるコンピューターを目指すNagi OS](VISION-001-human-adaptive-os.md) | 長期ビジョン。具体的な技術・端末・性能・実装時期は未確定 |
+| VISION-001 | [人間に合わせるコンピューターを目指すNagi OS](VISION-001-human-adaptive-os.md) | 長期ビジョン。確定した不便発見方針はDEC-073、優先順位と組織方向は[DEC-074](DEC-074-human-led-agent-organization.md)を参照。具体的な技術・端末・性能・実装時期は未確定 |
 
 ## ファイル一覧
 
@@ -50,9 +60,9 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
 | DEC-008 | [標準的な働きかけと通知](DEC-008-proactive-behavior.md) | CONFIRMED | 2026-10-29 |
-| DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-04 |
-| DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（一部詳細未確定） | 2026-11-04 |
-| DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Role切替C／前景会話優先C／追加指示分類表示C）／PROVISIONAL（UI細部） | 2026-11-05 |
+| DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
+| DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
+| DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
 | DEC-012 | [Workspaceの自動命名・整理と自然言語検索](DEC-012-workspace-naming-organization.md) | CONFIRMED（一部詳細未確定） | 2026-11-04 |
 | DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
 | DEC-014 | [Workspace保存・チェックポイント・横断検索・選択式端末移行／同期・競合／中断復旧・暗号化Export / Importと鍵／データ管理](DEC-014-workspace-state-checkpoints.md) | CONFIRMED（詳細未確定） | 2026-11-05 |
@@ -67,9 +77,11 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
 | DEC-025 | [アプリ横断の共通参照と関連データ更新提案](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本・変更検知と提案・承認済みTask内の自動更新）／PROVISIONAL（実装・適用版） | 2026-11-05 |
-| DEC-026 | [AIによる変更の検証可能性と復元可能性](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（リスク別検証・保護、`builder`製アプリ正式更新Cとの整合）／PROVISIONAL（実装詳細・適用版） | 2026-11-05 |
+| DEC-056 | [Smart Paste — 意味付きコピー／ドラッグでの純正アプリ横断体験](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来操作維持・意味付き転送・出典／参照保持・選択式提案）／PROVISIONAL（名称・UI・形式・対応アプリ・実装時期） | 2026-11-16 |
+| DEC-026 | [AIによる変更の検証可能性と復元可能性](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（リスク別検証・保護、AI Task開始前のWayback復元可能性表示、`builder`製アプリ正式更新Cとの整合）／PROVISIONAL（UI・事前判定範囲・未対応／不明時の扱い・数値・実装・適用版） | 2026-11-15 |
 | DEC-027 | [正規Public Action APIと限定的なGUI fallback](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先・明示許可下の限定fallback）／PROVISIONAL（具体方式・制御範囲・適用版） | 2026-11-05 |
 | DEC-028 | [反復Workflowの学習・改善案・承認制改訂](DEC-028-deterministic-workflows-from-habits.md) | CONFIRMED（Workflow化と正式改訂に明示承認・履歴保持）／PROVISIONAL（変換・検証・UI・保持詳細） | 2026-11-05 |
+| DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
 | DEC-029 | [明示許可に基づくScheduled / Event-triggered Workflow実行](DEC-029-scheduled-event-triggered-workflows.md) | CONFIRMED（条件付き無人起動・実行時再検証・停止制御）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-030 | [Workflowテンプレートの移植・共有と権限の再承認](DEC-030-workflow-template-portability-and-sharing.md) | CONFIRMED（個人状態・権限から分離、明示的共有、受取側で再設定・再承認）／PROVISIONAL（形式・検証・依存解決・配布経路） | 2026-11-05 |
 | DEC-031 | [外部Workflowの未信頼検査と固定版更新管理](DEC-031-external-workflow-validation-and-version-updates.md) | CONFIRMED（⑮：段階分離・未信頼検査・隔離事前検証／⑯：固定版・許可制更新確認・明示承認）／PROVISIONAL（検査・更新方式・適用版） | 2026-11-05 |
@@ -96,6 +108,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 新しいテーマは [TEMPLATE.md](TEMPLATE.md) を複製して追加する。
 
+## Nagi Smart Pasteの採用（2026-11-16）
+
+[DEC-056 — Smart Paste](DEC-056-smart-paste-semantic-transfer.md)により、通常のコピー＆ペースト／ドラッグ＆ドロップを維持しつつ、対応する純正アプリ間で構造化Object、出典、参照関係を活かした貼り付けを選べる体験をCONFIRMEDとした。Sheets→Slides、Albert→Writer、画像→Slidesを例とし、Projectフォルダとの将来連携を視野に入れる。正式名称・UI・Photos・実装版はPROVISIONAL。既存DEC-023／025の権限・分散正本・更新提案とRelease Gateを維持する。
+
 ## 既存文書との役割分担
 
 - `docs/decisions/`: カーネル、権限、IPCなどの**技術的なArchitecture Decision Record (ADR)**。
@@ -116,6 +132,21 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 5. 後続の0.3 Implementation Specなどへ正式に移す際、参照元IDと受入条件を付ける。
 
 **原則:** Memoryに覚えさせるのではなく、仕様をファイルに残す。
+
+## OS基盤の恒久管理台帳（2026-11-16）
+
+- [Nagi OS Foundation Checklist](NAGI_OS_FOUNDATION_CHECKLIST.md) — 元の35項目を6分類群・7検討束で管理。製品決定、技術設計、host／旧guest／Linux／実機の実装・受入、依存・責任候補、次の判断を分離する索引・進捗台帳。DEC／ADR／実装仕様／workstreamの代替ではない。
+- [DEC-069 — Foundation Checklistの恒久管理](DEC-069-foundation-checklist-management.md) — 台帳化自体はCONFIRMED。P0/P1/P2と検討順序はREVIEW NOTE / PROVISIONAL。個別35項目の技術・版・一括着手・担当・性能数値・既存Gate変更は確定していない。
+
+| ID | テーマ | 状態 | 最終決定 |
+|---|---|---|---|
+| DEC-069 | [35項目のFoundation Checklist管理](DEC-069-foundation-checklist-management.md) | CONFIRMED（台帳管理）／PROVISIONAL（推奨優先度・検討順序） | 2026-11-16 |
+
+### 変更履歴
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-16 | DEC-069と35項目の台帳を追加。Linux移行差異と並行PRを明示し、管理ルール・実装契約テンプレートを保存。個別技術採用・Release Gate・実装状況は変更しない。 |
 
 ## 将来ロードマップ(2026-11-04保存、2026-11-15公開)
 
@@ -145,6 +176,20 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 | DEC-051 | [レビュー方式A/B](DEC-051-review-methods.md) | CONFIRMED（現在は方式A） | 2026-11-15 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
 
+| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（OSの中核コンセプト・モデル非依存の継続性・ユーザー主導）／PROVISIONAL（方式・効果測定・適用版） | 2026-11-16 |
+
+| DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・横断Task・Workspace分離・Project文脈）／PROVISIONAL（名称・技術・実装版） | 2026-11-16 |
+
+
+| DEC-074 | [AI組み込み体験の優先順位と階層型AI組織](DEC-074-human-led-agent-organization.md) | CONFIRMED（当面の体験優先・組織は非優先の長期ビジョン）／PROVISIONAL（構造・技術・提供版・実装順序） | 2026-11-16 |
+
+| DEC-073 | [許可された利用傾向からの潜在的な不便の発見と改善提案](DEC-073-proactive-friction-discovery.md) | CONFIRMED（高水準の提案方針）／PROVISIONAL（データ・診断・Score・UI・自動適用・実装版） | 2026-11-15 |
+| DEC-072 | [Follow／Evolution — Memoryからの操作支援とアプリ改善ビジョン](DEC-072-follow-evolution.md) | CONFIRMED（概念区分・改善試作を伴う提案の長期方向）／PROVISIONAL（実装・受容性・版割当て） | 2026-11-15 |
+| DEC-071 | [初心者向けNagi Native App制作体験](DEC-071-nagi-native-app-creation-experience.md) | CONFIRMED（純正の初心者向け・自然言語／ローカルLLM支援、小規模日常アプリ、試用／導入／共有方向）／PROVISIONAL（製品形態・技術・モデル・版・配布方式） | 2026-11-15 |
+| DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
+| DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（製品方向）／PROVISIONAL（Memory許可・UI・実装・時期） | 2026-11-15 |
+| DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
+
 ## カーネル移行に伴う仕様・ロードマップ整合（2026-11-13）
 
 [影響表・実装確認記録](KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md)に、DEC-042/043の確定製品方針、DEC-044の限定開発承認、未確定構成、確認できた旧基盤実装と証拠限界を分けて記録した。新しい製品決定ではない。
@@ -164,6 +209,14 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 
 [DEC-048 — DeepSeekによるNagiコード等レビューへの継続承認](DEC-048-deepseek-review-authorization.md) は、すべてのlane・payloadについて、非公開を含むNagiコード・差分・分析資料をDeepSeekレビューへ送る継続承認を記録する。payloadごとの再確認は不要。認証にはKeychainに保存済みの既存credentialを使用できるが、credentialそのものは送信しない。DEC-002に続く、DeepSeekによるNagiレビュー送信の具体的な承認である。
 
+## 中核コンセプトの再確認（2026-11-16）
+
+[DEC-057](DEC-057-growing-personal-agent-os.md)を新設し、0.3 Roadmapに既存のMemory／Learning／Profile／Model Portabilityを備えたPersonal Agent OSが、今後もNagi OS全体の製品コンセプトであることを確定記録。[VISION-001](VISION-001-human-adaptive-os.md)にも反映した。既存の記憶・忘却・Permissionの決定とRelease Gateを維持する。
+
+## 習慣学習を主軸としたTeach Modeの位置付け（2026-11-16）
+
+[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)を新設してHabit-firstを確定し、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-028](DEC-028-deterministic-workflows-from-habits.md)、[DEC-033](DEC-033-natural-language-workflow-authoring.md)の優先順位・補助的なTeach作成経路と変更履歴を整合した。自動記憶・自然忘却、ユーザーの明示指示優先、Workflow保存／有効化の承認、実行権限の分離は維持する。
+
 ## 仕様・構想の公開リポジトリへの移管(2026-11-15)
 
 [DEC-050 — 仕様・構想の正本を公開リポジトリへ移す](DEC-050-public-specification-repository.md) により、本フォルダを非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移し、今後の仕様決めもここに記録する。旧名称「Jev」時代に置き換え済みだったDEC-015・016・018・019・022の旧ファイル5本は移していない(内容は現行の`builder`版と[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)にある)。
@@ -173,3 +226,26 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | [DEC-060](DEC-060-responsive-ime-ai-learning.md)を追加。IMEの応答速度を優先し、許可されたデータからAIで学習精度を高める方針と入力データの安全境界を記録。具体方式・性能値・適用版は未確定。DEC-057はPR #116の保存内容を参照し、main未統合を区別。 |
+
+## Projectフォルダを中心とした純正アプリ横断体験（2026-11-16）
+
+[DEC-055 — Projectフォルダ中心の純正アプリ横断AI体験](DEC-055-project-folder-cross-app-context.md)で、既存フォルダを利用者のProjectに指定し、Writer／Sheets／Slides等のResourceと元の保存先を残す参照を束ね、許可されたAI横断Task、関係資料の更新提案、Projectごとの作業文脈・継続へつなげる長期方向をCONFIRMEDとした。Projectは資料・目的・文脈、WorkspaceはUI・状態復元の別単位である。名前、具体UI・モデル、提供版はPROVISIONAL。DEC-023・025および既存Permission・Memoryルールとrelease gateは維持する。
+
+同日補足：1 Projectを複数Workspaceから扱え、新専用ファイル形式を強制しない。Project所属・参照登録は本文取得・外部送信・自動変更の許可にならず、DEC-025の通常提案／事前承認済み限定Taskの例外を維持する。DEC-003／004の所有・機密分類・忘却は確定済みのまま、詳細のローカル保存方式はPROVISIONAL。DEC-012／014とbuilder開発ProjectのDEC-040へ区別を追記し、[ロードマップ索引](roadmaps/README.md)にも版未割当てを明記した。
+
+
+
+## 人間が管理する階層型AI組織（2026-11-16）
+
+[DEC-074 — 人間が管理する階層型AI組織](DEC-074-human-led-agent-organization.md)は、人間が唯一のManagerとなり、複数の統括AIとその配下の専門Agentが働く長期製品方向をCONFIRMEDとして記録する。組織の規模・階層を端末資源に応じて拡張する方向も確認済み。具体的な構造、技術、版割当は未確定であり、初期0.4のNagi一体によるbuilder Role方式や既存の権限境界を変更しない。
+
+**同日後続確認:** 当面はAI組み込み体験型OSの確立を優先し、階層型組織は非優先の長期ビジョンとする。DEC-074、VISION-001、DEC-021と0.3／0.4+／0.5–1.0 Roadmapへ日付付きで反映した。提供版・階層数・実装順序は未確定であり、既存Gate・builder Roleを変更しない。
+
+## AI Task開始前のWayback復元可能性表示（2026-11-15）
+
+[DEC-026](DEC-026-ai-change-verification-and-recovery.md)に、AI Task開始前にWaybackで復元可能な範囲を示し、部分復元・復元不能・事前判定できない可能性を隠さない方針をCONFIRMEDとして記録した。画面、事前判定の対象範囲、未対応／不明時の具体的な説明・操作導線、数値、適用版はPROVISIONAL。表示は完全なUndoを保証せず、既存の承認・PermissionとRelease Gateも変更しない。DEC-011からTask UIへの接続を追記した。
+
+
+## Nagi Home・Task進捗・複数端末UI（2026-11-15）
+
+[DEC-009](DEC-009-nagi-first-home-desktop.md)ではNagiに委任したTaskの作業中は原則Nagi Homeを維持する方針を追加し、[DEC-011](DEC-011-task-approval-progress-ui.md)では依頼直後の会話内カードからコンパクトなTask表示へ移り、選択時に詳細を展開する方式Cを確定した。[DEC-010](DEC-010-intent-first-adaptive-ui.md)ではPC・タブレット・モバイルを基本製品目標に含め、端末に応じたUI設計を確認した。PC／Desktop firstは維持し、具体的な対応機器・モバイル提供時期・実装保証は未確定。
