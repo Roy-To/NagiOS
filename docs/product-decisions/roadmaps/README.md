@@ -49,6 +49,8 @@
 
 ## OS基盤の検討と進捗（2026-11-16）
 
+**Foundation統合参照（2026-11-16）:** PR #133〜#140の方針・[DEC改番対応](../README.md#foundation統合とdec改番2026-11-16)を参照する。#25〜#35のDEC-094〜104、#16のDEC-105、#17〜#21のDEC-106〜110は同時に保持する。各Roadmapの版割当て・既存Gateは変更せず、文書統合をLinux／実機の実装・受入成功と扱わない。
+
 **Foundation #17 Device Manager（2026-11-16）:** [DEC-106](../DEC-106-device-manager-local-remote-unified-ui.md)でローカル周辺機器管理と他のNagi端末管理を内部責務として分離し、Nagi Settings／DevicesのUIで統合する方式BをCONFIRMED。Linux既存driver等を活用する方針で、具体stack・対応機器・Linux実機受入・適用版は未確定。DEC-066のTrust／許可境界を維持する。
 
 **Foundation #18 Network Devices（2026-11-16）:** [DEC-107](../DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)でEthernet／Wi-Fiを基本機能とし、Bluetoothを段階的に対応する方式BをCONFIRMED。具体driver／firmware／対応機器／pairing／実装版は未確定。端末間初期LAN方針（DEC-066）、Release／Activation／Acceptance Gateを変更しない。
@@ -155,3 +157,11 @@ DEC-049の速度優先、コード不変時の環境・限界付き過去結果�
 ## #16 Backup / Restoreの後続決定・変更履歴（2026-11-16）
 
 [DEC-105](../DEC-105-user-environment-backup-and-wayback.md)で、B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携し、必要に応じC方式を追加選択肢とする方向をCONFIRMEDとした。Cの具体内容・対象、保存・鍵・保持・復元詳細・技術・提供版はPROVISIONAL／OPEN。Profile単位Backup、DEC-014のWorkspace状態保存／選択式移行、Waybackの実際の復元範囲、DEC-004の明示的忘却と現行認可を維持する。既存の版割当て・Release／Activation／Acceptance Gate・担当を変更せず、実装・Linux／実機の復元成功を意味しない。
+
+## Foundation #35：統合供給網管理Bから独立検証・強化自動化Cへ（2026-11-16）
+
+[DEC-104](../DEC-104-build-supply-chain-baseline-independent-verification-staged.md)でB先行とCの将来正式製品目標をCONFIRMEDとした。Linux kernel／rootfs／Nagi userland／apps等のビルド入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証、成果物整合性を先行統合し、隔離／独立検証、複数Architectureの継続検証、より厳格な改ざん検出・セキュリティ自動化へ段階導入する。Cは単なる研究候補ではなく、Bにも再現性・署名検証を含む。SBOMはライセンス適法性を自動認定せず、LLM推測を証拠・署名検証の代替としない。
+
+具体ツール・CI規模・予算・日程・閾値・必須Release版・Linux target実証はPROVISIONAL。0.3／0.4+／0.5–1.0の特定版への必須割当て、既存Release／Activation／Acceptance Gateと担当・許可範囲を変更しない。DEC-079のSystem／Data分離・A/B、#31の更新適用と#34のRuntime受入を区別し、ビルド検証だけで更新・実機・Releaseの成功としない。
+
+**変更履歴:** 2026-11-16 — DEC-104とFoundation #35を参照追加。35項目の方針検討は一巡した（別PR記録を含む）が、全件main統合、技術詳細・未確定点、実装／Release受入は未完。次段階の優先候補（REVIEW NOTE）は、決定番号・索引の統合整合、最小Linux縦断経路の技術契約、Bの対象を絞った検証と証拠整備。Cの完成や全35項目完了を新Gateにしない。

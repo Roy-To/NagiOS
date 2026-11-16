@@ -5,6 +5,8 @@
 **初回調査基準:** main `029bec16c0e7befa6856c4bd43805d1662bf0f58`、2026-11-16確認の公開PR。実装・targetの新規試験は行っていない。
 **優先度:** 全行のP0/P1/P2は **REVIEW NOTE / PROVISIONAL（assistant提案）**。ユーザー確定の製品優先順位・release必須条件ではない。
 
+**Foundation統合更新（2026-11-16）:** PR #133〜#140の方針を本台帳の各詳細欄へ統合する。#25〜#35はDEC-094〜104、#16はDEC-105、#17〜#21はDEC-106〜110、#22はDEC-092を参照。改番は[決定索引の対応表](README.md#foundation統合とdec改番2026-11-16)に記録する。概要表の「初回評価」や日付付き記録の「未マージ」は当時のsnapshotであり、現在の製品方針は各詳細欄と正本DECを優先する。実装・Linux／実機受入欄は今回の文書統合で完了へ変更しない。
+
 ## 1. 扱い方と状態の読み方
 
 この台帳は、元の35項目を省略せず管理する索引・進捗台帳である。6分類群と、横断的な7つの検討束は別の軸。個別技術、製品要求詳細、実装開始、版、担当、性能数値を一括確定した記録ではない。
@@ -495,12 +497,12 @@
 ### 35 Build / Supply Chain
 
 - **検討対象:** toolchain／source pin／patch、reproducibility、provenance／SBOM／NOTICE、artifact配布・署名・再利用。
-- **製品決定:** CONFIRMED＝OSS選択的利用可 [DEC-043][D43]、公開正本 [DEC-050][D50]。OPEN＝Linux依存構成と配布条件の個別判断。
-- **技術設計:** 固定revision・patchと0.2 fingerprint／SBOM契約あり。SBOM出力はlicense適法性の自動認定ではない。
+- **製品決定:** CONFIRMED＝[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)のB先行・C将来正式目標。Bはkernel／rootfs／Nagi userland／apps等の入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証と成果物整合性の統合管理。Cは隔離／独立検証・複数Architecture継続検証・強化セキュリティ自動化を段階導入。PROVISIONAL＝ツール・CI規模・予算・日程・閾値・必須Release・Linux実証。
+- **技術設計:** 固定revision・patchと0.2 fingerprint／SBOM契約を継承。SBOMはlicense適法性の自動認定ではなく、不明点と個別確認を残す。LLM推測を証拠・署名検証の代替にしない。具体方式・隔離境界・独立性・鍵運用は未決定。
 - **実装・target受入:** `sources.lock`、provenance／release tools等のhost資産あり。[PR #99][PR99]のcache修正は未マージ。Linux kernel／rootfs／moduleを含む再現build・配布受入未確認。
 - **依存・責任候補:** 1, 3, 5, 10, 11, 31, 34。`developer-tooling`／`build-provenance`／`license-sbom`／release候補。
-- **根拠:** [0.1 §71–80][S01]、[0.2 §18–19・M02/M03][S02]、[registry][REG]、[PR #99][PR99]。
-- **次に決める:** Linux入力と許可環境の固定、再利用可否・artifact照合、license不明／未署名／改ざん時の明示的扱い。
+- **根拠:** [DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)、[0.1 §71–80][S01]、[0.2 §18–19・M02/M03][S02]、[registry][REG]、[PR #99][PR99]。
+- **次に決める:** Bの最小対象と固定入力／成果物照合・再現性・license確認・署名検証の技術契約、未署名／改ざん／不明時の具体処置、Cの独立性とArchitecture検証Matrixを設計する。Cは単なる研究候補ではない。既存Gate・担当・版は変更しない。
 
 ## 4. 7つの今後の検討束
 
@@ -727,3 +729,9 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #11 段階的な信頼基盤
 
 [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器のハードウェア信頼機構を活用し、非対応機器でもソフトウェア署名検証するB案をCONFIRMED。OS／更新／アプリの署名と改ざん検出、Ownerの認可付きDeveloper Mode、製品／開発署名鍵の分離・更新／失効・危険なRollbackの防止と安全な復旧を設計対象とする。具体的Linux trust chain／Secure Boot／鍵運用・anti-rollback・実機対応／受入・版は未決定。B2の#7〜#11が高水準方針として一巡したが、Runtime／Linux実機受入は未完了。
+
+### 2026-11-16 Foundation #35 Build / Supply Chain
+
+[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)でBの統合供給網管理を先行し、隔離／独立検証・複数Architecture継続検証・より厳格な改ざん検出／セキュリティ自動化Cを正式な将来製品目標とする方針をCONFIRMEDとして記録。Bにも再現性・署名・改ざん検証を含む。技術・規模・費用・日程・閾値・必須ReleaseとLinux target実証は未確定。
+
+**REVIEW NOTE:** 35項目の方針検討は一巡（別PRの未統合記録を含む）。本main基準の台帳に他PRの全決定が統合済みという意味ではない。技術詳細・未確定点・実装・Linux／実機・Release受入は未完であり、製品決定欄の更新から実装・target受入欄をPASSへ変更しない。
