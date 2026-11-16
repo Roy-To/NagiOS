@@ -156,6 +156,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - **移行対象の境界:** ファイル本文、アプリ、端末固有設定は別の明示的操作・Policyで扱う。移行元データを自動削除せず、AI Taskや副作用Actionを移行対象に含めず、自動再開・再実行しない。
 - **Release / Activation Gate:** 本決定は既存のRelease / Activation Gate、Acceptance、実装担当範囲を変更せず、実装開始許可を与えない。
 
+> **2026-11-16 全OS Secrets管理の後続決定:** [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、OS全体の秘密情報管理をNagi独自Secrets ServiceとTPM／TEE対応機器優先＋非対応機器の暗号化ローカル保管によるハイブリッド方式とするC案をCONFIRMED。本節の**Workspace Exportはユーザー指定パスフレーズが基本**という既存仕様、別保管の復旧キー等、クラウド自動鍵預託なし、復号とImport認可の分離、鍵喪失時の復号不能は変更しない。一般Key Store・TPM連携の採用からExport鍵方式を一律に置換すると推定しない。具体暗号・回復・Key Store APIは未確定。
+
 ### Workspace移行パッケージの暗号鍵管理と回復（選択C）
 
 - **オフラインファーストの鍵管理:** 移行パッケージの暗号鍵管理はオフラインファーストとする。ユーザー指定パスフレーズによる移行を基本とし、ユーザーが明示的に別途保管する復旧キー等の安全な回復手段も設計上許容する。
@@ -185,6 +187,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - **削除対象の所有境界:** 外部媒体、他ユーザーのデータ、ユーザーが保存指定したバックアップを自動削除対象にしない。外部媒体やユーザー管理パッケージの削除は、既存の所有権・Permissionに従う。
 - **削除結果の表示:** 削除済みの表示は実際の処理結果に基づける。SSD等で完全消去を保証できない場合は、その限界を正確に説明する。
 - **未確定の実装値:** パッケージ・一時データの保持期限、容量、削除方式、通知UIは実装検証で決定し、推測で確定しない。
+
+> **2026-11-16 Foundation Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、Nagi Recovery Coordinatorが障害復旧状況を横断管理し、各Serviceが所有データを復旧するB案をCONFIRMED。本DECのWorkspace自動保存／名前付きCheckpoint・復元前保護、本文BackupやAI Task再実行との分離、現行権限／Privacy再評価を変更しない。具体実装・Linux targetの復旧受入は未決定。
 
 ## 例外・禁止・安全境界
 
@@ -217,6 +221,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 ### 2026-11-16 — Nagi Projectと復元状態・Memoryの分離
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)により、利用者の仕事・資料・長期文脈を束ねるProjectと、Workspaceの画面・アプリ状態・復元用チェックポイントを区別する。1 Projectを複数Workspaceから扱えるが、Workspace snapshotをProject本文のバックアップと扱わない。本DECの履歴・検索用メタデータ・節目要約は引き続き長期Memoryとは別管理であり、Projectへの関連付けだけで長期Memoryに自動昇格させない。現在の権限・忘却の再評価、本文巻戻し・中断Task自動再実行の禁止を維持する。
+
+> **2026-11-16 Data Persistence後続決定 — Workspace自動保存と本文・Taskの境界:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiの共通Persistence契約（保存結果・Schema Version／Migration・復旧）と用途別・分散正本のB案をCONFIRMED。Workspaceの復元用状態・名前付きCheckpointはファイル本文Backupや中断Taskの自動再実行とは別で、既存の保護・User／Profile権限・削除条件を維持する。durable commitの技術方式・Linux実機受入は未決定。
 
 ## 決定履歴
 
