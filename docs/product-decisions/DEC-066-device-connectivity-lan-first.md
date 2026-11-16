@@ -1,8 +1,11 @@
 # DEC-066 — 端末間接続：同一LANから始める共通Connectivity基盤
 
-**状態:** CONFIRMED（初期接続ターゲット・接続方式を固定しない設計・安全境界）／PROVISIONAL（名称・具体方式・UI・遠隔構成・運用費用・対象機器・時期・性能）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi Share／Handoff等のNagi端末間連携。特定リリースへの割当ては未確定  
+**状態:** CONFIRMED（初期接続ターゲット・接続方式を固定しない設計・安全境界）／PROVISIONAL（名称・具体方式・UI・遠隔構成・運用費用・対象機器・時期・性能）
+
+**最終合意日:** 2026-11-16
+
+**適用候補:** Nagi Share／Handoff等のNagi端末間連携。特定リリースへの割当ては未確定
+
 **関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[端末候補DEC-052](DEC-052-physical-test-device-candidates.md)、[純正ソフトウェア仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[ロードマップ索引](roadmaps/README.md)
 
 ## 目的とユーザー体験
