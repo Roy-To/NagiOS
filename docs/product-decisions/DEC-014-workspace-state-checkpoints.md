@@ -192,6 +192,10 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - アプリ・資料を開く際は現行の正規OS APIとPermissionを評価する。アクセスできない資料や失われた状態について復元成功を偽らない。
 - 本DECは0.1 / 0.2 / 0.3 / 0.4+のRelease / Activation Gate、既存Implementation Spec、Acceptanceを変更しない。
 
+## 接続方針の後続確定（2026-11-16）
+
+[DEC-066](DEC-066-device-connectivity-lan-first.md)で、Share／Handoff等の端末間連携は同一Wi-Fi／LANを初期接続ターゲットとし、Device Connectivity／Trust／Transportを共通化する方針を確定した。近距離直接通信や遠隔接続の拡張可能性を残すが、具体方式・UI・対象機器・時期・性能は未確定。本DECの暗号化Export／Import標準、端末独立管理、選択式移行／直接同期、Cloud同期の別明示許可、競合保護・現行権限再評価は維持する。初期LAN方針はWorkspace同期の必須化・既定有効化や、勝手な転送・Task／副作用Actionの再実行を認めず、既存Gateを変更しない。
+
 ## 未確定・暫定案
 
 - 暗号アルゴリズム・改ざん検出方式、鍵導出・保管・失効、復旧キー形式、認証UI等の具体形式、パッケージSchema・Version互換性・対象メタデータ、直接転送の認証・鍵交換・接続方式、保護された一時情報の保持・整理、容量およびImport単位の具体条件。クラウド送信・同期の提供範囲と方式。
