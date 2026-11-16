@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討対象・順序はREVIEW NOTE／PROVISIONAL。PX-05のみB＋将来Cの高水準製品方針をCONFIRMED（詳細はPROVISIONAL、進捗はPARTIALLY_RECORDED）。他項目はこの変更では扱わない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -26,9 +26,15 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
 | PX-04 | **音声・テキスト対話の統合** | 音声開始・停止、割り込み・誤認識、テキストとの引継ぎ、録音と文字起こしの管理 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
-| PX-05 | **AIの自律実行・承認レベル** | 具体的操作ごとのリスク区分、画面最終確認、未判定時の停止・確認・復元可能性表示 | [関連DEC 1](DEC-001-agent-autonomy-actions.md)・[関連DEC 2](DEC-026-ai-change-verification-and-recovery.md) |
+| PX-05 | **AIの自律実行・承認レベル** | **B＋将来Cの高水準方針CONFIRMED:** Action種別・影響範囲・可逆性・検証可能性・承認済みScope等に応じ段階的に確認。将来は許可されたTask文脈・利用者設定・検証状態等に応じ確認体験を高度化。Risk分類・閾値・未判定時の分岐・UI・版はPROVISIONAL | [関連DEC 1](DEC-001-agent-autonomy-actions.md)・[関連DEC 2](DEC-026-ai-change-verification-and-recovery.md) |
 | PX-06 | **長時間Task・並行作業の管理** | Task一覧、Queue・優先順位、割り込み、待機と停止の区別、再開時の確認 | [関連DEC 1](DEC-011-task-approval-progress-ui.md)・[関連DEC 2](DEC-022-builder-interrupted-task-recovery.md) |
 | PX-07 | **先回り提案・自発的な働きかけ** | 提案の表示条件・頻度、作業中の抑制、却下・再提示制御、重大警告との区別 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-073-proactive-friction-discovery.md) |
+
+### PX-05の決定記録（2026-11-17）
+
+- **CONFIRMED:** 段階的・リスク対応承認のBを基本とし、将来的に許可された状況・利用者設定・検証状態を踏まえた高度な承認体験Cへ発展する方向。正本は[DEC-001](DEC-001-agent-autonomy-actions.md)のPX-05節。既存のDEC-026「変更の検証・復元可能性を優先する選択A」は別軸として保持する。
+- **PROVISIONAL／OPEN:** Risk taxonomy・閾値、未判定時に確認／保留／停止を選ぶ厳密な条件、具体的な画面・判定アルゴリズム・技術・適用Version。
+- **進捗:** PARTIALLY_RECORDED（高水準のみDECに記録）。その他のPXの採否、既存Permission／Policy・画面最終承認・Wayback・Workstream Gateをこの変更から確定・変更しない。
 
 ### 第3群：Memory・学習・Personalization
 
@@ -74,8 +80,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**PX-05はPARTIALLY_RECORDED（B基本＋将来C方向はCONFIRMED、詳細PROVISIONAL）。その他のPXはこの変更では扱わず、個別DEC・各PRの統合状況を確認する。**
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-05でB（段階的・リスク対応承認）を基本、将来C（状況適応型）を製品方向に採用。既存のAction権限・重要操作の画面最終承認・DEC-026の選択A・復元可能性表示を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、閾値・未判定時の詳細／UI・技術・版はPROVISIONAL |
