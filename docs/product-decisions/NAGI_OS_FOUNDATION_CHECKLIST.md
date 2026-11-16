@@ -5,6 +5,8 @@
 **初回調査基準:** main `029bec16c0e7befa6856c4bd43805d1662bf0f58`、2026-11-16確認の公開PR。実装・targetの新規試験は行っていない。
 **優先度:** 全行のP0/P1/P2は **REVIEW NOTE / PROVISIONAL（assistant提案）**。ユーザー確定の製品優先順位・release必須条件ではない。
 
+**製品体験の関連Checklist（2026-11-17）:** [Product & Experience Checklist — PX-01〜PX-15](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) は別チャットで利用体験・AI・Memory・アプリ・1.0の追加製品判断を検討する独立の **REVIEW NOTE / PROVISIONAL** 一覧。Foundationの既存35項目・実装受入状態・Release Gateは変更しない。個別に確定した製品仕様は関連DECへ記録する。
+
 **Foundation統合更新（2026-11-16）:** PR #133〜#140の方針を本台帳の各詳細欄へ統合する。#25〜#35はDEC-094〜104、#16はDEC-105、#17〜#21はDEC-106〜110、#22はDEC-092を参照。改番は[決定索引の対応表](README.md#foundation統合とdec改番2026-11-16)に記録する。概要表の「初回評価」や日付付き記録の「未マージ」は当時のsnapshotであり、現在の製品方針は各詳細欄と正本DECを優先する。実装・Linux／実機受入欄は今回の文書統合で完了へ変更しない。
 
 ## 1. 扱い方と状態の読み方
