@@ -1,7 +1,7 @@
 # DEC-009 — Nagi-first操作思想とNagi Home / Desktop
 
 **状態:** CONFIRMED  
-**最終合意日:** 2026-11-04  
+**最終合意日:** 2026-11-15  
 **対象:** Nagi OSの操作思想とログイン後の製品体験。実装バージョン・採用時期は本決定では確定しない  
 **関連:** DEC-001〜008、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
@@ -26,6 +26,7 @@ NagiをOS操作の第一の窓口としながら、ユーザーが従来のGUI�
 - ユーザーがNagi Homeからアプリを起動した場合、画面を自動的にNagi Desktopへ切り替える。
 - Nagi DesktopのNagi BarからNagi Homeへ戻れる。
 - HomeとDesktopの切り替えで会話、Task、Workspace、アプリ状態を失わない。
+- NagiへTaskを委任した後は、作業中も原則Nagi Homeを維持し、進捗と必要なTask操作へHomeから到達できる。委任Taskの実行だけを理由にDesktopへ自動切替しない。ユーザーがHomeからアプリを直接起動した場合のDesktopへの切替規則は維持する。
 
 ### Workspaceの切り替え（複数ディスプレイ対応・選択C）
 
@@ -82,3 +83,4 @@ NagiをOS操作の第一の窓口としながら、ユーザーが従来のGUI�
 |---|---|
 | 2026-10-29 | Nagi-first、Nagi Home / Desktop、ログイン時表示、Workspace再開時のTask実行・復元境界を確認 |
 | 2026-11-04 | 選択Cを確定。通常は複数ディスプレイを含むWorkspace全体を切り替え、ユーザー指定の画面を維持または単独切り替えできる。状態保持・手動配置・Task再実行禁止を継承 |
+| 2026-11-15 | Nagiに委任したTaskの作業中は原則Nagi Homeを維持する方針を確定。アプリの直接起動時にDesktopへ切り替える既存規則は維持する。 |
