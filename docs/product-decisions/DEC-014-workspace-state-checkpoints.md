@@ -186,6 +186,8 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - **削除結果の表示:** 削除済みの表示は実際の処理結果に基づける。SSD等で完全消去を保証できない場合は、その限界を正確に説明する。
 - **未確定の実装値:** パッケージ・一時データの保持期限、容量、削除方式、通知UIは実装検証で決定し、推測で確定しない。
 
+> **2026-11-16 Foundation Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、Nagi Recovery Coordinatorが障害復旧状況を横断管理し、各Serviceが所有データを復旧するB案をCONFIRMED。本DECのWorkspace自動保存／名前付きCheckpoint・復元前保護、本文BackupやAI Task再実行との分離、現行権限／Privacy再評価を変更しない。具体実装・Linux targetの復旧受入は未決定。
+
 ## 例外・禁止・安全境界
 
 ### 日常の単発ファイル転送との区別（2026-11-16）
