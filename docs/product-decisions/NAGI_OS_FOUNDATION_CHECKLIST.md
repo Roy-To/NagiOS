@@ -263,12 +263,12 @@
 ### 14 Data Persistence
 
 - **検討対象:** user／profile／app／Workspace／Task／Memoryの正本、schema migration、transaction、flushと保持・削除。
-- **製品決定:** CONFIRMED＝model-independent Canonical Memory [DEC-013][D13]、Workspace状態・本文・Taskの分離 [DEC-014][D14]、復旧時再評価 [DEC-022][D22]。PROVISIONAL＝形式・保持数値。
-- **技術設計:** versioned IDs／Revision／所有／永続化契約と複数のportable coreあり。共通DB採用は未決。
+- **製品決定:** CONFIRMED＝model-independent Canonical Memory [DEC-013][D13]、Workspace状態・本文・Taskの分離 [DEC-014][D14]、復旧時再評価 [DEC-022][D22]、B案＝Nagi共通Persistence契約と用途／App／Provider別の分散正本、保存完了／失敗／部分成功／結果不明の区別、Version／安全なSchema Migration、User／Profile所有・忘却とCanonical Memory／派生Index分離 [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)。PROVISIONAL＝DB／形式・durable commit詳細・移行方式／保持数値・Linux受入／版。
+- **技術設計:** versioned IDs／Revision／所有／永続化契約と複数のportable coreを継承し、保存／移行／復旧の共通契約と元アプリ・Provider別正本を分離する。全データ共通DBの強制採用はしない。具体DB・journal／transaction・Linux durabilityは未決。
 - **実装・target受入:** host永続化モデル・旧VFS／app保存あり。全app・Linuxでのcrash durability・migration成立は未確認。
 - **依存・責任候補:** 7, 8, 10, 12, 15, 26, 27。storage／`platform-apis`／app各owner。
 - **根拠:** [0.2 §23–24・45][S02]、[純正仕様 §87–92][FP]、[status][STATUS]。
-- **次に決める:** 保存正本一覧、durable commit定義、schema互換と不明結果・明示忘却を跨ぐ移行規則。
+- **次に決める:** #14 B案に沿う用途／App／Providerごとの保存正本一覧、durable commitのflush／transaction保証・結果不明照合、schema互換／失敗Migration・忘却済みMemoryの再導入防止、Linux target受入。
 
 <a id="f15"></a>
 ### 15 Crash Recovery
@@ -602,10 +602,15 @@ Linux／実機検証:
 
 [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)で、Linuxのblock／mount／hotplugを活用しNagi Volume Managerが接続検出・論理Volume ID・現行Permission・Files表示・安全な取り外しと突然切断の状態管理を担当するB案をCONFIRMED。自動検出は自動mount／全媒体許可と同義ではない。書込み／unmount失敗を成功表示せず、再接続時に不確かなTask／Actionを勝手に再実行しない。具体初期対応媒体／FS・権限UI・mount／eject方式・Linux実機試験と版は未決定。
 
+### 2026-11-16 Foundation #14 Data Persistenceの共通契約＋分散正本
+
+[DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが共通の保存完了／Migration／復旧／所有・忘却等のPersistence契約を定めながら、正本をUser／Profile／Memory／Workspace／Task／App／Provider別に保持できるB案をCONFIRMED。Canonical Memoryと索引・Cacheを分離し、Workspace Checkpoint／本文Backup／Task再実行を混同しない。単一DBを強制せず、具体形式・commit／fsync・schema migration・Linux crash durability受入・適用版は未決定。
+
 ## 8. 変更履歴
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | #14・B3 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md) B案を確定：共通Persistence契約＋分散正本、Version／復旧・忘却の境界 | 文書commitのみ。Linux crash durability／migration受入未確認 |
 | 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
