@@ -484,12 +484,12 @@
 ### 34 Testing / Release
 
 - **検討対象:** host／adapter／image／実機の試験階層、fault／negative／security、性能測定、release gateと証拠。
-- **製品決定:** CONFIRMED＝既存Gate維持 [DEC-042][D42]／[044][D44]／[047][D47]、実行していない試験を通ったとしない [DEC-049][D49]。OPEN＝Linux版追加Acceptance。
-- **技術設計:** 0.1 M30、0.2 activation／M21、0.3仕様化・activation、0.4 Entry Gateを保持。全35項目完了を新Gateにしない。
+- **製品決定:** CONFIRMED＝[DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)：BのHost→Linux Image／QEMU→実機という段階的・証拠に基づく検証を先に整備し、複数環境の自動テスト・障害注入・テスト不足分析・AIによる失敗原因調査等のCを将来の正式製品目標として段階導入。AIは原因仮説・補助、PASS／FAILは決定論的な試験結果と既存Acceptanceで評価し、未実行を成功としない。PROVISIONAL＝具体試験網・AIモデル／テスト生成・ツール／費用・スケジュール／版・Linux受入。
+- **技術設計:** 0.1 M30、0.2 Activation／M21、0.3仕様化・Activation／Acceptance、0.4 Entry Gateを保持。全35項目完了やC完成・全実機試験を一律の新Gateにしない。DEC-049の速度優先・コード不変時の過去証拠再利用・統合の節目でのLinux受入を維持し、Host／Adapter・旧Guest・Linux Image／QEMU・実機の証拠を区別する。
 - **実装・target受入:** 既存CI／QEMU試験あり。`test-plat-01`の新platform harnessはstateでIN_PROGRESS、実装・Acceptance成功は未記録。旧statusはM19以降等にPARTIALを含む。CI単発成功をrelease全体PASSにしない。Linux release・実機未確認。
 - **依存・責任候補:** 29, 33, 35と各対象項目。`ci-acceptance`／`test-plat-01`／Integration Owner。
 - **根拠:** [0.1 §75–92][S01]、[0.2 §31–32・46–48][S02]、[roadmaps][RM]、[status][STATUS]。
-- **次に決める:** Linuxの最小統合シナリオと失敗ケース、既存Gateとの差分・証拠形式・最終受入責任。
+- **次に決める:** Linuxの最小統合シナリオと失敗ケース、対象環境・機能別の必須／任意試験網、既存Acceptanceとの差分、Cの自動化・障害注入・AI分析／テスト生成の具体化、費用・受入責任・導入時期。Linux受入結果は実測後に記録する。
 
 <a id="f35"></a>
 ### 35 Build / Supply Chain
@@ -599,6 +599,7 @@ Linux／実機検証:
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | 34 | [DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)：検証B先行、Cを将来の正式製品目標として段階導入。AI仮説と決定論的合否を分離、速度優先・既存Gate維持 | 文書・参照確認のみ。新規runtime／Linux Image／実機試験なし |
 | 2026-11-16 | 28 | [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)：通常a11y基盤を先行、長期AI-nativeと設計両立。time／locale詳細と入力技術・時期は未決定 | 文書・参照の確認のみ。Linux／screen reader／実機の新規受入なし |
 | 2026-11-16 | 29 | REVIEW NOTE：既存0.2 §17／M04を元に次の検討論点を整理。新規製品方式の採用決定なし | 既存仕様の読取。runtime検証なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
