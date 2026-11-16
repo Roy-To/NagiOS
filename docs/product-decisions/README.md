@@ -142,7 +142,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-079 | [System Imageの読み取り専用化・A/B更新／復旧・User Data／AIモデル分離](DEC-079-system-image-readonly-ab-data-separation.md) | CONFIRMED（read-only System・User Data分離・A/B更新／復旧・モデル論理分離）／PROVISIONAL（partition・filesystem・更新／復旧実装・適用版） | 2026-11-16 |
 | DEC-080 | [Init／Service Manager：A案第一候補・B案との短期実装比較](DEC-080-init-service-manager-ab-evaluation.md) | CONFIRMED（A第一候補・短期A/B実装比較後に最終選択）／PROVISIONAL（A/B正式採用・試験詳細・期間・適用版） | 2026-11-16 |
 | DEC-081 | [Nagi主体の基本ユーザーランドと汎用OSSの選択的活用](DEC-081-nagi-owned-userland-selective-oss-components.md) | CONFIRMED（Nagi固有サービス／API／アプリ環境の独自設計、libc・基礎ライブラリ・基礎ツールのOSS活用、既存distributionユーザーランド一式非流用）／PROVISIONAL（具体部品・ABI・適用版） | 2026-11-16 |
-
+| DEC-082 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-082-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・Wayback連携・必要時のC追加）／PROVISIONAL（詳細・技術・適用版） | 2026-11-16 |
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -316,3 +316,7 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## PR #107〜#129の仕様統合（2026-11-16）
 
 [統合先・DEC改番・重複範囲の対応表](PR-107-129-INTEGRATION-2026-11-16.md)を参照。DEC-052は実機候補、DEC-069はFoundation Checklistの正本として維持する。異なる仕様の番号を分離し、採用・暫定・実装・受入を区別する。過去の「main未マージ」は記録当時の履歴であり、現在の仕様は本索引の各DECを参照する。
+
+## #16 Backup / Restoreの決定・変更履歴（2026-11-16）
+
+[DEC-082](DEC-082-user-environment-backup-and-wayback.md)でB方式（ユーザー環境全体のバックアップ）を基本とし、Waybackと分担・連携し、必要に応じC方式を追加選択肢とする方向を記録した。Cの内容・対象、保存方式・鍵・保持・復元詳細・提供版は未確定。DEC-014のWorkspace保存／移行、DEC-026の実際の復元可能性、DEC-004の明示的忘却を維持し、台帳#16と関連ロードマップへ参照を追加。仕様記録であり実装・受入済みではない。
