@@ -58,3 +58,10 @@ Nagi Share／Handoff等が使う端末間接続を、まず同一Wi-Fi／LAN上�
 | 2026-11-16 | 同一Wi-Fi／LANを初期ターゲットとし、Device Connectivity／Trust／Transportを共通化する方針を確定。近距離直接通信と遠隔接続の拡張可能性を保持し、初期の遠隔実装・常時Cloud・運営サーバーを必須化しない。Offline-first、認証・信頼・暗号化・明示許可・現行権限・Privacy・取消・外部Scope、DEC-014、無断同期／転送／Task再実行禁止を維持。具体方式・運用・時期・性能は未確定、Clipboardは未採用。 |
 
 2026-11-16 統合注記: 上記の作成時点の未マージ記録に続き、[DEC-064](DEC-064-nagi-share-nearby-file-transfer.md)と[DEC-065](DEC-065-nagi-handoff-work-continuation.md)をmainの製品方針として統合。共通接続基盤・単発転送・意味的継続の責務は分離し、実装済みとはしない。
+
+
+## Foundation #32の後続決定（2026-11-16）
+
+[DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md)で、既存のLAN-first／共通Device Connectivity・Trust・Transportの**具体的な製品設計方針**として、**B（Linux／OSS通信技術を利用するNagi統合Connectivity Service）を基本採用**し、PC／Tablet／Phone間のShare／Handoff／Continuityが利用する**Nagi独自の上位端末連携Protocolを設計すること**、必要な独自通信技術の**並行研究を進めること**をCONFIRMEDとした。従来の「Protocol具体方式未確定」は、独自上位Protocolを設計する方向を確定した上で、そのSchema・Version・実行／暗号方式・Transportなどの技術詳細が未確定という意味で引き続き有効とする。
+
+この後続決定で全面独自通信Stack、独自暗号方式、Driver、自動同期、遠隔Relay／Cloud、特定OSS・Hardware、研究成果の正式採用を確定しない。基本の認証・端末信頼と転送・Action認可の区別、明示許可／情報分類／Profile・Permission／Policy、Offline-first、失効・取消、Share≠Handoff≠Workspace移行・同期、既存Gateを変更しない。
