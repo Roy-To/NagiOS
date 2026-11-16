@@ -69,7 +69,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [標準的な働きかけと通知](DEC-008-proactive-behavior.md) | CONFIRMED | 2026-10-29 |
+| DEC-008 | [標準的な働きかけと通知・小さな用事への静かな準備](DEC-008-proactive-behavior.md) | CONFIRMED（B既定・設定調整・許可履歴による個人適応）／PROVISIONAL（具体条件・学習・UI・実装版） | 2026-11-16 |
 | DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
 | DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
 | DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
@@ -306,3 +306,9 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## PR #107〜#129の仕様統合（2026-11-16）
 
 [統合先・DEC改番・重複範囲の対応表](PR-107-129-INTEGRATION-2026-11-16.md)を参照。DEC-052は実機候補、DEC-069はFoundation Checklistの正本として維持する。異なる仕様の番号を分離し、採用・暫定・実装・受入を区別する。過去の「main未マージ」は記録当時の履歴であり、現在の仕様は本索引の各DECを参照する。
+
+## 小さな用事への静かな準備・変更履歴（2026-11-16）
+
+[DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
+
+既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。

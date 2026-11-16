@@ -32,6 +32,12 @@ Profile／model-independent Canonical Memory、Context/Event、型付きPublic A
 
 [DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとする。単一Personal Agent、Profile／Memory、正規のPublic Actionという本書の方向を維持し、複数Supervisor・子Agent組織を0.3へ追加しない。具体的な提供版・実装順序は未確定であり、§26、§28、§34の既存Gate・Acceptanceを変更しない。
 
+## 小さな用事への静かな準備・変更履歴（2026-11-16）
+
+[DEC-008](../DEC-008-proactive-behavior.md)の範囲限定の補足により、小さな雑務・着手しづらい連絡・忘れやすい用事にはB（静かな準備と区切りの控えめな提案）を既定とし、働きかけを設定調整でき、許可されたMemory・習慣・採用／無視／拒否等から個人適応する方針をCONFIRMEDとして記録した。明示設定・拒否・停止・忘却を優先し、草案・情報整理・一時メモによる着手支援を目指す。一時的Task／Reminderは長期Canonical Memoryと区別可能にすることを考慮する。
+
+本書のMemory／Learning／Permission-filtered Contextと接続するが、潜在的な用事を探す新たな監視・収集や無断の閲覧・保存・外部送信・購入を認めない。具体的データソース、集中／区切りの検知、下書き自動生成条件、保存・保持・削除、学習評価・UI・頻度・モデル・省電力・提供版はPROVISIONAL／OPEN。0.3必須機能への追加割当て、実装開始・受入完了を意味せず、§26／28／34の既存Gate・Acceptanceは変更しない。
+
 ## 1. Overview
 
 NAGI OS 0.3は、NAGIを「ローカルAIを搭載したOS」から、**ユーザーと継続的に関係を構築し、記憶・学習・行動履歴を保持しながら成長する Personal Agent OS** へ進化させるための世代と位置付ける。
