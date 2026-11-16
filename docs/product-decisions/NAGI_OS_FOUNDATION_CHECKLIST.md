@@ -285,7 +285,7 @@
 ### 16 Backup / Restore
 
 - **検討対象:** 本文／設定／Profile／Memory／app／Workspaceのbackup境界、復元・鍵・忘却・世代・外部保存。
-- **製品決定:** CONFIRMED＝B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携、必要時のC方式を追加選択肢とする方向 [DEC-082](DEC-082-user-environment-backup-and-wayback.md)。既存Workspaceの暗号化Export／Importと選択式移行 [DEC-014][D14]を維持。PROVISIONAL／OPEN＝対象別収録・除外・復元契約、Cの具体内容・条件、技術・提供版。Workspace保存を本文backupとしない。
+- **製品決定:** CONFIRMED＝B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携、必要時のC方式を追加選択肢とする方向 [DEC-105](DEC-105-user-environment-backup-and-wayback.md)。既存Workspaceの暗号化Export／Importと選択式移行 [DEC-014][D14]を維持。PROVISIONAL／OPEN＝対象別収録・除外・復元契約、Cの具体内容・条件、技術・提供版。Workspace保存を本文backupとしない。
 - **技術設計:** 対象別の保存・回復契約あり。全体snapshot／差分backup／復元媒体は未採用。
 - **実装・target受入:** 既存checkpoint・hostモデルは再利用候補。全OS backup／bare-metal restore／Linux鍵回復は未確認。
 - **依存・責任候補:** 7, 8, 10, 12, 14, 15, 32。storage／Workspace／security候補。
@@ -598,7 +598,7 @@ Linux／実機検証:
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
-| 2026-11-16 | 16 | [DEC-082](DEC-082-user-environment-backup-and-wayback.md)：B基本・Wayback分担連携・必要時C追加の方向を確定。対象・技術・C詳細・版は未定 | 文書・リンク・状態分離を確認。runtime PASSの追加なし |
+| 2026-11-16 | 16 | [DEC-105](DEC-105-user-environment-backup-and-wayback.md)：B基本・Wayback分担連携・必要時C追加の方向を確定。対象・技術・C詳細・版は未定 | 文書・リンク・状態分離を確認。runtime PASSの追加なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md
