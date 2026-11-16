@@ -1,7 +1,13 @@
 # NAGI Future Roadmaps
 
+## 近距離ファイル共有の製品方針（2026-11-16）
+
+[DEC-064](../DEC-064-nagi-share-nearby-file-transfer.md)でNagi Share（仮称）をNagiのPC／Tablet／Phone間の純正ファイル共有機能として採用した。共有UIから近くの受信可能端末を発見・選択し、受信側の確認・許可、暗号化・端末認証と既存の認可・情報区分・所有／Profile境界に従ってローカルに直接転送する。Internet・Cloud account・LLMは基本利用に必須としない。
+
+日常の単発ファイル転送はDEC-014のWorkspace移行・同期、Team／Organization／Remote Agentとは別の範囲である。名称・通信方式・互換・保存先・距離・UI／通知／承認詳細・対応版／端末・性能はPROVISIONALで、0.8等の特定版へ割り当てず、Desktop firstと既存Release／Activation Gateを維持する。Nagi Shareからページ／Project／Workspace／作業状態Handoffへ拡張する案はアイデアであり、既存Continuity仕様の撤回でも、その拡張の採用確定でもない。
+
 **保存先:** `Roy-To/NagiOS` / `docs/product-decisions/roadmaps/`
-**更新日:** 2026-11-15([DEC-050](../DEC-050-public-specification-repository.md)により非公開リポジトリから公開リポジトリへ移管)
+**更新日:** 2026-11-16（公開移管は2026-11-15、[DEC-050](../DEC-050-public-specification-repository.md)を参照）
 
 | ファイル | 位置付け |
 |---|---|
