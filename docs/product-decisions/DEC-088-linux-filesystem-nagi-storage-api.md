@@ -18,6 +18,8 @@ Nagi固有のFile／Resource／Workspaceとアプリ横断の参照・権限管�
 5. **Filesystemのsnapshot、Nagi Wayback、Backup、Workspace復元を区別する。** filesystemのsnapshotだけでNagiの意味的なActivity／Checkpoint／Waybackや文書／Workspaceの復元・バックアップが完成したと扱わない。元Provider・アプリ／ユーザーのデータ正本はDEC-023／025の分散正本に従い、無断集約・別データの上書きや中断Taskの再実行を認めない。
 6. **データ保全と障害時の正確な状態報告を重視する。** 容量不足・書込み失敗・電源断・データ破損・外部メディア切断等の障害を見据え、保存成功・部分成功・未保存・結果不明を区別する。実際に保証できないdurability／完全性／復旧成功を利用者へ示さず、保存・復旧のための正規API・実装／検証を整備する。
 
+> **2026-11-16 Persistence後続決定:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagi共通の永続化／Schema Migration／復旧契約を用いながら、データ正本をUser／Profile／Memory／Workspace／Task／App／Provider別に保持できるB案をCONFIRMED。本DECの用途別Linux FilesystemとNagi Storage／Files APIは不変。具体的なdurable commit／fsync／atomicity・Linux target受入は未決定。Filesystem snapshotがWaybackや全アプリBackupを代替することもない。
+
 ## 安全・実装境界
 
 - **DEC-043／Linux移行:** Linux Filesystemの採用は既存distributionのuserland一式をOS基盤として採用する決定ではなく、Nagi独自のService／API／app環境を維持する。
