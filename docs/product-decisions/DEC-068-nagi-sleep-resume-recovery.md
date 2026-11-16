@@ -25,6 +25,8 @@ Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定
 7. **障害後に中断Taskや副作用Actionを無断再開・再実行しない。** 保存済み状態を用いた復旧はDEC-014／022に従い、ユーザーが選択する前に中断AI Taskを進めない。再開・やり直しを選んだ後も現行のUser／Profile、Permission／Policy、TaskのScope・期限・Budget・Cancel状態、Resource Revisionと競合、実行済み／未実行／結果不明を再検証する。結果不明のActionを盲目的に再送せず、副作用の二重実行を防ぐ。
 8. **休止状態は段階的に追加する。** Hibernationは対応実機での技術検証を経て追加する方針とし、全端末での対応を約束しない。採用する実装技術や対応機種、保存・復帰の成立は未検証であり、スリープの採用だけで休止状態対応済みとはしない。
 
+> **2026-11-16 Foundation Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、Nagi Recovery Coordinatorと各Service別のクラッシュ・電源断後復旧B案をCONFIRMED。本DECの通常Sleep（RAM保持）復帰と、保存状態からの障害後再構築の区別を維持し、結果不明の副作用Actionや中断Taskを無断再実行しない。Recovery技術・Linux target受入は未決定。
+
 ## 継続・保存・復元の境界
 
 - **RAM保持でもTaskの権限は自動継承しない。** 通常復帰からの継続は、DEC-020で認める有効な承認済みTaskのResource待機と、ユーザーの明示Pause／Cancel／Stop、承認待ち・失効・状態不明・障害復旧待ちを区別する。前者の条件付き継続は既存の再検証規則に従う。すべてのAI Taskがスリープをまたいで自動継続できるという決定ではなく、プロセス・推論・Taskの具体的な継続境界はPROVISIONAL。
