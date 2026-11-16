@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマと順序はREVIEW NOTE／PROVISIONAL。PX-02のユーザー主導UI B＋将来の高度個人適応Cは高水準CONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの決定・並行PRはこの分岐では変更しない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -18,8 +18,15 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
 | PX-01 | **Nagi Home / Desktopの詳細仕様** | ログイン直後の画面、会話・アプリ・Taskの入口、Home/Desktopの遷移、AI停止時の操作 | [関連DEC 1](DEC-009-nagi-first-home-desktop.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
-| PX-02 | **Intent-first UI・適応型画面** | 目的に応じたカードやパネル、選択・却下・固定の方法、既存Workspaceの手動配置保護 | [関連DEC 1](DEC-010-intent-first-adaptive-ui.md)・[関連DEC 2](DEC-008-proactive-behavior.md) |
+| PX-02 | **Intent-first UI・適応型画面** | **B＋将来Cの高水準方針CONFIRMED:** 作業目的に応じたカード／パネルをユーザーが選択・却下・固定・調整できる適応UI B。将来は許可されたTask／Project文脈・明示設定／採用履歴による高度個人適応C。詳細UI、表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL | [関連DEC 1](DEC-010-intent-first-adaptive-ui.md)・[関連DEC 2](DEC-008-proactive-behavior.md) |
 | PX-03 | **Project / Workspaceの統合体験** | Project指定UI、複数Workspaceとの関係、資料・Task・作業状態の再発見と再開 | [関連DEC 1](DEC-055-project-folder-cross-app-context.md)・[関連DEC 2](DEC-014-workspace-state-checkpoints.md) |
+
+### PX-02の決定記録（2026-11-17）
+
+- **CONFIRMED:** ユーザーが選択・却下・固定・調整できるIntent-first適応型UI Bを基本とし、将来は許可された作業文脈・採用履歴・明示設定による高度な個人適応Cへ発展する高水準の方針。正本は[DEC-010](DEC-010-intent-first-adaptive-ui.md)のPX-02節で、通常の提案の性格は[DEC-008](DEC-008-proactive-behavior.md)を維持する。
+- **既存CONFIRMEDを維持:** 新規Workspaceの目的別・複数画面自動配置、既存Workspace・固定ウィンドウ・手動配置の保護、AI不在時の通常GUI、控えめな静かな提案、Action／Permission・Privacy／Memory境界。PX-02のB／将来Cは既存の自動配置の「選択C」「選択B」と別軸。
+- **PROVISIONAL／OPEN:** カード／パネルの選択・却下・固定の詳細UI、表示順序・適応／抑制条件、学習／生成の技術、性能・端末・提供Version／時期・Acceptance。
+- **進捗:** PARTIALLY_RECORDED（高水準の決定のみDECへ反映）。他PXの独立PRの合意をこのbranchから一括上書きしない。
 
 ### 第2群：AI・Personal Agentの振る舞い
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-02がPARTIALLY_RECORDED（B基本＋将来C方向CONFIRMED、詳細PROVISIONAL）。** 他PXの決定／未統合PRは別途確認し、一律にOPEN／CONFIRMEDと扱わない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-02のユーザー主導の適応型UI Bを基本、将来Cの高度な個人適応UIへ発展する高水準方針を追加。DEC-010の新規Workspace自動配置／既存配置保護、DEC-008の静かな提案・権限境界を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、選択／却下／固定UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL |
