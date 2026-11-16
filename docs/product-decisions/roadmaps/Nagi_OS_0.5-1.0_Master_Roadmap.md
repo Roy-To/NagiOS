@@ -37,6 +37,10 @@ A CONFIRMED boundary does not make every roadmap item CONFIRMED. Version mapping
 
 ## 2. Confirmed direction carried forward
 
+### Near-term product priority (2026-11-16, DEC-052 follow-up)
+
+Prioritize establishing Nagi as an OS where AI works naturally as a standard OS capability. Hierarchical Agent Organization remains a non-priority long-term vision. The proposed organization phases below do not make hierarchy a near-term priority or a prerequisite for 1.0. Delivery versions, hierarchy depth and implementation sequencing remain PROVISIONAL. Preserve the existing 0.3/0.4 gates and the initial single-Nagi `builder` Role workflow. See [DEC-052](../DEC-052-human-led-agent-organization.md) for the confirmed priority and illustrative experience-validation candidates.
+
 ### Release boundaries
 
 - **0.3** is the single-Personal-Agent generation: Nagi uses the user's Profile and Memory, performs approved cross-application work through typed Public Actions, and preserves offline and permission boundaries. The **Hardware-Adaptive Memory Engine** is a major 0.3 technical topic under **DEC-013**: host-only benchmark preparation may precede it, but formal runtime implementation stays behind the existing 0.3 specification and activation gates and is not shifted to 0.5. Canonical Memory remains user-owned and model-independent; hardware-dependent indexes, caches, and Context adapters are derived and rebuildable. Hardware transitions must not require relearning canonical Memory. The revised 0.3 roadmap's Implementation Specification gate remains in force.
