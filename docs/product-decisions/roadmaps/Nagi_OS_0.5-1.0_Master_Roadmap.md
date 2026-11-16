@@ -25,6 +25,12 @@
 
 > This document proposes a path beyond 0.4. It does not replace an implementation specification, approve a release, activate a workstream, or change an existing acceptance gate. Treat the version-by-version allocation below as provisional until a later decision is recorded.
 
+## Quiet preparation for small errands — update (2026-11-16)
+
+[DEC-008](../DEC-008-proactive-behavior.md) now supplements its existing discreet-proactivity default with limited CONFIRMED direction for small pending chores, difficult-to-start correspondence and easily forgotten errands: quietly prepare within existing permission, offer discreet suggestions at suitable breaks, let users adjust the degree and timing, and adapt content/timing/frequency from permitted Memory, habits and adoption/ignore/rejection feedback. Explicit settings, refusal, Stop and forgetting take precedence; silence is not consent. Drafts, information organization and temporary notes aim to reduce the effort of starting. Consider transient Task/Reminder data distinguishable from long-term Canonical Memory.
+
+This adds no monitoring, collection, access, persistence, external-sharing, sending or purchasing authority. Data sources, break detection, automatic draft-generation conditions, retention/deletion, learning/evaluation, UI, frequency, model/power choices and delivery versions remain PROVISIONAL/OPEN. Preserve existing approved-Task exceptions and Workflow approval rules. This update assigns no new requirement to 0.5–1.0, changes no release/activation/acceptance gate, and claims no implementation or measured effect.
+
 ## 1. Purpose and status labels
 
 > **2026-11-16 connectivity update:** [DEC-066](../DEC-066-device-connectivity-lan-first.md) confirms same-Wi-Fi/LAN Nagi devices as the initial connectivity target and a shared Device Connectivity/Trust/Transport abstraction without hardcoded transports. Nearby direct Wi-Fi and remote internet connectivity remain extensible options; initial remote support, always-on Cloud, online Nagi accounts and operator-run servers are not required. Preserve offline-first, authentication/trust, encryption, explicit permission, current User/Profile/Resource Permission and Privacy, revocation, external communication scope, and DEC-014's separate migration/sync/cloud grants. No implicit transfer, synchronization or Task replay; Clipboard remains unadopted. Protocols, UI, devices, operations/costs, release timing and performance remain provisional. This does not assign the feature to 0.8 or any other release or change existing gates.
