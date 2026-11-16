@@ -21,6 +21,10 @@
 
 **接続方針の変更履歴（2026-11-16）:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)で初期は同一Wi-Fi／LANのNagi端末、共通Device Connectivity／Trust／Transport、Offline-firstと認可境界を確定。近距離直接通信・遠隔接続は拡張可能性を保持し、初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーは必須にしない。具体方式・対象機器・運用費用・版・時期・性能は未確定。DEC-014の選択式移行／同期とCloud別許可を維持し、無断転送・同期・Task再実行なし、Clipboard未採用。各ロードマップの既存Gate・版割当ては変更しない。
 
+**Foundation #32 Device Connectivity（2026-11-16）:** [DEC-101](../DEC-101-device-connectivity-nagi-protocol-linux-research.md)で、Linux／OSSの既存通信技術とNagi独自Connectivity Serviceを組み合わせるBを製品基本とし、Nagi Share／Handoff等のPC／Tablet／Phone間で共通利用するNagi独自の意味的連携Protocolを設計すること、必要な独自通信技術を並行研究することをCONFIRMED。上位Protocolの設計とTransport／暗号機構は分離し、全面独自通信Stackや自作暗号は今回採用しない。研究成果の製品採否は実測と別判断で決定する。DEC-066の同一LAN初期接続・後続直接／遠隔拡張余地、DEC-014／064／065の独立した認可・移行・Share／Handoff契約、Offline-firstと無断同期・転送／Task再実行禁止を維持する。具体Schema・OSS／Transport・暗号方式・遠隔／Relay・端末／版・性能・Linux受入はPROVISIONAL。既存Gateや版割当てを変更せず実装済みを示さない。
+
+変更履歴: 2026-11-16 — DEC-101でFoundation #32のB標準＋Nagi上位Protocol＋必要な独自通信研究を記録。通信実装の採否・版は未決定。
+
 ## 当面の優先順位（2026-11-16）
 
 [DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。各Roadmapに日付付き注記を反映した。具体的な提供版・階層数・実装順序は未確定であり、0.3の単一Personal Agent、初期0.4の単一Nagi builder Role、既存Gate・Acceptanceは維持する。
