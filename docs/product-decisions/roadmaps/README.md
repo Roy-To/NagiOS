@@ -49,6 +49,8 @@
 
 **Foundation #26 App Lifecycle（2026-11-16）:** [DEC-095](../DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)で、Linuxの標準process／隔離機構＋Nagi App Supervisorを製品の基本とするB案と、独自Runtimeの並行比較研究をCONFIRMED。新規Runtimeの隔離、起動／ready速度、RAM／電力、Workspace／Public API連携、移植・保守負担の効果をLinux標準経路と実測比較し、部分採用するかを後続判断する。独自Runtime・WASM等の具体技術、アプリ分類、対応端末、導入Version・性能はPROVISIONAL。0.2 M12／M13／M21のManifest・Supervisor・SDK契約、Nagi Native Apps専用方針、試用／更新／削除の承認・Permission／Policy、既存Release／Activation／Acceptance Gateは維持する。
 
+**Foundation #27 Settings / Notification（2026-11-16）:** [DEC-096](../DEC-096-settings-notifications-context-adaptive-staged.md)でCの状況適応型Settings／Notificationを最終製品目標にする方針をCONFIRMED。Bの共通Settings／Notification Serviceと統合Settings UI・通知センターを途中段階で導入し、許可されたWorkspace／Task・Profile文脈、明示設定、Habit-first学習に基づく通知の提示・集約・タイミング調整へ段階的に発展させる。これはCを単なる研究候補に留める判断ではない。一方、手動制御・AI不在時の通常動作、DEC-008の重大警告と控えめな働きかけ、DEC-004／057／058の学習・訂正・忘却、Permission／Privacyを維持する。具体的自動化・UI・端末・提供版／受入はPROVISIONAL、0.2 M11／M14と既存Release／Activation／Acceptance Gateは変更しない。
+
 
 
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
