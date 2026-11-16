@@ -13,6 +13,8 @@
 
 > **2026-11-16 System Image後続決定:** [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で、OS本体を通常時read-only、User Dataを分離してOS更新後も保持する方針、A/B更新と復旧を基本とする方針、AIモデルをOS本体から論理的に分ける方針がCONFIRMED。本文のrootfs等の具体構成未確定という初回記述は、partition数・filesystem・更新／復旧の実装方式など未確定の範囲を示す。旧独自kernel用imageの技術構成・試験結果をLinux側へ流用しない。
 
+> **2026-11-16 Init／Service Manager選定の後続決定:** [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)で、Nagi独自の最小PID 1＋独自Service Manager（A案）を第一候補に、既存軽量OSS Init＋Nagi Service Manager（B案）と短期実装比較してから最終選択する**判断プロセス**をCONFIRMEDとした。A/Bの正式採用は未決定であり、本DECに残るPID 1／init等の具体構成は引き続きPROVISIONAL。既存の限定移行開発許可・安全境界・Release Gateを変更しない。
+
 ## 決定の位置付けと前回作業との境界
 
 2026-11-12の追加確定指示を記録する。前回の[DEC-042 — 独自Nagi KernelからLinuxカーネルへ変更](DEC-042-linux-kernel-transition.md)を置換・重複作成する目的ではなく、転換後のユーザーランドと独立性を明確化する補足決定である。前回記録の未確定欄に「ディストリビューション／ユーザーランド」が残る場合、本DECで明示的に確定した方針の範囲だけ更新される。具体的な基本ユーザーランド構成は引き続き未確定。
