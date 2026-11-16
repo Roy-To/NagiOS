@@ -24,6 +24,8 @@ Nagi OSの利用者・Profile・SessionをLinuxプロセス資格情報のみに
 
 > **2026-11-16 IPCのCaller認証境界の後続決定:** [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)により、Nagi Service BrokerはNagi論理Identity／Session／Permissionを維持しつつ、LinuxのTransportから得る信頼できるpeer資格情報等と安全に結び付ける方向をCONFIRMED。Linux UID／GIDだけをNagiの認可正本としない。具体的なpeer取得手段、mapping／revocation・実機受入は未確定。
 
+> **2026-11-16 Secrets／Key Management後続決定:** [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、Nagi Secrets ServiceをIdentity／Permissionと統合し、Secret／鍵を用途・User／Profile別に分離する高水準C案をCONFIRMED。認証に用いるCredentialの具体形式、User／Profileに対する権限のbinding、Session失効時の鍵利用やTPM／TEE対応は未確定。Linux UIDやログイン成功をSecret利用の無条件の許可としない。
+
 ## 既存正本・機能境界
 
 - **0.1実装仕様 §22–24:** Owner／Standard User／Guest、完全ローカルアカウント、認証と認可の分離、Owner常時rootの否定、AI自己昇格禁止を継承する。
