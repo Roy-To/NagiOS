@@ -49,6 +49,8 @@
 
 **Foundation #18 Network Devices（2026-11-16）:** [DEC-084](../DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)でEthernet／Wi-Fiを基本機能とし、Bluetoothを段階的に対応する方式BをCONFIRMED。具体driver／firmware／対応機器／pairing／実装版は未確定。端末間初期LAN方針（DEC-066）、Release／Activation／Acceptance Gateを変更しない。
 
+**Foundation #19 Display / GPU（2026-11-16）:** [DEC-085](../DEC-085-display-gpu-nagi-shell-oss-graphics.md)で「Nagi独自Shell＋Linux／OSS描画基盤」のB改良案をCONFIRMED。Nagi Home／Desktop、Workspace、ウィンドウ管理方針、PC／Tablet／Mobile共通の適応UIをNagi独自に設計し、GPU／Display・画面合成の基礎層はOSS再利用を優先する。Wayland／Smithay等の具体採否、software描画fallback、対応端末・性能・適用版はPROVISIONAL。既存Desktop first・Release／Activation／Acceptance Gateを維持する。
+
 
 
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
