@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** 検討項目・順序はREVIEW NOTE / PROVISIONAL。PX-08はB基本方針CONFIRMED・詳細PROVISIONAL（PARTIALLY_RECORDED）。他14項目の追加詳細はOPEN。  
+**状態:** 検討項目・順序はREVIEW NOTE / PROVISIONAL。PX-08／PX-09は基本方針CONFIRMED・追加詳細PROVISIONAL（PARTIALLY_RECORDED）。他13項目の追加詳細はOPEN。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -35,7 +35,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
 | PX-08 | **Memoryの自動学習範囲** | **B基本方針CONFIRMED:** 許可された情報を自然に学ぶ／推測は推測として扱う／重要な内容は確認。細分類・確認条件・除外の追加詳細はPROVISIONAL | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-058-habit-first-learning-and-optional-teach-mode.md) |
-| PX-09 | **Memoryの保持・忘却・管理体験** | 保持・減衰・Archive・削除の条件とUI、訂正、派生Memory、記憶の履歴 | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-059-learning-history-insights.md) |
+| PX-09 | **Memoryの保持・忘却・管理体験** | **B基本方針CONFIRMED:** 自然忘却＋ユーザー管理。将来Cの高度な重複統合・矛盾検出を追加する方向もCONFIRMED。条件・UI・Cの具体方式／版／時期はPROVISIONAL | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-059-learning-history-insights.md) |
 | PX-10 | **Nagiの個人化・対話スタイル** | 口調や説明量の調整、ユーザー設定と学習結果の優先、Profile分離、モデル交換後の継続 | [関連DEC 1](DEC-057-growing-personal-agent-os.md)・[関連DEC 2](DEC-003-memory-classification.md) |
 
 ### 第4群：純正アプリ・アプリ横断機能
@@ -59,11 +59,17 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 - **PROVISIONAL（未決）:** 具体的な記憶対象分類、重要度判定、どの段階で確認するか、除外の追加詳細、状態／確信度、保持・実装・適用版。既存のMemory保護・忘却、Permission／Source・Profile境界、Workflow承認は変更しない。
 - **進捗:** PARTIALLY_RECORDED。基本方針をDECに記録するが、追加詳細や実装の完了を意味しない。
 
+### PX-09検討結果（2026-11-17）
+
+- **CONFIRMED（採用済み）:** B案「自然忘却＋ユーザー管理」。Nagiが通常はMemoryを自然に整理し、ユーザーは必要なときに記憶を確認・訂正・保護・忘却できる。将来C案の高度な重複統合・矛盾検出を追加する方向もCONFIRMED。正本は[DEC-004](DEC-004-memory-learning-forgetting.md)のPX-09節。
+- **PROVISIONAL（未決）:** 重要度・利用度判定、Decay／Archive／削除条件と閾値、約7／90／180／365日の提案値、管理UI・履歴表示、Cのアルゴリズム・自動適用か提案か・確認条件、実装方式・提供版・時期。既存の明示的忘却、ユーザー訂正、Memory保護、Source／Profile／Permission境界、Release／Activation／Acceptance Gateは変更しない。
+- **進捗:** PARTIALLY_RECORDED。基本方針と将来方向を記録し、条件・UI・実装の確定を意味しない。
+
 ## 3. 既存のCONFIRMEDとの関係（変更しない）
 
 - **UI / Workspace:** Nagi-firstと通常GUIの共存、Home / Desktop、既存Workspaceの手動配置保護、新規Workspaceの意図に応じた配置、ProjectとWorkspaceの区別は既存決定。PX-01〜03は画面・遷移・具体操作の追加検討（DEC-009/010/012/014/055）。
 - **Agent / 承認:** 承認済みTask内の限定的な自律性、権限の都度検証、前景会話優先、危険操作の保護、再実行禁止、控えめな先回りは既存決定。PX-04〜07は詳細体験（DEC-001/008/011/016/022/026/073）。
-- **Memory:** 重要情報の選択的な自動学習、自然な習慣学習、モデル非依存の継続、訂正・忘却、学習履歴の可視化は既存決定。PX-08のB基本方針はCONFIRMED。PX-08の具体分類・確認UXとPX-09〜10の詳細は引き続きPROVISIONAL／OPEN。DEC-004にある日数・回数の提案値はPROVISIONAL（DEC-003/004/057/058/059）。
+- **Memory:** 重要情報の選択的な自動学習、自然な習慣学習、モデル非依存の継続、訂正・忘却、学習履歴の可視化は既存決定。PX-08のB基本方針、PX-09のB「自然忘却＋ユーザー管理」、将来Cの高度な重複統合・矛盾検出の方向はCONFIRMED。PX-08／09の具体分類・条件・UIとPX-10の詳細はPROVISIONAL／OPEN。DEC-004の日数・回数の提案値、Cの具体方式・実装時期／版はPROVISIONAL（DEC-003/004/057/058/059）。
 - **純正アプリ・連携:** 既存0.2アプリの定義、追加純正ユーティリティ、共通参照、Smart Paste、正規Public Action優先は既存決定。PX-11〜12は正式搭載範囲と代表ワークフローの明確化（DEC-023/025/027/056/061/062）。
 - **開発者 / 1.0:** Nagi Native Apps、移植支援、初心者向けアプリ制作、builderの隔離・試用・正式導入の承認、公開SDK/配布環境という方向は既存決定。PX-13〜15は到達範囲・品質・具体操作（DEC-017/021/045/070/071/075/076）。
 - **当面の優先:** AI組み込みOS体験を優先し、階層型Agent Organizationは長期・非優先。初期0.4の単一Nagi builder Roleを変更しない（DEC-074/015）。
@@ -80,9 +86,10 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-08がPARTIALLY_RECORDED（B基本方針をDEC-004に記録、詳細はPROVISIONAL）。PX-01〜PX-07・PX-09〜PX-15の追加論点はOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-08／PX-09がPARTIALLY_RECORDED（基本方針と将来方向をDECに記録、詳細はPROVISIONAL）。PX-01〜PX-07・PX-10〜PX-15の追加論点はOPEN。**
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
 | 2026-11-17 | PX-08でバランス型B基本方針を採用。許可された情報の自然な学習／推測の明示的な区別／重要な内容の本人確認をDEC-004に反映。既存Memory／Privacy／忘却・Gateを維持 | PARTIALLY_RECORDED：B基本方針CONFIRMED、細部PROVISIONAL |
+| 2026-11-17 | PX-09でB「自然忘却＋ユーザー管理」と将来C「高度な重複統合・矛盾検出」の方向をCONFIRMEDとしてDEC-004／059に反映。閾値・UI・Cの具体方式／版／時期はPROVISIONAL、既存のSource／Profile／Permission・忘却・Gateを維持 | PARTIALLY_RECORDED：基本方針／将来方向CONFIRMED、詳細PROVISIONAL |
