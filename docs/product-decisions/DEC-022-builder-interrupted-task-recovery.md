@@ -43,6 +43,8 @@ Builderによる作業中にOSのクラッシュ、電源断、再起動、実�
 
 0.4+ RoadmapのTask Log、Activity Ledger、Idempotency、Stop、有限Retry、Revision検査、Waybackに整合する。初回はNagi一体が`builder` Roleに切り替えてTaskを実行する方式C（DEC-015）とし、0.3のTarget Acceptanceおよび明示的な0.4起動Gateを変更しない。
 
+> **2026-11-16 Data Persistence後続決定 — Taskの保存状態と復旧時の権限境界:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagi共通Persistence契約＋用途別分散正本のB案をCONFIRMED。Task／Attempt／Actionの保存結果が不明な場合は照合を要し、ログやCheckpointが存在しても副作用Actionを勝手に再送しない。中断後の再開／やり直し／中止のユーザー選択と現行権限・Revision再評価は不変。具体的なDurability／復旧ステートマシン・Linux target試験は未確定。
+
 ## 決定履歴
 
 ### 2026-11-16 補足：通常のスリープ復帰との区別
