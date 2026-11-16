@@ -45,6 +45,20 @@
 
 ## OS基盤の検討と進捗（2026-11-16）
 
+**Foundation #17 Device Manager（2026-11-16）:** [DEC-106](../DEC-106-device-manager-local-remote-unified-ui.md)でローカル周辺機器管理と他のNagi端末管理を内部責務として分離し、Nagi Settings／DevicesのUIで統合する方式BをCONFIRMED。Linux既存driver等を活用する方針で、具体stack・対応機器・Linux実機受入・適用版は未確定。DEC-066のTrust／許可境界を維持する。
+
+**Foundation #18 Network Devices（2026-11-16）:** [DEC-107](../DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)でEthernet／Wi-Fiを基本機能とし、Bluetoothを段階的に対応する方式BをCONFIRMED。具体driver／firmware／対応機器／pairing／実装版は未確定。端末間初期LAN方針（DEC-066）、Release／Activation／Acceptance Gateを変更しない。
+
+**Foundation #19 Display / GPU（2026-11-16）:** [DEC-108](../DEC-108-display-gpu-nagi-shell-oss-graphics.md)で「Nagi独自Shell＋Linux／OSS描画基盤」のB改良案をCONFIRMED。Nagi Home／Desktop、Workspace、ウィンドウ管理方針、PC／Tablet／Mobile共通の適応UIをNagi独自に設計し、GPU／Display・画面合成の基礎層はOSS再利用を優先する。Wayland／Smithay等の具体採否、software描画fallback、対応端末・性能・適用版はPROVISIONAL。既存Desktop first・Release／Activation／Acceptance Gateを維持する。
+
+**Foundation #20 Input System（2026-11-16）:** [DEC-109](../DEC-109-input-system-cross-device-linux-foundation.md)で、Linux既存input基盤を活用し、Nagi共通Input Serviceでkeyboard／mouse／touchを統合する方式BをCONFIRMED。DEC-108のNagi独自Shell／端末適応UIとDEC-060の高速IME・AI学習／秘密入力保護に整合。evdev／libinput等の具体stack、focus／seat／IME契約、device・版・Linux実機受入はPROVISIONAL。PC／Desktop firstと既存Release／Activation／Acceptance Gateを変更しない。
+
+**Foundation #21 Audio System（2026-11-16）:** [DEC-110](../DEC-110-audio-system-oss-nagi-service-measured-optimization.md)で「条件付きB」をCONFIRMED。Linux／OSSの音声基盤を活用し、Nagi独自Audio Serviceから再生・録音、機器切替、マイク権限、音声優先度、Nagi Voiceを管理。低遅延・省メモリ・省電力を実機で測定し、要件未達の部分のみ最適化・限定的置換を検討する。ALSA／PipeWire等の具体採否、対応実機・測定方法／閾値・実装版・受入はPROVISIONALで、Desktop first／既存Gateを変更しない。
+
+**Foundation #22 周辺機器（2026-11-16）:** [DEC-092](../DEC-092-peripherals-usb-storage-hid-staged-support.md)で方式BをCONFIRMED。USBストレージ（USBメモリ・外付SSD）と基本HID入力機器を標準対象とし、カメラ・プリンター・スキャナーは段階的に対応する。Linux既存driver／OSSを活用し、Nagi Device Manager／Permission／Privacy／通常UIへ連携する。全Linux対応機器の動作保証ではない。具体機種・対応範囲・API・プロトコル・実装版・Linux実機受入はPROVISIONAL。版割当て・Desktop first・既存Release／Activation／Acceptance Gateを変更しない。
+
+
+
 **Foundation #24 Network Service（2026-11-16）:** [DEC-093](../DEC-093-network-service-linux-nagi-policy-offline.md)でLinuxの既存ネットワーク基盤とNagi独自Network Serviceを組み合わせる方式BをCONFIRMED。接続設定・状態、Offline対応、通信認可をNagi Serviceで扱い、TCP/IP全体の新規独自開発を基本にしない。ネットワーク接続の許可とCloud AIへのデータ送信・端末信頼は別のScopeであり、DEC-002／020／066と整合する。具体OSS・Linux強制機構・対応実機・性能・適用版はPROVISIONAL、Release／Activation／Acceptance Gateは変更しない。
 
 
@@ -65,6 +79,8 @@
 
 変更履歴: 2026-11-16 — Nagi Powerの決定を参照追加。各ロードマップの既存版境界とGateは変更しない。
 
+2026-11-16 Foundation #23後続確認: [DEC-067](../DEC-067-nagi-power-deterministic-resource-management.md)で、自動電力・熱・資源管理を基本とし、利用者が省電力／バランス／高性能に相当する簡易モードを選択できる方式BをCONFIRMEDとして追記。熱保護・安全・前景応答性・Permission／Policyを優先。モード名称／制御方式・数値・対応端末・提供版・測定結果はPROVISIONALで、Master Roadmapの0.6案／既存Release／Activation／Acceptance Gateを変更しない。
+
 ## Nagi Handoff採用・変更履歴（2026-11-16）
 
 [DEC-065](../DEC-065-nagi-handoff-work-continuation.md)でNagi Handoff（仮称）を、PC・タブレット・スマートフォン間で文書・Resource・編集箇所・意味的な作業状態を継続する純正OS機能として採用した。既存Continuity、Homeの `home.continue_from_device`、Device Capability、DEC-014の選択式Workspace移行／同期を最大限再利用し、受信先の画面・能力に応じてUIを再構築する。現行User／Profile／Owner／Permission／Privacy・Source有効性／Revisionを再検証し、実体がなければユーザー許可に基づく取得／転送経路または代替を提示する。無断のファイル・個人データ転送／クラウド同期・競合上書きをせず、中断AI Task／副作用Actionを自動再開・再実行しない。名称・UI・復元範囲・経路・共有方式・クラウド利用・瞬時性・対応版はPROVISIONAL。全アプリ・全状態の完全移行、常時オフライン成立、自動同期は保証しない。単発ファイル転送のNagi Shareとは別の概念である。既存Desktop first、Release／Activation／Acceptance Gate、版割当てを変更せず、実装済みを示さない。 0.3／0.4+／0.5〜1.0のどのVersionへ提供するかは本記録では確定しない。
@@ -78,3 +94,12 @@
 [DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
 
 具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
+
+
+## Crash Recovery方針・変更履歴（2026-11-16）
+
+[DEC-091](../DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)でFoundation #15のB案を記録した。Nagi共通Recovery Coordinatorが復旧を調整し、各service／App／Providerが正本の整合性・保存証拠を検証する。結果不明の副作用Actionと中断Taskを無断再実行せず、現行Permission／Revisionを再検証する。通常sleep復帰はcrash後の保存状態復旧と別状態である。0.2のResource／Activity／Wayback／Jobsと0.3以降の継続性に接続するが、具体方式・Linux受入・提供版は未確定。各Roadmapの既存版割当て・Release／Activation／Acceptance Gateと担当・着手条件を変更せず、実装完了を示さない。
+
+## #16 Backup / Restoreの後続決定・変更履歴（2026-11-16）
+
+[DEC-105](../DEC-105-user-environment-backup-and-wayback.md)で、B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携し、必要に応じC方式を追加選択肢とする方向をCONFIRMEDとした。Cの具体内容・対象、保存・鍵・保持・復元詳細・技術・提供版はPROVISIONAL／OPEN。Profile単位Backup、DEC-014のWorkspace状態保存／選択式移行、Waybackの実際の復元範囲、DEC-004の明示的忘却と現行認可を維持する。既存の版割当て・Release／Activation／Acceptance Gate・担当を変更せず、実装・Linux／実機の復元成功を意味しない。
