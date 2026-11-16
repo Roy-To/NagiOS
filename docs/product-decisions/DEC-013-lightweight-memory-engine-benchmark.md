@@ -78,3 +78,9 @@ Nagi 0.3のMemory Engineは、特定世代の低スペック端末向けに固�
 
 
 **詳細設計案:** [Memory Resource Governor — detailed design proposal](MEMORY-RESOURCE-GOVERNOR-DESIGN.md)。契約・検証候補であり、閾値・技術選択・実装許可を確定しない。
+
+## 2026-11-16 — Nagi Powerとの役割分担
+
+[DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)で、AI非必須のOS全体の電力・熱・負荷・背景資源管理をNagi Power（仮称）として採用した。Memory側は本書の検索経路選択とCanonical Memory保護を維持し、索引整備等もOSの通常資源契約に従う。OS全体の制御とMemory内の適応処理を重複した権限主体にせず接続する方針であり、Memory Resource Governor案のAPI・閾値・技術を確定するものではない。
+
+変更履歴: 2026-11-16 — DEC-067との役割分担を追記。既存Memory方針・0.3実装範囲・Gateは変更しない。
