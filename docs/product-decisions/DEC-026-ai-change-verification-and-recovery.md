@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（方式A：検証・復元可能な変更を優先、リスク別の保護、承認範囲内の自律実行、AI Task開始前のWayback復元可能性の可視化）／PROVISIONAL（リスク閾値・表示／UI・事前判定範囲・未対応／不明時の扱い・数値・実装方式・適用版）  
 **最終合意日:** 2026-11-15  
 **対象:** Nagi／Agentが扱うデータ変更・アプリ横断Actionの製品安全原則（実装時期は未確定）  
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-036](DEC-036-builder-app-trial-and-installation.md)、[Public 0.2 Platform仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-036](DEC-036-builder-app-trial-and-installation.md)、[Public 0.2 Platform仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md), [DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)
 
 ## 目的
 
@@ -36,6 +36,10 @@ AIが複数の資料やアプリのデータを変更するとき、実行可能
 
 正式導入後のアプリ修正は[DEC-035](DEC-035-builder-created-app-maintenance-updates.md)の方式Cに従い、Nagiが提案し、必要な権限・Scopeで隔離修正と検証を実施し、**ユーザーが更新内容を確認・承認した場合に限って**正式Versionを更新する。アプリのデータ・設定は可能な範囲で保護し、互換性・Migration・現行Permission／Revisionを評価する。旧アプリBinaryの復元とデータ変更・外部副作用の完全Undoを混同せず、復旧可能性が不明ならその旨を示して保留する。DEC-018の条件付きコード反映は正式アプリ更新の包括承認ではない。本DECでRollbackの全成功やTarget Runtime受入を保証しない。
 
+### AI Task開始前のWayback復元可能性表示（DEC-053、2026-11-15）
+
+AI Task開始前にWaybackで復元できる範囲をユーザーへ示す方向を追加する（[DEC-053](DEC-053-ai-task-recovery-preview.md)）。これは事実に基づく事前説明であり、復元の保証、Task開始承認、Permissionの付与、外部作用の取消を意味しない。表示分類、判定根拠、具体的なUIと実装は未確定とする。
+
 ## 未確定事項（PROVISIONAL）
 
 - 操作・データ種別別のRisk taxonomy、可逆性判定、確認UI、保護・検証を強化する閾値と例外。
@@ -57,4 +61,5 @@ AIが複数の資料やアプリのデータを変更するとき、実行可能
 | 日付 | 内容 |
 |---|---|
 | 2026-11-05 | 思想⑨の選択Aを確定。AIによる変更は検証可能・復元可能な方式を優先し、リスクに応じて保護と検証を調整する。承認済みの低リスク操作は都度確認なく実行でき、既存の権限・不可逆操作・Builderの厳格な反映条件を維持する。 |
+| 2026-11-15 | ユーザーがAI Task開始前の復元可能性表示の高水準の方向を確認（DEC-053）。既存のリスク別保護・検証を維持し、表示分類と実装詳細は暫定。 |
 | 2026-11-15 | AI Task開始前にWaybackで復元可能な範囲を示し、復元可能・部分復元・復元不能・事前判定できない可能性を隠さず、作業委任の判断材料とする方針を確認。UI、事前判定範囲、未対応／不明時の具体的扱い、数値、適用版は未確定。すべての操作のUndo保証や既存の承認・Permission変更は含まない。 |
