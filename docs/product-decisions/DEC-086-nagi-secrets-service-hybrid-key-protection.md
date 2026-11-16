@@ -19,6 +19,8 @@
 6. **秘密情報のログ露出・自動クラウド預託を防ぐ。** 診断／Activity／Error／AI Context等に鍵・パスワード・Tokenを無用に残さず、クラウドへの鍵預託・秘密情報の外部送信を既定で行わない。別途の明示許可・Privacy／Policyを迂回しない。ユーザーが自分で管理する正規のバックアップ／復旧方法は否定しない。
 7. **鍵紛失・失効・回復の限界を説明する。** 回復可能なSecret／暗号化データと回復不能なものを区別し、鍵・パスフレーズ・必要な復旧手段が全て失われた場合に復号できない可能性を事前に説明する。復旧を保証する裏口や、全Secretの自動復元を約束しない。復号成功とOS上のIdentity／Permission／Owner権限を区別する。
 
+> **2026-11-16 System Trust後続決定:** [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器のHardware root of trustと非対応機器のSoftware署名検証を使い分ける段階的信頼基盤B案をCONFIRMED。本DECのSecrets Service／鍵保護は信頼の起点・署名検証・署名者の更新／失効の設計に連携するが、秘密保管に成功したことは起動の信頼性や権限付与の保証ではない。製品／開発署名鍵の具体運用・Secure Boot・rollback protectionは未決定。
+
 ## 安全境界・既存仕様の尊重
 
 - **DEC-014:** Workspace移行パッケージの既定は、ユーザー指定パスフレーズによるオフラインファーストExport／Importと、ユーザーが別保管する復旧キー等の許容。鍵預託は既定で行わず、復号に成功しても現在のImport先User／Profile／Owner／Permission等の再評価を省かない。この仕様をTPM必須や自動クラウド復旧へ変更しない。
