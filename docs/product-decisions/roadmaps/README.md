@@ -45,6 +45,10 @@
 
 ## OS基盤の検討と進捗（2026-11-16）
 
+**Foundation #24 Network Service（2026-11-16）:** [DEC-093](../DEC-093-network-service-linux-nagi-policy-offline.md)でLinuxの既存ネットワーク基盤とNagi独自Network Serviceを組み合わせる方式BをCONFIRMED。接続設定・状態、Offline対応、通信認可をNagi Serviceで扱い、TCP/IP全体の新規独自開発を基本にしない。ネットワーク接続の許可とCloud AIへのデータ送信・端末信頼は別のScopeであり、DEC-002／020／066と整合する。具体OSS・Linux強制機構・対応実機・性能・適用版はPROVISIONAL、Release／Activation／Acceptance Gateは変更しない。
+
+
+
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
 
 ## 実機テスト候補（2026-11-16）
