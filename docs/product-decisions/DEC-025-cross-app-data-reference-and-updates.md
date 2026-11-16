@@ -11,6 +11,8 @@
 
 異なるアプリの資料を、利用者の目的・Task・Workspaceのもとで関係付ける。ある資料が変更された場合に、関係する成果物をユーザーが適切に更新できるよう支援する。アプリを横断するデータの正本をOSへ強制的に集約しない。
 
+> **2026-11-16 Storage／Filesystem後続決定:** [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)で、実際の保存下層はLinux標準Filesystemを用途別に利用し、Nagi Storage／Files APIで上位契約を保持するB案をCONFIRMED。元アプリ・Providerが保持する分散正本、Resource／Revision／Provenanceの現在確認、ファイルのpath／inodeと論理IDの分離、変更提案を標準とする本DECの境界は不変。Filesystem snapshotが自動的な関連成果物更新やWaybackを意味するわけではない。具体FS・mapping・実装版は未確定。
+
 ## 確定した仕様
 
 ### 共通参照モデル（思想⑦・選択A）
@@ -53,6 +55,8 @@
 ### 2026-11-16 — Projectフォルダを参照の作業単位として利用（CONFIRMED）
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)で、通常フォルダのProject指定や他の保存先のResource参照を組み合わせ、Project単位の関連資料と横断AI作業を扱う方向を確定した。元データの分散正本、Provenance、変更検知時の**提案を標準**とする本DECのルールを維持し、Project所属のみでアクセス許可・自動更新を付与しない。具体的なGraph／Schema／UIは未決定。
+
+> **2026-11-16 Data Persistence後続決定 — 分散正本と共通保存契約:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが保存・移行・復旧に関する共通Persistence契約を持ち、App／Provider／利用者の元データ正本は用途別に保持できるB案をCONFIRMED。共通参照と元正本の分離を維持し、Resource／Revision／Provenanceと現行Permissionなしに内容を取得・更新しない。全Appを一つのDBへ統合する決定ではなく、具体DB／Migration・Linux受入は未確定。
 
 ## 決定履歴
 
