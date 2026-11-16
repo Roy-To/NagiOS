@@ -8,6 +8,8 @@
 - Product name: **NAGI — Native Agentic General Interface**
 - Working application names in this document are provisional unless an existing Nagi specification already fixes the name.
 
+> **2026-11-16 製品決定追記:** [DEC-062](product-decisions/DEC-062-first-party-utilities.md)は、画像ビューア・簡易編集、スクリーンショット・文書スキャン、ZIP等の圧縮・解凍、動画・音楽プレイヤーの4分野すべての純正採用と、AI非必須の高速・軽量な基本機能優先を追加する。具体的なアプリ構成・対応形式／Codec／機器・OCR・連携詳細・提供版・受入基準はPROVISIONAL。本書の共通Platform原則を継承し、既存M-APPの順序・Acceptanceや実装状態を変更しない。
+
 ---
 
 ## 0. この文書の目的
