@@ -147,6 +147,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-096 | [Settings / Notification：Cの状況適応を最終目標に、Bの統合基盤を段階導入](DEC-096-settings-notifications-context-adaptive-staged.md) | CONFIRMED（#27 Cが最終目標、Bの統合Settings／Notificationを段階導入。明示設定・重大警告・Privacy／Permission維持）／PROVISIONAL（状況判定・習慣連携・自動調整詳細・版／受入） | 2026-11-16 |
 | DEC-097 | [通常a11y基盤の先行整備とAI-native操作の長期方向](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md) | CONFIRMED（#28 通常a11y先行、長期方向との両立、GUI・AI不在時操作・認可維持）／PROVISIONAL（具体入力技術・時期・time／locale詳細・受入） | 2026-11-16 |
 | DEC-098 | [Diagnostics / Logging：Nagi統合診断B＋段階的AI支援診断C](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md) | CONFIRMED（#29 Bを製品基本、CのAI原因分析・修復提案を将来の正式目標として段階導入）／PROVISIONAL（Linux backend・AIモデル・個別解析・保持／export・版／受入・自動修復） | 2026-11-16 |
+| DEC-099 | [Installer / First Setup：Linux基盤＋Nagi専用GUI（方式B）](DEC-099-installer-first-setup-linux-nagi-gui.md) | CONFIRMED（#30 Linuxの既存disk等を活用したNagi GUI Installer、AI非依存の安全なOffline-first導入、破壊前確認）／PROVISIONAL（Linux部品・GUI・partition／暗号化・端末・実機受入・適用版） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -200,6 +201,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)でFoundation #30のB方式を追加。Linuxの既存低層機構とNagi専用GUI Installerを基本採用し、ローカルLLMの高度判断を要件とせず、Offline-firstとAI不在時の導入、ディスク破壊前の本人確認を重視。DEC-079のOS／Data分離を継承し、技術詳細・暗号化・実機受入・版は未決定。 |
 | 2026-11-16 | [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)でFoundation #29のB＋段階的C正式目標を追加。Linuxの診断情報をNagi統合Diagnosticsで扱い、将来のAIによる原因候補と修復提案へ段階的に拡張する。検証事実とAI推測の分離、ログ秘匿／権限／Redaction、AI不在時の通常診断、既存0.2 M04とRelease Gateを維持。backend・AI方式・自動修復・版は未確定。 |
 | 2026-11-16 | [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)でFoundation #28を記録。keyboard／navigation・screen-reader等の通常a11y基盤を先行整備し、AI-nativeで正確なポインティングに依存しない長期方向と両立させる。視線／ジェスチャー／空間入力等の採用・時期、time／locale詳細は未決定。GUI・AI不在時操作・Permission／Policy／confirmationと既存Gateを維持。 |
 | 2026-11-16 | [DEC-096](DEC-096-settings-notifications-context-adaptive-staged.md)でFoundation #27を記録。Cの文脈・習慣に合わせた状況適応型Settings／Notificationを最終製品目標とし、Bの統合Settings UI／通知センター／Scope付き設定・通知管理を先行段階として導入する。DEC-008の重大警告・控えめな提案、User明示設定、Permission／Privacy、0.2 M11／M14の契約を維持し、具体技術・自動化詳細・実装版は未決定。 |
