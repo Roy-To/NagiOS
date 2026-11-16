@@ -18,6 +18,8 @@ USBメモリ・外付けSSD等を接続した際に、Nagi Files／Settings／�
 5. **安全な取り外しを支援する。** 使用中のファイル／未完了の書込み・保存待ちやmount状態を確認し、必要な書込み完了／flush・mount解除等を正規経路で調整する。完了を確認できない場合に「安全に取り外せる」と表示しない。処理の待機・停止／再試行・利用者への通知／判断は実際の状態とデータ保全を優先する。
 6. **突然の切断・故障を正確に扱う。** 保存済み・部分成功・失敗・結果不明や利用不能の状態を区別し、Volumeが見えない間も以前のHandle／認可／Resource参照を無条件に有効としない。再接続で中断Task／副作用Action／不確かな書込みを勝手に再実行せず、現在のIdentity／Permission／Resource Revision・Volume同一性を再検証する。
 
+> **2026-11-16 Persistence後続決定:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)により、保存完了・未保存・部分成功・結果不明の共通Persistence契約をNagiが担うB案をCONFIRMED。本DECのsafe eject／予期しない抜去・再接続では、実際のdurable write／App保存状況を区別して報告する。flush・unmount・既存Handle／二重実行防止の具体手順とLinux実媒体受入は未決定。
+
 ## 安全境界・既存正本との整合
 
 - **DEC-088:** Linux標準Filesystemの用途別選定とNagi Storage／Files APIを維持。本DECはVolumeの発見・mount／取り外し・媒体切断の管理を追加するものであり、FSの種類・暗号化方式・実際の保存耐久性を確定しない。
