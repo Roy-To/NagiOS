@@ -19,6 +19,8 @@
 6. **Workspace復元・本文バックアップ・Task再実行を区別する。** Workspaceの自動保存／Checkpointと、ファイル本文やアプリの正本・外部サービスへの副作用は同一ではない。保存や復旧で中断Task／副作用Actionを無断再実行せず、結果不明を照合し、現在のUser／Profile／Permission／Resource Revision等を再評価する。
 7. **削除・忘却・Retentionの既存ルールを維持する。** 明示的に忘れるよう指示されたMemoryを再び索引・キャッシュや過去の履歴から無断で復活させない。通常の自動保存履歴の整理と、保護されたWorkspace／名前付きCheckpoint／正本の削除は区別する。Backup／Wayback／Cloudなど別管理範囲の完全消去を、実行・検証なしに保証しない。
 
+> **2026-11-16 Crash Recovery後続決定:** [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、Nagi共通Recovery Coordinatorと各サービス所有データの復旧責務を分けるB案をCONFIRMED。本DECの共通Persistence契約・用途別分散正本と保存完了／部分成功／結果不明を区別する原則は維持。Coordinator自身が全Appの単一正本や無条件Rollbackになるわけではない。具体Journal・復旧State Machine／Linux target受入は未決定。
+
 ## 既存正本との境界
 
 - **DEC-023／025:** 元アプリ・Provider・利用者のデータ正本が分散する方針と、Nagiの共通参照／正規APIを維持する。共通Persistence契約の導入は「Nagiが全アプリの保存ファイル本文を所有する」「全アプリが共通DBに書く」ことを意味しない。
