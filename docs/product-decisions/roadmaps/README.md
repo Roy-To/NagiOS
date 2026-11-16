@@ -69,6 +69,12 @@
 
 変更履歴: 2026-11-16 — DEC-098とFoundation #29のB製品基盤／C将来目標・未決事項を参照追加。
 
+## Foundation #30：Nagi専用GUI Installer（2026-11-16）
+
+[DEC-099](../DEC-099-installer-first-setup-linux-nagi-gui.md)でLinuxの既存disk／storage機構を利用するNagi専用GUI InstallerのB方式をCONFIRMED。初期OS／Owner／Locale等の導入操作とディスク破壊前の明示確認をユーザーが行えるようにし、Offline-first／AI非依存で基本セットアップを成立させる方針とする。ローカルLLMに高度な自動インストール判断を求めるCは今回採用しない。DEC-079のread-only System／User Data分離・A/B・Recoveryを継承し、対応機種・partition／暗号化方式・Recovery Key／UI・実機受入・提供版はPROVISIONAL。0.2 §16のPackage／Update契約とOSを物理ディスクへ導入する処理は混同せず、既存Release／Activation／Acceptance Gateは変更しない。
+
+変更履歴: 2026-11-16 — DEC-099とFoundation #30のGUI＋Linux／Offline／明示確認・未決事項を参照追加。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
