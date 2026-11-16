@@ -18,3 +18,7 @@
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
+
+## スリープ・復帰と段階的な休止状態（2026-11-16）
+
+[DEC-068 — Nagi Sleep（仮称）](../DEC-068-nagi-sleep-resume-recovery.md)は、Linux機構と決定論的Serviceによるスリープ／復帰／画面ロック、必要な状態保存・接続再検証、AI Jobの安全な待機を記録する。RAM保持の通常復帰と障害後の保存状態復旧を区別し、DEC-014／022の保存範囲・選択式復旧・無断Task再実行禁止を維持する。Hibernateは対応実機での技術検証後に段階的に追加し、全端末対応を約束しない。0.5–1.0案の資源管理配置を含め、Release割当て・時期・Acceptance・Gateは確定・変更しない。
