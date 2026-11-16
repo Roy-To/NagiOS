@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（方式A：検証・復元可能な変更を優先、リスク別の保護、承認範囲内の自律実行、AI Task開始前のWayback復元可能性の可視化）／PROVISIONAL（リスク閾値・表示／UI・事前判定範囲・未対応／不明時の扱い・数値・実装方式・適用版）  
 **最終合意日:** 2026-11-15  
 **対象:** Nagi／Agentが扱うデータ変更・アプリ横断Actionの製品安全原則（実装時期は未確定）  
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-036](DEC-036-builder-app-trial-and-installation.md)、[Public 0.2 Platform仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md), [DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-075](DEC-075-builder-app-trial-and-installation.md)、[Public 0.2 Platform仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md), [DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)
 
 ## 目的
 
@@ -30,7 +30,7 @@ AIが複数の資料やアプリのデータを変更するとき、実行可能
 
 ### `builder`製アプリの初回試用・導入と正式更新（DEC-035／036）
 
-未導入の新規アプリの試用・採用・初回正式登録は[DEC-036](DEC-036-builder-app-trial-and-installation.md)、正式導入後の保守・更新は[DEC-035](DEC-035-builder-created-app-maintenance-updates.md)に従う。一般的なリスク別の自律実行・検証を根拠に、いずれかのユーザー承認、正規Package検証、現行Permission／Policy確認を省略しない。
+未導入の新規アプリの試用・採用・初回正式登録は[DEC-075](DEC-075-builder-app-trial-and-installation.md)、正式導入後の保守・更新は[DEC-035](DEC-035-builder-created-app-maintenance-updates.md)に従う。一般的なリスク別の自律実行・検証を根拠に、いずれかのユーザー承認、正規Package検証、現行Permission／Policy確認を省略しない。
 
 ### `builder`製アプリの正式更新・復旧（DEC-035）
 

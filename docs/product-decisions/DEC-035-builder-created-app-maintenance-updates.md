@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（保守・更新方式C：Nagiの修正提案→隔離修正・検証→ユーザー確認後に正式更新）／PROVISIONAL（検知方式・更新機構・数値条件・適用版）  
 **最終合意日:** 2026-11-05  
 **適用候補:** Nagi OS 0.4+ の`builder`体験および将来のアプリ配布・更新環境（実装時期は未確定）  
-**関連:** [DEC-011（Task承認と表示）](DEC-011-task-approval-progress-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-016（builder自律実行）](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017（アプリ開発・配布）](DEC-017-third-party-developer-ecosystem.md)、[DEC-018（隔離修正・反映）](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026（検証・復元）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-036（初回試用・導入）](DEC-036-builder-app-trial-and-installation.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041](DEC-041-builder-app-uninstall-and-data-deletion.md)
+**関連:** [DEC-011（Task承認と表示）](DEC-011-task-approval-progress-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-016（builder自律実行）](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017（アプリ開発・配布）](DEC-017-third-party-developer-ecosystem.md)、[DEC-018（隔離修正・反映）](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026（検証・復元）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-075（初回試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041](DEC-041-builder-app-uninstall-and-data-deletion.md)
 
 ## 目的とユーザー体験
 
@@ -26,7 +26,7 @@
 - **無断の自動修正・自動更新は標準としない。** Nagiによる問題検知や提案は、コード変更、packageの実行、更新インストール、権限変更を無条件に許すものではない。
 - 開発Projectの長期保存（DEC-040）はソース・開発情報の保持であり、インストール済みアプリの正式更新とは別のライフサイクルである。
 - 正式更新の承認はアンインストールやユーザーデータ・Project削除を許可しない。通常アンインストールと完全削除は[DEC-041](DEC-041-builder-app-uninstall-and-data-deletion.md)に従う。
-- 新規アプリの**試用・採用判断・初回正式登録**と、既存アプリの**保守・更新**を区別する。初回試用から正式導入までの確定仕様は[DEC-036](DEC-036-builder-app-trial-and-installation.md)に従い、本DECは導入前の試用環境や初回インストール権限を追加するものではない。
+- 新規アプリの**試用・採用判断・初回正式登録**と、既存アプリの**保守・更新**を区別する。初回試用から正式導入までの確定仕様は[DEC-075](DEC-075-builder-app-trial-and-installation.md)に従い、本DECは導入前の試用環境や初回インストール権限を追加するものではない。
 - ローカル低リスク変更の条件付き自動反映（DEC-018）と、正式に導入したアプリのインストール済みVersion更新を混同しない。
 - 追加Permission、外部送信、Git commit／push、公開・Store配布、システム更新、本番環境への反映はそれぞれ独立のScopeと現行Policy／Capability／承認に従う。アプリ共有・公開はDEC-036に従い、保守Taskや正式更新の承認から自動的に許可されない。
 - 対象アプリが非対応である、検証できない、署名・manifest・Version整合性を満たさない、原本やデータの保護を実証できない場合、成功・安全・Rollback可能と偽らず適切に保留・確認待ちへ移す。
