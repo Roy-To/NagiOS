@@ -219,12 +219,12 @@
 ### 10 Secrets / Key Management
 
 - **検討対象:** credentials、device／package／storage鍵、生成・保管・利用・rotation・revocation・回復・消去。
-- **製品決定:** CONFIRMED＝Workspace Exportのpassphrase基本・別保管回復手段・復号と認可の分離 [DEC-014][D14]。PROVISIONAL＝暗号方式・KDF等。OPEN＝全OS keystore／TPM等の採否。
-- **技術設計:** 旧署名・credential・trust実装は用途限定。Export鍵契約をhibernate／device pairingへ無条件転用しない。
+- **製品決定:** CONFIRMED＝Workspace Exportのpassphrase基本・別保管回復手段・復号と認可の分離 [DEC-014][D14]、C案＝Nagi独自Secrets ServiceでOS秘密情報・鍵を用途／User／Profile別に管理し、TPM／TEE等の対応機器ではハードウェア保護を優先、非対応機器は暗号化ローカル保管／回復経路を利用、Identity／Permissionによる認可・AIへの秘密値非露出・更新／失効・無断ログ／クラウド預託なし [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)。PROVISIONAL＝暗号方式・KDF・具体Key Store／TPM／用途別回復可能性・適用版。
+- **技術設計:** ハイブリッドKey Storeの論理管理契約を採用方針とするが、TPM／TEE／software保護の実装とLinux adapterは未選定。旧署名・credential・trust資産は用途限定で、Export鍵契約をhibernate／device pairingへ無条件転用しない。
 - **実装・target受入:** 旧boot／package検証資産あり。製品鍵運用・全OS秘密保管・Linux／実機の鍵保護は未確認。
 - **依存・責任候補:** 7, 8, 11, 12, 16, 31, 32。security／identity／update候補。
 - **根拠:** [boot trust][BOOT]、[0.2 §16・46][S02]、[Connectivity DEC-066][P66]／[Sleep DEC-068][P68]（PR）。
-- **次に決める:** 鍵の用途別所有者、復旧可能範囲と喪失時挙動、OS全体の保管・失効API。
+- **次に決める:** 確定したC案に従い、鍵の用途別所有・鍵階層、ハードウェア／ソフトウェア保管と回復可能範囲・全喪失時挙動、Secrets APIの認可・ローテーション／失効、Linux targetでの秘密露出／アクセス拒否受入を具体化する。
 
 <a id="f11"></a>
 ### 11 システム信頼基盤
@@ -694,3 +694,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #9 IPC／Service Broker選定
 
 [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagi独自の型付きIPC／Service API・Service BrokerとLinux標準IPCを組み合わせるB案を基本方針としてCONFIRMED。Nagi論理Identity／PermissionをCallerに結び付け、Transport独立の契約を維持する。Unix Domain Socket等の具体採否、受渡し・キャンセル・再起動・失効の詳細、性能・Linux target／実機受入、適用版はPROVISIONAL。Kernel独自IPC開発は初期必須としないが将来の限定的検討を禁止しない。
+
+### 2026-11-16 Foundation #10 Secrets／Key Management
+
+[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)で、Nagi独自Secrets ServiceとTPM／TEE等対応機器優先＋非対応機器の暗号化ローカル保管というハイブリッドC案をCONFIRMED。用途・User／Profile分離、Identity／Permissionによる認可、秘密値の不要なAI／App露出・ログ露出・自動Cloud預託の防止、更新・失効と回復限界の明示を含む。具体暗号・KDF・鍵階層／形式・用途別回復・Linux強制／実機検証・Releaseは未決定。B2 #6〜#10の方針検討は一巡したが正式実装・受入ではない。
