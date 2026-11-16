@@ -1,7 +1,7 @@
 # DEC-010 — Intent-first UIと作業別レイアウト提案
 
 **状態:** CONFIRMED（細部は未確定）  
-**最終合意日:** 2026-11-15  
+**最終合意日:** 2026-11-17（PX-01との整合を追記。従前の合意は維持）  
 **対象:** Nagiの将来のUI/UX方針。実装バージョン・採用時期は本決定では確定しない  
 **関連:** DEC-001、DEC-004、DEC-006、DEC-008、DEC-009、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
@@ -52,6 +52,14 @@ Nagiは、利用者にアプリのメニュー、細かなクリック、ウィ�
 - ただし、切断中にユーザーが手動で変更した配置は優先して尊重し、再接続を理由に**勝手に上書き・再配置しない**。
 - ディスプレイの退避・復元だけを理由に、アプリや中断済みAI Taskを再実行したり、OS Permission / Actionの許可範囲を広げたりしない。完全に復元できない場合は部分成功・復元不能を正確に示す。
 
+### PX-01のHome／Desktop体験との整合（2026-11-17）
+
+**CONFIRMED（高水準の方向）:** [DEC-009](DEC-009-nagi-first-home-desktop.md)のPX-01節で、対話中心の統合Home Bを基本とし、将来は現在のProject・Task・利用目的に応じた情報・操作候補の適応Home Cへ発展する方向を追加確認した。本DECのIntent-first UI・作業別パネルと矛盾せず、既存の基本的にシンプルなHome体験を維持する。
+
+**既存CONFIRMEDの維持:** 新規Workspaceの適切に認可された自動配置、既存Workspaceと固定ウィンドウ／複数ディスプレイのユーザー指定・手動配置の保護、利用者の明示選択優先、AI不在時の通常GUI、Permission／Policy、Task停止・復旧の区別を変えない。Homeを適応表示することと、既存Workspaceを自動で大きく組み替えることを同一視しない。
+
+**PROVISIONAL／OPEN:** Homeの詳細レイアウトと適応UI、各導線・カード数・Nagi Bar配置、文脈判定・パネルの実装方式、AI停止時の詳細なUI、対応端末・技術・提供版。PX-01は既存Release／Activation／Acceptance Gateや開発開始の許可ではない。
+
 ## 例外・禁止・安全境界
 
 - AIが提案した表示内容を、許可済みActionや新しいOS権限と同一視しない。データ取得や変更は現行のPermission / Policy、承認済みTaskおよび型付きPublic Action / Service APIの制約に従う（DEC-001）。
@@ -84,6 +92,7 @@ Nagiは、利用者にアプリのメニュー、細かなクリック、ウィ�
 | 2026-11-04 | 選択Bを確定。新規Workspaceで複数ディスプレイを自動活用し、固定ウィンドウ・既存Workspace・手動配置は保護する |
 | 2026-11-04 | 外部ディスプレイ切断時の可視画面への自動退避、再接続後の復元可能性、切断中の手動変更優先を確定 |
 | 2026-11-15 | PC・タブレット・モバイルへの展開を基本製品目標とし、端末に応じたUI設計を確認。PC-firstを維持し、対応機器・提供時期は未確定。 |
+| 2026-11-17 | PX-01の統合Home B＋将来の高度適応Home Cという高水準の製品方針をDEC-009に追加。本DECのIntent-first、新規Workspace自動配置と既存Workspace／手動配置保護、AI不在時の通常GUI等を維持し、画面詳細・技術・提供版はPROVISIONAL。 |
 
 ## Foundation #28の後続決定（2026-11-16）
 
