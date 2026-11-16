@@ -1,6 +1,6 @@
 # DEC-011 — NagiのTask承認UIと進捗表示
 
-**状態:** CONFIRMED（承認の基本方針・AI Task開始前のWayback復元可能性表示・builder自動切替＋状態表示＋手動指定C）／PROVISIONAL（UI細部）  
+**状態:** CONFIRMED（承認の基本方針・AI Task開始前のWayback復元可能性表示・builder自動切替＋状態表示＋手動指定C・前景会話優先C・追加指示分類表示C・委任Taskの進捗表示C）／PROVISIONAL（UI細部）  
 **最終合意日:** 2026-11-15  
 **対象:** NagiのTask実行時の承認・音声連携・進捗表示。実装時期は未確定  
 **関連:** DEC-001、DEC-008、DEC-009、DEC-010、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、DEC-015、DEC-016、DEC-018、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
@@ -24,6 +24,7 @@
 ### Task進捗の基本原則（既存DEC・Roadmapと整合）
 
 - ユーザーが現在のTaskの作業内容、完了・保留・失敗などの状態を理解でき、必要な場合にPause / Resume / Cancel等の操作へ到達できることを重視する。
+- Taskを委任した直後は会話内に進捗カードを表示する。その後はコンパクトなTask表示にまとめ、ユーザーが選択すると進捗詳細を展開する（選択C、2026-11-15）。
 - Nagiの作業結果や取消の実際の状態は、Activity / Task Log / Waybackの既存設計に従い、不可逆操作、部分成功、結果不明を完了済み・復元可能と誤表示しない。
 - AI Task開始前のWayback復元可能性表示は[DEC-026](DEC-026-ai-change-verification-and-recovery.md)に従う。Task開始前の見通しを実行後の復元成功と混同せず、既存の承認・Permissionを変えない。
 - Nagi HomeとNagi Desktopのいずれからも、必要な承認やTask状態に到達できるようにする。
@@ -61,7 +62,7 @@
 
 - 必ず独立した最終承認を要求するActionの厳密なRisk taxonomy、対象量・不可逆性・機密性の判定閾値、事前承認の上限とUI。
 - 音声承認のセッション認証方式、誤認識時の再確認基準、表示言語とアクセシビリティ。
-- 進捗カードの具体的な見た目、段階表示、％が計測できない処理の扱い、Nagi Barからの展開、タスク一覧の並び順。
+- 進捗カードとコンパクトなTask表示の具体的な見た目・配置、選択後に開く詳細項目、％が計測できない処理の扱い、Nagi Barからの展開方法、タスク一覧の件数・並び順。
 - Pause / Cancelの正確な停止点、Retry、確認待ち時の表示、失敗時の復旧、詳細画面の表示項目。
 
 ## Roadmapとの関連
@@ -79,3 +80,4 @@
 | 2026-11-05 | 別会話中のbuilder TaskとNagi会話の両立Cを確定。会話優先・Task保持、安全な継続、資源待機と明示停止／復旧待ちの状態区別をUIへ反映 |
 | 2026-11-05 | builder作業中の追加指示方式CをUIへ反映。既存Taskへの変更、別TaskのQueue、競合・Scope・優先順位の確認待ちを区別して表示し、承認と進行中成果を保護する |
 | 2026-11-15 | DEC-026のTask開始前Wayback復元可能性表示をTask UI原則へ接続。具体的な表示・判定範囲は未確定で、既存の承認・Permission・Release Gateは維持する |
+| 2026-11-15 | 委任Taskの進捗表示に選択Cを確定。依頼直後は会話内カード、その後はコンパクト表示にまとめ、選択時に詳細を展開する。UI細部はPROVISIONAL。 |
