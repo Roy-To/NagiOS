@@ -175,12 +175,12 @@
 ### 6 電源ライフサイクル
 
 - **検討対象:** shutdown／reboot／sleep／hibernate／resume、ロック・保存・job・deviceの協調と失敗処理。
-- **製品決定:** CONFIRMED（main）＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]。CONFIRMED（製品方針）＝[DEC-068][P68]のSleep方針。PROVISIONAL＝方式・順序・端末・時期。
-- **技術設計:** Linux標準機構＋決定論的Nagi serviceというPR方針。s2idle／deep／swap／hibernate技術はOPEN。
+- **製品決定:** CONFIRMED＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]、[DEC-068][P68]のSleep方針、[DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)の継続的Power管理、およびNagiによる電源遷移の一元管理／サービス協調／失敗時の中止・再試行・警告／データと安全性の優先 [DEC-082](DEC-082-power-lifecycle-coordination.md)。PROVISIONAL＝状態機械・処理順序・具体強制停止条件・端末・時期。
+- **技術設計:** Linux標準機構＋決定論的NagiサービスによるSleepに加え、全電源遷移を統括する論理的Lifecycle Coordinator責務を確定。独立プロセスか既存Service Managerへ統合するか、状態機械・s2idle／deep／swap／hibernate等の実装技術はOPEN。
 - **実装・target受入:** 通常RAM保持resume、障害後の再構成、hibernateを別評価。Linux image・実機の電源遷移は未確認。
 - **依存・責任候補:** 4, 7, 10, 14, 15, 17, 23, 25, 33。Power／Sleep候補＋各サービスowner。
 - **根拠:** [PR #129][PR129]、[0.2 §5.2・13・14・48][S02]、[DEC-020][D20]。
-- **次に決める:** 保存・ロック・停止・再検証の状態機械と失敗時の扱い。既存0.2のsuspend非必須は変えない。
+- **次に決める:** 保存・ロック・停止・再検証の状態機械、各サービスの協調契約、失敗ごとの中止／再試行／警告・強制終了条件を具体化する。既存0.2のsuspend非必須は変えない。
 
 <a id="f07"></a>
 ### 7 Identity / Session
@@ -678,3 +678,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #5 基本ユーザーランド方針
 
 [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有サービス／API／アプリ環境の独自設計と、汎用libc・ライブラリ・基礎ツールのOSS選択利用、既存Linuxディストリビューション完成ユーザーランド非採用をCONFIRMED。具体OSS・ABI・POSIX／relibc等は未決定。B1の#1〜#5は方針検討が一巡したが、#4のA/B比較と正式採用、Linux image／実機acceptance・Release条件は完了ではない。
+
+### 2026-11-16 Foundation #6 電源ライフサイクル協調方針
+
+[DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiによるshutdown／reboot／sleep／resume／将来のhibernateを含む電源遷移の統括、各サービスの保存・停止・復帰準備と失敗時の中止／再試行／警告、データと安全性の優先をCONFIRMED。DEC-067／068の既存正本・DEC-014／022の復旧とTask非自動実行を維持。状態機械・処理順序・timeout・実装構成／端末・Linux target受入と提供版はPROVISIONAL。
