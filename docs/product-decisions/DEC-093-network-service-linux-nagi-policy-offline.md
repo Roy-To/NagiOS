@@ -1,8 +1,8 @@
 # DEC-093 — Network Service：Linux通信基盤＋Nagi独自Network Service
 
-**状態:** CONFIRMED（Foundation #24の方式B：Linuxの既存ネットワーク基盤を活用し、Nagi独自Network Serviceで通信設定・接続状態・アプリ権限・Offline対応を管理）／PROVISIONAL（具体Linux stack、通信仲介・強制機構、接続・権限UI、性能、版・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #24。Release割当て未確定  
+**状態:** CONFIRMED（Foundation #24の方式B：Linuxの既存ネットワーク基盤を活用し、Nagi独自Network Serviceで通信設定・接続状態・アプリ権限・Offline対応を管理）／PROVISIONAL（具体Linux stack、通信仲介・強制機構、接続・権限UI、性能、版・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #24。Release割当て未確定\
 **関連:** [Foundation Checklist #24](NAGI_OS_FOUNDATION_CHECKLIST.md#f24)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-066](DEC-066-device-connectivity-lan-first.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的・ユーザー体験
