@@ -4,7 +4,7 @@
 
 
 **状態:** CONFIRMED（設計原則・既定方式）／PROVISIONAL（実装詳細・性能値・適用バージョン）  
-**最終合意日:** 2026-11-16  
+**最終合意日:** 2026-11-17  
 **対象:** Nagi OSとAIの情報受け渡し・OS操作経路。実装バージョンと採用時期は確定しない  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-008](DEC-008-proactive-behavior.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Decision / Generative AI architecture](../architecture/decision-and-generative-ai-architecture.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)
 
@@ -82,6 +82,16 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 **未確定（PROVISIONAL）:** 「軽快」「実用的」の定量受入閾値（入力・画面更新・スクロール遅延、AI初回応答・完了時間、RAM・swap・電力・温度等）、代表ハードウェア、アプリ同時起動のScenario、モデル・量子化の選択表、初期パッケージ構成、モデル常駐／Unload・切替閾値、同時推論数、実装担当・Release割当ては後の実測・Implementation Specで決める。すべてのAI機能が8GBで同等速度を発揮することは確定しない。
 
+### 8GB RAM級性能試験を0.3完成前から開始する（2026-11-17 CONFIRMED）
+
+**CONFIRMED — 開始時期と目的:** Nagiの8GB RAM級での快適性・実用性は、0.3の完成を待たず、既存の権限・開発Gateが許す範囲で先行して段階的に性能試験を開始する。単なるOS起動やLLMモデルのメモリ収容をもって達成とはしない。通常の前景OS／GUI／純正アプリ操作の応答性と、ローカルAIの実際のTask速度・品質が両立するかを検証し、0.3までの設計・最適化判断へ結果を戻す。
+
+**CONFIRMED — 検証の考え方:** AI無効時の基本操作をbaselineとして、利用可能な純正アプリとローカル推論の共存を段階的に比較する。軽量・量子化モデル、Contextの削減、load/unload、背景処理の抑制などを検討し、RAM使用量だけでなく、入力／画面応答、推論開始・完了時間、日本語・英語の理解／Action選択の正しさ、Task成功・失敗を区別する。既存の前景優先、Permission、承認済みTask、モデル非依存Memoryを維持する。
+
+**CONFIRMED — 証拠の区別:** host-only PoC、Linux image／QEMU、物理実機の結果はそれぞれ区別し、使えない機能は未測定と明記する。先行評価だけで0.3 runtime機能・Target AcceptanceのPASS、8GB実機での快適動作達成、既存0.1／0.2／0.3 Release・Activation Gateの解除を主張しない。実装と計測は割当済み作業範囲・path ownership・安全制約に従う。
+
+**PROVISIONAL — 未確定:** 初回着手日と担当、試験用ハードウェア（x86／ARM64／Raspberry Pi等）、OSイメージの成熟度、1〜2B／3〜4B級などの候補モデル・量子化・Context、同時起動アプリ・Taskシナリオ、計測工具、RAM／swap／入力遅延／tokens/s／初回応答／完了率／消費電力の合格値、成果物・適用Releaseは別途決める。8GBでの目標達成は未実証。
+
 ### インストール済み複数モデルの軽量フォールバックと切替（2026-11-16 CONFIRMED）
 
 - **ストレージ保存とRAM常駐を区別:** モデル管理機構は、Standard／Lite等、複数の利用許可済みモデルと量子化版を端末のモデルストアに導入・保持し、必要なモデルを選択してload／unloadできる構成を目指す。複数のモデルがインストール済みであっても、同数を常時RAM／VRAMへ常駐させる必要はない。ストレージ消費、ロード時間、KV Cacheや実行時バッファのRAM消費は別々に扱う。
@@ -157,6 +167,7 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | 8GBでの通常操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する方針をCONFIRMED。前景応答と推論速度・Task品質を比較。端末・モデル・日程・閾値・担当はPROVISIONAL。既存Gateとhost／target／実機の証拠区別を維持。 |
 | 2026-11-16 | 複数の利用許可済み量子化モデルをストレージにインストールし、必要時だけRAMへロードする方針を具体化。資源圧迫時の軽量モデルへの自動切替を目指し、難しい段階では手動切替を確保。ユーザーの固定指定、Task品質・権限、Memory継続、安全な切替境界を優先し、シームレス性・閾値・適用版は未確定。 |
 | 2026-11-16 | 8GB RAM級で純正アプリの日常操作と軽量量子化ローカルLLMによる実用的アプリ横断連携を両立する製品目標を確認。単なる起動成功でなく前景応答性とAI Taskの品質を実測する。具体的なモデル・閾値・達成実績・提供版は未確定。 |
 | 2026-11-05 | 別会話中の`builder`作業継続Cを確定。Nagiの前景会話優先、Scope内の安全なバックグラウンド処理、Resource待機と明示停止／クラッシュ復旧待ちの区別、Task／Context分離を記録。具体的Scheduler・Budgetは未確定 |
