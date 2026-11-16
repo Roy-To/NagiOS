@@ -11,6 +11,8 @@
 
 > **2026-11-16 Boot System後続決定:** [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)で、UEFI対応PCではUEFIを基本とし、Raspberry Pi／タブレット等は機器に適したBoot方式を許容、Linux起動後のNagi処理を共通化する方針をCONFIRMEDとした。具体bootloader・handoff・起動時の信頼／復旧方式・対応機種・適用版は引き続き未確定。本文中のBoot方式未決定という記述は初回時点の履歴であり、この高水準方針に限りDEC-078を優先する。
 
+> **2026-11-16 System Image後続決定:** [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で、OS本体を通常時read-only、User Dataを分離してOS更新後も保持する方針、A/B更新と復旧を基本とする方針、AIモデルをOS本体から論理的に分ける方針がCONFIRMED。本文のrootfs等の具体構成未確定という初回記述は、partition数・filesystem・更新／復旧の実装方式など未確定の範囲を示す。旧独自kernel用imageの技術構成・試験結果をLinux側へ流用しない。
+
 ## 決定の位置付けと前回作業との境界
 
 2026-11-12の追加確定指示を記録する。前回の[DEC-042 — 独自Nagi KernelからLinuxカーネルへ変更](DEC-042-linux-kernel-transition.md)を置換・重複作成する目的ではなく、転換後のユーザーランドと独立性を明確化する補足決定である。前回記録の未確定欄に「ディストリビューション／ユーザーランド」が残る場合、本DECで明示的に確定した方針の範囲だけ更新される。具体的な基本ユーザーランド構成は引き続き未確定。
