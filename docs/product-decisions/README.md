@@ -146,6 +146,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-084 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
 | DEC-085 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-085-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
 | DEC-086 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-086-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-16 |
+| DEC-087 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-087-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -199,6 +200,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-087](DEC-087-audio-system-oss-nagi-service-measured-optimization.md)でFoundation #21の「条件付きB」を確定。音声入出力・mixing／routingにLinux／OSSを活用し、Nagi Audio Serviceで機器切替・優先度・マイク権限・Voice連携を管理。低遅延・省メモリ・省電力は実機測定し不足部のみ最適化／部分置換を検討。ALSA／PipeWire等の採否・実測・対応端末・適用版・受入は未確定。 |
 | 2026-11-16 | [DEC-086](DEC-086-input-system-cross-device-linux-foundation.md)でFoundation #20の方式Bを確定。Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi共通Input Serviceで扱う。PC／Tablet／Mobileの入力適応、DEC-060のIME速度優先・学習／秘密入力保護を維持。入力stack・focus・機種・適用版・実機受入は未確定。 |
 | 2026-11-16 | [DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)でFoundation #19のB改良案を確定。Nagi Home／Desktop・Workspace等の独自ShellとPC／Tablet／Mobileの適応契約を維持し、Linux／OSSのGPU・Display・描画基盤を活用する。Wayland／Smithay等の個別技術・Linux実機受入・提供版は未確定。 |
 | 2026-11-16 | [DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)でFoundation #17の方式Bを確定。ローカル機器とNagi端末の管理責務を内部で分離し、Settings／DevicesのUIは統合。Linux機器基盤を活用し、詳細構成・対応機器・実機受入は未確定。 |
