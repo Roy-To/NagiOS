@@ -17,6 +17,8 @@
 
 > **2026-11-16 基本ユーザーランド後続決定:** [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有のサービス／API／アプリ環境は独自に設計し、libc・基本ライブラリ・基礎ツールなど汎用コンポーネントはOSSを積極的に選択活用する方針をCONFIRMEDとした。既存ディストリビューションのユーザーランド一式を製品基盤に流用しない。本文の個別ライブラリ採用未決定・具体ユーザーランド構成未確定は、libc／ABI／rootfs・OSS候補の技術選択について引き続き有効。DEC-080のInit／Service Manager A/B比較・正式採用も別判断とする。
 
+> **2026-11-16 Identity／Session後続決定:** [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、Nagiの論理`UserId`／`ProfileId`／`SessionId`をIdentityの正本とし、Linux UID／GIDは低レイヤーの保護機構として利用する方針をCONFIRMEDとした。既存ユーザーランドのサービス／Identity設計責務を明確化する後続決定であり、具体的なUID対応・Session失効・Linuxの強制境界や実装受入は引き続き未確定。ユーザー／ProfileとAI権限の隔離を緩めない。
+
 ## 決定の位置付けと前回作業との境界
 
 2026-11-12の追加確定指示を記録する。前回の[DEC-042 — 独自Nagi KernelからLinuxカーネルへ変更](DEC-042-linux-kernel-transition.md)を置換・重複作成する目的ではなく、転換後のユーザーランドと独立性を明確化する補足決定である。前回記録の未確定欄に「ディストリビューション／ユーザーランド」が残る場合、本DECで明示的に確定した方針の範囲だけ更新される。具体的な基本ユーザーランド構成は引き続き未確定。
