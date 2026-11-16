@@ -55,6 +55,8 @@
 
 **Foundation #21 Audio System（2026-11-16）:** [DEC-087](../DEC-087-audio-system-oss-nagi-service-measured-optimization.md)で「条件付きB」をCONFIRMED。Linux／OSSの音声基盤を活用し、Nagi独自Audio Serviceから再生・録音、機器切替、マイク権限、音声優先度、Nagi Voiceを管理。低遅延・省メモリ・省電力を実機で測定し、要件未達の部分のみ最適化・限定的置換を検討する。ALSA／PipeWire等の具体採否、対応実機・測定方法／閾値・実装版・受入はPROVISIONALで、Desktop first／既存Gateを変更しない。
 
+**Foundation #22 周辺機器（2026-11-16）:** [DEC-092](../DEC-092-peripherals-usb-storage-hid-staged-support.md)で方式BをCONFIRMED。USBストレージ（USBメモリ・外付SSD）と基本HID入力機器を標準対象とし、カメラ・プリンター・スキャナーは段階的に対応する。Linux既存driver／OSSを活用し、Nagi Device Manager／Permission／Privacy／通常UIへ連携する。全Linux対応機器の動作保証ではない。具体機種・対応範囲・API・プロトコル・実装版・Linux実機受入はPROVISIONAL。版割当て・Desktop first・既存Release／Activation／Acceptance Gateを変更しない。
+
 
 
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。

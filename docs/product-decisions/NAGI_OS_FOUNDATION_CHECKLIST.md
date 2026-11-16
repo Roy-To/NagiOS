@@ -87,7 +87,7 @@
 | [19](#f19) | Display / GPU | P0 | 旧compositor／GPU資産／Linux backend未定 |
 | [20](#f20) | Input System | P0 | 旧input／IME資産／Linux経路未確認 |
 | [21](#f21) | Audio System | P1 | 旧audio基盤／Linux backend未定 |
-| [22](#f22) | 周辺機器 | P2 | 対象機器・driver・Policy未定 |
+| [22](#f22) | 周辺機器 | P2 | USB storage・基本HID標準、camera／printer／scanner段階対応。具体機種・範囲未定 |
 | [23](#f23) | Nagi Power | P1 | 決定論的管理採用はPR／実測未確認 |
 
 ### 第5群 ネットワーク・OS共通サービス
@@ -351,12 +351,12 @@
 ### 22 周辺機器
 
 - **検討対象:** printer／scanner／camera／USB storage／HID等の対象、driver／firmware、protocolと権限・UI。
-- **製品決定:** CONFIRMED＝既存Permission／Privacyと通常GUI維持 [DEC-009][D09]／[020][D20]。OPEN＝機器クラス・機能・製品サポート範囲。
-- **技術設計:** Linux driver再利用可能性と製品サポートは別。全機器を実装する決定ではない。
-- **実装・target受入:** 旧参照VM向けdevice経路以外の包括対応を確認していない。実printer／camera／USB等は未確認。
+- **製品決定:** CONFIRMED＝USBストレージ（USBメモリ・外付SSD）と基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応とする方式B [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)。Linux既存driver／OSSを活用しNagi Device Manager／Permission／Privacy／通常UIと連携。全Linux対応機器の動作保証ではない。PROVISIONAL＝具体機種・対応範囲・API・protocol・実装版・実機受入。
+- **技術設計:** DEC-083のローカル機器管理とDEC-086の共通Input契約に接続する。機器認識と実際の利用許可を区別し、DEC-084のBluetooth段階対応を維持。個別stack・driver／APIは未選定。
+- **実装・target受入:** 旧参照VM向けdevice経路以外の包括対応を確認していない。実printer／camera／USB等は未確認。方針記録をLinux実機受入済みとしない。
 - **依存・責任候補:** 8, 13, 17, 18, 20, 21, 33。device／各機能owner候補。
-- **根拠:** [0.1 §16][S01]、[0.2 §5.1–5.2][S02]、[実機候補DEC-052][D52]。
-- **次に決める:** 最初の機器クラス、認識のみ／閲覧／操作の対応段階、driver導入と機密データの境界。
+- **根拠:** [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)、[0.1 §16][S01]、[0.2 §5.1–5.2][S02]、[実機候補DEC-052][D52]。
+- **次に決める:** 標準対象内の具体機種・対応機能と認識／閲覧／操作の段階、driver／protocol、切断・失敗時UIと機密データ・権限境界、実機受入条件。
 
 <a id="f23"></a>
 ### 23 Nagi Power
@@ -598,6 +598,7 @@ Linux／実機検証:
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | 22 | DEC-092で方式BをCONFIRMED。USBストレージ・基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応。具体機種・範囲・API・protocol・実装版・実機受入は未確定 | 文書・採番・リンクの確認。実装／runtime・実機受入の追加なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md
