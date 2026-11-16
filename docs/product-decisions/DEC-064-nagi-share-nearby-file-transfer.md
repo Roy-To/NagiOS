@@ -58,3 +58,5 @@ Filesや画像ビューア等の共有UIから、近くにある受信可能なN
 | 2026-11-16 | Nagi Share（仮称）を近距離の端末間ファイル共有を担う純正OS機能として採用。Nagi端末横断、共有UIからの発見・選択、受信確認・許可、ローカル直接転送、暗号化・端末認証・既存認可境界、LLM非必須を確定。名称・技術・UI詳細・対応版・性能は未確定、Handoff拡張はアイデアとして分離。 |
 
 2026-11-16 後続の接続方針: [DEC-066](DEC-066-device-connectivity-lan-first.md)により、初期は同一Wi-Fi／LANのNagi端末と共通Connectivity／Trust／Transportを使う方向がCONFIRMED。上記の接続技術未確定はこの境界内の具体方式を指す。単発転送と、後続の作業継続採用は別の決定として扱う。
+
+2026-11-16 後続採用: [DEC-065](DEC-065-nagi-handoff-work-continuation.md)がHandoffを独立して採用した。上記の「アイデア段階」はShareの初回記録時点を示し、後続採用を取り消さない。Shareは単発ファイル転送、Handoffは意味的作業継続であり、片方を他方の必須転送方式としない。
