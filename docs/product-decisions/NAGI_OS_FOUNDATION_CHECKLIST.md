@@ -241,12 +241,12 @@
 ### 12 Storage / Filesystem
 
 - **検討対象:** FS選択、block層、data integrity、暗号化、容量不足、Resource IDとpath／inodeの関係。
-- **製品決定:** CONFIRMED＝作業・データ中心、分散正本 [DEC-023][D23]／[025][D25]。PROVISIONAL＝移行方式。OPEN＝Linux FSとmount／暗号化構成。
-- **技術設計:** 旧ext2／VFS／stable identity契約あり。ext2採用実績をLinux製品FS決定にはしない。
+- **製品決定:** CONFIRMED＝作業・データ中心、分散正本 [DEC-023][D23]／[025][D25]、B案＝System／User Data／Model Store／一時データの用途別にLinux標準Filesystemを選択活用、Nagi独自Storage／Files APIと論理Resource IDを維持し、Filesystem snapshotとWayback／Backup／Workspace復元を分離 [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)。PROVISIONAL＝具体FS（EROFS／ext4／Btrfs等は候補）・mount／暗号化・永続化／ID対応・Linux受入／提供版。
+- **技術設計:** Linux標準Filesystemを用途別に選定し、Nagi Storage／Files契約・stable Object／Resource IDと実際のpath／inodeを分ける方針。旧ext2／VFS／stable identity契約を参照するが、ext2採用実績をLinux製品FS決定にはしない。
 - **実装・target受入:** `user/libnagi/src/storage.rs`等の旧storage資産あり。公開statusにstorage失敗診断もあり、Linux耐久性・実media未確認。
 - **依存・責任候補:** 1, 3, 8, 10, 13, 14, 15。`os-core`／Files・storage候補。
 - **根拠:** [0.1 §17・18][S01]、[0.2 §23・24][S02]、[implementation status][STATUS]。
-- **次に決める:** system／user data用FS、flush／atomicity契約とstable ID対応、fault injection条件。
+- **次に決める:** #12のB案に従うSystem／User Data／Model Store／Tempの具体Linux FS選定、flush／atomicity・容量不足／電源断時の結果契約、stable Resource IDとpath／inode対応・暗号化、fault injection・Linux target受入。
 
 <a id="f13"></a>
 ### 13 Volume / Mount
@@ -593,6 +593,10 @@ Linux／実機検証:
 - 関連公開実装PR：[Files #42][PR42]、[session worker #43][PR43]、[Desktop #48][PR48]、[multiarch #57][PR57]、[host port readiness #91][PR91]、[dependency cache #99][PR99]、[NDP担当・NDP-10承認 #105][PR105]。確認時はOPEN、main実装として混ぜない。#91はhost-only、#105は担当・開始記録であり成果証拠ではない。
 - 公開originに`codex/linux*` branchの掲載を確認できなかった。DEC-047の統合先が公開されていないことは、他の許可済み環境で開発されていない証明ではない。私有環境・旧privateの新規情報は調査していない。
 - 実装状況の初回評価は公開ソースと既存記録の読取。Linux image、実機、driver、電源、性能の新規測定は未実施。全35項目を一律未着手にも、一律完了にもしていない。
+
+### 2026-11-16 Foundation #12 Storage／Filesystemの用途別Linux採用
+
+[DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)により、Nagi独自Storage／Files APIと論理Resource／Object／Revision・分散正本を維持し、Linux標準Filesystemを用途別に選択活用するB案をCONFIRMED。Filesystem snapshot／Nagi Wayback／Backup／Workspace復元を混同しない。候補EROFS・ext4・Btrfs等は未採用で、具体FS・暗号化／mount・durability／stable ID対応・Linux target試験・提供版は未確定。#13 Volume／Mountの自動mountや外部媒体対応を今回確定しない。
 
 ## 8. 変更履歴
 
