@@ -1,6 +1,6 @@
 # NDP-05 — Linux由来APIの静的差分rules
 
-状態: PROPOSED / NOT STARTED。PT-03。NDP-01、PT-01 interface合意、host-only開始承認が必要。NDP-04の実装完了待ちは不要だが同じ接続契約を使う。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-03。NDP-01、PT-01 interface合意、host-only開始承認が必要。NDP-04の実装完了待ちは不要だが同じ接続契約を使う。
 
 ## 目的
 

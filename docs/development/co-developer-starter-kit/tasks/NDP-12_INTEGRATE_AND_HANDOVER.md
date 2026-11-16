@@ -1,6 +1,6 @@
 # NDP-12 — 分野内統合・レビュー・引渡し
 
-状態: PROPOSED / NOT STARTED。共通。関係する小成果、指定Integration Owner、実際のbase/merge許可が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。共通。関係する小成果、指定Integration Owner、実際のbase/merge許可が必要。
 
 ## 目的
 

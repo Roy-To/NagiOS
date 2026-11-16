@@ -1,6 +1,6 @@
 # NDP-02 — Level 0アプリ雛形の契約
 
-状態: PROPOSED / NOT STARTED。PT-02。開始にはNDP-01、SDK ownerとの接続確認、担当pathの承認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-02。開始にはNDP-01、SDK ownerとの接続確認、担当pathの承認が必要。
 
 ## 目的
 
