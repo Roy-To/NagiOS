@@ -8,6 +8,8 @@
 - Product name: **NAGI — Native Agentic General Interface**
 - Working application names in this document are provisional unless an existing Nagi specification already fixes the name.
 
+> **2026-11-16 製品方針追加 — 近距離ファイル共有:** [DEC-064](product-decisions/DEC-064-nagi-share-nearby-file-transfer.md)で、Nagi Share（仮称）をPC／Tablet／PhoneのNagi端末間で写真・PDF・一般ファイルを直接渡す純正OS機能として採用した。Filesや画像ビューア等の共有UIから近くの受信可能端末を発見・選択し、受信側の確認・許可、暗号化・端末認証と既存Permission／Capability・情報区分・外部共有認可・Resource所有／Profile境界に従う。Local／Offline-firstで、Internet・Cloud account・LLMを基本利用の必須経路にしない。DEC-014のWorkspace移行・同期、本書のContinuity／Handoffとは別の範囲である。名称・通信／認証方式・互換性・保存先・距離・UI／通知／承認詳細・対応版／端末・性能はPROVISIONAL。Nagi Shareのページ／Project／Workspace／作業状態Handoffへの拡張はアイデアであり、既存のContinuity仕様を撤回しない。本注記はDesktop first、既存Milestone／Acceptance／Activationを変更せず、実装・実機対応済みを示さない。
+
 > **2026-11-16 製品方針追記:** [DEC-063 — 電話・連絡先・SMSの端末横断採用](product-decisions/DEC-063-phone-contacts-messaging.md)で、電話・連絡先・SMS/Messagingの基本機能を純正の採用対象とした。PC／タブレット／モバイルで共通アプリ・共通モデルと適応UIを原則とし、連絡先は可能な限り第64章Peopleへ統合する。通話／SMS送受信は実際のハードウェア・モデム／SIM／eSIM・OS能力・認可・必要なネットワーク／外部サービス／キャリアに依存し、全端末での送受信を保証しない。アプリ分割・名称・最小機能・UI・プロトコル・端末間の遠隔操作／引き継ぎ／同期・学習・音声処理・適用版は未確定。本追記は通信機能の実装指示・実装済み証拠や既存Acceptanceへの追加ではない。
 
 > **2026-11-16 製品決定追記:** [DEC-062](product-decisions/DEC-062-first-party-utilities.md)は、画像ビューア・簡易編集、スクリーンショット・文書スキャン、ZIP等の圧縮・解凍、動画・音楽プレイヤーの4分野すべての純正採用と、AI非必須の高速・軽量な基本機能優先を追加する。具体的なアプリ構成・対応形式／Codec／機器・OCR・連携詳細・提供版・受入基準はPROVISIONAL。本書の共通Platform原則を継承し、既存M-APPの順序・Acceptanceや実装状態を変更しない。
