@@ -56,6 +56,8 @@
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)で、通常フォルダのProject指定や他の保存先のResource参照を組み合わせ、Project単位の関連資料と横断AI作業を扱う方向を確定した。元データの分散正本、Provenance、変更検知時の**提案を標準**とする本DECのルールを維持し、Project所属のみでアクセス許可・自動更新を付与しない。具体的なGraph／Schema／UIは未決定。
 
+> **2026-11-16 Data Persistence後続決定 — 分散正本と共通保存契約:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが保存・移行・復旧に関する共通Persistence契約を持ち、App／Provider／利用者の元データ正本は用途別に保持できるB案をCONFIRMED。共通参照と元正本の分離を維持し、Resource／Revision／Provenanceと現行Permissionなしに内容を取得・更新しない。全Appを一つのDBへ統合する決定ではなく、具体DB／Migration・Linux受入は未確定。
+
 ## 決定履歴
 
 | 日付 | 決定 |
