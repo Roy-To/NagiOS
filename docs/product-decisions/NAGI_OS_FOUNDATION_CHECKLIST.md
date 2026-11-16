@@ -462,12 +462,12 @@
 ### 32 Device Connectivity
 
 - **検討対象:** discovery／Trust／Transport、pairing・暗号化・revocation、Share／Handoff、offline・競合・将来remote。
-- **製品決定:** CONFIRMED（main）＝選択式暗号化Workspace Export／Import [DEC-014][D14]。CONFIRMED（製品方針）＝Share [064][P64]／Handoff [065][P65]／初期LANと共通抽象 [066][P66]。PROVISIONAL＝protocol・名称・版・対象。
-- **技術設計:** 既存Device／Surface／Continuity契約を再利用。Share≠Handoff≠継続同期、trusted≠data操作許可。Clipboard同期は未採用。
+- **製品決定:** CONFIRMED＝Linux／OSS通信技術を活用し、Nagi独自Connectivity Serviceで端末発見・Pairing・Trust・Session／Transportを統合するB方式、Nagi独自の端末連携Protocol設計、必要な独自通信技術の並行研究 [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md)。既存の初期LANと共通抽象 [DEC-066][P66]、Share [DEC-064][P64]／Handoff [DEC-065][P65]、暗号化Workspace Export／Import [DEC-014][D14]、端末認証・明示許可・Permission／Privacyを維持。PROVISIONAL＝具体Protocol／Transport、独自技術の採用、Cloud／Relay、端末・Release・Linux受入。
+- **技術設計:** 既存Device／Surface／Continuity契約を利用し、Nagi独自の上位Protocol（Device Capability・Resource／Version・Session・結果等の意味的な連携契約）を、Linux／OSSベースのDiscovery／Trust／Transportから分離して設計する。全面独自Stack／暗号化自作は未採用。Share≠Handoff≠継続同期、trusted≠data操作許可、Clipboard同期は未採用。独自通信は必要性・安全性・性能・保守負荷を実測評価して後続採否を判断する。
 - **実装・target受入:** pure contract／appモデルは再利用候補。実端末発見・暗号化転送・Handoff／remote通信のLinux受入未確認。
 - **依存・責任候補:** 7, 8, 9, 10, 14, 17, 18, 24, 26。Devices／Connectivity／Workspace候補。
 - **根拠:** [純正仕様 §27–30・54・65・71・97][FP]、[PR #125][PR125]／[#126][PR126]／[#127][PR127]。
-- **次に決める:** LAN上の最小pairing／transport契約、実体不足・失効・取消・重複／中断の扱い。Cloud／relayの採否はOPEN。
+- **次に決める:** 初期LANのPeer discovery／Pairing／Trust・Transport候補と上位Protocolの最小契約（互換Version・Capability・Resource／Revision・認可／取消）、Share／Handoff各責務、実体不足・中断／重複・競合、独自通信の研究条件とOSS比較。Cloud／Relay採否はOPEN。
 
 <a id="f33"></a>
 ### 33 Hardware Support
