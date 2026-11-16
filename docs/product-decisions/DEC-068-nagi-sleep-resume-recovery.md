@@ -61,3 +61,5 @@ Workspace保存とTask復旧の正本はDEC-014／022のままとし、本決定
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーの明確な採用確認を受けNagi Sleep（仮称）を記録。LLM非依存のスリープ／復帰／画面ロック、必要な状態保存と接続再検証、AI Jobの安全な待機・資源調整、通常復帰と障害復旧の区別、既存の選択式復旧・権限・二重実行防止、実機検証後の段階的Hibernate方針をCONFIRMEDとし、技術・数値・端末・時期・GateをPROVISIONALに分離。 |
+
+2026-11-16 統合注記: [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)のPowerをmainに統合済み。上記の並行記録は作成時点の履歴。Powerの継続的資源管理とSleepの移行・復帰の協調を分離し、DEC-014／022の保存・選択式復旧・二重実行防止を継承する。

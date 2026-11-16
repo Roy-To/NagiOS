@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（通常アンインストールと完全削除の分離、対象別の明示選択・承認、安全境界）／PROVISIONAL（保持期間、容量、管理UI、実装方式・適用版）  
 **最終合意日:** 2026-11-05  
 **対象:** `builder`が作成したアプリのアンインストールと関連データのライフサイクル。実装版は未確定  
-**関連:** [DEC-014（Workspace保存・チェックポイント）](DEC-014-workspace-state-checkpoints.md)、[DEC-017（アプリ開発・配布）](DEC-017-third-party-developer-ecosystem.md)、[DEC-019（builder作業データ整理）](DEC-019-builder-work-data-cleanup.md)、[DEC-025（アプリ横断参照）](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-026（変更の検証・復元）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-027（Public Action）](DEC-027-public-action-and-scoped-gui-fallback.md)、[DEC-030（Workflow共有）](DEC-030-workflow-template-portability-and-sharing.md)、[DEC-035（アプリ保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-036（アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-036（試用・正式導入）](DEC-036-builder-app-trial-and-installation.md)、[DEC-040（開発Project長期保存）](DEC-040-builder-app-development-project-retention.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-014（Workspace保存・チェックポイント）](DEC-014-workspace-state-checkpoints.md)、[DEC-017（アプリ開発・配布）](DEC-017-third-party-developer-ecosystem.md)、[DEC-019（builder作業データ整理）](DEC-019-builder-work-data-cleanup.md)、[DEC-025（アプリ横断参照）](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-026（変更の検証・復元）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-027（Public Action）](DEC-027-public-action-and-scoped-gui-fallback.md)、[DEC-030（Workflow共有）](DEC-030-workflow-template-portability-and-sharing.md)、[DEC-035（アプリ保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-036（アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-075（試用・正式導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-040（開発Project長期保存）](DEC-040-builder-app-development-project-retention.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的
 
@@ -26,7 +26,7 @@
 - ファイルやアプリの関連が推定されるだけでは、削除・閲覧・権限の根拠にしない。所有者、参照先、Revision、現在のPermission／Policy、削除対象を正規のOS経路で再確認する。
 - 削除操作の結果、部分成功、失敗、結果不明と実際の回復可能範囲を正確に報告する。削除可能性や復元可能性を推測で保証しない。
 - 本決定はDEC-014のWorkspace／名前付きチェックポイント保護、DEC-019の未完了作業・共有・復旧データ保護、DEC-026の検証・復元方針を弱めない。Workspaceやチェックポイントの削除・復元、Taskの再実行は本決定の対象外であり、各既存規則に従う。
-- 試用成果と正式導入済みアプリの区別はDEC-036（試用・導入）に従う。共有・公開の範囲と外部送信承認はDEC-036（共有・公開）に従う。保守更新の承認（DEC-035）はアンインストールやデータ削除を許可しない。
+- 試用成果と正式導入済みアプリの区別はDEC-075（試用・導入）に従う。共有・公開の範囲と外部送信承認はDEC-036（共有・公開）に従う。保守更新の承認（DEC-035）はアンインストールやデータ削除を許可しない。
 - 本決定は実装済み、0.4 release／workstream activation、Workstream owner変更を意味しない。0.1 M30、0.2 M21、0.3 Acceptance、0.4 Entry Gate／Integration Owner checkpointを変更しない。未公開仕様をPublicリポジトリへ転載しない。
 
 ## 未確定・暫定事項
@@ -35,7 +35,7 @@
 
 ## Roadmapとの関係
 
-- **0.4+:** DEC-015のRole切替、DEC-019の作業領域整理、DEC-035／036の試用・導入・更新・共有、DEC-040の開発Project長期保存と整合する将来のアプリライフサイクル方針として扱う。0.4のGate、Acceptance、完了要件は変更しない。
+- **0.4+:** DEC-015のRole切替、DEC-019の作業領域整理、DEC-035／036／075の試用・導入・更新・共有、DEC-040の開発Project長期保存と整合する将来のアプリライフサイクル方針として扱う。0.4のGate、Acceptance、完了要件は変更しない。
 - **0.5–1.0:** 開発者・配布基盤およびデータ管理の将来検討で参照する。版別の割当てや完了条件は確定しない。
 - 正式な実装には、該当Versionの承認済み仕様、現行Workstream registry／owner、Permission／Policyと既存Gateを別途満たす必要がある。
 
