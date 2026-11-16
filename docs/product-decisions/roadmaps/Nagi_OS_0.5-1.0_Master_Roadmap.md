@@ -27,6 +27,8 @@
 
 ## 1. Purpose and status labels
 
+> **2026-11-16 connectivity update:** [DEC-066](../DEC-066-device-connectivity-lan-first.md) confirms same-Wi-Fi/LAN Nagi devices as the initial connectivity target and a shared Device Connectivity/Trust/Transport abstraction without hardcoded transports. Nearby direct Wi-Fi and remote internet connectivity remain extensible options; initial remote support, always-on Cloud, online Nagi accounts and operator-run servers are not required. Preserve offline-first, authentication/trust, encryption, explicit permission, current User/Profile/Resource Permission and Privacy, revocation, external communication scope, and DEC-014's separate migration/sync/cloud grants. No implicit transfer, synchronization or Task replay; Clipboard remains unadopted. Protocols, UI, devices, operations/costs, release timing and performance remain provisional. This does not assign the feature to 0.8 or any other release or change existing gates.
+
 This roadmap carries the user-approved direction for Nagi beyond 0.4 into a planning view through 1.0. It combines the staged Agent Team proposal with confirmed product boundaries in DEC-009 through DEC-020, while keeping version-by-version assignments, sequencing, and implementation details open.
 
 Use these labels throughout:

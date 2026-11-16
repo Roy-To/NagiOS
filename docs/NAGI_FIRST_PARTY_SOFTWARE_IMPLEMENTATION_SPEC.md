@@ -557,6 +557,8 @@ Surface は width / height / DPI / orientation / input capability と合わせ�
 
 Continuity は別端末で意味的に作業を継続する仕組み。
 
+> **2026-11-16 接続方針（[DEC-066](product-decisions/DEC-066-device-connectivity-lan-first.md)）:** 初期ターゲットは同一Wi-Fi／LAN上のNagi端末。Device Connectivity／Trust／Transportの共通抽象を使い、接続方法を機能へハードコードしない。近距離直接通信とインターネット越しの遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインNagiアカウント・運営サーバーは必須にしない。Offline-first、端末認証・信頼・暗号化、明示許可、現行User／Profile／Resource Permission・Privacy、取消・外部Scopeを守る。以下の共有状態や§46／71のsyncの例は許可・対応方式が成立する場合のものであり、無断転送・同期・Task再実行を認めない。DEC-014の標準移行とCloud別許可を維持し、具体技術・機器・提供版・時期・性能は未確定、Clipboardは未採用。
+
 共有するもの:
 
 - open document/resource
@@ -3085,6 +3087,8 @@ Devices は初期段階で全面的な remote desktop/control を目的としな
 - revoked
 
 新 Device が account に現れただけで自動 trusted にしない。
+
+> **2026-11-16 補足（[DEC-066](product-decisions/DEC-066-device-connectivity-lan-first.md)）:** このaccount表記は、初期LAN連携にオンラインNagiアカウントを必須化するものではない。Device Managerの発見・信頼・取消とContinuityは共通Connectivity／Trust／Transport境界を再利用する。trustedや暗号化成功だけでResource操作を認可せず、ユーザーの明示許可・現行Permission／Privacy・外部通信Scopeを別途評価し、取消を反映する。remote job observationも初期のインターネット越し接続・全面remote controlを必須にしない。
 
 ## 65.4 UI
 
