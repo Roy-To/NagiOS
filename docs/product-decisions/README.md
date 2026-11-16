@@ -127,7 +127,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-047 | [Linux移行レーンの作業場所・操作許可・統合先](DEC-047-linux-migration-workspaces-and-integration.md) | CONFIRMED（lane別worktree・操作範囲・統合先） | 2026-11-14 |
 | DEC-048 | [DeepSeekによるNagiコード等レビューへの継続承認](DEC-048-deepseek-review-authorization.md) | CONFIRMED（全lane・全payloadのDeepSeekレビュー承認） | 2026-11-14 |
 | DEC-049 | [速度優先の開発手続き](DEC-049-development-process-speed-priority.md) | CONFIRMED（開発手続きの速度優先・継続制約） | 2026-11-14 |
-| DEC-050 | [仕様・構想の公開正本とEntire履歴・CIの分離](DEC-050-public-specification-repository.md) | CONFIRMED（公開NagiOSにコード・仕様・必要なCI／Private nagi-checkpointsにEntire履歴・関連メタデータ、CI無効）／PROVISIONAL（未検証環境・既存履歴移行） | 2026-11-16 |
+| DEC-050 | [仕様・構想の公開正本とEntire履歴・CIの分離](DEC-050-public-specification-repository.md) | CONFIRMED（公開NagiOSにコード・仕様・必要なCI／Private nagi-checkpointsにEntire履歴・関連メタデータ、CI無効）／PROVISIONAL（未検証環境への適用） | 2026-11-16 |
 | DEC-051 | [レビュー方式A/B](DEC-051-review-methods.md) | CONFIRMED（現在は方式A） | 2026-11-15 |
 | DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
@@ -403,3 +403,5 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## Entire履歴・CI分離の変更履歴（2026-11-16）
 
 DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../development/entire-private-history.md)を追加した。保存先の方針と、実際のagent記録・送信・取得の実証範囲を区別する。
+
+同日後続確認：既存履歴2件は候補の文脈審査・原本保全後に移行し、本番の自動送信を再開した。実NagiOS worktreeのCodex CLIで記録→Private自動送信→別環境での取得を実証した。Desktop・他agent等の未検証範囲は[運用記録](../development/entire-private-history.md)を参照する。
