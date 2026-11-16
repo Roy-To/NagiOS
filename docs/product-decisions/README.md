@@ -137,6 +137,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-074 | [AI組み込み体験の優先順位と階層型AI組織](DEC-074-human-led-agent-organization.md) | CONFIRMED（当面の体験優先・組織は非優先の長期ビジョン）／PROVISIONAL（構造・技術・提供版・実装順序） | 2026-11-16 |
 | DEC-075 | [`builder`が作成した新規アプリの試用・正式導入](DEC-075-builder-app-trial-and-installation.md) | CONFIRMED（方式C：安全な試用・機能／証拠／権限の説明・採用判断後の別途承認付き正式導入）／PROVISIONAL（実装方式・適用版） | 2026-11-05 |
 | DEC-076 | [`builder`製アプリのNagi連携・Action API提案／生成](DEC-076-builder-generated-action-api-integration.md) | CONFIRMED（方式C：用途別Public Action候補の自動提案／承認済みScope内実装検証／通常GUI両立）／PROVISIONAL（生成方式・Schema・適用版） | 2026-11-05 |
+| DEC-077 | [LinuxカーネルLTS標準採用とStable先行利用](DEC-077-linux-kernel-lts-stable-policy.md) | CONFIRMED（LTS標準・Stable先行利用許可）／PROVISIONAL（具体版・更新保守・patch／config管理・適用版） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -189,6 +190,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 ### 変更履歴
 
 | 日付 | 内容 |
+|---|---|
+| 2026-11-16 | [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)でFoundation #1のLinuxカーネル系列方針を追加。製品標準はLTS、開発・先行検証では最新Stableを許容。具体的な版・更新運用・適用版とLinux target受入は未確定。 |
 |---|---|
 | 2026-11-16 | DEC-069と35項目の台帳を追加。Linux移行差異と並行PRを明示し、管理ルール・実装契約テンプレートを保存。個別技術採用・Release Gate・実装状況は変更しない。 |
 
