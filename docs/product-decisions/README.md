@@ -8,7 +8,9 @@
 
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
-[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、追加15項目の製品詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**。**PX-02のユーザー主導の適応型UI B＋将来の高度な個人適応UI Cは高水準方針をCONFIRMED（詳細PROVISIONAL、PARTIALLY_RECORDED）**。他PXの独立PR・採用判断の統合状況は別途照合し、このbranchでは一括変更しない。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+
+**PX-02追加決定（2026-11-17）:** [DEC-010 — Intent-first UIとPX-02 B＋将来C](DEC-010-intent-first-adaptive-ui.md)で、作業目的に応じたカード／パネルをユーザーが選択・却下・固定・調整できる適応UI Bを基本とし、許可された作業文脈・明示設定・採用履歴に応じて将来の高度な個人適応UI Cへ発展する高水準の方向をCONFIRMED。[DEC-008](DEC-008-proactive-behavior.md)の控えめな提案・無断音声割り込み禁止・権限境界、既存の新規Workspace自動配置／複数ディスプレイ活用・既存Workspaceと固定／手動配置の保護、AI不在時の通常GUIを維持。カードの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)ではPARTIALLY_RECORDEDとする。並行PX PRの決定は統合時に調整する。
 
 ## Foundation統合とDEC改番（2026-11-16）
 
@@ -89,9 +91,9 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [標準的な働きかけと通知](DEC-008-proactive-behavior.md) | CONFIRMED | 2026-10-29 |
+| DEC-008 | [標準的な控えめな働きかけ・通知／PX-02適応UIとの整合](DEC-008-proactive-behavior.md) | CONFIRMED（従前の静かな提案・積極性設定・客観的重大警告／PX-02 UIとの整合）／PROVISIONAL（カード・パネルの具体的提示・適応UI、技術・提供版） | 2026-11-17 |
 | DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
-| DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
+| DEC-010 | [Intent-first UI・作業別レイアウト提案／PX-02ユーザー主導B＋将来個人適応C](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（既存Intent-first／Workspace配置保護、PX-02 B＋将来Cの高水準方針）／PROVISIONAL（選択・却下・固定UI／表示順序・適応条件・学習技術・性能・提供版） | 2026-11-17 |
 | DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
 | DEC-012 | [Workspaceの自動命名・整理と自然言語検索](DEC-012-workspace-naming-organization.md) | CONFIRMED（一部詳細未確定） | 2026-11-04 |
 | DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
@@ -244,6 +246,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | [DEC-010](DEC-010-intent-first-adaptive-ui.md)／[DEC-008](DEC-008-proactive-behavior.md)にPX-02のB（ユーザー主導で選択・却下・固定できる適応型UI）＋将来C（高度な個人適応UI）の高水準方針をCONFIRMEDとして記録。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。既存Intent-first・新規Workspace自動配置・複数画面／手動配置保護・控えめな通知・AI不在時通常GUIとGateを維持。カード／パネルの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
