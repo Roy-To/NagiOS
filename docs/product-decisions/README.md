@@ -70,6 +70,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | ID | テーマ | 状態 | 最終決定 |
 |---|---|---|---|
+| DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
 | DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-001 | [AIの自律性とAction](DEC-001-agent-autonomy-actions.md) | CONFIRMED | 2026-10-25 |
 | DEC-002 | [クラウドAI・外部情報共有](DEC-002-cloud-ai-data-sharing.md) | CONFIRMED | 2026-10-25 |
@@ -267,6 +268,12 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 | DEC-067 | [Nagi PowerとOS全体の決定論的な電力・熱・資源管理](DEC-067-nagi-power-deterministic-resource-management.md) | CONFIRMED（仮称で採用・AI非必須・安全／前景優先・低レイヤー基盤整備の方向）／PROVISIONAL（具体方式・端末・効果・実装版・Gate） | 2026-11-16 |
 
 変更履歴: 2026-11-16 — DEC-020／013を補足するNagi Powerの製品決定を追加。全サブシステムの一括採用・実装開始・Release変更は確定しない。
+
+## 決定履歴 — Nagi Handoff（2026-11-16）
+
+[DEC-065](DEC-065-nagi-handoff-work-continuation.md)でNagi Handoff（仮称）を、PC・タブレット・スマートフォン間で文書・Resource・編集箇所・意味的な作業状態を継続する純正OS機能として採用した。既存Continuity、Homeの `home.continue_from_device`、Device Capability、DEC-014の選択式Workspace移行／同期を最大限再利用し、受信先の画面・能力に応じてUIを再構築する。現行User／Profile／Owner／Permission／Privacy・Source有効性／Revisionを再検証し、実体がなければユーザー許可に基づく取得／転送経路または代替を提示する。無断のファイル・個人データ転送／クラウド同期・競合上書きをせず、中断AI Task／副作用Actionを自動再開・再実行しない。名称・UI・復元範囲・経路・共有方式・クラウド利用・瞬時性・対応版はPROVISIONAL。全アプリ・全状態の完全移行、常時オフライン成立、自動同期は保証しない。単発ファイル転送のNagi Shareとは別の概念である。既存Desktop first、Release／Activation／Acceptance Gate、版割当てを変更せず、実装済みを示さない。
+
+先行するNagi ShareのDEC-064は[PR #125](https://github.com/Roy-To/NagiOS/pull/125)にあり、本記録時点でmain未マージ。今回のHandoffは後続の独立した採用決定として記録する。
 
 ## 変更履歴
 
