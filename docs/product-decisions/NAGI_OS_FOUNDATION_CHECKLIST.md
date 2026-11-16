@@ -274,12 +274,12 @@
 ### 15 Crash Recovery
 
 - **検討対象:** crash／電源断／service restart、journal／checkpoint、結果不明、二重実行防止、回復範囲。
-- **製品決定:** CONFIRMED＝状態保持・再開／やり直し／中止の選択、無断再実行禁止 [DEC-022][D22]、Workspace保護 [DEC-014][D14]。PROVISIONAL＝形式・再構成精度。
-- **技術設計:** Wayback／Activity／Revision／idempotencyの既存契約あり。rollback・resume・通常sleep復帰を分ける。
+- **製品決定:** CONFIRMED＝状態保持・再開／やり直し／中止の選択、無断再実行禁止 [DEC-022][D22]、Workspace保護 [DEC-014][D14]、B案＝Nagi共通Recovery Coordinatorによる整合性／保存証拠・復旧状態の管理＋Service別正本の復旧、結果不明Actionの無断再実行禁止・現行権限／Revision再検証・通常Sleepと障害復旧の区別 [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)。PROVISIONAL＝形式・Journal／Checkpoint・状態機械・Linux受入／版。
+- **技術設計:** Nagi Recovery Coordinatorと各Serviceの所有データ別の責務を分離。Wayback／Activity／Revision／idempotencyの既存契約を維持し、System rollback・障害後resume・通常sleep復帰を分ける。
 - **実装・target受入:** 旧VFS／Search回復資産と残件あり。[PR #42][PR42]／[#43][PR43]は未マージ。Linux power-loss・結果不明照合・実mediaは未確認。
 - **依存・責任候補:** 4, 9, 12, 14, 26, 29, 31。`wayback-activity-ledger`／Files／Jobs候補。
 - **根拠:** [0.2 §14・24・46][S02]、[純正仕様 §90][FP]、[status][STATUS]、[Sleep PR][PR129]。
-- **次に決める:** durable state machine、処理途中の切断点、照合・安全な再試行と復旧不能表示のAcceptance。
+- **次に決める:** Recovery Coordinatorの配置とdurable state machine、Journal／Checkpoint・処理途中の切断点、結果不明の照合／安全な再試行・復旧不能表示とLinux targetでのAcceptance。
 
 <a id="f16"></a>
 ### 16 Backup / Restore
@@ -606,10 +606,15 @@ Linux／実機検証:
 
 [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが共通の保存完了／Migration／復旧／所有・忘却等のPersistence契約を定めながら、正本をUser／Profile／Memory／Workspace／Task／App／Provider別に保持できるB案をCONFIRMED。Canonical Memoryと索引・Cacheを分離し、Workspace Checkpoint／本文Backup／Task再実行を混同しない。単一DBを強制せず、具体形式・commit／fsync・schema migration・Linux crash durability受入・適用版は未決定。
 
+### 2026-11-16 Foundation #15 Crash Recoveryの統合調整＋Service別復旧
+
+[DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)で、共通Nagi Recovery Coordinatorが障害後の整合性・保存証拠・復旧結果を調整し、各Serviceが自分の保存正本と状態を復旧するB案をCONFIRMED。Workspace／本文Backup／Taskは別、結果不明の副作用Actionと中断Taskを無断再実行せず、User／Profile／Permission／Resource Revisionを再確認。通常Sleep復帰とクラッシュ復旧を区別し、具体Journal／Checkpoint・State Machine・Linux実媒体受入／適用版は未決定。
+
 ## 8. 変更履歴
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | #15・B3 | [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md) B案確定：Nagi Recovery Coordinator＋Service別安全復旧 | 文書commitのみ。Linux実媒体・電源断／Crash Acceptance未確認 |
 | 2026-11-16 | #14・B3 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md) B案を確定：共通Persistence契約＋分散正本、Version／復旧・忘却の境界 | 文書commitのみ。Linux crash durability／migration受入未確認 |
 | 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
