@@ -38,6 +38,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 複数の量子化モデルをストレージに保存し、必要時にのみメモリへロードして、利用可能な標準・軽量モデルを切り替えられる方向も**CONFIRMED**。負荷・Taskの必要能力に応じた**自動的な軽量モデルへの切替を目指し、初期に難しい場合も手動切替を確保する**。ユーザーが明示固定したモデル・自動切替の無効設定、Task品質、権限・明示停止、Nagi Memoryの継続を尊重する。自動化の採用時期、RAM閾値、切替中断や再開、完全に切れ目のない応答、適用版は**PROVISIONAL**であり、8GBでの達成性能は未実証。
 
+## 8GB RAM級性能試験の先行開始（2026-11-17）
+
+[DEC-020](DEC-020-ai-os-interaction-path.md)で、0.3完成を待たずに、8GB RAM級のNagi通常操作とローカルAI連携の実用性を段階的に試験することをCONFIRMED。OS／純正アプリの前景応答性とAI Task速度・品質を分けて評価し、host-only／Linux image・QEMU／実機を区別する。端末・モデル・担当・数値閾値・日程・Release割当てはPROVISIONAL。未実証の快適さを保証せず、既存Gateを変更しない。
+
 ## 学習履歴の可視化（2026-11-16）
 
 [DEC-059 — Nagi Insights（仮称）](DEC-059-learning-history-insights.md)で、ユーザーがNagiの学習内容・経緯・根拠・支援への反映を分かりやすく閲覧する体験をCONFIRMEDとした。DEC-003のMemory可視化と訂正・削除、DEC-004の自然・明示的忘却、DEC-005のSource連動を継承し、学習履歴を全操作の無制限な保存・自動学習の口実としない。表示方式・指標・実装版はPROVISIONALであり、既存Release／Activation Gateを変更しない。
@@ -97,7 +101,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-017 | [第三者アプリ開発・参入環境と既存アプリ移植](DEC-017-third-party-developer-ecosystem.md) | CONFIRMED（Nagi Native Apps専用・移植支援：PC Windows／Linux重点、将来Mobile Android優先検討、Apple系後順位・段階的統合）／PROVISIONAL（具体技術・対応範囲・実装時期・工数） | 2026-11-13 |
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
-| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event駆動、前景優先・適応推論、8GB級での日常操作＋ローカルAI連携の実用性目標、複数モデル導入／軽量モデルへの適応切替と手動選択、`builder` Resource待機継続C）／PROVISIONAL（モデル・実装・性能値・適用版） | 2026-11-16 |
+| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event駆動、前景優先・適応推論、8GB級での日常操作＋ローカルAI連携の実用性目標・0.3完成前の性能試験開始、複数モデル導入／軽量モデルへの適応切替と手動選択、`builder` Resource待機継続C）／PROVISIONAL（モデル・実装・性能値・適用版） | 2026-11-16 |
 | DEC-021 | [0.5〜1.0ロードマップ境界と段階案](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（継承方針・改訂0.3の1.0目標・DEC-017の1.0目標）／PROVISIONAL（版別範囲・順序・実装詳細） | 2026-11-04 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
@@ -240,6 +244,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | DEC-020に8GB RAM級の前景操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する決定を追記。実施詳細は未確定とし、既存Gate・測定証拠の区別を維持。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
