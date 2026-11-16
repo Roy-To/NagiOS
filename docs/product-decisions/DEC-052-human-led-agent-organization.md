@@ -1,9 +1,11 @@
 # DEC-052 — 人間が管理する階層型AI組織
 
-**状態:** CONFIRMED（長期的な製品方向）／PROVISIONAL（組織構造・技術・版割当）  
+**状態:** CONFIRMED（当面のAI組み込み体験優先・階層型AI組織は非優先の長期ビジョン）／PROVISIONAL（組織構造・技術・版割当・実装順序）
+
 **最終合意日:** 2026-11-16  
-**適用候補:** Nagi OSの長期構想。特定Releaseへの割当ては未決定。  
-**関連:** [DEC-015](DEC-015-builder-role-review.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**適用候補:** Nagi OSの製品優先順位と長期構想。特定Releaseへの割当ては未決定。
+
+**関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的とユーザー体験
 
@@ -11,12 +13,24 @@
 
 ## 確定した仕様
 
+- **当面の製品優先順位:** AIがOS標準機能として自然に働く、**AI組み込み体験型OSとしての確立を優先する**。Nagi-first／Intent-first、作業・データ中心の体験と、許可されたContextから正規のActionへつながる既存方針を土台にする（DEC-009／010／020／023）。
+- **階層型Agent Organizationは非優先の長期ビジョン:** 人間Manager・複数Supervisor・複数Staffという方向は保持するが、当面の製品体験の成立条件や短期の開発優先項目にはしない。以下の組織方向のCONFIRMEDは、その早期提供や特定版への実装を確約しない。
 - **人間が唯一のManager:** この個人向け製品構想では利用者1人が唯一の人間Managerであり、AI組織の目的、優先順位、監督を担う。
-- **複数のSupervisor AI:** 一人の人間の下に複数の統括AI（Supervisor AI）が存在してよい。各Supervisorの下で、複数の専門Worker Agentが割り当てられた仕事を行う。
+- **複数のSupervisor AI:** 一人の人間の下に複数の統括AI（Supervisor AI）が存在してよい。各Supervisorの下で、複数の専門Worker Agent（Staff）が割り当てられた仕事を行う。
 - **階層と規模の拡張方向:** 端末の計算能力や利用可能Resourceに応じて、AI組織の規模や階層を将来拡張できることを目指す。Resourceが増えた場合にAgentを自動追加することや、性能向上を保証するものではない。
 - **Nagiを一貫したユーザー窓口とする既存方針を維持する。** NagiがSupervisorの一員か、別個の調整役かは本決定では定めない。
 - Supervisor、Worker、Roleという組織上の責任は、独立したProcess、Agent identity、Session、Model、端末、同時並列実行を必須としない。これらの構成方法は未確定である。
 - これは長期的な製品方向であり、0.1〜1.0の既存Release Gate、Acceptance、Workstream、実装仕様を変更しない。
+
+## 当面実証したいAI組み込みOS体験（REVIEW NOTE）
+
+既存の製品方針を短い利用シナリオで確認する候補を示す。新しいRelease Gate、実装順序、提供版、達成済み機能を定めるものではない。
+
+- 「昨日の調査を資料にまとめたい」という目的から、許可された資料と作業Contextを示し、対応アプリの型付きPublic Actionで作業を進められる。
+- Home／Desktopや作業を切り替えても会話・Task・Workspaceの連続性を保ち、進捗確認、承認、停止に自然に到達できる。復元だけで中断Taskを再実行しない。
+- 対応するローカル構成で応答性・成果品質・資源使用を測り、AIが使えない場合も通常GUIで作業を続けられる。性能向上は実測前に断定しない。
+
+競合の未公表設計や能力の推測は、本決定の根拠や差別化の実証としない。Nagi自身の体験と検証結果で評価する。
 
 ## 例外・禁止・安全境界
 
@@ -34,6 +48,7 @@
 - 端末性能・負荷・電力・応答品質をどう評価し、組織の規模をどのように調整するか。具体的な数値や性能保証はない。
 - Manager向けの監督・進捗・委譲・承認・停止UI、AI間の共有可能なContext、Task履歴・Activity・証拠の保持期間。
 - どのVersion／Releaseで設計・実装・Acceptanceを行うか。0.5〜1.0の既存案は候補であり、割当てではない。
+- AI組み込み体験の具体的な提供版・実装順序・評価シナリオの採用、および長期組織構想を優先項目へ移す時期・条件。
 - 複数人・複数Profile・複数端末を含む組織への拡張。本決定は個人利用の人間Manager一人という長期構想を記録し、Multi-user設計を決めない。
 
 ## Roadmapとの関連
@@ -48,3 +63,4 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーが、人間を唯一のManager、複数可能な統括AIをSupervisor、その下の専門AgentをWorkerとする長期構想、および端末能力に応じて組織規模・階層を拡張する方向を確認。具体的構造・実装・版割当は未決定として記録。 |
+| 2026-11-16 | 後続確認：当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。既存0.3／0.4 Gate・builder Roleは維持し、具体的な提供版・階層数・実装順序は未確定。 |
