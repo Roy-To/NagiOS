@@ -252,12 +252,12 @@
 ### 13 Volume / Mount
 
 - **検討対象:** volume発見・識別、mount namespace、removable media、権限、safe eject、切断・故障。
-- **製品決定:** CONFIRMED＝既存Permission／所有境界の維持 [DEC-020][D20]。OPEN＝汎用volume・mountの製品要求詳細。
-- **技術設計:** 旧storage layoutはあるが、Linux汎用mount／hotplug／外部mediaの包括設計として扱わない。
+- **製品決定:** CONFIRMED＝既存Permission／所有境界の維持 [DEC-020][D20]、B案＝Nagi Volume ManagerがVolume接続の検出・論理識別・権限・安全な取り外し・切断時状態を統括し、Linux block／mount／hotplugを利用 [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)。PROVISIONAL＝対応Volume／FS・自動mount条件・Volume ID／eject手順・Linux受入／版。
+- **技術設計:** Linux block／mount／hotplugとNagiの認可済みVolume Manager／Files APIを分離。旧storage layoutはあるが、Linux汎用mount／hotplug／外部mediaの包括設計として扱わない。
 - **実装・target受入:** 旧固定storage初期化あり。removable・multi-volume・Linux mount／safe ejectの受入未確認。
 - **依存・責任候補:** 8, 12, 14, 17, 22。storage／Device Manager候補。
 - **根拠:** [0.1 §16–18][S01]、[0.2 §10・23][S02]、[影響表][IMPACT]。
-- **次に決める:** 最初のvolume種別、mount権限・識別・切断時のhandle／未保存書込の扱い。
+- **次に決める:** 最初のVolume種別・対応FS、自動mount／許可の条件、Volume IDとNagi Resource IDの関係、safe ejectのflush／使用中handle・unmountと突然切断／再接続時の結果不明・拒否試験。
 
 <a id="f14"></a>
 ### 14 Data Persistence
@@ -598,10 +598,15 @@ Linux／実機検証:
 
 [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)により、Nagi独自Storage／Files APIと論理Resource／Object／Revision・分散正本を維持し、Linux標準Filesystemを用途別に選択活用するB案をCONFIRMED。Filesystem snapshot／Nagi Wayback／Backup／Workspace復元を混同しない。候補EROFS・ext4・Btrfs等は未採用で、具体FS・暗号化／mount・durability／stable ID対応・Linux target試験・提供版は未確定。#13 Volume／Mountの自動mountや外部媒体対応を今回確定しない。
 
+### 2026-11-16 Foundation #13 Volume／MountのNagi主体管理
+
+[DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)で、Linuxのblock／mount／hotplugを活用しNagi Volume Managerが接続検出・論理Volume ID・現行Permission・Files表示・安全な取り外しと突然切断の状態管理を担当するB案をCONFIRMED。自動検出は自動mount／全媒体許可と同義ではない。書込み／unmount失敗を成功表示せず、再接続時に不確かなTask／Actionを勝手に再実行しない。具体初期対応媒体／FS・権限UI・mount／eject方式・Linux実機試験と版は未決定。
+
 ## 8. 変更履歴
 
 | 日付 | 対象 | 変更・根拠 | 検証範囲 |
 |---|---|---|---|
+| 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md
