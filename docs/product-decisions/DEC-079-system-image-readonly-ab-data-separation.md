@@ -20,6 +20,8 @@ LinuxカーネルとNagi専用ユーザーランドからなるOS本体を、利
 
 > **2026-11-16 Storage／Filesystem後続決定:** [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)で、Linux標準FilesystemをSystem／User Data／Model Store／Temp等の用途別に選択活用し、Nagi独自Storage／Files APIを維持するB案をCONFIRMED。本DECのread-only System、User Data更新後保持、A/B更新・Recovery、AI Model論理分離は不変。具体FS・partition／mount／暗号化・durabilityやLinux target受入は未確定。旧独自kernelのext2／FAT32をLinux製品構成に昇格しない。
 
+> **2026-11-16 Volume／Mount後続決定:** [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)で、Linuxのblock／mount／hotplugを活用しNagi Volume ManagerがVolume検出・認可・安全な取り外し・突然の切断状態を統括するB案をCONFIRMED。System read-only、User Data分離、A/B更新・RecoveryとModel Storeの論理分離は不変。外部媒体の自動mount・任意のSystem書込み許可・具体Linux mount構成／受入を今回追加確定しない。
+
 ## 既存決定と安全・復旧境界
 
 - [DEC-043](DEC-043-nagi-userland-independent-os.md)に従い、Nagi専用ユーザーランドとrootfsを構成し、既存Linuxディストリビューションの完成済みrootfs／配布体系を製品基盤として採用しない。Linux LTS標準と端末別Boot方針（DEC-077／078）も維持する。
