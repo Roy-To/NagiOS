@@ -56,3 +56,5 @@ Nagi Share／Handoff等が使う端末間接続を、まず同一Wi-Fi／LAN上�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | 同一Wi-Fi／LANを初期ターゲットとし、Device Connectivity／Trust／Transportを共通化する方針を確定。近距離直接通信と遠隔接続の拡張可能性を保持し、初期の遠隔実装・常時Cloud・運営サーバーを必須化しない。Offline-first、認証・信頼・暗号化・明示許可・現行権限・Privacy・取消・外部Scope、DEC-014、無断同期／転送／Task再実行禁止を維持。具体方式・運用・時期・性能は未確定、Clipboardは未採用。 |
+
+2026-11-16 統合注記: 上記の作成時点の未マージ記録に続き、[DEC-064](DEC-064-nagi-share-nearby-file-transfer.md)と[DEC-065](DEC-065-nagi-handoff-work-continuation.md)をmainの製品方針として統合。共通接続基盤・単発転送・意味的継続の責務は分離し、実装済みとはしない。
