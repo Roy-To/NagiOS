@@ -45,6 +45,20 @@
 
 ## OS基盤の検討と進捗（2026-11-16）
 
+**Foundation #17 Device Manager（2026-11-16）:** [DEC-106](../DEC-106-device-manager-local-remote-unified-ui.md)でローカル周辺機器管理と他のNagi端末管理を内部責務として分離し、Nagi Settings／DevicesのUIで統合する方式BをCONFIRMED。Linux既存driver等を活用する方針で、具体stack・対応機器・Linux実機受入・適用版は未確定。DEC-066のTrust／許可境界を維持する。
+
+**Foundation #18 Network Devices（2026-11-16）:** [DEC-107](../DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)でEthernet／Wi-Fiを基本機能とし、Bluetoothを段階的に対応する方式BをCONFIRMED。具体driver／firmware／対応機器／pairing／実装版は未確定。端末間初期LAN方針（DEC-066）、Release／Activation／Acceptance Gateを変更しない。
+
+**Foundation #19 Display / GPU（2026-11-16）:** [DEC-108](../DEC-108-display-gpu-nagi-shell-oss-graphics.md)で「Nagi独自Shell＋Linux／OSS描画基盤」のB改良案をCONFIRMED。Nagi Home／Desktop、Workspace、ウィンドウ管理方針、PC／Tablet／Mobile共通の適応UIをNagi独自に設計し、GPU／Display・画面合成の基礎層はOSS再利用を優先する。Wayland／Smithay等の具体採否、software描画fallback、対応端末・性能・適用版はPROVISIONAL。既存Desktop first・Release／Activation／Acceptance Gateを維持する。
+
+**Foundation #20 Input System（2026-11-16）:** [DEC-109](../DEC-109-input-system-cross-device-linux-foundation.md)で、Linux既存input基盤を活用し、Nagi共通Input Serviceでkeyboard／mouse／touchを統合する方式BをCONFIRMED。DEC-108のNagi独自Shell／端末適応UIとDEC-060の高速IME・AI学習／秘密入力保護に整合。evdev／libinput等の具体stack、focus／seat／IME契約、device・版・Linux実機受入はPROVISIONAL。PC／Desktop firstと既存Release／Activation／Acceptance Gateを変更しない。
+
+**Foundation #21 Audio System（2026-11-16）:** [DEC-110](../DEC-110-audio-system-oss-nagi-service-measured-optimization.md)で「条件付きB」をCONFIRMED。Linux／OSSの音声基盤を活用し、Nagi独自Audio Serviceから再生・録音、機器切替、マイク権限、音声優先度、Nagi Voiceを管理。低遅延・省メモリ・省電力を実機で測定し、要件未達の部分のみ最適化・限定的置換を検討する。ALSA／PipeWire等の具体採否、対応実機・測定方法／閾値・実装版・受入はPROVISIONALで、Desktop first／既存Gateを変更しない。
+
+**Foundation #22 周辺機器（2026-11-16）:** [DEC-092](../DEC-092-peripherals-usb-storage-hid-staged-support.md)で方式BをCONFIRMED。USBストレージ（USBメモリ・外付SSD）と基本HID入力機器を標準対象とし、カメラ・プリンター・スキャナーは段階的に対応する。Linux既存driver／OSSを活用し、Nagi Device Manager／Permission／Privacy／通常UIへ連携する。全Linux対応機器の動作保証ではない。具体機種・対応範囲・API・プロトコル・実装版・Linux実機受入はPROVISIONAL。版割当て・Desktop first・既存Release／Activation／Acceptance Gateを変更しない。
+
+
+
 [Nagi OS Foundation Checklist](../NAGI_OS_FOUNDATION_CHECKLIST.md)で35項目と7検討束を恒久管理する（[DEC-069](../DEC-069-foundation-checklist-management.md)）。台帳化はCONFIRMED、優先度・検討順序はREVIEW NOTE / PROVISIONAL。各ロードマップの版割当て・Gate・担当・実装開始条件を変更せず、全35項目の完了を新しいrelease条件にはしない。
 
 ## 実機テスト候補（2026-11-16）
