@@ -192,6 +192,10 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 - アプリ・資料を開く際は現行の正規OS APIとPermissionを評価する。アクセスできない資料や失われた状態について復元成功を偽らない。
 - 本DECは0.1 / 0.2 / 0.3 / 0.4+のRelease / Activation Gate、既存Implementation Spec、Acceptanceを変更しない。
 
+## 接続方針の後続確定（2026-11-16）
+
+[DEC-066](DEC-066-device-connectivity-lan-first.md)で、Share／Handoff等の端末間連携は同一Wi-Fi／LANを初期接続ターゲットとし、Device Connectivity／Trust／Transportを共通化する方針を確定した。近距離直接通信や遠隔接続の拡張可能性を残すが、具体方式・UI・対象機器・時期・性能は未確定。本DECの暗号化Export／Import標準、端末独立管理、選択式移行／直接同期、Cloud同期の別明示許可、競合保護・現行権限再評価は維持する。初期LAN方針はWorkspace同期の必須化・既定有効化や、勝手な転送・Task／副作用Actionの再実行を認めず、既存Gateを変更しない。
+
 ## 未確定・暫定案
 
 - 暗号アルゴリズム・改ざん検出方式、鍵導出・保管・失効、復旧キー形式、認証UI等の具体形式、パッケージSchema・Version互換性・対象メタデータ、直接転送の認証・鍵交換・接続方式、保護された一時情報の保持・整理、容量およびImport単位の具体条件。クラウド送信・同期の提供範囲と方式。
@@ -206,11 +210,15 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 
 0.1 / 0.2のWorkspace・Activity・Wayback等の基盤に整合する将来の製品体験。0.3 Personal Agentや後続世代への実装割当、追加Acceptance、Activationは別途判断する。
 
-## 決定履歴
+### 2026-11-16 — Nagi Projectと復元状態・Memoryの分離
 
+[DEC-055](DEC-055-project-folder-cross-app-context.md)により、利用者の仕事・資料・長期文脈を束ねるProjectと、Workspaceの画面・アプリ状態・復元用チェックポイントを区別する。1 Projectを複数Workspaceから扱えるが、Workspace snapshotをProject本文のバックアップと扱わない。本DECの履歴・検索用メタデータ・節目要約は引き続き長期Memoryとは別管理であり、Projectへの関連付けだけで長期Memoryに自動昇格させない。現在の権限・忘却の再評価、本文巻戻し・中断Task自動再実行の禁止を維持する。
+
+## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | DEC-055のProjectとの役割分離を補足。Workspaceの復元状態、Projectの文脈、長期Memoryを混同せず、既存の保存・復元・忘却規則を維持。 |
 | 2026-11-05 | 選択C：対応アプリが正規APIとアプリ独自の保存Policyに基づき保持する未保存編集の回復情報を参照可能とし、本文複製バックアップを作らず、競合プレビュー後に現状維持・回復候補利用・可能な場合の別コピーを選べるようにする。Permission / Privacy / Owner / Resource Revisionを再評価し、無断上書き・本文巻戻し・AI Task再実行を禁止。API・回復形式・競合判定・対応アプリは実装検証に委ね、既存Gateを維持 |
 | 2026-11-04 | 選択C：自動保存＋名前付きチェックポイント、履歴からの可能な範囲での復元、Workspace自動削除禁止、Permission / Privacy、ファイル内容バックアップ・Task再実行との分離を確定 |
 | 2026-11-04 | 選択C：重要な状態変更時＋定期的な補助保存、古い自動保存履歴のみ容量に応じて間引き、Workspaceと名前付きチェックポイントは自動削除せず。具体的な間隔・容量・保持期間は実装検証に委ねる |

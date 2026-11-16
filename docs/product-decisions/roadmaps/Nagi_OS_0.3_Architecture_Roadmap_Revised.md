@@ -26,6 +26,10 @@ Profile／model-independent Canonical Memory、Context/Event、型付きPublic A
 
 ---
 
+## 製品優先順位の確認（2026-11-16）
+
+[DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとする。単一Personal Agent、Profile／Memory、正規のPublic Actionという本書の方向を維持し、複数Supervisor・子Agent組織を0.3へ追加しない。具体的な提供版・実装順序は未確定であり、§26、§28、§34の既存Gate・Acceptanceを変更しない。
+
 ## 1. Overview
 
 NAGI OS 0.3は、NAGIを「ローカルAIを搭載したOS」から、**ユーザーと継続的に関係を構築し、記憶・学習・行動履歴を保持しながら成長する Personal Agent OS** へ進化させるための世代と位置付ける。
@@ -61,6 +65,8 @@ NAGI OS 0.3の主要目標は以下とする。
 ---
 
 ## 3. Non-Goals
+
+> **2026-11-16 接続方針追記:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)により端末間連携の初期ターゲットは同一Wi-Fi／LAN、共通Device Connectivity／Trust／Transportで方式を固定しない。将来Nagi Account Syncや遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーを必須化しない。Offline-first、認証・暗号化・明示許可・現行権限／Privacy・取消・外部Scope、DEC-014の移行／同期とCloud別許可を維持し、無断転送・同期・Task再実行なし。具体方式・UI・機器・運用・時期・性能は未確定、Clipboard未採用。0.3提供を確約せず既存Gateを変更しない。
 
 0.3では以下を必須目標としない。
 
@@ -1496,3 +1502,9 @@ Host foundationとTarget Runtime PASSを引き続き区別する。既存の0.3 
 ## Nagi Handoff採用・変更履歴（2026-11-16）
 
 [DEC-065](../DEC-065-nagi-handoff-work-continuation.md)でNagi Handoff（仮称）を、PC・タブレット・スマートフォン間で文書・Resource・編集箇所・意味的な作業状態を継続する純正OS機能として採用した。既存Continuity、Homeの `home.continue_from_device`、Device Capability、DEC-014の選択式Workspace移行／同期を最大限再利用し、受信先の画面・能力に応じてUIを再構築する。現行User／Profile／Owner／Permission／Privacy・Source有効性／Revisionを再検証し、実体がなければユーザー許可に基づく取得／転送経路または代替を提示する。無断のファイル・個人データ転送／クラウド同期・競合上書きをせず、中断AI Task／副作用Actionを自動再開・再実行しない。名称・UI・復元範囲・経路・共有方式・クラウド利用・瞬時性・対応版はPROVISIONAL。全アプリ・全状態の完全移行、常時オフライン成立、自動同期は保証しない。単発ファイル転送のNagi Shareとは別の概念である。既存Desktop first、Release／Activation／Acceptance Gate、版割当てを変更せず、実装済みを示さない。 0.3／0.4+／0.5〜1.0のどのVersionへ提供するかは本記録では確定しない。
+
+## PDF Reader / Editorの製品方針（2026-11-16）
+
+[DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
+
+具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
