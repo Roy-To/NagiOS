@@ -296,7 +296,7 @@
 ### 17 Device Manager
 
 - **検討対象:** USB／Bluetooth／Wi-Fi／周辺機器の列挙・hotplug・driver／firmware・権限・診断、信頼端末管理との境界。
-- **製品決定:** CONFIRMED＝ローカル機器管理と他のNagi端末管理を内部責務として分離、Nagi Settings／Devices UIは統合、Linux既存機器基盤を活用しNagi側で機器状態・Permission・Eventを管理する方式B [DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)。純正Devices／Trust [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]を継承。OPEN＝具体stack・機器／bus・実装方式。全機器対応は未保証。
+- **製品決定:** CONFIRMED＝ローカル機器管理と他のNagi端末管理を内部責務として分離、Nagi Settings／Devices UIは統合、Linux既存機器基盤を活用しNagi側で機器状態・Permission・Eventを管理する方式B [DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)。純正Devices／Trust [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]を継承。OPEN＝具体stack・機器／bus・実装方式。全機器対応は未保証。
 - **技術設計:** Linux側のローカル機器認識と他のNagi端末のTrust（untrusted／pending／trusted／revoked）を内部で区別し、管理UIに統合。udev等のstackや詳細なhotplug状態機械は未選定。
 - **実装・target受入:** 旧PCI／VirtIO等のdriver資産あり。統合ローカルdevice service・USB／BT／Wi-FiのLinux実機受入未確認。
 - **依存・責任候補:** 1, 4, 8, 9, 13, 18–22, 29, 33。device／`os-core`／Devices app候補。
@@ -307,8 +307,8 @@
 ### 18 Network Devices
 
 - **検討対象:** Ethernet／Wi-Fi／Bluetooth controller、firmware、認証情報、radio状態、再接続・省電力。
-- **製品決定:** CONFIRMED＝Ethernet・Wi-FiをNagi OSの基本機能、Bluetoothは段階的対応とする方式B [DEC-084](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)。端末間連携は初期LANターゲット [DEC-066][P66]を維持。OPEN＝Wi-Fi／BT stack・対応chipset・pairing／対象用途・適用版。全機器対応保証ではない。
-- **技術設計:** 旧VirtIO Networkと共通network契約は再利用候補。Linux既存driver活用とNagi管理層／Permission境界（DEC-083）を基本とし、無線制御・Bluetooth pairing・再接続の具体方式は未選定。
+- **製品決定:** CONFIRMED＝Ethernet・Wi-FiをNagi OSの基本機能、Bluetoothは段階的対応とする方式B [DEC-107](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)。端末間連携は初期LANターゲット [DEC-066][P66]を維持。OPEN＝Wi-Fi／BT stack・対応chipset・pairing／対象用途・適用版。全機器対応保証ではない。
+- **技術設計:** 旧VirtIO Networkと共通network契約は再利用候補。Linux既存driver活用とNagi管理層／Permission境界（DEC-106）を基本とし、無線制御・Bluetooth pairing・再接続の具体方式は未選定。
 - **実装・target受入:** 旧仮想NIC資産あり。Wi-Fi／BT実機、firmware配布、sleep後再接続は未確認。
 - **依存・責任候補:** 1, 8, 10, 17, 23, 24, 32, 33。device／network候補。
 - **根拠:** [0.1 §16・35][S01]、[0.2 §5.2][S02]、[PR #127][PR127]。
@@ -318,7 +318,7 @@
 ### 19 Display / GPU
 
 - **検討対象:** modesetting／compositor／renderer、multi-display／hotplug、GPU隔離、fallback、描画・compute資源。
-- **製品決定:** CONFIRMED＝Nagi Home／Desktop・Workspace・ウィンドウ管理方針・端末適応UIはNagi独自、Linux／OSSの描画・GPU・Display基盤は選択的に活用するB改良案 [DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)。PC／Tablet／Mobileの共通契約を保持し端末別backend差を吸収。GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]を継承。OPEN＝Wayland／Smithay等の具体採否・Linux display backend・対応hardware／版。
+- **製品決定:** CONFIRMED＝Nagi Home／Desktop・Workspace・ウィンドウ管理方針・端末適応UIはNagi独自、Linux／OSSの描画・GPU・Display基盤は選択的に活用するB改良案 [DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)。PC／Tablet／Mobileの共通契約を保持し端末別backend差を吸収。GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]を継承。OPEN＝Wayland／Smithay等の具体採否・Linux display backend・対応hardware／版。
 - **技術設計:** 上位Shell／Workspace／端末適応をNagi設計とし、画面合成やGPU／Displayの基礎層ではLinux／OSS資産を評価・再利用する。旧compositor／VirtIO GPU／Mesa／Servo契約は参照資産。DRM／KMS／Wayland／Smithay等の採否、CPU描画fallback・rendererは未決定。
 - **実装・target受入:** 旧guest描画・desktop資産あり。Linux compositor接続・実GPU・複数実画面は未確認。
 - **依存・責任候補:** 1, 5, 8, 17, 20, 25, 33。desktop／graphics／`ui-design-system`候補。
@@ -329,7 +329,7 @@
 ### 20 Input System
 
 - **検討対象:** keyboard／mouse／touch／IME、focus・shortcut、入力応答、権限・trusted input、切断。
-- **製品決定:** CONFIRMED＝Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi Input Service／共通入力契約で扱う方式B [DEC-086](DEC-086-input-system-cross-device-linux-foundation.md)。PC／Tablet／Mobileの適応入力を目標とし、GUI／keyboard／mouse継承 [DEC-009][D09]、IME入力応答優先・AI学習安全境界 [DEC-060](DEC-060-responsive-ime-ai-learning.md)を維持。OPEN＝Linux input stack・IME／seat／focus・機器別対応・適用版。
+- **製品決定:** CONFIRMED＝Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi Input Service／共通入力契約で扱う方式B [DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)。PC／Tablet／Mobileの適応入力を目標とし、GUI／keyboard／mouse継承 [DEC-009][D09]、IME入力応答優先・AI学習安全境界 [DEC-060](DEC-060-responsive-ime-ai-learning.md)を維持。OPEN＝Linux input stack・IME／seat／focus・機器別対応・適用版。
 - **技術設計:** 低レイヤーは適切なLinux driver／OSSを再利用し、Nagi共通Input Serviceで端末別入力を統合。旧input／composition／localization資産あり。具体evdev／libinput／seat／focus／shortcut／IME接続は未選定。入力イベント取得と権限付きAction実行は別契約。
 - **実装・target受入:** 旧guest input／IME経路あり。全日本語IME完成・touch・Linux実機入力を既存資産から推定しない。
 - **依存・責任候補:** 7, 8, 17, 19, 28。input／IME／desktop／localization候補。
@@ -340,7 +340,7 @@
 ### 21 Audio System
 
 - **検討対象:** playback／capture／mixing／routing、device切替、latency／underrun、mic権限・音声優先度。
-- **製品決定:** CONFIRMED＝Linux／OSS音声基盤を活用し、Nagi Audio Serviceで再生／録音・mixing／routingの統合管理、機器切替・優先度・マイク権限・Nagi Voice連携を担う条件付きB [DEC-087](DEC-087-audio-system-oss-nagi-service-measured-optimization.md)。低遅延・省メモリ・省電力を実機測定し、要件未達の部分だけ独自最適化／部分置換を検討。AIなしの通常操作・非特権AI [DEC-009][D09]／[020][D20]を維持。OPEN＝具体backend・機器・指標・適用版。
+- **製品決定:** CONFIRMED＝Linux／OSS音声基盤を活用し、Nagi Audio Serviceで再生／録音・mixing／routingの統合管理、機器切替・優先度・マイク権限・Nagi Voice連携を担う条件付きB [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)。低遅延・省メモリ・省電力を実機測定し、要件未達の部分だけ独自最適化／部分置換を検討。AIなしの通常操作・非特権AI [DEC-009][D09]／[020][D20]を維持。OPEN＝具体backend・機器・指標・適用版。
 - **技術設計:** Linux audio driverやALSA／PipeWire等の既存OSSは候補であり、個別stack・採用方式は未決定。Nagi独自Audio ServiceでOS側のPolicy／Permission・アプリ再生／録音・Voice経路を管理する方向。旧VirtIO Sound／audio serviceとvoiceの分離契約は既存資産。
 - **実装・target受入:** 旧audio／voice資産あり。Linux imageでの継続再生・mic認可・実codec／BT audio未確認。
 - **依存・責任候補:** 8, 9, 17, 18, 23, 25, 33。audio／voice／device候補。
@@ -352,7 +352,7 @@
 
 - **検討対象:** printer／scanner／camera／USB storage／HID等の対象、driver／firmware、protocolと権限・UI。
 - **製品決定:** CONFIRMED＝USBストレージ（USBメモリ・外付SSD）と基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応とする方式B [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)。Linux既存driver／OSSを活用しNagi Device Manager／Permission／Privacy／通常UIと連携。全Linux対応機器の動作保証ではない。PROVISIONAL＝具体機種・対応範囲・API・protocol・実装版・実機受入。
-- **技術設計:** DEC-083のローカル機器管理とDEC-086の共通Input契約に接続する。機器認識と実際の利用許可を区別し、DEC-084のBluetooth段階対応を維持。個別stack・driver／APIは未選定。
+- **技術設計:** DEC-106のローカル機器管理とDEC-109の共通Input契約に接続する。機器認識と実際の利用許可を区別し、DEC-107のBluetooth段階対応を維持。個別stack・driver／APIは未選定。
 - **実装・target受入:** 旧参照VM向けdevice経路以外の包括対応を確認していない。実printer／camera／USB等は未確認。方針記録をLinux実機受入済みとしない。
 - **依存・責任候補:** 8, 13, 17, 18, 20, 21, 33。device／各機能owner候補。
 - **根拠:** [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)、[0.1 §16][S01]、[0.2 §5.1–5.2][S02]、[実機候補DEC-052][D52]。

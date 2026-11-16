@@ -142,11 +142,11 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-079 | [System Imageの読み取り専用化・A/B更新／復旧・User Data／AIモデル分離](DEC-079-system-image-readonly-ab-data-separation.md) | CONFIRMED（read-only System・User Data分離・A/B更新／復旧・モデル論理分離）／PROVISIONAL（partition・filesystem・更新／復旧実装・適用版） | 2026-11-16 |
 | DEC-080 | [Init／Service Manager：A案第一候補・B案との短期実装比較](DEC-080-init-service-manager-ab-evaluation.md) | CONFIRMED（A第一候補・短期A/B実装比較後に最終選択）／PROVISIONAL（A/B正式採用・試験詳細・期間・適用版） | 2026-11-16 |
 | DEC-081 | [Nagi主体の基本ユーザーランドと汎用OSSの選択的活用](DEC-081-nagi-owned-userland-selective-oss-components.md) | CONFIRMED（Nagi固有サービス／API／アプリ環境の独自設計、libc・基礎ライブラリ・基礎ツールのOSS活用、既存distributionユーザーランド一式非流用）／PROVISIONAL（具体部品・ABI・適用版） | 2026-11-16 |
-| DEC-083 | [Device Manager：内部責務分離と統合UI](DEC-083-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
-| DEC-084 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
-| DEC-085 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-085-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
-| DEC-086 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-086-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-16 |
-| DEC-087 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-087-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
+| DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
+| DEC-107 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
+| DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
+| DEC-109 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-109-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-16 |
+| DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
 | DEC-092 | [周辺機器：USBストレージ・基本HIDと段階対応](DEC-092-peripherals-usb-storage-hid-staged-support.md) | CONFIRMED（方式B：USBメモリ・外付SSDと基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応、Linux／OSSとNagi管理・権限・通常UI連携）／PROVISIONAL（機種・範囲・API・プロトコル・版・実機受入） | 2026-11-16 |
 
 
@@ -202,11 +202,11 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)でFoundation #22の方式Bを確定。USBストレージ（USBメモリ・外付SSD）と基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応。Linux既存driver／OSSを活用しNagi Device Manager／Permission／Privacy／通常UIへ連携する。全Linux対応機器の保証ではなく、具体機種・対応範囲・API・プロトコル・実装版・実機受入は未確定。DEC-088〜091は未マージPR #134で使用済みのため採番を回避。 |
-| 2026-11-16 | [DEC-087](DEC-087-audio-system-oss-nagi-service-measured-optimization.md)でFoundation #21の「条件付きB」を確定。音声入出力・mixing／routingにLinux／OSSを活用し、Nagi Audio Serviceで機器切替・優先度・マイク権限・Voice連携を管理。低遅延・省メモリ・省電力は実機測定し不足部のみ最適化／部分置換を検討。ALSA／PipeWire等の採否・実測・対応端末・適用版・受入は未確定。 |
-| 2026-11-16 | [DEC-086](DEC-086-input-system-cross-device-linux-foundation.md)でFoundation #20の方式Bを確定。Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi共通Input Serviceで扱う。PC／Tablet／Mobileの入力適応、DEC-060のIME速度優先・学習／秘密入力保護を維持。入力stack・focus・機種・適用版・実機受入は未確定。 |
-| 2026-11-16 | [DEC-085](DEC-085-display-gpu-nagi-shell-oss-graphics.md)でFoundation #19のB改良案を確定。Nagi Home／Desktop・Workspace等の独自ShellとPC／Tablet／Mobileの適応契約を維持し、Linux／OSSのGPU・Display・描画基盤を活用する。Wayland／Smithay等の個別技術・Linux実機受入・提供版は未確定。 |
-| 2026-11-16 | [DEC-083](DEC-083-device-manager-local-remote-unified-ui.md)でFoundation #17の方式Bを確定。ローカル機器とNagi端末の管理責務を内部で分離し、Settings／DevicesのUIは統合。Linux機器基盤を活用し、詳細構成・対応機器・実機受入は未確定。 |
-| 2026-11-16 | [DEC-084](DEC-084-network-devices-ethernet-wifi-bluetooth-staged.md)でFoundation #18の方式Bを確定。Ethernet・Wi-Fiを基本、Bluetoothを段階的に対応。driver／firmware・機種・接続方式・適用版・Linux実機受入は未確定。 |
+| 2026-11-16 | [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)でFoundation #21の「条件付きB」を確定。音声入出力・mixing／routingにLinux／OSSを活用し、Nagi Audio Serviceで機器切替・優先度・マイク権限・Voice連携を管理。低遅延・省メモリ・省電力は実機測定し不足部のみ最適化／部分置換を検討。ALSA／PipeWire等の採否・実測・対応端末・適用版・受入は未確定。 |
+| 2026-11-16 | [DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)でFoundation #20の方式Bを確定。Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi共通Input Serviceで扱う。PC／Tablet／Mobileの入力適応、DEC-060のIME速度優先・学習／秘密入力保護を維持。入力stack・focus・機種・適用版・実機受入は未確定。 |
+| 2026-11-16 | [DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)でFoundation #19のB改良案を確定。Nagi Home／Desktop・Workspace等の独自ShellとPC／Tablet／Mobileの適応契約を維持し、Linux／OSSのGPU・Display・描画基盤を活用する。Wayland／Smithay等の個別技術・Linux実機受入・提供版は未確定。 |
+| 2026-11-16 | [DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)でFoundation #17の方式Bを確定。ローカル機器とNagi端末の管理責務を内部で分離し、Settings／DevicesのUIは統合。Linux機器基盤を活用し、詳細構成・対応機器・実機受入は未確定。 |
+| 2026-11-16 | [DEC-107](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)でFoundation #18の方式Bを確定。Ethernet・Wi-Fiを基本、Bluetoothを段階的に対応。driver／firmware・機種・接続方式・適用版・Linux実機受入は未確定。 |
 | 2026-11-16 | [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)でFoundation #5の基本ユーザーランド方針を追加。Nagi固有のサービス・API・アプリ環境は独自設計、libc・基本ライブラリ・基礎ツールはOSSを選択活用、既存distributionのユーザーランド一式は製品基盤にしない。具体libc・ABI・rootfs・採用版は未決定。B1 #1〜#5の方針検討は一巡したが、#4のA/B正式採用やLinux target受入は未完了。 |
 | 2026-11-16 | [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)でFoundation #4の選定プロセスを確定。軽量なNagi独自PID 1＋独自Service ManagerのA案を第一候補とし、軽量OSS Init＋Nagi Service ManagerのB案と短期の実装比較後に最終判断。両案の正式採用・具体期間・試験条件・結果は未決定。 |
 | 2026-11-16 | [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)を追加。Foundation #3についてread-only System、User Dataの更新後保持を目的とする分離、A/B更新と復旧、AIモデルの論理的分離をCONFIRMEDとした。partition数・filesystem・モデルの物理配置・Linuxの実装／受入・適用版は未確定。 |

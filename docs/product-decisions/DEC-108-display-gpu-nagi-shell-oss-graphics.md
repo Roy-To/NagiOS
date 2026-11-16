@@ -1,4 +1,4 @@
-# DEC-085 — Display / GPU：Nagi独自ShellとOSS描画基盤の組合せ
+# DEC-108 — Display / GPU：Nagi独自ShellとOSS描画基盤の組合せ
 
 **状態:** CONFIRMED（Foundation #19のB改良案：Nagi独自Shell／画面体験・端末横断の共通契約と、Linux／OSSの描画・GPU基盤の選択的活用）／PROVISIONAL（Wayland・Smithay等の個別採用、Compositor／Renderer詳細、機器対応、性能・版・受入）  
 **最終合意日:** 2026-11-16  
