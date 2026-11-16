@@ -208,12 +208,12 @@
 ### 9 IPC / Service Broker
 
 - **検討対象:** transport、service discovery／identity、IDL／versioning、caller binding、timeout／cancel、large data。
-- **製品決定:** CONFIRMED＝typed Public Action／Serviceと決定論的実行 [DEC-020][D20]／[027][D27]。PROVISIONAL＝具体wire／配置。OPEN＝Linux transport。
-- **技術設計:** 0.2 transport-independent契約あり。旧Kernel Channel・VMOをLinuxで無変更利用できるとしない。
+- **製品決定:** CONFIRMED＝typed Public Action／Serviceと決定論的実行 [DEC-020][D20]／[027][D27]、B案＝Nagi独自の型付きIPC／Service API・Brokerを保ち低レイヤーにLinux標準IPCを活用、Transport独立の契約とNagi Identity／Permissionを強制する基本方針 [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)。PROVISIONAL＝具体transport（Unix Domain Socket候補）／wire／配置・受入。
+- **技術設計:** 0.2のtransport-independent契約を継承し、Linux標準IPC上にNagi Broker／型付きService APIを実現する方向。UDS等は比較候補で未採用。旧Kernel Channel・VMOをLinuxで無変更利用できるとしない。
 - **実装・target受入:** `crates/nagi-action-ipc/`／`crates/nagi-search-ipc/`、`sdk/rust/src/app_contract/ipc.rs`等の契約と旧IDL／channel実装あり。Linux peer認証・権限狭窄・再起動時binding未確認。
 - **依存・責任候補:** 4, 7, 8, 29。`system-service-ipc`／`platform-apis`／`os-core`。
 - **根拠:** [0.1 §9–11][S01]、[0.2 §11・M10][S02]、[影響表][IMPACT]。
-- **次に決める:** local transport、実caller確認とhandle転送、bounded message、cancel／replay／version不一致の契約。
+- **次に決める:** 採用するLinux local transport（Unix Domain Socket等）、実CallerとNagi Sessionのbinding、fd／shared memory・bounded message、cancel／replay／version不一致・Service再起動時の契約とLinux target受入。
 
 <a id="f10"></a>
 ### 10 Secrets / Key Management
@@ -690,3 +690,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #8 Permission／SandboxのLinux強制隔離
 
 [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、NagiのPermission／Capability正本＋Linuxの実効的なSandbox／アクセス制御の併用（B案）をCONFIRMED。User／Profile／Session／App／Task／Resourceの現行権限、直接経路の迂回防止、最小権限・取消／失効／狭窄、AI・アプリ非特権、重複承認不要を維持。Linux方式の具体選定、強制隔離の実装・迂回拒否／失効試験・リリース割当ては未決定。
+
+### 2026-11-16 Foundation #9 IPC／Service Broker選定
+
+[DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagi独自の型付きIPC／Service API・Service BrokerとLinux標準IPCを組み合わせるB案を基本方針としてCONFIRMED。Nagi論理Identity／PermissionをCallerに結び付け、Transport独立の契約を維持する。Unix Domain Socket等の具体採否、受渡し・キャンセル・再起動・失効の詳細、性能・Linux target／実機受入、適用版はPROVISIONAL。Kernel独自IPC開発は初期必須としないが将来の限定的検討を禁止しない。
