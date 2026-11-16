@@ -186,12 +186,12 @@
 ### 7 Identity / Session
 
 - **検討対象:** local user／profile／Owner／Guest、認証、session lease、ロック、起動後復旧とdevice identity。
-- **製品決定:** CONFIRMED＝AI／Roleが権限を増やさない [DEC-009][D09]／[020][D20]、復旧時の現行権限再評価 [DEC-022][D22]。OPEN＝Linux資格情報との具体対応。
+- **製品決定:** CONFIRMED＝AI／Roleが権限を増やさない [DEC-009][D09]／[020][D20]、復旧時の現行権限再評価 [DEC-022][D22]、NagiのUserId／ProfileId／SessionIdを正本としLinux UID／GIDは低レイヤー保護に利用、ログイン／ロック等をNagi管理、Profile別データ／Memory分離とOwner自動昇格禁止 [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)。PROVISIONAL＝具体的UID／GID mapping・認証方式・Session失効・実装版。
 - **技術設計:** 0.2 stable IDs・local session契約あり。UID／PIDだけでPrincipal／Profile／Taskを代替しない。
 - **実装・target受入:** 旧認証・session資産とhost foundationあり。[PR #48][PR48]のDesktop統合は未マージ。Linux session／ロック受入未確認。
 - **依存・責任候補:** 4, 8, 9, 10, 14。`ident-01`／`capability-permissions`／session担当候補。
 - **根拠:** [0.1 §22–24][S01]、[0.2 §8–10・M08][S02]、[registry][REG]。
-- **次に決める:** kernel credentialsと論理Identityのbinding、expiry／logout／resume時の失効・再認証条件。
+- **次に決める:** Nagi論理Identityを正本にする方針に従ってLinux kernel credentialsとの具体的binding、expiry／logout／lock／resume時のSession失効・再認証条件、Guest／cross-profile拒否の実装とLinux target受入を設計する。
 
 <a id="f08"></a>
 ### 8 Permission / Sandbox
@@ -682,3 +682,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #6 電源ライフサイクル協調方針
 
 [DEC-082](DEC-082-power-lifecycle-coordination.md)で、Nagiによるshutdown／reboot／sleep／resume／将来のhibernateを含む電源遷移の統括、各サービスの保存・停止・復帰準備と失敗時の中止／再試行／警告、データと安全性の優先をCONFIRMED。DEC-067／068の既存正本・DEC-014／022の復旧とTask非自動実行を維持。状態機械・処理順序・timeout・実装構成／端末・Linux target受入と提供版はPROVISIONAL。
+
+### 2026-11-16 Foundation #7 Identity／SessionとLinux資格情報の分担
+
+[DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、Nagi独自のUserId／ProfileId／SessionIdを論理Identity正本とし、Linux UID／GIDは低レイヤーのアクセス制御に利用するB案をCONFIRMED。ログイン／ロック／復帰の認証・権限はNagiの管理下で、Profile別データ・Memory・Workspace・Task分離とAI／アプリのOwner非昇格、Guestと将来Team対応を維持。具体マッピング・認証技術・Session lease／失効・Linuxでの強制／受入・Releaseは未決定。
