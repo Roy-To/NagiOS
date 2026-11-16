@@ -151,6 +151,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-100 | [System Update：Linux更新基盤＋Nagi統合Update Service（B）](DEC-100-system-update-linux-nagi-coordinated-ab.md) | CONFIRMED（#31 B：Linuxの更新機構とNagiの署名・互換検証／A/B切替・失敗時復旧・System／App／Model別管理）／PROVISIONAL（Linux採用部品・配信／鍵・更新単位・UI／自動適用・実機／版） | 2026-11-16 |
 | DEC-101 | [Device Connectivity：Linux／OSS基盤＋Nagi独自端末連携Protocol、独自通信技術の並行研究](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（#32 Bを標準、Nagiの意味的端末連携Protocolを設計、必要な低層通信は限定研究）／PROVISIONAL（具体Protocol／Transport・独自通信採否・端末／Release／受入） | 2026-11-16 |
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
+| DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -204,6 +205,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)でFoundation #34を記録。Bの段階的・証拠に基づく検証を先行整備し、複数環境の自動テスト・障害注入・テスト不足分析・AI原因調査等のCを将来の正式製品目標とする。AIは仮説・補助、PASS／FAILは決定論的試験と既存Acceptance。DEC-049の速度優先・証拠の正直さ、既存Gate維持、全35項目完了を新Gateにしない。具体試験網・モデル・費用・時期・版・Linux受入は未確定。 |
 | 2026-11-16 | [DEC-102](DEC-102-hardware-support-staged-multidevice-linux-drivers.md)でFoundation #33の方式Bを記録。Linuxの既存Driver／低層Hardware機構を活用し、PC／ARM64／Tablet等へ段階的に対応し、機種ごとの実機検証で正式対応を判断する。DEC-052のRaspberry Pi（型番未選定）／PineTab2／Phone未選定と0.2のQEMU・mini-PC・generic ARM64の区別、Desktop firstと既存Gateを維持。具体機種・性能・Driver・適用版・受入は未決定。 |
 | 2026-11-16 | [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md)でFoundation #32を記録。Linux／OSS接続技術とNagi統合Connectivity Serviceを基本に、Share／Handoff等の端末能力・作業状態・Resourceをやり取りするNagi独自Protocolを設計し、必要な独自通信技術は並行研究する方針をCONFIRMED。DEC-066のLAN-first、認証・暗号・Permission／Privacy、無断同期禁止を維持。具体通信／暗号方式、研究成果採用、端末・版・実機受入は未確定。 |
 | 2026-11-16 | [DEC-100](DEC-100-system-update-linux-nagi-coordinated-ab.md)でFoundation #31の方式Bを記録。Linuxの更新機構を活用し、Nagi統合Update Serviceが署名・互換検証、A/B切替・失敗時復旧を担う方針をCONFIRMED。DEC-079のread-only System／User Data分離と、App／Model更新の別権限・別契約を維持。Cの差分更新／段階配信・自動最適化、実装・配信・鍵・実機・Versionは未決定。 |

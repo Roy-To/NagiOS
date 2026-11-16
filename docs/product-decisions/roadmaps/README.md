@@ -91,6 +91,14 @@
 
 変更履歴: 2026-11-16 — DEC-102でFoundation #33のLinux Driver活用と段階的マルチデバイス検証の製品方針を追加。
 
+## Foundation #34：検証B先行と自動化・AI支援Cの将来目標（2026-11-16）
+
+[DEC-103](../DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)で、Host→Nagi Linux Image／QEMU→対象実機の段階的・証拠に基づく検証Bを先に整備し、複数環境の自動テスト・障害注入・テスト不足分析・AIによる失敗原因調査等のCを将来の正式製品目標として段階導入する方針をCONFIRMED。Cは単なる研究候補ではない。AIの分析は原因仮説・補助であり、PASS／FAILは決定論的な試験結果と既存Acceptanceで評価する。未実行・部分成功・結果不明と実際の成功を区別し、Host成功をLinux Image／実機PASSへ読み替えない。
+
+DEC-049の速度優先、コード不変時の環境・限界付き過去結果再利用、統合の節目でのLinux Image受入、短い証拠記録を維持する。0.1 M30、0.2 M21／Activation、0.3仕様化・Activation／Acceptance、0.4 Entry Gate等を保持し、全35項目完了やC完成を一律の新Gateにしない。具体試験網・AIモデル／テスト生成・ツール・費用・スケジュール・提供Version・Linux受入結果はPROVISIONAL。各Roadmapの版割当て・Workstream許可・実装状態を変更しない。
+
+変更履歴: 2026-11-16 — DEC-103とFoundation #34のB先行／C正式将来目標・合否境界を参照追加。文書記録のみで新規runtime受入を示さない。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
