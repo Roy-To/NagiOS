@@ -63,6 +63,12 @@
 
 変更履歴: 2026-11-16 — DEC-097とFoundation #28の短期／長期・確定／未確定を参照追加。
 
+## Foundation #29：Nagi統合DiagnosticsとAI支援診断（2026-11-16）
+
+[DEC-098](../DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)で、Linuxの診断／crash／service情報をNagi Diagnosticsで統合するB方式を基本にし、CのAI支援による原因候補の分析・根拠付き説明・対処提案を将来の正式製品目標として段階導入することをCONFIRMED。AI不在時の通常診断、Debug／Activityの分離、Redaction、User／Profile／Permission／Policy、観測事実とAI推測の区別、無断の修復・Cloud exportをしない境界を維持する。具体Linux収集backend・Log容量／Retention／export・AI方式・自動修復の採否・実装／受入・適用VersionはPROVISIONALで、0.2 M04と既存Release／Activation／Acceptance Gateを変更しない。
+
+変更履歴: 2026-11-16 — DEC-098とFoundation #29のB製品基盤／C将来目標・未決事項を参照追加。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
