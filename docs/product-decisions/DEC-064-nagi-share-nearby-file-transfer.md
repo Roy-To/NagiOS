@@ -1,8 +1,11 @@
 # DEC-064 — Nagi Share（仮称）：近距離の端末間ファイル共有
 
-**状態:** CONFIRMED（純正OS機能としての採用・基本体験・安全境界）／PROVISIONAL（名称・技術・UI詳細・対応範囲・適用版・性能）  
-**最終合意日:** 2026-11-16  
-**対象:** PC・タブレット・スマートフォンのNagi端末を横断する日常の単発ファイル転送。実装時期・対応端末は未確定  
+**状態:** CONFIRMED（純正OS機能としての採用・基本体験・安全境界）／PROVISIONAL（名称・技術・UI詳細・対応範囲・適用版・性能）
+
+**最終合意日:** 2026-11-16
+
+**対象:** PC・タブレット・スマートフォンのNagi端末を横断する日常の単発ファイル転送。実装時期・対応端末は未確定
+
 **関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[純正ソフトウェア仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[ロードマップ索引](roadmaps/README.md)
 
 ## 目的とユーザー体験
