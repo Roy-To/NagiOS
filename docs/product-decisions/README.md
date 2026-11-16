@@ -142,6 +142,12 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-079 | [System Imageの読み取り専用化・A/B更新／復旧・User Data／AIモデル分離](DEC-079-system-image-readonly-ab-data-separation.md) | CONFIRMED（read-only System・User Data分離・A/B更新／復旧・モデル論理分離）／PROVISIONAL（partition・filesystem・更新／復旧実装・適用版） | 2026-11-16 |
 | DEC-080 | [Init／Service Manager：A案第一候補・B案との短期実装比較](DEC-080-init-service-manager-ab-evaluation.md) | CONFIRMED（A第一候補・短期A/B実装比較後に最終選択）／PROVISIONAL（A/B正式採用・試験詳細・期間・適用版） | 2026-11-16 |
 | DEC-081 | [Nagi主体の基本ユーザーランドと汎用OSSの選択的活用](DEC-081-nagi-owned-userland-selective-oss-components.md) | CONFIRMED（Nagi固有サービス／API／アプリ環境の独自設計、libc・基礎ライブラリ・基礎ツールのOSS活用、既存distributionユーザーランド一式非流用）／PROVISIONAL（具体部品・ABI・適用版） | 2026-11-16 |
+| DEC-082 | [電源ライフサイクルのNagi一元管理とサービス協調](DEC-082-power-lifecycle-coordination.md) | CONFIRMED（全電源遷移のNagi一元管理・各サービスの保存／停止／復帰協調・失敗時の中止／再試行／警告・データ／安全性優先）／PROVISIONAL（状態機械・具体順序／timeout・実装／適用版） | 2026-11-16 |
+| DEC-083 | [Nagi Identityを正本とするLinux資格情報との連携](DEC-083-nagi-identity-linux-credentials-binding.md) | CONFIRMED（Nagi User／Profile／Session正本、Linux UID／GIDを低層保護に利用、ログイン／ロック管理、Profile別分離、AI権限非昇格）／PROVISIONAL（ID対応・認証方式・失効／実装・適用版） | 2026-11-16 |
+| DEC-084 | [Nagi Permissionを正本とするLinux Sandboxの強制隔離](DEC-084-nagi-permission-linux-sandbox-enforcement.md) | CONFIRMED（Nagiが権限を判断、Linuxの保護機構で実効隔離、直接アクセス迂回防止、最小権限・失効／取消／狭窄、AI非特権）／PROVISIONAL（個別Linux技術・Threat Model・実装／適用版） | 2026-11-16 |
+| DEC-085 | [Nagi独自IPC／Service BrokerとLinux標準Transportの分離](DEC-085-linux-transport-nagi-service-broker.md) | CONFIRMED（B案＝Nagi独自の型付きService API／BrokerとLinux IPCを組合せ・Transport独立の契約・認証済みCaller／権限境界）／PROVISIONAL（UDS等の具体transport・wire・性能・適用版） | 2026-11-16 |
+| DEC-086 | [Nagi Secrets Serviceとハードウェア・ソフトウェア両立型の鍵保護](DEC-086-nagi-secrets-service-hybrid-key-protection.md) | CONFIRMED（C案＝Nagi独自Secrets Service、対応機器でTPM／TEE優先・非対応機器は暗号化ローカル保管と回復経路、用途／Profile別の鍵分離・非特権AI／秘密非露出・鍵更新／失効・自動クラウド預託なし）／PROVISIONAL（暗号・KDF・具体Key Store／回復・適用版） | 2026-11-16 |
+| DEC-087 | [段階的なシステム信頼基盤と署名検証](DEC-087-tiered-system-trust-and-signature-verification.md) | CONFIRMED（B案：対応機器はHardware-backed Boot Trust・非対応機器もSoftware署名検証、限定Developer Mode／未署名アプリ、製品鍵と開発鍵の分離・失効／安全な復旧）／PROVISIONAL（具体Trust Anchor・Secure Boot実装・Rollback機構・実機受入／適用版） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -195,6 +201,12 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
+| 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
+| 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
+| 2026-11-16 | [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)でFoundation #8のB案を確定。Nagi Permission／Capabilityが現在の権限を判断し、Linux保護機構でAPI外の直接アクセスも隔離。最小権限・取消・失効・狭窄、AI／アプリ非特権、許可済み操作の重複確認回避を維持。namespace／seccomp／LSM等の具体採否・Linux targetでの迂回拒否試験・適用版は未決定。 |
+| 2026-11-16 | [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)を追加。Foundation #7でNagi論理Identity（User／Profile／Session）を正本に、Linux UID／GIDを低レイヤーの保護に活用するB案をCONFIRMED。ログイン・ログアウト・ロック・復帰のNagi管理、Profile別ファイル／Memory／Workspace／Task分離、Owner権限の自動付与禁止を継承・具体化。UID対応・認証手段・Session失効条件・Linux実装／受入・適用版は未決定。 |
+| 2026-11-16 | [DEC-082](DEC-082-power-lifecycle-coordination.md)を追加。Foundation #6で電源ライフサイクルのNagi一元管理、サービス横断の保存・停止・復帰準備、失敗に応じた中止・再試行・警告、データと安全性の優先を確定。DEC-067 Power／DEC-068 Sleepと重複させず、具体的な順序・状態機械・強制終了・技術・受入・適用版は未決定。 |
 | 2026-11-16 | [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)でFoundation #5の基本ユーザーランド方針を追加。Nagi固有のサービス・API・アプリ環境は独自設計、libc・基本ライブラリ・基礎ツールはOSSを選択活用、既存distributionのユーザーランド一式は製品基盤にしない。具体libc・ABI・rootfs・採用版は未決定。B1 #1〜#5の方針検討は一巡したが、#4のA/B正式採用やLinux target受入は未完了。 |
 | 2026-11-16 | [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)でFoundation #4の選定プロセスを確定。軽量なNagi独自PID 1＋独自Service ManagerのA案を第一候補とし、軽量OSS Init＋Nagi Service ManagerのB案と短期の実装比較後に最終判断。両案の正式採用・具体期間・試験条件・結果は未決定。 |
 | 2026-11-16 | [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)を追加。Foundation #3についてread-only System、User Dataの更新後保持を目的とする分離、A/B更新と復旧、AIモデルの論理的分離をCONFIRMEDとした。partition数・filesystem・モデルの物理配置・Linuxの実装／受入・適用版は未確定。 |
