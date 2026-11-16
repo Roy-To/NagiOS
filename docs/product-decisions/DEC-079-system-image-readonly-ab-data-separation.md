@@ -18,6 +18,8 @@ LinuxカーネルとNagi専用ユーザーランドからなるOS本体を、利
 
 これらは論理的な設計方針であり、独立した物理パーティション数、特定のファイルシステム、ディスク上の配置、モデルの格納方式を今回固定したものではない。
 
+> **2026-11-16 システム信頼基盤の後続決定:** [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、OS／更新／アプリの正規署名・完全性確認、対応機器でのハードウェア信頼機構活用／非対応機器でのSoftware署名検証というB案をCONFIRMED。read-only System／A/B更新・Recovery／User Data分離の方針は維持し、起動署名検証・rollback防止・不正更新拒否の具体機構やLinux実機の成功は別に検証する。
+
 ## 既存決定と安全・復旧境界
 
 - [DEC-043](DEC-043-nagi-userland-independent-os.md)に従い、Nagi専用ユーザーランドとrootfsを構成し、既存Linuxディストリビューションの完成済みrootfs／配布体系を製品基盤として採用しない。Linux LTS標準と端末別Boot方針（DEC-077／078）も維持する。
