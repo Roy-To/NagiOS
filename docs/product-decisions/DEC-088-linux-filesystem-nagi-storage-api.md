@@ -25,7 +25,7 @@ Nagi固有のFile／Resource／Workspaceとアプリ横断の参照・権限管�
 - **0.2 §23–24とDEC-023／025:** Resource／Document／Object／Revision／Provenanceの共通参照、Providerごとのデータ正本、現行Permission／Policy、Activity／Checkpoint／Waybackの意味的契約を維持する。Resource IDを知ること自体は閲覧・操作権限やRevisionの新しさを保証しない。
 - **DEC-014:** Workspaceの状態保存・選択式復元／Export／Import・ファイル本文バックアップとの分離・復旧時の権限再評価を維持する。Filesystem snapshotを利用する場合もWorkspace／Task全体の完全復元を保証しない。
 - **秘密保護:** データ暗号化・鍵の分離・Access ControlはFoundation #8／#10の製品方針との連携対象。#10のハイブリッドSecrets Serviceの決定は[PR #133](https://github.com/Roy-To/NagiOS/pull/133)のDEC-086に記録中（本DEC作成時点ではmain未マージ）。特定の暗号化Filesystem／暗号方式や鍵保護が本DECから決定したことにはならない。
-- **#13との分離:** Volume発見・mount管理、hotplug／removable media、safe eject／強制切断はFoundation #13で扱う。#12のB案をもって自動mountや全形式へのread/write対応まで承認しない。
+- **#13との分離（2026-11-16後続決定）:** [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)で、Linux block／mount／hotplug＋Nagi Volume Managerによる発見・権限・安全な取り外し／切断時状態管理のB案をCONFIRMED。#12のLinux用途別Filesystem選定・Nagi Storage／Files APIは維持する。接続検出と自動mount／全形式read-write対応は異なり、Volume ID・mount／eject具体方式・Linux target受入は引き続き未決定。
 - **適用版・検証:** 既存Release／Activation／Acceptance Gate、担当・Linux移行開発権限、機種・提供版は変更しない。host-onlyや旧ext2テストをLinux image／実SSDでの耐障害検証PASSと読み替えない。
 
 ## 未確定事項（PROVISIONAL／OPEN）
