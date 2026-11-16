@@ -16,6 +16,12 @@ Nagi OSが長期的に目指すのは、**人間がコンピューターに合�
 
 人が機器ごとの細かな操作や正確なポインティングに慣れることを前提にせず、利用者の意図、作業中の文脈、利用可能な機器と入力方法に合わせて、コンピューター側が理解しやすい情報や操作の候補を整える。対話だけのOSにする構想ではなく、人が必要に応じてGUI、キーボード、ポインティングデバイス、その他の入力方法を選べる体験を保つ。
 
+### 継続利用で成長するPersonal Agent OS
+
+Nagi OSは、単にAI機能を載せるのではなく、許可された経験・作業・ユーザーフィードバックから学び、使い続けるほど利用者の目的・好み・習慣に合わせた実用的な支援を行えるPersonal Agent OSを中核コンセプトとする。モデルの性能向上だけでなく、ユーザーごとの理解と作業の継続性を価値とする。
+
+この製品方針の**CONFIRMED**な範囲、ユーザー所有・訂正・自然忘却とモデル非依存の継続性、権限・情報分類・実装境界は[DEC-057](DEC-057-growing-personal-agent-os.md)を正本とする。長期的な支援品質や対話の適応に関する数値・方式・実装時期はPROVISIONAL。ユーザーの明示指示、AI無効時の通常操作と現行Permissionを維持する。
+
 ## 当面の製品優先順位（2026-11-16）
 
 当面は、**AIがOS標準機能として自然に働く、AI組み込み体験型OSとしての確立を優先する**。目的に沿った操作、作業Contextと状態の連続性、対応アプリとの連携を、既存のNagi-first／Intent-firstと作業・データ中心の方針で育てる。階層型Agent Organizationは非優先の長期ビジョンとする。確定した優先順位と未確定の提供版・実装順序は[DEC-074](DEC-074-human-led-agent-organization.md)を正本とする。
@@ -63,6 +69,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - **DEC-009:** Nagi-firstを採用しつつ、従来のGUIとAIが利用できない場合の通常操作を維持する決定を引き継ぐ。
 - **DEC-010:** Intent-first UI、作業に応じた表示・Workspace配置の提案と、既存Workspaceや手動配置を尊重する方針を引き継ぐ。
 - **DEC-013:** Hardware-Adaptive Memory EngineはMemory検索等の適応方針であり、低スペック機器上のLLM性能や快適さを実証したものではない。
+- **DEC-057:** Nagiが経験を通じてユーザーへの実用的な適応を高めるPersonal Agent OSであることを全体コンセプトとしてCONFIRMEDとし、0.3のLearning／Memory／Profile／Model Portabilityと整合させる。
 - **DEC-017:** 現時点のアプリ移植支援はPC／Desktopを重点とし、Androidは将来のMobile／Tablet検討対象である。本ビジョンはその優先順位を変更しない。
 - **DEC-073:** 許可された利用傾向から潜在的な不便を見つけ、根拠付きの改善案を出す高水準方針をCONFIRMEDとする。具体的なSignals、Telemetry、診断、UI、自動適用、実装版はPROVISIONALで、既存の承認・権限・データ境界を変更しない。
 - **DEC-020:** 小さく構造化されたContext、型付きPublic Action、決定論的な認可、非特権AI、前景の人間操作を優先する資源配分を維持する。性能向上や省資源効果は測定前に保証しない。
@@ -97,6 +104,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - [DEC-009 — Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md)
 - [DEC-010 — Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md)
 - [DEC-013 — Hardware-Adaptive Memory Engine](DEC-013-lightweight-memory-engine-benchmark.md)
+- [DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md)
 - [DEC-017 — 第三者アプリ開発・参入環境](DEC-017-third-party-developer-ecosystem.md)
 - [DEC-073 — 許可された利用傾向からの潜在的な不便の発見と改善提案](DEC-073-proactive-friction-discovery.md)
 - [DEC-020 — AIのOS操作経路と計算資源の活用](DEC-020-ai-os-interaction-path.md)
@@ -107,12 +115,15 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 - [0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 - [0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
+
 ---
+
 
 ## 更新履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | DEC-057で確定した、継続的な学習・適応とモデル非依存の連続性をNagi OSの中核コンセプトとして追記。提供時期・技術・定量効果は未確定のまま維持。 |
 | 2026-11-16 | DEC-074の後続確認を反映。当面のAI組み込みOS体験を優先し、階層型AI組織を非優先の長期ビジョンとして明確化。既存Gate・初期builder Role・版境界は維持。 |
 | 2026-11-15 | DEC-073を参照し、許可されたMemory・利用傾向から潜在的な不便を見つけ、根拠付き改善案を出す高水準方針を追記。詳細は未決定のまま既存のPrivacy・Permission・明示設定・UI保護境界を明記。 |
 
