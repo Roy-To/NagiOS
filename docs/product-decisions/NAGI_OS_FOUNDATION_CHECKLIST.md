@@ -329,12 +329,12 @@
 ### 20 Input System
 
 - **検討対象:** keyboard／mouse／touch／IME、focus・shortcut、入力応答、権限・trusted input、切断。
-- **製品決定:** CONFIRMED＝GUI／keyboard／mouse利用維持 [DEC-009][D09]。CONFIRMED（製品方針）＝入力応答優先等 [PR #120][PR120]。OPEN＝Linux input／IME接続方式。
-- **技術設計:** 旧input／composition／localization資産あり。入力イベント取得と権限付きAction実行は別契約。
+- **製品決定:** CONFIRMED＝Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi Input Service／共通入力契約で扱う方式B [DEC-086](DEC-086-input-system-cross-device-linux-foundation.md)。PC／Tablet／Mobileの適応入力を目標とし、GUI／keyboard／mouse継承 [DEC-009][D09]、IME入力応答優先・AI学習安全境界 [DEC-060](DEC-060-responsive-ime-ai-learning.md)を維持。OPEN＝Linux input stack・IME／seat／focus・機器別対応・適用版。
+- **技術設計:** 低レイヤーは適切なLinux driver／OSSを再利用し、Nagi共通Input Serviceで端末別入力を統合。旧input／composition／localization資産あり。具体evdev／libinput／seat／focus／shortcut／IME接続は未選定。入力イベント取得と権限付きAction実行は別契約。
 - **実装・target受入:** 旧guest input／IME経路あり。全日本語IME完成・touch・Linux実機入力を既存資産から推定しない。
 - **依存・責任候補:** 7, 8, 17, 19, 28。input／IME／desktop／localization候補。
 - **根拠:** [0.1 §26・32][S01]、[純正仕様 §78][FP]、[language architecture][LANG]、[status][STATUS]。
-- **次に決める:** device→seat／focus→appの認可・入力契約、IME責務、遅延測定方法と対象device。
+- **次に決める:** Linux input backend、device→seat→focus→appの認可・入力契約、IME composition／秘密入力・shortcutの境界、touch・software keyboard等の初期範囲、遅延と実機受入。
 
 <a id="f21"></a>
 ### 21 Audio System
