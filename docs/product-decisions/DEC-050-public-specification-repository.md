@@ -1,6 +1,6 @@
 # DEC-050 — 仕様・構想の正本を公開リポジトリへ移す
 
-**状態:** CONFIRMED（保存先とCI分離方針）／PROVISIONAL（未検証環境・既存履歴移行）
+**状態:** CONFIRMED（保存先とCI分離方針）／PROVISIONAL（未検証環境への適用）
 **合意日:** 2026-11-15  
 **更新日:** 2026-11-16
 **関連:** [OPERATING_RULES.md](OPERATING_RULES.md)、[README.md](README.md)、[DEC-046](DEC-046-co-developer-governance.md)〜[DEC-049](DEC-049-development-process-speed-priority.md)
@@ -32,6 +32,8 @@ Entireの利用バージョン、対応するagent／hook、保存先指定の�
 
 [Entire運用記録](../development/entire-private-history.md)に、確認した版の公式設定方法、Private／Actions設定、hookによる送信境界、実際のagentでの試験結果と未完了項目を記録する。保存先とCI分離方針はCONFIRMEDのまま、未検証環境・既存履歴移行・無人での自動送信を区別する。同日後続の実施でEntire 0.12.2の保存先指定、Private Actions停止、Codex CLIの記録と限定試験の送信・取得を確認した。上記の初回未確認事項すべてが現在も未確認という意味ではない。
 
+同日後続の審査で既存2件の候補は誤検出と確認し、原本を独立保全してPrivateへ移行した。本番自動送信を再開し、実NagiOS worktreeのCodex CLIで記録・永続checkpoint・Private自動送信・別環境での取得を実証した。Desktop・他agent等の未検証範囲は運用記録で区別する。
+
 ### 適用範囲
 
 Nagi OS開発時のリポジトリ運用に適用する。Nagi製品内のMemory／Activity／Waybackの仕様や、各版のRelease／Activation／Acceptance Gateは変更しない。既存データの削除、公開履歴の書き換え、有料枠の追加をこの決定だけで許可しない。
@@ -51,3 +53,4 @@ Nagi OS開発時のリポジトリ運用に適用する。Nagi製品内のMemory
 | 2026-11-15 | ユーザーが、仕様・構想を公開リポジトリへ移し、今後の仕様決めも公開リポジトリに記録することを決定。 |
 | 2026-11-16 | 公開NagiOSでコード・決定済み仕様・必要なCIを維持し、Privateのnagi-checkpointsをEntireの会話履歴・関連メタデータ専用、CI無効とする構成を確定。具体設定・移行と動作確認は別途実施する。 |
 | 2026-11-16 | README索引・概要を追従し、実設定・検証範囲・移行残件を記す運用記録への参照を追加。 |
+| 2026-11-16 | 既存履歴2件の候補を文脈審査し、原本保全・移行・本番自動送信再開と、実開発環境でのCodex CLI経路の記録・送信・取得を検証。未検証環境への展開とは区別。 |
