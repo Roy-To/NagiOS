@@ -74,3 +74,11 @@
 [DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
 
 具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
+
+## Foundation #35：統合供給網管理Bから独立検証・強化自動化Cへ（2026-11-16）
+
+[DEC-104](../DEC-104-build-supply-chain-baseline-independent-verification-staged.md)でB先行とCの将来正式製品目標をCONFIRMEDとした。Linux kernel／rootfs／Nagi userland／apps等のビルド入力・依存固定、source pin／patch、ライセンス／NOTICE／SBOM、Provenance、再現性、署名・改ざん検証、成果物整合性を先行統合し、隔離／独立検証、複数Architectureの継続検証、より厳格な改ざん検出・セキュリティ自動化へ段階導入する。Cは単なる研究候補ではなく、Bにも再現性・署名検証を含む。SBOMはライセンス適法性を自動認定せず、LLM推測を証拠・署名検証の代替としない。
+
+具体ツール・CI規模・予算・日程・閾値・必須Release版・Linux target実証はPROVISIONAL。0.3／0.4+／0.5–1.0の特定版への必須割当て、既存Release／Activation／Acceptance Gateと担当・許可範囲を変更しない。DEC-079のSystem／Data分離・A/B、#31の更新適用と#34のRuntime受入を区別し、ビルド検証だけで更新・実機・Releaseの成功としない。
+
+**変更履歴:** 2026-11-16 — DEC-104とFoundation #35を参照追加。35項目の方針検討は一巡した（別PR記録を含む）が、全件main統合、技術詳細・未確定点、実装／Release受入は未完。次段階の優先候補（REVIEW NOTE）は、決定番号・索引の統合整合、最小Linux縦断経路の技術契約、Bの対象を絞った検証と証拠整備。Cの完成や全35項目完了を新Gateにしない。
