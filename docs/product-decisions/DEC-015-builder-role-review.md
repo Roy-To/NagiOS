@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（Role名 `builder`／実行方式C：初期Nagi Role切替・将来専門Agent対応）／PROVISIONAL（移行条件・実装詳細）  
 **最終合意日:** 2026-11-05  
 **適用候補:** Nagi OS 0.4（実装・Activation未許可）  
-**関連:** [DEC-024（誤用訂正）](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-016（実行方針）](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-036（アプリ試用・導入）](DEC-036-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[Decision/Generative Architecture](../architecture/decision-and-generative-ai-architecture.md)
+**関連:** [DEC-024（誤用訂正）](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-016（実行方針）](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-075（アプリ試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[Decision/Generative Architecture](../architecture/decision-and-generative-ai-architecture.md)
 
 ## 重要な訂正（2026-11-05）
 
@@ -17,7 +17,7 @@
 
 - **初期構成:** ユーザーの一貫した窓口・実行主体はNagi一体とし、プログラミング作業を受けた際に同じAgentの`builder` Roleを使う。別のAgent identity、専用の常駐プロセス、別LLMの存在を要件にしない。
 - **Task単位の分離:** `builder`作業には独立して追跡できるTask状態、許可されたResource／Action範囲、予算・期限、作業領域、差分・テスト証拠、Activity／復旧情報を持たせる。Nagiと同じAgentであることを、権限の分離を省略する理由にしない。実効権限はOS／Providerが現行Policy・Permissionを検証する。Role切替そのものは権限を生まない。
-- **開発実行の既存要件:** [DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)の承認Scope内での修正・テスト・有限Retry、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)の隔離編集と安全な条件付き反映、[DEC-019](DEC-019-builder-work-data-cleanup.md)の状態別整理、[DEC-022](DEC-022-builder-interrupted-task-recovery.md)の中断復旧を`builder` RoleのTaskに適用する。Git commit／push、リリース・本番操作は別途の明示認可が必要。builderが新規アプリを作った場合の試用・採用・正式導入は[DEC-036](DEC-036-builder-app-trial-and-installation.md)に従い、Role切替やTask承認から導入権限を導かない。
+- **開発実行の既存要件:** [DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)の承認Scope内での修正・テスト・有限Retry、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)の隔離編集と安全な条件付き反映、[DEC-019](DEC-019-builder-work-data-cleanup.md)の状態別整理、[DEC-022](DEC-022-builder-interrupted-task-recovery.md)の中断復旧を`builder` RoleのTaskに適用する。Git commit／push、リリース・本番操作は別途の明示認可が必要。builderが新規アプリを作った場合の試用・採用・正式導入は[DEC-075](DEC-075-builder-app-trial-and-installation.md)に従い、Role切替やTask承認から導入権限を導かない。
 - **将来の拡張:** ローカルResourceと正式なAgent／Session／Delegation境界が満たせる場合、`builder` Roleを別の専門Agentへ担当させることも可能にする。その実行時は別Principal／Sessionと範囲付き委譲・Stop伝播・監査を適用する。専用LLMや同時並列実行は自動的な要件ではない。
 - **旧案との差分:** 旧「初回0.4はNagi＋専用Build Agent二体、Child Taskを別Agentに委譲」は本決定で置き換える。初期構成で独立したChild AgentやAgent間Delegationを必須としない。Nagi内のTask分離は維持するが、Agent間のセキュリティ分離を実装済みと表現しない。
 

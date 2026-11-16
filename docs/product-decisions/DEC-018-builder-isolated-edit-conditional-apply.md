@@ -5,7 +5,7 @@
 **状態:** CONFIRMED（方式C。具体的な実装機構・閾値は未確定）  ／PROVISIONAL（Nagi内Role切替の実装詳細・将来専門Agent化）
 **最終合意日:** 2026-11-04  
 **適用候補:** Nagi OS 0.4のBuild／Execute作業要件（初期Nagi Role切替C。後続Agent配置は未確定）
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-036](DEC-036-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-075](DEC-075-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
 > **名称・位置づけ訂正（2026-11-05）:** 以前の「Jev」という内部名称は外部のTypeSafe AI製品との混同だったため撤回した。**`builder`は確定したプログラミングRole名**で、初期はNagi自身がRoleを切り替えて実行する方式Cで確定（DEC-015）。将来の独立Agent対応と具体的なRuntimeは未確定。選択済みの動作・安全条件を記録するが、誤解を根拠にAgent構成やモデル選定を確定しない。詳細は[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)。
 
@@ -23,9 +23,9 @@ builderのコード修正を実際の作業領域へ安全かつ円滑に反映�
 6. **履歴と結果を明示する。** Nagiは反映対象、変更差分、検証証拠、保護状態、実際に反映した範囲、失敗・部分成功、可能な復旧経路を報告する。対応できないUndoや完全復旧を約束しない。
 7. **Git操作などは別権限。** 自動反映は承認されたローカルファイル変更の反映であって、Git commit／push、本番環境反映、外部送信、Release等の許可を含まない。これらは明示的な別許可と現行Policy検査を要する（DEC-016）。
 
-### 新規アプリの試用・初回正式導入との権限区別（DEC-036、2026-11-05 CONFIRMED）
+### 新規アプリの試用・初回正式導入との権限区別（DEC-075、2026-11-05 CONFIRMED）
 
-builderが作成した未導入アプリの試用と初回正式導入は[DEC-036](DEC-036-builder-app-trial-and-installation.md)に従う。本DECのコード差分の条件付き反映は、試用・採用・初回インストール・永続登録を含まない。
+builderが作成した未導入アプリの試用と初回正式導入は[DEC-075](DEC-075-builder-app-trial-and-installation.md)に従う。本DECのコード差分の条件付き反映は、試用・採用・初回インストール・永続登録を含まない。
 
 ### 新規アプリの導入後保守・更新との権限区別（DEC-035、2026-11-05 CONFIRMED）
 

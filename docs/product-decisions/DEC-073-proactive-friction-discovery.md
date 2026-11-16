@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（潜在的な不便を能動的に見つけ、根拠を示して改善案を提案する製品方針）／PROVISIONAL（参照データ・検知方法・スコア・提示UI・自動適用・実装版）  
 **最終合意日:** 2026-11-15  
 **対象:** 将来のNagi OS Personal Agentとアプリ体験。実装時期・Release割当ては未確定  
-**関連:** [DEC-003（Memory機密分類）](DEC-003-memory-classification.md)、[DEC-004（Memory保存・学習・自然忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-008（標準的な働きかけ）](DEC-008-proactive-behavior.md)、[DEC-010（Intent-first UI）](DEC-010-intent-first-adaptive-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-028（反復作業のWorkflow化・改訂）](DEC-028-deterministic-workflows-from-habits.md)、[DEC-035（builder製アプリの保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-036（アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（builderアプリのAction API）](DEC-040-builder-generated-action-api-integration.md)、[DEC-040（開発Projectの保持）](DEC-040-builder-app-development-project-retention.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.3改訂Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-003（Memory機密分類）](DEC-003-memory-classification.md)、[DEC-004（Memory保存・学習・自然忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-008（標準的な働きかけ）](DEC-008-proactive-behavior.md)、[DEC-010（Intent-first UI）](DEC-010-intent-first-adaptive-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-028（反復作業のWorkflow化・改訂）](DEC-028-deterministic-workflows-from-habits.md)、[DEC-035（builder製アプリの保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-036（アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-076（builderアプリのAction API）](DEC-076-builder-generated-action-api-integration.md)、[DEC-040（開発Projectの保持）](DEC-040-builder-app-development-project-retention.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.3改訂Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的
 
@@ -30,7 +30,7 @@
 
 - **電卓:** 許可された利用傾向から、利用者が計算のたびに小数点入力や指数入力のために画面を切り替えているように見える場合、Nagiは観測根拠を示し、よく使うキーを近くへ置く画面案を提案する。既存画面の配置は、承認なしに変更しない。
 - **反復する手順:** 同じ作業で複数のアプリを行き来し、同じ操作を繰り返している傾向が見えた場合、Nagiは手順を短くする案を提示する。内容が既存の反復手順なら、Workflow化や改訂はDEC-028の承認・版管理に従う。
-- **小さな日常アプリ:** 毎回手作業で行っている小さな整理・変換作業に改善余地があり、UI変更やWorkflowだけでは解決しにくい場合、Nagiは個人用の小規模アプリ案を提案できる。提案だけではコード作成・Build・導入を始めず、実際の開発はbuilder Taskの範囲と承認、試用・導入はDEC-036に従う。公開可能な成果物を作る場合は個人データを分離し、DEC-036の確認・承認手順を適用する。
+- **小さな日常アプリ:** 毎回手作業で行っている小さな整理・変換作業に改善余地があり、UI変更やWorkflowだけでは解決しにくい場合、Nagiは個人用の小規模アプリ案を提案できる。提案だけではコード作成・Build・導入を始めず、実際の開発はbuilder Taskの範囲と承認、試用・導入はDEC-075に従う。公開可能な成果物を作る場合は個人データを分離し、DEC-036の確認・承認手順を適用する。
 
 ## 既存決定との役割分担
 
@@ -39,7 +39,7 @@
 | DEC-010 — Intent-first UI | 作業目的に応じたUI・レイアウトを提示し、既存Workspaceや手動配置を保護する | DEC-073は、利用傾向から本人がまだ言語化していない不便を発見して、改善案を出すきっかけを扱う。配置変更の承認境界はDEC-010のまま |
 | DEC-028 — 反復作業のWorkflow化・改訂 | 繰り返しユーザーが実行・採用した手順を決定論的Workflowにする提案と、保存・有効化・正式改訂への明示承認を定める | DEC-073はその前段を含む。ユーザーが不便を認識・依頼する前から、UI、手順、アプリなど複数の改善方向を探す。Workflow候補を実際に作成・改訂する段階ではDEC-028を適用 |
 | DEC-035 — builder製アプリの保守 | 既存アプリの不具合報告や許可された診断情報から修正を提案し、隔離検証後の正式更新に承認を求める | DEC-073は不具合報告を起点とせず、利用傾向からアプリや作業の改善余地を提案する。実アプリの調査・修正・更新にはDEC-035等を適用 |
-| DEC-015／036／040 — builderとアプリのライフサイクル | アプリ開発、試用・導入、Action API、開発Project、共有・公開の境界を定める | DEC-073が確定するのは「アプリ改善・作成案も提案候補になり得る」ことだけ。builderの実作業や配布の承認を追加しない |
+| DEC-015／036／040／075／076 — builderとアプリのライフサイクル | アプリ開発、試用・導入、Action API、開発Project、共有・公開の境界を定める | DEC-073が確定するのは「アプリ改善・作成案も提案候補になり得る」ことだけ。builderの実作業や配布の承認を追加しない |
 
 ## 未確定事項（PROVISIONAL）
 

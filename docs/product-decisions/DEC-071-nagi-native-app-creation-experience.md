@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（純正の初心者向け制作体験、自然言語とローカルLLMを活用した小規模な日常アプリ、試用・導入・共有／配布を目指す方向）／PROVISIONAL（製品形態、Porting Toolkitとの統合、モデル・SDK・実装・配布の詳細、適用版）
 **最終合意日:** 2026-11-15
 **適用候補:** 将来のNagi Native App制作・開発者／配布環境。release・実装時期は未確定
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)、[DEC-036（アプリ試用・導入）](DEC-036-builder-app-trial-and-installation.md)、[DEC-036（共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[DEC-040（Action API連携）](DEC-040-builder-generated-action-api-integration.md)、[DEC-045（Nagi Porting Toolkit）](DEC-045-nagi-porting-toolkit.md)、[DEC-043（独立OS方針）](DEC-043-nagi-userland-independent-os.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)、[DEC-075（アプリ試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-036（共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[DEC-076（Action API連携）](DEC-076-builder-generated-action-api-integration.md)、[DEC-045（Nagi Porting Toolkit）](DEC-045-nagi-porting-toolkit.md)、[DEC-043（独立OS方針）](DEC-043-nagi-userland-independent-os.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的とユーザー体験
 
@@ -24,8 +24,8 @@
 
 - **builder Role（DEC-015／016／018）:** Nagiのプログラミング作業のRole、Task Scope、自律実行、証拠、隔離編集、条件付き反映を定める。これらは初心者向け製品体験や完成済みIDEの決定ではない。
 - **開発者環境・Porting Toolkit（DEC-017／045）:** Nagi Native Apps向けの開発者環境、既存アプリの移植、PT-01〜06のツール設計を扱う。特にPT-02の雛形生成とPT-05の既存SDK／Packageに基づく検証は接続候補だが、Porting Toolkit文書は設計方針であり、PT-01〜06の実装済み・担当割当済みを示さない。
-- **試用・導入・共有（DEC-036の各文書）:** 試用可能範囲と証拠、採用判断、正式インストール、個人利用、限定共有・公開を定める。本DECで承認の流れを緩めない。
-- **開発Project・Action API（DEC-040の各文書）:** ソース等の長期保持と、必要なアプリ機能を正規Action APIとして提案・検証する境界を定める。本DECは保存形式やAction契約を作り直さない。
+- **試用・導入（DEC-075）・共有（DEC-036）:** 試用可能範囲と証拠、採用判断、正式インストール、個人利用、限定共有・公開を定める。本DECで承認の流れを緩めない。
+- **開発Project（DEC-040）・Action API（DEC-076）:** ソース等の長期保持と、必要なアプリ機能を正規Action APIとして提案・検証する境界を定める。本DECは保存形式やAction契約を作り直さない。
 - **現状の実装との区別:** 公開正本で確認したのは製品方針・設計案であり、初心者向け制作ソフト、Porting Toolkit、Nagi Native App制作から配布までの動作が既に提供されていることではない。
 
 ## 差別化の候補（REVIEW NOTE／PROVISIONAL）
@@ -43,7 +43,7 @@
 2. **Local-firstの制作:** 端末内のローカルLLMを第一の制作手段にでき、外部モデルへソースやContextを渡す場合はDEC-002と現行Permissionに従う。完全Offline動作、Cloud fallbackの有無、既定値は未決定。
 3. **確認済みの事前表示を制作体験にも適用する:** AI Task開始前に、そのTaskでWaybackからどこまで復元できるかを示す方向は[DEC-053](DEC-053-ai-task-recovery-preview.md)に記録する。アプリ制作Taskでは、実際に保護・復元できる範囲や不明な範囲のうち何を表示するか、表示粒度、操作との対応は未確定。DEC-014のWorkspace復元PreviewとDEC-026の変更保護・検証を混同しない。
 4. **Permissionを制作体験へつなぐ:** アプリが要求するCapabilityと理由を分かる言葉で説明し、ユーザーの現行OS Permission／Policyがそのまま実行時に適用されることを制作・試用の中で示す。アプリ生成自体でPermissionを与えない。
-5. **証拠を見てから採用する:** 試用可能な環境で実際の動作、検証済み範囲、未検証事項、要求権限を示し、試用成功・採用判断・正式導入・配布の各段階を分ける。これは既存DEC-036の境界をUX上で理解しやすくする候補である。
+5. **証拠を見てから採用する:** 試用可能な環境で実際の動作、検証済み範囲、未検証事項、要求権限を示し、試用成功・採用判断・正式導入・配布の各段階を分ける。これは既存DEC-075の境界をUX上で理解しやすくする候補である。
 
 これらはGoogle製品に対する実証済みの優位性でも、確定機能一覧でもない。技術・権限・SDK・Waybackの実装状況を確認し、対象ユーザーで有用性を測る必要がある。
 

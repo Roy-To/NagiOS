@@ -25,7 +25,7 @@
 
 - 開発Projectの保存は、Git commit／push、Cloud backup、外部送信、第三者との共有・公開を自動許可しない。それぞれ現行Permission／Policyに従った別の明示的操作・承認を必要とする。
 - DEC-014のWorkspace snapshot／checkpointはWorkspace復元用状態であり、ソースコード本文や開発Projectのバックアップではない。Workspace状態、アプリ実行物、開発Project、ユーザー実データの保存範囲を混同しない。
-- 開発Projectの保護は、インストール済みアプリの更新・正式導入を許可しない。新規アプリの試用・導入はDEC-036、導入済みアプリの保守・更新はDEC-035、隔離編集と条件付き反映はDEC-018に従う。
+- 開発Projectの保護は、インストール済みアプリの更新・正式導入を許可しない。新規アプリの試用・導入はDEC-075、導入済みアプリの保守・更新はDEC-035、隔離編集と条件付き反映はDEC-018に従う。
 - 本決定は0.1／0.2／0.3 Acceptance、0.4 Entry Gate／Integration Owner checkpoint、既存Workstream・AGENTS.md・実装所有権を変更せず、実装開始・Release Activationを認可しない。Private仕様をPublicリポジトリへ転載しない。
 
 ## 未確定・暫定事項

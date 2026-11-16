@@ -30,18 +30,18 @@
 
 既存[Linux影響表][IMPACT]と[0.2移行補足][ADD]は2026-11-13のsnapshotを含む。後続DEC-047／049／050と併読し、その当時の未確認状態を現在の全開発へ拡張しない。
 
-### 並行する製品DEC・未マージPR（2026-11-16確認）
+### 採用済み製品DECと仕様正本（2026-11-16統合更新）
 
-以下は公開PRに保存されたユーザー決定。本文にCONFIRMEDがあっても **main未マージ** であり、実装・target受入の証拠ではない。衝突する古い「未採用」「接続方式未定」は時系列で読む。PR間の変更をこの台帳PRにまとめて取り込まない。
+以下は公開PRに保存されたユーザー決定と、統合する仕様正本への参照。2026-11-16の初回台帳では未マージPRとして区別していたが、PR #107〜#129の統合作業で参照を更新する。仕様統合は実装・target受入の証拠ではない。衝突する古い「未採用」「接続方式未定」は後続DECと時系列で読む。各PRのマージ状態・CIはGitHubで確認する。
 
 | 記録 | 確定範囲と未決境界 | 影響ID |
 |---|---|---|
-| [DEC-064 / PR #125][PR125]（[固定本文][P64]） | Shareの単発ファイル転送、受信許可、暗号化・認証、ローカル／LLM非必須。方式・機種・版は暫定 | 10, 17, 18, 24, 32 |
-| [DEC-065 / PR #126][PR126]（[固定本文][P65]） | Handoffの意味的作業継続、UI再構築、実体と参照の分離、現行認可。全状態移行・無断Task再実行を認めない | 7, 14, 15, 26, 32 |
-| [DEC-066 / PR #127][PR127]（[固定本文][P66]） | 初期は同一Wi-Fi／LAN、Connectivity／Trust／Transportの共通抽象、初期Cloud運営非必須。mDNS／Bluetooth／Wi-Fi Direct／relay等の採否は未定 | 8, 9, 10, 17, 18, 24, 32 |
-| [DEC-067 / PR #128][PR128]（[固定本文][P67]） | Nagi PowerのLLM非依存・決定論的電力／熱／資源管理、前景優先、安全限界内の指定。Linux interface・閾値・効果・端末は未定 | 6, 23, 25 |
-| [DEC-068 / PR #129][PR129]（[固定本文][P68]） | Sleep／復帰／ロック、必要な状態保存、接続再検証、Task再実行禁止、実機検証後の段階的hibernate。sleep方式・swap・鍵・時期は未定 | 6, 7, 10, 14, 15, 17, 23, 25 |
-| [PR #120][PR120]、[PR #124][PR124] | IMEの入力応答優先とAI学習、8GB級実用AIと適応・手動モデル切替の並行記録。未マージ・実測性能達成ではない | 20, 25, 28, 33, 34 |
+| [DEC-064 / PR #125][PR125]（[仕様正本][P64]） | Shareの単発ファイル転送、受信許可、暗号化・認証、ローカル／LLM非必須。方式・機種・版は暫定 | 10, 17, 18, 24, 32 |
+| [DEC-065 / PR #126][PR126]（[仕様正本][P65]） | Handoffの意味的作業継続、UI再構築、実体と参照の分離、現行認可。全状態移行・無断Task再実行を認めない | 7, 14, 15, 26, 32 |
+| [DEC-066 / PR #127][PR127]（[仕様正本][P66]） | 初期は同一Wi-Fi／LAN、Connectivity／Trust／Transportの共通抽象、初期Cloud運営非必須。mDNS／Bluetooth／Wi-Fi Direct／relay等の採否は未定 | 8, 9, 10, 17, 18, 24, 32 |
+| [DEC-067 / PR #128][PR128]（[仕様正本][P67]） | Nagi PowerのLLM非依存・決定論的電力／熱／資源管理、前景優先、安全限界内の指定。Linux interface・閾値・効果・端末は未定 | 6, 23, 25 |
+| [DEC-068 / PR #129][PR129]（[仕様正本][P68]） | Sleep／復帰／ロック、必要な状態保存、接続再検証、Task再実行禁止、実機検証後の段階的hibernate。sleep方式・swap・鍵・時期は未定 | 6, 7, 10, 14, 15, 17, 23, 25 |
+| [PR #120][PR120]、[PR #124][PR124] | IMEの入力応答優先とAI学習、8GB級実用AIと適応・手動モデル切替の並行記録。製品方針の記録であり、実測性能達成ではない | 20, 25, 28, 33, 34 |
 
 ## 2. 35項目の概要索引
 
@@ -175,7 +175,7 @@
 ### 6 電源ライフサイクル
 
 - **検討対象:** shutdown／reboot／sleep／hibernate／resume、ロック・保存・job・deviceの協調と失敗処理。
-- **製品決定:** CONFIRMED（main）＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]。CONFIRMED（PR未マージ）＝[DEC-068][P68]のSleep方針。PROVISIONAL＝方式・順序・端末・時期。
+- **製品決定:** CONFIRMED（main）＝復元とTask実行の分離 [DEC-014][D14]／[022][D22]。CONFIRMED（製品方針）＝[DEC-068][P68]のSleep方針。PROVISIONAL＝方式・順序・端末・時期。
 - **技術設計:** Linux標準機構＋決定論的Nagi serviceというPR方針。s2idle／deep／swap／hibernate技術はOPEN。
 - **実装・target受入:** 通常RAM保持resume、障害後の再構成、hibernateを別評価。Linux image・実機の電源遷移は未確認。
 - **依存・責任候補:** 4, 7, 10, 14, 15, 17, 23, 25, 33。Power／Sleep候補＋各サービスowner。
@@ -307,7 +307,7 @@
 ### 18 Network Devices
 
 - **検討対象:** Ethernet／Wi-Fi／Bluetooth controller、firmware、認証情報、radio状態、再接続・省電力。
-- **製品決定:** CONFIRMED（PR未マージ）＝連携の初期LANターゲット [DEC-066][P66]。OPEN＝Wi-Fi／BT対応機種・stack・pairing方式。LAN方針はBT等の技術採用ではない。
+- **製品決定:** CONFIRMED（製品方針）＝連携の初期LANターゲット [DEC-066][P66]。OPEN＝Wi-Fi／BT対応機種・stack・pairing方式。LAN方針はBT等の技術採用ではない。
 - **技術設計:** 旧VirtIO Networkと共通network契約あり。Linux device backend・無線管理の方式は未定。
 - **実装・target受入:** 旧仮想NIC資産あり。Wi-Fi／BT実機、firmware配布、sleep後再接続は未確認。
 - **依存・責任候補:** 1, 8, 10, 17, 23, 24, 32, 33。device／network候補。
@@ -329,7 +329,7 @@
 ### 20 Input System
 
 - **検討対象:** keyboard／mouse／touch／IME、focus・shortcut、入力応答、権限・trusted input、切断。
-- **製品決定:** CONFIRMED＝GUI／keyboard／mouse利用維持 [DEC-009][D09]。CONFIRMED（PR未マージ）＝入力応答優先等 [PR #120][PR120]。OPEN＝Linux input／IME接続方式。
+- **製品決定:** CONFIRMED＝GUI／keyboard／mouse利用維持 [DEC-009][D09]。CONFIRMED（製品方針）＝入力応答優先等 [PR #120][PR120]。OPEN＝Linux input／IME接続方式。
 - **技術設計:** 旧input／composition／localization資産あり。入力イベント取得と権限付きAction実行は別契約。
 - **実装・target受入:** 旧guest input／IME経路あり。全日本語IME完成・touch・Linux実機入力を既存資産から推定しない。
 - **依存・責任候補:** 7, 8, 17, 19, 28。input／IME／desktop／localization候補。
@@ -362,7 +362,7 @@
 ### 23 Nagi Power
 
 - **検討対象:** 電池／AC、thermal／CPU／GPU負荷、power profile、充電制御候補、signal欠落時の挙動。
-- **製品決定:** CONFIRMED（main）＝前景優先・AIの通常資源契約 [DEC-020][D20]。CONFIRMED（PR未マージ）＝[DEC-067][P67]の決定論的OS全体管理。PROVISIONAL＝技術・名称正式化・数値・端末。
+- **製品決定:** CONFIRMED（main）＝前景優先・AIの通常資源契約 [DEC-020][D20]。CONFIRMED（製品方針）＝[DEC-067][P67]の決定論的OS全体管理。PROVISIONAL＝技術・名称正式化・数値・端末。
 - **技術設計:** Sleep遷移は6、継続的制御は23、配分は25。cpufreq／thermal／powercap／cgroup／eBPF等は候補、採用済みでない。
 - **実装・target受入:** policy記録とMemory Governor案あり。Linux電力制御・実sensor・省電力効果は未確認。
 - **依存・責任候補:** 1, 6, 17, 25, 29, 33。Power／resource／Model Runtime候補。
@@ -461,7 +461,7 @@
 ### 32 Device Connectivity
 
 - **検討対象:** discovery／Trust／Transport、pairing・暗号化・revocation、Share／Handoff、offline・競合・将来remote。
-- **製品決定:** CONFIRMED（main）＝選択式暗号化Workspace Export／Import [DEC-014][D14]。CONFIRMED（PR未マージ）＝Share [064][P64]／Handoff [065][P65]／初期LANと共通抽象 [066][P66]。PROVISIONAL＝protocol・名称・版・対象。
+- **製品決定:** CONFIRMED（main）＝選択式暗号化Workspace Export／Import [DEC-014][D14]。CONFIRMED（製品方針）＝Share [064][P64]／Handoff [065][P65]／初期LANと共通抽象 [066][P66]。PROVISIONAL＝protocol・名称・版・対象。
 - **技術設計:** 既存Device／Surface／Continuity契約を再利用。Share≠Handoff≠継続同期、trusted≠data操作許可。Clipboard同期は未採用。
 - **実装・target受入:** pure contract／appモデルは再利用候補。実端末発見・暗号化転送・Handoff／remote通信のLinux受入未確認。
 - **依存・責任候補:** 7, 8, 9, 10, 14, 17, 18, 24, 26。Devices／Connectivity／Workspace候補。
@@ -649,8 +649,12 @@ Linux／実機検証:
 [PR127]: https://github.com/Roy-To/NagiOS/pull/127
 [PR128]: https://github.com/Roy-To/NagiOS/pull/128
 [PR129]: https://github.com/Roy-To/NagiOS/pull/129
-[P64]: https://github.com/Roy-To/NagiOS/blob/47ee78e95e57b05a5098633c2a6a7bbec65d7463/docs/product-decisions/DEC-064-nagi-share-nearby-file-transfer.md
-[P65]: https://github.com/Roy-To/NagiOS/blob/5d28c5138b1d7136240922d5f83c848b8dfe9608/docs/product-decisions/DEC-065-nagi-handoff-work-continuation.md
-[P66]: https://github.com/Roy-To/NagiOS/blob/c02690d542443ab229e8a74d1b55ec9c32a78829/docs/product-decisions/DEC-066-device-connectivity-lan-first.md
-[P67]: https://github.com/Roy-To/NagiOS/blob/5ce421f539d28468bdda04e543850bb647cb7857/docs/product-decisions/DEC-067-nagi-power-deterministic-resource-management.md
-[P68]: https://github.com/Roy-To/NagiOS/blob/da478618e06bb248c4cc2becc39b6223f4549ec7/docs/product-decisions/DEC-068-nagi-sleep-resume-recovery.md
+[P64]: DEC-064-nagi-share-nearby-file-transfer.md
+[P65]: DEC-065-nagi-handoff-work-continuation.md
+[P66]: DEC-066-device-connectivity-lan-first.md
+[P67]: DEC-067-nagi-power-deterministic-resource-management.md
+[P68]: DEC-068-nagi-sleep-resume-recovery.md
+
+### 2026-11-16 仕様統合に伴う参照更新
+
+[PR #107〜#129の統合対応表](PR-107-129-INTEGRATION-2026-11-16.md)に従い、Share／Handoff／Connectivity／Power／Sleepの参照を仕様正本へ接続した。元の35項目・分類・検討束・優先度・実装／target受入欄は維持し、文書マージを機能実装済みや受入PASSへ昇格させない。

@@ -20,9 +20,9 @@
 5. **許可・確認できない場合:** 必要なScopeを限定して認可できない場合、操作対象や結果を安全に確認できない場合、またはOS／Providerが許可しない場合はfallbackを行わず、ユーザーの手動操作に戻す。すべての旧式アプリとの互換性や無制限のGUI制御は保証しない。
 6. **通常GUIを保つ:** AI連携の有無にかかわらず、OS本体は従来のGUIを維持し、AIが利用できないときもユーザーが通常操作できるようにする。
 
-### `builder`製アプリでのAction API自動提案・GUI両立（DEC-040）
+### `builder`製アプリでのAction API自動提案・GUI両立（DEC-076）
 
-[DEC-038](DEC-040-builder-generated-action-api-integration.md)の選択Cにより、`builder`は新規アプリの用途に応じてNagiから利用すると有益な型付きPublic Action API候補を提案し、必要なものを承認済み開発Task Scope内で実装・検証する。通常のGUI操作は残し、AI連携が不要ならAction実装は必須としない。**Action APIの作成・発見自体は実行・権限付与・新たなTask承認と別**であり、実際のNagi操作は本DECの正規Public Action優先、Permission／Policy、限定GUI fallback、Activity、Stop／Cancelの条件を一切緩和しない。具体的な生成技術・提供時期・Acceptanceは未確定。
+[DEC-076](DEC-076-builder-generated-action-api-integration.md)の選択Cにより、`builder`は新規アプリの用途に応じてNagiから利用すると有益な型付きPublic Action API候補を提案し、必要なものを承認済み開発Task Scope内で実装・検証する。通常のGUI操作は残し、AI連携が不要ならAction実装は必須としない。**Action APIの作成・発見自体は実行・権限付与・新たなTask承認と別**であり、実際のNagi操作は本DECの正規Public Action優先、Permission／Policy、限定GUI fallback、Activity、Stop／Cancelの条件を一切緩和しない。具体的な生成技術・提供時期・Acceptanceは未確定。
 
 ## 例外・禁止・安全境界
 
