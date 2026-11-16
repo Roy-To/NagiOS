@@ -85,6 +85,12 @@
 
 変更履歴: 2026-11-16 — DEC-100とFoundation #31のB統合Update方針、C未採用・Linux受入未確認を参照追加。
 
+## Foundation #33：段階的Hardware Support（2026-11-16）
+
+[DEC-102](../DEC-102-hardware-support-staged-multidevice-linux-drivers.md)で、Linuxの既存Driver／Hardware機構を活用し、PC／ARM64／Tablet等へ段階的に展開し、機種・機能別の実機検証を経て正式な製品対応範囲を判断するB方式をCONFIRMED。QEMU x86-64・x86-64 UEFI mini-PC・generic ARM64→Raspberry Piという0.2の開発・検証境界、DEC-052のRaspberry Pi（型番未選定）／PineTab2／Phone未選定の候補、DEC-078の端末別Boot、Desktop firstを維持する。Linux Driverの存在とNagi Linux実機での対応完了を同一視せず、Display／Input／Radio／Powerなどの未受入機能を対応済みとしない。具体機器・Driver／Firmware、必須Device Matrix・サポート保証・提供Version／実機結果はPROVISIONAL。既存Release／Activation／Acceptance Gate、Workstream許可と実装済み状態を変更しない。
+
+変更履歴: 2026-11-16 — DEC-102でFoundation #33のLinux Driver活用と段階的マルチデバイス検証の製品方針を追加。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
