@@ -131,12 +131,12 @@
 ### 2 Boot System
 
 - **検討対象:** firmware→loader→kernel→userland、UEFI／他arch、boot failure、回復起動と信頼の連鎖。
-- **製品決定:** CONFIRMED＝Linux + Nagi userland [DEC-043][D43]。PROVISIONAL＝移行構成。OPEN＝Linux bootloader／handoffの方式。
+- **製品決定:** CONFIRMED＝Linux + Nagi userland [DEC-043][D43]、UEFI対応PCはUEFI基本・Raspberry Pi／タブレット等は機器別方式を許容・Linux起動後のNagi処理を共通化 [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)。PROVISIONAL＝機種別詳細・移行構成。OPEN＝Linux bootloader／handoff・回復／信頼の具体方式。
 - **技術設計:** 旧UEFI loader／ABI／trust設計あり。Linux boot経路は置換・adapter判断が必要。
 - **実装・target受入:** `loader/`と旧起動経路あり。旧guestの起動証拠をLinux起動へ流用しない。Linux／実機未確認。
 - **依存・責任候補:** 1, 3, 4, 11, 33。`os-core`、boot担当候補、Integration Owner。
 - **根拠:** [0.1 §5・6][S01]、[0.2 §6][S02]、[boot trust設計][BOOT]、[移行補足][ADD]。
-- **次に決める:** 一つの開発targetのboot入力・handoff・失敗検知を定義し、旧loader再利用範囲をADRにする。
+- **次に決める:** PCのUEFI基本と機器別方式を前提に、一つの開発targetのboot入力・Linux handoff・失敗検知／復旧・信頼境界を定義し、旧loader再利用範囲をADRにする。
 
 <a id="f03"></a>
 ### 3 System Image
@@ -662,3 +662,7 @@ Linux／実機検証:
 ### 2026-11-16 Foundation #1 カーネル系列方針の決定
 
 [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)に、ユーザー決定として製品の標準Linuxカーネル系列はLTS、開発・先行検証では最新Stableを許容する方針をCONFIRMEDで記録。具体kernel revision／更新責任／patch・config／適用Releaseは未確定。旧Kernelの実装証拠をLinux target受入済みにしない。
+
+### 2026-11-16 Foundation #2 Boot Systemの起動方式方針
+
+[DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)に、PCのUEFI基本とRaspberry Pi／タブレット等の機器に適したboot方式の許容、Linux起動後のNagi専用処理を共通化する方針をCONFIRMEDとして記録。Linux bootloader、署名／A-B／復旧方式の具体採否と実機起動・target受入は未確定。
