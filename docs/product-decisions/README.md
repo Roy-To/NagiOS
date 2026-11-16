@@ -139,6 +139,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-076 | [`builder`製アプリのNagi連携・Action API提案／生成](DEC-076-builder-generated-action-api-integration.md) | CONFIRMED（方式C：用途別Public Action候補の自動提案／承認済みScope内実装検証／通常GUI両立）／PROVISIONAL（生成方式・Schema・適用版） | 2026-11-05 |
 | DEC-077 | [LinuxカーネルLTS標準採用とStable先行利用](DEC-077-linux-kernel-lts-stable-policy.md) | CONFIRMED（LTS標準・Stable先行利用許可）／PROVISIONAL（具体版・更新保守・patch／config管理・適用版） | 2026-11-16 |
 | DEC-078 | [端末別Boot方式と共通Nagi起動処理](DEC-078-boot-platform-entry-and-common-nagi-startup.md) | CONFIRMED（PCのUEFI基本・機器別方式許容・Linux起動後の共通Nagi処理）／PROVISIONAL（bootloader・復旧／信頼・適用版） | 2026-11-16 |
+| DEC-079 | [System Imageの読み取り専用化・A/B更新／復旧・User Data／AIモデル分離](DEC-079-system-image-readonly-ab-data-separation.md) | CONFIRMED（read-only System・User Data分離・A/B更新／復旧・モデル論理分離）／PROVISIONAL（partition・filesystem・更新／復旧実装・適用版） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -192,6 +193,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)を追加。Foundation #3についてread-only System、User Dataの更新後保持を目的とする分離、A/B更新と復旧、AIモデルの論理的分離をCONFIRMEDとした。partition数・filesystem・モデルの物理配置・Linuxの実装／受入・適用版は未確定。 |
 | 2026-11-16 | [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)でFoundation #2のBoot方式を記録。UEFI対応PCはUEFI基本、Raspberry Piやタブレット等は機器固有の起動方式を許容し、Linux起動後のNagi処理を共通化する。bootloader・信頼／復旧方式・対応機種・実機試験・Releaseは未確定。 |
 | 2026-11-16 | [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)でFoundation #1のLinuxカーネル系列方針を追加。製品標準はLTS、開発・先行検証では最新Stableを許容。具体的な版・更新運用・適用版とLinux target受入は未確定。 |
 | 2026-11-16 | DEC-069と35項目の台帳を追加。Linux移行差異と並行PRを明示し、管理ルール・実装契約テンプレートを保存。個別技術採用・Release Gate・実装状況は変更しない。 |
