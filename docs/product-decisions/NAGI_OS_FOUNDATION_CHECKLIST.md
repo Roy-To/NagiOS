@@ -340,12 +340,12 @@
 ### 21 Audio System
 
 - **検討対象:** playback／capture／mixing／routing、device切替、latency／underrun、mic権限・音声優先度。
-- **製品決定:** CONFIRMED＝AI不在でも通常OS操作、非特権AI [DEC-009][D09]／[020][D20]。OPEN＝Linux audio backend／対応device。
-- **技術設計:** 旧VirtIO Sound／audio serviceとvoiceの分離契約あり。ALSA／PipeWire等をこの台帳で選ばない。
+- **製品決定:** CONFIRMED＝Linux／OSS音声基盤を活用し、Nagi Audio Serviceで再生／録音・mixing／routingの統合管理、機器切替・優先度・マイク権限・Nagi Voice連携を担う条件付きB [DEC-087](DEC-087-audio-system-oss-nagi-service-measured-optimization.md)。低遅延・省メモリ・省電力を実機測定し、要件未達の部分だけ独自最適化／部分置換を検討。AIなしの通常操作・非特権AI [DEC-009][D09]／[020][D20]を維持。OPEN＝具体backend・機器・指標・適用版。
+- **技術設計:** Linux audio driverやALSA／PipeWire等の既存OSSは候補であり、個別stack・採用方式は未決定。Nagi独自Audio ServiceでOS側のPolicy／Permission・アプリ再生／録音・Voice経路を管理する方向。旧VirtIO Sound／audio serviceとvoiceの分離契約は既存資産。
 - **実装・target受入:** 旧audio／voice資産あり。Linux imageでの継続再生・mic認可・実codec／BT audio未確認。
 - **依存・責任候補:** 8, 9, 17, 18, 23, 25, 33。audio／voice／device候補。
 - **根拠:** [0.1 §37–38][S01]、[0.2 §47–48][S02]、[0.3 roadmap][R03]。
-- **次に決める:** 最小入出力・権限境界・device切替とsleep復帰、測定とunderrunの扱い。
+- **次に決める:** 最小再生／録音・mixing・routing、マイク認可・Voice優先度、device切替とsleep復帰、Linux／実機での遅延・RAM・電力・underrun測定と基準、OSS未達時の対象限定最適化。
 
 <a id="f22"></a>
 ### 22 周辺機器
