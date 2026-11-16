@@ -373,12 +373,12 @@
 ### 24 Network Service
 
 - **検討対象:** IP／DNS／DHCP／routing／TLS／proxy、offline表示、接続権限と宛先、service API。
-- **製品決定:** CONFIRMED＝offline-firstと外部送信Scope [DEC-002][D02]、正規Service経路 [DEC-020][D20]。OPEN＝Linux network管理構成。
-- **技術設計:** 旧`nagi-net`／TLS／socket broker資産あり。network serviceとradio device管理18、端末信頼32を分離する。
+- **製品決定:** CONFIRMED＝Linux通信機構と必要なOSSを選択的に利用し、Nagi Network Serviceで通信設定・接続状態・アプリ権限・Offline対応を統合する方式B [DEC-093](DEC-093-network-service-linux-nagi-policy-offline.md)。Offline-first、外部送信Scope [DEC-002][D02]、正規Service経路 [DEC-020][D20]を維持。OPEN＝具体network stack・LinuxでのPermission強制方式・対象機器・適用版。
+- **技術設計:** Linux kernelの一般IP通信を再利用し、NagiユーザーランドのNetwork Service／Permission契約と接続する。旧`nagi-net`／TLS／socket broker資産は参照対象。network serviceとradio device管理18・端末間Trust／Transport 32を分離し、全面独自TCP/IP実装は標準方針にしない。具体OSS・socket仲介／強制機構は未決。
 - **実装・target受入:** 旧guest net／browser接続資産あり。Linux imageのDNS／TLS／権限拒否・復帰後再接続は未確認。
 - **依存・責任候補:** 7, 8, 9, 10, 18, 29。network／`platform-apis`候補。
 - **根拠:** [0.1 §35–36][S01]、[0.2 §10・11][S02]、[Connectivity PR][PR127]。
-- **次に決める:** service APIとLinux backend、宛先／profile別認可、offline・timeout・certificate更新の責任。
+- **次に決める:** Service APIとLinux接続設定・DNS／TLS／proxy backend、宛先／profile／app別認可の強制と迂回防止、offline・timeout・certificate更新・再接続、Linux target実機受入。
 
 <a id="f25"></a>
 ### 25 Resource Manager / Scheduler
