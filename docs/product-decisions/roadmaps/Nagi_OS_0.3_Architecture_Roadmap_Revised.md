@@ -1,5 +1,7 @@
 # NAGI OS 0.3 Architecture Roadmap
 
+> **2026-11-16 近距離ファイル共有:** [DEC-064](../DEC-064-nagi-share-nearby-file-transfer.md)で、Nagi Share（仮称）の純正OS機能としての採用を確定した。Local／Offline-firstの単発ファイル直接転送を扱い、Internet・Cloud account・LLMを必須にしない。DEC-014のWorkspace移行・同期と既存Continuity構想は別範囲であり、本機能のHandoff拡張はアイデア段階。技術・UI詳細・対応版／端末・性能は未確定で、0.3の必須機能や実装済みを意味しない。既存の認可・情報区分・所有／Profile境界とGateを維持する。詳細は[ロードマップ索引](README.md#近距離ファイル共有の製品方針2026-11-16)を参照。
+
 > **2026-11-15 公開移管:** [DEC-050](../DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 ## Linux基盤への適用注記（2026-11-13）
@@ -25,6 +27,10 @@ Profile／model-independent Canonical Memory、Context/Event、型付きPublic A
 **Source Baseline:** Read-only `sources/` copy, verified byte-identical to `NagiOS/docs/` at revision time
 
 ---
+
+## 製品優先順位の確認（2026-11-16）
+
+[DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとする。単一Personal Agent、Profile／Memory、正規のPublic Actionという本書の方向を維持し、複数Supervisor・子Agent組織を0.3へ追加しない。具体的な提供版・実装順序は未確定であり、§26、§28、§34の既存Gate・Acceptanceを変更しない。
 
 ## 1. Overview
 
@@ -61,6 +67,8 @@ NAGI OS 0.3の主要目標は以下とする。
 ---
 
 ## 3. Non-Goals
+
+> **2026-11-16 接続方針追記:** [DEC-066](../DEC-066-device-connectivity-lan-first.md)により端末間連携の初期ターゲットは同一Wi-Fi／LAN、共通Device Connectivity／Trust／Transportで方式を固定しない。将来Nagi Account Syncや遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインアカウント・運営サーバーを必須化しない。Offline-first、認証・暗号化・明示許可・現行権限／Privacy・取消・外部Scope、DEC-014の移行／同期とCloud別許可を維持し、無断転送・同期・Task再実行なし。具体方式・UI・機器・運用・時期・性能は未確定、Clipboard未採用。0.3提供を確約せず既存Gateを変更しない。
 
 0.3では以下を必須目標としない。
 
@@ -1492,3 +1500,9 @@ Host foundationとTarget Runtime PASSを引き続き区別する。既存の0.3 
 ---
 
 **End of Revised Document**
+
+## PDF Reader / Editorの製品方針（2026-11-16）
+
+[DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
+
+具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
