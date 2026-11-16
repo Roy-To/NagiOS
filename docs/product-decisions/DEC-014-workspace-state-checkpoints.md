@@ -255,3 +255,7 @@ Workspaceの作業環境に後から戻れるよう、復元用状態を普段�
 ## 後続決定・変更履歴（2026-11-16）
 
 [DEC-065](DEC-065-nagi-handoff-work-continuation.md)でNagi Handoff（仮称）を、PC・タブレット・スマートフォン間で文書・Resource・編集箇所・意味的な作業状態を継続する純正OS機能として採用した。既存Continuity、Homeの `home.continue_from_device`、Device Capability、DEC-014の選択式Workspace移行／同期を最大限再利用し、受信先の画面・能力に応じてUIを再構築する。現行User／Profile／Owner／Permission／Privacy・Source有効性／Revisionを再検証し、実体がなければユーザー許可に基づく取得／転送経路または代替を提示する。無断のファイル・個人データ転送／クラウド同期・競合上書きをせず、中断AI Task／副作用Actionを自動再開・再実行しない。名称・UI・復元範囲・経路・共有方式・クラウド利用・瞬時性・対応版はPROVISIONAL。全アプリ・全状態の完全移行、常時オフライン成立、自動同期は保証しない。単発ファイル転送のNagi Shareとは別の概念である。既存Desktop first、Release／Activation／Acceptance Gate、版割当てを変更せず、実装済みを示さない。 本DECの標準Export／Import、端末ごとの独立管理、競合保護・中断復旧・明示的忘却の再評価を維持する。
+
+## #16 Backup / Restoreとの関係・変更履歴（2026-11-16）
+
+[DEC-105](DEC-105-user-environment-backup-and-wayback.md)でユーザー環境全体のB方式バックアップを基本とし、Waybackとの分担・連携、必要時のC方式追加という方向を確定した。Cの具体内容・対象、技術・適用版は未確定。本DECの既存決定を置換せず、Workspace状態保存と本文保護、Waybackの実際の復元可能性、Memoryの明示的忘却と別管理バックアップの削除境界を維持する。復元で忘却情報を自動再学習せず、古い権限や中断Taskを自動再有効化しない。仕様記録であり実装・受入を示さない。

@@ -68,3 +68,7 @@ AI Task開始前にWaybackで復元できる範囲をユーザーへ示す方向
 ## 2026-11-16 Crash Recovery後続決定・変更履歴
 
 [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)でFoundation #15のB案をCONFIRMED。共通Recovery Coordinator＋サービス別責務で整合性・保存証拠を検証する。復元可能性の事前表示やCheckpointの存在だけで復旧成功・完全Undoを保証せず、現行Permission／Revision確認、結果不明の副作用Actionと中断Taskの無断再実行禁止を維持する。 具体的な復旧方式・Linux target受入・適用版は未確定で、既存Gate・担当・着手条件は変更しない。本注記は実装・Acceptance成功を示さない。
+
+## #16 Backup / Restoreとの関係・変更履歴（2026-11-16）
+
+[DEC-105](DEC-105-user-environment-backup-and-wayback.md)でユーザー環境全体のB方式バックアップを基本とし、Waybackとの分担・連携、必要時のC方式追加という方向を確定した。Cの具体内容・対象、技術・適用版は未確定。本DECの既存決定を置換せず、Workspace状態保存と本文保護、Waybackの実際の復元可能性、Memoryの明示的忘却と別管理バックアップの削除境界を維持する。復元で忘却情報を自動再学習せず、古い権限や中断Taskを自動再有効化しない。仕様記録であり実装・受入を示さない。

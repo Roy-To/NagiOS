@@ -76,7 +76,7 @@
 | [13](#f13) | Volume / Mount | P1 | 旧storage layout／汎用mount設計未定 |
 | [14](#f14) | Data Persistence | P0 | 永続状態・所有境界確定／Linux耐久未確認 |
 | [15](#f15) | Crash Recovery | P0 | 選択式復旧確定／旧基盤残件あり |
-| [16](#f16) | Backup / Restore | P1 | Workspace移行あり／全体backup未定 |
+| [16](#f16) | Backup / Restore | P1 | B基本・Wayback連携・C追加方向確定／詳細未定 |
 
 ### 第4群 デバイス・ハードウェア管理
 
@@ -285,12 +285,12 @@
 ### 16 Backup / Restore
 
 - **検討対象:** 本文／設定／Profile／Memory／app／Workspaceのbackup境界、復元・鍵・忘却・世代・外部保存。
-- **製品決定:** CONFIRMED＝Workspaceの暗号化Export／Importと選択式移行 [DEC-014][D14]。OPEN＝OS全体・本文backup製品方針。Workspace保存を本文backupとしない。
+- **製品決定:** CONFIRMED＝B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携、必要時のC方式を追加選択肢とする方向 [DEC-105](DEC-105-user-environment-backup-and-wayback.md)。既存Workspaceの暗号化Export／Importと選択式移行 [DEC-014][D14]を維持。PROVISIONAL／OPEN＝対象別収録・除外・復元契約、Cの具体内容・条件、技術・提供版。Workspace保存を本文backupとしない。
 - **技術設計:** 対象別の保存・回復契約あり。全体snapshot／差分backup／復元媒体は未採用。
 - **実装・target受入:** 既存checkpoint・hostモデルは再利用候補。全OS backup／bare-metal restore／Linux鍵回復は未確認。
 - **依存・責任候補:** 7, 8, 10, 12, 14, 15, 32。storage／Workspace／security候補。
 - **根拠:** [DEC-013][D13]／[014][D14]、[0.2 §24][S02]、[純正仕様 §88–92][FP]。
-- **次に決める:** backup対象と非対象、削除／忘却済み情報の復活防止、鍵喪失・部分復元・世代保持の境界。
+- **次に決める:** Bの具体的なbackup対象と非対象、Wayback連携、Cの内容・適用条件、削除／忘却済み情報の復活防止、鍵喪失・部分復元・世代保持の境界。
 
 <a id="f17"></a>
 ### 17 Device Manager
@@ -617,6 +617,7 @@ Linux／実機検証:
 | 2026-11-16 | #15・B3 | [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md) B案確定：Nagi Recovery Coordinator＋Service別安全復旧 | 文書commitのみ。Linux実媒体・電源断／Crash Acceptance未確認 |
 | 2026-11-16 | #14・B3 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md) B案を確定：共通Persistence契約＋分散正本、Version／復旧・忘却の境界 | 文書commitのみ。Linux crash durability／migration受入未確認 |
 | 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
+| 2026-11-16 | 16 | [DEC-105](DEC-105-user-environment-backup-and-wayback.md)：B基本・Wayback分担連携・必要時C追加の方向を確定。対象・技術・C詳細・版は未定 | 文書・リンク・状態分離を確認。runtime PASSの追加なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md

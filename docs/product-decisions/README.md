@@ -152,7 +152,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-089 | [Nagi Volume ManagerとLinux Mount／Hotplugの責務分担](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) | CONFIRMED（B案＝Nagi Volume ManagerがVolume検出・論理識別・認可・安全な取り外し・突然の切断の状態管理、Linuxのblock／mount／hotplug活用）／PROVISIONAL（自動mount条件・対応媒体／FS・識別／eject詳細・Linux受入／適用版） | 2026-11-16 |
 | DEC-090 | [共通Persistence契約とデータ正本の分散保持](DEC-090-common-persistence-contract-distributed-authority.md) | CONFIRMED（B案＝Nagi共通の保存／移行／復旧契約＋用途／App／Provider別の分散正本、保存結果・Version／Migration／所有・忘却、Canonical Memoryと派生Index分離）／PROVISIONAL（具体DB／形式・durable commit／Migration・Linux受入／適用版） | 2026-11-16 |
 | DEC-091 | [Nagi Recovery Coordinatorとサービス別責務の障害復旧](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md) | CONFIRMED（B案＝共通Recovery CoordinatorとServiceごとの復旧、整合性／保存証拠確認・結果不明Actionの無断再実行防止、現行権限／Revision再検証・通常Sleep復帰と区別）／PROVISIONAL（Journal／Checkpoint・State Machine／復旧順序・Linux受入／提供版） | 2026-11-16 |
-
+| DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・Wayback連携・必要時のC追加）／PROVISIONAL（詳細・技術・適用版） | 2026-11-16 |
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -336,3 +336,7 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## PR #107〜#129の仕様統合（2026-11-16）
 
 [統合先・DEC改番・重複範囲の対応表](PR-107-129-INTEGRATION-2026-11-16.md)を参照。DEC-052は実機候補、DEC-069はFoundation Checklistの正本として維持する。異なる仕様の番号を分離し、採用・暫定・実装・受入を区別する。過去の「main未マージ」は記録当時の履歴であり、現在の仕様は本索引の各DECを参照する。
+
+## #16 Backup / Restoreの決定・変更履歴（2026-11-16）
+
+[DEC-105](DEC-105-user-environment-backup-and-wayback.md)でB方式（ユーザー環境全体のバックアップ）を基本とし、Waybackと分担・連携し、必要に応じC方式を追加選択肢とする方向を記録した。Cの内容・対象、保存方式・鍵・保持・復元詳細・提供版は未確定。DEC-014のWorkspace保存／移行、DEC-026の実際の復元可能性、DEC-004の明示的忘却を維持し、台帳#16と関連ロードマップへ参照を追加。仕様記録であり実装・受入済みではない。
