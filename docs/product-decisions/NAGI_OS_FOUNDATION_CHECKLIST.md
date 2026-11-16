@@ -87,7 +87,7 @@
 | [19](#f19) | Display / GPU | P0 | 旧compositor／GPU資産／Linux backend未定 |
 | [20](#f20) | Input System | P0 | 旧input／IME資産／Linux経路未確認 |
 | [21](#f21) | Audio System | P1 | 旧audio基盤／Linux backend未定 |
-| [22](#f22) | 周辺機器 | P2 | 対象機器・driver・Policy未定 |
+| [22](#f22) | 周辺機器 | P2 | USB storage・基本HID標準、camera／printer／scanner段階対応。具体機種・範囲未定 |
 | [23](#f23) | Nagi Power | P1 | 決定論的管理採用はPR／実測未確認 |
 
 ### 第5群 ネットワーク・OS共通サービス
@@ -296,67 +296,67 @@
 ### 17 Device Manager
 
 - **検討対象:** USB／Bluetooth／Wi-Fi／周辺機器の列挙・hotplug・driver／firmware・権限・診断、信頼端末管理との境界。
-- **製品決定:** CONFIRMED＝純正Devices／Trustの既存契約 [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]。OPEN＝ローカルDevice Managerの採用範囲・具体構成。台帳化だけで全機器対応を確定しない。
-- **技術設計:** remote Nagi Deviceのuntrusted／pending／trusted／revokedと、ローカルbus機器認識を区別。udev／独自service等の採否は未定。
+- **製品決定:** CONFIRMED＝ローカル機器管理と他のNagi端末管理を内部責務として分離、Nagi Settings／Devices UIは統合、Linux既存機器基盤を活用しNagi側で機器状態・Permission・Eventを管理する方式B [DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)。純正Devices／Trust [純正仕様 §65][FP]、通常GUI／非特権AI [DEC-009][D09]を継承。OPEN＝具体stack・機器／bus・実装方式。全機器対応は未保証。
+- **技術設計:** Linux側のローカル機器認識と他のNagi端末のTrust（untrusted／pending／trusted／revoked）を内部で区別し、管理UIに統合。udev等のstackや詳細なhotplug状態機械は未選定。
 - **実装・target受入:** 旧PCI／VirtIO等のdriver資産あり。統合ローカルdevice service・USB／BT／Wi-FiのLinux実機受入未確認。
 - **依存・責任候補:** 1, 4, 8, 9, 13, 18–22, 29, 33。device／`os-core`／Devices app候補。
 - **根拠:** [0.1 §16][S01]、[純正仕様 §27–30・65][FP]、[Connectivity][P66]／[Sleep][P68]（PR）。
-- **次に決める:** ローカルdevice／driver／remote trustの責務、最初のbus・機器クラス、抜差しと取消の状態機械。
+- **次に決める:** 最初のbus・周辺機器、driver・firmwareの選択、hotplug・切断・取消の状態機械、UIとLinux実機受入。
 
 <a id="f18"></a>
 ### 18 Network Devices
 
 - **検討対象:** Ethernet／Wi-Fi／Bluetooth controller、firmware、認証情報、radio状態、再接続・省電力。
-- **製品決定:** CONFIRMED（製品方針）＝連携の初期LANターゲット [DEC-066][P66]。OPEN＝Wi-Fi／BT対応機種・stack・pairing方式。LAN方針はBT等の技術採用ではない。
-- **技術設計:** 旧VirtIO Networkと共通network契約あり。Linux device backend・無線管理の方式は未定。
+- **製品決定:** CONFIRMED＝Ethernet・Wi-FiをNagi OSの基本機能、Bluetoothは段階的対応とする方式B [DEC-107](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)。端末間連携は初期LANターゲット [DEC-066][P66]を維持。OPEN＝Wi-Fi／BT stack・対応chipset・pairing／対象用途・適用版。全機器対応保証ではない。
+- **技術設計:** 旧VirtIO Networkと共通network契約は再利用候補。Linux既存driver活用とNagi管理層／Permission境界（DEC-106）を基本とし、無線制御・Bluetooth pairing・再接続の具体方式は未選定。
 - **実装・target受入:** 旧仮想NIC資産あり。Wi-Fi／BT実機、firmware配布、sleep後再接続は未確認。
 - **依存・責任候補:** 1, 8, 10, 17, 23, 24, 32, 33。device／network候補。
 - **根拠:** [0.1 §16・35][S01]、[0.2 §5.2][S02]、[PR #127][PR127]。
-- **次に決める:** 最初のNIC／radio対象、credentialと利用許可、接続不能・復帰後再検証の境界。
+- **次に決める:** 初期対象NIC／Wi-Fi chipset、credential／firmwareと接続許可、Bluetooth最初の用途、接続不能・sleep復帰後の再評価とLinux実機受入。
 
 <a id="f19"></a>
 ### 19 Display / GPU
 
 - **検討対象:** modesetting／compositor／renderer、multi-display／hotplug、GPU隔離、fallback、描画・compute資源。
-- **製品決定:** CONFIRMED＝GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]。PROVISIONAL＝具体配置・実装。OPEN＝Linux display backend。
-- **技術設計:** 旧compositor／VirtIO GPU／Mesa／Servo契約あり。DRM／KMS／Wayland等の採用は未決。
+- **製品決定:** CONFIRMED＝Nagi Home／Desktop・Workspace・ウィンドウ管理方針・端末適応UIはNagi独自、Linux／OSSの描画・GPU・Display基盤は選択的に活用するB改良案 [DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)。PC／Tablet／Mobileの共通契約を保持し端末別backend差を吸収。GUI維持、Workspaceの複数画面切替・指定画面維持 [DEC-009][D09]を継承。OPEN＝Wayland／Smithay等の具体採否・Linux display backend・対応hardware／版。
+- **技術設計:** 上位Shell／Workspace／端末適応をNagi設計とし、画面合成やGPU／Displayの基礎層ではLinux／OSS資産を評価・再利用する。旧compositor／VirtIO GPU／Mesa／Servo契約は参照資産。DRM／KMS／Wayland／Smithay等の採否、CPU描画fallback・rendererは未決定。
 - **実装・target受入:** 旧guest描画・desktop資産あり。Linux compositor接続・実GPU・複数実画面は未確認。
 - **依存・責任候補:** 1, 5, 8, 17, 20, 25, 33。desktop／graphics／`ui-design-system`候補。
 - **根拠:** [0.1 §25–31][S01]、[純正仕様 §27–30][FP]、[影響表][IMPACT]。
-- **次に決める:** 最小display経路、CPU描画等の退避、buffer権限・切断・複数画面の受入範囲。
+- **次に決める:** OSS描画基盤／Compositorの候補比較、最小display経路とCPU描画退避、surface／buffer権限、multi-display・hotplug・端末別backendのLinux実機受入。
 
 <a id="f20"></a>
 ### 20 Input System
 
 - **検討対象:** keyboard／mouse／touch／IME、focus・shortcut、入力応答、権限・trusted input、切断。
-- **製品決定:** CONFIRMED＝GUI／keyboard／mouse利用維持 [DEC-009][D09]。CONFIRMED（製品方針）＝入力応答優先等 [PR #120][PR120]。OPEN＝Linux input／IME接続方式。
-- **技術設計:** 旧input／composition／localization資産あり。入力イベント取得と権限付きAction実行は別契約。
+- **製品決定:** CONFIRMED＝Linux既存入力基盤を活用し、Keyboard／Mouse／TouchをNagi Input Service／共通入力契約で扱う方式B [DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)。PC／Tablet／Mobileの適応入力を目標とし、GUI／keyboard／mouse継承 [DEC-009][D09]、IME入力応答優先・AI学習安全境界 [DEC-060](DEC-060-responsive-ime-ai-learning.md)を維持。OPEN＝Linux input stack・IME／seat／focus・機器別対応・適用版。
+- **技術設計:** 低レイヤーは適切なLinux driver／OSSを再利用し、Nagi共通Input Serviceで端末別入力を統合。旧input／composition／localization資産あり。具体evdev／libinput／seat／focus／shortcut／IME接続は未選定。入力イベント取得と権限付きAction実行は別契約。
 - **実装・target受入:** 旧guest input／IME経路あり。全日本語IME完成・touch・Linux実機入力を既存資産から推定しない。
 - **依存・責任候補:** 7, 8, 17, 19, 28。input／IME／desktop／localization候補。
 - **根拠:** [0.1 §26・32][S01]、[純正仕様 §78][FP]、[language architecture][LANG]、[status][STATUS]。
-- **次に決める:** device→seat／focus→appの認可・入力契約、IME責務、遅延測定方法と対象device。
+- **次に決める:** Linux input backend、device→seat→focus→appの認可・入力契約、IME composition／秘密入力・shortcutの境界、touch・software keyboard等の初期範囲、遅延と実機受入。
 
 <a id="f21"></a>
 ### 21 Audio System
 
 - **検討対象:** playback／capture／mixing／routing、device切替、latency／underrun、mic権限・音声優先度。
-- **製品決定:** CONFIRMED＝AI不在でも通常OS操作、非特権AI [DEC-009][D09]／[020][D20]。OPEN＝Linux audio backend／対応device。
-- **技術設計:** 旧VirtIO Sound／audio serviceとvoiceの分離契約あり。ALSA／PipeWire等をこの台帳で選ばない。
+- **製品決定:** CONFIRMED＝Linux／OSS音声基盤を活用し、Nagi Audio Serviceで再生／録音・mixing／routingの統合管理、機器切替・優先度・マイク権限・Nagi Voice連携を担う条件付きB [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)。低遅延・省メモリ・省電力を実機測定し、要件未達の部分だけ独自最適化／部分置換を検討。AIなしの通常操作・非特権AI [DEC-009][D09]／[020][D20]を維持。OPEN＝具体backend・機器・指標・適用版。
+- **技術設計:** Linux audio driverやALSA／PipeWire等の既存OSSは候補であり、個別stack・採用方式は未決定。Nagi独自Audio ServiceでOS側のPolicy／Permission・アプリ再生／録音・Voice経路を管理する方向。旧VirtIO Sound／audio serviceとvoiceの分離契約は既存資産。
 - **実装・target受入:** 旧audio／voice資産あり。Linux imageでの継続再生・mic認可・実codec／BT audio未確認。
 - **依存・責任候補:** 8, 9, 17, 18, 23, 25, 33。audio／voice／device候補。
 - **根拠:** [0.1 §37–38][S01]、[0.2 §47–48][S02]、[0.3 roadmap][R03]。
-- **次に決める:** 最小入出力・権限境界・device切替とsleep復帰、測定とunderrunの扱い。
+- **次に決める:** 最小再生／録音・mixing・routing、マイク認可・Voice優先度、device切替とsleep復帰、Linux／実機での遅延・RAM・電力・underrun測定と基準、OSS未達時の対象限定最適化。
 
 <a id="f22"></a>
 ### 22 周辺機器
 
 - **検討対象:** printer／scanner／camera／USB storage／HID等の対象、driver／firmware、protocolと権限・UI。
-- **製品決定:** CONFIRMED＝既存Permission／Privacyと通常GUI維持 [DEC-009][D09]／[020][D20]。OPEN＝機器クラス・機能・製品サポート範囲。
-- **技術設計:** Linux driver再利用可能性と製品サポートは別。全機器を実装する決定ではない。
-- **実装・target受入:** 旧参照VM向けdevice経路以外の包括対応を確認していない。実printer／camera／USB等は未確認。
+- **製品決定:** CONFIRMED＝USBストレージ（USBメモリ・外付SSD）と基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応とする方式B [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)。Linux既存driver／OSSを活用しNagi Device Manager／Permission／Privacy／通常UIと連携。全Linux対応機器の動作保証ではない。PROVISIONAL＝具体機種・対応範囲・API・protocol・実装版・実機受入。
+- **技術設計:** DEC-106のローカル機器管理とDEC-109の共通Input契約に接続する。機器認識と実際の利用許可を区別し、DEC-107のBluetooth段階対応を維持。個別stack・driver／APIは未選定。
+- **実装・target受入:** 旧参照VM向けdevice経路以外の包括対応を確認していない。実printer／camera／USB等は未確認。方針記録をLinux実機受入済みとしない。
 - **依存・責任候補:** 8, 13, 17, 18, 20, 21, 33。device／各機能owner候補。
-- **根拠:** [0.1 §16][S01]、[0.2 §5.1–5.2][S02]、[実機候補DEC-052][D52]。
-- **次に決める:** 最初の機器クラス、認識のみ／閲覧／操作の対応段階、driver導入と機密データの境界。
+- **根拠:** [DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)、[0.1 §16][S01]、[0.2 §5.1–5.2][S02]、[実機候補DEC-052][D52]。
+- **次に決める:** 標準対象内の具体機種・対応機能と認識／閲覧／操作の段階、driver／protocol、切断・失敗時UIと機密データ・権限境界、実機受入条件。
 
 <a id="f23"></a>
 ### 23 Nagi Power
@@ -618,6 +618,7 @@ Linux／実機検証:
 | 2026-11-16 | #14・B3 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md) B案を確定：共通Persistence契約＋分散正本、Version／復旧・忘却の境界 | 文書commitのみ。Linux crash durability／migration受入未確認 |
 | 2026-11-16 | #13・B3 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) B案を確定：Linux mount／hotplug＋Nagi Volume Manager、認可・safe eject・切断状態 | 文書commitのみ。Linux target／実媒体受入未実施・未確認 |
 | 2026-11-16 | 16 | [DEC-105](DEC-105-user-environment-backup-and-wayback.md)：B基本・Wayback分担連携・必要時C追加の方向を確定。対象・技術・C詳細・版は未定 | 文書・リンク・状態分離を確認。runtime PASSの追加なし |
+| 2026-11-16 | 22 | DEC-092で方式BをCONFIRMED。USBストレージ・基本HIDを標準対象、カメラ・プリンター・スキャナーは段階対応。具体機種・範囲・API・protocol・実装版・実機受入は未確定 | 文書・採番・リンクの確認。実装／runtime・実機受入の追加なし |
 | 2026-11-16 | 1–35、B1–B7 | DEC-069による初版。35項目・元優先度・6分類群・7検討束を保持。最新mainと公開並行PR、Linux移行差異、候補／host／旧guest／未確認を分類 | 文書・根拠・リンク・番号・機密非掲載の確認。runtime PASSの追加なし |
 
 [D02]: DEC-002-cloud-ai-data-sharing.md
