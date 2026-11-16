@@ -120,56 +120,56 @@
 ### 1 Linuxカーネル管理
 
 - **検討対象:** revision／更新保守、config、patch／module、脆弱性対応、driverとライセンス入力。
-- **製品決定:** CONFIRMED＝Linux採用 [DEC-042][D42]。PROVISIONAL＝具体構成・移行時期。OPEN＝LTS等の保守方針・更新責任。
+- **製品決定:** CONFIRMED＝Linux採用 [DEC-042][D42]、製品標準はLTS系列・開発／先行検証は最新Stableを許容 [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)。PROVISIONAL＝具体kernel revision・構成・移行時期。OPEN＝LTS更新運用・保守責任・Stable採用／取り込み条件。
 - **技術設計:** 移行ADRで限定開発の委任範囲あり。恒久kernel revision／configは未確定。
 - **実装・target受入:** mainの`kernel/`は旧独自実装。公開Linux image・実機受入は未確認。DEC-047の統合先指定は成果証拠ではない。
 - **依存・責任候補:** 2, 3, 33, 35。`os-core`／Linux移行lane／Integration Owner（新規割当なし）。
 - **根拠:** [移行ADR][ADR-L]、[DEC-044][D44]／[047][D47]、[0.1 §4][S01]、[影響表][IMPACT]。
-- **次に決める:** 開発用固定入力と恒久保守方針を分け、config／patchの管理単位・脆弱性更新責任を具体化する。
+- **次に決める:** LTS標準／Stable先行利用の方針を前提に、具体的系列・開発用固定入力、config／patchの管理単位・脆弱性更新責任・正式系列切替条件を具体化する。
 
 <a id="f02"></a>
 ### 2 Boot System
 
 - **検討対象:** firmware→loader→kernel→userland、UEFI／他arch、boot failure、回復起動と信頼の連鎖。
-- **製品決定:** CONFIRMED＝Linux + Nagi userland [DEC-043][D43]。PROVISIONAL＝移行構成。OPEN＝Linux bootloader／handoffの方式。
+- **製品決定:** CONFIRMED＝Linux + Nagi userland [DEC-043][D43]、UEFI対応PCはUEFI基本・Raspberry Pi／タブレット等は機器別方式を許容・Linux起動後のNagi処理を共通化 [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)。PROVISIONAL＝機種別詳細・移行構成。OPEN＝Linux bootloader／handoff・回復／信頼の具体方式。
 - **技術設計:** 旧UEFI loader／ABI／trust設計あり。Linux boot経路は置換・adapter判断が必要。
 - **実装・target受入:** `loader/`と旧起動経路あり。旧guestの起動証拠をLinux起動へ流用しない。Linux／実機未確認。
 - **依存・責任候補:** 1, 3, 4, 11, 33。`os-core`、boot担当候補、Integration Owner。
 - **根拠:** [0.1 §5・6][S01]、[0.2 §6][S02]、[boot trust設計][BOOT]、[移行補足][ADD]。
-- **次に決める:** 一つの開発targetのboot入力・handoff・失敗検知を定義し、旧loader再利用範囲をADRにする。
+- **次に決める:** PCのUEFI基本と機器別方式を前提に、一つの開発targetのboot入力・Linux handoff・失敗検知／復旧・信頼境界を定義し、旧loader再利用範囲をADRにする。
 
 <a id="f03"></a>
 ### 3 System Image
 
 - **検討対象:** rootfs、readonly／mutable分離、system／user data境界、image生成・配布・回復領域。
-- **製品決定:** CONFIRMED＝既存distributionの完成rootfs等を製品基盤にしない [DEC-043][D43]。OPEN＝image形式・構築技術・partition構成。
+- **製品決定:** CONFIRMED＝既存distributionの完成rootfs等を製品基盤にしない [DEC-043][D43]、OS本体の通常時read-only、OS更新後の保持を目指すUser Data分離、A/B System更新・Recoveryを基本、AIモデルの論理的分離 [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)。OPEN＝image形式・構築技術・partition構成・filesystem・更新／復旧の具体方式。
 - **技術設計:** 旧image builderとA/B設計あり。Linux rootfsとNagiサービスの搭載契約は未確定。
 - **実装・target受入:** `tools/nagi-cli/src/image.rs`は旧loader／kernel／init入力。Linux image生成・boot・更新後再起動は未確認。
 - **依存・責任候補:** 1, 2, 5, 11, 12, 31, 35。`os-core`／`developer-tooling`／更新担当候補。
 - **根拠:** [0.1 §17・21・79][S01]、[0.2 §16・18][S02]、[boot trust][BOOT]、[影響表][IMPACT]。
-- **次に決める:** systemとuser dataの不変条件、最小image内容、生成入力・更新境界を定める。
+- **次に決める:** read-only System／分離User Data／モデル論理分離／A/B復旧の確定方針を前提に、最小Linux image内容、生成入力、書込み境界、schema互換、slot切替／復旧と受入条件を具体化する。
 
 <a id="f04"></a>
 ### 4 Init / Service Manager
 
 - **検討対象:** PID1、起動順序、依存解決、ready／health、再起動上限、shutdown、service権限。
-- **製品決定:** CONFIRMED＝Nagiがuserland責務を持つ [DEC-043][D43]、AI非依存の基本操作 [DEC-009][D09]。OPEN＝init／service managerの採用。
+- **製品決定:** CONFIRMED＝Nagiがuserland責務を持つ [DEC-043][D43]、AI非依存の基本操作 [DEC-009][D09]、A（Nagi独自の最小PID 1＋独自Service Manager）を第一候補にB（既存OSS軽量Init＋Nagi Service Manager）との短期実装比較後に最終選択する手順 [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)。PROVISIONAL＝A/B正式採用・試験詳細。OPEN＝最終方式の選択。
 - **技術設計:** 0.1 supervision、0.2 Supervisor契約あり。Linux PID1／process／service registrationの具体接続は未定。
 - **実装・target受入:** `user/nagi-init/`は旧guest用。manifest検証やhost監視モデルはLinux PID1動作を証明しない。Linux未確認。
 - **依存・責任候補:** 2, 5, 7, 8, 9, 26, 29。`os-core`／app supervisor候補。
 - **根拠:** [0.1 §68][S01]、[0.2 §13.2・M13][S02]、[移行補足][ADD]。
-- **次に決める:** 最小service graph、失敗・停止・再起動の契約、PID1とapp supervisorの責務分離。
+- **次に決める:** A第一候補／B比較方針に従い、限定的な同条件のLinux実装比較で起動・プロセス回収・失敗／再起動・工数／保守性を確認し、A/Bの正式採用を最終決定する。最小service graphとPID 1・Service Manager・app supervisorの責務分離は具体化待ち。
 
 <a id="f05"></a>
 ### 5 基本ユーザーランド
 
 - **検討対象:** libc、runtime、shell／基礎tool、filesystem layout、ABI、必要なOSSとNagi所有境界。
-- **製品決定:** CONFIRMED＝Linux + Nagi専用userland、OSS選択的再利用可 [DEC-043][D43]、Nagi Native Apps標準 [DEC-017][D17]。PROVISIONAL＝libc／互換方式。
+- **製品決定:** CONFIRMED＝Linux + Nagi専用userland／Nagi Native Apps [DEC-043][D43] [DEC-017][D17]、Nagi固有サービス・API・アプリ環境は独自設計、libc・汎用ライブラリ・基礎ツールはOSSを積極的に選択活用、既存Linux distributionのユーザーランド一式は製品基盤に流用しない [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)。PROVISIONAL＝具体libc／ABI・OSS／互換方式。
 - **技術設計:** PAL／relibc／spawn等の旧契約と実装あり。Linux ABIの対応表が必要。全面POSIX／既存binary互換は確定していない。
 - **実装・target受入:** `user/libnagi/`、`user/nagi-pal/`等は既存資産。Linux向けbuildだけで同じ権限・サービス契約の成立とはしない。
 - **依存・責任候補:** 1, 3, 4, 8, 9, 26, 35。`os-core`／`sdk`／`developer-tooling`。
 - **根拠:** [0.1 §6・60–65][S01]、[0.2 §26・M21][S02]、[移行補足][ADD]。
-- **次に決める:** 最小component一覧、ABI／libc責務、可逆的開発構成と製品採用判断を分ける。
+- **次に決める:** Nagi独自の契約／選択的OSS活用の確定方針に従い、最小component一覧・libc／Rust runtime・ABI・rootfs配置と実際の採用OSSを比較し、可逆的開発構成と正式採用を分けて判断する。
 
 <a id="f06"></a>
 ### 6 電源ライフサイクル
@@ -658,3 +658,23 @@ Linux／実機検証:
 ### 2026-11-16 仕様統合に伴う参照更新
 
 [PR #107〜#129の統合対応表](PR-107-129-INTEGRATION-2026-11-16.md)に従い、Share／Handoff／Connectivity／Power／Sleepの参照を仕様正本へ接続した。元の35項目・分類・検討束・優先度・実装／target受入欄は維持し、文書マージを機能実装済みや受入PASSへ昇格させない。
+
+### 2026-11-16 Foundation #1 カーネル系列方針の決定
+
+[DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)に、ユーザー決定として製品の標準Linuxカーネル系列はLTS、開発・先行検証では最新Stableを許容する方針をCONFIRMEDで記録。具体kernel revision／更新責任／patch・config／適用Releaseは未確定。旧Kernelの実装証拠をLinux target受入済みにしない。
+
+### 2026-11-16 Foundation #2 Boot Systemの起動方式方針
+
+[DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)に、PCのUEFI基本とRaspberry Pi／タブレット等の機器に適したboot方式の許容、Linux起動後のNagi専用処理を共通化する方針をCONFIRMEDとして記録。Linux bootloader、署名／A-B／復旧方式の具体採否と実機起動・target受入は未確定。
+
+### 2026-11-16 Foundation #3 System Imageの基本方針
+
+[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で通常時read-only System、OS更新後も保持するUser Data分離、A/B更新と復旧、AIモデルの論理分離をCONFIRMEDとした。旧0.1の6partition/FAT32等の構成をLinuxへ自動採用せず、具体partition・filesystem・容量・Recovery・データschema・Linux target受入・提供版は未確定。
+
+### 2026-11-16 Foundation #4 Init／Service Managerの選定プロセス
+
+[DEC-080](DEC-080-init-service-manager-ab-evaluation.md)に、A（最小Nagi独自PID 1＋独自Service Manager）を第一候補とし、B（既存軽量Init＋Nagi Service Manager）との短期実装比較で最終決定する方針をCONFIRMEDとして保存。方式の恒久採用、検証期間の数値・結果、Linux target受入・適用版は未決定。既存のLinux移行権限／Release Gateを維持する。
+
+### 2026-11-16 Foundation #5 基本ユーザーランド方針
+
+[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有サービス／API／アプリ環境の独自設計と、汎用libc・ライブラリ・基礎ツールのOSS選択利用、既存Linuxディストリビューション完成ユーザーランド非採用をCONFIRMED。具体OSS・ABI・POSIX／relibc等は未決定。B1の#1〜#5は方針検討が一巡したが、#4のA/B比較と正式採用、Linux image／実機acceptance・Release条件は完了ではない。
