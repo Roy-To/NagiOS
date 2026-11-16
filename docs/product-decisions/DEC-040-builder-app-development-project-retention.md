@@ -40,10 +40,15 @@ Projectの具体的なディレクトリ・Schema・Package形式、Version履�
 - [DEC-035](DEC-035-builder-created-app-maintenance-updates.md)は正式導入済みアプリの修正・更新を定める。開発Projectの保持は更新Packageの適用を許可しない。
 - [DEC-017](DEC-017-third-party-developer-ecosystem.md)は開発者・配布環境の製品方針を定める。本決定のProject保存方針はその将来の開発体験を支える。
 
+### 2026-11-16 — 利用者の仕事を束ねるNagi Projectとの区別
+
+[DEC-055](DEC-055-project-folder-cross-app-context.md)のNagi Project（仮称）は、通常フォルダの資料・他所のResource参照・長期文脈を束ねる利用者向けの仕事の単位である。本DECの`builder`開発Projectは、ソース・設定・再構築情報等を保護する別の保存契約である。前者への所属・参照登録を理由に、後者の保持・削除・導入・配布・送信の許可を移さない。両者の具体的な連携方式・保存形式・実装版は本補足で確定しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | DEC-055の利用者向けNagi Projectとbuilder開発Projectの契約を区別。既存の長期保存・保護・権限境界を維持。 |
 | 2026-11-05 | ユーザーが方式Cを確定。正式なbuilder製アプリ開発Projectをローカル基本で長期保持し、再生成可能なCache／不要なBuild生成物／一時領域のみ既存の安全条件に従って整理する。アプリ本体・ソース・実データ・Canonical Memoryを分離し、Projectの再発見・Scope付き再開と将来の端末移行を製品目標とする。Git commit／push・Cloud backup・外部送信・共有を保存だけで許可しない。ファイル単位の形式・保持期間・容量・Git・移行形式・適用版は未確定とする。|
 
 ---
