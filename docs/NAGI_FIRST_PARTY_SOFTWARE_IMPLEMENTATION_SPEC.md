@@ -555,6 +555,8 @@ Surface は width / height / DPI / orientation / input capability と合わせ�
 
 ## 30. Continuity
 
+> **2026-11-16 製品決定（[DEC-065](product-decisions/DEC-065-nagi-handoff-work-continuation.md)）:** Nagi Handoff（仮称）を、PC・タブレット・スマートフォン間で文書・Resource・編集箇所・意味的な作業状態を継続する純正OS機能として採用した。既存Continuity、Homeの `home.continue_from_device`、Device Capability、DEC-014の選択式Workspace移行／同期を最大限再利用し、受信先の画面・能力に応じてUIを再構築する。現行User／Profile／Owner／Permission／Privacy・Source有効性／Revisionを再検証し、実体がなければユーザー許可に基づく取得／転送経路または代替を提示する。無断のファイル・個人データ転送／クラウド同期・競合上書きをせず、中断AI Task／副作用Actionを自動再開・再実行しない。名称・UI・復元範囲・経路・共有方式・クラウド利用・瞬時性・対応版はPROVISIONAL。全アプリ・全状態の完全移行、常時オフライン成立、自動同期は保証しない。単発ファイル転送のNagi Shareとは別の概念である。既存Desktop first、Release／Activation／Acceptance Gate、版割当てを変更せず、実装済みを示さない。
+
 Continuity は別端末で意味的に作業を継続する仕組み。
 
 > **2026-11-16 接続方針（[DEC-066](product-decisions/DEC-066-device-connectivity-lan-first.md)）:** 初期ターゲットは同一Wi-Fi／LAN上のNagi端末。Device Connectivity／Trust／Transportの共通抽象を使い、接続方法を機能へハードコードしない。近距離直接通信とインターネット越しの遠隔接続の拡張可能性を保持するが、初期の遠隔実装・常時Cloud・オンラインNagiアカウント・運営サーバーは必須にしない。Offline-first、端末認証・信頼・暗号化、明示許可、現行User／Profile／Resource Permission・Privacy、取消・外部Scopeを守る。以下の共有状態や§46／71のsyncの例は許可・対応方式が成立する場合のものであり、無断転送・同期・Task再実行を認めない。DEC-014の標準移行とCloud別許可を維持し、具体技術・機器・提供版・時期・性能は未確定、Clipboardは未採用。
@@ -3464,6 +3466,8 @@ Expected flow:
 7. provenance links retained
 
 ## 71. Workflow D: PC -> Phone -> PC Continuity
+
+> **2026-11-16 解釈注記（[DEC-065](product-decisions/DEC-065-nagi-handoff-work-continuation.md)）:** 以下の `revisions sync` は、ユーザーが対象・範囲を許可し、実際の取得／同期方式と現行認可・Revision検証が成立する場合の例。Handoff選択だけでファイル転送や自動同期を有効化せず、競合・実体不足・未対応・部分復元・復元不能を正確に表示する。
 
 1. PC Workspace active
 2. semantic Continuity State saved
