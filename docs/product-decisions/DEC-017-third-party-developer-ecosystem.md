@@ -61,9 +61,9 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 - 純正アプリと第三者アプリは、原則として同じPublic APIと公開契約を使う。純正アプリは統合の参考実装となり、純正であることだけを理由とする非公開APIや権限上の優遇を持たない。
 - OS管理機能などにSystem Capabilityが必要な場合は、その能力を明示的に区別し、通常のアプリ権限と同一視しない。
 
-### `builder`製アプリのNagi連携・Action API生成（DEC-040）
+### `builder`製アプリのNagi連携・Action API生成（DEC-076）
 
-`builder`がアプリを作る際、用途からNagiの自然言語操作に適した**型付きPublic Action APIの候補を自動提案**し、必要なものを承認済み開発Task／Action Scope内で実装・検証する**方式Cを確定**する（[DEC-038](DEC-040-builder-generated-action-api-integration.md)）。ユーザーは従来のGUIからも利用でき、AI連携が不要なアプリにActionを強制しない。Actionの生成・発見・登録はOS Permission／Capabilityや実行承認の付与を意味しない。正規Public Action／Service APIを優先し、限定的なGUI fallbackはDEC-027に従う。0.2の統合レベル0〜3とSDK／Action契約を再定義せず、0.3・0.4のGateや受入を変更しない。具体的Schema／自動生成方式／実装版はPROVISIONAL。
+`builder`がアプリを作る際、用途からNagiの自然言語操作に適した**型付きPublic Action APIの候補を自動提案**し、必要なものを承認済み開発Task／Action Scope内で実装・検証する**方式Cを確定**する（[DEC-076](DEC-076-builder-generated-action-api-integration.md)）。ユーザーは従来のGUIからも利用でき、AI連携が不要なアプリにActionを強制しない。Actionの生成・発見・登録はOS Permission／Capabilityや実行承認の付与を意味しない。正規Public Action／Service APIを優先し、限定的なGUI fallbackはDEC-027に従う。0.2の統合レベル0〜3とSDK／Action契約を再定義せず、0.3・0.4のGateや受入を変更しない。具体的Schema／自動生成方式／実装版はPROVISIONAL。
 
 ### 既存アプリの移植・再利用
 
@@ -89,9 +89,9 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 
 本方針は開発者体験の将来目標を補足し、0.1／0.2／0.3 Acceptance、0.4 Entry Gate、既存Workstreamを変更しない。
 
-### builder製アプリの初回試用・正式導入（DEC-036）
+### builder製アプリの初回試用・正式導入（DEC-075）
 
-新規にbuilderが作成したアプリは[DEC-036](DEC-036-builder-app-trial-and-installation.md)に従い、安全に対応できる環境での試用、機能・検証証拠・要求Permissionの説明、ユーザーの採用判断、正規Package検証とOS Permission／Policy確認、正式導入への別途承認を経てから初回インストール・永続登録する。正式導入済みアプリの保守・更新は[DEC-035](DEC-035-builder-created-app-maintenance-updates.md)の別ライフサイクルである。
+新規にbuilderが作成したアプリは[DEC-075](DEC-075-builder-app-trial-and-installation.md)に従い、安全に対応できる環境での試用、機能・検証証拠・要求Permissionの説明、ユーザーの採用判断、正規Package検証とOS Permission／Policy確認、正式導入への別途承認を経てから初回インストール・永続登録する。正式導入済みアプリの保守・更新は[DEC-035](DEC-035-builder-created-app-maintenance-updates.md)の別ライフサイクルである。
 
 ### `builder`製アプリの個人利用・共有・公開（DEC-036）
 

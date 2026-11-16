@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（基本方式。閾値・実装詳細は未確定）  ／PROVISIONAL（Nagi内Role切替の実装詳細・将来専門Agent化）
 **最終合意日:** 2026-11-04  
 **適用候補:** Nagi OS 0.4のBuild／Execute作業要件（初期Nagi Role切替C。後続Agent配置は未確定）
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-007](DEC-007-roadmap-alignment.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-036](DEC-036-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-007](DEC-007-roadmap-alignment.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-075](DEC-075-builder-app-trial-and-installation.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
 > **名称・位置づけ訂正（2026-11-05）:** 以前の「Jev」という内部名称は外部のTypeSafe AI製品との混同だったため撤回した。**`builder`は確定したプログラミングRole名**で、初期はNagi自身がRoleを切り替えて実行する方式Cで確定（DEC-015）。将来の独立Agent対応と具体的なRuntimeは未確定。選択済みの動作・安全条件を記録するが、誤解を根拠にAgent構成やモデル選定を確定しない。詳細は[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)。
 
@@ -28,7 +28,7 @@
 - **確認が必要な修正:** 重要な変更、未承認の範囲拡大、テスト失敗、検証不能・証拠不足、結果不明、その他Policyが確認を要求するケースでは、Nagiは自動で成功・完了と判定せず、適切な**ユーザー確認／追加承認**に回す。
 - builderが承認範囲内で再修正・再テストを行うことは上記のBに含まれる。ただし、許可された試行範囲内で受入条件を満たさない場合は、未解決であることを報告する。再試行によって権限・対象範囲を自動拡大しない。
 - 完了判定は**Taskの作業結果に関する判定**であり、Git commit・push、リリース、本番反映、外部送信、未承認の変更の自動許可や実行を意味しない。これらは別のAction／Permissionとして扱う。
-- builderが新規アプリを作った場合、開発Taskの自動完了判定や試用成功は採用・正式インストール・永続登録を意味しない。採用判断、正規Package検証、現行Permission／Policy、正式導入への別途承認は[DEC-036](DEC-036-builder-app-trial-and-installation.md)に従う。
+- builderが新規アプリを作った場合、開発Taskの自動完了判定や試用成功は採用・正式インストール・永続登録を意味しない。採用判断、正規Package検証、現行Permission／Policy、正式導入への別途承認は[DEC-075](DEC-075-builder-app-trial-and-installation.md)に従う。
 - Nagiは未完了、部分成功、検証不能、停止・取消、Undo不能な副作用を、全面成功として表示しない。
 
 ### 3. builderの自動再試行方式 — C（CONFIRMED）
