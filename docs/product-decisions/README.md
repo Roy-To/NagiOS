@@ -16,6 +16,12 @@
 
 ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIONAL`かを分け、該当DECファイルと索引を更新して**このリポジトリにcommitし、確認できた場合だけ「保存済み」**と報告する。認証情報・個人情報・ユーザー名入りのパス・チャット識別子は書かない。
 
+## 8GB RAM級での軽快な純正アプリと実用的ローカルAI連携（2026-11-16）
+
+[DEC-020 — AIのOS操作経路と計算資源](DEC-020-ai-os-interaction-path.md)へ、RAM 8GB級の限られた端末でも純正アプリの日常操作と必要十分な軽量・量子化ローカルLLMによるアプリ間AI連携が**実用的に共存することを目指す**製品目標を追記。単なる起動確認ではなく前景UIの応答性とAI Taskの品質を実測する方針を再確認した。モデル選択・入替えとNagiのMemory継続、AI不在時の通常操作、Permissionと既存Release／Activation境界を維持する。8GBでの快適動作は**未実証**で、代表端末・実測数値・モデル構成・適用版はPROVISIONAL。本記録は性能保証でも実装完了でもない。
+
+複数の量子化モデルをストレージに保存し、必要時にのみメモリへロードして、利用可能な標準・軽量モデルを切り替えられる方向も**CONFIRMED**。負荷・Taskの必要能力に応じた**自動的な軽量モデルへの切替を目指し、初期に難しい場合も手動切替を確保する**。ユーザーが明示固定したモデル・自動切替の無効設定、Task品質、権限・明示停止、Nagi Memoryの継続を尊重する。自動化の採用時期、RAM閾値、切替中断や再開、完全に切れ目のない応答、適用版は**PROVISIONAL**であり、8GBでの達成性能は未実証。
+
 ## 学習履歴の可視化（2026-11-16）
 
 [DEC-059 — Nagi Insights（仮称）](DEC-059-learning-history-insights.md)で、ユーザーがNagiの学習内容・経緯・根拠・支援への反映を分かりやすく閲覧する体験をCONFIRMEDとした。DEC-003のMemory可視化と訂正・削除、DEC-004の自然・明示的忘却、DEC-005のSource連動を継承し、学習履歴を全操作の無制限な保存・自動学習の口実としない。表示方式・指標・実装版はPROVISIONALであり、既存Release／Activation Gateを変更しない。
@@ -84,7 +90,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-017 | [第三者アプリ開発・参入環境と既存アプリ移植](DEC-017-third-party-developer-ecosystem.md) | CONFIRMED（Nagi Native Apps専用・移植支援：PC Windows／Linux重点、将来Mobile Android優先検討、Apple系後順位・段階的統合）／PROVISIONAL（具体技術・対応範囲・実装時期・工数） | 2026-11-13 |
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
-| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event駆動、前景優先・適応推論、`builder` Resource待機継続C）／PROVISIONAL（実装・性能値・適用版） | 2026-11-05 |
+| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event駆動、前景優先・適応推論、8GB級での日常操作＋ローカルAI連携の実用性目標、複数モデル導入／軽量モデルへの適応切替と手動選択、`builder` Resource待機継続C）／PROVISIONAL（モデル・実装・性能値・適用版） | 2026-11-16 |
 | DEC-021 | [0.5〜1.0ロードマップ境界と段階案](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（継承方針・改訂0.3の1.0目標・DEC-017の1.0目標）／PROVISIONAL（版別範囲・順序・実装詳細） | 2026-11-04 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
@@ -226,6 +232,12 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## DeepSeekレビューへの継続承認（2026-11-14）
 
 [DEC-048 — DeepSeekによるNagiコード等レビューへの継続承認](DEC-048-deepseek-review-authorization.md) は、すべてのlane・payloadについて、非公開を含むNagiコード・差分・分析資料をDeepSeekレビューへ送る継続承認を記録する。payloadごとの再確認は不要。認証にはKeychainに保存済みの既存credentialを使用できるが、credentialそのものは送信しない。DEC-002に続く、DeepSeekによるNagiレビュー送信の具体的な承認である。
+
+## 8GBでの実用性を目指す性能方針の変更履歴（2026-11-16）
+
+同日追加決定: [DEC-020](DEC-020-ai-os-interaction-path.md)へ、標準・軽量など複数の許可済みモデルをストレージに保持し、RAM常駐を必要最小限にして選択・切替する方針を追記。資源逼迫時の自動切替を目指すが、技術的・品質上難しければ手動切替を確保。ユーザーのモデル固定設定と承認済みTask境界を守り、シームレス性や実装版・数値は未確定。
+
+[DEC-020](DEC-020-ai-os-interaction-path.md)に、8GB級環境で純正アプリの日常操作を軽快に保ちながら軽量量子化LLMを使ったアプリ連携を成立させる目標を追加。モデル交換・低負荷時制御・実測評価と既存のOS優先順位を保持し、定量的な合格値やハードウェア対応保証を新たに確定していない。
 
 ## 学習履歴の可視化と既存Memory仕様の整合（2026-11-16）
 
