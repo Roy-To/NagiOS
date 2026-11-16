@@ -1,3 +1,15 @@
+## Linux development-target acceptance — 2026-11-16 13:16 JST (04:16 UTC)
+
+Status: **PASS for the bounded development-target scenario only; PARTIAL for production Linux integration.**
+
+A pinned-source development build was booted in x86-64 QEMU. The retained save/read serial logs and supervisor results confirm this sequence: Linux boot → Nagi init/userland → development-only NIPC handshake and correlated service reply → service `state=ready` → normal Notes Desktop input → Nagi VFS save → a separate QEMU boot using the same persistent disk → readback of the same object, revision and body. Both Notes children and both QEMU runs exited 0, with no timeout or cancellation. The save/read phases took approximately 5.79 s and 4.53 s. This records the existing run; no new runtime test was performed for this documentation update.
+
+The tested input route was normal Desktop event handling with guest evdev/framebuffer and Nagi VFS, driven by the development acceptance runner. The build used a fresh fixed-source export with locked dependencies; it does not establish that every current checkout can build directly. The direct checkout had a missing Servo workspace manifest, and later build/runtime attempts have separate unresolved environment restrictions.
+
+**Not established:** physical-device acceptance, production-authenticated service readiness, production session/consent/endpoint-owner integration, power-loss durability, release readiness, or completion of all Linux migration work. The development-only READY result must not be substituted for normal production init, whose unconnected authentication path remains unavailable. Subsequent source changes and host-only regressions are not covered by this earlier runtime result. Existing release and acceptance gates are unchanged.
+
+This is the bounded development milestone described in [DEC-044](product-decisions/DEC-044-linux-migration-development-authorization.md), not a declaration of product completion. Raw private logs, local user paths, credentials and conversation records are not published here.
+
 ## Kernel-policy documentation checkpoint — 2026-11-13
 
 This entry records documentation reconciliation only. DEC-042/043 confirm Linux kernel plus Nagi-owned userland; DEC-044 permits bounded Linux migration development. It is not a Linux implementation start, build/test result, release activation or milestone PASS.
