@@ -1,8 +1,8 @@
 # DEC-110 — Audio System：OSS音声基盤とNagi Audio Service、実測に基づく部分最適化
 
-**状態:** CONFIRMED（Foundation #21の条件付きB：Linux／OSS音声基盤の再利用、Nagi独自Audio Service、低遅延・省メモリ・省電力の実機測定と不足箇所の個別最適化方針）／PROVISIONAL（ALSA／PipeWire等の具体採用、実装・対応機器・指標・Release・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #21。適用Release未確定  
+**状態:** CONFIRMED（Foundation #21の条件付きB：Linux／OSS音声基盤の再利用、Nagi独自Audio Service、低遅延・省メモリ・省電力の実機測定と不足箇所の個別最適化方針）／PROVISIONAL（ALSA／PipeWire等の具体採用、実装・対応機器・指標・Release・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #21。適用Release未確定\
 **関連:** [Foundation Checklist #21](NAGI_OS_FOUNDATION_CHECKLIST.md#f21)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[Roadmap索引](roadmaps/README.md)
 
 ## 目的とユーザー体験

@@ -1,8 +1,8 @@
 # DEC-106 — Device Manager：内部の責務分離と統合管理UI
 
-**状態:** CONFIRMED（Foundation #17の方式B：ローカル周辺機器管理と他のNagi端末管理の内部責務分離、Settings／DevicesのUI統合、Linux機器基盤の活用）／PROVISIONAL（具体stack・対象機器・UI細部・適用版・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #17。特定のReleaseは未確定  
+**状態:** CONFIRMED（Foundation #17の方式B：ローカル周辺機器管理と他のNagi端末管理の内部責務分離、Settings／DevicesのUI統合、Linux機器基盤の活用）／PROVISIONAL（具体stack・対象機器・UI細部・適用版・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #17。特定のReleaseは未確定\
 **関連:** [Foundation Checklist #17](NAGI_OS_FOUNDATION_CHECKLIST.md#f17)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-066](DEC-066-device-connectivity-lan-first.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[純正ソフトウェア仕様 §65](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験

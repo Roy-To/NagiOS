@@ -17,6 +17,8 @@ Linuxカーネル＋Nagi専用ユーザーランドを、UEFI対応PCだけで�
 
 これはBoot Systemの高水準方針であり、機種を問わず同一バイナリで起動できる、すべての端末で同じdriver／init設定を無変更で使える、という保証ではない。
 
+> **2026-11-16 システム信頼基盤の後続決定:** [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器はHardware-backed Boot Trustを活用し、非対応機器もSoftware署名検証するB案をCONFIRMED。UEFI対応PCのUEFI基本／Raspberry Pi・タブレット等の機器別Bootという本DECの方針を維持する。具体Secure Boot／署名方式／Trust Anchor・rollback保護／対応実機とLinux target受入は未決定。
+
 ## 既存決定・安全境界との関係
 
 - [DEC-042](DEC-042-linux-kernel-transition.md)／[DEC-043](DEC-043-nagi-userland-independent-os.md)のLinuxカーネルとNagi専用ユーザーランド、既存ディストリビューションを製品OS基盤にしない方針を維持する。

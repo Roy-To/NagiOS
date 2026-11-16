@@ -1,8 +1,8 @@
 # DEC-107 — Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階的に対応
 
-**状態:** CONFIRMED（Foundation #18の方式B：Ethernet・Wi-Fiを基本機能とし、Bluetoothは段階的対応）／PROVISIONAL（実機・chipset・network stack・Bluetooth対象・認証・省電力・実装版・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #18。特定のReleaseは未確定  
+**状態:** CONFIRMED（Foundation #18の方式B：Ethernet・Wi-Fiを基本機能とし、Bluetoothは段階的対応）／PROVISIONAL（実機・chipset・network stack・Bluetooth対象・認証・省電力・実装版・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #18。特定のReleaseは未確定\
 **関連:** [Foundation Checklist #18](NAGI_OS_FOUNDATION_CHECKLIST.md#f18)、[DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)、[DEC-066](DEC-066-device-connectivity-lan-first.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験

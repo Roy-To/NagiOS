@@ -1,8 +1,8 @@
 # DEC-108 — Display / GPU：Nagi独自ShellとOSS描画基盤の組合せ
 
-**状態:** CONFIRMED（Foundation #19のB改良案：Nagi独自Shell／画面体験・端末横断の共通契約と、Linux／OSSの描画・GPU基盤の選択的活用）／PROVISIONAL（Wayland・Smithay等の個別採用、Compositor／Renderer詳細、機器対応、性能・版・受入）  
-**最終合意日:** 2026-11-16  
-**適用候補:** Nagi OS Foundation #19。特定Releaseへの割当ては未決定  
+**状態:** CONFIRMED（Foundation #19のB改良案：Nagi独自Shell／画面体験・端末横断の共通契約と、Linux／OSSの描画・GPU基盤の選択的活用）／PROVISIONAL（Wayland・Smithay等の個別採用、Compositor／Renderer詳細、機器対応、性能・版・受入）\
+**最終合意日:** 2026-11-16\
+**適用候補:** Nagi OS Foundation #19。特定Releaseへの割当ては未決定\
 **関連:** [Foundation Checklist #19](NAGI_OS_FOUNDATION_CHECKLIST.md#f19)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[純正ソフトウェア仕様 §27–30](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的とユーザー体験
