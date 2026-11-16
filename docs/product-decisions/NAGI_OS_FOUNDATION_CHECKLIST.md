@@ -451,12 +451,12 @@
 ### 31 System Update
 
 - **検討対象:** system／app／model更新の分離、署名・互換、原子性、A/B／rollback、停止・再起動・data migration。
-- **製品決定:** CONFIRMED＝builderアプリ更新は検証・確認後の正式更新、data保護 [DEC-035][D35]／[017][D17]。OPEN＝Linux system update方式・配信運用。
-- **技術設計:** 旧A/B・trustと0.2 install/update契約あり。system updateとapp更新は共通primitiveでもpolicy domainが異なる。
+- **製品決定:** CONFIRMED＝Linuxの既存更新／起動機構＋Nagi独自の統合Update Service（B）で更新の署名／互換検証、A/B切替、失敗時復旧を管理 [DEC-100](DEC-100-system-update-linux-nagi-coordinated-ab.md)。既存DEC-079のread-only System／User Data分離、A/B更新・復旧、モデル論理分離を維持。System／App／Model更新を別Policy・承認範囲で扱い、builder App正式更新は [DEC-035][D35]／[DEC-017][D17] に従う。PROVISIONAL＝高度な自動更新Cの各機能、Linux部品・配信・署名運用・版・実機検証。
+- **技術設計:** Linux側の更新・保存／Boot切替をNagiの統合Update Serviceから一貫して扱う。旧A/B・trustと0.2 §16／M15のatomic commit／inventory／provenance／recovery契約は参照するが、旧guest・host成功をLinux Image更新の受入成功としない。system updateとApp／Model更新は一部primitiveを共用しても別のPolicy domain。実際の署名方式・鍵・slot制御／rollbackは未選定。
 - **実装・target受入:** 旧slot／boot検証・host package planning等あり。network配信・製品鍵・update UI等の残件あり。Linux image更新・電源断復旧未確認。
 - **依存・責任候補:** 2, 3, 10, 11, 12, 14, 15, 26, 35。`update-installation`／boot／release候補。
 - **根拠:** [boot trust][BOOT]、[0.1 §21・56–58][S01]、[0.2 §16・M15][S02]。
-- **次に決める:** image／package更新単位、互換とrollback不能なdata変換、信頼鍵・配信・中断時のdurable commit条件。
+- **次に決める:** Image／Package更新単位、Linux対応slot／BootとHealth Gate、署名鍵・配信／Offline更新、データ互換と不可逆migration、atomic commit／中断時復旧、更新適用／再起動のユーザーUI・自動化方針、Linux実機での更新／電源断・Rollback証拠。
 
 <a id="f32"></a>
 ### 32 Device Connectivity
