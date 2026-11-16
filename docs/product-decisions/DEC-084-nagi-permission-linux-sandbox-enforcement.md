@@ -19,6 +19,8 @@ Nagiの正規API上で許可しない操作が、同一ユーザーの通常プ�
 
 この方針は「B案：Nagiの権限管理＋Linuxによる強制隔離」の採用を意味する。Linuxの特定の仕組みや全コンポーネントのSandbox設計の完成を確定するものではない。
 
+> **2026-11-16 IPC／Service Broker後続決定:** [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagiの型付きService／Action APIとBrokerを維持し、Linux標準IPCを利用するB案を基本とした。これによって呼出元の自己申告に依存せず実際のLinux peerとNagi Session／Permissionを結び付け、Broker外の直接アクセス迂回を防止する本DECの方針は不変。具体Transport、Linuxでの強制・失効試験は未確定。
+
 ## 既存仕様との関係・安全境界
 
 - **DEC-083 Identity:** Nagi UserId／ProfileId／SessionIdが論理Identityの正本。Linux UID／GIDは保護のために活用するが、同一UIDは異なるNagi Task／App／Profileへの無制限アクセス権限ではない。
