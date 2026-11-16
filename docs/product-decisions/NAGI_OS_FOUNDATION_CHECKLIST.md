@@ -120,12 +120,12 @@
 ### 1 Linuxカーネル管理
 
 - **検討対象:** revision／更新保守、config、patch／module、脆弱性対応、driverとライセンス入力。
-- **製品決定:** CONFIRMED＝Linux採用 [DEC-042][D42]。PROVISIONAL＝具体構成・移行時期。OPEN＝LTS等の保守方針・更新責任。
+- **製品決定:** CONFIRMED＝Linux採用 [DEC-042][D42]、製品標準はLTS系列・開発／先行検証は最新Stableを許容 [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)。PROVISIONAL＝具体kernel revision・構成・移行時期。OPEN＝LTS更新運用・保守責任・Stable採用／取り込み条件。
 - **技術設計:** 移行ADRで限定開発の委任範囲あり。恒久kernel revision／configは未確定。
 - **実装・target受入:** mainの`kernel/`は旧独自実装。公開Linux image・実機受入は未確認。DEC-047の統合先指定は成果証拠ではない。
 - **依存・責任候補:** 2, 3, 33, 35。`os-core`／Linux移行lane／Integration Owner（新規割当なし）。
 - **根拠:** [移行ADR][ADR-L]、[DEC-044][D44]／[047][D47]、[0.1 §4][S01]、[影響表][IMPACT]。
-- **次に決める:** 開発用固定入力と恒久保守方針を分け、config／patchの管理単位・脆弱性更新責任を具体化する。
+- **次に決める:** LTS標準／Stable先行利用の方針を前提に、具体的系列・開発用固定入力、config／patchの管理単位・脆弱性更新責任・正式系列切替条件を具体化する。
 
 <a id="f02"></a>
 ### 2 Boot System
@@ -658,3 +658,7 @@ Linux／実機検証:
 ### 2026-11-16 仕様統合に伴う参照更新
 
 [PR #107〜#129の統合対応表](PR-107-129-INTEGRATION-2026-11-16.md)に従い、Share／Handoff／Connectivity／Power／Sleepの参照を仕様正本へ接続した。元の35項目・分類・検討束・優先度・実装／target受入欄は維持し、文書マージを機能実装済みや受入PASSへ昇格させない。
+
+### 2026-11-16 Foundation #1 カーネル系列方針の決定
+
+[DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)に、ユーザー決定として製品の標準Linuxカーネル系列はLTS、開発・先行検証では最新Stableを許容する方針をCONFIRMEDで記録。具体kernel revision／更新責任／patch・config／適用Releaseは未確定。旧Kernelの実装証拠をLinux target受入済みにしない。
