@@ -11,6 +11,8 @@
 
 従来のOSでは、利用者がアプリケーションの区切りを意識して文書・表・Web資料などを行き来することが多い。Nagiは利用者が達成したい**作業・目的・利用するデータ**を中心に捉え、アプリをその目的を進めるための道具として位置付ける。これはアプリを廃止・統合して一つの画面にするという意味ではない。
 
+> **2026-11-16 Storage／Filesystem後続決定:** [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)で、Nagi Storage／Files APIを維持しつつLinux標準Filesystemを用途別に選択活用する方針をCONFIRMED。作業・データ中心、Resource／Document／Objectの共通参照と元アプリ／Providerの分散正本は維持し、Filesystem選択でNagiが全アプリの本文正本を所有したり、Resource IDから権限を得たりするわけではない。具体FS・Resource IDとの結合／Linux受入は未確定。
+
 ## 確定した基本思想（選択A）
 
 1. **作業・データを中心にする:** Nagiの基本的な作業体験は、利用者の目的、Task、関連Resource／Document／Object、Workspaceの関係から整理する。特定アプリを開くこと自体を唯一の作業単位とせず、関連する情報・成果物・作業の連続性を重視する。

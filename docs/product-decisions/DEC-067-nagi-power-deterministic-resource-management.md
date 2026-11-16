@@ -1,6 +1,6 @@
 # DEC-067 — Nagi PowerとOS全体の決定論的な電力・熱・資源管理
 
-**状態:** CONFIRMED（採用・決定論的な自動電力管理・安全と前景優先・簡易モード選択）／PROVISIONAL（正式名称・各モードの具体制御・実装版・Gate）  
+**状態:** CONFIRMED（採用・決定論的な自動電力管理・安全と前景優先・簡易モード選択）／PROVISIONAL（正式名称・各モードの具体制御・実装版・Gate）\
 **最終合意日:** 2026-11-16  
 **適用候補:** Linuxカーネル + Nagi専用ユーザーランド。対応端末・実装版・時期は未確定  
 **関連:** [DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-022](DEC-022-builder-interrupted-task-recovery.md)、[DEC-042](DEC-042-linux-kernel-transition.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-052](DEC-052-physical-test-device-candidates.md)、[純正ソフトウェア実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[roadmaps](roadmaps/README.md)
@@ -10,6 +10,8 @@
 ユーザーが採用に同意した「Nagi Power（仮称）」を、OS全体の電力・熱・負荷・バックグラウンド処理の資源管理として記録する。根拠は本記録依頼で明示された決定内容と、低レイヤーの基盤を積極的に整備する方針への明確な同意である。省略された過去の提案を補完して確定事項を増やさない。
 
 DEC-020の前景応答性優先・AI資源配分を、OS全体の管理の中へ位置付ける補足決定であり、同じAIスケジューラやMemory Engineを別途重複採用する決定ではない。
+
+> **2026-11-16 電源ライフサイクル統括の後続決定:** [DEC-082](DEC-082-power-lifecycle-coordination.md)で、全電源状態遷移のNagi一元管理・各サービスの保存／停止／復帰準備と失敗時対応をCONFIRMEDとした。本DECのNagi PowerはOS全体の継続的な電力・熱・負荷・背景資源管理を扱い、DEC-082は電源状態遷移の協調を扱う。両者の重複するSchedulerや保存正本を新設しない。具体的な実装境界・プロセス構成・Releaseは未決定。
 
 ## 確定した仕様（CONFIRMED）
 
