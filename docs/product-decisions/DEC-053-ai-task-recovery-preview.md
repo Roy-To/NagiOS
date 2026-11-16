@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（AI Task開始前に、Waybackで復元できる範囲をユーザーへ示す高水準の方向）／PROVISIONAL（表示分類・UI・判定根拠・実装方式・適用版）
 **最終合意日:** 2026-11-15
 **対象:** NagiのAI Taskの事前体験。特定Version、Task種別ごとの詳細な適用条件は未確定
-**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-052（初心者向けNagi Native App制作）](DEC-052-nagi-native-app-creation-experience.md)
+**関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-071（初心者向けNagi Native App制作）](DEC-071-nagi-native-app-creation-experience.md)
 
 ## 目的
 
@@ -36,7 +36,7 @@ AIに作業を任せる前に、失敗した場合にWaybackでどこまで戻�
 - **DEC-014:** Workspace、Checkpoint、アプリ状態、画面配置等の復元Previewを定める。本DECはその情報をファイル本文の保護や任意のAI Taskの復旧保証に読み替えない。
 - **DEC-026:** AI変更の検証可能性、保護、Risk別の復旧可能性と不確実性の報告を定める。本DECは実行開始前にその実際の復旧可能性を説明するユーザー向け方向を追加する。
 - **DEC-018:** builderによるソース変更では隔離編集、Revision／競合確認、反映前の元ファイル保護等の既存条件を維持する。事前表示で保護・反映条件を緩和しない。
-- **DEC-052:** 初心者向けアプリ制作体験は、この事前表示を利用する候補である。コード／Package生成、Build／Test、試用・導入の各段階で何を示すかは本DECの表示目的と既存の各App lifecycleに従い、実装詳細は未確定。
+- **DEC-071:** 初心者向けアプリ制作体験は、この事前表示を利用する候補である。コード／Package生成、Build／Test、試用・導入の各段階で何を示すかは本DECの表示目的と既存の各App lifecycleに従い、実装詳細は未確定。
 
 ## Roadmapとの関連
 
@@ -47,3 +47,4 @@ AIへ変更Taskを委任する場合の将来UX方針を記録する。0.3 Perso
 | 日付 | 内容 |
 |---|---|
 | 2026-11-15 | ユーザーがAI Task開始前にWaybackでどこまで復元できるかを表示する方向を確認。3状態の表示案、UI、判定基準、TaskごとのProtection実装は暫定として分離。 |
+2026-11-16 統合注記: PR #108のDEC-011／026とPR #110の本DECは同じ事前表示方針を記録する。基本原則はDEC-026、事前表示の詳細な境界は本DECを参照し、分類・UIを確定へ昇格させない。

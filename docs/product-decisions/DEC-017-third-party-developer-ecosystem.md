@@ -11,7 +11,7 @@
 **状態:** CONFIRMED（開発者体験・段階的統合・Nagi Native Apps専用・移植負担低減目標）／PROVISIONAL（個別技術・対応範囲・工数・実装詳細・到達時期）  
 **最終合意日:** 2026-11-13  
 **対象:** 0.1の先行準備、0.2 Platform Foundation、0.3 Personal Agent、および1.0に向けた開発者・配布環境  
-**関連:** DEC-001、DEC-007、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041（アンインストール）](DEC-041-builder-app-uninstall-and-data-deletion.md), [DEC-052（初心者向けApp制作）](DEC-052-nagi-native-app-creation-experience.md)
+**関連:** DEC-001、DEC-007、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041（アンインストール）](DEC-041-builder-app-uninstall-and-data-deletion.md), [DEC-071（初心者向けApp制作）](DEC-071-nagi-native-app-creation-experience.md)
 
 ## 目的とユーザー体験
 
@@ -124,7 +124,7 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 - 1.0に向けた開発者環境・配布基盤の具体的な構成、日程、完了条件。
 - Linux／iOS／Android等の既存アプリ実行互換レイヤーは標準方針として採用しない。例外的な互換性を将来検討する場合は対象API・方式・適用範囲を別途決定する。
 - 移植支援の対象言語／UI Framework、SwiftUI／UIKit／Jetpack Compose等との対応・変換可能範囲、AI支援の検証方式、追加リリース工数・再利用率の実測。
-- 初心者向けの新規Nagi Native App制作体験を提供する高水準の方向は[DEC-052](DEC-052-nagi-native-app-creation-experience.md)でCONFIRMED。専用GUI IDEとして独立させるか、Porting Toolkitへ組み込むか、別の案内型UIとするか、名称・画面・追加言語は未確定。
+- 初心者向けの新規Nagi Native App制作体験を提供する高水準の方向は[DEC-071](DEC-071-nagi-native-app-creation-experience.md)でCONFIRMED。専用GUI IDEとして独立させるか、Porting Toolkitへ組み込むか、別の案内型UIとするか、名称・画面・追加言語は未確定。
 
 ### AIコーディング向けの具体化（PROVISIONAL）
 
@@ -165,4 +165,4 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 | 2026-11-12 | DEC-042により独自カーネル選択の前提だけを限定置換。Linux採用方針は確定、製品・安全境界は維持、実装詳細と切替時期は未確定。旧本文・履歴は保持。 |
 | 2026-11-13 | Nagi Native Apps専用の標準アプリ環境と、iOS／Android等からの低負担移植・追加リリースを促進するSDK／UI／AI開発支援を製品目標として確定。無変更互換性・工数保証・実装版は未確定。 |
 | 2026-11-13 | 移植支援対象の優先順位を整理：PCはWindows／Linuxを重点化。将来のモバイルはAndroidを優先検討、macOS／iOSは当面後順位。Nagi Native Apps専用とDesktop-firstは維持し、直接実行互換・成果／時期は保証しない。 |
-| 2026-11-15 | DEC-052として、Porting Toolkitの既存アプリ移植に加え、初心者がローカルLLMを使い自然言語から小規模な新規Nagi Native Appを作り、試用・導入・共有／配布する純正体験の方向を確定。製品形態・Toolkit連携・技術・版は未確定。 |
+| 2026-11-15 | DEC-071として、Porting Toolkitの既存アプリ移植に加え、初心者がローカルLLMを使い自然言語から小規模な新規Nagi Native Appを作り、試用・導入・共有／配布する純正体験の方向を確定。製品形態・Toolkit連携・技術・版は未確定。 |
