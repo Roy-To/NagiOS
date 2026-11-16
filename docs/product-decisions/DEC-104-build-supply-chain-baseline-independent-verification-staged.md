@@ -1,8 +1,8 @@
 # DEC-104 — Build / Supply Chain：統合管理Bを先行し、独立検証・強化自動化Cを将来の正式目標とする
 
-**状態:** CONFIRMED（Foundation #35：健全な供給網の統合管理Bを先行導入し、隔離／独立検証・複数Architectureの継続検証・より厳格な改ざん検出とセキュリティ自動化Cを将来の正式製品目標として段階導入）／PROVISIONAL（具体ツール・CI規模・予算・日程・閾値・必須Release版・Linux target実証）  
-**最終合意日:** 2026-11-16  
-**適用範囲:** Nagi OS Foundation Checklist #35 Build / Supply Chain。製品方針の記録であり実装完了・Release受入ではない  
+**状態:** CONFIRMED（Foundation #35：健全な供給網の統合管理Bを先行導入し、隔離／独立検証・複数Architectureの継続検証・より厳格な改ざん検出とセキュリティ自動化Cを将来の正式製品目標として段階導入）／PROVISIONAL（具体ツール・CI規模・予算・日程・閾値・必須Release版・Linux target実証）
+**最終合意日:** 2026-11-16
+**適用範囲:** Nagi OS Foundation Checklist #35 Build / Supply Chain。製品方針の記録であり実装完了・Release受入ではない
 **関連:** [Foundation Checklist #35](NAGI_OS_FOUNDATION_CHECKLIST.md#f35)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-050](DEC-050-public-specification-repository.md)、[DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)、[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)、[0.2実装仕様 §18–19](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
 ## 目的
