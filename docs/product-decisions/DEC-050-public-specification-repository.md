@@ -1,6 +1,6 @@
 # DEC-050 — 仕様・構想の正本を公開リポジトリへ移す
 
-**状態:** CONFIRMED（保存先とCI分離方針）／PROVISIONAL（Entireの具体設定・移行手順）
+**状態:** CONFIRMED（保存先とCI分離方針）／PROVISIONAL（未検証環境・既存履歴移行）
 **合意日:** 2026-11-15  
 **更新日:** 2026-11-16
 **関連:** [OPERATING_RULES.md](OPERATING_RULES.md)、[README.md](README.md)、[DEC-046](DEC-046-co-developer-governance.md)〜[DEC-049](DEC-049-development-process-speed-priority.md)
@@ -22,7 +22,7 @@
 - Entireの履歴を公開側へ転送しない。決定済み仕様は、非公開の会話本文を転載するのではなく、本DECとOPERATING_RULESの公開禁止情報を除いた決定事項として記録する。認証情報はPrivateであっても保存対象に含めない。
 - 旧 `Roy-To/NagiOS-internal` への新規記録は再開しない。
 
-### PROVISIONAL／実装時に確認する事項
+### 初回記録時の未確認事項
 
 Entireの利用バージョン、対応するagent／hook、保存先指定の設定名、同期方法、既存履歴の移行要否は、実際の環境と公式仕様を確認して決める。未確認の設定名やコマンドを確定仕様として記録しない。
 
@@ -30,7 +30,7 @@ Entireの利用バージョン、対応するagent／hook、保存先指定の�
 
 ### 実設定と検証記録（2026-11-16）
 
-[Entire運用記録](../development/entire-private-history.md)に、確認した版の公式設定方法、Private／Actions設定、hookによる送信境界、実際のagentでの試験結果と未完了項目を記録する。保存先とCI分離方針はCONFIRMEDのまま、未検証環境・既存履歴移行・無人での自動送信を区別する。
+[Entire運用記録](../development/entire-private-history.md)に、確認した版の公式設定方法、Private／Actions設定、hookによる送信境界、実際のagentでの試験結果と未完了項目を記録する。保存先とCI分離方針はCONFIRMEDのまま、未検証環境・既存履歴移行・無人での自動送信を区別する。同日後続の実施でEntire 0.12.2の保存先指定、Private Actions停止、Codex CLIの記録と限定試験の送信・取得を確認した。上記の初回未確認事項すべてが現在も未確認という意味ではない。
 
 ### 適用範囲
 
@@ -50,5 +50,4 @@ Nagi OS開発時のリポジトリ運用に適用する。Nagi製品内のMemory
 |---|---|
 | 2026-11-15 | ユーザーが、仕様・構想を公開リポジトリへ移し、今後の仕様決めも公開リポジトリに記録することを決定。 |
 | 2026-11-16 | 公開NagiOSでコード・決定済み仕様・必要なCIを維持し、Privateのnagi-checkpointsをEntireの会話履歴・関連メタデータ専用、CI無効とする構成を確定。具体設定・移行と動作確認は別途実施する。 |
-
 | 2026-11-16 | README索引・概要を追従し、実設定・検証範囲・移行残件を記す運用記録への参照を追加。 |
