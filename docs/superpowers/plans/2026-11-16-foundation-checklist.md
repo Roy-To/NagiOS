@@ -22,7 +22,9 @@
 - [x] Create `docs/product-decisions/NAGI_OS_FOUNDATION_CHECKLIST.md` with complete inventory, per-item fields, update rules, implementation contract and proposed first topics.
 - [x] Add a uniquely numbered management DEC and update `docs/product-decisions/README.md` index; preserve existing technical decisions.
 - [x] Check IDs/priorities/bundle coverage, relative links, prohibited data and whitespace; obtain read-only independent review and fix supported findings.
-- [ ] Commit only task documents, push topic branch, open PR and verify remote SHA; report PR as unmerged.
+- [x] Commit only task documents, push topic branch, open PR and verify remote SHA; report PR as unmerged.
+
+Publication: [PR #130](https://github.com/Roy-To/NagiOS/pull/130), main unmerged at creation. Initial artifact commit `8f8a8122fe4ebf2f3b82aa4feb7c0cb471087b5c` matched the remote topic ref.
 
 ## Execution method
 
