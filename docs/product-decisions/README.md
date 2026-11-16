@@ -8,9 +8,11 @@
 
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
-[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、**PX-08のみバランス型B基本方針をCONFIRMED（追加詳細はPROVISIONAL／PARTIALLY_RECORDED）**、他14項目の追加詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、**PX-08／PX-09は基本方針をCONFIRMED（追加詳細はPROVISIONAL／PARTIALLY_RECORDED）**、他13項目の追加詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
 
 **PX-08決定（2026-11-17）:** [DEC-004 — Memory保存・学習・自然忘却・PX-08 B基本方針](DEC-004-memory-learning-forgetting.md)に、許可された情報から自然に学ぶ、推測は推測のまま扱う、重要な内容は本人確認するというバランス型をCONFIRMEDとして追加。対象情報の細分類・確認条件／UI・閾値・実装詳細はPROVISIONAL。既存DEC-003／005／058／059および各Gateを変更しない。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
+
+**PX-09決定（2026-11-17）:** [DEC-004 — Memoryの保持・忘却・管理体験](DEC-004-memory-learning-forgetting.md)にB案「自然忘却＋ユーザー管理」を基本方針としてCONFIRMEDで記録し、将来C案の高度な重複統合・矛盾検出を追加する方向もCONFIRMEDとした。保持条件・日数・UI・Cの具体方式・提供版／時期はPROVISIONAL。既存DEC-003／005／059、Source／Profile／Permission境界と既存Gateを維持する。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
 
 ## Foundation統合とDEC改番（2026-11-16）
 
@@ -87,7 +89,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-001 | [AIの自律性とAction](DEC-001-agent-autonomy-actions.md) | CONFIRMED | 2026-10-25 |
 | DEC-002 | [クラウドAI・外部情報共有](DEC-002-cloud-ai-data-sharing.md) | CONFIRMED | 2026-10-25 |
 | DEC-003 | [Memoryの機密分類と所有範囲](DEC-003-memory-classification.md) | CONFIRMED | 2026-10-25 |
-| DEC-004 | [Memory保存・学習・自然忘却／PX-08バランス型B基本方針](DEC-004-memory-learning-forgetting.md) | CONFIRMED（既存自動学習・忘却／PX-08のB基本方針）／PROVISIONAL（情報細分類・重要度／確認条件・数値・実装） | 2026-11-17 |
+| DEC-004 | [Memory保存・学習・自然忘却／PX-08・PX-09基本方針](DEC-004-memory-learning-forgetting.md) | CONFIRMED（既存Memory lifecycle、PX-08 B、PX-09 B、将来Cの方向）／PROVISIONAL（条件・UI・数値・Cの具体方式／版／時期） | 2026-11-17 |
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
@@ -141,7 +143,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-056 | [Smart Paste — 意味付きコピー／ドラッグでの純正アプリ横断体験](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来操作維持・意味付き転送・出典／参照保持・選択式提案）／PROVISIONAL（名称・UI・形式・対応アプリ・実装時期） | 2026-11-16 |
 | DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（OSの中核コンセプト・モデル非依存の継続性・ユーザー主導）／PROVISIONAL（方式・効果測定・適用版） | 2026-11-16 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
-| DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習の内容・経緯・根拠・支援への反映を確認できる体験）／PROVISIONAL（UI・履歴Schema・評価指標・適用版） | 2026-11-16 |
+| DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
 | DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（採用・段階的拡張・AI非必須・公開API連携）／PROVISIONAL（版・高度機能の順序・技術・合格値） | 2026-11-16 |
 | DEC-062 | [純正ユーティリティ4分野の採用](DEC-062-first-party-utilities.md) | CONFIRMED（画像・スクリーンショット／文書スキャン・圧縮／解凍・動画／音楽の全分野採用、AI非必須の高速・軽量な基本機能優先）／PROVISIONAL（アプリ構成・対応範囲・連携詳細・版・受入） | 2026-11-16 |
@@ -247,6 +249,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | 日付 | 内容 |
 |---|---|
 | 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)にPX-08のバランス型B基本方針（許可された情報の自然な学習・推測の区別・重要な内容の確認）をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。情報の細分類・重要判定・確認UX・数値／実装版はPROVISIONAL、既存Memory保護・忘却・Gateは不変。 |
+| 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)でPX-09のB「自然忘却＋ユーザー管理」を基本方針として、将来Cの高度な重複統合・矛盾検出を追加する方向をCONFIRMED。[DEC-059](DEC-059-learning-history-insights.md)と[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)も整合更新。保持条件・管理UI・Cの具体方式・版／時期はPROVISIONAL。Source／Profile／Permission・明示的忘却・既存Gateは維持。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
