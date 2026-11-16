@@ -75,6 +75,12 @@
 
 変更履歴: 2026-11-16 — DEC-099とFoundation #30のGUI＋Linux／Offline／明示確認・未決事項を参照追加。
 
+## Foundation #31：System Update（2026-11-16）
+
+[DEC-100](../DEC-100-system-update-linux-nagi-coordinated-ab.md)で、Linuxの既存更新機構＋Nagi統合Update Serviceの方式BをCONFIRMED。DEC-079の通常時read-only System／User Data分離、A/B更新・復旧、AI Modelの論理的分離を引き継ぎ、Nagiが署名・互換検証、Update状態管理、A/B切替と失敗時の復旧を統合する。System／App／Model更新は別のPolicy domainとし、builder Appの正式更新はDEC-035の別承認を維持。Linux採用backend、署名鍵・配布／Offline更新、slot・boot health／rollback、Data Migration、適用UI・自動化・対象端末／ReleaseとLinux実機受入はPROVISIONAL。方式Cの差分更新・段階配信・端末状況による自動最適化は今回未採用。既存Release／Activation／Acceptance Gateを変更せず、仕様記録は実装・実機成功の証拠ではない。
+
+変更履歴: 2026-11-16 — DEC-100とFoundation #31のB統合Update方針、C未採用・Linux受入未確認を参照追加。
+
 ## 実機テスト候補（2026-11-16）
 
 [DEC-052](../DEC-052-physical-test-device-candidates.md)で、PC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定という候補選定方針を記録した。CONFIRMEDは候補選定のみ。起動実績・正式対応・購入・実装時期・対応版は確定せず、各ロードマップの版境界と既存Gateは変更しない。[実機・複数端末の旧展望](../../roadmap/multi-device-outlook.md)の機種選定は同DECの範囲で置き換える。
