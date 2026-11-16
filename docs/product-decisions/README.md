@@ -195,6 +195,7 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 | DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（製品方向）／PROVISIONAL（Memory許可・UI・実装・時期） | 2026-11-15 |
 | DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
 | DEC-062 | [純正ユーティリティ4分野の採用](DEC-062-first-party-utilities.md) | CONFIRMED（画像・スクリーンショット／文書スキャン・圧縮／解凍・動画／音楽の全分野採用、AI非必須の高速・軽量な基本機能優先）／PROVISIONAL（アプリ構成・対応範囲・連携詳細・版・受入） | 2026-11-16 |
+| DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（採用・段階的拡張・AI非必須・公開API連携）／PROVISIONAL（版・高度機能の順序・技術・合格値） | 2026-11-16 |
 
 ## カーネル移行に伴う仕様・ロードマップ整合（2026-11-13）
 
@@ -231,12 +232,13 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 
 [DEC-050 — 仕様・構想の正本を公開リポジトリへ移す](DEC-050-public-specification-repository.md) により、本フォルダを非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移し、今後の仕様決めもここに記録する。旧名称「Jev」時代に置き換え済みだったDEC-015・016・018・019・022の旧ファイル5本は移していない(内容は現行の`builder`版と[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)にある)。
 
-## 変更履歴
+## 変更履歴（PDF仕様）
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | [DEC-062](DEC-062-first-party-utilities.md)を追加。純正ユーティリティ4分野すべての採用とAI非必須の基本機能優先を記録し、構成・連携詳細・版等の未確定事項を分離。PDFの別決定で使用中のDEC-061とのID重複を回避。 |
 
+| 2026-11-16 | [DEC-061](DEC-061-first-party-pdf-reader-editor.md)を追加。基本PDF体験を先に整え、高度編集へ段階的に拡張する採用方針を記録。既存DEC・純正アプリ仕様・ロードマップへ参照を追加。 |
 | 2026-11-16 | [DEC-060](DEC-060-responsive-ime-ai-learning.md)を追加。IMEの応答速度を優先し、許可されたデータからAIで学習精度を高める方針と入力データの安全境界を記録。具体方式・性能値・適用版は未確定。DEC-057はPR #116の保存内容を参照し、main未統合を区別。 |
 
 ## Projectフォルダを中心とした純正アプリ横断体験（2026-11-16）
