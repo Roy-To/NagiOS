@@ -167,3 +167,11 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## 仕様・構想の公開リポジトリへの移管(2026-11-15)
 
 [DEC-050 — 仕様・構想の正本を公開リポジトリへ移す](DEC-050-public-specification-repository.md) により、本フォルダを非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移し、今後の仕様決めもここに記録する。旧名称「Jev」時代に置き換え済みだったDEC-015・016・018・019・022の旧ファイル5本は移していない(内容は現行の`builder`版と[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)にある)。
+
+## Nagi Powerと低レイヤー基盤の整備（2026-11-16）
+
+| ID | テーマ | 状態 | 最終決定 |
+|---|---|---|---|
+| DEC-067 | [Nagi PowerとOS全体の決定論的な電力・熱・資源管理](DEC-067-nagi-power-deterministic-resource-management.md) | CONFIRMED（仮称で採用・AI非必須・安全／前景優先・低レイヤー基盤整備の方向）／PROVISIONAL（具体方式・端末・効果・実装版・Gate） | 2026-11-16 |
+
+変更履歴: 2026-11-16 — DEC-020／013を補足するNagi Powerの製品決定を追加。全サブシステムの一括採用・実装開始・Release変更は確定しない。
