@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE / PROVISIONAL。PX-10の高水準方針はCONFIRMED、詳細はPROVISIONAL（PARTIALLY_RECORDED）。PX-01〜09、PX-11〜15は各DECの既存記録に従う。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -9,7 +9,7 @@
 
 Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・OS共通サービス・配布などを扱う。本書の15項目は、その上に成立する**利用体験・AIの振る舞い・Memory・純正アプリ・開発者体験・1.0提供範囲**の追加仕様を別チャットで検討するための入口。番号PX-01〜PX-15は既存のFoundation 1〜35とDEC-XXXとは独立する。
 
-**重要:** 既存DECのCONFIRMEDは維持する。本一覧の各論点・優先順はユーザーが確定した新しい製品仕様ではなく、OPEN / PROVISIONALの相談題材。必要な技術選択、実装・Acceptance、Linux実機のPASS、適用版、開始承認は自動的に確定しない。全15件の仕様確定を開発停止条件にしない。AIの権限、Profileの所有、Privacy、Wayback、Release / Activation Gate、既存Workstream境界を緩めない。
+**重要:** 既存DECのCONFIRMEDは維持する。PX-10ではBの基本方針と将来Cの高水準な拡張方向のみをCONFIRMEDとし、詳細はOPEN / PROVISIONALのまま。本一覧の検討順と未決事項は相談題材であり、必要な技術選択、実装・Acceptance、Linux実機のPASS、適用版、開始承認は自動的に確定しない。全15件の確定を開発停止条件にしない。AIの権限、Profileの所有、Privacy、Wayback、Release / Activation Gate、既存Workstream境界を緩めない。
 
 ## 2. 検討項目
 
@@ -36,7 +36,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 |---|---|---|---|
 | PX-08 | **Memoryの自動学習範囲** | 記憶する情報の具体分類、事実と推測の区別、確認が必要な情報、除外条件 | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-058-habit-first-learning-and-optional-teach-mode.md) |
 | PX-09 | **Memoryの保持・忘却・管理体験** | 保持・減衰・Archive・削除の条件とUI、訂正、派生Memory、記憶の履歴 | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-059-learning-history-insights.md) |
-| PX-10 | **Nagiの個人化・対話スタイル** | 口調や説明量の調整、ユーザー設定と学習結果の優先、Profile分離、モデル交換後の継続 | [関連DEC 1](DEC-057-growing-personal-agent-os.md)・[関連DEC 2](DEC-003-memory-classification.md) |
+| PX-10 | **Nagiの個人化・対話スタイル** | **B基本方針CONFIRMED:** 利用に応じて口調・説明量・説明方法などが安定的に自然適応。**将来Cの高水準方向CONFIRMED:** Project／Task／作業状況に応じる状況適応へ拡張。UI・モデル／アルゴリズム・判定・評価・提供版／時期はPROVISIONAL | [DEC-057](DEC-057-growing-personal-agent-os.md)・[DEC-003](DEC-003-memory-classification.md)・[DEC-004](DEC-004-memory-learning-forgetting.md) |
 
 ### 第4群：純正アプリ・アプリ横断機能
 
@@ -57,7 +57,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 - **UI / Workspace:** Nagi-firstと通常GUIの共存、Home / Desktop、既存Workspaceの手動配置保護、新規Workspaceの意図に応じた配置、ProjectとWorkspaceの区別は既存決定。PX-01〜03は画面・遷移・具体操作の追加検討（DEC-009/010/012/014/055）。
 - **Agent / 承認:** 承認済みTask内の限定的な自律性、権限の都度検証、前景会話優先、危険操作の保護、再実行禁止、控えめな先回りは既存決定。PX-04〜07は詳細体験（DEC-001/008/011/016/022/026/073）。
-- **Memory:** 重要情報の選択的な自動学習、自然な習慣学習、モデル非依存の継続、訂正・忘却、学習履歴の可視化は既存決定。PX-08〜10は具体分類や体験。DEC-004にある日数・回数の提案値はPROVISIONAL（DEC-003/004/057/058/059）。
+- **Memory:** 重要情報の選択的な自動学習、自然な習慣学習、モデル非依存の継続、訂正・忘却、学習履歴の可視化は既存決定。PX-10のB基本方針と将来Cの高水準方向はDEC-057でCONFIRMED。PX-10の適応対象・判定・UI・技術・評価・提供版／時期はPROVISIONAL。PX-08／09は各DECの現行記録を維持し、DEC-004の日数・回数の提案値もPROVISIONAL（DEC-003/004/057/058/059）。
 - **純正アプリ・連携:** 既存0.2アプリの定義、追加純正ユーティリティ、共通参照、Smart Paste、正規Public Action優先は既存決定。PX-11〜12は正式搭載範囲と代表ワークフローの明確化（DEC-023/025/027/056/061/062）。
 - **開発者 / 1.0:** Nagi Native Apps、移植支援、初心者向けアプリ制作、builderの隔離・試用・正式導入の承認、公開SDK/配布環境という方向は既存決定。PX-13〜15は到達範囲・品質・具体操作（DEC-017/021/045/070/071/075/076）。
 - **当面の優先:** AI組み込みOS体験を優先し、階層型Agent Organizationは長期・非優先。初期0.4の単一Nagi builder Roleを変更しない（DEC-074/015）。
@@ -74,8 +74,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**PX-10はPARTIALLY_RECORDED（基本方針をDEC-057に記録、詳細は未確定）。その他の項目は各DECと最新mainの記録状態を維持する。**
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-10のB基本方針と将来Cの高水準な状況適応方向をDEC-057へ記録 | PARTIALLY_RECORDED。具体的なUI・技術・判定・評価・提供版／時期はPROVISIONAL |
