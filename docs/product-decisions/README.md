@@ -145,6 +145,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-088 | [用途別Linux FilesystemとNagi Storage／Files APIの分離](DEC-088-linux-filesystem-nagi-storage-api.md) | CONFIRMED（B案＝Linux標準FSを用途別に選択活用、Nagi Storage／Files API・論理Resource IDを維持、snapshotとWayback／Backup／Workspace復元を区別）／PROVISIONAL（具体FS・mount／暗号・durability／ID binding・Linux受入／適用版） | 2026-11-16 |
 | DEC-089 | [Nagi Volume ManagerとLinux Mount／Hotplugの責務分担](DEC-089-nagi-volume-manager-linux-mount-hotplug.md) | CONFIRMED（B案＝Nagi Volume ManagerがVolume検出・論理識別・認可・安全な取り外し・突然の切断の状態管理、Linuxのblock／mount／hotplug活用）／PROVISIONAL（自動mount条件・対応媒体／FS・識別／eject詳細・Linux受入／適用版） | 2026-11-16 |
 | DEC-090 | [共通Persistence契約とデータ正本の分散保持](DEC-090-common-persistence-contract-distributed-authority.md) | CONFIRMED（B案＝Nagi共通の保存／移行／復旧契約＋用途／App／Provider別の分散正本、保存結果・Version／Migration／所有・忘却、Canonical Memoryと派生Index分離）／PROVISIONAL（具体DB／形式・durable commit／Migration・Linux受入／適用版） | 2026-11-16 |
+| DEC-091 | [Nagi Recovery Coordinatorとサービス別責務の障害復旧](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md) | CONFIRMED（B案＝共通Recovery CoordinatorとServiceごとの復旧、整合性／保存証拠確認・結果不明Actionの無断再実行防止、現行権限／Revision再検証・通常Sleep復帰と区別）／PROVISIONAL（Journal／Checkpoint・State Machine／復旧順序・Linux受入／提供版） | 2026-11-16 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -198,6 +199,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)を追加。Foundation #15 Crash RecoveryでB案をCONFIRMED。Nagi Recovery Coordinatorが保存証拠／復旧状況を統括し、各Serviceが自分の正本・状態を復旧する。検証済みと結果不明を区別し、中断Task／副作用Actionの無断再実行禁止・User／Profile／Permission／Revision再検証、通常Sleep復帰と区別。具体Journal／Checkpoint／Recovery State Machine・Linux電源断試験／適用版は未決定。 |
 | 2026-11-16 | [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)を追加。Foundation #14 B案をCONFIRMED。Nagiの共通Persistence契約で保存結果・Schema Version／Migration・所有／復旧・削除／忘却を統一し、データ正本はUser／Profile／Memory／Workspace／Task／App／Providerごとに保持。Canonical Memoryと再生成可能なIndex／Cacheを分離し、Workspace復元・本文Backup・Task再実行を区別。単一共通DB強制なし、具体保存技術・durability／transaction・Linux実機受入／版は未決定。 |
 | 2026-11-16 | [DEC-089](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)を追加。Foundation #13のB案をCONFIRMED。Linux block／mount／hotplugを利用し、Nagi Volume Managerが接続検出・デバイスパスと別のVolume識別・User／Profile／App権限・安全な取り外し・突然の切断時の状態を管理。書込み完了／unmount未確認の成功表示や不明なActionの自動再実行を禁止。初期対応媒体／FS・自動mount・実際のsafe eject契約・Linux実機受入／適用版は未決定。 |
 | 2026-11-16 | [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)でFoundation #12のB案をCONFIRMED。Linux標準FilesystemをSystem／User Data／Model Store／Temp等の用途別に選択活用し、Nagi独自Storage／Files API・path／inodeと別のResource ID・分散正本を維持。Filesystem snapshotとNagi Wayback／Backup／Workspace復元を区別。EROFS／ext4／Btrfs等は比較候補で具体FS・暗号／mount・耐障害性・Linux受入・提供版は未決定。B3 Storage／Persistence／Recoveryの検討開始。 |
