@@ -74,6 +74,8 @@
 - [0.3 Revised](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md) / [0.4+](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md) / [0.5–1.0](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 - Public参照: `AGENTS.md`、`docs/Nagi_OS_0.1_Codex_Implementation_Spec.md`、`docs/Nagi_OS_0.2_Codex_Implementation_Spec.md`、`docs/Nagi_OS_0.3_Architecture_Roadmap.md`、`docs/decisions/`、`.dev/workstreams.json`、`docs/implementation_status.md`。参照先は移行時に再確認する。0.2仕様の重複配置 `docs/0.2/Nagi_OS_0.2_Codex_Implementation_Spec.md`、Section 2.1 / 2.2 / 29 / 32（0.2-M00）も整合対象とする。
 
+> **2026-11-16 後続決定（Foundation #1）:** [DEC-077](DEC-077-linux-kernel-lts-stable-policy.md)で、Nagi製品の標準Linuxカーネル系列をLTSとし、開発・先行検証では最新Stableの利用を許容する方針をCONFIRMEDとして追加。以下の初回記録にある「LTS / upstream方針は未確定」は2026-11-12時点の履歴であり、系列の標準方針に限りDEC-077が優先する。具体版・更新運用・patch／module・移行時期・Gateは未確定／変更なし。
+
 ## 決定履歴
 
 | 日付 | 内容 |
