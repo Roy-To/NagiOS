@@ -88,3 +88,12 @@
 [DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
 
 具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
+
+
+## Crash Recovery方針・変更履歴（2026-11-16）
+
+[DEC-091](../DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)でFoundation #15のB案を記録した。Nagi共通Recovery Coordinatorが復旧を調整し、各service／App／Providerが正本の整合性・保存証拠を検証する。結果不明の副作用Actionと中断Taskを無断再実行せず、現行Permission／Revisionを再検証する。通常sleep復帰はcrash後の保存状態復旧と別状態である。0.2のResource／Activity／Wayback／Jobsと0.3以降の継続性に接続するが、具体方式・Linux受入・提供版は未確定。各Roadmapの既存版割当て・Release／Activation／Acceptance Gateと担当・着手条件を変更せず、実装完了を示さない。
+
+## #16 Backup / Restoreの後続決定・変更履歴（2026-11-16）
+
+[DEC-105](../DEC-105-user-environment-backup-and-wayback.md)で、B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携し、必要に応じC方式を追加選択肢とする方向をCONFIRMEDとした。Cの具体内容・対象、保存・鍵・保持・復元詳細・技術・提供版はPROVISIONAL／OPEN。Profile単位Backup、DEC-014のWorkspace状態保存／選択式移行、Waybackの実際の復元範囲、DEC-004の明示的忘却と現行認可を維持する。既存の版割当て・Release／Activation／Acceptance Gate・担当を変更せず、実装・Linux／実機の復元成功を意味しない。
