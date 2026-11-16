@@ -20,6 +20,8 @@ Nagi OSの利用者・Profile・SessionをLinuxプロセス資格情報のみに
 
 上記は**Nagi Identity／Sessionの高水準の責務分担**を定めるものであり、パスワード・認証器・実際のUID割当・暗号化方式・Session token形式や具体的実装の採用を意味しない。
 
+> **2026-11-16 Permission／Sandbox後続決定:** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、Nagi Permission／Capabilityを権限判断の正本とし、Linuxの実効的な保護機構も組み合わせて直接アクセスの迂回を防ぐB案をCONFIRMED。Linux UID／GID等は低レイヤーの保護として使う本DECのIdentity正本方針を維持する。具体的なLinux Sandbox機構、Nagi論理IDとのmapping／revocation／実機受入は未確定。
+
 ## 既存正本・機能境界
 
 - **0.1実装仕様 §22–24:** Owner／Standard User／Guest、完全ローカルアカウント、認証と認可の分離、Owner常時rootの否定、AI自己昇格禁止を継承する。
