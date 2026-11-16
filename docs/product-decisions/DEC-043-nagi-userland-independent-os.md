@@ -15,6 +15,8 @@
 
 > **2026-11-16 Init／Service Manager選定の後続決定:** [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)で、Nagi独自の最小PID 1＋独自Service Manager（A案）を第一候補に、既存軽量OSS Init＋Nagi Service Manager（B案）と短期実装比較してから最終選択する**判断プロセス**をCONFIRMEDとした。A/Bの正式採用は未決定であり、本DECに残るPID 1／init等の具体構成は引き続きPROVISIONAL。既存の限定移行開発許可・安全境界・Release Gateを変更しない。
 
+> **2026-11-16 基本ユーザーランド後続決定:** [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有のサービス／API／アプリ環境は独自に設計し、libc・基本ライブラリ・基礎ツールなど汎用コンポーネントはOSSを積極的に選択活用する方針をCONFIRMEDとした。既存ディストリビューションのユーザーランド一式を製品基盤に流用しない。本文の個別ライブラリ採用未決定・具体ユーザーランド構成未確定は、libc／ABI／rootfs・OSS候補の技術選択について引き続き有効。DEC-080のInit／Service Manager A/B比較・正式採用も別判断とする。
+
 ## 決定の位置付けと前回作業との境界
 
 2026-11-12の追加確定指示を記録する。前回の[DEC-042 — 独自Nagi KernelからLinuxカーネルへ変更](DEC-042-linux-kernel-transition.md)を置換・重複作成する目的ではなく、転換後のユーザーランドと独立性を明確化する補足決定である。前回記録の未確定欄に「ディストリビューション／ユーザーランド」が残る場合、本DECで明示的に確定した方針の範囲だけ更新される。具体的な基本ユーザーランド構成は引き続き未確定。
