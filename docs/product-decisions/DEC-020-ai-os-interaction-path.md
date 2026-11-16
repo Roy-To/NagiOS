@@ -147,6 +147,10 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 - **0.3:** Personal Agentは、既存Implementation SpecとActivation gateが通過した後、許可されたContextと通常の型付きPublic Action / Service APIを使う方向とする。本決定だけでは実装を開始しない。
 - **0.4+:** Agentの種別・役割によらず、既存の委譲・Permission境界を維持し、非公開Shortcutを設けない。
 
+## PDF Reader / Editorとの整合（2026-11-16）
+
+[DEC-061](DEC-061-first-party-pdf-reader-editor.md)により、PDFの通常閲覧・編集はAIに依存しない。表抽出・要約・文書比較・引用等のAI支援は承認済み目的・Scopeと元資料の権限・機密分類内で、正規Public APIによる取得・Revision確認・Action検証を通す。Cloud送信はDEC-002に従い、前景の基本体験を維持する。 具体的な連携契約・適用版はPROVISIONAL。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -163,3 +167,4 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 | 2026-11-04 | 決定論的に処理できる作業は通常Serviceが原則LLMなしで実行し、LLMは曖昧さの理解や計画・判断に使う方針を確定。Action提案の型付き検証、既存権限・承認済みTask・対象Revisionの実行時確認、正規Executor経由、OS起点操作も同じ権限経路、結果の正直なActivity表示、AI不在時の通常操作を記録。 |
 | 2026-11-04 | 自然言語による意図理解と、権限確認済みContextによるOS状態取得を区別し、座標クリックを基本経路にしない点を明確化。 |
 | 2026-11-12 | DEC-042により独自カーネル選択の前提だけを限定置換。Linux採用方針は確定、製品・安全境界は維持、実装詳細と切替時期は未確定。旧本文・履歴は保持。 |
+| 2026-11-16 | DEC-061の純正PDF Reader / Editor方針への参照を追加。既存の公開API・AI非必須・権限境界と整合させ、実装版・既存Gateは変更しない。 |
