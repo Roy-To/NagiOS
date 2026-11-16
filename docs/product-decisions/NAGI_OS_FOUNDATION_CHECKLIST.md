@@ -362,12 +362,12 @@
 ### 23 Nagi Power
 
 - **検討対象:** 電池／AC、thermal／CPU／GPU負荷、power profile、充電制御候補、signal欠落時の挙動。
-- **製品決定:** CONFIRMED（main）＝前景優先・AIの通常資源契約 [DEC-020][D20]。CONFIRMED（製品方針）＝[DEC-067][P67]の決定論的OS全体管理。PROVISIONAL＝技術・名称正式化・数値・端末。
-- **技術設計:** Sleep遷移は6、継続的制御は23、配分は25。cpufreq／thermal／powercap／cgroup／eBPF等は候補、採用済みでない。
+- **製品決定:** CONFIRMED＝DEC-020の前景優先とAI通常資源契約 [DEC-020][D20]、[DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)のLLM非必須・決定論的なOS全体自動管理。後続方式Bとして省電力／バランス／高性能に相当する簡易モードをユーザーが選べる。高性能モードも熱・安全限界、OS機能維持、前景応答性、Permission／Policyを越えない。PROVISIONAL＝正式名称・モード別数値・技術・端末・適用版。
+- **技術設計:** Sleep遷移は6、継続的制御は23、配分は25。自動管理の上に少数の選択式Power Modeを置くが、具体的なGovernor／Linux cpufreq／thermal／powercap／cgroup／eBPF等は候補で採用未決。信号の欠落と過熱時は安全制約を優先。
 - **実装・target受入:** policy記録とMemory Governor案あり。Linux電力制御・実sensor・省電力効果は未確認。
 - **依存・責任候補:** 1, 6, 17, 25, 29, 33。Power／resource／Model Runtime候補。
 - **根拠:** [PR #128][PR128]、[DEC-013][D13]、[Governor案][GOV]、[0.2 §48][S02]。
-- **次に決める:** 観測信号と制御責任、故障・信号遅延時の方針、baseline・測定条件と後続合格基準。
+- **次に決める:** モード切替UI・端末別利用条件、観測信号／制御責任、熱・安全限界、故障・センサー信号遅延の扱い、baseline・測定方法・合格基準。
 
 <a id="f24"></a>
 ### 24 Network Service
