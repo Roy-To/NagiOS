@@ -8,7 +8,9 @@
 
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
-[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、**PX-08／PX-09は基本方針をCONFIRMED（追加詳細はPROVISIONAL／PARTIALLY_RECORDED）**、他13項目の追加詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、**PX-04／PX-08／PX-09は基本方針をCONFIRMED（追加詳細はPROVISIONAL／PARTIALLY_RECORDED）**、PX-04とPX-09の将来C方向もCONFIRMED。他12項目の追加詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+
+**PX-04決定（2026-11-17）:** [DEC-008](DEC-008-proactive-behavior.md) と [DEC-011](DEC-011-task-approval-progress-ui.md) に、B「明示操作で始める複数ターンの音声会話、同じ対話内の音声／テキスト切替、画面での誤認識訂正」と将来C「ユーザーが明示的に有効化するハンズフリー音声操作へ段階的に拡張する」高水準方向をCONFIRMEDとして記録。Wake Word、常時待受、録音／文字起こしの保持・削除、詳細UI、音声本人認証、技術・モデル・提供版・時期・性能数値はPROVISIONAL。画面最終承認、Microphone Permission、DEC-002のCloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持する。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
 
 **PX-08決定（2026-11-17）:** [DEC-004 — Memory保存・学習・自然忘却・PX-08 B基本方針](DEC-004-memory-learning-forgetting.md)に、許可された情報から自然に学ぶ、推測は推測のまま扱う、重要な内容は本人確認するというバランス型をCONFIRMEDとして追加。対象情報の細分類・確認条件／UI・閾値・実装詳細はPROVISIONAL。既存DEC-003／005／058／059および各Gateを変更しない。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
 
@@ -93,10 +95,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [標準的な働きかけと通知](DEC-008-proactive-behavior.md) | CONFIRMED | 2026-10-29 |
+| DEC-008 | [標準的な働きかけ・通知・PX-04音声対話](DEC-008-proactive-behavior.md) | CONFIRMED（既存方針・PX-04 B＋将来Cの高水準方向）／PROVISIONAL（音声詳細） | 2026-11-17 |
 | DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
 | DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
-| DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
+| DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Wayback復元可能性／Role切替C／前景会話優先C／追加指示分類C／委任Task進捗C／PX-04基本対話方針）／PROVISIONAL（UI細部） | 2026-11-17 |
 | DEC-012 | [Workspaceの自動命名・整理と自然言語検索](DEC-012-workspace-naming-organization.md) | CONFIRMED（一部詳細未確定） | 2026-11-04 |
 | DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
 | DEC-014 | [Workspace保存・チェックポイント・横断検索・選択式端末移行／同期・競合／中断復旧・暗号化Export / Importと鍵／データ管理](DEC-014-workspace-state-checkpoints.md) | CONFIRMED（詳細未確定） | 2026-11-05 |
@@ -248,6 +250,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | [DEC-008](DEC-008-proactive-behavior.md)／[DEC-011](DEC-011-task-approval-progress-ui.md)にPX-04のB基本方針と将来Cの高水準方向をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。Wake Word・常時待受・録音／文字起こしの保持・削除・詳細UI・音声本人認証・技術／モデル／版／時期／性能数値はPROVISIONAL。画面最終承認、Microphone Permission、Cloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持。 |
 | 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)にPX-08のバランス型B基本方針（許可された情報の自然な学習・推測の区別・重要な内容の確認）をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。情報の細分類・重要判定・確認UX・数値／実装版はPROVISIONAL、既存Memory保護・忘却・Gateは不変。 |
 | 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)でPX-09のB「自然忘却＋ユーザー管理」を基本方針として、将来Cの高度な重複統合・矛盾検出を追加する方向をCONFIRMED。[DEC-059](DEC-059-learning-history-insights.md)と[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)も整合更新。保持条件・管理UI・Cの具体方式・版／時期はPROVISIONAL。Source／Profile／Permission・明示的忘却・既存Gateは維持。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |

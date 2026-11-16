@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** 検討項目・順序はREVIEW NOTE / PROVISIONAL。PX-08／PX-09は基本方針CONFIRMED・追加詳細PROVISIONAL（PARTIALLY_RECORDED）。他13項目の追加詳細はOPEN。  
+**状態:** 検討項目・順序はREVIEW NOTE / PROVISIONAL。PX-04／PX-08／PX-09は基本方針CONFIRMED・追加詳細PROVISIONAL（PARTIALLY_RECORDED）。PX-09は将来Cの高水準方向もCONFIRMED。他12項目の追加詳細はOPEN。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -25,7 +25,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
-| PX-04 | **音声・テキスト対話の統合** | 音声開始・停止、割り込み・誤認識、テキストとの引継ぎ、録音と文字起こしの管理 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
+| PX-04 | **音声・テキスト対話の統合** | **B＋将来Cの高水準方向CONFIRMED:** 明示操作で始める複数ターンの音声会話、同一対話内の音声／テキスト切替、画面での誤認識訂正。将来はユーザーが明示的に有効化するハンズフリー音声操作へ段階的に拡張。詳細はPROVISIONAL | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
 | PX-05 | **AIの自律実行・承認レベル** | 具体的操作ごとのリスク区分、画面最終確認、未判定時の停止・確認・復元可能性表示 | [関連DEC 1](DEC-001-agent-autonomy-actions.md)・[関連DEC 2](DEC-026-ai-change-verification-and-recovery.md) |
 | PX-06 | **長時間Task・並行作業の管理** | Task一覧、Queue・優先順位、割り込み、待機と停止の区別、再開時の確認 | [関連DEC 1](DEC-011-task-approval-progress-ui.md)・[関連DEC 2](DEC-022-builder-interrupted-task-recovery.md) |
 | PX-07 | **先回り提案・自発的な働きかけ** | 提案の表示条件・頻度、作業中の抑制、却下・再提示制御、重大警告との区別 | [関連DEC 1](DEC-008-proactive-behavior.md)・[関連DEC 2](DEC-073-proactive-friction-discovery.md) |
@@ -53,6 +53,13 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | PX-14 | **第三者アプリ開発・移植・配布環境** | 初期SDK・言語・UI部品、移植対象、検証・署名・配布のユーザー/開発者体験 | [関連DEC 1](DEC-017-third-party-developer-ecosystem.md)・[関連DEC 2](DEC-045-nagi-porting-toolkit.md) |
 | PX-15 | **Nagi OS 1.0の製品完成基準** | 利用者に約束する代表体験、純正アプリ、対応端末、実測性能、品質・公開基準 | [関連DEC 1](DEC-021-roadmap-0.5-1.0.md)・[関連DEC 2](DEC-074-human-led-agent-organization.md) |
 
+### PX-04検討結果（2026-11-17）
+
+- **CONFIRMED（採用済み）:** B「明示操作で始める複数ターンの音声会話と、同じ対話内で音声・テキストを自然に切り替え、誤認識を画面で訂正できるハイブリッド体験」。将来C「ユーザーが明示的に有効化したハンズフリー音声操作へ段階的に拡張する」高水準の方向もCONFIRMED。
+- **PROVISIONAL（未決）:** Wake Word採用・常時待受、録音音声／文字起こしの保持・削除、詳細UI、音声本人認証、技術・モデル・Provider、提供版・時期、性能数値。
+- **既存境界を維持:** 重要操作の画面上の明示的最終承認、OS Microphone Permission、DEC-002のCloud送信別許可、ユーザー開始会話外での音声割り込み禁止、停止・Text/UI fallback・Task状態保持。音声モードや認識結果はAction権限／本人認証を拡張しない（DEC-001/002/008/011/110）。
+- **進捗:** PARTIALLY_RECORDED。基本方針と将来方向をDECに記録し、詳細仕様・実装・提供版の確定を意味しない。
+
 ### PX-08検討結果（2026-11-17）
 
 - **CONFIRMED（採用済み）:** バランス型B案。許可された情報を普段の利用から自然に学び、観測・事実・推測を混同せず、重要な内容はユーザーに確認する。正本は[DEC-004](DEC-004-memory-learning-forgetting.md)のPX-08節。
@@ -68,7 +75,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 ## 3. 既存のCONFIRMEDとの関係（変更しない）
 
 - **UI / Workspace:** Nagi-firstと通常GUIの共存、Home / Desktop、既存Workspaceの手動配置保護、新規Workspaceの意図に応じた配置、ProjectとWorkspaceの区別は既存決定。PX-01〜03は画面・遷移・具体操作の追加検討（DEC-009/010/012/014/055）。
-- **Agent / 承認:** 承認済みTask内の限定的な自律性、権限の都度検証、前景会話優先、危険操作の保護、再実行禁止、控えめな先回りは既存決定。PX-04〜07は詳細体験（DEC-001/008/011/016/022/026/073）。
+- **Agent / 承認:** 承認済みTask内の限定的な自律性、権限の都度検証、前景会話優先、危険操作の保護、再実行禁止、控えめな先回りは既存決定。PX-04のB基本方針と将来Cの高水準方向をCONFIRMED。画面最終承認、Microphone Permission、Cloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持する。PX-04の詳細とPX-05〜07は引き続き詳細検討（DEC-001/002/008/011/016/022/026/073）。
 - **Memory:** 重要情報の選択的な自動学習、自然な習慣学習、モデル非依存の継続、訂正・忘却、学習履歴の可視化は既存決定。PX-08のB基本方針、PX-09のB「自然忘却＋ユーザー管理」、将来Cの高度な重複統合・矛盾検出の方向はCONFIRMED。PX-08／09の具体分類・条件・UIとPX-10の詳細はPROVISIONAL／OPEN。DEC-004の日数・回数の提案値、Cの具体方式・実装時期／版はPROVISIONAL（DEC-003/004/057/058/059）。
 - **純正アプリ・連携:** 既存0.2アプリの定義、追加純正ユーティリティ、共通参照、Smart Paste、正規Public Action優先は既存決定。PX-11〜12は正式搭載範囲と代表ワークフローの明確化（DEC-023/025/027/056/061/062）。
 - **開発者 / 1.0:** Nagi Native Apps、移植支援、初心者向けアプリ制作、builderの隔離・試用・正式導入の承認、公開SDK/配布環境という方向は既存決定。PX-13〜15は到達範囲・品質・具体操作（DEC-017/021/045/070/071/075/076）。
@@ -86,10 +93,11 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-08／PX-09がPARTIALLY_RECORDED（基本方針と将来方向をDECに記録、詳細はPROVISIONAL）。PX-01〜PX-07・PX-10〜PX-15の追加論点はOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-04／PX-08／PX-09がPARTIALLY_RECORDED（基本方針と将来Cの方向をDECに記録、詳細はPROVISIONAL）。PX-01〜PX-03・PX-05〜PX-07・PX-10〜PX-15の追加論点はOPEN。**
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-04のB基本方針と将来Cの高水準方向をDEC-008／011に反映。詳細・版・時期・性能数値はPROVISIONAL。既存の画面最終承認、Microphone Permission、Cloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持 | PARTIALLY_RECORDED：基本方針／将来方向CONFIRMED、詳細PROVISIONAL |
 | 2026-11-17 | PX-08でバランス型B基本方針を採用。許可された情報の自然な学習／推測の明示的な区別／重要な内容の本人確認をDEC-004に反映。既存Memory／Privacy／忘却・Gateを維持 | PARTIALLY_RECORDED：B基本方針CONFIRMED、細部PROVISIONAL |
 | 2026-11-17 | PX-09でB「自然忘却＋ユーザー管理」と将来C「高度な重複統合・矛盾検出」の方向をCONFIRMEDとしてDEC-004／059に反映。閾値・UI・Cの具体方式／版／時期はPROVISIONAL、既存のSource／Profile／Permission・忘却・Gateを維持 | PARTIALLY_RECORDED：基本方針／将来方向CONFIRMED、詳細PROVISIONAL |

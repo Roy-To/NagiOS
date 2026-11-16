@@ -1,9 +1,10 @@
 # DEC-011 — NagiのTask承認UIと進捗表示
 
-**状態:** CONFIRMED（承認の基本方針・AI Task開始前のWayback復元可能性表示・builder自動切替＋状態表示＋手動指定C・前景会話優先C・追加指示分類表示C・委任Taskの進捗表示C）／PROVISIONAL（UI細部）  
-**最終合意日:** 2026-11-15  
+**状態:** CONFIRMED（承認の基本方針・AI Task開始前のWayback復元可能性表示・builder自動切替＋状態表示＋手動指定C・前景会話優先C・追加指示分類表示C・委任Taskの進捗表示C・PX-04音声／テキスト対話の基本方向）／PROVISIONAL（UI細部）  
+**最終合意日:** 2026-11-15（既存方針）  
+**PX-04追加合意日:** 2026-11-17  
 **対象:** NagiのTask実行時の承認・音声連携・進捗表示。実装時期は未確定  
-**関連:** DEC-001、DEC-008、DEC-009、DEC-010、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、DEC-015、DEC-016、DEC-018、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
+**関連:** DEC-001、DEC-002、DEC-008、DEC-009、DEC-010、DEC-110、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、DEC-015、DEC-016、DEC-018、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
 ## 目的とユーザー体験
 
@@ -20,6 +21,14 @@
 - 既に明確に承認したTaskの目的・対象・権限範囲に含まれる下位Actionには、DEC-001に従って不必要な重複確認を求めない。
 - 影響の大きい操作について新たに最終承認が必要な場合、音声認識結果だけで実行せず、画面上の明示的な最終承認を求める。音声で内容を訂正することはできる。
 - 重要操作の例として、大量削除、まだ承認されていない外部送信、重要な設定変更を想定する。これらの具体的なリスク分類・境界値は未確定。
+
+### PX-04 — 音声・テキスト対話と承認・Task境界（2026-11-17）
+
+- [DEC-008](DEC-008-proactive-behavior.md)のB基本方針は、明示操作で始める複数ターンの音声会話、同じ対話内の音声／テキスト切替、画面での誤認識訂正。将来Cとして、ユーザーが明示的に有効化するハンズフリー音声操作へ段階的に拡張する高水準方向もCONFIRMED。
+- 音声は対話の入出力手段であり、Action承認・本人認証の代替ではない。影響の大きい操作における画面上の明示的最終承認を含む上記の承認境界を維持する。
+- マイク利用はOS Permissionに従い（DEC-110）、音声／文字起こしのCloud送信にはDEC-002の別個の許可を要する。音声会話の開始だけでは送信を許可しない。
+- 音声を停止・利用できない場合のText/UI fallbackではTask状態を保持する。音声の停止やfallbackはTaskの自動取消・再実行・暗黙の再開を意味しない。TaskのPause / Cancelと停止状態はユーザー操作・現行Permissionに従う。
+- Wake Word、常時待受、録音／文字起こしの保持・削除、詳細UI、音声本人認証、技術・モデル・Provider、提供版・時期、性能数値はPROVISIONAL（DEC-008）。
 
 ### Task進捗の基本原則（既存DEC・Roadmapと整合）
 
@@ -55,6 +64,7 @@
 - 音声認識の成功だけを本人認証やOS Capabilityの根拠としない。承認の可否は現行の本人確認・Permission / Policyに従う。
 - すでに送信先・内容・Scopeと権限を明示した送信について、重大性だけを理由に常に追加承認するものではない（DEC-001）。未承認またはScope外の操作は承認済みとみなさない。
 - 表示カードへの同意は、TaskやResourceの範囲外に権限を拡大させない。表示内容とOSの型付きAction検証は分離する。
+- 音声会話は[DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)のマイクPermission境界に従う。音声／文字起こしのCloud送信には[DEC-002](DEC-002-cloud-ai-data-sharing.md)の別個の許可を要する。
 - 既存のDEC-008が定めた通常時の静かな通知・許可条件付き音声応答と矛盾しないようにする。
 - 本決定は0.1 / 0.2 / 0.3 / 0.4+のRelease / Activation Gateを変更せず、実装開始の許可を意味しない。
 
@@ -81,3 +91,4 @@
 | 2026-11-05 | builder作業中の追加指示方式CをUIへ反映。既存Taskへの変更、別TaskのQueue、競合・Scope・優先順位の確認待ちを区別して表示し、承認と進行中成果を保護する |
 | 2026-11-15 | DEC-026のTask開始前Wayback復元可能性表示をTask UI原則へ接続。具体的な表示・判定範囲は未確定で、既存の承認・Permission・Release Gateは維持する |
 | 2026-11-15 | 委任Taskの進捗表示に選択Cを確定。依頼直後は会話内カード、その後はコンパクト表示にまとめ、選択時に詳細を展開する。UI細部はPROVISIONAL。 |
+| 2026-11-17 | PX-04のB基本方針と将来Cの高水準方向を追加。音声／Text切替・画面訂正は承認UIを置き換えず、マイクPermissionとCloud送信別許可、Stop／Text fallback時のTask状態保持を明記。詳細仕様はPROVISIONAL。 |
