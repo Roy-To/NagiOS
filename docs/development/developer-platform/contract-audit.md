@@ -47,3 +47,15 @@ NDP-09はこの既存validatorへの1本のadapterから始める候補。任意
 入力は自作の `tests/developer-platform/evaluation/ui/task_panel.ui`（715d308）、toolはNDP-06解析器（cb37e91）。上記READMEの実CLIで明示入力だけを解析し、3部品・1レイアウト・2 tabstop・未実行の接続1件を検出、unknown/unresolvedは空、入力は不変だった。これはToolkit非AIの構造解析runで、tool開発にはCodexを使用した。手動のみの移植比較ではない。
 
 手動baseline、ローカルLLM補助、外部開発AIとの比較、能動作業時間・速度比・再利用率は未実施/未測定。renderer、mapping、実イベント、Nagi targetも未実施。比較不能な項目に数値を付けず、PT-06評価票の将来runに引き継ぐ。
+
+
+## 2026-11-17 実接続の追記
+
+上記「Cargoなし／実validator未実行」は11月15日の観測。現在は既存専用worktree内の
+無視対象 `.nagi-host-tools/` に固定nightlyを隔離導入し、lockfile不変のnagi-pkg buildと
+正規7テストが成功。SDK-owned notesとNDP-owned最小第三者Manifestを実validatorが受理した。
+NDP-09 Stage 1 adapterの実接続・失敗系11テストも成功。入力不変、出力上限、
+timeout/cancel、拒否、未接続Stage 2/3を区別する。[実行手順](../../../tools/nagi-developer-platform/validation/README.md)。
+
+SDKの外部配送契約・owner合意、PT-01正規入力の選択、Stage 2/3、generator、targetは
+この実行では解決していない。package宣言の受理をartifact存在・install/launch・権限付与とはしない。
