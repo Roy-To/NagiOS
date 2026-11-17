@@ -1,8 +1,9 @@
 # NDP-08/09 Manifest validation adapter
 
 This host-only Stage 1 adapter invokes the existing `nagi-pkg manifest validate`
-command. It does not implement the Manifest schema, build or run an inspected
-application, create packages, sign, install, or grant capabilities. The canonical
+command (`validate.py`); `stage2.py` adds Stage 2 for self-made fixtures only (see
+below). Neither implements the Manifest schema, builds or runs an inspected
+application, creates packages, signs, installs, or grants capabilities. The canonical
 SDK contract is [App Contract v1](../../../sdk/rust/docs/APP_SDK_CONTRACT.md).
 
 ## Prepare the trusted tool
@@ -51,9 +52,94 @@ a run; Ctrl-C is also handled by the CLI. Cleanup kills the created process
 group and reaps the direct child. No cancellation triggers a later stage.
 
 CLI exit values: 0 passed, 1 failed/overflow/I/O error, 2 unavailable,
-3 not run, 124 timeout, 130 cancelled. `--stage 2` and `--stage 3` explicitly
-return `not_run` and read/run nothing. Host build/test orchestration and Nagi
-image acceptance remain to be connected under their respective scopes.
+3 not run, 124 timeout, 130 cancelled. In `validate.py`, `--stage 2` and
+`--stage 3` still return `not_run` and read/run nothing (it is the Manifest
+adapter only); Stage 2 runs through `stage2.py` below. Nagi image acceptance
+(Stage 3) is not connected.
+
+## Stage contract (data: `stages.json`)
+
+`stages.json` holds the tool table and Stage contract that `stage2.py` reads. Its
+tool entries are taken from the NDP-08 audit
+([contract-audit.md](../../../docs/development/developer-platform/contract-audit.md)).
+
+| Stage | Input | May run | Must not run | Results |
+| --- | --- | --- | --- | --- |
+| 1 static | one relative Manifest below a selected directory | `nagi-pkg manifest validate` | input build scripts/entrypoints, fetch, arbitrary commands | passed / failed / unavailable / timeout / cancelled / not_run |
+| 2 host build/test | an approved target id; fixture dir must equal the target's directory | `clang` with a fixed argument vector, then the binary just built from the listed sources | input-specified commands, Makefile/build scripts, unlisted files, fetch, network | same as Stage 1 |
+| 3 Nagi target | not defined | nothing | everything | `not_run` only; never PASS |
+
+Stage 2 stops, without starting any process, on: a prior stage result that is not
+`passed`, an unknown target, a fixture directory other than the approved one
+(including symlinked paths), a cwd outside the checkout, an unreadable or
+non-regular listed file, invalid timeout, or an unreadable contract. A failed
+compile skips the test step. `unavailable` is a missing `clang`/scratch, not a
+failure of the input. Stage 1/2 results are independent of Stage 3.
+
+## Stage 2 (self-made fixtures only)
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/validation/stage2.py \
+  --target portable-summary --fixture-dir tests/developer-platform/evaluation/portable
+# optionally gate on Stage 1 first: --stage1-root DIR --stage1-manifest REL.json
+```
+
+The only target is `portable-summary`: `summary.c`, `summary_test.c` and
+`summary.h` from `tests/developer-platform/evaluation/portable/`. The listed files
+are read through the Stage 1 no-follow bounded reader and copied into a private
+temporary directory, which is also the cwd and `TMPDIR` of both processes and is
+removed afterwards. The fixture directory is never written. The argument vector is
+built in one place (`Target.compile_command`):
+
+```text
+clang -std=c11 -Wall -Wextra -Werror -O0 -fno-color-diagnostics \
+  -o summary_test summary.c summary_test.c
+./summary_test        # no arguments
+```
+
+Flags can only be chosen from a closed allowlist in `stage2.py`; names must be plain
+file names; the directory must be under `tests/developer-platform/evaluation/`.
+Nothing from CLI arguments, the fixture directory or a Manifest becomes a command,
+flag or file name, and other files there (for example a `Makefile`) are ignored.
+Processes get an allowlisted environment (`PATH`, `HOME`, `DEVELOPER_DIR`,
+`SDKROOT`, plus `LC_ALL=C` and scratch `TMPDIR`) so `CPATH`/`CCC_*`-style variables
+and secrets do not reach clang. Defaults: compile 30 s, test 10 s (maximum 60 s
+each); capture is bounded to 64 KiB per step with process-group kill on overflow or
+timeout. Cancel via `cancel=threading.Event()` or Ctrl-C works in either step.
+Results keep per-step status, reason and real exit code (a signal is negative) but
+not raw output, source text, original or scratch paths, or environment. A passing
+test needs exit 0 and stdout starting with the target's `expect_stdout_prefix`.
+
+Tests (`test_stage2.py`) use the real `clang` for the success, compile-error,
+warning-as-error, failing-test, wrong-output, timeout, output-flood and
+planted-build-script cases. Short fake compiler scripts are used only for compiler
+timeout/cancel/no-binary/output-flood orchestration and are not evidence of the real
+tool. Run: the `unittest discover` command above (clang absent → real-compiler tests
+are skipped, not passed).
+
+## 仮定（PROVISIONAL）
+
+These are working assumptions so Stage 2 can proceed; none is a CONFIRMED decision,
+and each is isolated in `stages.json` or one function so it can be replaced.
+
+- Stage 2 scope is only the self-made portable C fixture; the target table in
+  `stages.json` is the place to add or change approved targets. Third-party or
+  input-project builds are out of scope until an owner defines them.
+- The fixture has no Manifest, so Stage 1 is not required for it. If a Stage 1
+  result is supplied it must be `passed` (`prior` argument / `--stage1-*`).
+- The compiler is the first `clang` on `PATH` (a trusted developer tool, like the
+  prepared `nagi-pkg`); the flag set (`-std=c11 -Wall -Wextra -Werror -O0`) is a
+  guess at "strict but portable". Change `flags` in `stages.json` within the
+  allowlist.
+- Passing is judged by exit 0 plus the fixture's stdout prefix, not by parsing the
+  test's assertions. Raw compiler diagnostics are intentionally not returned, which
+  costs diagnosability; a redacted, bounded diagnostic field is a possible later
+  addition.
+- Host build/test results are not Nagi target (Stage 3) acceptance, and the host
+  `clang` binary does not represent the Nagi toolchain.
+- "cwd" is the caller's working directory used only as an allow gate (inside the
+  checkout) and as the base for a relative `--fixture-dir`; execution itself always
+  happens in the private scratch directory.
 
 ## Evidence and remaining scope — 2026-11-17
 
@@ -82,3 +168,8 @@ The toolchain pin remains `rust-toolchain.toml`; lockfiles and SDK/Package sourc
 are unchanged. Python 3.10+ normal host readiness, SDK delivery-owner agreement,
 Stage 2/3, generator, package/runtime integration and target acceptance are not
 proven by this result.
+
+Stage 2 evidence (2026-11-18, macOS arm64, Apple clang 21.0.0, Python 3.9.6): the
+`unittest discover` run executes 41 tests, all passing; the 2 skipped are the existing
+real-`nagi-pkg` tests because that binary is not built in this worktree. This is host
+evidence only.

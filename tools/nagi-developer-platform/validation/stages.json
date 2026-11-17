@@ -1,0 +1,70 @@
+{
+  "contract_version": 1,
+  "status": "PROVISIONAL",
+  "note": "Stage contract and Stage 2 target table. Data only; stage2.py reads it. Not a product decision. See README 'Assumptions (PROVISIONAL)'.",
+  "tools": [
+    {
+      "id": "nagi-pkg-manifest-validate",
+      "stage": 1,
+      "entry": "out/ndp-host/target/debug/nagi-pkg manifest validate manifest.json",
+      "source": "docs/development/developer-platform/contract-audit.md",
+      "side_effects": "none; the entrypoint is never launched",
+      "exit": {"0": "valid", "2": "usage or validation failure"}
+    },
+    {
+      "id": "clang-portable-fixture",
+      "stage": 2,
+      "entry": "clang <fixed flags> -o <scratch>/<output> <fixed sources>; then <scratch>/<output>",
+      "source": "stage2.py (fixed argument vector built from targets below)",
+      "side_effects": "writes only a private temporary directory; runs only the binary just built from the listed fixture sources",
+      "exit": {"0": "built / test passed", "other": "failed"}
+    }
+  ],
+  "stages": [
+    {
+      "stage": 1,
+      "name": "static metadata",
+      "input": "one relative Manifest file below an explicitly selected directory",
+      "may_run": ["nagi-pkg manifest validate"],
+      "must_not_run": ["input build scripts", "input entrypoints", "dependency fetch", "arbitrary commands"],
+      "requires": [],
+      "results": ["passed", "failed", "unavailable", "timeout", "cancelled", "not_run"],
+      "connected": true,
+      "may_pass": true
+    },
+    {
+      "stage": 2,
+      "name": "host build/test of approved self-made fixtures",
+      "input": "a target id from this table; fixture directory must equal the target directory",
+      "may_run": ["clang with the fixed argument vector", "the test binary built from the listed sources"],
+      "must_not_run": ["input-specified commands", "Makefile/build scripts in the fixture directory", "files not listed in the target", "dependency fetch", "network"],
+      "requires": ["prior stage result, if one is supplied, is passed"],
+      "results": ["passed", "failed", "unavailable", "timeout", "cancelled", "not_run"],
+      "connected": true,
+      "may_pass": true,
+      "stop_scope": "a failed or not_run prior stage, unknown target, disallowed input or cwd, or invalid timeout ends Stage 2 without executing anything; a failed compile skips the test step"
+    },
+    {
+      "stage": 3,
+      "name": "Nagi target acceptance",
+      "input": "not defined",
+      "may_run": [],
+      "must_not_run": ["everything"],
+      "requires": ["a real Nagi target and separate conditions"],
+      "results": ["not_run"],
+      "connected": false,
+      "may_pass": false
+    }
+  ],
+  "stage2_targets": [
+    {
+      "id": "portable-summary",
+      "directory": "tests/developer-platform/evaluation/portable",
+      "sources": ["summary.c", "summary_test.c"],
+      "headers": ["summary.h"],
+      "flags": ["-std=c11", "-Wall", "-Wextra", "-Werror", "-O0", "-fno-color-diagnostics"],
+      "output": "summary_test",
+      "expect_stdout_prefix": "PASS portable summary:"
+    }
+  ]
+}
