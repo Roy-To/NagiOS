@@ -253,6 +253,24 @@ class ClassificationTests(unittest.TestCase):
                 row = run(report(evidence, category="posix-api"))["rows"][0]
                 self.assertEqual(("unknown_api", None), (row["detection"], row["rule_id"]))
 
+    def test_global_scope_call_after_control_condition(self):
+        # The `)` ending an if/while/for/switch condition is not part of a qualified name.
+        for evidence, rule in (("if (ready) ::close(fd);", "POSIX-FD-CLOSE"),
+                               ("while (ready) ::read(fd, b, n);", "POSIX-FILE-READ"),
+                               ("for (;;) ::close(fd);", "POSIX-FD-CLOSE"),
+                               ("if (f(a, (b))) ::open(p, 0);", "POSIX-FILE-OPEN"),
+                               ("switch (k) ::close(fd);", "POSIX-FD-CLOSE")):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="posix-api"))["rows"][0]
+                self.assertEqual((rule, "lexical_candidate", ["global_scope_call"]),
+                                 (row["rule_id"], row["detection"], row["syntax_shapes"]))
+        # Other `)` before `::` still form a qualifier and hide the unqualified C name.
+        for evidence in ("decltype(obj)::close(fd);", "if (decltype(obj)::close(fd)) {",
+                         "MACRO(ns)::read(b);", "x) ::close(fd);", "f(g)::open(p, 0);"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="posix-api"))["rows"][0]
+                self.assertEqual(("unknown_api", None), (row["detection"], row["rule_id"]))
+
     def test_local_definitions_are_demoted_not_hidden(self):
         for evidence in ("static ssize_t read(int fd, void *b, size_t n) {", "int open(const char *p);",
                          "ssize_t write(int, const void *, size_t);"):
