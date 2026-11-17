@@ -314,6 +314,72 @@ class FailureCleanupTests(GeneratorTestCase):
         self.assertIn("samples/level-zero/", error.left_behind)
         self.assertNotIn("samples/level-zero/foreign.txt", error.removed)
 
+    def replace_then_fail(self, replace):
+        """Run the generator; just before lib.rs is created, `replace()` then fail."""
+        real_open = os.open
+
+        def wrapper(path, flags, *args, **kwargs):
+            if path == "lib.rs" and flags & os.O_CREAT:
+                replace()
+                raise OSError(errno.EIO, "injected")
+            return real_open(path, flags, *args, **kwargs)
+        with mock.patch.object(gen.os, "open", wrapper):
+            return self.reason()
+
+    def assertNoQuarantineLeft(self):
+        self.assertEqual([n for n in os.listdir(self.root / "samples") if "cleanup" in n], [])
+
+    def test_replaced_created_file_is_not_deleted_by_cleanup(self):
+        # Review P1: a file we created is replaced by another process (new inode)
+        # before a later write fails. Cleanup must keep the replacement.
+        out = self.root / "samples/level-zero"
+
+        def replace():
+            (out / "Cargo.toml").unlink()
+            (out / "Cargo.toml").write_text("theirs", encoding="utf-8")
+        error = self.replace_then_fail(replace)
+        self.assertEqual(error.code, "write_failed:EIO")
+        self.assertEqual((out / "Cargo.toml").read_text(encoding="utf-8"), "theirs")
+        self.assertIn("samples/level-zero/Cargo.toml", error.left_behind)
+        self.assertNotIn("samples/level-zero/Cargo.toml", error.removed)
+        self.assertIn("samples/level-zero/manifest.json", error.removed)
+        self.assertIn("samples/level-zero/", error.left_behind)
+        self.assertEqual(sorted(os.listdir(out)), ["Cargo.toml"])
+        self.assertNoQuarantineLeft()
+
+    def test_replacement_racing_the_identity_check_is_restored_not_deleted(self):
+        # The swap happens after cleanup's identity check, right before the
+        # move: the moved object is foreign, so it is put back, not unlinked.
+        out = self.root / "samples/level-zero"
+        real_rename = os.rename
+        swapped = []
+
+        def rename(src, dst, *args, **kwargs):
+            if src == "Cargo.toml" and not swapped:
+                swapped.append(True)
+                (out / "Cargo.toml").unlink()
+                (out / "Cargo.toml").write_text("theirs", encoding="utf-8")
+            return real_rename(src, dst, *args, **kwargs)
+        with mock.patch.object(gen.os, "rename", rename):
+            error = self.replace_then_fail(lambda: None)
+        self.assertEqual(swapped, [True])
+        self.assertEqual((out / "Cargo.toml").read_text(encoding="utf-8"), "theirs")
+        self.assertIn("samples/level-zero/Cargo.toml", error.left_behind)
+        self.assertNotIn("samples/level-zero/Cargo.toml", error.removed)
+        self.assertNoQuarantineLeft()
+
+    def test_replaced_created_directory_is_not_removed(self):
+        out = self.root / "samples/level-zero"
+
+        def replace():
+            (out / "src").rmdir()
+            (out / "src").mkdir()
+        error = self.replace_then_fail(replace)
+        self.assertTrue((out / "src").is_dir())
+        self.assertIn("samples/level-zero/src/", error.left_behind)
+        self.assertNotIn("samples/level-zero/src/", error.removed)
+        self.assertNoQuarantineLeft()
+
     def test_exclusive_create_refuses_a_file_that_appears_concurrently(self):
         real_open = os.open
 
