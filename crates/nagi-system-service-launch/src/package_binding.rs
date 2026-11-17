@@ -24,6 +24,7 @@ pub struct VerifiedServicePackageBinding<'owner> {
     package_id: String,
     canonical_entry: String,
     executable_sha256: String,
+    executable_bytes: Box<[u8]>,
     lease: PackageServiceGenerationLease<'owner>,
 }
 
@@ -47,6 +48,26 @@ impl VerifiedServicePackageBinding<'_> {
     pub fn package_generation(&self) -> u64 {
         self.lease.snapshot().generation()
     }
+
+    pub fn signed_package_sha256(&self) -> &[u8; 32] {
+        self.lease.snapshot().signed_package_sha256()
+    }
+
+    pub fn executable_sha256_bytes(&self) -> &[u8; 32] {
+        self.lease.snapshot().executable_sha256()
+    }
+
+    /// Immutable copy of the exact executable bytes covered by the installed,
+    /// signed package generation. Launch owners must load these bytes and must
+    /// not reopen the descriptor's artifact pathname or reuse a mutable file
+    /// descriptor after preflight.
+    pub fn executable_bytes(&self) -> &[u8] {
+        &self.executable_bytes
+    }
+
+    pub(crate) fn quarantine(&self) {
+        self.lease.quarantine();
+    }
 }
 
 /// Use the public package owner to authenticate the exact signed package,
@@ -69,7 +90,11 @@ pub fn bind_installed_service_package<'owner>(
     if manifest.entry() != descriptor.canonical_entry().as_bytes() {
         return Err(PackageBindingError::CanonicalEntryMismatch);
     }
-    let executable_sha256 = sha256_hex(package.executable());
+    // Copy the exact signed-package entry before launch and hash the copy that
+    // C3 will receive. A retained read FD proves inode identity, not immutable
+    // contents; the owned slice closes that write-after-preflight window.
+    let executable_bytes = package.executable().to_vec().into_boxed_slice();
+    let executable_sha256 = sha256_hex(&executable_bytes);
     if executable_sha256 != descriptor.expected_sha256() {
         return Err(PackageBindingError::ExecutableDigestMismatch);
     }
@@ -89,6 +114,7 @@ pub fn bind_installed_service_package<'owner>(
         package_id: descriptor.package_id().to_owned(),
         canonical_entry: descriptor.canonical_entry().to_owned(),
         executable_sha256,
+        executable_bytes,
         lease,
     })
 }

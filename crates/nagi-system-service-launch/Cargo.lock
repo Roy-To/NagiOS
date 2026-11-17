@@ -136,11 +136,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-identity-session"
+version = "0.1.0"
+dependencies = [
+ "nagi-capability",
+ "nagi-model",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-init-package-provider"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
  "nagi-package",
+ "sha2",
 ]
 
 [[package]]
@@ -179,7 +190,9 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "nagi-capability",
+ "nagi-identity-session",
  "nagi-init-package-provider",
+ "nagi-init-spawn-contract",
  "nagi-model",
  "nagi-package",
  "nagi-service-contract",

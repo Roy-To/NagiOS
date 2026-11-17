@@ -2,12 +2,14 @@
 //! Linux `nagi-init` backend. Trust and inventory are supplied by the caller;
 //! this module does not provision a product key, invent consent, or fake READY.
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use nagi_model::AppId;
 use nagi_package::{
     InstallPolicy, InstalledPackage, PackageError, PackageManifest, PackageService, PackageView,
     MAX_SLOTS,
 };
+use sha2::{Digest, Sha256};
 
 /// An authoritative inventory read can be unavailable or internally invalid.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -202,6 +204,10 @@ pub enum PackageServiceSessionOwnerError {
     GenerationSaturated,
     OwnerMismatch,
     Unavailable,
+    Quarantined,
+    DigestInventoryFull,
+    PackageDigestUnavailable,
+    InstalledPackageBytesMismatch,
 }
 
 #[must_use = "retain the snapshot and validate it through its owning session before use"]
@@ -210,6 +216,16 @@ pub struct OwnedPackageInventorySnapshot {
     manifest: PackageManifest,
     generation: u64,
     owner_incarnation: u64,
+    signed_package_sha256: [u8; 32],
+    executable_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy)]
+struct InstalledPackageDigest {
+    app_id: AppId,
+    generation: u64,
+    signed_package_sha256: [u8; 32],
+    executable_sha256: [u8; 32],
 }
 
 impl OwnedPackageInventorySnapshot {
@@ -224,6 +240,14 @@ impl OwnedPackageInventorySnapshot {
     pub const fn generation(self) -> u64 {
         self.generation
     }
+
+    pub const fn signed_package_sha256(&self) -> &[u8; 32] {
+        &self.signed_package_sha256
+    }
+
+    pub const fn executable_sha256(&self) -> &[u8; 32] {
+        &self.executable_sha256
+    }
 }
 
 /// Read-only borrow of the exact PackageService retained by one init session.
@@ -231,6 +255,7 @@ impl OwnedPackageInventorySnapshot {
 pub struct PackageServiceGenerationLease<'owner> {
     inventory: &'owner PackageService,
     snapshot: OwnedPackageInventorySnapshot,
+    quarantined: Arc<AtomicBool>,
 }
 
 impl PackageServiceGenerationLease<'_> {
@@ -240,6 +265,13 @@ impl PackageServiceGenerationLease<'_> {
 
     pub const fn inventory(&self) -> &PackageService {
         self.inventory
+    }
+
+    /// Permanently fence package inventory mutations for this owner after an
+    /// ambiguous process/recovery outcome. The C1/C3 reconciliation path must
+    /// decide when a new owner may be created; this lease cannot clear it.
+    pub fn quarantine(&self) {
+        self.quarantined.store(true, Ordering::SeqCst);
     }
 }
 
@@ -265,6 +297,8 @@ pub struct PackageServiceSessionOwner<'key> {
     trusted_key: Option<&'key [u8; 32]>,
     owner_incarnation: Option<u64>,
     inventory: PackageService,
+    quarantined: Arc<AtomicBool>,
+    package_digests: [Option<InstalledPackageDigest>; MAX_SLOTS],
 }
 
 fn next_session_owner_incarnation() -> Option<u64> {
@@ -283,7 +317,29 @@ impl<'key> PackageServiceSessionOwner<'key> {
             trusted_key,
             owner_incarnation: next_session_owner_incarnation(),
             inventory,
+            quarantined: Arc::new(AtomicBool::new(false)),
+            package_digests: [None; MAX_SLOTS],
         }
+    }
+
+    fn ensure_not_quarantined(&self) -> Result<(), PackageServiceSessionOwnerError> {
+        if self.quarantined.load(Ordering::SeqCst) {
+            Err(PackageServiceSessionOwnerError::Quarantined)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Clear an in-process quarantine only after the caller's exact external
+    /// reconciliation succeeds. The launch coordinator must hold the matching
+    /// C3 lifecycle gate while its C1 durable reconciliation runs in `check`.
+    pub fn reconcile_quarantine_after<R, E>(
+        &mut self,
+        check: impl FnOnce() -> Result<R, E>,
+    ) -> Result<R, E> {
+        let result = check()?;
+        self.quarantined.store(false, Ordering::SeqCst);
+        Ok(result)
     }
 
     /// Install through the retained service. Call this on the owner already
@@ -293,22 +349,56 @@ impl<'key> PackageServiceSessionOwner<'key> {
         bytes: &[u8],
         policy: InstallPolicy,
     ) -> Result<nagi_package::InstallReport, PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
         let trusted_key = self
             .trusted_key
             .ok_or(PackageServiceSessionOwnerError::TrustUnavailable)?;
         let package =
             PackageView::parse(bytes).map_err(PackageServiceSessionOwnerError::Package)?;
-        self.inventory
+        let app_id = package.manifest().app_id();
+        let digest_slot = self
+            .package_digests
+            .iter()
+            .position(|entry| entry.is_some_and(|entry| entry.app_id == app_id))
+            .or_else(|| self.package_digests.iter().position(Option::is_none))
+            .ok_or(PackageServiceSessionOwnerError::DigestInventoryFull)?;
+        let report = self
+            .inventory
             .install_with_trusted_key(&package, policy, trusted_key)
-            .map_err(PackageServiceSessionOwnerError::Package)
+            .map_err(PackageServiceSessionOwnerError::Package)?;
+        let installed = match self.inventory.info(app_id) {
+            Ok(installed) if installed.manifest == package.manifest() => installed,
+            Ok(_) => {
+                self.quarantined.store(true, Ordering::SeqCst);
+                return Err(PackageServiceSessionOwnerError::ManifestChanged);
+            }
+            Err(error) => {
+                self.quarantined.store(true, Ordering::SeqCst);
+                return Err(PackageServiceSessionOwnerError::Package(error));
+            }
+        };
+        self.package_digests[digest_slot] = Some(InstalledPackageDigest {
+            app_id,
+            generation: installed.generation,
+            signed_package_sha256: sha256(bytes),
+            executable_sha256: sha256(package.executable()),
+        });
+        Ok(report)
     }
 
     /// Uninstall through the same retained service. Safe Rust's exclusive
     /// borrow rules prevent this while a generation lease is live.
     pub fn remove(&mut self, app_id: AppId) -> Result<(), PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
         self.inventory
             .remove(app_id)
-            .map_err(PackageServiceSessionOwnerError::Package)
+            .map_err(PackageServiceSessionOwnerError::Package)?;
+        for entry in &mut self.package_digests {
+            if entry.is_some_and(|entry| entry.app_id == app_id) {
+                *entry = None;
+            }
+        }
+        Ok(())
     }
 
     /// Authenticate package bytes, require the expected manifest identity,
@@ -318,6 +408,7 @@ impl<'key> PackageServiceSessionOwner<'key> {
         bytes: &[u8],
         expected_id: &[u8],
     ) -> Result<OwnedPackageInventorySnapshot, PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
         let trusted_key = self
             .trusted_key
             .ok_or(PackageServiceSessionOwnerError::TrustUnavailable)?;
@@ -350,11 +441,28 @@ impl<'key> PackageServiceSessionOwner<'key> {
         if verified_manifest != manifest {
             return Err(PackageServiceSessionOwnerError::ManifestChanged);
         }
+        let signed_package_sha256 = sha256(bytes);
+        let executable_sha256 = sha256(parsed.executable());
+        let Some(record) = self
+            .package_digests
+            .iter()
+            .flatten()
+            .find(|record| record.app_id == expected && record.generation == generation)
+        else {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        };
+        if record.signed_package_sha256 != signed_package_sha256
+            || record.executable_sha256 != executable_sha256
+        {
+            return Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch);
+        }
 
         Ok(OwnedPackageInventorySnapshot {
             manifest: verified_manifest,
             generation,
             owner_incarnation,
+            signed_package_sha256,
+            executable_sha256,
         })
     }
 
@@ -364,6 +472,7 @@ impl<'key> PackageServiceSessionOwner<'key> {
         &'owner self,
         snapshot: &OwnedPackageInventorySnapshot,
     ) -> Result<PackageServiceGenerationLease<'owner>, PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
         let trusted_key = self
             .trusted_key
             .ok_or(PackageServiceSessionOwnerError::TrustUnavailable)?;
@@ -411,13 +520,31 @@ impl<'key> PackageServiceSessionOwner<'key> {
         if current_package.manifest != snapshot.manifest {
             return Err(PackageServiceSessionOwnerError::ManifestChanged);
         }
+        let Some(record) = self.package_digests.iter().flatten().find(|record| {
+            record.app_id == snapshot.app_id() && record.generation == snapshot.generation
+        }) else {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        };
+        if record.signed_package_sha256 != snapshot.signed_package_sha256
+            || record.executable_sha256 != snapshot.executable_sha256
+        {
+            return Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch);
+        }
 
         Ok(PackageServiceGenerationLease {
             inventory: &self.inventory,
             snapshot: *snapshot,
+            quarantined: Arc::clone(&self.quarantined),
         })
     }
 
     /// Consume the owner after the lifecycle owner has handled process cleanup.
     pub fn end_session(self) {}
+}
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    let digest = Sha256::digest(bytes);
+    let mut result = [0; 32];
+    result.copy_from_slice(&digest);
+    result
 }

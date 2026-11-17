@@ -44,6 +44,55 @@ pub struct ValidatedSystemServiceDescriptor {
     transition: GenerationTransition,
 }
 
+/// Path-free C3 input. The artifact pathname is intentionally excluded so a
+/// launch owner can only consume the immutable executable bytes from the
+/// authenticated package binding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SystemServiceLaunchMetadata {
+    service_id: ServiceId,
+    package_id: String,
+    package_app_id: AppId,
+    canonical_entry: String,
+    expected_sha256: String,
+    uid: u32,
+    gid: u32,
+    generation: NonZeroU64,
+}
+
+impl SystemServiceLaunchMetadata {
+    pub fn service_id(&self) -> &ServiceId {
+        &self.service_id
+    }
+
+    pub fn role(&self) -> PrincipalKind {
+        PrincipalKind::SystemService
+    }
+
+    pub fn package_id(&self) -> &str {
+        &self.package_id
+    }
+
+    pub fn package_app_id(&self) -> AppId {
+        self.package_app_id
+    }
+
+    pub fn canonical_entry(&self) -> &str {
+        &self.canonical_entry
+    }
+
+    pub fn expected_sha256(&self) -> &str {
+        &self.expected_sha256
+    }
+
+    pub fn credentials(&self) -> (u32, u32) {
+        (self.uid, self.gid)
+    }
+
+    pub fn generation(&self) -> NonZeroU64 {
+        self.generation
+    }
+}
+
 impl ValidatedSystemServiceDescriptor {
     pub fn service_id(&self) -> &ServiceId {
         &self.service_id
@@ -83,6 +132,19 @@ impl ValidatedSystemServiceDescriptor {
 
     pub fn transition(&self) -> GenerationTransition {
         self.transition
+    }
+
+    pub fn launch_metadata(&self) -> SystemServiceLaunchMetadata {
+        SystemServiceLaunchMetadata {
+            service_id: self.service_id.clone(),
+            package_id: self.package_id.clone(),
+            package_app_id: self.package_app_id(),
+            canonical_entry: self.canonical_entry.clone(),
+            expected_sha256: self.expected_sha256.clone(),
+            uid: self.uid,
+            gid: self.gid,
+            generation: self.generation,
+        }
     }
 
     pub fn artifact_preflight_request(&self) -> ArtifactPreflightRequest {

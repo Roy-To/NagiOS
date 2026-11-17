@@ -18,11 +18,15 @@ const MANIFEST: &[u8] =
     b"id=org.nagi.fixture\nname=Fixture\nversion=1.0.0\nentry=fixture.elf\nsurfaces=compact\n";
 
 fn signed_package(manifest: &[u8], key: &SigningKey) -> Vec<u8> {
+    signed_package_with_executable(manifest, b"fixture ELF bytes", key)
+}
+
+fn signed_package_with_executable(manifest: &[u8], executable: &[u8], key: &SigningKey) -> Vec<u8> {
     let mut bytes = [0; MAX_PACKAGE_BYTES];
     let placeholder = [0; SIGNATURE_BYTES];
     let length = build_xapp(
         manifest,
-        b"fixture ELF bytes",
+        executable,
         b"",
         b"",
         b"",
@@ -201,6 +205,130 @@ fn session_owner_adopts_before_first_install_and_fences_stale_or_foreign_snapsho
     assert_eq!(
         owner.lease_for_dispatch(&current_snapshot).err(),
         Some(PackageServiceSessionOwnerError::NotInstalled)
+    );
+}
+
+#[test]
+fn quarantined_generation_rejects_retry_and_all_package_mutations() {
+    let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
+    let trusted_key = signing_key.verifying_key().to_bytes();
+    let initial = signed_package(MANIFEST, &signing_key);
+    let replacement = signed_package(
+        b"id=org.nagi.fixture\nname=Fixture\nversion=2.0.0\nentry=fixture.elf\nsurfaces=compact\n",
+        &signing_key,
+    );
+    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    owner
+        .install(
+            &initial,
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+        )
+        .unwrap();
+    let snapshot = owner.capture(&initial, b"org.nagi.fixture").unwrap();
+    let lease = owner.lease_for_dispatch(&snapshot).unwrap();
+
+    // Simulates the launch owner failing to prove exact process termination.
+    // Quarantine is enforced by the real package session owner, not by a mock.
+    lease.quarantine();
+
+    assert_eq!(
+        owner.capture(&initial, b"org.nagi.fixture"),
+        Err(PackageServiceSessionOwnerError::Quarantined)
+    );
+    assert_eq!(
+        owner.lease_for_dispatch(&snapshot).err(),
+        Some(PackageServiceSessionOwnerError::Quarantined)
+    );
+    assert_eq!(
+        owner.install(
+            &replacement,
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+        ),
+        Err(PackageServiceSessionOwnerError::Quarantined)
+    );
+    assert_eq!(
+        owner.remove(AppId::from_identifier(b"org.nagi.fixture")),
+        Err(PackageServiceSessionOwnerError::Quarantined)
+    );
+
+    assert_eq!(
+        owner.reconcile_quarantine_after(|| Err::<(), _>("C1/C3 state unresolved")),
+        Err("C1/C3 state unresolved")
+    );
+    assert_eq!(
+        owner.capture(&initial, b"org.nagi.fixture"),
+        Err(PackageServiceSessionOwnerError::Quarantined)
+    );
+    owner
+        .reconcile_quarantine_after(|| Ok::<(), &str>(()))
+        .unwrap();
+    assert_eq!(
+        owner
+            .capture(&initial, b"org.nagi.fixture")
+            .unwrap()
+            .generation(),
+        1
+    );
+}
+
+#[test]
+fn generation_lease_binds_the_exact_signed_executable_bytes() {
+    let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
+    let trusted_key = signing_key.verifying_key().to_bytes();
+    let package_a = signed_package_with_executable(MANIFEST, b"executable A", &signing_key);
+    let package_b = signed_package_with_executable(MANIFEST, b"executable B", &signing_key);
+    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    owner
+        .install(
+            &package_a,
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+        )
+        .unwrap();
+    let snapshot_a = owner.capture(&package_a, b"org.nagi.fixture").unwrap();
+
+    assert_eq!(
+        owner.capture(&package_b, b"org.nagi.fixture"),
+        Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch)
+    );
+    assert_eq!(
+        owner
+            .capture(&package_a, b"org.nagi.fixture")
+            .unwrap()
+            .generation(),
+        1
+    );
+
+    let replacement = owner
+        .install(
+            &package_b,
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+        )
+        .unwrap();
+    assert!(replacement.replaced);
+    assert_eq!(
+        owner.lease_for_dispatch(&snapshot_a).err(),
+        Some(PackageServiceSessionOwnerError::StaleGeneration {
+            captured: 1,
+            current: 2,
+        })
+    );
+    let snapshot_b = owner.capture(&package_b, b"org.nagi.fixture").unwrap();
+    assert_eq!(snapshot_b.generation(), 2);
+    assert_ne!(
+        snapshot_a.signed_package_sha256(),
+        snapshot_b.signed_package_sha256()
     );
 }
 
