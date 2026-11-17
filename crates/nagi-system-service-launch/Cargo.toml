@@ -6,6 +6,8 @@ publish = false
 
 [dependencies]
 nagi-capability = { path = "../nagi-capability" }
+nagi-identity-session = { path = "../nagi-identity-session" }
+nagi-init-spawn-contract = { path = "../nagi-init-spawn-contract" }
 nagi-init-package-provider = { path = "../../user/nagi-init-package-provider" }
 nagi-model = { path = "../nagi-model" }
 nagi-package = { path = "../../user/nagi-package" }

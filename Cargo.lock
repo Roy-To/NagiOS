@@ -468,6 +468,7 @@ dependencies = [
  "ed25519-dalek",
  "nagi-model",
  "nagi-package",
+ "sha2",
 ]
 
 [[package]]

@@ -13,12 +13,15 @@ mod preflight;
 
 pub use descriptor::{
     validate_descriptor_json, ArtifactPreflightRequest, DescriptorError, GenerationTransition,
-    ValidatedSystemServiceDescriptor, SYSTEM_SERVICE_TARGET,
+    SystemServiceLaunchMetadata, ValidatedSystemServiceDescriptor, SYSTEM_SERVICE_TARGET,
 };
 pub use launch::{
-    launch_identity_service, ArtifactPreflight, C1RecoveryFailure, C1SystemServiceRecoveryClient,
-    LaunchError, LaunchPortError, ProofValidationError, SystemServiceLaunchOwner,
-    SystemServiceRuntime, TrustedSystemServiceCatalog,
+    launch_identity_service, reconcile_identity_service, ArtifactPreflight,
+    AuthenticatedSystemServiceCatalogBinding, C1RecoveryFailure, C1SystemServiceRecoveryClient,
+    LaunchError, LaunchPortError, LifecycleFinish, ProofValidationError, RecoveryGateError,
+    ReservationError, SystemServiceAdmissionError, SystemServiceLaunchLifecycle,
+    SystemServiceLaunchOwner, SystemServiceReconciliationGate, SystemServiceRecoveryAdmission,
+    SystemServiceRecoveryGate, SystemServiceRuntime, TrustedSystemServiceCatalog,
 };
 pub use package_binding::{
     bind_installed_service_package, PackageBindingError, VerifiedServicePackageBinding,
