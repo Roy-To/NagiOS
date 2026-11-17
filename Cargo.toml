@@ -9,6 +9,7 @@ members = [
     "crates/nagi-i18n",
     "crates/nagi-action-ipc",
     "crates/nagi-search-ipc",
+    "crates/nagi-job-scheduler",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
@@ -25,6 +26,7 @@ members = [
     "user/nagi-search",
     "services/nagi-ai",
     "user/nagi-servo",
+    "user/nagi-init-package-provider",
     "user/nagi-init",
     "user/nagi-isolated-app",
 ]
@@ -32,7 +34,18 @@ default-members = [
     "tools/nagi-cli",
     "crates/nagi-bootinfo",
 ]
-exclude = ["third_party/relibc", "third_party/servo"]
+exclude = [
+    "third_party/relibc",
+    "third_party/servo",
+    # These standalone packages have their own Cargo workspaces. They are
+    # consumed by path from the Linux init integration crates, but must not
+    # also be discovered as nested members of the repository workspace.
+    "crates/nagi-capability",
+    "crates/nagi-service-contract",
+    "crates/nagi-nipc-v1-stream",
+    "crates/nagi-init-service-call",
+    "tools/linux-boot/kernel-dev-20261115/package-identity-negative-20261115",
+]
 
 # Servo's pinned libc is materialized and patched by `nagi fetch`. Keep the
 # parent workspace on that same Nagi-owned source when the target-local Servo

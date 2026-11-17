@@ -569,13 +569,17 @@ impl<D: BlockDevice> Vfs<D> {
         let mut offset = 0;
         let mut count = 0;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let inode = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
+                || name_length > MAX_NAME_LENGTH
             {
                 return Err(StorageError::Corrupt);
             }
@@ -830,12 +834,15 @@ impl<D: BlockDevice> Vfs<D> {
         self.read_block(directory_inode.direct_block, &mut directory)?;
         let mut offset = 0;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let inode = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
             {
                 return Err(StorageError::Corrupt);
@@ -861,12 +868,15 @@ impl<D: BlockDevice> Vfs<D> {
         let required = align4(8 + name.len());
         let mut offset = 0;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let current_inode = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
             {
                 return Err(StorageError::Corrupt);
@@ -904,12 +914,15 @@ impl<D: BlockDevice> Vfs<D> {
         self.read_block(block, &mut directory)?;
         let mut offset = 0;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let inode = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
             {
                 return Err(StorageError::Corrupt);
@@ -1061,12 +1074,15 @@ impl<D: BlockDevice> Vfs<D> {
         self.read_block(block, &mut directory)?;
         let mut offset = 0;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let inode = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
             {
                 return Err(StorageError::Corrupt);
@@ -1738,12 +1754,15 @@ fn check_vfs_integrity<D: ReadOnlyBlockDevice>(
         let mut dot_dot_count = 0u8;
         let mut dot_dot_inode = 0u32;
         while offset < BLOCK_SIZE {
+            if BLOCK_SIZE - offset < 8 {
+                return Err(StorageError::Corrupt);
+            }
             let target = read_u32(&directory, offset);
             let record_length = usize::from(read_u16(&directory, offset + 4));
             let name_length = usize::from(read_u8(&directory, offset + 6));
             if record_length < 8
                 || record_length % 4 != 0
-                || offset + record_length > BLOCK_SIZE
+                || record_length > BLOCK_SIZE - offset
                 || name_length > record_length - 8
                 || name_length > MAX_NAME_LENGTH
             {
@@ -2604,6 +2623,167 @@ mod tests {
             .read(handle, &mut remounted)
             .expect("remounted read");
         assert_eq!(&remounted[..length], payload);
+    }
+
+    #[test]
+    fn directory_listing_rejects_name_length_larger_than_entry_storage() {
+        let (mut volume, formatted) =
+            Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        volume
+            .mkdir_path(b"/notes")
+            .expect("create notes directory");
+        let revision_name = b"rev-00000000000000000001.md";
+        let revision_path = [b"/notes/".as_slice(), revision_name].concat();
+        volume
+            .create_path(&revision_path)
+            .expect("create revision entry");
+
+        let notes_inode = volume.resolve_path(b"/notes").expect("resolve notes");
+        let notes_block = volume
+            .read_inode(notes_inode)
+            .expect("read notes inode")
+            .direct_block;
+        let mut directory = [0; BLOCK_SIZE];
+        volume
+            .read_block(notes_block, &mut directory)
+            .expect("read notes directory");
+
+        let mut offset = 0;
+        let mut revision_offset = None;
+        while offset < BLOCK_SIZE {
+            let inode = super::read_u32(&directory, offset);
+            let record_length = usize::from(super::read_u16(&directory, offset + 4));
+            let name_length = usize::from(super::read_u8(&directory, offset + 6));
+            if inode != 0
+                && name_length == revision_name.len()
+                && &directory[offset + 8..offset + 8 + name_length] == revision_name
+            {
+                revision_offset = Some(offset);
+                break;
+            }
+            assert!(record_length >= 8, "fixture directory record is malformed");
+            offset += record_length;
+        }
+        let revision_offset = revision_offset.expect("revision directory record");
+        let original_record_length = usize::from(super::read_u16(&directory, revision_offset + 4));
+        assert_eq!(original_record_length, 36);
+        let free_offset = revision_offset + original_record_length;
+        assert_eq!(super::read_u32(&directory, free_offset), 0);
+        let free_length = usize::from(super::read_u16(&directory, free_offset + 4));
+        assert_eq!(free_offset + free_length, BLOCK_SIZE);
+
+        // Build a structurally bounded record whose name fits in its record
+        // but exceeds DirectoryEntry.name's 32-byte destination.
+        super::write_u16(&mut directory, revision_offset + 4, 44);
+        super::write_u8(&mut directory, revision_offset + 6, 33);
+        let shifted_free_offset = revision_offset + 44;
+        let shifted_free_length = free_length - 8;
+        super::write_u32(&mut directory, shifted_free_offset, 0);
+        super::write_u16(
+            &mut directory,
+            shifted_free_offset + 4,
+            shifted_free_length as u16,
+        );
+        super::write_u8(&mut directory, shifted_free_offset + 6, 0);
+        super::write_u8(&mut directory, shifted_free_offset + 7, 0);
+        assert_eq!(shifted_free_offset + shifted_free_length, BLOCK_SIZE);
+        volume
+            .write_block(notes_block, &directory)
+            .expect("write disposable malformed directory");
+
+        let mut entries = [DirectoryEntry::empty(); 8];
+        assert_eq!(
+            volume.list_directory_path(b"/notes", &mut entries),
+            Err(StorageError::Corrupt)
+        );
+    }
+
+    #[test]
+    fn directory_parsers_reject_short_tail_headers_and_cross_block_records() {
+        for bad_record_length in [1020_u16, 1028_u16] {
+            let (mut volume, formatted) =
+                Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+            assert!(formatted);
+            let mut root = [0; BLOCK_SIZE];
+            volume
+                .read_block(ROOT_DIRECTORY_BLOCK, &mut root)
+                .expect("read root directory");
+            super::write_u16(&mut root, 4, bad_record_length);
+            volume
+                .write_block(ROOT_DIRECTORY_BLOCK, &root)
+                .expect("write malformed root record");
+
+            assert_eq!(volume.open(b"missing"), Err(StorageError::Corrupt));
+            let mut entries = [DirectoryEntry::empty(); 8];
+            assert_eq!(volume.list_root(&mut entries), Err(StorageError::Corrupt));
+            let mut device = volume.into_device();
+            assert_eq!(
+                Vfs::<MemoryBlockDevice>::check_existing(&mut device),
+                Err(StorageError::Corrupt)
+            );
+        }
+    }
+
+    #[test]
+    fn directory_mutation_and_empty_scans_reject_short_tail_without_writes() {
+        let (mut volume, formatted) =
+            Vfs::mount_or_format(MemoryBlockDevice::new()).expect("format");
+        assert!(formatted);
+        volume
+            .mkdir_path(b"/notes")
+            .expect("create notes directory");
+        volume
+            .mkdir_path(b"/notes/target")
+            .expect("create note directory");
+        let revision_name = b"rev-00000000000000000001.md";
+        let revision_path = [b"/notes/target/".as_slice(), revision_name].concat();
+        let revision = volume
+            .create_path(&revision_path)
+            .expect("create revision entry");
+        let note_directory_inode = volume
+            .metadata_path(b"/notes/target")
+            .expect("note directory metadata")
+            .inode;
+        let note_directory_block = volume
+            .read_inode(note_directory_inode)
+            .expect("note directory inode")
+            .direct_block;
+        let mut directory = [0; BLOCK_SIZE];
+        volume
+            .read_block(note_directory_block, &mut directory)
+            .expect("read note directory");
+        assert_eq!(super::read_u16(&directory, 4), 12);
+        super::write_u16(&mut directory, 4, 1020);
+        volume
+            .write_block(note_directory_block, &directory)
+            .expect("write short-tail corruption");
+
+        let writes_before = volume.device.writes;
+        let sectors_before = volume.device.sectors;
+        assert_eq!(
+            volume.add_directory_entry_in_directory(
+                note_directory_inode,
+                b"new.md",
+                revision.inode(),
+                1,
+            ),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(
+            volume.create_path(b"/notes/target/new.md"),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(
+            volume.remove_path(&revision_path),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(
+            volume.rmdir_path(b"/notes/target"),
+            Err(StorageError::Corrupt)
+        );
+        assert_eq!(volume.device.writes, writes_before);
+        assert_eq!(volume.device.sectors, sectors_before);
     }
 
     #[test]

@@ -6,6 +6,12 @@ build = "build.rs"
 publish = false
 
 [features]
+production-session = []
+linux-service-action-bridge = [
+    "dep:nagi-action-ipc",
+    "dep:nagi-init-service-call",
+    "dep:nagi-service-contract",
+]
 m8-shell = []
 m9-window = []
 m10-desktop = []
@@ -65,7 +71,7 @@ m26-gemma-artifact-acceptance = ["m20-model-store-acceptance"]
 [[bin]]
 name = "nagi-init"
 path = "src/main.rs"
-test = false
+test = true
 bench = false
 
 [dependencies]
@@ -77,6 +83,7 @@ nagi-clipboard = { path = "../nagi-clipboard", optional = true }
 nagi-model-manager = { path = "../nagi-model-manager", optional = true }
 nagi-localization = { path = "../nagi-localization" }
 nagi-package = { path = "../nagi-package" }
+nagi-init-package-provider = { path = "../nagi-init-package-provider" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-ui = { path = "../nagi-ui" }
 nagi-net = { path = "../nagi-net" }
@@ -85,6 +92,8 @@ nagi-posix = { path = "../nagi-posix" }
 nagi-search = { path = "../nagi-search", optional = true }
 nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
+nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
+nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }

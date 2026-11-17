@@ -409,11 +409,11 @@ pub fn execute(args: &[String], root: &Path) -> CommandResult {
             result.previous_status = previous.get(&result.case.id).cloned();
             result.regressed = is_regression(result.status, result.previous_status.as_deref());
             if result.regressed {
-                println!(
+                write_stdout_line(format_args!(
                     "REGRESSION {}: previous PASS -> current {}",
                     result.case.id,
                     result.status.as_str()
-                );
+                ));
             }
         }
     }
@@ -626,13 +626,13 @@ fn run_case(root: &Path, case: &AcceptanceCase, log_directory: &Path, verbose: b
         None
     };
     let command_description = command_description(&script_relative, powershell.as_deref());
-    println!(
+    write_stdout_line(format_args!(
         "RUN {} [{} / {}] timeout={}s command={command_description}",
         case.id,
         case.milestone,
         case.scope.as_str(),
         case.timeout_seconds,
-    );
+    ));
     let _ = std::io::stdout().flush();
 
     if let Err(error) = log_path.parent().map(fs::create_dir_all).transpose() {
@@ -792,11 +792,11 @@ fn run_case(root: &Path, case: &AcceptanceCase, log_directory: &Path, verbose: b
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .unwrap_or_default();
     if verbose {
-        print!("--- {} output ---\n{}", case.id, output);
+        write_stdout(format_args!("--- {} output ---\n{}", case.id, output));
         if !output.ends_with('\n') {
-            println!();
+            write_stdout(format_args!("\n"));
         }
-        println!("--- end {} output ---", case.id);
+        write_stdout_line(format_args!("--- end {} output ---", case.id));
     }
 
     let (status, failure_stage, diagnostic) = classify_result(&output, status_code, timed_out);
@@ -1130,16 +1130,16 @@ fn println_result(result: &CaseResult) {
         .map(|path| format!("; log {path}"))
         .unwrap_or_default();
     match result.status {
-        Status::Pass => println!(
+        Status::Pass => write_stdout_line(format_args!(
             "PASS {} [{} / {}] {:.1}s{}",
             result.case.id,
             result.case.milestone,
             result.case.scope.as_str(),
             elapsed.as_secs_f64(),
             log
-        ),
-        Status::NotRun => println!("NOT RUN {}", result.case.id),
-        status => println!(
+        )),
+        Status::NotRun => write_stdout_line(format_args!("NOT RUN {}", result.case.id)),
+        status => write_stdout_line(format_args!(
             "{} {} [{} / {}; stage={}] {}{}",
             status.as_str(),
             result.case.id,
@@ -1151,8 +1151,20 @@ fn println_result(result: &CaseResult) {
                 .unwrap_or("unknown"),
             result.diagnostic.as_deref().unwrap_or("no diagnostic"),
             log
-        ),
+        )),
     }
+}
+
+fn write_stdout(arguments: std::fmt::Arguments<'_>) {
+    let stdout = std::io::stdout();
+    let _ = stdout.lock().write_fmt(arguments);
+}
+
+fn write_stdout_line(arguments: std::fmt::Arguments<'_>) {
+    let stdout = std::io::stdout();
+    let mut stdout = stdout.lock();
+    let _ = stdout.write_fmt(arguments);
+    let _ = stdout.write_all(b"\n");
 }
 
 fn append_github_summary(root: &Path, report_path: &Path, results: &[CaseResult], counts: &Counts) {

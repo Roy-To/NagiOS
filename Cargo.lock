@@ -3446,6 +3446,14 @@ name = "nagi-bootinfo"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-capability"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-cli"
 version = "0.1.0"
 dependencies = [
@@ -3494,6 +3502,8 @@ dependencies = [
  "nagi-audio",
  "nagi-clipboard",
  "nagi-history",
+ "nagi-init-package-provider",
+ "nagi-init-service-call",
  "nagi-localization",
  "nagi-model",
  "nagi-model-manager",
@@ -3504,8 +3514,29 @@ dependencies = [
  "nagi-sdk",
  "nagi-search",
  "nagi-search-ipc",
+ "nagi-service-contract",
  "nagi-ui",
  "relibc",
+]
+
+[[package]]
+name = "nagi-init-package-provider"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "nagi-model",
+ "nagi-package",
+]
+
+[[package]]
+name = "nagi-init-service-call"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+ "nagi-action-ipc",
+ "nagi-nipc-v1-stream",
+ "nagi-sdk",
+ "nagi-service-contract",
 ]
 
 [[package]]
@@ -3515,6 +3546,16 @@ dependencies = [
  "nagi-abi",
  "nagi-action-ipc",
  "nagi-search-ipc",
+]
+
+[[package]]
+name = "nagi-job-scheduler"
+version = "0.2.0"
+dependencies = [
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3549,6 +3590,13 @@ version = "0.1.0"
 dependencies = [
  "libnagi",
  "smoltcp",
+]
+
+[[package]]
+name = "nagi-nipc-v1-stream"
+version = "0.1.0"
+dependencies = [
+ "nagi-sdk",
 ]
 
 [[package]]
@@ -3596,6 +3644,13 @@ name = "nagi-search-ipc"
 version = "0.1.0"
 dependencies = [
  "nagi-abi",
+]
+
+[[package]]
+name = "nagi-service-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-capability",
 ]
 
 [[package]]

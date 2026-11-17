@@ -162,7 +162,20 @@ pub trait ModelBackend {
         sink: &mut dyn TextChunkSink,
     ) -> Result<TokenUsage, RuntimeError>;
 
+    /// Existing consuming cleanup hook used by `ModelRuntime`.
+    ///
+    /// This signature remains stable for current backend implementations.
     fn unload(&mut self, session: Self::Session) -> Result<(), RuntimeError>;
+
+    /// Retryable cleanup hook for the additive resident-service path.
+    ///
+    /// On error, the session remains owned by the caller for cleanup retry.
+    /// Existing backends compile unchanged and fail closed for resident cleanup
+    /// until they explicitly implement this hook. Session types must still own
+    /// resources and provide a final RAII cleanup fallback.
+    fn unload_resident(&mut self, _session: &mut Self::Session) -> Result<(), RuntimeError> {
+        Err(RuntimeError::UnloadFailed)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -397,6 +410,82 @@ impl<B: ModelBackend> ModelRuntime<B> {
         Ok(())
     }
 
+    fn load_verified_installed<'runtime, R, A, S>(
+        &'runtime mut self,
+        reader: &mut crate::installed_selection::VerifiedLoadReader<'_, '_, R, A, S>,
+        target_architecture: &str,
+    ) -> Result<LoadedSession<'runtime, B>, RuntimeError>
+    where
+        R: crate::AuthenticatedImmutableArtifact,
+        A: crate::LiveAuthority,
+        S: crate::TrustedInstalledModels<Lease = R>,
+    {
+        use crate::{InstalledLoadPhase as Phase, PrivateInstalledStage as Stage};
+        let manifest = reader.manifest().clone();
+        reader.stage(Stage::RuntimeProofBegin, Phase::BeforeLoad)?;
+        self.validate(&manifest, reader, target_architecture)?;
+        reader.checkpoint()?;
+        reader.stage(Stage::RuntimeProofDone, Phase::BeforeLoad)?;
+        let backend_capabilities = self.backend.descriptor().capabilities.clone();
+        reader.checkpoint()?;
+        reader.stage(Stage::BackendLoadBegin, Phase::BeforeLoad)?;
+        let session = self.backend.load(&manifest, reader)?;
+        // Transfer to resident ownership before any fallible post-load callback.
+        // Resident caller performs final gates, preserving failed-cleanup ownership.
+        Ok(LoadedSession {
+            backend: &mut self.backend,
+            session: Some(session),
+            model_id: manifest.model_id.clone(),
+            provider_id: manifest.provider.provider_id.clone(),
+            capabilities: manifest.capabilities.clone(),
+            backend_capabilities,
+            max_input_tokens: manifest.context.max_input_tokens,
+            max_output_tokens: manifest.context.max_output_tokens,
+        })
+    }
+
+    fn load_observed_installed<'runtime, R, A, S>(
+        &'runtime mut self,
+        reader: &mut crate::installed_selection::LegacyLoadReader<'_, '_, '_, R, A, S>,
+        target_architecture: &str,
+    ) -> Result<LoadedSession<'runtime, B>, RuntimeError>
+    where
+        R: crate::ModelStoreArtifact,
+        A: crate::LiveAuthority,
+        S: crate::TrustedInstalledModels<Lease = R>,
+    {
+        use crate::{InstalledLoadPhase as Phase, PrivateInstalledStage as Stage};
+        let manifest = reader.manifest().clone();
+        reader.stage(Stage::RuntimeVerifyBegin, Phase::BeforeLoad)?;
+        self.validate(&manifest, reader, target_architecture)?;
+        verify_model_artifact_integrity(
+            reader,
+            manifest
+                .artifact
+                .integrity
+                .as_ref()
+                .ok_or(RuntimeError::IntegrityRequired)?,
+        )?;
+        reader.checkpoint()?;
+        reader.stage(Stage::RuntimeVerifyDone, Phase::BeforeLoad)?;
+        let backend_capabilities = self.backend.descriptor().capabilities.clone();
+        reader.checkpoint()?;
+        reader.stage(Stage::BackendLoadBegin, Phase::BeforeLoad)?;
+        let session = self.backend.load(&manifest, reader)?;
+        // Transfer to resident ownership before any fallible post-load callback.
+        // Resident caller performs final gates, preserving failed-cleanup ownership.
+        Ok(LoadedSession {
+            backend: &mut self.backend,
+            session: Some(session),
+            model_id: manifest.model_id.clone(),
+            provider_id: manifest.provider.provider_id.clone(),
+            capabilities: manifest.capabilities.clone(),
+            backend_capabilities,
+            max_input_tokens: manifest.context.max_input_tokens,
+            max_output_tokens: manifest.context.max_output_tokens,
+        })
+    }
+
     pub fn load<'runtime>(
         &'runtime mut self,
         manifest: &ModelManifest,
@@ -591,6 +680,200 @@ impl<B: ModelBackend> Drop for LoadedSession<'_, B> {
         if let Some(session) = self.session.take() {
             let _ = self.backend.unload(session);
         }
+    }
+}
+
+/// An owned runtime with at most one resident model. It reuses the checked
+/// `LoadedSession` path without a self-referential borrow, so a desktop service
+/// can retain its model between requests and release it on lock or pressure.
+pub struct ResidentModelRuntime<B: ModelBackend> {
+    runtime: ModelRuntime<B>,
+    resident: Option<ResidentSession<B::Session>>,
+    poisoned: bool,
+}
+
+struct ResidentSession<S> {
+    session: Option<S>,
+    manifest: ModelManifest,
+}
+
+impl<B: ModelBackend> ResidentModelRuntime<B> {
+    pub const fn new(backend: B) -> Self {
+        Self {
+            runtime: ModelRuntime::new(backend),
+            resident: None,
+            poisoned: false,
+        }
+    }
+
+    pub fn backend(&self) -> &B {
+        self.runtime.backend()
+    }
+    #[cfg(test)]
+    pub(crate) fn backend_mut_for_proof_test(&mut self) -> &mut B {
+        &mut self.runtime.backend
+    }
+
+    pub fn model_id(&self) -> Option<&ModelId> {
+        self.resident
+            .as_ref()
+            .map(|resident| &resident.manifest.model_id)
+    }
+
+    pub fn health(&self) -> BackendHealth {
+        if self.poisoned {
+            BackendHealth::Unavailable
+        } else {
+            self.runtime.health()
+        }
+    }
+
+    pub fn resource_report(&self) -> RuntimeResourceReport {
+        self.runtime.resource_report()
+    }
+
+    pub fn load(
+        &mut self,
+        manifest: &ModelManifest,
+        artifact: &mut dyn ModelArtifactReader,
+        target_architecture: &str,
+    ) -> Result<(), RuntimeError> {
+        if self.resident.is_some() || self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        let mut session = self.runtime.load(manifest, artifact, target_architecture)?;
+        self.resident = Some(ResidentSession {
+            session: session.session.take(),
+            manifest: manifest.clone(),
+        });
+        Ok(())
+    }
+
+    pub(crate) fn load_verified_installed<R, A, S>(
+        &mut self,
+        mut reader: crate::installed_selection::VerifiedLoadReader<'_, '_, R, A, S>,
+        target_architecture: &str,
+    ) -> Result<(), RuntimeError>
+    where
+        R: crate::AuthenticatedImmutableArtifact,
+        A: crate::LiveAuthority,
+        S: crate::TrustedInstalledModels<Lease = R>,
+    {
+        if self.resident.is_some() || self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        let manifest = reader.manifest().clone();
+        let mut session = self
+            .runtime
+            .load_verified_installed(&mut reader, target_architecture)?;
+        self.resident = Some(ResidentSession {
+            session: session.session.take(),
+            manifest,
+        });
+        drop(session);
+        reader.checkpoint()?;
+        reader.stage(
+            crate::PrivateInstalledStage::BackendLoadDone,
+            crate::InstalledLoadPhase::Loaded,
+        )?;
+        reader.checkpoint()
+    }
+
+    pub(crate) fn load_observed_installed<R, A, S>(
+        &mut self,
+        mut reader: crate::installed_selection::LegacyLoadReader<'_, '_, '_, R, A, S>,
+        target_architecture: &str,
+    ) -> Result<(), RuntimeError>
+    where
+        R: crate::ModelStoreArtifact,
+        A: crate::LiveAuthority,
+        S: crate::TrustedInstalledModels<Lease = R>,
+    {
+        if self.resident.is_some() || self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        let manifest = reader.manifest().clone();
+        let mut session = self
+            .runtime
+            .load_observed_installed(&mut reader, target_architecture)?;
+        self.resident = Some(ResidentSession {
+            session: session.session.take(),
+            manifest,
+        });
+        drop(session);
+        reader.checkpoint()?;
+        reader.stage(
+            crate::PrivateInstalledStage::BackendLoadDone,
+            crate::InstalledLoadPhase::Loaded,
+        )?;
+        reader.checkpoint()
+    }
+
+    fn with_session<T>(
+        &mut self,
+        invoke: impl FnOnce(&mut LoadedSession<'_, B>) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        let resident = self.resident.as_mut().ok_or(RuntimeError::SessionClosed)?;
+        let manifest = &resident.manifest;
+        let backend_capabilities = self.runtime.backend.descriptor().capabilities.clone();
+        let mut session = LoadedSession {
+            backend: &mut self.runtime.backend,
+            session: resident.session.take(),
+            model_id: manifest.model_id.clone(),
+            provider_id: manifest.provider.provider_id.clone(),
+            capabilities: manifest.capabilities.clone(),
+            backend_capabilities,
+            max_input_tokens: manifest.context.max_input_tokens,
+            max_output_tokens: manifest.context.max_output_tokens,
+        };
+        let result = invoke(&mut session);
+        resident.session = session.session.take();
+        result
+    }
+
+    pub fn generate(
+        &mut self,
+        request: &ModelRequest<'_>,
+        cancellation: &dyn CancellationToken,
+    ) -> Result<ModelResponse, RuntimeError> {
+        if self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        self.with_session(|session| session.generate(request, cancellation))
+    }
+
+    pub fn generate_stream(
+        &mut self,
+        request: &ModelRequest<'_>,
+        cancellation: &dyn CancellationToken,
+        sink: &mut dyn TextChunkSink,
+    ) -> Result<ModelStreamResponse, RuntimeError> {
+        if self.poisoned {
+            return Err(RuntimeError::BackendUnavailable);
+        }
+        self.with_session(|session| session.generate_stream(request, cancellation, sink))
+    }
+
+    pub fn unload(&mut self) -> Result<(), RuntimeError> {
+        let Some(resident) = self.resident.as_mut() else {
+            return Ok(());
+        };
+        if let Some(session) = resident.session.as_mut() {
+            if let Err(error) = self.runtime.backend.unload_resident(session) {
+                self.poisoned = true;
+                return Err(error);
+            }
+        }
+        self.resident = None;
+        Ok(())
+    }
+}
+
+impl<B: ModelBackend> Drop for ResidentModelRuntime<B> {
+    fn drop(&mut self) {
+        let _ = self.unload();
+        // Drop the final session owner while the backend is still alive.
+        drop(self.resident.take());
     }
 }
 
