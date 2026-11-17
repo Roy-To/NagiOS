@@ -1,0 +1,8 @@
+// Generated from the NDP-02 Level 0 contract; metadata only, no runtime adapter.
+#![no_std]
+
+use nagi_sdk::app_contract::{AppError, AppIdentity, AppOrigin};
+
+pub fn identity() -> Result<AppIdentity<'static>, AppError> {
+    AppIdentity::new("${app_id}", "${app_version}", AppOrigin::ThirdParty, None)
+}
