@@ -1,0 +1,64 @@
+warning: unexpected `cfg` condition value: `nagi`
+   --> <repo>/third_party/libc/src/unix/mod.rs:554:21
+    |
+554 |     } else if #[cfg(target_os = "nagi")] {
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `netbsd`, `none`, `nto`, `nuttx`, `ohos`, `openbsd`, `psp`, `psx`, `redox`, `rtems`, `solaris`, `solid_asp3`, `switch`, `teeos`, and `trusty` and 11 more
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `nagi`
+    --> <repo>/third_party/libc/src/unix/mod.rs:1870:21
+     |
+1870 |     } else if #[cfg(target_os = "nagi")] {
+     |                     ^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `netbsd`, `none`, `nto`, `nuttx`, `ohos`, `openbsd`, `psp`, `psx`, `redox`, `rtems`, `solaris`, `solid_asp3`, `switch`, `teeos`, and `trusty` and 11 more
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: function `setgroups` is never used
+    --> <repo>/third_party/libc/src/unix/linux_like/mod.rs:1946:12
+     |
+1946 |     pub fn setgroups(ngroups: size_t, ptr: *const crate::gid_t) -> c_int;
+     |            ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: `setgroups` redeclared with a different signature
+    --> <repo>/third_party/libc/src/unix/linux_like/mod.rs:1946:5
+     |
+1946 |     pub fn setgroups(ngroups: size_t, ptr: *const crate::gid_t) -> c_int;
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this signature doesn't match the previous declaration
+     |
+    ::: <repo>/third_party/libc/src/unix/mod.rs:1052:5
+     |
+1052 |     pub fn setgroups(ngroups_max: c_int, groups: *const gid_t) -> c_int;
+     |     -------------------------------------------------------------------- `setgroups` previously declared here
+     |
+     = note: expected `unsafe extern "C" fn(i32, *const u32) -> i32`
+                found `unsafe extern "C" fn(usize, *const u32) -> i32`
+     = note: `#[warn(clashing_extern_declarations)]` on by default
+
+warning: `libc` (lib) generated 4 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/real_engine.rs (crates/nagi-tts-provider/target/debug/deps/real_engine-12498624ee36859c)
+
+running 1 test
+test synthesizes_audible_japanese_stereo_48k ... FAILED
+
+failures:
+
+---- synthesizes_audible_japanese_stereo_48k stdout ----
+
+thread 'synthesizes_audible_japanese_stereo_48k' panicked at tests/real_engine.rs:29:10:
+FAIL: NAGI_TTS_VOICE is not set (run tests/m25-tts/acceptance.sh)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    synthesizes_audible_japanese_stereo_48k
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test real_engine`

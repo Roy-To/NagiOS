@@ -1,11 +1,13 @@
 pub mod acceptance;
 pub(crate) mod cc_nagi;
+pub(crate) mod cli_output;
 pub mod commands;
 pub mod config;
 pub mod development;
 pub mod diagnostics;
 pub mod doctor;
 pub mod fat32;
+pub(crate) mod fetch_progress;
 pub(crate) mod fonts;
 pub(crate) mod freetype_sys;
 pub mod gpt;
@@ -13,6 +15,9 @@ pub(crate) mod hyper_util_servo;
 pub mod image;
 pub(crate) mod libc_servo;
 pub(crate) mod llama_cpp;
+pub(crate) mod llvm_libcxx;
+#[cfg(test)]
+mod login_password_change_contract_tests;
 #[cfg(test)]
 mod m17_storage_contract_tests;
 pub(crate) mod m18_acceptance;
@@ -27,6 +32,7 @@ pub(crate) mod mozjs_sys_nagi;
 pub mod paths;
 pub(crate) mod registry_source;
 pub mod run_receipt;
+pub(crate) mod rust_std_source;
 pub(crate) mod servo;
 pub(crate) mod socket2_servo;
 pub(crate) mod surfman;

@@ -1,0 +1,131 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "host-foundations-adoption",
+  "current_milestone": "Stage 1 host foundation acceptance; merge tracked separately by PR #34",
+  "current_checkpoint": "Host Acceptance PASS; fresh full PR regression required after transient QEMU VNC port collision",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "8be5e5598f013a13d539f0e25f2862e4c3e9de8b",
+    "verified_at": "2026-10-08T15:32:45.297276+00:00",
+    "normal_state": "Host-only foundation Acceptance PASS: 137 focused tests, format/Clippy and Registry/State verification PASS on Ubuntu/Windows. All current-main command/CI gates retained. Full PR target passed M17, M18, isolated process, M19 Search/Files and Undo, then failed M27 when QEMU reported VNC Address already in use; M29/M30 were not run. M20 real Granite inference PASS. This host PASS does not claim full target CI PASS, PR merge, M30 or release completion. Latest full checkpoint CI must succeed before merge.",
+    "commands": [
+      "cargo fmt --manifest-path tools/nagi-bootstrap/Cargo.toml -- --check",
+      "cargo clippy --manifest-path tools/nagi-bootstrap/Cargo.toml --all-targets --locked -- -D warnings",
+      "cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check",
+      "cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings",
+      "./nagi dev verify"
+    ],
+    "tests": [
+      {
+        "name": "Registry + fingerprint",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib development::",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "39 tests PASS; also exercised by dedicated Ubuntu/Windows host CI."
+      },
+      {
+        "name": "Current-main commands",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --lib commands::tests",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "35 tests PASS; also exercised by dedicated Ubuntu/Windows host CI."
+      },
+      {
+        "name": "CLI compatibility",
+        "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --test cli",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "32 tests PASS; also exercised by dedicated Ubuntu/Windows host CI."
+      },
+      {
+        "name": "Standalone Legal",
+        "command": "cargo test --manifest-path tools/legal/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "31 tests PASS; also exercised by dedicated Ubuntu/Windows host CI."
+      },
+      {
+        "name": "Clean-source deterministic host artifacts",
+        "command": "export SOURCE_DATE_EPOCH=1780272000; ./nagi legal scan --json; ./nagi legal check; ./nagi legal sbom --output out/stage1-evidence/sbom-a.json; ./nagi dev fingerprint --artifact fixture=out/stage1-evidence/artifact.bin --output out/stage1-evidence/fingerprint-a.json; ./nagi dev fingerprint compare out/stage1-evidence/fingerprint-a.json out/stage1-evidence/fingerprint-b.json --json",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Clean 8be5e55 source; two SPDX outputs identical (SHA256 98854a87cfa88955db0b5e1cbf1f99733553827c5b70e7ae1fcd86fdcb912ad4), fingerprint compare PASS, changed/missing artifacts exit 4."
+      },
+      {
+        "name": "Preserved 0.1 M20 regression",
+        "command": "./nagi m20-granite-inference out/cache/models/granite-4.2-3b-Q4_K_M.gguf",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Job 113346130663 PASS: guest Model Store load and structured Granite inference acceptance; artifact 11557763379. Does not change 0.1 milestone State."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37786245593,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37786245593",
+        "head_sha": "8be5e5598f013a13d539f0e25f2862e4c3e9de8b",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Dedicated Ubuntu/Windows host foundation checks PASS."
+      },
+      {
+        "run_id": 37786245585,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37786245585",
+        "head_sha": "8be5e5598f013a13d539f0e25f2862e4c3e9de8b",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Both host jobs and M20 inference PASS. Target failed M27: QEMU VNC=127.0.0.1:39419 Address already in use, then QMP connection reset. M29/M30 not run. Fresh latest-checkpoint CI must pass before merge."
+      },
+      {
+        "run_id": 37786238232,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37786238232",
+        "head_sha": "8be5e5598f013a13d539f0e25f2862e4c3e9de8b",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Full push CI host checks PASS; target appropriately skipped for CI-only repair commit."
+      },
+      {
+        "run_id": 37785415269,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37785415269",
+        "head_sha": "de73b115e8024cadeca25bd094340dcda78500fb",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Historical offline Legal cache failure; dependency preparation repaired and all host checks subsequently PASS."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "origin/main@1118f13dc6badf19b10a628eda244f8a0a635237:docs/implementation_status.md (latest fetched refs; only workstream spec additions since 9e06967)",
+    "last_checked_at": "2026-10-08T12:46:06.404812+00:00",
+    "activation_requirement": "0.1 M30 remains PARTIAL. No 0.2 guest/runtime before M30 PASS and explicit release boundary; this checkpoint authorizes host-only work."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "SOURCE: explicit NOTICE identity aliases preserve review records without inventing licenses or matching partial names.",
+      "CI_INFRA: standalone Legal lock differs from root lock; prime and verify standalone Legal before the full-workspace shared CLI tests.",
+      "CI_INFRA: M27 QEMU VNC port collision identified from runner stderr, not a guest acceptance assertion. Retry on a fresh runner at the new adoption checkpoint without changing 0.1 code or validation criteria."
+    ],
+    "do_not_try": [
+      "Do not write main directly; use explicitly authorized PR merge only after applicable checks pass. Do not modify Hark, kernel/loader/init, third-party sources or 0.1 acceptance.",
+      "Do not edit other owners State or implement the three app cores here.",
+      "Do not bypass any guest/release gate."
+    ]
+  },
+  "next_action": "Publish this host acceptance checkpoint and require all latest PR #34 CI, including unchanged full target/M20, to PASS before authorized merge. Recheck main and protected paths. Then adopt Calendar-owned source on a separate branch/PR/State from merged main.",
+  "acceptance_criteria": [
+    "Selective reviewed host source adoption; preserve all current main functionality and 0.1 acceptance.",
+    "Host format, warnings-denied Clippy, tests, registry/State and Ubuntu/Windows CI pass.",
+    "Separate Stage 1 PR merged only after all applicable checks pass."
+  ],
+  "deferred": [
+    "No 0.2 runtime/guest/release/0.3 activation before documented gates.",
+    "Calendar implementation belongs to Stage 2, tracked separately."
+  ],
+  "cross_workstream_dependencies": []
+}

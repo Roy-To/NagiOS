@@ -1,0 +1,16 @@
+# Host type-check of user/nagi-init/src/m25_whisper.rs outside the Nagi
+# target build. `cargo check` only: it is never linked or run, the stub
+# `relibc` and the placeholder build-staged files exist only so the guest
+# module compiles, and passing it is not a guest or inference result.
+[package]
+name = "nagi-m25-whisper-guest-shape"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+nagi-audio = { path = "../../../user/nagi-audio" }
+nagi-model-manager = { path = "../../../user/nagi-model-manager" }
+relibc = { path = "relibc-stub", package = "nagi-m25-relibc-stub" }

@@ -21,6 +21,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "nagi-files-search-client"
+path = "src/bin/files_search_client.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "nagi-action-client"
 path = "src/bin/action_client.rs"
 test = false

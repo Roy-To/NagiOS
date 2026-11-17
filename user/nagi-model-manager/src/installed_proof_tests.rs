@@ -459,7 +459,9 @@ fn spent_proof_cannot_replay_or_substitute_a_reader() {
         permit: Some(()),
         failure: Cell::new(None),
     };
-    drop(proof.begin_load(&control, &m, None).unwrap());
+    {
+        let _reader = proof.begin_load(&control, &m, None).unwrap();
+    }
     assert!(matches!(
         proof.begin_load(&control, &m, None),
         Err(InstalledSelectionError::Runtime(

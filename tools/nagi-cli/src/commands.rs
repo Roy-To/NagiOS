@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::cc_nagi::ensure_cc_nagi_checkout;
+use crate::cli_output;
 use crate::config::{load_toolchain_requirements, validate_project};
 use crate::diagnostics::{
     ClosureHealthCheck, DiagnosticEvent, DiagnosticsBundle, EvidenceKind, FailureClass,
@@ -17,13 +18,14 @@ use crate::diagnostics::{
 use crate::doctor::{
     ovmf_pair_is_allowed, run_doctor_with_requirements, CheckState, DoctorPolicy, HostProbe,
 };
+use crate::image::signed_update_bundle;
 use crate::image::{
     ensure_persistent_disk, initialize_ovmf_vars, run_qemu, run_qemu_gui,
     run_qemu_gui_reusing_ovmf_vars_with_events,
     run_qemu_gui_reusing_ovmf_vars_with_events_and_serial_input,
+    run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events,
     run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events_and_serial_input,
-    run_qemu_gui_with_events, run_qemu_gui_with_events_and_screenshot,
-    run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
+    run_qemu_gui_with_events, run_qemu_gui_with_read_only_boot_disk_and_events_and_serial_input,
     run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot,
     run_qemu_interactive, run_qemu_reusing_ovmf_vars,
     run_qemu_reusing_ovmf_vars_with_read_only_boot_disk, run_qemu_until_any_acceptance_marker,
@@ -34,7 +36,11 @@ use crate::image::{
     write_m20_model_store_fixture_reference_disk_qcow2, write_m27_broken_slot_image,
     write_m27_gpt_broken_system_b_qcow2, write_m27_healthy_slot_image, write_m27_recovery_image,
     write_reference_disk_qcow2, write_reference_disk_qcow2_with_external_model_store_file,
-    ImageLayout, QemuConfig, QmpEventStage, GUEST_ACCEPTANCE_MARKER, NAGI_WRITE_MARKER,
+    ImageLayout, QemuConfig, QemuGuiOutcome, QmpEventStage, GUEST_ACCEPTANCE_MARKER,
+    NAGI_WRITE_MARKER,
+};
+use crate::image::{
+    qmp_screendump_command, run_qemu_gui_with_staged_events_and_screenshot, validate_screenshot,
 };
 use crate::llama_cpp::ensure_llama_cpp_checkout;
 use crate::mesa::ensure_mesa_checkout;
@@ -84,7 +90,25 @@ struct DesktopAcceptanceConfig {
     required_markers: &'static [&'static str],
     restart_marker: Option<&'static str>,
     restart_log_name: Option<&'static str>,
+    /// Restart markers required in order after the desktop READY marker and
+    /// before `restart_marker` (for example, the unlock screen).
+    restart_required_markers: &'static [&'static str],
+    /// What the restart marker proves, for the PASS summary.
+    restart_summary: &'static str,
     unique_run_artifacts: bool,
+    /// Build init with the signed acceptance packages (ADR 0049).
+    acceptance_packages: bool,
+    /// Also capture the first desktop frame, before any input is sent.
+    ready_screenshot_name: Option<&'static str>,
+    /// QMP input for the restart boot (for example, signing in).
+    restart_events: Vec<String>,
+    /// Restart input sent only after a guest marker: `(marker, events)`.
+    restart_stages: Vec<(&'static str, Vec<String>)>,
+    /// Input sent only after a guest marker: `(marker, events)`.
+    later_stages: Vec<(&'static str, Vec<String>)>,
+    /// Capture `ready_screenshot_name` at the start of the stage with this
+    /// marker instead of before the first input.
+    ready_screenshot_stage: Option<&'static str>,
 }
 
 /// Clipboard steps, each sent after the guest reports the previous one:
@@ -299,7 +323,10 @@ pub enum Command {
     M25,
     M27,
     M30,
+    M30Update,
     IsolatedProcess,
+    Consent,
+    Login,
     M20Granite,
     M20GraniteInference,
     M20LlamaSmoke,
@@ -313,6 +340,7 @@ pub enum Command {
     Fmt,
     Lint,
     Dev,
+    Legal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -513,7 +541,10 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "m25" => Command::M25,
         "m27" => Command::M27,
         "m30" => Command::M30,
+        "m30-update" => Command::M30Update,
         "isolated-process" => Command::IsolatedProcess,
+        "consent" => Command::Consent,
+        "login" => Command::Login,
         "m20-granite" => Command::M20Granite,
         "m20-granite-inference" => Command::M20GraniteInference,
         "m20-llama-smoke" => Command::M20LlamaSmoke,
@@ -526,6 +557,7 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         "fmt" => Command::Fmt,
         "lint" => Command::Lint,
         "dev" => Command::Dev,
+        "legal" => Command::Legal,
         other => {
             return Err(CliError::new(
                 format!("unknown command `{other}`"),
@@ -585,11 +617,14 @@ pub fn parse_command(args: &[String]) -> Result<Command, CliError> {
         | Command::M25
         | Command::M27
         | Command::M30
+        | Command::M30Update
         | Command::IsolatedProcess
+        | Command::Consent
+        | Command::Login
         | Command::Clean
         | Command::Fmt
         | Command::Lint => args.len() == 1,
-        Command::Diagnostics | Command::Verify | Command::Smoke => true,
+        Command::Diagnostics | Command::Verify | Command::Smoke | Command::Legal => true,
     };
     if !valid_arity {
         return Err(CliError::new(
@@ -758,9 +793,12 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M19 => execute_m19(root, probe),
         Command::M22 => execute_m22(root, probe),
         Command::IsolatedProcess => execute_isolated_process(root, probe),
+        Command::Consent => execute_consent(root, probe),
+        Command::Login => execute_login(root, probe),
         Command::M25 => execute_m25(root, probe),
         Command::M27 => execute_m27(root, probe),
         Command::M30 => execute_m30(root, probe),
+        Command::M30Update => execute_m30_update(root, probe),
         Command::M20Granite => execute_m20_granite(&args[1..], root, probe),
         Command::M20GraniteInference => execute_m20_granite_inference(&args[1..], root, probe),
         Command::M20LlamaSmoke => execute_m20_llama_smoke(root, probe),
@@ -769,16 +807,44 @@ pub fn execute(args: &[String], root: &Path, probe: &dyn HostProbe) -> CommandRe
         Command::M25Whisper => execute_m25_whisper(&args[1..], root, probe),
         Command::M25WhisperInference => execute_m25_whisper_inference(&args[1..], root, probe),
         Command::Dev => execute_dev(&args[1..], root),
+        Command::Legal => execute_legal(&args[1..], root),
     }
 }
 
 fn execute_dev(args: &[String], root: &Path) -> CommandResult {
+    if args.first().is_some_and(|arg| arg == "fingerprint") {
+        return crate::development::execute_fingerprint_cli(&args[1..], root);
+    }
     match crate::development::execute(args, root) {
         Ok(lines) => CommandResult {
             exit_code: EXIT_SUCCESS,
             lines,
         },
         Err(error) => failure(error.exit_code(), error.to_string()),
+    }
+}
+
+fn execute_legal(args: &[String], root: &Path) -> CommandResult {
+    // Keep the existing standalone tool and its locked dependency graph intact.
+    // Inherit its stdout/stderr and exact exit status rather than adding a PASS
+    // banner to JSON output or masking an inventory/policy failure.
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    match ProcessCommand::new(cargo)
+        .args(["run", "--quiet", "--locked", "--offline", "--manifest-path"])
+        .arg(root.join("tools/legal/Cargo.toml"))
+        .arg("--")
+        .args(args)
+        .current_dir(root)
+        .status()
+    {
+        Ok(status) => CommandResult {
+            exit_code: status.code().unwrap_or(EXIT_CONFIG_ERROR),
+            lines: Vec::new(),
+        },
+        Err(error) => failure(
+            EXIT_CONFIG_ERROR,
+            format!("legal: cannot start cargo: {error}"),
+        ),
     }
 }
 
@@ -1345,45 +1411,62 @@ fn execute_fetch(root: &Path) -> CommandResult {
             );
         }
     }
-    let llama_cpp = match ensure_llama_cpp_checkout(root) {
+    let llama_cpp =
+        match crate::fetch_progress::phase("llama.cpp", || ensure_llama_cpp_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let whisper_cpp =
+        match crate::fetch_progress::phase("whisper.cpp", || ensure_whisper_cpp_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let surfman = match crate::fetch_progress::phase("surfman", || ensure_surfman_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let whisper_cpp = match ensure_whisper_cpp_checkout(root) {
+    let tempfile_nagi =
+        match crate::fetch_progress::phase("tempfile", || ensure_tempfile_nagi_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let mozjs_sys_nagi =
+        match crate::fetch_progress::phase("mozjs_sys", || ensure_mozjs_sys_nagi_checkout(root)) {
+            Ok(path) => path,
+            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
+        };
+    let cc_nagi = match crate::fetch_progress::phase("cc", || ensure_cc_nagi_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let surfman = match ensure_surfman_checkout(root) {
+    let servo = match crate::fetch_progress::phase("servo", || ensure_servo_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
-    let tempfile_nagi = match ensure_tempfile_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let mozjs_sys_nagi = match ensure_mozjs_sys_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let cc_nagi = match ensure_cc_nagi_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    let servo = match ensure_servo_checkout(root) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
-    };
-    if let Err(error) = crate::fonts::ensure_font_cache(root) {
+    if let Err(error) =
+        crate::fetch_progress::phase("fonts", || crate::fonts::ensure_font_cache(root))
+    {
         return failure(EXIT_CONFIG_ERROR, format!("fetch: fonts: {error}"));
     }
     let servo_relative = servo
         .strip_prefix(root)
         .unwrap_or(Path::new("third_party/servo"));
-    let servo_fetch = run_cargo_in(root, servo_relative, "Servo fetch", &["fetch", "--locked"]);
+    let servo_fetch = match crate::fetch_progress::phase("servo.cargo", || {
+        let result = run_cargo_in(root, servo_relative, "Servo fetch", &["fetch", "--locked"]);
+        if result.exit_code == EXIT_SUCCESS {
+            Ok(result)
+        } else {
+            Err(result)
+        }
+    }) {
+        // Preserve the original CommandResult on both paths; progress only
+        // observes its exit code and does not copy subprocess output.
+        Ok(result) | Err(result) => result,
+    };
     if servo_fetch.exit_code != EXIT_SUCCESS {
         return servo_fetch;
     }
-    let mesa = match ensure_mesa_checkout(root) {
+    let mesa = match crate::fetch_progress::phase("mesa", || ensure_mesa_checkout(root)) {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("fetch: {error}")),
     };
@@ -1553,13 +1636,16 @@ fn execute_image_with_init_build_env(
     )
 }
 
-/// Whether `init_args` build the Servo-enabled init (M17/M18 features).
+/// Whether `init_args` build the Servo-enabled init (M17/M18/M19 features).
 fn servo_enabled_init(init_args: &[&str]) -> bool {
     init_args.windows(2).any(|pair| {
         pair[0] == "--features"
-            && pair[1]
-                .split(',')
-                .any(|feature| matches!(feature.trim(), "m17-servo" | "m18-acceptance"))
+            && pair[1].split(',').any(|feature| {
+                matches!(
+                    feature.trim(),
+                    "m17-servo" | "m18-acceptance" | "m19-browser-search-acceptance"
+                )
+            })
     })
 }
 
@@ -1902,24 +1988,6 @@ fn execute_m20_granite_inference(
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
     };
-    let cxx_headers = match resolve_m20_cxx_headers(&target_clang) {
-        Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
-    };
-    let relibc_headers = std::env::var_os("NAGI_RELIBC_HEADERS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            root.join("out/m17-mesa/relibc-target/x86_64-unknown-nagi-user/include")
-        });
-    if !relibc_headers.join("pthread.h").is_file() {
-        return failure(
-            EXIT_CONFIG_ERROR,
-            format!(
-                "m20-granite-inference: generated Nagi relibc headers are missing at {}; complete the target header generation first",
-                relibc_headers.display()
-            ),
-        );
-    }
     let llvm_bin = target_clang.parent().unwrap_or_else(|| Path::new("."));
     let llvm_ar = match resolve_m20_llvm_tool("NAGI_LLVM_AR", "llvm-ar", llvm_bin) {
         Ok(path) => path,
@@ -1929,6 +1997,60 @@ fn execute_m20_granite_inference(
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m20-granite-inference: {error}")),
     };
+
+    // ADR 0058: llama.cpp is compiled against, and linked with, the libc++
+    // built here from the pinned LLVM source and this tree's relibc headers.
+    let libcxx_source = match crate::llvm_libcxx::ensure_libcxx_source(root) {
+        Ok(path) => path,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: pinned libc++ source: {error}"),
+            )
+        }
+    };
+    let libcxx_out = root.join("out/m20-libcxx");
+    let libcxx_log = target_evidence.join("libcxx-build.log");
+    let libcxx_output = ProcessCommand::new("bash")
+        .args(["tools/libcxx/build-nagi-target.sh"])
+        .current_dir(root)
+        .env("NAGI_LIBCXX_SOURCE", &libcxx_source)
+        .env("NAGI_LIBCXX_OUT", &libcxx_out)
+        .env("NAGI_TARGET_CLANG", &target_clang)
+        .env("NAGI_LLVM_AR", &llvm_ar)
+        .env("NAGI_LLVM_RANLIB", &llvm_ranlib)
+        .output();
+    let libcxx_output = match libcxx_output {
+        Ok(output) => output,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m20-granite-inference: cannot start the target libc++ build: {error}"),
+            )
+        }
+    };
+    if let Err(error) = fs::write(&libcxx_log, command_output(&libcxx_output)) {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: cannot write {}: {error}",
+                libcxx_log.display()
+            ),
+        );
+    }
+    if !libcxx_output.status.success() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!(
+                "m20-granite-inference: target libc++ build failed ({}); log {}",
+                libcxx_output.status,
+                libcxx_log.display()
+            ),
+        );
+    }
+    let cxx_headers = libcxx_out.join("build/include/c++/v1");
+    let libcxx_archive = libcxx_out.join("build/lib/libc++.a");
+    let relibc_headers = libcxx_out.join("relibc-target/x86_64-unknown-nagi-user/include");
 
     let build_dir = target_evidence.join("target-build");
     let build_log = target_evidence.join("target-build.log");
@@ -2043,10 +2165,11 @@ fn execute_m20_granite_inference(
     if let Err(error) = fs::write(
         target_evidence.join("README.md"),
         format!(
-            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi relibc headers: {}\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
+            "# M20 Granite inference target archives\n\nStatus: PASS\nPinned llama.cpp source: {}\nTarget archive directory: target-build\nTarget compiler: {}\nNagi C++ headers: {}\nNagi libc++ archive: {}\nNagi relibc headers: {}\nlibc++ build log: libcxx-build.log\nBuild log: target-build.log\nPrior generated target artifacts: pre-run-target-artifacts/\n",
             llama_source.display(),
             target_clang.display(),
             cxx_headers.display(),
+            libcxx_archive.display(),
             relibc_headers.display()
         ),
     ) {
@@ -2064,12 +2187,20 @@ fn execute_m20_granite_inference(
         ("NAGI_RELIBC_HEADERS", relibc_headers.as_path()),
         ("NAGI_LLVM_AR", llvm_ar.as_path()),
         ("NAGI_LLVM_RANLIB", llvm_ranlib.as_path()),
+        ("NAGI_LIBCXX_ARCHIVE", libcxx_archive.as_path()),
     ];
-    let evidence_inputs = [ModelStoreEvidenceInput {
-        environment: None,
-        source: &build_log,
-        evidence_name: "llama-target-build.log",
-    }];
+    let evidence_inputs = [
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &libcxx_log,
+            evidence_name: "libcxx-target-build.log",
+        },
+        ModelStoreEvidenceInput {
+            environment: None,
+            source: &build_log,
+            evidence_name: "llama-target-build.log",
+        },
+    ];
     let required_markers = ["Nagi M20 Granite structured inference PASS"];
     let early_exit_markers = [
         "Nagi M20 Model Store capability FAIL",
@@ -3661,6 +3792,292 @@ fn write_sha256_manifest(paths: &Path, files: &[(&Path, String)]) -> Result<(), 
     fs::write(paths, manifest).map_err(|error| format!("cannot write {}: {error}", paths.display()))
 }
 
+/// ADR 0062: install a signed system update from update media into System B
+/// from a running System A, trial it through the loader's re-verification,
+/// and confirm it after guest readiness. A separate image proves a tampered
+/// bundle is refused before anything is written.
+fn execute_m30_update(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    match run_m30_update(root, probe) {
+        Ok(lines) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines,
+        },
+        Err(error) => failure(EXIT_CONFIG_ERROR, format!("m30-update: {error}")),
+    }
+}
+
+const M30_UPDATE_BUNDLE_NAME: &str = "NAGIUPD.BIN";
+const M30_UPDATE_ROLLBACK_INDEX: u64 = 2;
+
+fn m30_update_init_args(features: &str) -> [&str; 10] {
+    [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ]
+}
+
+fn build_and_read(
+    root: &Path,
+    label: &str,
+    args: &[&str],
+    output: &Path,
+) -> Result<Vec<u8>, String> {
+    let result = run_cargo(root, label, args);
+    if result.exit_code != EXIT_SUCCESS {
+        return Err(format!("{label} build failed: {}", result.lines.join("; ")));
+    }
+    fs::read(output).map_err(|error| format!("read {}: {error}", output.display()))
+}
+
+fn run_m30_update(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, String> {
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock: {error}"))?
+        .as_nanos()
+        .to_string();
+    let host = resolve_qemu_host(root, probe, "m30-update")?;
+    let evidence = ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m30-update-{run_id}")),
+    )?;
+    let init_path = root.join("target/x86_64-unknown-nagi-user/release/nagi-init");
+    let kernel_path = root.join("target/x86_64-unknown-nagi/release/nagi-kernel");
+
+    // The update payload: the release kernel and a desktop init that
+    // reports readiness, signed with a higher rollback index.
+    let recovery_init = build_and_read(
+        root,
+        "M30 update Recovery init",
+        &m30_update_init_args("m27-recovery"),
+        &init_path,
+    )?;
+    let update_init = build_and_read(
+        root,
+        "M30 update payload init",
+        // ADR 0063: the updated system is confirmed only after sign-in.
+        &m30_update_init_args("desktop-login"),
+        &init_path,
+    )?;
+    let kernel = build_and_read(
+        root,
+        "M30 update kernel",
+        &[
+            "build",
+            "-p",
+            "nagi-kernel",
+            "--target",
+            "targets/x86_64-unknown-nagi.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "--release",
+        ],
+        &kernel_path,
+    )?;
+    let bundle = signed_update_bundle(
+        &kernel,
+        &update_init,
+        M30_UPDATE_ROLLBACK_INDEX,
+        &nagi_slot_manifest::DEVELOPER_PREVIEW_SIGNING_SECRET,
+    )?;
+    let mut tampered = bundle.clone();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 0x01;
+    let bundle_path = evidence.join("signed-update.bin");
+    let tampered_path = evidence.join("tampered-update.bin");
+    fs::write(&bundle_path, &bundle).map_err(|error| format!("write bundle: {error}"))?;
+    fs::write(&tampered_path, &tampered).map_err(|error| format!("write bundle: {error}"))?;
+
+    let mut lines = Vec::new();
+    for (label, bundle_path, image_name) in [
+        (
+            "signed",
+            bundle_path.as_path(),
+            format!("nagi-0.1-m30-update-signed-{run_id}.qcow2"),
+        ),
+        (
+            "tampered",
+            tampered_path.as_path(),
+            format!("nagi-0.1-m30-update-tampered-{run_id}.qcow2"),
+        ),
+    ] {
+        let init_args = m30_update_init_args("m10-desktop,m30-update-install");
+        let image = execute_image_with_init_build_env_using_writer_and_recovery(
+            root,
+            &init_args,
+            None,
+            ImageBuildRequest {
+                image_name: &image_name,
+                cargo_env: &[],
+                recovery_init: Some(&recovery_init),
+                image_writer: write_reference_disk_qcow2,
+                external_model_store_file: Some((M30_UPDATE_BUNDLE_NAME, bundle_path)),
+                build_features: ImageBuildFeatures {
+                    kernel: &[],
+                    loader: &["m27-ab-slot-boot-control"],
+                },
+            },
+        );
+        if image.exit_code != EXIT_SUCCESS {
+            return Err(format!("build {label} image: {}", image.lines.join("; ")));
+        }
+        let image_path = root.join("out").join("artifacts").join(&image_name);
+        let vars = evidence.join(format!("{label}-OVMF_VARS.fd"));
+        let boot = |name: &str, marker: &'static str, reuse_vars: bool| -> Result<String, String> {
+            let log = evidence.join(format!("{label}-{name}.log"));
+            let config = QemuConfig {
+                qemu: &host.qemu,
+                ovmf_code: &host.ovmf_code,
+                ovmf_vars_template: &host.ovmf_vars,
+                disk_image: &image_path,
+                persistent_disk: &image_path,
+                vars_copy: &vars,
+                serial_log: &log,
+                acceptance_marker: marker,
+                timeout: Duration::from_secs(180),
+            };
+            let status = if reuse_vars {
+                run_qemu_reusing_ovmf_vars(&config)
+            } else {
+                run_qemu(&config)
+            }
+            .map_err(|error| format!("{label} {name} boot: {error} (log {})", log.display()))?;
+            let serial = fs::read_to_string(&log)
+                .map_err(|error| format!("read {}: {error}", log.display()))?;
+            if !serial.contains(marker) {
+                return Err(format!(
+                    "{label} {name} boot did not print `{marker}` (QEMU exit {status}; log {})",
+                    log.display()
+                ));
+            }
+            Ok(serial)
+        };
+        let require = |phase: &str, serial: &str, markers: &[&str], absent: &[&str]| {
+            for marker in markers {
+                if !serial.contains(marker) {
+                    return Err(format!("{label} {phase} did not print `{marker}`"));
+                }
+            }
+            for marker in absent {
+                if serial.contains(marker) {
+                    return Err(format!("{label} {phase} unexpectedly printed `{marker}`"));
+                }
+            }
+            Ok(())
+        };
+
+        let install = boot("install", "Nagi M7 reboot required PASS", false)?;
+        if label == "tampered" {
+            require(
+                "install",
+                &install,
+                &[
+                    "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                    "Nagi update slot claimed slot=B",
+                    "Nagi update bundle REJECTED",
+                ],
+                &["Nagi update written", "Nagi update stage request persisted"],
+            )?;
+            let next = boot("after-rejection", "Nagi M10 desktop READY", true)?;
+            require(
+                "after-rejection",
+                &next,
+                &[
+                    "Nagi M27 persistence decision: confirmed slot=A",
+                    "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                ],
+                &["Nagi M27 update stage request accepted"],
+            )?;
+            lines.push(format!(
+                "PASS m30-update: a tampered bundle was refused before any write and System A stayed confirmed (evidence {})",
+                evidence.display()
+            ));
+            continue;
+        }
+        require(
+            "install",
+            &install,
+            &[
+                "Nagi slot manifest verified slot=A rollback-index=1 PASS",
+                "Nagi update slot claimed slot=B",
+                "Nagi update bundle verified PASS",
+                "Nagi update written slot=B PASS",
+                "Nagi update readback verified slot=B PASS",
+                "Nagi update stage request persisted slot=B",
+                "Nagi update install PASS slot=B",
+            ],
+            &[],
+        )?;
+        // The updated system reports readiness only after the owner signs
+        // in; create the owner through the OS-owned login screen.
+        let trial_log = evidence.join(format!("{label}-trial.log"));
+        let trial_config = QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: &image_path,
+            persistent_disk: &image_path,
+            vars_copy: &vars,
+            serial_log: &trial_log,
+            acceptance_marker: "Nagi M27 readiness persisted slot=B attempt=1",
+            timeout: Duration::from_secs(180),
+        };
+        let sign_in = qmp_first_run_sign_in("owner", "nagi1");
+        let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
+        run_qemu_gui_reusing_ovmf_vars_with_events(
+            &trial_config,
+            "Nagi login READY mode=create",
+            &sign_in,
+        )
+        .map_err(|error| format!("{label} trial boot: {error} (log {})", trial_log.display()))?;
+        let trial = fs::read_to_string(&trial_log)
+            .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
+        require(
+            "trial",
+            &trial,
+            &[
+                "Nagi M27 update stage request accepted slot=B PASS",
+                "Nagi M27 persistence decision: trial attempt=1 slot=B",
+                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi slot manifest verified slot=B rollback-index=2 PASS",
+                "Nagi login owner created PASS name=owner",
+                "Nagi M27 readiness persisted slot=B attempt=1",
+            ],
+            &["Nagi update slot claimed"],
+        )?;
+        if !m27_readiness_persisted_after_sign_in(&trial) {
+            return Err(format!(
+                "{label} trial persisted readiness before the owner signed in (log {})",
+                trial_log.display()
+            ));
+        }
+        let confirmed = boot("confirmed", "Nagi M10 desktop READY", true)?;
+        require(
+            "confirmed",
+            &confirmed,
+            &[
+                "Nagi M27 readiness record consumed slot=B PASS",
+                "Nagi M27 persistence decision: confirmed slot=B",
+                "Nagi slot manifest verified slot=B rollback-index=2 PASS",
+            ],
+            &[],
+        )?;
+        lines.push(format!(
+            "PASS m30-update: System A installed a signed update into System B, the loader re-verified and trialled it, and System B was confirmed after readiness (evidence {})",
+            evidence.display()
+        ));
+    }
+    Ok(lines)
+}
+
 fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let host = match resolve_qemu_host(root, probe, "m30") {
         Ok(host) => host,
@@ -4520,6 +4937,42 @@ const M29_SETTINGS_EVENTS: [&str; 10] = [
     r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"spc"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"spc"}}}]}}"#,
 ];
 
+/// ADR 0060 dialog input. The pointer starts at (80, 58) inside the dialog.
+/// A press on Deny released elsewhere must decide nothing; then Tab moves
+/// focus Deny -> Allow once -> Allow and Enter (press and release) allows.
+const CONSENT_DIALOG_EVENTS: [&str; 7] = [
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":78}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":true}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"rel","data":{"axis":"y","value":-40}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"btn","data":{"button":"left","down":false}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"tab"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"tab"}}}]}}"#,
+    r#"{"execute":"input-send-event","arguments":{"events":[{"type":"key","data":{"down":true,"key":{"type":"qcode","data":"ret"}}},{"type":"key","data":{"down":false,"key":{"type":"qcode","data":"ret"}}}]}}"#,
+];
+
+/// ADR 0063: the M10/M29 desktops sign in as this owner before any desktop
+/// input, so their acceptance drives a signed-in desktop.
+const DESKTOP_OWNER_NAME: &str = "owner";
+const DESKTOP_OWNER_PASSWORD: &str = "nagi1";
+/// Desktop input waits for this marker: the owner is signed in and
+/// readiness has been reported (ADR 0063).
+const DESKTOP_SIGNED_IN_MARKER: &str = "Nagi login readiness reported PASS";
+
+const CONSENT_OWNER_NAME: &str = "owner";
+const CONSENT_OWNER_PASSWORD: &str = "nagi1";
+
+const CONSENT_DIALOG_REQUIRED_MARKERS: &[&str] = &[
+    "Nagi boot lock READY",
+    "Nagi M10 desktop READY",
+    "Nagi login READY mode=create",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
+    "Nagi consent dialog SHOWN app=org.nagi.acceptance.faulting-app capability=acceptance.consent-probe",
+    "Nagi consent dialog decision PASS decision=allow",
+    "Nagi consent decision persisted PASS",
+    "Nagi consent dialog acceptance PASS",
+];
+
 const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot stage PLATFORM 15",
     "Nagi boot stage CORE_SERVICES 30",
@@ -4532,12 +4985,16 @@ const M10_DESKTOP_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot lock checksum=",
     "Nagi M10 desktop READY",
     "Nagi M10 surface checksum=",
+    "Nagi login READY mode=create",
+    "Nagi onboarding language PASS locale=en-US",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
+    "Nagi login readiness reported PASS",
     "Nagi M10 Calculator focus PASS",
     "Nagi M10 Notes focus PASS",
     "Nagi M10 Japanese input PASS",
     "Nagi M10 Files focus PASS",
     "Nagi M10 GUI Terminal focus PASS",
-    "Nagi M29 keyboard locale selection PASS locale=ja-JP",
     "Nagi M10 acceptance PASS",
 ];
 
@@ -4553,6 +5010,11 @@ const M29_SETTINGS_REQUIRED_MARKERS: &[&str] = &[
     "Nagi boot lock checksum=",
     "Nagi M10 desktop READY",
     "Nagi M10 surface checksum=",
+    "Nagi login READY mode=create",
+    "Nagi onboarding language PASS locale=en-US",
+    "Nagi login owner created PASS name=owner",
+    "Nagi login unlocked PASS",
+    "Nagi login readiness reported PASS",
     "Nagi M10 Calculator focus PASS",
     "Nagi M10 Notes focus PASS",
     "Nagi M10 Japanese input PASS",
@@ -4676,14 +5138,17 @@ fn execute_gui(root: &Path, probe: &dyn HostProbe) -> CommandResult {
 }
 
 fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: create the owner first; the desktop input follows sign-in.
+    let events = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
     execute_desktop_acceptance(
         root,
         probe,
         DesktopAcceptanceConfig {
             label: "desktop",
-            features: "m10-desktop",
+            features: "m10-desktop,desktop-login",
             image_name: "nagi-0.1-m10-desktop.img",
-            persistent_disk_name: "nagi-0.1-user-data.img",
+            // A fresh User Data disk per run: first run creates the owner.
+            persistent_disk_name: "nagi-0.1-m10-desktop-user-data.img",
             vars_name: "nagi-0.1-m10-desktop-vars.fd",
             first_log_name: "m10-first-boot.log",
             run_log_name: "m10-desktop.log",
@@ -4693,13 +5158,29 @@ fn execute_desktop(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             required_markers: M10_DESKTOP_REQUIRED_MARKERS,
             restart_marker: None,
             restart_log_name: None,
-            unique_run_artifacts: false,
+            restart_required_markers: &[],
+            restart_summary: "",
+            unique_run_artifacts: true,
+            acceptance_packages: false,
+            ready_screenshot_name: None,
+            restart_events: Vec::new(),
+            restart_stages: Vec::new(),
+            later_stages: vec![(
+                DESKTOP_SIGNED_IN_MARKER,
+                M10_DESKTOP_EVENTS
+                    .iter()
+                    .map(|event| (*event).to_owned())
+                    .collect(),
+            )],
+            ready_screenshot_stage: None,
         },
-        &M10_DESKTOP_EVENTS,
+        &events.iter().map(String::as_str).collect::<Vec<_>>(),
     )
 }
 
 fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: create the owner first; the desktop input follows sign-in.
+    let sign_in = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
     let mut events = M29_DESKTOP_FOCUS_EVENTS.to_vec();
     events.extend_from_slice(&M10_DESKTOP_EVENTS);
     events.extend_from_slice(&M29_SETTINGS_EVENTS);
@@ -4708,7 +5189,7 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         probe,
         DesktopAcceptanceConfig {
             label: "m29",
-            features: "m10-desktop,m29-settings-acceptance",
+            features: "m10-desktop,m29-settings-acceptance,desktop-login",
             image_name: "nagi-0.1-m29-settings-persistent.img",
             persistent_disk_name: "nagi-0.1-m29-settings-persistent-user-data.img",
             vars_name: "nagi-0.1-m29-settings-persistent-vars.fd",
@@ -4718,12 +5199,553 @@ fn execute_m29(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             screenshot_name: "nagi-m29-settings-ja-jp.png",
             acceptance_marker: "Nagi M29 settings acceptance PASS",
             required_markers: M29_SETTINGS_REQUIRED_MARKERS,
-            restart_marker: Some("Nagi M29 settings preference restored PASS locale=ja-JP"),
+            // The restart restores ja-JP on the unlock screen, then the
+            // owner unlocks and only then is readiness reported.
+            restart_marker: Some(DESKTOP_SIGNED_IN_MARKER),
             restart_log_name: Some("m29-settings-persistent-restart.log"),
+            restart_required_markers: &[
+                "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
+                "Nagi login unlocked PASS",
+            ],
+            restart_summary: "the selected system language was restored before the owner unlocked",
             unique_run_artifacts: true,
+            acceptance_packages: false,
+            ready_screenshot_name: None,
+            restart_events: qmp_typed_keys(DESKTOP_OWNER_PASSWORD, "ret"),
+            restart_stages: Vec::new(),
+            later_stages: vec![(
+                DESKTOP_SIGNED_IN_MARKER,
+                events.iter().map(|event| (*event).to_owned()).collect(),
+            )],
+            ready_screenshot_stage: None,
         },
-        &events,
+        &sign_in.iter().map(String::as_str).collect::<Vec<_>>(),
     )
+}
+
+/// ADR 0060: the desktop's OS-owned consent dialog answers a signed
+/// application's grant request through real QMP input, and the persisted
+/// `Allow` holds after a restart without a new prompt.
+fn execute_consent(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    // ADR 0063: decisions belong to the signed-in owner. Create the owner
+    // first; the dialog appears after sign-in.
+    // `events` signs in; the dialog input is a later stage.
+    let events = qmp_first_run_sign_in(CONSENT_OWNER_NAME, CONSENT_OWNER_PASSWORD);
+    execute_desktop_acceptance(
+        root,
+        probe,
+        DesktopAcceptanceConfig {
+            label: "consent",
+            features: "consent-dialog-acceptance,desktop-login",
+            image_name: "nagi-0.1-consent-dialog.img",
+            persistent_disk_name: "nagi-0.1-consent-dialog-user-data.img",
+            vars_name: "nagi-0.1-consent-dialog-vars.fd",
+            first_log_name: "consent-dialog-first-boot.log",
+            run_log_name: "consent-dialog.log",
+            evidence_prefix: "consent-dialog",
+            screenshot_name: "nagi-consent-dialog-answered.png",
+            acceptance_marker: "Nagi consent dialog acceptance PASS",
+            required_markers: CONSENT_DIALOG_REQUIRED_MARKERS,
+            restart_marker: Some("Nagi consent withdrawn grant asks again PASS"),
+            restart_log_name: Some("consent-dialog-restart.log"),
+            restart_required_markers: &[],
+            restart_summary: "the persisted Allow was restored without a prompt, then withdrawn in Settings so the grant asks again",
+            unique_run_artifacts: true,
+            acceptance_packages: true,
+            ready_screenshot_name: Some("nagi-consent-dialog-shown.png"),
+            restart_events: qmp_typed_keys(CONSENT_OWNER_PASSWORD, "ret"),
+            // ADR 0065: after the restored Allow, withdraw it in Settings:
+            // focus Settings, open it, move to Permissions, open the view,
+            // and withdraw the focused decision.
+            restart_stages: vec![
+                (
+                    "Nagi consent decision restored PASS decision=allow",
+                    ["tab", "ret", "tab", "tab", "ret"]
+                        .iter()
+                        .flat_map(|key| qmp_typed_keys("", key))
+                        .collect(),
+                ),
+                (
+                    "Nagi consent settings OPEN decisions=1",
+                    std::iter::once(format!("{SCREENSHOT_EVENT_PREFIX}permissions-list.png"))
+                        .chain(qmp_typed_keys("", "ret"))
+                        .collect(),
+                ),
+            ],
+            // Answer the dialog, and capture it, only once it is shown.
+            later_stages: vec![(
+                "Nagi consent dialog SHOWN",
+                CONSENT_DIALOG_EVENTS
+                    .iter()
+                    .map(|event| (*event).to_owned())
+                    .collect(),
+            )],
+            ready_screenshot_stage: Some("Nagi consent dialog SHOWN"),
+        },
+        &events.iter().map(String::as_str).collect::<Vec<_>>(),
+    )
+}
+
+/// Build a desktop init image that embeds the signed acceptance packages.
+fn execute_image_with_acceptance_packages(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let packages = match build_isolated_apps(root) {
+        Ok(directory) => directory,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_ACCEPTANCE_PACKAGES", packages.as_path())],
+        write_isolated_apps_fat12_image,
+        ImageBuildFeatures::default(),
+    )
+}
+
+/// Build the ordinary signed-in desktop image with the signed first-party
+/// Files Search client embedded directly in init. This deliberately does not
+/// build or inject `NAGI_ACCEPTANCE_PACKAGES`.
+fn execute_image_with_m19_files_search_product(
+    root: &Path,
+    features: &str,
+    image_name: &str,
+) -> CommandResult {
+    let package = match build_m19_files_search_product(root) {
+        Ok(path) => path,
+        Err(result) => return result,
+    };
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        features,
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=core,alloc,compiler_builtins",
+        "--release",
+        "--locked",
+    ];
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        None,
+        image_name,
+        &[("NAGI_FILES_SEARCH_PACKAGE", package.as_path())],
+        write_fat12_image,
+        ImageBuildFeatures::default(),
+    )
+}
+
+/// QMP commands that type `text` (lowercase letters, digits, `-`), then
+/// press `finish` (`ret` or `tab`), one key press/release per command.
+fn qmp_typed_keys(text: &str, finish: &str) -> Vec<String> {
+    text.chars()
+        .map(|character| match character {
+            '-' => "minus".to_owned(),
+            other => other.to_string(),
+        })
+        .chain(std::iter::once(finish.to_owned()))
+        .map(|key| {
+            format!(
+                r#"{{"execute":"input-send-event","arguments":{{"events":[{{"type":"key","data":{{"down":true,"key":{{"type":"qcode","data":"{key}"}}}}}},{{"type":"key","data":{{"down":false,"key":{{"type":"qcode","data":"{key}"}}}}}}]}}}}"#
+            )
+        })
+        .collect()
+}
+
+/// First-run input for the OS-owned login (ADR 0063): keep the offered
+/// default language, then create the owner `name` with `password`.
+fn qmp_first_run_sign_in(name: &str, password: &str) -> Vec<String> {
+    let mut events = qmp_typed_keys("", "ret");
+    events.extend(qmp_typed_keys(name, "ret"));
+    events.extend(qmp_typed_keys(password, "ret"));
+    events.extend(qmp_typed_keys(password, "ret"));
+    events
+}
+
+#[cfg(test)]
+#[test]
+fn first_run_sign_in_answers_the_language_step_first() {
+    let events = qmp_first_run_sign_in("ab", "cd");
+    // Language Enter, then "ab"+Enter, then "cd"+Enter twice.
+    assert_eq!(events.len(), 1 + 3 + 3 + 3);
+    assert!(events[0].contains(r#""data":"ret""#));
+    assert!(events[1].contains(r#""data":"a""#));
+}
+
+/// ADRs 0063 and 0066: create and unlock the owner through the OS-owned login,
+/// reject a wrong current password in Settings, save a new one, then verify
+/// across a restart that only the new password signs in.
+fn execute_login(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+    match run_login_acceptance(root, probe) {
+        Ok(lines) => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines,
+        },
+        Err(error) => failure(EXIT_CONFIG_ERROR, format!("login: {error}")),
+    }
+}
+
+fn run_login_acceptance(root: &Path, probe: &dyn HostProbe) -> Result<Vec<String>, String> {
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("system clock: {error}"))?
+        .as_nanos()
+        .to_string();
+    let image_name = format!("nagi-0.1-login-{run_id}.img");
+    let image = execute_image_with_m19_files_search_product(
+        root,
+        "desktop-password-change-acceptance,m19-files-search-production",
+        &image_name,
+    );
+    if image.exit_code != EXIT_SUCCESS {
+        return Err(image.lines.join("; "));
+    }
+    let host = resolve_qemu_host(root, probe, "login")?;
+    let evidence = ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("login-{run_id}")),
+    )?;
+    let image_path = root.join("out").join("artifacts").join(&image_name);
+    let disk = evidence.join("user-data.img");
+    let vars = evidence.join("OVMF_VARS.fd");
+    ensure_persistent_disk(&disk)?;
+    fn login_config<'a>(
+        host: &'a QemuHost,
+        paths: [&'a Path; 4],
+        marker: &'static str,
+    ) -> QemuConfig<'a> {
+        let [image, disk, vars, log] = paths;
+        QemuConfig {
+            qemu: &host.qemu,
+            ovmf_code: &host.ovmf_code,
+            ovmf_vars_template: &host.ovmf_vars,
+            disk_image: image,
+            persistent_disk: disk,
+            vars_copy: vars,
+            serial_log: log,
+            acceptance_marker: marker,
+            timeout: Duration::from_secs(180),
+        }
+    }
+    let format_log = evidence.join("format.log");
+    run_qemu(&login_config(
+        &host,
+        [&image_path, &disk, &vars, &format_log],
+        NAGI_WRITE_MARKER,
+    ))?;
+    let read = |log: &Path| {
+        fs::read_to_string(log).map_err(|error| format!("read {}: {error}", log.display()))
+    };
+    if !read(&format_log)?.contains(NAGI_WRITE_MARKER) {
+        return Err(format!(
+            "User Data format boot did not print `{NAGI_WRITE_MARKER}`"
+        ));
+    }
+
+    // M29 onboarding: choose 日本語 (second option) before the account.
+    let mut create_events = qmp_typed_keys("", "down");
+    create_events.extend(qmp_typed_keys("", "ret"));
+    create_events.extend(qmp_typed_keys("owner", "ret"));
+    create_events.extend(qmp_typed_keys("nagi1", "ret"));
+    create_events.extend(qmp_typed_keys("nagi1", "ret"));
+    // ADR 0064: three wrong passwords engage the wait; it survives a restart,
+    // where even the right password is refused until the wait ends.
+    let mut throttle_events = qmp_typed_keys("wrong1", "ret");
+    throttle_events.extend(qmp_typed_keys("wrong2", "ret"));
+    throttle_events.extend(qmp_typed_keys("wrong3", "ret"));
+    let restart_events = qmp_typed_keys("nagi1", "ret");
+    let after_wait = qmp_typed_keys("nagi1", "ret");
+    let mut files_ui_search = Vec::new();
+    for key in ["tab", "tab", "tab", "tab", "ret"] {
+        files_ui_search.extend(qmp_typed_keys("", key));
+    }
+    files_ui_search.extend(qmp_typed_keys("runtime", "ret"));
+    let mut files_nested_ui_search = qmp_typed_keys("", "esc");
+    files_nested_ui_search.extend(qmp_typed_keys("nested", "ret"));
+    files_nested_ui_search.push("@screenshot:files-search-nested.png".to_owned());
+    let mut allow_files_search_query =
+        vec!["@screenshot:files-search-consent-query.png".to_owned()];
+    allow_files_search_query.extend(
+        CONSENT_DIALOG_EVENTS
+            .iter()
+            .map(|event| (*event).to_owned()),
+    );
+    let mut allow_files_search_access =
+        vec!["@screenshot:files-search-consent-access.png".to_owned()];
+    allow_files_search_access.extend(
+        CONSENT_DIALOG_EVENTS
+            .iter()
+            .map(|event| (*event).to_owned()),
+    );
+    let mut show_search_and_find_nested = vec!["@screenshot:files-search-runtime.png".to_owned()];
+    show_search_and_find_nested.extend(files_nested_ui_search);
+    let files_search_after_restart = files_ui_search.clone();
+    let mut open_password_change = Vec::new();
+    open_password_change.push("@screenshot:files-search.png".to_owned());
+    // The production Files Search build enables consent, so Settings gains a
+    // Permissions entry before Password: one extra tab reaches Password.
+    for key in ["tab", "tab", "ret", "tab", "tab", "tab", "ret"] {
+        open_password_change.extend(qmp_typed_keys("", key));
+    }
+    // Submit a syntactically valid password change with the wrong current
+    // password first. ADR 0066 requires the form to reject it before writing.
+    let mut wrong_current = qmp_typed_keys("wrong1", "tab");
+    wrong_current.extend(qmp_typed_keys("nagi2", "tab"));
+    wrong_current.extend(qmp_typed_keys("nagi2", "ret"));
+    let mut correct_change = qmp_typed_keys("nagi1", "tab");
+    correct_change.extend(qmp_typed_keys("nagi2", "tab"));
+    correct_change.extend(qmp_typed_keys("nagi2", "ret"));
+    let old_password = qmp_typed_keys("nagi1", "ret");
+    let new_password = qmp_typed_keys("nagi2", "ret");
+    let mut lines = Vec::new();
+    for (phase, events, stage, accepted, markers, absent) in [
+        (
+            "create",
+            create_events,
+            Vec::new(),
+            DESKTOP_SIGNED_IN_MARKER,
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=create",
+                "Nagi onboarding language PASS locale=ja-JP",
+                "Nagi login owner created PASS name=owner",
+                "Nagi login unlocked PASS",
+                "Nagi login readiness reported PASS",
+            ][..],
+            &[
+                "Nagi login unlock REJECTED",
+                "Nagi M27 readiness persistence FAIL",
+                "Nagi login acceptance PASS",
+            ][..],
+        ),
+        (
+            "throttle",
+            throttle_events,
+            Vec::new(),
+            "Nagi login throttle engaged failures=3",
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlock REJECTED",
+                "Nagi login throttle engaged failures=3",
+            ][..],
+            &["Nagi login owner created", "Nagi login unlocked PASS"][..],
+        ),
+        (
+            "password-change",
+            restart_events,
+            vec![
+                ("Nagi login retry allowed".to_owned(), after_wait),
+                ("Nagi login unlocked PASS".to_owned(), files_ui_search),
+                (
+                    "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query"
+                        .to_owned(),
+                    allow_files_search_query,
+                ),
+                (
+                    "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search"
+                        .to_owned(),
+                    allow_files_search_access,
+                ),
+                (
+                    "Nagi M19 signed-in desktop Files UI Search PASS".to_owned(),
+                    show_search_and_find_nested,
+                ),
+                (
+                    "Nagi M19 signed-in desktop Files nested UI Search PASS".to_owned(),
+                    open_password_change,
+                ),
+                (
+                    "Nagi password change READY".to_owned(),
+                    std::iter::once("@screenshot:password-change-form.png".to_owned())
+                        .chain(wrong_current)
+                        .collect(),
+                ),
+                (
+                    "Nagi password change REJECTED current".to_owned(),
+                    correct_change,
+                ),
+            ],
+            "Nagi login acceptance PASS",
+            &[
+                "Nagi login throttle restored failures=3",
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi login throttled remaining_ms=",
+                "Nagi login retry allowed",
+                "Nagi login unlocked PASS",
+                "Nagi login readiness reported PASS",
+                "Nagi M19 signed-in desktop Files query PASS",
+                "Nagi M19 signed-in desktop nested Files Search PASS",
+                "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+                "Nagi M19 signed-in desktop Files ObjectId initial persist PASS",
+                "Nagi M19 signed-in desktop Files rename identity PASS",
+                "Nagi M19 signed-in desktop Files delete identity PASS",
+                "Nagi M19 signed-in desktop SearchService ready PASS",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search",
+                "Nagi M19 signed-in desktop Files UI Search PASS",
+                "Nagi M19 signed-in desktop Files nested UI Search PASS",
+                "Nagi password change READY",
+                "Nagi password change REJECTED current",
+                "Nagi password change PASS",
+                "Nagi login acceptance PASS",
+            ][..],
+            &[
+                "Nagi login unlock REJECTED",
+                "Nagi password change FAIL",
+                "Nagi M19 signed-in desktop Files delete identity FAIL",
+            ][..],
+        ),
+        (
+            "verify-password",
+            Vec::new(),
+            vec![
+                ("Nagi login READY mode=unlock".to_owned(), old_password),
+                ("Nagi login unlock REJECTED".to_owned(), new_password),
+                (
+                    "Nagi login readiness reported PASS".to_owned(),
+                    files_search_after_restart,
+                ),
+            ],
+            "Nagi M19 signed-in desktop Files UI Search PASS",
+            &[
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+                "Nagi M29 settings preference restored PASS locale=ja-JP",
+                "Nagi login unlock REJECTED",
+                "Nagi login unlocked PASS",
+                "Nagi login readiness reported PASS",
+                "Nagi M19 signed-in desktop Files query PASS",
+                "Nagi M19 signed-in desktop non-UTF-8 filename isolation PASS",
+                "Nagi M19 signed-in desktop Files ObjectId restore PASS",
+                "Nagi M19 signed-in desktop Files rename identity PASS",
+                "Nagi M19 signed-in desktop Files delete identity PASS",
+                "Nagi M19 signed-in desktop SearchService ready PASS",
+                "Nagi M19 signed-in desktop Files UI Search PASS",
+            ][..],
+            &[
+                "Nagi login acceptance PASS",
+                "Nagi M19 signed-in desktop Files delete identity FAIL",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=search.query",
+                "Nagi consent dialog SHOWN app=org.nagi.files capability=files.search",
+            ][..],
+        ),
+    ] {
+        let log = evidence.join(format!("{phase}.log"));
+        let screenshot = evidence.join(format!("{phase}-final.png"));
+        let shown = evidence.join(format!("{phase}-login-screen.png"));
+        let mut commands = vec![qmp_screendump_command(&shown)?];
+        commands.extend(events);
+        let commands: Vec<&str> = commands.iter().map(String::as_str).collect();
+        let stage_commands: Vec<Vec<String>> = stage
+            .iter()
+            .map(|(_, events)| expand_screenshot_events(events, &evidence))
+            .collect::<Result<_, _>>()?;
+        let stage_events: Vec<Vec<&str>> = stage_commands
+            .iter()
+            .map(|events| events.iter().map(String::as_str).collect())
+            .collect();
+        let stages: Vec<QmpEventStage<'_>> = stage
+            .iter()
+            .zip(&stage_events)
+            .map(|((marker, _), events)| QmpEventStage { marker, events })
+            .collect();
+        let outcome = run_login_gui_with_pre_guest_retry(
+            &login_config(&host, [&image_path, &disk, &vars, &log], accepted),
+            "Nagi M10 desktop READY",
+            &commands,
+            &stages,
+            &screenshot,
+        )
+        .map_err(|error| {
+            // Surface where the guest stalled in the CI log itself (the
+            // evidence directory is only an artifact).
+            let tail = std::fs::read_to_string(&log)
+                .map(|serial| last_serial_lines(&serial, 40))
+                .unwrap_or_default();
+            if tail.is_empty() {
+                error
+            } else {
+                format!("{error}\n{phase} serial tail:\n{tail}")
+            }
+        })?;
+        let serial = read(&log)?;
+        let mut position = 0;
+        for marker in markers {
+            let Some(found) = serial[position..].find(marker) else {
+                return Err(format!(
+                    "{phase} did not print ordered marker `{marker}` (QEMU exit {}; log {})",
+                    outcome.exit_status,
+                    log.display()
+                ));
+            };
+            position += found + marker.len();
+        }
+        for marker in absent {
+            if serial.contains(marker) {
+                return Err(format!(
+                    "{phase} unexpectedly printed `{marker}` (log {})",
+                    log.display()
+                ));
+            }
+        }
+        validate_screenshot(&shown)?;
+        if phase == "password-change" {
+            validate_screenshot(&evidence.join("files-search.png"))?;
+            validate_screenshot(&evidence.join("files-search-runtime.png"))?;
+            validate_screenshot(&evidence.join("files-search-nested.png"))?;
+            validate_screenshot(&evidence.join("files-search-consent-query.png"))?;
+            validate_screenshot(&evidence.join("files-search-consent-access.png"))?;
+            validate_screenshot(&evidence.join("password-change-form.png"))?;
+        }
+        lines.push(format!(
+            "PASS login: {phase} (log {}; screenshots {}, {})",
+            log.display(),
+            shown.display(),
+            screenshot.display()
+        ));
+    }
+    Ok(lines)
+}
+
+/// An acceptance event `@screenshot:<name>` captures the guest display to
+/// `<name>` in the run's evidence directory at that point in the input.
+const SCREENSHOT_EVENT_PREFIX: &str = "@screenshot:";
+
+fn expand_screenshot_events(events: &[String], directory: &Path) -> Result<Vec<String>, String> {
+    events
+        .iter()
+        .map(|event| match event.strip_prefix(SCREENSHOT_EVENT_PREFIX) {
+            Some(name) => qmp_screendump_command(&directory.join(name)),
+            None => Ok(event.clone()),
+        })
+        .collect()
 }
 
 fn execute_desktop_acceptance(
@@ -4769,7 +5791,11 @@ fn execute_desktop_acceptance(
     let restart_log_name = acceptance.restart_log_name.map(|name| {
         scoped_artifact_name(name, &screenshot_run_id, acceptance.unique_run_artifacts)
     });
-    let image_result = execute_image_with_features(root, Some(acceptance.features), &image_name);
+    let image_result = if acceptance.acceptance_packages {
+        execute_image_with_acceptance_packages(root, acceptance.features, &image_name)
+    } else {
+        execute_image_with_features(root, Some(acceptance.features), &image_name)
+    };
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -4796,6 +5822,37 @@ fn execute_desktop_acceptance(
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label)),
     };
     let screenshot_path = screenshot_directory.join(acceptance.screenshot_name);
+    let ready_screenshot_path = acceptance
+        .ready_screenshot_name
+        .map(|name| screenshot_directory.join(name));
+    let mut event_commands: Vec<String> = events.iter().map(|event| (*event).to_owned()).collect();
+    let mut stage_commands: Vec<(&'static str, Vec<String>)> = acceptance.later_stages.clone();
+    if let Some(path) = &ready_screenshot_path {
+        let command = match qmp_screendump_command(path) {
+            Ok(command) => command,
+            Err(error) => {
+                return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label))
+            }
+        };
+        match acceptance.ready_screenshot_stage.and_then(|marker| {
+            stage_commands
+                .iter_mut()
+                .find(|(stage, _)| *stage == marker)
+        }) {
+            Some((_, events)) => events.insert(0, command),
+            None => event_commands.insert(0, command),
+        }
+    }
+    let event_commands: Vec<&str> = event_commands.iter().map(String::as_str).collect();
+    let stage_events: Vec<Vec<&str>> = stage_commands
+        .iter()
+        .map(|(_, events)| events.iter().map(String::as_str).collect())
+        .collect();
+    let stages: Vec<QmpEventStage<'_>> = stage_commands
+        .iter()
+        .zip(&stage_events)
+        .map(|((marker, _), events)| QmpEventStage { marker, events })
+        .collect();
     let image_path = artifacts.join(image_name);
     let persistent_disk = artifacts.join(persistent_disk_name);
     let vars_copy = artifacts.join(vars_name);
@@ -4858,10 +5915,11 @@ fn execute_desktop_acceptance(
         acceptance_marker: acceptance.acceptance_marker,
         timeout,
     };
-    let outcome = match run_qemu_gui_with_events_and_screenshot(
+    let outcome = match run_qemu_gui_with_staged_events_and_screenshot(
         &config,
         "Nagi M10 desktop READY",
-        events,
+        &event_commands,
+        &stages,
         &screenshot_path,
     ) {
         Ok(status) => status,
@@ -4906,6 +5964,14 @@ fn execute_desktop_acceptance(
             ),
         );
     }
+    if let Some(path) = &ready_screenshot_path {
+        if let Err(error) = validate_screenshot(path) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("{}: first-frame screenshot: {error}", acceptance.label),
+            );
+        }
+    }
     let Some(ready_after) = outcome.ready_after else {
         return failure(
             EXIT_CONFIG_ERROR,
@@ -4930,7 +5996,53 @@ fn execute_desktop_acceptance(
                 acceptance_marker: restart_marker,
                 timeout,
             };
-            if let Err(error) = run_qemu(&restart_config) {
+            let restart_commands: Vec<&str> = acceptance
+                .restart_events
+                .iter()
+                .map(String::as_str)
+                .collect();
+            let restart_stage_commands: Vec<Vec<String>> = match acceptance
+                .restart_stages
+                .iter()
+                .map(|(_, events)| expand_screenshot_events(events, &screenshot_directory))
+                .collect::<Result<Vec<_>, String>>()
+            {
+                Ok(commands) => commands,
+                Err(error) => {
+                    return failure(EXIT_CONFIG_ERROR, format!("{}: {error}", acceptance.label))
+                }
+            };
+            let restart_stage_events: Vec<Vec<&str>> = restart_stage_commands
+                .iter()
+                .map(|events| events.iter().map(String::as_str).collect())
+                .collect();
+            let restart_stages: Vec<QmpEventStage<'_>> = acceptance
+                .restart_stages
+                .iter()
+                .zip(&restart_stage_events)
+                .map(|((marker, _), events)| QmpEventStage { marker, events })
+                .collect();
+            let restart_screenshot = screenshot_directory.join("restart.png");
+            let restarted = if restart_commands.is_empty() {
+                run_qemu(&restart_config).map(|_| ())
+            } else if restart_stages.is_empty() {
+                run_qemu_gui_with_events(
+                    &restart_config,
+                    "Nagi M10 desktop READY",
+                    &restart_commands,
+                )
+                .map(|_| ())
+            } else {
+                run_qemu_gui_with_staged_events_and_screenshot(
+                    &restart_config,
+                    "Nagi M10 desktop READY",
+                    &restart_commands,
+                    &restart_stages,
+                    &restart_screenshot,
+                )
+                .map(|_| ())
+            };
+            if let Err(error) = restarted {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!("{}: persistence restart: {error}", acceptance.label),
@@ -4950,7 +6062,10 @@ fn execute_desktop_acceptance(
                 }
             };
             let mut marker_end = 0;
-            for marker in ["Nagi M10 desktop READY", restart_marker] {
+            let restart_markers = std::iter::once("Nagi M10 desktop READY")
+                .chain(acceptance.restart_required_markers.iter().copied())
+                .chain(std::iter::once(restart_marker));
+            for marker in restart_markers {
                 let Some(relative) = restart_serial[marker_end..].find(marker) else {
                     return failure(
                         EXIT_CONFIG_ERROR,
@@ -4984,10 +6099,18 @@ fn execute_desktop_acceptance(
         desktop_log.display(),
         screenshot_path.display(),
     )];
+    if let Some(path) = &ready_screenshot_path {
+        lines.push(format!(
+            "PASS {}: screen captured before the acceptance input (screenshot {})",
+            acceptance.label,
+            path.display()
+        ));
+    }
     if let Some(restart_log) = restart_log_path {
         lines.push(format!(
-            "PASS {}: the selected system language was restored after a QEMU restart (log {})",
+            "PASS {}: {} after a QEMU restart (log {})",
             acceptance.label,
+            acceptance.restart_summary,
             restart_log.display(),
         ));
     }
@@ -7020,6 +8143,7 @@ fn finish_tool(
 }
 
 fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
+    let discovery_start = std::time::Instant::now();
     let rustc = ProcessCommand::new("rustc")
         .args(["--print", "sysroot"])
         .output()
@@ -7043,85 +8167,36 @@ fn prepare_nagi_rust_std_source(root: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let generated_source = root.join("out").join("rust-src");
-    if generated_source.exists() {
-        fs::remove_dir_all(&generated_source).map_err(|error| {
-            format!(
-                "cannot replace generated Rust source {}: {error}",
-                generated_source.display()
-            )
-        })?;
-    }
-    copy_directory(&installed_source, &generated_source)?;
-
-    let patch = root
-        .join("third_party")
-        .join("rust-std")
-        .join("patches")
-        .join("0001-nagi-target-support.patch");
-    if !patch.is_file() {
-        return Err(format!("Rust std patch is missing at {}", patch.display()));
-    }
-    let applied = ProcessCommand::new("git")
-        .args([
-            "apply",
-            "--unsafe-paths",
-            "--whitespace=nowarn",
-            "--directory=out/rust-src",
-        ])
-        .arg(
-            Path::new("third_party")
-                .join("rust-std")
-                .join("patches")
-                .join("0001-nagi-target-support.patch"),
-        )
-        .current_dir(root)
+    let version = ProcessCommand::new("rustc")
+        .args(["--version", "--verbose"])
         .output()
-        .map_err(|error| format!("cannot apply Rust std patch: {error}"))?;
-    if !applied.status.success() {
+        .map_err(|error| format!("cannot query rustc identity: {error}"))?;
+    if !version.status.success() {
         return Err(format!(
-            "Rust std patch failed: {}",
-            command_output(&applied)
+            "rustc identity query failed: {}",
+            command_output(&version)
         ));
     }
-
-    let cargo_manifest = generated_source.join("library").join("Cargo.toml");
-    let mut manifest = fs::read_to_string(&cargo_manifest)
-        .map_err(|error| format!("cannot read generated Rust library manifest: {error}"))?;
-    if !manifest.contains("../../../third_party/libc") {
-        manifest.push_str("\nlibc = { path = \"../../../third_party/libc\" }\n");
-        fs::write(&cargo_manifest, manifest)
-            .map_err(|error| format!("cannot add Nagi libc patch: {error}"))?;
-    }
-    Ok(generated_source.join("library"))
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("cannot create {}: {error}", destination.display()))?;
-    for entry in fs::read_dir(source)
-        .map_err(|error| format!("cannot enumerate {}: {error}", source.display()))?
-    {
-        let entry = entry.map_err(|error| format!("cannot inspect Rust source entry: {error}"))?;
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if entry
-            .file_type()
-            .map_err(|error| format!("cannot inspect {}: {error}", source_path.display()))?
-            .is_dir()
-        {
-            copy_directory(&source_path, &destination_path)?;
+    let _ = cli_output::write_stderr(format_args!(
+        "TIMING rust-std-source phase=discover-toolchain elapsed_ms={:.3}\n",
+        discovery_start.elapsed().as_secs_f64() * 1000.0
+    ));
+    let patch = root.join("third_party/rust-std/patches/0001-nagi-target-support.patch");
+    let prepared = crate::rust_std_source::prepare(
+        root,
+        &installed_source,
+        &String::from_utf8_lossy(&version.stdout),
+        &patch,
+    )?;
+    let _ = cli_output::write_stderr(format_args!(
+        "Rust std source: {}\n",
+        if prepared.reused {
+            "verified reuse"
         } else {
-            fs::copy(&source_path, &destination_path).map_err(|error| {
-                format!(
-                    "cannot copy {} to {}: {error}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            })?;
+            "fresh preparation"
         }
-    }
-    Ok(())
+    ));
+    Ok(prepared.library)
 }
 
 fn command_output(output: &std::process::Output) -> String {
@@ -7150,6 +8225,53 @@ fn append_nagi_target_archive_tools<'a>(cargo_env: &mut Vec<(&'a str, &'a Path)>
         cargo_env.push(("AR_x86_64_unknown_nagi_user", Path::new("llvm-ar")));
         cargo_env.push(("RANLIB_x86_64_unknown_nagi_user", Path::new("llvm-ranlib")));
     }
+}
+
+fn run_m18_staged_acceptance(
+    config: &QemuConfig<'_>,
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
+        config,
+        "Nagi M18 browser READY",
+        &M18_INPUT_EVENTS,
+        &[
+            QmpEventStage {
+                marker: "Nagi M18 permission prompt READY",
+                events: &M18_PERMISSION_ALLOW_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard page READY",
+                events: &M18_CLIPBOARD_COPY_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard copy observed",
+                events: &M18_CLIPBOARD_FOCUS_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 clipboard destination focused",
+                events: &M18_CLIPBOARD_PASTE_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 IME page READY",
+                events: &M18_IME_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 upload page READY",
+                events: &M18_UPLOAD_CLICK_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 upload picker READY",
+                events: &M18_UPLOAD_CHOOSE_EVENTS,
+            },
+            QmpEventStage {
+                marker: "Nagi M18 download page READY",
+                events: &M18_DOWNLOAD_CLICK_EVENTS,
+            },
+        ],
+        "Nagi M18 browser FAIL",
+        screenshot_path,
+    )
 }
 
 fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -7338,60 +8460,19 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         acceptance_marker: "Nagi M18 browser scenario complete pages=3",
         timeout,
     };
-    let outcome =
-        match run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot(
-            &config,
-            "Nagi M18 browser READY",
-            &M18_INPUT_EVENTS,
-            &[
-                QmpEventStage {
-                    marker: "Nagi M18 permission prompt READY",
-                    events: &M18_PERMISSION_ALLOW_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard page READY",
-                    events: &M18_CLIPBOARD_COPY_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard copy observed",
-                    events: &M18_CLIPBOARD_FOCUS_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 clipboard destination focused",
-                    events: &M18_CLIPBOARD_PASTE_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 IME page READY",
-                    events: &M18_IME_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 upload page READY",
-                    events: &M18_UPLOAD_CLICK_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 upload picker READY",
-                    events: &M18_UPLOAD_CHOOSE_EVENTS,
-                },
-                QmpEventStage {
-                    marker: "Nagi M18 download page READY",
-                    events: &M18_DOWNLOAD_CLICK_EVENTS,
-                },
-            ],
-            "Nagi M18 browser FAIL",
-            &screenshot_path,
-        ) {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                return failure(
-                    EXIT_CONFIG_ERROR,
-                    format!(
-                        "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
-                        serial_log_m17_trace_excerpt(&log_path, 256),
-                        serial_log_tail(&log_path, 64),
-                    ),
-                );
-            }
-        };
+    let outcome = match run_m18_staged_acceptance(&config, &screenshot_path) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m18: QEMU: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                    serial_log_m17_trace_excerpt(&log_path, 256),
+                    serial_log_tail(&log_path, 64),
+                ),
+            );
+        }
+    };
     let serial = match fs::read_to_string(&log_path) {
         Ok(serial) => serial,
         Err(error) => {
@@ -7526,6 +8607,81 @@ fn build_isolated_apps(root: &Path) -> Result<PathBuf, CommandResult> {
         }
     }
     Ok(packages)
+}
+
+/// Build and sign the bundled `org.nagi.files` Search-only client package.
+/// Keep its artifact directory separate from the M16 acceptance package set.
+fn build_m19_files_search_product(root: &Path) -> Result<PathBuf, CommandResult> {
+    let app_build = run_cargo(
+        root,
+        "M19 Files Search client build",
+        &[
+            "build",
+            "-p",
+            "nagi-isolated-app",
+            "--bin",
+            "nagi-files-search-client",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,compiler_builtins",
+            "-Zbuild-std-features=compiler-builtins-mem",
+            "--release",
+            "--locked",
+        ],
+    );
+    if app_build.exit_code != EXIT_SUCCESS {
+        return Err(app_build);
+    }
+    let output_directory = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("artifacts")
+            .join("first-party-packages"),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return Err(failure(
+                EXIT_CONFIG_ERROR,
+                format!("M19 Files Search package directory: {error}"),
+            ))
+        }
+    };
+    let manifest = root
+        .join("user")
+        .join("nagi-isolated-app")
+        .join("manifests")
+        .join("org.nagi.files.manifest");
+    let elf = root
+        .join("target")
+        .join("x86_64-unknown-nagi-user")
+        .join("release")
+        .join("nagi-files-search-client");
+    let package = output_directory.join("org.nagi.files.xapp");
+    let (manifest, elf, package) = (
+        manifest.display().to_string(),
+        elf.display().to_string(),
+        package.display().to_string(),
+    );
+    let packaged = run_cargo(
+        root,
+        "M19 Files Search product package signing",
+        &[
+            "run",
+            "--quiet",
+            "--locked",
+            "--manifest-path",
+            "tools/nagi-pkg/Cargo.toml",
+            "--",
+            "build-signed",
+            &manifest,
+            &elf,
+            &package,
+        ],
+    );
+    if packaged.exit_code != EXIT_SUCCESS {
+        return Err(packaged);
+    }
+    Ok(PathBuf::from(package))
 }
 
 /// Signed `.xapp` packages the Supervisor launches in acceptances
@@ -7715,22 +8871,108 @@ fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
 }
 
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let mut fixture = match start_m13_http_fixture(root) {
-        Ok(child) => child,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+    execute_m19_inner(root, probe)
+}
+
+fn execute_m19_browser_image(root: &Path, image_name: &str) -> CommandResult {
+    let cxx_headers = match resolve_m17_cxx_headers() {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: C++ headers: {error}")),
     };
-    let result = execute_m19_inner(root, probe);
-    let _ = fixture.kill();
-    let _ = fixture.wait();
-    result
+    let fetch = execute_fetch(root);
+    if fetch.exit_code != EXIT_SUCCESS {
+        return fetch;
+    }
+    let sample = execute_m16_sample_build(root);
+    if sample.exit_code != EXIT_SUCCESS {
+        return sample;
+    }
+    let rust_std_source = match prepare_nagi_rust_std_source(root) {
+        Ok(path) => path,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: rust std: {error}")),
+    };
+    let mesa_build = ProcessCommand::new("bash")
+        .args(["tools/mesa/build.sh"])
+        .current_dir(root)
+        .output();
+    match mesa_build {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: Mesa/Softpipe build failed: {}",
+                    command_output(&output)
+                ),
+            );
+        }
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: cannot start tools/mesa/build.sh through bash: {error}"),
+            );
+        }
+    }
+    let packages = match build_isolated_apps(root) {
+        Ok(path) => path,
+        Err(result) => return result,
+    };
+    let package_path = root.join("out").join("artifacts").join("hello-nagi.xapp");
+    let mesa_build_path = root.join("out").join("m17-mesa").join("mesa-build");
+    let font_cache_path = root.join("out").join("cache").join("fonts");
+    let target_compiler_wrapper = root.join("tools").join("nagi-target-cc.sh");
+    let init_args = [
+        "build",
+        "-p",
+        "nagi-init",
+        "--features",
+        "m19-browser-search-acceptance,m21-action-ipc",
+        "--target",
+        "targets/x86_64-unknown-nagi-user.json",
+        "-Zbuild-std=std,panic_abort",
+        "--release",
+        "--locked",
+        "--offline",
+    ];
+    let mut init_build_env = vec![
+        ("NAGI_M16_PACKAGE", package_path.as_path()),
+        ("NAGI_MESA_BUILD", mesa_build_path.as_path()),
+        ("NAGI_FONT_DIR", font_cache_path.as_path()),
+        ("NAGI_CXX_HEADERS", cxx_headers.as_path()),
+        ("NAGI_ACCEPTANCE_PACKAGES", packages.as_path()),
+        ("HOST_CC", Path::new("cc")),
+        ("HOST_CXX", Path::new("c++")),
+        (
+            "CC_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+        (
+            "CXX_x86_64_unknown_nagi_user",
+            target_compiler_wrapper.as_path(),
+        ),
+    ];
+    append_nagi_target_archive_tools(&mut init_build_env, std::env::consts::OS);
+    execute_image_with_init_build_env_using_writer(
+        root,
+        &init_args,
+        Some(&rust_std_source),
+        image_name,
+        &init_build_env,
+        write_m17_fat12_image,
+        ImageBuildFeatures {
+            kernel: &["m18-browser-memory"],
+            loader: &[],
+        },
+    )
 }
 
 fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
-    let image_result = execute_image_with_isolated_clients(
-        root,
-        "m21-action-ipc",
-        "nagi-0.1-m19-vfs-objectid.img",
-    );
+    let run_id = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos().to_string(),
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: system clock: {error}")),
+    };
+    let image_name = format!("nagi-0.1-m19-browser-search-{run_id}.img");
+    let image_result = execute_m19_browser_image(root, &image_name);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
     }
@@ -7742,16 +8984,30 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         Ok(path) => path,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
     };
-    let logs = match ensure_owned_directory(root, Path::new("out").join("logs")) {
+    let evidence = match ensure_owned_directory(
+        root,
+        Path::new("out")
+            .join("evidence")
+            .join(format!("m19-browser-search-{run_id}")),
+    ) {
         Ok(path) => path,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
+        Err(error) => {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!("m19: evidence directory: {error}"),
+            )
+        }
     };
-    let image_path = artifacts.join("nagi-0.1-m19-vfs-objectid.img");
-    let persistent_disk = artifacts.join("nagi-0.1-m19-vfs-objectid-user-data.img");
-    let vars_copy = artifacts.join("nagi-0.1-m19-vfs-objectid-vars.fd");
-    let bootstrap_log = logs.join("m19-vfs-objectid-bootstrap.log");
-    let initial_log = logs.join("m19-vfs-objectid-initial.log");
-    let restart_log = logs.join("m19-vfs-objectid-restart.log");
+    let image_path = artifacts.join(&image_name);
+    let persistent_disk = artifacts.join(format!(
+        "nagi-0.1-m19-browser-search-{run_id}-user-data.img"
+    ));
+    let vars_copy = artifacts.join(format!("nagi-0.1-m19-browser-search-{run_id}-vars.fd"));
+    let bootstrap_log = evidence.join("bootstrap.log");
+    let initial_log = evidence.join("initial.log");
+    let restart_log = evidence.join("restart.log");
+    let initial_screenshot = evidence.join("initial.png");
+    let restart_screenshot = evidence.join("restart.png");
     let had_persistent_disk = match ensure_persistent_disk(&persistent_disk) {
         Ok(existing) => existing,
         Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: {error}")),
@@ -7759,7 +9015,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     // Repeated TCG integration boots have stalled in firmware past 90 seconds
     // before the guest emits serial output. Keep the same guest marker gates
     // while allowing a slow firmware start to finish.
-    let timeout = Duration::from_secs(180);
+    let timeout = Duration::from_secs(1_200);
 
     if !had_persistent_disk {
         let config = QemuConfig {
@@ -7773,7 +9029,7 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             acceptance_marker: NAGI_WRITE_MARKER,
             timeout,
         };
-        if let Err(error) = run_qemu(&config) {
+        if let Err(error) = run_qemu_with_read_only_boot_disk(&config) {
             return failure(EXIT_CONFIG_ERROR, format!("m19: bootstrap boot: {error}"));
         }
         let bootstrap = match fs::read_to_string(&bootstrap_log) {
@@ -7801,6 +9057,11 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         } else {
             &restart_log
         };
+        let screenshot_path = if boot_index == 0 {
+            &initial_screenshot
+        } else {
+            &restart_screenshot
+        };
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
@@ -7809,13 +9070,32 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             persistent_disk: &persistent_disk,
             vars_copy: &vars_copy,
             serial_log: log_path,
-            acceptance_marker: "Nagi M13 acceptance PASS",
+            acceptance_marker: "Nagi M19 Browser/Search acceptance PASS",
             timeout,
         };
-        let final_status = match run_qemu(&config) {
-            Ok(status) => status,
-            Err(error) => return failure(EXIT_CONFIG_ERROR, format!("m19: guest boot: {error}")),
+        let outcome = match run_m18_staged_acceptance(&config, screenshot_path) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "m19: combined M18/M19 QEMU acceptance failed: {error}\nServo trace excerpt:\n{}\nserial log tail:\n{}",
+                        serial_log_m17_trace_excerpt(log_path, 256),
+                        serial_log_tail(log_path, 64),
+                    ),
+                );
+            }
         };
+        if !outcome.acceptance_reached {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: guest did not reach combined Browser/Search acceptance (QEMU exit {}; log {})",
+                    outcome.exit_status,
+                    log_path.display()
+                ),
+            );
+        }
         final_log = log_path;
         let serial = match fs::read_to_string(log_path) {
             Ok(serial) => serial,
@@ -7826,32 +9106,46 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
+        if let Err(error) = crate::m18_acceptance::validate_serial_log(&serial) {
+            return failure(
+                EXIT_CONFIG_ERROR,
+                format!(
+                    "m19: Browser acceptance validation failed: {error} (log {})",
+                    log_path.display()
+                ),
+            );
+        }
         for marker in [
             "Nagi Kernel started",
             "Nagi M3 CPU scheduler fairness PASS",
             "Nagi M3 acceptance PASS",
             "Nagi M7 VirtIO Block PASS",
-            "Nagi M13 Rust PAL PASS",
-            "Nagi M13 C POSIX PASS",
+            "Nagi M18 browser scenario complete pages=3",
+            "Nagi M18 browser history identity persisted PASS",
             "Nagi bootstrap Channel ABI PASS",
             "Nagi bootstrap Channel wait/wake PASS",
             "Nagi M24 semantic index ready PASS",
             "Nagi M19 Search IPC authorized isolated client PASS",
+            "Nagi M19 Search IPC page authorized isolated client PASS",
+            "Nagi M19 Browser history authenticated Search IPC PASS",
             "Nagi M19 Search IPC foreign isolated client hidden PASS",
             "Nagi M19 Search IPC authenticated caller PASS",
             "Nagi M21 foreign isolated caller denied PASS",
             "Nagi M21 file.search isolated caller PASS",
             "Nagi M19 trace inode reuse assigned a new ObjectId",
+            "Nagi M19 PageProducerAdapter and Workspace search PASS",
+            "Nagi M19 Browser history Page and Workspace search PASS",
             "Nagi M19 live VFS file ObjectId rename/restart PASS",
             "Nagi M19 guest search persistence PASS",
             "Nagi M19 acceptance PASS",
-            "Nagi M13 acceptance PASS",
+            "Nagi M19 Browser/Search acceptance PASS",
         ] {
             if !serial.contains(marker) {
                 return failure(
                     EXIT_CONFIG_ERROR,
                     format!(
-                        "m19: guest did not print `{marker}` (QEMU exit {final_status}; log {})",
+                        "m19: guest did not print `{marker}` (QEMU exit {}; log {})",
+                        outcome.exit_status,
                         log_path.display()
                     ),
                 );
@@ -7859,7 +9153,15 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         }
         let metadata_restored = serial.contains("Nagi M19 previous-boot snapshot PASS");
         let semantic_restored = serial.contains("Nagi M24 semantic index persistence PASS");
-        if metadata_restored && semantic_restored {
+        let page_restored = serial.contains("Nagi M19 Page/Workspace persistence PASS");
+        let history_restored =
+            serial.contains("Nagi M19 Browser history ObjectId persistence PASS");
+        if outcome.acceptance_reached
+            && metadata_restored
+            && semantic_restored
+            && page_restored
+            && history_restored
+        {
             verified_restart = true;
             break;
         }
@@ -7868,11 +9170,12 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         {
             continue;
         }
-        if !metadata_restored || !semantic_restored {
+        if !metadata_restored || !semantic_restored || !page_restored || !history_restored {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m19: guest did not verify M19 metadata and M24 semantic-index persistence after QEMU restart (QEMU exit {final_status}; log {})",
+                    "m19: guest did not verify M19 metadata, Browser history IDs, Page/Workspace, and M24 semantic-index persistence after QEMU restart (QEMU exit {}; log {})",
+                    outcome.exit_status,
                     log_path.display()
                 ),
             );
@@ -7891,8 +9194,8 @@ fn execute_m19_inner(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![format!(
-            "PASS M19 guest Search: live VFS file metadata and stable ObjectId survived rename, remount, and QEMU restart (acceptance marker reached; log {})",
-            final_log.display()
+            "PASS M19 guest Browser/Search: HTTPS visit metadata, stable ObjectIds, Workspace membership, live VFS file identity, and isolated grant checks passed across QEMU restart (log {}; screenshots {} and {})",
+            final_log.display(), initial_screenshot.display(), restart_screenshot.display()
         )],
     }
 }
@@ -8112,6 +9415,38 @@ fn run_headless_with_pre_guest_retry_using(
             first_vars.display()
         )),
     }
+}
+
+fn run_login_gui_with_pre_guest_retry(
+    config: &QemuConfig<'_>,
+    ready_marker: &str,
+    events: &[&str],
+    later_stages: &[QmpEventStage<'_>],
+    screenshot_path: &Path,
+) -> Result<QemuGuiOutcome, String> {
+    // GUI boots initialize from the same OVMF template on each invocation.
+    // Capture that exact baseline before the guarded retry checks it.
+    initialize_ovmf_vars(config.ovmf_vars_template, config.vars_copy)?;
+    let mut accepted_outcome = None;
+    run_headless_with_pre_guest_retry_using(config, false, "login", |config| {
+        let outcome = run_qemu_gui_with_staged_events_and_screenshot(
+            config,
+            ready_marker,
+            events,
+            later_stages,
+            screenshot_path,
+        )?;
+        if !outcome.acceptance_reached {
+            return Err(format!(
+                "QEMU exited before login acceptance with status {}",
+                outcome.exit_status
+            ));
+        }
+        accepted_outcome = Some(outcome);
+        Ok(outcome.exit_status)
+    })?;
+    accepted_outcome
+        .ok_or_else(|| "login QEMU returned success without a GUI acceptance outcome".to_owned())
 }
 
 fn run_m27_m13_fixture_with_pre_guest_retry(
@@ -8516,7 +9851,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop,m27-ro-vfs-check",
+        // ADR 0063: the legacy FAT12 System A/B also sign in, so a healthy
+        // trial is confirmed only by a signed-in desktop.
+        "m10-desktop,m27-ro-vfs-check,desktop-login",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -9152,6 +10489,9 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             format!("m27: initialize readiness OVMF variables: {error}"),
         );
     }
+    // ADR 0063: the trial creates the owner through QMP and persists
+    // readiness only after sign-in. Later boots find that owner and show the
+    // unlock screen; their loader decisions need no further input.
     let readiness_boots = [
         (
             "trial-boot.log",
@@ -9169,6 +10509,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             false,
         ),
     ];
+    let sign_in = qmp_first_run_sign_in(DESKTOP_OWNER_NAME, DESKTOP_OWNER_PASSWORD);
+    let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
     // Confirmation and post-promotion boots can exceed 90 seconds under
     // repeated TCG load. Keep the exact readiness and desktop markers.
     let readiness_timeout = Duration::from_secs(180);
@@ -9176,6 +10518,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         readiness_boots.iter().enumerate()
     {
         let log_path = readiness_evidence.join(log_name);
+        let is_trial_boot = index == 0;
         let config = QemuConfig {
             qemu: &host.qemu,
             ovmf_code: &host.ovmf_code,
@@ -9184,10 +10527,26 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             persistent_disk: &persistent_disk,
             vars_copy: &readiness_vars,
             serial_log: &log_path,
-            acceptance_marker: "Nagi M10 desktop READY",
+            acceptance_marker: if is_trial_boot {
+                // The desktop prints this after report_boot_ready returned,
+                // so the kernel's readiness line is complete by then.
+                DESKTOP_SIGNED_IN_MARKER
+            } else {
+                // The owner created on the trial boot persists in User Data.
+                "Nagi login READY mode=unlock"
+            },
             timeout: readiness_timeout,
         };
-        let status = match run_m27_headless_with_pre_guest_retry(&config, true) {
+        let run = if is_trial_boot {
+            run_qemu_gui_reusing_ovmf_vars_with_read_only_boot_disk_and_events(
+                &config,
+                "Nagi login READY mode=create",
+                &sign_in,
+            )
+        } else {
+            run_m27_headless_with_pre_guest_retry(&config, true)
+        };
+        let status = match run {
             Ok(status) => status,
             Err(error) => {
                 return failure(
@@ -9205,7 +10564,24 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         };
-        for marker in [*expected_decision, "Nagi M10 desktop READY"] {
+        let required: &[&str] = if is_trial_boot {
+            &[
+                *expected_decision,
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=create",
+                "Nagi login owner created PASS name=owner",
+                "Nagi login unlocked PASS",
+                M27_TRIAL_READINESS_MARKER,
+                DESKTOP_SIGNED_IN_MARKER,
+            ]
+        } else {
+            &[
+                *expected_decision,
+                "Nagi M10 desktop READY",
+                "Nagi login READY mode=unlock",
+            ]
+        };
+        for marker in required {
             if !serial.contains(marker) {
                 return failure(
                     EXIT_CONFIG_ERROR,
@@ -9217,11 +10593,14 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
                 );
             }
         }
-        if index == 0 && !m27_readiness_persisted_before_desktop(&serial) {
+        if is_trial_boot
+            && !(m27_readiness_persisted_after_sign_in(&serial)
+                && m27_readiness_reported_after_persisted(&serial))
+        {
             return failure(
                 EXIT_CONFIG_ERROR,
                 format!(
-                    "m27: healthy trial did not persist readiness before desktop readiness (QEMU exit {status}; log {})",
+                    "m27: healthy trial persisted readiness before the owner signed in (QEMU exit {status}; log {})",
                     log_path.display()
                 ),
             );
@@ -9255,7 +10634,7 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             format!(
-                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after guest readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
+                "PASS M27 A/B and Recovery: three malformed System B trials rolled back to persistent System A; a healthy System B trial was promoted after the owner signed in and the guest reported readiness; Recovery boot left the journal unchanged and undid a committed M22 file.move group across restart (evidence {})",
                 evidence.display()
             ),
             format!("Final serial log: {}", final_log.display()),
@@ -9277,7 +10656,8 @@ fn execute_m27_gpt_acceptance(
         "-p",
         "nagi-init",
         "--features",
-        "m10-desktop",
+        // ADR 0063: a trial is confirmed only by a signed-in desktop.
+        "desktop-login",
         "--target",
         "targets/x86_64-unknown-nagi-user.json",
         "-Zbuild-std=core,alloc,compiler_builtins",
@@ -9359,6 +10739,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: confirmed slot=A",
             "Nagi M30 GPT partition boot: System A PASS",
+            "Nagi slot manifest verified slot=A rollback-index=1 PASS",
             "Nagi M7 ext2 format PASS",
             "Nagi M7 persistent write PASS",
             "Nagi M7 reboot required PASS",
@@ -9375,7 +10756,7 @@ fn execute_m27_gpt_acceptance(
             persistent_disk: &broken_image_path,
             vars_copy: &broken_vars,
             serial_log: &log,
-            acceptance_marker: "Nagi Loader: invalid ELF",
+            acceptance_marker: "Nagi Loader: slot manifest rejected",
             timeout: Duration::from_secs(120),
         };
         let status = run_m27_headless_with_pre_guest_retry(&config, false)
@@ -9385,16 +10766,16 @@ fn execute_m27_gpt_acceptance(
         let expected_decision =
             format!("Nagi M27 persistence decision: trial attempt={attempt} slot=B");
         require_m27_gpt_markers(
-            "GPT malformed System B trial",
+            "GPT untrusted System B trial",
             status,
             &log,
             &serial,
             &[
                 &expected_decision,
                 "Nagi M27 UEFI variable journal persistence PASS",
-                "Nagi M30 GPT partition boot: System B PASS",
+                "Nagi slot manifest REJECTED slot=B reason=signature",
                 "Nagi M27 trial payload rejected slot=B",
-                "Nagi Loader: invalid ELF",
+                "Nagi Loader: slot manifest rejected",
             ],
         )?;
         if !m27_trial_failure_observed(&serial) {
@@ -9436,6 +10817,7 @@ fn execute_m27_gpt_acceptance(
         &[
             "Nagi M27 manual selection: Recovery; boot journal unchanged PASS",
             "Nagi M30 GPT partition boot: Recovery PASS",
+            "Nagi slot manifest verified slot=Recovery rollback-index=1 PASS",
             "Nagi M27 Recovery VFS check PASS files=",
             "Nagi M27 Recovery current-boot log PASS",
             "Nagi M27 Recovery files PASS",
@@ -9527,11 +10909,19 @@ fn execute_m27_gpt_acceptance(
         persistent_disk: &healthy_image_path,
         vars_copy: &healthy_vars,
         serial_log: &trial_log,
-        acceptance_marker: "Nagi M10 desktop READY",
+        acceptance_marker: "Nagi M27 readiness persisted slot=B attempt=1",
         timeout: Duration::from_secs(120),
     };
-    let status = run_m27_headless_with_pre_guest_retry(&trial_config, false)
-        .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
+    // The trial reports readiness only after the owner signs in; create the
+    // owner through the OS-owned login screen (ADR 0063).
+    let sign_in = qmp_first_run_sign_in("owner", "nagi1");
+    let sign_in: Vec<&str> = sign_in.iter().map(String::as_str).collect();
+    let status = run_qemu_gui_reusing_ovmf_vars_with_events(
+        &trial_config,
+        "Nagi login READY mode=create",
+        &sign_in,
+    )
+    .map_err(|error| format!("GPT healthy System B trial: {error}"))?;
     let serial = fs::read_to_string(&trial_log)
         .map_err(|error| format!("read {}: {error}", trial_log.display()))?;
     require_m27_gpt_markers(
@@ -9543,14 +10933,16 @@ fn execute_m27_gpt_acceptance(
             "Nagi M27 persistence decision: trial attempt=1 slot=B",
             "Nagi M27 UEFI variable journal persistence PASS",
             "Nagi M30 GPT partition boot: System B PASS",
+            "Nagi slot manifest verified slot=B rollback-index=1 PASS",
             "Nagi M7 persistent read PASS",
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
             "Nagi M10 desktop READY",
+            "Nagi login owner created PASS name=owner",
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=",
         ],
     )?;
-    if !m27_readiness_persisted_before_desktop(&serial) {
+    if !m27_readiness_persisted_after_sign_in(&serial) {
         return Err(format!(
-            "GPT System B did not persist readiness before the desktop marker (log {})",
+            "GPT System B persisted readiness before the owner signed in (log {})",
             trial_log.display()
         ));
     }
@@ -9642,7 +11034,8 @@ fn require_m27_gpt_markers(
 
 fn m27_trial_failure_observed(serial: &str) -> bool {
     serial.contains("Nagi M27 trial payload rejected slot=B")
-        && serial.contains("Nagi Loader: invalid ELF")
+        && (serial.contains("Nagi Loader: invalid ELF")
+            || serial.contains("Nagi Loader: slot manifest rejected"))
         && !serial.contains("Nagi Kernel started")
         && !serial.contains("Nagi M27 readiness persisted")
 }
@@ -9651,15 +11044,33 @@ fn m27_bootstrap_markers_present(serial: &str) -> bool {
     serial.contains(NAGI_WRITE_MARKER) && serial.contains(M27_BOOTSTRAP_COMPLETION_MARKER)
 }
 
-fn m27_readiness_persisted_before_desktop(serial: &str) -> bool {
-    let readiness_line = serial.lines().position(|line| {
-        line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 generation=")
-            && line.ends_with(" PASS")
-    });
-    let desktop_ready_line = serial
+/// The kernel prints this prefix only after it persisted the trial's
+/// readiness record; QEMU may stop before the line's trailing generation.
+const M27_TRIAL_READINESS_MARKER: &str = "Nagi M27 readiness persisted slot=B attempt=1";
+
+/// ADR 0063: with `desktop-login`, readiness follows the owner's sign-in.
+/// The kernel prints `readiness persisted` only after a successful write,
+/// and QEMU may stop on this marker before the line's trailing `PASS`.
+fn m27_readiness_persisted_after_sign_in(serial: &str) -> bool {
+    let signed_in = serial
         .lines()
-        .position(|line| line == "Nagi M10 desktop READY");
-    matches!((readiness_line, desktop_ready_line), (Some(record), Some(desktop)) if record < desktop)
+        .position(|line| line == "Nagi login unlocked PASS");
+    let readiness = serial
+        .lines()
+        .position(|line| line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 "));
+    matches!((signed_in, readiness), (Some(signed_in), Some(record)) if signed_in < record)
+}
+
+/// The desktop reports readiness only after the kernel persisted the
+/// trial's readiness record (ADR 0063).
+fn m27_readiness_reported_after_persisted(serial: &str) -> bool {
+    let record = serial
+        .lines()
+        .position(|line| line.starts_with("Nagi M27 readiness persisted slot=B attempt=1 "));
+    let reported = serial
+        .lines()
+        .position(|line| line.trim_end() == DESKTOP_SIGNED_IN_MARKER);
+    matches!((record, reported), (Some(record), Some(reported)) if record < reported)
 }
 
 fn m27_readiness_consumed_before_promotion(serial: &str) -> bool {
@@ -9677,7 +11088,7 @@ fn help() -> CommandResult {
         exit_code: EXIT_SUCCESS,
         lines: vec![
             "Nagi OS developer orchestrator".into(),
-            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, isolated-process, dev status|resume|verify|diagnose, test, test --acceptance [options], clean, fmt, lint"
+            "Commands: doctor [--allow-missing], diagnostics [--json|--format text|json] [--scope SCOPE] [--output PATH], verify [--json|--format text|json] [--scope SCOPE] [--output PATH], smoke [--host-only|--vm] [--json|--format text|json] [--output PATH], fetch, build, image, run, shell, gui, desktop, security, network, posix, std, m13, m14, m15, m16, m17, m18, m19, m20-granite <artifact.gguf>, m20-granite-inference <artifact.gguf>, m20-llama-smoke, m22, m25, m25-whisper <artifact.bin>, m25-whisper-inference <artifact.bin> <mono-16k-s16le.pcm> <expected-text>, m26-qwen <artifact.gguf>, m26-gemma <artifact.gguf> --accept-gemma-terms, m27, m29, m30, m30-update, isolated-process, consent, login, dev status|resume|verify|diagnose|fingerprint, legal scan|check|sbom|notice|diff, test, test --acceptance [options], clean, fmt, lint"
                 .into(),
         ],
     }
@@ -9695,10 +11106,11 @@ mod tests {
     use super::{
         append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
         last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
-        m27_readiness_consumed_before_promotion, m27_readiness_persisted_before_desktop,
-        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
-        pinned_granite_manifest, run_headless_with_pre_guest_retry_using, scoped_artifact_name,
-        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
+        m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
+        m27_readiness_reported_after_persisted, m27_trial_failure_observed,
+        m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
+        run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
+        Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
@@ -10015,6 +11427,8 @@ mod tests {
     #[test]
     fn m29_command_selects_the_settings_acceptance() {
         assert_eq!(parse_command(&["m29".into()]), Ok(Command::M29));
+        assert_eq!(parse_command(&["consent".into()]), Ok(Command::Consent));
+        assert!(parse_command(&["consent".into(), "extra".into()]).is_err());
         assert!(parse_command(&["m29".into(), "extra".into()]).is_err());
     }
 
@@ -10214,6 +11628,9 @@ mod tests {
         assert!(m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\nNagi Loader: invalid ELF\n"
         ));
+        assert!(m27_trial_failure_observed(
+            "Nagi slot manifest REJECTED slot=B reason=signature\nNagi M27 trial payload rejected slot=B\nNagi Loader: slot manifest rejected\n"
+        ));
         assert!(!m27_trial_failure_observed(
             "Nagi M27 trial payload rejected slot=B\n"
         ));
@@ -10235,15 +11652,32 @@ mod tests {
     }
 
     #[test]
-    fn m27_readiness_must_be_persisted_before_desktop_ready() {
-        assert!(m27_readiness_persisted_before_desktop(
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi M10 desktop READY\r\n"
+    fn m27_readiness_must_follow_sign_in() {
+        assert!(m27_readiness_persisted_after_sign_in(
+            "Nagi M10 desktop READY\nNagi login unlocked PASS\nNagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\n"
         ));
-        assert!(!m27_readiness_persisted_before_desktop(
-            "Nagi M10 desktop READY\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
+        assert!(!m27_readiness_persisted_after_sign_in(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\nNagi login unlocked PASS\n"
         ));
-        assert!(!m27_readiness_persisted_before_desktop(
-            "Nagi M27 readiness persisted slot=B attempt=1 generation=3 FAIL\r\nNagi M10 desktop READY\r\n"
+        assert!(!m27_readiness_persisted_after_sign_in(
+            "Nagi M27 readiness persisted slot=B attempt=1 generation=4 PASS\n"
+        ));
+        // QEMU can stop before the line's trailing PASS is written.
+        assert!(m27_readiness_persisted_after_sign_in(
+            "Nagi login unlocked PASS\nNagi M27 readiness persisted slot=B attempt=1 generation="
+        ));
+    }
+
+    #[test]
+    fn m27_readiness_is_reported_after_the_record_is_persisted() {
+        assert!(m27_readiness_reported_after_persisted(
+            "Nagi login unlocked PASS\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\nNagi login readiness reported PASS\r\n"
+        ));
+        assert!(!m27_readiness_reported_after_persisted(
+            "Nagi login readiness reported PASS\r\nNagi M27 readiness persisted slot=B attempt=1 generation=3 PASS\r\n"
+        ));
+        assert!(!m27_readiness_reported_after_persisted(
+            "Nagi login readiness reported PASS\r\n"
         ));
     }
 
@@ -10366,6 +11800,10 @@ mod tests {
         assert!(super::servo_enabled_init(&["--features", "m18-acceptance"]));
         assert!(super::servo_enabled_init(&[
             "--features",
+            "m19-browser-search-acceptance,m21-action-ipc"
+        ]));
+        assert!(super::servo_enabled_init(&[
+            "--features",
             "m13-posix,m17-servo"
         ]));
         assert!(!super::servo_enabled_init(&["--features", "m19-search"]));
@@ -10375,14 +11813,22 @@ mod tests {
     #[test]
     fn m18_browser_boot_keeps_the_esp_read_only_for_storage_selection() {
         let commands = include_str!("commands.rs");
+        let helper_start = commands
+            .find("fn run_m18_staged_acceptance(")
+            .expect("shared M18 QMP helper");
+        let helper_end = commands[helper_start..]
+            .find("fn execute_m18(")
+            .map(|offset| helper_start + offset)
+            .expect("M18 command after helper");
+        assert!(commands[helper_start..helper_end].contains(
+            "run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot("
+        ));
         let m18_start = commands.find("fn execute_m18(").expect("M18 command");
         let m18_end = commands[m18_start..]
             .find("fn help() -> CommandResult")
             .map(|offset| m18_start + offset)
             .expect("next command helper");
-        assert!(commands[m18_start..m18_end].contains(
-            "run_qemu_gui_with_read_only_boot_disk_and_staged_events_and_failure_marker_and_screenshot("
-        ));
+        assert!(commands[m18_start..m18_end].contains("run_m18_staged_acceptance(&config"));
         assert!(commands[m18_start..m18_end].contains("m29-browser-{evidence_run_id}"));
 
         let image = include_str!("image.rs");
@@ -10396,6 +11842,26 @@ mod tests {
         assert!(compact_image.contains(
             "boot_disk_read_only:true,reuse_ovmf_vars:false,inter_event_delay:Duration::from_millis(100),"
         ));
+    }
+
+    #[test]
+    fn m19_search_runs_before_the_browser_acceptance_exits_servo() {
+        let init = include_str!("../../../user/nagi-init/src/main.rs");
+        assert!(init.contains("run_m18_https_acceptance_with_callback("));
+        assert!(init.contains("m19_search::run_with_browser_state("));
+
+        let acceptance = include_str!("../../../user/nagi-albert/src/m18_acceptance.rs");
+        let scenario_complete = acceptance
+            .find("Nagi M18 browser scenario complete pages=3")
+            .expect("M18 scenario completion marker");
+        let callback = acceptance
+            .find("if !after_scenario(&browser_state)")
+            .expect("Search callback before process exit");
+        let guest_exit = acceptance[callback..]
+            .find("libnagi::exit(0)")
+            .map(|offset| callback + offset)
+            .expect("guest exits after the callback");
+        assert!(scenario_complete < callback && callback < guest_exit);
     }
 
     #[test]
@@ -10488,5 +11954,310 @@ mod tests {
         assert!(random.contains("const VIRTIO_RNG_MODERN_ID: u16 = 0x1044;"));
         assert!(random.contains("if !is_rng_device(vendor, device_id)"));
         assert!(random.contains("fn is_rng_device(vendor: u16, device_id: u16) -> bool"));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod qemu_timeout_caller_tests {
+    use super::has_pre_guest_firmware_timeout_signature;
+    use crate::image::{run_qemu, run_qemu_gui, QemuConfig};
+    use std::{
+        fs,
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    type GuiRunner = fn(&QemuConfig<'_>) -> Result<i32, String>;
+
+    #[test]
+    fn production_callers_capture_timeout_diagnostics_and_reap_within_original_budget() {
+        run_timeout_cases("", None);
+    }
+
+    #[test]
+    fn headless_preserves_serial_emitted_during_diagnostics_and_shutdown() {
+        run_timeout_cases("query", Some(false));
+        run_timeout_cases("final", Some(false));
+    }
+
+    #[test]
+    fn gui_preserves_serial_emitted_during_diagnostics_and_shutdown() {
+        run_timeout_cases("query", Some(true));
+        run_timeout_cases("final", Some(true));
+    }
+
+    #[test]
+    fn gui_interrupted_read_preserves_diagnostics_serial_retry_and_reaping() {
+        for late in ["", "query", "final"] {
+            run_timeout_cases_with_gui_runner(
+                late,
+                Some(true),
+                Some(|config| {
+                    crate::image::run_qemu_gui_with_interrupted_serial_read(config, false)
+                }),
+            );
+        }
+    }
+
+    #[test]
+    fn gui_repeated_interrupted_reads_keep_the_original_deadline() {
+        run_timeout_cases_with_gui_runner(
+            "",
+            Some(true),
+            Some(|config| crate::image::run_qemu_gui_with_interrupted_serial_read(config, true)),
+        );
+    }
+
+    #[test]
+    fn gui_serial_eof_keeps_diagnostics_deadline_and_reaps_a_live_child() {
+        for kernel in [false, true] {
+            for stall in [false, true] {
+                run_gui_eof_case(kernel, stall, false);
+            }
+        }
+    }
+
+    #[test]
+    fn gui_serial_eof_preserves_a_child_exit_before_deadline() {
+        run_gui_eof_case(true, false, true);
+    }
+
+    fn run_gui_eof_case(kernel: bool, stall: bool, exits_early: bool) {
+        let root = std::env::temp_dir().join(format!(
+            "nagi-eof-caller-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("nagi-cli/tests/fixtures/qmp_timeout.py");
+        fs::write(
+            root.join("eof"),
+            serde_json::json!({
+                "kernel": kernel, "exit_after": if exits_early { 0.08 } else { 6.0 }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        if stall {
+            fs::write(root.join("stall"), "").unwrap();
+        }
+        let template = root.join("template");
+        fs::write(&template, b"vars").unwrap();
+        let vars = root.join("vars");
+        let disk = root.join("disk");
+        fs::write(&disk, b"disk").unwrap();
+        let serial = root.join("serial");
+        let timeout = Duration::from_secs(3);
+        let config = QemuConfig {
+            qemu: &qemu,
+            ovmf_code: &template,
+            ovmf_vars_template: &template,
+            disk_image: &disk,
+            persistent_disk: &disk,
+            vars_copy: &vars,
+            serial_log: &serial,
+            acceptance_marker: "never accepted",
+            timeout,
+        };
+        let start = Instant::now();
+        let result = run_qemu_gui(&config);
+        let elapsed = start.elapsed();
+        println!(
+            "EOF kernel={kernel} stall={stall} early={exits_early} elapsed_ms={} result={result:?}",
+            elapsed.as_millis()
+        );
+        let pid = fs::read_to_string(root.join("pid")).unwrap();
+        assert!(
+            !std::path::Path::new("/proc").join(pid.trim()).exists(),
+            "child must be terminated and reaped"
+        );
+        assert!(
+            root.join("serial-closed").exists(),
+            "fixture must actually close serial after handshake"
+        );
+        let log = fs::read_to_string(&serial).unwrap();
+        let requests = fs::read_to_string(root.join("requests")).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        assert!(log.starts_with("serial before diagnostics\n"));
+        assert_eq!(
+            log.contains("Nagi Kernel started\nserial EOF tail\n"),
+            kernel
+        );
+        if exits_early {
+            assert_eq!(result.unwrap(), 0);
+            assert!(
+                elapsed < timeout,
+                "normal child exit must be preserved: {elapsed:?}"
+            );
+            assert!(!requests.contains("query-status"));
+        } else {
+            let error = result.expect_err("serial EOF is not child exit or acceptance");
+            assert!(
+                error.contains("QEMU did not reach acceptance within"),
+                "{error}"
+            );
+            assert!(
+                elapsed >= timeout - timeout / 10,
+                "premature EOF return: {elapsed:?}"
+            );
+            assert!(
+                elapsed < timeout + Duration::from_millis(400),
+                "EOF bypassed original budget: {elapsed:?}"
+            );
+            assert!(
+                requests.contains("query-status"),
+                "diagnostics must run after EOF"
+            );
+            assert!(log.contains("QEMU timeout diagnostics:"));
+            assert_eq!(
+                has_pre_guest_firmware_timeout_signature(&error, &log),
+                !kernel && !stall,
+                "{error}\n{log}"
+            );
+            assert!(log.contains(if stall {
+                "QMP query-status failed:"
+            } else {
+                "QMP CPU instruction window:"
+            }));
+        }
+    }
+
+    fn run_timeout_cases(late: &str, gui_only: Option<bool>) {
+        run_timeout_cases_with_gui_runner(late, gui_only, None);
+    }
+
+    fn run_timeout_cases_with_gui_runner(
+        late: &str,
+        gui_only: Option<bool>,
+        gui_runner: Option<GuiRunner>,
+    ) {
+        for gui in [false, true] {
+            if gui_only.is_some_and(|selected| selected != gui) {
+                continue;
+            }
+            for stall in [false, true] {
+                if late == "final" && stall {
+                    continue;
+                }
+                let root = std::env::temp_dir().join(format!(
+                    "nagi-timeout-caller-{}-{}",
+                    std::process::id(),
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+                fs::create_dir(&root).unwrap();
+                // Execute the immutable checkout fixture. A freshly written
+                // executable can fail with ETXTBSY when another parallel spawn
+                // briefly inherits a writable descriptor before exec.
+                let qemu = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .expect("host tools directory")
+                    .join("nagi-cli/tests/fixtures/qmp_timeout.py");
+                if stall {
+                    fs::write(root.join("stall"), "").unwrap();
+                }
+                if !late.is_empty() {
+                    fs::write(root.join("late"), late).unwrap();
+                }
+                let template = root.join("template");
+                fs::write(&template, b"vars").unwrap();
+                let vars = root.join("vars");
+                let disk = root.join("disk");
+                fs::write(&disk, b"disk").unwrap();
+                let serial = root.join("serial");
+                let timeout = Duration::from_secs(3);
+                let config = QemuConfig {
+                    qemu: &qemu,
+                    ovmf_code: &template,
+                    ovmf_vars_template: &template,
+                    disk_image: &disk,
+                    persistent_disk: &disk,
+                    vars_copy: &vars,
+                    serial_log: &serial,
+                    acceptance_marker: "never accepted",
+                    timeout,
+                };
+                let start = Instant::now();
+                let result = if gui {
+                    gui_runner.unwrap_or(run_qemu_gui)(&config)
+                } else {
+                    run_qemu(&config)
+                };
+                let elapsed = start.elapsed();
+                println!(
+                    "production timeout gui={gui} stalled_qmp={stall} late={late:?} elapsed_ms={} budget_ms={}",
+                    elapsed.as_millis(),
+                    timeout.as_millis()
+                );
+                let error = result.expect_err("missing acceptance must time out");
+                assert!(
+                    error.contains("QEMU did not reach acceptance within"),
+                    "gui={gui} stall={stall} late={late:?}: unexpected runner error: {error}"
+                );
+                let pid = fs::read_to_string(root.join("pid")).unwrap_or_else(|read_error| {
+                    panic!("gui={gui} stall={stall} late={late:?}: {error}; missing fixture PID: {read_error}")
+                });
+                // A zombie still has /proc/<pid>: absence verifies termination AND reaping.
+                let reaped = !std::path::Path::new("/proc").join(pid.trim()).exists();
+                let log = fs::read_to_string(&serial).unwrap();
+                let requests = fs::read_to_string(root.join("requests")).unwrap();
+                let emitted = fs::read_to_string(root.join("late-sent")).ok();
+                fs::remove_dir_all(root).unwrap();
+
+                assert!(reaped, "gui={gui} stall={stall}: child was not reaped");
+                assert!(
+                    elapsed >= timeout - timeout / 10,
+                    "returned before reserved diagnostics: {elapsed:?}"
+                );
+                assert!(
+                    elapsed < timeout + Duration::from_millis(400),
+                    "renewed deadline: {elapsed:?}"
+                );
+                assert!(
+                    requests.contains("query-status"),
+                    "production caller never requested diagnostics: {requests}"
+                );
+                assert!(log.contains("QEMU timeout diagnostics:"), "{log}");
+                assert!(log.starts_with("serial before diagnostics\n"));
+                if !late.is_empty() {
+                    let bytes = emitted
+                        .expect("fixture must actually emit serial after diagnostic query")
+                        .parse::<usize>()
+                        .unwrap();
+                    let expected = "diagnostic serial payload\n".repeat(8192)
+                        + "Nagi Kernel started\nnever accepted\nserial final tail\n";
+                    assert_eq!(bytes, expected.len());
+                    assert!(log.contains(&expected), "gui={gui} stall={stall} late={late}: final serial lost ({} bytes captured)", log.len());
+                    assert_eq!(log.matches("Nagi Kernel started").count(), 1);
+                    assert_eq!(log.matches("never accepted").count(), 1);
+                    assert!(
+                        !has_pre_guest_firmware_timeout_signature(&error, &log),
+                        "kernel started during diagnostics must suppress firmware retry"
+                    );
+                }
+                if stall {
+                    assert!(log.contains("QMP query-status failed:"), "{log}");
+                    assert!(!has_pre_guest_firmware_timeout_signature(&error, &log));
+                } else {
+                    assert!(log.contains("QMP CPU instruction window:"), "{log}");
+                    assert_eq!(
+                        has_pre_guest_firmware_timeout_signature(&error, &log),
+                        late.is_empty(),
+                        "retry classification lost: {error}"
+                    );
+                    assert!(!has_pre_guest_firmware_timeout_signature(
+                        &error,
+                        &format!("Nagi Kernel started\n{log}")
+                    ));
+                }
+            }
+        }
     }
 }

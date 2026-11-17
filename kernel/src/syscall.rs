@@ -48,7 +48,8 @@ use nagi_abi::{
 #[cfg(not(test))]
 use nagi_abi::{
     ProcessExitStatus, ProcessSpawnRequest, PROCESS_EXIT_KIND_EXITED, PROCESS_EXIT_KIND_FAULTED,
-    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT,
+    PROCESS_WAIT_RETRY, SYS_PROCESS_SPAWN, SYS_PROCESS_WAIT, SYS_UPDATE_SLOT_CLAIM,
+    SYS_UPDATE_SLOT_STAGE,
 };
 #[cfg(not(test))]
 use nagi_kernel::process_exit::{ExitKind, ExitTable, WaitOutcome};
@@ -889,6 +890,8 @@ fn dispatch_init(frame: &SyscallFrame) -> u64 {
         SYS_CHANNEL_WAIT_READABLE => channel_wait_readable(frame.arg1, frame),
         SYS_PROCESS_SPAWN => process_spawn(frame.arg1, frame.arg2),
         SYS_PROCESS_WAIT => process_wait(frame.arg1, frame.arg2, frame.arg3, frame),
+        SYS_UPDATE_SLOT_CLAIM => update_slot_claim(frame.arg1, frame.arg2),
+        SYS_UPDATE_SLOT_STAGE => update_slot_stage(frame.arg1),
         _ => u64::MAX,
     }
 }
@@ -1001,6 +1004,63 @@ fn handle_close(handle: u64) -> u64 {
     match nagi_kernel::user_ipc::close(current_process(), handle) {
         Ok(()) => 0,
         Err(_) => u64::MAX,
+    }
+}
+
+/// ADR 0062: hand the inactive-slot update capability to init, once.
+#[cfg(not(test))]
+fn update_slot_claim(address: u64, size: u64) -> u64 {
+    if current_process() != INIT_PROCESS_ID
+        || size != core::mem::size_of::<nagi_abi::UpdateSlotInfo>() as u64
+        || !nagi_kernel::user_process::is_user_writable_range_mapped(
+            address,
+            core::mem::size_of::<nagi_abi::UpdateSlotInfo>(),
+        )
+    {
+        return u64::MAX;
+    }
+    let Some((capability, sector_count, slot)) = nagi_kernel::virtio::claim_update_slot() else {
+        serial_write(b"Nagi update slot claim REFUSED\r\n");
+        return u64::MAX;
+    };
+    let info = nagi_abi::UpdateSlotInfo {
+        capability,
+        sector_count,
+        slot,
+        reserved: [0; 7],
+    };
+    unsafe {
+        (address as *mut nagi_abi::UpdateSlotInfo).write_unaligned(info);
+    }
+    serial_write(b"Nagi update slot claimed slot=");
+    serial_write(if slot == 0 { b"A" } else { b"B" });
+    serial_write(b"\r\n");
+    0
+}
+
+/// ADR 0062: ask the loader to trial the inactive slot on the next boot.
+#[cfg(not(test))]
+fn update_slot_stage(capability: u64) -> u64 {
+    use nagi_kernel::boot_control::BootStageOutcome;
+
+    if current_process() != INIT_PROCESS_ID
+        || !nagi_kernel::virtio::update_capability_matches(capability)
+    {
+        return u64::MAX;
+    }
+    match nagi_kernel::boot_control::stage_update() {
+        BootStageOutcome::Staged(record) | BootStageOutcome::AlreadyStaged(record) => {
+            serial_write(b"Nagi update stage request persisted slot=");
+            serial_write(if record.slot == 0 { b"A" } else { b"B" });
+            serial_write(b" generation=");
+            serial_write_decimal(usize::try_from(record.journal_generation).unwrap_or(usize::MAX));
+            serial_write(b" PASS\r\n");
+            0
+        }
+        BootStageOutcome::Unavailable | BootStageOutcome::Failed => {
+            serial_write(b"Nagi update stage request FAIL\r\n");
+            u64::MAX
+        }
     }
 }
 
@@ -1729,25 +1789,68 @@ fn block_read(capability: u64, sector: u64, address: u64) -> u64 {
 
 #[cfg(not(test))]
 fn block_write(capability: u64, sector: u64, address: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability)
-        || !nagi_kernel::virtio::capacity_sectors().is_some_and(|capacity| sector < capacity)
-        || !nagi_kernel::user_process::is_user_writable_range_mapped(address, BLOCK_SECTOR_SIZE)
-    {
+    // The extent bound is enforced per capability by the block driver.
+    if !nagi_kernel::virtio::writable_capability_matches(capability) {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"capability", sector);
+        return u64::MAX;
+    }
+    // The disk capability above is writable; the user buffer is an input.
+    // A read-only user image page is therefore valid for this syscall.
+    if !nagi_kernel::user_process::is_user_readable_range_mapped(address, BLOCK_SECTOR_SIZE) {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(b"user buffer", sector);
         return u64::MAX;
     }
     let mut buffer = [0_u8; BLOCK_SECTOR_SIZE];
     for (index, byte) in buffer.iter_mut().enumerate() {
         *byte = unsafe { (address as *const u8).add(index).read_volatile() };
     }
-    if nagi_kernel::virtio::write_sector(sector, &buffer).is_err() {
+    if let Err(error) =
+        nagi_kernel::virtio::write_sector_for_capability(capability, sector, &buffer)
+    {
+        #[cfg(feature = "m20-llama-memory")]
+        report_m20_block_write_failure(block_write_error_name(error), sector);
+        #[cfg(not(feature = "m20-llama-memory"))]
+        let _ = error;
         return u64::MAX;
     }
     BLOCK_SECTOR_SIZE as u64
 }
 
+#[cfg(all(not(test), feature = "m20-llama-memory"))]
+fn report_m20_block_write_failure(reason: &[u8], sector: u64) {
+    serial_write(b"Nagi M20 block write failure reason=");
+    serial_write(reason);
+    serial_write(b" sector=");
+    serial_write_decimal(usize::try_from(sector).unwrap_or(usize::MAX));
+    serial_write(b"\r\n");
+}
+
+#[cfg(all(not(test), feature = "m20-llama-memory"))]
+fn block_write_error_name(error: nagi_kernel::virtio::BlockError) -> &'static [u8] {
+    use nagi_kernel::virtio::BlockError;
+    match error {
+        BlockError::NotInitialized => b"not initialized",
+        BlockError::PciUnavailable => b"PCI unavailable",
+        BlockError::InvalidBar => b"invalid BAR",
+        BlockError::UnsupportedQueue => b"unsupported queue",
+        BlockError::AddressOutOfRange => b"address out of range",
+        BlockError::DeviceFailure => b"device failure",
+        BlockError::RequestTimeout => b"request timeout",
+        BlockError::QueueCorrupt => b"queue corrupt",
+        BlockError::SectorOutOfRange => b"sector out of range",
+        BlockError::InvalidPartitionTable => b"invalid partition table",
+        BlockError::UserDataPartitionTooSmall => b"User Data partition too small",
+        BlockError::InvalidCapability => b"invalid capability",
+        BlockError::Busy => b"queue busy",
+        BlockError::UnsupportedFeature => b"unsupported feature",
+    }
+}
+
 #[cfg(not(test))]
 fn block_flush(capability: u64) -> u64 {
-    if !nagi_kernel::virtio::capability_matches(capability) {
+    if !nagi_kernel::virtio::writable_capability_matches(capability) {
         return u64::MAX;
     }
     if nagi_kernel::virtio::flush().is_err() {
@@ -1877,6 +1980,36 @@ mod tests {
     };
     use crate::user_elf::{USER_IMAGE_BASE, USER_IMAGE_LIMIT};
     use crate::user_process::{USER_MMAP_BASE, USER_MMAP_LIMIT};
+
+    #[test]
+    fn block_syscalls_validate_user_ranges_in_the_transfer_direction() {
+        let source = include_str!("syscall.rs");
+        let after_read = source
+            .split_once("fn block_read(")
+            .expect("block_read source")
+            .1;
+        let block_read = after_read
+            .split_once("\n#[cfg(not(test))]\nfn block_write(")
+            .expect("block_write follows block_read")
+            .0;
+        let after_write = source
+            .split_once("fn block_write(")
+            .expect("block_write source")
+            .1;
+        let block_write = after_write
+            .split_once("\n#[cfg(all(not(test), feature = \"m20-llama-memory\"))]\nfn report_m20_block_write_failure")
+            .expect("diagnostic helpers follow block_write")
+            .0;
+
+        assert!(block_read.contains("readable_capability_matches"));
+        assert!(!block_read.contains("writable_capability_matches"));
+        assert!(block_read.contains("is_user_writable_range_mapped"));
+        assert!(!block_read.contains("is_user_readable_range_mapped"));
+        assert!(block_write.contains("writable_capability_matches"));
+        assert!(!block_write.contains("readable_capability_matches"));
+        assert!(block_write.contains("is_user_readable_range_mapped"));
+        assert!(!block_write.contains("is_user_writable_range_mapped"));
+    }
 
     // Inspect the actual entry body, not a second model of its save list. This
     // also covers registers the Rust ABI happens to preserve today.

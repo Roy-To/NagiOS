@@ -248,6 +248,8 @@ pub struct VectorMatch {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum VectorIndexError {
     Unavailable,
+    /// Commit outcome is uncertain; reload before another mutation.
+    RecoveryRequired,
     Capacity,
     DimensionMismatch,
     InvalidEmbeddingSpace,

@@ -1,0 +1,41 @@
+source_commit=97d97ec766c52aea9bba59811327527e6ac6f607
+command=cargo test --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (/tmp/nagi-sheets-tools/target/debug/deps/nagi_sheets_core-995b005ec0672589)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running ../../tests/sheets-core/acceptance.rs (/tmp/nagi-sheets-tools/target/debug/deps/sheets_acceptance-7086eaa2c8a18c62)
+
+running 19 tests
+test formula_errors_are_reported_as_unsuccessful_events ... ok
+test batch_topology_diamond_and_error_recovery ... ok
+test invalid_snapshots_reject_missing_extra_and_duplicate_bindings ... ok
+test sheet_identity_cannot_be_recycled_even_after_snapshot ... ok
+test sheets_h01_identity_and_rename ... ok
+test sheets_h02_typed_sparse_values ... ok
+test sheets_h03_parser_and_arithmetic ... ok
+test sheets_h04_functions_ranges_and_lazy_branches ... ok
+test incremental_matches_rebuilt_graph_for_many_edits ... ok
+test sheets_h05_transitive_dependents_only ... ok
+test sheets_h06_cycles_and_recovery ... ok
+test sheets_h07_errors_and_atomicity ... ok
+test sheets_h08_replacement_removes_edges ... ok
+test sheets_h09_unicode_and_canonical_names ... ok
+test snapshot_roundtrip_rename_cycles_and_validation ... ok
+test parser_malformed_corpus_on_small_stack ... ok
+test untrusted_formula_and_range_bounds ... ok
+test sheets_h10_sparse_100k_and_long_chain ... ok
+test graph_limits_are_atomic_and_ranges_include_empty_cells ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+
+   Doc-tests nagi_sheets_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit_code=0

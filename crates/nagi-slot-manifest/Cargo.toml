@@ -1,0 +1,13 @@
+[package]
+name = "nagi-slot-manifest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# Host-side signing for image builders. The loader only verifies.
+sign = []
+
+[dependencies]
+ed25519-dalek = { version = "=2.1.1", default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }

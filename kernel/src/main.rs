@@ -169,7 +169,7 @@ extern "win64" fn nagi_kernel_entry(boot_info: *const nagi_bootinfo::BootInfo) -
             halt_forever();
         }
     };
-    if boot_info.boot_control.is_trial()
+    if (boot_info.boot_control.is_trial() || boot_info.boot_control.is_update_stageable())
         && !unsafe { boot_info.boot_control_writer_is_runtime_code() }
     {
         serial_write(b"Nagi Kernel rejected BootInfo\r\nreason: boot-control-writer\r\n");
@@ -481,6 +481,11 @@ fn report_user_process_stage(stage: nagi_kernel::user_process::PrepareStage) {
         }
         PrepareStage::UserContextReady => {
             serial_write(b"Nagi M5 trace: user context ready\r\n");
+        }
+        PrepareStage::MmapFramePoolReady { frames } => {
+            serial_write(b"Nagi M5 trace: mmap frame pool pages=");
+            serial_write_decimal(frames);
+            serial_write(b"\r\n");
         }
     }
 }

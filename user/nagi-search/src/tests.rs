@@ -1164,6 +1164,81 @@ fn files_pages_and_workspace_producer_fixtures_index_and_search() {
 }
 
 #[test]
+fn producer_key_restores_its_object_id_after_tombstone_and_reopen() {
+    const PRODUCER: &str = "org.nagi.albert.history";
+    const KEY: &str = "profile-77:visit-12";
+    let source_app = AppId(90);
+    let source_session = AppSessionId(77);
+    let backend = MemoryBackend::default();
+    let mut service = SearchService::open(backend.clone(), FixtureVisibility::default()).unwrap();
+
+    let mut attributes = BTreeMap::new();
+    attributes.insert(
+        crate::adapters::PRODUCER_ID_ATTRIBUTE.into(),
+        PRODUCER.into(),
+    );
+    attributes.insert(crate::adapters::PRODUCER_KEY_ATTRIBUTE.into(), KEY.into());
+    let record = PageProducerAdapter
+        .to_record(ProducerObject {
+            object_id: ObjectId(300),
+            title: "Example Domain".into(),
+            location: Some("https://example.com/".into()),
+            source_app: Some(source_app),
+            source_session: Some(source_session),
+            created_at: None,
+            modified_at: None,
+            observed_at: None,
+            tags: Vec::new(),
+            attributes,
+            visibility: VisibilityScope::Public,
+        })
+        .unwrap();
+    service.upsert_record(record.clone()).unwrap();
+    assert_eq!(
+        service.producer_object_id(PRODUCER, KEY, source_app, source_session),
+        Some(ObjectId(300))
+    );
+    assert_eq!(service.next_object_id(), Some(ObjectId(301)));
+    service.remove_record(ObjectId(300), 0).unwrap();
+    drop(service);
+
+    let mut service = SearchService::open(backend, FixtureVisibility::default()).unwrap();
+    assert_eq!(
+        service.producer_object_id(PRODUCER, KEY, source_app, source_session),
+        Some(ObjectId(300)),
+        "tombstones retain the source-key mapping across store reopen"
+    );
+    assert_eq!(service.next_object_id(), Some(ObjectId(301)));
+    assert!(service
+        .get_object(
+            AccessContext::for_application(source_app, source_session),
+            ObjectId(300)
+        )
+        .is_none());
+
+    service.upsert_record(record).unwrap();
+    assert_eq!(
+        service.producer_object_id(PRODUCER, KEY, source_app, source_session),
+        Some(ObjectId(300))
+    );
+    assert_eq!(
+        result_ids(
+            &service
+                .search(
+                    AccessContext::for_application(source_app, source_session),
+                    &SearchQuery {
+                        text: Some("Example Domain".into()),
+                        kind: Some(ObjectKind::Page),
+                        ..SearchQuery::default()
+                    }
+                )
+                .unwrap()
+        ),
+        [ObjectId(300)]
+    );
+}
+
+#[test]
 fn m19_acceptance_indexes_filters_restarts_and_researches_stable_objects() {
     let path = host_test_path();
     let file_id = ObjectId(0x1901);

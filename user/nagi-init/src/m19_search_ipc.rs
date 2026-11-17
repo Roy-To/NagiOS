@@ -41,6 +41,22 @@ fn evaluate(
     launch: Option<LaunchRecord>,
     payload: &[u8],
 ) -> SearchResults {
+    if payload.first() == Some(&(KindFilter::File as u8)) {
+        return crate::m19_search_service::evaluate_files(launch, payload, |access, text| {
+            let query = SearchQuery {
+                text: Some(text.to_string()),
+                kind: Some(ObjectKind::File),
+                ..SearchQuery::default()
+            };
+            service.search(access, &query).ok().map(|response| {
+                response
+                    .objects
+                    .into_iter()
+                    .map(|hit| hit.record.object_id)
+                    .collect()
+            })
+        });
+    }
     let Some(launch) = launch else {
         return SearchResults::status_only(ResultStatus::UnknownCaller);
     };
@@ -55,6 +71,7 @@ fn evaluate(
         kind: match request.kind {
             KindFilter::Any => None,
             KindFilter::File => Some(ObjectKind::File),
+            KindFilter::Page => Some(ObjectKind::Page),
         },
         ..SearchQuery::default()
     };
@@ -102,7 +119,7 @@ fn run_client(
     service: &M19SearchService,
     app_id: nagi_model::AppId,
     app_session_id: AppSessionId,
-) -> Option<SearchResults> {
+) -> Option<[SearchResults; 3]> {
     let placement = LaunchPlacement {
         app_session_id,
         node_id: NODE_ID,
@@ -114,47 +131,115 @@ fn run_client(
         FOREIGN_SEARCH_CLIENT_PACKAGE
     };
     let launched = supervisor::launch(package, app_id, placement).ok()?;
-    if !serve_one(service, launched.endpoint) {
-        return None;
+    let mut results = [SearchResults::status_only(ResultStatus::Unavailable); 3];
+    for (index, report_request_id) in [2_u64, 4, 6].iter().enumerate() {
+        if !serve_one(service, launched.endpoint) {
+            return None;
+        }
+        let mut report = ChannelReceiveResult::default();
+        channel_receive(launched.endpoint, &mut report)?;
+        if report.opcode != OPCODE_CLIENT_REPORT
+            || report.request_id != *report_request_id
+            || report.sender_process_id != launched.record.process_id
+        {
+            return None;
+        }
+        let payload_len = (report.payload_len as usize).min(report.payload.len());
+        results[index] = decode_results(&report.payload[..payload_len]).ok()?;
     }
-    let mut report = ChannelReceiveResult::default();
-    channel_receive(launched.endpoint, &mut report)?;
-    if report.opcode != OPCODE_CLIENT_REPORT
-        || report.sender_process_id != launched.record.process_id
-    {
-        return None;
-    }
-    let payload_len = (report.payload_len as usize).min(report.payload.len());
-    let results = decode_results(&report.payload[..payload_len]).ok()?;
     supervisor::reap(launched)
         .filter(supervisor::exited_cleanly)
-        .map(|_| results)
+        .map(|_| [results[0], results[1], results[2]])
 }
 
-pub fn run(service: &M19SearchService, live_file: ObjectId) -> bool {
+pub fn run(
+    service: &M19SearchService,
+    live_file: ObjectId,
+    page: ObjectId,
+    browser_history_page: Option<ObjectId>,
+) -> bool {
     console_write(b"Nagi M19 Search IPC trace start\r\n");
-    let Some(results) = run_client(service, APP_ID, SESSION_ID) else {
+    let Some([file_results, page_results, browser_history_results]) =
+        run_client(service, APP_ID, SESSION_ID)
+    else {
         console_write(b"Nagi M19 Search IPC FAIL authorized client\r\n");
         return false;
     };
-    if results.status != ResultStatus::Ok || results.ids() != [live_file.0] {
+    if file_results.status != ResultStatus::Ok || file_results.ids() != [live_file.0] {
         console_write(b"Nagi M19 Search IPC FAIL authorized results\r\n");
         return false;
     }
     console_write(b"Nagi M19 Search IPC authorized isolated client PASS\r\n");
+    if page_results.status != ResultStatus::Ok || page_results.ids() != [page.0] {
+        console_write(b"Nagi M19 Search IPC FAIL authorized page results\r\n");
+        return false;
+    }
+    console_write(b"Nagi M19 Search IPC page authorized isolated client PASS\r\n");
+    match browser_history_page {
+        Some(expected_id)
+            if browser_history_results.status == ResultStatus::Ok
+                && browser_history_results.ids().contains(&expected_id.0) =>
+        {
+            console_write(b"Nagi M19 Browser history authenticated Search IPC PASS\r\n");
+        }
+        Some(_) => {
+            console_write(b"Nagi M19 Search IPC FAIL authorized Browser history results\r\n");
+            return false;
+        }
+        None if browser_history_results.status == ResultStatus::Ok
+            && browser_history_results.count == 0 => {}
+        None => {
+            console_write(b"Nagi M19 Search IPC FAIL unexpected Browser history results\r\n");
+            return false;
+        }
+    }
 
-    // Same ELF, same query, launched as a different declared application
-    // with `search.query`: its resolved identity sees nothing, so nothing
-    // crosses the boundary.
-    let Some(results) = run_client(service, FOREIGN_APP, FOREIGN_SESSION_ID) else {
+    // A different declared application has `search.query` only, so its Files
+    // query is denied before the Search index is read. Page queries still run
+    // through the fixture's caller-specific visibility policy.
+    let Some([foreign_files, foreign_pages, foreign_browser_history]) =
+        run_client(service, FOREIGN_APP, FOREIGN_SESSION_ID)
+    else {
         console_write(b"Nagi M19 Search IPC FAIL foreign client\r\n");
         return false;
     };
-    if results.status != ResultStatus::Ok || results.count != 0 || results.visible_total != 0 {
+    if foreign_files.status != ResultStatus::Denied
+        || foreign_files.count != 0
+        || foreign_files.visible_total != 0
+    {
         console_write(b"Nagi M19 Search IPC FAIL foreign results leaked\r\n");
         return false;
     }
+    if foreign_pages.status != ResultStatus::Ok
+        || foreign_pages.count != 0
+        || foreign_pages.visible_total != 0
+    {
+        console_write(b"Nagi M19 Search IPC FAIL foreign page results leaked\r\n");
+        return false;
+    }
+    if foreign_browser_history.status != ResultStatus::Ok
+        || foreign_browser_history.count != 0
+        || foreign_browser_history.visible_total != 0
+    {
+        console_write(b"Nagi M19 Search IPC FAIL foreign Browser history leaked\r\n");
+        return false;
+    }
     console_write(b"Nagi M19 Search IPC foreign isolated client hidden PASS\r\n");
+
+    // The authorized manifest and grants with a different live app session
+    // still cannot cross the Search visibility filter for Files metadata.
+    let Some([other_session_files, _, _]) = run_client(service, APP_ID, FOREIGN_SESSION_ID) else {
+        console_write(b"Nagi M19 Search IPC FAIL other-session client\r\n");
+        return false;
+    };
+    if other_session_files.status != ResultStatus::Ok
+        || other_session_files.count != 0
+        || other_session_files.visible_total != 0
+    {
+        console_write(b"Nagi M19 Search IPC FAIL Files visibility filter\r\n");
+        return false;
+    }
+    console_write(b"Nagi M19 Search IPC Files visibility filter PASS\r\n");
 
     // A sender without a launch record is refused before the index is read,
     // and so is a reaped launch whose grant was revoked with its exit.

@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a change or capability for Nagi OS.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A feature request is a proposal, not an approved product decision or release commitment. Do not post credentials, personal or private data, user-name-containing local paths, or chat or conversation identifiers.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Describe the situation and who is affected without including private personal details.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior or result you are suggesting. Keep confirmed behavior separate from your proposal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Context and evidence
+      description: Include examples, constraints, or sanitized evidence that help explain the request.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: references
+    attributes:
+      label: Related product decision, specification, or workstream
+      description: Link the relevant DEC, ADR, implementation specification, or workstream if known. Mark unresolved ideas as proposals for review.
+    validations:
+      required: false

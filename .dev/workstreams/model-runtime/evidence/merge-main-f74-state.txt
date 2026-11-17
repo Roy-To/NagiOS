@@ -1,0 +1,9 @@
+Main base: f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9
+Prior source head: 1e3d7cc86a38439e247bc712fe85d74769c17ef3
+Result: PASS (exit 0); checked after conflict-free main import.
+Machine-specific path prefixes normalized.
+
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running `<build-target>/debug/nagi-bootstrap dev verify`
+PASS development state: 30 registered workstreams, 23 state files validated; branch codex/0.1-session-model-service at 1e3d7cc86a38439e247bc712fe85d74769c17ef3

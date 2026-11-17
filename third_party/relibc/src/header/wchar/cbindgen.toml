@@ -40,6 +40,19 @@ after_includes = """
 
 #define WEOF (0xffffffffu)
 """
+trailer = """
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Nagi: x86-64 long double travels in x87 registers, which Rust cannot
+// express; the definition is target-owned assembly.
+long double wcstold(const wchar_t *nptr, wchar_t **endptr);
+
+#ifdef __cplusplus
+}
+#endif
+"""
 include_guard = "_RELIBC_WCHAR_H"
 language = "C"
 style = "Type"

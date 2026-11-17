@@ -16,10 +16,11 @@ streamed digest check matched without retaining a file. On 2026-10-02, the
 exact locked artifact was downloaded to the ignored local cache and its size
 and SHA-256 were verified again. A separate, disposable acceptance disk now
 contains that artifact so the guest can read and verify its complete contents
-through the read-only Model Store capability. It is not added to the regular
-M30 release image, installed through a guest installer, or loaded by Nagi.
-`ModelRuntime::load` independently hashes artifact bytes before calling any
-backend.
+through the read-only Model Store capability. A later disposable QEMU run also
+loaded it through `ModelRuntime` and produced a validated structured response
+inside Nagi. The model is not added to the regular M30 release image, and no
+host inference is used. `ModelRuntime::load` independently hashes artifact
+bytes before calling any backend.
 
 ## Implemented and verified
 
@@ -96,12 +97,12 @@ backend.
 Using the pinned arm64 nightly toolchain:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-host-arm64 \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> test --locked --offline \
   -p nagi-model-manager --all-targets
 ```
 
@@ -110,33 +111,33 @@ passed (61 total). The CLI regression suite passed 163 unit and 21 integration
 tests.
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-clippy-arm64 \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> clippy --locked --offline \
   -p nagi-model-manager --all-targets -- -D warnings
 ```
 
 Clippy passed with warnings denied. Package formatting passed:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-/Users/tozawa/.cargo/bin/cargo fmt \
+<local-path> fmt \
   --manifest-path user/nagi-model-manager/Cargo.toml -- --check
 ```
 
 The library compiled for the Nagi user target with `no_std` core/alloc:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=<local-path> \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
-CARGO_TARGET_DIR=/tmp/nagi-m20-target \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check \
+RUSTC=<local-path> \
+RUSTDOC=<local-path> \
+CARGO_TARGET_DIR=<local-path> \
+<local-path> -Z build-std=core,alloc check \
   --manifest-path Cargo.toml -p nagi-model-manager \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```
@@ -1329,3 +1330,75 @@ and acceptance evidence are under
 Model Store image, guest model load, response, or QEMU inference was produced.
 M20 remains `PARTIAL` pending target-owned libc++ provider coverage and the
 full guest acceptance path.
+
+## Completion Sweep — real local Granite inference (2026-10-08)
+
+The complete `./nagi m20-granite-inference` acceptance passed in QEMU run
+`1791393002742512000`. The guest read the pinned 2,244,011,552-byte
+`granite-4.2-3b-Q4_K_M.gguf` artifact from its read-only Model Store, verified
+SHA-256 `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`,
+loaded the target llama.cpp CPU backend, generated a grammar-constrained answer,
+and passed `ModelRuntime` schema validation. The actual guest output was
+`{"answer":"Hello in Japanese is こんにちは (Konnichiwa)."}` followed by
+`Nagi M20 Granite structured inference PASS`; no host inference was involved.
+
+The target libc++ and llama.cpp archives built, the disposable qcow2 passed
+`qemu-img check`, and all five entries in the run's `SHA256SUMS` verified.
+Image, log, build logs, OVMF variables, README, and checksum manifest are under
+`out/evidence/m20-granite-inference-1791393002742512000/`; the image is
+`out/artifacts/nagi-0.1-m20-granite-inference-1791393002742512000.qcow2`.
+
+The first run exposed two runtime issues that are now fixed: bootstrap user
+threads are cooperative, so the ggml pool must use one compute thread; and
+`llama_sampler_sample()` accepts the chosen token internally, so the adapter
+must not accept it a second time or constrained grammar state advances twice.
+The source fix and dedicated x86 GitHub Actions acceptance are in commit
+`0d66495`, PR #29. Its CI run is pending; the local milestone acceptance above
+has passed.
+
+
+## Completion Sweep — CI User Data write timeout (2026-10-08)
+
+The `nagi-m20-inference` job in GitHub run `37702418216` downloaded and
+verified the pinned model and built the target archives, then failed before
+llama.cpp loaded Granite. The QEMU serial log
+reports `Nagi M20 block write failure reason=request timeout sector=2`, followed
+by `Nagi M20 User Data write probe FAIL sector=2` and `Nagi M7 storage FAIL`.
+Ubuntu 24.04 installed QEMU `8.2.2`. The M20 acceptance image is a sparse 64 GiB
+QCOW2 with User Data beginning at LBA 17,827,840; logical sector 2 therefore
+targets physical LBA 17,827,842. The sector-2 read succeeds, while the first
+write's used-ring index does not advance before the kernel's 5-million-iteration
+poll limit.
+
+Local QEMU run `1791414006180674000` on QEMU 11.1.1 records both User Data write
+probes, M7 persistence, the structured Granite response, and
+`Nagi M20 Granite structured inference PASS`. The difference points to a
+host-QEMU/QCOW2 latency issue, but does not prove it. The kernel now allows up to
+100 million bounded poll iterations for a request; this change is local commit
+`4e62dcd`. `cargo fmt --manifest-path kernel/Cargo.toml -- --check`,
+`git diff --check`, and the release build of `nagi-kernel` for
+`x86_64-unknown-nagi` with `m20-llama-memory` pass. Host kernel tests cannot run
+on this arm64 macOS host because the kernel uses x86-specific inline assembly.
+
+The code fix has not yet been pushed or run in hosted QEMU. M20 remains
+`PARTIAL` until the hosted inference run passes; guest-side Model Store install
+and normal lazy model-service integration also remain open.
+
+## 2026-10-08 ordinary-session Granite service leaf
+
+The ordinary-session 0.1 implementation adds a lazy, session-bound adapter without
+reimplementing the successful inference engine. `llama_backend.rs` extracts
+the existing adapter; `m20_granite.rs` retains its dedicated acceptance.
+`ResidentModelRuntime` preserves the existing manifest/SHA-256/request/response
+checks while retaining one model between calls. `LazyModelService` admits
+bounded real input, exact terms acknowledgement, an explicit guest resource
+budget and cooperative deadline/cancellation; errors discard text and unload.
+
+The normal startup, target archive linking, desktop worker and Nagi Bar call
+remain shared-owner integration work. The saved cloud environment has no GGUF
+artifact, and no new weights were downloaded. Host orchestration/session tests
+and Nagi-target leaf compilation passed; they do not establish a normal init
+ELF link or QEMU desktop inference. M20 stays `PARTIAL`; prior dedicated
+acceptance evidence is unchanged.
+
+[API and integration proposal](../../.dev/workstreams/model-runtime/handoff.md).

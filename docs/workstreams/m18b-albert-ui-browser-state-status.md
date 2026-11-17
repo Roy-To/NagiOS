@@ -2,6 +2,13 @@
 
 **Status: PARTIAL**
 
+The formal M18 milestone acceptance is **PASS** as of 2026-10-07. Main commit
+`7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed authoritative GitHub Actions
+run [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873),
+including `nagi-target`'s full `./nagi m18` guest scenario. This workstream
+tracks the broader production browser-provider boundary, which remains
+`PARTIAL` independently of the formal M18 acceptance.
+
 ## Fixed starting point
 
 - Repository: `RT-NISH/NagiOS`
@@ -157,3 +164,13 @@ field. Kanji conversion is deferred beyond 0.1 by user decision; the address
 bar does not use the IME. `./nagi m18` run `1791180856033701000` passed the
 QMP-typed `nihongo` → `にほんご` commit. Picker, download/upload, and
 production permission/IPC providers remain; M18-B stays **PARTIAL**.
+
+## Formal M18 acceptance closure — 2026-10-07
+
+The current mainline QEMU run verifies the subsequently integrated picker,
+download, upload, and interactive permission paths in addition to the HTTPS,
+clipboard, and IME flows. GitHub Actions run `37601664873` passed the
+`nagi-target` job at main commit `7ff70b83cfdc05c279c1b697ceacf12196e83e1f`;
+the `./nagi m18` step reports all these paths passing. The formal M18
+milestone is **PASS**. This M18-B workstream remains **PARTIAL** for the
+separate production authenticated-service integration.

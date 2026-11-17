@@ -10,6 +10,8 @@ members = [
     "crates/nagi-action-ipc",
     "crates/nagi-search-ipc",
     "crates/nagi-job-scheduler",
+    "crates/nagi-slot-manifest",
+    "crates/nagi-fat32",
     "kernel",
     "user/libnagi",
     "user/nagi-net",
@@ -27,7 +29,7 @@ members = [
     "services/nagi-ai",
     "user/nagi-servo",
     "user/nagi-init-package-provider",
-    "user/nagi-init",
+    "user/nagi-init-linux-tests",
     "user/nagi-isolated-app",
 ]
 default-members = [
@@ -44,22 +46,11 @@ exclude = [
     "crates/nagi-service-contract",
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",
+    # The product PID 1 manifest retains its Nagi-only Albert/Servo graph.
+    # Linux unit tests use the sibling manifest at user/nagi-init-linux-tests
+    # with the same source/build script but without target_os=nagi dependencies.
+    # Keeping the product manifest outside root resolution avoids requiring
+    # the Servo export just to load the Linux test package.
+    "user/nagi-init",
     "tools/linux-boot/kernel-dev-20261115/package-identity-negative-20261115",
 ]
-
-# Servo's pinned libc is materialized and patched by `nagi fetch`. Keep the
-# parent workspace on that same Nagi-owned source when the target-local Servo
-# graph is selected; the nested Servo workspace patch is not inherited by this
-# workspace's resolver.
-[patch.crates-io]
-cc = { path = "third_party/cc-nagi" }
-libc = { path = "third_party/libc-servo" }
-freetype-sys = { path = "third_party/freetype-sys" }
-hyper-util = { path = "third_party/hyper-util-servo" }
-inventory = { path = "third_party/inventory-nagi" }
-mio = { path = "third_party/mio-servo" }
-socket2 = { path = "third_party/socket2-servo" }
-tempfile = { path = "third_party/tempfile-nagi" }
-mozjs_sys = { path = "third_party/mozjs-sys-nagi" }
-tokio = { path = "third_party/tokio-servo" }
-surfman = { path = "third_party/surfman" }

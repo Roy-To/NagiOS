@@ -637,7 +637,7 @@ fn fixture_repository(root: &Path) {
 }
 
 #[test]
-fn rust_std_build_failure_survives_closed_pipes_without_changing_result() {
+fn rust_std_runtime_diagnostics_survive_closed_pipes_without_changing_result() {
     const FAKE_CARGO_EXIT: i32 = 37;
     let scratch = Scratch::new("rust-std-closed-pipes");
     let repository = scratch.0.join("repo");
@@ -709,14 +709,13 @@ fn rust_std_build_failure_survives_closed_pipes_without_changing_result() {
         baseline_stdout.contains("user init: cargo failed"),
         "missing original command failure: {baseline_stdout}"
     );
-    let baseline_cargo_log = fs::read_to_string(&cargo_log).expect("read baseline cargo log");
-    let baseline_invocations: Vec<_> = baseline_cargo_log.lines().collect();
+    let baseline_stderr = String::from_utf8_lossy(&baseline.stderr);
     assert!(
-        baseline_invocations.len() == 1
-            && baseline_invocations[0].contains("build -p nagi-init")
-            && baseline_invocations[0].contains("--features m13-std")
-            && baseline_invocations[0].contains("--locked --offline"),
-        "expected the current pinned Rust std build invocation: {baseline_invocations:?}"
+        baseline_stderr.contains("phase=discover-toolchain")
+            && baseline_stderr.contains("phase=lock")
+            && (baseline_stderr.contains("Rust std source: verified reuse")
+                || baseline_stderr.contains("Rust std source: fresh preparation")),
+        "expected rust-std status diagnostics on stderr: {baseline_stderr}"
     );
 
     let source = source_at(&repository);
@@ -747,13 +746,14 @@ fn rust_std_build_failure_survives_closed_pipes_without_changing_result() {
         &source,
         &repository,
     );
-    let cargo_invocations = fs::read_to_string(&cargo_log)
-        .expect("read fake cargo log")
-        .lines()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    assert_eq!(cargo_invocations.len(), 2);
-    assert_eq!(cargo_invocations[0], cargo_invocations[1]);
+    assert_eq!(
+        fs::read_to_string(&cargo_log)
+            .expect("read fake cargo log")
+            .lines()
+            .count(),
+        2,
+        "the fixture should stop at one fake init build per run"
+    );
     assert!(
         !repository.join("out/artifacts").exists(),
         "fixture unexpectedly reached image/QEMU stages"

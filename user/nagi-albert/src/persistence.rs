@@ -181,6 +181,17 @@ impl<'a> Decoder<'a> {
 }
 
 pub(crate) fn encode_record(kind: RecordKind, payload: Vec<u8>) -> Result<Vec<u8>, CodecError> {
+    encode_record_version(kind, payload, FORMAT_VERSION)
+}
+
+pub(crate) fn encode_record_version(
+    kind: RecordKind,
+    payload: Vec<u8>,
+    version: u16,
+) -> Result<Vec<u8>, CodecError> {
+    if !(FORMAT_VERSION..=2).contains(&version) {
+        return Err(CodecError::UnsupportedVersion);
+    }
     let total = HEADER_BYTES
         .checked_add(payload.len())
         .ok_or(CodecError::TooLarge)?;
@@ -189,7 +200,7 @@ pub(crate) fn encode_record(kind: RecordKind, payload: Vec<u8>) -> Result<Vec<u8
     }
     let mut record = Vec::with_capacity(total);
     record.extend_from_slice(MAGIC);
-    record.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    record.extend_from_slice(&version.to_le_bytes());
     record.extend_from_slice(&(kind as u16).to_le_bytes());
     record.extend_from_slice(&(payload.len() as u32).to_le_bytes());
     record.extend_from_slice(&checksum(&payload).to_le_bytes());
@@ -198,6 +209,17 @@ pub(crate) fn encode_record(kind: RecordKind, payload: Vec<u8>) -> Result<Vec<u8
 }
 
 pub(crate) fn decode_record(record: &[u8], expected: RecordKind) -> Result<&[u8], CodecError> {
+    let (payload, version) = decode_record_version(record, expected)?;
+    if version != FORMAT_VERSION {
+        return Err(CodecError::UnsupportedVersion);
+    }
+    Ok(payload)
+}
+
+pub(crate) fn decode_record_version(
+    record: &[u8],
+    expected: RecordKind,
+) -> Result<(&[u8], u16), CodecError> {
     if record.len() > MAX_RECORD_BYTES {
         return Err(CodecError::TooLarge);
     }
@@ -208,7 +230,7 @@ pub(crate) fn decode_record(record: &[u8], expected: RecordKind) -> Result<&[u8]
         return Err(CodecError::InvalidMagic);
     }
     let version = u16::from_le_bytes([record[4], record[5]]);
-    if version != FORMAT_VERSION {
+    if !(FORMAT_VERSION..=2).contains(&version) {
         return Err(CodecError::UnsupportedVersion);
     }
     let kind = u16::from_le_bytes([record[6], record[7]]);
@@ -224,7 +246,7 @@ pub(crate) fn decode_record(record: &[u8], expected: RecordKind) -> Result<&[u8]
     if checksum(payload) != expected_checksum {
         return Err(CodecError::ChecksumMismatch);
     }
-    Ok(payload)
+    Ok((payload, version))
 }
 
 fn checksum(bytes: &[u8]) -> u32 {

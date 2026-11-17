@@ -24,8 +24,9 @@ if [ "$run_exit" -ne 0 ]; then
     exit "$run_exit"
 fi
 
-serial_log="$repository_root/out/logs/m10-desktop.log"
-if [ ! -f "$serial_log" ]; then
+# Each run has its own log and User Data disk (first run creates the owner).
+serial_log=$(ls -t "$repository_root"/out/logs/m10-desktop-*.log 2>/dev/null | head -n 1 || true)
+if [ -z "$serial_log" ] || [ ! -f "$serial_log" ]; then
     printf 'FAIL M10 serial log was not created: %s\n' "$serial_log" >&2
     exit 4
 fi
@@ -56,6 +57,10 @@ for marker in \
     'Nagi boot lock checksum=' \
     'Nagi M10 desktop READY' \
     'Nagi M10 surface checksum=' \
+    'Nagi login READY mode=create' \
+    'Nagi login owner created PASS name=owner' \
+    'Nagi login unlocked PASS' \
+    'Nagi login readiness reported PASS' \
     'Nagi M10 Calculator focus PASS' \
     'Nagi M10 Notes focus PASS' \
     'Nagi M10 Japanese input PASS' \
@@ -72,4 +77,4 @@ for marker in \
     last_line=$line
 done
 
-printf '%s\n' 'PASS M10 acceptance: real QEMU input focused all Nagi desktop windows and entered Japanese text'
+printf '%s\n' 'PASS M10 acceptance: real QEMU input signed in the owner, focused all Nagi desktop windows and entered Japanese text'

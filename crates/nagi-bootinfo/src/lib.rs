@@ -3,9 +3,13 @@
 use core::mem::size_of;
 
 pub const BOOT_INFO_MAGIC: u64 = 0x4E41_4749_424F_4F54;
-pub const BOOT_INFO_VERSION: u32 = 4;
+pub const BOOT_INFO_VERSION: u32 = 5;
 pub const REALTIME_UNAVAILABLE_NS: u64 = u64::MAX;
 pub const BOOT_READY_RECORD_SIZE: usize = 20;
+pub const BOOT_STAGE_RECORD_SIZE: usize = 20;
+/// `BootControlInfo::flags`: this is a confirmed-slot boot with no pending
+/// trial, so the inactive slot may be written and staged (ADR 0062).
+pub const BOOT_CONTROL_UPDATE_STAGEABLE: u8 = 1;
 
 const EFI_RUNTIME_SERVICES_CODE: u32 = 5;
 const EFI_MEMORY_RUNTIME: u64 = 1 << 63;
@@ -149,7 +153,8 @@ pub struct BootControlInfo {
     pub journal_generation: u64,
     pub slot: u8,
     pub attempt: u8,
-    pub reserved: [u8; 6],
+    pub flags: u8,
+    pub reserved: [u8; 5],
 }
 
 impl BootControlInfo {
@@ -158,7 +163,8 @@ impl BootControlInfo {
             && self.journal_generation == 0
             && self.slot == 0
             && self.attempt == 0
-            && self.reserved == [0; 6]
+            && self.flags == 0
+            && self.reserved == [0; 5]
     }
 
     pub fn is_trial(self) -> bool {
@@ -167,11 +173,68 @@ impl BootControlInfo {
             && self.slot <= 1
             && self.attempt >= 1
             && self.attempt <= 3
-            && self.reserved == [0; 6]
+            && self.flags == 0
+            && self.reserved == [0; 5]
+    }
+
+    /// A boot of the confirmed slot with no pending trial: `slot` is the
+    /// confirmed slot and the inactive one may receive an update
+    /// (ADR 0062). The journal generation may still be zero.
+    pub fn is_update_stageable(self) -> bool {
+        self.set_variable_address != 0
+            && self.slot <= 1
+            && self.attempt == 0
+            && self.flags == BOOT_CONTROL_UPDATE_STAGEABLE
+            && self.reserved == [0; 5]
     }
 
     fn is_valid(self) -> bool {
-        self.is_empty() || self.is_trial()
+        self.is_empty() || self.is_trial() || self.is_update_stageable()
+    }
+}
+
+/// One-shot request written by the kernel for the System Update installer:
+/// stage `slot` (the inactive slot) for a trial on the next boot. The loader
+/// acts on it only if the journal generation still matches and the slot's
+/// signed manifest verifies (ADR 0062).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootStageRecord {
+    pub slot: u8,
+    pub journal_generation: u64,
+}
+
+impl BootStageRecord {
+    const MAGIC: [u8; 4] = *b"NBST";
+    const VERSION: u8 = 1;
+
+    pub fn encode(self) -> Option<[u8; BOOT_STAGE_RECORD_SIZE]> {
+        if self.slot > 1 {
+            return None;
+        }
+        let mut bytes = [0; BOOT_STAGE_RECORD_SIZE];
+        bytes[..4].copy_from_slice(&Self::MAGIC);
+        bytes[4] = Self::VERSION;
+        bytes[5] = self.slot;
+        bytes[8..16].copy_from_slice(&self.journal_generation.to_le_bytes());
+        let checksum = crc32(&bytes[..16]);
+        bytes[16..20].copy_from_slice(&checksum.to_le_bytes());
+        Some(bytes)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != BOOT_STAGE_RECORD_SIZE
+            || bytes[..4] != Self::MAGIC
+            || bytes[4] != Self::VERSION
+            || bytes[6..8] != [0, 0]
+            || crc32(&bytes[..16]) != u32::from_le_bytes(bytes[16..20].try_into().ok()?)
+        {
+            return None;
+        }
+        let record = Self {
+            slot: bytes[5],
+            journal_generation: u64::from_le_bytes(bytes[8..16].try_into().ok()?),
+        };
+        record.encode().map(|_| record)
     }
 }
 
@@ -293,7 +356,8 @@ impl BootInfo {
                 journal_generation: 0,
                 slot: 0,
                 attempt: 0,
-                reserved: [0; 6],
+                flags: 0,
+                reserved: [0; 5],
             },
         }
     }
@@ -341,7 +405,7 @@ impl BootInfo {
     /// If `boot_control` describes a trial, `memory_map.address` must point to
     /// the live, readable UEFI memory-map buffer described by this `BootInfo`.
     pub unsafe fn boot_control_writer_is_runtime_code(&self) -> bool {
-        if !self.boot_control.is_trial()
+        if !(self.boot_control.is_trial() || self.boot_control.is_update_stageable())
             || self.memory_map.address == 0
             || self.memory_map.entry_count == 0
             || self.memory_map.entry_count > MAX_MEMORY_MAP_DESCRIPTORS
@@ -502,8 +566,8 @@ mod tests {
     }
 
     #[test]
-    fn boot_info_v4_layout_is_c_compatible_and_stable() {
-        assert_eq!(BOOT_INFO_VERSION, 4);
+    fn boot_info_v5_layout_is_c_compatible_and_stable() {
+        assert_eq!(BOOT_INFO_VERSION, 5);
         assert_eq!(core::mem::size_of::<InitImageInfo>(), 16);
         assert_eq!(core::mem::size_of::<BootControlInfo>(), 24);
         assert_eq!(core::mem::size_of::<BootInfo>(), 136);
@@ -527,7 +591,8 @@ mod tests {
             journal_generation: 9,
             slot: 1,
             attempt: 2,
-            reserved: [0; 6],
+            flags: 0,
+            reserved: [0; 5],
         };
         assert_eq!(info.validate(), Ok(()));
 
@@ -536,6 +601,48 @@ mod tests {
         info.boot_control.attempt = 2;
         info.boot_control.reserved[0] = 1;
         assert_eq!(info.validate(), Err(BootInfoError::InvalidBootControl));
+        // A trial never carries the stageable flag.
+        info.boot_control.reserved[0] = 0;
+        info.boot_control.flags = BOOT_CONTROL_UPDATE_STAGEABLE;
+        assert_eq!(info.validate(), Err(BootInfoError::InvalidBootControl));
+
+        // Confirmed boots may stage, including before any journal record.
+        info.boot_control = BootControlInfo {
+            set_variable_address: 0x8000,
+            journal_generation: 0,
+            slot: 0,
+            attempt: 0,
+            flags: BOOT_CONTROL_UPDATE_STAGEABLE,
+            reserved: [0; 5],
+        };
+        assert_eq!(info.validate(), Ok(()));
+        assert!(info.boot_control.is_update_stageable() && !info.boot_control.is_trial());
+        info.boot_control.set_variable_address = 0;
+        assert_eq!(info.validate(), Err(BootInfoError::InvalidBootControl));
+        info.boot_control.set_variable_address = 0x8000;
+        info.boot_control.slot = 2;
+        assert_eq!(info.validate(), Err(BootInfoError::InvalidBootControl));
+    }
+
+    #[test]
+    fn boot_stage_record_round_trips_and_rejects_corruption() {
+        let record = BootStageRecord {
+            slot: 1,
+            journal_generation: 0,
+        };
+        let mut bytes = record.encode().expect("encode");
+        assert_eq!(BootStageRecord::decode(&bytes), Some(record));
+        assert_eq!(BootReadyRecord::decode(&bytes), None);
+        bytes[9] ^= 1;
+        assert_eq!(BootStageRecord::decode(&bytes), None);
+        assert_eq!(
+            BootStageRecord {
+                slot: 2,
+                journal_generation: 1
+            }
+            .encode(),
+            None
+        );
     }
 
     #[test]
@@ -556,7 +663,8 @@ mod tests {
             journal_generation: 9,
             slot: 1,
             attempt: 2,
-            reserved: [0; 6],
+            flags: 0,
+            reserved: [0; 5],
         };
         assert!(unsafe { info.boot_control_writer_is_runtime_code() });
 

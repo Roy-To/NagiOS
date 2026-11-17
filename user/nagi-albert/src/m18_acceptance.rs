@@ -1657,18 +1657,24 @@ mod guest {
         }
     }
 
-    fn persist_browser_state(browser_state: &BrowserState, storage: &mut GuestBrowserStorage) {
+    fn persist_browser_state(
+        browser_state: &BrowserState,
+        storage: &mut GuestBrowserStorage,
+    ) -> bool {
         match crate::session::save(browser_state, storage) {
             Ok(()) => {
                 let _ = libnagi::console_write(b"Nagi M18 browser storage SAVE PASS\r\n");
+                true
             }
             Err(crate::persistence::StorageError::Capacity) => {
                 let _ = libnagi::console_write(
                     b"Nagi M18 browser storage SAVE CAPACITY limit=16384\r\n",
                 );
+                false
             }
             Err(_) => {
                 let _ = libnagi::console_write(b"Nagi M18 browser storage SAVE UNAVAILABLE\r\n");
+                false
             }
         }
     }
@@ -2557,13 +2563,17 @@ mod guest {
         let _ = libnagi::console_write(b"Nagi M23 live browser context PASS\r\n");
     }
 
-    pub fn run(
+    pub fn run<F>(
         display_capability: u64,
         input_capability: u64,
         permission_locale: Locale,
         clipboard_endpoint: ClipboardEndpoint,
         clipboard_gestures: GestureSource,
-    ) -> ! {
+        after_scenario: F,
+    ) -> !
+    where
+        F: FnOnce(&BrowserState) -> bool,
+    {
         let services = InputServices {
             trace_input: Cell::new(false),
             endpoint: clipboard_endpoint,
@@ -2617,6 +2627,27 @@ mod guest {
                 libnagi::console_write(b"Nagi M18 browser storage RESTORE EMPTY_OR_INVALID\r\n");
         }
         let mut browser_state = restored.browser;
+        if browser_state.history_namespace_id() == 0 {
+            let mut namespace_bytes = [0_u8; 8];
+            if !libnagi::random_fill(&mut namespace_bytes) {
+                let _ = libnagi::console_write(
+                    b"Nagi M18 browser history identity unavailable; Search publication disabled\r\n",
+                );
+            } else {
+                let namespace_id = u64::from_le_bytes(namespace_bytes).max(1);
+                if browser_state.assign_history_namespace_id(namespace_id) {
+                    if !persist_browser_state(&browser_state, &mut browser_storage) {
+                        browser_state.clear_history_namespace_id();
+                        let _ = libnagi::console_write(
+                            b"Nagi M18 browser history identity unavailable; Search publication disabled\r\n",
+                        );
+                    }
+                }
+            }
+        }
+        if browser_state.history_namespace_id() != 0 {
+            let _ = libnagi::console_write(b"Nagi M18 browser history identity persisted PASS\r\n");
+        }
         if browser_state.active_tab_id().is_none() {
             fail(b"browser state has no initial tab");
         }
@@ -2730,7 +2761,9 @@ mod guest {
                 host,
                 &browser_state,
             );
-            persist_browser_state(&browser_state, &mut browser_storage);
+            if !persist_browser_state(&browser_state, &mut browser_storage) {
+                browser_state.clear_history_namespace_id();
+            }
         }
 
         // Before the permission phase, which changes the page title.
@@ -2803,6 +2836,9 @@ mod guest {
         {
             fail(b"serial scenario summary write failed");
         }
+        if !after_scenario(&browser_state) {
+            fail(b"browser completion integration callback failed");
+        }
         libnagi::exit(0)
     }
 }
@@ -2822,6 +2858,30 @@ pub fn run_m18_https_acceptance(
         nagi_localization::Locale::EnUs,
         services.0,
         services.1,
+        |_| true,
+    )
+}
+
+#[cfg(target_os = "nagi")]
+pub fn run_m18_https_acceptance_with_callback<F>(
+    display_capability: u64,
+    input_capability: u64,
+    services: (
+        nagi_clipboard::ClipboardEndpoint,
+        nagi_clipboard::GestureSource,
+    ),
+    after_scenario: F,
+) -> !
+where
+    F: FnOnce(&crate::browser_state::BrowserState) -> bool,
+{
+    guest::run(
+        display_capability,
+        input_capability,
+        nagi_localization::Locale::EnUs,
+        services.0,
+        services.1,
+        after_scenario,
     )
 }
 
@@ -2841,5 +2901,6 @@ pub fn run_m18_https_acceptance_with_locale(
         locale,
         services.0,
         services.1,
+        |_| true,
     )
 }

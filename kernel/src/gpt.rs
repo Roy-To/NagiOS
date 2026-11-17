@@ -8,6 +8,13 @@ pub const USER_DATA_TYPE_GUID: [u8; 16] = [
 pub const MODEL_STORE_TYPE_GUID: [u8; 16] = [
     0x01, 0x47, 0x41, 0x4e, 0x01, 0x00, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 5,
 ];
+/// System A and System B slot partition types (ADR-0013).
+pub const SYSTEM_A_TYPE_GUID: [u8; 16] = [
+    0x01, 0x47, 0x41, 0x4e, 0x01, 0x00, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 1,
+];
+pub const SYSTEM_B_TYPE_GUID: [u8; 16] = [
+    0x01, 0x47, 0x41, 0x4e, 0x01, 0x00, 0x41, 0x4e, 0x47, 0x49, 0, 0, 0, 0, 0, 2,
+];
 
 const HEADER_SIGNATURE: &[u8; 8] = b"EFI PART";
 const GPT_REVISION_1_0: u32 = 0x0001_0000;
@@ -24,6 +31,9 @@ pub struct PartitionRange {
 pub struct PartitionLayout {
     pub user_data: PartitionRange,
     pub model_store: Option<PartitionRange>,
+    /// Present only when exactly one partition of the type exists.
+    pub system_a: Option<PartitionRange>,
+    pub system_b: Option<PartitionRange>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -115,6 +125,8 @@ where
     let mut model_store = None;
     let mut user_data_count = 0usize;
     let mut model_store_count = 0usize;
+    let mut system_slots = [None; 2];
+    let mut system_slot_counts = [0usize; 2];
     let mut crc = !0u32;
     for sector_index in 0..ENTRY_ARRAY_SECTORS {
         let mut bytes = [0u8; SECTOR_SIZE];
@@ -169,6 +181,18 @@ where
                         .and_then(|sectors| sectors.checked_add(1))
                         .ok_or(GptError::PartitionBounds)?,
                 });
+            } else if let Some(index) = [SYSTEM_A_TYPE_GUID, SYSTEM_B_TYPE_GUID]
+                .iter()
+                .position(|guid| bytes_equal(&type_guid, guid))
+            {
+                system_slot_counts[index] += 1;
+                system_slots[index] = Some(PartitionRange {
+                    start_lba: first_lba,
+                    sector_count: last_lba
+                        .checked_sub(first_lba)
+                        .and_then(|sectors| sectors.checked_add(1))
+                        .ok_or(GptError::PartitionBounds)?,
+                });
             } else if bytes_equal(&type_guid, &MODEL_STORE_TYPE_GUID) {
                 model_store_count += 1;
                 model_store = Some(PartitionRange {
@@ -209,9 +233,17 @@ where
     if model_store_count > 1 {
         return Err(GptError::MultipleModelStore);
     }
+    // An ambiguous slot type exposes neither copy for writing.
+    let slot = |index: usize| {
+        (system_slot_counts[index] == 1)
+            .then_some(system_slots[index])
+            .flatten()
+    };
     Ok(PartitionLayout {
         user_data: user_data.ok_or(GptError::MissingUserData)?,
         model_store,
+        system_a: slot(0),
+        system_b: slot(1),
     })
 }
 
@@ -476,6 +508,8 @@ mod tests {
                     start_lba: MODEL_START,
                     sector_count: MODEL_END - MODEL_START + 1,
                 }),
+                system_a: None,
+                system_b: None,
             })
         );
     }
@@ -487,6 +521,41 @@ mod tests {
         refresh_entries_crc(&mut disk);
         assert_eq!(find_layout(&disk, DISK_SECTORS).unwrap().model_store, None);
         assert!(find(&disk, DISK_SECTORS).is_ok());
+    }
+
+    fn add_entry(
+        disk: &mut [u8],
+        index: usize,
+        type_guid: [u8; 16],
+        unique: u8,
+        first: u64,
+        last: u64,
+    ) {
+        let entry = 2 * SECTOR_SIZE + index * super::ENTRY_SIZE;
+        disk[entry..entry + 16].copy_from_slice(&type_guid);
+        disk[entry + 16..entry + 32].copy_from_slice(&[unique; 16]);
+        write_u64(disk, entry + 32, first);
+        write_u64(disk, entry + 40, last);
+        refresh_entries_crc(disk);
+    }
+
+    #[test]
+    fn exposes_unique_system_slots_only() {
+        let mut disk = test_disk();
+        add_entry(&mut disk, 2, super::SYSTEM_B_TYPE_GUID, 7, 90, 92);
+        let layout = find_layout(&disk, DISK_SECTORS).unwrap();
+        assert_eq!(layout.system_a, None);
+        assert_eq!(
+            layout.system_b,
+            Some(super::PartitionRange {
+                start_lba: 90,
+                sector_count: 3,
+            })
+        );
+        // A second System B entry makes the slot ambiguous: neither is
+        // exposed.
+        add_entry(&mut disk, 3, super::SYSTEM_B_TYPE_GUID, 8, 93, 94);
+        assert_eq!(find_layout(&disk, DISK_SECTORS).unwrap().system_b, None);
     }
 
     #[test]

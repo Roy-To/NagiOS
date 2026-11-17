@@ -8,7 +8,7 @@ autobins = false
 [workspace]
 
 [features]
-m27-ab-slot-boot-control = []
+m27-ab-slot-boot-control = ["dep:nagi-slot-manifest"]
 m27-ab-slot-acceptance = ["m27-ab-slot-boot-control"]
 
 [lib]
@@ -23,6 +23,7 @@ bench = false
 
 [dependencies]
 nagi-bootinfo = { path = "../crates/nagi-bootinfo" }
+nagi-slot-manifest = { path = "../crates/nagi-slot-manifest", optional = true }
 
 [target.'cfg(target_os = "uefi")'.dependencies]
 uefi = { version = "=0.37.0", features = ["panic_handler"] }
