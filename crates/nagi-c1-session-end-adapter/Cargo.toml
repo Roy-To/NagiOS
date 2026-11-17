@@ -1,0 +1,11 @@
+[package]
+name = "nagi-c1-session-end-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-identity-session = { path = "../nagi-identity-session" }

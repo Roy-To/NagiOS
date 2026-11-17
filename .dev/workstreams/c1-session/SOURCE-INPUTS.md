@@ -8,4 +8,6 @@ This directory preserves source-only inputs from the fixed C1 runtime/shared and
 
 The source bundle excluded Git history, build outputs, credentials and account settings. Test-only fixture credential values were replaced with `<REDACTED_TEST_CREDENTIAL>` in two test files. Those altered test files were not executed, and no test result from their source checkouts is claimed here. This preservation does not establish Host or Linux Target acceptance.
 
+The later hardening input was `NagiOS-C1-85d-review-hardening-source-20261117T054800Z.tar.gz` (SHA-256 `be37c28e4fa0450004aa0a3d67454f0be42ab3883f78a79e61f55778564011a2`). It was materialized and checked separately. Its Git history was not imported. Its end-owner and routing changes were adapted to the current `nagi-identity-session` API in `crates/nagi-c1-session-end-adapter`; its timeout-boundary proxy race was fixed and tested there. The replacement fixture strings in that input were not used as credentials in this checkout.
+
 The `nagi-capability/src/model.rs` and `nagi-abi/Cargo.toml` copies each had one extra blank line at EOF; those whitespace-only endings were normalized for a clean diff check.

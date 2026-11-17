@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use crate::model::{
@@ -43,7 +44,7 @@ struct CallerKey {
 }
 
 impl CallerKey {
-    fn from_trusted(caller: &impl TrustedCallerContext) -> Self {
+    fn from_trusted(caller: &(impl TrustedCallerContext + ?Sized)) -> Self {
         Self {
             principal_id: caller.principal_id().clone(),
             context_id: caller.context_id().clone(),
@@ -289,6 +290,7 @@ pub struct ResolvedIdentity {
     expires_at: Option<UnixMillis>,
     clock_now: Arc<dyn Fn() -> UnixMillis + Send + Sync>,
     live: Arc<RwLock<bool>>,
+    issuer_alive: Arc<AtomicBool>,
     issued_session: SessionRecord,
     store_current: Option<CurrentSnapshotReader>,
 }
@@ -336,11 +338,21 @@ impl ResolvedIdentity {
         self.acquire_live_lease().is_some()
     }
 
+    /// Revalidate this service-issued observation against the live lease,
+    /// expiry clock, and current committed snapshot. A saved Session record
+    /// alone is never enough to make this observation live again.
+    pub fn check_live(&self) -> Result<(), ResolutionError> {
+        self.checked_live_lease().map(drop)
+    }
+
     pub(crate) fn acquire_live_lease(&self) -> Option<RwLockReadGuard<'_, bool>> {
         self.checked_live_lease().ok()
     }
 
     fn checked_live_lease(&self) -> Result<RwLockReadGuard<'_, bool>, ResolutionError> {
+        if !self.issuer_alive.load(Ordering::Acquire) {
+            return Err(ResolutionError::Unavailable);
+        }
         let guard = self.live.read().map_err(|_| ResolutionError::Unavailable)?;
         if !*guard {
             return Err(ResolutionError::Ended);
@@ -374,7 +386,120 @@ impl ResolvedIdentity {
         {
             return Err(ResolutionError::Expired);
         }
+        if !self.issuer_alive.load(Ordering::Acquire) {
+            return Err(ResolutionError::Unavailable);
+        }
         Ok(guard)
+    }
+}
+
+/// Invalidates every observation issued by one in-process service instance
+/// when that instance is dropped, while allowing observations to retain the
+/// shared flag without keeping the service alive.
+struct IssuerGuard {
+    alive: Arc<AtomicBool>,
+}
+
+impl IssuerGuard {
+    fn new() -> Self {
+        Self {
+            alive: Arc::new(AtomicBool::new(true)),
+        }
+    }
+}
+
+impl Drop for IssuerGuard {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::Release);
+    }
+}
+
+/// Failure to admit an operation through an interactive caller/session pair.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InteractiveSessionError {
+    CallerMismatch,
+    Identity(ResolutionError),
+}
+
+/// A borrowed caller paired with a service-issued identity observation.
+///
+/// This context is local to the trusted caller and must be revalidated at each
+/// use. It is not a token, serializer, or shared-thread authority. The C1
+/// service creates it only after resolving the caller's current Session.
+///
+/// ```compile_fail,E0277
+/// use nagi_identity_session::InteractiveSessionContext;
+/// fn require_send_sync<T: Send + Sync>() {}
+/// require_send_sync::<InteractiveSessionContext<'static>>();
+/// ```
+///
+/// ```compile_fail,E0277
+/// use nagi_identity_session::InteractiveSessionContext;
+/// fn require_serialize<T: serde::Serialize>() {}
+/// require_serialize::<InteractiveSessionContext<'static>>();
+/// ```
+pub struct InteractiveSessionContext<'caller> {
+    identity: ResolvedIdentity,
+    caller: &'caller dyn TrustedCallerContext,
+    principal: PrincipalId,
+    caller_context: CallerContextId,
+}
+
+impl<'caller> InteractiveSessionContext<'caller> {
+    fn attach(
+        identity: ResolvedIdentity,
+        caller: &'caller dyn TrustedCallerContext,
+    ) -> Result<Self, InteractiveSessionError> {
+        if identity.principal_id() != caller.principal_id()
+            || identity.caller_context_id() != caller.context_id()
+        {
+            return Err(InteractiveSessionError::CallerMismatch);
+        }
+        identity
+            .check_live()
+            .map_err(InteractiveSessionError::Identity)?;
+        Ok(Self {
+            principal: identity.principal_id().clone(),
+            caller_context: identity.caller_context_id().clone(),
+            identity,
+            caller,
+        })
+    }
+
+    /// Re-check the exact trusted caller and the real current Session state.
+    pub fn check(&self) -> Result<(), InteractiveSessionError> {
+        if self.caller.principal_id() != &self.principal
+            || self.caller.context_id() != &self.caller_context
+        {
+            return Err(InteractiveSessionError::CallerMismatch);
+        }
+        self.identity
+            .check_live()
+            .map_err(InteractiveSessionError::Identity)
+    }
+
+    /// Return the captured C1 identity only while the paired context is live.
+    pub fn identity(&self) -> Result<&ResolvedIdentity, InteractiveSessionError> {
+        self.check()?;
+        Ok(&self.identity)
+    }
+
+    pub fn principal_id(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    pub fn caller_context_id(&self) -> &CallerContextId {
+        &self.caller_context
+    }
+
+    /// End-owner adapters use this instance binding before invoking a
+    /// lifecycle method. Matching SessionId strings across independent stores
+    /// cannot authorize an end through the wrong service.
+    pub fn is_issued_by<S, I, C, A, G, E>(
+        &self,
+        service: &IdentityService<S, I, C, A, G, E>,
+    ) -> bool {
+        Arc::ptr_eq(&self.identity.issuer_alive, &service.issuer.alive)
     }
 }
 
@@ -414,6 +539,7 @@ pub enum ProviderLookupFailure {
 }
 
 pub struct IdentityService<S, I, C, A, G, E = NoopIdentityEventSink> {
+    issuer: IssuerGuard,
     store: S,
     ids: I,
     clock: C,
@@ -441,6 +567,7 @@ where
 {
     pub fn new(store: S, ids: I, clock: C, authorizer: A, guest_cleaner: G, events: E) -> Self {
         Self {
+            issuer: IssuerGuard::new(),
             store,
             ids,
             clock,
@@ -462,6 +589,18 @@ where
         &self.snapshot
     }
 
+    /// Resolve and pin the current interactive identity to the supplied
+    /// trusted caller. The returned context owns only a revocable observation;
+    /// every operation must call `check` again before using it.
+    pub fn interactive_session<'caller>(
+        &mut self,
+        caller: &'caller impl TrustedCallerContext,
+    ) -> Result<InteractiveSessionContext<'caller>, InteractiveSessionError> {
+        let identity = CurrentIdentityResolver::resolve_current_identity(self, caller)
+            .map_err(InteractiveSessionError::Identity)?;
+        InteractiveSessionContext::attach(identity, caller)
+    }
+
     pub fn into_parts(self) -> (S, I, C, A, G, E) {
         (
             self.store,
@@ -474,7 +613,7 @@ where
     }
 
     fn authorization_request(
-        caller: &impl TrustedCallerContext,
+        caller: &(impl TrustedCallerContext + ?Sized),
         action: IdentityAction,
         user_id: Option<UserId>,
         profile_id: Option<ProfileId>,
@@ -492,7 +631,7 @@ where
 
     fn authorize(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &(impl TrustedCallerContext + ?Sized),
         action: IdentityAction,
         user_id: Option<UserId>,
         profile_id: Option<ProfileId>,
@@ -1201,7 +1340,7 @@ where
 
     pub fn end_session(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &(impl TrustedCallerContext + ?Sized),
         session_id: &SessionId,
     ) -> Result<EndSessionResult, IdentityError> {
         self.ensure_recovered()?;
@@ -1567,6 +1706,7 @@ where
                 Arc::new(move || clock.now())
             },
             live,
+            issuer_alive: Arc::clone(&self.issuer.alive),
             issued_session: session.clone(),
             store_current: self.store.current_snapshot_reader(),
         };
