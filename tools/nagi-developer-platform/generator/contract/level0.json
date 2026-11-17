@@ -1,0 +1,112 @@
+{
+  "contractVersion": 1,
+  "level": 0,
+  "status": "PROVISIONAL",
+  "profile": "host-contract-library",
+  "sources": {
+    "manifestSchema": "sdk/rust/schemas/app-manifest.schema.json",
+    "manifestValidator": "tools/nagi-pkg/src/app_manifest.rs",
+    "sdkContract": "sdk/rust/docs/APP_SDK_CONTRACT.md",
+    "sampleCargo": "samples/hello-nagi/Cargo.toml"
+  },
+  "sdkReference": {
+    "status": "PROVISIONAL",
+    "adapter": "repo-path",
+    "repoPath": "sdk/rust",
+    "package": "nagi-sdk",
+    "packageVersion": "0.1.0",
+    "distributionPin": "caller-selected-checkout",
+    "externalDistribution": "unconfirmed"
+  },
+  "inputs": {
+    "app_id": {
+      "required": true,
+      "type": "string",
+      "maxLength": 255,
+      "patternSource": "/$defs/appId/pattern"
+    },
+    "package_name": {
+      "required": true,
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "maxLength": 64,
+      "reserved": ["abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate", "do", "dyn", "else", "enum", "extern", "false", "final", "fn", "for", "if", "impl", "in", "let", "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield"]
+    },
+    "display_name": {
+      "required": true,
+      "type": "localized-name",
+      "maxLength": 256,
+      "locales": ["en-US", "ja-JP"],
+      "requiredLocales": ["en-US", "ja-JP"]
+    },
+    "output_dir": {
+      "required": true,
+      "type": "repo-relative-directory"
+    },
+    "app_version": {
+      "default": "0.1.0",
+      "type": "string",
+      "maxLength": 256,
+      "patternSource": "/properties/version/pattern"
+    },
+    "sdk_version": {
+      "default": "0.1.0",
+      "type": "string",
+      "equalsSdkPackageVersion": true
+    },
+    "profile": {
+      "default": "host-contract-library",
+      "type": "string",
+      "enum": ["host-contract-library"]
+    }
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "sdkContractVersion": {"major": 1, "minor": 0},
+    "id": "${app_id}",
+    "version": "${app_version}",
+    "origin": "third-party",
+    "displayName": {"$input": "display_name"},
+    "supportedLocales": ["en-US", "ja-JP"],
+    "entrypoint": {"kind": "native", "target": "bin/${package_name}"},
+    "resources": [],
+    "intents": [],
+    "requestedCapabilities": [],
+    "stateCompatibility": {"currentVersion": 1, "minimumReadableVersion": 1}
+  },
+  "sdkSymbols": [
+    {"name": "AppIdentity", "module": "identity", "declaration": "pub struct AppIdentity<'a>"},
+    {"name": "AppOrigin", "module": "identity", "declaration": "pub enum AppOrigin"},
+    {"name": "AppError", "module": "error", "declaration": "pub struct AppError"}
+  ],
+  "outputs": [
+    {"path": "Cargo.toml", "template": "templates/Cargo.toml.tmpl"},
+    {"path": "manifest.json", "data": "manifest"},
+    {"path": "src/lib.rs", "template": "templates/lib.rs.tmpl"},
+    {"path": "README.md", "template": "templates/README.md.tmpl"},
+    {"path": "UNSUPPORTED_APIS.md", "template": "templates/UNSUPPORTED_APIS.md.tmpl"}
+  ],
+  "writePolicy": {
+    "destination": "explicit-new-directory-only",
+    "existingDestination": "reject-even-if-empty",
+    "symlinks": "reject-in-destination-and-ancestors",
+    "overwrite": false,
+    "exclusiveCreate": true,
+    "onFailure": "remove-only-files-created-by-this-invocation"
+  },
+  "prohibited": [
+    "overwrite-or-merge-existing-output",
+    "modify-source-sdk-package-or-workspace",
+    "invent-sdk-api-or-permission",
+    "generate-registry-or-git-sdk-dependency",
+    "download-install-or-execute-during-generation",
+    "grant-capabilities-or-sign-install-launch",
+    "claim-runtime-or-target-acceptance-from-host-checks"
+  ],
+  "validation": {
+    "manifestCommand": ["nagi-pkg", "manifest", "validate", "manifest.json"],
+    "automaticExecution": false,
+    "entrypointArtifact": "not-generated-or-verified",
+    "targetAcceptance": "not-run"
+  }
+}
