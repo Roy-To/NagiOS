@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-12の案内型Smart Paste B＋将来の高度アプリ横断Workflow Cの高水準方針はCONFIRMED（進捗PARTIALLY_RECORDED、詳細PROVISIONAL）。他PXの個別決定／未統合PRは別途照合する。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -43,7 +43,14 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
 | PX-11 | **純正アプリの標準搭載範囲** | 1.0までに提供する純正アプリと最小機能、必須・任意・後続機能の区別 | [関連DEC 1](DEC-061-first-party-pdf-reader-editor.md)・[関連DEC 2](DEC-062-first-party-utilities.md) |
-| PX-12 | **アプリ横断操作・Smart Pasteの詳細** | 初期に対応するアプリ間操作、参照とコピーの選択、出典・更新提案、未対応時のfallback | [関連DEC 1](DEC-025-cross-app-data-reference-and-updates.md)・[関連DEC 2](DEC-056-smart-paste-semantic-transfer.md) |
+| PX-12 | **アプリ横断操作・Smart Pasteの詳細** | **B＋将来Cの高水準方針CONFIRMED:** 通常の転送操作を保ちながら対応方式・制限を分かりやすく案内し、コピー／構造化Object／参照を選べるSmart Paste Bを基本に、将来はProject・Task文脈／変更影響を扱う高度な横断Workflow Cへ。初期対応アプリ・既定方式・詳細UI／Preview・Transfer／fallback制御・技術・性能・提供版はPROVISIONAL | [関連DEC 1](DEC-056-smart-paste-semantic-transfer.md)・[関連DEC 2](DEC-025-cross-app-data-reference-and-updates.md)・[関連DEC 3](DEC-027-public-action-and-scoped-gui-fallback.md) |
+
+### PX-12の決定記録（2026-11-17）
+
+- **CONFIRMED:** B＝対応可能な貼り付け方法と差異・制限を案内し、本人が方式を選べる統合Smart Paste。将来C＝許可されたProject／Task文脈とProvenance・変更影響を踏まえた高度なアプリ横断Workflowへ発展する高水準の方向。正本は[DEC-056](DEC-056-smart-paste-semantic-transfer.md)のPX-12節。
+- **既存CONFIRMEDを維持:** DEC-025の共通参照／分散正本Aと変更検知・提案A、Scope内承認済みTaskの条件付き自動更新、DEC-056のSheets→Slides・Albert→Writer・画像→Slidesの意味付き転送構想と従来GUI操作、DEC-027の正規Public Action優先Aと明示許可・限定ScopeのGUI fallback。更新元／先Revision、Permission／Policy、Cloud送信別許可、Task停止を守る。
+- **PROVISIONAL／OPEN:** 初期の対応アプリ組合せ、コピー／参照の既定選択、貼り付け方法の具体UI・Preview、Transfer Schema、非対応時のfallback技術／制御詳細、性能・実装／提供版・Acceptance。
+- **進捗:** PARTIALLY_RECORDED（高水準方針をDECに記録。アプリ間の具体実装と受入PASSを意味しない）。他PXの未統合PRをこのbranchから上書きしない。
 
 ### 第5群：開発者・配布・1.0完成条件
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-12がPARTIALLY_RECORDED（B基本＋将来C高水準方針CONFIRMED、初期対象と詳細PROVISIONAL）。** 他PXの個別決定／並行PRの状態は統合時に照合し、一律OPEN／CONFIRMEDと扱わない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-12のB（対応可能な貼り付け方式の案内・ユーザー選択）＋将来C（Project／Taskの関係・変更影響を扱う高度なアプリ横断Workflow）を高水準で採用。DEC-025方式A／DEC-027方式AとDEC-056の従前の意味付き転送・通常操作を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、初期の対象App組合せ・コピー／参照既定・UI／Preview・Transfer／fallback制御・性能・技術・提供版はPROVISIONAL |
