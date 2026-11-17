@@ -1,3 +1,13 @@
+## NDP-02/08/09 real Manifest validator connection — 2026-11-17
+
+Status: `PARTIAL`. The repository-pinned nightly is installed in an ignored,
+worktree-local tool/cache directory. Locked `nagi-pkg` build and all 7 existing
+contract tests pass without SDK, Package source or lockfile changes. The NDP
+Stage 1 adapter calls that real tool; 11 tests pass, including real acceptance,
+rejection, bounded output, timeout/cancel and source preservation. Stage 2/3
+return not-run. SDK delivery/owner agreement, generator and target remain open.
+See the [adapter README](../tools/nagi-developer-platform/validation/README.md).
+
 ## NDP-11 repeatable synthetic host evaluation — 2026-11-17
 
 Status: `PARTIAL`. `python3 tests/developer-platform/evaluation/run_host_checks.py`

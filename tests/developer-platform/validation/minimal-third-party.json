@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sdkContractVersion": {"major": 1, "minor": 0},
+  "id": "com.example.ndp-minimal",
+  "version": "0.1.0",
+  "origin": "third-party",
+  "displayName": {"en-US": "NDP Minimal", "ja-JP": "NDP 最小例"},
+  "supportedLocales": ["en-US", "ja-JP"],
+  "entrypoint": {"kind": "portable", "target": "bin/app.napp"},
+  "resources": [],
+  "intents": [],
+  "requestedCapabilities": [],
+  "stateCompatibility": {"currentVersion": 1, "minimumReadableVersion": 1}
+}
