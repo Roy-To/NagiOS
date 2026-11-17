@@ -29,3 +29,19 @@
 [DEC-051方式A](../docs/product-decisions/DEC-051-review-methods.md)の追加条件は非該当と独立担当が判断。対象は合成入力と静的UIのin-memory解析であり、OS権限・認可等の列挙された重要変更ではない。指摘は解消し、見解不一致・未解決項目もないため、今回の追加DeepSeekレビューは不要。実際のDeepSeek送信はしていない。
 
 host限定の結果であり、Nagi target、Qt rendering、実イベント、SDK validator、性能比較、上流統合の成功ではない。
+
+
+## NDP-11 host runner — 2026-11-17
+
+独立Codex担当（gpt-6-luna、reasoning=max）が読取専用で確認。
+初回対象 `5f7109f` → `e0f2618`（Entire trailer追加後 `540d460`、tree同一）。
+P2: 毎回同じ誤ったUI JSONでも一致のみで成功し得た。
+`e49fb71633507c6ffb3363e5767a9f514713260b` で固定XML由来の件数、部品・layout名/class、
+source/form class、tab順、接続の全項目を実出力と照合するよう修正した。
+
+再レビュー対象 `540d4605938f743c3b853eb5938d75c451c5d2ad` →
+`e49fb71633507c6ffb3363e5767a9f514713260b`。**未解決P1/P2なし。**
+READMEの接続詞欠落（P3）も修正した。DeepSeek追加条件は非該当との独立判断。
+レビュー担当はテストを実行していない。実装担当の実行: runner 7件、UI 18件、
+実C/UI各3回が成功、入力不変。追加回帰テストは旧540d460で5ケースの誤りを検出。
+manual/LLM比較、SDK、renderer、Nagi targetの未実施は維持する。
