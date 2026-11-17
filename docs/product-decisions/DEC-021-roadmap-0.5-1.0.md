@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標、DEC-074の長期的な組織方向）／PROVISIONAL（版別の詳細範囲・順序・実装詳細）  
-**最終確認日:** 2026-11-16  
+**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標、DEC-074の長期的な組織方向、PX-11の品質重視・日常作業完結型の純正アプリ構成B＋将来の総合環境Cという高水準方針）／PROVISIONAL（アプリ別の1.0必須／任意／後続区分、最小機能・対応形式・性能・技術・搭載／配布形態・提供版を含む版別詳細範囲・順序）  
+**最終確認日:** 2026-11-17（PX-11追加。従前の高水準1.0目標・Gateは維持）  
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -48,6 +48,26 @@
 - **AIとOSの操作経路（DEC-020）:** 標準では小さく構造化された初期Contextから始め、必要に応じてResource参照を通じて詳細を段階取得する。取得のたびにPermission / Policy、情報分類・由来、owner、scope、Resource / revisionを再検証し、不明・競合・不一致なら取得しない。参照やLLMからの追加要求は権限を広げない。全ファイル・全ログ・raw screen dump・全Memoryの一括投入を標準にしない一方、DEC-002の許可済みCloud共有（非機密Memoryを含む）と、Scope内で広いContextを必要とする明示承認済みTaskを維持する。契約上公開されたEventを受け、状態変更には型付きPublic Action / Service APIと既存IPC / Providerを用いる。Event-drivenを既定とし、決定論的な仕事は通常Serviceで扱い、LLMは推論が必要な箇所で使う。Event検出だけでLLM推論、通知・画面割込み、Action実行を許可しない。人間向けGUIを維持し、スクリーンショット認識と座標クリックをNagi native操作の基本経路にしない。資源効率は測定する設計目標であり、削減効果や性能は実証・保証されていない。Context / Event schema、budget、取得条件、購読・集約、scheduler、legacy-app fallback、数値評価、Release割当ては未確定。
 
 これらの製品方針は将来Versionを自動的に割り当てず、別のAction権限やRelease gateを与えない。
+
+### 2026-11-17 — PX-11：品質重視の純正アプリ構成B＋将来の総合純正環境C
+
+**CONFIRMED — B案を基本とする高水準の標準搭載方針:** Nagi OSを導入した利用者が、**日常の主要な作業をNagiの純正アプリと通常のGUIで無理なく最後まで進められることを優先**する。OS基本体験を支えるアプリに加えて、文書・表計算・プレゼン、PDFの基本操作、日常の軽量ユーティリティ等の実用性を重視し、外部Provider連携や未成熟な機能を含むものは**標準搭載・任意導入・後続提供の区分を品質と成熟度に照らして個別に判断**する。搭載アプリ数や高度機能の網羅よりも、対応すると表明する日常の代表作業が安全・安定して完結することを優先する。**これは1.0の個別アプリ必須リストを確定するものではない。**
+
+**CONFIRMED — 将来C案の発展方向:** Bの実用性と品質を守りながら、Mail、Calendar、Automations、Studio、People、Devices、Store、Models等も含む既存の純正ソフトウェア構想を土台に、より広い仕事・日常操作が純正環境で完結する**総合的な純正ソフトウェア環境**へ段階的に発展させる。PDFの高度編集やメディア管理の充実などは既存DECの段階的拡張・検討方針に従い、**将来Cを1.0に全面搭載する要件や提供保証とはしない**。
+
+**既存CONFIRMEDを維持:**
+- [純正ソフトウェア実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)のPhase 1（Home／Albert／Files／Notes／Terminal／Activity／Wayback／Search）、Phase 2（Writer／Sheets／Slides／Mail／Calendar／Automations）、Phase 3（Studio／People／Devices／Store／Models）と、PC／Desktop first、公開Resource／Action API、同じPermission／Capability／Policy契約を維持する。各Phaseは既存の実装整理であり、すべてを1.0に標準搭載すると確約した分類ではない。
+- [DEC-061](DEC-061-first-party-pdf-reader-editor.md)の純正PDF Reader／Editor採用、AIに依存しない閲覧・検索・ページ操作・注釈・印刷・フォーム入力を先行し、高度編集・OCR・墨消し・署名関連を段階的に扱う既存方針を維持する。高度機能・Acrobat完全互換を1.0必須にしない。
+- [DEC-062](DEC-062-first-party-utilities.md)の4分野（画像ビューア／簡易編集、スクリーンショット／文書スキャン、ZIP等の圧縮／解凍、動画／音楽再生）すべての純正採用を維持する。独立したアプリ数／統合形態やOCRの採用を本決定で確定しない。
+- [DEC-063](DEC-063-phone-contacts-messaging.md)の電話／連絡先／SMS等の将来採用とDevice Capability・現行認可の境界も保持する。採用済み機能を今回の判断で撤回したり、全機器・1.0への通話／SMS搭載保証へ拡張したりしない。
+- **基本操作はAI非必須**とし、AIが無効・不在・利用不能でも対応済みのGUI／キーボード／マウス操作が機能する。純正だから秘密APIや追加Permissionを得ることはない。Offlineと現在のTask Scope、Resource／Revision、PrivacyとCloud AI別許可、結果不明・部分失敗の表示を含む共通境界を守る。
+- [DEC-017](DEC-017-third-party-developer-ecosystem.md)と本DECの「**1.0までに公開開発者環境とアプリ配布基盤を整える**」という確定高水準目標を維持する。ただしStoreアプリを唯一の配布手段・1.0の個別必須アプリとみなさず、既存一般公開品質目標とRelease／Activation／Acceptance／Workstream Gateを変更しない。
+
+**PROVISIONAL／OPEN — 今回確定しない範囲:**
+- 各アプリ／機能の**1.0必須／任意／後続**の確定リスト、標準同梱／選択導入／後続提供の具体的な区分と順序、最小機能・必要な代表作業フロー。
+- 対応する文書・PDF・画像・圧縮・音声／動画形式とCodec、品質・互換性・セキュリティ／アクセシビリティ受入・性能の具体的な測定値・合格基準。
+- 個別アプリの名称・統合／分離・パッケージ／搭載・配布形態、対応端末・機器・技術・依存OSS／ライセンス、対象Version・スケジュール・実装順序とTarget RuntimeでのAcceptance証拠。
+- 特にMail・Calendar・Automations・Phase 3各機能、PDF高度編集、ユーティリティ詳細を1.0の必須要件へ昇格する判断。これは別途のPX-15・実装仕様とRelease判断で決定する。
 
 ## 暫定の0.5〜1.0版別案
 
@@ -107,3 +127,4 @@
 | 2026-11-04 | DEC-017〜020を含む最新のProduct Decisionsと、0.3改訂・0.4+ Roadmapに整合する0.5〜1.0の方向案を記録。DEC-017で明示済みの1.0開発者環境・配布基盤目標を区別し、版別範囲・順序、Multi-user / Multi-device、Organization scope、数値・実装詳細は未確定として記録。 |
 | 2026-11-16 | DEC-074の人間が管理する階層型AI組織を長期方向として追加。既存の0.4方式とユーザー窓口を保持し、組織構造・技術・版割当は未確定のままとした。 |
 | 2026-11-16 | 後続確認：当面のAI組み込み体験型OSを優先し、階層型AI組織は非優先の長期ビジョンと明記。既存Gate・builder Roleと暫定の版別案を維持。 |
+| 2026-11-17 | PX-11で「日常作業が確実に完結する品質重視の純正アプリ構成B」を基本、「将来の総合的な純正アプリ環境C」へ発展する高水準方針を追加CONFIRMED。Phase 1〜3、PDF Reader／Editor、ユーティリティ4分野、AI非必須操作、1.0の公開開発者環境／配布基盤目標を維持。個別1.0搭載リスト・機能・形式・性能・技術・配布・版はPROVISIONAL。 |
