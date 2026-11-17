@@ -8867,7 +8867,19 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
     };
     let status = match run_qemu(&config) {
         Ok(status) => status,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+        Err(error) => {
+            if error.starts_with("QEMU did not reach acceptance within ") {
+                let serial = fs::read_to_string(&serial_log).ok();
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "isolated-process: {error}; {}",
+                        isolated_process_marker_progress(serial.as_deref())
+                    ),
+                );
+            }
+            return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}"));
+        }
     };
     let serial = match fs::read_to_string(&serial_log) {
         Ok(serial) => serial,
@@ -8885,8 +8897,9 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {})",
-                serial_log.display()
+                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {}); {}",
+                serial_log.display(),
+                isolated_process_marker_progress(Some(&serial)),
             ),
         );
     }
@@ -8909,6 +8922,46 @@ fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
         .into_iter()
         .chain([ISOLATED_PROCESS_PASS_MARKER])
         .find(|marker| !serial.contains(marker))
+}
+
+/// Report only fixed marker labels; this diagnostic never determines acceptance.
+fn isolated_process_marker_progress(serial: Option<&str>) -> String {
+    let Some(serial) = serial else {
+        return "isolated_process_progress=unavailable".to_owned();
+    };
+
+    let markers = ISOLATED_PROCESS_MARKERS
+        .iter()
+        .copied()
+        .chain([ISOLATED_PROCESS_PASS_MARKER])
+        .collect::<Vec<_>>();
+    let lines = serial.lines().collect::<Vec<_>>();
+    let mut found = 0;
+    let mut first_missing = None;
+    let mut has_lookalike = false;
+
+    for (index, marker) in markers.iter().enumerate() {
+        if lines.iter().any(|line| line == marker) {
+            found += 1;
+        } else {
+            first_missing.get_or_insert(index + 1);
+            has_lookalike |= lines.iter().any(|line| line.contains(marker));
+        }
+    }
+
+    if found == markers.len() {
+        "isolated_process_progress=complete_marker_set".to_owned()
+    } else if found == 0 && has_lookalike {
+        "isolated_process_progress=lookalike_only".to_owned()
+    } else if found == 0 {
+        "isolated_process_progress=none".to_owned()
+    } else {
+        format!(
+            "isolated_process_progress=partial:{found}/{},first_missing_marker={:02}",
+            markers.len(),
+            first_missing.expect("a partial marker set has a missing marker")
+        )
+    }
 }
 
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -11147,15 +11200,67 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 mod tests {
     use super::{
         append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
-        last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
-        m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
-        m27_readiness_reported_after_persisted, m27_trial_failure_observed,
-        m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
-        product_init_cargo_args, run_headless_with_pre_guest_retry_using, scoped_artifact_name,
-        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
+        isolated_process_marker_progress, last_serial_lines, m17_trace_excerpt,
+        m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
+        m27_readiness_persisted_after_sign_in, m27_readiness_reported_after_persisted,
+        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
+        pinned_granite_manifest, product_init_cargo_args, run_headless_with_pre_guest_retry_using,
+        scoped_artifact_name, verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
+
+    #[test]
+    fn isolated_process_progress_distinguishes_absent_partial_complete_and_near_text() {
+        assert_eq!(
+            isolated_process_marker_progress(Some("")),
+            "isolated_process_progress=none"
+        );
+        assert_eq!(
+            isolated_process_marker_progress(None),
+            "isolated_process_progress=unavailable"
+        );
+        assert_eq!(
+            isolated_process_marker_progress(Some(super::ISOLATED_PROCESS_PASS_MARKER)),
+            "isolated_process_progress=partial:1/17,first_missing_marker=01"
+        );
+
+        let partial = concat!(
+            "Nagi Kernel started\n",
+            "Nagi ADR0043 isolated process spawned pid=2\n",
+            "password=private-value\n"
+        );
+        let partial_summary = isolated_process_marker_progress(Some(partial));
+        assert_eq!(
+            partial_summary,
+            "isolated_process_progress=partial:2/17,first_missing_marker=03"
+        );
+        assert!(!partial_summary.contains("private-value"));
+        assert!(!partial_summary.contains("password"));
+
+        let complete = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            isolated_process_marker_progress(Some(&complete)),
+            "isolated_process_progress=complete_marker_set"
+        );
+
+        let near_text = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .map(|marker| format!("prefix {marker} suffix"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            isolated_process_marker_progress(Some(&near_text)),
+            "isolated_process_progress=lookalike_only"
+        );
+    }
 
     #[test]
     fn product_init_cargo_args_select_product_workspace_and_preserve_root_target_path() {
