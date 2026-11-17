@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {"category": "windows-api", "path": "mixed.cpp", "line": 3, "evidence": "    HANDLE h = CreateFileW(p, GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);", "review_status": "needs_review"},
+    {"category": "posix-api", "path": "mixed.cpp", "line": 5, "evidence": "    int fd = ::open(p, O_RDONLY);", "review_status": "needs_review"},
+    {"category": "posix-api", "path": "mixed.cpp", "line": 6, "evidence": "    file.open(p);", "review_status": "needs_review"},
+    {"category": "qt", "path": "mixed.cpp", "line": 8, "evidence": "#include <QtWidgets/QApplication>", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "mixed.cpp", "line": 9, "evidence": "    int ev = fancy_notify_create(fd);", "review_status": "needs_review"}
+  ],
+  "limitations": ["Synthetic handwritten fixture mixing platforms; no corresponding source file exists and it is not scanner output."]
+}
