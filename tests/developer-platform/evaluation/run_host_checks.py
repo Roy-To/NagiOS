@@ -104,8 +104,23 @@ def evaluate(root, repeats):
                     "widgets", "layouts", "tab_order", "connections", "unknown",
                     "unresolved_references",
                 )}
-                if any(item["execution"] != "not_run" for item in facts["connections"]):
-                    raise EvaluationError("ui_analysis", "unexpected_execution_claim")
+                expected_counts = {"widgets": 3, "layouts": 1, "tab_order": 2,
+                                   "connections": 1, "unknown": 0,
+                                   "unresolved_references": 0}
+                # Expectations come from this fixed synthetic XML, not from a second scanner.
+                if (counts != expected_counts
+                        or facts["source"] != "task_panel.ui"
+                        or facts["form_class"] != "TaskPanel"
+                        or [(item["name"], item["class"]) for item in facts["widgets"]]
+                        != [("TaskPanel", "QWidget"), ("taskName", "QLineEdit"),
+                            ("addButton", "QPushButton")]
+                        or [(item["name"], item["class"]) for item in facts["layouts"]]
+                        != [("layout", "QVBoxLayout")]
+                        or facts["tab_order"] != ["taskName", "addButton"]
+                        or facts["connections"] != [{"sender": "addButton",
+                            "signal": "clicked()", "receiver": "TaskPanel",
+                            "slot": "addTask()", "execution": "not_run"}]):
+                    raise EvaluationError("ui_analysis", "fixture_expectation_mismatch")
             except (ValueError, KeyError, TypeError):
                 raise EvaluationError("ui_analysis", "invalid_report") from None
             ui["facts"] = counts
