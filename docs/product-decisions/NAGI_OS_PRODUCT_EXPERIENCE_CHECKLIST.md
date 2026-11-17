@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-15の1.0実用OS B＋将来総合OS Cは高水準完成方針CONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの独立した決定／未統合PRの内容は一括変更しない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -51,7 +51,14 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 |---|---|---|---|
 | PX-13 | **Nagiによるアプリ制作体験** | 自然言語による依頼、草案・試用・修正、Memory参照の許可、正式導入の流れ | [関連DEC 1](DEC-071-nagi-native-app-creation-experience.md)・[関連DEC 2](DEC-075-builder-app-trial-and-installation.md) |
 | PX-14 | **第三者アプリ開発・移植・配布環境** | 初期SDK・言語・UI部品、移植対象、検証・署名・配布のユーザー/開発者体験 | [関連DEC 1](DEC-017-third-party-developer-ecosystem.md)・[関連DEC 2](DEC-045-nagi-porting-toolkit.md) |
-| PX-15 | **Nagi OS 1.0の製品完成基準** | 利用者に約束する代表体験、純正アプリ、対応端末、実測性能、品質・公開基準 | [関連DEC 1](DEC-021-roadmap-0.5-1.0.md)・[関連DEC 2](DEC-074-human-led-agent-organization.md) |
+| PX-15 | **Nagi OS 1.0の製品完成基準** | **B＋将来Cの高水準完成方針CONFIRMED:** 正式対応するPC／Target・アプリ／機能の範囲で、日常の代表作業をAIと通常GUIで安全・安定に完結・継続できる実用OS Bを1.0の基準とし、将来は対応端末・アプリ・利用形態を広げる総合OS Cへ。具体的な代表作業・1.0必須アプリ・機器・数値閾値・公開判定・日程はPROVISIONAL | [関連DEC 1](DEC-021-roadmap-0.5-1.0.md)・[関連DEC 2](DEC-074-human-led-agent-organization.md)・[関連DEC 3](DEC-017-third-party-developer-ecosystem.md) |
+
+### PX-15の決定記録（2026-11-17）
+
+- **CONFIRMED — Bを1.0の高水準基準:** 正式対応を明示したTarget環境・機能で、代表的な日常作業をNagiの適切なAI支援と通常GUIによって安全・安定に完了でき、継続利用・結果確認・障害時の復旧を適切に扱える実用OS。一般公開品質・実証済み対応範囲を機能数より重視する。**将来C**として端末・周辺機器・純正／第三者アプリ・利用形態を拡大する総合OSへ発展する。[DEC-021](DEC-021-roadmap-0.5-1.0.md)のPX-15節を正本とする。
+- **維持する既存CONFIRMED:** 改訂0.3と0.5〜1.0 Master Roadmapの一般公開品質／安定性／Security／互換性／Developer experience、[DEC-017](DEC-017-third-party-developer-ecosystem.md)の公開SDK・開発者／配布基盤1.0目標、[DEC-074](DEC-074-human-led-agent-organization.md)のAI組み込みOS優先・階層Agent組織長期後順位、AI不在時通常GUI・a11y基盤・Memory／Workspace・Permission／Privacy、TargetでのAcceptanceをHost-onlyから区別する既存境界。0.1〜0.4と後続版のRelease／Activation／Acceptance GateとWorkstream開始条件は変更しない。
+- **PROVISIONAL／OPEN:** 代表作業シナリオと必須純正アプリ／個別機能、正式対応PC・周辺機器とHardware profile、性能・品質／安定性／Security・a11yの数値・許容不具合、具体的な試験マトリクス・公開判定手順／Support policy・Release日程。Master Roadmapのcandidate evidence（§6）はまだ確定チェックリストではない。
+- **進捗:** PARTIALLY_RECORDED（高水準完成方針のみDECに保存。実装・Target受入／1.0 Release PASSを認定しない）。他PXの独立PRの合意内容をこのbranchでは上書きしない。
 
 ## 3. 既存のCONFIRMEDとの関係（変更しない）
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-15がPARTIALLY_RECORDED（高水準の1.0実用OS B＋将来総合OS CをCONFIRMED、具体的完成条件・版はPROVISIONAL）。** 他PXの決定・未統合PRを一律OPEN／CONFIRMEDに書き換えない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-15として「正式対応Targetで日常の代表作業を完了・継続できる実用OS B」を1.0の高水準完成方針とし、将来は総合OS Cへ発展する方向を採用。一般公開品質・公開SDK／配布目標、AI組み込みOS優先と階層組織後順位、通常GUI・Privacy／Permission・Target Acceptanceを保持。 | PARTIALLY_RECORDED：高水準CONFIRMED、代表作業・アプリ・機器／Hardware・性能／品質数値・公開判定・日程はPROVISIONAL |
