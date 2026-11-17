@@ -204,6 +204,19 @@ class MappingTests(unittest.TestCase):
         self.assertEqual("needs_decision", row_named(result, "addButton")["mapping"]["status"])
         self.assertEqual(source, result["source_analysis"])
 
+    def test_row_status_is_derived_from_mapping_status(self):
+        # Row status is the whole-port state; mapping.status is vocabulary match only.
+        for name in sorted(p.name for p in FIXTURES.glob("*.ui")):
+            result = map_ui.map_analysis(fixture(name))
+            for row in result["rows"]:
+                with self.subTest(fixture=name, row=row["id"]):
+                    self.assertEqual(map_ui._row_status(row["mapping"]["status"]), row["status"])
+                    self.assertIn(row["status"], ("partial", "unsupported", "needs_decision"))
+        self.assertEqual("partial", map_ui._row_status("supported"))
+        self.assertEqual("partial", map_ui._row_status("partial"))
+        self.assertEqual("unsupported", map_ui._row_status("unsupported"))
+        self.assertEqual("needs_decision", map_ui._row_status("needs_decision"))
+
     def test_summary_counts_all_rows_and_never_claims_target_acceptance(self):
         result = map_ui.map_analysis(fixture("gtk4_task_panel.ui"))
         self.assertFalse(result["summary"]["port_complete"])
@@ -229,15 +242,44 @@ class MappingTests(unittest.TestCase):
 
 
 class EvidenceDriftTests(unittest.TestCase):
-    def _drift(self, mode):
-        # Test-only copied evidence lives entirely within the assigned path.
-        with tempfile.TemporaryDirectory(prefix="evidence-", dir=str(HERE)) as temp:
+    def _copy_evidence(self, repo):
+        manifest = json.loads((HERE / "contract_snapshot.json").read_text())
+        for item in manifest["files"]:
+            dst = repo / item["path"]
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / item["path"], dst)
+
+    def test_unmodified_evidence_copy_matches(self):
+        # Control for the drift cases: the copy harness itself must not cause drift.
+        with tempfile.TemporaryDirectory(prefix="ndp07-evidence-") as temp:
             repo = Path(temp)
-            manifest = json.loads((HERE / "contract_snapshot.json").read_text())
-            for item in manifest["files"]:
-                dst = repo / item["path"]
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(ROOT / item["path"], dst)
+            self._copy_evidence(repo)
+            state = contract.inspect_contract(repo)
+            self.assertEqual("matched", state["state"])
+            self.assertEqual({"matched"}, {e["state"] for e in state["evidence"]})
+
+    def test_added_source_file_is_detected_and_reaches_the_report(self):
+        with tempfile.TemporaryDirectory(prefix="ndp07-evidence-") as temp:
+            repo = Path(temp)
+            self._copy_evidence(repo)
+            (repo / "user/nagi-ui/src/new_module.rs").write_text("pub struct Added;\n")
+            (repo / "user/nagi-ui/src/notes.txt").write_text("not a Rust source\n")
+            state = contract.inspect_contract(repo)
+            self.assertEqual("needs_review", state["state"])
+            unlisted = [e for e in state["evidence"] if e["state"] == "unlisted"]
+            self.assertEqual(["user/nagi-ui/src/new_module.rs"], [e["path"] for e in unlisted])
+            self.assertIsNone(unlisted[0]["sha256"])
+            self.assertEqual(hashlib.sha256(b"pub struct Added;\n").hexdigest(),
+                             unlisted[0]["actual_sha256"])
+            report = map_ui.map_analysis(fixture(), contract=state)
+            self.assertEqual("needs_decision", row_named(report, "addButton")["mapping"]["status"])
+            markdown = map_ui.markdown_report(report)
+            self.assertIn("unlisted (SHA-256 not_in_snapshot)", markdown)
+
+    def _drift(self, mode):
+        with tempfile.TemporaryDirectory(prefix="ndp07-evidence-") as temp:
+            repo = Path(temp)
+            self._copy_evidence(repo)
             if mode == "version":
                 path = repo / "user/nagi-ui/Cargo.toml"
                 path.write_text(path.read_text().replace('version = "0.1.0"', 'version = "9.0.0"'))

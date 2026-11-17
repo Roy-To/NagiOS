@@ -235,8 +235,11 @@ GTK_WIDGETS = GTK_LAYOUTS | frozenset({
 GTK_TAGS = frozenset({
     "interface", "requires", "object", "child", "property", "packing", "layout",
     "signal", "accessibility", "relation", "state", "action", "binding",
-    "lookup", "constant", "closure", "placeholder",
+    "lookup", "constant", "closure", "placeholder", "include",
 })
+# `template` is deliberately not listed: its class/parent declaration and body are
+# not analyzed as widgets, so it stays reported as unknown (with evidence) rather
+# than looking recognized.
 
 
 def _gtk_evidence(element):
@@ -313,9 +316,9 @@ def _analyze_gtk(root):
         if name and name not in source_ids:
             unresolved.append({"kind": kind, "name": name})
 
-    stack = [(root, None, None)]
+    stack = [(root, None, None, False)]
     while stack:
-        element, widget_parent, layout_parent = stack.pop()
+        element, widget_parent, layout_parent, inside_unknown = stack.pop()
         owner = widget_parent
         attributes = dict(sorted(element.attrib.items()))
         if element.tag == "object":
@@ -338,9 +341,16 @@ def _analyze_gtk(root):
                 })
             widget_parent, owner = name, name
             layout_parent = name if kind in GTK_LAYOUTS else None
-        if element.tag not in GTK_TAGS:
-            unknown.append({"kind": "element", "tag": element.tag, "owner": owner,
-                            "content": _gtk_evidence(element)})
+        is_unknown = element.tag not in GTK_TAGS
+        if is_unknown:
+            entry = {"kind": "element", "tag": element.tag, "owner": owner}
+            if inside_unknown:
+                # The outermost unknown element already carries this subtree as
+                # `content`; repeating it per descendant would copy it O(depth) times.
+                entry["nested_in_unknown"] = True
+            else:
+                entry["content"] = _gtk_evidence(element)
+            unknown.append(entry)
         if element.tag == "signal":
             signal, handler = element.get("name", ""), element.get("handler", "")
             if owner is None or not signal or not handler:
@@ -370,7 +380,8 @@ def _analyze_gtk(root):
         if element.tag == "include":
             resources.append({"kind": "include", "value": element.get("filename", ""),
                               "attributes": attributes})
-        stack.extend((child, widget_parent, layout_parent) for child in reversed(element))
+        stack.extend((child, widget_parent, layout_parent, inside_unknown or is_unknown)
+                     for child in reversed(element))
 
     return {
         "analysis_version": 1, "format": "gtk-builder-ui", "form_class": "",

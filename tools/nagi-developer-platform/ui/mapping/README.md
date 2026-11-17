@@ -47,6 +47,12 @@ relationは `direct`（語彙の直接候補）、`redesign`（再設計）、`u
 （未提供）、`unknown`（不明）。rowの`status`は全体の移植状態で、語彙対応があっても
 最大`partial`。`summary.port_complete`は常にfalseであり、移植完了の判定器ではない。
 
+rowの`status`と`mapping.status`は独立した情報ではなく、`map_ui._row_status` 1か所で
+定義した導出関係にある: `status = mapping.status`（`unsupported` / `needs_decision`）、
+それ以外（`supported` / `partial`）は`partial`。`summary.status_counts`は行の`status`、
+語彙分類は`mapping.status`を見る。テストが全fixtureの全rowでこの関係を検証する。
+どちらかを廃止するかは後続のUI owner判断（下記）。
+
 各rowには次の独立した評価がある。全項目の`verification=not_run`はhostで構造を
 照合しただけで、そのUI動作を実行していないことを表す。
 
@@ -84,11 +90,18 @@ Markdownは候補・軸別statusと理由・契約根拠を一覧にし、全元
 - 現行`nagi-ui` 0.1.0の
   [UI契約](../../../../docs/architecture/ui-design-system.md) と
   [実API](../../../../user/nagi-ui/src/lib.rs)を読み取り参照する。
-  `contract.py`は文書・Cargo.toml・全srcのSHA-256を、同梱`contract_snapshot.json`と
-  照合する。元APIの削除、版の変更、ファイル欠落、内容変更で部品の全非backend軸と
-  対応statusを要判断へ戻す。候補名は過去の候補として残る。変更が意味に無関係でも
-  保守的に要判断になる。snapshotは根拠の読取記録であり正式なSDK版契約ではない。
+  `contract.py`は文書・Cargo.tomlと`src`のうちsnapshotに**列挙した**ファイルの
+  SHA-256を、同梱`contract_snapshot.json`と照合する。加えて、snapshotの`enumerate`
+  （現在は`user/nagi-ui/src`配下の`*.rs`）にあるのにsnapshotへ未列挙のファイルは
+  `unlisted`として検知する。元APIの削除、版の変更、ファイル欠落、内容変更、
+  未列挙ファイルの追加で部品の全非backend軸と対応statusを要判断へ戻す。候補名は
+  過去の候補として残る。変更が意味に無関係でも保守的に要判断になる。
+  snapshotは根拠の読取記録であり正式なSDK版契約ではない。
   snapshotの更新はowner調整後に文書・APIと各ルールを再確認してから行う。
+- 列挙範囲の仮定: `enumerate`は`src`配下の`.rs`だけで、`examples/`、`build.rs`、
+  `src`外のファイルは対象外。範囲を広げる／狭めるのはsnapshotデータの変更だけで
+  行える（UI ownerの要判断）。未列挙ファイルは`sha256=null`、Markdownでは
+  `not_in_snapshot`と表示する。
 - QWidgetはPanel、main windowはApplicationShellSpec、QLabel／GtkLabelはResolvedText
   を使う再設計候補とする。rich text、画像、link等の等価性は仮定しない。
   Qt form layoutはGridへの再設計候補。grid span／絶対座標等は実装しない。
@@ -109,8 +122,11 @@ accessibility service、翻訳とtext layout、型付きevent／binding接続の
 
 ## 検証
 
-runner指定コマンドで23テスト成功（host、Python 3.9）。4つの実fixtureを実解析器の
+NDP-07時点でrunner指定コマンドは23テスト成功（host、Python 3.9）だった。NDP-06cで
+契約の新規ファイル追加検知、row statusの導出関係、一時ディレクトリの既定化を追加した。
+その後の件数はrunnerの実行結果を正とし、ここには固定しない。
+4つの実fixtureを実解析器の
 API／CLIで読み、対応候補・未対応部品・未知要素・未解決参照・event／binding未接続、
-focus／a11y情報、長い日本語と英語、全候補APIの実在、契約削除／版変更／API変更、adapter差し替え、
+focus／a11y情報、長い日本語と英語、全候補APIの実在、契約削除／版変更／API変更／ファイル追加、adapter差し替え、
 決定性、入力と出力の独立性、元ファイルの不変性、JSON入力の異常系を確認する。
 renderer・操作・Nagi targetの試験は実施していない。
