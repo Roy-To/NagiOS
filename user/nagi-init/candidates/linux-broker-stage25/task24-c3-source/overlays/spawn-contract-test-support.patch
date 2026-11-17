@@ -1,0 +1,13 @@
+--- a/shared-spawn-contract/src/lib.rs
++++ b/shared-spawn-contract/src/lib.rs
+@@ -295,3 +295,10 @@
+     }
+ }
+ 
++
++/// Test-only identity token for owner-state regression tests. The descriptor
++/// is intentionally absent; this must never stand in for Linux pidfd runtime.
++#[cfg(feature = "test-support")]
++pub fn test_pidfd_for_identity(identity: SpawnedProcessIdentity) -> SpawnedProcessPidfd {
++    SpawnedProcessPidfd { identity, pidfd: None }
++}
