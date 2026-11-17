@@ -1,4 +1,4 @@
-"""Bounded Qt Designer XML inspection. This module never executes UI content."""
+"""Bounded Qt Designer / GTK Builder inspection; UI content is never executed."""
 
 import argparse
 import json
@@ -75,8 +75,8 @@ def _layout_items(element):
     ]
 
 
-def analyze_bytes(data):
-    """Return internal source facts; no renderer, mapping or SDK is invoked."""
+def _parse_xml(data):
+    """Apply the same input/security bounds before selecting either format."""
     if len(data) > MAX_BYTES:
         raise AnalysisError("input_too_large")
     try:
@@ -111,8 +111,20 @@ def analyze_bytes(data):
         parser.close()
     except ET.ParseError:
         raise AnalysisError("invalid_xml") from None
+    return root
+
+
+def analyze_bytes(data):
+    """Select the format by its parsed root, without evaluating declarations."""
+    root = _parse_xml(data)
+    if root is not None and root.tag == "interface":
+        return _analyze_gtk(root)
     if root is None or root.tag != "ui" or root.get("version") != "4.0":
         raise AnalysisError("unsupported_format")
+    return _analyze_qt(root)
+
+
+def _analyze_qt(root):
     if root.find("widget") is None:
         raise AnalysisError("missing_root_widget")
 
@@ -204,6 +216,174 @@ def analyze_bytes(data):
             "Source structure only; no Qt or Nagi compatibility verdict.",
             "Resources, bindings and events are not fetched or executed.",
             "Rendering, input, focus, accessibility and localization are not verified.",
+        ],
+    }
+
+
+# GTK containers are both objects in the hierarchy and layout owners. These
+# allowlists recognize source vocabulary only, never Nagi runtime support.
+GTK_LAYOUTS = frozenset({
+    "GtkBox", "GtkVBox", "GtkHBox", "GtkGrid", "GtkTable", "GtkFixed",
+    "GtkStack", "GtkOverlay", "GtkPaned",
+})
+GTK_WIDGETS = GTK_LAYOUTS | frozenset({
+    "GtkWindow", "GtkApplicationWindow", "GtkDialog", "GtkLabel", "GtkEntry",
+    "GtkButton", "GtkCheckButton", "GtkRadioButton", "GtkComboBox", "GtkSwitch",
+    "GtkFrame", "GtkScrolledWindow", "GtkImage", "GtkTextView", "GtkListBox",
+    "GtkSeparator", "GtkSpinButton", "GtkProgressBar",
+})
+GTK_TAGS = frozenset({
+    "interface", "requires", "object", "child", "property", "packing", "layout",
+    "signal", "accessibility", "relation", "state", "action", "binding",
+    "lookup", "constant", "closure", "placeholder",
+})
+
+
+def _gtk_evidence(element):
+    """Keep nested expression/unknown syntax as data, within the XML bounds."""
+    return {
+        "kind": element.tag, "attributes": dict(sorted(element.attrib.items())),
+        "text": element.text or "",
+        "children": [_gtk_evidence(child) for child in element],
+        "tail": element.tail or "",
+    }
+
+
+def _gtk_properties(element):
+    if element is None:
+        return []
+    return [
+        {
+            "name": prop.get("name", "") if prop.tag == "property" else prop.tag,
+            "values": [{"kind": "text", "text": prop.text or "",
+                        "attributes": dict(sorted(prop.attrib.items()))}]
+                      + [_gtk_evidence(child) for child in prop],
+        }
+        for prop in element if prop.tag in ("property", "accessibility", "layout")
+    ]
+
+
+def _gtk_layout_items(element, identities):
+    return [
+        {
+            "attributes": dict(sorted(child.attrib.items())),
+            "packing": _gtk_properties(child.find("packing")),
+            "objects": [
+                {"kind": obj.tag, "name": identities[obj],
+                 "attributes": dict(sorted(obj.attrib.items())),
+                 "properties": _gtk_properties(obj)}
+                for obj in child if obj.tag == "object"
+            ],
+        }
+        for child in element if child.tag == "child"
+    ]
+
+
+def _analyze_gtk(root):
+    if root.find("object") is None:
+        raise AnalysisError("missing_root_widget")
+
+    # Builder permits anonymous objects. Reserve every explicit ID first so
+    # generated report identities cannot alias a source ID or a later object.
+    names, identities = set(), {}
+    objects = list(root.iter("object"))
+    for obj in objects:
+        name = obj.get("id")
+        if not obj.get("class") or name == "":
+            raise AnalysisError("missing_object_identity")
+        if name is not None:
+            if name in names:
+                raise AnalysisError("duplicate_object_name")
+            names.add(name)
+            identities[obj] = name
+    for index, obj in enumerate(objects, 1):
+        if obj not in identities:
+            name = "@gtk-object-" + str(index)
+            while name in names:
+                name += "_"
+            identities[obj] = name
+            names.add(name)
+
+    widgets, layouts, connections, bindings = [], [], [], []
+    resources, unknown, unresolved = [], [], []
+    # References resolve against source IDs, not generated report identities.
+    source_ids = {obj.get("id") for obj in objects if obj.get("id")}
+
+    def reference(kind, name):
+        if name and name not in source_ids:
+            unresolved.append({"kind": kind, "name": name})
+
+    stack = [(root, None, None)]
+    while stack:
+        element, widget_parent, layout_parent = stack.pop()
+        owner = widget_parent
+        attributes = dict(sorted(element.attrib.items()))
+        if element.tag == "object":
+            name, kind = identities[element], element.get("class")
+            item = {
+                "name": name, "class": kind, "parent_widget": widget_parent,
+                "parent_layout": layout_parent, "properties": _gtk_properties(element),
+                "attributes": attributes, "recognized": kind in GTK_WIDGETS,
+                "children": _gtk_layout_items(element, identities),
+            }
+            widgets.append(item)
+            if not item["recognized"]:
+                unknown.append({"kind": "widget", "name": name, "class": kind})
+            if kind in GTK_LAYOUTS:
+                layouts.append({
+                    "name": name, "class": kind, "parent_widget": name,
+                    "parent_layout": layout_parent, "properties": item["properties"],
+                    "attributes": attributes, "recognized": True,
+                    "items": item["children"],
+                })
+            widget_parent, owner = name, name
+            layout_parent = name if kind in GTK_LAYOUTS else None
+        if element.tag not in GTK_TAGS:
+            unknown.append({"kind": "element", "tag": element.tag, "owner": owner,
+                            "content": _gtk_evidence(element)})
+        if element.tag == "signal":
+            signal, handler = element.get("name", ""), element.get("handler", "")
+            if owner is None or not signal or not handler:
+                raise AnalysisError("incomplete_connection")
+            receiver = element.get("object", "")
+            connections.append({
+                "sender": owner, "signal": signal, "receiver": receiver,
+                "slot": handler, "attributes": attributes, "execution": "not_run",
+            })
+            reference("receiver", receiver)
+        if "binding" in element.tag.lower() or (
+                element.tag == "property" and any(
+                    key.startswith("bind-") for key in attributes)):
+            bindings.append({"owner": owner, "tag": element.tag,
+                             "text": _text(element), "content": _gtk_evidence(element),
+                             "execution": "not_run"})
+            reference("binding_source", element.get("bind-source", ""))
+        if element.tag == "property":
+            # Property objects are owned values, not packed layout children.
+            layout_parent = None
+            if element.get("name") in ("file", "filename", "resource", "pixbuf"):
+                resources.append({"kind": element.get("name"), "value": _text(element),
+                                  "owner": owner, "attributes": attributes})
+        if element.tag == "requires":
+            resources.append({"kind": "requires", "value": element.get("lib", ""),
+                              "attributes": attributes})
+        if element.tag == "include":
+            resources.append({"kind": "include", "value": element.get("filename", ""),
+                              "attributes": attributes})
+        stack.extend((child, widget_parent, layout_parent) for child in reversed(element))
+
+    return {
+        "analysis_version": 1, "format": "gtk-builder-ui", "form_class": "",
+        "attributes": dict(sorted(root.attrib.items())),
+        "widgets": widgets, "layouts": layouts, "connections": connections,
+        "tab_order": [], "declared_slots": [], "bindings": bindings,
+        "resources": resources, "unknown": unknown, "custom_widgets": [],
+        "unresolved_references": unresolved,
+        "limitations": [
+            "Source structure only; no GTK or Nagi compatibility verdict.",
+            "Resources, bindings and events are not fetched or executed.",
+            "Rendering, input, focus, accessibility and localization are not verified.",
+            "GTK class/property types and general object references are not validated.",
         ],
     }
 
