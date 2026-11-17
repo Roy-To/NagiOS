@@ -385,6 +385,31 @@ jobs:
             echo "::error title=M17 Servo bootstrap diagnostic::$first_error"
           fi
           exit "$bootstrap_status"
+      - name: Check product init Cargo.lock against the Nagi target graph
+        run: |
+          mkdir -p out/logs
+          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.before
+          set +e
+          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
+            --target targets/x86_64-unknown-nagi-user.json --all-features \
+            --edges normal --prefix none --format '{p} [{f}]' \
+            >/dev/null 2>out/logs/m17-product-lock.resolve.stderr
+          resolve_status=$?
+          set -e
+          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.after
+          diff_status=0
+          diff -u out/logs/m17-product-lock.before out/logs/m17-product-lock.after \
+            >out/logs/m17-product-lock.diff || diff_status=$?
+          if [ "$diff_status" -gt 1 ]; then
+            exit "$diff_status"
+          fi
+          if [ "$resolve_status" -ne 0 ]; then
+            exit "$resolve_status"
+          fi
+          if [ "$diff_status" -ne 0 ]; then
+            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m17-product-lock.diff and commit the lock update.'
+            exit 1
+          fi
       - name: Verify M17 target dependency feature boundary
         run: |
           graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
@@ -447,7 +472,7 @@ jobs:
           set -o pipefail
           mkdir -p out/logs
           set +e
-          cargo +nightly-2025-08-01 build -p nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
+          cargo +nightly-2025-08-01 build --manifest-path user/nagi-init/Cargo.toml --target-dir target --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
           cargo_status=${PIPESTATUS[0]}
           set -e
           if [ "$cargo_status" -ne 0 ]; then
@@ -567,6 +592,7 @@ jobs:
             out/test-results/
             out/logs/acceptance/
             out/logs/m17-runner-resources.log
+            out/logs/m17-product-lock.*
             out/logs/m17-bootstrap.log
             out/logs/m17-nagi-user-init.log
             out/logs/m17-undefined-symbols.txt
@@ -600,8 +626,35 @@ jobs:
           cargo install cbindgen --version 0.28.0 --locked
       - name: Bootstrap pinned Servo source dependencies
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Check product init Cargo.lock against the Nagi target graph
+        run: |
+          mkdir -p out/logs
+          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.before
+          set +e
+          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
+            --target targets/x86_64-unknown-nagi-user.json --all-features \
+            --edges normal --prefix none --format '{p} [{f}]' \
+            >/dev/null 2>out/logs/m20-product-lock.resolve.stderr
+          resolve_status=$?
+          set -e
+          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.after
+          diff_status=0
+          diff -u out/logs/m20-product-lock.before out/logs/m20-product-lock.after \
+            >out/logs/m20-product-lock.diff || diff_status=$?
+          if [ "$diff_status" -gt 1 ]; then
+            exit "$diff_status"
+          fi
+          if [ "$resolve_status" -ne 0 ]; then
+            exit "$resolve_status"
+          fi
+          if [ "$diff_status" -ne 0 ]; then
+            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m20-product-lock.diff and commit the lock update.'
+            exit 1
+          fi
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
+      - name: Fetch locked product init dependencies
+        run: cargo fetch --manifest-path user/nagi-init/Cargo.toml --locked
       - name: Download and verify pinned Granite artifact
         run: |
           mkdir -p out/cache/models
@@ -623,6 +676,7 @@ jobs:
           path: |
             out/evidence/m20-granite-inference-*/
             out/evidence/m20-granite-inference-target-*/
+            out/logs/m20-product-lock.*
             out/artifacts/nagi-0.1-m20-granite-inference-*.qcow2
           if-no-files-found: ignore
           compression-level: 0

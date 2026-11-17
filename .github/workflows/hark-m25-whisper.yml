@@ -334,7 +334,8 @@ jobs:
         run: |
           set -o pipefail
           echo "COMPILE-ONLY: link check with synthetic placeholder inputs; NOT guest inference acceptance." | tee "$LOGS/COMPILE-ONLY-nagi-init-build.log"
-          cargo +"$TOOLCHAIN" build -p nagi-init --features m25-whisper-inference-acceptance \
+          cargo +"$TOOLCHAIN" build --manifest-path user/nagi-init/Cargo.toml --target-dir target \
+            --features m25-whisper-inference-acceptance \
             --target targets/x86_64-unknown-nagi-user.json \
             -Zbuild-std=core,alloc,compiler_builtins --release --locked 2>&1 | tee -a "$LOGS/COMPILE-ONLY-nagi-init-build.log"
           bin=target/x86_64-unknown-nagi-user/release/nagi-init
