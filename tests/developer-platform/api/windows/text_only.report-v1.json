@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {"category": "windows-api", "path": "text_only.c", "line": 1, "evidence": "/* Negative control: CreateFileW, ReadFile, inotify_init1, inotify_add_watch. */", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "text_only.c", "line": 3, "evidence": "    return \"CloseHandle close CreateFileW inotify_add_watch\";", "review_status": "needs_review"}
+  ],
+  "limitations": ["Handwritten negative report fixture. Source: tests/developer-platform/evaluation/controls/text_only.c"]
+}
