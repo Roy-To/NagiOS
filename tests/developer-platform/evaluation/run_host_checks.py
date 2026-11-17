@@ -23,6 +23,30 @@ INPUTS = tuple(FIXTURES / name for name in (
     "ui/task_panel.ui", "ui/gtk3_task_panel.ui", "ui/gtk4_task_panel.ui",
 )) + (ANALYZER,)
 
+# NDP-04/05 API rules, NDP-03 generator and NDP-09s2 Stage 2 (trusted tools, read-only inputs).
+API_TOOLS = Path("tools/nagi-developer-platform/api")
+API_REPORTS = Path("tests/developer-platform/api")
+GENERATOR_DIR = Path("tools/nagi-developer-platform/generator")
+GENERATOR = GENERATOR_DIR / "generate.py"
+STAGE2 = Path("tools/nagi-developer-platform/validation/stage2.py")
+STAGE2_TARGET = "portable-summary"
+API_INPUTS = tuple(
+    API_REPORTS / name for name in (
+        "windows/read_prefix.report-v1.json", "windows/text_only.report-v1.json",
+        "linux/watch_changes.report-v1.json", "linux/text_only.report-v1.json",
+        "linux/mixed_platform.report-v1.json")
+) + tuple(API_TOOLS / name for name in (
+    "windows/diagnose.py", "windows/rules.json", "linux/diagnose.py", "linux/rules.json",
+    "common/pt01_report.py"))
+GENERATOR_INPUTS = tuple(GENERATOR_DIR / name for name in (
+    "generate.py", "contract/contract.py", "contract/level0.json",
+    "contract/templates/Cargo.toml.tmpl", "contract/templates/UNSUPPORTED_APIS.md.tmpl",
+    "contract/templates/README.md.tmpl", "contract/templates/lib.rs.tmpl"
+)) + (Path("sdk/rust/schemas/app-manifest.schema.json"),)
+STAGE2_INPUTS = tuple(Path("tools/nagi-developer-platform/validation") / name for name in (
+    "stage2.py", "stages.json", "validate.py"))
+INPUTS = INPUTS + API_INPUTS + GENERATOR_INPUTS + STAGE2_INPUTS
+
 
 class EvaluationError(Exception):
     def __init__(self, phase, code):
@@ -36,12 +60,16 @@ def fingerprint(root):
             for path in INPUTS}
 
 
-def run_command(command, root, phase, timeout=10):
+def run_command(command, root, phase, timeout=10, stdin_path=None):
     start = time.perf_counter()
+    options = {}
     try:
+        if stdin_path is not None:
+            # A fixed fixture file is fed to the tool; no shell and no redirection.
+            options["input"] = (root / stdin_path).read_bytes()
         result = subprocess.run(
             command, cwd=root, env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-            capture_output=True, timeout=timeout, check=False,
+            capture_output=True, timeout=timeout, check=False, **options,
         )
     except subprocess.TimeoutExpired:
         raise EvaluationError(phase, "timeout") from None
@@ -56,11 +84,12 @@ def run_command(command, root, phase, timeout=10):
     return result.stdout, elapsed_ms
 
 
-def repeat_command(command, root, phase, repeats):
+def repeat_command(command, root, phase, repeats, timeout=10, stdin_path=None):
     first = None
     samples = []
     for _ in range(repeats):
-        output, elapsed_ms = run_command(command, root, phase)
+        output, elapsed_ms = run_command(command, root, phase, timeout=timeout,
+                                         stdin_path=stdin_path)
         if first is not None and output != first:
             raise EvaluationError(phase, "nondeterministic_stdout")
         first = output
@@ -186,6 +215,175 @@ UI_CASES = (
 )
 
 
+def parse_json_object(phase, output):
+    try:
+        data = json.loads(output)
+    except ValueError:
+        raise EvaluationError(phase, "invalid_report") from None
+    if not isinstance(data, dict):
+        raise EvaluationError(phase, "invalid_report")
+    return data
+
+
+# --- NDP-09s2 Stage 2 (self-made portable C fixture only) -------------------------
+
+def validate_stage2(data):
+    steps = data.get("steps")
+    if (data.get("stage") != 2 or data.get("status") != "passed"
+            or data.get("reason") != "build_and_test_passed"
+            or data.get("target") != STAGE2_TARGET
+            or data.get("scope") != "host_build_test_fixture_only"
+            or not isinstance(steps, list)
+            or [(s.get("name"), s.get("status"), s.get("exit_code")) for s in steps]
+            != [("compile", "passed", 0), ("run_test", "passed", 0)]):
+        mismatch("stage2_build_test")
+
+
+def check_stage2(root, repeats):
+    phase = "stage2_build_test"
+    output, info = repeat_command(
+        [sys.executable, "-B", str(STAGE2), "--target", STAGE2_TARGET,
+         "--fixture-dir", str(FIXTURES / "portable")], root, phase, repeats, timeout=90)
+    try:
+        validate_stage2(parse_json_object(phase, output))
+    except (KeyError, TypeError, AttributeError):
+        raise EvaluationError(phase, "invalid_report") from None
+    info["stage"] = 2
+    info["steps_passed"] = ["compile", "run_test"]
+    return info
+
+
+# --- NDP-04/05 API rules over handwritten PT-01 report v1 fixtures -----------------
+
+# Expectations are written from the evidence text of each fixed report fixture:
+# (line, rule id, detection, matched aliases). They are not copied from a second scanner.
+API_CASES = (
+    ("api_windows_read_prefix", "windows", "windows/read_prefix.report-v1.json", "read_prefix.c", [
+        (2, "WIN-HEADER", "lexical_candidate", ["windows.h"]),
+        (4, "WIN-FILE-OPEN", "lexical_candidate", ["CreateFileW"]),
+        (7, "WIN-FILE-READ", "lexical_candidate", ["ReadFile"]),
+        (8, "WIN-HANDLE-CLOSE", "lexical_candidate", ["CloseHandle"])]),
+    ("api_windows_text_only", "windows", "windows/text_only.report-v1.json", "text_only.c", [
+        (1, None, "no_code_evidence", []),
+        (3, None, "unknown_api", [])]),
+    ("api_linux_watch_changes", "linux", "linux/watch_changes.report-v1.json", "watch_changes.c", [
+        (2, "LNX-INOTIFY", "lexical_candidate", ["sys/inotify.h"]),
+        (3, "POSIX-HEADER-FD", "lexical_candidate", ["unistd.h"]),
+        (5, "LNX-INOTIFY", "lexical_candidate", ["IN_CLOEXEC", "IN_NONBLOCK", "inotify_init1"]),
+        (7, "LNX-INOTIFY", "lexical_candidate", ["IN_MODIFY", "inotify_add_watch"]),
+        (8, "POSIX-FD-CLOSE", "lexical_candidate", ["close"])]),
+    ("api_linux_text_only", "linux", "linux/text_only.report-v1.json", "text_only.c", [
+        (1, None, "no_code_evidence", []),
+        (3, None, "unknown_api", [])]),
+    ("api_linux_mixed_platform", "linux", "linux/mixed_platform.report-v1.json", "mixed.cpp", [
+        (3, None, "not_classified", []),
+        (5, "POSIX-FILE-OPEN", "lexical_candidate", ["open"]),
+        (6, None, "unknown_api", []),
+        (8, "LNX-QT", "lexical_candidate", ["QtWidgets/QApplication"]),
+        (9, None, "unknown_api", [])]),
+)
+
+
+def validate_api(phase, data, path, expected):
+    rows = data["rows"]
+    if (data["diagnostic_version"] != 1 or data["scope"] != "host_report_analysis"
+            or data["compatibility"] != "not_assessed"
+            or data["target_acceptance"] != "not_run"
+            or [(r["source"]["line"], r["rule_id"], r["detection"], r["original_apis"])
+                for r in rows] != expected
+            or any(r["source"]["path"] != path or r["approval"] != "PROVISIONAL"
+                   or r["source"]["evidence_scope"] != "report_fragment_only" for r in rows)
+            # A negative control or an unmatched row must never claim a known API.
+            or any(r["rule_id"] is None and (r["original_apis"] or r["classification"] != "unresolved")
+                   for r in rows)):
+        mismatch(phase)
+    return len(rows)
+
+
+def check_api(root, repeats):
+    results = {}
+    for phase, tool, report, path, expected in API_CASES:
+        output, info = repeat_command(
+            [sys.executable, "-B", str(API_TOOLS / tool / "diagnose.py"), "--path", path],
+            root, phase, repeats, stdin_path=API_REPORTS / report)
+        try:
+            info["rows"] = validate_api(phase, parse_json_object(phase, output), path, expected)
+        except (KeyError, TypeError, AttributeError):
+            raise EvaluationError(phase, "invalid_report") from None
+        results[phase] = info
+    return results
+
+
+# --- NDP-03 generator into a temporary output only -----------------------------------
+
+GENERATOR_ARGS = ("create", "--app-id", "com.example.level-zero", "--package-name",
+                  "level-zero", "--name-en", "Level Zero", "--name-ja", "レベルゼロ",
+                  "--output-dir", "samples/level-zero")
+GENERATOR_FILES = ["Cargo.toml", "README.md", "UNSUPPORTED_APIS.md", "manifest.json",
+                   "src/lib.rs"]
+
+
+def tree_digest(base):
+    return {path.relative_to(base).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(base.rglob("*")) if path.is_file()}
+
+
+def validate_generated(phase, data, digest, manifest_text):
+    created = sorted(item[len("samples/level-zero/"):] for item in data.get("created", []))
+    try:
+        manifest = json.loads(manifest_text)
+        manifest_ok = (manifest["id"] == "com.example.level-zero"
+                       and manifest["displayName"] == {"en-US": "Level Zero",
+                                                       "ja-JP": "レベルゼロ"}
+                       and manifest["requestedCapabilities"] == []
+                       and manifest["origin"] == "third-party")
+    except (ValueError, KeyError, TypeError):
+        manifest_ok = False
+    if (data.get("status") != "created" or data.get("built") is not False
+            or data.get("validated") is not False
+            or data.get("output_dir") != "samples/level-zero"
+            or created != GENERATOR_FILES
+            or sorted(digest) != GENERATOR_FILES or not manifest_ok):
+        mismatch(phase)
+
+
+def check_generator(root, repeats):
+    phase = "generator_scaffold"
+    first_output = first_digest = None
+    samples = []
+    for _ in range(repeats):
+        # Fresh stand-in checkout each time: the generator refuses an existing output.
+        with tempfile.TemporaryDirectory(prefix="nagi-ndp-generated-") as directory:
+            target = Path(directory)
+            (target / "sdk/rust").mkdir(parents=True)
+            (target / "sdk/rust/Cargo.toml").write_text("# stand-in\n", encoding="utf-8")
+            (target / "samples").mkdir()
+            output, elapsed_ms = run_command(
+                [sys.executable, "-B", str(GENERATOR), GENERATOR_ARGS[0], "--root", directory,
+                 *GENERATOR_ARGS[1:]], root, phase)
+            written = target / "samples/level-zero"
+            digest = tree_digest(written)
+            # Nothing may appear outside the requested output directory.
+            if sorted(tree_digest(target)) != sorted(
+                    ["sdk/rust/Cargo.toml"] + ["samples/level-zero/" + n for n in digest]):
+                mismatch(phase)
+            try:
+                manifest_text = (written / "manifest.json").read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                mismatch(phase)
+            try:
+                validate_generated(phase, parse_json_object(phase, output), digest,
+                                   manifest_text)
+            except (KeyError, TypeError, AttributeError):
+                raise EvaluationError(phase, "invalid_report") from None
+        if first_output is not None and (output != first_output or digest != first_digest):
+            raise EvaluationError(phase, "nondeterministic_output")
+        first_output, first_digest = output, digest
+        samples.append(elapsed_ms)
+    return {"samples_ms": samples, "median_ms": statistics.median(samples),
+            "stdout_identical": True, "tree_identical": True, "files": sorted(first_digest)}
+
+
 def evaluate(root, repeats):
     if not 2 <= repeats <= 20:
         raise EvaluationError("arguments", "repeats_must_be_2_to_20")
@@ -219,6 +417,9 @@ def evaluate(root, repeats):
                 except (ValueError, KeyError, TypeError, AttributeError):
                     raise EvaluationError(phase, "invalid_report") from None
                 ui_reports[phase] = ui
+            stage2 = check_stage2(root, repeats)
+            api_rules = check_api(root, repeats)
+            generator = check_generator(root, repeats)
     finally:
         # Check even when a build, run or comparison fails. Never restore a changed input.
         if fingerprint(root) != before:
@@ -230,10 +431,15 @@ def evaluate(root, repeats):
                         "compiler": version.decode("utf-8").splitlines()[0]},
         "portable_build_ms": build_ms, "control_syntax_ms": control_ms,
         "portable_run": portable, **ui_reports,
+        "stage2_build_test": stage2, "api_rules": api_rules,
+        "generator_scaffold": generator,
         "timing_scope": "subprocess wall time including startup; not human work or speedup",
         "inputs_unchanged": True,
         "not_run": ["windows_input", "linux_input", "gtk_runtime", "manual_comparison", "llm_comparison",
-                    "sdk_validator", "ui_rendering", "nagi_target"],
+                    "sdk_validator", "ui_rendering", "nagi_target",
+                    "scanner_output_to_api_rules", "generated_crate_build",
+                    "generated_manifest_validation", "stage2_third_party_build",
+                    "stage3_nagi_target"],
     }
 
 

@@ -142,3 +142,36 @@ empty stable reports, malformed JSON, correct counts with a wrong widget,
 parent, layout class, placement value or order, receiver/slot, unknown class,
 binding owner/tag and `requires` version, plus per-phase timeout, nonzero exit
 and nondeterministic stdout, and GTK fixture mutation.
+
+## API rules, generator and Stage 2 — NDP-11c
+
+`run_host_checks.py` also repeats three trusted host tools `--repeats` times
+(JSON keys `api_rules`, `generator_scaffold`, `stage2_build_test`):
+
+- NDP-04/05 `diagnose.py` on the five handwritten report-v1 fixtures under
+  `tests/developer-platform/api/`, fed by stdin. Expected (line, rule id, detection,
+  matched aliases) per case are written in `API_CASES` from the fixture evidence.
+  Negative controls must not claim a known API. The reports are not scanner output.
+- NDP-03 `generate.py create` into a fresh temporary stand-in checkout each time
+  (placeholder `sdk/rust/Cargo.toml`). Compared: stdout bytes, generated tree hashes,
+  the exact five files, nothing outside the output directory, and manifest id/names/
+  no capabilities. The crate is not built and the manifest is not validated here.
+- NDP-09s2 `stage2.py --target portable-summary` (self-made C fixture only): both
+  `compile` and `run_test` steps must pass.
+
+The tools, report fixtures, templates and the manifest schema are in the source
+fingerprint and must be unchanged afterwards, even after a failure. The suite is now
+40 checks (real CLI output as the base for injected regressions; the Stage 2 tests need
+`clang` and are skipped, not passed, without it).
+
+### 仮定（PROVISIONAL）
+
+- Expectations in `API_CASES`, `GENERATOR_ARGS`/`GENERATOR_FILES` and the manifest
+  checks describe the current Level 0 scaffold and rules (rules are PROVISIONAL, the
+  PT-01 report is the interim v1). When the owners change them, replace the data tables
+  only. None of this is a CONFIRMED decision.
+- The generator stand-in checkout mirrors the generator's current "SDK `Cargo.toml` must
+  exist" check (same assumption as `validation/generated_check.py`).
+- Stage 2 timeout is 90 s per run in this runner; the tool's own limits stay unchanged.
+- Host-only evidence: no speed ratio, porting success or Nagi target acceptance is
+  claimed.
