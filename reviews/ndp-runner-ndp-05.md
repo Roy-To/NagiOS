@@ -16,3 +16,23 @@ API配下のunittestは独立実行でも **63件成功**。変更は担当path�
 
 NDP-REVIEW: FIX
 
+## Round 2 — codex review of 6e2b912dbba5
+
+確認済みの指摘は **P2×1、P3×1** です。
+
+1. **P2 — 制御文直後のglobal scope呼出しを取りこぼす**  
+   `tools/nagi-developer-platform/api/linux/diagnose.py:95–99`  
+   `if (ready) ::close(fd);`、`while (ready) ::read(fd, b, n);`、`for (;;) ::close(fd);` が、すべて `rule_id=null / unknown_api` になることを本体で再現しました。直前の `)` を一律に修飾名の一部と判断するため、既知APIの分類・不足情報が失われます。  
+   **最小修正:** 対応する括弧と制御キーワードを確認し、制御条件末尾の `)` と `decltype(obj)::name` 等を区別してください。上記の回帰テストと、修飾名を引き続き除外するテストを追加してください。
+
+2. **P3 — レビュー記録にユーザー名入りローカルパスが含まれる**  
+   `reviews/ndp-runner-ndp-05.md:7`、`:12`  
+   BASE..HEADに追加された記録のリンク先が、ユーザー名入りのローカルパスです。共通規則の記載禁止事項に抵触します。  
+   **最小修正:** repository相対pathと行番号に置き換えてください。
+
+独立実行したAPIテストは **65件成功**。前回指摘された `return ::name` とinclude内コメントの修正は確認しました。commonの変更、新scanner、入力由来のファイル読取り・コマンド実行、互換性認定は確認していません。担当path外の差分は上記レビュー記録です。
+
+他のrunner提示テストとNagi target試験は再実行していません。ファイル変更は行っていません。
+
+NDP-REVIEW: FIX
+
