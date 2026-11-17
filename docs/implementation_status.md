@@ -11256,3 +11256,32 @@ third_party/cc-nagi materialization. Original CI remains failed; no push,
 CI rerun, VM or guest execution was performed. Native host revalidation and
 independent review of this correction remain pending. M24 remains PARTIAL.
 See `docs/workstreams/search-host-path-allocation.md` for evidence and limits.
+
+## WS-05 Notes persistence / minimum WS-06 candidate (2026-11-17)
+
+The E-lane candidate routes Notes revisions through the shared Storage Provider
+and retains the logical Note ObjectId plus revision in the stored document.
+The VFS adapter uses a prepared revision marker, publish and cleanup flush
+barriers, and checks identity/revision/body when reading stored revisions. This
+is a development candidate; it does not establish power-loss atomicity or the
+full Resource ownership, Activity, Search, and Wayback contracts. WS-05 and
+the assigned minimum WS-06 remain PARTIAL; no M0–M30 milestone status changes.
+
+Host checks pass: Notes codec 24/24, Desktop 11/11, Storage Provider 6/6,
+consumer adapters 5/5, and Shell Supervisor 8/8. Linux-musl all-target checks
+pass for Desktop and Shell Supervisor, and the Notes static PIE ELF build
+passes. The current candidate was not run in QEMU because the designated manual
+stage was unavailable. The earlier `target/f42r2` save/read run is prior
+development-candidate evidence only and was not rerun against this source.
+
+The current Notes child still documents that its in-process event bridge does
+not enforce the live Session, grant, or revocation contract. Regular authenticated
+Session launch, expired/revoked/logout denial, and same-disk reboot acceptance
+therefore remain unverified. This candidate does not claim WS-05 Target
+acceptance or WS-06 completion.
+
+The Desktop's legacy direct input loop still discards the structured Settings
+event result; it reports failed/unknown locale writes on serial and changes the
+running locale only after `New`. The Shell-side result consumer is currently
+exercised as a host model, not wired to that direct guest input loop, so no
+end-to-end Settings result display is claimed.

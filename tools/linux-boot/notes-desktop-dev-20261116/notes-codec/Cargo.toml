@@ -4,11 +4,20 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+default = []
+powercut-test-hooks = []
+dev-fixtures = ["nagi-storage-provider/dev-fixtures"]
+
 [dependencies]
 libnagi = { path = "../../../../user/libnagi" }
 nagi-model = { path = "../../../../crates/nagi-model" }
 nagi-files = { path = "../../../../apps/nagi-files" }
+nagi-storage-provider = { path = "../storage-provider" }
 sha2 = "0.10.9"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
+
+[dev-dependencies]
+nagi-storage-provider = { path = "../storage-provider", features = ["dev-fixtures", "test-hooks"] }

@@ -1,8 +1,8 @@
-//! Linux file-descriptor block device and Notes adapter for the boot checkout's VFS.
+//! Notes revision adapter over the shared Nagi Storage Provider.
 //!
-//! This development adapter is deliberately caller-rooted: it opens the device
-//! path selected by the initramfs caller, never creates a file or chooses a
-//! product storage authority. Desktop and Notes share the same locked VFS.
+//! The provider owns the physical descriptor and serializes every consumer
+//! over one VFS instance. This module keeps Notes identity, codec, revision,
+//! and immutable-history policy at the Notes boundary.
 
 use super::{
     decode_stored, encode_stored_checked, same_candidate, summary, validate_candidate, NoteStore,
@@ -11,270 +11,38 @@ use super::{
 use crate::domain::NoteDocument;
 use crate::identity::{HostObjectIdSource, ObjectIdSource};
 use libnagi::storage::{
-    BlockDevice, DirectoryEntry, FileHandle, ReadOnlyBlockDevice, StorageError, Vfs, BLOCK_SIZE,
-    MAX_DIRECTORY_ENTRIES, MAX_FILE_SIZE,
+    DirectoryEntry, StorageError, Vfs, BLOCK_SIZE, MAX_DIRECTORY_ENTRIES, MAX_FILE_SIZE,
 };
 use nagi_model::ObjectId;
-use std::fs::{File, OpenOptions};
-use std::io;
-use std::os::unix::fs::FileExt;
-use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard};
+use nagi_storage_provider::{LinuxBlockDevice, SharedVfs};
+use std::collections::HashSet;
+use std::sync::Mutex;
 
-const SECTOR_SIZE: usize = 512;
-const MIN_VFS_BYTES: u64 = 8 * 1024 * 1024;
+#[cfg(test)]
+use nagi_storage_provider::{
+    StorageProviderError, StorageProviderOwner, MIN_VFS_BYTES, SECTOR_SIZE,
+};
+
 const NOTES_DIRECTORY: &[u8] = b"/notes";
 const DIRECTORY_RECORD_MIN_BYTES: usize = 8;
-// The VFS stores one directory block, and its listing API validates each
-// record as at least eight bytes. This format-derived ceiling is distinct
-// from MAX_DIRECTORY_ENTRIES, which is only a small caller buffer size.
 const MAX_DIRECTORY_LIST_ENTRIES: usize = BLOCK_SIZE / DIRECTORY_RECORD_MIN_BYTES;
 
-pub struct LinuxBlockDevice {
-    file: File,
-    capacity_bytes: u64,
-}
-
-impl LinuxBlockDevice {
-    pub fn open(path: &Path) -> Result<Self, StoreError> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .map_err(|error| StoreError::Io(format!("open block device: {error}")))?;
-        let capacity_bytes = capacity_for_file(&file)
-            .map_err(|error| StoreError::Io(format!("query block device capacity: {error}")))?;
-        Ok(Self {
-            file,
-            capacity_bytes,
-        })
-    }
-
-    fn capacity_bytes(&self) -> u64 {
-        self.capacity_bytes
-    }
-
-    fn is_blank(&self) -> io::Result<bool> {
-        let mut buffer = [0u8; 64 * 1024];
-        let mut offset = 0u64;
-        while offset < self.capacity_bytes {
-            let remaining = usize::try_from(self.capacity_bytes - offset).unwrap_or(usize::MAX);
-            let length = buffer.len().min(remaining);
-            let read = self.file.read_at(&mut buffer[..length], offset)?;
-            if read == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "block device returned a short read while checking for a blank volume",
-                ));
-            }
-            if buffer[..read].iter().any(|byte| *byte != 0) {
-                return Ok(false);
-            }
-            offset = offset
-                .checked_add(read as u64)
-                .ok_or_else(|| io::Error::other("block device offset overflow"))?;
-        }
-        Ok(true)
-    }
-
-    fn checked_sector_offset(&self, sector: u64) -> Result<u64, StorageError> {
-        let offset = sector
-            .checked_mul(SECTOR_SIZE as u64)
-            .ok_or(StorageError::Block)?;
-        let end = offset
-            .checked_add(SECTOR_SIZE as u64)
-            .ok_or(StorageError::Block)?;
-        if end > self.capacity_bytes {
-            return Err(StorageError::Block);
-        }
-        Ok(offset)
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn capacity_for_file(file: &File) -> io::Result<u64> {
-    use std::os::fd::AsRawFd;
-    use std::os::raw::{c_int, c_ulong};
-    use std::os::unix::fs::FileTypeExt;
-
-    let metadata = file.metadata()?;
-    if !metadata.file_type().is_block_device() {
-        return Ok(metadata.len());
-    }
-
-    // Linux BLKGETSIZE64: _IOR(0x12, 114, size_of::<u64>()).
-    const BLKGETSIZE64: c_ulong = 0x8008_1272;
-    extern "C" {
-        fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-    }
-
-    let mut capacity = 0u64;
-    // SAFETY: BLKGETSIZE64 writes one u64 to the pointer provided by the caller.
-    let status = unsafe { ioctl(file.as_raw_fd(), BLKGETSIZE64, &mut capacity) };
-    if status != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(capacity)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn capacity_for_file(file: &File) -> io::Result<u64> {
-    file.metadata().map(|metadata| metadata.len())
-}
-
-impl ReadOnlyBlockDevice for LinuxBlockDevice {
-    fn read_sector(
-        &mut self,
-        sector: u64,
-        destination: &mut [u8; SECTOR_SIZE],
-    ) -> Result<(), StorageError> {
-        let base = self.checked_sector_offset(sector)?;
-        let mut offset = 0;
-        while offset < destination.len() {
-            let file_offset = base.checked_add(offset as u64).ok_or(StorageError::Block)?;
-            let read = self
-                .file
-                .read_at(&mut destination[offset..], file_offset)
-                .map_err(|_| StorageError::Block)?;
-            if read == 0 {
-                return Err(StorageError::Block);
-            }
-            offset += read;
-        }
-        Ok(())
-    }
-}
-
-impl BlockDevice for LinuxBlockDevice {
-    fn write_sector(
-        &mut self,
-        sector: u64,
-        source: &[u8; SECTOR_SIZE],
-    ) -> Result<(), StorageError> {
-        let base = self.checked_sector_offset(sector)?;
-        let mut offset = 0;
-        while offset < source.len() {
-            let file_offset = base.checked_add(offset as u64).ok_or(StorageError::Block)?;
-            let written = self
-                .file
-                .write_at(&source[offset..], file_offset)
-                .map_err(|_| StorageError::Block)?;
-            if written == 0 {
-                return Err(StorageError::Block);
-            }
-            offset += written;
-        }
-        Ok(())
-    }
-
-    fn flush(&mut self) -> Result<(), StorageError> {
-        self.file.sync_all().map_err(|_| StorageError::Block)
-    }
-}
-
-/// Cloneable access to one VFS instance. Every operation takes the same mutex,
-/// so the Desktop's user-data handlers and Notes' private stored codec cannot
-/// mount independent stale views over the same block device.
-#[derive(Clone)]
-pub struct SharedVfs {
-    inner: Arc<Mutex<Vfs<LinuxBlockDevice>>>,
-}
-
-impl SharedVfs {
-    pub fn mount_existing(path: &Path) -> Result<Self, StoreError> {
-        let mut device = LinuxBlockDevice::open(path)?;
-        validate_device_capacity(&device)?;
-        Vfs::<LinuxBlockDevice>::check_existing(&mut device).map_err(storage_error)?;
-        let volume = Vfs::mount_existing(device).map_err(storage_error)?;
-        Ok(Self {
-            inner: Arc::new(Mutex::new(volume)),
-        })
-    }
-
-    pub fn mount_or_format(path: &Path) -> Result<(Self, bool), StoreError> {
-        let mut device = LinuxBlockDevice::open(path)?;
-        validate_device_capacity(&device)?;
-        let blank = device
-            .is_blank()
-            .map_err(|error| StoreError::Io(format!("inspect development disk: {error}")))?;
-        if blank {
-            let (volume, formatted) = Vfs::mount_or_format(device).map_err(storage_error)?;
-            let volume = if formatted {
-                volume
-            } else {
-                let mut device = volume.into_device();
-                Vfs::<LinuxBlockDevice>::check_existing(&mut device).map_err(storage_error)?;
-                Vfs::mount_existing(device).map_err(storage_error)?
-            };
-            return Ok((
-                Self {
-                    inner: Arc::new(Mutex::new(volume)),
-                },
-                formatted,
-            ));
-        }
-
-        Vfs::<LinuxBlockDevice>::check_existing(&mut device).map_err(storage_error)?;
-        let volume = Vfs::mount_existing(device).map_err(storage_error)?;
-        Ok((
-            Self {
-                inner: Arc::new(Mutex::new(volume)),
-            },
-            false,
-        ))
-    }
-
-    fn lock(&self) -> Result<MutexGuard<'_, Vfs<LinuxBlockDevice>>, StorageError> {
-        self.inner.lock().map_err(|_| StorageError::Block)
-    }
-
-    pub(crate) fn with_volume<T>(
-        &self,
-        operation: impl FnOnce(&mut Vfs<LinuxBlockDevice>) -> Result<T, StorageError>,
-    ) -> Result<T, StorageError> {
-        let mut volume = self.lock()?;
-        operation(&mut volume)
-    }
-
-    fn with_note_volume<T>(
-        &self,
-        operation: impl FnOnce(&mut Vfs<LinuxBlockDevice>) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
-        let mut volume = self
-            .inner
-            .lock()
-            .map_err(|_| StoreError::Io("shared VFS lock poisoned".to_owned()))?;
-        operation(&mut volume)
-    }
-
-    pub fn create_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        self.with_volume(|volume| volume.create_path(path))
-    }
-
-    pub fn open_path(&mut self, path: &[u8]) -> Result<FileHandle, StorageError> {
-        self.with_volume(|volume| volume.open_path(path))
-    }
-
-    pub fn read(
-        &mut self,
-        handle: FileHandle,
-        destination: &mut [u8],
-    ) -> Result<usize, StorageError> {
-        self.with_volume(|volume| volume.read(handle, destination))
-    }
-
-    pub fn write(&mut self, handle: FileHandle, contents: &[u8]) -> Result<(), StorageError> {
-        self.with_volume(|volume| volume.write(handle, contents))
-    }
-
-    pub fn flush(&mut self) -> Result<(), StorageError> {
-        self.with_volume(Vfs::flush)
-    }
+struct RevisionIndex {
+    committed: Vec<(u64, Vec<u8>)>,
+    pending: HashSet<u64>,
 }
 
 /// Notes `NoteStore` persisted as immutable revision files inside the same VFS
 /// object passed to `Desktop::handle_event`. The adapter uses Notes' stored
 /// Markdown codec from this crate, keeping ID/revision/body integrity checks.
+///
+/// The resource key is `NoteDocument.id` (`ObjectId`), the revision is the
+/// unchanged `NoteDocument.revision` (`u64`), and canonical content is the
+/// complete document, including its title and blocks. `search_text()` is only
+/// a derived view. `commit` requires the caller's expected prior revision and
+/// returns a document only after the VFS publish and cleanup flushes succeed.
+/// A `StoreError` is not a success acknowledgement or permission to replay an
+/// Action; the UI remains responsible for preserving its dirty session.
 pub struct VfsNoteStore {
     volume: SharedVfs,
     ids: HostObjectIdSource,
@@ -296,6 +64,13 @@ impl VfsNoteStore {
 
     fn revision_path(id: ObjectId, revision: u64) -> Vec<u8> {
         format!("/notes/{:016x}/rev-{revision:020}.md", id.0).into_bytes()
+    }
+
+    fn pending_revision_path(id: ObjectId, revision: u64) -> Vec<u8> {
+        // Keep the prepare marker compact so the largest revision directory
+        // can fit both the marker and the revision being published in one
+        // VFS directory block.
+        format!("/notes/{:016x}/p{revision:016x}", id.0).into_bytes()
     }
 
     fn list_directory_entries(
@@ -332,7 +107,7 @@ impl VfsNoteStore {
     fn versions(
         volume: &mut Vfs<LinuxBlockDevice>,
         id: ObjectId,
-    ) -> Result<Vec<(u64, Vec<u8>)>, StoreError> {
+    ) -> Result<RevisionIndex, StoreError> {
         let directory = Self::note_directory(id);
         match volume.metadata_path(&directory) {
             Ok(metadata) if metadata.mode & 0xf000 == 0x4000 => {}
@@ -341,43 +116,75 @@ impl VfsNoteStore {
                     "VFS note identity is not a directory".to_owned(),
                 ));
             }
-            Err(StorageError::NotFound) => return Ok(Vec::new()),
+            Err(StorageError::NotFound) => {
+                return Ok(RevisionIndex {
+                    committed: Vec::new(),
+                    pending: HashSet::new(),
+                });
+            }
             Err(error) => return Err(storage_error(error)),
         }
 
         let entries = Self::list_directory_entries(volume, &directory)?;
-        let mut versions = Vec::new();
+        let mut committed = Vec::new();
+        let mut pending = HashSet::new();
         for entry in &entries {
             let name = std::str::from_utf8(entry.name())
                 .map_err(|error| StoreError::Corrupt(error.to_string()))?;
-            let Some(revision) = name
+            let (revision_text, is_pending) = if let Some(revision) = name
                 .strip_prefix("rev-")
                 .and_then(|value| value.strip_suffix(".md"))
-            else {
+            {
+                (revision, false)
+            } else if let Some(revision) = name.strip_prefix('p') {
+                (revision, true)
+            } else {
                 return Err(StoreError::Corrupt(
                     "unrecognized entry in VFS note directory".to_owned(),
                 ));
             };
-            if revision.len() != 20 || !revision.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(StoreError::Corrupt(
-                    "invalid VFS note revision name".to_owned(),
+            let revision = if is_pending {
+                if revision_text.len() != 16
+                    || !revision_text.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return Err(StoreError::Corrupt(
+                        "invalid VFS pending revision name".to_owned(),
+                    ));
+                }
+                u64::from_str_radix(revision_text, 16)
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            } else {
+                if revision_text.len() != 20
+                    || !revision_text.bytes().all(|byte| byte.is_ascii_digit())
+                {
+                    return Err(StoreError::Corrupt(
+                        "invalid VFS note revision name".to_owned(),
+                    ));
+                }
+                revision_text
+                    .parse::<u64>()
+                    .map_err(|error| StoreError::Corrupt(error.to_string()))?
+            };
+            if is_pending {
+                if !pending.insert(revision) {
+                    return Err(StoreError::Corrupt(
+                        "duplicate pending VFS note revision".to_owned(),
+                    ));
+                }
+            } else {
+                committed.push((
+                    revision,
+                    [directory.as_slice(), b"/", name.as_bytes()].concat(),
                 ));
             }
-            let revision = revision
-                .parse::<u64>()
-                .map_err(|error| StoreError::Corrupt(error.to_string()))?;
-            versions.push((
-                revision,
-                [directory.as_slice(), b"/", name.as_bytes()].concat(),
-            ));
         }
-        versions.sort_by_key(|(revision, _)| *revision);
-        if versions.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        committed.sort_by_key(|(revision, _)| *revision);
+        if committed.windows(2).any(|pair| pair[0].0 == pair[1].0) {
             return Err(StoreError::Corrupt(
                 "duplicate VFS note revision".to_owned(),
             ));
         }
-        Ok(versions)
+        Ok(RevisionIndex { committed, pending })
     }
 
     fn read_file(
@@ -430,10 +237,50 @@ impl VfsNoteStore {
         ids: &dyn ObjectIdSource,
     ) -> Result<Option<NoteDocument>, StoreError> {
         let versions = Self::versions(volume, id)?;
-        let Some((revision, path)) = versions.last() else {
+        for (revision, path) in versions.committed.iter().rev() {
+            match Self::read_indexed_revision(
+                volume,
+                id,
+                *revision,
+                path,
+                versions.pending.contains(revision),
+                ids,
+            )? {
+                Some(note) => return Ok(Some(note)),
+                None => continue,
+            }
+        }
+        Ok(None)
+    }
+
+    fn read_indexed_revision(
+        volume: &mut Vfs<LinuxBlockDevice>,
+        id: ObjectId,
+        revision: u64,
+        path: &[u8],
+        has_pending_marker: bool,
+        ids: &dyn ObjectIdSource,
+    ) -> Result<Option<NoteDocument>, StoreError> {
+        let note = match Self::read_file(volume, id, revision, path, ids) {
+            Ok(note) => note,
+            Err(StoreError::Corrupt(_)) if has_pending_marker => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let Some(note) = note else {
             return Ok(None);
         };
-        Self::read_file(volume, id, *revision, path, ids)
+        if !has_pending_marker {
+            return Ok(Some(note));
+        }
+
+        let pending_path = Self::pending_revision_path(id, revision);
+        match Self::read_file(volume, id, revision, &pending_path, ids) {
+            Ok(Some(candidate)) if candidate == note => Ok(Some(note)),
+            Ok(_) | Err(StoreError::Corrupt(_)) => Err(StoreError::Corrupt(
+                "published VFS note has no matching prepared revision".to_owned(),
+            )),
+            Err(error) => Err(error),
+        }
     }
 
     fn ensure_directory(volume: &mut Vfs<LinuxBlockDevice>, path: &[u8]) -> Result<(), StoreError> {
@@ -459,36 +306,84 @@ impl VfsNoteStore {
         Self::ensure_directory(volume, NOTES_DIRECTORY)?;
         Self::ensure_directory(volume, &Self::note_directory(note.id))?;
         let path = Self::revision_path(note.id, revision);
-        match volume.metadata_path(&path) {
-            Ok(_) => {
-                return Err(StoreError::RevisionConflict {
-                    expected: revision.saturating_sub(1),
-                    actual: revision,
-                });
-            }
-            Err(StorageError::NotFound) => {}
+        let index = Self::versions(volume, note.id)?;
+        let pending_exists = index.pending.contains(&revision);
+        let final_exists = match volume.metadata_path(&path) {
+            Ok(_) => true,
+            Err(StorageError::NotFound) => false,
             Err(error) => return Err(storage_error(error)),
+        };
+        if final_exists && !pending_exists {
+            return Err(StoreError::RevisionConflict {
+                expected: revision.saturating_sub(1),
+                actual: revision,
+            });
         }
+
+        // `commit` reaches this point only after `latest` returned the prior
+        // revision. A pending marker therefore makes a same-number final file
+        // an incomplete, unacknowledged attempt; remove only those artifacts,
+        // never a revision with no pending marker.
+        if final_exists {
+            volume.remove_path(&path).map_err(storage_error)?;
+        }
+        if pending_exists {
+            volume
+                .remove_path(&Self::pending_revision_path(note.id, revision))
+                .map_err(storage_error)?;
+        }
+        if final_exists || pending_exists {
+            volume.flush().map_err(storage_error)?;
+        }
+
+        let pending_path = Self::pending_revision_path(note.id, revision);
+        let pending_handle = volume.create_path(&pending_path).map_err(storage_error)?;
+        powercut_checkpoint("after-pending-create-before-write");
+        volume
+            .write(pending_handle, contents.as_bytes())
+            .map_err(storage_error)?;
+        powercut_checkpoint("after-pending-write-before-flush");
+        volume.flush().map_err(storage_error)?;
+        powercut_checkpoint("after-pending-flush-before-publish");
+
         let handle = volume.create_path(&path).map_err(storage_error)?;
-        let result = volume
+        powercut_checkpoint("after-create-before-write");
+        volume
             .write(handle, contents.as_bytes())
-            .and_then(|()| volume.flush());
-        if let Err(error) = result {
-            let rollback = volume.remove_path(&path).and_then(|()| volume.flush());
-            return match rollback {
-                Ok(()) => Err(storage_error(error)),
-                Err(rollback_error) => Err(StoreError::Io(format!(
-                    "VFS note write failed ({error:?}); rollback failed ({rollback_error:?})"
-                ))),
-            };
-        }
+            .map_err(storage_error)?;
+        powercut_checkpoint("after-write-before-flush");
+        volume.flush().map_err(storage_error)?;
+        powercut_checkpoint("after-flush-before-pending-remove");
+
+        Self::cleanup_pending_through(volume, note.id, revision)?;
+        powercut_checkpoint("after-flush-before-ack");
         Ok(())
+    }
+
+    fn cleanup_pending_through(
+        volume: &mut Vfs<LinuxBlockDevice>,
+        id: ObjectId,
+        revision: u64,
+    ) -> Result<(), StoreError> {
+        let index = Self::versions(volume, id)?;
+        for pending_revision in index
+            .pending
+            .into_iter()
+            .filter(|pending| *pending <= revision)
+        {
+            volume
+                .remove_path(&Self::pending_revision_path(id, pending_revision))
+                .map_err(storage_error)?;
+        }
+        // Keep the acknowledgement boundary even when retrying an idempotent
+        // commit: a previous publish may have been visible but not flushed.
+        volume.flush().map_err(storage_error)
     }
 }
 
 impl NoteStore for VfsNoteStore {
     fn list(&self, include_deleted: bool) -> Result<Vec<NoteSummary>, StoreError> {
-        self.volume.with_note_volume(|volume| {
+        self.volume.with_volume(|volume| {
             let metadata = match volume.metadata_path(NOTES_DIRECTORY) {
                 Ok(metadata) if metadata.mode & 0xf000 == 0x4000 => metadata,
                 Ok(_) => {
@@ -531,7 +426,7 @@ impl NoteStore for VfsNoteStore {
 
     fn load(&self, id: ObjectId) -> Result<Option<NoteDocument>, StoreError> {
         self.volume
-            .with_note_volume(|volume| Self::latest(volume, id, &self.ids))
+            .with_volume(|volume| Self::latest(volume, id, &self.ids))
     }
 
     fn load_revision(
@@ -539,12 +434,23 @@ impl NoteStore for VfsNoteStore {
         id: ObjectId,
         revision: u64,
     ) -> Result<Option<NoteDocument>, StoreError> {
-        self.volume.with_note_volume(|volume| {
+        self.volume.with_volume(|volume| {
             let versions = Self::versions(volume, id)?;
-            let Some((_, path)) = versions.iter().find(|(number, _)| *number == revision) else {
+            let Some((_, path)) = versions
+                .committed
+                .iter()
+                .find(|(number, _)| *number == revision)
+            else {
                 return Ok(None);
             };
-            Self::read_file(volume, id, revision, path, &self.ids)
+            Self::read_indexed_revision(
+                volume,
+                id,
+                revision,
+                path,
+                versions.pending.contains(&revision),
+                &self.ids,
+            )
         })
     }
 
@@ -558,7 +464,7 @@ impl NoteStore for VfsNoteStore {
             .gate
             .lock()
             .map_err(|_| StoreError::Io("VFS Notes lock poisoned".to_owned()))?;
-        self.volume.with_note_volume(|volume| {
+        self.volume.with_volume(|volume| {
             let current = Self::latest(volume, note.id, &self.ids)?;
             let actual = current
                 .as_ref()
@@ -570,8 +476,13 @@ impl NoteStore for VfsNoteStore {
                         .as_ref()
                         .is_some_and(|saved| same_candidate(saved, note))
                 {
+                    let saved = current.expect("checked above");
+                    // This revision may be visible only because an earlier
+                    // publish flush failed. Make it durable while its pending
+                    // marker still exists before allowing cleanup to remove it.
                     volume.flush().map_err(storage_error)?;
-                    return Ok(current.expect("checked above"));
+                    Self::cleanup_pending_through(volume, note.id, saved.revision)?;
+                    return Ok(saved);
                 }
                 return Err(StoreError::RevisionConflict {
                     expected: expected_revision,
@@ -593,27 +504,35 @@ fn storage_error(error: StorageError) -> StoreError {
     StoreError::Io(format!("Nagi VFS operation failed: {error:?}"))
 }
 
-fn validate_device_capacity(device: &LinuxBlockDevice) -> Result<(), StoreError> {
-    if device.capacity_bytes() < MIN_VFS_BYTES {
-        return Err(StoreError::Io(format!(
-            "Nagi VFS development disk is smaller than {} bytes",
-            MIN_VFS_BYTES
-        )));
+#[cfg(feature = "powercut-test-hooks")]
+fn powercut_checkpoint(stage: &str) {
+    use std::io::Write;
+
+    if std::fs::read("/powercut-hook")
+        .ok()
+        .is_some_and(|contents| contents == stage.as_bytes())
+    {
+        let stdout = std::io::stdout();
+        let mut stdout = stdout.lock();
+        let _ = writeln!(stdout, "POWERCUT_REACHED={stage}");
+        let _ = stdout.flush();
+        loop {
+            std::thread::park();
+        }
     }
-    if device.capacity_bytes() % SECTOR_SIZE as u64 != 0 {
-        return Err(StoreError::Io(
-            "Nagi VFS development disk has a non-sector-aligned capacity".to_owned(),
-        ));
-    }
-    Ok(())
 }
+
+#[cfg(not(feature = "powercut-test-hooks"))]
+fn powercut_checkpoint(_stage: &str) {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
+    use std::fs::OpenOptions;
     use std::io::Write;
+    use std::path::Path;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     struct FailOneDirectoryBufferAllocation;
@@ -679,11 +598,271 @@ mod tests {
         file.sync_all().unwrap();
     }
 
+    fn mount_vfs(
+        path: &Path,
+    ) -> Result<(StorageProviderOwner, SharedVfs, bool), StorageProviderError> {
+        let (owner, formatted) = StorageProviderOwner::mount_or_format(path)?;
+        let consumer = owner.consumer_handle();
+        Ok((owner, consumer, formatted))
+    }
+
+    #[test]
+    fn incomplete_published_revision_is_hidden_and_explicit_retry_finishes_it() {
+        let path = temp_path("incomplete-revision");
+        create_blank_disk(&path);
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
+        assert!(formatted);
+        let store = VfsNoteStore::new(shared.clone());
+        let id = ObjectId(0x4e41_4749_0000_0191);
+        let initial = NoteDocument::new(id, "durable old", crate::domain::Timestamp(1));
+        let old = store.commit(&initial, 0).unwrap();
+
+        let mut candidate = old.clone();
+        candidate.title = "candidate after interrupted write".to_owned();
+        candidate.updated_at = crate::domain::Timestamp(2);
+        let mut prepared = candidate.clone();
+        prepared.revision = 2;
+        let bytes = encode_stored_checked(&prepared).unwrap();
+        let pending_path = VfsNoteStore::pending_revision_path(id, 2);
+        let final_path = VfsNoteStore::revision_path(id, 2);
+        shared
+            .with_volume(|volume| {
+                let pending = volume.create_path(&pending_path)?;
+                volume.write(pending, bytes.as_bytes())?;
+                volume.flush()?;
+                let _incomplete_final = volume.create_path(&final_path)?;
+                volume.flush()
+            })
+            .unwrap();
+
+        drop(store);
+        drop(shared);
+        drop(owner);
+        let (reopen_owner, reopened, formatted) = mount_vfs(&path).unwrap();
+        assert!(!formatted);
+        let store = VfsNoteStore::new(reopened.clone());
+        assert_eq!(store.load(id).unwrap(), Some(old.clone()));
+        assert_eq!(store.load_revision(id, 2).unwrap(), None);
+
+        let saved = store.commit(&candidate, 1).unwrap();
+        assert_eq!(saved.revision, 2);
+        assert_eq!(saved.title, candidate.title);
+        assert_eq!(store.load(id).unwrap(), Some(saved.clone()));
+        assert_eq!(store.load_revision(id, 1).unwrap(), Some(old));
+
+        drop(store);
+        drop(reopened);
+        drop(reopen_owner);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn later_revision_reaps_pending_markers_left_by_publish_flush_failure() {
+        let path = temp_path("reap-stale-pending-revision");
+        create_blank_disk(&path);
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
+        assert!(formatted);
+        let store = VfsNoteStore::new(shared.clone());
+        let id = ObjectId(0x4e41_4749_0000_0194);
+        let initial = NoteDocument::new(id, "revision one", crate::domain::Timestamp(1));
+        let old = store.commit(&initial, 0).unwrap();
+
+        let mut second = old.clone();
+        second.title = "revision two published without acknowledgement".to_owned();
+        second.updated_at = crate::domain::Timestamp(2);
+        nagi_storage_provider::fail_flush_after_for_test(1);
+        assert!(store.commit(&second, 1).is_err());
+        let observed_second = store
+            .load(id)
+            .unwrap()
+            .expect("published and prepared revision remains readable in the live VFS");
+        assert_eq!(observed_second.revision, 2);
+        assert_eq!(observed_second.title, second.title);
+
+        let mut third = observed_second.clone();
+        third.title = "revision three".to_owned();
+        third.updated_at = crate::domain::Timestamp(3);
+        let saved = store.commit(&third, 2).unwrap();
+        assert_eq!(saved.revision, 3);
+        assert_eq!(store.load(id).unwrap(), Some(saved.clone()));
+        assert_eq!(store.load_revision(id, 1).unwrap(), Some(old));
+        assert_eq!(store.load_revision(id, 2).unwrap(), Some(observed_second));
+
+        let pending = shared
+            .with_volume(|volume| {
+                let index = VfsNoteStore::versions(volume, id)?;
+                Ok::<_, StoreError>(index.pending)
+            })
+            .unwrap();
+        assert!(
+            pending.is_empty(),
+            "successful revision 3 must reap pending-2 and pending-3"
+        );
+
+        let revision_two = VfsNoteStore::revision_path(id, 2);
+        shared
+            .with_volume(|volume| {
+                let handle = volume.open_path(&revision_two)?;
+                volume.truncate(handle, 0)?;
+                volume.write(handle, b"corrupt revision")?;
+                volume.flush()
+            })
+            .unwrap();
+        assert!(matches!(
+            store.load_revision(id, 2),
+            Err(StoreError::Corrupt(_))
+        ));
+
+        drop(store);
+        drop(shared);
+        drop(owner);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn idempotent_retry_flushes_publish_before_pending_cleanup() {
+        let path = temp_path("idempotent-publish-barrier");
+        create_blank_disk(&path);
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
+        assert!(formatted);
+        let store = VfsNoteStore::new(shared.clone());
+        let id = ObjectId(0x4e41_4749_0000_01a1);
+        let initial = NoteDocument::new(id, "old durable value", crate::domain::Timestamp(1));
+        let old = store.commit(&initial, 0).unwrap();
+
+        let mut candidate = old.clone();
+        candidate.title = "publish flush failed; retry same commit".to_owned();
+        candidate.updated_at = crate::domain::Timestamp(2);
+
+        // The prepare flush succeeds and the first publish flush fails.
+        nagi_storage_provider::fail_flush_after_for_test(1);
+        assert!(store.commit(&candidate, 1).is_err());
+        let pending_after_publish_failure = shared
+            .with_volume(|volume| {
+                let index = VfsNoteStore::versions(volume, id)?;
+                Ok::<_, StoreError>(index.pending)
+            })
+            .unwrap();
+        assert!(pending_after_publish_failure.contains(&2));
+
+        // On an idempotent retry the publish barrier fails. Cleanup must not
+        // run before this barrier succeeds, so pending-2 must still be present.
+        nagi_storage_provider::fail_flush_after_for_test(0);
+        assert!(store.commit(&candidate, 1).is_err());
+        let pending_after_retry_barrier_failure = shared
+            .with_volume(|volume| {
+                let index = VfsNoteStore::versions(volume, id)?;
+                Ok::<_, StoreError>(index.pending)
+            })
+            .unwrap();
+        assert!(
+            pending_after_retry_barrier_failure.contains(&2),
+            "failed publish barrier must leave pending-2 in place"
+        );
+
+        // Only after a successful barrier may the idempotent retry reap it.
+        let saved = store.commit(&candidate, 1).unwrap();
+        assert_eq!(saved.revision, 2);
+        assert_eq!(saved.title, candidate.title);
+        assert_eq!(store.load(id).unwrap(), Some(saved));
+        let pending_after_success = shared
+            .with_volume(|volume| {
+                let index = VfsNoteStore::versions(volume, id)?;
+                Ok::<_, StoreError>(index.pending)
+            })
+            .unwrap();
+        assert!(pending_after_success.is_empty());
+
+        drop(store);
+        drop(shared);
+        drop(owner);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn matching_prepared_and_published_revisions_reopen_as_new() {
+        let path = temp_path("published-revision-pending-marker");
+        create_blank_disk(&path);
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
+        assert!(formatted);
+        let store = VfsNoteStore::new(shared.clone());
+        let id = ObjectId(0x4e41_4749_0000_0192);
+        let initial = NoteDocument::new(id, "old", crate::domain::Timestamp(1));
+        let old = store.commit(&initial, 0).unwrap();
+        let mut candidate = old.clone();
+        candidate.title = "fully written new".to_owned();
+        candidate.revision = 2;
+        candidate.updated_at = crate::domain::Timestamp(2);
+        let bytes = encode_stored_checked(&candidate).unwrap();
+        let pending_path = VfsNoteStore::pending_revision_path(id, 2);
+        let final_path = VfsNoteStore::revision_path(id, 2);
+        shared
+            .with_volume(|volume| {
+                let pending = volume.create_path(&pending_path)?;
+                volume.write(pending, bytes.as_bytes())?;
+                volume.flush()?;
+                let published = volume.create_path(&final_path)?;
+                volume.write(published, bytes.as_bytes())?;
+                volume.flush()
+            })
+            .unwrap();
+
+        drop(store);
+        drop(shared);
+        drop(owner);
+        let (reopen_owner, reopened, formatted) = mount_vfs(&path).unwrap();
+        assert!(!formatted);
+        let store = VfsNoteStore::new(reopened.clone());
+        assert_eq!(store.load(id).unwrap(), Some(candidate.clone()));
+        assert_eq!(store.load_revision(id, 2).unwrap(), Some(candidate));
+
+        drop(store);
+        drop(reopened);
+        drop(reopen_owner);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn mismatched_prepared_revision_is_unknown_instead_of_silently_falling_back() {
+        let path = temp_path("mismatched-prepared-revision");
+        create_blank_disk(&path);
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
+        assert!(formatted);
+        let store = VfsNoteStore::new(shared.clone());
+        let id = ObjectId(0x4e41_4749_0000_0193);
+        let initial = NoteDocument::new(id, "old", crate::domain::Timestamp(1));
+        let _old = store.commit(&initial, 0).unwrap();
+
+        let mut prepared = NoteDocument::new(id, "prepared candidate", crate::domain::Timestamp(2));
+        prepared.revision = 2;
+        let prepared_bytes = encode_stored_checked(&prepared).unwrap();
+        let mut published = prepared.clone();
+        published.title = "different published bytes".to_owned();
+        let published_bytes = encode_stored_checked(&published).unwrap();
+        let pending_path = VfsNoteStore::pending_revision_path(id, 2);
+        let final_path = VfsNoteStore::revision_path(id, 2);
+        shared
+            .with_volume(|volume| {
+                let pending = volume.create_path(&pending_path)?;
+                volume.write(pending, prepared_bytes.as_bytes())?;
+                let final_handle = volume.create_path(&final_path)?;
+                volume.write(final_handle, published_bytes.as_bytes())?;
+                volume.flush()
+            })
+            .unwrap();
+        assert!(matches!(store.load(id), Err(StoreError::Corrupt(_))));
+
+        drop(store);
+        drop(shared);
+        drop(owner);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn directory_buffer_reservation_failure_returns_error_without_partial_load() {
         let path = temp_path("directory-allocation-failure");
         create_blank_disk(&path);
-        let (shared, formatted) = SharedVfs::mount_or_format(&path).unwrap();
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
         assert!(formatted);
         let store = VfsNoteStore::new(shared.clone());
         let id = ObjectId(0x4e41_4749_0000_0101);
@@ -711,6 +890,7 @@ mod tests {
 
         drop(store);
         drop(shared);
+        drop(owner);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -718,7 +898,7 @@ mod tests {
     fn bounded_listing_propagates_vfs_errors_and_near_full_revision_directory() {
         let path = temp_path("directory-upper-bound");
         create_blank_disk(&path);
-        let (shared, formatted) = SharedVfs::mount_or_format(&path).unwrap();
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
         assert!(formatted);
         let store = VfsNoteStore::new(shared.clone());
         let id = ObjectId(0x4e41_4749_0000_0102);
@@ -726,9 +906,7 @@ mod tests {
         let mut saved = store.commit(&initial, 0).unwrap();
 
         let missing = shared
-            .with_note_volume(|volume| {
-                VfsNoteStore::list_directory_entries(volume, b"/notes/missing")
-            })
+            .with_volume(|volume| VfsNoteStore::list_directory_entries(volume, b"/notes/missing"))
             .unwrap_err();
         assert!(matches!(
             &missing,
@@ -739,7 +917,9 @@ mod tests {
             let mut candidate = saved.clone();
             candidate.title = format!("target revision {revision}");
             candidate.updated_at = crate::domain::Timestamp(revision);
-            saved = store.commit(&candidate, saved.revision).unwrap();
+            saved = store.commit(&candidate, saved.revision).unwrap_or_else(|error| {
+                panic!("target revision {revision} failed before the VFS limit: {error}")
+            });
         }
         assert_eq!(saved.revision, 27);
         assert_eq!(store.load(id).unwrap(), Some(saved.clone()));
@@ -762,6 +942,7 @@ mod tests {
 
         drop(store);
         drop(shared);
+        drop(owner);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -769,7 +950,7 @@ mod tests {
     fn vfs_notes_revisions_survive_file_backed_remount_and_reject_stale_writes() {
         let path = temp_path("vfs-revisions");
         create_blank_disk(&path);
-        let (shared, formatted) = SharedVfs::mount_or_format(&path).unwrap();
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
         assert!(formatted);
         let store = VfsNoteStore::new(shared.clone());
         let id = ObjectId(0x4e41_4749_0000_0001);
@@ -796,8 +977,9 @@ mod tests {
 
         drop(store);
         drop(shared);
+        drop(owner);
         let before_reopen = std::fs::read(&path).unwrap();
-        let (remounted, formatted) = SharedVfs::mount_or_format(&path).unwrap();
+        let (remount_owner, remounted, formatted) = mount_vfs(&path).unwrap();
         assert!(
             !formatted,
             "a valid nonblank VFS must be mounted, not reformatted"
@@ -806,88 +988,16 @@ mod tests {
         assert_eq!(reopened.load(id).unwrap(), Some(second.clone()));
         assert_eq!(reopened.load_revision(id, 1).unwrap(), Some(first));
         drop(reopened);
+        drop(remount_owner);
         assert_eq!(std::fs::read(&path).unwrap(), before_reopen);
         std::fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn block_device_enforces_capacity_and_rejects_short_reads() {
-        let boundary_path = temp_path("block-boundary");
-        let original = [0xa5; SECTOR_SIZE];
-        let mut backing = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&boundary_path)
-            .unwrap();
-        backing.write_all(&original).unwrap();
-        backing.sync_all().unwrap();
-        drop(backing);
-
-        let mut device = LinuxBlockDevice {
-            file: OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&boundary_path)
-                .unwrap(),
-            capacity_bytes: SECTOR_SIZE as u64,
-        };
-        let mut last_sector = [0; SECTOR_SIZE];
-        device.read_sector(0, &mut last_sector).unwrap();
-        assert_eq!(last_sector, original);
-        assert_eq!(
-            device.read_sector(1, &mut last_sector),
-            Err(StorageError::Block)
-        );
-        assert_eq!(
-            device.write_sector(1, &[0x5a; SECTOR_SIZE]),
-            Err(StorageError::Block)
-        );
-        assert_eq!(
-            device.checked_sector_offset(u64::MAX),
-            Err(StorageError::Block)
-        );
-        assert_eq!(std::fs::read(&boundary_path).unwrap(), original);
-        drop(device);
-        std::fs::remove_file(boundary_path).unwrap();
-
-        let short_path = temp_path("block-short-read");
-        let backing = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&short_path)
-            .unwrap();
-        backing.set_len(SECTOR_SIZE as u64).unwrap();
-        backing.sync_all().unwrap();
-        drop(backing);
-
-        let device = LinuxBlockDevice {
-            file: OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&short_path)
-                .unwrap(),
-            capacity_bytes: (2 * SECTOR_SIZE) as u64,
-        };
-        assert_eq!(
-            device.is_blank().unwrap_err().kind(),
-            io::ErrorKind::UnexpectedEof
-        );
-        let mut device = device;
-        assert_eq!(
-            device.read_sector(1, &mut [0; SECTOR_SIZE]),
-            Err(StorageError::Block)
-        );
-        drop(device);
-        std::fs::remove_file(short_path).unwrap();
     }
 
     #[test]
     fn mismatched_stored_note_identity_is_rejected_by_revision_path() {
         let path = temp_path("codec-mismatch");
         create_blank_disk(&path);
-        let (shared, formatted) = SharedVfs::mount_or_format(&path).unwrap();
+        let (owner, shared, formatted) = mount_vfs(&path).unwrap();
         assert!(formatted);
 
         let expected_id = ObjectId(0x4e41_4749_0000_0041);
@@ -914,6 +1024,7 @@ mod tests {
         ));
         drop(store);
         drop(shared);
+        drop(owner);
         std::fs::remove_file(path).unwrap();
     }
 
@@ -930,7 +1041,7 @@ mod tests {
         file.sync_all().unwrap();
         drop(file);
 
-        assert!(SharedVfs::mount_or_format(&path).is_err());
+        assert!(StorageProviderOwner::mount_or_format(&path).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), original);
         std::fs::remove_file(path).unwrap();
     }
@@ -950,7 +1061,7 @@ mod tests {
         drop(file);
 
         let before = std::fs::read(&path).unwrap();
-        assert!(SharedVfs::mount_or_format(&path).is_err());
+        assert!(StorageProviderOwner::mount_or_format(&path).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), before);
         std::fs::remove_file(path).unwrap();
     }

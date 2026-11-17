@@ -6,12 +6,15 @@ use core::arch::asm;
 use libnagi::storage::SyscallBlockDevice;
 #[cfg(any(
     test,
-    all(feature = "linux-development-smoke", not(target_os = "linux"))
+    all(feature = "linux-development-smoke", not(target_os = "linux")),
+    all(not(test), not(feature = "linux-development-smoke"))
 ))]
 use libnagi::storage::Vfs;
 #[cfg(any(test, feature = "linux-development-smoke"))]
 use libnagi::storage::{BlockDevice, ReadOnlyBlockDevice, SECTOR_SIZE};
-use libnagi::storage::{StorageError, MAX_SMALL_FILE_SIZE};
+use libnagi::storage::StorageError;
+#[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+use libnagi::storage::MAX_SMALL_FILE_SIZE;
 use libnagi::{DisplayInfo, InputEvent};
 use notes_desktop_localization_adapter::NotesLocalization;
 use notes_event_bridge_candidate::NotesEventBridge;
@@ -23,7 +26,11 @@ use notes_files_codec_candidate::{
     AppError, HostPreviewStore, NoteDocument, ObjectId, SandboxError,
 };
 #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
-use notes_files_codec_candidate::{SharedVfs, StoreError};
+use notes_files_codec_candidate::{SharedVfs, StorageProviderOwner, StoreError};
+#[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+use nagi_storage_consumer_adapters::{
+    SettingsSaveFailure, SettingsSaveOutcome, SettingsStorageAdapter,
+};
 use std::cell::RefCell;
 use std::path::Path;
 use std::sync::Arc;
@@ -130,9 +137,13 @@ pub fn new_linux_development_volume(
     format_if_missing: bool,
 ) -> Result<(LinuxDevelopmentVolume, bool), StoreError> {
     if format_if_missing {
-        SharedVfs::mount_or_format(path)
+        StorageProviderOwner::mount_or_format(path)
+            .map(|(owner, formatted)| (owner.consumer_handle(), formatted))
+            .map_err(StoreError::from)
     } else {
-        SharedVfs::mount_existing(path).map(|volume| (volume, false))
+        StorageProviderOwner::mount_existing(path)
+            .map(|owner| (owner.consumer_handle(), false))
+            .map_err(StoreError::from)
     }
 }
 
@@ -250,6 +261,28 @@ static FILES_TEXT: [u8; 19] = *b"nagi-persistent.txt";
 #[no_mangle]
 static TERMINAL_TEXT: [u8; 9] = *b"$ nagi ps";
 
+/// A readback observation after an Unknown Settings result. It is separate
+/// from the save outcome and from the locale currently shown by Desktop.
+#[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SettingsLocaleReadback {
+    Missing,
+    Restored(nagi_localization::Locale),
+    Invalid,
+    Unavailable,
+}
+
+/// Result of one Desktop input event. E should call
+/// handle_event_with_settings_result instead of handle_event when it needs the
+/// exact Settings adapter result; it must not dispatch the same event twice.
+#[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+pub struct DesktopEventResult {
+    pub handled: bool,
+    pub settings_save: Option<Result<SettingsSaveOutcome, SettingsSaveFailure>>,
+    pub locale_readback: Option<SettingsLocaleReadback>,
+    pub running_locale: nagi_localization::Locale,
+}
+
 macro_rules! message {
     ($symbol:ident, $length:expr) => {{
         &$symbol[..$length]
@@ -331,6 +364,10 @@ pub struct Desktop {
     locale: nagi_localization::Locale,
     settings_open: bool,
     settings_focus: Option<SettingsFocus>,
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    event_settings_save: Option<Result<SettingsSaveOutcome, SettingsSaveFailure>>,
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    event_locale_readback: Option<SettingsLocaleReadback>,
     #[cfg(feature = "consent-dialog")]
     consent: Option<crate::consent_dialog::ConsentDialog>,
     #[cfg(feature = "consent-dialog")]
@@ -394,6 +431,10 @@ impl Desktop {
             locale,
             settings_open: false,
             settings_focus: None,
+            #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+            event_settings_save: None,
+            #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+            event_locale_readback: None,
             #[cfg(feature = "consent-dialog")]
             consent: None,
             #[cfg(feature = "consent-dialog")]
@@ -676,7 +717,44 @@ impl Desktop {
         );
     }
 
+    /// Legacy event API for callers that only need redraw/handled status.
+    /// Call exactly once; use handle_event_with_settings_result when the
+    /// caller must receive the Settings save result from this same dispatch.
     pub fn handle_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
+        #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+        self.clear_event_settings_feedback();
+        let handled = self.handle_event_inner(event, volume);
+        #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+        self.clear_event_settings_feedback();
+        handled
+    }
+
+    /// Dispatch one input event and return the exact Settings adapter result
+    /// from any locale save performed by this dispatch. The save is performed
+    /// once by the existing handler; this method only carries its result.
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    pub fn handle_event_with_settings_result(
+        &mut self,
+        event: InputEvent,
+        volume: &mut UserDataVolume,
+    ) -> DesktopEventResult {
+        self.clear_event_settings_feedback();
+        let handled = self.handle_event_inner(event, volume);
+        DesktopEventResult {
+            handled,
+            settings_save: self.event_settings_save.take(),
+            locale_readback: self.event_locale_readback.take(),
+            running_locale: self.locale,
+        }
+    }
+
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    fn clear_event_settings_feedback(&mut self) {
+        self.event_settings_save = None;
+        self.event_locale_readback = None;
+    }
+
+    fn handle_event_inner(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> bool {
         #[cfg(feature = "desktop-login")]
         if let Some(login) = &mut self.login {
             use crate::login_screen::LoginOutcome;
@@ -686,13 +764,22 @@ impl Desktop {
                 LoginOutcome::LanguageChosen(locale) => {
                     // M29 onboarding: the first choice becomes the system
                     // language for this and later boots.
-                    self.locale = locale;
-                    if persist_locale(volume, locale) {
-                        print(b"Nagi onboarding language PASS locale=");
-                        print(locale.code().as_bytes());
-                        print(b"\r\n");
-                    } else {
-                        print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+                    let outcome = self.persist_locale_for_event(volume, locale);
+                    match outcome {
+                        LocalePersistOutcome::New => {
+                            self.locale = locale;
+                            print(b"Nagi onboarding language PASS locale=");
+                            print(locale.code().as_bytes());
+                            print(b"\r\n");
+                        }
+                        outcome => {
+                            let readback = if outcome == LocalePersistOutcome::Unknown {
+                                Some(self.read_back_locale_after_unknown(volume))
+                            } else {
+                                None
+                            };
+                            report_locale_persist_failure(outcome, readback);
+                        }
                     }
                     true
                 }
@@ -1466,9 +1553,17 @@ impl Desktop {
         locale: nagi_localization::Locale,
         keyboard: bool,
     ) -> bool {
-        if !persist_locale(volume, locale) {
-            print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
-            return false;
+        match self.persist_locale_for_event(volume, locale) {
+            LocalePersistOutcome::New => {}
+            outcome => {
+                let readback = if outcome == LocalePersistOutcome::Unknown {
+                    Some(self.read_back_locale_after_unknown(volume))
+                } else {
+                    None
+                };
+                report_locale_persist_failure(outcome, readback);
+                return false;
+            }
         }
         self.locale = locale;
         self.settings_focus = Some(match locale {
@@ -1497,6 +1592,38 @@ impl Desktop {
             }
         }
         true
+    }
+
+    fn persist_locale_for_event(
+        &mut self,
+        volume: &mut UserDataVolume,
+        locale: nagi_localization::Locale,
+    ) -> LocalePersistOutcome {
+        let attempt = persist_locale(volume, locale);
+        #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+        {
+            self.event_settings_save = attempt.settings_save;
+        }
+        attempt.outcome
+    }
+
+    fn read_back_locale_after_unknown(
+        &mut self,
+        volume: &mut UserDataVolume,
+    ) -> LocalePreference {
+        let readback = load_locale(volume);
+        #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+        {
+            self.event_locale_readback = Some(readback.into());
+        }
+        if let LocalePreference::Restored(locale) = readback {
+            self.locale = locale;
+            self.settings_focus = Some(match locale {
+                nagi_localization::Locale::EnUs => SettingsFocus::English,
+                nagi_localization::Locale::JaJp => SettingsFocus::Japanese,
+            });
+        }
+        readback
     }
 
     fn render_app(&self, painter: &mut Painter<'_>, index: usize, title: &[u8], content: &[u8]) {
@@ -2463,6 +2590,51 @@ enum LocalePreference {
     Unavailable,
 }
 
+#[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+impl From<LocalePreference> for SettingsLocaleReadback {
+    fn from(value: LocalePreference) -> Self {
+        match value {
+            LocalePreference::Missing => Self::Missing,
+            LocalePreference::Restored(locale) => Self::Restored(locale),
+            LocalePreference::Invalid => Self::Invalid,
+            LocalePreference::Unavailable => Self::Unavailable,
+        }
+    }
+}
+
+#[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+#[derive(Clone, Eq, PartialEq)]
+enum LocaleFileSnapshot {
+    Missing,
+    Present {
+        bytes: [u8; MAX_SMALL_FILE_SIZE],
+        length: usize,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalePersistOutcome {
+    Old,
+    New,
+    Unknown,
+}
+
+struct LocalePersistAttempt {
+    outcome: LocalePersistOutcome,
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    settings_save: Option<Result<SettingsSaveOutcome, SettingsSaveFailure>>,
+}
+
+impl LocalePersistAttempt {
+    fn local(outcome: LocalePersistOutcome) -> Self {
+        Self {
+            outcome,
+            #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+            settings_save: None,
+        }
+    }
+}
+
 impl LocalePreference {
     const fn locale(self) -> nagi_localization::Locale {
         match self {
@@ -2473,6 +2645,18 @@ impl LocalePreference {
 }
 
 fn load_locale(volume: &mut UserDataVolume) -> LocalePreference {
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    {
+        let settings = SettingsStorageAdapter::new(volume.clone());
+        return match settings.load_system_language() {
+            Ok(None) => LocalePreference::Missing,
+            Ok(Some(contents)) => parse_locale_preference(&contents),
+            Err(_) => LocalePreference::Unavailable,
+        };
+    }
+
+    #[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+    {
     let handle = match volume.open_path(SYSTEM_LANGUAGE_PATH) {
         Ok(handle) => handle,
         Err(StorageError::NotFound) => return LocalePreference::Missing,
@@ -2483,7 +2667,12 @@ fn load_locale(volume: &mut UserDataVolume) -> LocalePreference {
         Ok(length) => length,
         Err(_) => return LocalePreference::Unavailable,
     };
-    match core::str::from_utf8(&contents[..length])
+        parse_locale_preference(&contents[..length])
+    }
+}
+
+fn parse_locale_preference(contents: &[u8]) -> LocalePreference {
+    match core::str::from_utf8(contents)
         .ok()
         .and_then(nagi_localization::Locale::parse)
     {
@@ -2492,19 +2681,122 @@ fn load_locale(volume: &mut UserDataVolume) -> LocalePreference {
     }
 }
 
-fn persist_locale(volume: &mut UserDataVolume, locale: nagi_localization::Locale) -> bool {
+fn persist_locale(
+    volume: &mut UserDataVolume,
+    locale: nagi_localization::Locale,
+) -> LocalePersistAttempt {
+    #[cfg(all(feature = "linux-development-smoke", target_os = "linux", not(test)))]
+    {
+        let settings = SettingsStorageAdapter::new(volume.clone());
+        let settings_save = settings.save_system_language(locale.code().as_bytes());
+        let outcome = match &settings_save {
+            Ok(SettingsSaveOutcome::Old) => LocalePersistOutcome::Old,
+            Ok(SettingsSaveOutcome::New) => LocalePersistOutcome::New,
+            Ok(SettingsSaveOutcome::Unknown) => LocalePersistOutcome::Unknown,
+            Err(failure) => match failure.outcome {
+                SettingsSaveOutcome::Old => LocalePersistOutcome::Old,
+                SettingsSaveOutcome::New | SettingsSaveOutcome::Unknown => {
+                    LocalePersistOutcome::Unknown
+                }
+            },
+        };
+        return LocalePersistAttempt {
+            outcome,
+            settings_save: Some(settings_save),
+        };
+    }
+
+    #[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+    {
+    let previous = read_locale_file_snapshot(volume).ok();
     let handle = match volume.open_path(SYSTEM_LANGUAGE_PATH) {
         Ok(handle) => handle,
         Err(StorageError::NotFound) => match volume.create_path(SYSTEM_LANGUAGE_PATH) {
             Ok(handle) => handle,
-            Err(_) => return false,
+            Err(_) => {
+                return LocalePersistAttempt::local(prewrite_locale_failure_outcome(
+                    volume,
+                    previous.as_ref(),
+                ));
+            }
         },
-        Err(_) => return false,
+        Err(_) => {
+            return LocalePersistAttempt::local(prewrite_locale_failure_outcome(
+                volume,
+                previous.as_ref(),
+            ));
+        }
     };
-    volume
+    let outcome = match volume
         .write(handle, locale.code().as_bytes())
         .and_then(|()| volume.flush())
-        .is_ok()
+    {
+        Ok(()) => LocalePersistOutcome::New,
+        Err(_) => LocalePersistOutcome::Unknown,
+    };
+    LocalePersistAttempt::local(outcome)
+    }
+}
+
+#[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+fn read_locale_file_snapshot(
+    volume: &mut UserDataVolume,
+) -> Result<LocaleFileSnapshot, StorageError> {
+    let metadata = match volume.metadata_path(SYSTEM_LANGUAGE_PATH) {
+        Ok(metadata) if metadata.mode & 0xf000 == 0x8000 => metadata,
+        Ok(_) => return Err(StorageError::Corrupt),
+        Err(StorageError::NotFound) => return Ok(LocaleFileSnapshot::Missing),
+        Err(error) => return Err(error),
+    };
+    let length = usize::try_from(metadata.size).map_err(|_| StorageError::FileTooLarge)?;
+    if length > MAX_SMALL_FILE_SIZE {
+        return Err(StorageError::FileTooLarge);
+    }
+    let handle = volume.open_path(SYSTEM_LANGUAGE_PATH)?;
+    let mut bytes = [0; MAX_SMALL_FILE_SIZE];
+    let read = volume.read(handle, &mut bytes[..length])?;
+    if read != length {
+        return Err(StorageError::Corrupt);
+    }
+    Ok(LocaleFileSnapshot::Present { bytes, length })
+}
+
+#[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+fn prewrite_locale_failure_outcome(
+    volume: &mut UserDataVolume,
+    previous: Option<&LocaleFileSnapshot>,
+) -> LocalePersistOutcome {
+    prewrite_locale_failure_outcome_from_snapshots(previous, read_locale_file_snapshot(volume))
+}
+
+#[cfg(not(all(feature = "linux-development-smoke", target_os = "linux", not(test))))]
+fn prewrite_locale_failure_outcome_from_snapshots(
+    previous: Option<&LocaleFileSnapshot>,
+    readback: Result<LocaleFileSnapshot, StorageError>,
+) -> LocalePersistOutcome {
+    match (previous, readback) {
+        (Some(previous), Ok(readback)) if *previous == readback => LocalePersistOutcome::Old,
+        _ => LocalePersistOutcome::Unknown,
+    }
+}
+
+fn report_locale_persist_failure(
+    outcome: LocalePersistOutcome,
+    readback: Option<LocalePreference>,
+) {
+    print(message!(NAGI_SETTINGS_LOCALE_PERSIST_FAIL, 39));
+    if outcome == LocalePersistOutcome::Unknown {
+        print(b"Nagi Settings locale outcome UNKNOWN\r\n");
+        print(b"Nagi Settings locale readback=");
+        match readback {
+            Some(LocalePreference::Missing) => print(b"MISSING"),
+            Some(LocalePreference::Restored(locale)) => print(locale.code().as_bytes()),
+            Some(LocalePreference::Invalid) => print(b"INVALID"),
+            Some(LocalePreference::Unavailable) => print(b"UNAVAILABLE"),
+            None => print(b"NOT_ATTEMPTED"),
+        }
+        print(b"\r\n");
+    }
 }
 
 #[cfg(all(feature = "m19-runtime", feature = "desktop-login"))]
@@ -2577,7 +2869,11 @@ fn append(destination: &mut [u8], offset: usize, source: &[u8]) -> usize {
 
 #[cfg(test)]
 mod desktop_notes_integration_tests {
-    use super::{Desktop, DesktopFocus, DesktopTestBlockDevice, UserDataVolume};
+    use super::{
+        prewrite_locale_failure_outcome_from_snapshots, Desktop, DesktopFocus,
+        DesktopTestBlockDevice, LocaleFileSnapshot, LocalePersistOutcome, LocalePreference,
+        SettingsFocus, StorageError, UserDataVolume, SYSTEM_LANGUAGE_PATH,
+    };
     use libnagi::storage::Vfs;
     use libnagi::{InputEvent, INPUT_EVENT_KEY, INPUT_KEY_ENTER};
     use notes_event_bridge_candidate::{
@@ -2659,6 +2955,68 @@ mod desktop_notes_integration_tests {
             .expect("read through the real VFS");
         assert_eq!(&contents[..length], b"mounted");
         volume
+    }
+
+    #[test]
+    fn unknown_locale_persist_readback_updates_visible_locale_without_claiming_save() {
+        let mut volume = mounted_test_volume();
+        let handle = volume
+            .create_path(SYSTEM_LANGUAGE_PATH)
+            .expect("create the real VFS locale setting");
+        volume
+            .write(handle, b"ja-JP")
+            .expect("write the observed locale value");
+        volume.flush().expect("persist the test locale readback");
+
+        let mut desktop = Desktop::new(nagi_localization::Locale::EnUs);
+        desktop.settings_focus = Some(SettingsFocus::English);
+        let readback = desktop.read_back_locale_after_unknown(&mut volume);
+
+        assert!(matches!(
+            readback,
+            LocalePreference::Restored(nagi_localization::Locale::JaJp)
+        ));
+        assert_eq!(desktop.locale, nagi_localization::Locale::JaJp);
+        assert!(matches!(desktop.settings_focus, Some(SettingsFocus::Japanese)));
+    }
+
+    #[test]
+    fn locale_prewrite_failure_is_old_only_when_exact_readback_matches() {
+        let missing = LocaleFileSnapshot::Missing;
+        assert_eq!(
+            prewrite_locale_failure_outcome_from_snapshots(Some(&missing), Ok(missing.clone())),
+            LocalePersistOutcome::Old
+        );
+
+        let mut old_bytes = [0; libnagi::storage::MAX_SMALL_FILE_SIZE];
+        old_bytes[..5].copy_from_slice(b"en-US");
+        let old = LocaleFileSnapshot::Present {
+            bytes: old_bytes,
+            length: 5,
+        };
+        assert_eq!(
+            prewrite_locale_failure_outcome_from_snapshots(Some(&old), Ok(old.clone())),
+            LocalePersistOutcome::Old
+        );
+
+        let mut new_bytes = [0; libnagi::storage::MAX_SMALL_FILE_SIZE];
+        new_bytes[..5].copy_from_slice(b"ja-JP");
+        let new = LocaleFileSnapshot::Present {
+            bytes: new_bytes,
+            length: 5,
+        };
+        assert_eq!(
+            prewrite_locale_failure_outcome_from_snapshots(Some(&missing), Ok(new)),
+            LocalePersistOutcome::Unknown
+        );
+        assert_eq!(
+            prewrite_locale_failure_outcome_from_snapshots(None, Ok(missing)),
+            LocalePersistOutcome::Unknown
+        );
+        assert_eq!(
+            prewrite_locale_failure_outcome_from_snapshots(Some(&old), Err(StorageError::Block)),
+            LocalePersistOutcome::Unknown
+        );
     }
 
     fn evdev_x86_64_record(event_type: u16, code: u16, value: i32) -> [u8; 24] {
