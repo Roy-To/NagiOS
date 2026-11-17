@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（Nagi Native Apps専用、Windows／Linux重点、PT-01〜06の設計方針、非AI基本工程、ローカルLLM補助、外部開発AI／人間の任意選択、実移植の継続評価）／PROVISIONAL（実装・対象サンプル・評価指標の詳細・担当・適用版・16GB実用性・外部連携）  
-**最終合意日:** 2026-11-13  
+**状態:** CONFIRMED（Nagi Native Apps専用、Windows／Linux重点、PT-01〜06・非AI基本工程・Local LLM補助、PX-13のCloud開発AI／IDE／人間との橋渡し・移植支援優先、PX-14の統合された開発・移植／検証B＋将来の互換性／更新・配布支援Cの高水準方針）／PROVISIONAL（具体SDK／言語・移植対象・Cloud Provider／通信・CLI／署名／Package・性能・担当・提供版・16GB実用性）  
+**最終合意日:** 2026-11-17（PX-13／PX-14の整合追加。従前のPT-01〜06合意を維持）  
 **適用候補:** 現行0.2-M21 SDK／App contractとの将来連携、1.0を見据えた開発者体験。バージョン・実装開始日・担当は未確定  
 **関連:** [DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-044](DEC-044-linux-migration-development-authorization.md)、[0.2 M21 SDK仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -189,6 +189,30 @@ PT-02〜06の実施順序は上の表を基準案とするが、既存SDKの進�
 
 これらは初期の評価観点であり、正式なThreshold／受入やtarget PASSを宣言しない。
 
+## PX-13関連 — ローカルLLMによるCloud AI・人間との移植支援ブリッジ（2026-11-17）
+
+**CONFIRMED — 製品方向と優先度:** [DEC-071](DEC-071-nagi-native-app-creation-experience.md)のPX-13で、完成したローカル完結型アプリ制作環境の早期提供を急がず、**ローカルLLMがNagiの公開SDK／API・移植診断・制約情報と、ユーザーが選択するCloud開発AI（GPT／Codex等は例示）／既存IDE／人間との間で橋渡しする支援体験**を重視する方針を追加した。特に他OS向けアプリをNagi Nativeへ移植する際、ローカルLLMが実在するAPIの不足・代替・受入結果を説明し、許可された範囲で外部AIの作業依頼・生成成果のレビュー・開発者への引継ぎを助ける方向とする。ローカルモデルが全移植コードを単独生成することを成立条件にしない。
+
+**従前のCONFIRMEDは不変:** 初期重点はWindows／Linuxの既存ソースの権利ある移植、Level 0からの段階的Nagi Native化。PT-01のread-only診断、PT-02の既存SDK準拠雛形、PT-03のルールベースAPI差分＋AI修正提案、PT-04のUI構造解析＋AI補完、PT-05の非AI中心のBuild／Test／Package、PT-06の実移植比較・改善循環を維持する。決定論的な診断・検証はローカルLLM・Cloud AIなしでも扱える。モデル利用と開発者の手動選択は任意であり、AIからの出力を修正・ビルド済み証拠と誤認しない。
+
+**Cloud送信・適用境界:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)に従い、サービス／Provider、Purpose、情報クラス、対象ソース／Resource／Profile、Task／期間等の許可済みScopeと現行Permission・Policyに限って外部AIとの情報共有を認める。ローカルLLMが情報を要約・選定してもソース・秘密／個人Memory等の無断送信は許されない。外部AIの提案も正規の差分確認、隔離テスト、Resource Revision・権限再評価を要し、アプリ署名・正式導入・外部公開は別承認。PT-01〜06のhost-only成果とTarget上のAcceptanceを混同せず、Workstream/Gateを変更しない。
+
+**優先順位・版の扱い:** Cloud連携／移植の補助体験を、完全統合型の初心者向け制作IDEより当面の設計優先とする。ただし**ツール全体の完成は低優先の長期項目**として1.0計画の最終盤を目安に考え、1.0への固定割当・必須条件・実装着手を確約しない。非競合のPT-01等のread-only／host-only準備は既存の許可・担当を確認して進められる。DEC-017／021の既存1.0開発者・配布基盤目標は維持する。
+
+**PROVISIONAL／OPEN:** 具体的なCloud Provider／Connector／API・認証・通信／Model、送る診断サマリー・許可済みソースの単位・承認UI、復元・差分受渡しSchema、移植対象Framework・最初の連携ペア、技術・性能・コスト・端末要件、Workstream／提供版・1.0との日程関係。Cloudの標準有効化や自動ソースアップロードは今回決定しない。
+
+## PX-14 — 移植・検証の統合開発者体験B＋将来の継続保守／配布支援C（2026-11-17）
+
+**CONFIRMED（高水準の追加体験）:** [DEC-017](DEC-017-third-party-developer-ecosystem.md)のPX-14で、Nagi公開SDK／既存IDEと本Toolkitの**PT-01〜06診断・雛形・差分修正／UI移植支援・Build／Test／Package・実例による改善**を、開発者が順を追って利用できる統合体験Bとし、将来はSDK変更影響・更新Package・継続保守・配布準備まで支援するCへ発展する高水準方針を採用した。
+
+**既存のPT-01〜06を維持:** PT-01は明示選択Sourceの**読み取り専用診断**、PT-02は現行SDKの薄い雛形、PT-03はルールベースAPI差分診断＋提案された局所修正、PT-04はUI構造解析＋AIによる不足補完、PT-05は**非AIを基礎とする検証Stage 1 host静的検査／Stage 2許可済みhostビルド・Test／Stage 3 Nagi Target実受入**、PT-06は実アプリ移植による継続的工数・品質比較である。各PTの実装、正式受入、担当・開始GateをPX-14だけで完了扱い・許可扱いにしない。
+
+**Cloud AIとの橋渡し:** PX-13後続方針に沿い、Local LLMが実在するSDK/API、診断根拠と不足点、許可済みの差分・検証結果を整理して、開発者が選択したCloud開発AI・既存IDE・人間へ引き渡す補助を重視する。**Cloud利用は任意**で、DEC-002の事前許可されたProvider／Purpose／情報クラス・Resource／Profile／Task／期間と現行Policyを超えてソース・Memory・ログを送らない。説明／提案・差分適用・Build／Test／Package作成・正式署名・導入・外部公開をそれぞれ区別し、未知のAPI／未実施試験を成功と表示しない。
+
+**将来C:** 許可された成果と変更履歴に基づくSDK／依存の互換性確認、Nagi対応版の継続保守、更新Packageの検証・配布準備を支援する方向。ただしStore唯一化、署名／Update／一般公開の自動許可、移植成功・配布品質保証はしない。0.2 M12／M21正本、Release／Activation／AcceptanceとWorkstream ownerは変更しない。
+
+**PROVISIONAL／OPEN:** 最初の対応言語／Framework・移植元サンプル、具体SDK/API・CLI／IDE連携、Local／CloudのModel／Provider・Bridge Schema、PT間の成果形式、Package／署名／Store等の詳細フロー、測定性能／工数・提供Version／実装順序。非AI診断・現在の権限・host／Target受入の分離は未決事項に戻さない。
+
 ## 例外・禁止・安全境界
 
 - 未承認のソース書換え、外部送信、ネットワーク探索、依存インストール、SSDや他リポジトリの走査を診断の副作用にしない。AI推奨差分の自動適用は別途許可されたWorkspace／Action Scope、Revision、Permission、検証と適用条件に従う。
@@ -217,3 +241,5 @@ PT-02〜06の実施順序は上の表を基準案とするが、既存SDKの進�
 | 2026-11-13 | 小規模な処理・コード整理はローカルLLMが補助し、大規模開発やリファクタリングはCodex／Claude等の外部開発AIか人間が任意で担当する分業方針を確認。開発者がAIを使わずに実装する選択を維持し、外部製品連携・転送・適用版は未確定。 |
 | 2026-11-13 | ユーザーがPT-05を既存Nagi SDK・Package Toolを利用するAI不要のビルド・検証・配布準備パイプラインとして承認。Stage 1 host静的検証、Stage 2許可済みhostビルド／テスト、Stage 3 Nagi target受入を分離。正式署名・公開・実装開始は未承認。 |
 | 2026-11-13 | ユーザーがPT-06をWindows・Linux由来の実アプリ移植を用いた継続的な工数／再利用／検証比較とPT-01〜05への改善フィードバック方式として承認。手動とToolkit、AIなしとローカルLLMの寄与を比較し、HostとTargetの結果を分離。具体例・採用OSS・数値閾値・実装担当・実施許可は未確定。 |
+| 2026-11-17 | PX-13を受けて、ローカルLLMをNagi SDK／移植診断と外部開発AI／既存IDE・人間との橋渡しへ活かす高水準方向を追加CONFIRMED。PT-01〜06、非AI工程、Windows／Linux重点、現行Cloud送信許可・Target受入・Workstream Gateを維持。Cloud連携方式・対象・性能・版はPROVISIONAL、統合IDE等は低優先の長期目標。 |
+| 2026-11-17 | PX-14でPT-01〜06と公開SDK／既存IDE・Cloud開発AI橋渡し・Build／Test／Package・Target実受入を統合的に使える開発者体験B、将来はSDK影響・アプリ継続保守／更新・配布準備を支援するCの高水準方向をCONFIRMED。非AI基盤、Cloud別許可、Host／Target分離、署名／導入／公開別承認を維持。技術・初期対象・性能・担当・提供版はPROVISIONAL。 |
