@@ -25,6 +25,14 @@
 
 > This document proposes a path beyond 0.4. It does not replace an implementation specification, approve a release, activate a workstream, or change an existing acceptance gate. Treat the version-by-version allocation below as provisional until a later decision is recorded.
 
+## PX-13 — Cloud AI橋渡しを優先する開発支援と長期制作環境（2026-11-17）
+
+[DEC-071](../DEC-071-nagi-native-app-creation-experience.md)／[DEC-021](../DEC-021-roadmap-0.5-1.0.md)の追加決定。**CONFIRMED（高水準の優先順位）:** 初心者向けアプリ制作はB（対話型共同制作）＋将来C（許可された個人Memory・継続改善を生かす高度な共同制作）を長期製品方向に保持。ただし、独立・全面統合のローカル完結型開発環境を当面の近距離Releaseの優先事項とせず、NagiのローカルLLMが**Nagi公開SDK／API・移植診断／検証結果と、ユーザーが選択するCloud AI・既存IDE・人間を橋渡しする開発補助**と、他OS（初期はWindows／Linux）からのNagi Native移植支援を重視する。[DEC-045](../DEC-045-nagi-porting-toolkit.md)の非AI診断・段階的PT-01〜06／手動の選択は維持。
+
+**時期の扱い:** 高度な統合制作環境は**1.0に至る計画の最終盤を目安とする長期・低優先項目**。具体的な1.0の出荷版・納期・実装完了条件はPROVISIONALであり、1.0への追加必須条件でも、既存の0.4初期builder Role workflow／Entry Gateの撤回でもない。[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・配布基盤を1.0までに整備するという別の高水準目標**は変更しない。§4の暫定版別マップはそのまま維持する。
+
+**Cloud Permission:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の事前許可・送信対象／目的／Provider・機密分類・現行Permission／Policy／Activity・取消を必須とし、ソース全文・秘密情報・個人Memoryの無断送信を認めない。Local LLMをCloud Agentの秘密の権限経路にしない。Cloud連携方式・Provider／Model・UI・性能・具体的提供Version、対応Framework／受入は未決定。既存Release／Activation／Acceptance GateとWorkstream owner・先行準備の個別許可を維持する。
+
 ## 1. Purpose and status labels
 
 > **2026-11-16 connectivity update:** [DEC-066](../DEC-066-device-connectivity-lan-first.md) confirms same-Wi-Fi/LAN Nagi devices as the initial connectivity target and a shared Device Connectivity/Trust/Transport abstraction without hardcoded transports. Nearby direct Wi-Fi and remote internet connectivity remain extensible options; initial remote support, always-on Cloud, online Nagi accounts and operator-run servers are not required. Preserve offline-first, authentication/trust, encryption, explicit permission, current User/Profile/Resource Permission and Privacy, revocation, external communication scope, and DEC-014's separate migration/sync/cloud grants. No implicit transfer, synchronization or Task replay; Clipboard remains unadopted. Protocols, UI, devices, operations/costs, release timing and performance remain provisional. This does not assign the feature to 0.8 or any other release or change existing gates.
