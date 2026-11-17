@@ -31,13 +31,13 @@ use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
 use nagi_identity_session::LinuxIdentitySnapshotStore;
 
 #[derive(Clone)]
-struct TestCaller {
+pub(crate) struct TestCaller {
     principal: PrincipalId,
     context: CallerContextId,
 }
 
 impl TestCaller {
-    fn new(context: &str) -> Self {
+    pub(crate) fn new(context: &str) -> Self {
         Self::with_principal(context, "system.identity-test")
     }
 
@@ -230,9 +230,13 @@ impl IdentitySnapshotStore for SharedStore {
 }
 
 #[derive(Clone)]
-struct TestClock(Arc<AtomicU64>);
+pub(crate) struct TestClock(Arc<AtomicU64>);
 
 impl TestClock {
+    pub(crate) fn at(now: u64) -> Self {
+        Self(Arc::new(AtomicU64::new(now)))
+    }
+
     fn set(&self, now: u64) {
         self.0.store(now, Ordering::SeqCst);
     }
@@ -283,7 +287,7 @@ impl Clock for TryClock {
 }
 
 #[derive(Default)]
-struct TestIds {
+pub(crate) struct TestIds {
     user: u64,
     profile: u64,
     session: u64,
@@ -319,7 +323,7 @@ impl IdentityIdSource for TestIds {
 }
 
 #[derive(Default)]
-struct TestAuthorizer {
+pub(crate) struct TestAuthorizer {
     denied: Option<IdentityAction>,
     unavailable: Option<IdentityAction>,
     deny_once: Option<IdentityAction>,
@@ -348,7 +352,7 @@ impl IdentityAuthorizer for TestAuthorizer {
 }
 
 #[derive(Clone, Default)]
-struct TestCleaner {
+pub(crate) struct TestCleaner {
     cleaned: Arc<Mutex<Vec<ProfileId>>>,
     fail: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -411,11 +415,11 @@ fn new_service_with_ids(
 }
 
 #[cfg(target_os = "linux")]
-struct DurableTestDirectory(PathBuf);
+pub(crate) struct DurableTestDirectory(PathBuf);
 
 #[cfg(target_os = "linux")]
 impl DurableTestDirectory {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(1);
         let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
@@ -427,7 +431,7 @@ impl DurableTestDirectory {
         Self(path)
     }
 
-    fn open(&self) -> File {
+    pub(crate) fn open(&self) -> File {
         File::open(&self.0).unwrap()
     }
 }
