@@ -4,7 +4,9 @@ Status: `PARTIAL`. `python3 tests/developer-platform/evaluation/run_host_checks.
 builds/runs the approved portable C test and repeats the NDP-06 UI CLI three
 times. Both stdout comparisons and source preservation pass. UI CLI wall time
 (including startup) has an observed median of about 34 ms on macOS arm64,
-Clang 21 / Python 3.9.6. Five runner failure checks and all 18 UI tests pass.
+Clang 21 / Python 3.9.6. Seven runner failure checks and all 18 UI tests pass. Stable but incorrect UI
+reports are rejected by explicit fixture expectations; the added regressions
+detect five cases on the original runner.
 Manual/LLM comparison, SDK validation, rendering and Nagi target are unrun;
 no speedup, standard host readiness or milestone PASS is claimed. See the
 [evaluation README](../tests/developer-platform/evaluation/README.md).

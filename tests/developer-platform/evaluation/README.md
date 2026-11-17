@@ -61,7 +61,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/developer-platform/evaluation/run_host_c
 Requires the existing Python standard library and `clang` on PATH. `--repeats`
 accepts 2–20 (default 3). The runner builds the fixed portable C test with the
 strict flags above, syntax-checks the text-only control, then repeats the C test
-and NDP-06 UI CLI. It compares stdout bytes and verifies that all seven fixture
+and NDP-06 UI CLI. It compares stdout bytes checks widget/layout identities, tab order and the declared connection against
+the fixed XML, and verifies that all seven fixture
 sources and the analyzer source remain unchanged, including on command failure.
 Temporary build output is removed automatically. Nonzero exits, timeouts, changed
 stdout or changed source fail the evaluation. It never compiles or executes the
@@ -85,5 +86,6 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 Initial real run: Clang 21 / macOS arm64 / Python 3.9.6; three repeats agree,
 inputs unchanged. UI: 3 widgets, 1 layout, 2 tab stops, 1 unexecuted connection,
 no unknown or unresolved references; CLI wall-time median about 34 ms.
-Five runner checks and all 18 existing UI checks pass. Manual/LLM comparisons,
+Seven runner checks and all 18 existing UI checks pass. Two new regression
+tests detect stable-but-wrong UI reports (five failing cases on the old runner). Manual/LLM comparisons,
 SDK validation, rendering, platform execution and Nagi target remain unrun.

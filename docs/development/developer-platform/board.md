@@ -27,4 +27,6 @@ DeepSeek: 方式Aの追加条件は非該当と独立担当が判断。重要な
 
 2026-11-17: `python3 tests/developer-platform/evaluation/run_host_checks.py` 成功。
 Cを実build/run、UI CLIを各3回実行。UI中央値約34ms（起動込み、速度比ではない）。
-ランナー失敗検知5件と既存UI 18件が成功。詳細・再実行は[評価README](../../../tests/developer-platform/evaluation/README.md)。
+ランナー失敗検知7件と既存UI 18件が成功。詳細・再実行は[評価README](../../../tests/developer-platform/evaluation/README.md)。
+
+独立レビューのP2（同じ誤解析でも一致成功）を修正。部品・tab順・接続を照合し、旧版で5ケース失敗を確認。

@@ -1,7 +1,10 @@
 """Failure-path checks for the host evaluation orchestrator (subprocesses mocked)."""
+import copy
+import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -62,6 +65,48 @@ class HostEvaluationTests(unittest.TestCase):
             self.assertEqual((caught.exception.phase, caught.exception.code),
                              ("input_integrity", "source_changed"))
             self.assertEqual(changed.read_bytes(), b"changed during failed command")
+
+
+class UIExpectationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Start with the actual CLI report, then inject stable semantic regressions.
+        result = subprocess.run(
+            [sys.executable, "-B", str(runner.ROOT / runner.ANALYZER), "--root",
+             str(runner.ROOT / runner.FIXTURES / "ui"), "task_panel.ui"],
+            capture_output=True, check=True, timeout=10,
+        )
+        cls.facts = json.loads(result.stdout)
+
+    def assert_report_rejected(self, facts):
+        output = json.dumps(facts).encode("utf-8")
+        with patch.object(runner.shutil, "which", return_value="clang"), \
+                patch.object(runner, "run_command", return_value=(b"clang version", 1)), \
+                patch.object(runner, "repeat_command", side_effect=[(b"PASS", {}), (output, {})]):
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.evaluate(runner.ROOT, 3)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("ui_analysis", "fixture_expectation_mismatch"))
+
+    def test_stable_but_empty_ui_report_fails(self):
+        facts = copy.deepcopy(self.facts)
+        for key in ("widgets", "layouts", "tab_order", "connections"):
+            facts[key] = []
+        self.assert_report_rejected(facts)
+
+    def test_correct_counts_with_wrong_identity_order_or_event_fail(self):
+        for change in ("widget", "layout", "tab_order", "connection"):
+            with self.subTest(change=change):
+                facts = copy.deepcopy(self.facts)
+                if change == "widget":
+                    facts["widgets"][1]["name"] = "wrongName"
+                elif change == "layout":
+                    facts["layouts"][0]["class"] = "QGridLayout"
+                elif change == "tab_order":
+                    facts["tab_order"].reverse()
+                else:
+                    facts["connections"][0]["slot"] = "wrongSlot()"
+                self.assert_report_rejected(facts)
 
 
 if __name__ == "__main__":
