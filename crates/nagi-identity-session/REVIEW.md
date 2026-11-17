@@ -61,3 +61,22 @@ Follow-up after the fixed de678984 review, starting from C1 HEAD `91cef42c10d5a3
 The earlier standalone runtime/adapter and `cargo check` results remain prior evidence; they were not repeated for this follow-up. These Host fixtures do not prove C2 peer authentication or C3 OS endpoint ownership.
 
 Target acceptance remains unverified: there is no maintained C2 authenticated peer producer or C3 system endpoint principal to connect, and no QEMU/guest run was performed. The C1 integration is therefore blocked at those exact producer APIs; Host results are not Target acceptance.
+
+## Linux durable commit-failure follow-up after 7669ae
+
+Coverage audit: `store::linux::tests::unknown_commit_outcomes_poison_the_instance_and_reopen_never_reuses_a_generation` tests the Linux file-store poison boundary without an issued identity. The recovery-failure authority tests in `tests/identity-session/contract.rs` use `SharedStore`, an in-memory implementation. Neither exercised a retained C1 handle against a real Linux store after its independent high-water advanced and envelope replacement failed.
+
+Added `service::durable_store_failure_tests::poisoned_durable_commit_denies_old_authority_and_recovers_after_restart`. It uses `LinuxIdentitySnapshotStore` on a private temporary directory and the existing `cfg(test)` `Fault::AfterHighWater` seam. With a live Session handle, a profile commit fails after high-water persistence; the old handle is denied, same-issuer write retry and recovery fail closed, and a fresh issuer recovers from `LastKnownGood`, persists the old Session as ended, and does not restore its authority. The fault selector remains test-only; no production authentication entry or seal was added. The fixture validates C1 store/lease failure behavior and does not represent a C2/C3 producer.
+
+Host results for this follow-up:
+
+- `rustup run nightly-2025-08-01 cargo test --offline --manifest-path crates/nagi-identity-session/Cargo.toml poisoned_durable_commit_denies_old_authority_and_recovers_after_restart`: PASS, 1 passed.
+- `rustup run nightly-2025-08-01 cargo test --offline --manifest-path crates/nagi-identity-session/Cargo.toml`: PASS, 110 unit tests and 9 doctests.
+- `rustup run nightly-2025-08-01 cargo fmt --manifest-path crates/nagi-identity-session/Cargo.toml -- --check`: PASS.
+
+The later cross-lane handoff describes these leaf contracts, but their source commits were not pushed and no consumer bundle is present in this Cloud checkout, so these declarations have not been source-verified or compiled here:
+
+- C2 reports `nagi-peer-authenticated-connection::KernelAuthenticatedUnixPeer` and opaque `PeerConnectionId`, with `authenticate(&UnixStream)`, `require_same_connection`, and `revalidate`. `SO_PEERCRED`/`SO_COOKIE` establish same-connection transport provenance; this is not a checked C1 Session or accepted ownership/launch-role proof.
+- C3 reports `nagi-system-principal-contract::{SystemServiceEndpointOwnerProof, SystemServiceLaunchRecord}` (`VERSION = 1`) with `authenticate`, `is_live`, and `revoke`. The proof binds exact spawn identity/pidfd, Supervisor generation, endpoint generation, and kernel peer credentials. Its `unsafe after_supervisor_record_validation` assumes the trusted runtime has already validated the record, and the runtime callsite is not connected.
+
+C1 still needs the actual leaf source, manifests, and tests to add direct producer-leaf dependencies and private sealed impls. C2 must pair its accepted connection with the C1 current Session/lease handle and keep its own `LiveSessionAuthority` issuance in the C2 runtime. C3 must issue its opaque principal only from the actual endpoint owner after launch-record and peer validation. Transport proof alone cannot create an interactive Session, and UID/PID alone cannot create the distinct system principal. No fake producer or public trusted constructor is added. No Target acceptance is claimed.

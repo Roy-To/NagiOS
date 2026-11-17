@@ -154,7 +154,7 @@ pub struct LinuxIdentitySnapshotStore {
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Fault {
+pub(crate) enum Fault {
     AfterHighWater,
     PartialWrite,
     BeforeRename,
@@ -396,7 +396,7 @@ impl LinuxIdentitySnapshotStore {
     }
 
     #[cfg(test)]
-    fn set_fault_for_test(&mut self, fault: Fault) {
+    pub(crate) fn set_fault_for_test(&mut self, fault: Fault) {
         self.fault = Some(fault);
     }
 }

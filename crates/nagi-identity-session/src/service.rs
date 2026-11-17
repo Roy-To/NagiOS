@@ -2130,3 +2130,110 @@ fn map_resolution_identity_error(error: IdentityError) -> ResolutionError {
         | IdentityError::RevisionExhausted => ResolutionError::Unavailable,
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod durable_store_failure_tests {
+    use super::*;
+    use crate::contract::{
+        DurableTestDirectory, TestAuthorizer, TestCaller, TestCleaner, TestClock, TestIds,
+    };
+    use crate::store::{DurableStoreFault, LinuxIdentitySnapshotStore};
+
+    fn service(
+        directory: &DurableTestDirectory,
+        clock: TestClock,
+    ) -> IdentityService<
+        LinuxIdentitySnapshotStore,
+        TestIds,
+        TestClock,
+        TestAuthorizer,
+        TestCleaner,
+        NoopIdentityEventSink,
+    > {
+        IdentityService::new(
+            LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+            TestIds::default(),
+            clock,
+            TestAuthorizer::default(),
+            TestCleaner::default(),
+            NoopIdentityEventSink,
+        )
+    }
+
+    #[test]
+    fn poisoned_durable_commit_denies_old_authority_and_recovers_after_restart() {
+        let directory = DurableTestDirectory::new();
+        let caller = TestCaller::new("durable-poisoned-commit");
+        let clock = TestClock::at(100);
+        let mut issuer = service(&directory, clock.clone());
+        issuer.recover(&caller).unwrap();
+        let (user_id, profile_id) = issuer
+            .create_local_user(
+                &caller,
+                LocalUserMetadata::new("Durable owner").unwrap(),
+                ProfileMetadata::new("Home", Some("en-US".into())).unwrap(),
+            )
+            .unwrap();
+        let session_id = issuer
+            .login_local(
+                &caller,
+                user_id,
+                profile_id,
+                None,
+                IdempotencyKey::new("durable-poisoned-commit").unwrap(),
+            )
+            .unwrap();
+        let context = issuer.interactive_session(&caller).unwrap();
+        let old_handle = context.revalidation_handle().unwrap();
+        assert_eq!(
+            old_handle.try_live_snapshot().unwrap().status(),
+            LiveStatus::Live
+        );
+
+        issuer
+            .store
+            .set_fault_for_test(DurableStoreFault::AfterHighWater);
+        assert_eq!(
+            issuer.create_profile(
+                &caller,
+                user_id,
+                ProfileMetadata::new("Work", Some("en-US".into())).unwrap(),
+            ),
+            Err(IdentityError::StoreUnavailable)
+        );
+        assert!(old_handle.check_live().is_err());
+        assert_eq!(
+            issuer.create_profile(
+                &caller,
+                user_id,
+                ProfileMetadata::new("Work", Some("en-US".into())).unwrap(),
+            ),
+            Err(IdentityError::StoreUnavailable),
+            "a same-instance write retry remains poisoned"
+        );
+        assert_eq!(
+            issuer.recover(&caller),
+            Err(IdentityError::StoreUnavailable),
+            "the poisoned issuer cannot repair or retry from cached authority"
+        );
+        assert!(old_handle.check_live().is_err());
+        drop(issuer);
+
+        let mut restarted = service(&directory, clock);
+        let report = restarted.recover(&caller).unwrap();
+        assert_eq!(report.source, RecoverySource::LastKnownGood);
+        assert_eq!(report.interrupted_sessions_ended, 1);
+        assert!(restarted.resolve_current_identity(&caller).is_err());
+        assert!(matches!(
+            restarted
+                .snapshot()
+                .sessions
+                .iter()
+                .find(|session| session.session_id == session_id)
+                .unwrap()
+                .lifecycle,
+            SessionLifecycle::Ended { .. }
+        ));
+        assert!(old_handle.check_live().is_err());
+    }
+}

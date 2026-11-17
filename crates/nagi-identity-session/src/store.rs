@@ -8,6 +8,9 @@ mod linux;
 #[cfg(target_os = "linux")]
 pub use linux::{DurableStoreError, LinuxIdentitySnapshotStore};
 
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) use linux::Fault as DurableStoreFault;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SnapshotVersion(u64);
 
