@@ -13,6 +13,9 @@ Repository license terms remain unchanged.
 | linux/watch_changes.c | sys/inotify.h, inotify_init1, inotify_add_watch, close require Linux notification/descriptor review | Static only; no Linux compilation or watch creation |
 | controls/text_only.c | OS API names appear only in comments and a string | Negative control: lexical evidence is not proof of calls |
 | ui/task_panel.ui | Qt widget/layout hierarchy, English/Japanese text, accessibility label, tab order, declared clicked/addTask connection | XML input only; addTask has no implementation, no rendering/input/runtime validation |
+| ui/gtk_minimal.ui | Minimal GTK Builder button, Unicode label and translation attribute | Original synthetic XML only; no GTK instantiation |
+| ui/gtk3_task_panel.ui | GTK 3 nested objects, GtkBox packing, accessible object, property binding and declared signal | Static source facts; AtkObject remains an unknown class; no handler or binding execution |
+| ui/gtk4_task_panel.ui | GTK 4 GtkGrid child layout, accessibility declarations, binding expression and signal | Static source facts; no resource, expression, rendering or runtime validation |
 
 These are source facts, not expected output hardcoded to a scanner. No
 PT-01 interface, API replacement, public UI contract or support matrix is
@@ -89,3 +92,34 @@ no unknown or unresolved references; CLI wall-time median about 34 ms.
 Seven runner checks and all 18 existing UI checks pass. Two new regression
 tests detect stable-but-wrong UI reports (five failing cases on the old runner). Manual/LLM comparisons,
 SDK validation, rendering, platform execution and Nagi target remain unrun.
+
+## GTK Builder as the second UI input — NDP-06b
+
+The three GTK fixtures above were written for this task; no third-party source
+was copied or fetched. Run the real GTK parser/CLI tests alongside the existing
+18 Qt checks:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tools/nagi-developer-platform/ui/analysis -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/analyze.py \
+  --root tests/developer-platform/evaluation/ui gtk3_task_panel.ui
+```
+
+The analyzer selects the format from the parsed XML root: Qt `ui` version 4.0
+or GTK `interface`. Both use `.ui`; root detection avoids ambiguous suffixes and
+preserves the existing CLI. All size/element/depth, DTD/entity/PI and safe-path
+checks run through the shared input path. Signals, bindings, library and resource
+references remain data. Tests verify placement changes, unknowns, Unicode,
+boundary/error handling, determinism and unchanged inputs.
+
+The supported subset and unsupported templates, class/type validation, layout
+managers, resource/CSS loading, runtime bindings/signals and rendering are detailed
+in the [analyzer README](../../../tools/nagi-developer-platform/ui/analysis/README.md#gtk-builder-subset--ndp-06b).
+The existing evaluation runner still measures its fixed portable C/Qt fixtures;
+it does not run GTK or benchmark the new inputs. GTK coverage comes from the
+focused suite above. No Nagi target acceptance is claimed.
+
+Verified locally on 2026-11-17: analysis 40/40 (Qt 18 + GTK 22), evaluation
+7/7, and `run_host_checks.py` PASS (three C/Qt repetitions, inputs unchanged).
+All three task-specified commands ran with `PYTHONDONTWRITEBYTECODE=1`.

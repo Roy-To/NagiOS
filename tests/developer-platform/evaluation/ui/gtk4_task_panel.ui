@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original synthetic GTK 4 source facts, never instantiated. -->
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="GtkWindow" id="taskWindow">
+    <property name="title" translatable="yes">Tasks / タスク</property>
+    <child>
+      <object class="GtkGrid" id="grid">
+        <property name="column-spacing">8</property>
+        <child>
+          <object class="GtkLabel" id="title">
+            <property name="label" translatable="yes">タスク名</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">0</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="taskName">
+            <binding name="text">
+              <lookup name="label">title</lookup>
+            </binding>
+            <layout>
+              <property name="column">1</property>
+              <property name="row">0</property>
+            </layout>
+            <accessibility>
+              <property name="label" translatable="yes">タスク名 🌊</property>
+              <relation name="labelled-by">title</relation>
+              <state name="disabled">false</state>
+            </accessibility>
+          </object>
+        </child>
+        <child>
+          <object class="GtkButton" id="addButton">
+            <property name="label" translatable="yes">Add / 追加</property>
+            <signal name="clicked" handler="on_add_task"/>
+            <layout>
+              <property name="column">1</property>
+              <property name="row">1</property>
+              <property name="column-span">2</property>
+            </layout>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

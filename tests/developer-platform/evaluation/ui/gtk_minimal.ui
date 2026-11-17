@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original synthetic Builder input; no external application was copied. -->
+<interface>
+  <object class="GtkButton" id="hello">
+    <property name="label" translatable="yes">Hello / こんにちは 🌊</property>
+  </object>
+</interface>
