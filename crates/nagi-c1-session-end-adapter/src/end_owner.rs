@@ -5,9 +5,9 @@ use crate::{
     RouteError, SessionEndGate,
 };
 use nagi_identity_session::{
-    Clock, EndSessionResult, GuestProfileCleaner, IdentityAuthorizer, IdentityEventSink,
-    IdentityIdSource, IdentityService, IdentitySnapshotStore, InteractiveSessionContext,
-    InteractiveSessionError, TrustedCallerContext,
+    AuthenticatedInteractiveCaller, Clock, EndSessionResult, GuestProfileCleaner,
+    IdentityAuthorizer, IdentityEventSink, IdentityIdSource, IdentityService,
+    IdentitySnapshotStore, InteractiveSessionContext, InteractiveSessionError,
 };
 use std::sync::Arc;
 
@@ -80,7 +80,7 @@ pub struct EndOwner<'caller, 'receiver, U> {
 impl<'caller, 'receiver, U> EndOwner<'caller, 'receiver, U> {
     pub fn attach(
         context: InteractiveSessionContext<'caller>,
-        caller: &'caller dyn TrustedCallerContext,
+        caller: &'caller dyn AuthenticatedInteractiveCaller,
         receiver: &'receiver mut U,
     ) -> Result<Self, RouteError> {
         Ok(Self {
@@ -94,7 +94,7 @@ impl<'caller, 'receiver, U> EndOwner<'caller, 'receiver, U> {
 
     pub fn bind_exact_child<E>(
         context: InteractiveSessionContext<'caller>,
-        caller: &'caller dyn TrustedCallerContext,
+        caller: &'caller dyn AuthenticatedInteractiveCaller,
         select: impl FnOnce(&InteractiveSessionContext<'caller>) -> Result<&'receiver mut U, E>,
     ) -> Result<Self, ChildBindingFailure<E>> {
         Ok(Self {

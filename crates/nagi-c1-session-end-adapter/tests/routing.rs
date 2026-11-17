@@ -7,12 +7,12 @@ use nagi_c1_session_end_adapter::owner_proxy::{
 };
 use nagi_c1_session_end_adapter::{bind_exact_child, ChildBindingFailure, RouteError};
 use nagi_identity_session::{
-    AuthorizationFailure, AuthorizationRequest, CallerContextId, Clock, EndSessionResult,
-    GuestCleanupFailure, GuestProfileCleaner, IdSourceFailure, IdentityAction, IdentityAuthorizer,
-    IdentityError, IdentityIdSource, IdentityService, InMemorySnapshotStore,
-    InteractiveSessionContext, InteractiveSessionError, LocalUserMetadata, NoopIdentityEventSink,
-    PrincipalId, ProfileId, ProfileMetadata, ResolutionError, SessionId, TrustedCallerContext,
-    UnixMillis, UserId,
+    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
+    AuthorizationRequest, CallerContextId, Clock, EndSessionResult, GuestCleanupFailure,
+    GuestProfileCleaner, IdSourceFailure, IdentityAction, IdentityAuthorizer, IdentityError,
+    IdentityIdSource, IdentityService, InMemorySnapshotStore, InteractiveSessionContext,
+    InteractiveSessionError, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId,
+    ProfileMetadata, ResolutionError, SessionId, TrustedCallerContext, UnixMillis, UserId,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -60,6 +60,9 @@ impl TrustedCallerContext for TestCaller {
         }
     }
 }
+
+impl AuthenticatedInteractiveCaller for TestCaller {}
+impl AuthenticatedSystemServicePrincipal for TestCaller {}
 
 #[derive(Clone)]
 struct TestClock(Arc<AtomicU64>);

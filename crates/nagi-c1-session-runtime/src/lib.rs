@@ -11,10 +11,11 @@ use std::fs::File;
 use libnagi::credential::AccountRecord;
 use libnagi::security::{AccountStore, Role};
 use nagi_identity_session::{
-    CurrentIdentityResolver, DurableStoreError, GuestProfileCleaner, IdentityAuthorizer,
-    IdentityError, IdentityEventSink, IdentityService, InteractiveSessionContext,
-    LinuxIdentitySnapshotStore, LocalUserMetadata, NoopIdentityEventSink, ProfileId, ProfileKind,
-    ProfileMetadata, RecoveryReport, ResolutionError, SessionId, TrustedCallerContext, UnixMillis,
+    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, CurrentIdentityResolver,
+    DurableStoreError, GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink,
+    IdentityService, InteractiveSessionContext, LinuxIdentitySnapshotStore, LiveSnapshot,
+    LocalUserMetadata, NoopIdentityEventSink, ProfileId, ProfileKind, ProfileMetadata,
+    RecoveryReport, ResolutionError, SessionId, TrustedCallerContext, TryLiveError, UnixMillis,
     UserId,
 };
 
@@ -31,6 +32,12 @@ pub use ids::LinuxIdentityIdSource;
 /// The verifier record is copied in memory but is never written into the C1
 /// Session store. Only the authorized caller that loads the OS account record
 /// should construct and pass this value.
+///
+/// C1 persists the mapped User/Profile records and Session lifecycle. The
+/// account-to-User/Profile mapping remains trusted integration configuration;
+/// its authoritative source and any persistence belong to the account or
+/// provisioning owner. This adapter checks that each mapping resolves to an
+/// existing persistent profile owned by the mapped User.
 pub struct LocalAccountBinding {
     account: AccountRecord,
     user_id: UserId,
@@ -63,6 +70,7 @@ pub enum RuntimeError {
     AccountMappingUnavailable,
     InvalidAccountMapping,
     ClockUnavailable,
+    Live(TryLiveError),
 }
 
 impl fmt::Display for RuntimeError {
@@ -77,6 +85,7 @@ impl fmt::Display for RuntimeError {
             Self::AccountMappingUnavailable => "authenticated account has no local profile mapping",
             Self::InvalidAccountMapping => "local account profile mapping is invalid",
             Self::ClockUnavailable => "C1 clock is unavailable",
+            Self::Live(_) => "C1 Session liveness could not be observed",
         })
     }
 }
@@ -117,7 +126,7 @@ where
         authorizer: A,
         guest_cleaner: G,
         events: E,
-        recovery_caller: &impl TrustedCallerContext,
+        recovery_caller: &impl AuthenticatedSystemServicePrincipal,
     ) -> Result<Self, RuntimeError> {
         validate_account_names(&accounts)?;
         let store = LinuxIdentitySnapshotStore::open(directory).map_err(RuntimeError::Store)?;
@@ -175,7 +184,7 @@ where
     /// Session lifetime.
     pub fn authenticate_and_login(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         account_name: &[u8],
         password: &[u8],
         expires_at: UnixMillis,
@@ -214,7 +223,7 @@ where
     /// Resolve only the Session currently issued to the trusted caller.
     pub fn interactive_session<'caller>(
         &mut self,
-        caller: &'caller impl TrustedCallerContext,
+        caller: &'caller impl AuthenticatedInteractiveCaller,
     ) -> Result<InteractiveSessionContext<'caller>, RuntimeError> {
         self.ensure_clock()?;
         self.service
@@ -225,6 +234,9 @@ where
                 }
                 nagi_identity_session::InteractiveSessionError::Identity(error) => {
                     RuntimeError::Resolution(error)
+                }
+                nagi_identity_session::InteractiveSessionError::Live(error) => {
+                    RuntimeError::Live(error)
                 }
             })
     }
@@ -239,6 +251,28 @@ where
             nagi_identity_session::InteractiveSessionError::Identity(error) => {
                 RuntimeError::Resolution(error)
             }
+            nagi_identity_session::InteractiveSessionError::Live(error) => {
+                RuntimeError::Live(error)
+            }
+        })
+    }
+
+    /// Nonblocking point-in-time observation for connection maintenance. It
+    /// is not a substitute for `revalidate` before a protected operation.
+    pub fn try_live_snapshot(
+        &self,
+        context: &InteractiveSessionContext<'_>,
+    ) -> Result<LiveSnapshot, RuntimeError> {
+        context.try_live_snapshot().map_err(|error| match error {
+            nagi_identity_session::InteractiveSessionError::CallerMismatch => {
+                RuntimeError::Resolution(ResolutionError::Unavailable)
+            }
+            nagi_identity_session::InteractiveSessionError::Identity(error) => {
+                RuntimeError::Resolution(error)
+            }
+            nagi_identity_session::InteractiveSessionError::Live(error) => {
+                RuntimeError::Live(error)
+            }
         })
     }
 
@@ -246,7 +280,7 @@ where
     /// The old lease is revalidated first and all following access fails closed.
     pub fn logout_interactive(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
     ) -> Result<(), RuntimeError> {
         let context = self.interactive_session(caller)?;
         let session_id = context
@@ -257,6 +291,9 @@ where
                 }
                 nagi_identity_session::InteractiveSessionError::Identity(error) => {
                     RuntimeError::Resolution(error)
+                }
+                nagi_identity_session::InteractiveSessionError::Live(error) => {
+                    RuntimeError::Live(error)
                 }
             })?
             .session_id()
@@ -272,7 +309,7 @@ where
     /// selected User/Profile remains available for later authenticated login.
     pub fn recover(
         &mut self,
-        service_caller: &impl TrustedCallerContext,
+        service_caller: &impl AuthenticatedSystemServicePrincipal,
     ) -> Result<RecoveryReport, RuntimeError> {
         self.ensure_clock()?;
         self.service
@@ -296,7 +333,7 @@ where
 {
     fn resolve_current_identity(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
     ) -> Result<nagi_identity_session::ResolvedIdentity, ResolutionError> {
         self.ensure_clock()
             .map_err(|_| ResolutionError::Unavailable)?;

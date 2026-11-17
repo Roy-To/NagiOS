@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use nagi_identity_session::{Clock, UnixMillis};
+use nagi_identity_session::{Clock, TryClockError, UnixMillis};
 
 #[derive(Clone)]
 pub struct LinuxIdentityClock(Arc<Mutex<ClockState>>);
@@ -47,6 +47,15 @@ impl LinuxIdentityClock {
 impl Clock for LinuxIdentityClock {
     fn now(&self) -> UnixMillis {
         self.checked_now().unwrap_or(UnixMillis::new(u64::MAX))
+    }
+
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        let mut state = match self.0.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::WouldBlock) => return Err(TryClockError::Busy),
+            Err(std::sync::TryLockError::Poisoned(_)) => return Err(TryClockError::Unavailable),
+        };
+        sample_locked(&mut state, wall_millis).map_err(|_| TryClockError::Unavailable)
     }
 }
 
@@ -106,6 +115,16 @@ mod tests {
             Err(ClockFailure::Unavailable)
         );
         assert_eq!(clock.now().get(), u64::MAX);
+        assert_eq!(clock.try_now(), Err(TryClockError::Unavailable));
+    }
+
+    #[test]
+    fn nonblocking_clock_reports_busy_without_waiting_for_the_shared_lock() {
+        let clock = LinuxIdentityClock::open().unwrap();
+        let guard = clock.0.lock().unwrap();
+        assert_eq!(clock.try_now(), Err(TryClockError::Busy));
+        drop(guard);
+        assert!(clock.try_now().is_ok());
     }
 
     #[test]
