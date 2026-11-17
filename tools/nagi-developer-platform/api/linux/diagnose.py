@@ -17,9 +17,15 @@ from common.pt01_report import ReportError, adapt_report_v1, read_report
 # Mask only evidence supplied by PT-01. This is a C/C++ token projection, not a
 # parser: incomplete fragments and symbol-only evidence cannot establish the
 # surrounding lexical state. Comments are dropped; literals become barriers.
+# Comments are replaced by a space before directives are processed (C/C++
+# translation phase 3), so `#/**/include /* c */ <h>` is still an include. The
+# A gap comment cannot contain `*/`, so backtracking cannot stretch one comment
+# over code (`# /* a */ define /* b */ include`); the alternatives are disjoint.
+_DIRECTIVE_GAP = r'(?:[ \t]|/\*(?:[^*]|\*(?!/))*\*/)*'
 _LEXEMES = re.compile(
     r'(?P<comment>//[^\r\n]*|/\*.*?(?:\*/|\Z))'
-    r'|(?P<include>\#[ \t]*include[ \t]*(?:<(?P<angle>[^>\r\n]*)>|"(?P<quoted>[^"\r\n]*)"))'
+    r'|(?P<include>\#' + _DIRECTIVE_GAP + r'include' + _DIRECTIVE_GAP
+    + r'(?:<(?P<angle>[^>\r\n]*)>|"(?P<quoted>[^"\r\n]*)"))'
     r'|(?P<raw>(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\r\n]{0,16})\(.*?\)(?P=delimiter)")'
     r'|(?P<string>(?:u8|u|U|L)?"(?:\\.|[^"\\])*(?:"|\Z))'
     r'|(?P<number>\d(?:[\w.]|\'(?=\w))*)'
@@ -84,7 +90,12 @@ def occurrences(tokens):
             continue
         if prev == ("op", "::"):
             before = tokens[i - 2] if i >= 2 else None
-            if before is not None and (before[0] == "id" or before in (("op", ">"), ("op", ")"), ("op", "]"))):
+            # `return ::open(...)`: a keyword that introduces an expression is
+            # not a namespace or class name, so the call stays global scope.
+            qualified = before is not None and (
+                (before[0] == "id" and before[1] not in _EXPRESSION_KEYWORDS)
+                or before in (("op", ">"), ("op", ")"), ("op", "]")))
+            if qualified:
                 continue
             qualifier = "global"
         is_call = i + 1 < len(tokens) and tokens[i + 1] == ("op", "(")

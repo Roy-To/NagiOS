@@ -236,6 +236,23 @@ class ClassificationTests(unittest.TestCase):
             self.assertEqual(("lexical_candidate", ["global_scope_call"]),
                              (row["detection"], row["syntax_shapes"]), evidence)
 
+    def test_global_scope_call_after_expression_keyword(self):
+        # A keyword before `::` is not a namespace; the global call must stay known.
+        for evidence, rule in (("return ::open(p, 0);", "POSIX-FILE-OPEN"),
+                               ("return ::close(fd);", "POSIX-FD-CLOSE"),
+                               ("co_return ::read(fd, b, n);", "POSIX-FILE-READ"),
+                               ("else ::close(fd);", "POSIX-FD-CLOSE"),
+                               ("return(::close(fd));", "POSIX-FD-CLOSE")):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="posix-api"))["rows"][0]
+                self.assertEqual((rule, "lexical_candidate", ["global_scope_call"]),
+                                 (row["rule_id"], row["detection"], row["syntax_shapes"]))
+        # Real qualifiers before `::` still hide the unqualified C name.
+        for evidence in ("return ns::close(fd);", "return Reader::read(b);", "ret ::close(fd);"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="posix-api"))["rows"][0]
+                self.assertEqual(("unknown_api", None), (row["detection"], row["rule_id"]))
+
     def test_local_definitions_are_demoted_not_hidden(self):
         for evidence in ("static ssize_t read(int fd, void *b, size_t n) {", "int open(const char *p);",
                          "ssize_t write(int, const void *, size_t);"):
@@ -268,6 +285,22 @@ class ClassificationTests(unittest.TestCase):
                         '#include "sys/epoll.h"', '#include <sys/epoll.h> // note',
                         '/* c */ #include <sys/epoll.h>'):
             self.assertEqual(["LNX-EPOLL"], rule_ids(snippet), snippet)
+
+    def test_comments_inside_include_directive_are_whitespace(self):
+        for snippet in ('#include /* comment */ <sys/epoll.h>', '#/* c */include <sys/epoll.h>',
+                        '# /* a */ include /* b */ <sys/epoll.h>', '#include/**/"sys/epoll.h"',
+                        '#include /* a\n b */ <sys/epoll.h>', '#include /* ** */ <sys/epoll.h>'):
+            with self.subTest(snippet=snippet):
+                row = run(report(snippet))["rows"][0]
+                self.assertEqual(("LNX-EPOLL", ["include"], ["sys/epoll.h"]),
+                                 (row["rule_id"], row["syntax_shapes"], row["original_apis"]))
+        # Includes inside literals/comments stay ignored, and a gap comment never
+        # stretches across code to fabricate an include.
+        for snippet in ('"#include /* c */ <sys/epoll.h>"', '// #include /* c */ <sys/epoll.h>',
+                        "R\"(#include /* c */ <sys/epoll.h>)\"", '#include /* unterminated <sys/epoll.h>',
+                        '# /* a */ define X /* b */ include <sys/epoll.h>'):
+            with self.subTest(snippet=snippet):
+                self.assertIsNone(run(report(snippet))["rows"][0]["rule_id"])
 
     def test_real_code_after_comment_or_string_still_detected(self):
         for snippet in ("/* x */ fork();", 'puts("a"); fork();', "// c\nfork();", "'x'; fork();",
