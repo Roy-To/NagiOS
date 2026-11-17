@@ -1,8 +1,8 @@
 # DEC-071 — 初心者向けNagi Native App制作体験
 
-**状態:** CONFIRMED（純正の初心者向け制作体験、自然言語とローカルLLMを活用した小規模な日常アプリ、試用・導入・共有／配布を目指す方向）／PROVISIONAL（製品形態、Porting Toolkitとの統合、モデル・SDK・実装・配布の詳細、適用版）
-**最終合意日:** 2026-11-15
-**適用候補:** 将来のNagi Native App制作・開発者／配布環境。release・実装時期は未確定
+**状態:** CONFIRMED（既存の初心者向け自然言語・ローカルLLM制作／試用・導入・共有の将来方向、PX-13の対話型共同制作B＋将来の継続的・個人適応型共同制作C、当面はローカル完結型制作環境よりCloud AIとの橋渡し・移植支援を重視する優先方向）／PROVISIONAL（画面・Preview・修正導線・Memory許可UI、Cloud接続・Provider／データ交換方式・モデル／SDK／技術・性能・具体版・受入）
+**最終合意日:** 2026-11-17（PX-13と優先順位を後続確認。2026-11-15の制作構想は長期方針として維持）
+**適用候補:** 将来のNagi Native App制作・開発者／配布環境。高度な統合制作体験は低優先の長期目標（1.0計画のごく後期が目安）とし、release確約・実装時期は未確定
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)、[DEC-075（アプリ試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-036（共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[DEC-076（Action API連携）](DEC-076-builder-generated-action-api-integration.md)、[DEC-045（Nagi Porting Toolkit）](DEC-045-nagi-porting-toolkit.md)、[DEC-043（独立OS方針）](DEC-043-nagi-userland-independent-os.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的とユーザー体験
@@ -28,6 +28,37 @@
 - **開発Project（DEC-040）・Action API（DEC-076）:** ソース等の長期保持と、必要なアプリ機能を正規Action APIとして提案・検証する境界を定める。本DECは保存形式やAction契約を作り直さない。
 - **現状の実装との区別:** 公開正本で確認したのは製品方針・設計案であり、初心者向け制作ソフト、Porting Toolkit、Nagi Native App制作から配布までの動作が既に提供されていることではない。
 
+## PX-13 — 対話型共同制作B＋将来の個人適応型共同制作C／当面のCloud AI橋渡し重視（2026-11-17）
+
+### CONFIRMED — 将来の完成形はB案を基本、将来C案へ発展
+
+- **B：対話型の共同制作体験。** 自然言語による目的説明を起点に、実際の機能・画面の設計案、利用可能なPreview、ユーザーの修正指示、承認されたScope内のBuild／Test、確認できる場合の安全な試用、採用判断から別途承認付きの正式導入までを、初心者にも分かりやすく一連の体験として目指す。Preview／Testは検証済み動作と未検証項目を区別し、試用・正式導入を一つの承認へまとめない。
+- **将来C：継続的・個人適応型の共同制作体験。** 既存の[DEC-070](DEC-070-memory-informed-native-app-creation.md)に従い、同一User／Profileの許可されたMemory・明示設定・ユーザーの採用／修正履歴を利用して、設計候補や改善案を提案できる方向へ発展させる。[DEC-040](DEC-040-builder-app-development-project-retention.md)の保護された開発Projectから後日再発見・改良できる方向を維持する。導入済みアプリの無断変更は行わず、正式更新にはDEC-035の別承認を要する。
+- 両案とも**製品体験の高水準方向**であり、IDE一体化・画面形式・Previewエンジン・Memory参照UI・技術方式・モデル・提供版の決定ではない。
+
+### CONFIRMED — 当面はローカル完結型の開発環境に固執せず、Cloud AIとの橋渡しと移植支援を重視
+
+- 現在すでに利用できる一般的な自然言語コーディング環境（例：外部のCloud AIを使った開発）と競合する**独自の全面統合型アプリ開発環境の早期完成を急がない**。Nagi側はまず、実在するNagi SDK／API・Package／Permissionの契約、移植対象の診断結果・未対応点、確認済みのBuild／Test結果等を、開発者が選択した既存IDE・人間・外部開発AIと**安全かつ円滑に受け渡せる開発補助／橋渡しの体験**を重視する。
+- **ローカルLLMは橋渡し・説明・軽量な補助を担える方向**とし、例えばNagi固有の制約を説明したり、正規SDK/APIの利用可能範囲を確認して移植・実装候補を整理したり、許可された外部開発AIへ渡す候補情報と返された成果を理解・レビューする補助を目指す。Local AIだけでアプリ全体を完成させることを当面の成立条件にせず、外部Cloud AIを使う選択を可能にする。外部Cloud AI使用そのものは必須ではなく、人手・非AI診断・ローカル開発も利用できる。
+- **他OSアプリのNagi Native移植支援を重要な用途**とする。[DEC-017](DEC-017-third-party-developer-ecosystem.md)／[DEC-045](DEC-045-nagi-porting-toolkit.md)のWindows／Linux先行、Portable coreの再利用、PT-01〜06の非AI診断／段階的変換・検証を維持し、ローカルLLMがCloud AI／開発者との間でNagi側の仕様・不足API・検証情報を橋渡しできる方向を追加する。移植支援は既存アプリの無変更実行や自動移植成功を意味しない。
+- **優先順位と時期:** Nagi OSの基盤・日常のAI組み込み体験を先に進める。完成度の高い独立／統合アプリ制作環境と高度な共同制作体験は**1.0に至るロードマップの最終盤を目安とする低優先の長期目標**であり、近距離版のRelease Blockerや初期0.4の完了条件へ新たに昇格させない。**1.0の特定版・後半フェーズでの提供確約、または1.0までに必須として完成させる合意ではない**。一方、DEC-017／DEC-021で既にCONFIRMEDの**1.0までの公開開発者環境・アプリ配布基盤という高水準目標**は別対象として維持する。host-only診断等の非競合な先行準備を一律に止める方針でもない。
+
+### 維持する既存の安全／製品境界（CONFIRMED）
+
+- **[DEC-002](DEC-002-cloud-ai-data-sharing.md):** 外部AIへのソース・Task Context・開発情報・Resource・Memory送信は、利用者が許可したProvider／Service、Purpose、情報区分、対象Resource、User／Profile、期間／Task等のScopeと現行Permission・組織Policyに従う。分類不明・機微／秘密情報の無断送信を認めず、Activityに記録し取り消し可能にする。ローカルLLMによる整理・要約や橋渡しの役割は**送信許可ではない**。Cloud AIをNagi Memoryの正本としない。
+- **builderとNative App契約:** 初期はNagi自身が`builder` Roleへ切替（DEC-015／016）。実行にはTask／Action／Workspace／Resource Scopeの承認、隔離編集・検証と元ファイル保護（DEC-018）、実在するSDK／Package・Permission／Capability／Policyを必要とする。AI生成結果を未検証のまま適用・正式導入しない。Git commit／pushや外部送信・公開は既存の別承認。
+- **試用・導入・共有・更新:** DEC-075の安全な試用→ユーザー採用判断→正規Package検証→正式導入の別承認、DEC-036の個人利用標準と共有／公開の別承認、DEC-035の正式更新承認、DEC-040／041の開発Project・利用者データの保護／削除分離、DEC-076の用途別Public Action提案と通常GUI維持を継承する。
+- **Memory個人化:** DEC-070で許可されたMemoryは設計案への利用であり、元のMemory・Credential・Permissionを生成アプリや外部Cloudに暗黙に転送せず、User／Profileの所有・分類・忘却の規則を守る。AIが不在でも非AIの開発者契約・通常アプリGUIを妨げない。
+- **Release／実装Gate:** 本決定は新しいWorkstream着手許可、PT-01〜06の実装完了、0.4 Entry Gate／Integration Owner checkpointの解除、1.0公開の承認、性能保証ではない。現行Release／Activation／Acceptance GateとWorkstream ownerを維持する。
+
+### PX-13の詳細未決事項（PROVISIONAL／OPEN）
+
+- 対話・設計案・Preview・修正・実装／テスト・試用／採用・導入の具体的画面構成と導線、独立IDE／Nagi Home内などの製品形態、初期の対応Appタイプ／規模。
+- Local LLMと外部開発AIの役割分担の具体的方式、Provider／Connector／認証／通信・データ交換／SDKメタデータSchema、ソース／Contextの選択・共有UI、Cloud許可UIの実装、モデル／性能・端末要件、Offlineで可能な工程とFallback。
+- 既存アプリ移植でCloud AIを組み込むときの診断→補助→修正提案→差分検証の技術・対応対象／Framework、出力や検証証拠の互換、工数削減・安全性の受入値。
+- Memory参照の選択・許可・取消・レビューの詳細UI、個人向け設計案の生成・表示、開発Project保存／後日再発見のUI、独立した配布／正式更新手順のUI。
+- 具体的な完成時期と対象Version、1.0との関係、担当・Workstream・優先度の実行計画、品質基準・Acceptance、正式リリース判断。
+
 ## 差別化の候補（REVIEW NOTE／PROVISIONAL）
 
 2026-11-15に確認したGoogle公式情報では、対応するChromebookのLinux環境で開発者がCLI、コードエディタ、IDEを導入してアプリを作れる。Googleはさらに、Googlebook上のAntigravityをアプリのbuild／test／deployに使えるAI開発環境として紹介し、Gemini Canvasによるスケッチからのアプリ生成とPreview、Google AI Studioのfull-stack vibe codingも公表している。したがって「自然言語でコードを作る」「生成結果をPreviewする」だけでは、Nagi独自の価値を説明しにくい。
@@ -36,6 +67,8 @@
 - [Googlebookの予約開始と開発者向け機能（Google、2026-09-21）](https://blog.google/products-and-platforms/devices/googlebook/pre-order-googlebook/)
 - [Gemini Canvasでスケッチからアプリを作る（Google、2026-11-05）](https://blog.google/innovation-and-ai/products/gemini-app/turn-drawings-into-apps-gemini/)
 - [Google AI Studioのfull-stack vibe coding（Google、2026-03-18）](https://blog.google/innovation-and-ai/technology/developers-tools/full-stack-vibe-coding-google-ai-studio/)
+
+**2026-11-17後続確認:** 下記の旧REVIEW NOTE「Local-firstの制作」はローカルLLMのみを必須の既定開発経路とする決定ではなく、PX-13でCONFIRMEDとなったCloud AIとの橋渡し重視が優先する。外部送信はDEC-002の許可内に限定する。
 
 **提案候補 — まだ製品仕様としては未承認:**
 
@@ -74,5 +107,6 @@ DEC-017が定める1.0に向けた公開開発者環境とアプリ配布基盤�
 |---|---|
 | 2026-11-15 | ユーザーが、ローカルLLMを使い初心者が自然言語から小規模なNagi Native Appを作成し、試用・正式導入・共有／配布できる純正体験を望む方向を確認。製品形態、実装・配布方式、モデル条件、適用版は暫定として分離した。 |
 | 2026-11-16 | PR #110の旧DEC-052をDEC-071へ改番。mainの実機候補DEC-052との番号競合を解消。決定内容・状態・原合意日を保持。 |
+| 2026-11-17 | PX-13は対話型共同制作Bを基本・将来の個人適応型継続制作Cを高水準CONFIRMED。ただし当面はローカル完結型の制作環境完成を急がず、ローカルLLMをNagi SDK／移植診断とCloud AI／既存IDE・人間との安全な橋渡しに活用する方向を優先。独立した高度な制作環境は1.0計画の最終盤を目安とする低優先長期目標（提供Version・時期はPROVISIONAL）とし、DEC-017の1.0公開開発者環境／配布基盤目標、DEC-002の事前許可、既存試用・導入・更新・共有Gateを維持。 |
 
 関連する個人化の追加決定は[DEC-070](DEC-070-memory-informed-native-app-creation.md)を参照。初心者向け制作という共通方針を共有し、Memory利用の別決定を置き換えない。
