@@ -387,7 +387,7 @@ jobs:
           exit "$bootstrap_status"
       - name: Verify M17 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
@@ -403,7 +403,7 @@ jobs:
           fi
       - name: Verify M18 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M18 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
