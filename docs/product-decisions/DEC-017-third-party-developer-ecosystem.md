@@ -8,8 +8,8 @@
 > **2026-11-12 方針変更:** 本書の「独自カーネルの強みを活かす」というカーネル選択の前提のみ、[DEC-042](DEC-042-linux-kernel-transition.md)によりSUPERSEDED。Linuxカーネルへの方針転換はCONFIRMED。AI coding優先・段階的公開API統合・開発者／配布目標は維持し、Linuxアプリの無変更互換性、ユーザーランド、移行時期は承認されていない。 旧本文は履歴として保持し、本注記がカーネル選択について優先する。既存実装仕様・ADR・Release / Activation Gateは変更しない。
 
 
-**状態:** CONFIRMED（開発者体験・段階的統合・Nagi Native Apps専用・移植負担低減目標）／PROVISIONAL（個別技術・対応範囲・工数・実装詳細・到達時期）  
-**最終合意日:** 2026-11-13  
+**状態:** CONFIRMED（従前のNagi Native Apps・段階的統合・開発者環境／移植負担削減・1.0開発者／配布基盤目標、PX-14のAI連携・移植支援統合体験B＋将来の継続開発・配布支援Cの高水準方針）／PROVISIONAL（初期言語・Framework・SDK詳細・CLI／UI・Cloud Provider／接続・署名／Package・配布実装・性能・提供版）  
+**最終合意日:** 2026-11-17（PX-14追加。2026-11-13までの採用仕様を維持）  
 **対象:** 0.1の先行準備、0.2 Platform Foundation、0.3 Personal Agent、および1.0に向けた開発者・配布環境  
 **関連:** DEC-001、DEC-007、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041（アンインストール）](DEC-041-builder-app-uninstall-and-data-deletion.md), [DEC-071（初心者向けApp制作）](DEC-071-nagi-native-app-creation-experience.md)
 
@@ -103,6 +103,39 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 
 正式導入済みアプリの通常アンインストールではアプリ本体のみを削除し、ユーザーデータ・設定・保護ソースコード・DEC-040の開発Project／履歴を原則保持する。完全削除はNagiが対象、既知の共有参照、影響、回復可否を示し、ユーザーが削除対象を個別に選び承認した場合に限る。共有データ、作業中成果、復旧情報、他ユーザー所有・未確認データを巻き込まず、現在のPermission／Policyと正規OS経路に従う。再インストールや再ビルド、古いPermissionの復元は保証しない。保持期間、UI、実装・版割当ては未確定であり、既存Gateも変更しない。正本は[DEC-041](DEC-041-builder-app-uninstall-and-data-deletion.md)。
 
+## PX-14 — AI連携・移植支援を統合する開発者体験B＋将来の継続開発／配布支援C（2026-11-17）
+
+### CONFIRMED — B案を基本とする高水準の開発者体験
+
+開発者が**既存のWindows・macOS・Linuxホスト、一般的なIDE／ツールチェーンと必要に応じたCloud開発AIをそのまま使い**、Nagi公開SDK／Manifest／Package契約、Nagi Native向け移植診断、適用候補の説明、許可されたBuild／Test／Package検証、Target上の独立した動作・Permission試験を**連続した理解しやすい開発・移植・検証・配布準備体験**として扱えるようにする。
+
+ローカルLLMには、**現に存在するNagi SDK／API・対応不足・Porting Toolkit診断結果と、ユーザーが選んだCloud開発AI・IDE・人間の間を安全に橋渡しする補助**を期待する。決定論的な診断・Manifest／SDK検証・手動開発・通常アプリの開発はLocal／Cloud AIなしでも成立させる。**SDK・CLI・Porting Toolkitを単一の専用IDEへ統合すること自体は要件としない**。公開SDKにない機能や未実施のTest／Package署名を「使える／検証済み」と表示しない。
+
+これは**開発者体験の高水準方針**であり、最初の具体的な言語、Framework、SDK API面、CLI操作名、Cloud Provider、Package署名・配布経路、1.0に搭載する個別Toolkit機能を新たに確定するものではない。
+
+### CONFIRMED — 将来C案へ発展する方向
+
+Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／ABI更新や対応Nagi OS版変更に伴う**影響分析・依存関係と互換性の確認、Nagi対応版の継続保守、更新Packageの検証・配布準備、変更差分と品質証拠の引継ぎ**をより広く支援する開発者・配布プラットフォームへ発展させる。
+
+将来のStore等との連携は選択肢であり、**Storeを唯一の配布経路に限定しない**。更新・審査・署名・正式インストール／外部送信を自動許可するわけではなく、提供Version・対応範囲・継続的互換性を保証しない。
+
+### 維持する既存CONFIRMED・安全境界
+
+- **[本DEC](DEC-017-third-party-developer-ecosystem.md)と0.2-M21の契約:** Nagi Native Apps専用であり、無変更Windows EXE／Linux ELF／APK実行互換を標準採用しない。既存IDE・ホスト利用、Rust SDKを中心に必要な境界への安定C ABI、純正／第三者共通の公開SDK／Public API・Manifest／Package／Permission、**Level 0の通常GUIからLevel 1〜3へ任意の段階統合**を維持し、AI非必須の基本アプリを許す。現行の0.2-M12／M21のManifest／Package／SDK、out-of-tree sample／Target Acceptanceは置き換えない。
+- **移植元の優先順位:** PCではWindows／Linuxを同等に重視し、将来のMobile／TabletではAndroidを第一検討対象、macOS／iOS由来アプリの移植支援は当面後順位とする。macOSを開発ホストとして利用できる既存方針は維持する。Portable coreの再利用は目標であり、移植成功・同等性能の保証ではない。
+- **[DEC-045](DEC-045-nagi-porting-toolkit.md) PT-01〜06:** read-only source診断、既存SDKに準拠した雛形、OS API差分診断＋AI修正提案、UI構造解析＋AI補完、非AI中心のBuild／Test／Package、実移植の継続評価という役割分担を維持する。**host-only静的／Build検証とNagi Target上の起動・GUI・権限・保存等の実受入を区別**し、host成功をTarget PASSとしない。PT番号と製品方向はToolkit実装完了・担当割当・新規着手許可ではない。
+- **[PX-13](DEC-071-nagi-native-app-creation-experience.md)との役割分離:** 初心者向けNagi上の全面統合制作環境を急がず、当面は既存IDE・外部Cloud AIとNagi SDK・診断をつなぐ方向を重視する後続決定と両立する。PX-14のBは独立した高機能Nagi IDEを1.0必須へ昇格しない。現行の0.4初期`builder` Roleとその権限・Gateも変更しない。
+- **[DEC-002](DEC-002-cloud-ai-data-sharing.md):** Cloudへのソース・診断・ログ・Contextの送信は、許可済みService／Provider、Purpose、情報区分、Resource、Profile、Task／期間、現行Permission／組織Policyの範囲に限る。ローカルLLMが要約した情報でも自動送信の許可にはならず、機微・秘密・未分類情報を無断転送しない。Cloud AIやToolkitを特権主体にしない。
+- **成果物・公開の別承認:** 変更差分・修正適用・外部依存取得／実行、Build／Test、Package検証／署名、正式インストール、更新、第三者共有、GitHub／Storeでの公開は既存の別操作・別Permission／承認Scopeに従う。[DEC-075](DEC-075-builder-app-trial-and-installation.md)の試用／採用判断／正式導入、[DEC-036](DEC-036-builder-app-sharing-and-publication.md)の出力／外部送信／一般公開、[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)の署名／信頼の区別を維持する。秘密情報、Profile／Memory、署名鍵や元の認可をPackageに流用しない。
+- **1.0とGate:** 公開開発者環境・アプリ配布基盤を1.0で整える既存の**高水準製品目標は維持**する。PX-13の高度な統合制作IDEとPX-14の全機能が1.0で完成する確約ではない。0.1〜0.4 Release／Activation／Acceptance Gate、Workstream owner／承認済みpath、PT実装・Target合格条件、0.5〜1.0の暫定版別マップを変更しない。
+
+### PX-14で未確定の範囲（PROVISIONAL／OPEN）
+
+- 初期の対象言語・Framework・GUI部品・移植元サンプル、SDK／Public API機能・IDL／ABI・binding範囲、サポートVersion・互換性保証範囲・対応Deviceの具体的な構成。
+- CLI／開発者UI・エラー／証拠・Tool呼出契約、IDE接続、ローカルLLM・Cloud AIのProvider／Connector・情報受渡しSchema・許可UI・Offline／Fallback詳細。
+- 移植分析・修正案・Package／署名／審査／side-load・更新・Store等の具体的な分担・データ形式と公開／配布フロー。既存の承認必須境界はPROVISIONALには戻さない。
+- 品質・性能・セキュリティ／Accessibilityの定量基準、API互換テスト・評価サンプル・開発／移植工数、host／Target試験の詳細Acceptance、実装技術、担当／Workstream、提供Version／順序・時期。
+
 ## 例外・禁止・安全境界
 
 - 本決定は製品方針と目標配置を記録するもので、実装済み、Workstream開始、Acceptance通過、release activationを意味しない。
@@ -172,3 +205,4 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 | 2026-11-16 | DEC-061の純正PDF Reader / Editor方針への参照を追加。既存の公開API・AI非必須・権限境界と整合させ、実装版・既存Gateは変更しない。 |
 
 | 2026-11-15 | DEC-071として、Porting Toolkitの既存アプリ移植に加え、初心者がローカルLLMを使い自然言語から小規模な新規Nagi Native Appを作り、試用・導入・共有／配布する純正体験の方向を確定。製品形態・Toolkit連携・技術・版は未確定。 |
+| 2026-11-17 | PX-14は既存IDE／SDK／PT-01〜06／Cloud開発AIとの橋渡し・Build／Test／Package／Target検証を一連の開発者体験とするBを基本、将来は互換性・更新Package・保守・配布までの継続開発支援Cに拡張する高水準方針をCONFIRMED。Nagi Native／Level 0〜3、Windows／Linux重点、DEC-002送信許可、導入・公開別承認、0.2-M21と1.0開発者環境・配布基盤目標を維持。初期SDK／言語・CLI／Cloud／署名・配布詳細・性能・版はPROVISIONAL。 |
