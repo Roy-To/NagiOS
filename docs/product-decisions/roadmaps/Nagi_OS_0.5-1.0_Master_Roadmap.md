@@ -25,6 +25,22 @@
 
 > This document proposes a path beyond 0.4. It does not replace an implementation specification, approve a release, activate a workstream, or change an existing acceptance gate. Treat the version-by-version allocation below as provisional until a later decision is recorded.
 
+## PX-13 — Cloud AI橋渡しを優先する開発支援と長期制作環境（2026-11-17）
+
+[DEC-071](../DEC-071-nagi-native-app-creation-experience.md)／[DEC-021](../DEC-021-roadmap-0.5-1.0.md)の追加決定。**CONFIRMED（高水準の優先順位）:** 初心者向けアプリ制作はB（対話型共同制作）＋将来C（許可された個人Memory・継続改善を生かす高度な共同制作）を長期製品方向に保持。ただし、独立・全面統合のローカル完結型開発環境を当面の近距離Releaseの優先事項とせず、NagiのローカルLLMが**Nagi公開SDK／API・移植診断／検証結果と、ユーザーが選択するCloud AI・既存IDE・人間を橋渡しする開発補助**と、他OS（初期はWindows／Linux）からのNagi Native移植支援を重視する。[DEC-045](../DEC-045-nagi-porting-toolkit.md)の非AI診断・段階的PT-01〜06／手動の選択は維持。
+
+**時期の扱い:** 高度な統合制作環境は**1.0に至る計画の最終盤を目安とする長期・低優先項目**。具体的な1.0の出荷版・納期・実装完了条件はPROVISIONALであり、1.0への追加必須条件でも、既存の0.4初期builder Role workflow／Entry Gateの撤回でもない。[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・配布基盤を1.0までに整備するという別の高水準目標**は変更しない。§4の暫定版別マップはそのまま維持する。
+
+**Cloud Permission:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の事前許可・送信対象／目的／Provider・機密分類・現行Permission／Policy／Activity・取消を必須とし、ソース全文・秘密情報・個人Memoryの無断送信を認めない。Local LLMをCloud Agentの秘密の権限経路にしない。Cloud連携方式・Provider／Model・UI・性能・具体的提供Version、対応Framework／受入は未決定。既存Release／Activation／Acceptance GateとWorkstream owner・先行準備の個別許可を維持する。
+
+## PX-14 — 公開開発者環境・Porting ToolkitとAI橋渡しの統合体験（2026-11-17）
+
+**CONFIRMED（高水準方向）:** [DEC-017](../DEC-017-third-party-developer-ecosystem.md)のPX-14では**B：既存IDE・ホストから公開SDKとPorting Toolkit（PT-01〜06）の診断・雛形・移植案、任意のLocal LLM／許可済みCloud開発AIの橋渡し、Build／Test／PackageとNagi Targetの独立検証までを一貫した開発者体験にする**方針を採用。将来は**C：SDK／依存の互換性・更新影響、継続保守、更新Package／配布準備をより広く支援**する方向へ拡張する。Nagi Native Apps専用、Level 0〜3、Windows／Linux重点、Android将来候補／Apple系後順位は変更しない。Storeを唯一の配布先としない。
+
+**位置付け:** PX-13で後順位としたローカル完結型の高度な初心者向け制作IDEの早期完成を、PX-14により復活させない。既存の**1.0公開開発者環境・アプリ配布基盤という高水準製品目標**を維持し、PX-14の全Toolkit機能／Cloud Connector／Storeや特定アプリの1.0完成を確約しない。§4の版別マップは引き続きPROVISIONAL。
+
+**Permission・証拠・未決:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の外部送信の事前許可、ソースとResource／ProfileのScope、Host診断／Host Build／Nagi Target動作Acceptanceの分離、Package署名・導入・出力／共有／一般公開の別認可を保持。実際のSDK/API・CLI／UI、初期対象言語・Framework、Cloud Provider／技術、Package／署名／配布方式、性能・品質・提供版・担当／受入はPROVISIONAL。既存0.1〜0.4 Release／Activation／Acceptance Gate・Workstream／実装開始許可を変更しない。
+
 ## 1. Purpose and status labels
 
 > **2026-11-16 connectivity update:** [DEC-066](../DEC-066-device-connectivity-lan-first.md) confirms same-Wi-Fi/LAN Nagi devices as the initial connectivity target and a shared Device Connectivity/Trust/Transport abstraction without hardcoded transports. Nearby direct Wi-Fi and remote internet connectivity remain extensible options; initial remote support, always-on Cloud, online Nagi accounts and operator-run servers are not required. Preserve offline-first, authentication/trust, encryption, explicit permission, current User/Profile/Resource Permission and Privacy, revocation, external communication scope, and DEC-014's separate migration/sync/cloud grants. No implicit transfer, synchronization or Task replay; Clipboard remains unadopted. Protocols, UI, devices, operations/costs, release timing and performance remain provisional. This does not assign the feature to 0.8 or any other release or change existing gates.
@@ -138,6 +154,16 @@ Later implementation specifications should turn these themes into measurable cri
 - **Responsiveness and resource use:** Foreground UI and voice interaction take priority over background Agent workloads; resource exhaustion is reported rather than counted as success. Evaluate measured hardware/load paths and track latency, CPU, RAM, power, token use, and task quality before claiming efficiency.
 - **AI interaction path:** Begin with small structured Context and retrieve additional detail only through authorized references; recheck Permission, classification, provenance, ownership, scope, Resource, and revision each time. Preserve DEC-002's authorized sharing rules and approved-Task exceptions. Contract Events, deterministic-first processing, typed Public Action execution, and normal GUI availability remain consistent with DEC-020. Event detection alone does not authorize model inference, a notification, or an Action.
 - **Hardware migration:** Hardware-dependent Memory indexes and Context adapters can be rebuilt from canonical model-independent Memory without changing its ownership, provenance, permissions, or forgetting state.
+
+## PX-15 — 実用OS 1.0の品質基準Bと将来の総合OS C（2026-11-17）
+
+**CONFIRMED（高水準製品完成方針）:** [DEC-021](../DEC-021-roadmap-0.5-1.0.md)に従い、1.0は**正式サポートを宣言したPC／Target・機能の範囲で、代表的な日常作業をNagiの許可されたAIと通常GUIから安全・安定して完了でき、後日継続利用できる実用OS B**を基準とする。搭載する機能や端末の数ではなく、宣言した範囲の一般公開品質・実際の復旧／継続・客観的なTarget Runtime実証と制限の明記を優先する。**将来C**として対応Hardware／周辺機器・純正／第三者アプリ・利用形態を段階的に広げる総合OSへ発展する。すべての機器・アプリ、複数階層Agent、独立した高度開発IDEの全面完成を1.0に要求しない。
+
+**既存の確定方向を維持:** 1.0の一般公開可能な品質・安定性・Security・Compatibility・Developer experience、および[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・アプリ配布基盤という高水準目標**を維持。[DEC-074](../DEC-074-human-led-agent-organization.md)の「AIをOS標準体験として優先・階層型組織は非優先長期方向」、AIなしの通常GUI／通常a11yと、Permission／Privacy・User／Profile／Memoryの所有・復元の境界、Workstream／Release／Activation／Acceptance Gateを変更しない。Host-only・旧Runtime・文書だけの証拠を未確認のLinux／実機Target正式対応としない。
+
+**評価領域と詳細の区別:** §5のcross-release themesと§6のcandidate readiness evidenceは、1.0 Implementation Specificationが対象環境・代表作業・合格値・試験環境・客観証拠を定める際に用いる**評価項目の候補**である。インストール／起動、日常GUI、Task／Memory／Workspace、権限・Recovery／更新、対応純正アプリ、公開SDK／正規Package・配布、Target動作・応答性などを検討するが、**本記録は各項目の採用済みの必須チェック一覧や測定値、新しいRelease Gateを確定するものではない**。§4の0.5〜1.0版別対応表もPROVISIONALのまま。
+
+**PROVISIONAL／OPEN:** 代表作業シナリオと1.0必須・任意・後続の純正アプリ／機能、対応PC・周辺機器・Hardware profile／Device matrix、互換形式、Locale／アクセシビリティ、Performance・Reliability・SecurityとResource使用量の数値／許容不具合、試験・合否証拠／Support／更新・配布・公開判定手順、具体実装・提供Version・日程。実装済み・Target PASS・一般公開決定を意味しない。
 
 ## 6. Candidate 1.0 readiness evidence
 
