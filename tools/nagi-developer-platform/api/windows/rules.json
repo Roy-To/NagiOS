@@ -11,7 +11,7 @@
   "rules": [
     {
       "id": "WIN-HEADER", "family": "win32", "classification": "platform_dependency",
-      "aliases": ["windows.h"],
+      "aliases": ["windows.h"], "case_insensitive": true,
       "reason": "The Windows header indicates a platform-specific dependency candidate.",
       "availability": "unsupported", "alternatives": [],
       "gaps": ["Separate platform adapters; the current public SDK does not provide windows.h."],
