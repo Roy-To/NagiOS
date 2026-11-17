@@ -10,11 +10,11 @@ use nagi_c1_session_runtime::{
     RuntimeError,
 };
 use nagi_identity_session::{
-    AuthorizationFailure, AuthorizationRequest, CallerContextId, GuestCleanupFailure,
-    GuestProfileCleaner, IdentityAction, IdentityAuthorizer, IdentityError, IdentityService,
-    LinuxIdentitySnapshotStore, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId,
-    ProfileMetadata, RecoverySource, SessionId, SessionLifecycle, TrustedCallerContext, UnixMillis,
-    UserId,
+    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
+    AuthorizationRequest, CallerContextId, GuestCleanupFailure, GuestProfileCleaner,
+    IdentityAction, IdentityAuthorizer, IdentityError, IdentityService, LinuxIdentitySnapshotStore,
+    LiveStatus, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId, ProfileMetadata,
+    RecoverySource, SessionId, SessionLifecycle, TrustedCallerContext, UnixMillis, UserId,
 };
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(1);
@@ -74,6 +74,9 @@ impl TrustedCallerContext for TestCaller {
         &self.context
     }
 }
+
+impl AuthenticatedInteractiveCaller for TestCaller {}
+impl AuthenticatedSystemServicePrincipal for TestCaller {}
 
 struct ScopedAuthorizer {
     service: PrincipalId,
@@ -250,10 +253,18 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
     let session_id = login(&mut runtime, &caller);
     let context = runtime.interactive_session(&caller).unwrap();
     assert_eq!(context.identity().unwrap().session_id(), &session_id);
+    assert_eq!(
+        runtime.try_live_snapshot(&context).unwrap().status(),
+        LiveStatus::Live
+    );
     runtime.revalidate(&context).unwrap();
 
     runtime.logout_interactive(&caller).unwrap();
     assert!(runtime.revalidate(&context).is_err());
+    assert_eq!(
+        runtime.try_live_snapshot(&context).unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert!(runtime
         .snapshot()
         .sessions
@@ -280,9 +291,15 @@ fn restart_ends_the_saved_session_and_reauthentication_persists_user_profile_wit
     let first_session = login(&mut first, &caller);
     let stale_context = first.interactive_session(&caller).unwrap();
     assert!(stale_context.check().is_ok());
+    let first_lease = first.try_live_snapshot(&stale_context).unwrap();
+    assert_eq!(first_lease.status(), LiveStatus::Live);
 
     drop(first);
     assert!(stale_context.check().is_err());
+    assert_eq!(
+        stale_context.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
 
     let mut restarted = runtime(
         &directory,
@@ -305,11 +322,11 @@ fn restart_ends_the_saved_session_and_reauthentication_persists_user_profile_wit
     assert_eq!(restarted.snapshot().profiles.len(), 1);
     assert_eq!(restarted.snapshot().users[0].user_id, user_id);
     assert_eq!(restarted.snapshot().profiles[0].profile_id, profile_id);
-    assert!(restarted
-        .interactive_session(&caller)
-        .unwrap()
-        .check()
-        .is_ok());
+    let new_context = restarted.interactive_session(&caller).unwrap();
+    assert!(new_context.check().is_ok());
+    let new_lease = restarted.try_live_snapshot(&new_context).unwrap();
+    assert_eq!(new_lease.status(), LiveStatus::Live);
+    assert_ne!(first_lease.generation(), new_lease.generation());
 }
 
 #[test]

@@ -4,18 +4,19 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use nagi_identity_session::{
-    decode_snapshot_with_migration, resolve_capability_principal, AuthorizationFailure,
-    AuthorizationRequest, CallerContextId, CapabilityPrincipalAdapter, Clock,
-    CurrentIdentityResolver, DenyCapabilityPrincipalAdapter, EndSessionResult, GuestCleanupFailure,
-    GuestProfileCleaner, IdSourceFailure, IdentityAccessContext, IdentityAction,
-    IdentityAuthorizer, IdentityError, IdentityIdSource, IdentityProvider, IdentityService,
-    IdentitySnapshot, IdentitySnapshotMigrator, IdentitySnapshotStore, InMemorySnapshotStore,
+    decode_snapshot_with_migration, resolve_capability_principal, AuthenticatedInteractiveCaller,
+    AuthenticatedSystemServicePrincipal, AuthorizationFailure, AuthorizationRequest,
+    CallerContextId, CapabilityPrincipalAdapter, Clock, CurrentIdentityResolver,
+    DenyCapabilityPrincipalAdapter, EndSessionResult, GuestCleanupFailure, GuestProfileCleaner,
+    IdSourceFailure, IdentityAccessContext, IdentityAction, IdentityAuthorizer, IdentityError,
+    IdentityIdSource, IdentityProvider, IdentityService, IdentitySnapshot,
+    IdentitySnapshotMigrator, IdentitySnapshotStore, InMemorySnapshotStore, LiveStatus,
     LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator, NoopIdentityEventSink,
     PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata, ProfileRootAuthorizer,
     ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef, RecoverySource,
     ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError, SnapshotStoreState,
-    SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext, UnixMillis, UserId,
-    UserStorageRootAdapter,
+    SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext, TryClockError,
+    TryLiveError, UnixMillis, UserId, UserStorageRootAdapter,
 };
 use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
 
@@ -47,6 +48,9 @@ impl TrustedCallerContext for TestCaller {
         &self.context
     }
 }
+
+impl AuthenticatedInteractiveCaller for TestCaller {}
+impl AuthenticatedSystemServicePrincipal for TestCaller {}
 
 #[derive(Clone, Default)]
 struct SharedStore(Arc<Mutex<StoreState>>);
@@ -196,6 +200,44 @@ impl TestClock {
 impl Clock for TestClock {
     fn now(&self) -> UnixMillis {
         UnixMillis::new(self.0.load(Ordering::SeqCst))
+    }
+
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        Ok(self.now())
+    }
+}
+
+#[derive(Clone)]
+struct TryClock {
+    now: Arc<AtomicU64>,
+    failure: Arc<AtomicU64>,
+}
+
+impl TryClock {
+    fn set_failure(&self, failure: Option<TryClockError>) {
+        let value = match failure {
+            None => 0,
+            Some(TryClockError::Busy) => 1,
+            Some(TryClockError::Unavailable) => 2,
+            Some(TryClockError::Unsupported) => 3,
+        };
+        self.failure.store(value, Ordering::SeqCst);
+    }
+}
+
+impl Clock for TryClock {
+    fn now(&self) -> UnixMillis {
+        UnixMillis::new(self.now.load(Ordering::SeqCst))
+    }
+
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        match self.failure.load(Ordering::SeqCst) {
+            1 => return Err(TryClockError::Busy),
+            2 => return Err(TryClockError::Unavailable),
+            3 => return Err(TryClockError::Unsupported),
+            _ => {}
+        }
+        Ok(self.now())
     }
 }
 
@@ -1422,6 +1464,106 @@ fn issued_identity_and_profile_handle_expire_without_a_fresh_resolve() {
 }
 
 #[test]
+fn try_live_snapshot_marks_exact_expiry_logout_and_new_generation() {
+    let (mut service, clock) = new_service(SharedStore::default(), TestCleaner::default());
+    let caller = TestCaller::new("nonblocking-live");
+    recover(&mut service, &caller);
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let first_session = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("nonblocking-first").unwrap(),
+        )
+        .unwrap();
+    let first = service.resolve_current_identity(&caller).unwrap();
+    let first_live = first.try_live_snapshot().unwrap();
+    assert_eq!(first_live.status(), LiveStatus::Live);
+
+    clock.set(200);
+    assert_eq!(
+        first.try_live_snapshot().unwrap().status(),
+        LiveStatus::Expired
+    );
+
+    let second_session = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("nonblocking-second").unwrap(),
+        )
+        .unwrap();
+    assert_ne!(first_session, second_session);
+    let second = service.resolve_current_identity(&caller).unwrap();
+    let second_live = second.try_live_snapshot().unwrap();
+    assert_eq!(second_live.status(), LiveStatus::Live);
+    assert_ne!(first_live.generation(), second_live.generation());
+    assert_eq!(
+        first.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+
+    service.end_session(&caller, &second_session).unwrap();
+    assert_eq!(
+        second.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+}
+
+#[test]
+fn try_live_snapshot_fails_closed_when_the_nonblocking_clock_is_busy_or_unavailable() {
+    let clock = TryClock {
+        now: Arc::new(AtomicU64::new(100)),
+        failure: Arc::new(AtomicU64::new(0)),
+    };
+    let caller = TestCaller::new("nonblocking-clock-error");
+    let mut service = IdentityService::new(
+        SharedStore::default(),
+        TestIds::default(),
+        clock.clone(),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    service.recover(&caller).unwrap();
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("nonblocking-clock").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+
+    clock.set_failure(Some(TryClockError::Busy));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Busy))
+    );
+    clock.set_failure(Some(TryClockError::Unavailable));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Unavailable))
+    );
+    clock.set_failure(Some(TryClockError::Unsupported));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Unsupported))
+    );
+}
+
+#[test]
 fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     let (mut service, _) = new_service(SharedStore::default(), TestCleaner::default());
     let caller = TestCaller::new("same-service-recovery");
@@ -1439,6 +1581,10 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
         )
         .unwrap();
     let identity = service.resolve_current_identity(&caller).unwrap();
+    assert_eq!(
+        identity.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
     let backend = MemoryProfileStorage::default();
     let opens = backend.opens.clone();
     let mut roots = UserStorageRootAdapter::new(backend);
@@ -1454,6 +1600,10 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     let report = service.recover(&caller).unwrap();
     assert_eq!(report.interrupted_sessions_ended, 1);
     assert!(!identity.is_live());
+    assert_eq!(
+        identity.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert_eq!(
         service.resolve_current_identity(&caller).unwrap_err(),
         ResolutionError::Ended

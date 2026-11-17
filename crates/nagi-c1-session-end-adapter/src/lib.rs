@@ -8,8 +8,8 @@
 #![forbid(unsafe_code)]
 
 use nagi_identity_session::{
-    CallerContextId, IdentityError, InteractiveSessionContext, InteractiveSessionError,
-    PrincipalId, TrustedCallerContext,
+    AuthenticatedInteractiveCaller, CallerContextId, IdentityError, InteractiveSessionContext,
+    InteractiveSessionError, PrincipalId,
 };
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub enum RouteError {
 /// own the UI's dirty state or grant authority to a callback.
 pub struct SessionEndGate<'caller, 'receiver, U> {
     context: InteractiveSessionContext<'caller>,
-    caller: &'caller dyn TrustedCallerContext,
+    caller: &'caller dyn AuthenticatedInteractiveCaller,
     principal: PrincipalId,
     caller_context: CallerContextId,
     generation: AttachmentGeneration,
@@ -52,7 +52,7 @@ pub struct SessionEndGate<'caller, 'receiver, U> {
 impl<'caller, 'receiver, U> SessionEndGate<'caller, 'receiver, U> {
     pub fn attach(
         context: InteractiveSessionContext<'caller>,
-        caller: &'caller dyn TrustedCallerContext,
+        caller: &'caller dyn AuthenticatedInteractiveCaller,
         receiver: &'receiver mut U,
     ) -> Result<Self, RouteError> {
         if context.principal_id() != caller.principal_id()
@@ -132,7 +132,7 @@ pub enum ChildBindingFailure<E> {
 /// must not select by untrusted IDs. This adapter does not invent a C3 API.
 pub fn bind_exact_child<'caller, 'child, C, E>(
     context: InteractiveSessionContext<'caller>,
-    caller: &'caller dyn TrustedCallerContext,
+    caller: &'caller dyn AuthenticatedInteractiveCaller,
     select: impl FnOnce(&InteractiveSessionContext<'caller>) -> Result<&'child mut C, E>,
 ) -> Result<SessionEndGate<'caller, 'child, C>, ChildBindingFailure<E>> {
     if context.principal_id() != caller.principal_id()

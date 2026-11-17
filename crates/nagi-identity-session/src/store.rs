@@ -259,10 +259,11 @@ impl IdentitySnapshotStore for InMemorySnapshotStore {
 mod tests {
     use super::*;
     use crate::{
-        AuthorizationFailure, AuthorizationRequest, CallerContextId, Clock, GuestCleanupFailure,
-        GuestProfileCleaner, IdSourceFailure, IdentityAuthorizer, IdentityIdSource,
-        IdentityService, NoopIdentityEventSink, PrincipalId, RecoverySource, SessionId,
-        TrustedCallerContext, UnixMillis, UserId,
+        AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
+        AuthorizationRequest, CallerContextId, Clock, GuestCleanupFailure, GuestProfileCleaner,
+        IdSourceFailure, IdentityAuthorizer, IdentityIdSource, IdentityService,
+        NoopIdentityEventSink, PrincipalId, RecoverySource, SessionId, TrustedCallerContext,
+        UnixMillis, UserId,
     };
 
     #[derive(Clone, Copy)]
@@ -345,6 +346,9 @@ mod tests {
             &self.context
         }
     }
+
+    impl AuthenticatedInteractiveCaller for TestCaller {}
+    impl AuthenticatedSystemServicePrincipal for TestCaller {}
 
     type TestService =
         IdentityService<InMemorySnapshotStore, TestIds, TestClock, AllowAuthorization, NoopCleaner>;

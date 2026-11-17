@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 
 use crate::model::{
     Clock, GuestCleanupStatus, IdentitySnapshot, LocalUser, LocalUserMetadata, ProfileKind,
     ProfileMetadata, ProfileRecord, SessionEndReason, SessionKind, SessionLifecycle, SessionRecord,
-    SnapshotError, UnixMillis, IDENTITY_SCHEMA_VERSION,
+    SnapshotError, TryClockError, UnixMillis, IDENTITY_SCHEMA_VERSION,
 };
 use crate::store::{
     CurrentSnapshotReader, IdentitySnapshotStore, SnapshotStoreError, SnapshotVersion,
@@ -28,12 +29,49 @@ pub enum IdentityAction {
     ValidateRecoveredState,
 }
 
-/// A trusted service-host context. App payloads must never be used to
-/// construct this value; the runtime adapter supplies it from trusted IPC.
+/// Base identity identifiers from an integration boundary. App payloads must
+/// never supply these values, and this trait alone is not authentication
+/// evidence: Session APIs require [`AuthenticatedInteractiveCaller`] or
+/// [`AuthenticatedSystemServicePrincipal`] as appropriate.
 pub trait TrustedCallerContext {
     fn principal_id(&self) -> &crate::PrincipalId;
     fn context_id(&self) -> &CallerContextId;
 }
+
+/// A caller context emitted by the trusted peer-authentication adapter after
+/// authenticating the OS peer for this connection. C2/Broker integration owns
+/// the peer check and implements this marker only on that authenticated
+/// result; payload-supplied PrincipalId or CallerContextId values are not
+/// evidence and must never be wrapped as this context.
+///
+/// ```compile_fail,E0277
+/// use nagi_identity_session::{AuthenticatedInteractiveCaller, CallerContextId, PrincipalId, TrustedCallerContext};
+/// struct PayloadCaller;
+/// impl TrustedCallerContext for PayloadCaller {
+///     fn principal_id(&self) -> &PrincipalId { unimplemented!() }
+///     fn context_id(&self) -> &CallerContextId { unimplemented!() }
+/// }
+/// fn require_authenticated<T: AuthenticatedInteractiveCaller>() {}
+/// require_authenticated::<PayloadCaller>();
+/// ```
+///
+/// ```compile_fail,E0277
+/// use nagi_identity_session::{AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, CallerContextId, PrincipalId, TrustedCallerContext};
+/// struct InteractivePeer;
+/// impl TrustedCallerContext for InteractivePeer {
+///     fn principal_id(&self) -> &PrincipalId { unimplemented!() }
+///     fn context_id(&self) -> &CallerContextId { unimplemented!() }
+/// }
+/// impl AuthenticatedInteractiveCaller for InteractivePeer {}
+/// fn require_service<T: AuthenticatedSystemServicePrincipal>() {}
+/// require_service::<InteractivePeer>();
+/// ```
+pub trait AuthenticatedInteractiveCaller: TrustedCallerContext {}
+
+/// The distinct caller context for an OS service principal. Its implementation
+/// must bind OS credentials to ownership of the service endpoint. It is not
+/// derived from, or interchangeable with, an interactive Session.
+pub trait AuthenticatedSystemServicePrincipal: TrustedCallerContext {}
 
 /// Caller contexts may be unique only inside a principal namespace. The
 /// service therefore binds every in-memory current-session key to both values.
@@ -289,7 +327,8 @@ pub struct ResolvedIdentity {
     caller: CallerKey,
     expires_at: Option<UnixMillis>,
     clock_now: Arc<dyn Fn() -> UnixMillis + Send + Sync>,
-    live: Arc<RwLock<bool>>,
+    clock_try_now: Arc<dyn Fn() -> Result<UnixMillis, TryClockError> + Send + Sync>,
+    live: Arc<SessionLeaseState>,
     issuer_alive: Arc<AtomicBool>,
     issued_session: SessionRecord,
     store_current: Option<CurrentSnapshotReader>,
@@ -345,6 +384,60 @@ impl ResolvedIdentity {
         self.checked_live_lease().map(drop)
     }
 
+    /// Read the process-local lease without waiting on the lease lock or clock
+    /// lock. This is a point-in-time observation for connection maintenance;
+    /// it does not read the durable snapshot and is not authority to perform
+    /// protected work. Call `check_live` or the owning operation gate before
+    /// every protected effect.
+    pub fn try_live_snapshot(&self) -> Result<LiveSnapshot, TryLiveError> {
+        if !self.issuer_alive.load(Ordering::Acquire) {
+            return Ok(LiveSnapshot {
+                generation: self.live.generation,
+                status: LiveStatus::Revoked,
+            });
+        }
+        let lease = self
+            .live
+            .live
+            .try_read()
+            .map_err(|_| TryLiveError::StateUnavailable)?;
+        let observed_revision = self.live.revision.load(Ordering::Acquire);
+        if !*lease
+            || observed_revision != self.live.generation.get()
+            || !self.issuer_alive.load(Ordering::Acquire)
+        {
+            return Ok(LiveSnapshot {
+                generation: self.live.generation,
+                status: LiveStatus::Revoked,
+            });
+        }
+        let expired = if let Some(expires_at) = self.expires_at {
+            let now = (self.clock_try_now)().map_err(TryLiveError::Clock)?;
+            now >= expires_at
+        } else {
+            false
+        };
+        let revision_after = self.live.revision.load(Ordering::Acquire);
+        if revision_after != observed_revision
+            || !*lease
+            || !self.issuer_alive.load(Ordering::Acquire)
+        {
+            return Ok(LiveSnapshot {
+                generation: self.live.generation,
+                status: LiveStatus::Revoked,
+            });
+        }
+        let status = if expired {
+            LiveStatus::Expired
+        } else {
+            LiveStatus::Live
+        };
+        Ok(LiveSnapshot {
+            generation: self.live.generation,
+            status,
+        })
+    }
+
     pub(crate) fn acquire_live_lease(&self) -> Option<RwLockReadGuard<'_, bool>> {
         self.checked_live_lease().ok()
     }
@@ -353,8 +446,12 @@ impl ResolvedIdentity {
         if !self.issuer_alive.load(Ordering::Acquire) {
             return Err(ResolutionError::Unavailable);
         }
-        let guard = self.live.read().map_err(|_| ResolutionError::Unavailable)?;
-        if !*guard {
+        let guard = self
+            .live
+            .live
+            .read()
+            .map_err(|_| ResolutionError::Unavailable)?;
+        if !*guard || self.live.revision.load(Ordering::Acquire) != self.live.generation.get() {
             return Err(ResolutionError::Ended);
         }
         if self
@@ -393,6 +490,72 @@ impl ResolvedIdentity {
     }
 }
 
+/// Current process-local Session lease state. The generation is never
+/// persisted or reconstructed from a Session record; it changes for each
+/// issued lease. A host restart invalidates all contexts from the old process.
+struct SessionLeaseState {
+    generation: NonZeroU64,
+    revision: AtomicU64,
+    live: RwLock<bool>,
+}
+
+impl SessionLeaseState {
+    fn new(generation: NonZeroU64) -> Self {
+        Self {
+            generation,
+            revision: AtomicU64::new(generation.get()),
+            live: RwLock::new(true),
+        }
+    }
+
+    fn revoke(&self, live: &mut bool) {
+        *live = false;
+        self.revision.store(0, Ordering::Release);
+    }
+}
+
+static NEXT_SESSION_LEASE_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn next_session_lease_generation() -> Result<NonZeroU64, IdentityError> {
+    NEXT_SESSION_LEASE_GENERATION
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            current.checked_add(1)
+        })
+        .ok()
+        .and_then(NonZeroU64::new)
+        .ok_or(IdentityError::StoreUnavailable)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LiveStatus {
+    Live,
+    Revoked,
+    Expired,
+}
+
+/// Non-authoritative observation tied to one process-local Session lease.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LiveSnapshot {
+    generation: NonZeroU64,
+    status: LiveStatus,
+}
+
+impl LiveSnapshot {
+    pub const fn generation(self) -> NonZeroU64 {
+        self.generation
+    }
+
+    pub const fn status(self) -> LiveStatus {
+        self.status
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TryLiveError {
+    Clock(TryClockError),
+    StateUnavailable,
+}
+
 /// Invalidates every observation issued by one in-process service instance
 /// when that instance is dropped, while allowing observations to retain the
 /// shared flag without keeping the service alive.
@@ -419,6 +582,7 @@ impl Drop for IssuerGuard {
 pub enum InteractiveSessionError {
     CallerMismatch,
     Identity(ResolutionError),
+    Live(TryLiveError),
 }
 
 /// A borrowed caller paired with a service-issued identity observation.
@@ -440,7 +604,7 @@ pub enum InteractiveSessionError {
 /// ```
 pub struct InteractiveSessionContext<'caller> {
     identity: ResolvedIdentity,
-    caller: &'caller dyn TrustedCallerContext,
+    caller: &'caller dyn AuthenticatedInteractiveCaller,
     principal: PrincipalId,
     caller_context: CallerContextId,
 }
@@ -448,7 +612,7 @@ pub struct InteractiveSessionContext<'caller> {
 impl<'caller> InteractiveSessionContext<'caller> {
     fn attach(
         identity: ResolvedIdentity,
-        caller: &'caller dyn TrustedCallerContext,
+        caller: &'caller dyn AuthenticatedInteractiveCaller,
     ) -> Result<Self, InteractiveSessionError> {
         if identity.principal_id() != caller.principal_id()
             || identity.caller_context_id() != caller.context_id()
@@ -476,6 +640,19 @@ impl<'caller> InteractiveSessionContext<'caller> {
         self.identity
             .check_live()
             .map_err(InteractiveSessionError::Identity)
+    }
+
+    /// Nonblocking status observation for connection maintenance. It is not
+    /// sufficient to admit an operation; use `check` before protected effects.
+    pub fn try_live_snapshot(&self) -> Result<LiveSnapshot, InteractiveSessionError> {
+        if self.caller.principal_id() != &self.principal
+            || self.caller.context_id() != &self.caller_context
+        {
+            return Err(InteractiveSessionError::CallerMismatch);
+        }
+        self.identity
+            .try_live_snapshot()
+            .map_err(InteractiveSessionError::Live)
     }
 
     /// Return the captured C1 identity only while the paired context is live.
@@ -507,11 +684,14 @@ impl<'caller> InteractiveSessionContext<'caller> {
 /// storage operation. Storage adapters re-check the pair on every operation.
 pub struct IdentityAccessContext<'a> {
     pub(crate) identity: &'a ResolvedIdentity,
-    pub(crate) caller: &'a dyn TrustedCallerContext,
+    pub(crate) caller: &'a dyn AuthenticatedInteractiveCaller,
 }
 
 impl<'a> IdentityAccessContext<'a> {
-    pub fn new(identity: &'a ResolvedIdentity, caller: &'a impl TrustedCallerContext) -> Self {
+    pub fn new(
+        identity: &'a ResolvedIdentity,
+        caller: &'a impl AuthenticatedInteractiveCaller,
+    ) -> Self {
         Self { identity, caller }
     }
 }
@@ -519,7 +699,7 @@ impl<'a> IdentityAccessContext<'a> {
 pub trait CurrentIdentityResolver {
     fn resolve_current_identity(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
     ) -> Result<ResolvedIdentity, ResolutionError>;
 }
 
@@ -552,7 +732,7 @@ pub struct IdentityService<S, I, C, A, G, E = NoopIdentityEventSink> {
     active_by_caller: HashMap<CallerKey, SessionId>,
     last_by_caller: HashMap<CallerKey, SessionId>,
     session_owners: HashMap<SessionId, CallerKey>,
-    leases: HashMap<SessionId, Arc<RwLock<bool>>>,
+    leases: HashMap<SessionId, Arc<SessionLeaseState>>,
     idempotency: HashMap<(CallerKey, IdempotencyKey), IdempotentSession>,
 }
 
@@ -594,7 +774,7 @@ where
     /// every operation must call `check` again before using it.
     pub fn interactive_session<'caller>(
         &mut self,
-        caller: &'caller impl TrustedCallerContext,
+        caller: &'caller impl AuthenticatedInteractiveCaller,
     ) -> Result<InteractiveSessionContext<'caller>, InteractiveSessionError> {
         let identity = CurrentIdentityResolver::resolve_current_identity(self, caller)
             .map_err(InteractiveSessionError::Identity)?;
@@ -763,7 +943,7 @@ where
     /// a missing committed state.
     pub fn recover(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedSystemServicePrincipal,
     ) -> Result<RecoveryReport, IdentityError> {
         self.authorize(caller, IdentityAction::Recover, None, None, None)?;
         let store_state = self.store.load_current_state().map_err(map_store_error)?;
@@ -876,6 +1056,7 @@ where
             .iter()
             .map(|lease| {
                 lease
+                    .live
                     .write()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
             })
@@ -886,8 +1067,8 @@ where
             self.snapshot = candidate;
             self.store_version = current_version;
         }
-        for lease in &mut lease_guards {
-            **lease = false;
+        for (lease, guard) in lease_arcs.iter().zip(&mut lease_guards) {
+            lease.revoke(guard);
         }
         drop(lease_guards);
         for (caller_key, session_id) in self.active_by_caller.drain() {
@@ -1077,11 +1258,14 @@ where
         Ok(profile_id)
     }
 
-    /// Local login is offline and credential-free in this reference model.
-    /// Authentication decisions remain an injected trusted-host responsibility.
+    /// Issue a local Session only after the trusted integration has completed
+    /// its selected account authentication and supplied the authenticated
+    /// interactive peer context. C1 chooses neither the credential method nor
+    /// the expiry duration; the runtime adapter is responsible for proving the
+    /// configured account record and binding it to the persisted User/Profile.
     pub fn login_local(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         user_id: UserId,
         profile_id: ProfileId,
         expires_at: Option<UnixMillis>,
@@ -1113,7 +1297,7 @@ where
     /// has no repair API for that condition.
     pub fn create_guest_session(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         expires_at: Option<UnixMillis>,
         idempotency_key: IdempotencyKey,
     ) -> Result<SessionId, IdentityError> {
@@ -1157,7 +1341,7 @@ where
 
     fn create_session(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         intent: SessionIntent,
         idempotency_key: IdempotencyKey,
         action: IdentityAction,
@@ -1266,6 +1450,9 @@ where
         {
             return Err(IdentityError::IdCollision);
         }
+        // Consume a fresh process-local generation before persistence. Failed
+        // commits may skip a generation, but it is never reused in-process.
+        let lease_generation = next_session_lease_generation()?;
 
         let mut candidate = self.snapshot.clone();
         candidate.revision = self.next_revision()?;
@@ -1317,8 +1504,10 @@ where
             .insert(caller_key.clone(), session_id.clone());
         self.last_by_caller
             .insert(caller_key.clone(), session_id.clone());
-        self.leases
-            .insert(session_id.clone(), Arc::new(RwLock::new(true)));
+        self.leases.insert(
+            session_id.clone(),
+            Arc::new(SessionLeaseState::new(lease_generation)),
+        );
         self.idempotency.insert(
             idempotency_scope,
             IdempotentSession {
@@ -1342,7 +1531,7 @@ where
 
     pub fn end_session(
         &mut self,
-        caller: &(impl TrustedCallerContext + ?Sized),
+        caller: &(impl AuthenticatedInteractiveCaller + ?Sized),
         session_id: &SessionId,
     ) -> Result<EndSessionResult, IdentityError> {
         self.ensure_recovered()?;
@@ -1380,7 +1569,7 @@ where
     /// A mapping result is not an authorization decision or a grant.
     pub fn capability_principal_for_current(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         adapter: &impl CapabilityPrincipalAdapter,
     ) -> Result<PrincipalId, PrincipalMappingFailure> {
         let identity = match self.resolve_current_identity(caller) {
@@ -1470,13 +1659,14 @@ where
         let lease = self.leases.get(session_id).cloned();
         let mut lease_guard = lease.as_ref().map(|lease| {
             lease
+                .live
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
         });
         self.save_candidate(candidate)?;
 
-        if let Some(lease) = lease_guard.as_mut() {
-            **lease = false;
+        if let (Some(lease), Some(guard)) = (lease.as_ref(), lease_guard.as_mut()) {
+            lease.revoke(guard);
         }
         drop(lease_guard);
         self.active_by_caller.remove(caller_key);
@@ -1546,7 +1736,7 @@ where
 
     fn expire_current(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
         session_id: &SessionId,
     ) -> Result<(), ResolutionError> {
         self.authorize(
@@ -1583,7 +1773,7 @@ where
 {
     fn resolve_current_identity(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedInteractiveCaller,
     ) -> Result<ResolvedIdentity, ResolutionError> {
         self.require_resolved()?;
         if let Err(error) = self.authorize(
@@ -1691,11 +1881,13 @@ where
             );
             return Err(ResolutionError::Expired);
         }
+        // An active durable record cannot recreate an in-process lease. Only
+        // the lease published by the successful login flow is authority.
         let live = self
             .leases
-            .entry(session_id.clone())
-            .or_insert_with(|| Arc::new(RwLock::new(true)))
-            .clone();
+            .get(&session_id)
+            .cloned()
+            .ok_or(ResolutionError::Unavailable)?;
         let identity = ResolvedIdentity {
             session_id: session_id.clone(),
             kind: session.kind,
@@ -1706,6 +1898,10 @@ where
             clock_now: {
                 let clock = self.clock.clone();
                 Arc::new(move || clock.now())
+            },
+            clock_try_now: {
+                let clock = self.clock.clone();
+                Arc::new(move || clock.try_now())
             },
             live,
             issuer_alive: Arc::clone(&self.issuer.alive),

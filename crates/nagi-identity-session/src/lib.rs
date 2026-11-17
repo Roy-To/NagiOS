@@ -30,16 +30,17 @@ pub use migration::{
 pub use model::{
     Clock, GuestCleanupStatus, IdentitySnapshot, LocalUser, LocalUserMetadata, MetadataError,
     ProfileKind, ProfileMetadata, ProfileRecord, SessionEndReason, SessionKind, SessionLifecycle,
-    SessionRecord, SnapshotError, UnixMillis, IDENTITY_SCHEMA_VERSION,
+    SessionRecord, SnapshotError, TryClockError, UnixMillis, IDENTITY_SCHEMA_VERSION,
 };
 pub use service::{
-    AuthorizationFailure, AuthorizationRequest, CurrentIdentityResolver, EndSessionResult,
-    GuestCleanupFailure, GuestProfileCleaner, IdSourceFailure, IdentityAccessContext,
-    IdentityAction, IdentityAuthorizer, IdentityError, IdentityEvent, IdentityEventKind,
-    IdentityEventReason, IdentityEventSink, IdentityIdSource, IdentityProvider, IdentityService,
-    InteractiveSessionContext, InteractiveSessionError, NoopIdentityEventSink,
-    ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError, ResolvedIdentity,
-    TrustedCallerContext,
+    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
+    AuthorizationRequest, CurrentIdentityResolver, EndSessionResult, GuestCleanupFailure,
+    GuestProfileCleaner, IdSourceFailure, IdentityAccessContext, IdentityAction,
+    IdentityAuthorizer, IdentityError, IdentityEvent, IdentityEventKind, IdentityEventReason,
+    IdentityEventSink, IdentityIdSource, IdentityProvider, IdentityService,
+    InteractiveSessionContext, InteractiveSessionError, LiveSnapshot, LiveStatus,
+    NoopIdentityEventSink, ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError,
+    ResolvedIdentity, TrustedCallerContext, TryLiveError,
 };
 pub use storage::{
     NoopStorageRootEventSink, ProfileRootAuthorizer, ProfileStorageBackend, StorageRootEventSink,
