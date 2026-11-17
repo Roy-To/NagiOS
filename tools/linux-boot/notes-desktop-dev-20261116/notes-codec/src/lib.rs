@@ -40,7 +40,10 @@ pub use store::HostPreviewStore;
 pub use store::LinuxDirectoryNoteStore;
 pub use store::{InMemoryNoteStore, NoteStore, SandboxError, StoreError};
 #[cfg(target_os = "linux")]
-pub use store::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
+pub use store::{
+    LinuxBlockDevice, SharedVfs, StorageProvider, StorageProviderError, StorageProviderOwner,
+    VfsNoteStore,
+};
 pub use ui_controller::NotesUiController;
 
 #[cfg(test)]

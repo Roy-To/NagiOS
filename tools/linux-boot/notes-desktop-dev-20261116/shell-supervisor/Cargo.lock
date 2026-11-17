@@ -244,6 +244,7 @@ dependencies = [
  "linux-evdev-decoder",
  "linux-evdev-stream",
  "nagi-localization",
+ "nagi-storage-consumer-adapters",
  "nagi-ui",
  "notes-desktop-localization-adapter-candidate",
  "notes-event-bridge-candidate",
@@ -310,6 +311,7 @@ dependencies = [
  "libnagi",
  "nagi-files",
  "nagi-model",
+ "nagi-storage-provider",
  "rustix",
  "sha2",
 ]

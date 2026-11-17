@@ -7,4 +7,5 @@ members = [
     "notes-event-bridge",
     "notes-localization-adapter",
 ]
+exclude = ["storage-provider", "storage-provider/consumer-adapters"]
 resolver = "2"

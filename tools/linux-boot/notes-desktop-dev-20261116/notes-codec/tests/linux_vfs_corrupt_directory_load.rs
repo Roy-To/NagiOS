@@ -2,8 +2,8 @@
 
 use libnagi::storage::{StorageError, Vfs, BLOCK_SIZE, MAX_FILE_SIZE};
 use notes_files_codec_candidate::{
-    LinuxBlockDevice, NoteDocument, NoteStore, ObjectId, SharedVfs, StoreError, Timestamp,
-    VfsNoteStore,
+    LinuxBlockDevice, NoteDocument, NoteStore, ObjectId, StorageProviderOwner, StoreError,
+    Timestamp, VfsNoteStore,
 };
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::FileExt;
@@ -172,7 +172,8 @@ fn corrupt_directory_with_four_byte_tail(file: &File, directory_offset: u64) -> 
 #[test]
 fn vfs_note_load_rejects_corrupt_directory_without_changing_saved_revision() {
     let disk = DiskFixture::new();
-    let (shared, formatted) = SharedVfs::mount_or_format(disk.path()).expect("mount VFS");
+    let (owner, formatted) = StorageProviderOwner::mount_or_format(disk.path()).expect("mount VFS");
+    let shared = owner.consumer_handle();
     assert!(formatted);
 
     let store = VfsNoteStore::new(shared.clone());
@@ -184,7 +185,7 @@ fn vfs_note_load_rejects_corrupt_directory_without_changing_saved_revision() {
 
     let note_directory = format!("/notes/{:016x}", id.0);
     let revision_path = format!("{note_directory}/rev-{:020}.md", 1);
-    let mut revision_reader = shared.clone();
+    let revision_reader = shared.clone();
     let revision_handle = revision_reader
         .open_path(revision_path.as_bytes())
         .expect("open saved revision handle");
@@ -231,12 +232,14 @@ fn vfs_note_load_rejects_corrupt_directory_without_changing_saved_revision() {
     drop(store);
     drop(revision_reader);
     drop(shared);
+    drop(owner);
 }
 
 #[test]
 fn vfs_note_load_and_directory_scans_reject_four_byte_tail_without_writes() {
     let disk = DiskFixture::new();
-    let (shared, formatted) = SharedVfs::mount_or_format(disk.path()).expect("mount VFS");
+    let (owner, formatted) = StorageProviderOwner::mount_or_format(disk.path()).expect("mount VFS");
+    let shared = owner.consumer_handle();
     assert!(formatted);
 
     let store = VfsNoteStore::new(shared.clone());
@@ -248,7 +251,7 @@ fn vfs_note_load_and_directory_scans_reject_four_byte_tail_without_writes() {
 
     let note_directory = format!("/notes/{:016x}", id.0);
     let revision_path = format!("{note_directory}/rev-{:020}.md", 1);
-    let mut revision_reader = shared.clone();
+    let revision_reader = shared.clone();
     let revision_handle = revision_reader
         .open_path(revision_path.as_bytes())
         .expect("open saved revision handle");
@@ -326,4 +329,5 @@ fn vfs_note_load_and_directory_scans_reject_four_byte_tail_without_writes() {
     drop(store);
     drop(revision_reader);
     drop(shared);
+    drop(owner);
 }

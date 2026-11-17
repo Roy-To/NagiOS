@@ -177,6 +177,7 @@ dependencies = [
  "getrandom",
  "nagi-abi",
  "nagi-model",
+ "sha2",
 ]
 
 [[package]]
@@ -239,6 +240,7 @@ dependencies = [
  "linux-evdev-decoder",
  "linux-evdev-stream",
  "nagi-localization",
+ "nagi-storage-consumer-adapters",
  "nagi-ui",
  "notes-desktop-localization-adapter-candidate",
  "notes-event-bridge-candidate",
@@ -252,6 +254,22 @@ version = "0.1.0"
 [[package]]
 name = "nagi-model"
 version = "0.1.0"
+
+[[package]]
+name = "nagi-storage-consumer-adapters"
+version = "0.1.0"
+dependencies = [
+ "libnagi",
+ "nagi-files",
+ "nagi-storage-provider",
+]
+
+[[package]]
+name = "nagi-storage-provider"
+version = "0.1.0"
+dependencies = [
+ "libnagi",
+]
 
 [[package]]
 name = "nagi-ui"
@@ -282,6 +300,7 @@ dependencies = [
  "libnagi",
  "nagi-files",
  "nagi-model",
+ "nagi-storage-provider",
  "rustix",
  "sha2",
 ]

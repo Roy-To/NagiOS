@@ -12,7 +12,11 @@ use nagi_model::ObjectId;
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 mod linux_vfs;
 #[cfg(target_os = "linux")]
-pub use linux_vfs::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
+pub use linux_vfs::VfsNoteStore;
+#[cfg(target_os = "linux")]
+pub use nagi_storage_provider::{
+    LinuxBlockDevice, SharedVfs, StorageProvider, StorageProviderError, StorageProviderOwner,
+};
 
 use crate::domain::{NoteDocument, NoteSummary};
 use crate::identity::{HostObjectIdSource, ObjectIdSource};
@@ -47,6 +51,18 @@ impl fmt::Display for StoreError {
 }
 
 impl std::error::Error for StoreError {}
+
+impl From<libnagi::storage::StorageError> for StoreError {
+    fn from(error: libnagi::storage::StorageError) -> Self {
+        Self::Io(format!("Nagi VFS operation failed: {error:?}"))
+    }
+}
+
+impl From<nagi_storage_provider::StorageProviderError> for StoreError {
+    fn from(error: nagi_storage_provider::StorageProviderError) -> Self {
+        Self::Io(error.to_string())
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SandboxError {

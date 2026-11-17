@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[[bin]]
+name = "nagi-linux-notes-desktop-dev"
+path = "src/main.rs"
+required-features = ["linux-development-smoke"]
+
 [lib]
 name = "nagi_desktop_notes_integration_candidate"
 path = "src/lib.rs"
@@ -16,7 +21,7 @@ desktop-login = []
 desktop-login-acceptance = []
 desktop-password-change-acceptance = []
 dev-host-preview = []
-linux-development-smoke = []
+linux-development-smoke = ["notes_files_codec_candidate/dev-fixtures"]
 linux-recovery-ui-smoke = ["linux-development-smoke"]
 m19-files-search-production = []
 m19-runtime = []
@@ -31,3 +36,4 @@ linux-evdev-stream = { path = "../linux-evdev-stream" }
 notes_desktop_localization_adapter = { package = "notes-desktop-localization-adapter-candidate", path = "../notes-localization-adapter" }
 notes_event_bridge_candidate = { package = "notes-event-bridge-candidate", path = "../notes-event-bridge" }
 notes_files_codec_candidate = { package = "notes-files-codec-candidate", path = "../notes-codec" }
+nagi_storage_consumer_adapters = { package = "nagi-storage-consumer-adapters", path = "../storage-provider/consumer-adapters" }
