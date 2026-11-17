@@ -538,10 +538,12 @@ class DirectorySwapTests(GeneratorTestCase):
         self.check_cases(OUT + "/src", [OUT + "/", OUT + "/Cargo.toml", OUT + "/manifest.json"])
 
     def test_residual_mode_matching_swap_is_not_detectable_but_deletes_nothing(self):
-        # Documented PROVISIONAL residual: a same-user process that installs an
-        # empty 0o700 directory of its own cannot be told apart from ours
-        # (mkdir() returns no handle). Even then nothing is deleted or
-        # overwritten, and our original directory is left where it was moved.
+        # Outside the threat model (README "脅威モデルと限界"): an adversarial
+        # concurrent process is not defended against. This only documents the
+        # observed behavior, not a guarantee: a same-user process that installs
+        # an empty 0o700 directory of its own cannot be told apart from ours
+        # (mkdir() returns no handle). Nothing is deleted or overwritten, and
+        # our original directory is left where it was moved.
         patcher, moved = self.swap_after_mkdir(OUT, lambda path: path.mkdir(mode=0o700))
         with patcher:
             gen.generate(valid_inputs(), self.root)

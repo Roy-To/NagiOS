@@ -73,15 +73,35 @@ python3 tools/nagi-developer-platform/generator/generate.py create ...同じ引�
   第三者の実体を消す経路を無くした。将来、作成物を証明付きで消せる仕組み
   （例: handle指定の削除を持つNagi側API）ができたら差し替える（差替え: `generate.generate`
   の失敗処理と `writePolicy.onFailure`）。
-- 検出できない残存競合: 同一uidのprocessが、こちらのmkdir直後に作成directoryを別名へ移し、
-  **同じmode 0o700の空directory**を自分で作って置いた場合は、POSIXのmkdirがhandleを
-  返さないため自分の作成物と区別できない（`test_residual_mode_matching_swap_...` で
-  挙動を固定）。この場合も削除・上書き・既存内容の変更は起きず、起き得るのは
-  「要求したpathに置かれた空directoryへ雛形の新規fileを書き、そのmodeを0o755に広げる」
-  ことだけ。同一uidのprocessは元々そのdirectoryを自由に操作できる権限を持つため、
-  これは安全境界の越境ではないと仮定する。より強い保証が必要なら、ownerの判断が要る。
+- 同時に動く別プロセスによる敵対的なファイルシステム競合は**脅威モデル外**とする
+  （下の「脅威モデルと限界」）。差替え: 将来、排他的な作業領域での作成＋非置換の公開方式
+  （`generate.generate`）。
 - 生成後のManifest検証・hostでのbuild/testは、PT-05等の別Stageで明示的に行う前提。
   このgeneratorはそれらを呼ばない。
+
+## 脅威モデルと限界
+
+このhost pilotが想定する脅威は、**generator実行前から存在する**状態（既存の
+file・directory・symlink、範囲外path、不正な入力）と、実行中の通常の書込み失敗・中断。
+実行中に**同時に動く別プロセスが出力先やその祖先を敵対的に操作する競合（TOCTOU）は
+脅威モデル外**で、防御を保証しない（owner判断、本pilotでは対策しない）。
+
+限界の例（保証しない）:
+
+- preflightで保持した親directoryのfdは、別プロセスがその親を移動・改名しても追従しない。
+  許可root外へ移動された場合、生成は移動先で続行され得る（末尾の `verify_published()` が
+  検出すれば `output_raced` で失敗にするが、書込み済みの物は残置され、範囲外への書込みを
+  防ぐものではない）。
+- 同一uidのprocessがmkdir直後に作成directoryを別名へ移し、**同じmode 0o700の空directory**を
+  置いた場合、POSIXのmkdirがhandleを返さないため自分の作成物と区別できず、その空directoryへ
+  書込み、modeを0o755に広げ得る（`test_residual_mode_matching_swap_...` は現在の挙動を
+  記録するだけで、保証ではない）。
+- 上記でも削除・rename・既存内容の上書きは行わない。mkdir→open間の差替えのうち
+  mode／所有者／中身／symlinkで判別できるものと、書込み後の照合で判別できるものは
+  best-effortで `output_raced` にするが、全ての競合の検出は主張しない。
+
+多人数・常駐・CIなど他processが同じ作業領域を操作し得る環境で使う場合は、専用の作業領域を
+排他的に確保する等の運用か、ownerによる要件変更（排他管理方式の採用）が別途必要。
 
 ## 検証
 
