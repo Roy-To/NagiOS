@@ -39,3 +39,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 ## 自動runner記録
 
 - 11-17 NDP-06b: GTK Builder静的解析と安全性・回帰テストを追加（PR #165、runnerテスト成功、claudeレビューPASS）
+- 11-17 NDP-11b: GTK 3/4 を run_host_checks.py の繰返し評価と failure-path テスト（14 件）に（PR #167、runnerテスト成功、codexレビューPASS）
