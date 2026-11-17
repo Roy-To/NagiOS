@@ -35,3 +35,7 @@ NDP-11独立再レビュー: e49fb71でP2解消、未解決P1/P2なし。DeepSee
 
 NDP-02/08/09: 固定nightlyでnagi-pkgをbuild、最小第三者Manifestを受理。
 Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す。
+
+## 自動runner記録
+
+- 11-17 NDP-06b: GTK Builder静的解析と安全性・回帰テストを追加（PR #165、runnerテスト成功、claudeレビューPASS）
