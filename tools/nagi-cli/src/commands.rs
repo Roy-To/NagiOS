@@ -8155,20 +8155,6 @@ fn run_cargo_in(
     )
 }
 
-fn run_cargo_with_env(
-    root: &Path,
-    label: &str,
-    args: &[&str],
-    cargo_env: &[(&str, &Path)],
-) -> CommandResult {
-    let mut command = ProcessCommand::new("cargo");
-    command.args(args).current_dir(root);
-    for (key, value) in cargo_env {
-        command.env(key, value);
-    }
-    finish_cargo(label, command.output())
-}
-
 fn finish_cargo(label: &str, output: std::io::Result<std::process::Output>) -> CommandResult {
     finish_tool(label, "cargo", output)
 }
