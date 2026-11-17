@@ -1707,12 +1707,8 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
         external_model_store_file,
         build_features,
     } = request;
-    let init_build = match rust_std_source {
-        Some(source) => {
-            run_cargo_with_rust_std_source(root, "user init", init_args, source, cargo_env)
-        }
-        None => run_cargo_with_env(root, "user init", init_args, cargo_env),
-    };
+    let init_build =
+        run_product_init_cargo(root, "user init", init_args, rust_std_source, cargo_env);
     if init_build.exit_code != EXIT_SUCCESS {
         return init_build;
     }
@@ -3357,7 +3353,13 @@ fn execute_model_store_artifact_with_options(
         "--locked",
         "--offline",
     ];
-    let recovery_build = run_cargo(root, "Model Store Recovery init", &recovery_init_args);
+    let recovery_build = run_product_init_cargo(
+        root,
+        "Model Store Recovery init",
+        &recovery_init_args,
+        None,
+        &[],
+    );
     if recovery_build.exit_code != EXIT_SUCCESS {
         return recovery_build;
     }
@@ -4159,7 +4161,8 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "--release",
             "--locked",
         ];
-        let recovery_init_build = run_cargo(root, "M30 Recovery init", &recovery_init_args);
+        let recovery_init_build =
+            run_product_init_cargo(root, "M30 Recovery init", &recovery_init_args, None, &[]);
         if recovery_init_build.exit_code != EXIT_SUCCESS {
             return recovery_init_build;
         }
@@ -4553,7 +4556,13 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--release",
         "--locked",
     ];
-    let recovery_init_build = run_cargo(root, "M20 fixture Recovery init", &recovery_init_args);
+    let recovery_init_build = run_product_init_cargo(
+        root,
+        "M20 fixture Recovery init",
+        &recovery_init_args,
+        None,
+        &[],
+    );
     if recovery_init_build.exit_code != EXIT_SUCCESS {
         return recovery_init_build;
     }
@@ -8039,6 +8048,70 @@ fn execute_run(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+const NAGI_INIT_MANIFEST_PATH: &str = "user/nagi-init/Cargo.toml";
+const NAGI_INIT_TARGET_DIR: &str = "target";
+
+fn product_init_cargo_args(args: &[&str]) -> Result<Vec<String>, &'static str> {
+    if args.first().copied() != Some("build") {
+        return Err("product init Cargo invocation must start with `build`");
+    }
+    let package_selector_count = args
+        .windows(2)
+        .filter(|pair| pair[0] == "-p" && pair[1] == "nagi-init")
+        .count();
+    if package_selector_count != 1 {
+        return Err("product init Cargo invocation must select `nagi-init` exactly once");
+    }
+    if args
+        .iter()
+        .any(|arg| *arg == "--manifest-path" || *arg == "--target-dir")
+    {
+        return Err(
+            "product init Cargo invocation must not override its manifest or target directory",
+        );
+    }
+
+    let mut normalized = vec![
+        "build".to_owned(),
+        "--manifest-path".to_owned(),
+        NAGI_INIT_MANIFEST_PATH.to_owned(),
+        "--target-dir".to_owned(),
+        NAGI_INIT_TARGET_DIR.to_owned(),
+    ];
+    let mut index = 1;
+    while index < args.len() {
+        if args[index] == "-p" && args.get(index + 1) == Some(&"nagi-init") {
+            index += 2;
+        } else {
+            normalized.push(args[index].to_owned());
+            index += 1;
+        }
+    }
+    Ok(normalized)
+}
+
+fn run_product_init_cargo(
+    root: &Path,
+    label: &str,
+    args: &[&str],
+    rust_std_source: Option<&Path>,
+    cargo_env: &[(&str, &Path)],
+) -> CommandResult {
+    let args = match product_init_cargo_args(args) {
+        Ok(args) => args,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{label}: {error}")),
+    };
+    let mut command = ProcessCommand::new("cargo");
+    command.args(&args).current_dir(root);
+    if let Some(source_root) = rust_std_source {
+        command.env("__CARGO_TESTS_ONLY_SRC_ROOT", source_root);
+    }
+    for (key, value) in cargo_env {
+        command.env(key, value);
+    }
+    finish_cargo(label, command.output())
+}
+
 fn run_cargo(root: &Path, label: &str, args: &[&str]) -> CommandResult {
     finish_cargo(
         label,
@@ -8090,24 +8163,6 @@ fn run_cargo_with_env(
 ) -> CommandResult {
     let mut command = ProcessCommand::new("cargo");
     command.args(args).current_dir(root);
-    for (key, value) in cargo_env {
-        command.env(key, value);
-    }
-    finish_cargo(label, command.output())
-}
-
-fn run_cargo_with_rust_std_source(
-    root: &Path,
-    label: &str,
-    args: &[&str],
-    source_root: &Path,
-    cargo_env: &[(&str, &Path)],
-) -> CommandResult {
-    let mut command = ProcessCommand::new("cargo");
-    command
-        .args(args)
-        .env("__CARGO_TESTS_ONLY_SRC_ROOT", source_root)
-        .current_dir(root);
     for (key, value) in cargo_env {
         command.env(key, value);
     }
@@ -9828,7 +9883,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--release",
         "--locked",
     ];
-    let recovery_init_build = run_cargo(root, "M27 Recovery init", &recovery_init_args);
+    let recovery_init_build =
+        run_product_init_cargo(root, "M27 Recovery init", &recovery_init_args, None, &[]);
     if recovery_init_build.exit_code != EXIT_SUCCESS {
         return recovery_init_build;
     }
@@ -11109,11 +11165,60 @@ mod tests {
         m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
         m27_readiness_reported_after_persisted, m27_trial_failure_observed,
         m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
-        run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
-        Command, QemuConfig, NAGI_WRITE_MARKER,
+        product_init_cargo_args, run_headless_with_pre_guest_retry_using, scoped_artifact_name,
+        verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
+
+    #[test]
+    fn product_init_cargo_args_select_product_workspace_and_preserve_root_target_path() {
+        let args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m27-recovery",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+            "--offline",
+        ];
+        assert_eq!(
+            product_init_cargo_args(&args).expect("valid product init build"),
+            [
+                "build",
+                "--manifest-path",
+                "user/nagi-init/Cargo.toml",
+                "--target-dir",
+                "target",
+                "--features",
+                "m27-recovery",
+                "--target",
+                "targets/x86_64-unknown-nagi-user.json",
+                "-Zbuild-std=core,alloc,compiler_builtins",
+                "--release",
+                "--locked",
+                "--offline",
+            ]
+            .map(str::to_owned)
+        );
+    }
+
+    #[test]
+    fn product_init_cargo_args_reject_ambiguous_package_or_output_selection() {
+        assert!(product_init_cargo_args(&["build", "-p", "nagi-init-linux-tests"]).is_err());
+        assert!(product_init_cargo_args(&[
+            "build",
+            "-p",
+            "nagi-init",
+            "--manifest-path",
+            "other/Cargo.toml",
+        ])
+        .is_err());
+    }
 
     #[test]
     fn m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics() {
