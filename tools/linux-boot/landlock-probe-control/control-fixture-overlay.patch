@@ -1,0 +1,155 @@
+--- a/linux_x86_64_process.rs
++++ b/linux_x86_64_process.rs
+@@ -2054,10 +2054,11 @@
+     mod ws04_landlock_integration_tests {
+         use super::*;
+         use std::ffi::CString;
+-        use std::fs::{self, File};
++        use std::fs::{self, File, OpenOptions};
+         use std::io::Write;
+         use std::os::fd::{AsFd, AsRawFd, FromRawFd};
+-        use std::os::unix::fs::PermissionsExt;
++        use std::os::unix::fs::{MetadataExt, PermissionsExt};
++        use std::os::unix::process::CommandExt;
+         use std::path::{Path, PathBuf};
+         use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+@@ -2117,6 +2118,52 @@
+             let mut file = File::create(path).unwrap();
+             file.write_all(bytes).unwrap();
+             set_mode(path, 0o666);
++        }
++
++
++        fn assert_same_device(source: &Path, destination: &Path) {
++            let source_parent = fs::metadata(source.parent().unwrap()).unwrap().dev();
++            let destination_parent = fs::metadata(destination.parent().unwrap()).unwrap().dev();
++            assert_eq!(source_parent, destination_parent, "rename endpoints must share st_dev");
++        }
++
++        #[test]
++        fn no_landlock_same_uid_control_child() {
++            let Some(read_path) = std::env::var_os("NAGI_WS04_CONTROL_READ") else {
++                return;
++            };
++            let read_path = PathBuf::from(read_path);
++            let write_path = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_WRITE").unwrap());
++            let profile_path = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_PROFILE").unwrap());
++            let create_path = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_CREATE").unwrap());
++            let first_source = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_RENAME_SOURCE_1").unwrap());
++            let first_destination = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_RENAME_DEST_1").unwrap());
++            let second_source = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_RENAME_SOURCE_2").unwrap());
++            let second_destination = PathBuf::from(std::env::var_os("NAGI_WS04_CONTROL_RENAME_DEST_2").unwrap());
++
++            File::open(read_path).expect("same-UID no-Landlock read control must succeed");
++            OpenOptions::new()
++                .write(true)
++                .open(write_path)
++                .expect("same-UID no-Landlock write control must succeed")
++                .write_all(b"control")
++                .unwrap();
++            File::open(&profile_path).expect("same-UID no-LandLock Profile read control must succeed");
++            OpenOptions::new()
++                .write(true)
++                .open(profile_path)
++                .expect("same-UID no-LandLock Profile write control must succeed")
++                .write_all(b"control")
++                .unwrap();
++            OpenOptions::new()
++                .write(true)
++                .create_new(true)
++                .open(create_path)
++                .expect("same-UID no-Landlock create control must succeed");
++            fs::rename(first_source, first_destination)
++                .expect("same-device no-Landlock rename control 1 must succeed");
++            fs::rename(second_source, second_destination)
++                .expect("same-device no-Landlock rename control 2 must succeed");
+         }
+
+         fn open_path_directory(path: &Path) -> std::os::fd::OwnedFd {
+@@ -2140,8 +2187,9 @@
+                 syscall4(NR_OPENAT, AT_FDCWD, path.as_ptr() as usize, 0, 0)
+             })
+             .unwrap() as i32;
+-            // Deliberately omit O_CLOEXEC so the fixture proves the actual
+-            // close_range(CLOSE_RANGE_CLOEXEC) path closes an inherited FD.
++            // Begin with an open, non-CLOEXEC fd. The probe later checks only
++            // that the descriptor is absent after exec; it does not observe
++            // the transient descriptor flag after child setup.
+             unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) }
+         }
+
+@@ -2223,7 +2271,7 @@
+         }
+
+         #[test]
+-        fn notes_child_denies_same_uid_cross_app_profile_and_closes_held_fd() {
++        fn notes_child_denies_same_uid_cross_app_profile_and_does_not_inherit_held_fd() {
+             let nonce = SystemTime::now()
+                 .duration_since(UNIX_EPOCH)
+                 .unwrap()
+@@ -2258,8 +2306,62 @@
+             write_fixture(&profile_secret, b"other-profile");
+             write_fixture(&allowed_write, b"notes-write");
+
+-            // The fixtures are DAC-accessible to the child's single UID. A
+-            // Landlock denial therefore cannot be explained by file mode.
++            // Positive control uses the exact execution UID/GID in a separate
++            // child without installing Landlock. This validates DAC and the
++            // fixture paths before a negative errno can count as a policy hit.
++            let control_create = foreign_create.clone();
++            let control_foreign_source = other_app.join("control-move-into-notes");
++            let control_allowed_dest = app.join("control-moved-from-other-app");
++            let control_allowed_source = app.join("control-move-out-of-notes");
++            let control_foreign_dest = other_app.join("control-moved-from-notes");
++            write_fixture(&control_foreign_source, b"control-foreign");
++            write_fixture(&control_allowed_source, b"control-allowed");
++            assert_same_device(&foreign_rename_source, &allowed_rename_dest);
++            assert_same_device(&allowed_rename_source, &foreign_rename_dest);
++            assert_same_device(&control_foreign_source, &control_allowed_dest);
++            assert_same_device(&control_allowed_source, &control_foreign_dest);
++
++            let mut control = std::process::Command::new(std::env::current_exe().unwrap());
++            control
++                .arg("no_landlock_same_uid_control_child")
++                .env("NAGI_WS04_CONTROL_READ", &foreign_read)
++                .env("NAGI_WS04_CONTROL_WRITE", &foreign_read)
++                .env("NAGI_WS04_CONTROL_PROFILE", &profile_secret)
++                .env("NAGI_WS04_CONTROL_CREATE", &control_create)
++                .env("NAGI_WS04_CONTROL_RENAME_SOURCE_1", &control_foreign_source)
++                .env("NAGI_WS04_CONTROL_RENAME_DEST_1", &control_allowed_dest)
++                .env("NAGI_WS04_CONTROL_RENAME_SOURCE_2", &control_allowed_source)
++                .env("NAGI_WS04_CONTROL_RENAME_DEST_2", &control_foreign_dest);
++            unsafe {
++                control.pre_exec(|| {
++                    let groups = syscall2(NR_SETGROUPS, 0, 0);
++                    if groups < 0 {
++                        return Err(io::Error::from_raw_os_error((-groups) as i32));
++                    }
++                    let gid =
++                        syscall3(NR_SETRESGID, TEST_GID as usize, TEST_GID as usize, TEST_GID as usize);
++                    if gid < 0 {
++                        return Err(io::Error::from_raw_os_error((-gid) as i32));
++                    }
++                    let uid =
++                        syscall3(NR_SETRESUID, TEST_UID as usize, TEST_UID as usize, TEST_UID as usize);
++                    if uid < 0 {
++                        return Err(io::Error::from_raw_os_error((-uid) as i32));
++                    }
++                    Ok(())
++                });
++            }
++            let control_output = control.output().unwrap();
++            assert!(
++                control_output.status.success(),
++                "same-credential no-Landlock control failed: {}",
++                String::from_utf8_lossy(&control_output.stderr)
++            );
++            fs::remove_file(&control_create).unwrap();
++
++            // The fixture fd is open and non-CLOEXEC before child setup. The
++            // probe's EBADF result after exec proves non-inheritance, not the
++            // transient FD_CLOEXEC flag itself.
+             let held_file = open_read_without_cloexec(&foreign_read);
+             let held_fd = held_file.as_raw_fd();
+             assert!(held_fd >= 3, "held-fd fixture must be above stdio");
