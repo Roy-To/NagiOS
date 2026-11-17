@@ -1,8 +1,8 @@
 # DEC-011 — NagiのTask承認UIと進捗表示
 
-**状態:** CONFIRMED（承認の基本方針・AI Task開始前のWayback復元可能性表示・builder自動切替＋状態表示＋手動指定C・前景会話優先C・追加指示分類表示C・委任Taskの進捗表示C・PX-04音声／テキスト対話の基本方向）／PROVISIONAL（UI細部）  
+**状態:** CONFIRMED（従前の承認・Task進捗・Builder／Wayback／前景優先、PX-04の音声／テキスト対話、PX-06の統合TaskセンターB＋将来の高度オーケストレーションCの高水準方向）／PROVISIONAL（具体的Task UI・Queue／Priority／復旧導線・Voice UI・Scheduler・性能・適用版）  
 **最終合意日:** 2026-11-15（既存方針）  
-**PX-04追加合意日:** 2026-11-17  
+**PX-04／PX-06追加合意日:** 2026-11-17  
 **対象:** NagiのTask実行時の承認・音声連携・進捗表示。実装時期は未確定  
 **関連:** DEC-001、DEC-002、DEC-008、DEC-009、DEC-010、DEC-110、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、DEC-015、DEC-016、DEC-018、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
@@ -59,6 +59,24 @@
 
 追加指示の受付によって従前Taskを無断で消去・中止・完了させない。進行中のTaskが安全のため待機した場合は、資源待機、権限・承認待ち、競合待ち、明示停止、中断復旧待ちを区別する。表示形式、Priority変更操作、Task間の対応付けUIはPROVISIONALであり、DEC-011の既存ハイブリッド承認方式と0.4 Gateを変更しない。
 
+### PX-06 — 統合TaskセンターBと将来の高度なTaskオーケストレーションC（2026-11-17／CONFIRMED）
+
+**基本B案 — 統合Taskセンター型（CONFIRMED）:** Nagiが管理する長時間・複数Taskの状態と必要な操作を、会話内の既存進捗カード／コンパクト表示とつながる一元的なTask管理体験から把握できるようにする。作業中、Queue・資源待機、承認待ち、ユーザーによる明示停止、クラッシュ／再起動後の復旧待ち、完了・部分成功・失敗など、実際に異なる理由・状態を混同せず示し、ユーザーが必要な優先度指定、確認、Pause／Cancel／復旧の選択へ到達できるようにする。**「統合Taskセンター」は体験の概念であり、正式名称・画面配置・個別の状態ラベルを確定しない。**
+
+**将来C案 — 高度な自律Taskオーケストレーション（CONFIRMEDの将来方向）:** B案の見通しと人間の監督を維持しつつ、Task間の依存関係、ユーザーが示した優先度、端末の利用可能資源、期限、安全要件等を踏まえ、Nagiが実行調整をより適切に支援する高度な管理体験を長期的な方向とする。条件を満たす環境での実行の最適化や段階的な並列化は将来の検討対象とするが、**具体的なScheduler、Task依存モデル、並列可否・並列数・導入段階はこの決定で確定しない**。0.3単一Personal Agent、初期0.4のNagi自身の`builder` Role／逐次実行・別Gateという既存境界は変更しない。
+
+**維持するCONFIRMED／安全境界:**
+- 既存の進捗カード→コンパクト表示→選択時の詳細表示、Nagi Home／DesktopからのTask操作、前景会話・通常OS操作の優先とAI Taskの条件付き継続をそのまま継承する（DEC-011／015／020）。
+- **Resource待機からの条件付き継続**と、**明示Pause／Cancel／Stop、承認待ち・競合／状態不明、クラッシュ／再起動後の復旧待ち**を厳密に分ける。後者を自動再開・無断再実行しない。障害後の`builder` TaskはDEC-022に従い、確認済みの状態・副作用・権限を示してユーザーに再開／やり直し／中止を選んでもらい、再開前に現行Permission／Scope／Revision／Budgetを検査する。
+- Taskの統合表示や優先度変更だけで、新たなAction実行権限、Agent間委譲、別Taskへの承認Scopeの転用、別Taskの副作用再試行やCloud利用を許可しない。実行時のOS／Provider検査、Stop伝播、Activity／Task Log、結果不明・部分成功の正直な表示、既存のResource／安全制約を保持する。
+- この採用は製品の高水準方針であり、実装完了・任意の並列数の許可、0.3 Acceptance／0.4 Entry Gate／Release・Activation GateやWorkstream開始条件の変更を意味しない。
+
+**PX-06で残るPROVISIONAL／OPEN:**
+- Task一覧・Queue・Priorityの具体的UI／操作、表示項目・並び順・フィルタ、状態／待機理由の名称・粒度、進捗・通知・期限の表示（既に確定した状態区別の原則は維持）。
+- 優先順位変更の反映条件・競合解決・公平性、依存関係の表現と検出／編集、Scheduler・Queue／Throttle／Resource Budgetの詳細。
+- 将来Cにおける実行順序の最適化方式、並列実行を許す条件・上限と安全検証、複数Model・専門Agentとの接続境界。
+- 実装技術・対象Device／Hardware・性能値・受入方法・提供Version／時期。初期0.4は既存の逐次実行・Gateを維持する。
+
 ## 例外・禁止・安全境界
 
 - 音声認識の成功だけを本人認証やOS Capabilityの根拠としない。承認の可否は現行の本人確認・Permission / Policyに従う。
@@ -91,4 +109,5 @@
 | 2026-11-05 | builder作業中の追加指示方式CをUIへ反映。既存Taskへの変更、別TaskのQueue、競合・Scope・優先順位の確認待ちを区別して表示し、承認と進行中成果を保護する |
 | 2026-11-15 | DEC-026のTask開始前Wayback復元可能性表示をTask UI原則へ接続。具体的な表示・判定範囲は未確定で、既存の承認・Permission・Release Gateは維持する |
 | 2026-11-15 | 委任Taskの進捗表示に選択Cを確定。依頼直後は会話内カード、その後はコンパクト表示にまとめ、選択時に詳細を展開する。UI細部はPROVISIONAL。 |
+| 2026-11-17 | PX-06の統合TaskセンターBを基本、将来は依存関係・資源・優先度を踏まえる高度なTask管理Cへ発展させる高水準の方向をCONFIRMED。既存のTask状態区別・停止／復旧・前景優先・権限制約を維持し、Queue／Priority／表示／Scheduler・並列度・版の詳細はPROVISIONAL。 |
 | 2026-11-17 | PX-04のB基本方針と将来Cの高水準方向を追加。音声／Text切替・画面訂正は承認UIを置き換えず、マイクPermissionとCloud送信別許可、Stop／Text fallback時のTask状態保持を明記。詳細仕様はPROVISIONAL。 |
