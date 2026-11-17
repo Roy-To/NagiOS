@@ -74,8 +74,10 @@ file書込み、出力先の存在検査、command実行、依存取得は行わ
 
 NDP-03のwriterは `writePolicy` を実装すること。既存directoryは空でも拒否し、
 symlinkとancestorのsymlinkを拒否する。作成時にもexclusive create／no-followなどで
-競合を検出し、既存fileへの上書き・mergeは行わない。失敗時は自分が作成した物だけを
-片付け、元project・SDK・Package・共有Cargo workspace／lockを変更しない。
+競合を検出し、既存fileへの上書き・mergeは行わない。失敗時は何も削除せず、
+自分が作成した物を残してそのpathを報告する（PROVISIONAL: 並行する差し替えにより
+cleanupが第三者の実体を消す危険を避けるため）。元project・SDK・Package・
+共有Cargo workspace／lockを変更しない。
 書込み保全・race検証と実生成CLIはNDP-03の作業で、このpreviewのテストでは受入しない。
 API／権限の捏造、build script実行、download、署名鍵の埋込み、host処理でのguest代替は禁止。
 
