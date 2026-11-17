@@ -99,7 +99,7 @@ impl PackageManifest {
         let mut name = None;
         let mut version = None;
         let mut entry = None;
-        let mut surfaces = 0;
+        let mut surfaces = None;
         let mut grants = [Text::EMPTY; MAX_PACKAGE_GRANTS];
         let mut grant_count = 0;
         for line in text.split(|byte| *byte == b'\n') {
@@ -113,10 +113,28 @@ impl PackageManifest {
             let (key, value_with_separator) = line.split_at(separator);
             let value = &value_with_separator[1..];
             match key {
-                b"id" => id = Some(Text::parse(value)?),
-                b"name" => name = Some(Text::parse(value)?),
-                b"version" => version = Some(Text::parse(value)?),
+                b"id" => {
+                    if id.is_some() {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    id = Some(Text::parse(value)?);
+                }
+                b"name" => {
+                    if name.is_some() {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    name = Some(Text::parse(value)?);
+                }
+                b"version" => {
+                    if version.is_some() {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    version = Some(Text::parse(value)?);
+                }
                 b"entry" => {
+                    if entry.is_some() {
+                        return Err(PackageError::InvalidManifest);
+                    }
                     if value.windows(2).any(|window| window == b"..")
                         || value.iter().any(|byte| *byte == b'/' || *byte == b'\\')
                     {
@@ -125,7 +143,10 @@ impl PackageManifest {
                     entry = Some(Text::parse(value)?);
                 }
                 b"surfaces" => {
-                    surfaces = parse_surfaces(value)?;
+                    if surfaces.is_some() {
+                        return Err(PackageError::InvalidManifest);
+                    }
+                    surfaces = Some(parse_surfaces(value)?);
                 }
                 b"grant" => {
                     let grant = Text::<MAX_GRANT_BYTES>::parse(value)?;
@@ -158,7 +179,7 @@ impl PackageManifest {
             name,
             version,
             entry,
-            surfaces,
+            surfaces: surfaces.unwrap_or(0),
             grants,
             grant_count: grant_count as u8,
         })
@@ -288,10 +309,16 @@ impl<'a> PackageView<'a> {
     }
 
     pub fn is_signed(&self) -> bool {
+        self.is_signed_by(&TRUSTED_SIGNING_PUBLIC_KEY)
+    }
+
+    /// Verify the package bytes against a trust anchor selected by the caller.
+    /// The embedded Developer Preview key is not consulted by this method.
+    pub fn is_signed_by(&self, public_key: &[u8; 32]) -> bool {
         if self.signature.len() != SIGNATURE_BYTES {
             return false;
         }
-        let Ok(public_key) = VerifyingKey::from_bytes(&TRUSTED_SIGNING_PUBLIC_KEY) else {
+        let Ok(public_key) = VerifyingKey::from_bytes(public_key) else {
             return false;
         };
         let Ok(signature) = Signature::from_slice(self.signature) else {
@@ -355,7 +382,20 @@ impl PackageService {
         package: &PackageView<'_>,
         policy: InstallPolicy,
     ) -> Result<InstallReport, PackageError> {
-        self.store.install(package, policy)
+        self.store
+            .install_with_trusted_key(package, policy, &TRUSTED_SIGNING_PUBLIC_KEY)
+    }
+
+    /// Install using a trust anchor provided by the authenticated caller.
+    /// `install` remains the Developer Preview compatibility path.
+    pub fn install_with_trusted_key(
+        &mut self,
+        package: &PackageView<'_>,
+        policy: InstallPolicy,
+        trusted_public_key: &[u8; 32],
+    ) -> Result<InstallReport, PackageError> {
+        self.store
+            .install_with_trusted_key(package, policy, trusted_public_key)
     }
 
     pub fn remove(&mut self, app_id: AppId) -> Result<(), PackageError> {
@@ -368,6 +408,15 @@ impl PackageService {
 
     pub fn list(&self, output: &mut [InstalledPackage]) -> Result<usize, PackageError> {
         self.store.list(output)
+    }
+
+    /// Read the live inventory without requiring callers to invent a
+    /// placeholder `InstalledPackage` for an empty store.
+    pub fn list_inventory(
+        &self,
+        output: &mut [Option<InstalledPackage>],
+    ) -> Result<usize, PackageError> {
+        self.store.list_inventory(output)
     }
 }
 
@@ -384,14 +433,24 @@ impl PackageStore {
         package: &PackageView<'_>,
         policy: InstallPolicy,
     ) -> Result<InstallReport, PackageError> {
-        if !package.signature().is_empty() && !package.is_signed() {
+        self.install_with_trusted_key(package, policy, &TRUSTED_SIGNING_PUBLIC_KEY)
+    }
+
+    pub fn install_with_trusted_key(
+        &mut self,
+        package: &PackageView<'_>,
+        policy: InstallPolicy,
+        trusted_public_key: &[u8; 32],
+    ) -> Result<InstallReport, PackageError> {
+        let signed = package.is_signed_by(trusted_public_key);
+        if !package.signature().is_empty() && !signed {
             return Err(PackageError::InvalidSignature);
         }
-        let unsigned_warning = !package.is_signed();
-        if policy.require_signature && !package.is_signed() && !policy.developer_mode {
+        let unsigned_warning = !signed;
+        if policy.require_signature && !signed {
             return Err(PackageError::SignatureRequired);
         }
-        if !package.is_signed() && !policy.developer_mode {
+        if !signed && !policy.developer_mode {
             return Err(PackageError::SignatureRequired);
         }
         let app_id = package.manifest.app_id();
@@ -447,6 +506,21 @@ impl PackageStore {
                 return Err(PackageError::OutputTooSmall);
             };
             *destination = *installed;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    pub fn list_inventory(
+        &self,
+        output: &mut [Option<InstalledPackage>],
+    ) -> Result<usize, PackageError> {
+        let mut count = 0;
+        for installed in self.slots.iter().flatten() {
+            let Some(destination) = output.get_mut(count) else {
+                return Err(PackageError::OutputTooSmall);
+            };
+            *destination = Some(*installed);
             count += 1;
         }
         Ok(count)
@@ -518,12 +592,16 @@ fn is_lower_identifier(value: &[u8]) -> bool {
 fn parse_surfaces(value: &[u8]) -> Result<u8, PackageError> {
     let mut flags = 0;
     for surface in value.split(|byte| *byte == b',') {
-        flags |= match surface {
+        let flag = match surface {
             b"compact" => 1,
             b"medium" => 2,
             b"expanded" => 4,
             _ => return Err(PackageError::InvalidManifest),
         };
+        if flags & flag != 0 {
+            return Err(PackageError::InvalidManifest);
+        }
+        flags |= flag;
     }
     if flags == 0 {
         return Err(PackageError::InvalidManifest);
@@ -556,12 +634,21 @@ fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_xapp, InstallPolicy, PackageError, PackageManifest, PackageStore, PackageView,
-        MAX_PACKAGE_BYTES, SIGNATURE_BYTES, TRUSTED_SIGNING_PUBLIC_KEY,
+        build_xapp, InstallPolicy, InstalledPackage, PackageError, PackageManifest, PackageService,
+        PackageStore, PackageView, MAX_PACKAGE_BYTES, MAX_SLOTS, SIGNATURE_BYTES,
+        TRUSTED_SIGNING_PUBLIC_KEY,
     };
     use ed25519_dalek::{Signer, SigningKey};
 
     const MANIFEST: &[u8] = b"id=com.example.hello\nname=Hello Nagi\nversion=0.1.0\nentry=hello.elf\nsurfaces=compact,expanded\n";
+    const SAME_ID_REPLACEMENT_MANIFEST: &[u8] = b"id=com.example.hello\nname=Unsigned replacement\nversion=0.2.0\nentry=hello.elf\nsurfaces=compact,expanded\n";
+    const OTHER_ID_MANIFEST: &[u8] =
+        b"id=com.example.other\nname=Other app\nversion=0.1.0\nentry=other.elf\nsurfaces=compact\n";
+    const PREVIEW_SIGNING_KEY: [u8; 32] = [
+        0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c,
+        0xc4, 0x44, 0x49, 0xc5, 0x69, 0x7b, 0x32, 0x69, 0x19, 0x70, 0x3b, 0xac, 0x03, 0x1c, 0xae,
+        0x7f, 0x60,
+    ];
 
     fn package(signature: &[u8]) -> [u8; MAX_PACKAGE_BYTES] {
         let mut bytes = [0; MAX_PACKAGE_BYTES];
@@ -577,6 +664,40 @@ mod tests {
         .expect("package");
         bytes[length..].fill(0);
         bytes
+    }
+
+    fn package_for_manifest(manifest: &[u8], signed: bool) -> ([u8; MAX_PACKAGE_BYTES], usize) {
+        let mut bytes = [0; MAX_PACKAGE_BYTES];
+        let signature_placeholder = [0; SIGNATURE_BYTES];
+        let signature = if signed {
+            &signature_placeholder[..]
+        } else {
+            &[]
+        };
+        let length = build_xapp(
+            manifest,
+            b"HELLO NAGI ELF",
+            b"asset",
+            b"schema",
+            b"MIT",
+            signature,
+            &mut bytes,
+        )
+        .expect("package");
+        if signed {
+            let signing_key = SigningKey::from_bytes(&PREVIEW_SIGNING_KEY);
+            let signature = signing_key.sign(&bytes[..length - SIGNATURE_BYTES]);
+            bytes[length - SIGNATURE_BYTES..length].copy_from_slice(&signature.to_bytes());
+        }
+        (bytes, length)
+    }
+
+    fn inventory_snapshot(service: &PackageService) -> [Option<InstalledPackage>; MAX_SLOTS] {
+        let mut inventory = [None; MAX_SLOTS];
+        service
+            .list_inventory(&mut inventory)
+            .expect("inventory fits the fixed slots");
+        inventory
     }
 
     #[test]
@@ -744,5 +865,107 @@ mod tests {
         }
         let no_grants = PackageManifest::parse(MANIFEST).expect("manifest");
         assert_eq!(no_grants.grants().count(), 0);
+    }
+
+    #[test]
+    fn rejects_duplicate_single_fields_duplicate_surfaces_and_missing_fields() {
+        for text in [
+            &b"id=a\nid=b\nname=A\nversion=1\nentry=a\n"[..],
+            b"id=a\nname=A\nname=B\nversion=1\nentry=a\n",
+            b"id=a\nname=A\nversion=1\nentry=a\nsurfaces=compact\nsurfaces=expanded\n",
+            b"id=a\nname=A\nversion=1\nentry=a\nsurfaces=compact,compact\n",
+        ] {
+            assert_eq!(
+                PackageManifest::parse(text),
+                Err(PackageError::InvalidManifest)
+            );
+        }
+        assert_eq!(
+            PackageManifest::parse(b"id=a\nname=A\nentry=a\n"),
+            Err(PackageError::MissingManifestField)
+        );
+    }
+
+    #[test]
+    fn inventory_lists_real_slots_and_empty_store_as_empty() {
+        let mut service = super::PackageService::new();
+        let mut output = [None; super::MAX_SLOTS];
+        assert_eq!(service.list_inventory(&mut output), Ok(0));
+        assert!(output.iter().all(Option::is_none));
+
+        let bytes = package(b"");
+        let length = bytes.iter().rposition(|byte| *byte != 0).unwrap() + 1;
+        let view = PackageView::parse(&bytes[..length]).unwrap();
+        let _ = service
+            .install(
+                &view,
+                InstallPolicy {
+                    developer_mode: true,
+                    require_signature: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(service.list_inventory(&mut output), Ok(1));
+        assert_eq!(output[0].unwrap().manifest.id(), b"com.example.hello");
+        assert!(output[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn strict_signature_policy_rejects_unsigned_without_mutating_inventory() {
+        let strict_policy = InstallPolicy {
+            developer_mode: true,
+            require_signature: true,
+        };
+        let mut service = PackageService::new();
+        let empty_inventory = inventory_snapshot(&service);
+        assert!(empty_inventory.iter().all(Option::is_none));
+
+        for manifest in [MANIFEST, OTHER_ID_MANIFEST] {
+            let (bytes, length) = package_for_manifest(manifest, false);
+            let view = PackageView::parse(&bytes[..length]).expect("unsigned package parses");
+            assert_eq!(
+                service.install(&view, strict_policy),
+                Err(PackageError::SignatureRequired)
+            );
+            assert_eq!(inventory_snapshot(&service), empty_inventory);
+        }
+
+        let (signed_bytes, signed_length) = package_for_manifest(MANIFEST, true);
+        let signed_view =
+            PackageView::parse(&signed_bytes[..signed_length]).expect("signed package parses");
+        let first = service
+            .install(&signed_view, strict_policy)
+            .expect("valid signed package installs");
+        assert!(!first.replaced);
+        assert!(!first.unsigned_warning);
+        assert_eq!(service.info(first.app_id).unwrap().generation, 1);
+        let installed_inventory = inventory_snapshot(&service);
+
+        for manifest in [SAME_ID_REPLACEMENT_MANIFEST, OTHER_ID_MANIFEST] {
+            let (bytes, length) = package_for_manifest(manifest, false);
+            let view = PackageView::parse(&bytes[..length]).expect("unsigned package parses");
+            assert_eq!(
+                service.install(&view, strict_policy),
+                Err(PackageError::SignatureRequired)
+            );
+            assert_eq!(inventory_snapshot(&service), installed_inventory);
+            assert_eq!(service.info(first.app_id).unwrap().generation, 1);
+            assert_eq!(
+                service.info(first.app_id).unwrap().manifest.id(),
+                b"com.example.hello"
+            );
+        }
+
+        let other_app_id = PackageManifest::parse(OTHER_ID_MANIFEST)
+            .expect("other manifest parses")
+            .app_id();
+        assert_eq!(service.info(other_app_id), Err(PackageError::NotInstalled));
+
+        let reinstall = service
+            .install(&signed_view, strict_policy)
+            .expect("valid signed reinstall succeeds");
+        assert!(reinstall.replaced);
+        assert_eq!(service.info(first.app_id).unwrap().generation, 2);
+        assert_eq!(inventory_snapshot(&service).iter().flatten().count(), 1);
     }
 }

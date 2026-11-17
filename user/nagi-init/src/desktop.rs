@@ -8,6 +8,19 @@ use nagi_ui::{color, ColorRole, ThemeMode};
 
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 
+/// Borrowed display-only text from a caller-owned installed-row consumer.
+/// Desktop does not discover models, query inventory, or authorize receipts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SettingsModelRowText<'a> {
+    pub model_id: &'a [u8],
+    pub display_name: &'a [u8],
+}
+
+/// Supplies the current, already-refreshed Settings row to Desktop rendering.
+pub trait SettingsModelRowProvider {
+    fn settings_model_row(&mut self) -> Option<SettingsModelRowText<'_>>;
+}
+
 const SYSTEM_LANGUAGE_PATH: &[u8] = b"system-language";
 
 const APP_COUNT: usize = 4;
@@ -26,6 +39,10 @@ const TITLE_TEXT: u32 = color(PREVIEW_THEME, ColorRole::TextOnAccent).to_pixel()
 const FOCUS: u32 = color(PREVIEW_THEME, ColorRole::Focus).to_pixel();
 const SETTINGS_BUTTON: Rect = Rect::new(252, 1, 66, 18);
 const SETTINGS_PANEL: Rect = Rect::new(34, 34, 252, 132);
+const SETTINGS_MODEL_ROW: Rect = Rect::new(48, 142, 224, 24);
+const SETTINGS_MODEL_ID_POSITION: [i32; 2] = [54, 144];
+const SETTINGS_MODEL_NAME_POSITION: [i32; 2] = [54, 154];
+const SETTINGS_MODEL_TEXT_MAX_ADVANCE: i32 = 217;
 const ENGLISH_OPTION: Rect = Rect::new(48, 83, 224, 25);
 const JAPANESE_OPTION: Rect = Rect::new(48, 116, 224, 25);
 
@@ -170,6 +187,14 @@ impl Desktop {
     }
 
     pub fn render(&self, surface: &mut [u32]) {
+        self.render_with_settings_model_row(surface, None);
+    }
+
+    pub fn render_with_settings_model_row(
+        &self,
+        surface: &mut [u32],
+        model_row: Option<SettingsModelRowText<'_>>,
+    ) {
         let mut painter = Painter::new(surface);
         painter.fill(Rect::new(0, 0, 320, 200), BACKGROUND);
         painter.fill(
@@ -224,7 +249,7 @@ impl Desktop {
             message!(TERMINAL_TEXT, 9),
         );
         if self.settings_open {
-            self.render_settings(&mut painter);
+            self.render_settings(&mut painter, model_row);
         }
         painter.fill(
             Rect::new(self.pointer_x - 1, self.pointer_y - 1, 3, 3),
@@ -331,7 +356,11 @@ impl Desktop {
         }
     }
 
-    fn render_settings(&self, painter: &mut Painter<'_>) {
+    fn render_settings(
+        &self,
+        painter: &mut Painter<'_>,
+        model_row: Option<SettingsModelRowText<'_>>,
+    ) {
         painter.fill(SETTINGS_PANEL, PANEL);
         painter.frame(SETTINGS_PANEL, BORDER);
         painter.fill(
@@ -369,6 +398,57 @@ impl Desktop {
             "desktop.settings.option.ja-JP",
             SettingsFocus::Japanese,
         );
+        if let Some(model_row) = model_row {
+            painter.fill(
+                SETTINGS_MODEL_ROW,
+                color(PREVIEW_THEME, ColorRole::SurfaceRaised).to_pixel(),
+            );
+            painter.frame(SETTINGS_MODEL_ROW, BORDER);
+            let model_id = Self::settings_model_row_visible_prefix(
+                model_row.model_id,
+                SETTINGS_MODEL_TEXT_MAX_ADVANCE,
+            );
+            let display_name = Self::settings_model_row_visible_prefix(
+                model_row.display_name,
+                SETTINGS_MODEL_TEXT_MAX_ADVANCE,
+            );
+            painter.text(
+                SETTINGS_MODEL_ID_POSITION[0],
+                SETTINGS_MODEL_ID_POSITION[1],
+                model_id,
+                TEXT,
+            );
+            painter.text(
+                SETTINGS_MODEL_NAME_POSITION[0],
+                SETTINGS_MODEL_NAME_POSITION[1],
+                display_name,
+                TEXT,
+            );
+        }
+    }
+
+    fn settings_model_row_visible_prefix(text: &[u8], max_advance: i32) -> &[u8] {
+        let Ok(value) = core::str::from_utf8(text) else {
+            return &text[..0];
+        };
+        let mut used = 0_i32;
+        let mut end = 0_usize;
+        for (start, character) in value.char_indices() {
+            let length = character.len_utf8();
+            let advance = if character.is_ascii() {
+                7
+            } else if length == 3 && (0xe3..=0xe9).contains(&text[start]) {
+                8
+            } else {
+                (length as i32).saturating_mul(8)
+            };
+            if advance > max_advance.saturating_sub(used) {
+                break;
+            }
+            used += advance;
+            end = start + length;
+        }
+        &text[..end]
     }
 
     fn render_locale_option(
@@ -551,6 +631,19 @@ impl Desktop {
         true
     }
 
+    pub fn render_with_settings_row_provider<P: SettingsModelRowProvider>(
+        &self,
+        surface: &mut [u32],
+        provider: &mut P,
+    ) {
+        let model_row = if self.settings_open {
+            provider.settings_model_row()
+        } else {
+            None
+        };
+        self.render_with_settings_model_row(surface, model_row);
+    }
+
     fn render_app(&self, painter: &mut Painter<'_>, index: usize, title: &[u8], content: &[u8]) {
         let window = self.windows[index];
         painter.fill(window, PANEL);
@@ -574,7 +667,37 @@ impl Desktop {
     }
 }
 
-pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataVolume) -> ! {
+struct EmptySettingsModelRowProvider;
+
+impl SettingsModelRowProvider for EmptySettingsModelRowProvider {
+    fn settings_model_row(&mut self) -> Option<SettingsModelRowText<'_>> {
+        None
+    }
+}
+
+pub fn run(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    volume: UserDataVolume,
+) -> ! {
+    run_with_settings_row_provider(
+        block_capability,
+        display_capability,
+        input_capability,
+        volume,
+        EmptySettingsModelRowProvider,
+    )
+}
+
+pub fn run_with_settings_row_provider<P: SettingsModelRowProvider>(
+    block_capability: u64,
+    display_capability: u64,
+    input_capability: u64,
+    mut volume: UserDataVolume,
+    mut settings_model_row_provider: P,
+) -> ! {
+    let _ = block_capability;
     let mut info = DisplayInfo::default();
     if !libnagi::display_info(&mut info)
         || info.surface_bytes as usize != libnagi::SURFACE_BYTES
@@ -592,7 +715,7 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
     };
     let preference = load_locale(&mut volume);
     let mut desktop = Desktop::new(preference.locale());
-    desktop.render(surface);
+    desktop.render_with_settings_row_provider(surface, &mut settings_model_row_provider);
     if !libnagi::display_present(display_capability) {
         print(message!(NAGI_M10_FAIL, 26));
         libnagi::exit(1);
@@ -642,7 +765,7 @@ pub fn run(display_capability: u64, input_capability: u64, mut volume: UserDataV
             continue;
         }
         if desktop.handle_event(event, &mut volume) {
-            desktop.render(surface);
+            desktop.render_with_settings_row_provider(surface, &mut settings_model_row_provider);
             if !libnagi::display_present(display_capability) {
                 print(message!(NAGI_M10_FAIL, 26));
                 libnagi::exit(1);
@@ -783,4 +906,103 @@ fn append_decimal(destination: &mut [u8], mut offset: usize, mut value: u64) -> 
         right -= 1;
     }
     offset
+}
+
+#[cfg(test)]
+mod settings_model_row_render_tests {
+    use super::*;
+
+    // Fixed strings are test inputs only, not live inventory or an authorized receipt.
+    struct FixtureProvider(Option<(&'static [u8], &'static [u8])>);
+
+    impl SettingsModelRowProvider for FixtureProvider {
+        fn settings_model_row(&mut self) -> Option<SettingsModelRowText<'_>> {
+            self.0.map(|(model_id, display_name)| SettingsModelRowText {
+                model_id,
+                display_name,
+            })
+        }
+    }
+
+    fn surface() -> std::vec::Vec<u32> {
+        std::vec![0; (libnagi::SURFACE_WIDTH as usize) * (libnagi::SURFACE_HEIGHT as usize)]
+    }
+
+    fn differs_in(surface_a: &[u32], surface_b: &[u32], rect: Rect) -> bool {
+        let width = libnagi::SURFACE_WIDTH as usize;
+        for y in rect.y..rect.y + rect.height {
+            let start = y as usize * width + rect.x as usize;
+            let end = start + rect.width as usize;
+            if surface_a[start..end] != surface_b[start..end] {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn actual_settings_painter_draws_provider_text_and_clears_none_and_close() {
+        let mut desktop = Desktop::new(nagi_localization::Locale::EnUs);
+        desktop.settings_open = true;
+        let id_line = Rect::new(
+            SETTINGS_MODEL_ID_POSITION[0],
+            SETTINGS_MODEL_ID_POSITION[1],
+            SETTINGS_MODEL_TEXT_MAX_ADVANCE,
+            7,
+        );
+        let name_line = Rect::new(
+            SETTINGS_MODEL_NAME_POSITION[0],
+            SETTINGS_MODEL_NAME_POSITION[1],
+            SETTINGS_MODEL_TEXT_MAX_ADVANCE,
+            7,
+        );
+        let mut provider = FixtureProvider(Some((b"fixture/model-A", b"Fixture display A")));
+        let mut frame_a = surface();
+        desktop.render_with_settings_row_provider(&mut frame_a, &mut provider);
+        provider.0 = Some((b"fixture/model-B", b"Fixture display B"));
+        let mut frame_b = surface();
+        desktop.render_with_settings_row_provider(&mut frame_b, &mut provider);
+        assert!(differs_in(&frame_a, &frame_b, id_line));
+        assert!(differs_in(&frame_a, &frame_b, name_line));
+
+        // Missing/Stale/Unavailable adapter refreshes yield None; redraw clears the prior text.
+        provider.0 = None;
+        desktop.render_with_settings_row_provider(&mut frame_a, &mut provider);
+        let mut empty_frame = surface();
+        desktop.render(&mut empty_frame);
+        assert_eq!(frame_a, empty_frame);
+
+        desktop.settings_open = false;
+        provider.0 = Some((b"fixture/model-C", b"Fixture display C"));
+        desktop.render_with_settings_row_provider(&mut frame_a, &mut provider);
+        desktop.render(&mut empty_frame);
+        assert_eq!(frame_a, empty_frame);
+    }
+
+    #[test]
+    fn row_clipping_matches_the_real_painter_metric() {
+        for input in ["A", "あ", "中", "ࠀ", "é", "😀"] {
+            let bytes = input.as_bytes();
+            for limit in 0..=40 {
+                let prefix = Desktop::settings_model_row_visible_prefix(bytes, limit);
+                let mut pixels = surface();
+                let (end, next_advance) = {
+                    let mut painter = Painter::new(&mut pixels);
+                    let end = painter.text(0, 0, prefix, TEXT);
+                    let next = if prefix.len() < bytes.len() {
+                        let character = input[prefix.len()..].chars().next().unwrap();
+                        let next_end = prefix.len() + character.len_utf8();
+                        Some(painter.text(0, 8, &bytes[prefix.len()..next_end], TEXT))
+                    } else {
+                        None
+                    };
+                    (end, next)
+                };
+                assert!(end <= limit);
+                if let Some(next_advance) = next_advance {
+                    assert!(end + next_advance > limit);
+                }
+            }
+        }
+    }
 }

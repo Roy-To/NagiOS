@@ -4,6 +4,7 @@
 pub mod errno;
 pub mod fs;
 pub mod net;
+mod posix_time;
 pub mod process;
 #[cfg(any(target_os = "nagi", test))]
 pub mod readonly_callback_file;

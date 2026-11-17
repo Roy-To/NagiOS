@@ -4,6 +4,13 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_preview_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_desktop_dev_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_pid1_safety_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(nagi_release_build)");
+    if env::var("PROFILE").expect("Cargo PROFILE").as_str() != "debug" {
+        println!("cargo:rustc-cfg=nagi_release_build");
+    }
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
     println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");

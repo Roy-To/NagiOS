@@ -1,10 +1,55 @@
-#![cfg_attr(all(target_os = "nagi", not(feature = "m13-std")), no_std)]
+#![cfg_attr(
+    all(
+        target_os = "nagi",
+        not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+    ),
+    no_std
+)]
 #![cfg_attr(target_os = "nagi", no_main)]
-#![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
+#![cfg_attr(
+    all(
+        target_os = "nagi",
+        any(feature = "m13-std", feature = "private-browser-profile-storage")
+    ),
+    feature(restricted_std)
+)]
+
+// A production session must never accidentally run a milestone's boot path.
+// In particular Servo and M20 acceptance entry points terminate the process.
+#[cfg(all(
+    feature = "production-session",
+    any(
+        feature = "m8-shell",
+        feature = "m9-window",
+        feature = "m11-security",
+        feature = "m12-network",
+        feature = "m13-posix",
+        feature = "m13-std",
+        feature = "m14-audio",
+        feature = "m15-history",
+        feature = "m16-package",
+        feature = "m17-servo",
+        feature = "m18-acceptance",
+        feature = "m19-search",
+        feature = "m20-model-store-acceptance",
+        feature = "m20-llama-link-smoke",
+        feature = "m20-llama-inference-acceptance",
+        feature = "m22-history",
+        feature = "m25-voice-acceptance",
+        feature = "m27-recovery",
+        feature = "m27-ro-vfs-check",
+        feature = "m29-settings-acceptance",
+        feature = "desktop-login-acceptance",
+        feature = "consent-dialog-acceptance",
+        feature = "isolated-process-acceptance",
+        feature = "m30-update-install"
+    )
+))]
+compile_error!("production-session is incompatible with milestone/fixture boot paths");
 
 #[cfg(any(
     feature = "m16-package",
-    feature = "m19-search",
+    feature = "m19-runtime",
     feature = "m27-recovery",
     feature = "m25-whisper-inference-acceptance"
 ))]
@@ -15,7 +60,7 @@ extern crate alloc;
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
@@ -28,7 +73,7 @@ struct GuestAllocator;
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m20-llama-inference-acceptance",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
@@ -57,7 +102,7 @@ unsafe impl core::alloc::GlobalAlloc for GuestAllocator {
     not(feature = "m17-servo"),
     any(
         feature = "m16-package",
-        feature = "m19-search",
+        feature = "m19-runtime",
         feature = "m27-recovery",
         feature = "m25-whisper-inference-acceptance"
     )
@@ -67,7 +112,10 @@ static GUEST_ALLOCATOR: GuestAllocator = GuestAllocator;
 
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 use core::arch::asm;
-#[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
+#[cfg(all(
+    target_os = "nagi",
+    not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+))]
 use core::panic::PanicInfo;
 #[cfg(all(
     target_os = "nagi",
@@ -75,10 +123,16 @@ use core::panic::PanicInfo;
     not(feature = "m18-acceptance")
 ))]
 use nagi_albert::run_first_web_pixel;
-#[cfg(all(target_os = "nagi", feature = "m18-acceptance"))]
+#[cfg(all(
+    target_os = "nagi",
+    feature = "m18-acceptance",
+    not(feature = "m19-browser-search-acceptance")
+))]
 use nagi_albert::run_m18_https_acceptance;
+#[cfg(all(target_os = "nagi", feature = "m19-browser-search-acceptance"))]
+use nagi_albert::run_m18_https_acceptance_with_callback;
 
-/// Pinned system fonts embedded by build.rs (ADR 0055).
+/// Pinned system fonts embedded by build.rs (ADR 0062).
 #[cfg(all(target_os = "nagi", feature = "m17-servo"))]
 mod system_fonts {
     include!(concat!(env!("OUT_DIR"), "/system_fonts.rs"));
@@ -101,12 +155,42 @@ mod action_ipc;
     ))
 ))]
 mod boot;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+#[cfg(feature = "private-browser-account-owner")]
+mod browser_account_owner;
+#[cfg(feature = "private-browser-profile-storage")]
+mod browser_profile_owner;
+#[cfg(feature = "private-browser-profile-storage")]
+mod browser_profile_storage;
+#[cfg(feature = "private-browser-session-adapter")]
+mod browser_session_access;
+#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
+mod consent_dialog;
+#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
+mod consent_settings;
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod desktop;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod font;
+#[cfg(feature = "private-browser-session-adapter")]
+mod m19_browser_search_service;
+#[cfg(all(target_os = "nagi", feature = "private-installed-model-acceptance"))]
+mod private_installed_model_guest;
+#[cfg(all(target_os = "nagi", feature = "private-installed-model-acceptance"))]
+mod private_installed_model_observer;
+
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;
+#[cfg(any(
+    all(target_os = "nagi", feature = "desktop-login"),
+    all(target_os = "linux", target_arch = "x86_64", feature = "desktop-login")
+))]
+mod login_screen;
 #[cfg(all(target_os = "nagi", feature = "m13-posix"))]
 mod m13;
 #[cfg(all(target_os = "nagi", feature = "m13-std"))]
@@ -117,8 +201,39 @@ mod m14_audio;
 mod m15_history;
 #[cfg(all(target_os = "nagi", feature = "m16-package"))]
 mod m16_package;
+#[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
+mod m19_files_client;
+#[cfg(any(
+    all(
+        target_os = "nagi",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    ),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    )
+))]
+mod m19_runtime;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
+#[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
+mod m19_search_service;
+#[cfg(any(
+    all(target_os = "nagi", feature = "m19-runtime"),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    )
+))]
+mod m19_storage;
 #[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
 mod m20_granite;
 #[cfg(feature = "m20-fixture-acceptance")]
@@ -130,16 +245,22 @@ mod m22_history;
 mod m25_voice;
 #[cfg(all(target_os = "nagi", feature = "m25-whisper-inference-acceptance"))]
 mod m25_whisper;
+#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+mod model_service;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
     not(feature = "m13-posix")
 ))]
 mod network;
+#[cfg(feature = "private-history-read-adapter")]
+mod private_history_reader;
 #[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
 mod recovery;
 #[cfg(all(target_os = "nagi", feature = "m11-security"))]
 mod security;
+#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+mod session_services;
 #[cfg(all(
     target_os = "nagi",
     feature = "m8-shell",
@@ -150,12 +271,45 @@ mod security;
     not(feature = "m13-posix")
 ))]
 mod shell;
+#[cfg(any(
+    all(
+        target_os = "nagi",
+        any(
+            feature = "isolated-process-acceptance",
+            feature = "m19-search-ipc",
+            feature = "m19-runtime",
+            feature = "consent-dialog"
+        )
+    ),
+    all(target_os = "linux", target_arch = "x86_64", feature = "m10-desktop"),
+    all(
+        test,
+        target_os = "macos",
+        target_arch = "x86_64",
+        feature = "m10-desktop"
+    )
+))]
+// The consent dialog acceptance uses only the launch and consent paths.
+// The x86_64 host test build also exercises these platform-independent registry
+// tests; Nagi-only syscall entry points remain target-gated inside the module.
+#[cfg_attr(
+    not(any(
+        feature = "isolated-process-acceptance",
+        feature = "m19-search-ipc",
+        feature = "m19-files-search-production"
+    )),
+    allow(dead_code)
+)]
+mod supervisor;
 #[cfg(all(
     target_os = "nagi",
-    any(feature = "isolated-process-acceptance", feature = "m19-search-ipc")
+    any(feature = "m30-update-install", feature = "read-only-update-candidate")
 ))]
-mod supervisor;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+mod system_update;
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]
 mod window;
@@ -511,6 +665,12 @@ fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m27-recovery", feature = "m27-ro-vfs-check")
+))]
+mod vfs_recovery;
+
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 
@@ -521,10 +681,19 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     #[cfg(feature = "m27-ro-vfs-check")]
     {
         let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-        let report = libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
-            &mut device,
-        )
-        .ok()?;
+        let report = match vfs_recovery::inspect(&mut device) {
+            Ok(vfs_recovery::Inspection::Clean(report)) => report,
+            Ok(vfs_recovery::Inspection::RecoveryRequired) => {
+                libnagi::console_write(
+                    b"Nagi M27 read-only VFS recovery REQUIRED; use Recovery recover (not formatted)\r\n",
+                );
+                return None;
+            }
+            Err(_) => {
+                libnagi::console_write(b"Nagi M27 read-only VFS check FAIL (not formatted)\r\n");
+                return None;
+            }
+        };
         if report.regular_files == 0
             || report.directories == 0
             || report.allocated_data_blocks == 0
@@ -534,8 +703,51 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
         }
         libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
     }
-    let device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-    let (mut volume, formatted) = libnagi::storage::Vfs::mount_or_format(device).ok()?;
+    let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
+    #[cfg(feature = "m20-llama-inference-acceptance")]
+    {
+        for (sector, pass, read_fail, write_fail) in [
+            (
+                2,
+                b"Nagi M20 User Data write probe PASS sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=2\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=2\r\n" as &'static [u8],
+            ),
+            (
+                3,
+                b"Nagi M20 User Data write probe PASS sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data read probe FAIL sector=3\r\n" as &'static [u8],
+                b"Nagi M20 User Data write probe FAIL sector=3\r\n" as &'static [u8],
+            ),
+        ] {
+            let mut probe = [0_u8; libnagi::BLOCK_SECTOR_SIZE];
+            if libnagi::storage::ReadOnlyBlockDevice::read_sector(&mut device, sector, &mut probe)
+                .is_err()
+            {
+                libnagi::console_write(read_fail);
+                return None;
+            }
+            if libnagi::storage::BlockDevice::write_sector(&mut device, sector, &probe).is_err() {
+                libnagi::console_write(write_fail);
+                return None;
+            }
+            libnagi::console_write(pass);
+        }
+    }
+    let (mut volume, formatted) = match libnagi::storage::Vfs::mount_or_format(device) {
+        Ok(mounted) => mounted,
+        Err(error) => {
+            let detail: &[u8] = match error {
+                libnagi::storage::StorageError::Block => b"block I/O",
+                libnagi::storage::StorageError::Corrupt => b"corrupt volume metadata",
+                _ => b"other storage error",
+            };
+            libnagi::console_write(b"Nagi M20 User Data mount-or-format FAIL: ");
+            libnagi::console_write(detail);
+            libnagi::console_write(b"\r\n");
+            return None;
+        }
+    };
 
     if formatted {
         libnagi::console_write(static_message!(
@@ -994,10 +1206,24 @@ pub extern "C" fn _start(
         FPU_STATE_ROUND_TRIP_PASS_LEN
     ));
 
+    // Keep the actual Nagi relibc provider in the normal native link too.
+    // A Cargo dependency with no Rust reference is otherwise omitted, leaving
+    // libc++/llama's C ABI symbols unresolved. This probe performs no inference.
+    #[cfg(feature = "m20-model-service")]
+    if relibc::nagi_backend_probe() != 0x4e41_4749 {
+        libnagi::console_write(b"Nagi model service C ABI unavailable\r\n");
+        libnagi::exit(1);
+    }
+
     unsafe { run_elf_initializers() };
 
     #[cfg(feature = "isolated-process-acceptance")]
     if !isolated_process::run() {
+        libnagi::exit(1);
+    }
+
+    #[cfg(feature = "m30-update-install")]
+    if !system_update::run(model_store_capability) {
         libnagi::exit(1);
     }
 
@@ -1056,7 +1282,7 @@ pub extern "C" fn _start(
             libnagi::exit(1);
         }
         libnagi::console_write(b"Nagi M17 trace: temporary directory ready\r\n");
-        // Publish the pinned Noto fonts (ADR 0055) read-only for Servo.
+        // Publish the pinned Noto fonts (ADR 0062) read-only for Servo.
         for (path, data) in system_fonts::SYSTEM_FILES {
             if nagi_posix::register_static_file(path, data).is_err() {
                 libnagi::console_write(b"Nagi M17 first web pixel FAIL system fonts\r\n");
@@ -1107,11 +1333,31 @@ pub extern "C" fn _start(
                 libnagi::console_write(b"Nagi M18 browser FAIL clipboard service\r\n");
                 libnagi::exit(1);
             };
-            return run_m18_https_acceptance(
-                display_capability,
-                input_capability,
-                albert_clipboard,
-            );
+            #[cfg(feature = "m19-browser-search-acceptance")]
+            {
+                run_m18_https_acceptance_with_callback(
+                    display_capability,
+                    input_capability,
+                    albert_clipboard,
+                    |browser_state| {
+                        let Some(activity) =
+                            m19_search::run_with_browser_state(block_capability, browser_state)
+                        else {
+                            libnagi::console_write(b"Nagi M19 Browser/Search integration FAIL\r\n");
+                            return false;
+                        };
+                        #[cfg(feature = "m22-history")]
+                        if !m22_history::run(block_capability, activity) {
+                            libnagi::console_write(b"Nagi M22 history integration FAIL\r\n");
+                            return false;
+                        }
+                        libnagi::console_write(b"Nagi M19 Browser/Search acceptance PASS\r\n");
+                        true
+                    },
+                );
+            }
+            #[cfg(not(feature = "m19-browser-search-acceptance"))]
+            run_m18_https_acceptance(display_capability, input_capability, albert_clipboard);
         }
         #[cfg(not(feature = "m18-acceptance"))]
         return run_first_web_pixel(display_capability);
@@ -1199,7 +1445,14 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M20 relibc link FAIL\r\n");
             libnagi::exit(1);
         }
-        if exit_code != 0 || !m20_granite::run(model_store_capability) {
+        // M20 boots once on a fresh data disk: storage acceptance then
+        // formats, writes, and maps its file and returns 2 (reboot to verify
+        // persistence). Inference needs a working volume, not a second boot.
+        let storage_ready = exit_code == 0 || exit_code == 2;
+        if !storage_ready {
+            libnagi::console_write(b"Nagi M20 Granite stage FAIL: storage acceptance\r\n");
+        }
+        if !storage_ready || !m20_granite::run(model_store_capability) {
             libnagi::console_write(b"Nagi M20 Granite structured inference FAIL\r\n");
             libnagi::exit(1);
         }
@@ -1388,7 +1641,31 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
             libnagi::exit(1);
         };
-        desktop::run(display_capability, input_capability, volume);
+        #[cfg(feature = "production-session")]
+        libnagi::console_write(b"Nagi production profile signed-in-files-v1\r\n");
+        // Capture only the read-only Model Store authority. Desktop creates the
+        // bridge with its guest admission budget and starts its worker after
+        // authenticated readiness; boot configuration performs no model I/O.
+        #[cfg(feature = "m20-model-service")]
+        session_services::configure_boot(model_store_capability);
+        // The dedicated actor takes exclusive User Data ownership. Its worker
+        // constructs the concrete receipt producer; the ordinary desktop never
+        // shares this VFS while installed-model acceptance is running.
+        #[cfg(feature = "private-installed-model-acceptance")]
+        private_installed_model_guest::run(
+            block_capability,
+            model_store_capability,
+            display_capability,
+            input_capability,
+            volume,
+        );
+        #[cfg(not(feature = "private-installed-model-acceptance"))]
+        desktop::run(
+            block_capability,
+            display_capability,
+            input_capability,
+            volume,
+        );
     }
     #[cfg(all(
         feature = "m9-window",
@@ -1467,11 +1744,22 @@ pub extern "C" fn _start(
     libnagi::exit(exit_code)
 }
 
-#[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
+#[cfg(all(
+    target_os = "nagi",
+    not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+))]
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
     libnagi::exit(1)
 }
 
-#[cfg(not(target_os = "nagi"))]
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+mod linux_init;
+
+#[cfg(target_os = "linux")]
+fn main() -> std::process::ExitCode {
+    linux_init::run()
+}
+
+#[cfg(not(any(target_os = "nagi", target_os = "linux")))]
 fn main() {}
