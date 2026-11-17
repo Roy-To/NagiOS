@@ -3,6 +3,13 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[cfg(target_os = "linux")]
+use std::fs::{self, File};
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::DirBuilderExt;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
+
 use nagi_identity_session::{
     decode_snapshot_with_migration, resolve_capability_principal, AuthenticatedInteractiveCaller,
     AuthenticatedProvisioningCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
@@ -19,6 +26,9 @@ use nagi_identity_session::{
     TryClockError, TryLiveError, UnixMillis, UserId, UserStorageRootAdapter,
 };
 use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
+
+#[cfg(target_os = "linux")]
+use nagi_identity_session::LinuxIdentitySnapshotStore;
 
 #[derive(Clone)]
 struct TestCaller {
@@ -398,6 +408,35 @@ fn new_service_with_ids(
         NoopIdentityEventSink,
     );
     (service, clock)
+}
+
+#[cfg(target_os = "linux")]
+struct DurableTestDirectory(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl DurableTestDirectory {
+    fn new() -> Self {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(1);
+        let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "nagi-c1-contract-store-{}-{sequence}",
+            std::process::id()
+        ));
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700).create(&path).unwrap();
+        Self(path)
+    }
+
+    fn open(&self) -> File {
+        File::open(&self.0).unwrap()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for DurableTestDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn metadata(name: &str) -> (LocalUserMetadata, ProfileMetadata) {
@@ -1628,6 +1667,99 @@ fn try_live_snapshot_fails_closed_when_the_nonblocking_clock_is_busy_or_unavaila
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn durable_expiry_stays_revoked_after_restart() {
+    let directory = DurableTestDirectory::new();
+    let caller = TestCaller::new("durable-expiry-restart");
+    let clock = TestClock(Arc::new(AtomicU64::new(100)));
+    let mut service = IdentityService::new(
+        LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+        TestIds::default(),
+        clock.clone(),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    service.recover(&caller).unwrap();
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("Durable expiry").0, metadata("Home").1)
+        .unwrap();
+    let session_id = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("durable-expiry").unwrap(),
+        )
+        .unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let handle = context.revalidation_handle().unwrap();
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
+
+    clock.set(200);
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Expired
+    );
+    assert_eq!(
+        service.resolve_current_identity(&caller).unwrap_err(),
+        ResolutionError::Expired
+    );
+    assert!(handle.check_live().is_err());
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+    let persisted = service
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .unwrap();
+    assert!(matches!(
+        &persisted.lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended {
+            reason: nagi_identity_session::SessionEndReason::Expired,
+            ..
+        }
+    ));
+    drop(service);
+
+    let mut restarted = IdentityService::new(
+        LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+        TestIds::default(),
+        clock,
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    restarted.recover(&caller).unwrap();
+    assert!(restarted.resolve_current_identity(&caller).is_err());
+    let recovered = restarted
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .expect("expired Session remains in the durable record after restart");
+    assert!(matches!(
+        &recovered.lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended {
+            reason: nagi_identity_session::SessionEndReason::Expired,
+            ..
+        }
+    ));
+    assert!(handle.check_live().is_err());
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+}
+
 #[test]
 fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     let (mut service, _) = new_service(SharedStore::default(), TestCleaner::default());
@@ -2471,6 +2603,87 @@ fn failed_post_commit_session_rollback_is_exposed_and_owner_can_retry_cancellati
             .session_id(),
         &next
     );
+}
+
+#[test]
+fn cancelling_orphaned_session_preserves_another_current_session_for_the_caller() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("orphan-cancel-preserves-current");
+    let (mut setup, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut setup, &caller);
+    let (user_id, orphan_profile) = setup
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let current_profile = setup
+        .create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Work", Some("en-US".to_owned())).unwrap(),
+        )
+        .unwrap();
+
+    let authorizer = TestAuthorizer {
+        deny_once: Some(IdentityAction::ResolveCurrentIdentity),
+        fail_commit_on_denial: Some((IdentityAction::ResolveCurrentIdentity, store.clone())),
+        ..TestAuthorizer::default()
+    };
+    let (mut service, _) = new_service_with_authorizer(store, TestCleaner::default(), authorizer);
+    service.recover(&caller).unwrap();
+    assert_eq!(
+        service.login_local(
+            &caller,
+            user_id,
+            orphan_profile,
+            None,
+            nagi_identity_session::IdempotencyKey::new("orphan-before-current").unwrap(),
+        ),
+        Err(IdentityError::StoreUnavailable)
+    );
+    let orphan_session = service.snapshot().sessions[0].session_id.clone();
+    assert!(matches!(
+        service.resolve_current_identity(&caller),
+        Err(ResolutionError::NoSession)
+    ));
+
+    let current_session = service
+        .login_local(
+            &caller,
+            user_id,
+            current_profile,
+            None,
+            nagi_identity_session::IdempotencyKey::new("current-after-orphan").unwrap(),
+        )
+        .unwrap();
+    let current = service.interactive_session(&caller).unwrap();
+    let current_handle = current.revalidation_handle().unwrap();
+    assert_eq!(
+        current_handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
+
+    assert_eq!(
+        service.end_session(&caller, &orphan_session),
+        Ok(EndSessionResult::Ended)
+    );
+    assert_eq!(
+        service
+            .resolve_current_identity(&caller)
+            .unwrap()
+            .session_id(),
+        &current_session,
+        "ending an older orphan must not replace the caller's current Session"
+    );
+    assert!(current_handle.check_live().is_ok());
+    assert!(matches!(
+        service
+            .snapshot()
+            .sessions
+            .iter()
+            .find(|session| session.session_id == current_session)
+            .unwrap()
+            .lifecycle,
+        nagi_identity_session::SessionLifecycle::Active
+    ));
 }
 
 #[test]

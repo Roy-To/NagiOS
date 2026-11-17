@@ -1833,9 +1833,15 @@ where
             lease.revoke(guard);
         }
         drop(lease_guard);
-        self.active_by_caller.remove(caller_key);
-        self.last_by_caller
-            .insert(caller_key.clone(), session_id.clone());
+        let another_session_is_current = self
+            .active_by_caller
+            .get(caller_key)
+            .is_some_and(|current_session| current_session != session_id);
+        if !another_session_is_current {
+            self.active_by_caller.remove(caller_key);
+            self.last_by_caller
+                .insert(caller_key.clone(), session_id.clone());
+        }
         self.emit(
             IdentityEventKind::SessionEnded,
             user_id,
