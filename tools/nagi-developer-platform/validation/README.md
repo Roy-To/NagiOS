@@ -117,7 +117,41 @@ timeout/cancel/no-binary/output-flood orchestration and are not evidence of the 
 tool. Run: the `unittest discover` command above (clang absent → real-compiler tests
 are skipped, not passed).
 
+## Generator output -> Stage 1 (NDP-09c)
+
+`generated_check.py` connects the NDP-03 scaffold generator to Stage 1. It loads
+`generator/generate.py` by path (read-only; the generator is unchanged), generates the
+Level 0 scaffold into a private temporary checkout stand-in (only `sdk/rust/Cargo.toml`
+placeholder plus `samples/`), then passes only the generated `manifest.json` to
+`validate.validate` (real `nagi-pkg manifest validate`). The temporary directory is
+removed by this module afterwards. The generated crate is not built, Cargo is not run,
+nothing is fetched, and the scaffold is not given to Stage 2.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/validation/generated_check.py
+```
+
+The result is the Stage 1 JSON plus `check: generated_manifest`, `built: false`,
+`generator` (`created`/`failed`/`unavailable`) and `generator_reason`. A generation
+failure is `failed` (`generation_failed`, Stage 1 is not run); a missing `nagi-pkg` is
+`unavailable`, never passed. Exit values are those of `validate.py`. Python API:
+`generated_check.check_generated(inputs=None, timeout=10, cancel=None)`.
+
+`test_generated_check.py` uses the real generator in all cases. Orchestration tests
+observe (via a patched `validate.validate`) that Stage 1 receives the generated
+manifest and no process starts; they are not evidence of the real validator. The test
+that runs the real `nagi-pkg` is skipped with a reason when the binary is not built;
+a skip is not a pass. Host result only, not Nagi target acceptance.
+
 ## 仮定（PROVISIONAL）
+
+- Generator connection (NDP-09c): the default scaffold inputs and manifest file name are
+  data in `generated_check.py` (`DEFAULT_INPUTS`, `MANIFEST_NAME`); the generator's
+  `generate()` API and `GenerationError.code` are used as-is. The stand-in checkout
+  mirrors the generator's current "SDK `Cargo.toml` must exist" check; if the SDK
+  delivery method or that check changes, replace the stand-in in `check_generated`.
+  Only Level 0 default inputs are checked; user-supplied inputs are possible via the
+  Python API but not exposed on the CLI.
 
 These are working assumptions so Stage 2 can proceed; none is a CONFIRMED decision,
 and each is isolated in `stages.json` or one function so it can be replaced.
