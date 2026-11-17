@@ -330,16 +330,11 @@ impl<'key> PackageServiceSessionOwner<'key> {
         }
     }
 
-    /// Clear an in-process quarantine only after the caller's exact external
-    /// reconciliation succeeds. The launch coordinator must hold the matching
-    /// C3 lifecycle gate while its C1 durable reconciliation runs in `check`.
-    pub fn reconcile_quarantine_after<R, E>(
-        &mut self,
-        check: impl FnOnce() -> Result<R, E>,
-    ) -> Result<R, E> {
-        let result = check()?;
-        self.quarantined.store(false, Ordering::SeqCst);
-        Ok(result)
+    /// Report the local fence without granting authority to clear it. A
+    /// quarantine remains sticky until this owner can consume an exact,
+    /// operation-bound terminal receipt from the C1/C3 recovery path.
+    pub fn is_quarantined(&self) -> bool {
+        self.quarantined.load(Ordering::SeqCst)
     }
 
     /// Install through the retained service. Call this on the owner already

@@ -51,8 +51,14 @@ pub enum LaunchError {
     IdentityRecoveryBlocked(LaunchPortError),
     IdentityQuarantineFailed(LaunchPortError, SystemServiceRecoveryAdmission),
     RecoveryReconciliationRequired(SystemServiceRecoveryAdmission),
+    RecoveryQuarantineFailed {
+        c1: Option<LaunchPortError>,
+        c3: Option<LaunchPortError>,
+        admission: SystemServiceRecoveryAdmission,
+    },
     RecoveryReconciliation(LaunchPortError),
     RecoveryReconciliationPanicked,
+    PackageQuarantineReleaseUnavailable(SystemServiceRecoveryAdmission),
     OwnerRevoke(LaunchPortError),
     OwnerCleanupPanicked,
     ProcessOwnerPanicked,
@@ -361,6 +367,16 @@ pub trait SystemServiceLaunchOwner {
         proof: Option<&SystemServiceEndpointOwnerProof>,
     ) -> LifecycleFinish<Self::Lifecycle>;
 
+    /// Persist an exact C3 slot quarantine when `finish_exact` returns
+    /// `Unresolved` or unwinds. The record must bind the service, catalog
+    /// generation, and C3 launch generation in `admission`, and must keep that
+    /// slot unavailable across restart. Repeating this operation for the same
+    /// admission must be safe.
+    fn persist_recovery_quarantine(
+        &mut self,
+        admission: &SystemServiceRecoveryAdmission,
+    ) -> Result<(), LaunchPortError>;
+
     /// C1 calls this after acquiring its own durable recovery gate. C3 must
     /// hold the exact service/launch slot gate while `reconcile` atomically
     /// resolves the matching quarantine. The same API also serializes with any
@@ -462,8 +478,10 @@ fn run_recovery_effect<R>(
 }
 
 /// One-shot typed reconciliation gate. C1 must acquire its durable recovery
-/// lock before calling `run`; C3 then serializes the exact slot while C1
-/// decides and commits the durable terminal state.
+/// lock before calling `run`; C3 then serializes the exact slot selected by the
+/// same sealed admission while C1 decides and commits the durable terminal
+/// state. Neither owner may independently reload or reconstruct the mapping
+/// or launch generation during this operation.
 pub struct SystemServiceReconciliationGate<'owner, O: SystemServiceLaunchOwner> {
     owner: &'owner mut O,
     admission: &'owner SystemServiceRecoveryAdmission,
@@ -504,12 +522,14 @@ impl<O: SystemServiceLaunchOwner> SystemServiceReconciliationGate<'_, O> {
     }
 }
 
-/// C1-owned private seal/recovery adapter. The implementation receives a
-/// catalog-bound admission token and a one-shot gate. It must lock the C1
-/// recovery store and persist its exact intent before calling `gate.apply`,
-/// then commit terminal state before returning success. The gate exposes no C3
-/// proof, preventing callback re-entry. This bootstrap operation is independent
-/// of any user Session and must not perform user-session-protected effects.
+/// C1-owned private seal/recovery adapter. The implementation receives one
+/// catalog-bound admission token and a one-shot gate. It must derive the C1
+/// operation binding and C3 exact-generation gate from that same token, lock
+/// the C1 recovery store and persist its exact intent before calling
+/// `gate.apply`, then commit terminal state before returning success. The gate
+/// exposes no C3 proof, preventing callback re-entry. This bootstrap operation
+/// is independent of any user Session and must not perform user-session-
+/// protected effects.
 pub trait C1SystemServiceRecoveryClient {
     type Runtime;
 
@@ -529,8 +549,11 @@ pub trait C1SystemServiceRecoveryClient {
     ) -> Result<(), LaunchPortError>;
 
     /// Reconcile the durable C1 state after C3 has proved that the exact slot
-    /// is stopped or otherwise isolated. Only success permits A to clear its
-    /// same-process retry fence.
+    /// is stopped or otherwise isolated. The terminal action must invalidate
+    /// any older handle on this live C1 service, or return a sealed proof that
+    /// the old authority remains valid. The C3 gate must use this same sealed
+    /// admission. A does not clear package or process fences without an
+    /// operation-bound terminal receipt.
     fn reconcile_recovery<O: SystemServiceLaunchOwner>(
         &mut self,
         admission: &SystemServiceRecoveryAdmission,
@@ -556,17 +579,27 @@ impl C1RecoveryFailure {
 
 /// A successfully recovered C1 runtime paired with the retained C3 proof.
 /// This type has no `READY` method; liveness snapshots are for monitoring only.
-pub struct SystemServiceRuntime<'owner, O: SystemServiceLaunchOwner, R> {
+pub struct SystemServiceRuntime<'owner, O, I>
+where
+    O: SystemServiceLaunchOwner,
+    I: C1SystemServiceRecoveryClient,
+{
     descriptor: ValidatedSystemServiceDescriptor,
     admission: SystemServiceRecoveryAdmission,
-    identity_runtime: Option<R>,
+    identity_runtime: Option<I::Runtime>,
     proof: Option<Arc<SystemServiceEndpointOwnerProof>>,
     lifecycle: Option<O::Lifecycle>,
     owner: &'owner mut O,
+    identity_client: &'owner mut I,
     package: Option<VerifiedServicePackageBinding<'owner>>,
+    closed: bool,
 }
 
-impl<O: SystemServiceLaunchOwner, R> SystemServiceRuntime<'_, O, R> {
+impl<O, I> SystemServiceRuntime<'_, O, I>
+where
+    O: SystemServiceLaunchOwner,
+    I: C1SystemServiceRecoveryClient,
+{
     pub fn service_id(&self) -> &nagi_service_contract::ServiceId {
         self.descriptor.service_id()
     }
@@ -575,7 +608,7 @@ impl<O: SystemServiceLaunchOwner, R> SystemServiceRuntime<'_, O, R> {
         self.descriptor.generation()
     }
 
-    pub fn identity_runtime(&self) -> &R {
+    pub fn identity_runtime(&self) -> &I::Runtime {
         self.identity_runtime
             .as_ref()
             .expect("live service runtime retains its C1 owner")
@@ -593,10 +626,72 @@ impl<O: SystemServiceLaunchOwner, R> SystemServiceRuntime<'_, O, R> {
             .expect("live service runtime retains its C3 proof")
             .is_live()
     }
+
+    /// Stop this runtime and return its exact admission if any cleanup outcome
+    /// is uncertain. Callers can use the returned admission to resume the
+    /// operation-bound C1 reconciliation path. `Drop` remains a fail-closed
+    /// fallback and persists both owner quarantines when this method is not
+    /// used.
+    pub fn shutdown(mut self) -> Result<(), LaunchError> {
+        let identity_drop_unknown =
+            catch_unwind(AssertUnwindSafe(|| drop(self.identity_runtime.take()))).is_err();
+        if identity_drop_unknown {
+            block_recovery(&self.descriptor);
+            if let Some(package) = self.package.as_ref() {
+                package.quarantine();
+            }
+        }
+
+        let cleanup = match self.lifecycle.take() {
+            Some(lifecycle) => finish_lifecycle(
+                &mut *self.owner,
+                &mut *self.identity_client,
+                &self.descriptor,
+                lifecycle,
+                self.proof.as_deref(),
+                &self.admission,
+                self.package.take(),
+            ),
+            None => {
+                block_recovery(&self.descriptor);
+                if let Some(package) = self.package.take() {
+                    package.quarantine();
+                }
+                Err(reconciliation_required(
+                    &mut *self.owner,
+                    &mut *self.identity_client,
+                    &self.admission,
+                    true,
+                ))
+            }
+        };
+
+        self.closed = true;
+        match (identity_drop_unknown, cleanup) {
+            (false, result) => result,
+            (true, Ok(())) => {
+                block_recovery(&self.descriptor);
+                Err(reconciliation_required(
+                    &mut *self.owner,
+                    &mut *self.identity_client,
+                    &self.admission,
+                    false,
+                ))
+            }
+            (true, Err(error)) => Err(error),
+        }
+    }
 }
 
-impl<O: SystemServiceLaunchOwner, R> Drop for SystemServiceRuntime<'_, O, R> {
+impl<O, I> Drop for SystemServiceRuntime<'_, O, I>
+where
+    O: SystemServiceLaunchOwner,
+    I: C1SystemServiceRecoveryClient,
+{
     fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
         let identity_runtime = self.identity_runtime.take();
         let identity_drop_unknown =
             catch_unwind(AssertUnwindSafe(|| drop(identity_runtime))).is_err();
@@ -612,28 +707,46 @@ impl<O: SystemServiceLaunchOwner, R> Drop for SystemServiceRuntime<'_, O, R> {
                 package.quarantine();
             }
             block_recovery(&self.descriptor);
+            let _ = reconciliation_required(
+                &mut *self.owner,
+                &mut *self.identity_client,
+                &self.admission,
+                true,
+            );
+            self.closed = true;
             return;
         };
         let cleanup = finish_lifecycle(
             &mut *self.owner,
+            &mut *self.identity_client,
             &self.descriptor,
             lifecycle,
             self.proof.as_deref(),
-            Some(&self.admission),
+            &self.admission,
             self.package.take(),
         );
+        if identity_drop_unknown && cleanup.is_ok() {
+            let _ = reconciliation_required(
+                &mut *self.owner,
+                &mut *self.identity_client,
+                &self.admission,
+                false,
+            );
+        }
         if identity_drop_unknown || cleanup.is_err() {
             block_recovery(&self.descriptor);
         }
+        self.closed = true;
     }
 }
 
-fn finish_lifecycle<O: SystemServiceLaunchOwner>(
+fn finish_lifecycle<O: SystemServiceLaunchOwner, I: C1SystemServiceRecoveryClient>(
     owner: &mut O,
+    identity: &mut I,
     descriptor: &ValidatedSystemServiceDescriptor,
     lifecycle: O::Lifecycle,
     proof: Option<&SystemServiceEndpointOwnerProof>,
-    admission: Option<&SystemServiceRecoveryAdmission>,
+    admission: &SystemServiceRecoveryAdmission,
     package: Option<VerifiedServicePackageBinding<'_>>,
 ) -> Result<(), LaunchError> {
     let metadata = descriptor.launch_metadata();
@@ -649,33 +762,53 @@ fn finish_lifecycle<O: SystemServiceLaunchOwner>(
             if let Some(package) = package {
                 package.quarantine();
             }
-            Err(admission.map_or(
-                LaunchError::OwnerRevoke(LaunchPortError::OutcomeUnknown),
-                |admission| LaunchError::RecoveryReconciliationRequired(admission.clone()),
-            ))
+            Err(reconciliation_required(owner, identity, admission, false))
         }
         Ok(LifecycleFinish::Unresolved(lifecycle)) => {
             block_recovery(descriptor);
-            mem::forget(lifecycle);
             if let Some(package) = package {
                 package.quarantine();
             }
-            Err(admission.map_or(
-                LaunchError::OwnerRevoke(LaunchPortError::OutcomeUnknown),
-                |admission| LaunchError::RecoveryReconciliationRequired(admission.clone()),
-            ))
+            let result = reconciliation_required(owner, identity, admission, true);
+            mem::forget(lifecycle);
+            Err(result)
         }
         Err(_) => {
             block_recovery(descriptor);
             if let Some(package) = package {
                 package.quarantine();
             }
-            Err(
-                admission.map_or(LaunchError::OwnerCleanupPanicked, |admission| {
-                    LaunchError::RecoveryReconciliationRequired(admission.clone())
-                }),
-            )
+            Err(reconciliation_required(owner, identity, admission, true))
         }
+    }
+}
+
+fn reconciliation_required<O: SystemServiceLaunchOwner, I: C1SystemServiceRecoveryClient>(
+    owner: &mut O,
+    identity: &mut I,
+    admission: &SystemServiceRecoveryAdmission,
+    quarantine_c3: bool,
+) -> LaunchError {
+    let c1 = catch_unwind(AssertUnwindSafe(|| identity.quarantine_recovery(admission)))
+        .unwrap_or(Err(LaunchPortError::OutcomeUnknown))
+        .err();
+    let c3 = quarantine_c3
+        .then(|| {
+            catch_unwind(AssertUnwindSafe(|| {
+                owner.persist_recovery_quarantine(admission)
+            }))
+            .unwrap_or(Err(LaunchPortError::OutcomeUnknown))
+            .err()
+        })
+        .flatten();
+
+    match (c1, c3) {
+        (None, None) => LaunchError::RecoveryReconciliationRequired(admission.clone()),
+        (c1, c3) => LaunchError::RecoveryQuarantineFailed {
+            c1,
+            c3,
+            admission: admission.clone(),
+        },
     }
 }
 
@@ -721,8 +854,8 @@ pub fn launch_identity_service<'owner, C, P, O, I>(
     catalog: &mut C,
     preflight: &mut P,
     owner: &'owner mut O,
-    identity: &mut I,
-) -> Result<SystemServiceRuntime<'owner, O, I::Runtime>, LaunchError>
+    identity: &'owner mut I,
+) -> Result<SystemServiceRuntime<'owner, O, I>, LaunchError>
 where
     C: TrustedSystemServiceCatalog,
     P: ArtifactPreflight,
@@ -778,10 +911,11 @@ where
     if let Err(error) = validate_lifecycle_binding(&descriptor, &package, &lifecycle) {
         let cleanup = finish_lifecycle(
             owner,
+            identity,
             &descriptor,
             lifecycle,
             None,
-            Some(&admission),
+            &admission,
             Some(package),
         );
         return match cleanup {
@@ -798,10 +932,11 @@ where
         Ok(Err(error)) => {
             let cleanup = finish_lifecycle(
                 owner,
+                identity,
                 &descriptor,
                 lifecycle,
                 None,
-                Some(&admission),
+                &admission,
                 Some(package),
             );
             return match cleanup {
@@ -812,10 +947,11 @@ where
         Err(_) => {
             let cleanup = finish_lifecycle(
                 owner,
+                identity,
                 &descriptor,
                 lifecycle,
                 None,
-                Some(&admission),
+                &admission,
                 Some(package),
             );
             return match cleanup {
@@ -828,10 +964,11 @@ where
     if let Err(error) = validate_owner_proof(&descriptor, &package, &lifecycle, &proof) {
         let cleanup = finish_lifecycle(
             owner,
+            identity,
             &descriptor,
             lifecycle,
             Some(&proof),
-            Some(&admission),
+            &admission,
             Some(package),
         );
         return match cleanup {
@@ -863,10 +1000,11 @@ where
             };
             let cleanup = finish_lifecycle(
                 owner,
+                identity,
                 &descriptor,
                 lifecycle,
                 Some(&proof),
-                Some(&admission),
+                &admission,
                 Some(package),
             );
             if let Err(cleanup_error) = cleanup {
@@ -890,10 +1028,11 @@ where
             .unwrap_or(Err(LaunchPortError::OutcomeUnknown));
             let cleanup = finish_lifecycle(
                 owner,
+                identity,
                 &descriptor,
                 lifecycle,
                 Some(&proof),
-                Some(&admission),
+                &admission,
                 Some(package),
             );
             if let Err(cleanup_error) = cleanup {
@@ -914,10 +1053,11 @@ where
                 .unwrap_or(Err(LaunchPortError::OutcomeUnknown));
                 let cleanup = finish_lifecycle(
                     owner,
+                    identity,
                     &descriptor,
                     lifecycle,
                     Some(&proof),
-                    Some(&admission),
+                    &admission,
                     Some(package),
                 );
                 if let Err(cleanup_error) = cleanup {
@@ -935,15 +1075,19 @@ where
                 proof: Some(proof),
                 lifecycle: Some(lifecycle),
                 owner,
+                identity_client: identity,
                 package: Some(package),
+                closed: false,
             })
         }
     }
 }
 
-/// Clear the local retry fence only after both owners reconcile their state.
-/// This operation does not create a production adapter; C1 must persist its
-/// check and C3 must inspect the real Supervisor slot/process registry.
+/// Attempt to reconcile both owners. This does not create a production
+/// adapter: C1 must persist its operation-bound terminal state and C3 must
+/// inspect the real Supervisor slot/process registry. The package owner has
+/// no arbitrary clear callback, so a still-quarantined generation keeps the
+/// local retry fence set and returns its exact admission to the caller.
 pub fn reconcile_identity_service<O, I>(
     admission: &SystemServiceRecoveryAdmission,
     package_owner: &mut PackageServiceSessionOwner<'_>,
@@ -977,7 +1121,12 @@ where
         block_recovery(admission.descriptor());
         return Err(LaunchError::RecoveryGateNotUsed);
     }
-    package_owner.reconcile_quarantine_after(|| Ok::<(), LaunchError>(()))?;
+    if package_owner.is_quarantined() {
+        block_recovery(admission.descriptor());
+        return Err(LaunchError::PackageQuarantineReleaseUnavailable(
+            admission.clone(),
+        ));
+    }
     clear_recovery_block(admission.descriptor());
     Ok(())
 }
@@ -1607,6 +1756,7 @@ mod tests {
         error: Option<LaunchPortError>,
         calls: AtomicUsize,
         revocations: AtomicUsize,
+        quarantines: AtomicUsize,
         finish: FinishBehavior,
         mutate_artifact_before_launch: Option<(PathBuf, Vec<u8>)>,
         launched_executable: Option<Vec<u8>>,
@@ -1748,6 +1898,14 @@ mod tests {
             }
         }
 
+        fn persist_recovery_quarantine(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
+        ) -> Result<(), LaunchPortError> {
+            self.quarantines.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
         fn with_reconciliation_gate<R>(
             &mut self,
             _admission: &SystemServiceRecoveryAdmission,
@@ -1757,12 +1915,25 @@ mod tests {
         }
     }
 
+    struct TestRuntime {
+        panic_on_drop: bool,
+    }
+
+    impl Drop for TestRuntime {
+        fn drop(&mut self) {
+            if self.panic_on_drop {
+                panic!("simulated C1 runtime drop panic after partial effect");
+            }
+        }
+    }
+
     struct Identity {
         calls: AtomicUsize,
+        quarantines: AtomicUsize,
     }
 
     impl C1SystemServiceRecoveryClient for Identity {
-        type Runtime = ();
+        type Runtime = TestRuntime;
 
         fn recover_system_service(
             &mut self,
@@ -1778,6 +1949,7 @@ mod tests {
             &mut self,
             _admission: &SystemServiceRecoveryAdmission,
         ) -> Result<(), LaunchPortError> {
+            self.quarantines.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
@@ -1786,6 +1958,7 @@ mod tests {
             _admission: &SystemServiceRecoveryAdmission,
             gate: &mut SystemServiceReconciliationGate<'_, O>,
         ) -> Result<(), LaunchPortError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
             gate.run(|| ())?;
             Ok(())
         }
@@ -1806,12 +1979,14 @@ mod tests {
                 error: Some(LaunchPortError::Unavailable),
                 calls: AtomicUsize::new(0),
                 revocations: AtomicUsize::new(0),
+                quarantines: AtomicUsize::new(0),
                 finish: FinishBehavior::Stopped,
                 mutate_artifact_before_launch: None,
                 launched_executable: None,
             },
             Identity {
                 calls: AtomicUsize::new(0),
+                quarantines: AtomicUsize::new(0),
             },
         )
     }
@@ -2004,16 +2179,21 @@ mod tests {
         assert_eq!(owner.calls.load(Ordering::SeqCst), 1);
         assert_eq!(identity.calls.load(Ordering::SeqCst), 0);
 
-        reconcile_identity_service(&admission, &mut package_owner, &mut owner, &mut identity)
-            .unwrap();
-        assert!(!is_recovery_blocked(&descriptor));
         assert_eq!(
-            package_owner
-                .capture(&package_bytes, b"org.nagi.fixture")
-                .unwrap()
-                .generation(),
-            1
+            reconcile_identity_service(&admission, &mut package_owner, &mut owner, &mut identity),
+            Err(LaunchError::PackageQuarantineReleaseUnavailable(
+                admission.clone()
+            ))
         );
+        assert!(is_recovery_blocked(&descriptor));
+        assert!(package_owner.is_quarantined());
+        assert_eq!(identity.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            package_owner.capture(&package_bytes, b"org.nagi.fixture"),
+            Err(nagi_init_package_provider::package_trust::PackageServiceSessionOwnerError::Quarantined)
+        );
+        clear_recovery_block(&descriptor);
     }
 
     #[test]
@@ -2042,13 +2222,6 @@ mod tests {
     #[test]
     fn runtime_drop_runs_exact_cleanup_and_fences_package_after_c1_drop_panic() {
         let _guard = recovery_state_test_guard();
-        struct PanicOnDrop;
-        impl Drop for PanicOnDrop {
-            fn drop(&mut self) {
-                panic!("simulated C1 runtime drop panic after partial effect");
-            }
-        }
-
         let executable = b"fixture system service executable";
         let package_bytes = fixture_package(executable);
         let digest = digest_hex(executable);
@@ -2061,6 +2234,7 @@ mod tests {
             error: None,
             calls: AtomicUsize::new(0),
             revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
             finish: FinishBehavior::Stopped,
             mutate_artifact_before_launch: None,
             launched_executable: None,
@@ -2075,19 +2249,29 @@ mod tests {
             NonZeroU64::new(3).unwrap(),
         );
         let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
 
         let runtime = SystemServiceRuntime {
             descriptor: descriptor.clone(),
             admission,
-            identity_runtime: Some(PanicOnDrop),
+            identity_runtime: Some(TestRuntime {
+                panic_on_drop: true,
+            }),
             proof: None,
             lifecycle: Some(lifecycle),
             owner: &mut owner,
+            identity_client: &mut identity,
             package: Some(binding),
+            closed: false,
         };
         drop(runtime);
 
         assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 0);
         assert!(is_recovery_blocked(&descriptor));
         assert_eq!(
             package_owner.remove(descriptor.package_app_id()),
@@ -2096,6 +2280,189 @@ mod tests {
                     Quarantined
             )
         );
+        clear_recovery_block(&descriptor);
+    }
+
+    #[test]
+    fn explicit_shutdown_returns_admission_after_c1_runtime_drop_panic() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        clear_recovery_block(&descriptor);
+        let mut package_owner = installed_fixture_owner(&package_bytes);
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut owner = Owner {
+            error: None,
+            calls: AtomicUsize::new(0),
+            revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+            finish: FinishBehavior::Stopped,
+            mutate_artifact_before_launch: None,
+            launched_executable: None,
+        };
+        let lifecycle = owner
+            .reserve_launch(&descriptor.launch_metadata(), &binding)
+            .unwrap();
+        let catalog = AuthenticatedSystemServiceCatalogBinding::from_trusted_catalog(
+            &descriptor,
+            PrincipalId::new("service:fixture.identity").unwrap(),
+            CallerContextId::new("caller_fixture_identity").unwrap(),
+            NonZeroU64::new(3).unwrap(),
+        );
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
+        let runtime = SystemServiceRuntime {
+            descriptor: descriptor.clone(),
+            admission: admission.clone(),
+            identity_runtime: Some(TestRuntime {
+                panic_on_drop: true,
+            }),
+            proof: None,
+            lifecycle: Some(lifecycle),
+            owner: &mut owner,
+            identity_client: &mut identity,
+            package: Some(binding),
+            closed: false,
+        };
+
+        assert_eq!(
+            runtime.shutdown(),
+            Err(LaunchError::RecoveryReconciliationRequired(admission))
+        );
+        assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 0);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert!(is_recovery_blocked(&descriptor));
+        assert_eq!(
+            package_owner.remove(descriptor.package_app_id()),
+            Err(
+                nagi_init_package_provider::package_trust::PackageServiceSessionOwnerError::
+                    Quarantined
+            )
+        );
+        clear_recovery_block(&descriptor);
+    }
+
+    #[test]
+    fn explicit_shutdown_returns_admission_when_c3_cleanup_panics() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        clear_recovery_block(&descriptor);
+        let package_owner = installed_fixture_owner(&package_bytes);
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut owner = Owner {
+            error: None,
+            calls: AtomicUsize::new(0),
+            revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+            finish: FinishBehavior::Panicked,
+            mutate_artifact_before_launch: None,
+            launched_executable: None,
+        };
+        let lifecycle = owner
+            .reserve_launch(&descriptor.launch_metadata(), &binding)
+            .unwrap();
+        let catalog = AuthenticatedSystemServiceCatalogBinding::from_trusted_catalog(
+            &descriptor,
+            PrincipalId::new("service:fixture.identity").unwrap(),
+            CallerContextId::new("caller_fixture_identity").unwrap(),
+            NonZeroU64::new(3).unwrap(),
+        );
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
+        let runtime = SystemServiceRuntime {
+            descriptor: descriptor.clone(),
+            admission: admission.clone(),
+            identity_runtime: Some(TestRuntime {
+                panic_on_drop: false,
+            }),
+            proof: None,
+            lifecycle: Some(lifecycle),
+            owner: &mut owner,
+            identity_client: &mut identity,
+            package: Some(binding),
+            closed: false,
+        };
+
+        assert_eq!(
+            runtime.shutdown(),
+            Err(LaunchError::RecoveryReconciliationRequired(admission))
+        );
+        assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 1);
+        assert!(package_owner.is_quarantined());
+        assert!(is_recovery_blocked(&descriptor));
+        clear_recovery_block(&descriptor);
+    }
+
+    #[test]
+    fn runtime_drop_persists_both_quarantines_when_c3_cleanup_is_unresolved() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        clear_recovery_block(&descriptor);
+        let package_owner = installed_fixture_owner(&package_bytes);
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut owner = Owner {
+            error: None,
+            calls: AtomicUsize::new(0),
+            revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+            finish: FinishBehavior::Unresolved,
+            mutate_artifact_before_launch: None,
+            launched_executable: None,
+        };
+        let lifecycle = owner
+            .reserve_launch(&descriptor.launch_metadata(), &binding)
+            .unwrap();
+        let catalog = AuthenticatedSystemServiceCatalogBinding::from_trusted_catalog(
+            &descriptor,
+            PrincipalId::new("service:fixture.identity").unwrap(),
+            CallerContextId::new("caller_fixture_identity").unwrap(),
+            NonZeroU64::new(3).unwrap(),
+        );
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
+        let runtime = SystemServiceRuntime {
+            descriptor: descriptor.clone(),
+            admission,
+            identity_runtime: Some(TestRuntime {
+                panic_on_drop: false,
+            }),
+            proof: None,
+            lifecycle: Some(lifecycle),
+            owner: &mut owner,
+            identity_client: &mut identity,
+            package: Some(binding),
+            closed: false,
+        };
+        drop(runtime);
+
+        assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 1);
+        assert!(package_owner.is_quarantined());
+        assert!(is_recovery_blocked(&descriptor));
         clear_recovery_block(&descriptor);
     }
 
@@ -2114,6 +2481,7 @@ mod tests {
             error: None,
             calls: AtomicUsize::new(0),
             revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
             finish: FinishBehavior::Panicked,
             mutate_artifact_before_launch: None,
             launched_executable: None,
@@ -2128,13 +2496,18 @@ mod tests {
             NonZeroU64::new(3).unwrap(),
         );
         let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
 
         let result = finish_lifecycle(
             &mut owner,
+            &mut identity,
             &descriptor,
             lifecycle,
             None,
-            Some(&admission),
+            &admission,
             Some(binding),
         );
         assert_eq!(
@@ -2144,6 +2517,8 @@ mod tests {
             ))
         );
         assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 1);
         assert_eq!(
             package_owner.remove(descriptor.package_app_id()),
             Err(
@@ -2161,6 +2536,7 @@ mod tests {
             error: None,
             calls: AtomicUsize::new(0),
             revocations: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
             finish: FinishBehavior::Unresolved,
             mutate_artifact_before_launch: None,
             launched_executable: None,
@@ -2175,13 +2551,36 @@ mod tests {
         let lifecycle = owner
             .reserve_launch(&descriptor.launch_metadata(), &binding)
             .unwrap();
+        let catalog = AuthenticatedSystemServiceCatalogBinding::from_trusted_catalog(
+            &descriptor,
+            PrincipalId::new("service:fixture.identity").unwrap(),
+            CallerContextId::new("caller_fixture_identity").unwrap(),
+            NonZeroU64::new(3).unwrap(),
+        );
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let mut identity = Identity {
+            calls: AtomicUsize::new(0),
+            quarantines: AtomicUsize::new(0),
+        };
 
-        let result = finish_lifecycle(&mut owner, &descriptor, lifecycle, None, None, None);
+        let result = finish_lifecycle(
+            &mut owner,
+            &mut identity,
+            &descriptor,
+            lifecycle,
+            None,
+            &admission,
+            Some(binding),
+        );
         assert_eq!(
             result,
-            Err(LaunchError::OwnerRevoke(LaunchPortError::OutcomeUnknown))
+            Err(LaunchError::RecoveryReconciliationRequired(
+                admission.clone()
+            ))
         );
         assert_eq!(owner.revocations.load(Ordering::SeqCst), 1);
+        assert_eq!(identity.quarantines.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.quarantines.load(Ordering::SeqCst), 1);
         assert!(is_recovery_blocked(&descriptor));
 
         clear_recovery_block(&descriptor);
