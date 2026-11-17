@@ -746,12 +746,10 @@ fn remove_stale_pending_files(
             .open(&path)
             .map_err(|_| DurableStoreError::Unavailable)?;
         validate_regular_private_file(&file, owner_uid)?;
-        if file
+        let metadata = file
             .metadata()
-            .map_err(|_| DurableStoreError::Unavailable)?
-            .nlink()
-            != 1
-        {
+            .map_err(|_| DurableStoreError::Unavailable)?;
+        if metadata.permissions().mode() & 0o7777 != 0o600 || metadata.nlink() != 1 {
             return Err(DurableStoreError::Corrupt);
         }
         drop(file);
@@ -900,6 +898,99 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pending-"))
             .count();
         assert_eq!(pending, 0);
+    }
+
+    fn committed_directory() -> TestDirectory {
+        let directory = TestDirectory::new_under_worktree_target();
+        let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        store.commit_atomic(None, &snapshot(0)).unwrap();
+        drop(store);
+        directory
+    }
+
+    fn pending_test_path(directory: &TestDirectory) -> PathBuf {
+        directory
+            .0
+            .join(format!(".pending-{}-1-1", std::process::id()))
+    }
+
+    #[test]
+    fn stale_pending_cleanup_ignores_malformed_names() {
+        let directory = committed_directory();
+        let malformed = directory.0.join(".pending-not-a-store-temp");
+        fs::write(&malformed, b"keep").unwrap();
+
+        assert!(LinuxIdentitySnapshotStore::open(directory.open_directory()).is_ok());
+        assert_eq!(fs::read(malformed).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn stale_pending_cleanup_rejects_symlinks_and_hardlinks_without_deleting_them() {
+        let directory = committed_directory();
+        let target = directory.0.join("sentinel");
+        let pending = pending_test_path(&directory);
+        fs::write(&target, b"preserve target").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink("sentinel", &pending).unwrap();
+
+        assert_eq!(
+            LinuxIdentitySnapshotStore::open(directory.open_directory()).err(),
+            Some(DurableStoreError::Unavailable)
+        );
+        assert!(fs::symlink_metadata(&pending)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(&target).unwrap(), b"preserve target");
+        fs::remove_file(&pending).unwrap();
+
+        fs::hard_link(&target, &pending).unwrap();
+        assert_eq!(
+            LinuxIdentitySnapshotStore::open(directory.open_directory()).err(),
+            Some(DurableStoreError::Corrupt)
+        );
+        assert!(pending.is_file());
+        assert!(target.is_file());
+        assert_eq!(
+            fs::metadata(&target).unwrap().nlink(),
+            2,
+            "the rejected hardlink must not be unlinked"
+        );
+        assert_eq!(fs::read(&target).unwrap(), b"preserve target");
+    }
+
+    #[test]
+    fn stale_pending_cleanup_rejects_owner_and_mode_mismatches_without_deleting() {
+        for mode in [0o400, 0o644] {
+            let directory = committed_directory();
+            let pending = pending_test_path(&directory);
+            fs::write(&pending, b"keep").unwrap();
+            fs::set_permissions(&pending, fs::Permissions::from_mode(mode)).unwrap();
+
+            assert_eq!(
+                LinuxIdentitySnapshotStore::open(directory.open_directory()).err(),
+                Some(DurableStoreError::Corrupt)
+            );
+            assert_eq!(fs::read(&pending).unwrap(), b"keep");
+        }
+
+        let directory = committed_directory();
+        let pending = pending_test_path(&directory);
+        fs::write(&pending, b"keep").unwrap();
+        fs::set_permissions(&pending, fs::Permissions::from_mode(0o600)).unwrap();
+        let directory_handle = directory.open_directory();
+        let owner_uid = directory_handle.metadata().unwrap().uid();
+        let mismatched_owner_uid = if owner_uid == u32::MAX {
+            owner_uid - 1
+        } else {
+            owner_uid + 1
+        };
+
+        assert_eq!(
+            remove_stale_pending_files(&directory.0, &directory_handle, mismatched_owner_uid),
+            Err(DurableStoreError::Corrupt)
+        );
+        assert_eq!(fs::read(&pending).unwrap(), b"keep");
     }
 
     #[test]
