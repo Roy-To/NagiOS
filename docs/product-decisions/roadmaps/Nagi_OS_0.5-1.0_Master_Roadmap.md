@@ -25,6 +25,14 @@
 
 > This document proposes a path beyond 0.4. It does not replace an implementation specification, approve a release, activate a workstream, or change an existing acceptance gate. Treat the version-by-version allocation below as provisional until a later decision is recorded.
 
+## PX-14 — 公開開発者環境・Porting ToolkitとAI橋渡しの統合体験（2026-11-17）
+
+**CONFIRMED（高水準方向）:** [DEC-017](../DEC-017-third-party-developer-ecosystem.md)のPX-14では**B：既存IDE・ホストから公開SDKとPorting Toolkit（PT-01〜06）の診断・雛形・移植案、任意のLocal LLM／許可済みCloud開発AIの橋渡し、Build／Test／PackageとNagi Targetの独立検証までを一貫した開発者体験にする**方針を採用。将来は**C：SDK／依存の互換性・更新影響、継続保守、更新Package／配布準備をより広く支援**する方向へ拡張する。Nagi Native Apps専用、Level 0〜3、Windows／Linux重点、Android将来候補／Apple系後順位は変更しない。Storeを唯一の配布先としない。
+
+**位置付け:** PX-13で後順位としたローカル完結型の高度な初心者向け制作IDEの早期完成を、PX-14により復活させない。既存の**1.0公開開発者環境・アプリ配布基盤という高水準製品目標**を維持し、PX-14の全Toolkit機能／Cloud Connector／Storeや特定アプリの1.0完成を確約しない。§4の版別マップは引き続きPROVISIONAL。
+
+**Permission・証拠・未決:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の外部送信の事前許可、ソースとResource／ProfileのScope、Host診断／Host Build／Nagi Target動作Acceptanceの分離、Package署名・導入・出力／共有／一般公開の別認可を保持。実際のSDK/API・CLI／UI、初期対象言語・Framework、Cloud Provider／技術、Package／署名／配布方式、性能・品質・提供版・担当／受入はPROVISIONAL。既存0.1〜0.4 Release／Activation／Acceptance Gate・Workstream／実装開始許可を変更しない。
+
 ## 1. Purpose and status labels
 
 > **2026-11-16 connectivity update:** [DEC-066](../DEC-066-device-connectivity-lan-first.md) confirms same-Wi-Fi/LAN Nagi devices as the initial connectivity target and a shared Device Connectivity/Trust/Transport abstraction without hardcoded transports. Nearby direct Wi-Fi and remote internet connectivity remain extensible options; initial remote support, always-on Cloud, online Nagi accounts and operator-run servers are not required. Preserve offline-first, authentication/trust, encryption, explicit permission, current User/Profile/Resource Permission and Privacy, revocation, external communication scope, and DEC-014's separate migration/sync/cloud grants. No implicit transfer, synchronization or Task replay; Clipboard remains unadopted. Protocols, UI, devices, operations/costs, release timing and performance remain provisional. This does not assign the feature to 0.8 or any other release or change existing gates.
