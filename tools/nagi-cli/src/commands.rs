@@ -8553,23 +8553,24 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
+// Required serial lines in producer order; the final acceptance line is appended below.
 const ISOLATED_PROCESS_MARKERS: [&str; 16] = [
     "Nagi Kernel started",
+    "Nagi Supervisor signed package verification PASS",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
     "Nagi isolated process forged payload identity denied PASS",
     "Nagi isolated process address space and syscall isolation PASS",
     "Nagi ADR0043 isolated process exit pid=2 code=0",
-    "Nagi isolated process exit cleanup PASS",
-    "Nagi ADR0047 isolated process fault pid=3 vector=14",
-    "Nagi ADR0047 isolated process fault pid=4 vector=6",
-    "Nagi ADR0047 isolated process fault pid=5 vector=13",
-    "Nagi isolated process fault containment PASS",
     "Nagi Supervisor process exit status PASS",
-    "Nagi Supervisor signed package verification PASS",
+    "Nagi isolated process exit cleanup PASS",
     "Nagi isolated processes concurrent PASS",
     "Nagi Supervisor grant consent required PASS",
+    "Nagi ADR0047 isolated process fault pid=3 vector=14",
+    "Nagi ADR0047 isolated process fault pid=4 vector=6",
     "Nagi Supervisor grant decisions PASS",
+    "Nagi ADR0047 isolated process fault pid=5 vector=13",
+    "Nagi isolated process fault containment PASS",
 ];
 const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
 
@@ -8913,15 +8914,29 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
 }
 
 fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
-    if serial.contains("Nagi isolated process acceptance FAIL")
-        || serial.contains("Nagi faulting app survived its fault FAIL")
+    const ACCEPTANCE_FAILURE_PREFIX: &str = "Nagi isolated process acceptance FAIL ";
+    const FAULTING_APP_FAILURE: &str = "Nagi faulting app survived its fault FAIL";
+
+    let lines = serial.lines().collect::<Vec<_>>();
+    if lines
+        .iter()
+        .any(|line| line.starts_with(ACCEPTANCE_FAILURE_PREFIX) || *line == FAULTING_APP_FAILURE)
     {
         return Some(ISOLATED_PROCESS_PASS_MARKER);
     }
-    ISOLATED_PROCESS_MARKERS
+
+    // Extra copies are harmless, but each required phase must follow the previous one.
+    let mut next_line = 0;
+    for marker in ISOLATED_PROCESS_MARKERS
         .into_iter()
         .chain([ISOLATED_PROCESS_PASS_MARKER])
-        .find(|marker| !serial.contains(marker))
+    {
+        let Some(offset) = lines[next_line..].iter().position(|line| *line == marker) else {
+            return Some(marker);
+        };
+        next_line += offset + 1;
+    }
+    None
 }
 
 /// Report only fixed marker labels; this diagnostic never determines acceptance.
@@ -11203,9 +11218,10 @@ mod tests {
         isolated_process_marker_progress, last_serial_lines, m17_trace_excerpt,
         m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
         m27_readiness_persisted_after_sign_in, m27_readiness_reported_after_persisted,
-        m27_trial_failure_observed, m30_image_build_info_matches, parse_command, path_with_suffix,
-        pinned_granite_manifest, product_init_cargo_args, run_headless_with_pre_guest_retry_using,
-        scoped_artifact_name, verify_external_artifact, Command, QemuConfig, NAGI_WRITE_MARKER,
+        m27_trial_failure_observed, m30_image_build_info_matches, missing_isolated_process_marker,
+        parse_command, path_with_suffix, pinned_granite_manifest, product_init_cargo_args,
+        run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
+        Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
@@ -11227,7 +11243,7 @@ mod tests {
 
         let partial = concat!(
             "Nagi Kernel started\n",
-            "Nagi ADR0043 isolated process spawned pid=2\n",
+            "Nagi Supervisor signed package verification PASS\n",
             "password=private-value\n"
         );
         let partial_summary = isolated_process_marker_progress(Some(partial));
@@ -11260,6 +11276,63 @@ mod tests {
             isolated_process_marker_progress(Some(&near_text)),
             "isolated_process_progress=lookalike_only"
         );
+    }
+
+    #[test]
+    fn isolated_process_acceptance_requires_ordered_exact_marker_lines() {
+        let expected = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>();
+        let complete = expected.join("\r\n");
+        assert_eq!(missing_isolated_process_marker(&complete), None);
+
+        let lookalikes = expected
+            .iter()
+            .map(|marker| format!("prefix {marker} suffix"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            missing_isolated_process_marker(&lookalikes),
+            Some(expected[0])
+        );
+
+        let mut reversed = expected.clone();
+        reversed.reverse();
+        assert_eq!(
+            missing_isolated_process_marker(&reversed.join("\n")),
+            Some(expected[1])
+        );
+
+        let mut duplicated = expected.clone();
+        duplicated.insert(1, expected[0]);
+        assert_eq!(
+            missing_isolated_process_marker(&duplicated.join("\n")),
+            None
+        );
+    }
+
+    #[test]
+    fn isolated_process_acceptance_failure_markers_override_complete_pass_set() {
+        let complete = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for failure in [
+            "Nagi isolated process acceptance FAIL fixture failure",
+            "Nagi faulting app survived its fault FAIL",
+        ] {
+            let serial = format!("{complete}\n{failure}\n");
+            assert_eq!(
+                missing_isolated_process_marker(&serial),
+                Some(super::ISOLATED_PROCESS_PASS_MARKER),
+                "failure marker must override all progress and final PASS lines: {failure}"
+            );
+        }
     }
 
     #[test]
