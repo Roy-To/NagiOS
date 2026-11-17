@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["c"],
+  "manifests": [],
+  "dependencies": [],
+  "analysis": {},
+  "findings": [
+    {"category": "windows-header", "path": "read_prefix.c", "line": 2, "evidence": "#include <windows.h>", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_prefix.c", "line": 4, "evidence": "    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_prefix.c", "line": 7, "evidence": "    BOOL result = ReadFile(file, buffer, capacity, size, NULL);", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_prefix.c", "line": 8, "evidence": "    CloseHandle(file);", "review_status": "needs_review"}
+  ],
+  "limitations": ["Handwritten interim report fixture, not scanner output. Source: tests/developer-platform/evaluation/windows/read_prefix.c"]
+}
