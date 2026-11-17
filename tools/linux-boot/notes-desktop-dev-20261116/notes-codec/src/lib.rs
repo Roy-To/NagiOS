@@ -38,11 +38,16 @@ pub use session::{Clock, NoteSession, SaveError, SaveStatus, SessionError, Syste
 pub use store::HostPreviewStore;
 #[cfg(target_os = "linux")]
 pub use store::LinuxDirectoryNoteStore;
-pub use store::{InMemoryNoteStore, NoteStore, SandboxError, StoreError};
+pub use store::{
+    InMemoryNoteStore, NoteSessionEffectGate, NoteStore, SandboxError, SessionGateError,
+    SessionGatedNoteStore, StoreError,
+};
 #[cfg(target_os = "linux")]
 pub use store::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
 pub use ui_controller::NotesUiController;
 
+#[cfg(test)]
+mod session_gate_tests;
 #[cfg(test)]
 mod stored_integrity_tests;
 #[cfg(test)]

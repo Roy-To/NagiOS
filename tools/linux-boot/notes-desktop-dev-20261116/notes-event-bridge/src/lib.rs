@@ -5,7 +5,10 @@ pub use linux_evdev_decoder::{
 pub use linux_evdev_stream::StreamError;
 use linux_evdev_stream::{EvdevStream, StreamItem};
 use nagi_abi::{InputEvent, INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_SPACE};
-use notes_files_codec_candidate::{AppError, NoteDocument, NoteStore, NotesUiController, ObjectId};
+use notes_files_codec_candidate::{
+    AppError, NoteDocument, NoteSessionEffectGate, NoteStore, NotesUiController, ObjectId,
+    SessionGatedNoteStore,
+};
 use std::sync::Arc;
 
 /// Failure while turning one caller-framed Linux evdev record into a Notes action.
@@ -187,8 +190,23 @@ pub struct NotesEventBridge {
 }
 
 impl NotesEventBridge {
+    /// Construct an explicitly unauthenticated bridge for developer previews
+    /// and fixtures. Production launchers must use `new_with_session_gate`.
     pub fn new<S: NoteStore + 'static>(store: Arc<S>) -> Self {
         Self::from_controller(NotesUiController::new(store))
+    }
+
+    /// Construct a bridge whose Notes reads and saves all run under a required
+    /// live-session effect gate. The supplied gate must bind the authenticated
+    /// caller to C1's canonical Session and hold its effect admission through
+    /// completion; a standalone `check_live` is insufficient.
+    pub fn new_with_session_gate<S, G>(store: Arc<S>, gate: G) -> Self
+    where
+        S: NoteStore + 'static,
+        G: NoteSessionEffectGate + 'static,
+    {
+        let gated = Arc::new(SessionGatedNoteStore::new(store, gate));
+        Self::new(gated)
     }
 
     pub fn from_controller(controller: NotesUiController) -> Self {
