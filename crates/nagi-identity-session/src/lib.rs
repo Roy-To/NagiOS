@@ -40,7 +40,7 @@ pub use service::{
     IdentityEventSink, IdentityIdSource, IdentityProvider, IdentityService,
     InteractiveSessionContext, InteractiveSessionError, LiveSnapshot, LiveStatus,
     NoopIdentityEventSink, ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError,
-    ResolvedIdentity, TrustedCallerContext, TryLiveError,
+    ResolvedIdentity, SessionLeaseRevalidationHandle, TrustedCallerContext, TryLiveError,
 };
 pub use storage::{
     NoopStorageRootEventSink, ProfileRootAuthorizer, ProfileStorageBackend, StorageRootEventSink,

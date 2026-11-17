@@ -1480,15 +1480,18 @@ fn try_live_snapshot_marks_exact_expiry_logout_and_new_generation() {
             nagi_identity_session::IdempotencyKey::new("nonblocking-first").unwrap(),
         )
         .unwrap();
-    let first = service.resolve_current_identity(&caller).unwrap();
-    let first_live = first.try_live_snapshot().unwrap();
+    let first = service.interactive_session(&caller).unwrap();
+    let first_handle = first.revalidation_handle().unwrap();
+    let first_live = first_handle.try_live_snapshot().unwrap();
     assert_eq!(first_live.status(), LiveStatus::Live);
+    first_handle.check_live().unwrap();
 
     clock.set(200);
     assert_eq!(
-        first.try_live_snapshot().unwrap().status(),
+        first_handle.try_live_snapshot().unwrap().status(),
         LiveStatus::Expired
     );
+    assert!(first_handle.check_live().is_err());
 
     let second_session = service
         .login_local(
@@ -1505,7 +1508,7 @@ fn try_live_snapshot_marks_exact_expiry_logout_and_new_generation() {
     assert_eq!(second_live.status(), LiveStatus::Live);
     assert_ne!(first_live.generation(), second_live.generation());
     assert_eq!(
-        first.try_live_snapshot().unwrap().status(),
+        first_handle.try_live_snapshot().unwrap().status(),
         LiveStatus::Revoked
     );
 
@@ -2747,8 +2750,11 @@ fn current_store_corruption_cannot_use_last_known_good_for_authority() {
             nagi_identity_session::IdempotencyKey::new("live-corruption").unwrap(),
         )
         .unwrap();
-    let identity = service.resolve_current_identity(&caller).unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let handle = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
     store.corrupt_current(b"not-a-snapshot".to_vec());
+    assert!(handle.check_live().is_err());
     assert!(!identity.is_live());
     let calls = Arc::new(AtomicUsize::new(0));
     assert_eq!(
