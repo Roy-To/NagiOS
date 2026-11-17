@@ -139,6 +139,16 @@ Later implementation specifications should turn these themes into measurable cri
 - **AI interaction path:** Begin with small structured Context and retrieve additional detail only through authorized references; recheck Permission, classification, provenance, ownership, scope, Resource, and revision each time. Preserve DEC-002's authorized sharing rules and approved-Task exceptions. Contract Events, deterministic-first processing, typed Public Action execution, and normal GUI availability remain consistent with DEC-020. Event detection alone does not authorize model inference, a notification, or an Action.
 - **Hardware migration:** Hardware-dependent Memory indexes and Context adapters can be rebuilt from canonical model-independent Memory without changing its ownership, provenance, permissions, or forgetting state.
 
+## PX-15 — 実用OS 1.0の品質基準Bと将来の総合OS C（2026-11-17）
+
+**CONFIRMED（高水準製品完成方針）:** [DEC-021](../DEC-021-roadmap-0.5-1.0.md)に従い、1.0は**正式サポートを宣言したPC／Target・機能の範囲で、代表的な日常作業をNagiの許可されたAIと通常GUIから安全・安定して完了でき、後日継続利用できる実用OS B**を基準とする。搭載する機能や端末の数ではなく、宣言した範囲の一般公開品質・実際の復旧／継続・客観的なTarget Runtime実証と制限の明記を優先する。**将来C**として対応Hardware／周辺機器・純正／第三者アプリ・利用形態を段階的に広げる総合OSへ発展する。すべての機器・アプリ、複数階層Agent、独立した高度開発IDEの全面完成を1.0に要求しない。
+
+**既存の確定方向を維持:** 1.0の一般公開可能な品質・安定性・Security・Compatibility・Developer experience、および[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・アプリ配布基盤という高水準目標**を維持。[DEC-074](../DEC-074-human-led-agent-organization.md)の「AIをOS標準体験として優先・階層型組織は非優先長期方向」、AIなしの通常GUI／通常a11yと、Permission／Privacy・User／Profile／Memoryの所有・復元の境界、Workstream／Release／Activation／Acceptance Gateを変更しない。Host-only・旧Runtime・文書だけの証拠を未確認のLinux／実機Target正式対応としない。
+
+**評価領域と詳細の区別:** §5のcross-release themesと§6のcandidate readiness evidenceは、1.0 Implementation Specificationが対象環境・代表作業・合格値・試験環境・客観証拠を定める際に用いる**評価項目の候補**である。インストール／起動、日常GUI、Task／Memory／Workspace、権限・Recovery／更新、対応純正アプリ、公開SDK／正規Package・配布、Target動作・応答性などを検討するが、**本記録は各項目の採用済みの必須チェック一覧や測定値、新しいRelease Gateを確定するものではない**。§4の0.5〜1.0版別対応表もPROVISIONALのまま。
+
+**PROVISIONAL／OPEN:** 代表作業シナリオと1.0必須・任意・後続の純正アプリ／機能、対応PC・周辺機器・Hardware profile／Device matrix、互換形式、Locale／アクセシビリティ、Performance・Reliability・SecurityとResource使用量の数値／許容不具合、試験・合否証拠／Support／更新・配布・公開判定手順、具体実装・提供Version・日程。実装済み・Target PASS・一般公開決定を意味しない。
+
 ## 6. Candidate 1.0 readiness evidence
 
 The 1.0 implementation specification should define supported configurations and objective evidence for:
