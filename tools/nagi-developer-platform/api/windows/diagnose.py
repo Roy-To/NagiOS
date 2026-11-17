@@ -21,6 +21,9 @@ _LEXEMES = re.compile(
     r'(?P<comment>//[^\r\n]*|/\*.*?(?:\*/|\Z))'
     r'|(?P<cppraw>(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\r\n]{0,16})\(.*?\)(?P=delimiter)")'
     r'|(?P<csraw>\$*(?P<quotes>"{3,}).*?(?P=quotes))'
+    # `#include "name.h"`: the quoted header name is visible to alias matching
+    # (the angle form is already plain tokens); other string contents stay opaque.
+    r'|(?P<quotedinclude>\#[ \t]*include[ \t]*"[^"\r\n]*")'
     r'|(?P<verbatim>(?:\$?@|@\$)"(?:""|[^"])*(?:"|\Z))'
     r'|(?P<string>(?:u8|u|U|L|\$)?"(?:\\.|[^"\\])*(?:"|\Z))'
     r"|(?P<char>'(?:\\.|[^'\\])*(?:'|\Z))"
@@ -82,6 +85,11 @@ def evidence_tokens(evidence):
         kind = match.lastgroup
         if kind in ("identifier", "dot"):
             tokens.append(match.group())
+        elif kind == "quotedinclude":
+            name = match.group().split('"', 1)[1]
+            tokens.append(None)
+            tokens.extend(re.findall(r"[^\W\d]\w*|\.", name))
+            tokens.append(None)
         elif kind != "space":
             # A barrier prevents a dotted alias spanning a comment or literal.
             tokens.append(None)
@@ -93,8 +101,12 @@ def load_rules():
     return json.loads(Path(__file__).with_name("rules.json").read_text(encoding="utf-8"))
 
 
-def _matches(tokens, alias):
+def _matches(tokens, alias, fold=False):
+    """`fold` (rule data `case_insensitive`) is for names Windows resolves case-insensitively."""
     expected = re.findall(r"[^\W\d]\w*|\.", alias)
+    if fold:
+        expected = [t.lower() for t in expected]
+        tokens = [t if t is None else t.lower() for t in tokens]
     width = len(expected)
     return any(tokens[i:i + width] == expected for i in range(len(tokens) - width + 1))
 
@@ -114,7 +126,7 @@ def diagnose_report(data, *, allowed_paths, adapter=adapt_report_v1, rules=None)
         }
         matched = False
         for rule in rules["rules"]:
-            aliases = sorted(a for a in rule["aliases"] if _matches(tokens, a))
+            aliases = sorted(a for a in rule["aliases"] if _matches(tokens, a, rule.get("case_insensitive") is True))
             if not aliases:
                 continue
             matched = True
