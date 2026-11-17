@@ -72,7 +72,8 @@ pub struct AuthenticatedSystemServiceCatalogBinding {
 }
 
 impl AuthenticatedSystemServiceCatalogBinding {
-    pub fn from_trusted_catalog(
+    #[cfg(test)]
+    pub(crate) fn from_trusted_catalog(
         descriptor: &ValidatedSystemServiceDescriptor,
         principal_id: PrincipalId,
         caller_context_id: CallerContextId,
@@ -270,9 +271,13 @@ fn clear_recovery_block(descriptor: &ValidatedSystemServiceDescriptor) {
         .remove(&recovery_key(descriptor));
 }
 
-/// Authenticated catalog source for every field that affects role or launch.
-/// Implementations must compare the full descriptor with the trusted catalog;
-/// caller-supplied JSON and an artifact digest do not establish that match.
+/// A-owned authenticated catalog source for every field that affects role or
+/// launch. The binding has no public constructor; an implementation must come
+/// from the trusted catalog adapter inside this crate and compare the full
+/// descriptor against its canonical record. Caller JSON, a package signature,
+/// or an artifact digest alone cannot mint this binding. A currently has no
+/// production catalog implementation, so no production launch can pass this
+/// boundary yet.
 pub trait TrustedSystemServiceCatalog {
     fn authenticate(
         &mut self,
@@ -291,10 +296,11 @@ pub trait ArtifactPreflight {
 }
 
 /// C3 implementation must load only `package.executable_bytes()`, binding
-/// those immutable bytes to its maintained process launch, Supervisor
-/// generation, and connected endpoint. It must not reopen the descriptor's
-/// artifact pathname or launch from a mutable FD. It must use the concrete
-/// proof v2 contract and never construct a proof from descriptor data.
+/// those immutable bytes to the exact reserved slot, Supervisor generation,
+/// and connected endpoint. It must not reopen the descriptor's artifact
+/// pathname or launch from a mutable FD. The returned proof must come from
+/// the real pidfd-backed C3 process owner and kernel peer-credential check;
+/// this API does not permit constructing one from descriptor data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReservationError {
     Unavailable,
@@ -323,7 +329,11 @@ pub trait SystemServiceLaunchOwner {
     /// Exact reserved C3 slot identity. `reserve_launch` must not create a
     /// child; if it errors or unwinds, no process or Supervisor record may
     /// remain. The token is created before any operation that can create a
-    /// child, so a later error or panic always has an exact cleanup key.
+    /// child, so a later error or panic always has an exact cleanup key. The
+    /// owner must enforce `metadata.transition()`: `Initial` requires an empty
+    /// slot, while `Replace` requires the exact matching prior catalog
+    /// generation under C3's serialized slot gate. A stale or mismatched
+    /// replacement must fail before child creation.
     type Lifecycle: SystemServiceLaunchLifecycle;
 
     fn reserve_launch(
@@ -1192,6 +1202,10 @@ mod tests {
         assert_eq!(parsed.credentials(), (1001, 1002));
         assert_eq!(parsed.generation().get(), 9);
         assert_eq!(parsed.transition(), GenerationTransition::Initial);
+        assert_eq!(
+            parsed.launch_metadata().transition(),
+            GenerationTransition::Initial
+        );
         let request: Value =
             serde_json::from_str(&parsed.artifact_preflight_request().to_json().unwrap()).unwrap();
         assert_eq!(request["schema_version"], 1);
@@ -1297,10 +1311,13 @@ mod tests {
         }
         let mut replacement = valid_descriptor();
         replacement["lifecycle"] = json!({ "mode": "replace", "previous_generation": 8 });
+        let replacement = validate_descriptor_json(&replacement.to_string()).unwrap();
         assert!(matches!(
-            validate_descriptor_json(&replacement.to_string())
-                .unwrap()
-                .transition(),
+            replacement.transition(),
+            GenerationTransition::Replace { previous_generation } if previous_generation.get() == 8
+        ));
+        assert!(matches!(
+            replacement.launch_metadata().transition(),
             GenerationTransition::Replace { previous_generation } if previous_generation.get() == 8
         ));
     }
