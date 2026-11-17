@@ -61,7 +61,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/developer-platform/evaluation/run_host_c
 Requires the existing Python standard library and `clang` on PATH. `--repeats`
 accepts 2–20 (default 3). The runner builds the fixed portable C test with the
 strict flags above, syntax-checks the text-only control, then repeats the C test
-and NDP-06 UI CLI. It compares stdout bytes checks widget/layout identities, tab order and the declared connection against
+and NDP-06 UI CLI. It compares stdout bytes and checks widget/layout identities, tab order and the declared connection against
 the fixed XML, and verifies that all seven fixture
 sources and the analyzer source remain unchanged, including on command failure.
 Temporary build output is removed automatically. Nonzero exits, timeouts, changed

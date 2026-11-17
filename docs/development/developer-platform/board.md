@@ -30,3 +30,5 @@ Cを実build/run、UI CLIを各3回実行。UI中央値約34ms（起動込み、
 ランナー失敗検知7件と既存UI 18件が成功。詳細・再実行は[評価README](../../../tests/developer-platform/evaluation/README.md)。
 
 独立レビューのP2（同じ誤解析でも一致成功）を修正。部品・tab順・接続を照合し、旧版で5ケース失敗を確認。
+
+NDP-11独立再レビュー: e49fb71でP2解消、未解決P1/P2なし。DeepSeek追加不要。
