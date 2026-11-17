@@ -3,6 +3,10 @@ name = "nagi-c1-session-runtime"
 version = "0.1.0"
 edition = "2021"
 publish = false
+# The legacy integration fixtures self-implement authentication markers. Keep
+# them out of external test discovery until the real C2/C3 proof producers are
+# connected; the service-level identity contracts cover the current host APIs.
+autotests = false
 
 [workspace]
 resolver = "2"

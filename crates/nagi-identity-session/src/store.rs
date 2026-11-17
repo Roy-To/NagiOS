@@ -349,6 +349,8 @@ mod tests {
 
     impl AuthenticatedInteractiveCaller for TestCaller {}
     impl AuthenticatedSystemServicePrincipal for TestCaller {}
+    impl crate::caller_proof_seal::Interactive for TestCaller {}
+    impl crate::caller_proof_seal::SystemService for TestCaller {}
 
     type TestService =
         IdentityService<InMemorySnapshotStore, TestIds, TestClock, AllowAuthorization, NoopCleaner>;

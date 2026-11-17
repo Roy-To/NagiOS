@@ -7,6 +7,9 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+extern crate self as nagi_identity_session;
+
 mod capability;
 mod ids;
 mod migration;
@@ -14,6 +17,13 @@ mod model;
 mod service;
 mod storage;
 mod store;
+
+#[cfg(test)]
+pub(crate) use service::caller_proof_seal;
+
+#[cfg(test)]
+#[path = "../../../tests/identity-session/contract.rs"]
+mod contract;
 
 pub use capability::{
     resolve_capability_principal, CapabilityPrincipalAdapter, DenyCapabilityPrincipalAdapter,
@@ -33,14 +43,15 @@ pub use model::{
     SessionRecord, SnapshotError, TryClockError, UnixMillis, IDENTITY_SCHEMA_VERSION,
 };
 pub use service::{
-    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
-    AuthorizationRequest, CurrentIdentityResolver, EndSessionResult, GuestCleanupFailure,
-    GuestProfileCleaner, IdSourceFailure, IdentityAccessContext, IdentityAction,
-    IdentityAuthorizer, IdentityError, IdentityEvent, IdentityEventKind, IdentityEventReason,
-    IdentityEventSink, IdentityIdSource, IdentityProvider, IdentityService,
-    InteractiveSessionContext, InteractiveSessionError, LiveSnapshot, LiveStatus,
-    NoopIdentityEventSink, ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError,
-    ResolvedIdentity, SessionLeaseRevalidationHandle, TrustedCallerContext, TryLiveError,
+    AuthenticatedInteractiveCaller, AuthenticatedProvisioningCaller,
+    AuthenticatedSystemServicePrincipal, AuthorizationFailure, AuthorizationRequest,
+    CurrentIdentityResolver, EndSessionResult, GuestCleanupFailure, GuestProfileCleaner,
+    IdSourceFailure, IdentityAccessContext, IdentityAction, IdentityAuthorizer, IdentityError,
+    IdentityEvent, IdentityEventKind, IdentityEventReason, IdentityEventSink, IdentityIdSource,
+    IdentityProvider, IdentityService, InteractiveSessionContext, InteractiveSessionError,
+    LiveSnapshot, LiveStatus, NoopIdentityEventSink, ProviderLookupFailure, RecoveryReport,
+    RecoverySource, ResolutionError, ResolvedIdentity, SessionLeaseRevalidationHandle,
+    TrustedCallerContext, TryLiveError,
 };
 pub use storage::{
     NoopStorageRootEventSink, ProfileRootAuthorizer, ProfileStorageBackend, StorageRootEventSink,

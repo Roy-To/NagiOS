@@ -3,6 +3,9 @@ name = "nagi-c1-session-end-adapter"
 version = "0.1.0"
 edition = "2021"
 publish = false
+# These external fixtures self-implement authentication markers. They cannot
+# model the sealed producer boundary until C2 supplies the authenticated caller.
+autotests = false
 
 [workspace]
 resolver = "2"
