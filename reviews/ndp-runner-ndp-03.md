@@ -52,3 +52,26 @@ P1が2件残っています。
 
 NDP-REVIEW: FIX
 
+## Round 4 — claude review of d096fa64ca95
+
+**レビュー結果: P1/P2 なし。** 実装の確認は `generate.py` のみで、`test_generate.py`、README、`contract/` の差分は開いていません。テストの再実行もしていません。このセッションでは Bash が拒否されたためです。runner の報告（41 件 OK、skip 1 件）を前提にしています。
+
+**確認できた点**
+- 出力先は `mkdir` で排他的に作成し、ファイルは `O_EXCL|O_NOFOLLOW` で作成します。祖先は no-follow で辿ります。このため、既存の出力先、非空ディレクトリ、symlink は拒否されます（`generate.py:70-86,157`）。
+- `.git`・`sdk`・`tools/nagi-pkg` 配下は拒否します（`generate.py:42,139`）。
+- 削除・rename・上書きは一切しません。失敗時は作成済みの項目を `left_behind` に報告します。
+- 結果は `built:False` と `validated:False` を返し、host 上のファイル生成に限った結果だと明示しています。build の成功を主張していません。
+- 生成内容は NDP-02 の `contract/contract.py` に委譲しています。二重実装はなく、`contract` ディレクトリを経由しない書込みもありません。担当 path 外の変更は `reviews/ndp-runner-ndp-03.md` のみで、runner が出力するレビュー記録です。
+
+**P3（軽微）**
+- `generate.py:198-202`、`generate.py:221`: `_current_umask()` は umask を set して復元するため、同一プロセス内の並行スレッドとは競合します。同じ並行性の限界として README に追記してください。
+- `generate.py:221`: `_claim_directory` は mode が `0o700` ちょうどであることを要求します。`umask 0o277` のように owner の x ビットを落とす umask では、正常な作成でも `output_raced` と誤判定します。実害はほぼありません。README の「仮定」に一行書くか、`mkdir` 後に `fchmod(0o700)` で揃えるのが最小修正です。
+- 並行プロセスによる敵対的な競合（TOCTOU、祖先ディレクトリの移動など）は、README の「脅威モデルと限界」節で限界として明記されています。追加の対応は不要です。
+
+**疑問（確証なし）**
+- `os.path.realpath(dest_root)` は、root 自体が symlink であることを許容します（`generate.py:126`）。README に「呼び出し側が選ぶ root は symlink でもよい」と書かれているので、設計どおりと判断しました。
+
+実 validator が未準備のため、manifest の検証テストは skip になっています。この skip は報告で明示されており、成功扱いにはなっていません。
+
+NDP-REVIEW: PASS
+
