@@ -5,6 +5,8 @@
 **対象:** Core Developer候補がNagi Developer PlatformのPT-02〜PT-06を主導する案  
 **PT-01:** 既存担当を維持し、本案の割当対象に含めない
 
+> **2026-11-15 追記:** 創設者がNDP-01〜12をCore Developerの担当範囲として確定した（[DEC-046](../product-decisions/DEC-046-co-developer-governance.md)）。NDP-01は完了し、NDP-10は[開始記録](co-developer-starter-kit/START_AUTHORIZATION.md)の条件で開始する。Integration Owner、NDP-10以外のpath・branch、並行数、GitHub権限など本書のその他の値はPROVISIONALのまま。
+
 > この文書は提案と実行候補の整理です。保存だけでタスクの割当、実装開始、workstream登録、branch/worktree作成、検証環境の利用、GitHub招待・権限付与、release gate変更を行ったことにはなりません。個人名・個人情報は記載しません。
 
 ## 1. 目的と進め方
@@ -117,6 +119,8 @@ PT-01の既存割当記録は、PT-01の診断実装・report schema・fixture�
 ## 7. 実行バックログ案（12件）
 
 全件の担当案はCore Developerです。各statusは **PROPOSED / NOT STARTED**、pathとbranchは全て未割当です。
+
+> 2026-11-15: 全件の担当がCore DeveloperにCONFIRMED。NDP-01はDONE、NDP-10は開始承認済み（[開始記録](co-developer-starter-kit/START_AUTHORIZATION.md)）。下表の状態欄は提案時点のもの。
 
 | ID | PT | 目的・想定成果 | 依存・先行 | 状態 |
 |---|---|---|---|---|
