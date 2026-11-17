@@ -1,0 +1,149 @@
+--- a/linux_init_process_owner_candidate.rs
++++ b/linux_init_process_owner_candidate.rs
+@@ -652,10 +652,13 @@
+         notes_scope: Option<&NotesResourceScope<'_>>,
+         owner: &mut Option<ProcessHandle<Prepared, Self::Raw>>,
+     ) -> std::io::Result<()> {
+-        if self.requires_notes_resource_scope() && notes_scope.is_none() {
++        // This fallback cannot install or carry a Notes scope into prepare().
++        // Refuse both a required-but-missing scope and a supplied scope that
++        // this implementation would otherwise silently discard.
++        if self.requires_notes_resource_scope() || notes_scope.is_some() {
+             return Err(std::io::Error::new(
+                 std::io::ErrorKind::PermissionDenied,
+-                "Linux Notes resource scope is unavailable",
++                "default ProcessOs cannot consume a Notes resource scope",
+             ));
+         }
+         self.prepare_into(executable, arguments, execution_identity, owner)
+--- a/linux_x86_64_process.rs
++++ b/linux_x86_64_process.rs
+@@ -88,7 +88,7 @@
+     const PR_SET_NO_NEW_PRIVS: usize = 38;
+     const LANDLOCK_CREATE_RULESET_VERSION: usize = 1;
+     const LANDLOCK_RULE_PATH_BENEATH: usize = 1;
+-    const LANDLOCK_ABI_NOTES_MIN: usize = 5;
++    const LANDLOCK_ABI_NOTES_REQUIRED: usize = 5;
+     const LANDLOCK_ACCESS_FS_EXECUTE: u64 = 1 << 0;
+     const LANDLOCK_ACCESS_FS_WRITE_FILE: u64 = 1 << 1;
+     const LANDLOCK_ACCESS_FS_READ_FILE: u64 = 1 << 2;
+@@ -102,7 +102,6 @@
+     const LANDLOCK_ACCESS_FS_MAKE_FIFO: u64 = 1 << 10;
+     const LANDLOCK_ACCESS_FS_MAKE_BLOCK: u64 = 1 << 11;
+     const LANDLOCK_ACCESS_FS_MAKE_SYM: u64 = 1 << 12;
+-    const LANDLOCK_ACCESS_FS_REFER: u64 = 1 << 13;
+     const LANDLOCK_ACCESS_FS_TRUNCATE: u64 = 1 << 14;
+     const LANDLOCK_ACCESS_FS_IOCTL_DEV: u64 = 1 << 15;
+     const LANDLOCK_HANDLED_FS_NOTES: u64 = (1 << 16) - 1;
+@@ -112,7 +111,6 @@
+         | LANDLOCK_ACCESS_FS_REMOVE_FILE
+         | LANDLOCK_ACCESS_FS_MAKE_DIR
+         | LANDLOCK_ACCESS_FS_MAKE_REG
+-        | LANDLOCK_ACCESS_FS_REFER
+         | LANDLOCK_ACCESS_FS_TRUNCATE;
+     // C3 may explicitly grant device ioctl to a specific resource, but it is
+     // never implied by the ordinary Notes data rights above.
+@@ -971,16 +969,18 @@
+     /// resolver; this function does not resolve names or infer Session
+     /// authorization. It also grants EXECUTE to
+     /// only the already-sealed executable memfd, while Notes roots cannot run
+-    /// code. ABI < 5 is rejected because safe rename, O_TRUNC, and per-resource
+-    /// device ioctl decisions need REFER, TRUNCATE, and IOCTL_DEV governed.
++    /// code. The reviewed handled-rights mask is pinned to ABI 5; other ABI
++    /// versions fail closed until their complete rights mask is reviewed.
+     fn create_notes_landlock_ruleset(
+         scope: &NotesResourceScope<'_>,
+         executable_fd: i32,
+     ) -> io::Result<OwnedFd> {
+-        if scope.rules.is_empty() {
++        // Landlock unions rights from overlapping path_beneath rules. Until
++        // C3 supplies a reviewed non-overlap contract, accept only one root.
++        if scope.rules.len() != 1 {
+             return Err(io::Error::new(
+                 io::ErrorKind::PermissionDenied,
+-                "Notes resource scope has no authorized resource rules",
++                "Notes scope requires exactly one root until C3 overlap is validated",
+             ));
+         }
+         for rule in scope.rules {
+@@ -1011,10 +1011,10 @@
+                 LANDLOCK_CREATE_RULESET_VERSION,
+             )
+         })?;
+-        if abi < LANDLOCK_ABI_NOTES_MIN {
++        if abi != LANDLOCK_ABI_NOTES_REQUIRED {
+             return Err(io::Error::new(
+                 io::ErrorKind::Unsupported,
+-                "Landlock ABI 5 is required for Notes filesystem policy",
++                "the reviewed Notes filesystem mask is pinned to Landlock ABI 5",
+             ));
+         }
+
+@@ -2063,6 +2063,8 @@
+
+         const TEST_UID: u32 = 65_533;
+         const TEST_GID: u32 = 65_533;
++        const TEST_F_GETFD: usize = 1;
++        const TEST_FD_CLOEXEC: usize = 1;
+         const O_PATH: usize = 0x0020_0000;
+         const O_DIRECTORY: usize = 0x0001_0000;
+
+@@ -2187,6 +2189,40 @@
+         /// data file remains writable. Requires a Linux test kernel permitting
+         /// clone3(CLONE_NEWPID|CLONE_PIDFD), setresuid, and Landlock ABI >= 5.
+         #[test]
++        fn rejects_multiple_notes_roots_before_landlock_query() {
++            let nonce = SystemTime::now()
++                .duration_since(UNIX_EPOCH)
++                .unwrap()
++                .as_nanos();
++            let base = std::env::temp_dir().join(format!(
++                "nagi-ws04-landlock-overlap-{}-{nonce}",
++                std::process::id()
++            ));
++            let _remove_tree = RemoveTree(base.clone());
++            let parent = base.join("data");
++            let nested = parent.join("sub");
++            fs::create_dir_all(&nested).unwrap();
++            let parent_fd = open_path_directory(&parent);
++            let nested_fd = open_path_directory(&nested);
++            let rules = [
++                NotesResourceRule {
++                    path: parent_fd.as_fd(),
++                    allowed_access_fs: LANDLOCK_ACCESS_FS_READ_FILE,
++                },
++                NotesResourceRule {
++                    path: nested_fd.as_fd(),
++                    allowed_access_fs: LANDLOCK_ACCESS_FS_WRITE_FILE,
++                },
++            ];
++            let scope = NotesResourceScope { rules: &rules };
++            let executable = open_null().unwrap();
++            let error = create_notes_landlock_ruleset(&scope, executable.raw())
++                .err()
++                .expect("overlapping roots must be rejected");
++            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
++        }
++
++        #[test]
+         fn notes_child_denies_same_uid_cross_app_profile_and_closes_held_fd() {
+             let nonce = SystemTime::now()
+                 .duration_since(UNIX_EPOCH)
+@@ -2225,6 +2261,17 @@
+             // The fixtures are DAC-accessible to the child's single UID. A
+             // Landlock denial therefore cannot be explained by file mode.
+             let held_file = open_read_without_cloexec(&foreign_read);
++            let held_fd = held_file.as_raw_fd();
++            assert!(held_fd >= 3, "held-fd fixture must be above stdio");
++            let held_fd_flags = syscall_result(unsafe {
++                syscall3(NR_FCNTL, held_fd as usize, TEST_F_GETFD, 0)
++            })
++            .expect("held-fd fixture must be open before exec");
++            assert_eq!(
++                held_fd_flags & TEST_FD_CLOEXEC,
++                0,
++                "held-fd fixture must be non-CLOEXEC before the child setup"
++            );
+             let allowed_root = open_path_directory(&app);
+             let rules = [NotesResourceRule {
+                 path: allowed_root.as_fd(),

@@ -4524,6 +4524,10 @@ impl InitBackend for UnconnectedBackend {
 }
 
 #[cfg(test)]
+#[path = "linux_init_process_owner_candidate.rs"]
+mod linux_init_process_owner_candidate;
+
+#[cfg(test)]
 mod process_lifecycle_tests {
     use super::*;
     use std::cell::RefCell;

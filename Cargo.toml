@@ -46,6 +46,7 @@ exclude = [
     "crates/nagi-service-contract",
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",
+    "crates/nagi-init-spawn-contract",
     # The product PID 1 manifest retains its Nagi-only Albert/Servo graph.
     # Linux unit tests use the sibling manifest at user/nagi-init-linux-tests
     # with the same source/build script but without target_os=nagi dependencies.

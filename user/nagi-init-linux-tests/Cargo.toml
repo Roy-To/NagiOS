@@ -40,6 +40,7 @@ nagi-search = { path = "../nagi-search", optional = true }
 nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 # Cargo's check-cfg should accept all source feature guards, but this test
