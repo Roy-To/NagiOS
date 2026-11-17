@@ -65,8 +65,8 @@ Requires the existing Python standard library and `clang` on PATH. `--repeats`
 accepts 2–20 (default 3). The runner builds the fixed portable C test with the
 strict flags above, syntax-checks the text-only control, then repeats the C test
 and NDP-06 UI CLI. It compares stdout bytes and checks widget/layout identities, tab order and the declared connection against
-the fixed XML, and verifies that all seven fixture
-sources and the analyzer source remain unchanged, including on command failure.
+the fixed XML, and verifies that all nine fixture
+sources (including the GTK 3/4 task panels, see below) and the analyzer source remain unchanged, including on command failure.
 Temporary build output is removed automatically. Nonzero exits, timeouts, changed
 stdout or changed source fail the evaluation. It never compiles or executes the
 Windows/Linux inputs and accepts no arbitrary source or command arguments.
@@ -116,10 +116,29 @@ boundary/error handling, determinism and unchanged inputs.
 The supported subset and unsupported templates, class/type validation, layout
 managers, resource/CSS loading, runtime bindings/signals and rendering are detailed
 in the [analyzer README](../../../tools/nagi-developer-platform/ui/analysis/README.md#gtk-builder-subset--ndp-06b).
-The existing evaluation runner still measures its fixed portable C/Qt fixtures;
-it does not run GTK or benchmark the new inputs. GTK coverage comes from the
-focused suite above. No Nagi target acceptance is claimed.
+GTK 3/4 task panels are also part of the repeated runner (NDP-11b below).
+No Nagi target acceptance is claimed.
 
 Verified locally on 2026-11-17: analysis 40/40 (Qt 18 + GTK 22), evaluation
 7/7, and `run_host_checks.py` PASS (three C/Qt repetitions, inputs unchanged).
 All three task-specified commands ran with `PYTHONDONTWRITEBYTECODE=1`.
+
+## GTK in the repeated runner — NDP-11b
+
+`run_host_checks.py` now also runs the analyzer CLI `--repeats` times on
+`gtk3_task_panel.ui` and `gtk4_task_panel.ui` (JSON keys `gtk3_ui_analysis`,
+`gtk4_ui_analysis`, each with its own phase name). Per input it compares stdout
+bytes between runs and checks, against expectations written from the fixed XML:
+format/source, fact counts, widget name/class/parent, layout class and ordered
+child placement (GTK 3 packing, GTK 4 grid column/row/span), the declared
+`clicked`/`on_add_task` signal (not run), the property binding or expression
+binding owner, `AtkObject` as the only unknown (GTK 3), the `requires` library
+version and empty tab order. Both inputs are in the source fingerprint, checked
+even after a failed command. GTK is never instantiated and no handler or
+binding runs.
+
+The failure-path suite (now 14 checks, subprocesses mocked) covers, for GTK:
+empty stable reports, malformed JSON, correct counts with a wrong widget,
+parent, layout class, placement value or order, receiver/slot, unknown class,
+binding owner/tag and `requires` version, plus per-phase timeout, nonzero exit
+and nondeterministic stdout, and GTK fixture mutation.
