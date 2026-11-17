@@ -6,6 +6,14 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Implementation Readiness — 50項目の未決詳細棚卸し（2026-11-17）
+
+[DEC-111：実装準備の未決詳細仕分けと条件付き判断](DEC-111-implementation-readiness-triage.md) により、Foundation 35項目＋PX 15項目の高水準方針の後続として、**実装上の障害になる判断だけを必要な工程で先に扱う**運用をCONFIRMED。一次分類は **E：技術担当が先行23件、V：比較・実測待ち5件、U：機能有効化／公開前の製品判断8件、R：詳細後回し14件**。区分と順序はREVIEW NOTE／PROVISIONALであり、各DECの高水準CONFIRMED、PX進捗、Foundationの推奨優先度、既存Release／Activation／Acceptance Gateや担当・実装着手権限を変えない。
+
+**最初の扱い（2026-11-17）:** Linux最小起動・通常アプリの開発を、全50項目の詳細決定待ちで止めない。F04のInit A/Bは短期Linux比較後の最終判断、PX-05／08／09はAction・重要Memory・自動削除を有効化する前、PX-12／F16／PX-11／14／15は対象機能や1.0の正式な提供範囲を決める段階で必要な判断に絞る。分類は公開仕様の一次棚卸しであり、現行実装がBLOCKEDであることを示すものではない。
+
+**変更履歴:** 2026-11-17 — 50項目横断のImplementation Readiness運用と[DEC-111](DEC-111-implementation-readiness-triage.md)の一次仕分けを追加。分類・判断順序は未確定の技術／製品採用を確定せず、Release Gateを追加しない。
+
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
 [Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。**PX-01〜PX-15の高水準製品方針はすべてCONFIRMED（詳細はPROVISIONAL、Checklist進捗はPARTIALLY_RECORDED）**。検討テーマの最初の順序は **REVIEW NOTE / PROVISIONAL**。既存のGate、35項目の状態・優先度・実装評価は変更しない。既存のGate、35項目の状態・優先度・実装評価は変更しない。
@@ -229,6 +237,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
 | DEC-109 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-109-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-16 |
 | DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
+| DEC-111 | [50項目のImplementation Readiness棚卸しと条件付き判断](DEC-111-implementation-readiness-triage.md) | CONFIRMED（実装を妨げる未決判断だけ必要時に先行する運用）／REVIEW NOTE・PROVISIONAL（23／5／8／14の一次分類・順序） | 2026-11-17 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
