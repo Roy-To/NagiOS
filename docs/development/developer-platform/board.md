@@ -47,3 +47,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-18 NDP-03: 並行競合を脅威モデル外としてREADMEに限界明記、41テストOK（実validator未準備の1件はskip）（PR #172、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-09s2: Stage契約(stages.json/README)と自作fixture限定のStage 2(固定clang引数・拒否（PR #173、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-06c: NDP-06cのP3残件を実装済みで、analysis 45件・mapping 26件のunittestがすべてOK（PR #174、runnerテスト成功、claudeレビューPASS）
+- 11-18 NDP-04c: NDP-05 の P2 は解消済みを既存テストで確認、NDP-04 の header 大文字小文字・引用符 includ（PR #175、runnerテスト成功、claudeレビューPASS）
