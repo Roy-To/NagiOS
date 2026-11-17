@@ -4,9 +4,11 @@
 
 
 **状態:** CONFIRMED（設計原則・既定方式）／PROVISIONAL（実装詳細・性能値・適用バージョン）  
-**最終合意日:** 2026-11-16  
+**最終合意日:** 2026-11-17（PX-06との整合を追記。従前の資源配分方針は維持）  
 **対象:** Nagi OSとAIの情報受け渡し・OS操作経路。実装バージョンと採用時期は確定しない  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-008](DEC-008-proactive-behavior.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Decision / Generative AI architecture](../architecture/decision-and-generative-ai-architecture.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)
+
+> **2026-11-16 Linux上のPermission強制方針の後続決定:** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、Nagi Permission／Capabilityの認可判断とLinux保護機構による実効隔離を併用し、Linux syscall／device／filesystem等の直接経路からの権限迂回も防ぐB案をCONFIRMED。本文の「Linux上の強制機構は未確定」は個別技術・適用境界・実機受入の未決定を示す。型付きPublic Action、GUI fallbackの限定条件、AI非特権の方針は変更しない。
 
 ## 背景と目的
 
@@ -121,6 +123,12 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 前景会話と`builder` Taskの状態・Context・進捗を分けて記録・表示する。具体的なQueue制御、LLM推論の切替点、Resource Budget、待機表示・公平性と性能値はPROVISIONALであり、Release／Activation Gateを変更しない。
 
+### PX-06の統合Taskセンターと将来オーケストレーション（2026-11-17／CONFIRMEDの高水準方針）
+
+[DEC-011](DEC-011-task-approval-progress-ui.md)でPX-06の**B案（Nagiが管理する複数Taskの一元的な状況把握・ユーザー操作）を基本**とし、将来はTask依存・優先度・端末資源・期限等に応じた**高度な実行調整C**へ発展させる方向を追加確定した。本DECの既存CONFIRMEDである**前景の人間操作優先・ユーザーの明示的なTask優先度変更・安全なResource待機からの条件付き継続**は変更しない。単一Nagi・初期`builder`逐次実行、明示Pause／Cancel／Stopと障害復旧待ちの自動再開禁止、Permission／Policy・Budget／Revision・Release／Activation Gateを維持する。
+
+**PROVISIONAL:** Queue／Priority／状態表示の詳細、依存関係の表現、Schedulerや公平性・資源配分の具体方式、並列可否・並列数、技術・適用版。PX-06の将来Cは具体的な並列実装や別AgentのActivationを承認するものではない。
+
 ## 例外・禁止・安全境界
 
 - 構造化Contextへの追加は無制限なMemory / app-stateアクセスを意味しない。取得対象はPurpose、Principal、Task、Resource、Permission等に応じて制限し、既存のプライバシー・Retention規則を守る。
@@ -155,6 +163,7 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | PX-06で統合TaskセンターB＋将来C高度オーケストレーションの高水準方向をDEC-011に記録。本DECの前景優先・明示優先度変更・Resource待機の条件付き継続、停止／障害復旧の安全境界は維持。Queue・Priority・状態表示の詳細／Scheduler・並列度・技術・版はPROVISIONAL。 |
 | 2026-11-16 | 複数の利用許可済み量子化モデルをストレージにインストールし、必要時だけRAMへロードする方針を具体化。資源圧迫時の軽量モデルへの自動切替を目指し、難しい段階では手動切替を確保。ユーザーの固定指定、Task品質・権限、Memory継続、安全な切替境界を優先し、シームレス性・閾値・適用版は未確定。 |
 | 2026-11-16 | 8GB RAM級で純正アプリの日常操作と軽量量子化ローカルLLMによる実用的アプリ横断連携を両立する製品目標を確認。単なる起動成功でなく前景応答性とAI Taskの品質を実測する。具体的なモデル・閾値・達成実績・提供版は未確定。 |
 | 2026-11-05 | 別会話中の`builder`作業継続Cを確定。Nagiの前景会話優先、Scope内の安全なバックグラウンド処理、Resource待機と明示停止／クラッシュ復旧待ちの区別、Task／Context分離を記録。具体的Scheduler・Budgetは未確定 |

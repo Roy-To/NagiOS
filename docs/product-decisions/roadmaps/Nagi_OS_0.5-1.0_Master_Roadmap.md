@@ -25,6 +25,22 @@
 
 > This document proposes a path beyond 0.4. It does not replace an implementation specification, approve a release, activate a workstream, or change an existing acceptance gate. Treat the version-by-version allocation below as provisional until a later decision is recorded.
 
+## PX-13 — Cloud AI橋渡しを優先する開発支援と長期制作環境（2026-11-17）
+
+[DEC-071](../DEC-071-nagi-native-app-creation-experience.md)／[DEC-021](../DEC-021-roadmap-0.5-1.0.md)の追加決定。**CONFIRMED（高水準の優先順位）:** 初心者向けアプリ制作はB（対話型共同制作）＋将来C（許可された個人Memory・継続改善を生かす高度な共同制作）を長期製品方向に保持。ただし、独立・全面統合のローカル完結型開発環境を当面の近距離Releaseの優先事項とせず、NagiのローカルLLMが**Nagi公開SDK／API・移植診断／検証結果と、ユーザーが選択するCloud AI・既存IDE・人間を橋渡しする開発補助**と、他OS（初期はWindows／Linux）からのNagi Native移植支援を重視する。[DEC-045](../DEC-045-nagi-porting-toolkit.md)の非AI診断・段階的PT-01〜06／手動の選択は維持。
+
+**時期の扱い:** 高度な統合制作環境は**1.0に至る計画の最終盤を目安とする長期・低優先項目**。具体的な1.0の出荷版・納期・実装完了条件はPROVISIONALであり、1.0への追加必須条件でも、既存の0.4初期builder Role workflow／Entry Gateの撤回でもない。[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・配布基盤を1.0までに整備するという別の高水準目標**は変更しない。§4の暫定版別マップはそのまま維持する。
+
+**Cloud Permission:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の事前許可・送信対象／目的／Provider・機密分類・現行Permission／Policy／Activity・取消を必須とし、ソース全文・秘密情報・個人Memoryの無断送信を認めない。Local LLMをCloud Agentの秘密の権限経路にしない。Cloud連携方式・Provider／Model・UI・性能・具体的提供Version、対応Framework／受入は未決定。既存Release／Activation／Acceptance GateとWorkstream owner・先行準備の個別許可を維持する。
+
+## PX-14 — 公開開発者環境・Porting ToolkitとAI橋渡しの統合体験（2026-11-17）
+
+**CONFIRMED（高水準方向）:** [DEC-017](../DEC-017-third-party-developer-ecosystem.md)のPX-14では**B：既存IDE・ホストから公開SDKとPorting Toolkit（PT-01〜06）の診断・雛形・移植案、任意のLocal LLM／許可済みCloud開発AIの橋渡し、Build／Test／PackageとNagi Targetの独立検証までを一貫した開発者体験にする**方針を採用。将来は**C：SDK／依存の互換性・更新影響、継続保守、更新Package／配布準備をより広く支援**する方向へ拡張する。Nagi Native Apps専用、Level 0〜3、Windows／Linux重点、Android将来候補／Apple系後順位は変更しない。Storeを唯一の配布先としない。
+
+**位置付け:** PX-13で後順位としたローカル完結型の高度な初心者向け制作IDEの早期完成を、PX-14により復活させない。既存の**1.0公開開発者環境・アプリ配布基盤という高水準製品目標**を維持し、PX-14の全Toolkit機能／Cloud Connector／Storeや特定アプリの1.0完成を確約しない。§4の版別マップは引き続きPROVISIONAL。
+
+**Permission・証拠・未決:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の外部送信の事前許可、ソースとResource／ProfileのScope、Host診断／Host Build／Nagi Target動作Acceptanceの分離、Package署名・導入・出力／共有／一般公開の別認可を保持。実際のSDK/API・CLI／UI、初期対象言語・Framework、Cloud Provider／技術、Package／署名／配布方式、性能・品質・提供版・担当／受入はPROVISIONAL。既存0.1〜0.4 Release／Activation／Acceptance Gate・Workstream／実装開始許可を変更しない。
+
 ## Quiet preparation for small errands — update (2026-11-16)
 
 [DEC-008](../DEC-008-proactive-behavior.md) now supplements its existing discreet-proactivity default with limited CONFIRMED direction for small pending chores, difficult-to-start correspondence and easily forgotten errands: quietly prepare within existing permission, offer discreet suggestions at suitable breaks, let users adjust the degree and timing, and adapt content/timing/frequency from permitted Memory, habits and adoption/ignore/rejection feedback. Explicit settings, refusal, Stop and forgetting take precedence; silence is not consent. Drafts, information organization and temporary notes aim to reduce the effort of starting. Consider transient Task/Reminder data distinguishable from long-term Canonical Memory.
@@ -138,12 +154,22 @@ Later implementation specifications should turn these themes into measurable cri
 - **Task lifecycle:** Root and child Task state, retry, cancellation, partial completion, and result-unknown outcomes remain visible and auditable.
 - **Evidence:** Worker output is a provenance-bearing proposal or artifact. Review requires reproducible checks, not an Agent's claim of success.
 - **Memory and ownership:** Private Profile Memory is not copied into Agent, Team, or Organization context without an explicit applicable Policy and grant.
-- **Offline and accessibility:** Local operation and ordinary GUI use remain viable when a Model, voice provider, network, or Agent is unavailable.
+- **Offline and accessibility:** Local operation and ordinary GUI use remain viable when a Model, voice provider, network, or Agent is unavailable. Dated clarification (2026-11-16, [DEC-097](../DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)): establish ordinary keyboard/navigation and screen-reader accessibility foundations first, with a design compatible with the separate long-term AI-native direction that does not depend on precise pointing. Keep GUI/keyboard/mouse, non-AI operation, Permission/Policy and required confirmation. Specific input technologies, time/locale details and release assignments remain OPEN; existing gates are unchanged.
 - **Workspace continuity:** Naming, grouping, layout, restoration, and Home/Desktop switching preserve user state and do not trigger Task execution.
 - **Recovery and compatibility:** Backup, restore, migration, and rollback claims match what the providers can actually recover.
 - **Responsiveness and resource use:** Foreground UI and voice interaction take priority over background Agent workloads; resource exhaustion is reported rather than counted as success. Evaluate measured hardware/load paths and track latency, CPU, RAM, power, token use, and task quality before claiming efficiency.
 - **AI interaction path:** Begin with small structured Context and retrieve additional detail only through authorized references; recheck Permission, classification, provenance, ownership, scope, Resource, and revision each time. Preserve DEC-002's authorized sharing rules and approved-Task exceptions. Contract Events, deterministic-first processing, typed Public Action execution, and normal GUI availability remain consistent with DEC-020. Event detection alone does not authorize model inference, a notification, or an Action.
 - **Hardware migration:** Hardware-dependent Memory indexes and Context adapters can be rebuilt from canonical model-independent Memory without changing its ownership, provenance, permissions, or forgetting state.
+
+## PX-15 — 実用OS 1.0の品質基準Bと将来の総合OS C（2026-11-17）
+
+**CONFIRMED（高水準製品完成方針）:** [DEC-021](../DEC-021-roadmap-0.5-1.0.md)に従い、1.0は**正式サポートを宣言したPC／Target・機能の範囲で、代表的な日常作業をNagiの許可されたAIと通常GUIから安全・安定して完了でき、後日継続利用できる実用OS B**を基準とする。搭載する機能や端末の数ではなく、宣言した範囲の一般公開品質・実際の復旧／継続・客観的なTarget Runtime実証と制限の明記を優先する。**将来C**として対応Hardware／周辺機器・純正／第三者アプリ・利用形態を段階的に広げる総合OSへ発展する。すべての機器・アプリ、複数階層Agent、独立した高度開発IDEの全面完成を1.0に要求しない。
+
+**既存の確定方向を維持:** 1.0の一般公開可能な品質・安定性・Security・Compatibility・Developer experience、および[DEC-017](../DEC-017-third-party-developer-ecosystem.md)の**公開開発者環境・アプリ配布基盤という高水準目標**を維持。[DEC-074](../DEC-074-human-led-agent-organization.md)の「AIをOS標準体験として優先・階層型組織は非優先長期方向」、AIなしの通常GUI／通常a11yと、Permission／Privacy・User／Profile／Memoryの所有・復元の境界、Workstream／Release／Activation／Acceptance Gateを変更しない。Host-only・旧Runtime・文書だけの証拠を未確認のLinux／実機Target正式対応としない。
+
+**評価領域と詳細の区別:** §5のcross-release themesと§6のcandidate readiness evidenceは、1.0 Implementation Specificationが対象環境・代表作業・合格値・試験環境・客観証拠を定める際に用いる**評価項目の候補**である。インストール／起動、日常GUI、Task／Memory／Workspace、権限・Recovery／更新、対応純正アプリ、公開SDK／正規Package・配布、Target動作・応答性などを検討するが、**本記録は各項目の採用済みの必須チェック一覧や測定値、新しいRelease Gateを確定するものではない**。§4の0.5〜1.0版別対応表もPROVISIONALのまま。
+
+**PROVISIONAL／OPEN:** 代表作業シナリオと1.0必須・任意・後続の純正アプリ／機能、対応PC・周辺機器・Hardware profile／Device matrix、互換形式、Locale／アクセシビリティ、Performance・Reliability・SecurityとResource使用量の数値／許容不具合、試験・合否証拠／Support／更新・配布・公開判定手順、具体実装・提供Version・日程。実装済み・Target PASS・一般公開決定を意味しない。
 
 ## 6. Candidate 1.0 readiness evidence
 
@@ -213,3 +239,7 @@ An item may move from OPEN or PROVISIONAL to CONFIRMED only after the user appro
 [DEC-061](../DEC-061-first-party-pdf-reader-editor.md)で、Nagi純正PDF Reader兼Editorの採用と段階的拡張をCONFIRMEDとして記録した。高速表示・検索・ページ操作・注釈・印刷・フォーム入力などを先に整え、その後、既存本文／画像の高度編集・OCR・元内容の削除と検証を伴う墨消し・署名関連機能を段階的に検討する。通常閲覧・編集はAI非必須とし、Nagi Project / Smart Paste / Writer / Sheets / Slides等と共通Public APIで連携する。AIによる表抽出・要約・比較・引用は利用者の承認と元資料の権限・機密分類の範囲に限る。
 
 具体的なリリース版・高度機能の順序・技術・合格値はPROVISIONAL。本ロードマップの対象版への割当て、Acrobat完全互換、全機能初期実装、実装済み・Acceptance通過を意味せず、既存Gateは変更しない。
+
+## #16 Backup / Restoreの後続決定・変更履歴（2026-11-16）
+
+[DEC-105](../DEC-105-user-environment-backup-and-wayback.md)で、B方式（ユーザー環境全体のバックアップ）を基本にWaybackと分担・連携し、必要に応じC方式を追加選択肢とする方向をCONFIRMEDとした。Cの具体内容・対象、保存・鍵・保持・復元詳細・技術・提供版はPROVISIONAL／OPEN。Profile単位Backup、DEC-014のWorkspace状態保存／選択式移行、Waybackの実際の復元範囲、DEC-004の明示的忘却と現行認可を維持する。既存の版割当て・Release／Activation／Acceptance Gate・担当を変更せず、実装・Linux／実機の復元成功を意味しない。

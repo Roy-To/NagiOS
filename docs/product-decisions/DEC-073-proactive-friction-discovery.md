@@ -1,7 +1,7 @@
 # DEC-073 — 許可された利用傾向からの潜在的な不便の発見と改善提案
 
-**状態:** CONFIRMED（潜在的な不便を能動的に見つけ、根拠を示して改善案を提案する製品方針）／PROVISIONAL（参照データ・検知方法・スコア・提示UI・自動適用・実装版）  
-**最終合意日:** 2026-11-15  
+**状態:** CONFIRMED（既存の根拠付き改善提案とPX-07のB基本＋将来Cの高水準提案管理方針）／PROVISIONAL（データ・分析・Score・提案頻度／抑制・却下／再提示制御・UI・自動適用・技術・実装版）  
+**最終合意日:** 2026-11-17（PX-07追加。2026-11-15の合意は維持）  
 **対象:** 将来のNagi OS Personal Agentとアプリ体験。実装時期・Release割当ては未確定  
 **関連:** [DEC-003（Memory機密分類）](DEC-003-memory-classification.md)、[DEC-004（Memory保存・学習・自然忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-008（標準的な働きかけ）](DEC-008-proactive-behavior.md)、[DEC-010（Intent-first UI）](DEC-010-intent-first-adaptive-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-028（反復作業のWorkflow化・改訂）](DEC-028-deterministic-workflows-from-habits.md)、[DEC-035（builder製アプリの保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-036（アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-076（builderアプリのAction API）](DEC-076-builder-generated-action-api-integration.md)、[DEC-040（開発Projectの保持）](DEC-040-builder-app-development-project-retention.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.3改訂Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -41,6 +41,14 @@
 | DEC-035 — builder製アプリの保守 | 既存アプリの不具合報告や許可された診断情報から修正を提案し、隔離検証後の正式更新に承認を求める | DEC-073は不具合報告を起点とせず、利用傾向からアプリや作業の改善余地を提案する。実アプリの調査・修正・更新にはDEC-035等を適用 |
 | DEC-015／036／040／075／076 — builderとアプリのライフサイクル | アプリ開発、試用・導入、Action API、開発Project、共有・公開の境界を定める | DEC-073が確定するのは「アプリ改善・作成案も提案候補になり得る」ことだけ。builderの実作業や配布の承認を追加しない |
 
+## PX-07の提案体験との接続（2026-11-17）
+
+**CONFIRMED — B基本＋将来Cの高水準方針:** [DEC-008](DEC-008-proactive-behavior.md)のPX-07節に、許可された利用文脈と明示設定・好みを踏まえて控えめかつ自然に提案する**B案**、将来的に複数の改善候補を整理・比較し、根拠・期待できる効果・利用者Feedbackを用いて提案の質を高める**C案**の方向を記録した。本DECが既に確定した「本人が自覚していない可能性のある不便を、許可されたMemory／利用傾向から発見し、推測の不確かさを含む根拠付きで改善を提案する」方針は変更しない。
+
+**既存CONFIRMEDの維持:** 利用者が拒否・訂正・明示設定した内容を尊重し、通常の提案で作業中の音声割り込みを行わない。重大警告はDEC-008の別境界で扱う。提案・候補整理・Feedbackは新たな常時監視、情報取得、Action実行、Workflow保存／有効化／改訂、アプリ変更・導入・外部共有を許可しない。既存のPermission／Privacy／承認とRelease Gateを維持する。
+
+**PROVISIONAL／OPEN:** 提案の頻度・タイミング・抑制、却下／再提示・保留の具体的な動作、候補の重要度／便益・Score算定と管理方法、詳細UI・対象Context／分析・技術・実装／提供版。具体的な自動適用は本追加決定で許可しない。
+
 ## 未確定事項（PROVISIONAL）
 
 - どの操作傾向、Event、既存Memory、診断情報を参照できるか。参照範囲、用途、利用者設定、データ最小化、保持・削除・監査の具体的な契約。
@@ -66,8 +74,9 @@
 
 | 日付 | 内容 |
 |---|---|
-| 2026-11-15 | ユーザーが、許可されたMemoryと実際の利用傾向から本人も不便と意識していない反復操作・UI・処理手順の摩擦を能動的に見つけ、根拠付きの改善案を提案する高水準方針を確認。明示設定優先、Memory／Privacy／Permission境界、無断UI変更禁止、アプリ配布時の個人情報非混入を維持。データ収集・AI診断・Score・UI・自動適用・実装版は未決定として記録。 |
 | 2026-11-16 | DEC-008の小さな用事への静かな準備を関連付け、潜在的不便の発見・改善提案との範囲を区別。既存の明示設定・権限・停止・忘却を維持。 |
+| 2026-11-15 | ユーザーが、許可されたMemoryと実際の利用傾向から本人も不便と意識していない反復操作・UI・処理手順の摩擦を能動的に見つけ、根拠付きの改善案を提案する高水準方針を確認。明示設定優先、Memory／Privacy／Permission境界、無断UI変更禁止、アプリ配布時の個人情報非混入を維持。データ収集・AI診断・Score・UI・自動適用・実装版は未決定として記録。 |
+| 2026-11-17 | PX-07の控えめな文脈適応提案B＋将来の高度な提案候補管理Cを、DEC-008と整合する高水準方針として追加確認。既存の潜在的不便発見・根拠付き提案・明示設定優先・Privacy／Permission／実行承認を維持。頻度・タイミング・抑制・却下／再提示・重要度判定・UI・技術・提供版はPROVISIONAL。 |
 
 ---
 

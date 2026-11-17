@@ -18,3 +18,7 @@ state checks work in a clean checkout before `./nagi fetch` materializes the
 ignored pinned third-party source directories required by the root Cargo
 workspace. The 0.2 workflow and release-line gate are defined in
 [`docs/0.2/DEVELOPMENT_ARCHITECTURE.md`](../0.2/DEVELOPMENT_ARCHITECTURE.md).
+
+## Conversation history
+
+- [Entire private history operation and verification (Japanese)](entire-private-history.md): dedicated private checkpoint storage, repository-scoped Actions disablement, upload boundaries, tested agents, and remaining validation.

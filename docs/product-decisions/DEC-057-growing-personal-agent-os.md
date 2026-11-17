@@ -1,9 +1,9 @@
 # DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS
 
-**状態:** CONFIRMED（Nagi OS全体の製品コンセプト、利用を通じた個人適応、モデル非依存の継続性、ユーザー主導の訂正・忘却と安全境界）／PROVISIONAL（学習品質の評価、具体的な個性・対話適応の方式、実装詳細・提供時期）  
-**決定日:** 2026-11-16  
+**状態:** CONFIRMED（Nagi OS全体の製品コンセプト、利用を通じた個人適応、モデル非依存の継続性、ユーザー主導の訂正・忘却と安全境界、PX-10のB基本方針と将来Cへの高水準拡張方向）／PROVISIONAL（学習品質の評価、対話・状況適応の具体方式・UI・条件、モデル／アルゴリズム、評価方法、実装詳細・提供版・時期）  
+**決定日:** 2026-11-16（PX-10追加合意: 2026-11-17）  
 **対象:** Nagi OSの中長期的な製品アイデンティティと、0.3 Personal Agent以降のユーザー体験。既存のRelease／Activation Gateおよび実装仕様を変更しない。  
-**関連:** [DEC-003（分類と所有）](DEC-003-memory-classification.md)、[DEC-004（記憶・学習・忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-005（Files／AlbertとMemory）](DEC-005-files-albert-memory-lifecycle.md)、[DEC-008（控えめな先回り）](DEC-008-proactive-behavior.md)、[DEC-009（Nagi-firstと通常GUI）](DEC-009-nagi-first-home-desktop.md)、[DEC-013（Hardware-Adaptive Memory）](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-020（AI／OS連携）](DEC-020-ai-os-interaction-path.md)、[DEC-023（作業・データ中心）](DEC-023-work-data-centric-os.md)、[DEC-028（反復Workflow学習）](DEC-028-deterministic-workflows-from-habits.md)、[VISION-001（人間に合わせるOS）](VISION-001-human-adaptive-os.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-003（分類と所有）](DEC-003-memory-classification.md)、[DEC-004（記憶・学習・忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-005（Files／AlbertとMemory）](DEC-005-files-albert-memory-lifecycle.md)、[DEC-008（控えめな先回り）](DEC-008-proactive-behavior.md)、[DEC-009（Nagi-firstと通常GUI）](DEC-009-nagi-first-home-desktop.md)、[DEC-013（Hardware-Adaptive Memory）](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-020（AI／OS連携）](DEC-020-ai-os-interaction-path.md)、[DEC-023（作業・データ中心）](DEC-023-work-data-centric-os.md)、[DEC-028（反復Workflow学習）](DEC-028-deterministic-workflows-from-habits.md)、[DEC-055（Project文脈）](DEC-055-project-folder-cross-app-context.md)、[DEC-058（習慣学習の主経路）](DEC-058-habit-first-learning-and-optional-teach-mode.md)、[DEC-059（学習履歴）](DEC-059-learning-history-insights.md)、[PX Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)、[VISION-001（人間に合わせるOS）](VISION-001-human-adaptive-os.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 製品コンセプト（CONFIRMED）
 
@@ -23,6 +23,18 @@ Nagiの長期的な価値は、利用開始時点のLLMの一般性能だけで�
 6. **利用者が育て方を制御できる:** 何を記憶・利用しているかを確認し、訂正、保護指定、利用停止、明示的な忘却を行える。学習はユーザーの明示指示、元データの分類・所有範囲、正規のPermission／Policy、削除・忘却の規則より優先しない。モデルや端末が変わっても明示的な忘却を破らない。
 7. **使わない自由と通常操作の維持:** AIに頼まずGUI／キーボード等で操作できることは変えず、AIが使用できない環境でもOSの通常機能を維持する。自然言語会話、表情・人格演出や特定の対話スタイルを日常操作の前提にしない。
 
+## PX-10 — Nagiの個人化・対話スタイル（2026-11-17／基本方針CONFIRMED）
+
+**基本方針B（CONFIRMED）:** Nagiは、許可された利用経験とフィードバックを通じ、口調・説明量・説明方法などの対話スタイルをユーザーの好みに自然に合わせていく。適応は継続的でも不意に揺れず、安定して理解しやすい対話を目指す。固定人格や擬似感情を要求するものではない。
+
+**将来Cの高水準目標（CONFIRMED）:** Bを基本に、Project／Task／現在の作業状況に応じて対話スタイルをより適切に調整する方向へ将来拡張する。ここで確定したのは製品目標の方向だけであり、実装や提供時期の確約ではない。
+
+**既存CONFIRMEDの維持:** ユーザーの明示的な指示・設定を暗黙の学習・推定より優先する。Profile／Memoryの所有範囲を分離し、モデルを交換しても許可された個人化情報を継続する。ユーザーによる訂正・保護・停止・忘却、機密分類、現在のPermission／Policyも維持する。個人化は新しい情報収集・閲覧・外部送信や権限を許可せず、取得時は既存のUser／Profile／Task ScopeとPermission／Policyを再評価する（DEC-003／004／020／055）。
+
+**PROVISIONAL:** 適応の対象・強さ・更新方法、具体的なUIとユーザー制御、Project／Task／作業状況を参照・判断する条件、利用するモデル・アルゴリズム、評価方法・指標、保存Schema、実装順・提供Version／時期は未決定。
+
+**ロードマップとの関係:** 0.3 Personal Agentの単一Nagi、Profile／model-independent Memoryの既存方向と整合する。将来Cは同一Personal Agentの状況適応目標であり、0.4+ Multi-Agentの導入を意味しない。この追加で0.3／0.4+等への適用Version、Release／Activation／Acceptance Gate、実装状態は変更しない。
+
 ## 境界と明示的な非目標
 
 - **成長はLLMの無制限な自己学習・重み更新や、OSの自律的な自己改造を意味しない。** 既存0.3ロードマップのとおり、モデルのファインチューニングを個人Memoryの主要手段とせず、モデル非依存の状態管理を基本とする。
@@ -34,14 +46,15 @@ Nagiの長期的な価値は、利用開始時点のLLMの一般性能だけで�
 ## 未確定事項（PROVISIONAL）
 
 - 学習前後の支援品質、手戻り、反復作業負担、誤提案などを客観的に評価する方法、ベンチマーク、受入基準、評価対象の長期利用期間。
-- 利用者別の言い回し・対話スタイル・個性の適応範囲、ユーザーが調整するUI、訂正の反映速度、誤学習の検出・改善方法。
-- 利用可能な履歴・入力種別、Sourceとの連携、ProjectやWorkspaceのContext適用条件、索引・保持方式、モデル・推論時の個人情報保護の具体実装。
-- Memory／Learning／Workflow候補を具体的にどの版・Workstreamへ割り当てるか、技術選定と実装時期。既存DEC-004／013／028で確定済みの原則を未決定に戻さない。
+- PX-10でCONFIRMEDとしたB／将来Cの方向を具体化する範囲。言い回し・説明量・説明方法の更新速度と強さ、ユーザーが調整するUI、訂正の反映、誤学習の検出・改善方法はPROVISIONAL。
+- 利用可能な履歴・入力種別、Sourceとの連携、Project／Task／Workspace／作業状況に応じるContext適用条件、索引・保持方式、モデル・推論時の個人情報保護の具体実装。
+- PX-10の技術選定、評価指標、実装順・Workstream・提供Version・時期、およびMemory／Learning／Workflow候補の版割当て。既存DEC-004／013／028で確定済みの原則を未決定に戻さない。
 
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | 0.3ロードマップの成長するPersonal Agent OS構想をNagi OS全体の中心コンセプトとして再確認。利用者の経験・習慣・フィードバックに基づく実用的な個人適応、モデル非依存の継続性、ユーザーによる訂正・忘却・主導権をCONFIRMED。性能値・実装方式・適用時期はPROVISIONAL。 |
+| 2026-11-17 | PX-10のB「利用に応じた安定的な対話スタイルの自然な適応」と、将来C「Project／Task／作業状況に応じた高度な状況適応」への高水準の製品方向をCONFIRMED。明示設定優先、Profile分離、モデル非依存の継続、訂正・忘却・Permission境界を維持し、UI・モデル／アルゴリズム・判定・評価・提供版／時期はPROVISIONAL。 |
 
 関連決定: 成長という中核概念は本DEC、習慣学習と任意のTeach Modeの主従は[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)を正本とする。学習経路の採用と、実行権限・提供版を分離する。

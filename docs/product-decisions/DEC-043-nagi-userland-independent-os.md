@@ -9,6 +9,22 @@
 
 > **2026-11-13 アプリ環境の後続決定:** [DEC-017](DEC-017-third-party-developer-ecosystem.md)で一般向けアプリ環境をNagi Native Apps専用とする標準方針、他OS向けアプリのNagi対応版リリースをSDK／UI／AI支援で容易にする目標を確定。Linux／iOS／Android等のバイナリ無変更互換レイヤーは標準搭載しない。以下の「互換方式は未確定」は旧時点の履歴、ならびにlibc／ABI、実際の移植方式、例外的互換性、Package形式等の技術詳細の未確定を示す。既存release Gateや移行開始許可は変更しない。
 
+> **2026-11-16 Boot System後続決定:** [DEC-078](DEC-078-boot-platform-entry-and-common-nagi-startup.md)で、UEFI対応PCではUEFIを基本とし、Raspberry Pi／タブレット等は機器に適したBoot方式を許容、Linux起動後のNagi処理を共通化する方針をCONFIRMEDとした。具体bootloader・handoff・起動時の信頼／復旧方式・対応機種・適用版は引き続き未確定。本文中のBoot方式未決定という記述は初回時点の履歴であり、この高水準方針に限りDEC-078を優先する。
+
+> **2026-11-16 System Image後続決定:** [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)で、OS本体を通常時read-only、User Dataを分離してOS更新後も保持する方針、A/B更新と復旧を基本とする方針、AIモデルをOS本体から論理的に分ける方針がCONFIRMED。本文のrootfs等の具体構成未確定という初回記述は、partition数・filesystem・更新／復旧の実装方式など未確定の範囲を示す。旧独自kernel用imageの技術構成・試験結果をLinux側へ流用しない。
+
+> **2026-11-16 Init／Service Manager選定の後続決定:** [DEC-080](DEC-080-init-service-manager-ab-evaluation.md)で、Nagi独自の最小PID 1＋独自Service Manager（A案）を第一候補に、既存軽量OSS Init＋Nagi Service Manager（B案）と短期実装比較してから最終選択する**判断プロセス**をCONFIRMEDとした。A/Bの正式採用は未決定であり、本DECに残るPID 1／init等の具体構成は引き続きPROVISIONAL。既存の限定移行開発許可・安全境界・Release Gateを変更しない。
+
+> **2026-11-16 基本ユーザーランド後続決定:** [DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)で、Nagi固有のサービス／API／アプリ環境は独自に設計し、libc・基本ライブラリ・基礎ツールなど汎用コンポーネントはOSSを積極的に選択活用する方針をCONFIRMEDとした。既存ディストリビューションのユーザーランド一式を製品基盤に流用しない。本文の個別ライブラリ採用未決定・具体ユーザーランド構成未確定は、libc／ABI／rootfs・OSS候補の技術選択について引き続き有効。DEC-080のInit／Service Manager A/B比較・正式採用も別判断とする。
+
+> **2026-11-16 Identity／Session後続決定:** [DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)で、Nagiの論理`UserId`／`ProfileId`／`SessionId`をIdentityの正本とし、Linux UID／GIDは低レイヤーの保護機構として利用する方針をCONFIRMEDとした。既存ユーザーランドのサービス／Identity設計責務を明確化する後続決定であり、具体的なUID対応・Session失効・Linuxの強制境界や実装受入は引き続き未確定。ユーザー／ProfileとAI権限の隔離を緩めない。
+
+> **2026-11-16 Permission／Sandbox後続決定:** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、NagiのPermission／Capabilityが認可を判断し、Linuxの保護・SandboxでNagi API外の直接経路も隔離する高水準方針をCONFIRMED。これにより「Linux側の強制機構を採用するか」という方針は確定したが、具体技術・対応表・Threat Model・強制機構が実際に機能することのLinux target検証は引き続き未決定。非特権AI・Nagi独自userlandと既存release Gateを維持。
+
+> **2026-11-16 IPC／Service Broker後続決定:** [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)で、Nagi独自の型付きIPC／Service API・Service Brokerを維持し、低レイヤーのデータ輸送はLinux標準IPCを活用するB案を高水準方針としてCONFIRMED。具体的なTransport／wire／Broker配置・Linux peer資格情報とNagi Identityの安全なbinding・権限強制・Linux target受入は未確定。独自Kernel IPCの新規実装を初期必須とせず、Linux kernel＋Nagi userlandの既存方針を維持する。
+
+> **2026-11-16 システム信頼基盤の後続決定:** [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)で、対応機器はハードウェア信頼の起点を活用し、非対応機器でも署名検証するB案をCONFIRMED。Linuxカーネル＋Nagi専用ユーザーランドを維持し、旧kernelのBoot Trust受入をLinux上の受入へ流用しない。個別Secure Boot／鍵／rollback／機種・適用版は未決定。
+
 ## 決定の位置付けと前回作業との境界
 
 2026-11-12の追加確定指示を記録する。前回の[DEC-042 — 独自Nagi KernelからLinuxカーネルへ変更](DEC-042-linux-kernel-transition.md)を置換・重複作成する目的ではなく、転換後のユーザーランドと独立性を明確化する補足決定である。前回記録の未確定欄に「ディストリビューション／ユーザーランド」が残る場合、本DECで明示的に確定した方針の範囲だけ更新される。具体的な基本ユーザーランド構成は引き続き未確定。

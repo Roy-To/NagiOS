@@ -1,7 +1,7 @@
 # DEC-055 — Projectフォルダを中心とする純正アプリ横断AI体験
 
-**状態:** CONFIRMED（既存フォルダのProject指定、Project単位の資料・参照と横断Task、Project／Workspaceの分離、Project文脈と作業継続）／PROVISIONAL（名称、UI・データモデル、参照方式、Memory運用詳細、対応アプリ範囲・実装時期）  
-**決定日:** 2026-11-16  
+**状態:** CONFIRMED（既存Project指定・Resource参照／横断Task・ProjectとWorkspaceの分離・継続、PX-03の統合作業ビューB＋将来の文脈理解型作業継続Cという高水準方針）／PROVISIONAL（名称・Project管理の詳細UI／関連付け・一覧・検索・復元導線／データモデル・技術・性能・提供版）  
+**決定日:** 2026-11-17（PX-03追加。2026-11-16までの既存決定は維持）  
 **対象:** Nagi Files／純正アプリ／Memory／Task／Workspaceの連携。実装版とActivation時期は未決定。  
 **関連:** [DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-005](DEC-005-files-albert-memory-lifecycle.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-040（builder開発Project）](DEC-040-builder-app-development-project-retention.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[0.3 Revised Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -18,6 +18,34 @@ Nagiのアプリケーション横断型AI体験を、利用者にとって直�
 5. **Projectごとの文脈と継続:** プロジェクトの目的、関連資料、明示的な方針、作業の経緯など、許可され保持できる情報をProjectの文脈として扱い、後日に「前の企画の続きを」と依頼した場合の候補発見・作業継続を助ける。Project単位の文脈やMemoryはDEC-003／004の分類、所有・Scope分離、由来、忘却を維持し、ユーザーの明示的な指定を優先する。
 6. **ProjectとWorkspaceは別概念:** **Projectは「何について作業するか」（長く使う資料・関連性・文脈）、Workspaceは「どう作業するか」（ウィンドウ配置・アプリ状態・復元用チェックポイント）。** 一つのProjectを複数のWorkspaceから扱える。Projectの保存をWorkspace snapshotや原本バックアップと同一視しない。Workspace復元で停止中のAI Taskを自動再開しない。
 7. **通常のGUIとユーザー主導を維持:** Projectを指定しなくても、従来のFiles／各アプリ操作は利用できる。Projectの命名、資料の関連付けと採用する更新案はユーザーの明示選択を尊重する。AIの推定をユーザーが示した関連・修正より優先しない。
+
+## PX-03 — Project中心の統合作業ビューBと将来の高度な文脈理解・作業継続C（2026-11-17）
+
+### CONFIRMED — B案を基本とする
+
+**Project中心の統合作業体験**を採用する。ユーザーがProjectを開いたとき、そのProjectの目的や許可された資料・外部Resourceへの参照、関連Taskとその実際の状態、関連する複数Workspace、直近の作業・再開候補へ、分かりやすく一元的にアクセスできる入口を設ける。Projectに関連するWorkspaceをユーザーが選び、従来のWorkspace操作・復元へ自然につながる体験とする。
+
+これは**表示・発見・操作導線を統合する高水準方針**であって、ProjectとWorkspaceの正本データ、Workspace snapshot、ファイル原本、Task Log／Activity、長期Memoryを一つの保存対象へ統合するものではない。Projectを作成・指定しなくても通常のFiles・各アプリ・Workspaceを利用できる。Project画面の具体名称・配置・一覧・操作手順やProjectとWorkspaceの対応付けの仕組みは確定しない。
+
+### CONFIRMED — 将来C案へ発展させる方向
+
+B案のユーザー主導の入口を保ち、許可されたProject文脈、資料間の出典・参照関係、Taskの状態、Workspaceの保存履歴・作業履歴を踏まえて、**関連資料や次に再開するWorkspace／作業候補をより適切に発見し、根拠と実際の利用可能性を示す高度な文脈理解・作業継続体験**へ将来発展させる。[DEC-065](DEC-065-nagi-handoff-work-continuation.md)のNagi Handoffなど、別端末で対応する文書・意味的な作業状態を継続する既存方針と両立・連携できる方向とする。ただし連携の具体方法、適用端末・Version、自動同期・完全な復元は今回採用しない。
+
+### 変更しない既存CONFIRMED／安全境界
+
+- **[本DEC](DEC-055-project-folder-cross-app-context.md)の基本契約:** 既存の通常フォルダをProjectに指定可能であり、元の場所にあるResourceも複製を強制せず参照登録できる。純正アプリ横断のTaskとProjectの許可された文脈保持、明示的な利用者指定優先を維持する。**Project＝何について作業するか／Workspace＝どう作業するか**を分離し、1 Projectを複数Workspaceから利用できる。
+- **[DEC-012](DEC-012-workspace-naming-organization.md):** Workspaceの自動命名・固定／最近／過去の分類、利用者の命名・順序優先、自動削除禁止、Permissionで絞られた自然言語検索・理由付き候補と本人による最終選択を継承する。統合ビューは検索結果の根拠や復元可能性を推測で補わない。
+- **[DEC-014](DEC-014-workspace-state-checkpoints.md):** 自動保存・名前付きチェックポイント、保存履歴と復元プレビュー、**既定では新しいWorkspaceへ復元**、元Workspaceへの復元を明示選択したときの復元前保護・競合処理・必要な確認を維持する。Workspace状態保存はファイル本文バックアップや長期Memoryとは別であり、Projectを開く／Workspacesを列挙する／検索するだけで復元・Task実行を開始しない。
+- **[DEC-065](DEC-065-nagi-handoff-work-continuation.md):** 端末間の意味的な作業継続は、実ファイルの移送、無条件のCloud同期、元端末のPermissionの引継ぎを許可しない。必要なSourceの実体取得・転送や競合解消はその都度の正規の認可・選択を維持し、HandoffとNagi Shareの単発ファイル転送を混同しない。
+- **Permission／Privacy／Memory:** Projectへの関連付けや一元表示から本文無断取得、全ファイル走査、情報区分／Owner／Profileの越境、長期Memoryへの自動昇格、外部送信・共有・Action許可の拡大を行わない。Source／Revision失効、競合、部分復元・復元不能・不明は正直に示す。明示停止・中断・復旧待ちのAI Taskや副作用Actionを無断再開・再実行しない。
+- **Gate:** これは体験の製品方向を記録するものであり、Workspace機能の実装完成、Project／Handoffの動作成功、0.2／0.3／0.4+／1.0のRelease・Activation・Acceptance Gate変更、実装開始の許可ではない。
+
+### PX-03の未確定事項（PROVISIONAL／OPEN）
+
+- 統合作業ビューの名称・画面構成・関連情報の配置、通常フォルダのProject指定／解除UI、Task・資料・外部Resource・Workspaceの一覧構成・絞り込み・並び順・表示件数。
+- Resource・Task・Workspaceの関連付け／参照の追加・解除／手動訂正の具体操作、1対多以外の関連付けモデルの採否、Projectの重複・入れ子・Archive／削除等の振る舞い。
+- Project中心の検索と関連候補のランキング／根拠、履歴プレビュー、Workspace・チェックポイントへの移動／復元／再開導線、未対応Resourceや失効時の細かな表示、別端末Handoffとの画面・状態の接続方法。
+- Metadata／schema・Index・データ統合方式、分析・学習・性能目標、対象アプリ／端末・技術・テスト／Acceptance・提供Version。既存のResource認可・Workspace履歴・Memory保持／忘却方針は未決事項に戻さない。
 
 ## 権限・安全性と既存決定との整合（CONFIRMED）
 
@@ -47,3 +75,4 @@ Nagiのアプリケーション横断型AI体験を、利用者にとって直�
 |---|---|
 | 2026-11-16 | 既存の通常フォルダをProjectとして指定し、純正アプリの資料・参照をProject単位にまとめて横断AI作業、変更追従提案、文脈／Memory、作業継続を行う方向を確認。ProjectはWorkspaceと別で、1 Projectを複数Workspaceから扱える。参照・権限の境界を維持。名称・実装方式・版割当ては未決定。 |
 | 2026-11-16 | 採用済み仕様の再確認に基づき、他所のResource参照登録と専用形式非強制を明確化。本文取得・外部送信・Task再開の独立した権限境界、Memoryの所有・分類・忘却とWorkspace履歴の別管理を補足。ローカル保存方式等の詳細は引き続きPROVISIONAL。 |
+| 2026-11-17 | PX-03においてProject中心の統合作業ビューBを基本とし、将来は許可された資料・Task・Workspace／作業履歴の関係から根拠付きの再発見と継続を支援するCへ発展する高水準方針をCONFIRMED。Project／Workspaceの分離、既存Resource参照・Workspace保存／本人選択による復元・Handoffと現行Permissionを維持。画面・関連付け・検索／復元導線・技術・性能・提供版はPROVISIONAL。 |

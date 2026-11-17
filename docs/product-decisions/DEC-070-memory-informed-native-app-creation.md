@@ -1,7 +1,7 @@
 # DEC-070 — Memoryを活用した個人最適化Nagiアプリ制作
 
-**状態:** CONFIRMED（ローカルLLMを使う初心者向けNagi Native App制作と、許可された個人の反復傾向・嗜好を設計へ生かす製品方向）／PROVISIONAL（Memoryの選定・許可UI、動的適応、実装方式、提供時期）  
-**最終合意日:** 2026-11-15  
+**状態:** CONFIRMED（既存の許可されたMemoryによる個人最適化、将来のNagi Native App制作、PX-13のB＋将来C・Cloud橋渡しと後期優先の高水準整合）／PROVISIONAL（Memory選定・同意UI、個人適応の詳細、Cloud連携・技術・提供版）  
+**最終合意日:** 2026-11-17（PX-13優先方針との整合。既存Memory分類・同意を維持）  
 **適用候補:** Nagi純正のアプリ制作・改善体験。Release割当てと実装時期は未確定  
 **関連:** [DEC-002（Cloud AI・外部共有）](DEC-002-cloud-ai-data-sharing.md)、[DEC-003（Memory分類・所有範囲）](DEC-003-memory-classification.md)、[DEC-004（Memory学習・忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-010（Intent-first UI）](DEC-010-intent-first-adaptive-ui.md)、[DEC-015（builder Role）](DEC-015-builder-role-review.md)、[DEC-017（アプリ開発環境）](DEC-017-third-party-developer-ecosystem.md)、[DEC-018（隔離編集）](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-035（導入後の保守・更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-075（新規アプリの試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-036（共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（開発Project保持）](DEC-040-builder-app-development-project-retention.md)、[DEC-076（Action API）](DEC-076-builder-generated-action-api-integration.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.3改訂Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -49,6 +49,14 @@ Nagiの純正AIアプリ制作環境は、プログラミングに詳しくな�
 - Memory由来の設計を開発Projectにどう記録するか。ProjectはCanonical Memoryと分離し、個人Memory自体を格納しない原則を維持する。
 - 配布形式・対象・経路、機能別Acceptance、担当Workstream、実装・提供時期。既存のDEC-017が定める1.0開発環境目標への詳細な割当ても未確定。
 
+## PX-13との優先度・Cloud AI連携の整合（2026-11-17）
+
+[DEC-071](DEC-071-nagi-native-app-creation-experience.md)で、対話型共同制作Bを基本、将来の個人適応型継続制作Cという高水準方向を採用し、**当面は全面的なローカル完結型制作環境より、ローカルLLMによるCloud開発AI／開発者・既存IDEとの橋渡しや他OSからの移植補助を重視する**方針を確認した。完全な統合制作環境は1.0に向けた計画の後期の低優先長期目標であり、具体Version／時期・完成を確約しない。既存の1.0公開開発者環境／配布基盤目標とは別である。
+
+**本DECのCONFIRMEDを保持:** 明示的に許可された同一User／Profileの嗜好・反復採用傾向・設定をアプリ設計案へ活かせる方向、生成アプリ・開発Project・Canonical Memoryの分離、個人Memoryを許可なしにCloud・ソース・Packageへ持ち出さない原則を変更しない。[DEC-002](DEC-002-cloud-ai-data-sharing.md)のProvider／Purpose／Resource／情報区分・現行Permission確認を守り、Bridge機能そのものをMemory共有同意とみなさない。Memoryが利用不可でも人間／非AI工程／許可された開発AIの別経路を妨げない。
+
+**PROVISIONAL／OPEN:** Memoryの対象・根拠表示／同意・訂正／除外UI、Local LLMが作業用Contextをどう生成しCloudと交換するか、Provider・Schema／技術、適応されたPreview・修正導線、性能・提供Version。生成アプリ実行時の継続的Memory参照や自動アップデートは今回追加採用しない。
+
 ## Roadmapとの関連
 
 - **VISION-001／DEC-010:** 人間に合わせるコンピューター、Intent-first UI、学習した好みを尊重する方向を補う。Workspace全体のレイアウト提案と、生成アプリ内部のUI変更は別の対象であり、本決定は後者の動的再配置を確定しない。
@@ -61,6 +69,7 @@ Nagiの純正AIアプリ制作環境は、プログラミングに詳しくな�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-15 | ユーザーが、ローカルLLMで初心者も日常的なNagi Native Appを作成・配布し、許可されたMemory上の反復する操作傾向・嗜好・UI好みをアプリの個人最適化に生かす高水準の製品方向を確認した。電卓の小数入力重視と指数入力重視を例とした。Memoryの選定・権限UI、動的再配置、実装方式、提供時期はPROVISIONALとし、既存のプライバシー・導入・更新・共有承認境界を維持する。 |
+| 2026-11-17 | PX-13の対話型共同制作B＋将来の個人適応型制作Cを高水準維持し、Local LLMがCloud AI／人間と橋渡しする当面の開発支援・移植補助優先、統合制作環境の長期・後期優先方向と整合。Memory許可・所有／分類／忘却、Cloud送信の別認可、導入／正式更新／共有の別承認を維持。具体UI・Model・Provider・版はPROVISIONAL。 |
 
 ---
 

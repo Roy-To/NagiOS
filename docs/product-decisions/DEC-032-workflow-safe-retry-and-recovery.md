@@ -48,3 +48,8 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-05 | 思想⑰の選択Aを確定。承認済み範囲内の安全な処理は有限回自動再試行できる。結果不明・権限失効・競合・不可逆操作・取消時は自動再実行せず停止／保留してユーザー確認へ戻す。既存のBuilder中断後復旧・Jobs契約との区別を維持。 |
+
+
+## 2026-11-16 Crash Recovery後続決定・変更履歴
+
+[DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)でFoundation #15のB案をCONFIRMED。共通Coordinator＋サービス別のcrash復旧は、実行中の安全な有限Retryと区別する。本DECの安全性を確認した承認範囲内Retryは維持するが、crash後の中断Taskの無断再開や結果不明の副作用Action再送を認める根拠にはならない。保存証拠・現行Permission／Revisionを照合する。 具体的な復旧方式・Linux target受入・適用版は未確定で、既存Gate・担当・着手条件は変更しない。本注記は実装・Acceptance成功を示さない。

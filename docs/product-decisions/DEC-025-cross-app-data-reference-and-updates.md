@@ -2,14 +2,16 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（方式A：共通参照モデル、更新検知と提案、承認済みTask内の限定的な自動更新）／PROVISIONAL（実装詳細・適用版）  
-**最終合意日:** 2026-11-05  
+**状態:** CONFIRMED（既存方式A：共通参照・更新提案・承認済みTask内の限定更新、PX-12の案内型転送B＋将来の高度ワークフローCという高水準体験との整合）／PROVISIONAL（参照／Transfer契約・対応アプリ・詳細UI・fallback制御・性能・実装版）  
+**最終合意日:** 2026-11-17（PX-12との整合を追記。方式Aの既存合意を維持）  
 **対象:** Nagiの作業・データ中心体験におけるアプリ間Resource参照・変更追従  
 **関連:** DEC-001、DEC-003〜005、DEC-008、DEC-014、DEC-017、DEC-020、DEC-023、Public 0.2 Platform Foundation仕様、Private 0.3改訂ロードマップ
 
 ## 目的
 
 異なるアプリの資料を、利用者の目的・Task・Workspaceのもとで関係付ける。ある資料が変更された場合に、関係する成果物をユーザーが適切に更新できるよう支援する。アプリを横断するデータの正本をOSへ強制的に集約しない。
+
+> **2026-11-16 Storage／Filesystem後続決定:** [DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)で、実際の保存下層はLinux標準Filesystemを用途別に利用し、Nagi Storage／Files APIで上位契約を保持するB案をCONFIRMED。元アプリ・Providerが保持する分散正本、Resource／Revision／Provenanceの現在確認、ファイルのpath／inodeと論理IDの分離、変更提案を標準とする本DECの境界は不変。Filesystem snapshotが自動的な関連成果物更新やWaybackを意味するわけではない。具体FS・mapping・実装版は未確定。
 
 ## 確定した仕様
 
@@ -40,6 +42,14 @@
 - 自動更新のTask承認形式、編集の可逆性・競合解消・複数アプリ間の部分成功・再実行抑止・Revision検証の具体的契約。
 - 対応アプリ、負荷上限、各Releaseへの割当、実装担当、Acceptanceと性能目標。
 
+### 2026-11-17 — PX-12のSmart Paste利用体験との整合
+
+**CONFIRMED（追加した高水準方針）:** [DEC-056](DEC-056-smart-paste-semantic-transfer.md)のPX-12節で、B＝コピー元／先が対応する方法と制限を案内し、ユーザーが通常コピー・構造化転送・連動参照などの利用可能な方法を選べる体験を基本とし、将来C＝許可されたProject／Task文脈・Provenanceと変更の影響を扱う高度なアプリ横断Workflowへ発展する方向を採用した。
+
+**本DECの方式Aを維持:** 元App／Provider／利用者の保存先に正本を残せる**共通参照・分散正本**、Resource／Revision／ProvenanceとPermission・分類・Ownerの現在確認、**元データの変更を検知しただけでは成果物を更新せず、更新提案を標準とする**ことは既存CONFIRMEDのまま。対象・操作・目的・Scopeが事前承認されたTask内の限定自動更新だけを例外とし、正規Public Action・現在のRevision・権限を実行時に検証する。貼り付けや参照の選択をTask承認や他アプリ更新の包括同意としない。Source失効・Revision競合・権限不足・不明／部分失敗を成功扱いしない。停止Taskの自動再実行も禁止。
+
+**PROVISIONAL／OPEN:** 対応アプリ／Objectの初期組合せ、静的コピーか参照かの既定、更新提案や関係表示の詳細UI、Transfer Schema、Fallbackの具体制御・技術／性能・提供Version・Acceptance。既存のPermission／Privacy／Cloud共有条件・Release／Activation Gateは変更しない。
+
 ## Roadmapとの関連
 
 - **0.2:** 既存Resource／Object／Revision／Public Action／Permission等の基盤を維持する。
@@ -54,6 +64,8 @@
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)で、通常フォルダのProject指定や他の保存先のResource参照を組み合わせ、Project単位の関連資料と横断AI作業を扱う方向を確定した。元データの分散正本、Provenance、変更検知時の**提案を標準**とする本DECのルールを維持し、Project所属のみでアクセス許可・自動更新を付与しない。具体的なGraph／Schema／UIは未決定。
 
+> **2026-11-16 Data Persistence後続決定 — 分散正本と共通保存契約:** [DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)で、Nagiが保存・移行・復旧に関する共通Persistence契約を持ち、App／Provider／利用者の元データ正本は用途別に保持できるB案をCONFIRMED。共通参照と元正本の分離を維持し、Resource／Revision／Provenanceと現行Permissionなしに内容を取得・更新しない。全Appを一つのDBへ統合する決定ではなく、具体DB／Migration・Linux受入は未確定。
+
 ## 決定履歴
 
 | 日付 | 決定 |
@@ -63,3 +75,4 @@
 | 2026-11-16 | DEC-061の純正PDF Reader / Editor方針への参照を追加。既存の公開API・AI非必須・権限境界と整合させ、実装版・既存Gateは変更しない。 |
 
 | 2026-11-16 | DEC-055のProjectフォルダ構想を、共通参照と関連更新提案の利用形態として連携。既存の更新承認・正本分離・Scope維持。 |
+| 2026-11-17 | PX-12の案内型Smart Paste B＋将来の高度アプリ横断Workflow Cを、DEC-056に記録した高水準体験として本DECへ整合。元の共通参照方式A・変更検知／更新提案方式A・承認済みTask内だけの限定自動更新を維持。詳細UI・初期対象・Transfer／fallback制御・技術・性能・版はPROVISIONAL。 |
