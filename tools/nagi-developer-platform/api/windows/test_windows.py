@@ -185,6 +185,39 @@ class WindowsRulesTests(unittest.TestCase):
                 self.assertEqual("lexical_candidate", rows[0]["detection"])
                 self.assertEqual("unsupported", rows[0]["availability"])
 
+    def test_windows_header_case_and_quoted_include(self):
+        # NDP-04 review P3: Windows headers resolve case-insensitively, and the
+        # quoted include form is as common as the angle form.
+        for evidence in ("#include <windows.h>", "#include <Windows.h>", "#include <WINDOWS.H>",
+                         '#include "windows.h"', '#include "Windows.h"', '#  include "WINDOWS.H" // x',
+                         "#include <Windows.h>\r\n"):
+            with self.subTest(evidence=evidence):
+                rows = run(report(evidence, category="windows-header"))["rows"]
+                self.assertEqual([("WIN-HEADER", ["windows.h"], "lexical_candidate")],
+                                 [(r["rule_id"], r["original_apis"], r["detection"]) for r in rows])
+        # Not the Windows header: comments, literals, other names, other paths.
+        for evidence, detection in (("// #include <Windows.h>", "no_code_evidence"),
+                                    ('/* #include "windows.h" */', "no_code_evidence"),
+                                    ('"#include <windows.h>"', "no_code_evidence"),
+                                    ('puts("#include \\"windows.h\\"");', "unknown_api"),
+                                    ('#include "windowsx.h"', "unknown_api"),
+                                    ('#include "mywindows.h"', "unknown_api"),
+                                    ("#include <windows_h>", "unknown_api"),
+                                    ("#define H windows", "unknown_api"),
+                                    ('#include "windows" ".h"', "unknown_api")):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="windows-header"))["rows"][0]
+                self.assertEqual((detection, None), (row["detection"], row["rule_id"]))
+
+    def test_case_folding_is_limited_to_rules_that_opt_in(self):
+        # API names remain case-sensitive; only `case_insensitive` rule data folds.
+        for evidence in ("createfilew(p)", "CREATEFILEW(p)", "readfile(h)"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence))["rows"][0]
+                self.assertEqual(("unknown_api", None), (row["detection"], row["rule_id"]))
+        rules = diagnose.load_rules()
+        self.assertEqual(["WIN-HEADER"], [r["id"] for r in rules["rules"] if r.get("case_insensitive")])
+
     def test_every_rule_and_alias_is_exercised(self):
         rules = diagnose.load_rules()
         ids = set()

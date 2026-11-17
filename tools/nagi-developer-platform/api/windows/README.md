@@ -67,6 +67,13 @@ Nagi OS全体の内部サービスの不存在を断定しない。`contract_onl
   interpolation内の式は実コードであってもopaqueとするため検出を逃すことがある。
   lexerは完全な言語parserではない。断片前のblock comment状態、複雑な構文、macro展開、
   conditional compilation、alias解決、実呼出しは不明。途中で切れた断片は要手動確認。
+- headerの照合: rules.jsonで`"case_insensitive": true`を持つruleだけ大文字小文字を
+  無視する（現在は`windows.h`のみ。Windowsのinclude解決がcase-insensitiveという
+  暫定仮定。API名は区別したまま）。`#include "windows.h"`（同一行・空白のみの区切り）
+  も候補にする。`#include /* c */ "windows.h"`のようにcommentを挟む引用符形式、
+  `<sub/windows.h>`のようなpath付き、`windowsx.h`等の別headerの扱いは未確定のまま
+  （path付きは区切りがあるため現状は`windows.h`に一致し得る。限界として残す）。
+  根拠はテスト`test_windows_header_case_and_quoted_include`。
 - symbolだけのevidenceでは元がコメントか文字列かを判別できない。候補と限界を残し、
   ソースを読み足して判定済みにしない。同名の変数やlocal typeも候補になり得る。
   短縮.NET名は特に要symbol解決。.NET利用自体をWindows専用と断定しない。
