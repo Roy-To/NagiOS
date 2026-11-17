@@ -1,0 +1,191 @@
+{
+  "rules_version": 1,
+  "linux_categories": ["linux-api", "linux-header", "posix", "posix-api", "posix-header", "gtk", "glib", "qt"],
+  "limitations": [
+    "PROVISIONAL: PR #91 report v1 is an interim input, not the canonical PT-01 interface.",
+    "Evidence is a report fragment, not verified source context; symbol-only evidence can originate in comments or strings.",
+    "Lexical matches include declarations, same-name identifiers, macros and inactive code; they do not prove a call or platform dependency.",
+    "Raw evidence is withheld; locations, matched rule names and a SHA-256 digest identify the supplied evidence.",
+    "No conversion, execution, capability grant, compatibility certification or target acceptance is performed.",
+    "Representative coverage only; this is not a Linux support matrix and does not state that Linux applications run unchanged."
+  ],
+  "rules": [
+    {
+      "id": "POSIX-HEADER-FD", "family": "posix", "classification": "platform_dependency",
+      "headers": ["unistd.h", "fcntl.h", "sys/stat.h", "dirent.h"], "header_prefixes": [], "calls": [], "identifiers": [],
+      "reason": "POSIX descriptor, file-control and directory headers indicate a POSIX-oriented API surface candidate; the header alone does not show which calls are used.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No POSIX compatibility layer is assumed; the public SDK does not provide POSIX headers or calls.", "Select the concrete calls from source review; do not infer a Nagi API of the same name."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-FILE-OPEN", "family": "posix", "classification": "file_io",
+      "headers": [], "header_prefixes": [], "calls": ["open", "openat", "creat"], "identifiers": [],
+      "reason": "POSIX open-family calls return integer descriptors with flags, modes, umask and path semantics.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No general file-open API is exposed by this public SDK.", "Review flags (O_*), modes, path encoding, symlink and permission semantics; do not substitute host file access."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "POSIX-FILE-READ", "family": "posix", "classification": "file_io",
+      "headers": [], "header_prefixes": [], "calls": ["read", "pread", "readv"], "identifiers": [],
+      "reason": "POSIX read calls operate on integer descriptors and may return short counts, EOF or EINTR/EAGAIN.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No public general file-read API is available in this SDK.", "Partial reads, EOF, blocking mode and error mapping need explicit adapter design."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "POSIX-FILE-WRITE", "family": "posix", "classification": "file_io",
+      "headers": [], "header_prefixes": [], "calls": ["write", "pwrite", "writev"], "identifiers": [],
+      "reason": "POSIX write calls may write fewer bytes than requested and carry no durability guarantee by themselves.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The SDK does not expose a general file-write API.", "Review short writes, atomicity, append semantics and cancellation separately."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "POSIX-FILE-SYNC", "family": "posix", "classification": "data_integrity",
+      "headers": [], "header_prefixes": [], "calls": ["fsync", "fdatasync", "ftruncate"], "identifiers": [],
+      "reason": "Sync and truncate calls express durability or size-change intent over a descriptor.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No storage durability API is exposed by this public SDK.", "Durability and size-change guarantees of any Nagi storage service are unreviewed; no equivalence is assumed."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "POSIX-FD-CLOSE", "family": "posix", "classification": "resource_lifetime",
+      "headers": [], "header_prefixes": [], "calls": ["close", "dup", "dup2", "dup3", "pipe", "pipe2"], "identifiers": [],
+      "reason": "A POSIX file descriptor is a process-local integer, not a Nagi capability, and cannot be transferred by numeric reinterpretation.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No generic descriptor API exists in the public SDK.", "Descriptor duplication, inheritance and close-on-exec semantics have no reviewed mapping."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-FS-META", "family": "posix", "classification": "file_system",
+      "headers": [], "header_prefixes": [], "calls": ["stat", "fstat", "lstat", "mkdir", "rmdir", "unlink", "opendir", "readdir", "closedir", "chmod", "realpath"], "identifiers": [],
+      "reason": "Path and directory calls assume a hierarchical filesystem namespace with POSIX metadata and permission bits.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No path or directory API exists in the public SDK.", "Nagi file access is object/capability based; path-based namespace assumptions need redesign review, not host filesystem use."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-PROCESS", "family": "posix", "classification": "process_lifecycle",
+      "headers": ["sys/wait.h", "spawn.h"], "header_prefixes": [], "calls": ["fork", "vfork", "execve", "execv", "execvp", "posix_spawn", "waitpid"], "identifiers": [],
+      "reason": "fork/exec/wait style process control assumes POSIX process semantics.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The SDK exposes no process creation API.", "Native process creation is spawn-oriented and fork() is not foundational (AGENTS.md); spawn authorization needs separate review."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-THREAD", "family": "posix", "classification": "thread_sync",
+      "headers": ["pthread.h"], "header_prefixes": [],
+      "calls": ["pthread_create", "pthread_join", "pthread_detach", "pthread_mutex_init", "pthread_mutex_lock", "pthread_mutex_unlock", "pthread_cond_wait", "pthread_cond_signal"],
+      "identifiers": ["pthread_t", "pthread_mutex_t", "pthread_cond_t"],
+      "reason": "pthread threads and synchronization objects are POSIX runtime dependencies.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The SDK exposes no thread API.", "Thread creation and scheduling need a runtime adapter and authorization."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-SIGNAL", "family": "posix", "classification": "process_signal",
+      "headers": [], "header_prefixes": [], "calls": ["sigaction", "sigprocmask", "sigemptyset", "sigaddset", "kill"], "identifiers": ["sigset_t"],
+      "reason": "POSIX asynchronous signal handling and signal masks assume a POSIX process model.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No signal API exists in the public SDK.", "Signal delivery and masking have no reviewed Nagi counterpart."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-MULTIPLEX", "family": "posix", "classification": "event_notification",
+      "headers": ["poll.h", "sys/select.h"], "header_prefixes": [], "calls": ["poll", "ppoll", "select", "pselect"], "identifiers": [],
+      "reason": "poll/select style readiness multiplexing is defined over file descriptors.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No readiness API exists in the public SDK.", "Readiness semantics over Nagi handles are not specified here."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-SOCKET", "family": "posix", "classification": "network_io",
+      "headers": ["sys/socket.h", "netinet/in.h", "arpa/inet.h", "netdb.h"], "header_prefixes": [],
+      "calls": ["socket", "bind", "listen", "accept", "accept4", "getaddrinfo", "setsockopt"], "identifiers": [],
+      "reason": "BSD/POSIX socket calls and headers assume descriptor-based networking.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No public SDK socket API exists.", "Networking belongs to a Nagi user-space service; do not use host sockets as a substitute."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "POSIX-MEMORY", "family": "posix", "classification": "memory_mapping",
+      "headers": ["sys/mman.h"], "header_prefixes": [], "calls": ["mmap", "munmap", "mprotect", "shm_open", "shm_unlink"], "identifiers": [],
+      "reason": "Memory mapping and POSIX shared memory assume descriptor-backed mappings and protection flags.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No mapping API exists in the public SDK.", "Memory authority is a kernel/capability concern; mapping semantics need explicit security review."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-INOTIFY", "family": "linux", "classification": "file_notification",
+      "headers": ["sys/inotify.h"], "header_prefixes": [],
+      "calls": ["inotify_init", "inotify_init1", "inotify_add_watch", "inotify_rm_watch"],
+      "identifiers": ["inotify_event", "IN_MODIFY", "IN_CREATE", "IN_DELETE", "IN_CLOSE_WRITE", "IN_NONBLOCK", "IN_CLOEXEC"],
+      "reason": "inotify is a Linux-specific file change notification interface based on descriptors and watch descriptors.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No file-change notification API exists in the public SDK.", "Event coalescing, overflow, rename pairing and watch limits would need a Nagi service design; no equivalence is assumed."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-EPOLL", "family": "linux", "classification": "event_notification",
+      "headers": ["sys/epoll.h"], "header_prefixes": [],
+      "calls": ["epoll_create", "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait"],
+      "identifiers": ["epoll_event", "EPOLLIN", "EPOLLOUT", "EPOLLET", "EPOLLERR", "EPOLLHUP"],
+      "reason": "epoll is a Linux-specific descriptor readiness interface with edge/level trigger modes.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No equivalent event-loop API exists in the public SDK.", "Trigger-mode, fairness and descriptor lifetime semantics are unreviewed."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-FD-EVENTS", "family": "linux", "classification": "event_notification",
+      "headers": ["sys/eventfd.h", "sys/timerfd.h", "sys/signalfd.h"], "header_prefixes": [],
+      "calls": ["eventfd", "timerfd_create", "timerfd_settime", "signalfd"], "identifiers": [],
+      "reason": "eventfd, timerfd and signalfd are Linux-specific descriptor-based event sources.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No equivalent API exists in the public SDK.", "Timer, wakeup and signal semantics need separate design review."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-KERNEL-INTERFACE", "family": "linux", "classification": "kernel_interface",
+      "headers": ["sys/ioctl.h", "sys/syscall.h", "sys/prctl.h"], "header_prefixes": ["linux/", "asm/"],
+      "calls": ["ioctl", "syscall", "prctl"], "identifiers": [],
+      "reason": "ioctl/syscall/prctl and Linux UAPI headers depend on the Linux kernel ABI directly.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["Adopting the Linux kernel does not by itself guarantee unchanged Linux application execution or Linux ABI exposure.", "Each interface needs an explicit, reviewed userland design; no ABI claim is made."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-GTK", "family": "gtk", "classification": "toolkit_dependency",
+      "headers": ["gtk/gtk.h"], "header_prefixes": [],
+      "calls": ["gtk_init", "gtk_application_new", "gtk_window_new", "gtk_widget_show", "gtk_window_present", "g_signal_connect"],
+      "identifiers": ["GtkWidget", "GtkApplication", "GtkApplicationWindow", "GtkWindow", "GtkButton", "GtkBuilder"],
+      "reason": "GTK identifiers indicate a toolkit dependency and porting question.",
+      "availability": "contract_only",
+      "alternatives": [{"symbol": "Application::presentation", "reference": "sdk/rust/src/lib.rs", "relation": "presentation_identity_only", "limits": "Constructs logical presentation data; does not provide GTK widgets, event loops, rendering, IPC or rights."}],
+      "gaps": ["Dependency classification only; toolkit structure and UI mapping belong to the UI analysis (NDP-06/PT-04).", "No GTK runtime, widget set or event loop is supplied by the SDK."],
+      "references": ["sdk/README.md", "sdk/rust/src/lib.rs"]
+    },
+    {
+      "id": "LNX-GLIB", "family": "glib", "classification": "runtime_library_dependency",
+      "headers": ["glib.h", "glib-object.h", "gio/gio.h"], "header_prefixes": [],
+      "calls": ["g_main_loop_new", "g_main_loop_run", "g_file_new_for_path", "g_object_unref"],
+      "identifiers": ["GObject", "GMainLoop", "GFile"],
+      "reason": "GLib/GIO usage indicates a runtime library dependency (main loop, objects, file abstractions).",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No GLib/GIO is supplied; each used facility needs a separate decision (replace, port or exclude).", "GFile/GIO file access must not be mapped onto host files."],
+      "references": ["AGENTS.md", "sdk/README.md"]
+    },
+    {
+      "id": "LNX-QT", "family": "qt", "classification": "toolkit_dependency",
+      "headers": ["QApplication", "QWidget", "QObject", "QMainWindow", "QString", "QtWidgets", "QtCore", "QtGui", "QtWidgets/QApplication", "QtWidgets/QWidget", "QtCore/QObject"],
+      "header_prefixes": [], "calls": [],
+      "identifiers": ["QApplication", "QWidget", "QObject", "QMainWindow", "QString", "Q_OBJECT"],
+      "reason": "Qt identifiers indicate a toolkit dependency and porting question.",
+      "availability": "contract_only",
+      "alternatives": [{"symbol": "Application::presentation", "reference": "sdk/rust/src/lib.rs", "relation": "presentation_identity_only", "limits": "Constructs logical presentation data; does not provide Qt widgets, moc, event loops, rendering, IPC or rights."}],
+      "gaps": ["Dependency classification only; toolkit structure and UI mapping belong to the UI analysis (NDP-06/PT-04).", "No Qt runtime, moc, widget set or event loop is supplied by the SDK."],
+      "references": ["sdk/README.md", "sdk/rust/src/lib.rs"]
+    }
+  ]
+}
