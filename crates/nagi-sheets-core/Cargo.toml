@@ -1,0 +1,17 @@
+[package]
+name = "nagi-sheets-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../nagi-model" }
+
+[workspace]
+
+[[test]]
+name = "sheets-acceptance"
+path = "../../tests/sheets-core/acceptance.rs"
+
+[lints.rust]
+unsafe_code = "forbid"

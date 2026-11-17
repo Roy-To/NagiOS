@@ -2,12 +2,10 @@
 //!
 //! See <https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/wctype.h.html>.
 
-// TODO: *_l functions
-
 use self::casecmp::casemap;
 use crate::{
     c_str::CStr,
-    header::ctype,
+    header::{bits_locale_t::locale_t, ctype},
     platform::types::{c_char, c_int, wint_t},
 };
 
@@ -229,4 +227,91 @@ pub unsafe extern "C" fn wctype(name: *const c_char) -> wctype_t {
         b"xdigit" => WCTYPE_XDIGIT,
         _ => 0,
     }
+}
+
+// Nagi: relibc supports only the C/POSIX locale, so each `*_l` function is
+// the corresponding current-locale function with `locale` ignored.
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswalnum_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswalnum_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswalnum(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswalpha_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswalpha_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswalpha(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswblank_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswblank_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswblank(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswcntrl_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswcntrl_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswcntrl(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswdigit_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswdigit_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswdigit(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswgraph_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswgraph_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswgraph(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswlower_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswlower_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswlower(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswprint_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswprint_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswprint(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswpunct_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswpunct_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswpunct(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswspace_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswspace_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswspace(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswupper_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswupper_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswupper(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/iswxdigit_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn iswxdigit_l(wc: wint_t, _locale: locale_t) -> c_int {
+    iswxdigit(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/towlower_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn towlower_l(wc: wint_t, _locale: locale_t) -> wint_t {
+    towlower(wc)
+}
+
+/// See <https://pubs.opengroup.org/onlinepubs/9799919799/functions/towupper_l.html>.
+#[unsafe(no_mangle)]
+pub extern "C" fn towupper_l(wc: wint_t, _locale: locale_t) -> wint_t {
+    towupper(wc)
 }

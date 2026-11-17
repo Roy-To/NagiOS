@@ -164,6 +164,8 @@ pub fn run(
     if !crate::m22_history::run(block_capability, m19_search_activity) {
         fail();
     }
+    #[cfg(all(feature = "m19-search", not(feature = "m22-history")))]
+    let _ = m19_search_activity;
     print(static_bytes!(NAGI_M13_ACCEPTANCE, ACCEPTANCE_LEN));
     loop {
         unsafe { asm!("hlt", options(nomem, nostack, preserves_flags)) };

@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::cmp::Ordering;
 
-use nagi_model::{ObjectId, WorkspaceId};
+use nagi_model::{AppId, AppSessionId, ObjectId, WorkspaceId};
 
 use crate::semantic::{
     chunk_text, EmbeddingProvider, EmbeddingPurpose, IndexedChunk, SemanticError, SemanticHit,
@@ -37,6 +37,13 @@ impl VisibilityFilter for DenyAllVisibility {
     }
 }
 
+/// Failures when a trusted producer stages its stale-record deletion inputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProducerScanError {
+    Allocation,
+    MissingProducerKey,
+}
+
 /// Search always receives an explicit policy implementation. `AccessContext`
 /// is input to that policy, not proof of authority; production integration
 /// must derive the context from a trusted capability-checked caller.
@@ -53,8 +60,110 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
         })
     }
 
+    /// True after an uncertain commit or failed reload. Reads still use the
+    /// last confirmed view; callers must not treat that view as current.
+    pub fn requires_reload(&self) -> bool {
+        self.store.requires_reload()
+    }
+
+    /// Recover the complete metadata state before allowing more mutations.
+    pub fn reload(&mut self) -> Result<(), MetadataStoreError> {
+        self.store.reload()
+    }
+
     pub fn upsert_record(&mut self, record: MetadataRecord) -> Result<(), MetadataStoreError> {
         self.store.upsert_record(record)
+    }
+
+    /// Find metadata previously published by a trusted producer. This API is
+    /// for the in-process producer adapter only; user-facing callers must use
+    /// `search` or `get_object`, which apply the configured visibility policy.
+    pub fn producer_records(
+        &self,
+        producer_id: &str,
+        source_app: AppId,
+        source_session: AppSessionId,
+    ) -> Vec<MetadataRecord> {
+        self.producer_records_ref(producer_id, source_app, source_session)
+            .cloned()
+            .collect()
+    }
+
+    /// Borrow producer metadata without cloning. This is the same trusted
+    /// in-process boundary as producer_records, not an application query.
+    /// Includes tombstones so stable producer identities can be recovered.
+    pub fn producer_records_ref<'a>(
+        &'a self,
+        producer_id: &'a str,
+        source_app: AppId,
+        source_session: AppSessionId,
+    ) -> impl Iterator<Item = &'a MetadataRecord> + 'a {
+        self.store.records().filter(move |record| {
+            record.source_app == Some(source_app)
+                && record.source_session == Some(source_session)
+                && record
+                    .attributes
+                    .get(crate::adapters::PRODUCER_ID_ATTRIBUTE)
+                    .is_some_and(|value| value == producer_id)
+        })
+    }
+
+    /// Stage stale producer identities/timestamps without cloning metadata.
+    /// Same trusted boundary and tombstone inclusion as producer_records.
+    /// All validation/allocation completes before the caller starts deletion;
+    /// this does not make the later multi-write deletion transaction atomic.
+    pub fn try_stale_producer_records(
+        &self,
+        producer_id: &str,
+        source_app: AppId,
+        source_session: AppSessionId,
+        present_keys: &BTreeSet<String>,
+    ) -> Result<Vec<(ObjectId, Option<i64>)>, ProducerScanError> {
+        let mut stale = Vec::new();
+        for record in self.producer_records_ref(producer_id, source_app, source_session) {
+            let key = record
+                .attributes
+                .get(crate::adapters::PRODUCER_KEY_ATTRIBUTE)
+                .ok_or(ProducerScanError::MissingProducerKey)?;
+            if !present_keys.contains(key) {
+                stale
+                    .try_reserve(1)
+                    .map_err(|_| ProducerScanError::Allocation)?;
+                stale.push((record.object_id, record.modified_at));
+            }
+        }
+        Ok(stale)
+    }
+
+    /// Resolve a producer-owned key to its durable Search ObjectId, including
+    /// tombstoned records so a restored source entry retains its identity.
+    pub fn producer_object_id(
+        &self,
+        producer_id: &str,
+        producer_key: &str,
+        source_app: AppId,
+        source_session: AppSessionId,
+    ) -> Option<ObjectId> {
+        self.producer_records_ref(producer_id, source_app, source_session)
+            .find(|record| {
+                record
+                    .attributes
+                    .get(crate::adapters::PRODUCER_KEY_ATTRIBUTE)
+                    .is_some_and(|value| value == producer_key)
+            })
+            .map(|record| record.object_id)
+    }
+
+    /// Allocate an ID above every persisted record, including tombstones.
+    /// The caller persists it immediately in the producer record.
+    pub fn next_object_id(&self) -> Option<ObjectId> {
+        self.store
+            .records()
+            .map(|record| record.object_id.0)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .map(ObjectId)
     }
 
     pub fn remove_record(
@@ -111,11 +220,71 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
     /// An unauthorized or unknown identity has the same observable result:
     /// `None`. Callers cannot use this API to probe metadata existence.
     pub fn get_object(&self, access: AccessContext, object_id: ObjectId) -> Option<MetadataRecord> {
+        self.get_object_ref(access, object_id).cloned()
+    }
+
+    /// A lifetime-bound authorized record. Like get_object, this hides missing,
+    /// denied and tombstoned identities. It performs no owned metadata copy.
+    pub fn get_object_ref(
+        &self,
+        access: AccessContext,
+        object_id: ObjectId,
+    ) -> Option<&MetadataRecord> {
         let record = self.store.record(object_id)?;
         if record.tombstoned_at.is_some() || !self.visibility.can_read_object(access, record) {
             return None;
         }
-        Some(record.clone())
+        Some(record)
+    }
+
+    /// Resolve File titles for an authorized workspace without cloning owned
+    /// BTree metadata. Keeps request order and duplicates. Invalid membership,
+    /// hidden/tombstoned/missing objects and non-File kinds return Ok(None).
+    /// Only output Vec/String allocations are owned here; policy callbacks
+    /// and the backing allocator retain their separate failure contracts.
+    pub fn try_workspace_file_titles(
+        &self,
+        access: AccessContext,
+        workspace_id: WorkspaceId,
+        object_ids: &[u64],
+    ) -> Result<Option<Vec<String>>, MetadataStoreError> {
+        let Some(workspace) = self.visible_workspace(access, workspace_id) else {
+            return Ok(None);
+        };
+        // Validate every requested identity before allocating output. References
+        // remain borrowed from immutable service state until the operation ends.
+        let mut titles = Vec::new();
+        // Do not collect references: even that would add an avoidable allocation.
+        for raw_id in object_ids {
+            let id = ObjectId(*raw_id);
+            if !workspace.objects.contains(&id) {
+                return Ok(None);
+            }
+            let Some(record) = self.get_object_ref(access, id) else {
+                return Ok(None);
+            };
+            if record.kind != crate::ObjectKind::File {
+                return Ok(None);
+            }
+        }
+        titles
+            .try_reserve_exact(object_ids.len())
+            .map_err(|_| MetadataStoreError::Backend(crate::BackendError::Io))?;
+        for raw_id in object_ids {
+            // Policy is applied once in the validation pass above. Re-read only
+            // immutable service data; do not invoke a possibly stateful policy
+            // again between permission validation and copying each title.
+            let Some(record) = self.store.record(ObjectId(*raw_id)) else {
+                return Ok(None);
+            };
+            let mut title = String::new();
+            title
+                .try_reserve_exact(record.title.len())
+                .map_err(|_| MetadataStoreError::Backend(crate::BackendError::Io))?;
+            title.push_str(&record.title);
+            titles.push(title);
+        }
+        Ok(Some(titles))
     }
 
     pub fn get_workspace(
@@ -268,7 +437,12 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
         }
 
         let chunks = chunk_text(object_id, text)?;
-        let mut indexed = Vec::with_capacity(chunks.len());
+        let mut indexed = Vec::new();
+        // Reserve the entire staging array before invoking the provider. Pushes
+        // below then cannot allocate, and failure leaves the index untouched.
+        indexed
+            .try_reserve_exact(chunks.len())
+            .map_err(|_| SemanticError::IndexCapacity)?;
         let mut dimensions = index.dimensions();
         for chunk in chunks {
             let embedding = provider.embed(EmbeddingPurpose::Passage, &chunk.text)?;
@@ -511,7 +685,8 @@ impl<B: SnapshotBackend, V: VisibilityFilter> SearchService<B, V> {
 
 fn map_vector_index_error(error: crate::semantic::VectorIndexError) -> SemanticError {
     match error {
-        crate::semantic::VectorIndexError::Unavailable => SemanticError::IndexUnavailable,
+        crate::semantic::VectorIndexError::Unavailable
+        | crate::semantic::VectorIndexError::RecoveryRequired => SemanticError::IndexUnavailable,
         crate::semantic::VectorIndexError::Capacity => SemanticError::IndexCapacity,
         crate::semantic::VectorIndexError::DimensionMismatch => SemanticError::DimensionMismatch,
         crate::semantic::VectorIndexError::InvalidEmbeddingSpace => {

@@ -991,6 +991,39 @@ fn envelope_bounds_are_checked_before_allocation() {
 }
 
 #[test]
+fn envelope_preallocation_is_bounded_by_input_even_with_unvalidated_limits() {
+    // `ClipboardLimits` fields are public, so a caller can pass limits that
+    // `validate()` rejects. Declared counts must still never reserve more
+    // than the bytes actually present could encode.
+    let loose = ClipboardLimits {
+        max_items: usize::MAX,
+        max_representations_per_item: usize::MAX,
+        ..ClipboardLimits::DEFAULT
+    };
+    assert_eq!(loose.validate(), Err(LimitsError));
+    // 16-byte envelope declaring u32::MAX items.
+    let mut huge_items = header(0);
+    huge_items.extend_from_slice(&0u32.to_le_bytes());
+    huge_items.extend_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(
+        decode_content(&huge_items, &loose),
+        Err(DecodeError::Truncated)
+    );
+    // 20-byte envelope declaring one item with u32::MAX representations.
+    let mut huge_representations = header(0);
+    huge_representations.extend_from_slice(&0u32.to_le_bytes());
+    huge_representations.extend_from_slice(&1u32.to_le_bytes());
+    huge_representations.extend_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(
+        decode_content(&huge_representations, &loose),
+        Err(DecodeError::Truncated)
+    );
+    // Well-formed content still round-trips under the same loose limits.
+    let encoded = encode_content(&sample_content(), &ClipboardLimits::DEFAULT).unwrap();
+    assert_eq!(decode_content(&encoded, &loose), Ok(sample_content()));
+}
+
+#[test]
 fn envelope_content_is_fully_validated() {
     let limits = ClipboardLimits::DEFAULT;
     let item = |media_type: &[u8], kind: u8, payload: &[u8]| {

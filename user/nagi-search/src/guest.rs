@@ -70,15 +70,26 @@ struct SlotSnapshot {
 /// per file and has a small inode table, so this adapter deliberately caps a
 /// snapshot at 4 KiB even though the general search contract permits larger
 /// host snapshots.
+///
+/// An uncertain manifest commit blocks this instance's writes. Its next load
+/// first retries the flush fence, then validates both slots. Normal loads are
+/// read-only; a recovery load may flush pending writes. The latch is local to
+/// this instance, not writer coordination or a durable recovery record.
 pub struct GuestSnapshotBackend<F: SnapshotFileStore> {
     files: F,
+    recovery_required: bool,
 }
 
 impl<F: SnapshotFileStore> GuestSnapshotBackend<F> {
     pub const fn new(files: F) -> Self {
-        Self { files }
+        Self {
+            files,
+            recovery_required: false,
+        }
     }
 
+    /// Consume the backend, including its local recovery latch. The owner must
+    /// preserve any unresolved recovery requirement when reusing the store.
     pub fn into_file_store(self) -> F {
         self.files
     }
@@ -95,7 +106,10 @@ impl<F: SnapshotFileStore> GuestSnapshotBackend<F> {
         else {
             return Ok((true, None));
         };
-        let mut bytes = Vec::with_capacity(length);
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| BackendError::Capacity)?;
         for index in 0..chunk_count {
             let Some(chunk) = self.read_file(slot, SnapshotFile::Chunk(index as u8))? else {
                 return Ok((true, None));
@@ -124,7 +138,12 @@ impl<F: SnapshotFileStore> GuestSnapshotBackend<F> {
         if length > GUEST_FILE_BYTES {
             return Err(BackendError::Io);
         }
-        Ok(Some(buffer[..length].into()))
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|_| BackendError::Capacity)?;
+        bytes.extend_from_slice(&buffer[..length]);
+        Ok(Some(bytes))
     }
 
     fn write_file(
@@ -150,6 +169,13 @@ impl<F: SnapshotFileStore> GuestSnapshotBackend<F> {
 
 impl<F: SnapshotFileStore> SnapshotBackend for GuestSnapshotBackend<F> {
     fn load_snapshot(&mut self) -> Result<Option<Vec<u8>>, BackendError> {
+        if self.recovery_required {
+            // Settle a previously uncertain commit before trusting cached reads.
+            // A failed fence or load keeps this instance write-blocked.
+            self.files
+                .flush()
+                .map_err(|_| BackendError::RecoveryRequired)?;
+        }
         let (a_present, a) = self.inspect_slot(SnapshotSlot::A)?;
         let (b_present, b) = self.inspect_slot(SnapshotSlot::B)?;
         let selected = match (a, b) {
@@ -158,12 +184,16 @@ impl<F: SnapshotFileStore> SnapshotBackend for GuestSnapshotBackend<F> {
             (Some(a), None) => Some(a),
             (None, Some(b)) => Some(b),
             (None, None) if a_present || b_present => return Err(BackendError::Io),
-            (None, None) => return Ok(None),
+            (None, None) => None,
         };
+        self.recovery_required = false;
         Ok(selected.map(|snapshot| snapshot.bytes))
     }
 
     fn write_snapshot(&mut self, snapshot: &[u8]) -> Result<(), BackendError> {
+        if self.recovery_required {
+            return Err(BackendError::RecoveryRequired);
+        }
         if snapshot.len() > MAX_GUEST_SNAPSHOT_BYTES {
             return Err(BackendError::SnapshotTooLarge);
         }
@@ -194,8 +224,16 @@ impl<F: SnapshotFileStore> SnapshotBackend for GuestSnapshotBackend<F> {
         self.files.flush()?;
 
         let manifest = encode_slot_manifest(target_slot.index(), generation, snapshot)?;
-        self.write_file(target_slot, SnapshotFile::Manifest, &manifest)?;
-        self.files.flush()
+        // An error from the manifest write itself may follow a visible write.
+        // Retain the latch on either error; only a fenced load can clear it.
+        self.recovery_required = true;
+        self.write_file(target_slot, SnapshotFile::Manifest, &manifest)
+            .map_err(|_| BackendError::RecoveryRequired)?;
+        self.files
+            .flush()
+            .map_err(|_| BackendError::RecoveryRequired)?;
+        self.recovery_required = false;
+        Ok(())
     }
 }
 
@@ -387,7 +425,10 @@ mod tests {
         backend.write_snapshot(first).unwrap();
         backend.write_snapshot(second).unwrap();
         files.fail_next_manifest_write();
-        assert_eq!(backend.write_snapshot(attempted), Err(BackendError::Io));
+        assert_eq!(
+            backend.write_snapshot(attempted),
+            Err(BackendError::RecoveryRequired)
+        );
 
         let mut recovered = GuestSnapshotBackend::new(files);
         assert_eq!(recovered.load_snapshot().unwrap(), Some(second.to_vec()));

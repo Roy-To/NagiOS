@@ -11,8 +11,9 @@ use crate::history::{HistoryEntry, HistoryEntryId, MAX_HISTORY_ENTRIES, MAX_HIST
 use crate::navigation::NavigationRequest;
 use crate::permissions::PermissionBrokerState;
 use crate::persistence::{
-    decode_record, encode_record, BrowserStorage, CodecError, Decoder, Encoder, RecordKind,
-    StorageError, StorageRecord, StorageWrite, MAX_RECORD_BYTES,
+    decode_record, decode_record_version, encode_record, encode_record_version, BrowserStorage,
+    CodecError, Decoder, Encoder, RecordKind, StorageError, StorageRecord, StorageWrite,
+    MAX_RECORD_BYTES,
 };
 use crate::tabs::{Tab, TabId, MAX_TABS};
 use crate::uploads::UploadsState;
@@ -55,6 +56,7 @@ struct PersistedTab {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PersistedSession {
     active_tab_id: TabId,
+    history_namespace_id: u64,
     tabs: Vec<PersistedTab>,
 }
 
@@ -187,6 +189,7 @@ pub fn restore_bytes(
     match BrowserState::set_restored_parts(
         tabs,
         persisted.active_tab_id,
+        persisted.history_namespace_id,
         history_entries,
         bookmark_store,
     ) {
@@ -220,6 +223,7 @@ pub fn encode_session(browser: &BrowserState) -> Result<Vec<u8>, CodecError> {
     }
     let mut payload = Encoder::new();
     payload.u64(active_tab_id.0);
+    payload.u64(browser.history_namespace_id());
     payload.u16(browser.tabs.len() as u16);
     for tab in &browser.tabs {
         payload.u64(tab.id.0);
@@ -238,7 +242,7 @@ pub fn encode_session(browser: &BrowserState) -> Result<Vec<u8>, CodecError> {
             Some(_) => return Err(CodecError::TooLarge),
         }
     }
-    encode_record(RecordKind::Session, payload.finish())
+    encode_record_version(RecordKind::Session, payload.finish(), 2)
 }
 
 pub fn encode_history(entries: &[HistoryEntry]) -> Result<Vec<u8>, CodecError> {
@@ -273,12 +277,13 @@ pub fn encode_bookmarks(bookmarks: &BookmarkStore) -> Result<Vec<u8>, CodecError
 }
 
 fn decode_session(bytes: &[u8]) -> Result<PersistedSession, CodecError> {
-    let payload = decode_record(bytes, RecordKind::Session)?;
+    let (payload, version) = decode_record_version(bytes, RecordKind::Session)?;
     if bytes.len() > MAX_RECORD_BYTES {
         return Err(CodecError::TooLarge);
     }
     let mut decoder = Decoder::new(payload);
     let active_tab_id = TabId(decoder.u64()?);
+    let history_namespace_id = if version >= 2 { decoder.u64()? } else { 0 };
     let count = usize::from(decoder.u16()?);
     if count == 0 || count > MAX_TABS {
         return Err(CodecError::InvalidValue);
@@ -328,6 +333,7 @@ fn decode_session(bytes: &[u8]) -> Result<PersistedSession, CodecError> {
     }
     Ok(PersistedSession {
         active_tab_id,
+        history_namespace_id,
         tabs,
     })
 }
@@ -498,6 +504,46 @@ mod tests {
         );
         assert!(restored.downloads.items().is_empty());
         assert!(restored.uploads.sessions().is_empty());
+    }
+
+    #[test]
+    fn browser_profile_namespace_round_trips_and_v1_sessions_migrate_empty() {
+        let mut browser = populated_browser();
+        assert!(browser.assign_history_namespace_id(0x1234_5678_9abc_def0));
+        let mut storage = MemoryStorage::default();
+        save(&browser, &mut storage).unwrap();
+        let restored = restore(&mut storage);
+        assert_eq!(
+            restored.browser.history_namespace_id(),
+            0x1234_5678_9abc_def0
+        );
+
+        let mut v1_payload = Encoder::new();
+        v1_payload.u64(browser.active_tab_id().unwrap().0);
+        v1_payload.u16(browser.tabs.len() as u16);
+        for tab in &browser.tabs {
+            v1_payload.u64(tab.id.0);
+            v1_payload
+                .optional_string(tab.navigation.current_url())
+                .unwrap();
+            v1_payload.string(tab.navigation.title()).unwrap();
+            v1_payload.u16(tab.history_ids.len() as u16);
+            for id in &tab.history_ids {
+                v1_payload.u64(id.0);
+            }
+            v1_payload.u16(
+                tab.history_cursor
+                    .map(|cursor| cursor as u16)
+                    .unwrap_or(u16::MAX),
+            );
+        }
+        let v1_session = encode_record(RecordKind::Session, v1_payload.finish()).unwrap();
+        let v1_history = encode_history(browser.history()).unwrap();
+        let v1_bookmarks = encode_bookmarks(browser.bookmarks()).unwrap();
+        let restored = restore_bytes(Some(&v1_session), Some(&v1_history), Some(&v1_bookmarks));
+        assert!(restored.warnings.is_empty());
+        assert_eq!(restored.browser.history_namespace_id(), 0);
+        assert_eq!(restored.browser.history().len(), browser.history().len());
     }
 
     #[test]

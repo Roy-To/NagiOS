@@ -1,0 +1,245 @@
+{
+  "environment": {
+    "kind": "HOST measurement (not a guest/QEMU result)",
+    "date": "2026-10-09 10:56-11:01 JST",
+    "cpu": "aarch64 Neoverse-V2, 2 vCPU shared sandbox (other streams' processes may run concurrently); run under nice -n 19",
+    "os": "Debian Linux (development host)",
+    "compiler": "gcc 14.2.0 (Debian 14.2.0-19) + cmake 3.31.6 (reinstalled after toolchain reset; host whisper.cpp build up to date, no recompilation), rustc nightly-2025-08-01",
+    "whisper_cpp": "927cfce34f31707e17f2bff35c349632fb9e2c3a + third_party/whisper-cpp-patches 0001-0003, Release, GGML_NATIVE=OFF, GGML_OPENMP=OFF, CPU backend only (tools/whisper/build-host-eval.sh)",
+    "model": "third_party/models.lock whisper_small_multilingual, 487601967 bytes, sha256 1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b (verified by run-eval.sh)",
+    "threads": 1,
+    "audio_ctx": "tools/whisper/nagi-provider-adapter.cpp sample-derived context (ADR 0042), unchanged",
+    "rss_method": "/proc/self/status VmRSS/VmHWM; peak reset via /proc/self/clear_refs=5 before each phase",
+    "command": "/usr/bin/time -v tests/m25-whisper/run-eval.sh out/m25-whisper-eval/host-eval-f74f128.json",
+    "source_commit": "0d280f2fa19a63676fff41bc6996be0b4a7bee6e (code identical to 911c43619bc5fb8ffe1f33576c6230f08b6cbbb2; 0d280f2 adds docs/evidence only)",
+    "base_commit": "f74f128abe40e9e99d7cb05f3f8dc7b90b1448c9 (origin/main after PR #36; merge-base of the branch)",
+    "worktree_clean": true,
+    "process_wall_clock": "4:26.49 (includes cargo release build check), max RSS of the wrapper reported by time(1) 645,828 KiB (time(1) value; the harness's own VmHWM figures below are authoritative per phase)"
+  },
+  "kind": "host-unseen-eval",
+  "counts_as_guest_result": false,
+  "dataset": "google/fleurs ja_jp validation (CC BY 4.0), see tests/m25-whisper/eval/fleurs-ja-validation.json",
+  "threads": 1,
+  "clips": 12,
+  "audio_seconds": 134.7,
+  "inference_seconds": 184.563,
+  "aggregate_rtf": 1.37,
+  "aggregate_cer": 0.1025,
+  "edits": 50,
+  "reference_chars": 488,
+  "model_load_seconds": 0.515,
+  "rss_kib": {
+    "before_load": 5048,
+    "after_load": 576044,
+    "peak_during_load": 576044,
+    "peak_during_any_utterance": 791344,
+    "before_unload": 791344,
+    "after_unload": 27032,
+    "after_failed_load": 36204
+  },
+  "session_stats": {
+    "first_session": "WhisperSessionStats { loads: 1, load_failures: 0, unloads: 1, utterances_completed: 15, utterances_cancelled: 1, utterances_failed: 2, consecutive_engine_failures: 0, last_engine_error: Some(OutputTooSmall) }",
+    "reload_session": "WhisperSessionStats { loads: 1, load_failures: 1, unloads: 0, utterances_completed: 1, utterances_cancelled: 0, utterances_failed: 0, consecutive_engine_failures: 0, last_engine_error: None }"
+  },
+  "lifecycle_checks": [
+    {
+      "name": "consecutive_utterances",
+      "pass": true,
+      "detail": "12/12 utterances on one context, loads=1",
+      "session_scope": "same session (first session, one context)"
+    },
+    {
+      "name": "cancel_then_next_utterance",
+      "pass": true,
+      "detail": "idle_after_cancel=true; rerun of fleurs-ja-val-02-1607 identical=true",
+      "session_scope": "same session (first session, one context)"
+    },
+    {
+      "name": "resume_after_malformed_pcm",
+      "pass": true,
+      "detail": "rejected=true; rerun of fleurs-ja-val-03-1634 identical=true",
+      "session_scope": "same session (first session, one context)"
+    },
+    {
+      "name": "resume_after_output_too_small",
+      "pass": true,
+      "detail": "output_too_small=true; context_kept=true; rerun of fleurs-ja-val-05-1572 identical=true",
+      "session_scope": "same session (first session, one context)"
+    },
+    {
+      "name": "unload_failed_load_reload",
+      "pass": true,
+      "detail": "unloaded=true; rss_kib 791344->27032; injected_read_failure_reported=true; rss_after_failed_load_kib=36204; reload_ok=true in 0.44s; rerun of fleurs-ja-val-00-1519 identical=true",
+      "session_scope": "unload on the first session; failed load and reload on a NEW session (renamed unload_then_new_session_failed_load_reload from 06ff021)"
+    }
+  ],
+  "lifecycle_pass": true,
+  "utterances": [
+    {
+      "id": "fleurs-ja-val-00-1519",
+      "audio_seconds": 11.1,
+      "inference_seconds": 15.464,
+      "rtf": 1.393,
+      "edits": 4,
+      "reference_chars": 46,
+      "cer": 0.087,
+      "peak_rss_kib": 634352,
+      "reference": "多くの場合、海外のギャップイヤーコースに入学することで、帰国後に実際に大学に進学しやすくなります。",
+      "hypothesis": "多くの場合海外のギャップイヤーコースに入学することで、企画を実際に大学に進学しやすくなります。"
+    },
+    {
+      "id": "fleurs-ja-val-02-1607",
+      "audio_seconds": 7.98,
+      "inference_seconds": 10.77,
+      "rtf": 1.35,
+      "edits": 4,
+      "reference_chars": 28,
+      "cer": 0.1429,
+      "peak_rss_kib": 636412,
+      "reference": "興味をそそられる村を30分ほど散策するのは価値があります。",
+      "hypothesis": "興味を注られる村を30分ほど散策するのは賢があります"
+    },
+    {
+      "id": "fleurs-ja-val-03-1634",
+      "audio_seconds": 12.12,
+      "inference_seconds": 17.432,
+      "rtf": 1.438,
+      "edits": 0,
+      "reference_chars": 43,
+      "cer": 0.0,
+      "peak_rss_kib": 641764,
+      "reference": "日本には約7,000の島々があり、その最大は本州列島で、世界で7番目に大きい島とされています。",
+      "hypothesis": "日本には約7000の島々があり、その最大は本州列島で、世界で7番目に大きい島とされています。"
+    },
+    {
+      "id": "fleurs-ja-val-05-1572",
+      "audio_seconds": 9.12,
+      "inference_seconds": 12.119,
+      "rtf": 1.329,
+      "edits": 2,
+      "reference_chars": 33,
+      "cer": 0.0606,
+      "peak_rss_kib": 644008,
+      "reference": "その後2時間のうちに、さらに3つの爆弾が官庁施設の付近で爆発しました。",
+      "hypothesis": "その後、2時間のうちにさらに3つの爆弾が、感染施設の付近で爆発しました。"
+    },
+    {
+      "id": "fleurs-ja-val-06-1604",
+      "audio_seconds": 29.52,
+      "inference_seconds": 42.714,
+      "rtf": 1.447,
+      "edits": 10,
+      "reference_chars": 107,
+      "cer": 0.0935,
+      "peak_rss_kib": 791344,
+      "reference": "NSAとしてカーターを補佐し、1978年のキャンプ・デイビッド合意、1970年代後半の米中関係の正常化、1979年のイラン人質事件につながったイラン革命、1979年のソビエトのアフガニスタン侵攻など、世界問題を外交的に処理した。",
+      "hypothesis": "NSAとしてカウターをホサし1978年のキャンプ・デイビット合意1970年代後半の米中関係の正常化1979年のイラン1市時期につながったイラン革命1979年のソビエトのアフガニスタン進行など世界問題を外交的に処理した"
+    },
+    {
+      "id": "fleurs-ja-val-10-1598",
+      "audio_seconds": 9.24,
+      "inference_seconds": 12.074,
+      "rtf": 1.307,
+      "edits": 2,
+      "reference_chars": 30,
+      "cer": 0.0667,
+      "peak_rss_kib": 791344,
+      "reference": "車の衝突時には３人が家の中にいましたが、怪我人はいませんでした。",
+      "hypothesis": "車の正途時には3人が家の中にいましたが、怪我人はいませんでした。"
+    },
+    {
+      "id": "fleurs-ja-val-17-1513",
+      "audio_seconds": 8.46,
+      "inference_seconds": 11.324,
+      "rtf": 1.339,
+      "edits": 5,
+      "reference_chars": 35,
+      "cer": 0.1429,
+      "peak_rss_kib": 791344,
+      "reference": "アルゼンチンは、世界最高のポロチームとポロ競技選手を擁することで有名です。",
+      "hypothesis": "アルゼンチンは世界最高のポロチームとポロ教育戦士を要することで有名です"
+    },
+    {
+      "id": "fleurs-ja-val-22-1582",
+      "audio_seconds": 7.5,
+      "inference_seconds": 9.8,
+      "rtf": 1.307,
+      "edits": 2,
+      "reference_chars": 23,
+      "cer": 0.087,
+      "peak_rss_kib": 791344,
+      "reference": "ヘブライ人家族はほとんど戸外で暮らしていました。",
+      "hypothesis": "ヒブライ人家族はほとんど都外で暮らしていました"
+    },
+    {
+      "id": "fleurs-ja-val-25-1599",
+      "audio_seconds": 9.96,
+      "inference_seconds": 13.117,
+      "rtf": 1.317,
+      "edits": 1,
+      "reference_chars": 35,
+      "cer": 0.0286,
+      "peak_rss_kib": 791344,
+      "reference": "元の集団は全く変わっておらず、今でも昔と同じように適応を必要としています。",
+      "hypothesis": "元の集団は全く変わっておらず、今でも昔と同じように適用を必要としています。"
+    },
+    {
+      "id": "fleurs-ja-val-27-1547",
+      "audio_seconds": 10.62,
+      "inference_seconds": 14.084,
+      "rtf": 1.326,
+      "edits": 11,
+      "reference_chars": 35,
+      "cer": 0.3143,
+      "peak_rss_kib": 791344,
+      "reference": "また、NHKは新潟県の柏崎刈羽原発が正常に稼働していると報道していました。",
+      "hypothesis": "またNHKはニーガタ県の歌手和月狩りは原発が正常に稼働していると報道していました。"
+    },
+    {
+      "id": "fleurs-ja-val-30-1523",
+      "audio_seconds": 10.92,
+      "inference_seconds": 14.678,
+      "rtf": 1.344,
+      "edits": 3,
+      "reference_chars": 41,
+      "cer": 0.0732,
+      "peak_rss_kib": 791344,
+      "reference": "最終スコア21対20の1点差勝利で、オールブラックスの15連勝に終止符が打たれました。",
+      "hypothesis": "最終スコア21対20の1点差勝利で、オールブラックスの15連勝に集支付が打たれました。"
+    },
+    {
+      "id": "fleurs-ja-val-34-1612",
+      "audio_seconds": 8.16,
+      "inference_seconds": 10.987,
+      "rtf": 1.347,
+      "edits": 6,
+      "reference_chars": 32,
+      "cer": 0.1875,
+      "peak_rss_kib": 791344,
+      "reference": "水は幅100フィートの範囲にわたって堤防の上にこぼれ落ちています。",
+      "hypothesis": "水は幅100フィートの範囲に渡って、 平坊の上にこぼれ追っています。"
+    }
+  ],
+  "comparison_with_earlier_host_run": {
+    "earlier_file": ".dev/workstreams/hark-m25-whisper/evidence/host-eval-20261009.json",
+    "earlier_provenance": "uncommitted working tree on edad2e7 before the rebase onto f74f128; its code was then committed as 911c436 (identity not separately hashed at the time)",
+    "transcripts_identical_all_12": true,
+    "aggregate_cer": [
+      0.1025,
+      0.1025
+    ],
+    "inference_seconds": [
+      207.261,
+      184.563
+    ],
+    "aggregate_rtf": [
+      1.539,
+      1.37
+    ],
+    "peak_rss_kib": [
+      791300,
+      791344
+    ],
+    "note": "Timing differences reflect shared-vCPU contention, not code changes. Both runs are HOST results only."
+  }
+}

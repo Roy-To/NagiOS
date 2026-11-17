@@ -4,6 +4,7 @@
 pub mod errno;
 pub mod fs;
 pub mod net;
+#[cfg(any(target_os = "nagi", test))]
 mod posix_time;
 pub mod process;
 #[cfg(any(target_os = "nagi", test))]

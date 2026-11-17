@@ -1,0 +1,24 @@
+# SHA-256 manifest for tools/tts/notices/*
+# Each file is a byte-for-byte copy of the listed upstream file (re-verified 2026-10-09).
+# Verify: (cd tools/tts/notices && sha256sum -c ../NOTICES.sha256)
+# Sources:
+#   CC-BY-4.0-legalcode.txt <- https://creativecommons.org/licenses/by/4.0/legalcode.txt
+#   jbonsai-LICENSE.txt <- crates.io jbonsai 0.4.2 (LICENSE); tag v0.4.2 = 4aa02e4dbe5ea4e3e8058477d612f116d00ed1b6
+#   jbonsai-NOTICE.txt <- crates.io jbonsai 0.4.2 (NOTICE.txt)
+#   jpreprocess-LICENSE.txt <- https://raw.githubusercontent.com/jpreprocess/jpreprocess/07a78220c1e850a001998451bd1e7c88709ee379/LICENSE
+#   jpreprocess-NOTICE.txt <- https://raw.githubusercontent.com/jpreprocess/jpreprocess/07a78220c1e850a001998451bd1e7c88709ee379/NOTICE
+#   jpreprocess-naist-jdic-NOTICE.txt <- https://raw.githubusercontent.com/jpreprocess/jpreprocess/07a78220c1e850a001998451bd1e7c88709ee379/crates/jpreprocess-naist-jdic/NOTICE.txt
+#   naist-jdic-COPYING.txt <- https://raw.githubusercontent.com/jpreprocess/naist-jdic/394af50de2da4a9c73b1bd04fab43e85bb6f03ff/COPYING
+#   naist-jdic-README.md <- https://raw.githubusercontent.com/jpreprocess/naist-jdic/394af50de2da4a9c73b1bd04fab43e85bb6f03ff/README.md
+#   tohoku-f01-COPYRIGHT.txt <- https://raw.githubusercontent.com/icn-lab/htsvoice-tohoku-f01/8e3306021db135c265f5eda5f062dc489707ddf8/COPYRIGHT.txt
+#   tohoku-f01-README.md <- https://raw.githubusercontent.com/icn-lab/htsvoice-tohoku-f01/8e3306021db135c265f5eda5f062dc489707ddf8/README.md
+9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411  CC-BY-4.0-legalcode.txt
+a45d4335885890944180a51fb53412e6518437e13e74fde42a1db38b5dec29f2  jbonsai-LICENSE.txt
+0a819cd1dec3f83194427a1b6e30624eb99c8251552df803fe2a235237cbd1c1  jbonsai-NOTICE.txt
+f8767dd00ac8757073b3ebd9dc8bce90cad4b6a507b7ada33b7aa3448f1bf555  jpreprocess-LICENSE.txt
+7fc3a922a5be77fbefdb028329e172ceee4847bd7f1623b39e3a39445eed4bff  jpreprocess-NOTICE.txt
+f432d87128cdf954ebdb1419864af37436b0af6fe3d39d653c47f063a4f8fde1  jpreprocess-naist-jdic-NOTICE.txt
+2bbb0324b5290b4d53b1e0ce6dc50bd3991dde5c592a6d113be0a3e6591eaf0e  naist-jdic-COPYING.txt
+d58aeb311e7219487a67617c20fcb240e677def7cb8ee1b47cda152c28e990e1  naist-jdic-README.md
+f7f7a1a696f062704825fcc495d330beeeac8c0ed38d8f5bdd8e90bdc3471c95  tohoku-f01-COPYRIGHT.txt
+8ce0af97c6ccbb9727b1a8e8951802804586a1c40770ba8230eb3f532299af2e  tohoku-f01-README.md

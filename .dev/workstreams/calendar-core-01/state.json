@@ -1,0 +1,159 @@
+{
+  "schema_ref": "../../schemas/workstream-state.schema.json",
+  "schema_version": 1,
+  "workstream_id": "calendar-core-01",
+  "current_milestone": "C1-C5 Calendar host foundation",
+  "current_checkpoint": "C1-C5 host acceptance PASS; Linux/Windows CI PASS; runtime gated",
+  "status": "PASS",
+  "last_verified": {
+    "commit_sha": "2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96",
+    "verified_at": "2026-10-08T12:45:00.330704+00:00",
+    "normal_state": "PASS for CAL-H01..12 host foundation only at source 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. C1-C5 complete: Calendar/Event CRUD, revision CAS, explicit temporal types, injected gap/fold resolver, bounded recurrence and original-key exceptions, availability and EXTERNAL invite boundary. 61 tests (1 unit + 60 host acceptance), fmt, -D warnings Clippy, DF-01 verification (27 streams/16 States) pass locally. Run 37778691144 succeeds on Ubuntu and Windows; both logs explicitly report 1 + 60 Calendar tests passed. Initial run 37778135726 passed Ubuntu but Windows failed before Calendar tests on 293 third_party newline checks; corrected within the owned manifest by pinning canonical nagi-model to cd871f9 as a Git dependency, so --all fmt visits only Calendar files. Three deliberate mutations are caught. Exact remote/local source SHA and trees match; publication used the authorized RT-NISH Git API because the environment Git account denied push. Final diff from owner checkpoint cd871f9 is Calendar-owned only. Runtime/UI/provider/durable cache/Jobs/Notifications and product CAL-001..011 are not claimed.",
+    "commands": [
+      "bash crates/nagi-calendar-core/verify.sh",
+      "./nagi dev verify",
+      "./nagi dev resume",
+      "./nagi dev status",
+      "git diff --check",
+      "GitHub Git API create_blob/create_tree/create_commit/update_ref with lease; exact tree comparison"
+    ],
+    "tests": [
+      {
+        "name": "Standalone Calendar host acceptance",
+        "command": "cargo test --manifest-path crates/nagi-calendar-core/Cargo.toml --locked --offline",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "61 passed: 1 unit + 60 integration acceptance. Zero failures/ignored. Exact published source SHA 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Reproduced in Linux and Windows CI run 37778691144."
+      },
+      {
+        "name": "Calendar fmt and warnings-denied Clippy",
+        "command": "bash crates/nagi-calendar-core/verify.sh",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "Pinned nightly-2025-08-01; fmt --all --check and Clippy --all-targets --locked --offline -D warnings pass."
+      },
+      {
+        "name": "DF-01 registration and State verification",
+        "command": "./nagi dev verify",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "27 registered workstreams, 16 State files validated at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96."
+      },
+      {
+        "name": "Mutation checks",
+        "command": "Three temporary source mutations followed by exact regression tests, with finally-restored sources",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": ".dev/workstreams/calendar-core-01/evidence/mutations.json: stale revision, DST fold rejection and exact output-limit boundary all caught."
+      },
+      {
+        "name": "Calendar-specific cross-platform CI",
+        "command": "Nagi 0.2 host foundations run 37778691144",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "https://github.com/RT-NISH/NagiOS/actions/runs/37778691144 at 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Jobs 113315994016 (Windows) and 113315994379 (Ubuntu): Calendar fmt/Clippy and 1 unit + 60 acceptance tests pass; shared host CLI checks also pass."
+      },
+      {
+        "name": "Owned-path and exact publication audit",
+        "command": "git diff --name-only cd871f9 HEAD; Git blob/tree comparisons; git ls-remote origin refs/heads/codex/0.2-calendar-core-01",
+        "outcome": "PASS",
+        "exit_code": 0,
+        "evidence": "17 owned paths at tested source SHA; shared registry/root Cargo/workflows byte-identical to owner checkpoint. Source remote SHA equals local 2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96. Tree comparison succeeded on Git API import."
+      }
+    ],
+    "ci_runs": [
+      {
+        "run_id": 37778691144,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778691144",
+        "head_sha": "2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96",
+        "status": "COMPLETED",
+        "conclusion": "success",
+        "summary": "Calendar-specific fmt/Clippy/61 tests and shared host CLI compatibility pass on both Ubuntu and Windows. No guest/runtime activation."
+      },
+      {
+        "run_id": 37778691151,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778691151",
+        "head_sha": "2ef5c494afe2c0555ca18c8ef74cf1c5f9cc9c96",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Root Nagi CI intentionally skips the dedicated app host branch; separate cross-platform host-foundations workflow provides Calendar evidence."
+      },
+      {
+        "run_id": 37778135726,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778135726",
+        "head_sha": "6f17d3c0b54d3e2da41e1d541f80237746ebaddc",
+        "status": "COMPLETED",
+        "conclusion": "failure",
+        "summary": "Ubuntu passed standalone Calendar fmt/Clippy/61 tests. Windows passed shared host CLI checks but failed before Calendar Clippy/tests: cargo fmt --all followed local nagi-model into shared workspace/third_party CRLF files. Fix is pinned Git dependency on the same canonical model revision; no shared file changes."
+      },
+      {
+        "run_id": 37778135701,
+        "url": "https://github.com/RT-NISH/NagiOS/actions/runs/37778135701",
+        "head_sha": "6f17d3c0b54d3e2da41e1d541f80237746ebaddc",
+        "status": "COMPLETED",
+        "conclusion": "skipped",
+        "summary": "Nagi CI intentionally skips the dedicated app host branch; Calendar is verified by the separate host-foundations workflow. No target/runtime job activated."
+      }
+    ]
+  },
+  "release_line_gate": {
+    "source": "origin/main:docs/implementation_status.md at 9e06967640776298dfdcbceb55085eb9d2b717c5",
+    "last_checked_at": "2026-10-08T12:06:19.943860+00:00",
+    "activation_requirement": "Host-only C1-C5 explicitly user-approved. Runtime requires M30 PASS and a separate Integration Owner checkpoint."
+  },
+  "blocker": {
+    "active": false,
+    "class": null,
+    "summary": null,
+    "reproduction_commands": [],
+    "failure_log_summary": null,
+    "attempted_fixes": [
+      "SOURCE: initial Clippy manual_is_multiple_of findings corrected without lint suppression.",
+      "SOURCE/test design: output-limit mutation initially survived the three-occurrence test; added exact two-occurrences/limit-one regression and recaught mutation.",
+      "ACCEPTANCE: DF-01 rejected unregistered IDENT-01/JOB-01 dependencies; kept them as documented future adapter targets.",
+      "HOST_ENV: bootstrap dev resume takes no positional ID; used active owner branch instead.",
+      "PERMISSION: environment Git account denied push; RT-NISH connector admin permission confirmed and used exact-tree Git API publication.",
+      "CI_INFRA: cargo fmt --all traversed local model parent workspace on Windows; replaced path dependency with canonical nagi-model Git pin cd871f9. Shared root/CI/third_party untouched; verbose fmt confirms only Calendar source/tests."
+    ],
+    "do_not_try": [
+      "Do not edit shared files beyond the explicitly approved Calendar registration row.",
+      "Do not modify another stream or active 0.1 acceptance.",
+      "Do not activate runtime before M30 PASS and separate owner checkpoint.",
+      "Do not claim shared CI executes Calendar without a Calendar-specific step."
+    ]
+  },
+  "next_action": "No further C1-C5 host implementation remains. Integration Owner reviews/adopts the Calendar-only diff from cd871f9, with source 2ef5c49 and CI run 37778691144. Next implementation is an approved concrete timezone/PAL/identity/storage adapter after its contract review; guest/provider/production Jobs and Notification integration additionally requires M30 PASS and a separate runtime checkpoint.",
+  "acceptance_criteria": [
+    "PASS CAL-H01: stable domain IDs and Calendar/Event CRUD with no ID reuse within bounded store lifetime.",
+    "PASS CAL-H02: Instant/Zoned/Floating/AllDay remain distinct; explicit zone context required.",
+    "PASS CAL-H03: injected UTC and +09/-05/+05:45 conversions across day/year boundaries.",
+    "PASS CAL-H04: gap errors, explicit fold choice, resolver roundtrip/order validation, 23/25-hour all-day semantics.",
+    "PASS CAL-H05: Daily/Weekly/Monthly/InstantEvery bounded subset, typed Count/Until, EXDATE and stable original-key overrides.",
+    "PASS CAL-H06: month-end skip, leap/century/year boundaries, overnight overlap and maximum-date Until.",
+    "PASS CAL-H07: instant-axis busy union, clipping/buffers, participant intersection, window-anchored candidate grid.",
+    "PASS CAL-H08: revision CAS, atomic failure, overflow, invalid ranges/limits, skipped-candidate and no-output scan bounds.",
+    "PASS CAL-H09: injected fixed clocks/IDs reproduce results; unavailable/rollback/precision-loss clocks fail.",
+    "PASS CAL-H10: invite/response classified EXTERNAL; confirmed execution returns unavailable, no delivery success.",
+    "PASS CAL-H11: Japanese/English UTF-8 and empty/long/invalid fields fail or succeed deterministically without panic.",
+    "PASS CAL-H12: pinned host toolchain, 61 tests/fmt/Clippy, own State, exact committed/published SHA and Ubuntu/Windows Calendar CI evidence."
+  ],
+  "deferred": [
+    "Integration Owner adoption of the host-only feature diff on reviewed integration branch",
+    "Full timezone DB, GUI, real provider delivery, durable guest storage and production Jobs/Notifications",
+    "CAL-001..011 product/runtime acceptance gated on M30 PASS and separate checkpoint"
+  ],
+  "cross_workstream_dependencies": [
+    {
+      "workstream_id": "app-sdk-contract",
+      "contract": "Reuse AppId/ObjectId/WorkspaceId; capability and intent adapter seams. No new canonical identity or policy.",
+      "version": "app-sdk-contract-v1",
+      "status": "Host contract on integration branch; runtime gated"
+    },
+    {
+      "workstream_id": "capability-permissions",
+      "contract": "Canonical PrincipalId and permission evaluator; owner metadata is not authorization.",
+      "version": "capability-contract-v1",
+      "status": "Host contract on integration branch; runtime gated"
+    }
+  ]
+}

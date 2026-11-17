@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.36s
+     Running `/tmp/nagi-sheets-tools/target/debug/nagi-bootstrap dev resume`
+FAIL cannot resolve state file /workspace/NagiOS-sheets-calc-01/.dev/workstreams/sheets-calc-01/state.json: No such file or directory (os error 2)

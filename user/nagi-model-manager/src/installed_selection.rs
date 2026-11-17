@@ -87,6 +87,15 @@ pub struct InstalledModelSelector<B: ModelBackend> {
     receipt: Option<InstalledReceipt>,
     observer: Option<PrivateInstalledStageObserver>,
 }
+
+type CandidateLoader<B, A, S> = fn(
+    &mut InstalledModelSelector<B>,
+    &ModelId,
+    &SelectionRequest<'_>,
+    &mut S,
+    &SelectionControl<'_, A>,
+) -> Result<ModelId, InstalledSelectionError>;
+
 impl<B: ModelBackend> InstalledModelSelector<B> {
     pub const fn new(backend: B) -> Self {
         Self {
@@ -189,6 +198,10 @@ impl<B: ModelBackend> InstalledModelSelector<B> {
             Self::try_authenticated_candidate::<A, S>,
         )
     }
+    // This private helper keeps the authority/session/cancellation/install
+    // inputs explicit; grouping them would obscure which values are rechecked
+    // for each candidate.
+    #[allow(clippy::too_many_arguments)]
     fn select_with<A: LiveAuthority, S: TrustedInstalledModels>(
         &mut self,
         mode: InstalledSelectionMode<'_>,
@@ -197,13 +210,7 @@ impl<B: ModelBackend> InstalledModelSelector<B> {
         live: &A::Session,
         cancel: &dyn CancellationToken,
         installed: &mut S,
-        candidate_loader: fn(
-            &mut Self,
-            &ModelId,
-            &SelectionRequest<'_>,
-            &mut S,
-            &SelectionControl<'_, A>,
-        ) -> Result<ModelId, InstalledSelectionError>,
+        candidate_loader: CandidateLoader<B, A, S>,
     ) -> Result<ModelId, InstalledSelectionError> {
         if self.quarantined {
             return Err(InstalledSelectionError::Quarantined);

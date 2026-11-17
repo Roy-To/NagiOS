@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible problem with Nagi OS or repository tooling.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, remove credentials, tokens, personal or private data, user-name-containing local paths, and chat or conversation identifiers from the issue, logs, and screenshots. Do not report security vulnerabilities publicly; follow [SECURITY.md](https://github.com/Roy-To/NagiOS/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where did you observe the problem?
+      description: Keep host-tool behavior separate from behavior inside a Nagi guest.
+      options:
+        - Nagi guest running in QEMU
+        - Host-side tooling on Linux
+        - Host-side tooling on macOS
+        - Host-side tooling on Windows
+        - Physical hardware, if applicable
+        - Other or not sure
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Nagi version or source revision
+      description: Provide a release, branch, or commit if known.
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Start ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+      description: State what you expected and what happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Environment and sanitized evidence
+      description: For QEMU, include relevant guest configuration. For host tools, include the host and command. Remove private data from logs and screenshots.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: blocker
+    attributes:
+      label: Acceptance impact or blocker
+      description: If known, describe the affected existing milestone, workstream, or acceptance evidence. Do not infer a new release gate.
+    validations:
+      required: false

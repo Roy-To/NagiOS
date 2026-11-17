@@ -1,8 +1,895 @@
+## Kernel-policy documentation checkpoint — 2026-11-13
+
+This entry records documentation reconciliation only. DEC-042/043 confirm Linux kernel plus Nagi-owned userland; DEC-044 permits bounded Linux migration development. It is not a Linux implementation start, build/test result, release activation or milestone PASS.
+
+This entry was first written in the former private repository, whose copy of this file held an older 2026-09-19 snapshot. The entries below are this repository's implementation record; they are a separate code/evidence baseline and not Linux acceptance.
+
+See [kernel transition impact and evidence matrix](product-decisions/KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md) and [0.2 Linux migration addendum](Nagi_OS_0.2_Linux_Migration_Addendum.md). The latest actual assignment, source and target evidence must be checked before implementation. No existing status table is promoted or overwritten.
+
+> **2026-11-15:** Moved here from the former private repository by [DEC-050](product-decisions/DEC-050-public-specification-repository.md). The "NOT ASSIGNED" snapshot above was later superseded by [DEC-047](product-decisions/DEC-047-linux-migration-workspaces-and-integration.md) (lane worktrees, integration branch `codex/linux-integration-20261114`).
+
+## PR 98 M27 promotion storage failure investigation — 2026-11-05
+
+Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
+No M27 PASS or repair is claimed. Fixed head is
+`d43a29e42290eacfa1dcc4819fbfeac991a1c3df` (tree
+`fff9f072a5f73810645413e8f276cc37892c1e45`). PR run 42028014093 checked out
+`cb2ee8ba975f41ee1745e984962a6aa30a9efb07`, whose tree is identical; push
+run 42028007518 checked out the fixed head. Official target job logs and
+acceptance artifacts 13423071777 / 13422034807 were compared read-only.
+
+Both legacy FAT12 readiness trials log the same initialization and signed-in
+readiness sequence. In promotion boot 2, the first 87 normalized serial lines
+match, including consumed readiness, confirmed B, matching init size 576728,
+and completed core services. The PR log then prints `Nagi M7 storage FAIL`
+and `Nagi M5 process exit FAIL`; the push log instead prints the read-only VFS
+integrity PASS, mounts storage and reaches the unlock screen. The PR timeout
+diagnostics find QEMU running but CPU 0 halted at the same RIP in two samples.
+Thus the 180-second readiness timeout follows an explicit guest storage failure;
+it is not evidence that a longer readiness timeout would repair this case.
+The unchanged source narrows the failure to the pre-mount read-only checker or
+its nonempty-report guard. Existing logs cannot distinguish I/O failure from
+metadata inconsistency or an empty valid report.
+
+Candidate diagnostic change preserves the checker, report guards, failure return,
+success markers, feature set and deadlines, and adds a reason before returning
+failure: block I/O, corrupt metadata, other storage error, or empty report.
+No scheduling, readiness policy or filesystem repair changes are made.
+
+Host boundary experiment with the exact source storage module, an in-memory
+device and the production Search runtime's `/home`, `/home/owner`,
+`/home/owner/files` creation sequence passed together with all 25 existing
+storage tests (26 total). Of 42 individual sector-write prefixes, 36 return
+`StorageError::Corrupt`; the completed sequence passes. The signed-in desktop
+prints readiness before calling `Runtime::open`, while the host requests QMP
+quit on that readiness marker. An interrupted post-readiness mutation is
+therefore a demonstrated possible mechanism, not proof of the recorded CI
+failure. The uploaded artifacts contain no persistent disk snapshot, and serial
+lines have no timestamps to identify which mutation, if any, was interrupted.
+PR and push runner image versions also differ (20261025.353.1 vs 20261101.360.1);
+post-job memory/disk snapshots do not measure pressure at failure time.
+
+Formatting and whitespace checks pass. The official CI setup selects Clang 19.
+The initial build failed to find clang on PATH; follow-up found the existing
+workspace Clang 19.1.7 at
+`/workspace/.nagi-tools/root/usr/lib/llvm-19/bin/clang`. No compiler installation
+or toolchain change was needed. Selecting this compiler explicitly, the locked
+offline Nagi-target release build and final static ELF link pass with the exact
+M27 features `m10-desktop,m27-ro-vfs-check,desktop-login` and
+`-Zbuild-std=core,alloc,compiler_builtins` on nightly-2025-08-01. ELF SHA-256 is
+`ea7d9f0ebd149bf2d2586b0eb9951bfd655b5ab1e0ba0f29afc213914ac7f817`.
+The build reports warnings; no source or assertion was changed to suppress them.
+Host libnagi tests pass (84 unit, 2 integration); CI M27 artifact selection
+regressions pass (3); the in-memory write-prefix experiment plus original
+storage tests pass again (26). Dependencies use the existing cache with
+identical sources.lock. Earlier offline sysroot resolution lacked dlmalloc;
+normal pinned registry resolution populated that cache. Cargo.lock is unchanged.
+
+Guest/VM execution, CI reruns, existing image/claim operations and publication
+were not performed. Failure-disk capture remains a proposal, not an implemented
+or activated upload: existing CI deliberately selects logs and excludes disk
+and OVMF payloads. A legacy M27 user-data image is 18 MiB and can include the
+owner credential record and private filenames/content. Next useful evidence is
+a private local failed-disk snapshot plus the new checker reason; separately
+validate a guest quiescence boundary after signed-in Search initialization
+before ending the trial boot. Root cause remains unproven.
+
+## PR 98 staging integration after PR 97 merge — 2026-11-05
+
+Status: `PARTIAL`. Initial reviewed/published staging candidate
+`8afe8aff9c192f6c8af7264e244eea70909f4163` (tree
+`3f7f77d26dabb3d78024a595981a2e4248bc2aa4`) is preserved as first-parent
+history. Main advanced during PR creation to
+`d67897b4c27566ecc4353e3b7d9b16efd59bb559` by merging PR 97. This integration
+merges that exact main and resolves the sole conflict in
+`user/nagi-search/src/read_boundary_tests.rs` by preserving main's complete
+allocator/read tests and appending the reviewed three-line staging test-module
+registration. The reviewed search.rs and semantic_staging_tests.rs are
+byte-identical; persistent_semantic_index.rs is byte-identical to main.
+Both status histories are retained. No assertions or production behavior change
+as part of conflict resolution. The staging production delta against main
+remains exactly the previously reviewed reservation change.
+
+Integrated validation: nagi-search host suite 46 passed / 0 failed / 1 ignored
+(the pre-existing opt-in synthetic timing experiment); all-target host Clippy
+with warnings denied, package formatting and whitespace checks pass. Actual
+Nagi-target library build with core/alloc passes on nightly-2025-08-01. The
+first offline build failed during dependency resolution because dlmalloc was
+absent from the sysroot cache; allowing normal pinned registry resolution
+populated the cache and the locked target-library build passed. No source pin,
+Cargo.lock, manifest, assertion or toolchain was changed. Logs are retained in
+`out/evidence/semantic-staging-main-d67897b/` including the initial failure.
+Independent review reported no P1/P2 findings and successful host/Clippy/target
+library checks on the original staging candidate; it did not review this later
+integration commit. Publication and hosted CI for the integrated head are
+tracked in PR 98. Guest execution, real provider inference and final native
+linking remain unverified; M24 remains PARTIAL. The preparation entry below
+records historical pre-publication scope and results.
+
+## M24 semantic indexing staging allocation — 2026-11-05
+
+Status: `PARTIAL`; isolated host candidate based on public main
+`fe0ec0b4c5d7caf0721deca4880359a59f5f2b94`, verified through the GitHub
+commit API before editing. Source `user/nagi-search/src/search.rs` Git blob:
+`833ce4fa097e607ce8784dd9108e75baffc390e5`; SHA-256:
+`190f8a2c9f6aef002b61c1905fc72515db8bcb1f3b22b05840db6e7d8c45c13c`.
+
+`SearchService::index_semantic_text` previously allocated its `IndexedChunk`
+staging Vec with infallible `with_capacity`, after authorization and chunking
+but before provider calls. It now reserves the complete chunk count with
+`try_reserve_exact`, mapping failure to existing `SemanticError::IndexCapacity`.
+All subsequent staging pushes fit that reservation. The provider loop, dimension
+checks and single final `replace_object` call are unchanged. Errors release the
+chunk Vec, remaining source strings and any completed embeddings through Rust
+ownership. This is distinct from metadata/semantic query reads, persistent-index
+replacement and serialization, snapshot decode, and chunk splitting. No other
+candidate is imported and no production code in those paths changes.
+
+Host verification (nightly-2025-08-01, locked/offline):
+- Negative control with the original production source and the new exact
+  staging-allocation test aborts with SIGABRT / Cargo exit 101: allocation of
+  672 bytes failed. The chunker's eight allocations succeed; allocation nine
+  is the six-entry staging array. No guest allocation failure is claimed.
+- Four new tests pass using the existing thread-local host allocator meter.
+  Both one-shot and persistent denial at that staging allocation return
+  IndexCapacity, make zero provider/dimensions/replacement calls, return live
+  allocated bytes to baseline, and allow a successful retry after injection.
+  Provider failure and dimension mismatch at all six passage positions, with
+  both empty and existing index dimensions (24 scenarios), never call replacement
+  and release partial arrays/embeddings. Multilingual and maximum-size (256 KiB,
+  512 chunks) success cases preserve purpose, provider input order, chunk IDs,
+  ordinals, byte ranges, vectors, result count and one final replacement.
+  Denied, tombstoned, missing and wrong-context objects allocate nothing and
+  call neither provider nor index.
+- Full nagi-search suite: 42 passed, 0 failed; doc tests: 0.
+- Package host build, all-targets Clippy with warnings denied, package format
+  check and git whitespace check pass.
+- Local logs: `out/evidence/semantic-staging-fe0ec0b/` (negative-control,
+  focused, full-test, build, clippy and fmt). Existing generated third-party
+  caches were temporarily linked into the isolated worktree for Cargo resolution;
+  their sources, manifests and lockfiles were not modified.
+
+Remaining scope: chunk_text still allocates its array and strings infallibly;
+EmbeddingProvider implementations and embedding construction may allocate or
+retain provider state; persistent-index replacement, backend, decode and query
+allocations remain separate boundaries. Provider errors are propagated but
+provider internals are not made OOM-safe or rolled back by this change. These
+fixtures establish service orchestration and cleanup, not inference quality.
+No public push/PR/comment/CI rerun, guest execution, real media operation or old
+material resend was performed. No Nagi-target, Windows or guest check is claimed;
+M24 remains PARTIAL and its model-backed natural-language acceptance is unmet.
+
+## PR 90 M27 hosted promotion timeout investigation — 2026-11-05
+
+Status: `BLOCKED` for diagnosing the original M27 guest/firmware stall;
+`PARTIAL` for an isolated CI evidence-retention correction based on public
+`f927cef91e9070187a689277ed4af9c174e38e7e`. No CI rerun, public update or
+GitHub merge was performed during this investigation.
+
+Nagi CI 41959780494 at that head completed with change-scope,
+target_classification, Ubuntu, Windows and M20 inference successful.
+nagi-target passed M17, M18, M19 Files/login and M22, then failed M27:
+readiness QEMU boot 2 did not reach acceptance within 180 seconds (exit 4).
+M29 and M30 were skipped. The failed promotion uses the headless runner
+reusing OVMF variables; the recent GUI EOF change is not on that path.
+The headless failure's underlying cause remains UNKNOWN.
+
+The official job log names
+out/evidence/m27-ab-rollback-1793854380240094000/readiness-promotion/promotion-boot.log,
+but neither uploaded target artifact contains that file or the M27 trial log.
+Downloaded artifact 13389567679 matches SHA-256
+5a0aab015cf9a29283f7c0ee1dc2f09ffa200ea25a3292d229e1b21f2c94420e;
+artifact 13390110191 matches SHA-256
+cbe3c1d4f4d074948fe9fd76ce9e3b2fa9d41f1987c9431249f8f75cd6f1455a.
+Their ZIP inventories contain M17 logs/reports and runner resource state.
+The workflow uploads out/logs/m17-* and acceptance reports, but never
+out/evidence/m27-ab-rollback-*. This is a confirmed observability defect,
+not evidence for a longer guest timeout or a changed readiness criterion.
+
+The isolated workflow correction retains *.log within each M27 evidence
+run, plus serial snapshots named *.log.pre-guest-timeout-* and retry reason
+*.log.pre-guest-retry-*.txt. It keeps the existing always() upload path and
+pinned action. OVMF binary snapshots, firmware variables and disk images
+remain outside those selections. Runtime/QMP/guest code, source pins,
+180-second budget, retry policy and acceptance markers are unchanged.
+
+Validation: three new tests exercise the workflow's actual selected paths
+against a temporary reproduction of the M27 evidence tree: nested promotion,
+trial, confirmed and rollback logs; retry serial and reason; exclusion of
+OVMF snapshots and raw/qcow2 disks; and preservation of M17 diagnostics when
+M27 has not run. With the original workflow, two tests fail because M27 logs
+are absent. With the correction, all 17 Python regressions pass, including
+the existing CI guard suite. These are local path-selection tests, not a
+hosted upload-action or guest execution. Whitespace checks pass.
+
+The original promotion serial/QMP trace and boot state were not uploaded,
+and this environment lacks qemu-system-x86_64 and that failed guest state;
+an exact replay is unavailable. Resource capture after failure reports
+available memory but cannot rule out an earlier transient resource problem.
+The next diagnostic run must preserve promotion-boot.log, trial-boot.log and
+any pre-guest retry evidence before deciding whether the cause lies in
+firmware, guest startup/readiness, input state or host scheduling. No timeout
+extension, repeated rerun, speculative runtime fix or milestone PASS is claimed.
+
+## PR 90 GUI serial EOF deadline follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to reviewed EINTR candidate
+`177805c9069df1cd8b9d573cabcdb0dc8227fd8b`. It retains integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5`, and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. Previous candidates remain
+protected. No public push, hosted CI rerun or GitHub merge was performed.
+
+Independent review identified a second total-budget bypass: GUI serial EOF
+broke out of the acceptance loop into an unconditional child.wait(). The
+serial connection can close while QEMU remains alive. The new production-caller
+fixture confirms this after a completed QMP handshake, keeps QMP available,
+and exits naturally only after six seconds. With the original code and a
+three-second budget, the exact new regression returned Ok(0) in 6,044 ms
+instead of timing out. An initial one-second version also returned Ok(0) in
+3,044 ms with its three-second natural-exit bound.
+
+EOF now continues through the existing child-status and original absolute
+budget checks, with a sleep of at most one millisecond to avoid a busy loop.
+The unbounded post-loop wait is removed. A genuinely exited child still
+returns its original exit status and persisted serial before deadline. A
+live child reaches the original reserved diagnostics window, final serial
+capture, kill/wait and timeout classification. No new timeout, grace period,
+retry policy or acceptance marker is introduced. The previous completion-drain
+and EINTR fixes, diagnostic queries and CI guard remain unchanged.
+
+Validation with nightly-2025-08-01:
+- New EOF production-caller cases cover normal/stalled QMP crossed with
+  absent/present kernel-start serial. They verify real EOF after handshake,
+  diagnostics requests, final log contents, retry classification, original
+  budget and actual process termination/reaping. The four cases complete in
+  approximately 2.92–3.01 seconds with the unchanged 400 ms scheduling slack.
+- A separate real EOF plus early natural child exit returns Ok(0) in about
+  125 ms, preserving the existing child-exit behavior and serial tail.
+- Focused caller suite: 7 passed, including earlier late-serial and EINTR cases.
+- Ordinary and bootstrap CLI library: 374 passed / 2 ignored each.
+- Both library/test Clippy configurations with warnings denied: passed.
+- Python CI regression suite: 14 passed. Changed Rust formatting and whitespace
+  checks: passed. QMP fixture executable Git mode remains 100755.
+- Initial fixed one-second test returned the correct timeout, but its 100 ms
+  diagnostics reserve exhausted before all firmware signature queries finished.
+  The final regression uses the existing caller suite's three-second budget
+  and 300 ms reserve to test complete normal diagnostics and retry classification;
+  no production budget or assertion was weakened. That initial log is retained.
+
+Real diskless QEMU, Windows and hosted target/inference checks for this new
+candidate are NOT RUN. The original OS signal causing the earlier EINTR is
+still UNKNOWN; its handling is fixed, not its provenance. No milestone PASS.
+
+## PR 90 GUI serial interrupted read follow-up — 2026-11-05
+
+Status: `PARTIAL`; isolated follow-up to integration candidate
+`163f648e50f0580e7c9e83ef71fd1f7e6f1a81b2`, which retains public PR 90
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`. The original integration candidate
+is protected. No publication, hosted CI rerun or GitHub merge was performed.
+
+The first integration test's real GUI serial read returned Interrupted
+(os error 4). Its signal/source remains UNKNOWN. Code inspection confirmed
+that the ordinary GUI acceptance loop treated Interrupted as fatal, while
+the final-drain reader already retried it. A deterministic injected Interrupted
+at the ordinary read reproduced the same fatal error category in 43 ms on
+the extracted unchanged loop. This reproduces error handling, not the OS
+signal that caused the original intermittent event.
+
+The ordinary loop now treats Interrupted as no progress, then executes its
+existing child-status and original absolute-deadline checks. It does not
+restart a timeout or bypass timeout diagnostics. The internal loop accepts a
+serial-read closure for deterministic tests; every public production entry
+supplies the original TcpStream read. A Linux-only test adapter supplies an
+Interrupted before real TCP reads; a second mode interrupts repeatedly after
+one normal read. QMP sockets, actual fixture process, diagnostic collection,
+serial persistence, final drain, kill/reap and retry classification use the
+same production path and existing assertions. All earlier assertions remain.
+
+Validation with nightly-2025-08-01:
+- Negative control retaining the original match: new injected-EINTR regression
+  fails on the fatal GUI serial error in 43 ms.
+- Focused caller tests: 5 passed, covering the original scenarios plus single
+  EINTR with normal/stalled diagnostics and query/final late serial, and
+  repeated EINTR through timeout. Original 3-second budgets and reap checks pass.
+- Ordinary and bootstrap CLI library: 372 passed / 2 ignored each.
+- Both configurations of library/test Clippy with warnings denied pass.
+- Python CI guard regressions: 14 passed. PR 92 workflow guard and test are
+  unchanged; the retained QMP workflow step remains.
+- QEMU executable unavailable here; real diskless QMP, Windows and hosted
+  target/inference checks for this new candidate are NOT RUN. No milestone PASS.
+
+## PR 90 integration with main CI guard — 2026-11-05
+
+Status: `PARTIAL`; isolated merge candidate with first parent public PR 90 head
+`d0d9e4a68f780984280563d6f672c35b5f0c92d5` and second parent main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb` (PR 92). The only textual conflict
+was concurrent additions at the beginning of this status document. Both
+preparation histories below are preserved and explicitly historical. PR 92
+has been merged into main; PR 90 publication and hosted checks for this
+combined candidate remain pending independent review. No public push or
+GitHub merge was performed during this integration.
+
+QMP production sources, fetch diagnostics and the immutable executable
+fixture are byte-for-byte identical to d0d9e4a. The CI workflow combines
+main's required-file guard, docs-only classifier and job conditions with
+PR 90's real diskless QMP step. Removing only that step reproduces main's
+workflow exactly. PR 92's regression test file is unchanged. No source pin,
+timeout, assertion, retry policy or guest behavior was changed.
+
+Validation with nightly-2025-08-01:
+- Python CI regression suite: 14 passed, including the real workflow Bash
+  guard, required-file deletion/rename and code-versus-docs classification.
+- Bootstrap CLI library: 370 passed / 2 ignored.
+- Ordinary CLI library, run separately: 370 passed / 2 ignored.
+- Initial overlapping ordinary/bootstrap library runs produced one ordinary
+  GUI serial read error, Interrupted system call (os error 4), with 369 passed /
+  1 failed / 2 ignored. The exact four-case production-caller test then passed
+  independently, followed by the full ordinary suite above. The error's cause
+  is unconfirmed; it is not claimed fixed or attributed to the merge. Assertions
+  and production sources are unchanged; the original failure log is retained.
+- Both library/test Clippy configurations with warnings denied passed.
+- No guest or milestone PASS is claimed. Real diskless QEMU was not run in
+  this environment because qemu-system-x86_64 is unavailable; hosted Windows,
+  target and inference checks for this combined candidate are NOT RUN.
+
+## Historical PR 92 required-file CI guard preparation - 2026-11-05
+
+Status: `PARTIAL` (isolated host regression candidate; not published).
+Based on PR #92 head `03a75ec72eeccabad87f8730e69323e21fa95950`, base
+`87b7dea4061be2572526181ab559d63037f823d0`. The lightweight change-scope
+job checks all five files required by `check_repository_layout` before
+allowing a documentation-only skip. Missing files fail that job even on
+manual dispatch. `docs/implementation_status.md` is no longer ignored by
+the workflow trigger, so its deletion cannot avoid this guard. Other
+Markdown-only changes still skip heavy host and target jobs.
+
+Local regression tests execute the workflow's Bash in temporary Git
+repositories: required-file deletion and rename, directory substitution,
+ordinary docs edits and optional docs renames/deletions, code mixed with
+docs, fetch/diff failure, manual dispatch, empty diffs and missing bases.
+The inventory is checked against the existing Rust repository check.
+No target or guest acceptance and no hosted CI result are claimed for
+this unpublished candidate. No milestone status changes.
+
+## Historical PR 90 bootstrap fetch diagnosis preparation — 2026-11-04
+
+Status: `PARTIAL`; isolated local diagnostics candidate based on published
+`91e4043a624bd13357609967faefdeb150820642` (tree
+`bdae0b5848a41671fea3ca696c9c32806e77030d`), source base
+`87b7dea4061be2572526181ab559d63037f823d0`. No new push, hosted CI rerun,
+workflow change, timeout extension or merge was performed for this investigation.
+
+**Current public result:** [Nagi CI 41919875669](https://github.com/Roy-To/NagiOS/actions/runs/41919875669)
+completed cancelled at 91e4043. Classification succeeded; Ubuntu and Windows
+were cancelled inside Bootstrap pinned Servo source dependencies; target and
+M20 inference were skipped. The public check-run annotations for both host jobs
+explicitly say "The job has exceeded the maximum execution time of 30m0s".
+Both bootstrap binaries compiled successfully, then their `fetch` executions
+produced no further phase output before cancellation. No QMP regression test
+ran in that CI attempt. The current fetch wait's underlying cause is UNKNOWN.
+
+**Comparison with successful baseline:** [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+was successful at 5ecef8e. Its fetch execution took about 178 seconds on Ubuntu
+and 272 seconds on Windows. Between 5ecef8e and 91e4043, only image.rs and the
+status document changed; the fetch implementation, all source/font pins, Cargo
+locks, bootstrap manifest and CI workflow are identical. Ubuntu's runner image
+changed from 20261025.353.1 to 20261101.360.1; Windows retained image
+20261025.346.1. Git remained 2.56.0 on Ubuntu and 2.56.0.windows.3 on Windows.
+The Ubuntu image difference alone does not establish a common cause for both
+host jobs. The cancelled run has no uploaded diagnostic artifacts.
+
+The workflow step label does not identify the active source. `execute_fetch`
+prepares llama.cpp first, then whisper.cpp, Surfman, registry-based tempfile,
+mozjs_sys and cc, Servo and its registry dependencies, fonts and Mesa. Direct
+Git endpoints are github.com/ggml-org/llama.cpp, github.com/ggml-org/whisper.cpp,
+github.com/servo/surfman, github.com/servo/servo and gitlab.freedesktop.org/mesa/mesa.
+Registry archives come from the exact crates.io URLs in sources.lock; font URLs
+and hashes are pinned in fonts.lock. Servo Cargo.lock also identifies transitive
+Git dependencies. These pins and verification checks are unchanged.
+
+**Confirmed observability defect:** the Git/Cargo helpers use Command::output,
+which retains subprocess output until exit, and fetch previously emitted its
+result only after all phases completed. Consequently, the cancelled CI logs do
+not establish which component, network request, checkout or Cargo operation
+was waiting. They do not prove that the step was stuck in Servo, nor that the
+new QMP reader caused the wait.
+
+The candidate emits a static phase start record to stderr and flushes it before
+each potentially blocking source-preparation operation. Completion/failure
+records include elapsed time. It additionally distinguishes initial llama.cpp
+Git fetch/checkout and Servo Git fetch/checkout/unpatched Cargo operations.
+Labels contain no command arguments, URLs, environment or error text. Fetch
+stdout, original return values, failure codes, source validation, endpoints,
+revision/hash pins and existing retry policies remain unchanged. Logging failure
+does not skip or retry the operation. This is a diagnostics fix, not a claimed
+repair of the unidentified hosted wait.
+
+**Bounded local reproduction attempts:** a fresh shallow blobless fetch of the
+first pinned llama.cpp revision completed in 1.17 seconds. One complete fresh
+source bootstrap with the new diagnostics completed successfully in 125.81
+seconds, within a six-minute diagnostic probe bound. Its live phase records
+showed llama.cpp preparation about 11.9 seconds, Servo about 65.5 seconds and
+Mesa about 37.4 seconds. Source checkouts were fresh, but Cargo/registry caches
+were reused and the managed network/proxy differs from GitHub runners. No
+network route, credential or trust setting was changed. The original CI wait
+was not reproduced; no repeated CI runs were used to obtain a pass.
+
+**Separate pre-existing test entry-point defect:** the standalone bootstrap
+manifest shares CLI library sources, but the immutable QMP fixture path used
+CARGO_MANIFEST_DIR as though it always named tools/nagi-cli. Running the full
+bootstrap library suite therefore reproduced three ENOENT fixture failures.
+The candidate resolves the fixture from the common tools directory, preserving
+all assertions and immutable executable behavior. This cfg(test) path issue
+cannot explain the CI fetch cancellation, which occurred in the normal binary.
+
+Validation with nightly-2025-08-01:
+- Three new diagnostics tests prove a start record is flushed before a blocked
+  operation completes; success/error identity is preserved without logging
+  opaque error text; and a broken stderr sink neither skips nor retries work.
+- Ordinary CLI library: 370 passed / 2 ignored.
+- Standalone bootstrap library after the fixture-path fix: 370 passed / 2 ignored.
+  The initial pre-fix run reported 367 passed / 3 fixture-path failures / 2 ignored.
+- Ordinary CLI and standalone bootstrap Clippy, --lib --tests with warnings
+  denied: passed. Changed Rust formatting and git diff check: passed.
+- New candidate hosted Windows/target/inference CI: NOT RUN.
+
+The next hosted attempt needs approved publication of the diagnostic candidate
+if it is selected after review; its phase records would identify any remaining
+wait without weakening the 30-minute gate. The original wait cause remains an
+open blocker. Earlier public results below are historical preparation records.
+
+## Historical PR 90 GUI serial completion ordering preparation — 2026-11-04
+
+Status: `PARTIAL`; isolated local follow-up to protected public head
+`5ecef8e7d9d98861b62f1838db66aeaadb9c13cf` (tree
+`3f95febdad1db7da5a731538e5f535095c455228`). Source base/merge-base is
+`87b7dea4061be2572526181ab559d63037f823d0`. This new completion-ordering
+candidate had not been pushed or run in hosted CI at preparation time. It was
+subsequently published as 91e4043; its cancelled fetch-stage CI is recorded in
+the current entry above. No merge was performed.
+
+**Published baseline, distinct from this new candidate:** 5ecef8e was published
+with approval. [Nagi CI 41826127811](https://github.com/Roy-To/NagiOS/actions/runs/41826127811)
+completed successfully at that head: target_classification, ubuntu-host,
+windows-launcher, nagi-target and nagi-m20-inference all succeeded. Ubuntu
+reported 366 library tests passed / 2 ignored; target ran the existing M17,
+M18, M19, M22, M27, M29 and M30 acceptance steps, and M20 reported real Granite
+inference acceptance PASS. The separate host-foundations workflow 41826127505
+was skipped. The earlier failing run 41821444900 was at 0342cc7 and is historical.
+Neither the successful baseline CI nor the old failure establishes the result
+of this new completion-ordering change. No new milestone PASS is recorded.
+
+Full-tree review found a serial-reader race even in the successful baseline:
+a read returns WouldBlock, final kernel/acceptance bytes arrive, the caller
+kills/reaps QEMU and publishes finished=true, then the reader observes that
+flag and exits using its stale empty-read observation. A missing kernel marker
+could then falsely satisfy the existing pre-guest firmware timeout signature.
+
+The production reader loop is extracted into a shared private helper for a
+focused regression. It now acquires the completion flag *before* the socket
+read. An empty read made before completion cannot terminate capture: the loop
+must perform another nonblocking read after observing completion, drain every
+available chunk and only then accept an empty result. QMP's original absolute
+deadline, kill/wait ordering, serial persistence, partial-capture error handling,
+and the existing 1 ms polling interval are unchanged; no fresh timed grace
+period is introduced.
+
+The deterministic real-TCP regression pauses exactly after an actual WouldBlock
+but before it reaches the completion check. The coordinator writes a payload
+larger than the reader buffer containing kernel-start, acceptance and final-tail
+markers, confirms all bytes are queued with a non-consuming peek, publishes
+completion, then releases the paused read. Synchronous channels establish that
+order without scheduling sleeps. The writer socket remains open so success
+requires a bounded nonblocking drain rather than EOF. The test checks exact byte
+preservation, including the kernel marker. Existing production-caller tests
+continue to verify final-log retry classification, the full timeout budget and
+real child termination/reaping; their assertions and budgets are unchanged.
+
+Validation with nightly-2025-08-01:
+- The extracted baseline loop retained the original 5ecef8e ordering. The new
+  deterministic test failed 10/10 executions on missing final serial (zero
+  captured bytes), proving the previously static review report by execution.
+- After fixing the ordering, the same exact-payload regression passed 100/100
+  executions, at most four concurrently.
+- `cargo test --locked -p nagi-cli --lib`: 367 passed / 2 ignored, including all
+  previous GUI/CLI late-serial, firmware retry, handshake/shutdown deadline and
+  child-reap regressions.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust file rustfmt and git diff check: passed.
+- Hosted Windows/target/inference CI for this new candidate: NOT RUN.
+
+The original public-CI startup failure's OS cause and the separately observed
+one-off QMP connection reset remain unconfirmed; this deterministic completion
+race is a separate reproduced defect. Previous candidates remain protected.
+
+## Historical candidate preparation records
+
+The sections below retain observations made before those candidates were
+published. Statements about an unpushed candidate or pending hosted CI describe
+that earlier preparation point, not the current published 5ecef8e baseline.
+The published CI result and the newer unpushed completion-ordering candidate
+are distinguished above.
+
+## PR 90 public CI fixture startup failure candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated test-only follow-up to public PR 90 head
+`0342cc71c1fb1835bf8ca5992eb6d02c5c7620b2` (tree
+`6068b35371e41bb91256187596cd1f6b2d61d578`). At preparation time the base was
+`87b7dea4061be2572526181ab559d63037f823d0` and this candidate was not pushed;
+no approval, merge, workflow rerun, or other external mutation had been performed.
+
+Public [Nagi CI run 41821444900](https://github.com/Roy-To/NagiOS/actions/runs/41821444900)
+completed with failure at the above head (checkout merge 2421aa8a):
+- target_classification: success.
+- windows-launcher: success (Linux-only fixture cases do not execute here).
+- ubuntu-host: failure in Test host-compatible workspace. Format, diagnostic
+  parser tests, host lint/build, real diskless QMP and Legal preparation passed.
+- nagi-target: skipped, not a target acceptance PASS.
+- nagi-m20-inference: skipped, not an inference PASS.
+The separate host-foundations run 41821444770 was skipped.
+
+The sole Ubuntu library failure was
+`commands::qemu_timeout_caller_tests::gui_preserves_serial_emitted_during_diagnostics_and_shutdown`:
+its first GUI case returned in 0 ms, then reading the fixture's nonexistent PID
+file panicked at commands.rs:12027. The suite reported 365 passed / 1 failed /
+2 ignored; headless race and the four-case production timeout test passed.
+The test unwrapped the PID read before checking the runner's Result, hiding the
+actual startup error. The original CI OS error is therefore UNCONFIRMED.
+
+The candidate checks and reports the original runner error before consulting
+PID evidence. It also uses the immutable, executable checkout Python fixture
+rather than writing and immediately executing a per-case script. The fixture
+locates its per-case state beside the first firmware drive passed by the real
+production caller. All timeout/serial/retry/reap assertions and budgets remain;
+no automatic retry or assertion weakening is added. image.rs production source
+is byte-for-byte unchanged.
+
+Potential mechanism, not a confirmed CI diagnosis: another concurrent spawn can
+briefly inherit a writable executable descriptor before exec. A controlled local
+experiment reproduced Linux errno 26 Text file busy while a forked child held
+that descriptor, followed by success once it closed. A fixed executable source
+avoids creating that writable-executable window during parallel tests. Twelve
+baseline caller-suite processes (four concurrently, 120 total scenario runs)
+with improved error reporting did not reproduce the original CI failure.
+
+Candidate validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 366 passed / 2 ignored.
+- 12 additional caller-suite processes, four concurrently: all 36 Rust test
+  executions / 120 scenario runs passed.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed-file rustfmt and git diff check: passed.
+
+At preparation time public CI had not run this follow-up. Subsequent approved
+publication as 5ecef8e and its successful CI are recorded in the current entry
+above. That success does not establish the original startup failure's OS cause.
+The earlier candidate worktrees remain protected.
+
+## PR 90 final serial capture race candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated follow-up to protected candidate
+`781971b9626d3879b71f1a6cfd181f596334559b` (tree
+`5bf3b990a00ae4f1a10ff96739a93f38343b0675`). Public PR starting head remains
+`06e0600fd01b71cc30573b22b944f7900b890ab1`; public base/merge-base remains
+`87b7dea4061be2572526181ab559d63037f823d0`. No push, merge, or milestone PASS.
+
+Independent review found that the diagnostic reservation left a race: kernel
+and acceptance serial emitted during diagnostics was absent from the final
+log, allowing a false pre-guest firmware retry. Headless QEMU's file log was
+overwritten with a pre-diagnostic snapshot; GUI serial was not read during the
+QMP diagnostic exchange.
+
+Headless timeout now kills/reaps the file writer and appends diagnostics without
+replacing its final serial file. GUI timeout drains serial concurrently with
+QMP diagnostics, kills/reaps QEMU, then drains the bytes already queued before
+saving the complete collected serial and appending diagnostics. Nonblocking
+serial reads and a completion signal avoid allocating another timed grace
+period after the existing absolute deadline. A serial capture or final-log
+write error fails outside the firmware-timeout retry signature, since a partial
+log cannot establish that the kernel never started. The existing retry wrapper
+continues to classify from the persisted final log. Acceptance emitted after
+the guest waiting cutoff remains a timeout; it is preserved as evidence rather
+than retroactively reported as success.
+
+Linux production-caller regressions run both public headless/GUI entry points.
+They emit a 213,045-byte serial payload containing `Nagi Kernel started`, the
+acceptance marker, and a final tail either on query-status (including a stalled
+QMP reply) or immediately before the last primary diagnostic reply. All six
+late-serial cases require complete payload preservation, exactly one kernel
+and acceptance marker, retry suppression, original timeout bounds, and child
+reaping. Four existing no-late-serial cases retain positive firmware retry
+classification or reject stalled diagnostics as before. The local fixture
+requires /usr/bin/python3, loopback TCP, and /proc; it verifies host orchestration,
+not real Nagi guest acceptance.
+
+Validation with nightly-2025-08-01:
+- Focused caller tests: all ten cases passed (three Rust tests after splitting
+  the CLI and GUI race regressions for independent negative controls).
+- Negative controls: temporarily restoring only image.rs to 781971b made both
+  CLI and GUI race tests fail on missing final serial (only 511 log bytes).
+  The fix was restored before final validation.
+- `cargo test --locked -p nagi-cli --lib`: 366 passed, 2 ignored; includes
+  existing handshake/shutdown deadline, firmware retry, and disk-integrity tests.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Windows CI and real Nagi guest acceptance: NOT RUN for this follow-up.
+
+The earlier candidate/worktree remains unchanged. Generated dependency sources
+were reused locally without dependency/lockfile changes. Process kill/reap,
+nonblocking draining, filesystem I/O and OS scheduling retain normal overhead;
+no hard real-time guarantee is claimed.
+
+## PR #90 timeout diagnostic reservation candidate — 2026-11-04
+
+Status: `PARTIAL`; isolated local candidate, no push or merge, no milestone PASS.
+Starting public PR head: `06e0600fd01b71cc30573b22b944f7900b890ab1`.
+Fetched public main/base and merge-base: `87b7dea4061be2572526181ab559d63037f823d0`.
+
+The headless and GUI acceptance waiters previously started timeout diagnostics
+with an already expired host deadline, skipping query-status and preventing the
+existing pre-guest firmware retry signature from matching. Both waiters now
+reserve the final min(5 seconds, 10% of the configured timeout) for diagnostics.
+Guest waiting therefore ends that much earlier. Successful QMP shutdown still
+uses the original absolute deadline. GUI serial polling and periodic register
+tracing respect the reservation; diagnostic exchanges keep the original hard
+deadline, including when QMP stops responding. No new timeout is allocated.
+Startup/protocol failures and firmware retry disk-integrity guards retain their
+existing behavior. Process kill/reap and local log I/O have normal scheduling
+and syscall overhead; the timeout is not a hard real-time guarantee.
+
+The Linux production-caller regression launches a test-only Python QMP peer
+through actual `run_qemu` and `run_qemu_gui` entry points, including production
+spawn/handshake/serial handling. Four cases cover responsive/stalled QMP for
+both callers, actual query receipt, persisted diagnostics, timeout errors,
+firmware retry signature eligibility (and rejection after a kernel marker),
+and absence of the child including zombie state in /proc. It does not simulate
+Nagi guest acceptance. Python 3 at /usr/bin/python3 is a Linux test prerequisite.
+The existing retry tests continue to cover bounded retry and disk-change guards.
+
+Validation with nightly-2025-08-01:
+- `cargo test --locked -p nagi-cli --lib`: 364 passed, 2 ignored (fixture child
+  and opt-in real QEMU test).
+- Focused new production-caller test: four cases passed; observed 2918/3007 ms
+  headless and 2928/3007 ms GUI with a 3000 ms total budget. Assertions allow
+  400 ms scheduling/cleanup slack, without extending production deadlines.
+- Negative control: restoring only image.rs to the specified public head made
+  the new test fail: no diagnostic query was sent, only qmp_capabilities.
+  Restored the fix and reran the full library suite.
+- `cargo clippy --locked -p nagi-cli --lib --tests -- -D warnings`: passed.
+- Changed Rust files rustfmt and `git diff --check`: passed.
+- Opt-in diskless real QMP compatibility: passed on QEMU 10.0.13 with local
+  library/BIOS paths; initial unconfigured launch lacked its BIOS, and the
+  configured run emitted a missing optional kvmvapic ROM warning. This verifies
+  protocol compatibility only; full Nagi guest and Windows CI remain NOT RUN.
+
+Generated dependency sources were reused from the existing workspace to resolve
+Cargo's workspace graph; no dependency or lockfile changes are part of this
+candidate. The private product ledger was not needed for this existing host
+orchestration bug fix; product behavior and milestone activation are unchanged.
+
+## QMP acceptance caller deadline coverage — 2026-11-04
+
+The independent review of PR #90 head `e1e63460` found that the direct shutdown
+helper regression did not detect deadline renewal by its production acceptance
+caller. An additional regression now acknowledges fake QMP readiness, supplies
+a partially consumed absolute deadline to `wait_for_qemu_any_with_qmp`, and
+follows its actual acceptance-to-shutdown branch. Two of an original four
+seconds are represented as already consumed; two seconds remain, without any
+startup or acceptance sleep spending that remainder. The test requires a
+fixture-written witness that the quit command was actually received, the
+original deadline's exhaustion, an unsuccessful/reaped child, preserved serial
+bytes and the existing 500 ms upper slack.
+
+A temporary negative control changed only the production acceptance caller to
+pass `Instant::now() + timeout` to the quit helper. The new regression observed
+quit receipt and failed on the resulting false success after the fixture's
+bounded three-second clean exit. The mutation was restored. Production source
+is unchanged from `e1e63460`; the prior handshake and direct shutdown tests
+remain. This adds coverage without changing production budgets, assertions,
+CI gates or ignored tests.
+
+Pinned local verification passed: new acceptance/shutdown regression; full
+default-parallel bootstrap CLI suite (same production source: 363 library tests
+passed / 2 ignored, 33 CLI passed); real diskless QMP 1/1; all-target Clippy
+with warnings denied; changed-file formatting. Latest-head Windows/platform CI
+is still required. Nagi guest/VM acceptance remains unclaimed.
+
+## QMP shutdown deadline regression follow-up — 2026-11-04
+
+PR #90 head `9d13cd70` CI run `41759758392` failed the Windows shutdown
+regression: at 2,003 ms the fixed 200 ms handshake plus 1,400 ms acceptance
+schedule had not reached acceptance, so the runner correctly returned an
+acceptance timeout rather than the shutdown timeout expected by the test.
+Ubuntu's real diskless QMP check passed on that head.
+
+The follow-up changes tests only. It completes and acknowledges protocol setup
+under a bounded readiness guard, then directly tests the shutdown helper with
+an absolute two-second deadline and an already-expired deadline. The existing
+two-second handshake/lifecycle regression remains unchanged. The shutdown
+budget, 500 ms upper slack, error classification, unsuccessful child status,
+process reaping and serial preservation checks remain enforced. The fixture
+now exits cleanly after a bounded three-second quit hold, so a broken deadline
+renewal fails promptly rather than waiting for an unrelated long timeout.
+
+Pinned local checks passed: the shutdown boundary cases, full default-parallel
+bootstrap suite (same CLI source: 362 library tests / 2 ignored, 33 CLI tests),
+explicit real diskless QMP 1/1, all-target Clippy with warnings denied and
+changed-file formatting. A temporary negative control renewing the shutdown
+deadline to 30 seconds failed as intended after 3,040 ms by returning a false
+success. The mutation was restored and production source was compared unchanged
+with `9d13cd70`. Windows validation of this test correction awaits latest-head
+public CI; no test was skipped and no production timeout or CI gate was changed.
+
+## QMP deadline/parser integration candidate — 2026-11-04
+
+Status: `PARTIAL`. Ported the QMP-only changes from candidate
+`03e48e1404c1ad6a2bb6d059d176928424603b78` (tree
+`5eccfd1541a1fa47e7bb0ab59d345d87149f293a`) onto main
+`0362427747e769b00558053e4c7f4c756d303802`. The source histories have no
+common ancestor, so unrelated candidate APIs, guest changes and milestone
+claims are excluded. Public QEMU runner APIs remain compatible with main.
+
+The subsequent main `87b7dea4061be2572526181ab559d63037f823d0`
+(Calendar PR #89 boundary tests) was integrated without conflicts or changes
+to the QMP source. Full default-parallel CLI, real diskless QMP and Calendar
+host suites passed again on this combined candidate.
+
+The runner retains its original host deadline across handshake, acceptance,
+diagnostics and shutdown; parses greeting/response JSON; validates known
+command result shapes and asynchronous-event timestamps. A real diskless QEMU
+11.1.1 check on macOS found a closed-socket timeout-configuration race during
+quit. Shutdown accepts this only after observing a clean owned-process exit
+within the original deadline. The diskless regression is opt-in locally and
+runs in the existing Ubuntu host CI job.
+
+Pinned nightly-2025-08-01 local verification: QMP filter 12 passed / 1 ignored;
+explicit real diskless QMP 1 passed; standalone bootstrap (same CLI production
+source) full serial suite 362 library tests passed / 2 ignored, 33 CLI tests
+passed, 0 doctests; Clippy all targets with warnings denied and Python
+regression passed. The initial full parallel run failed the shutdown timing
+assertion under load and a missing generated mozjs fixture. The official
+registry-source preparation supplied the pinned fixture; the serial rerun
+passed without changing assertions. Parallel-load timing remains a CI risk.
+The ordinary workspace run initially stopped before tests because generated
+third-party sources were absent; full workspace/platform CI is still required.
+
+No Nagi guest, existing disk, image, overlay, receipt or launch claim was used.
+Diskless QMP compatibility is not Nagi guest/VM acceptance. Nagi 0.1 and all
+milestone statuses remain unchanged. Candidate bundle, original available
+logs, failed and successful verification logs are preserved in an isolated
+SSD evidence directory for this integration task.
+
+## PR #80 standalone Installer host candidate - 2026-11-02
+
+Status: `PARTIAL` (host and existing Nagi target/guest CI pass; no 0.1 milestone
+PASS for the standalone Installer).
+Code/test candidate validated by CI: `14daabe3cffb0c2161d67df5c349ad59ea1d5ea1`
+(tree `d28a4d7b721eb190aa209d999b3b1b2b9260702b`), based on public
+`main` `8b49bc8a2427071adb20ba7ef14ece4ff08e9c97`. This status update is a
+docs-only follow-up to that tested candidate. PR #80 remains open as a draft;
+it has not been merged. PRs #63, #69, and #75 remain open.
+
+The candidate scopes committed-uninstall cleanup failures to the affected app,
+reports pending app IDs while keeping inventory and unrelated apps usable,
+preserves unknown package-directory content, and binds install journals to
+their version transaction. It also adds Windows junction/open-handle coverage,
+normalizes non-Unix executable metadata, and sanitizes inherited Git environment
+overrides in the isolated CLI fixture. The standalone Installer remains a
+host-side foundation: no production installer activation or permission
+integration is included.
+
+**Hosted validation at the tested code head:** GitHub Actions run
+[41412047119](https://github.com/Roy-To/NagiOS/actions/runs/41412047119):
+- Ubuntu host job: PASS, including standalone Installer formatting, Clippy
+  with warnings denied, and 35 Installer tests (27 unit, 3 journal, 5 metadata).
+  The CLI integration files passed 33 `cli.rs` tests and 6
+  `run_receipt_cli.rs` tests.
+- Windows launcher job: PASS, including standalone Installer formatting,
+  Clippy with warnings denied, and the same 35 Installer tests. The Windows
+  junction regression passed. Windows ran 33 `cli.rs` tests; the
+  Unix-specific `run_receipt_cli.rs` target contained 0 tests.
+- On the preceding code head `507b71cd`, the first run
+  [41410824188](https://github.com/Roy-To/NagiOS/actions/runs/41410824188)
+  found that the junction fixture used a forward slash in a path passed to
+  `cmd.exe`. Commit `14daabe3` switched that fixture to native
+  `PathBuf::join` components; the current Windows rerun passes.
+- The `nagi-target` job completed successfully: pinned source bootstrap,
+  M17/M18 dependency checks, Mesa Softpipe, kernel/init/UEFI builds, and the
+  existing M17 first-web-pixel, M18 Albert, M19 Files, M22 Undo, M27 rollback,
+  M29 Settings, and M30 reference-disk acceptance steps all passed. This job
+  does not exercise the standalone Installer; no guest-side Installer
+  acceptance is claimed. The M20 inference job and Nagi 0.2 host-foundations
+  workflow were skipped.
+
+The Windows implementation's directory-sync operation remains a no-op.
+Crash/power-loss durability for directory-tree promotion is not established.
+The pinned nightly edition-2021 format check and `git diff --check` pass.
+The scoped canonical `cc-nagi` bootstrap used a local verified archive; its
+generated checkout and receipt remain local and are not PR content.
+
 # 1. Current status
 
-**Current milestone:** `M30 — Nagi OS 0.1 Release`
+**Current milestone:** `M19 — Semantic Layer / Search`
 **Milestone status:** M19 `PARTIAL`, M20 `PARTIAL`, M21–M22 `PARTIAL`,
 M23–M30 `PARTIAL`.
+**M19 signed Files Search production route, 2026-10-08:** ADR 0069 adds a
+signed first-party `org.nagi.files` client to the ordinary Files Search path.
+The client is built as a separate product package, receives only Object IDs,
+and requires live `search.query` and `files.search` owner grants before its
+one-shot request. The local `./nagi login` attempt built the signed package
+and `nagi-init`, then stopped while writing the Nagi kernel `core` archive
+(`No space left on device`, 213 MiB available). It did not create a login
+image or reach QEMU, so this is implementation progress, not acceptance
+evidence. Production-route QEMU verification, Files trash/restore, and normal
+Browser History producer synchronization remain open; M19 stays `PARTIAL`.
+Ported onto `main` after PR #28 (superseding PR #30): on an aarch64 Linux
+host, `cargo test -p nagi-cli -p nagi-search-ipc`, host clippy for
+`nagi-cli`/`nagi-isolated-app`, the `nagi-files-search-client` Nagi-target
+release build, and a Nagi-target `cargo check` of `nagi-init` with
+`desktop-password-change-acceptance,m19-files-search-production` passed. The
+`./nagi login` guest acceptance was not run there; CI is the next evidence.
+**M18 acceptance closure, 2026-10-07:** `origin/main` commit
+`7ff70b83cfdc05c279c1b697ceacf12196e83e1f` passed GitHub Actions run
+[`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873).
+Its `nagi-target` job passed the full M18 interactive HTTPS acceptance
+(`./nagi m18`), including three rendered HTTPS sites, an interactive
+permission decision, clipboard, Japanese IME, upload, and user-activated
+download. This satisfies M18's documented target-CI closure condition; M18
+is now `PASS`. M19 is the earliest incomplete milestone.
+**M19 Browser History and Search guest acceptance, 2026-10-07:** `./nagi m19`
+passed the combined M18/M19 HTTPS Browser and Search flow on two QEMU boots
+using the same User Data disk. The original `example.com` HistoryEntry is
+published as a Page, keeps the same Search ObjectId after restart, and remains
+grouped in its profile Workspace. An authorized isolated `search@1` client
+receives that exact ID after restart; a foreign client receives no private
+history, page, or file IDs. The real guest VFS file rename/restart checks,
+inode-reuse denial, Page/Workspace fixture checks, and M21 `file.search` path
+also pass. Evidence, serial logs, screenshots, image, disk, and OVMF variables
+are under `out/evidence/m19-browser-search-1791386170641690000/`. Browser
+history publication is still acceptance-scoped, and a resident production
+Search service plus general Files producer synchronization remain open; M19
+stays `PARTIAL`.
+**M19 signed-in desktop Files Search runtime, 2026-10-08:** ADR 0068 extracts
+the shared User Data VFS snapshot adapter and starts a bounded SearchService
+when the owner signs in. It enumerates only regular files directly under
+`/home/owner/files`, indexes names and VFS identity/mtime metadata, tracks
+`(inode, generation)` producer keys, updates a private Files Workspace, and
+persists Search metadata under `/var/lib/nagi-search`. The runtime does not
+read file contents. `./nagi login` passed all four GUI phases on QEMU run
+`1791387522725149000`; the password-change boot queried the fixture and
+persisted its ObjectId, and the following boot queried it again after
+restoring the Search snapshot. The ordered logs are
+`out/evidence/login-1791387522725149000/password-change.log` and
+`out/evidence/login-1791387522725149000/verify-password.log`. These logs show
+the fixture's exact ObjectId restored and a non-UTF-8 filename excluded
+without disabling Search. The login QEMU
+harness now retries only the diagnosed pre-guest UEFI timer loop after
+confirming writable disks are unchanged and restoring the OVMF baseline.
+`./nagi m19` also passed run
+`1791386170641690000` across its Browser/Search restart flow. `./nagi test`
+and package-scoped rustfmt checks pass. The ordinary
+desktop still has no app-facing production `search@1` endpoint, Files UI
+integration, or general Browser History producer lifecycle; M19 stays
+`PARTIAL`.
+**M19 signed-in Files create/delete identity, 2026-10-08:** the owner runtime
+now exposes bounded create, rename, and delete operations for direct children
+of `/home/owner/files`. Each operation reconciles the private Files Workspace
+and persists Search metadata before returning. The QEMU `./nagi login` run
+`1791409942835920000` passed all four GUI phases. The password-change phase
+verified creation and query, tombstoning and search exclusion on delete, then
+inode reuse with a newer VFS generation and a different ObjectId; it deleted
+the recreated fixture afterward. The restart phase restored the original
+fixture ObjectId and repeated rename and deletion checks. Evidence is in
+`out/evidence/login-1791409942835920000/password-change.log` and
+`verify-password.log`. The same run exposed that nested rename consumed all
+free directory space; the VFS compactor now preserves a reusable free record,
+and a focused storage regression test covers creation after rename. The
+arm64 macOS host cannot compile `libnagi`'s x86-64 syscall assembly tests; the
+guest acceptance passed locally and the PR's x86 Ubuntu host job will run the
+unit regression. Files UI wiring, app-facing production `search@1`, trash
+restore, and normal Browser History producer lifecycle remain open, so M19 is
+still `PARTIAL`.
 **0.1 / 0.2 line merge, 2026-10-05:** `main` (0.1 release line) and
 `codex/integration-next-phase` (0.2 workstreams) were merged on
 `claude/integrate-main-0.2`; conflict decisions are recorded in
@@ -10,6 +897,259 @@ M23–M30 `PARTIAL`.
 fmt, warning-denied Clippy, host tests, standalone crate checks, the
 localization catalog check, and M0 launcher acceptance pass locally (arm64
 macOS host). Target acceptance (M17–M30) is verified by the PR's target CI.
+
+**Legacy FAT12 M27 fixtures sign in first (ADR 0063), 2026-10-07:** the
+FAT12 System A/B images of `./nagi m27` now build init with
+`m10-desktop,m27-ro-vfs-check,desktop-login`.
+
+- **Healthy B trial.** QMP keeps the offered language and creates the
+  owner. The boot waits for `Nagi login readiness reported PASS` and
+  requires, in order, `login unlocked PASS`, `M27 readiness persisted
+  slot=B attempt=1`, then `login readiness reported PASS`. The old
+  "readiness before `M10 desktop READY`" check is removed, since readiness
+  now follows sign-in.
+- **Later boots.** The promotion and confirmed B boots stop on `Nagi login
+  READY mode=unlock` (the owner persisted) and still require the loader to
+  consume the readiness record before promoting B. System A boots stop on
+  `Nagi M7 acceptance PASS`, before the desktop, and need no input.
+- **Checks.** `cargo test -p nagi-cli` (264 unit + 29 CLI tests, including
+  a new source-contract test), warning-denied Clippy for `nagi-cli`, and
+  `cargo fmt --check` pass on an arm64 Linux host. The FAT12 slot images
+  with `desktop-login` built for the target.
+- **Not verified.** `./nagi m27` did not reach the changed boots on this
+  host. Twice, the bootstrap boot (default init, unchanged by this work)
+  stopped at `Nagi M7 VirtIO Block FAIL` under QEMU 10.0.13 TCG on arm64
+  Linux (evidence `out/evidence/m27-ab-rollback-1791343607110865900`). M27
+  stays `PARTIAL`; the target run is pending on an x86_64 or macOS host.
+
+**M10/M29 desktops sign in first (ADR 0063), 2026-10-07:** `./nagi desktop`
+(M10) and `./nagi m29` now build init with `desktop-login`.
+
+- **Flow.** QMP keeps the offered language, creates the owner, and sends
+  the desktop input only after `Nagi login readiness reported PASS`. The
+  desktop prints that line when `report_boot_ready` succeeds after
+  sign-in, so readiness follows sign-in even without an M27 trial.
+- **M29 restart.** The unlock screen restores ja-JP, then QMP unlocks; the
+  restart requires `login READY mode=unlock`, the restored locale,
+  `login unlocked PASS`, then `login readiness reported PASS`.
+- **M10.** Each run has its own User Data disk and log. The M10 list no
+  longer requires the M29-only `keyboard locale selection` marker, which
+  had made `./nagi desktop` fail on `main`.
+- **Checks.** `cargo test -p nagi-cli` (263 unit + 29 CLI tests), warning-
+  denied Clippy for `nagi-cli`, and `cargo fmt --check` pass on an arm64
+  Linux host. Host Clippy/tests for `nagi-init` need an x86_64 host
+  (libnagi uses x86_64 `asm!`) and are left to CI.
+- **Target acceptance.** Not run locally: the arm64 sandbox restarted twice
+  during the `./nagi m29` guest build under QEMU TCG. Left to the PR's
+  target CI.
+- **Status.** M10 and M29 stay as recorded; this change is `PARTIAL`
+  until `./nagi m29` and `./nagi desktop` pass with sign-in.
+
+**Consent settings view (ADR 0065), 2026-10-06:** The owner can now review
+and withdraw recorded decisions.
+
+- **View.** With consent enabled, Settings has a Permissions view that
+  lists recorded decisions (application, capability, decision).
+- **Withdrawing.** Enter withdraws the focused decision to `Ask`,
+  persists it, and makes the next use prompt again.
+- **Result.** `./nagi consent` passed (evidence
+  `out/evidence/consent-dialog-1791292190602639000`): after the restart
+  restored the Allow, QMP opened Settings → Permissions, withdrew it, and
+  the live grant was `ConsentRequired` again. `./nagi m29` and
+  `./nagi login` still pass. The workspace has 892 host tests, and Clippy
+  is clean.
+
+**Sign-in throttling (ADR 0064), 2026-10-06:** The lock screen now limits
+failed sign-in attempts.
+
+- **Policy.** After three consecutive failed unlocks, the next attempt
+  waits 5 s, doubling up to 60 s. An attempt during the wait is refused
+  before the key derivation runs.
+- **Persistence.** The failure count persists in User Data, so a restart
+  waits again.
+- **Result.** `./nagi login` passed with create, throttle and restart
+  phases (evidence `out/evidence/login-1791281978301774000`).
+  `./nagi consent`, `m27`, `m29` and `m30-update` still pass. The
+  workspace has 891 host tests, and warning-denied Clippy is clean.
+
+**First-run language step (M29 onboarding, ADR 0063), 2026-10-06:**
+
+- **Flow.** With `desktop-login`, first run now asks for the system
+  language (English / 日本語) before creating the owner account.
+- **Persistence.** The choice is applied immediately and persisted, so the
+  later unlock screen appears in that language.
+- **Result.** `./nagi login` passed as run `1791264637514157000`. QMP
+  chose 日本語, the account was created, and after the restart the
+  preference was restored before the Japanese unlock screen.
+- **Checks.** `./nagi m29` still passes. The workspace has 886 host tests,
+  and Clippy is clean.
+
+**Desktop owner login (ADR 0063), 2026-10-06:** With `desktop-login`, the
+desktop first shows an OS-owned login screen.
+
+- **First run** creates the owner account. Only a salted PBKDF2-HMAC-SHA256
+  credential in a checksummed `owner-account` record reaches User Data.
+- **Later boots** unlock it.
+- **Readiness** is reported only after sign-in.
+- **Host tests.** `libnagi::credential` (checked against the PBKDF2 vectors)
+  and `libnagi::login` are host-tested. The workspace has 872 host tests,
+  and warning-denied Clippy is clean.
+- **Result.** `./nagi login` passed (evidence
+  `out/evidence/login-1791243371662416000`): QMP typed the owner name and
+  password to create the account; after a restart a wrong password was
+  `REJECTED` and the right one signed in. `./nagi m29` and
+  `./nagi consent` still pass.
+
+- **Follow-up.**
+  - **Consent.** The consent dialog now records for the signed-in owner,
+    after sign-in, and `./nagi consent` signs in first.
+  - **M27.** The M27 GPT healthy-B trial creates the owner through QMP and
+    must persist readiness only after `Nagi login unlocked PASS`. This is
+    account-authenticated readiness; `./nagi m27` passed (evidence
+    `out/evidence/m27-ab-rollback-1791243852197747000`).
+
+Still open:
+
+- the legacy FAT12 M27 fixtures now enable `desktop-login` (see the
+  2026-10-07 entry above; target acceptance pending). The
+  `m30-update` payload does too: its System B trial creates the owner and
+  persists readiness only after sign-in (`./nagi m30-update` run
+  `1791260698907877000`). The M10/M29 desktops now sign in first (see the
+  2026-10-07 entry above; target acceptance pending);
+- more accounts and Recovery reset. Rate limiting is done (ADR 0064), and
+  password change now has guest acceptance evidence (ADR 0066 below).
+
+**Owner password change (ADR 0066), 2026-10-07:** A signed-in owner can
+change the password from Settings. The feature acceptance is **PASS**;
+overall M30 remains **PARTIAL**.
+
+- **Form.** `libnagi::login::PasswordChangeForm` (current, new, confirm;
+  Escape cancels) is host-tested: a valid change, too-short, mismatch and
+  same-as-current refusals, secret clearing, and cancel.
+- **Desktop.** init's Settings lists "Change password" under the language
+  options with `desktop-login`. The current password is verified before
+  anything is written. Wrong attempts use the persisted ADR 0064 throttle.
+  The new record (fresh salt) is written to `owner-account-next` and swapped
+  in with `Vfs::replace`.
+- **Guest acceptance.** `./nagi login` passed on QEMU. It created an owner,
+  persisted and waited out the ADR 0064 throttle, opened the password form,
+  rejected a valid change with the wrong current password, saved the change,
+  then restarted and rejected `nagi1` while accepting `nagi2`. Ordered guest
+  markers are in `out/evidence/login-1791375220649789000/password-change.log`
+  and `verify-password.log`; screenshots and the persistent test disk are in
+  the same evidence directory.
+- **Checks.** `cargo test -p nagi-cli --target aarch64-apple-darwin
+  --locked --offline` passed (266 unit + 29 integration tests), warning-denied
+  Clippy passed for `nagi-cli`, the changed Rust files pass rustfmt, and
+  `./nagi doctor` reports 12 pass / 0 warn / 0 fail with the pinned arm64
+  toolchain and Homebrew tools.
+- The ja-JP wording remains limited to existing font glyphs. M30 remains
+  **PARTIAL** for its other open acceptance requirements.
+
+**Trusted consent dialog (ADR 0060), 2026-10-06:** A `ConsentRequired`
+grant is now asked through an OS-owned dialog, and the answer survives a
+restart.
+
+- **Prompt.** The Supervisor queues a prompt, and init's desktop shows a
+  modal Deny / Allow once / Allow dialog in en-US or ja-JP. Its input rules
+  are host-tested in `libnagi::consent`:
+  - input counts only after the dialog is presented, as a press plus its
+    release;
+  - focus starts on Deny;
+  - Escape decides nothing.
+- **Persistence.** `Allow`/`Deny` are written to User Data
+  `consent-decisions`, which has a versioned header and an FNV-1a checksum.
+  `AllowOnce` is never written. Restoring is all-or-nothing and fails
+  closed.
+- **Result.** `./nagi consent` passed on this arm64 macOS host (run
+  `1791239242422379000`, `OVMF_HOME=/opt/homebrew/share/qemu`):
+  - **First boot.** The signed faulting app's
+    `acceptance.consent-probe` request opened the dialog, captured before
+    input in `out/evidence/consent-dialog-1791239242422379000/`. A pointer
+    press on Deny released off-button decided nothing. Tab, Tab, then Enter
+    (press and release) allowed, and the decision was persisted.
+  - **Restart.** The same disk restored one decision, and the grant was
+    `Granted` with no prompt.
+- **Regressions.** `./nagi m29` and `./nagi isolated-process` still pass.
+  The workspace has 863 host tests (x86_64-apple-darwin) and
+  warning-denied Clippy is clean.
+- **Frame check.** The desktop's frame-change check now hashes every pixel,
+  because a moved pointer could miss every sampled pixel.
+- **Unrelated failure.** `./nagi desktop` fails on `main` as well. Its
+  required list includes the M29-only keyboard marker, which an
+  `m10-desktop` build never prints; this predates this change.
+- **Flake.** One temporary ja-JP rendering run timed out in OVMF on the
+  restart boot before the kernel started. The identical rerun passed.
+
+Still open:
+
+- the signed-in user is still the fixture account (no desktop login UI);
+- only the acceptance queues prompts; production services do not yet;
+- foreground/background and selected-file consent;
+- a settings UI to review or withdraw persisted decisions.
+
+**In-guest system update installer (ADR 0062), 2026-10-06:** A running
+System A now installs a signed update into System B, the loader re-verifies
+and trials it, and B is confirmed after readiness.
+
+- **Boot context and capability.** BootInfo v5 marks confirmed boots as
+  update-stageable. On those boots the kernel exposes only the inactive
+  slot as a one-shot, init-only capability (`SYS_UPDATE_SLOT_CLAIM`).
+- **Staging request.** `SYS_UPDATE_SLOT_STAGE` writes a CRC-protected
+  `NagiBootStage` variable. The loader honors it only when the generation
+  matches, nothing is pending, the manifest verifies, and the rollback
+  index is not lowered.
+- **Installer.** The installer (`m30-update-install`) verifies the bundle
+  before writing, then formats the slot as FAT32 (`crates/nagi-fat32`),
+  flushes it, re-verifies a read-back, and stages.
+- **Result.** `./nagi m30-update` passed (evidence
+  `out/evidence/m30-update-1791242245330653000`):
+  - signed bundle: install, then trial `slot=B rollback-index=2` with
+    readiness persisted, then `confirmed slot=B`;
+  - tampered bundle: refused before any write, and A stayed confirmed.
+- **Regressions.** `./nagi m27` still passes. The workspace has 862 host
+  tests, plus 163 kernel, 16 bootinfo, 7 slot-manifest and 4 FAT32 tests.
+  Warning-denied Clippy is clean.
+
+Still open:
+
+- network delivery of updates;
+- an update UI and user consent;
+- production key provisioning.
+
+**Authenticated slot manifests (ADR 0061), 2026-10-06:** The loader now
+verifies a signed `SLOT.MAN` for System A, System B and Recovery before it
+trusts any payload.
+
+- **Format and checks.** The manifest is Ed25519-signed with a domain
+  separator and pins the SHA-256 and size of `KERNEL.ELF` and `INIT.ELF`.
+  A trial slot must not lower the confirmed slot's rollback index. These
+  checks live in the `no_std` `crates/nagi-slot-manifest`, which has five
+  host tests.
+- **Rejection path.** A rejection prints `Nagi slot manifest REJECTED
+  slot=<S> reason=<…>` and consumes an M27 trial attempt.
+- **M27 GPT fixture.** System B now has a bootable ELF, but its manifest is
+  signed by an untrusted key.
+- **Soft-float build.** The UEFI target uses curve25519-dalek's `serial`
+  backend because it is soft-float.
+- **Result.** On the arm64 macOS host, `./nagi m27` passed (evidence
+  `out/evidence/m27-ab-rollback-1791241326571375000`):
+  - three trials printed `reason=signature`, then Recovery ran, then the
+    boot rolled back to System A;
+  - the healthy B verified and was promoted;
+  - the FAT12 malformed B is still refused as `invalid ELF`.
+- **M30.** `./nagi m30` passed from a clean worktree of the commit (run
+  `m30-release-1791241538355805000`): System A and Recovery printed
+  `Nagi slot manifest verified … rollback-index=1 PASS`.
+- **Host checks.** 855 workspace host tests and the loader library tests
+  pass.
+
+Still open for the M30 update item:
+
+- an in-guest installer that writes a signed update into the inactive slot,
+  reads it back, and verifies it;
+- a loader-consumed staging request;
+- production key provisioning.
 
 **User consent for manifest grants (ADR 0051), 2026-10-03:** A signed
 manifest's `grant=` line is now only a request.
@@ -27,8 +1167,8 @@ manifest's `grant=` line is now only a request.
 Still open:
 
 - the trusted consent dialog (acceptance decisions come from a fixture
-  account);
-- persisting decisions;
+  account) — addressed by ADR 0060;
+- persisting decisions — addressed by ADR 0060;
 - foreground/background distinctions.
 
 **Concurrent isolated processes (ADR 0050), 2026-10-03:** The kernel now
@@ -3002,9 +4142,9 @@ Use only these statuses:
 | M15 | History / Transaction / Wayback Foundation | PASS | Real guest create/edit/move/delete/restore/undo flow, persistent version/trash files, bounded History Service ledger with logical app/session/node/object context, and PowerShell/Git Bash acceptance wrappers passed on 2026-09-19; `out/logs/m15-history.log`. |
 | M16 | Package / SDK | PASS | Out-of-tree SDK sample emitted a real NAPP artifact; `nagi-pkg` packaged it, the IDL generator reproduced the checked-in Rust/C bindings, Ed25519 signatures were verified with tamper rejection, and QEMU loaded the host `.xapp` through guest VFS for install/list/info/launch/update/atomic replace/remove. Focused host suite, target builds, signed package CLI, PowerShell wrapper, and QEMU acceptance passed on 2026-09-19. Completion Sweep found and fixed an allocator cfg omission for the standalone `m16-package` feature; the target then linked and reached QEMU. The macOS rerun stopped at the prerequisite M14 capture check (`Nagi M14 capture FAIL`, no CoreAudio input); M16 install/update markers were not reached. SDK/package/IDL artifacts and the failed local run are preserved under `out/evidence/completion-sweep-regression-20260930/`; the prior M16 acceptance remains the PASS evidence. |
 | M17 | Servo Bootstrap | PASS | Public CI #303 (`36355494134`, head `31bf815`) passed the Windows launcher, Ubuntu host, and authoritative `nagi-target` jobs. Real QEMU passed the Servo/Mesa Softpipe first-web-pixel gate: nonzero guest frame checksum, copy and present through Nagi Surface, registered Servo resources, and ELF constructors before user entry. Local real-QEMU regressions passed on 2026-09-29 and 2026-10-03. The 2026-10-03 rerun uses an explicit `/tmp/nagi-m17-servo` fixture storage root; its nonzero frame checksum and PASS marker are preserved under `out/evidence/m17-first-web-pixel-20261003/`. The immediately preceding failure was caused by a reused User Data VFS with all 64 inodes allocated to prior Servo temporary roots; that failed disk and trace are preserved under `out/evidence/m17-storage-init-abort-20261003/`. |
-| M18 | Albert Browser | PARTIAL | **Acceptance PASS locally and in CI on 2026-09-29:** corrected commit `eb22702` passed CI run [`36533931477`](https://github.com/RT-NISH/NagiOS/actions/runs/36533931477) across Windows launcher, Ubuntu host, and `nagi-target`. Clean Servo bootstrap, M17 QEMU first-web-pixel, M18-B chrome, and `./nagi m18` three-site HTTPS/QEMU acceptance all passed. A 2026-10-03 rerun also passed: QEMU verified TLS chains and hostnames for `example.com`, `example.org`, and `example.net`, rendered all three through Nagi Surface, and passed browser temporary-storage cleanup. Current evidence is under `out/evidence/m18-completion-sweep-20261003/`, with the prior fixed-path image, User Data, vars, and logs preserved under `out/evidence/m18-pre-sweep-20261003/`. macOS uses a Darwin-only ELF linker adapter for target links; the Mesa `-latomic` probe remains enabled. Ubuntu's Clang/LLD route is unchanged and verified. On 2026-10-03, the generated Servo cache was archived and regenerated from the pinned checkout and patches. Added an opt-in M18 acceptance delegate with a localized opaque site-permission modal; it holds the real Servo request pending until a fresh Allow/Deny click or Escape Cancel and denies on input/render/timeout failure. Sixty `nagi-albert` acceptance-feature tests pass. The 2026-10-03 `./nagi m18` rerun passed the three HTTPS pages, but none requests a permission; exact image, User Data, OVMF vars, serial log, screenshot, and verified SHA256 manifest are under `out/evidence/m29-browser-1790978167816192000/`. **Clipboard (2026-10-05):** new user-space `nagi-clipboard` service (ADR 0053) with attenuable READ/WRITE endpoints and per-tab one-shot paste gestures recorded only by Albert's trusted input path; Albert now focuses the active WebView and moves keyboard focus to the page after address submission or a page click. Local `./nagi m18` run `1791179851416415000` passed the three HTTPS pages plus QMP-driven Ctrl+C / click / Ctrl+V between page fields (pasted value observed through the page), followed by an ungestured read denied with `no-user-gesture`; serial log, command log, screenshot, and SHA256SUMS are under `out/evidence/m29-browser-1791179851416415000/`. The service is in-process with Albert, not yet behind authenticated Channel IPC. **IME (2026-10-05):** new user-space `nagi-ime` (ADR 0054) composes hiragana from romaji with katakana/hiragana candidates; Nagi 0.1 has no kanji conversion by user decision. Albert routes page keys through it only while Servo reports a focused text field and sends composition start/update/end events. Local `./nagi m18` run `1791180856033701000` passed the HTTPS pages, clipboard, and a QMP-typed Ctrl+Space `nihongo` Enter committed as `にほんご` into the page field (DOM value observed through the page); evidence under `out/evidence/m29-browser-1791180856033701000/`. **Text rendering (2026-10-05):** the M18 HTTPS acceptance had been passing pages that painted no text — Nagi's Servo font registry was empty, so all three sites produced the same background-only frame (`0x5a9955c5`). Bundled Noto Sans/Noto Sans JP (ADR 0055, Servo patch 0026) are published read-only under `/system/fonts/`; file-backed `mmap`/`munmap` now accept non-page-multiple lengths as POSIX requires (the failing step found by diagnostic patch 0027). Each page now reports `ink_pixels` and the validator requires at least 200. Local `./nagi m18` run `1791185005598104000` passed with `ink_pixels=5632` per site and a screenshot showing the pasted token and committed `にほんご`; evidence under `out/evidence/m29-browser-1791185005598104000/`. Production authenticated policy/IPC, interactive QEMU permission acceptance, and download/upload destinations remain. |
-| M19 | Semantic Layer / Search | PARTIAL | Integrated `user/nagi-search` into the root workspace and added a bounded two-slot guest snapshot backend plus target VFS adapter. Twenty-nine Search tests, warnings-denied Clippy, format, Nagi target compile, and QEMU persistence/rename acceptance pass. Guest executes bounded M21 `file.search` through ContextResolver, Validator, Action Registry, and Executor; the M22 fixture records its executed result in NAL1 with `transaction_id=None`. Caller policy remains fixture-only. Real Files/page producer synchronization and authenticated production IPC remain. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`. |
-| M20 | AI Runtime / Granite | PARTIAL | `third_party/models.lock` pins IBM Granite 4.2 3B and its exact artifact metadata; a separate disposable QEMU disk passed full guest-visible digest verification through the read-only Model Store, but no model has been loaded for inference and the regular M30 image remains empty. The tracked Nagi llama.cpp patch stack runs through 0034, adding checked failures across model/context/state/file/mmap/vocabulary/memory, DSV4, sampler, and quantization paths plus a Nagi-only static backend initialization path while preserving upstream behavior elsewhere. Host and Nagi-macro loader-bounds builds pass; focused CTests pass 1/1 in both, and `nagi-cli` passed 196 unit + 21 integration tests. The no-exceptions syntax sweep passes 32/32 top-level `src/*.cpp` files, and the full LLVM 19/libc++ Nagi target build linked `libllama.a` (42/42 steps, 6.4 MiB; log `out/logs/m20-loader-status-0033-noexceptions-target-build-llvm19.log`). QEMU run `1790962398371656000` links the static llama/ggml CPU archives into `nagi-init` and passes `llama_backend_init()`, CPU registration, and target C++/ctype/math smoke checks; its image, target ELFs, archives, serial log, disks, variables, and SHA-256 manifest are under `out/evidence/m20-llama-link-smoke-1790962398371656000/`. The 2026-10-03 inference integration attempt adds a seekable read-only Model Store callback descriptor, a guest ModelBackend adapter, structured-output grammar, memory sizing, and a reproducible CLI acceptance command. The target archives and provider adapter compile. The first final link reported 142 unresolved symbols; after explicitly linking relibc and adding Nagi stdio/ctype/wchar providers, a fresh official CLI attempt still fails before image creation with 88 unresolved target C++ standard-library symbols (streams, strings, locale, filesystem, regex, random device, shared ownership, exceptions, and thread/future). The exact updated log and attempt record are under `out/evidence/m20-granite-inference-1790985332307332000/`; the initial link log remains under `out/evidence/m20-granite-inference-1790984128856579000/`. No guest inference or QEMU acceptance is claimed. Linking a host libc++ archive is not valid for Nagi. The required target-owned C++ runtime/provider set remains open. On 2026-10-03, the prior ignored generated llama and Servo caches were preserved before `./nagi fetch` regenerated and validated fresh checkouts from their pinned revisions and patches. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`. |
+| M18 | Albert Browser | PASS | Authoritative closure: main commit `7ff70b8` passed GitHub Actions run [`37601664873`](https://github.com/RT-NISH/NagiOS/actions/runs/37601664873); the `nagi-target` job passed M17, M18-B chrome, and the full `./nagi m18` guest scenario. It rendered three HTTPS sites and passed interactive site permission, clipboard, Japanese IME, trusted-picker upload, and user-activated download. Production authentication, notification presentation, and Servo StorageManager persistence remain documented limitations; kanji conversion is deferred by ADR 0054. |
+| M19 | Semantic Layer / Search | PARTIAL | `user/nagi-search` provides the bounded two-slot guest snapshot backend. `./nagi m19` passes the combined HTTPS Browser/Search scenario across two QEMU boots on one User Data disk, including stable Browser History Page/ObjectId/Workspace, authorized isolated `search@1`, foreign-client denial, VFS rename/inode-reuse checks, Page/Workspace persistence, and bounded M21 `file.search` (`out/evidence/m19-browser-search-1791386170641690000/`). ADR 0068 adds a signed-in owner desktop runtime that scans `/home/owner/files`, persists metadata under `/var/lib/nagi-search`, and restores producer ObjectIds. `./nagi login` run `1791409942835920000` verified create/query, rename with stable ObjectId, delete/tombstone, inode-generation reuse, and restoration after restart (`out/evidence/login-1791409942835920000/`). Run `1791413203412953000` verified direct Files-panel search. Latest run `1791414261520793000` passed all four GUI phases, including direct and nested Files-panel searches, stable nested ObjectId/workspace grouping, and saved screenshots `files-search-runtime.png` and `files-search-nested.png` (`out/evidence/login-1791414261520793000/`). The runtime bounds indexing to 8 files, 16 directories, and depth 4, and does not read file contents. `./nagi fmt` and the targeted login contract test pass. Remaining blockers are production app-facing Search with live grants, Files mutation UI/service integration with trash restore, and normal Browser History producer updates. See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md`.
+| M20 | AI Runtime / Granite | PARTIAL | `./nagi m20-granite-inference` QEMU run `1791393002742512000` passed real Granite 4.2 3B inference inside Nagi with the exact 2,244,011,552-byte Q4_K_M artifact and locked SHA-256 `e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5`; the guest produced the schema-constrained Japanese response. The `nagi-m20-inference` job in GitHub run `37702418216` verified and built the model/runtime, then failed before inference on the first User Data sector-2 write timeout with Ubuntu QEMU 8.2.2. Local commit `4e62dcd` raises the bounded VirtIO wait from 5 million to 100 million spins; the Nagi x86 release build and formatting pass, but the hosted rerun is not yet complete. Model installation and normal lazy-service integration remain open. See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
 | M21 | Planner / Validator / Executor | PARTIAL | `services/nagi-ai` supplies the authoritative NagiPlan@1 schema to model requests and independently validates provider output at the generic adapter boundary; deterministic parsing and Validator checks remain in force. Bounded guest `file.search`, fixture-scoped `file.move` and `file.copy` run through ContextResolver, Validator, Action Registry, capability/object checks, and Executor against real VFS state; executed search results flow into M22 NAL1. Executor reacquires grants for each step; a new two-step regression revokes the second capability after step one and verifies `Partial/CapabilityDenied` with no second handler call. All 25 AI tests, Clippy, and formatting pass. Policies, handlers, and caller identity remain fixture-only; production IPC/authenticated caller authority, model service integration, and general first-party actions remain. See `docs/workstreams/NagiOS_M21_Planner_Validator_Executor_Workstream.md`.
 | M22 | AI Safety / Undo Integration | PARTIAL | Fresh three-boot QEMU runs preserve digest-bearing grouped Move, bounded Copy, NAL1/NH16 persistence, Undo, and restart restoration; standalone run `1790999599873700000` and both repetitions in `out/evidence/m28-run-20261003T035340Z-63277/` passed. The M22 bootstrap and all three numbered guest boots now share one guarded pre-guest retry: it requires the running-CPU/QMP firmware-timeout signature and unchanged writable boot/User Data SHA-256 values, with per-boot evidence sidecars archived by M28. The current M22 runs did not need this retry; unit tests cover restoration, disk-change suppression, and three-boot sidecar isolation. Fixture caller/policy, real inference, authenticated production authority, general production actions, and a production Activity Ledger service remain. See `docs/workstreams/NagiOS_M22_AI_Safety_Undo_Integration_Workstream.md`. |
 | M23 | Nagi Bar / Context / Albert AI | PARTIAL | Added the bounded, fail-closed public Browser Context API and trusted visibility checks for selected Object/Workspace context; browser page content is labeled untrusted at the provider boundary. Twenty-four `nagi-ai` tests, warnings-denied Clippy, formatting, and Nagi no-std target compile pass. Live Servo extraction, authenticated guest policy/IPC, Nagi Bar UI, and real inference remain; the formal page-summary acceptance is not met. See `docs/workstreams/NagiOS_M23_Nagi_Bar_Context_Albert_AI_Workstream.md`. |
@@ -3020,80 +4160,87 @@ Use only these statuses:
 
 # M19 - Semantic Layer / Search (`PARTIAL`)
 
-The M19-PREP deterministic metadata/search implementation is integrated into
-the root workspace. Nineteen host tests cover stable object metadata,
+The M19-PREP deterministic metadata/SearchService implementation is integrated
+into the root workspace. Thirty host tests cover stable object metadata,
 visibility filtering, producer mapping contracts, snapshot recovery, and
-search after reopen. The target `m19-search` feature persists a bounded
-two-slot snapshot through the guest VFS; `./nagi m19` passed remount and a
-second QEMU boot using the same disk. That QEMU path uses a private fixture,
-not live Files/page producers or a production Search IPC service. Guest VFS
-files remain limited to 1 KiB, so the fixture acceptance caps snapshots at
-4 KiB. Authenticated capability-to-object visibility and canonical producer
-Object IDs remain M19 blockers.
+search after reopen. The target Search feature persists a bounded two-slot
+snapshot through the guest VFS. `./nagi m19` runs the actual M18 HTTPS Browser
+scenario and verifies stable File, Page, and Workspace IDs, grouped results,
+authorization filtering, and Search restart across QEMU boots. The signed-in
+desktop also starts a persistent owner-Files runtime; QEMU run
+`1791409942835920000` verified create/query, rename with stable ObjectId,
+delete/tombstone, inode-generation reuse, and restored identity after restart
+through that runtime. A later login run, `1791414261520793000`, verified
+bounded nested-path publication and search. The login fixture calls these
+runtime methods directly.
+
+ADR 0069 now scopes a production path to one bundled signed `org.nagi.files`
+Search client. The normal Files panel launches that client through Supervisor
+for one request, obtains OS-owned consent, checks live `search.query` and
+`files.search` grants, validates an ObjectId-only result relay from the same
+kernel-identified process, and resolves IDs to visible Files titles. The
+signed client target build passes, and the integrated login build produced
+the signed package and compiled `nagi-init`; the kernel build then stopped
+while creating its `core` archive with `No space left on device`. No QEMU guest
+acceptance has run for this route yet, so the implementation is not marked
+accepted. Files create/rename/trash/restore controls and ordinary Browser
+History producer updates also remain open. Guest VFS files remain limited to
+1 KiB, so the snapshot is bounded at 4 KiB. M19 remains `PARTIAL` until the
+production route passes guest acceptance and the remaining producer
+lifecycle work is integrated.
 
 See `docs/workstreams/NagiOS_M19_Semantic_Layer_Search_Workstream.md` for the
 focused evidence and remaining production acceptance criteria.
 
 # M20 - AI Runtime / Granite (`PARTIAL`)
 
-The `nagi-model-manager` package streams artifact bytes through a fixed 8 KiB
-buffer and checks their SHA-256 before any backend load. Its Granite profile
-identifies IBM's Q4_K_M GGUF snapshot, upstream byte count/digest, and
-Apache-2.0 notice. The exact pinned artifact is retained in ignored local
-cache and is not bundled. The exact llama.cpp revision is in
-`third_party/sources.lock`.
+The pinned Granite 4.2 3B GGUF was loaded through the read-only Model Store
+capability into the target llama.cpp CPU backend. `ModelRuntime` verified the
+artifact digest and validated the generated structured response. Host inference
+was not used, and the standard M30 release image remains without model bytes.
 
-Nagi's numbered llama.cpp patch stack now runs from `0001` through `0022`.
-It bounds GGUF metadata and tensor reads, reports parser/loader/model/adapter
-failures through checked status under `__NAGI__`, and preserves ordinary host
-exceptions. Patches 0021–0022 cover model architecture metadata, model-load
-failure propagation, and early expert-count validation; the fresh generated
-checkout and verified manifests are under
-`out/evidence/m20-loader-status-0022-20261002/`.
+## Completion Sweep — real local Granite inference (2026-10-08)
 
-The fresh-cache host and Nagi-macro `llama` targets and loader-bounds targets
-build, and their focused CTests pass 1/1. All 185 CLI library tests,
-`./nagi test`, `./nagi fmt`, `./nagi lint`, and `./nagi build` pass. The full
-no-exceptions Nagi `llama` build advances past the 0021–0022 model failures and
-currently stops in unity 1–4 with 44 reported throw diagnostics across 19
-remaining model files. See
-`out/logs/m20-loader-status-0022-noexceptions-target-build-fresh.log`.
-Unfiltered CTest requires many unrelated binaries that are not built by these
-focused configurations; the explicit loader-bounds CTest passes in both host
-and Nagi-macro configurations. Broader CMake `all` attempts also hit unrelated
-auxiliary targets lacking `mtmd.h`, `build-info.h`, and `arg.h`. STL allocator
-OOM recovery remains unsupported under the no-unwinder ABI.
+`./nagi m20-granite-inference` passed QEMU run
+`1791393002742512000`. The guest printed
+`Nagi M20 Granite structured response: {"answer":"Hello in Japanese is こんにちは (Konnichiwa)."}`
+and `Nagi M20 Granite structured inference PASS`. It read the complete
+2,244,011,552-byte artifact and verified SHA-256
+`e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5` before
+loading. The target libc++ and llama.cpp archives built; `qemu-img check`
+reported no image errors, and `shasum -a 256 -c SHA256SUMS` verified all five
+manifest entries.
 
-M20 remains `PARTIAL`: there is no complete Nagi-compatible llama.cpp target
-backend, trusted guest installer/catalog, active lazy-loading model service,
-or in-guest Granite response/QEMU inference acceptance. The disposable
-acceptance image verifies storage and digest only.
+The preserved image, serial log, build logs, OVMF variables, README, and
+checksum manifest are under
+`out/evidence/m20-granite-inference-1791393002742512000/`; the qcow2 is
+`out/artifacts/nagi-0.1-m20-granite-inference-1791393002742512000.qcow2`.
+The Apple Silicon host's x86 QEMU emulation took about 3 hours 51 minutes in
+SIMD execution, then completed successfully.
 
-The 2026-10-03 Completion Sweep added a read-only seekable callback descriptor
-to the Nagi POSIX runtime and a `LlamaCppBackend` path that feeds the pinned
-Model Store artifact through `fdopen`/`llama_model_load_from_file_ptr` with
-`mmap` disabled. The target adapter constrains one structured JSON response
-with llama.cpp grammar and leaves final schema validation to `ModelRuntime`.
-`./nagi m20-granite-inference <artifact.gguf>` builds pinned target archives,
-assembles the disposable Model Store image, and requests guest inference.
-The callback helper's three focused tests and all 200 `nagi-cli` library tests
-pass; `./nagi fmt` passes. The first target integration link failed with 142 unresolved symbols. After
-explicitly linking relibc and adding Nagi stdio/ctype/wchar providers, a fresh
-official CLI attempt still fails before image creation with 88 unresolved
-target C++ standard-library symbols. The earlier `fdopen` and other C/POSIX
-providers no longer appear in the link failures. The updated link log is
-`out/evidence/m20-granite-inference-1790985332307332000/target-link-after-relibc-providers.log`
-(SHA-256
-`19442fbc322d5fc5168717d5567f81890e4735ad96c774610038b5b8ffb90927`); its
-attempt README and target archive build log are in the same directory. The
-initial 142-symbol link log and README remain under
-`out/evidence/m20-granite-inference-1790984128856579000/`. No guest model load,
-inference, unload/restart, or inference QEMU acceptance is claimed. M20 remains
-`PARTIAL`; a target-owned C++ runtime with thread, locale, and filesystem ABI
-integration is required.
+The adapter no longer calls `llama_sampler_accept` after
+`llama_sampler_sample`, which already accepts its selected token internally;
+this prevents constrained grammar state from advancing twice. The guest uses
+one ggml compute thread while bootstrap user threads are cooperative. These
+fixes and a dedicated x86 CI acceptance job are committed as `0d66495` in PR
+[#29](https://github.com/RT-NISH/NagiOS/pull/29). The local milestone gate is
+PASS; PR CI and automatic merge are still in progress.
 
-See `docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md` for exact
-commands, provenance, and the concrete runtime acceptance gap.
+Earlier target-link blockers and their preserved diagnostics are recorded in
+`docs/workstreams/NagiOS_M20_AI_Runtime_Granite_Workstream.md`.
+
+**M20 hosted QEMU write timeout, 2026-10-08:** the local Granite response
+acceptance above passed, but the `nagi-m20-inference` job in GitHub run `37702418216` failed before model load.
+Ubuntu 24.04 installed QEMU `8.2.2`; its guest log reports
+`Nagi M20 block write failure reason=request timeout sector=2` on the first
+User Data write in the sparse 64 GiB QCOW2 image. The local QEMU 11.1.1 run
+`1791414006180674000` passed sectors 2/3, M7 persistence, and Granite
+inference. As a bounded latency hypothesis, `MAX_REQUEST_SPINS` was raised
+from 5 million to 100 million in local commit `4e62dcd`. The x86-64 Nagi
+kernel release build with `m20-llama-memory` and kernel formatting passed;
+host kernel unit tests cannot run on this arm64 macOS host because the kernel
+uses x86-specific inline assembly. The fix still needs the same hosted QEMU
+acceptance; M20 remains `PARTIAL`.
 
 # M21 - Planner / Validator / Executor (`PARTIAL`)
 
@@ -9992,3 +11139,120 @@ run. The current Linux source has no System/Data GPT writer or mount callsite,
 so the separate plan producer does not establish image acceptance. Production
 authenticated READY remains unavailable pending real identity and transport
 suppliers. The integration workstream remains `PARTIAL`.
+## M24 scoped production read boundary candidate (2026-11-05)
+
+M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
+connects the ordinary Files runtime to a fallible title-only read API, borrowed
+record inspection, and fallible scalar stale-record staging. Existing producer
+ObjectId lookup now scans borrowed metadata instead of deep-cloning all matching
+records. BTreeMap model fields and existing owned-return API signatures remain.
+
+The original 30 nagi-search tests plus eight read-boundary regressions pass.
+All-target nagi-search Clippy passes with warnings denied. The actual
+`m19-files-search-production` nagi-init custom-target cargo check passes using a
+real locally built/signed Files client package and the configured Nagi clang;
+this is a compilation check, not a linked/booted guest acceptance. The init
+configuration emitted eight warnings; this does not establish a warning-free init build.
+
+The title helper's output Vec and String requests return storage Io on injected
+null denial and drop partial output. Scalar stale-record staging returns an
+explicit allocation/missing-key error before the caller begins deletion. These
+narrow paths do not establish whole-runtime OOM safety: initial store/attribute
+BTree decoding, state clones on update, legacy owned APIs, input construction,
+other UI/IPC allocations, allocator behavior and uncertain-commit/writer
+coordination remain unresolved. No production startup model migration, guest,
+real-media, public write or merge was performed.
+
+This read-only candidate is now reapplied on main
+`c170ebf1d056aea277e3aa5f464d148d4ecff7fb`, preserving its CI and status changes.
+Search 38 tests and warnings-denied Clippy pass, as does the actual Files init
+target check with a normally built/signed client. This is a local candidate;
+main/public heads and guest execution are unchanged.
+
+## M24 bounded semantic read allocation candidate revised (2026-11-05)
+
+M24 remains PARTIAL. This revision supersedes the linear-allowlist candidate
+`0328d682a731a61c5c0c864a9d400fba50bf7778`, based on public main
+`2c9532943a6624980892d01ce7e91f6d32545d25`. `PersistentVectorIndex::search`
+now fallibly reserves an ObjectId scratch Vec, copies/sorts/deduplicates the
+validated allowlist in place, and uses binary search for membership. Scratch
+requests at most 65,536 ObjectIds (512 KiB, excluding allocator overhead).
+The output Vec holds at most `limit` matches and is reserved fallibly only on
+the first hit. A worst-first heap bounds replacement to O(log limit); final
+`sort_unstable_by` restores canonical rank without another allocation.
+Both reservation failures return the existing `VectorIndexError::Capacity`,
+drop scratch/partial output, and permit retry. Empty allowlists/indices request
+no storage; disjoint nonempty allowlists request scratch only. Similarity,
+best-chunk ties, ObjectId order, duplicate semantics and validation precedence
+are retained. Snapshot format, update paths, writer coordination and DTOs are
+unchanged.
+
+Validation: 42 host tests pass, including all 1,800 comparisons with the previous
+full-sort search (limits 1..=100), full chunk/allowlist boundaries, and both
+reservation positions under transient/persistent null denial, live-byte leak
+checks and successful retries. The maximum-size duplicate allowlist also tests
+both failures and deduplication before output reservation. All-target Clippy
+with warnings denied, formatting and the Nagi custom-target library check pass.
+
+The bounded release-mode comparison runs original full-sort search, 0328d68
+linear search and this revision in one process on identical fixtures. It uses
+4,096 one-chunk objects, 2/384 dimensions, shuffled/sorted/no-hit/duplicate/short
+allowlists, limits 1/100, two warmups and nine samples of three calls with
+rotating algorithm order. Final medians in milliseconds for 2 dimensions,
+65,536 allowlist entries and limit 100 were:
+
+| Input | Original | 0328d68 | Revised |
+| --- | ---: | ---: | ---: |
+| Shuffled all objects permitted | 2.198437 | 49.250993 | 1.329543 |
+| Shuffled no hits | 1.752725 | 99.693478 | 1.301575 |
+| Sorted all objects permitted | 1.019333 | 3.214919 | 0.272238 |
+| Sorted no hits | 0.639960 | 98.821325 | 0.221432 |
+
+These are synthetic shared Linux-host observations, not guest performance
+estimates or acceptance. Across the 16 measured conditions the revised median
+was below the original and 0328d68. Two finite timing passes ran (12 then 16
+conditions, about 46 seconds total measured test time). Evidence, commands,
+compiler/host information and logs are local under
+`out/evidence/semantic-read-top-k-performance-20261105/`.
+
+Target latency, real guest OOM, allocator overhead, initial decoding, update
+clones and caller/provider allocations remain unverified or outside this
+change. No VM execution or public write was performed; no milestone is promoted.
+
+## Search backend allocation and uncertain-commit recovery candidate (2026-11-05)
+
+PARTIAL local candidate on main `d67897b4c27566ecc4353e3b7d9b16efd59bb559`.
+Backend manifest/chunk copies and snapshot assembly now reserve fallibly;
+bounded host-reference reads also return a distinct capacity error. An uncertain
+manifest write or final flush latches backend and metadata/vector-store mutations
+until a successful recovery fence, full load and decode. Normal read OOM probes
+preserve stored bytes and issue no write/remove/flush calls; blocked mutations
+after an uncertain commit preserve the bytes left by that commit. Recovery can
+flush pending data and is not a rollback or read-only durability proof.
+
+Original-source host negative controls reproduce the read allocation abort and
+the stale-memory next-mutation hazard. Isolated host tests (42 Search unit,
+9 new integration, 3 Model), warnings-denied Search Clippy and the Nagi target
+library check pass. This does not establish final linking, startup/codec OOM,
+writer coordination, guest or real-media durability. No VM, publication or
+permission change was performed. M19 and M24 remain PARTIAL. See
+`docs/workstreams/search-backend-read-recovery.md` for scope and evidence.
+
+## Host snapshot read path allocation correction (2026-11-06)
+
+PARTIAL local follow-up on published PR #98 `3e5a755`. Windows CI exposed an
+infallible UTF-16 path allocation inside std File::open before the fallible
+snapshot reservation. Extended input also reproduces the analogous long-path
+CString abort on Linux. Host read adapters now use bounded native path buffers
+and read-only OS opens, retaining path/share/handle and snapshot semantics.
+The allocator window and all existing assertions remain; relative/Unicode/long
+paths, NUL, namespace/surrogate and overflow regressions are added.
+
+The exact-source isolated Linux suite passes 61 tests, with warnings-denied
+Clippy, Windows/MSVC library cross-build/all-target Clippy, macOS cross-Clippy
+and the Nagi target library check passing. These are not native Windows/macOS
+execution results. Root package tests cannot start without the existing
+third_party/cc-nagi materialization. Original CI remains failed; no push,
+CI rerun, VM or guest execution was performed. Native host revalidation and
+independent review of this correction remain pending. M24 remains PARTIAL.
+See `docs/workstreams/search-host-path-allocation.md` for evidence and limits.

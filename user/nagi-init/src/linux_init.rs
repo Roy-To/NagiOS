@@ -653,6 +653,9 @@ struct ReleaseFailure<Child> {
     reaped: Option<ServiceExitStatus>,
 }
 
+type ExecAckResult<Raw> =
+    Result<ProcessHandle<Running, Raw>, ReleaseFailure<ProcessHandle<ReleaseUncertain, Raw>>>;
+
 /// One-shot capability to write the exec gate after registry authorization.
 /// It prevents a caller from writing the gate twice or reporting success
 /// without committing it.
@@ -1073,10 +1076,7 @@ trait ProcessOs {
         wait_budget: std::time::Duration,
         cancel_check_interval: std::time::Duration,
         cancelled: &mut dyn FnMut() -> bool,
-    ) -> Result<
-        ProcessHandle<Running, Self::Raw>,
-        ReleaseFailure<ProcessHandle<ReleaseUncertain, Self::Raw>>,
-    >;
+    ) -> ExecAckResult<Self::Raw>;
 
     fn try_wait<Stage: ProcessStage>(
         &mut self,
@@ -1408,18 +1408,22 @@ where
         }
 
         let registered = RegisteredLaunch { record };
-        let mut gate_commit = GateCommit::new(
-            &mut self.os,
-            &mut prepared,
-            &registered,
-            launch.release_wait_budget,
-        );
-        let authorization = authorize(process_id, &record, &mut gate_commit);
-        let gate_attempted = gate_commit.attempted;
-        let duplicate_gate_attempt = gate_commit.duplicate_attempt;
-        let release_started = gate_commit.started;
-        let gate_failure = gate_commit.failure;
-        drop(gate_commit);
+        let (authorization, gate_attempted, duplicate_gate_attempt, release_started, gate_failure) = {
+            let mut gate_commit = GateCommit::new(
+                &mut self.os,
+                &mut prepared,
+                &registered,
+                launch.release_wait_budget,
+            );
+            let authorization = authorize(process_id, &record, &mut gate_commit);
+            (
+                authorization,
+                gate_commit.attempted,
+                gate_commit.duplicate_attempt,
+                gate_commit.started,
+                gate_commit.failure,
+            )
+        };
 
         let authorization_error = match authorization {
             Err(error) => Some(error),
@@ -2652,10 +2656,7 @@ mod linux_x86_64_process {
             return Ok(None);
         }
         if waited_pid != pid {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "wait4 returned a different child PID",
-            ));
+            return Err(io::Error::other("wait4 returned a different child PID"));
         }
         Ok(Some(decode_wait_status(status)))
     }
@@ -2687,6 +2688,10 @@ mod linux_x86_64_process {
         }
     }
 
+    // These are the exact descriptors and argv/envp crossing the post-clone
+    // exec boundary. Keeping them explicit avoids a wrapper with misleading
+    // child-side close semantics.
+    #[allow(clippy::too_many_arguments)]
     unsafe fn child_wait_and_exec(
         gate_parent: i32,
         gate_child: i32,
@@ -2851,7 +2856,7 @@ mod linux_x86_64_process {
             const POLLNVAL: i16 = 0x020;
 
             let whole_ms = timeout.as_millis();
-            let fractional_ms = if timeout.subsec_nanos() % 1_000_000 == 0 {
+            let fractional_ms = if timeout.subsec_nanos().is_multiple_of(1_000_000) {
                 0
             } else {
                 1
@@ -4483,14 +4488,14 @@ impl InitBackend for UnconnectedBackend {
     fn call_service(
         &mut self,
         _session: &mut Self::Session,
-        service: &mut Self::ServiceHandle,
+        _service: &mut Self::ServiceHandle,
         request: ServiceRequest<Self::Action>,
         #[cfg(feature = "linux-service-action-bridge")] cancellation: CancellationToken,
         #[cfg(feature = "linux-service-action-bridge")] timeout: Duration,
     ) -> Result<ServiceResponse<Self::Reply>, ServiceIoError> {
         #[cfg(feature = "linux-service-action-bridge")]
         {
-            let Some(service) = service.as_ref() else {
+            let Some(service) = _service.as_ref() else {
                 return Err(ServiceIoError::Unavailable);
             };
             call_action_service(request, service, cancellation, timeout)
@@ -4521,9 +4526,7 @@ impl InitBackend for UnconnectedBackend {
 #[cfg(test)]
 mod process_lifecycle_tests {
     use super::*;
-    use nagi_init_package_provider::package_trust::PackageServiceSessionOwner;
-    use nagi_package::PackageService;
-    use std::cell::{Cell, RefCell};
+    use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::io;
     use std::rc::Rc;
@@ -6460,7 +6463,14 @@ mod service_action_bridge_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg_attr(not(test), allow(unused_imports))]
+    use nagi_init_package_provider::package_trust::PackageServiceSessionOwner;
+    #[cfg_attr(not(test), allow(unused_imports))]
+    use nagi_package::PackageService;
+    #[cfg_attr(not(test), allow(unused_imports))]
+    use std::cell::Cell;
     use std::collections::VecDeque;
+    use std::rc::Rc;
 
     #[cfg(linux_dev_preview_smoke)]
     #[test]
@@ -6856,7 +6866,9 @@ mod tests {
 
     impl Drop for SessionOwnerLifecycleSession {
         fn drop(&mut self) {
-            drop(self.package_owner.take());
+            {
+                let _package_owner = self.package_owner.take();
+            }
             self.drop_count.set(self.drop_count.get() + 1);
         }
     }

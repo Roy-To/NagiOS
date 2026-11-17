@@ -1,4 +1,15 @@
+> **Priority note (2026-11-14):** [DEC-049](docs/product-decisions/DEC-049-development-process-speed-priority.md) (speed over process) takes precedence over conflicting procedural rules in this file.
+
 # AGENTS.md — Nagi OS
+
+## Linux kernel direction (2026-11-12 to 2026-11-14)
+
+Nagi now targets the **Linux kernel plus a Nagi-owned userland** ([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md), [DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)); an existing distribution is not the product OS base. The statements below that Nagi is "not Linux-based", that Linux is a development host only, and that milestones must start strictly in M0→M30 order are the historical 0.1 baseline and must not block Linux migration work.
+
+- Development is authorized by [DEC-044](docs/product-decisions/DEC-044-linux-migration-development-authorization.md) and the [migration development ADR](docs/decisions/2026-11-12-linux-migration-development-scope.md).
+- Lane worktrees, in-worktree operations (edit, commit, build, test, QEMU, dependency fetch) and the integration branch `codex/linux-integration-20261114` are set by [DEC-047](docs/product-decisions/DEC-047-linux-migration-workspaces-and-integration.md), which supersedes the earlier "NOT ASSIGNED / not released" wording.
+- How existing specifications map onto the new direction: [kernel transition impact matrix](docs/product-decisions/KERNEL-TRANSITION-ALIGNMENT-2026-11-13.md) and [0.2 Linux migration addendum](docs/Nagi_OS_0.2_Linux_Migration_Addendum.md).
+- AI stays unprivileged; typed Public Actions, deterministic policy, capability/security boundaries and user-data integrity still apply. Host-only results are not Linux-image acceptance.
 
 This repository implements **Nagi OS 0.1 Developer Preview**.
 
@@ -21,6 +32,16 @@ When instructions conflict, use this priority:
 5. Existing implementation conventions
 
 Do not silently change an architecture decision. If a deviation is required, document the reason in `docs/decisions/` before implementing it.
+
+## Product decisions — public source of truth
+
+Since 2026-11-15 ([DEC-050](docs/product-decisions/DEC-050-public-specification-repository.md)) the user-approved product decisions, roadmaps and vision live **in this repository** under `docs/product-decisions/`. The former private ledger `Roy-To/NagiOS-internal` is retired; do not read new decisions from it or write to it.
+
+- Before designing or changing user-facing behavior, AI/Memory/Learning policy, Files/Albert behavior, cross-app Actions or future features, read `docs/product-decisions/README.md`, `OPERATING_RULES.md` and the relevant `DEC-*.md`. Do not substitute chat memory for them.
+- Distinguish `CONFIRMED`, `PROVISIONAL`, `REVIEW NOTE` and `SUPERSEDED`. Never turn a suggestion into a user decision.
+- **When the user approves a product or specification decision in a Codex or ChatGPT session, record it here**: update or add the `DEC-*.md`, update the index in `docs/product-decisions/README.md`, commit, and report the commit. If it cannot be written, report it as unsaved with a draft. See `docs/product-decisions/OPERATING_RULES.md`.
+- Never write credentials, personal information, local paths containing a user name, or chat/conversation identifiers into these files.
+- A recorded decision is not an implementation and is not evidence that a feature works.
 
 ---
 

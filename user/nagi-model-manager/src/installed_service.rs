@@ -46,6 +46,9 @@ pub struct InstalledModelService<
     selected_stamp: Option<A::Stamp>,
     last_epoch: u64,
     last_request: u64,
+    // The callback intentionally captures the statically selected trust
+    // contract while the service owns its single selector and authority.
+    #[allow(clippy::type_complexity)]
     select_impl: fn(
         &mut InstalledModelSelector<B>,
         InstalledSelectionMode<'_>,

@@ -48,6 +48,7 @@
 compile_error!("production-session is incompatible with milestone/fixture boot paths");
 
 #[cfg(any(
+    feature = "m10-desktop",
     feature = "m16-package",
     feature = "m19-runtime",
     feature = "m27-recovery",
@@ -155,14 +156,6 @@ mod action_ipc;
     ))
 ))]
 mod boot;
-#[cfg(feature = "private-browser-account-owner")]
-mod browser_account_owner;
-#[cfg(feature = "private-browser-profile-storage")]
-mod browser_profile_owner;
-#[cfg(feature = "private-browser-profile-storage")]
-mod browser_profile_storage;
-#[cfg(feature = "private-browser-session-adapter")]
-mod browser_session_access;
 #[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
 mod consent_dialog;
 #[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
@@ -177,12 +170,6 @@ mod desktop;
     any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
 ))]
 mod font;
-#[cfg(feature = "private-browser-session-adapter")]
-mod m19_browser_search_service;
-#[cfg(all(target_os = "nagi", feature = "private-installed-model-acceptance"))]
-mod private_installed_model_guest;
-#[cfg(all(target_os = "nagi", feature = "private-installed-model-acceptance"))]
-mod private_installed_model_observer;
 
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;
@@ -253,14 +240,10 @@ mod model_service;
     not(feature = "m13-posix")
 ))]
 mod network;
-#[cfg(feature = "private-history-read-adapter")]
-mod private_history_reader;
 #[cfg(all(target_os = "nagi", feature = "m27-recovery"))]
 mod recovery;
 #[cfg(all(target_os = "nagi", feature = "m11-security"))]
 mod security;
-#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
-mod session_services;
 #[cfg(all(
     target_os = "nagi",
     feature = "m8-shell",
@@ -665,12 +648,6 @@ fn bytes_equal(left: &[u8], right: &[u8]) -> bool {
     true
 }
 
-#[cfg(all(
-    target_os = "nagi",
-    any(feature = "m27-recovery", feature = "m27-ro-vfs-check")
-))]
-mod vfs_recovery;
-
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 type GuestVolume = libnagi::storage::Vfs<libnagi::storage::SyscallBlockDevice>;
 
@@ -681,24 +658,31 @@ fn run_m7_storage_acceptance(block_capability: u64) -> Option<(u64, Option<Guest
     #[cfg(feature = "m27-ro-vfs-check")]
     {
         let mut device = libnagi::storage::SyscallBlockDevice::new(block_capability);
-        let report = match vfs_recovery::inspect(&mut device) {
-            Ok(vfs_recovery::Inspection::Clean(report)) => report,
-            Ok(vfs_recovery::Inspection::RecoveryRequired) => {
-                libnagi::console_write(
-                    b"Nagi M27 read-only VFS recovery REQUIRED; use Recovery recover (not formatted)\r\n",
-                );
-                return None;
-            }
-            Err(_) => {
-                libnagi::console_write(b"Nagi M27 read-only VFS check FAIL (not formatted)\r\n");
-                return None;
-            }
-        };
+        let report =
+            match libnagi::storage::Vfs::<libnagi::storage::SyscallBlockDevice>::check_existing(
+                &mut device,
+            ) {
+                Ok(report) => report,
+                Err(error) => {
+                    let detail: &[u8] = match error {
+                        libnagi::storage::StorageError::Block => b"block I/O",
+                        libnagi::storage::StorageError::Corrupt => b"corrupt volume metadata",
+                        _ => b"other storage error",
+                    };
+                    libnagi::console_write(b"Nagi M27 read-only VFS check FAIL: ");
+                    libnagi::console_write(detail);
+                    libnagi::console_write(b"\r\n");
+                    return None;
+                }
+            };
         if report.regular_files == 0
             || report.directories == 0
             || report.allocated_data_blocks == 0
             || report.directory_entries == 0
         {
+            libnagi::console_write(
+                b"Nagi M27 read-only VFS check FAIL: empty integrity report\r\n",
+            );
             return None;
         }
         libnagi::console_write(b"Nagi M27 read-only VFS check PASS\r\n");
@@ -1646,20 +1630,9 @@ pub extern "C" fn _start(
         // Capture only the read-only Model Store authority. Desktop creates the
         // bridge with its guest admission budget and starts its worker after
         // authenticated readiness; boot configuration performs no model I/O.
-        #[cfg(feature = "m20-model-service")]
-        session_services::configure_boot(model_store_capability);
         // The dedicated actor takes exclusive User Data ownership. Its worker
         // constructs the concrete receipt producer; the ordinary desktop never
         // shares this VFS while installed-model acceptance is running.
-        #[cfg(feature = "private-installed-model-acceptance")]
-        private_installed_model_guest::run(
-            block_capability,
-            model_store_capability,
-            display_capability,
-            input_capability,
-            volume,
-        );
-        #[cfg(not(feature = "private-installed-model-acceptance"))]
         desktop::run(
             block_capability,
             display_capability,
@@ -1754,6 +1727,9 @@ fn panic(_info: &PanicInfo<'_>) -> ! {
 }
 
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+// The Linux development adapter has feature-gated process/service entry points;
+// the default `run()` stays fail closed until those suppliers are connected.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 mod linux_init;
 
 #[cfg(target_os = "linux")]

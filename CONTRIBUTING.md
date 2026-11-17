@@ -2,7 +2,20 @@
 
 Nagi OS is an independent operating system in active Developer Preview work.
 Contributions should preserve the architecture and should leave acceptance
-evidence clear enough for someone else to reproduce.
+evidence clear enough for someone else to reproduce. Follow the [Code of
+Conduct](CODE_OF_CONDUCT.md) and see [ACCESSIBILITY.md](ACCESSIBILITY.md) for
+accessibility goals and barrier reporting.
+
+The 0.1 documentation below describes the current own-kernel implementation.
+[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md) and
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
+confirm the Linux-kernel plus Nagi-owned-userland product direction; they do not
+mean the 0.1 implementation or its acceptance evidence has migrated. Linux
+migration work follows its assigned lane, workstream ownership, and existing
+acceptance evidence.
+
+For AI-assisted collaboration, start with the
+[Japanese co-developer onboarding guide](docs/development/co-developer-onboarding-ja.md).
 
 ## Before changing code or documentation
 
@@ -12,7 +25,8 @@ the current [implementation status](docs/implementation_status.md), and the
 workstream that owns the change. Inspect `git status` and the relevant diff
 first so existing work is preserved.
 
-Implement milestones in their specified order. Keep each milestone state as
+For Nagi OS 0.1 implementation work, implement milestones in their specified
+order. Keep each milestone state as
 `PASS`, `PARTIAL`, `BLOCKED`, or `NOT STARTED`; report a `PASS` only when its
 acceptance criteria have fresh evidence. If an implementation is independent
 of a blocked dependency, record the exact dependent acceptance that remains
@@ -20,8 +34,11 @@ blocked and continue the independent work.
 
 ## Architecture and security
 
-- Nagi is not a Linux, Windows, or macOS runtime. Host tools may build and run
-  QEMU, but guest behavior must execute inside Nagi.
+- For the current Nagi OS 0.1 Developer Preview, host tools may build and run
+  QEMU, but guest behavior must execute inside Nagi. Nagi's product direction is
+  a Linux kernel with a Nagi-owned userland, not an existing Linux distribution.
+  This does not mean the 0.1 implementation has migrated or its acceptance can
+  be inferred from host-only results.
 - Keep files, network protocols, windows, audio, packages, and AI in user-space
   services. Do not add high-level kernel syscalls for those services.
 - Preserve capability checks and least privilege. Do not use allow-all access,
@@ -80,8 +97,27 @@ workstream in sync, and avoid rewriting unrelated history. Do not duplicate a
 milestone table in a way that can become stale. For new or changed
 dependencies, update the source lock, patch/provenance records, and
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) as required by the repo
-rules. The Nagi OS license has not been selected; do not infer it from a
-dependency or sample package.
+rules.
+
+## Source licensing
+
+The maintainer's original Nagi OS source within [LICENSE_SCOPE.md](LICENSE_SCOPE.md)
+is licensed under [MPL-2.0](LICENSE). Read the scope and exclusions before adding
+license metadata. Existing MIT/Apache package declarations, upstream notices,
+model licenses and earlier grants are preserved; none is silently revoked.
+
+For new original source in MPL-covered areas, use
+`SPDX-License-Identifier: MPL-2.0` in the file's comment syntax. Submit only
+material for which you have the necessary rights, and identify copied or
+adapted upstream material and its terms. Contributions to separately licensed
+packages follow the applicable existing package/file terms, not an automatic
+project-wide replacement. Document any uncertain provenance for review.
+
+This change does not impose a retroactive contributor agreement, assign
+copyright, or authorize relicensing contributions whose rights are not held by
+the maintainer. See [the scope review](docs/oss/mpl-2.0-scope-review.md) for
+remaining glyph, asset, dependency and rights checks. A license grant for Nagi
+source is not clearance of a complete release image.
 
 ## Security reports
 

@@ -1,0 +1,1 @@
+$ cargo fmt --manifest-path <repo>/crates/nagi-tts-provider/Cargo.toml -- --check

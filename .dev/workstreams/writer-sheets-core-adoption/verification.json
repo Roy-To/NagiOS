@@ -1,0 +1,723 @@
+{
+  "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+  "collected_at": "2026-10-08T17:37:46.652990+00:00",
+  "host": "Linux x86_64 cloud; nightly-2025-08-01",
+  "results": [
+    {
+      "name": "sheets-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/examples/measure.rs\nSpent 0.001 secs in the parsing phase, and 0.001 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/engine.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/lib.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/parser.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/workbook.rs\nSpent 0.003 secs in the parsing phase, and 0.010 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/tests/sheets-core/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.003 secs in the formatting phase\n",
+      "output_sha256": "9214bf7ba28feaf8e32944a0b47f07b3c7cb0509df878a355f897ee1aea76807",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "sheets-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Checking nagi-sheets-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.48s\n",
+      "output_sha256": "8f99cb377dc7882ad10165938acd2eb115968fe294da6ba05a0c9428f2ba577d",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "sheets-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling nagi-sheets-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.25s\n     Running unittests src/lib.rs (target/debug/deps/nagi_sheets_core-cc72249da9de5565)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/sheets-core/acceptance.rs (target/debug/deps/sheets_acceptance-f5feac0048c46e7a)\n\nrunning 19 tests\ntest formula_errors_are_reported_as_unsuccessful_events ... ok\ntest batch_topology_diamond_and_error_recovery ... ok\ntest invalid_snapshots_reject_missing_extra_and_duplicate_bindings ... ok\ntest sheet_identity_cannot_be_recycled_even_after_snapshot ... ok\ntest sheets_h01_identity_and_rename ... ok\ntest sheets_h02_typed_sparse_values ... ok\ntest sheets_h03_parser_and_arithmetic ... ok\ntest sheets_h04_functions_ranges_and_lazy_branches ... ok\ntest sheets_h05_transitive_dependents_only ... ok\ntest sheets_h06_cycles_and_recovery ... ok\ntest sheets_h07_errors_and_atomicity ... ok\ntest sheets_h08_replacement_removes_edges ... ok\ntest sheets_h09_unicode_and_canonical_names ... ok\ntest incremental_matches_rebuilt_graph_for_many_edits ... ok\ntest snapshot_roundtrip_rename_cycles_and_validation ... ok\ntest parser_malformed_corpus_on_small_stack ... ok\ntest untrusted_formula_and_range_bounds ... ok\ntest sheets_h10_sparse_100k_and_long_chain ... ok\ntest graph_limits_are_atomic_and_ranges_include_empty_cells ... ok\n\ntest result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s\n\n   Doc-tests nagi_sheets_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "5cd5482ecead670f6a081a8d8318713c272acfa23b23b896c4358d83cd510aa4",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "calendar-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/adapter.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/availability.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/lib.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/model.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/recurrence.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/store.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/time.rs\nSpent 0.004 secs in the parsing phase, and 0.009 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/tests/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.006 secs in the formatting phase\n",
+      "output_sha256": "c87d1a066dc14b1a545fa1d96016ee8b7d79cd1129513f0a5fde93159c5bfb6a",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "calendar-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Checking nagi-calendar-core v0.2.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.57s\n",
+      "output_sha256": "b41bc76ca410343ddc05881826a6deee51ad9540b07bef9d1603a47453a5d8af",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "calendar-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling nagi-calendar-core v0.2.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.39s\n     Running unittests src/lib.rs (target/debug/deps/nagi_calendar_core-da9dddf04bcd3b20)\n\nrunning 1 test\ntest store::tests::stored_revision_overflow_does_not_mutate_the_record ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/acceptance.rs (target/debug/deps/acceptance-ae288a0e27bd53a6)\n\nrunning 60 tests\ntest adapter_reminder_and_resource_are_local_cas_mutations ... ok\ntest adapter_computes_availability_without_services ... ok\ntest all_day_dst_has_23_or_25_hours ... ok\ntest availability_buffers_and_global_grid ... ok\ntest availability_clips_busy_and_allows_endpoint_contact ... ok\ntest availability_invalid_bounds_and_limits_rejected ... ok\ntest availability_overflow_and_fully_busy ... ok\ntest cal_h03_offsets_and_year_rollover ... ok\ntest cal_h01_ids_stable_across_crud_and_calendars ... ok\ntest cal_h02_temporal_domains_require_explicit_context ... ok\ntest cal_h04_gap_rejects_without_normalizing ... ok\ntest cal_h04_fold_requires_choice ... ok\ntest cal_h05_local_daily_maintains_nine_am_across_dst ... ok\ntest cal_h07_busy_union_and_free_slots ... ok\ntest cal_h06_month_end_skips_and_does_not_drift ... ok\ntest cal_h09_fixed_clock_and_ids_reproduce_exact_output ... ok\ntest cal_h08_stale_update_and_delete_are_atomic ... ok\ntest cal_h10_invite_and_response_never_report_delivery ... ok\ntest cal_h08_scan_limit_applies_when_no_occurrences_are_returned ... ok\ntest cal_h11_text_utf8_and_search_are_bounded ... ok\ntest calendar_foreign_reference_and_exception_domain_fail_closed ... ok\ntest date_bounds_leap_rules_and_roundtrip ... ok\ntest calendar_update_retains_id_and_delete_rejects_nonempty_calendar ... ok\ntest clock_rollback_does_not_change_revision ... ok\ntest deleted_calendar_ids_are_not_reused ... ok\ntest different_zone_events_normalize_on_instant_axis ... ok\ntest dst_transition_microsecond_boundary ... ok\ntest duplicate_and_deleted_ids_cannot_be_reused ... ok\ntest exceptions_outside_series_and_conflicts_rejected ... ok\ntest elapsed_and_wall_event_duration_are_distinct ... ok\ntest exdate_consumes_count_without_replacement ... ok\ntest ids_validate_namespaces_and_empty_values ... ok\ntest fold_endpoints_can_resolve_to_nonpositive_instant_range ... ok\ntest instant_daily_is_elapsed_not_wall_time ... ok\ntest invalid_draft_does_not_mutate_store ... ok\ntest invalid_ranges_rejected_in_all_domains ... ok\ntest invalid_recurrence_modes_and_bounds_rejected ... ok\ntest invalid_transparent_event_is_not_silently_ignored ... ok\ntest leap_day_monthly_interval_skips_nonleap_years ... ok\ntest list_does_not_silently_truncate ... ok\ntest moved_override_keeps_original_identity_and_enters_query ... ok\ntest overnight_event_overlaps_window_and_end_is_exclusive ... ok\ntest participant_windows_intersect_and_unknown_does_not_mean_free ... ok\ntest moved_override_leaves_original_query_window ... ok\ntest precision_and_time_overflows_rejected ... ok\ntest recurrence_gap_is_error_not_silent_skip ... ok\ntest recurrence_output_limit_and_overflow_are_errors ... ok\ntest recurrence_rejects_exactly_one_occurrence_over_output_limit ... ok\ntest resolver_fold_order_is_validated ... ok\ntest resolver_roundtrip_is_validated ... ok\ntest revision_overflow_is_explicit ... ok\ntest skipped_month_and_weekday_scans_are_bounded ... ok\ntest store_capacity_includes_tombstones ... ok\ntest unavailable_clock_does_not_create_events ... ok\ntest until_at_maximum_date_finishes_without_advancing_out_of_domain ... ok\ntest until_near_maximum_instant_finishes_without_overflow ... ok\ntest until_is_inclusive_across_year_end ... ok\ntest weekly_interval_is_anchored_to_monday_week ... ok\ntest weekly_midweek_start_and_daily_interval ... ok\ntest date_roundtrips_every_month_boundary_in_supported_years ... ok\n\ntest result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s\n\n   Doc-tests nagi_calendar_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "44629881f0ec239f2b09223f53415440c2335943e77b56e9506afe633b57ba5e",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling proc-macro2 v1.0.107\n   Compiling unicode-ident v1.0.26\n   Compiling quote v1.0.47\n   Compiling semver v1.0.28\n   Compiling serde_core v1.0.229\n   Compiling zmij v1.0.23\n   Compiling rustc_version v0.4.1\n    Checking subtle v2.6.1\n    Checking signature v2.2.0\n   Compiling serde_json v1.0.151\n   Compiling curve25519-dalek v4.1.3\n   Compiling serde v1.0.229\n   Compiling syn v2.0.119\n   Compiling syn v3.0.6\n    Checking ed25519 v2.2.3\n    Checking itoa v1.0.18\n    Checking memchr v2.8.3\n   Compiling serde_derive v1.0.229\n   Compiling curve25519-dalek-derive v0.1.1\n    Checking ed25519-dalek v2.1.1\n    Checking nagi-slot-manifest v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-slot-manifest)\n    Checking nagi-model-manager v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-model-manager)\n    Checking nagi-bootstrap v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/tools/nagi-bootstrap)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.88s\n",
+      "output_sha256": "069b9248df54a835eea2bf17fef488c969071ef72e5fd3f721918a3c370b8aa9",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "stdout_stderr": "   Compiling serde_core v1.0.229\n   Compiling signature v2.2.0\n   Compiling subtle v2.6.1\n   Compiling zmij v1.0.23\n   Compiling ed25519 v2.2.3\n   Compiling curve25519-dalek v4.1.3\n   Compiling itoa v1.0.18\n   Compiling memchr v2.8.3\n   Compiling ed25519-dalek v2.1.1\n   Compiling nagi-slot-manifest v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-slot-manifest)\n   Compiling serde_json v1.0.151\n   Compiling serde v1.0.229\n   Compiling nagi-model-manager v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-model-manager)\n   Compiling nagi-bootstrap v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/tools/nagi-bootstrap)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.26s\n     Running unittests ../nagi-cli/src/lib.rs (target/debug/deps/nagi_cli-ab28e63c49506026)\n\nrunning 293 tests\ntest acceptance::tests::milestone_filters_normalize_and_scope_filters_are_exclusive ... ok\ntest acceptance::tests::previous_pass_to_current_failure_is_a_regression ... ok\ntest acceptance::tests::previous_reports_require_supported_schema_and_status_values ... ok\ntest acceptance::tests::registry_rejects_duplicate_ids_and_bad_scope ... ok\ntest acceptance::tests::failures_keep_stage_distinction_and_block_missing_environment ... ok\ntest acceptance::tests::registry_ids_are_unique_and_both_host_wrappers_exist ... ok\ntest cc_nagi::tests::cc_nagi_patch_targets_nagi_without_host_cxx_runtime ... ok\ntest commands::tests::cross_archive_tools_are_limited_to_macos_nagi_target_builds ... ok\ntest commands::first_run_sign_in_answers_the_language_step_first ... ok\ntest commands::tests::m17_guest_rng_scans_the_transitional_entropy_device_id ... ok\ntest commands::tests::m17_init_storage_bootstrap_matches_the_two_boot_acceptance_gate ... ok\ntest cc_nagi::tests::cc_nagi_lock_is_pinned ... ok\ntest commands::tests::m17_persistence_and_pixel_boots_keep_the_esp_read_only ... ok\ntest commands::tests::m17_trace_excerpt_bounds_long_logs_and_keeps_both_ends ... ok\ntest commands::tests::m17_trace_excerpt_keeps_earlier_egl_events_and_skips_non_trace_lines ... ok\ntest commands::tests::m17_posix_urandom_device_uses_guest_virtio_rng ... ok\ntest commands::tests::m18_cleans_stale_servo_temp_storage_before_creating_its_profile ... ok\ntest commands::tests::m19_search_runs_before_the_browser_acceptance_exits_servo ... ok\ntest commands::tests::m17_rust_std_random_backend_uses_guest_rng_boundary ... ok\ntest commands::tests::m20_granite_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m20_granite_inference_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m20_granite_external_artifact_is_checked_by_size_and_digest ... ok\ntest commands::tests::m20_llama_smoke_command_accepts_no_arguments ... ok\ntest commands::tests::m20_granite_manifest_matches_the_model_lock ... ok\ntest commands::tests::m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics ... ok\ntest commands::tests::m25_whisper_artifact_contract_matches_the_model_lock ... ok\ntest commands::tests::m25_whisper_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m25_whisper_inference_requires_model_pcm_and_expected_text ... ok\ntest commands::tests::m26_model_commands_require_exact_artifact_and_gemma_terms_acknowledgement ... ok\ntest commands::tests::m27_bootstrap_waits_for_storage_restart_required_marker ... ok\ntest commands::tests::m22_pre_guest_retry_evidence_is_scoped_to_each_boot_log ... ok\ntest commands::tests::m27_pre_guest_retry_refuses_to_replay_after_writable_disk_changes ... ok\ntest commands::tests::m27_readiness_is_reported_after_the_record_is_persisted ... ok\ntest commands::tests::m27_pre_guest_retry_restores_journal_state_and_preserves_both_snapshots ... ok\ntest commands::tests::m27_readiness_must_be_consumed_before_candidate_promotion ... ok\ntest commands::tests::m27_readiness_must_follow_sign_in ... ok\ntest commands::tests::m27_trial_acceptance_waits_for_loader_failure_after_rejection ... ok\ntest commands::tests::m29_acceptance_artifacts_are_unique_and_keep_their_extensions ... ok\ntest commands::tests::m29_command_selects_the_settings_acceptance ... ok\ntest commands::tests::only_servo_enabled_init_builds_are_stripped_for_the_image ... ok\ntest commands::tests::m30_image_build_info_binds_the_source_revision_and_image_digest ... ok\ntest commands::tests::retry_evidence_path_suffix_preserves_non_utf8_path_bytes ... ok\ntest commands::tests::serial_log_excerpt_keeps_the_last_lines_in_order ... ok\ntest development::fingerprint::tests::artifact_manifest_records_size_and_sha256 ... ok\ntest development::fingerprint::tests::artifact_content_change_is_a_distinct_mismatch ... ok\ntest development::fingerprint::tests::build_command_change_is_part_of_compatibility ... ok\ntest development::fingerprint::tests::canonical_inputs_produce_a_deterministic_sha256_digest ... ok\ntest development::fingerprint::tests::command_parser_accepts_repeated_inputs_and_deduplicates_features ... ok\ntest development::fingerprint::tests::cargo_profile_and_selected_target_environment_are_captured_selectively ... ok\ntest development::fingerprint::tests::creation_timestamp_is_provenance_and_does_not_change_compatibility ... ok\ntest development::fingerprint::tests::feature_target_and_toolchain_changes_have_specific_classes ... ok\ntest development::fingerprint::tests::fingerprint_compare_json_reports_mismatch_and_returns_nonzero ... ok\ntest development::fingerprint::tests::fingerprint_output_does_not_overwrite_existing_evidence ... ok\ntest development::fingerprint::tests::fingerprint_schema_version_and_digest_are_validated ... ok\ntest development::fingerprint::tests::generated_directory_digest_tracks_file_names_and_contents ... ok\ntest development::fingerprint::tests::mismatch_classes_and_order_are_stable ... ok\ntest development::fingerprint::tests::normalized_environment_flags_ignore_repository_and_temp_roots ... ok\ntest development::fingerprint::tests::patch_and_generated_input_changes_are_reported_separately ... ok\ntest development::fingerprint::tests::repository_absolute_paths_normalize_to_the_same_logical_path ... ok\ntest development::fingerprint::tests::repository_identifier_strips_remote_credentials_and_host_paths ... ok\ntest development::fingerprint::tests::requested_missing_artifact_fails_closed ... ok\ntest development::fingerprint::tests::secret_like_environment_values_are_never_emitted ... ok\ntest development::fingerprint::tests::source_revision_change_is_classified ... ok\ntest development::tests::datetime_validation_accepts_rfc3339_and_rejects_invalid_calendar_values ... ok\ntest development::tests::diagnostic_class_suggests_infrastructure_for_runner_loss ... ok\ntest commands::tests::m18_browser_boot_keeps_the_esp_read_only_for_storage_selection ... ok\ntest development::fingerprint::tests::custom_target_json_reference_is_recorded_as_a_stable_target_name ... ok\ntest development::tests::diagnostic_inventory_keeps_every_link_symbol_and_error ... ok\ntest development::tests::diagnostic_console_summary_escapes_terminal_controls ... ok\ntest development::tests::diagnostic_console_summary_escapes_terminal_controls_in_output_path ... ok\ntest development::tests::diagnostics_fail_when_no_requested_log_can_be_read ... ok\ntest development::tests::later_graphics_timeout_takes_precedence_over_earlier_linker_warnings ... ok\ntest development::tests::registry_accepts_only_the_checkpoint_approved_claude_branches ... ok\ntest development::tests::diagnostic_report_hashes_logs_and_records_artifact_metadata ... ok\ntest development::tests::registry_validation_rejects_duplicate_ids_branches_dependencies_and_unsafe_paths ... ok\ntest development::tests::sha256_matches_standard_vector ... ok\ntest development::tests::registry_and_active_workstream_state_validate_from_repository ... ok\ntest development::tests::state_loading_rejects_symlinks_that_escape_the_repository ... ok\ntest development::tests::status_displays_the_two_most_recent_ci_runs_first ... ok\ntest development::tests::status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs ... ok\ntest development::tests::validator_rejects_unknown_status_and_missing_next_action ... ok\ntest development::tests::diagnostic_output_preserves_source_logs_and_never_overwrites_reports ... ok\ntest diagnostics::tests::crash_capture_keeps_only_bounded_recent_context_and_requires_fatal_event ... ok\ntest diagnostics::tests::diagnostics_bundle_human_header_escapes_terminal_controls ... ok\ntest diagnostics::tests::deterministic_report_serialization_preserves_host_and_vm_distinction ... ok\ntest diagnostics::tests::event_json_rejects_unsupported_versions_and_excess_fields ... ok\ntest diagnostics::tests::event_json_round_trip_is_bounded_and_redacts_secret_fields ... ok\ntest diagnostics::tests::event_rendering_redacts_sensitive_fields_and_inline_credentials ... ok\ntest diagnostics::tests::focused_scope_executes_only_matching_checks ... ok\ntest diagnostics::tests::malformed_ids_are_rejected ... ok\ntest diagnostics::tests::failed_check_does_not_hide_later_successful_checks ... ok\ntest diagnostics::tests::public_safe_event_serializer_redacts_tampered_classified_values ... ok\ntest diagnostics::tests::sinks_share_the_safe_event_contract ... ok\ntest diagnostics::tests::report_outcome_is_derived_and_corrupt_pass_is_rejected ... ok\ntest fat32::tests::fat32_geometry_enforces_fat32_cluster_ranges ... ok\ntest fat32::tests::fat32_partition_writes_valid_boot_metadata_and_directory_chains ... ok\ntest fonts::tests::rejects_unsafe_or_unpinned_entries ... ok\ntest fat32::tests::fat32_writer_streams_external_model_bytes_into_contiguous_clusters ... ok\ntest fonts::tests::repository_font_lock_is_valid ... ok\ntest fonts::tests::verifies_size_and_digest ... ok\ntest freetype_sys::tests::freetype_sys_lock_is_pinned ... ok\ntest gpt::tests::rejects_overlapping_and_out_of_bounds_partitions ... ok\ntest gpt::tests::uses_the_nagi_data_partition_type_guid ... ok\ntest gpt::tests::reader_rejects_corrupt_or_disagreeing_gpt_metadata ... ok\ntest gpt::tests::writes_protective_mbr_primary_and_backup_gpt ... ok\ntest hyper_util_servo::tests::hyper_util_servo_lock_is_pinned ... ok\ntest image::tests::accepted_qemu_exit_survives_qmp_disconnect_during_shutdown ... ok\ntest image::tests::gui_qemu_failure_marker_stops_the_acceptance_wait ... ok\ntest image::tests::isolated_apps_image_is_valid_fat12_and_smaller_than_user_data ... ok\ntest development::tests::status_and_resume_escape_terminal_controls_from_workstream_state ... ok\ntest image::tests::m17_fat12_image_fits_servo_init_above_legacy_floppy_limit ... ok\ntest image::tests::m17_fat12_long_init_chain_preserves_every_cluster_link ... ok\ntest image::tests::m20_fixture_filename_uses_the_model_manager_artifact_id_contract ... ok\ntest image::tests::m27_ab_image_keeps_each_kernel_and_init_under_its_slot_directory ... ok\ntest image::tests::m27_recovery_payload_is_independent_of_both_broken_system_slots ... ok\ntest image::tests::blank_legacy_disk_migration_requests_initial_vfs_format ... ok\ntest image::tests::qemu_acceptance_can_stop_on_either_first_boot_state ... ok\ntest image::tests::qemu_acceptance_requires_the_m7_guest_marker ... ok\ntest image::tests::qemu_audio_backend_is_supported_by_the_host_platform ... ok\ntest image::tests::qemu_can_mount_the_m17_boot_image_read_only ... ok\ntest image::tests::qemu_can_reuse_one_initialized_ovmf_variables_image ... ok\ntest image::tests::qemu_screenshot_path_refuses_to_replace_an_existing_file ... ok\ntest image::tests::qmp_json_quote_escapes_control_and_path_characters ... ok\ntest image::tests::legacy_raw_disk_migration_preserves_the_full_disk_and_keeps_a_recovery_copy ... ok\ntest image::tests::qmp_timeout_diagnostics_append_to_the_serial_log ... ok\ntest image::tests::persistent_disk_is_created_once_and_existing_data_is_preserved ... ok\ntest image::tests::reference_release_layout_has_the_specified_order_sizes_and_guids ... ok\ntest image::tests::rejects_empty_guest_files ... ok\ntest image::tests::release_image_info_reads_outer_format_and_virtual_size ... ok\ntest image::tests::qmp_response_lines_are_bounded ... ok\ntest image::tests::timeout_diagnostics_sample_registers_and_the_pm_timer_twice ... ok\ntest image::tests::writes_deterministic_fat12_image_with_expected_paths ... ok\ntest libc_servo::tests::libc_servo_lock_metadata_is_pinned_without_a_checkout ... ok\ntest libc_servo::tests::libc_servo_lock_rejects_a_changed_hash ... ok\ntest libc_servo::tests::libc_servo_patch_applies_inside_parent_workspace ... ok\ntest llama_cpp::tests::llama_cpp_additional_model_architecture_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_context_initialization_returns_checked_failure_status ... ok\ntest llama_cpp::tests::llama_cpp_data_range_failure_reaches_quantizer_status ... ok\ntest llama_cpp::tests::llama_cpp_dsv4_runtime_validation_returns_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_file_and_mapping_io_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_hybrid_restore_patch_covers_recurrent_suffix_failure ... ok\ntest llama_cpp::tests::llama_cpp_loader_constructor_errors_fail_closed_without_target_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_loader_metadata_errors_fail_closed_without_target_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_lora_adapter_failures_return_checked_status_without_target_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_memory_initialization_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_model_architecture_failures_have_nagi_status_returns ... ok\ntest llama_cpp::tests::llama_cpp_model_architecture_failures_return_checked_status_without_target_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_model_initialization_failures_propagate_status_without_target_throws ... ok\ntest llama_cpp::tests::llama_cpp_model_load_status_does_not_require_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_nagi_backend_init_uses_static_backends_without_dynamic_loader ... ok\ntest llama_cpp::tests::llama_cpp_nagi_boundary_patch_avoids_rtti_and_matches_path_capacity ... ok\ntest llama_cpp::tests::llama_cpp_nagi_chat_template_patch_returns_explicit_unknown_status ... ok\ntest llama_cpp::tests::llama_cpp_nagi_grammar_patch_propagates_parse_and_runtime_failures ... ok\ntest llama_cpp::tests::llama_cpp_nagi_tensor_validation_avoids_threaded_future_runtime ... ok\ntest llama_cpp::tests::llama_cpp_next_model_architecture_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_patch_files_require_numeric_prefixes ... ok\ntest image::tests::staged_qmp_events_are_sent_in_order_and_each_acknowledged ... ok\ntest llama_cpp::tests::llama_cpp_quantization_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_remaining_model_architecture_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_sampler_failures_return_checked_status ... ok\ntest llama_cpp::tests::llama_cpp_sampler_null_patch_documents_and_guards_direct_consumers ... ok\ntest llama_cpp::tests::llama_cpp_source_lock_pins_revision_license_and_patch_boundary ... ok\ntest llama_cpp::tests::llama_cpp_split_paths_reject_truncation_and_fail_loader_initialization ... ok\ntest llama_cpp::tests::llama_cpp_state_io_failures_return_checked_status_without_exceptions ... ok\ntest llama_cpp::tests::llama_cpp_tensor_construction_failures_have_checked_status_returns ... ok\ntest llama_cpp::tests::llama_cpp_tensor_count_failures_reach_the_load_boundary ... ok\ntest llama_cpp::tests::llama_cpp_tensor_data_validation_status_preserves_backend_cleanup_order ... ok\ntest llama_cpp::tests::llama_cpp_tensor_requirement_failures_set_sticky_loader_status ... ok\ntest llama_cpp::tests::llama_cpp_tensor_weight_patch_returns_status_before_model_creation ... ok\ntest llama_cpp::tests::llama_cpp_typed_key_status_rejects_wrong_types_without_conflating_missing_keys ... ok\ntest llama_cpp::tests::llama_cpp_vocab_and_unicode_failures_return_checked_status ... ok\ntest llama_cpp::tests::model_artifact_locks_match_manifest_fixtures ... ok\ntest llvm_libcxx::tests::parses_an_exact_entry_followed_by_other_sections ... ok\ntest llvm_libcxx::tests::rejects_unpinned_or_unsafe_entries ... ok\ntest llvm_libcxx::tests::repository_lock_pins_the_libcxx_source ... ok\ntest llvm_libcxx::tests::verifies_the_tarball_digest ... ok\ntest llama_cpp::tests::llama_cpp_patches_apply_in_numeric_order_and_validate_the_generated_tree ... ok\ntest login_password_change_contract_tests::password_change_acceptance_does_not_finish_on_sign_in_or_cancel ... ok\ntest m17_storage_contract_tests::m17_mounts_the_guest_vfs_and_prepares_tmp_before_servo ... ok\ntest m18_acceptance::tests::accepts_three_chain_and_hostname_verified_pages_with_nonzero_frames ... ok\ntest m18_acceptance::tests::rejects_blank_pages_without_ink ... ok\ntest m18_acceptance::tests::rejects_browser_chrome_before_tls_validation ... ok\ntest m18_acceptance::tests::rejects_duplicate_address_bar_input_navigation_evidence ... ok\ntest m18_acceptance::tests::rejects_duplicate_rendered_page_events ... ok\ntest m18_acceptance::tests::rejects_duplicate_tls_evidence ... ok\ntest m18_acceptance::tests::rejects_guest_failure_even_if_later_pages_pass ... ok\ntest m18_acceptance::tests::rejects_malformed_checksums_and_unexpected_hosts ... ok\ntest m18_acceptance::tests::rejects_missing_address_bar_input_navigation_evidence ... ok\ntest m18_acceptance::tests::rejects_missing_browser_chrome_presentation ... ok\ntest m18_acceptance::tests::rejects_missing_page_evidence ... ok\ntest m18_acceptance::tests::rejects_missing_tls_evidence ... ok\ntest m18_acceptance::tests::rejects_out_of_order_or_denied_clipboard_evidence ... ok\ntest m18_acceptance::tests::rejects_page_rendered_before_tls_validation ... ok\ntest m18_acceptance::tests::rejects_unverified_chain_or_hostname ... ok\ntest m18_acceptance::tests::rejects_zero_frame_checksum ... ok\ntest m18_acceptance::tests::requires_a_user_answered_permission_prompt ... ok\ntest m18_acceptance::tests::requires_browser_state_to_be_saved ... ok\ntest m18_acceptance::tests::requires_clipboard_copy_paste_and_ungestured_denial_evidence ... ok\ntest m18_acceptance::tests::requires_content_navigation_before_clipboard_evidence ... ok\ntest m18_acceptance::tests::requires_download_evidence_after_the_upload ... ok\ntest m18_acceptance::tests::requires_ime_evidence_after_clipboard_evidence ... ok\ntest m18_acceptance::tests::requires_live_browser_context_evidence ... ok\ntest login_password_change_contract_tests::login_acceptance_changes_the_password_and_checks_it_after_restart ... ok\ntest m18_acceptance::tests::requires_summary_after_all_page_evidence_and_only_once ... ok\ntest m18_acceptance::tests::requires_upload_evidence_after_the_ime ... ok\ntest m29_language_contract_tests::japanese_selected_state_characters_have_desktop_font_glyphs ... ok\ntest m29_language_contract_tests::m29_acceptance_reboots_the_same_user_data_volume_and_checks_the_restored_locale ... ok\ntest m29_language_contract_tests::legacy_fat12_m27_healthy_trial_signs_in_before_readiness ... ok\ntest m29_language_contract_tests::m29_keyboard_focus_reaches_all_desktop_acceptance_panels ... ok\ntest m29_language_contract_tests::m29_language_setting_is_reachable_and_selectable_by_keyboard ... ok\ntest m29_language_contract_tests::selected_locale_has_a_localized_text_cue_in_its_option_row ... ok\ntest mesa::tests::m17_mesa_freestanding_cpp_and_dri2_boundaries_are_pinned ... ok\ntest m29_language_contract_tests::system_language_is_committed_to_user_data_before_desktop_selection ... ok\ntest mesa::tests::m17_nagi_egl_context_binding_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_nagi_egl_forces_static_softpipe_and_traces_initialization ... ok\ntest mesa::tests::m17_nagi_egl_thread_context_binding_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_nagi_egl_tls_cookie_reinitializes_unverified_state ... ok\ntest mesa::tests::m17_nagi_egl_tls_state_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_nagi_egl_tls_trace_does_not_repeat_for_current_context ... ok\ntest mesa::tests::m17_nagi_make_current_path_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_nagi_softpipe_allocates_texture_caches_only_for_bound_views ... ok\ntest mesa::tests::m17_nagi_softpipe_context_initialization_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_nagi_state_tracker_context_creation_has_ordered_trace_checkpoints ... ok\ntest mesa::tests::m17_posix_abort_is_a_weak_fallback_for_relibc ... ok\ntest mesa::tests::m17_mesa_link_does_not_force_duplicate_archive_members ... ok\ntest mesa::tests::m17_posix_thread_abi_covers_servo_runtime_symbols ... ok\ntest mesa::tests::m17_posix_network_abi_has_real_nagi_net_backends ... ok\ntest mesa::tests::m17_target_memory_abi_has_checked_copy_boundary ... ok\ntest mesa::tests::m17_target_process_abi_uses_nagi_spawn_and_exit_boundaries ... ok\ntest mesa::tests::m17_target_cxx_runtime_is_linked_from_nagi_allocator_boundary ... ok\ntest mesa::tests::mesa_clone_retries_only_transient_transport_failures ... ok\ntest mesa::tests::mesa_lock_metadata_is_pinned_without_a_checkout ... ok\ntest mesa::tests::mesa_lock_rejects_a_changed_revision ... ok\ntest mio_servo::tests::mio_servo_lock_is_pinned ... ok\ntest model_artifact::tests::qwen_and_gemma_locks_match_the_reviewed_pins_and_manifests ... ok\ntest mozjs_sys_nagi::tests::m17_cpp_build_scripts_use_the_nagi_target_wrapper ... ok\ntest mozjs_sys_nagi::tests::m18_target_link_supplies_servo_time_and_mesa_sort_abis ... ok\ntest mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet ... FAILED\ntest mozjs_sys_nagi::tests::mozjs_m17_alignment_trace_patch_brackets_mapping_operations ... ok\ntest mozjs_sys_nagi::tests::mozjs_m17_gc_runtime_patch_traces_initialization_stages ... ok\ntest mozjs_sys_nagi::tests::mozjs_m17_js_context_patch_traces_context_creation_stages ... ok\ntest mozjs_sys_nagi::tests::mozjs_m17_js_runtime_patch_traces_runtime_and_helper_initialization ... ok\ntest mozjs_sys_nagi::tests::mozjs_m17_nursery_patch_traces_initialization_stages ... ok\ntest mozjs_sys_nagi::tests::mozjs_nagi_disables_scattershot_for_bounded_first_fit_mappings ... ok\ntest mozjs_sys_nagi::tests::mozjs_nagi_target_suppresses_all_host_cxx_runtime_links ... ok\ntest mozjs_sys_nagi::tests::mozjs_random_bytes_use_nagi_virtio_entropy ... ok\ntest mozjs_sys_nagi::tests::mozjs_sys_nagi_lock_is_pinned ... ok\ntest mozjs_sys_nagi::tests::mozjs_wasm_static_type_init_patch_traces_allocator_and_canonicalization ... ok\ntest mozjs_sys_nagi::tests::nagi_init_rescans_real_mozjs_archives_in_m17_link ... ok\ntest mozjs_sys_nagi::tests::nagi_init_runs_retained_elf_constructor_arrays_before_its_body ... ok\ntest paths::tests::clean_rejects_a_symlinked_owned_directory ... ok\ntest paths::tests::ensure_owned_directory_rejects_a_symlinked_component ... ok\ntest registry_source::tests::registry_fetch_manifest_pins_the_requested_package_version ... ok\ntest servo::tests::checkout_validation_rejects_dirty_git_checkout ... ok\ntest servo::tests::checkout_validation_rejects_missing_generated_marker ... ok\ntest mesa::tests::m17_target_relibc_backend_covers_basic_c_runtime_symbols ... ok\ntest servo::tests::checkout_validation_rejects_wrong_revision_marker ... ok\ntest servo::tests::checkout_validation_rejects_patch_fingerprint_change ... ok\ntest servo::tests::inventory_nagi_patch_enables_servo_bundled_resource_registration ... ok\ntest servo::tests::lock_metadata_is_valid_without_a_checkout ... ok\ntest servo::tests::m18_constellation_trace_patches_add_atomic_import_before_later_use ... ok\ntest servo::tests::m18_permission_requests_keep_the_requesting_document_origin ... ok\ntest servo::tests::checkout_validation_reuses_matching_generated_checkout ... ok\ntest servo::tests::patch_files_are_sorted_and_ignore_non_patch_files ... ok\ntest servo::tests::patch_files_reject_non_numeric_patch_names ... ok\ntest servo::tests::servo_patch_boundary_defines_nagi_navigator_platform ... ok\ntest servo::tests::servo_patch_boundary_disables_webdriver_server_for_embedded_target ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_construction_stages ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_javascript_engine_initialization ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_media_and_memory_workers ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_navigation_pipeline_stages ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_rendering_context_stages ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_rust_runtime_creation_stages ... ok\ntest servo::tests::servo_patch_boundary_traces_m17_script_pipeline_dispatch_stages ... ok\ntest servo::tests::patch_application_uses_numeric_order ... ok\ntest servo::tests::servo_patch_boundary_uses_locked_webpki_roots_on_nagi ... ok\ntest surfman::tests::m17_surfman_egl_context_creation_has_ordered_trace_checkpoints ... ok\ntest socket2_servo::tests::socket2_servo_lock_is_pinned ... ok\ntest surfman::tests::nagi_workspace_binds_surfman_to_the_pinned_checkout ... ok\ntest surfman::tests::surfman_lock_rejects_a_changed_revision ... ok\ntest surfman::tests::surfman_lock_metadata_is_pinned_without_a_checkout ... ok\ntest tempfile_nagi::tests::tempfile_nagi_lock_is_pinned ... ok\ntest third_party_notices::third_party_notices_cover_every_pinned_font ... ok\ntest third_party_notices::third_party_notices_cover_every_pinned_component_and_declared_license ... ok\ntest tokio_servo::tests::tokio_servo_lock_is_pinned ... ok\ntest whisper_cpp::tests::fetches_exact_source_revision_and_rejects_modified_checkout ... ok\ntest whisper_cpp::tests::applies_ordered_patches_to_a_separate_generated_checkout_and_rejects_tampering ... ok\ntest whisper_cpp::tests::standard_model_loader_read_count_hardening_is_a_numbered_patch ... ok\ntest whisper_cpp::tests::generated_checkout_requires_at_least_one_patch ... ok\ntest whisper_cpp::tests::whisper_cpp_and_small_multilingual_artifacts_are_exactly_pinned ... ok\ntest whisper_cpp::tests::whisper_cpp_patch_files_require_numeric_prefixes ... ok\ntest acceptance::tests::runner_captures_output_and_preserves_script_exit_state ... ok\ntest image::tests::qmp_timeout_diagnostics_capture_vm_status_registers_and_instruction_window ... ok\n\nfailures:\n\n---- mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet stdout ----\n\nthread 'mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet' panicked at ../nagi-cli/src/mozjs_sys_nagi.rs:175:14:\nNagi mozjs_sys build script: Os { code: 2, kind: NotFound, message: \"No such file or directory\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet\n\ntest result: FAILED. 292 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.63s\n\nerror: test failed, to rerun pass `--lib`\n",
+      "output_sha256": "7a5e12b45b5e5335e9995b82ca1cb94c048a99de82627b6f8cb9d38d3a3ca493",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "tools/legal/Cargo.toml",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "tools/legal/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 101,
+      "stdout_stderr": "error: failed to download `serde_spanned v0.6.7`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified\n",
+      "output_sha256": "f7d73d200113e0e26a1fd04c410c34c8f6f73eeffc47aba0071a2415d5ac5afb",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/legal/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 101,
+      "stdout_stderr": "error: failed to download `serde_spanned v0.6.7`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified\n",
+      "output_sha256": "f7d73d200113e0e26a1fd04c410c34c8f6f73eeffc47aba0071a2415d5ac5afb",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-check",
+      "command": [
+        "./nagi",
+        "legal",
+        "check"
+      ],
+      "exit_code": 101,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running `target/debug/nagi-bootstrap legal check`\nerror: failed to download `serde_spanned v0.6.7`\n\nCaused by:\n  attempting to make an HTTP request, but --offline was specified\n",
+      "output_sha256": "4cf9fb6277b9b2825b93b7c2b6694f17ed8420c34f4595233f9fed4f66d06304",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "registry",
+      "command": [
+        "./nagi",
+        "dev",
+        "verify"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running `target/debug/nagi-bootstrap dev verify`\nPASS development state: 30 registered workstreams, 23 state files validated; branch codex/0.2-adopt-writer-sheets-core at cb3f9f29552bdee3e9c99228cb2153d10a1634e9\n",
+      "output_sha256": "8475e76da361bd093e7cf79140845dada9b03a9df0b75c9c30ddd1235fe1135f",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "status",
+      "command": [
+        "./nagi",
+        "dev",
+        "status"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running `target/debug/nagi-bootstrap dev status`\nWorkstream: writer-sheets-core-adoption (Codex limited host Integration Owner (delegated local preparation))\nBranch: codex/0.2-adopt-writer-sheets-core\nHEAD: cb3f9f29552bdee3e9c99228cb2153d10a1634e9\nWorktree: DIRTY\nMilestone/checkpoint: WS-HOST-PREP-20261008: local Writer W1-W5 / Sheets S1-S5 adoption preparation / Sources imported immutably; canonical dependencies aligned; local verification pending\nStatus: PARTIAL\nRelease-line gate: M30 PARTIAL. Guest/runtime/product adoption requires M30 PASS plus explicit release boundary and Integration Owner activation; host preparation authorized by current delegated task. (main@cb3f9f29552bdee3e9c99228cb2153d10a1634e9:docs/implementation_status.md)\nLast verified commit: cb3f9f29552bdee3e9c99228cb2153d10a1634e9 (2026-10-08T17:31:30.289110+00:00)\nBlocker: none\nNext action: Run owned fmt/lint/locked offline tests and current-main compatibility/Registry checks; record immutable local commit and adoption evidence. Await separate publishing approval.\n",
+      "output_sha256": "47bae8920d9b94a77cc5e6edf1f0c29143c6aa5262c0b4f0b839d48a67a6be27",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "resume",
+      "command": [
+        "./nagi",
+        "dev",
+        "resume"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running `target/debug/nagi-bootstrap dev resume`\nWorkstream: writer-sheets-core-adoption (Codex limited host Integration Owner (delegated local preparation))\nBranch: codex/0.2-adopt-writer-sheets-core\nHEAD: cb3f9f29552bdee3e9c99228cb2153d10a1634e9\nWorktree: DIRTY\nMilestone/checkpoint: WS-HOST-PREP-20261008: local Writer W1-W5 / Sheets S1-S5 adoption preparation / Sources imported immutably; canonical dependencies aligned; local verification pending\nStatus: PARTIAL\nRelease-line gate: M30 PARTIAL. Guest/runtime/product adoption requires M30 PASS plus explicit release boundary and Integration Owner activation; host preparation authorized by current delegated task. (main@cb3f9f29552bdee3e9c99228cb2153d10a1634e9:docs/implementation_status.md)\nLast verified commit: cb3f9f29552bdee3e9c99228cb2153d10a1634e9 (2026-10-08T17:31:30.289110+00:00)\nBlocker: none\nNext action: Run owned fmt/lint/locked offline tests and current-main compatibility/Registry checks; record immutable local commit and adoption evidence. Await separate publishing approval.\nResume: read AGENTS.md, docs/0.2/DEVELOPMENT_ARCHITECTURE.md, then this workstream state and linked evidence.\nDependencies: development-foundation, app-sdk-contract, writer-core-01, sheets-calc-01, calendar-core-adoption\nDo not: Do not publish, create PR, modify main/owner branches, merge, or change Hark #31.\nDo not: Do not edit source owner State, root Cargo, runtime/providers/GUI/0.3 or protected paths.\n",
+      "output_sha256": "6996c31c282c8372f5b1238a58ea803a343e29f9fd6b183c493d640c6ab66a5b",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-clippy-recheck",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "tools/legal/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling proc-macro2 v1.0.107\n   Compiling quote v1.0.47\n   Compiling serde_core v1.0.229\n   Compiling serde v1.0.229\n    Checking hashbrown v0.17.1\n    Checking equivalent v1.0.2\n    Checking crypto-common v0.1.7\n   Compiling serde_json v1.0.151\n    Checking winnow v0.6.18\n    Checking indexmap v2.14.2\n   Compiling syn v3.0.6\n    Checking digest v0.10.7\n    Checking sha2 v0.10.9\n   Compiling serde_derive v1.0.229\n    Checking serde_spanned v0.6.7\n    Checking toml_datetime v0.6.8\n    Checking toml_edit v0.22.20\n    Checking toml v0.8.19\n    Checking nagi-legal v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/tools/legal)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.95s\n",
+      "output_sha256": "06fdf7eb3eeff20e8dc6066517d545123e97938df81043e6c0e4bdef08d26f6a",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-tests-recheck",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/legal/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling serde_core v1.0.229\n   Compiling hashbrown v0.17.1\n   Compiling equivalent v1.0.2\n   Compiling crypto-common v0.1.7\n   Compiling winnow v0.6.18\n   Compiling digest v0.10.7\n   Compiling sha2 v0.10.9\n   Compiling indexmap v2.14.2\n   Compiling serde v1.0.229\n   Compiling serde_json v1.0.151\n   Compiling serde_spanned v0.6.7\n   Compiling toml_datetime v0.6.8\n   Compiling toml_edit v0.22.20\n   Compiling toml v0.8.19\n   Compiling nagi-legal v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/tools/legal)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.46s\n     Running unittests src/lib.rs (target/debug/deps/nagi_legal-363216cb2531b4da)\n\nrunning 13 tests\ntest cli::tests::rejects_duplicate_or_missing_output_arguments ... ok\ntest cli::tests::rejects_unknown_command_before_trying_to_scan_a_root ... ok\ntest cli::tests::resolves_relative_paths_against_the_selected_cwd ... ok\ntest license::tests::preserves_explicit_spdx_expression ... ok\ntest sbom::tests::epoch_formatter_produces_utc_calendar_time ... ok\ntest license::tests::unknown_and_prose_are_not_guessed ... ok\ntest sbom::tests::profile_validator_rejects_missing_required_fields ... ok\ntest license::tests::rejects_malformed_claims ... ok\ntest sbom::tests::timestamp_validator_checks_calendar_and_clock_ranges ... ok\ntest scan::tests::lock_dependency_parser_keeps_source_qualifier ... ok\ntest scan::tests::url_credentials_are_removed ... ok\ntest scan::tests::license_evidence_requires_a_document_name ... ok\ntest license::tests::parses_precedence_parentheses_and_exceptions ... ok\n\ntest result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running unittests src/main.rs (target/debug/deps/nagi_legal-8e748b7a47ba3594)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/acceptance.rs (target/debug/deps/acceptance-080ae3a4dda4501f)\n\nrunning 18 tests\ntest explicit_license_file_does_not_guess_an_spdx_identifier ... ok\ntest explicit_notice_identity_aliases_record_review_without_inventing_a_license ... ok\ntest conflicting_duplicate_identity_is_detected ... ok\ntest generated_spdx_is_deterministic_except_for_creation_time_and_has_valid_shape ... ok\ntest human_report_groups_repetitive_findings_and_bounds_examples ... ok\ntest inventory_diff_reports_version_license_and_new_evidence_changes ... ok\ntest nested_vendored_package_inherits_its_tracked_parent_license_and_review_row ... ok\ntest model_record_schema_and_unknown_terms_are_preserved ... ok\ntest model_evidence_is_repository_relative_and_model_license_claims_are_validated ... ok\ntest notice_and_copyright_files_do_not_count_as_license_evidence ... ok\ntest notice_candidate_distinguishes_metadata_evidence_from_review_work ... ok\ntest sbom_and_notice_outputs_exclude_host_paths_credentials_and_upstream_text ... ok\ntest source_pin_identity_and_malformed_license_claims_are_reported ... ok\ntest offline_fixture_scan_parses_lock_metadata_and_sorts_components ... ok\ntest unknown_license_stays_unknown_and_is_reported_for_review ... ok\ntest vendored_component_without_evidence_or_review_record_fails_check_policy ... ok\ntest vendored_license_discovery_is_bounded_around_build_and_cache_trees ... ok\ntest unresolved_or_ambiguous_lock_edges_fail_structural_check ... ok\n\ntest result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s\n\n   Doc-tests nagi_legal\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "71e91381efdbaafaeb1dc4816bc9d5279b35045448d377183654d3297fe64f15",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "legal-check-recheck",
+      "command": [
+        "./nagi",
+        "legal",
+        "check"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running `target/debug/nagi-bootstrap legal check`\nNagi OS dependency and license scan\nProject: Nagi OS 0.1 Developer Preview\nRepository revision: cb3f9f29552bdee3e9c99228cb2153d10a1634e9\nComponents: 841\nLicense expressions unknown, malformed, or conflicting: 820\nComponents without license expression/file evidence: 818\nComponents without located NOTICE reference: 806\nComponents requiring manual review: 842\nPlanned model records (not SBOM components): 3\nStructural check errors: 0\n\nLicenses seen:\n  0BSD: 1\n  Apache-2.0 WITH LLVM-exception: 1\n  MIT: 7\n  MIT OR Apache-2.0: 9\n  MIT OR Apache-2.0 OR MPL-2.0: 1\n  MPL-2.0: 2\n  UNKNOWN: 820\n\nFindings:\n  REVIEW UNKNOWN_LICENSE (820 occurrence(s)): no explicit SPDX license expression was resolved; inspect recorded evidence\n    affected: `cargo-lock:cc@1.4.6`, `cargo-lock:freetype-sys@0.23.0`, `cargo-lock:hyper-util@0.1.20`; +817 more in JSON inventory\nPASS: no structural inventory or SPDX profile errors\n",
+      "output_sha256": "c431f23e88a08a78969c1afd7e5a6cba7cffa58983c7ef6bda4ba48dd1d47fe1",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-development-recheck",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--lib",
+        "development::"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running unittests ../nagi-cli/src/lib.rs (target/debug/deps/nagi_cli-ab28e63c49506026)\n\nrunning 39 tests\ntest development::fingerprint::tests::artifact_manifest_records_size_and_sha256 ... ok\ntest development::fingerprint::tests::cargo_profile_and_selected_target_environment_are_captured_selectively ... ok\ntest development::fingerprint::tests::command_parser_accepts_repeated_inputs_and_deduplicates_features ... ok\ntest development::fingerprint::tests::build_command_change_is_part_of_compatibility ... ok\ntest development::fingerprint::tests::artifact_content_change_is_a_distinct_mismatch ... ok\ntest development::fingerprint::tests::canonical_inputs_produce_a_deterministic_sha256_digest ... ok\ntest development::fingerprint::tests::creation_timestamp_is_provenance_and_does_not_change_compatibility ... ok\ntest development::fingerprint::tests::fingerprint_output_does_not_overwrite_existing_evidence ... ok\ntest development::fingerprint::tests::feature_target_and_toolchain_changes_have_specific_classes ... ok\ntest development::fingerprint::tests::fingerprint_schema_version_and_digest_are_validated ... ok\ntest development::fingerprint::tests::generated_directory_digest_tracks_file_names_and_contents ... ok\ntest development::fingerprint::tests::normalized_environment_flags_ignore_repository_and_temp_roots ... ok\ntest development::fingerprint::tests::fingerprint_compare_json_reports_mismatch_and_returns_nonzero ... ok\ntest development::fingerprint::tests::repository_absolute_paths_normalize_to_the_same_logical_path ... ok\ntest development::fingerprint::tests::repository_identifier_strips_remote_credentials_and_host_paths ... ok\ntest development::fingerprint::tests::requested_missing_artifact_fails_closed ... ok\ntest development::fingerprint::tests::patch_and_generated_input_changes_are_reported_separately ... ok\ntest development::fingerprint::tests::mismatch_classes_and_order_are_stable ... ok\ntest development::tests::datetime_validation_accepts_rfc3339_and_rejects_invalid_calendar_values ... ok\ntest development::fingerprint::tests::secret_like_environment_values_are_never_emitted ... ok\ntest development::tests::diagnostic_class_suggests_infrastructure_for_runner_loss ... ok\ntest development::fingerprint::tests::source_revision_change_is_classified ... ok\ntest development::tests::diagnostic_inventory_keeps_every_link_symbol_and_error ... ok\ntest development::tests::diagnostic_console_summary_escapes_terminal_controls_in_output_path ... ok\ntest development::tests::diagnostic_console_summary_escapes_terminal_controls ... ok\ntest development::tests::diagnostics_fail_when_no_requested_log_can_be_read ... ok\ntest development::tests::later_graphics_timeout_takes_precedence_over_earlier_linker_warnings ... ok\ntest development::tests::registry_accepts_only_the_checkpoint_approved_claude_branches ... ok\ntest development::fingerprint::tests::custom_target_json_reference_is_recorded_as_a_stable_target_name ... ok\ntest development::tests::diagnostic_report_hashes_logs_and_records_artifact_metadata ... ok\ntest development::tests::sha256_matches_standard_vector ... ok\ntest development::tests::state_loading_rejects_symlinks_that_escape_the_repository ... ok\ntest development::tests::registry_validation_rejects_duplicate_ids_branches_dependencies_and_unsafe_paths ... ok\ntest development::tests::diagnostic_output_preserves_source_logs_and_never_overwrites_reports ... ok\ntest development::tests::status_displays_the_two_most_recent_ci_runs_first ... ok\ntest development::tests::status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs ... ok\ntest development::tests::registry_and_active_workstream_state_validate_from_repository ... ok\ntest development::tests::validator_rejects_unknown_status_and_missing_next_action ... ok\ntest development::tests::status_and_resume_escape_terminal_controls_from_workstream_state ... ok\n\ntest result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 254 filtered out; finished in 0.04s\n\n",
+      "output_sha256": "5d1c57aeeb67571541730ee110ebaabaee45c830733d7a49a0884e44074cd90a",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-commands-recheck",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--lib",
+        "commands::tests"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running unittests ../nagi-cli/src/lib.rs (target/debug/deps/nagi_cli-ab28e63c49506026)\n\nrunning 35 tests\ntest commands::tests::m17_init_storage_bootstrap_matches_the_two_boot_acceptance_gate ... ok\ntest commands::tests::m17_persistence_and_pixel_boots_keep_the_esp_read_only ... ok\ntest commands::tests::m17_guest_rng_scans_the_transitional_entropy_device_id ... ok\ntest commands::tests::cross_archive_tools_are_limited_to_macos_nagi_target_builds ... ok\ntest commands::tests::m17_trace_excerpt_keeps_earlier_egl_events_and_skips_non_trace_lines ... ok\ntest commands::tests::m17_trace_excerpt_bounds_long_logs_and_keeps_both_ends ... ok\ntest commands::tests::m18_cleans_stale_servo_temp_storage_before_creating_its_profile ... ok\ntest commands::tests::m17_posix_urandom_device_uses_guest_virtio_rng ... ok\ntest commands::tests::m20_granite_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m19_search_runs_before_the_browser_acceptance_exits_servo ... ok\ntest commands::tests::m20_granite_inference_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m20_granite_external_artifact_is_checked_by_size_and_digest ... ok\ntest commands::tests::m20_llama_smoke_command_accepts_no_arguments ... ok\ntest commands::tests::m20_granite_manifest_matches_the_model_lock ... ok\ntest commands::tests::m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics ... ok\ntest commands::tests::m25_whisper_artifact_contract_matches_the_model_lock ... ok\ntest commands::tests::m25_whisper_command_requires_exactly_one_external_artifact_path ... ok\ntest commands::tests::m25_whisper_inference_requires_model_pcm_and_expected_text ... ok\ntest commands::tests::m26_model_commands_require_exact_artifact_and_gemma_terms_acknowledgement ... ok\ntest commands::tests::m27_bootstrap_waits_for_storage_restart_required_marker ... ok\ntest commands::tests::m22_pre_guest_retry_evidence_is_scoped_to_each_boot_log ... ok\ntest commands::tests::m27_pre_guest_retry_refuses_to_replay_after_writable_disk_changes ... ok\ntest commands::tests::m27_pre_guest_retry_restores_journal_state_and_preserves_both_snapshots ... ok\ntest commands::tests::m27_readiness_is_reported_after_the_record_is_persisted ... ok\ntest commands::tests::m27_readiness_must_be_consumed_before_candidate_promotion ... ok\ntest commands::tests::m27_readiness_must_follow_sign_in ... ok\ntest commands::tests::m27_trial_acceptance_waits_for_loader_failure_after_rejection ... ok\ntest commands::tests::m29_acceptance_artifacts_are_unique_and_keep_their_extensions ... ok\ntest commands::tests::m29_command_selects_the_settings_acceptance ... ok\ntest commands::tests::only_servo_enabled_init_builds_are_stripped_for_the_image ... ok\ntest commands::tests::m30_image_build_info_binds_the_source_revision_and_image_digest ... ok\ntest commands::tests::retry_evidence_path_suffix_preserves_non_utf8_path_bytes ... ok\ntest commands::tests::serial_log_excerpt_keeps_the_last_lines_in_order ... ok\ntest commands::tests::m17_rust_std_random_backend_uses_guest_rng_boundary ... ok\ntest commands::tests::m18_browser_boot_keeps_the_esp_read_only_for_storage_selection ... ok\n\ntest result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 258 filtered out; finished in 0.01s\n\n",
+      "output_sha256": "d71089e8c3f7c9bf8f581114c02e70e340af14bbe9f37db2fe9dbf7ed716032d",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "cli-launcher-recheck",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "tools/nagi-bootstrap/Cargo.toml",
+        "--locked",
+        "--offline",
+        "--test",
+        "cli"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s\n     Running ../nagi-cli/tests/cli.rs (target/debug/deps/cli-a8cfd1012efbbe6a)\n\nrunning 32 tests\ntest acceptance_runner_is_nested_under_the_existing_test_command ... ok\ntest an_incomplete_ovmf_pair_is_not_a_pass ... ok\ntest allow_missing_probe_report_warns_without_hiding_missing_dependencies ... ok\ntest complete_probe_report_passes_and_reports_every_dependency ... ok\ntest configured_minimums_are_enforced_by_the_doctor ... ok\ntest arm64_host_commands_select_only_host_compatible_packages ... ok\ntest dev_requires_a_subcommand_and_rejects_unknown_dev_actions ... ok\ntest acceptance_list_uses_the_registry_and_rejects_unregistered_milestones ... ok\ntest desktop_command_declares_ordered_boot_markers_before_ready ... ok\ntest diagnostics_commands_validate_modes_and_options ... ok\ntest doctor_recognizes_python3_without_a_python_alias ... ok\ntest fingerprint_binary_and_library_dispatch_fail_closed_for_missing_artifacts ... ok\ntest diagnostics_bundle_is_local_and_versioned ... ok\ntest formal_nagi_logo_asset_matches_the_boot_contract ... ok\ntest format_commands_match_ci_source_scope_without_vendored_servo ... ok\ntest host_clippy_command_keeps_warning_deny_boundary ... ok\ntest host_workspace_commands_exclude_kernel ... ok\ntest focused_diagnostics_verification_emits_a_machine_report ... ok\ntest mismatched_ovmf_families_are_not_a_pass ... ok\ntest nonzero_tool_exit_is_not_a_pass ... ok\ntest parses_the_complete_m0_command_surface ... ok\ntest project_manifest_supplies_the_pinned_host_requirements ... ok\ntest registered_workstream_validator_reports_verified_state ... ok\ntest rejects_unexpected_arguments_for_every_command ... ok\ntest rejects_unknown_commands_with_usage_exit_code ... ok\ntest repository_paths_are_not_used_by_probe_contract ... ok\ntest strict_probe_report_fails_after_reporting_all_missing_dependencies ... ok\ntest unreadable_or_non_executable_tool_is_not_a_pass ... ok\ntest wrong_program_output_is_not_a_pass ... ok\ntest dev_status_resume_and_verify_read_the_registered_workstream ... ok\ntest legal_delegation_preserves_json_and_error_exit_status ... ok\ntest delegated_legal_outputs_are_deterministic_and_notice_remains_a_candidate ... ok\n\ntest result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s\n\n",
+      "output_sha256": "b99f16d2ca07456310a58d7d741eae4fdce5889223d3264e7fecc8d8536ea558",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-writer-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-writer-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core/src/adapters.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core/src/formats.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core/src/lib.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core/src/model.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core/src/operations.rs\nSpent 0.003 secs in the parsing phase, and 0.015 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/tests/writer-core/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.005 secs in the formatting phase\n",
+      "output_sha256": "0be02ed6c4773e78cb2cfc79c5430b1be642baa86f90b5d7d0c70eac210deb2f",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-writer-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "crates/nagi-writer-core/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s\n",
+      "output_sha256": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-writer-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-writer-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running unittests src/lib.rs (target/debug/deps/nagi_writer_core-7f18b2f1d1f27602)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/writer-core/acceptance.rs (target/debug/deps/writer_core_acceptance-638c5e29ec38f2e0)\n\nrunning 31 tests\ntest h01_create_insert_move_delete_and_read_without_ai ... ok\ntest h02_table_operations_are_transactional_and_stable ... ok\ntest h03_duplicates_tombstones_and_parent_cycles_are_rejected_atomically ... ok\ntest h03_platform_identity_compatibility_fixture ... ok\ntest h03_ids_stay_stable_across_changes_and_native_reopen ... ok\ntest h05_immutable_history_conflicts_and_failed_batches ... ok\ntest h03_sections_move_with_children_and_invalid_positions_leave_snapshot_intact ... ok\ntest h02_all_block_types_are_retained ... ok\ntest h04_styles_inherit_and_outline_follows_structural_order ... ok\ntest h06_preview_has_no_effects_and_review_batch_is_rejected ... ok\ntest h06_changesets_cover_add_delete_move_format_and_provenance ... ok\ntest h06_proposal_identity_cannot_collide_with_proposed_object ... ok\ntest h06_review_nested_operations_and_duplicate_decisions_fail ... ok\ntest h07_comments_reply_resolve_and_deleted_anchor_preservation ... ok\ntest h06_track_changes_preview_accept_reject_and_stale_review ... ok\ntest h08_bilingual_markdown_subset_roundtrips ... ok\ntest h08_fenced_code_and_literal_punctuation_roundtrip ... ok\ntest h08_plaintext_is_literal_and_normalizes_newlines ... ok\ntest h09_plaintext_whitespace_structure_loss_is_reported ... ok\ntest h09_export_table_and_reference_reports_loss_before_write ... ok\ntest h09_unclosed_fence_keeps_all_content_and_warns ... ok\ntest h10_allocator_collisions_and_object_operation_limits_are_explicit ... ok\ntest h09_unsupported_markdown_is_preserved_with_line_warnings ... ok\ntest h10_limits_and_corrupt_native_inputs_are_rejected ... ok\ntest h10_unicode_byte_boundaries_and_overflow_ranges_do_not_panic ... ok\ntest h11_absent_adapters_never_claim_persistence_activity_or_restore ... ok\ntest h11_activity_projection_contains_only_identity_and_categories ... ok\ntest h11_search_projection_requires_permission_and_excludes_comments ... ok\ntest h10_review_and_batch_budgets_include_empty_table_cells_before_preview ... ok\ntest h10_large_bounded_input_and_empty_structural_elements ... ok\ntest h10_every_utf8_boundary_is_checked_against_scalar_positions ... ok\n\ntest result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n   Doc-tests nagi_writer_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "cf051ffd21f5bda274939c65fdde08e0c44cd210e1fa74452ec25ae874b2a523",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-sheets-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/examples/measure.rs\nSpent 0.001 secs in the parsing phase, and 0.001 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/engine.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/lib.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/parser.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core/src/workbook.rs\nSpent 0.003 secs in the parsing phase, and 0.011 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/tests/sheets-core/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.003 secs in the formatting phase\n",
+      "output_sha256": "81f15f2abff17c5f2ec80c760975827020992e890ad34799b9038b0224329690",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-sheets-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s\n",
+      "output_sha256": "ee1d3fffa2022e962e63e0dbe4d35c9c198450a20c29fc09030f635dbb38bfcd",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-sheets-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src/lib.rs (target/debug/deps/nagi_sheets_core-cc72249da9de5565)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/sheets-core/acceptance.rs (target/debug/deps/sheets_acceptance-f5feac0048c46e7a)\n\nrunning 19 tests\ntest formula_errors_are_reported_as_unsuccessful_events ... ok\ntest batch_topology_diamond_and_error_recovery ... ok\ntest invalid_snapshots_reject_missing_extra_and_duplicate_bindings ... ok\ntest sheet_identity_cannot_be_recycled_even_after_snapshot ... ok\ntest sheets_h01_identity_and_rename ... ok\ntest sheets_h02_typed_sparse_values ... ok\ntest sheets_h03_parser_and_arithmetic ... ok\ntest incremental_matches_rebuilt_graph_for_many_edits ... ok\ntest sheets_h05_transitive_dependents_only ... ok\ntest sheets_h06_cycles_and_recovery ... ok\ntest sheets_h04_functions_ranges_and_lazy_branches ... ok\ntest sheets_h07_errors_and_atomicity ... ok\ntest sheets_h08_replacement_removes_edges ... ok\ntest sheets_h09_unicode_and_canonical_names ... ok\ntest snapshot_roundtrip_rename_cycles_and_validation ... ok\ntest parser_malformed_corpus_on_small_stack ... ok\ntest untrusted_formula_and_range_bounds ... ok\ntest sheets_h10_sparse_100k_and_long_chain ... ok\ntest graph_limits_are_atomic_and_ranges_include_empty_cells ... ok\n\ntest result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s\n\n   Doc-tests nagi_sheets_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "2f9618d95a19329f97836b5b28df1b3305c49b808a5664e2483bf14f316cb795",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-calendar-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/adapter.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/availability.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/lib.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/model.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/recurrence.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/store.rs\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/src/time.rs\nSpent 0.003 secs in the parsing phase, and 0.009 secs in the formatting phase\nFormatting /workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core/tests/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.006 secs in the formatting phase\n",
+      "output_sha256": "a544631e388370ef2c3bbbc17bb6eef71d151a732ec75b01db3dd3b7da5f4a17",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-calendar-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--all-targets",
+        "--locked",
+        "--offline",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s\n",
+      "output_sha256": "02db5a66fa0c60ca8618bd08aac556eac4f3ec863e8630a0d353dba6a0f6e126",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-calendar-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-calendar-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s\n     Running unittests src/lib.rs (target/debug/deps/nagi_calendar_core-da9dddf04bcd3b20)\n\nrunning 1 test\ntest store::tests::stored_revision_overflow_does_not_mutate_the_record ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/acceptance.rs (target/debug/deps/acceptance-ae288a0e27bd53a6)\n\nrunning 60 tests\ntest all_day_dst_has_23_or_25_hours ... ok\ntest adapter_reminder_and_resource_are_local_cas_mutations ... ok\ntest adapter_computes_availability_without_services ... ok\ntest availability_buffers_and_global_grid ... ok\ntest availability_clips_busy_and_allows_endpoint_contact ... ok\ntest availability_invalid_bounds_and_limits_rejected ... ok\ntest availability_overflow_and_fully_busy ... ok\ntest cal_h02_temporal_domains_require_explicit_context ... ok\ntest cal_h01_ids_stable_across_crud_and_calendars ... ok\ntest cal_h03_offsets_and_year_rollover ... ok\ntest cal_h04_fold_requires_choice ... ok\ntest cal_h04_gap_rejects_without_normalizing ... ok\ntest cal_h06_month_end_skips_and_does_not_drift ... ok\ntest cal_h07_busy_union_and_free_slots ... ok\ntest cal_h05_local_daily_maintains_nine_am_across_dst ... ok\ntest cal_h08_stale_update_and_delete_are_atomic ... ok\ntest cal_h09_fixed_clock_and_ids_reproduce_exact_output ... ok\ntest cal_h10_invite_and_response_never_report_delivery ... ok\ntest cal_h08_scan_limit_applies_when_no_occurrences_are_returned ... ok\ntest calendar_foreign_reference_and_exception_domain_fail_closed ... ok\ntest calendar_update_retains_id_and_delete_rejects_nonempty_calendar ... ok\ntest cal_h11_text_utf8_and_search_are_bounded ... ok\ntest clock_rollback_does_not_change_revision ... ok\ntest date_bounds_leap_rules_and_roundtrip ... ok\ntest deleted_calendar_ids_are_not_reused ... ok\ntest different_zone_events_normalize_on_instant_axis ... ok\ntest dst_transition_microsecond_boundary ... ok\ntest duplicate_and_deleted_ids_cannot_be_reused ... ok\ntest exceptions_outside_series_and_conflicts_rejected ... ok\ntest exdate_consumes_count_without_replacement ... ok\ntest elapsed_and_wall_event_duration_are_distinct ... ok\ntest fold_endpoints_can_resolve_to_nonpositive_instant_range ... ok\ntest ids_validate_namespaces_and_empty_values ... ok\ntest instant_daily_is_elapsed_not_wall_time ... ok\ntest invalid_ranges_rejected_in_all_domains ... ok\ntest invalid_draft_does_not_mutate_store ... ok\ntest invalid_recurrence_modes_and_bounds_rejected ... ok\ntest invalid_transparent_event_is_not_silently_ignored ... ok\ntest leap_day_monthly_interval_skips_nonleap_years ... ok\ntest list_does_not_silently_truncate ... ok\ntest moved_override_keeps_original_identity_and_enters_query ... ok\ntest moved_override_leaves_original_query_window ... ok\ntest overnight_event_overlaps_window_and_end_is_exclusive ... ok\ntest participant_windows_intersect_and_unknown_does_not_mean_free ... ok\ntest precision_and_time_overflows_rejected ... ok\ntest recurrence_gap_is_error_not_silent_skip ... ok\ntest recurrence_output_limit_and_overflow_are_errors ... ok\ntest resolver_fold_order_is_validated ... ok\ntest recurrence_rejects_exactly_one_occurrence_over_output_limit ... ok\ntest resolver_roundtrip_is_validated ... ok\ntest revision_overflow_is_explicit ... ok\ntest skipped_month_and_weekday_scans_are_bounded ... ok\ntest unavailable_clock_does_not_create_events ... ok\ntest store_capacity_includes_tombstones ... ok\ntest until_at_maximum_date_finishes_without_advancing_out_of_domain ... ok\ntest until_near_maximum_instant_finishes_without_overflow ... ok\ntest until_is_inclusive_across_year_end ... ok\ntest weekly_interval_is_anchored_to_monday_week ... ok\ntest weekly_midweek_start_and_daily_interval ... ok\ntest date_roundtrips_every_month_boundary_in_supported_years ... ok\n\ntest result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s\n\n   Doc-tests nagi_calendar_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "1753b9499b985df51c6f13c51da4e0241f42567e224eeda94245cc8d47fcba24",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-audit",
+      "command": [
+        "python3",
+        ".dev/workstreams/writer-sheets-core-adoption/verify_adoption.py"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "{\n  \"result\": \"PASS\",\n  \"base_sha\": \"cb3f9f29552bdee3e9c99228cb2153d10a1634e9\",\n  \"registry_streams\": 30,\n  \"state_files\": 23,\n  \"changed_paths\": [\n    \".dev/workstreams.json\",\n    \".dev/workstreams/sheets-calc-01/evidence/clippy.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/dev-resume.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/dev-status.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/dev-verify-initial.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/dev-verify.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/format.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/host-tests.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/ownership.json\",\n    \".dev/workstreams/sheets-calc-01/evidence/performance.txt\",\n    \".dev/workstreams/sheets-calc-01/evidence/rustdoc.txt\",\n    \".dev/workstreams/sheets-calc-01/state.json\",\n    \".dev/workstreams/writer-core-01/crlf-verification.json\",\n    \".dev/workstreams/writer-core-01/dev-verification.txt\",\n    \".dev/workstreams/writer-core-01/format-scope-verification.txt\",\n    \".dev/workstreams/writer-core-01/host-cli-verification.txt\",\n    \".dev/workstreams/writer-core-01/host-verification.txt\",\n    \".dev/workstreams/writer-core-01/state.json\",\n    \".dev/workstreams/writer-core-01/windows-ci-37787276404.json\",\n    \".dev/workstreams/writer-sheets-core-adoption/checkpoint-proposal.json\",\n    \".dev/workstreams/writer-sheets-core-adoption/state.json\",\n    \".dev/workstreams/writer-sheets-core-adoption/verify_adoption.py\",\n    \".github/workflows/0.2-host-integration.yml\",\n    \"crates/nagi-sheets-core/Cargo.lock\",\n    \"crates/nagi-sheets-core/Cargo.toml\",\n    \"crates/nagi-sheets-core/README.md\",\n    \"crates/nagi-sheets-core/examples/measure.rs\",\n    \"crates/nagi-sheets-core/src/engine.rs\",\n    \"crates/nagi-sheets-core/src/lib.rs\",\n    \"crates/nagi-sheets-core/src/parser.rs\",\n    \"crates/nagi-sheets-core/src/workbook.rs\",\n    \"crates/nagi-writer-core/Cargo.lock\",\n    \"crates/nagi-writer-core/Cargo.toml\",\n    \"crates/nagi-writer-core/README.md\",\n    \"crates/nagi-writer-core/src/adapters.rs\",\n    \"crates/nagi-writer-core/src/formats.rs\",\n    \"crates/nagi-writer-core/src/lib.rs\",\n    \"crates/nagi-writer-core/src/model.rs\",\n    \"crates/nagi-writer-core/src/operations.rs\",\n    \"docs/0.2/adoption/WRITER_SHEETS_CORE.md\",\n    \"tests/sheets-core/acceptance.rs\",\n    \"tests/writer-core/acceptance.rs\",\n    \"tests/writer-core/fixtures/bilingual.md\",\n    \"tests/writer-core/verify.sh\"\n  ],\n  \"immutable_files\": [\n    {\n      \"path\": \".dev/workstreams/writer-core-01/crlf-verification.json\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"90d6059519e1b16888fcd3bf4f626bf6786696e5f5f0081f08088d620a855461\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/dev-verification.txt\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"ce79eb92efeea7974342ea2bd87db3d9aaedf03f6f72aa4c4156d978cdd397fd\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/format-scope-verification.txt\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"0e24b5a2829589aa0ce106a707b3f8cbba3cad75766f2f914d38486ec53391e0\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/host-cli-verification.txt\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"54e1879d7e7e8ddc61134895222864e78593fdc55fb1a224058872480cfbe2eb\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/host-verification.txt\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"a06dbd41d4c977469af6b905e17b8e67b5d8312645ae11bf522d4832416174e2\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/state.json\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"23587e0a40839e906d1e79240a865132efc94d12a97c98f3b34f6f8448c60017\"\n    },\n    {\n      \"path\": \".dev/workstreams/writer-core-01/windows-ci-37787276404.json\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"4d3f1554854a52c247f3f5dec4cc3cde02f7d1fbec01e77a414f19278a4dd831\"\n    },\n    {\n      \"path\": \"crates/nagi-writer-core/src/adapters.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"d41b783fca1666db57c12842a6ed24d6d3105785ef631fcd0ef69ba909997a2a\"\n    },\n    {\n      \"path\": \"crates/nagi-writer-core/src/formats.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"1aecaa398a8c9295a9bb9a3159254f11177814d3ac02dadc263ff5282e6f289e\"\n    },\n    {\n      \"path\": \"crates/nagi-writer-core/src/lib.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"cd2cb02e160ada743e60d3367f4c98c315238411e8acb7096b00f7b085214a43\"\n    },\n    {\n      \"path\": \"crates/nagi-writer-core/src/model.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"51949425ba3c11aa2d94ef95edee04e0e88f980b4aff2fe8062330f2f7fd1579\"\n    },\n    {\n      \"path\": \"crates/nagi-writer-core/src/operations.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"8b141f6f7e985894d055575c8f1dffcd6f599bb58eb18d4b1dc7ebe8c17b167c\"\n    },\n    {\n      \"path\": \"tests/writer-core/acceptance.rs\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"cfb199f45ff20569457902deb332cccff2dda67f04549226024c23621bacf34f\"\n    },\n    {\n      \"path\": \"tests/writer-core/fixtures/bilingual.md\",\n      \"source_sha\": \"8cc5c5da04f622be95c79152bf709edb61272c59\",\n      \"sha256\": \"acd5880a89411c190d75629c74c98ac479083679139642b88a737fb45ec1cff4\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/clippy.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"481a89d6eec38829b38ab0835a2d8031d2cb6c48edabf4cb7957e9b47d5eb72d\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/dev-resume.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"29c6bd12b93aa9e9ba0514ec67496e6de7350d43da38f2b9a6241a511b342ba3\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/dev-status.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"e25f9374b515ef1c151ca8b443c2e2140ec7edcc5cc092e79bfa0adffea08398\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/dev-verify-initial.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"a337b3aa6eae2ce704af84e6d1abf7a2d1a4f389036bde8c71cc5a122a7f9e2b\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/dev-verify.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"457b039e896777519b6d4f3254d57f807706664fde0cf8a7dbdfd1d75263aa90\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/format.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"800f7dee23b77d44115880eb55195555c8fff8d3340fe9dde946e583b33c68fb\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/host-tests.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"4b95e87a840edd5e4fe00d029180b70d1b43558ab682271ddd83882d722025a4\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/ownership.json\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"668ec0fe41d1e423fc2b1bf9503a7d9d472d524efe2a01ad8294ed15f56d3a08\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/performance.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"eb46026c626e569508ab7f772217ceb8b4d6059fad809b4d3c2cf52916a74968\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/evidence/rustdoc.txt\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"ff9323eb7dbfbe2fd6a00ebfc0cd1898c14ec3386d0067b8b0cf46f6535de271\"\n    },\n    {\n      \"path\": \".dev/workstreams/sheets-calc-01/state.json\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"d5f80074ad9d41c403b9ed2181acf5d723b37cb64601cbbd3d854e50ec58c444\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/Cargo.lock\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"559f97a44f0ddb6d66256818a023154a3b3a2ae247045c840868c4f341229ce0\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/Cargo.toml\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"8e31d51cfb84b592ce2877a7555c9161dbde42fe3bb23ef5a8230523680bb29e\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/README.md\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"0d7bfd7a186c550cba8eec7ad78673f122cd8b676ac80933368560456652ced0\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/examples/measure.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"e3785caf75469c62264598926e09829370b8691e22ece1fa5e7513fb4c17dd0e\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/src/engine.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"7861f08f21361e67ecead456d38dc5100257d3ac00a9188885fc88a6dcd43401\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/src/lib.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"2c34a616fc25e1aaad6401a63f25c6b799ac580985ef6c5a8cf6f7cab6c7dc87\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/src/parser.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"ec9cb61860018e75fa86066e7325c574a2231d4585ea02fb564e97a53fa33771\"\n    },\n    {\n      \"path\": \"crates/nagi-sheets-core/src/workbook.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"5b96b443131665044e241ce4526ddddf9a6aea7d8804e98bb7910673c634685b\"\n    },\n    {\n      \"path\": \"tests/sheets-core/acceptance.rs\",\n      \"source_sha\": \"b6e6efe13018cae4f3de188bb387e0584994609f\",\n      \"sha256\": \"8dd3b7ec5b33a12ac567246ef6cddb5cb7c26c2e7e639917f80842fd940aefb4\"\n    }\n  ]\n}\n",
+      "output_sha256": "5f8f77bc932dd5eb524420f23bac9831461b351d034fb14987bfd0f13c17527e",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "exact-dev-verify",
+      "command": [
+        "./nagi",
+        "dev",
+        "verify"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s\n     Running `target/debug/nagi-bootstrap dev verify`\nPASS development state: 30 registered workstreams, 23 state files validated; branch codex/0.2-adopt-writer-sheets-core at 2f20ff4e1e9afdb068b3cccbdd7129040bc68c36\n",
+      "output_sha256": "d6921607dd72337d5c7c8866adfca027c736f31c3e6b0fa5e6353acb855f5eea",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "canonical-lock",
+      "command": [
+        "cargo",
+        "generate-lockfile",
+        "--manifest-path",
+        "/tmp/ws-canonical-compat/Cargo.toml",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "     Locking 15 packages to latest compatible versions\n",
+      "output_sha256": "0abec1866eafea85eff496ec7f8e76b6bd63e2b8f1d32b957345491eca66e0dc",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "canonical-test",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "/tmp/ws-canonical-compat/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling nagi-sheets-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core)\n   Compiling nagi-calendar-core v0.2.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core)\n   Compiling nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n   Compiling ws-canonical-compat v0.1.0 (/tmp/ws-canonical-compat)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.21s\n     Running unittests src/lib.rs (target/debug/deps/ws_canonical_compat-3ed8c4f6886ad271)\n\nrunning 1 test\ntest canonical_identity_is_shared_across_adopted_apps_and_history ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests ws_canonical_compat\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "d4d251cf311a2a5d69593b24c5b82b98e98dab61fd3ca7f4994bf815e2d60b1b",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "canonical-tree",
+      "command": [
+        "cargo",
+        "tree",
+        "--manifest-path",
+        "/tmp/ws-canonical-compat/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0,
+      "stdout_stderr": "ws-canonical-compat v0.1.0 (/tmp/ws-canonical-compat)\n\u251c\u2500\u2500 nagi-calendar-core v0.2.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core)\n\u2502   \u2514\u2500\u2500 nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n\u251c\u2500\u2500 nagi-history v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-history)\n\u2502   \u251c\u2500\u2500 nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n\u2502   \u2514\u2500\u2500 sha2 v0.10.9\n\u2502       \u251c\u2500\u2500 cfg-if v1.0.5\n\u2502       \u251c\u2500\u2500 cpufeatures v0.2.17\n\u2502       \u2514\u2500\u2500 digest v0.10.7\n\u2502           \u251c\u2500\u2500 block-buffer v0.10.4\n\u2502           \u2502   \u2514\u2500\u2500 generic-array v0.14.7\n\u2502           \u2502       \u2514\u2500\u2500 typenum v1.20.1\n\u2502           \u2502       [build-dependencies]\n\u2502           \u2502       \u2514\u2500\u2500 version_check v0.9.5\n\u2502           \u2514\u2500\u2500 crypto-common v0.1.7\n\u2502               \u251c\u2500\u2500 generic-array v0.14.7 (*)\n\u2502               \u2514\u2500\u2500 typenum v1.20.1\n\u251c\u2500\u2500 nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n\u251c\u2500\u2500 nagi-sheets-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core)\n\u2502   \u2514\u2500\u2500 nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n\u2514\u2500\u2500 nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n    \u251c\u2500\u2500 nagi-history v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-history) (*)\n    \u2514\u2500\u2500 nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n",
+      "output_sha256": "ee1c12668592b744accf265e9d5bcfd95438c46edcf7375ae357d8fff28adcd5",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "crlf-writer-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-writer-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "cwd": "/tmp/ws-adoption-crlf",
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /tmp/ws-adoption-crlf/crates/nagi-writer-core/src/adapters.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-writer-core/src/formats.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-writer-core/src/lib.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-writer-core/src/model.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-writer-core/src/operations.rs\nSpent 0.004 secs in the parsing phase, and 0.014 secs in the formatting phase\nFormatting /tmp/ws-adoption-crlf/tests/writer-core/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.005 secs in the formatting phase\n",
+      "output_sha256": "bc53b646b327c9981eac895b3861abecc8a7b7f5e8e7f657a9eb8b02dedf7a2b",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "crlf-writer-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-writer-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "cwd": "/tmp/ws-adoption-crlf",
+      "exit_code": 0,
+      "stdout_stderr": "    Blocking waiting for file lock on build directory\n   Compiling nagi-model v0.1.0 (/tmp/ws-adoption-crlf/crates/nagi-model)\n   Compiling nagi-history v0.1.0 (/tmp/ws-adoption-crlf/user/nagi-history)\n   Compiling nagi-writer-core v0.1.0 (/tmp/ws-adoption-crlf/crates/nagi-writer-core)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.32s\n     Running unittests src/lib.rs (/workspace/NagiOS-adopt-writer-sheets/target/debug/deps/nagi_writer_core-063ace24d257d7df)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/writer-core/acceptance.rs (/workspace/NagiOS-adopt-writer-sheets/target/debug/deps/writer_core_acceptance-5ccb5190e023cd98)\n\nrunning 31 tests\ntest h01_create_insert_move_delete_and_read_without_ai ... ok\ntest h03_duplicates_tombstones_and_parent_cycles_are_rejected_atomically ... ok\ntest h03_platform_identity_compatibility_fixture ... ok\ntest h02_table_operations_are_transactional_and_stable ... ok\ntest h03_ids_stay_stable_across_changes_and_native_reopen ... ok\ntest h02_all_block_types_are_retained ... ok\ntest h03_sections_move_with_children_and_invalid_positions_leave_snapshot_intact ... ok\ntest h04_styles_inherit_and_outline_follows_structural_order ... ok\ntest h05_immutable_history_conflicts_and_failed_batches ... ok\ntest h06_changesets_cover_add_delete_move_format_and_provenance ... ok\ntest h06_preview_has_no_effects_and_review_batch_is_rejected ... ok\ntest h06_review_nested_operations_and_duplicate_decisions_fail ... ok\ntest h06_proposal_identity_cannot_collide_with_proposed_object ... ok\ntest h07_comments_reply_resolve_and_deleted_anchor_preservation ... ok\ntest h08_fenced_code_and_literal_punctuation_roundtrip ... ok\ntest h08_plaintext_is_literal_and_normalizes_newlines ... ok\ntest h08_bilingual_markdown_subset_roundtrips ... ok\ntest h06_track_changes_preview_accept_reject_and_stale_review ... ok\ntest h09_export_table_and_reference_reports_loss_before_write ... ok\ntest h09_plaintext_whitespace_structure_loss_is_reported ... ok\ntest h09_unclosed_fence_keeps_all_content_and_warns ... ok\ntest h10_allocator_collisions_and_object_operation_limits_are_explicit ... ok\ntest h09_unsupported_markdown_is_preserved_with_line_warnings ... ok\ntest h10_limits_and_corrupt_native_inputs_are_rejected ... ok\ntest h10_unicode_byte_boundaries_and_overflow_ranges_do_not_panic ... ok\ntest h11_absent_adapters_never_claim_persistence_activity_or_restore ... ok\ntest h11_activity_projection_contains_only_identity_and_categories ... ok\ntest h11_search_projection_requires_permission_and_excludes_comments ... ok\ntest h10_review_and_batch_budgets_include_empty_table_cells_before_preview ... ok\ntest h10_large_bounded_input_and_empty_structural_elements ... ok\ntest h10_every_utf8_boundary_is_checked_against_scalar_positions ... ok\n\ntest result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n   Doc-tests nagi_writer_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "4e6ad5fbbc36ac03d7263a1e508afb6b77e2beb1547d3724abbce8afedb67140",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "crlf-sheets-fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--",
+        "--check",
+        "--verbose"
+      ],
+      "cwd": "/tmp/ws-adoption-crlf",
+      "exit_code": 0,
+      "stdout_stderr": "Formatting /tmp/ws-adoption-crlf/crates/nagi-sheets-core/examples/measure.rs\nSpent 0.001 secs in the parsing phase, and 0.001 secs in the formatting phase\nFormatting /tmp/ws-adoption-crlf/crates/nagi-sheets-core/src/engine.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-sheets-core/src/lib.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-sheets-core/src/parser.rs\nFormatting /tmp/ws-adoption-crlf/crates/nagi-sheets-core/src/workbook.rs\nSpent 0.003 secs in the parsing phase, and 0.010 secs in the formatting phase\nFormatting /tmp/ws-adoption-crlf/tests/sheets-core/acceptance.rs\nSpent 0.001 secs in the parsing phase, and 0.003 secs in the formatting phase\n",
+      "output_sha256": "be5310b2345ca57572e3e4c56bbe727e30e089ab6ac6089b32a5b5e84ff5905e",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "crlf-sheets-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--manifest-path",
+        "crates/nagi-sheets-core/Cargo.toml",
+        "--locked",
+        "--offline"
+      ],
+      "cwd": "/tmp/ws-adoption-crlf",
+      "exit_code": 0,
+      "stdout_stderr": "   Compiling nagi-sheets-core v0.1.0 (/tmp/ws-adoption-crlf/crates/nagi-sheets-core)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.29s\n     Running unittests src/lib.rs (/workspace/NagiOS-adopt-writer-sheets/target/debug/deps/nagi_sheets_core-f4d0f8f6079d90b1)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/sheets-core/acceptance.rs (/workspace/NagiOS-adopt-writer-sheets/target/debug/deps/sheets_acceptance-fda121e39c84ee4b)\n\nrunning 19 tests\ntest batch_topology_diamond_and_error_recovery ... ok\ntest invalid_snapshots_reject_missing_extra_and_duplicate_bindings ... ok\ntest incremental_matches_rebuilt_graph_for_many_edits ... ok\ntest formula_errors_are_reported_as_unsuccessful_events ... ok\ntest sheet_identity_cannot_be_recycled_even_after_snapshot ... ok\ntest sheets_h01_identity_and_rename ... ok\ntest sheets_h02_typed_sparse_values ... ok\ntest sheets_h03_parser_and_arithmetic ... ok\ntest sheets_h05_transitive_dependents_only ... ok\ntest sheets_h04_functions_ranges_and_lazy_branches ... ok\ntest sheets_h06_cycles_and_recovery ... ok\ntest sheets_h07_errors_and_atomicity ... ok\ntest sheets_h08_replacement_removes_edges ... ok\ntest sheets_h09_unicode_and_canonical_names ... ok\ntest snapshot_roundtrip_rename_cycles_and_validation ... ok\ntest parser_malformed_corpus_on_small_stack ... ok\ntest untrusted_formula_and_range_bounds ... ok\ntest sheets_h10_sparse_100k_and_long_chain ... ok\ntest graph_limits_are_atomic_and_ranges_include_empty_cells ... ok\n\ntest result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s\n\n   Doc-tests nagi_sheets_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+      "output_sha256": "66c8adf8bda515c22fb89b4abaa7d4b7d9a2f883aa95fee727d5d5380547badb",
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "source_binding": "Adopted implementation tree unchanged between precommit and exact-commit reruns; see immutable-source audit."
+    },
+    {
+      "name": "writer-complete-gate",
+      "command": "bash tests/writer-core/verify.sh",
+      "exit_code": 0,
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "stdout_stderr": "   Compiling version_check v0.9.5\n   Compiling typenum v1.20.1\n   Compiling cfg-if v1.0.5\n   Compiling cpufeatures v0.2.17\n   Compiling nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n   Compiling generic-array v0.14.7\n   Compiling crypto-common v0.1.7\n   Compiling block-buffer v0.10.4\n   Compiling digest v0.10.7\n   Compiling sha2 v0.10.9\n   Compiling nagi-history v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-history)\n   Compiling nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.22s\n   Compiling nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.66s\n     Running unittests src/lib.rs (target/debug/deps/nagi_writer_core-7f18b2f1d1f27602)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running ../../tests/writer-core/acceptance.rs (target/debug/deps/writer_core_acceptance-638c5e29ec38f2e0)\n\nrunning 31 tests\ntest h02_table_operations_are_transactional_and_stable ... ok\ntest h03_duplicates_tombstones_and_parent_cycles_are_rejected_atomically ... ok\ntest h01_create_insert_move_delete_and_read_without_ai ... ok\ntest h02_all_block_types_are_retained ... ok\ntest h03_ids_stay_stable_across_changes_and_native_reopen ... ok\ntest h03_platform_identity_compatibility_fixture ... ok\ntest h05_immutable_history_conflicts_and_failed_batches ... ok\ntest h03_sections_move_with_children_and_invalid_positions_leave_snapshot_intact ... ok\ntest h06_changesets_cover_add_delete_move_format_and_provenance ... ok\ntest h04_styles_inherit_and_outline_follows_structural_order ... ok\ntest h06_proposal_identity_cannot_collide_with_proposed_object ... ok\ntest h06_preview_has_no_effects_and_review_batch_is_rejected ... ok\ntest h06_review_nested_operations_and_duplicate_decisions_fail ... ok\ntest h07_comments_reply_resolve_and_deleted_anchor_preservation ... ok\ntest h06_track_changes_preview_accept_reject_and_stale_review ... ok\ntest h08_fenced_code_and_literal_punctuation_roundtrip ... ok\ntest h08_bilingual_markdown_subset_roundtrips ... ok\ntest h08_plaintext_is_literal_and_normalizes_newlines ... ok\ntest h09_plaintext_whitespace_structure_loss_is_reported ... ok\ntest h09_unclosed_fence_keeps_all_content_and_warns ... ok\ntest h09_export_table_and_reference_reports_loss_before_write ... ok\ntest h10_allocator_collisions_and_object_operation_limits_are_explicit ... ok\ntest h09_unsupported_markdown_is_preserved_with_line_warnings ... ok\ntest h10_limits_and_corrupt_native_inputs_are_rejected ... ok\ntest h10_unicode_byte_boundaries_and_overflow_ranges_do_not_panic ... ok\ntest h11_absent_adapters_never_claim_persistence_activity_or_restore ... ok\ntest h11_activity_projection_contains_only_identity_and_categories ... ok\ntest h11_search_projection_requires_permission_and_excludes_comments ... ok\ntest h10_large_bounded_input_and_empty_structural_elements ... ok\ntest h10_review_and_batch_budgets_include_empty_table_cells_before_preview ... ok\ntest h10_every_utf8_boundary_is_checked_against_scalar_positions ... ok\n\ntest result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n   Doc-tests nagi_writer_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n    Checking typenum v1.20.1\n    Checking cfg-if v1.0.5\n    Checking cpufeatures v0.2.17\n    Checking nagi-model v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model)\n    Checking generic-array v0.14.7\n    Checking crypto-common v0.1.7\n    Checking block-buffer v0.10.4\n    Checking digest v0.10.7\n    Checking sha2 v0.10.9\n    Checking nagi-history v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/user/nagi-history)\n    Checking nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.50s\n Documenting nagi-writer-core v0.1.0 (/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.46s\n   Generated /workspace/NagiOS-adopt-writer-sheets/target/doc/nagi_writer_core/index.html\n",
+      "output_sha256": "034b68af80484822637ec74aa175486821fb34a60468faad17b4220cc052208f"
+    },
+    {
+      "name": "workflow-owned-boundary",
+      "command": "Execute exact workflow registered host-only path boundary step",
+      "exit_code": 0,
+      "source_sha": "2f20ff4e1e9afdb068b3cccbdd7129040bc68c36",
+      "stdout_stderr": "PASS registered host boundary: writer-sheets-core-adoption\n",
+      "output_sha256": "c441418557a1dea39d2c9e7c1aa330cdee8f8900482d52fe0fde5dd28a843a61"
+    },
+    {
+      "name": "pristine-main-existing-cli-failure",
+      "command": "cargo test --manifest-path tools/nagi-bootstrap/Cargo.toml --locked --offline --lib mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet",
+      "exit_code": 101,
+      "source_sha": "cb3f9f29552bdee3e9c99228cb2153d10a1634e9",
+      "stdout_stderr": "    Blocking waiting for file lock on build directory\n   Compiling nagi-model v0.1.0 (/tmp/ws-main-regression/crates/nagi-model)\n   Compiling nagi-slot-manifest v0.1.0 (/tmp/ws-main-regression/crates/nagi-slot-manifest)\n   Compiling nagi-model-manager v0.1.0 (/tmp/ws-main-regression/user/nagi-model-manager)\n   Compiling nagi-bootstrap v0.1.0 (/tmp/ws-main-regression/tools/nagi-bootstrap)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.62s\n     Running unittests ../nagi-cli/src/lib.rs (/workspace/NagiOS-adopt-writer-sheets/target/debug/deps/nagi_cli-0e9acadd2547bfe5)\n\nrunning 1 test\ntest mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet ... FAILED\n\nfailures:\n\n---- mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet stdout ----\n\nthread 'mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet' panicked at ../nagi-cli/src/mozjs_sys_nagi.rs:175:14:\nNagi mozjs_sys build script: Os { code: 2, kind: NotFound, message: \"No such file or directory\" }\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n\n\nfailures:\n    mozjs_sys_nagi::tests::mozjs_configure_uses_supported_freestanding_triplet\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 292 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `--lib`\n",
+      "output_sha256": "9e87a24b02681ad05b809711c61e65123fae11d633880382d7886892c018c913"
+    }
+  ],
+  "canonical_compatibility_fixture": {
+    "manifest": "[package]\nname=\"ws-canonical-compat\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[workspace]\n[dependencies]\nwriter={package=\"nagi-writer-core\",path=\"/workspace/NagiOS-adopt-writer-sheets/crates/nagi-writer-core\"}\nsheets={package=\"nagi-sheets-core\",path=\"/workspace/NagiOS-adopt-writer-sheets/crates/nagi-sheets-core\"}\ncalendar={package=\"nagi-calendar-core\",path=\"/workspace/NagiOS-adopt-writer-sheets/crates/nagi-calendar-core\"}\nmodel={package=\"nagi-model\",path=\"/workspace/NagiOS-adopt-writer-sheets/crates/nagi-model\"}\nhistory={package=\"nagi-history\",path=\"/workspace/NagiOS-adopt-writer-sheets/user/nagi-history\"}\n",
+    "source": "#[test]\nfn canonical_identity_is_shared_across_adopted_apps_and_history() {\n    let id = model::ObjectId(42);\n    let writer_id: writer::ObjectId = id;\n    let sheets_id: sheets::ObjectId = writer_id;\n    let calendar_id: calendar::ObjectId = sheets_id;\n    let history_id: history::ObjectId = calendar_id;\n    assert_eq!(history_id, id);\n    assert_eq!(writer::DocumentId(writer_id).0, sheets_id);\n    let actor = history::activity::Actor::new(history::activity::ActorId(7), history::activity::ActorKind::User);\n    let writer_actor: writer::Actor = actor;\n    assert_eq!(writer_actor, actor);\n    let revision: writer::RevisionId = history::activity::RevisionId(3);\n    assert_eq!(revision, history::activity::RevisionId(3));\n}\n"
+  },
+  "remote_audit": {
+    "main": "cb3f9f29552bdee3e9c99228cb2153d10a1634e9",
+    "writer": "8cc5c5da04f622be95c79152bf709edb61272c59",
+    "sheets": "b6e6efe13018cae4f3de188bb387e0584994609f",
+    "open_prs": [
+      31
+    ],
+    "adoption_remote_branch": "ABSENT; no publication performed"
+  },
+  "not_run": [
+    "Native Windows adoption checks",
+    "Remote CI on adopted exact source",
+    "Guest/target/runtime acceptance",
+    "Full prepared-runner workspace regression"
+  ],
+  "followup_resolution": {
+    "evidence": "bootstrap-verification.json",
+    "verified_source_sha": "e8003a2f9c6b74ce7e26d509abf4c8091434fef9",
+    "full_cli_outcome": "PASS 293 library + 32 launcher",
+    "historical_failures": "Preserved; source/cache prerequisites resolved on follow-up."
+  }
+}

@@ -1,0 +1,31 @@
+regen: repo commit d1457fb90424c591c6dcf5f64ccd66677ce902e9
+regen: host Linux aarch64; python 3.12.15
+regen: requirements sha256 6fc00b217fcfe09614fee5da26d72bbea29dabc3ec97bff4239b67382e68d3a9
+No broken requirements found.
+regen: installed (pip freeze):
+  anyio==4.15.1
+  certifi==2026.7.22
+  click==8.5.0
+  filelock==4.0.12
+  flatbuffers==25.12.19
+  fsspec==2026.9.0
+  h11==0.16.0
+  hf-xet==1.7.0
+  httpcore==1.0.9
+  httpx==0.28.1
+  huggingface_hub==1.33.0
+  idna==3.20
+  numpy==2.5.3
+  onnxruntime==1.30.0
+  packaging==26.3
+  pip==25.0.1
+  protobuf==7.36.2
+  PyYAML==6.0.3
+  tokenizers==0.23.2
+  tqdm==4.70.1
+  typing_extensions==4.16.0
+reference_e5: wrote 22 items to $NAGI_M24_REGEN_DIR/parity_reference.json
+tokenizer_parity: 788 items -> $NAGI_M24_REGEN_DIR/tokenizer_parity.json
+regen: parity_reference.json byte-identical to committed copy (sha256 161418a6efc3aa9c54ba45f348088117f6bfe866ce5996aef643d15c59ecee3e)
+regen: tokenizer_parity.json byte-identical to committed copy (sha256 6401aac20b2e165cff52a368c00568b614ee829c23af14981c9d2e2a4b1d9196)
+regen: PASS (reference data reproduced from pinned inputs and hash-pinned packages)

@@ -1,0 +1,5 @@
+source_commit=97d97ec766c52aea9bba59811327527e6ac6f607
+command=cargo doc --manifest-path crates/nagi-sheets-core/Cargo.toml --locked --offline --no-deps
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+   Generated /tmp/nagi-sheets-tools/target/doc/nagi_sheets_core/index.html
+exit_code=0

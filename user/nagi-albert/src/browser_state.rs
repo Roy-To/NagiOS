@@ -39,6 +39,7 @@ pub struct BrowserState {
     pub(crate) next_tab_id: u64,
     pub(crate) next_navigation_id: u64,
     pub(crate) next_history_id: u64,
+    pub(crate) history_namespace_id: u64,
     pub(crate) history_entries: Vec<HistoryEntry>,
     pub(crate) bookmarks: BookmarkStore,
     address_bar: AddressBar,
@@ -57,6 +58,7 @@ impl BrowserState {
             next_tab_id: 2,
             next_navigation_id: 1,
             next_history_id: 1,
+            history_namespace_id: 0,
             history_entries: Vec::new(),
             bookmarks: BookmarkStore::new(),
             address_bar,
@@ -90,6 +92,29 @@ impl BrowserState {
 
     pub fn history(&self) -> &[HistoryEntry] {
         &self.history_entries
+    }
+
+    /// Stable namespace for producer keys published from this browser profile.
+    /// Zero means the profile has not yet received a durable namespace.
+    pub fn history_namespace_id(&self) -> u64 {
+        self.history_namespace_id
+    }
+
+    /// Assign the profile namespace once, before publishing visit metadata.
+    #[cfg_attr(not(target_os = "nagi"), allow(dead_code))]
+    pub(crate) fn assign_history_namespace_id(&mut self, id: u64) -> bool {
+        if id == 0 || (self.history_namespace_id != 0 && self.history_namespace_id != id) {
+            return false;
+        }
+        self.history_namespace_id = id;
+        true
+    }
+
+    /// Disable Search publication when the namespace could not be durably
+    /// saved. Browser navigation and history remain usable in memory.
+    #[cfg_attr(not(target_os = "nagi"), allow(dead_code))]
+    pub(crate) fn clear_history_namespace_id(&mut self) {
+        self.history_namespace_id = 0;
     }
 
     pub fn bookmarks(&self) -> &BookmarkStore {
@@ -486,6 +511,7 @@ impl BrowserState {
     pub(crate) fn set_restored_parts(
         tabs: Vec<Tab>,
         active_tab_id: TabId,
+        history_namespace_id: u64,
         history_entries: Vec<HistoryEntry>,
         bookmarks: BookmarkStore,
     ) -> Result<Self, BrowserStateError> {
@@ -502,6 +528,7 @@ impl BrowserState {
                 .max()
                 .unwrap_or(1),
             next_navigation_id: 1,
+            history_namespace_id,
             next_history_id: history_entries
                 .iter()
                 .map(|entry| entry.id.0.saturating_add(1))

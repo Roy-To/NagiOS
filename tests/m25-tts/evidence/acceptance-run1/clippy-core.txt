@@ -1,0 +1,2 @@
+$ cargo clippy --manifest-path <repo>/crates/nagi-tts-provider/Cargo.toml -j2 --no-default-features --all-targets --locked -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s

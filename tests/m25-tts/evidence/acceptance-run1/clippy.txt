@@ -1,0 +1,45 @@
+$ cargo clippy --manifest-path <repo>/crates/nagi-tts-provider/Cargo.toml -j2 --all-targets --locked -- -D warnings
+warning: unexpected `cfg` condition value: `nagi`
+   --> <repo>/third_party/libc/src/unix/mod.rs:554:21
+    |
+554 |     } else if #[cfg(target_os = "nagi")] {
+    |                     ^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `netbsd`, `none`, `nto`, `nuttx`, `ohos`, `openbsd`, `psp`, `psx`, `redox`, `rtems`, `solaris`, `solid_asp3`, `switch`, `teeos`, and `trusty` and 11 more
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `nagi`
+    --> <repo>/third_party/libc/src/unix/mod.rs:1870:21
+     |
+1870 |     } else if #[cfg(target_os = "nagi")] {
+     |                     ^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `netbsd`, `none`, `nto`, `nuttx`, `ohos`, `openbsd`, `psp`, `psx`, `redox`, `rtems`, `solaris`, `solid_asp3`, `switch`, `teeos`, and `trusty` and 11 more
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: function `setgroups` is never used
+    --> <repo>/third_party/libc/src/unix/linux_like/mod.rs:1946:12
+     |
+1946 |     pub fn setgroups(ngroups: size_t, ptr: *const crate::gid_t) -> c_int;
+     |            ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: `setgroups` redeclared with a different signature
+    --> <repo>/third_party/libc/src/unix/linux_like/mod.rs:1946:5
+     |
+1946 |     pub fn setgroups(ngroups: size_t, ptr: *const crate::gid_t) -> c_int;
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this signature doesn't match the previous declaration
+     |
+    ::: <repo>/third_party/libc/src/unix/mod.rs:1052:5
+     |
+1052 |     pub fn setgroups(ngroups_max: c_int, groups: *const gid_t) -> c_int;
+     |     -------------------------------------------------------------------- `setgroups` previously declared here
+     |
+     = note: expected `unsafe extern "C" fn(i32, *const u32) -> i32`
+                found `unsafe extern "C" fn(usize, *const u32) -> i32`
+     = note: `#[warn(clashing_extern_declarations)]` on by default
+
+warning: `libc` (lib) generated 4 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s

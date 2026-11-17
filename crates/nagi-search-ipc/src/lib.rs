@@ -13,6 +13,12 @@ pub const PROTOCOL_ID: u16 = 0x5352;
 pub const PROTOCOL_VERSION: u16 = 1;
 pub const OPCODE_SEARCH: u16 = 1;
 pub const OPCODE_RESULTS: u16 = 2;
+/// First-party one-shot clients relay the decoded result set to init so the
+/// OS can compare it with the service response before presenting ObjectIds.
+pub const OPCODE_RESULT_RELAY: u16 = 3;
+/// Cancel a one-shot client before it receives a query (for example after a
+/// missing or denied live grant).
+pub const OPCODE_ABORT: u16 = 4;
 
 /// Request layout: `[kind u8][text_len u8][text UTF-8 ...]`.
 pub const MAX_QUERY_TEXT: usize = MAX_CHANNEL_INLINE_PAYLOAD - 2;
@@ -23,6 +29,7 @@ pub const MAX_RESULT_IDS: usize = (MAX_CHANNEL_INLINE_PAYLOAD - 4) / 8;
 pub enum KindFilter {
     Any = 0,
     File = 1,
+    Page = 2,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -40,7 +47,7 @@ pub enum ResultStatus {
     InvalidRequest = 2,
     /// The service failed to evaluate a valid request.
     Unavailable = 3,
-    /// The caller's live launch holds no `search.query` grant.
+    /// The caller's live launch holds no required global or source grant.
     Denied = 4,
 }
 
@@ -116,6 +123,7 @@ pub fn decode_request(payload: &[u8]) -> Result<SearchRequest<'_>, WireError> {
     let kind = match payload[0] {
         0 => KindFilter::Any,
         1 => KindFilter::File,
+        2 => KindFilter::Page,
         _ => return Err(WireError::InvalidKind),
     };
     let length = usize::from(payload[1]);
@@ -233,6 +241,18 @@ mod tests {
             ),
             Err(WireError::TooLong)
         );
+    }
+
+    #[test]
+    fn page_kind_filter_round_trips_using_the_existing_request_layout() {
+        let mut buffer = [0_u8; MAX_CHANNEL_INLINE_PAYLOAD];
+        let request = SearchRequest {
+            kind: KindFilter::Page,
+            text: "M19 persisted page",
+        };
+        let length = encode_request(request, &mut buffer).expect("encode page query");
+        assert_eq!(buffer[0], 2);
+        assert_eq!(decode_request(&buffer[..length]), Ok(request));
     }
 
     #[test]

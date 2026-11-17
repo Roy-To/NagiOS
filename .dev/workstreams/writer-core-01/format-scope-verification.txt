@@ -1,0 +1,3 @@
+[lib (2021)] "/workspace/NagiOS-writer-core-01/crates/nagi-writer-core/src/lib.rs"
+[test (2021)] "/workspace/NagiOS-writer-core-01/tests/writer-core/acceptance.rs"
+rustfmt --edition 2021 --check /workspace/NagiOS-writer-core-01/crates/nagi-writer-core/src/lib.rs /workspace/NagiOS-writer-core-01/tests/writer-core/acceptance.rs

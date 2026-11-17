@@ -1,0 +1,280 @@
+# Dedicated CI for the M25 local Japanese TTS provider (crates/nagi-tts-provider).
+#
+# Workstream-owned (hark/m25-local-tts). This is NOT owner registration and does
+# not replace ci.yml: the provider is still PARTIAL (host evidence only; guest
+# AudioService playback on Nagi/QEMU is NOT_RUN and is not attempted here).
+#
+#   model-free      fmt, clippy (engine and no_std core), model-free tests
+#   nagi-target     Nagi user-target check/build (no link, no guest run)
+#   real-engine     pinned artifacts, real Japanese synthesis, measurements,
+#                   fail-closed negatives (missing assets must FAIL, never skip)
+#
+# No secrets, no write tokens, no paid services; only public pinned downloads
+# (tools/tts/tts-artifacts.lock) verified by SHA-256 in tools/tts/fetch.sh.
+name: M25 local TTS (hark)
+
+on:
+  push:
+    branches:
+      - hark/m25-local-tts
+    paths:
+      - 'crates/nagi-tts-provider/**'
+      - 'tools/tts/**'
+      - 'tests/m25-tts/**'
+      - '.dev/workstreams/hark-m25-tts/**'
+      - 'user/nagi-audio/**'
+      - 'third_party/libc/**'
+      - 'third_party/rust-std/patches/**'
+      - 'targets/x86_64-unknown-nagi-user.json'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/hark-m25-local-tts.yml'
+  pull_request:
+    paths:
+      - 'crates/nagi-tts-provider/**'
+      - 'tools/tts/**'
+      - 'tests/m25-tts/**'
+      - '.dev/workstreams/hark-m25-tts/**'
+      - 'user/nagi-audio/**'
+      - 'third_party/libc/**'
+      - 'third_party/rust-std/patches/**'
+      - 'targets/x86_64-unknown-nagi-user.json'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/hark-m25-local-tts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hark-m25-local-tts-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+  TOOLCHAIN: nightly-2025-08-01
+  MANIFEST: crates/nagi-tts-provider/Cargo.toml
+  LOGS: out/ci-logs
+
+jobs:
+  model-free:
+    name: A model-free (fmt, clippy, unit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustc --version
+          mkdir -p "$LOGS"
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-tts-cargo-model-free-${{ runner.os }}-${{ hashFiles('tools/tts/tts-artifacts.lock', 'crates/nagi-tts-provider/Cargo.lock') }}
+      - name: rustfmt --check
+        run: |
+          set -o pipefail
+          cargo fmt --manifest-path "$MANIFEST" -- --check 2>&1 | tee "$LOGS/fmt.log"
+      - name: clippy (engine enabled) -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path "$MANIFEST" --all-targets --locked -- -D warnings 2>&1 | tee "$LOGS/clippy-engine.log"
+      - name: clippy (no_std core, engine disabled) -D warnings
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path "$MANIFEST" --no-default-features --all-targets --locked -- -D warnings 2>&1 | tee "$LOGS/clippy-core.log"
+      - name: Model-free tests (real-engine tests must be listed as ignored)
+        run: |
+          set -o pipefail
+          env -u NAGI_TTS_VOICE -u NAGI_TTS_DICT \
+            cargo test --manifest-path "$MANIFEST" --locked 2>&1 | tee "$LOGS/unit.log"
+          # The real_engine binary must report all 12 tests as ignored, not passed.
+          grep -q 'test result: ok\. 0 passed; 0 failed; 12 ignored' "$LOGS/unit.log" \
+            || { echo "::error::real-engine tests were not reported as 12 ignored"; exit 1; }
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed; 0 ignored' "$LOGS/unit.log" \
+            || { echo "::error::no model-free tests passed"; exit 1; }
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-tts-model-free-${{ github.run_attempt }}
+          path: out/ci-logs/
+          if-no-files-found: ignore
+
+  nagi-target:
+    name: B Nagi user-target builds (no link, no guest run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TARGET_JSON: targets/x86_64-unknown-nagi-user.json
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install target build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19
+      - name: Install pinned Rust toolchain with rust-src
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rust-src
+          rustc --version
+          mkdir -p "$LOGS"
+      - name: Cache cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-tts-cargo-nagi-target-${{ runner.os }}-${{ hashFiles('tools/tts/tts-artifacts.lock', 'crates/nagi-tts-provider/Cargo.lock') }}
+      - name: Prepare patched Nagi Rust std source (0001 patch + crate-level libc)
+        run: |
+          # Same preparation as the target job in ci.yml / nagi-cli
+          # prepare_nagi_rust_std_source.
+          sysroot=$(rustc +"$TOOLCHAIN" --print sysroot)
+          mkdir -p out/rust-src
+          cp -a "$sysroot/lib/rustlib/src/rust/." out/rust-src/
+          git apply --unsafe-paths --whitespace=nowarn --directory=out/rust-src third_party/rust-std/patches/0001-nagi-target-support.patch
+          if ! grep -q '^libc = { path = "../../../third_party/libc" }$' out/rust-src/library/Cargo.toml; then
+            printf '\nlibc = { path = "../../../third_party/libc" }\n' >> out/rust-src/library/Cargo.toml
+          fi
+          grep -n 'third_party/libc' crates/nagi-tts-provider/Cargo.toml
+      - name: no_std core check (engine disabled; NOT engine target evidence)
+        run: |
+          set -o pipefail
+          cargo check --manifest-path "$MANIFEST" --no-default-features --target "$TARGET_JSON" \
+            -Zbuild-std=core,alloc --target-dir out/target-nagi --locked 2>&1 | tee "$LOGS/nagi-core-check.log"
+      - name: Engine-enabled check for x86_64-unknown-nagi-user (build-std std)
+        env:
+          __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
+        run: |
+          set -o pipefail
+          cargo check --manifest-path "$MANIFEST" --lib --target "$TARGET_JSON" \
+            -Zbuild-std=std,panic_abort --target-dir out/target-nagi-std --locked 2>&1 | tee "$LOGS/nagi-engine-check.log"
+      - name: Engine-enabled release rlib build for x86_64-unknown-nagi-user
+        env:
+          __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
+        run: |
+          set -o pipefail
+          cargo build --release --manifest-path "$MANIFEST" --lib --target "$TARGET_JSON" \
+            -Zbuild-std=std,panic_abort --target-dir out/target-nagi-std --locked 2>&1 | tee "$LOGS/nagi-engine-release.log"
+          rlib=out/target-nagi-std/x86_64-unknown-nagi-user/release/libnagi_tts_provider.rlib
+          test -s "$rlib" || { echo "::error::release rlib missing"; exit 1; }
+          echo "rlib_bytes=$(stat -c %s "$rlib")" | tee -a "$LOGS/nagi-engine-release.log"
+          echo "NOTE: rlib only; nothing linked into nagi-init, nothing run on Nagi/QEMU." | tee -a "$LOGS/nagi-engine-release.log"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-tts-nagi-target-${{ github.run_attempt }}
+          path: out/ci-logs/
+          if-no-files-found: ignore
+
+  real-engine:
+    name: C real-engine host acceptance (pinned artifacts)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NAGI_TTS_CACHE: ${{ github.workspace }}/out/cache/tts
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install measurement dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y time
+          test -x /usr/bin/time
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustc --version
+          mkdir -p "$LOGS"
+      - name: Cache pinned TTS artifacts and cargo registry
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Restored files are never trusted: fetch.sh re-verifies every
+          # SHA-256 and re-downloads or fails on mismatch.
+          path: |
+            out/cache/tts/tohoku-f01-neutral.htsvoice
+            out/cache/tts/tohoku-f01-COPYRIGHT.txt
+            out/cache/tts/naist-jdic-jpreprocess.tar.gz
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: m25-tts-artifacts-${{ runner.os }}-${{ hashFiles('tools/tts/tts-artifacts.lock', 'crates/nagi-tts-provider/Cargo.lock') }}
+      - name: Check fetch.sh pins match tts-artifacts.lock
+        run: |
+          set -o pipefail
+          {
+            status=0
+            for sha in $(grep -Eo '"?[0-9a-f]{64}"?' tools/tts/tts-artifacts.lock | tr -d '"' | sort -u); do
+              if grep -q "$sha" tools/tts/fetch.sh; then echo "OK   $sha"; else echo "MISS $sha"; status=1; fi
+            done
+            rev=$(sed -n 's/^revision = "\([0-9a-f]\{40\}\)".*/\1/p' tools/tts/tts-artifacts.lock | head -1)
+            grep -q "VOICE_REV=$rev" tools/tts/fetch.sh && echo "OK   voice revision $rev" || { echo "MISS voice revision $rev"; status=1; }
+            exit $status
+          } 2>&1 | tee "$LOGS/pins.log"
+      - name: Fetch pinned artifacts (tools/tts/fetch.sh, SHA-256 verified)
+        run: |
+          set -o pipefail
+          tools/tts/fetch.sh "$NAGI_TTS_CACHE" 2>&1 | tee "$LOGS/fetch.log"
+          sha256sum "$NAGI_TTS_CACHE"/tohoku-f01-neutral.htsvoice "$NAGI_TTS_CACHE"/naist-jdic-jpreprocess.tar.gz | tee -a "$LOGS/fetch.log"
+      - name: Verify third-party notices manifest
+        run: |
+          set -o pipefail
+          {
+            (cd tools/tts/notices && sha256sum -c ../NOTICES.sha256)
+            # Every notice file is listed, and the shipped voice COPYRIGHT is
+            # byte-identical to the one fetched at the pinned revision.
+            test "$(ls tools/tts/notices | wc -l)" -eq "$(grep -Ec '^[0-9a-f]{64}  ' tools/tts/NOTICES.sha256)"
+            cmp tools/tts/notices/tohoku-f01-COPYRIGHT.txt "$NAGI_TTS_CACHE/tohoku-f01-COPYRIGHT.txt"
+            echo "notices OK"
+          } 2>&1 | tee "$LOGS/notices.log"
+      - name: Real-engine suite (12 ignored tests, real Japanese synthesis)
+        run: |
+          set -o pipefail
+          export NAGI_TTS_VOICE="$NAGI_TTS_CACHE/tohoku-f01-neutral.htsvoice"
+          export NAGI_TTS_DICT="$NAGI_TTS_CACHE/naist-jdic"
+          cargo test --manifest-path "$MANIFEST" --locked --test real_engine -- --ignored --test-threads=2 2>&1 | tee "$LOGS/real.log"
+          grep -q 'test result: ok\. 12 passed; 0 failed; 0 ignored' "$LOGS/real.log" \
+            || { echo "::error::real-engine suite did not report 12 passed"; exit 1; }
+      - name: Negative - missing assets must FAIL (never skip)
+        run: |
+          set +e
+          env -u NAGI_TTS_VOICE -u NAGI_TTS_DICT \
+            cargo test --manifest-path "$MANIFEST" --locked --test real_engine -- --ignored >"$LOGS/missing-assets.log" 2>&1
+          rc=$?
+          NAGI_TTS_VOICE=/nonexistent/nagi-tts/v.htsvoice NAGI_TTS_DICT="$NAGI_TTS_CACHE/naist-jdic" \
+            cargo test --manifest-path "$MANIFEST" --locked --test real_engine -- --ignored >"$LOGS/missing-voice-file.log" 2>&1
+          rc2=$?
+          set -e
+          echo "unset env: exit $rc; nonexistent voice path: exit $rc2"
+          [ "$rc" -ne 0 ] && grep -q 'FAIL: NAGI_TTS_VOICE is not set' "$LOGS/missing-assets.log" \
+            && grep -q 'test result: FAILED\. 0 passed; 12 failed' "$LOGS/missing-assets.log" \
+            || { echo "::error::real suite did not fail closed without artifacts"; exit 1; }
+          [ "$rc2" -ne 0 ] && grep -q 'FAIL: voice missing at' "$LOGS/missing-voice-file.log" \
+            && grep -q 'test result: FAILED\. 0 passed; 12 failed' "$LOGS/missing-voice-file.log" \
+            || { echo "::error::real suite did not fail closed with a missing voice file"; exit 1; }
+          echo "fail-closed OK"
+      - name: Host measurements (tests/m25-tts/measure.sh, outcome-checked)
+        run: |
+          set -o pipefail
+          # WHISPER_CLI/WHISPER_MODEL deliberately unset: no Whisper round trip in CI.
+          env -u WHISPER_CLI -u WHISPER_MODEL tests/m25-tts/measure.sh out/tts-eval 2>&1 | tee "$LOGS/measure.log"
+          grep -q '^RESULT=PASS$' "$LOGS/measure.log"
+      - name: Full host acceptance runner (tests/m25-tts/acceptance.sh)
+        run: |
+          set -o pipefail
+          tests/m25-tts/acceptance.sh "$LOGS/acceptance" 2>&1 | tee "$LOGS/acceptance-runner.log"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: m25-tts-real-engine-${{ github.run_attempt }}
+          path: |
+            out/ci-logs/
+            out/tts-eval/*.stdout
+            out/tts-eval/*.time
+          if-no-files-found: ignore

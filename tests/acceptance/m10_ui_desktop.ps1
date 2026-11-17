@@ -14,8 +14,11 @@ if ($exitCode -ne 0) {
     throw "M10 desktop launcher failed with exit code $exitCode"
 }
 
-$serialLog = Join-Path $repositoryRoot 'out\logs\m10-desktop.log'
-if (-not (Test-Path -LiteralPath $serialLog -PathType Leaf)) {
+# Each run has its own log and User Data disk (first run creates the owner).
+$serialLog = Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'out\logs') -Filter 'm10-desktop-*.log' -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+if (-not $serialLog -or -not (Test-Path -LiteralPath $serialLog -PathType Leaf)) {
     throw "M10 serial log was not created: $serialLog"
 }
 $lines = [IO.File]::ReadAllLines($serialLog)
@@ -44,6 +47,10 @@ foreach ($marker in @(
     'Nagi boot lock checksum=',
     'Nagi M10 desktop READY',
     'Nagi M10 surface checksum=',
+    'Nagi login READY mode=create',
+    'Nagi login owner created PASS name=owner',
+    'Nagi login unlocked PASS',
+    'Nagi login readiness reported PASS',
     'Nagi M10 Calculator focus PASS',
     'Nagi M10 Notes focus PASS',
     'Nagi M10 Japanese input PASS',
@@ -63,4 +70,4 @@ foreach ($marker in @(
     }
     $lastLine = $foundLine
 }
-Write-Output 'PASS M10 acceptance: real QEMU input focused all Nagi desktop windows and entered Japanese text'
+Write-Output 'PASS M10 acceptance: real QEMU input signed in the owner, focused all Nagi desktop windows and entered Japanese text'
