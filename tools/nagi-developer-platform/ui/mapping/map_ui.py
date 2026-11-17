@@ -131,6 +131,17 @@ def _select_rule(fact, kind, rules, source_format):
     return rule
 
 
+def _row_status(mapping_status):
+    """Overall port state of a row, derived only from its vocabulary classification.
+
+    `mapping.status` classifies the match against the UI contract vocabulary and may
+    be `supported`. The row `status` is the whole-port state: nothing here renders or
+    executes, so it is never better than `partial`. This is the single place that
+    defines the relation; README documents it.
+    """
+    return mapping_status if mapping_status in ("unsupported", "needs_decision") else "partial"
+
+
 def _control_row(fact, kind, index, analysis, rules, contract):
     rule = _select_rule(fact, kind, rules, analysis["format"])
     valid = contract["state"] == "matched"
@@ -183,7 +194,7 @@ def _control_row(fact, kind, index, analysis, rules, contract):
         "mapping": {"status": mapping_status, "relation": relation,
                     "candidates": targets, "contract_refs": refs, "reason": reason,
                     "approval": "PROVISIONAL"},
-        "status": mapping_status if mapping_status in ("unsupported", "needs_decision") else "partial",
+        "status": _row_status(mapping_status),
         "axes": axes,
         "source_metadata": {"focus_properties": copy.deepcopy(focus_props),
                             "in_declared_tab_order": bool(focus_order),
@@ -206,7 +217,7 @@ def _gap_row(kind, index, fact):
     axes = {a: _axis("needs_decision", "source_semantics_need_review") for a in AXES}
     axes["backend"] = _axis(status, reasons[kind])
     return {"id": "{}:{}".format(kind, index), "source_kind": kind,
-            "source": copy.deepcopy(fact), "status": status,
+            "source": copy.deepcopy(fact), "status": _row_status(status),
             "mapping": {"status": status, "relation": "unavailable" if unsupported else "unknown",
                         "candidates": [], "contract_refs": [], "reason": reasons[kind],
                         "approval": "PROVISIONAL"}, "axes": axes}
@@ -271,7 +282,9 @@ def markdown_report(report):
         lines.append("| " + " | ".join(cells) + " |")
     lines += ["", "## Counts", "", cell(report["summary"]["status_counts"]), "",
               "## Evidence", ""]
-    lines += ["- " + cell(e["path"]) + ": " + e["state"] + " (SHA-256 " + e["sha256"] + ")"
+    # Files added after the reviewed snapshot have no snapshot hash.
+    lines += ["- " + cell(e["path"]) + ": " + e["state"] + " (SHA-256 "
+              + (e["sha256"] or "not_in_snapshot") + ")"
               for e in report["contract"]["evidence"]]
     lines += ["", "## Limits", ""] + ["- " + item for item in report["limitations"]]
     lines += ["", "Full source facts (including text, placement, events, bindings and unknowns) are retained in the JSON report."]

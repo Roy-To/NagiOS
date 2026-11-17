@@ -33,7 +33,8 @@ class GtkBuilderAnalysisTests(unittest.TestCase):
         self.assertEqual(source, before)
 
     def temporary_directory(self):
-        return tempfile.TemporaryDirectory(prefix=".gtk-test-", dir=Path(__file__).parent)
+        # Default system temp location, never the source tree.
+        return tempfile.TemporaryDirectory(prefix="ndp06-gtk-")
 
     def test_minimal_screen_unicode_and_translation_attributes(self):
         result = analyze.analyze_file("gtk_minimal.ui", FIXTURES)
@@ -288,6 +289,52 @@ class GtkBuilderAnalysisTests(unittest.TestCase):
         result = analyze.analyze_bytes(builder('<x>' * depth + '</x>' * depth))
         self.assertEqual(len(result["unknown"]), depth)
         self.assert_error(builder('<x>' * (depth + 1) + '</x>' * (depth + 1)), "depth_limit")
+
+    def test_nested_unknown_elements_keep_content_only_at_outermost(self):
+        source = builder('<outer a="1"><middle b="2"><inner>深い 🌊</inner></middle></outer>'
+                         '<sibling/>')
+        unknown = analyze.analyze_bytes(source)["unknown"]
+        # Every unknown element is still listed, in source order.
+        self.assertEqual([x["tag"] for x in unknown], ["outer", "middle", "inner", "sibling"])
+        with_content = [x["tag"] for x in unknown if "content" in x]
+        self.assertEqual(with_content, ["outer", "sibling"])
+        nested = [x["tag"] for x in unknown if x.get("nested_in_unknown")]
+        self.assertEqual(nested, ["middle", "inner"])
+        # The nested evidence is not lost: it is inside the outermost content once.
+        outer = unknown[0]["content"]
+        self.assertEqual(outer["attributes"], {"a": "1"})
+        self.assertEqual(outer["children"][0]["attributes"], {"b": "2"})
+        self.assertEqual(outer["children"][0]["children"][0]["text"], "深い 🌊")
+        self.assertEqual(json.dumps(unknown, ensure_ascii=False).count("深い"), 1)
+
+    def test_unknown_depth_does_not_duplicate_content_per_ancestor(self):
+        depth = 20
+        unknown = analyze.analyze_bytes(
+            builder('<x>' * depth + 'LEAF' + '</x>' * depth))["unknown"]
+        self.assertEqual(len(unknown), depth)
+        self.assertEqual(sum("content" in x for x in unknown), 1)
+        self.assertEqual(json.dumps(unknown).count("LEAF"), 1)
+
+    def test_widget_inside_unknown_element_is_still_analyzed(self):
+        source = builder('<vendor-wrap><child><object class="GtkButton" id="inner">'
+                         '<unrecognized-tag/></object></child></vendor-wrap>')
+        result = analyze.analyze_bytes(source)
+        self.assertEqual([w["name"] for w in result["widgets"]], ["window", "inner"])
+        unknown = [(x["tag"], "content" in x) for x in result["unknown"]]
+        self.assertEqual(unknown, [("vendor-wrap", True), ("unrecognized-tag", False)])
+
+    def test_include_is_a_resource_not_an_unknown_element(self):
+        result = analyze.analyze_bytes(builder(extra='<include filename="shared.ui"/>'))
+        self.assertEqual(result["unknown"], [])
+        self.assertEqual([(x["kind"], x["value"]) for x in result["resources"]],
+                         [("include", "shared.ui")])
+
+    def test_template_stays_unknown_with_evidence(self):
+        result = analyze.analyze_bytes(
+            builder(extra='<template class="Custom" parent="GtkBox"><child/></template>'))
+        entry = next(x for x in result["unknown"] if x.get("tag") == "template")
+        self.assertEqual(entry["content"]["attributes"],
+                         {"class": "Custom", "parent": "GtkBox"})
 
     def test_fixtures_deterministic_and_input_unchanged(self):
         for filename in ("gtk_minimal.ui", "gtk3_task_panel.ui", "gtk4_task_panel.ui"):
