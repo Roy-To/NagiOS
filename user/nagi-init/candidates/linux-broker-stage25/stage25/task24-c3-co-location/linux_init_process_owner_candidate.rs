@@ -2000,3 +2000,120 @@ mod task24_gate_callsite;
 
 #[cfg(target_os = "linux")]
 include!("../../../../../../../lane-c3-sandbox/user/nagi-init/src/linux_x86_64_process.rs");
+
+#[cfg(test)]
+mod c2_exact_cleanup_lease_tests {
+    use super::*;
+
+    struct MismatchedLease;
+
+    impl ExactChildLaunchLease<u64> for MismatchedLease {
+        fn matches_spawn(&self, _process_instance: &SpawnedProcessIdentity, _record: &u64) -> bool {
+            false
+        }
+    }
+
+    #[derive(Default)]
+    struct MockOs {
+        termination_attempts: usize,
+    }
+
+    impl ProcessOs for MockOs {
+        type Raw = ();
+
+        fn pidfd_handoff(
+            &self,
+            _child: &ProcessHandle<Prepared, Self::Raw>,
+        ) -> std::io::Result<SpawnedProcessPidfd> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn prepare(
+            &mut self,
+            _executable: ExecutablePayload<'_>,
+            _arguments: &[&str],
+            _execution_identity: LinuxExecutionIdentity,
+        ) -> std::io::Result<ProcessHandle<Prepared, Self::Raw>> {
+            unimplemented!("cleanup mismatch test constructs an owned child")
+        }
+
+        fn commit_release_gate<LaunchRecord>(
+            &mut self,
+            _child: &mut ProcessHandle<Prepared, Self::Raw>,
+            _registered: &RegisteredLaunch<LaunchRecord>,
+            _wait_budget: std::time::Duration,
+        ) -> Result<std::time::Instant, ReleaseFailureReason> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn wait_exec_ack(
+            &mut self,
+            _child: &mut ProcessHandle<ReleaseUncertain, Self::Raw>,
+            _started: std::time::Instant,
+            _wait_budget: std::time::Duration,
+            _cancel_check_interval: std::time::Duration,
+            _cancelled: &mut dyn FnMut() -> bool,
+        ) -> Result<(), ReleaseFailureInfo> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn same_process_instance<Stage: ProcessStage>(
+            &self,
+            child: &ProcessHandle<Stage, Self::Raw>,
+            identity: &SpawnedProcessIdentity,
+        ) -> bool {
+            child.process_id == identity.process_id()
+        }
+
+        fn try_wait<Stage: ProcessStage>(
+            &mut self,
+            _child: &mut ProcessHandle<Stage, Self::Raw>,
+        ) -> std::io::Result<Option<ServiceExitStatus>> {
+            Ok(None)
+        }
+
+        fn terminate<Stage: ProcessStage>(
+            &mut self,
+            _child: &mut ProcessHandle<Stage, Self::Raw>,
+        ) -> std::io::Result<()> {
+            self.termination_attempts += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn exact_cleanup_rejects_mismatched_lease_before_termination() {
+        let identity = nagi_init_spawn_contract::test_identity(71);
+        let proof = nagi_init_spawn_contract::test_pidfd_for_identity(identity.clone());
+        let mut owner =
+            ProcessLifecycle::<MockOs, u64, u64, MismatchedLease>::new(MockOs::default());
+        owner.children.push(ManagedProcess {
+            process_id: identity.process_id(),
+            service: 1,
+            required: true,
+            child: ProcessHandle {
+                process_id: identity.process_id(),
+                raw: (),
+                _stage: std::marker::PhantomData,
+            },
+            record: 3001,
+            record_cleanup: CleanupAttempt::NotAttempted,
+            launch_lease: Some(BoundLaunchLease {
+                process_instance: identity,
+                record: 3001,
+                gate_disposition: LaunchGateDisposition::Released,
+                lease: MismatchedLease,
+            }),
+            lease_cleanup: LeaseRetirementState::NotAttempted,
+            reaped: None,
+            cleanup_requested: false,
+        });
+
+        assert_eq!(
+            owner.request_cleanup_exact(&proof, 3001),
+            Err(BackendError::IdentityRejected)
+        );
+        assert_eq!(owner.os.termination_attempts, 0);
+        assert!(!owner.children[0].cleanup_requested);
+    }
+}
