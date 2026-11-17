@@ -159,6 +159,9 @@ enum Fault {
     PartialWrite,
     BeforeRename,
     AfterRename,
+    ProcessExitDuringHighWaterWrite,
+    ProcessExitAfterHighWater,
+    ProcessExitDuringEnvelopeWrite,
 }
 
 impl LinuxIdentitySnapshotStore {
@@ -316,7 +319,16 @@ impl LinuxIdentitySnapshotStore {
         };
         let bytes = serde_json::to_vec(&record).map_err(|_| SnapshotStoreError::Unavailable)?;
         let (path, mut pending) = create_pending(&self.root(), version)?;
+        #[cfg(test)]
+        let fault = self.fault;
         let write_result = (|| -> std::io::Result<()> {
+            #[cfg(test)]
+            if fault == Some(Fault::ProcessExitDuringHighWaterWrite) {
+                let midpoint = bytes.len() / 2;
+                pending.write_all(&bytes[..midpoint])?;
+                pending.sync_all()?;
+                std::process::exit(86);
+            }
             pending.write_all(&bytes)?;
             pending.sync_all()?;
             fs::rename(&path, self.root().join(HIGH_WATER_FILE))?;
@@ -349,6 +361,13 @@ impl LinuxIdentitySnapshotStore {
                 let midpoint = bytes.len() / 2;
                 pending.write_all(&bytes[..midpoint])?;
                 return Err(std::io::Error::other("injected interrupted store write"));
+            }
+            #[cfg(test)]
+            if fault == Some(Fault::ProcessExitDuringEnvelopeWrite) {
+                let midpoint = bytes.len() / 2;
+                pending.write_all(&bytes[..midpoint])?;
+                pending.sync_all()?;
+                std::process::exit(86);
             }
             pending.write_all(&bytes)?;
             pending.sync_all()?;
@@ -470,6 +489,10 @@ impl IdentitySnapshotStore for LinuxIdentitySnapshotStore {
         if let Err(error) = self.persist_high_water(version) {
             self.poisoned = true;
             return Err(error);
+        }
+        #[cfg(test)]
+        if self.fault == Some(Fault::ProcessExitAfterHighWater) {
+            std::process::exit(86);
         }
         #[cfg(test)]
         if self.fault == Some(Fault::AfterHighWater) {
@@ -712,6 +735,8 @@ mod tests {
     use crate::model::IdentitySnapshot;
     use crate::store::IdentitySnapshotStore;
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(1);
@@ -723,6 +748,22 @@ mod tests {
             let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
                 "nagi-c1-durable-store-{}-{sequence}",
+                std::process::id()
+            ));
+            let mut builder = fs::DirBuilder::new();
+            builder.mode(0o700).create(&path).unwrap();
+            Self(path)
+        }
+
+        fn new_under_worktree_target() -> Self {
+            let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+            let parent = std::env::current_exe()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_path_buf();
+            let path = parent.join(format!(
+                "nagi-c1-process-store-{}-{sequence}",
                 std::process::id()
             ));
             let mut builder = fs::DirBuilder::new();
@@ -756,6 +797,143 @@ mod tests {
         let mut envelope = Envelope::from_bytes(&bytes).unwrap();
         mutate(&mut envelope);
         fs::write(path, envelope.serialized().unwrap()).unwrap();
+    }
+
+    fn exit_child_at_store_boundary(directory: &TestDirectory, boundary: &str) {
+        const CHILD_TEST: &str =
+            "store::linux::tests::child_process_exits_at_selected_store_boundary";
+        const DIRECTORY_ENV: &str = "NAGI_C1_DURABLE_CHILD_DIRECTORY";
+        const BOUNDARY_ENV: &str = "NAGI_C1_DURABLE_CHILD_BOUNDARY";
+
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(CHILD_TEST)
+            .arg("--nocapture")
+            .env(DIRECTORY_ENV, &directory.0)
+            .env(BOUNDARY_ENV, boundary)
+            .current_dir(&directory.0)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(86),
+            "child did not exit at the store boundary"
+        );
+        assert_eq!(output.status.signal(), None);
+    }
+
+    fn assert_one_pending_file(directory: &TestDirectory) {
+        let pending = fs::read_dir(&directory.0)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pending-"))
+            .count();
+        assert_eq!(pending, 1);
+    }
+
+    #[test]
+    fn child_process_exits_at_selected_store_boundary() {
+        const DIRECTORY_ENV: &str = "NAGI_C1_DURABLE_CHILD_DIRECTORY";
+        const BOUNDARY_ENV: &str = "NAGI_C1_DURABLE_CHILD_BOUNDARY";
+
+        let (Ok(directory), Ok(boundary)) =
+            (std::env::var(DIRECTORY_ENV), std::env::var(BOUNDARY_ENV))
+        else {
+            return;
+        };
+        let mut store = LinuxIdentitySnapshotStore::open(File::open(directory).unwrap()).unwrap();
+        let fault = match boundary.as_str() {
+            "during-high-water-write" => Fault::ProcessExitDuringHighWaterWrite,
+            "after-high-water" => Fault::ProcessExitAfterHighWater,
+            "during-envelope-write" => Fault::ProcessExitDuringEnvelopeWrite,
+            other => panic!("unknown child boundary: {other}"),
+        };
+        let expected_version = store.load_current_state().unwrap().high_water_version;
+        store.set_fault_for_test(fault);
+        let next_revision = expected_version.map_or(0, |version| version.get() + 1);
+        let _ = store.commit_atomic(expected_version, &snapshot(next_revision));
+        panic!("configured process exit boundary was not reached");
+    }
+
+    #[test]
+    fn process_exit_during_first_high_water_write_fails_closed() {
+        let directory = TestDirectory::new_under_worktree_target();
+        exit_child_at_store_boundary(&directory, "during-high-water-write");
+        assert!(!directory.state_path().is_file());
+        assert_one_pending_file(&directory);
+        assert_eq!(
+            LinuxIdentitySnapshotStore::open(directory.open_directory()).err(),
+            Some(DurableStoreError::Corrupt)
+        );
+    }
+
+    #[test]
+    fn process_exit_during_high_water_update_keeps_the_previous_commit() {
+        let directory = TestDirectory::new_under_worktree_target();
+        let first = snapshot(0);
+        let second = snapshot(1);
+        let third = snapshot(2);
+        let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        store.commit_atomic(None, &first).unwrap();
+        store
+            .commit_atomic(Some(SnapshotVersion::new(1)), &second)
+            .unwrap();
+        drop(store);
+
+        exit_child_at_store_boundary(&directory, "during-high-water-write");
+        assert_one_pending_file(&directory);
+        let mut reopened = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        assert_eq!(
+            reopened.load_current_state().unwrap(),
+            SnapshotStoreState {
+                current: Some(StoredSnapshot {
+                    bytes: second,
+                    version: SnapshotVersion::new(2),
+                }),
+                high_water_version: Some(SnapshotVersion::new(2)),
+            }
+        );
+        assert_eq!(
+            reopened.commit_atomic(Some(SnapshotVersion::new(2)), &third),
+            Ok(SnapshotVersion::new(3))
+        );
+    }
+
+    #[test]
+    fn process_exit_after_reservation_or_during_envelope_write_skips_generation() {
+        for boundary in ["after-high-water", "during-envelope-write"] {
+            let directory = TestDirectory::new_under_worktree_target();
+            let first = snapshot(0);
+            let second = snapshot(1);
+            let fourth = snapshot(3);
+            let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+            store.commit_atomic(None, &first).unwrap();
+            store
+                .commit_atomic(Some(SnapshotVersion::new(1)), &second)
+                .unwrap();
+            drop(store);
+
+            exit_child_at_store_boundary(&directory, boundary);
+            if boundary == "during-envelope-write" {
+                assert_one_pending_file(&directory);
+            }
+            let mut reopened =
+                LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+            assert_eq!(
+                reopened.load_current_state().unwrap(),
+                SnapshotStoreState {
+                    current: None,
+                    high_water_version: Some(SnapshotVersion::new(3)),
+                }
+            );
+            let last_good = reopened.load_last_known_good().unwrap().unwrap();
+            assert_eq!(last_good.bytes, second);
+            assert_eq!(last_good.version, SnapshotVersion::new(2));
+            assert_eq!(
+                reopened.commit_atomic(Some(SnapshotVersion::new(3)), &fourth),
+                Ok(SnapshotVersion::new(4))
+            );
+        }
     }
 
     #[test]
