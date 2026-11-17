@@ -582,18 +582,6 @@ trait ProcessOs {
         child: &ProcessHandle<Prepared, Self::Raw>,
     ) -> std::io::Result<SpawnedProcessPidfd>;
 
-    /// Duplicate the process-instance proof retained by the existing raw child
-    /// owner. Unsupported backends cannot manufacture a C3 cleanup binding.
-    fn duplicate_live_spawn_proof<Stage: ProcessStage>(
-        &self,
-        _child: &ProcessHandle<Stage, Self::Raw>,
-    ) -> std::io::Result<SpawnedProcessPidfd> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "live spawn proof duplication is unavailable",
-        ))
-    }
-
     /// Real Linux ProcessOs requires a successful identity bridge before the
     /// child can pass its exec gate. Pure host adapters can leave it disabled.
     fn requires_spawn_proof_handoff(&self) -> bool {
@@ -969,48 +957,6 @@ where
             acquiring_lease_cleanup: LeaseRetirementState::NotAttempted,
             terminal_results: TerminalResultLedger::default(),
         }
-    }
-
-    /// Duplicate only the proof retained for a unique, live child whose exact
-    /// LaunchRecord and non-Clone endpoint lease still agree.
-    pub(crate) fn duplicate_exact_child_proof_for_record(
-        &self,
-        record: LaunchRecord,
-    ) -> Result<SpawnedProcessPidfd, BackendError>
-    where
-        LaunchLease: ExactChildLaunchLease<LaunchRecord>,
-    {
-        let mut matching = self.children.iter().filter(|entry| {
-            entry.record == record
-                && entry.reaped.is_none()
-                && !entry.cleanup_requested
-                && entry.launch_lease.as_ref().is_some_and(|bound| {
-                    bound.record == record
-                        && bound.gate_disposition == LaunchGateDisposition::Released
-                        && self.os.same_process_instance(&entry.child, &bound.process_instance)
-                        && bound
-                            .lease
-                            .matches_spawn(&bound.process_instance, &record)
-                })
-        });
-        let entry = matching.next().ok_or(BackendError::IdentityRejected)?;
-        if matching.next().is_some() {
-            return Err(BackendError::IdentityRejected);
-        }
-        let bound = entry
-            .launch_lease
-            .as_ref()
-            .ok_or(BackendError::IdentityRejected)?;
-        let current = self
-            .os
-            .process_instance_identity(&entry.child)
-            .ok_or(BackendError::IdentityRejected)?;
-        if !current.same_instance(&bound.process_instance) {
-            return Err(BackendError::IdentityRejected);
-        }
-        self.os
-            .duplicate_live_spawn_proof(&entry.child)
-            .map_err(|_| BackendError::Unavailable)
     }
 
     /// Test-only convenience shim for orchestration tests; production uses the
@@ -1592,15 +1538,18 @@ where
         &mut self,
         proof: &SpawnedProcessPidfd,
         record: LaunchRecord,
-    ) -> Result<(), BackendError> {
+    ) -> Result<(), BackendError>
+    where
+        LaunchLease: ExactChildLaunchLease<LaunchRecord>,
+    {
         let identity = proof.identity();
         let process_id = proof.process_id();
         if let Some(entry) = self.children.iter_mut().find(|entry| entry.process_id == process_id) {
-            if !self.os.same_process_instance(&entry.child, &identity)
-                || entry.record != record
-                || entry.cleanup_requested
-            {
+            if !self.os.same_process_instance(&entry.child, &identity) || entry.record != record {
                 return Err(BackendError::IdentityRejected);
+            }
+            if entry.cleanup_requested {
+                return Err(BackendError::ProtocolViolation);
             }
             let Some(bound) = entry.launch_lease.as_ref() else {
                 return Err(BackendError::IdentityRejected);
@@ -2019,19 +1968,35 @@ where
     }
 }
 
-#[path = "pid1_child_reaper.rs"]
+#[path = "../../../../../../../lane-c3-sandbox/user/nagi-init/src/pid1_child_reaper.rs"]
 mod pid1_child_reaper;
 
-#[path = "pid1_terminal_result.rs"]
+#[path = "../../../../../../../lane-c3-sandbox/user/nagi-init/src/pid1_terminal_result.rs"]
 mod pid1_terminal_result;
 
-#[path = "pid1_owned_launch_lease.rs"]
+#[path = "../../../../../../../lane-c3-sandbox/user/nagi-init/src/pid1_owned_launch_lease.rs"]
 mod pid1_owned_launch_lease;
-#[path = "reconcile.rs"]
+#[path = "../../../../../../../lane-c3-sandbox/user/nagi-init/src/reconcile.rs"]
 mod reconcile;
-#[path = "process_lifecycle_exact_child_source.rs"]
+#[path = "../../../../../../../lane-c3-sandbox/user/nagi-init/src/process_lifecycle_exact_child_source.rs"]
 mod process_lifecycle_exact_child_source;
-#[path = "task41_exact_child_launch_lease.rs"]
+#[path = "../task24_exact_child_launch_lease_impl.rs"]
 mod task41_exact_child_launch_lease;
 
-include!("linux_x86_64_process.rs");
+mod pid1_live_peer_supplier {
+    pub(crate) use crate::pidfd_process_instance::PidfdProcessInstanceAuthority;
+    pub(crate) use crate::{
+        ConsentSource, LaunchRecordView, LiveSessionAuthority, PendingSpawnOwnedEndpoint,
+        Pid1EndpointOwnerRegistry, Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary,
+        Pid1RunInstance, SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory,
+        TrustedServiceRequirements,
+    };
+    pub(crate) use crate::pidfd_process_instance;
+}
+
+#[cfg(target_os = "linux")]
+#[path = "../task24_gate_callsite.rs"]
+mod task24_gate_callsite;
+
+#[cfg(target_os = "linux")]
+include!("../../../../../../../lane-c3-sandbox/user/nagi-init/src/linux_x86_64_process.rs");

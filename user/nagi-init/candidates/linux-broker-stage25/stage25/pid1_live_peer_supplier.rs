@@ -5292,17 +5292,17 @@ impl<R: LaunchRecordView> AuthorizedPeer<'_, R> {
                 return Err(denial);
             }
         }
-        let observation = self.observation;
         let run = self.run.clone();
         let connection_stale = Arc::clone(&self.connection_stale);
         let revalidate_under_gate = &self.revalidate_under_gate;
-        let denial = Arc::new(Mutex::new(None));
-        let hook_denial = Arc::clone(&denial);
-        let callback_denial = Arc::clone(&denial);
         let mut operation = Some(operation);
 
         match &mut self.connection {
             AuthorizedConnection::Task39(connection) => {
+                let observation = self.observation;
+                let denial = Arc::new(Mutex::new(None));
+                let hook_denial = Arc::clone(&denial);
+                let callback_denial = Arc::clone(&denial);
                 let outcome = connection.with_nonblocking_io_until(
                     deadline,
                     || {
@@ -10760,6 +10760,10 @@ mod tests {
         let proof = fixture
             .process_instances
             .issue_spawn_proof(new_process, fixture.record)
+            .unwrap()
+            .attach_task24_test_identity(nagi_init_spawn_contract::test_identity(
+                fixture.record.pid,
+            ))
             .unwrap();
         let replacement = fixture
             .register_proof(proof, &fixture.requirements(), fixture.endpoint)
@@ -10780,7 +10784,7 @@ mod tests {
 /// Runtime-only route-binding negative. All route/endpoint and registry
 /// authorities in this helper are explicit fixtures; it exercises the real
 /// public adapter's early route rejection before any fixture can authorize.
-#[cfg(feature = "linux-runtime-fixture")]
+#[cfg(all(target_os = "linux", feature = "linux-runtime-fixture"))]
 pub(crate) mod linux_runtime_fixture_support {
     use super::pidfd_process_instance::{PidfdKernel, PidfdProcessInstanceAuthority};
     use super::*;

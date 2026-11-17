@@ -8,4 +8,3 @@
 mod task24_owner;
 
 pub(crate) use task24_owner::ExactChildLaunchLease;
-pub(crate) use task24_owner::process_lifecycle_exact_child_source::ProcessLifecycleExactChildSource;
