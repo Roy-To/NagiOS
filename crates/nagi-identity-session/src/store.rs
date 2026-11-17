@@ -2,6 +2,12 @@ use std::sync::{Arc, RwLock};
 
 use crate::model::IdentitySnapshot;
 
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(target_os = "linux")]
+pub use linux::{DurableStoreError, LinuxIdentitySnapshotStore};
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SnapshotVersion(u64);
 
@@ -48,7 +54,8 @@ pub type CurrentSnapshotReader =
     Arc<dyn Fn() -> Result<Option<StoredSnapshot>, SnapshotStoreError> + Send + Sync>;
 
 /// Implementations must atomically replace the current snapshot and preserve a
-/// last-known-good snapshot. No host filesystem implementation is provided.
+/// last-known-good snapshot. The Linux adapter uses an explicitly supplied,
+/// private directory handle and never turns a host path into identity.
 pub trait IdentitySnapshotStore {
     /// Protected operations need a reader that remains bound to this store.
     /// Returning None preserves source compatibility and denies live identities.

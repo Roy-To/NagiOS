@@ -758,7 +758,9 @@ where
     /// high-water generation, not snapshot revision. Recovery may initialize
     /// Empty only when the store proves no commit has ever succeeded; durable
     /// adapters that lose or cannot verify high-water must return unavailable
-    /// or corrupt state. This crate provides no durable adapter.
+    /// or corrupt state. The in-memory test store makes no persistence claim;
+    /// the Linux adapter persists the independent high-water value and refuses
+    /// a missing committed state.
     pub fn recover(
         &mut self,
         caller: &impl TrustedCallerContext,

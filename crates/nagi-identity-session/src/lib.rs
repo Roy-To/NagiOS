@@ -1,8 +1,9 @@
-//! Host-only reference contracts for local identity and user sessions.
+//! C1 reference contracts for local identity and user sessions.
 //!
 //! This crate is intentionally outside the root Cargo workspace. It contains
-//! no runtime login service, filesystem backend, capability policy, or host
-//! path identity. In-memory implementations are test fakes only.
+//! no runtime login policy or capability policy. In-memory implementations
+//! are test fakes; the Linux durable store requires an authorized directory
+//! handle supplied by its integrating service.
 
 #![forbid(unsafe_code)]
 
@@ -48,3 +49,5 @@ pub use store::{
     CurrentSnapshotReader, IdentitySnapshotStore, InMemorySnapshotStore, SnapshotStoreError,
     SnapshotStoreState, SnapshotVersion, StoredSnapshot,
 };
+#[cfg(target_os = "linux")]
+pub use store::{DurableStoreError, LinuxIdentitySnapshotStore};
