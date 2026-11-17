@@ -20,7 +20,7 @@ ANALYZER = Path("tools/nagi-developer-platform/ui/analysis/analyze.py")
 INPUTS = tuple(FIXTURES / name for name in (
     "portable/summary.c", "portable/summary.h", "portable/summary_test.c",
     "windows/read_prefix.c", "linux/watch_changes.c", "controls/text_only.c",
-    "ui/task_panel.ui",
+    "ui/task_panel.ui", "ui/gtk3_task_panel.ui", "ui/gtk4_task_panel.ui",
 )) + (ANALYZER,)
 
 
@@ -72,6 +72,120 @@ def repeat_command(command, root, phase, repeats):
     }
 
 
+COUNT_KEYS = ("widgets", "layouts", "tab_order", "connections", "unknown",
+              "unresolved_references")
+
+
+def pairs(items):
+    return [(item["name"], item["class"]) for item in items]
+
+
+def count_facts(facts):
+    return {key: len(facts[key]) for key in COUNT_KEYS}
+
+
+def mismatch(phase):
+    raise EvaluationError(phase, "fixture_expectation_mismatch")
+
+
+def validate_qt(facts):
+    phase = "ui_analysis"
+    counts = count_facts(facts)
+    expected_counts = {"widgets": 3, "layouts": 1, "tab_order": 2, "connections": 1,
+                       "unknown": 0, "unresolved_references": 0}
+    # Expectations come from the fixed synthetic XML, not from a second scanner.
+    if (counts != expected_counts
+            or facts["source"] != "task_panel.ui"
+            or facts["form_class"] != "TaskPanel"
+            or pairs(facts["widgets"]) != [("TaskPanel", "QWidget"),
+                                           ("taskName", "QLineEdit"),
+                                           ("addButton", "QPushButton")]
+            or pairs(facts["layouts"]) != [("layout", "QVBoxLayout")]
+            or facts["tab_order"] != ["taskName", "addButton"]
+            or facts["connections"] != [{"sender": "addButton",
+                "signal": "clicked()", "receiver": "TaskPanel",
+                "slot": "addTask()", "execution": "not_run"}]):
+        mismatch(phase)
+    return counts
+
+
+def layout_positions(layout):
+    """Ordered (child, ((key, text), ...)) from GTK 3 packing or GTK 4 layout data."""
+    result = []
+    for item in layout["items"]:
+        keys = [(prop["name"], value["text"]) for prop in item["packing"]
+                for value in prop["values"]]
+        for obj in item["objects"]:
+            for prop in obj["properties"]:
+                if prop["name"] == "layout":
+                    keys += [(value["attributes"]["name"], value["text"])
+                             for value in prop["values"] if value["kind"] == "property"]
+            result.append((obj["name"], tuple(keys)))
+    return result
+
+
+def validate_gtk(facts, phase, source, version, widgets, layout, positions,
+                 receiver, unknown, owner_binding):
+    counts = count_facts(facts)
+    resource = facts["resources"]
+    bindings = [(item["owner"], item["tag"], item["execution"])
+                for item in facts["bindings"]]
+    if (facts["format"] != "gtk-builder-ui" or facts["source"] != source
+            or counts != {"widgets": len(widgets), "layouts": 1, "tab_order": 0,
+                          "connections": 1, "unknown": len(unknown),
+                          "unresolved_references": 0}
+            or [(w["name"], w["class"], w["parent_widget"]) for w in facts["widgets"]]
+            != widgets
+            or pairs(facts["layouts"]) != [layout]
+            or layout_positions(facts["layouts"][0]) != positions
+            or facts["connections"] != [{
+                "attributes": {"handler": "on_add_task", "name": "clicked",
+                               **({"object": receiver, "swapped": "no"} if receiver else {})},
+                "execution": "not_run", "receiver": receiver, "sender": "addButton",
+                "signal": "clicked", "slot": "on_add_task"}]
+            or [(item["name"], item["class"]) for item in facts["unknown"]] != unknown
+            or bindings != [owner_binding]
+            or [(r["kind"], r["attributes"]) for r in resource]
+            != [("requires", {"lib": version[0], "version": version[1]})]
+            or facts["tab_order"] != []):
+        mismatch(phase)
+    return counts
+
+
+def validate_gtk3(facts):
+    return validate_gtk(
+        facts, "gtk3_ui_analysis", "gtk3_task_panel.ui", ("gtk+", "3.24"),
+        [("taskWindow", "GtkWindow", None), ("body", "GtkBox", "taskWindow"),
+         ("title", "GtkLabel", "body"), ("taskName", "GtkEntry", "body"),
+         ("entryAccessible", "AtkObject", "taskName"), ("addButton", "GtkButton", "body")],
+        ("body", "GtkBox"),
+        [("title", (("expand", "False"), ("position", "0"))),
+         ("taskName", (("expand", "True"), ("position", "1"))),
+         ("addButton", (("position", "2"),))],
+        "taskWindow", [("entryAccessible", "AtkObject")],
+        ("taskName", "property", "not_run"))
+
+
+def validate_gtk4(facts):
+    return validate_gtk(
+        facts, "gtk4_ui_analysis", "gtk4_task_panel.ui", ("gtk", "4.0"),
+        [("taskWindow", "GtkWindow", None), ("grid", "GtkGrid", "taskWindow"),
+         ("title", "GtkLabel", "grid"), ("taskName", "GtkEntry", "grid"),
+         ("addButton", "GtkButton", "grid")],
+        ("grid", "GtkGrid"),
+        [("title", (("column", "0"), ("row", "0"))),
+         ("taskName", (("column", "1"), ("row", "0"))),
+         ("addButton", (("column", "1"), ("row", "1"), ("column-span", "2")))],
+        "", [], ("taskName", "binding", "not_run"))
+
+
+UI_CASES = (
+    ("ui_analysis", "task_panel.ui", validate_qt),
+    ("gtk3_ui_analysis", "gtk3_task_panel.ui", validate_gtk3),
+    ("gtk4_ui_analysis", "gtk4_task_panel.ui", validate_gtk4),
+)
+
+
 def evaluate(root, repeats):
     if not 2 <= repeats <= 20:
         raise EvaluationError("arguments", "repeats_must_be_2_to_20")
@@ -94,36 +208,17 @@ def evaluate(root, repeats):
                 root, "control_syntax", timeout=30,
             )
             _, portable = repeat_command([binary], root, "portable_run", repeats)
-            output, ui = repeat_command(
-                [sys.executable, "-B", str(ANALYZER), "--root",
-                 str(FIXTURES / "ui"), "task_panel.ui"], root, "ui_analysis", repeats,
-            )
-            try:
-                facts = json.loads(output)
-                counts = {key: len(facts[key]) for key in (
-                    "widgets", "layouts", "tab_order", "connections", "unknown",
-                    "unresolved_references",
-                )}
-                expected_counts = {"widgets": 3, "layouts": 1, "tab_order": 2,
-                                   "connections": 1, "unknown": 0,
-                                   "unresolved_references": 0}
-                # Expectations come from this fixed synthetic XML, not from a second scanner.
-                if (counts != expected_counts
-                        or facts["source"] != "task_panel.ui"
-                        or facts["form_class"] != "TaskPanel"
-                        or [(item["name"], item["class"]) for item in facts["widgets"]]
-                        != [("TaskPanel", "QWidget"), ("taskName", "QLineEdit"),
-                            ("addButton", "QPushButton")]
-                        or [(item["name"], item["class"]) for item in facts["layouts"]]
-                        != [("layout", "QVBoxLayout")]
-                        or facts["tab_order"] != ["taskName", "addButton"]
-                        or facts["connections"] != [{"sender": "addButton",
-                            "signal": "clicked()", "receiver": "TaskPanel",
-                            "slot": "addTask()", "execution": "not_run"}]):
-                    raise EvaluationError("ui_analysis", "fixture_expectation_mismatch")
-            except (ValueError, KeyError, TypeError):
-                raise EvaluationError("ui_analysis", "invalid_report") from None
-            ui["facts"] = counts
+            ui_reports = {}
+            for phase, source, validate in UI_CASES:
+                output, ui = repeat_command(
+                    [sys.executable, "-B", str(ANALYZER), "--root",
+                     str(FIXTURES / "ui"), source], root, phase, repeats,
+                )
+                try:
+                    ui["facts"] = validate(json.loads(output))
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    raise EvaluationError(phase, "invalid_report") from None
+                ui_reports[phase] = ui
     finally:
         # Check even when a build, run or comparison fails. Never restore a changed input.
         if fingerprint(root) != before:
@@ -134,10 +229,10 @@ def evaluate(root, repeats):
                         "python": platform.python_version(),
                         "compiler": version.decode("utf-8").splitlines()[0]},
         "portable_build_ms": build_ms, "control_syntax_ms": control_ms,
-        "portable_run": portable, "ui_analysis": ui,
+        "portable_run": portable, **ui_reports,
         "timing_scope": "subprocess wall time including startup; not human work or speedup",
         "inputs_unchanged": True,
-        "not_run": ["windows_input", "linux_input", "manual_comparison", "llm_comparison",
+        "not_run": ["windows_input", "linux_input", "gtk_runtime", "manual_comparison", "llm_comparison",
                     "sdk_validator", "ui_rendering", "nagi_target"],
     }
 
