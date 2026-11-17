@@ -3,8 +3,10 @@ name = "nagi-c1-session-end-adapter"
 version = "0.1.0"
 edition = "2021"
 publish = false
-# These external fixtures self-implement authentication markers. They cannot
-# model the sealed producer boundary until C2 supplies the authenticated caller.
+# routing.rs is included by nagi-identity-session's cfg(test) harness so
+# fixtures can use its crate-private seals without exposing them to consumers.
+# Run all C1 scenarios with cargo test --manifest-path
+# crates/nagi-identity-session/Cargo.toml; keep external discovery disabled.
 autotests = false
 
 [workspace]
