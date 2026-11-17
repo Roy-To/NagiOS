@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-11の品質重視の標準アプリ構成B＋将来の総合純正環境Cは高水準方針CONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの合意・未統合PRはこの分岐で変更しない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -42,8 +42,15 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
-| PX-11 | **純正アプリの標準搭載範囲** | 1.0までに提供する純正アプリと最小機能、必須・任意・後続機能の区別 | [関連DEC 1](DEC-061-first-party-pdf-reader-editor.md)・[関連DEC 2](DEC-062-first-party-utilities.md) |
+| PX-11 | **純正アプリの標準搭載範囲** | **B＋将来Cの高水準方針CONFIRMED:** 日常の主要作業を純正アプリで完結できる実用性・品質を重視する構成Bを基本とし、将来は総合的な純正ソフトウェア環境Cへ。各アプリの1.0必須／任意／後続区分・最小機能・形式・性能・技術・同梱／配布形態・版はPROVISIONAL | [関連DEC 1](DEC-021-roadmap-0.5-1.0.md)・[関連DEC 2](DEC-061-first-party-pdf-reader-editor.md)・[関連DEC 3](DEC-062-first-party-utilities.md) |
 | PX-12 | **アプリ横断操作・Smart Pasteの詳細** | 初期に対応するアプリ間操作、参照とコピーの選択、出典・更新提案、未対応時のfallback | [関連DEC 1](DEC-025-cross-app-data-reference-and-updates.md)・[関連DEC 2](DEC-056-smart-paste-semantic-transfer.md) |
+
+### PX-11の決定記録（2026-11-17）
+
+- **CONFIRMED:** 高水準の製品体験としてB＝日常の主要作業をOS純正アプリと通常GUIで実用的に完結できる品質重視の構成を基本とし、将来はC＝総合的な純正ソフトウェア環境へ段階的に発展する。正本は[DEC-021](DEC-021-roadmap-0.5-1.0.md)のPX-11節。
+- **既存CONFIRMEDを維持:** [純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)のPhase 1〜3、[DEC-061](DEC-061-first-party-pdf-reader-editor.md)の純正PDF Reader／Editorと基本機能優先、[DEC-062](DEC-062-first-party-utilities.md)の画像・取り込み・アーカイブ・メディア4分野すべての採用、[DEC-063](DEC-063-phone-contacts-messaging.md)の端末能力に応じる通信機能採用、AI非依存の基本操作、[DEC-017](DEC-017-third-party-developer-ecosystem.md)／DEC-021の1.0公開開発者環境・配布基盤目標を維持。いずれも全アプリの1.0同梱確約に読み替えない。
+- **PROVISIONAL／OPEN:** 1.0での各アプリの必須／任意／後続リスト、最小機能・対応形式／機器・性能／品質・具体技術・搭載／配布形態・Version／時期。AI連携や高度編集は既存権限と成熟度に従う。
+- **進捗:** PARTIALLY_RECORDED（高水準方向のみDECへ記録し、1.0の最終構成／実装・Acceptance完了は未認定）。他PXの独立PRの変更をこのbranchで一括上書きしない。
 
 ### 第5群：開発者・配布・1.0完成条件
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-11がPARTIALLY_RECORDED（高水準B基本＋将来C方向をCONFIRMED、個別搭載詳細PROVISIONAL）。** 他PXの決定／未統合PRを一律にOPEN／CONFIRMEDへ書き換えない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-11で日常の主要作業を純正アプリで実用的に完結できる品質優先Bと将来の総合的な純正環境Cを高水準方針として採用。Phase 1〜3・PDF／ユーティリティ採用・AI非依存・1.0開発者／配布目標を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、個別1.0必須／任意／後続・最小機能・形式・性能・技術・搭載／配布形態・版はPROVISIONAL |
