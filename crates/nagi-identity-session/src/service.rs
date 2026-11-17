@@ -438,6 +438,23 @@ impl ResolvedIdentity {
         })
     }
 
+    fn duplicate_observation(&self) -> Self {
+        Self {
+            session_id: self.session_id.clone(),
+            kind: self.kind,
+            user_id: self.user_id,
+            profile_id: self.profile_id.clone(),
+            caller: self.caller.clone(),
+            expires_at: self.expires_at,
+            clock_now: Arc::clone(&self.clock_now),
+            clock_try_now: Arc::clone(&self.clock_try_now),
+            live: Arc::clone(&self.live),
+            issuer_alive: Arc::clone(&self.issuer_alive),
+            issued_session: self.issued_session.clone(),
+            store_current: self.store_current.clone(),
+        }
+    }
+
     pub(crate) fn acquire_live_lease(&self) -> Option<RwLockReadGuard<'_, bool>> {
         self.checked_live_lease().ok()
     }
@@ -487,6 +504,64 @@ impl ResolvedIdentity {
             return Err(ResolutionError::Unavailable);
         }
         Ok(guard)
+    }
+}
+
+/// Owned C1 revalidation handle for trusted cross-thread connection owners.
+/// It can be created only from a checked `InteractiveSessionContext`, carries
+/// the authenticated caller and service-issued Session association, and has
+/// no constructor from identifiers or durable records. `try_live_snapshot` is
+/// a nonblocking maintenance observation; protected effects still require
+/// `check_live` before admission. The handle is not serializable or a grant.
+///
+/// ```
+/// use nagi_identity_session::SessionLeaseRevalidationHandle;
+/// fn require_send_sync<T: Send + Sync>() {}
+/// require_send_sync::<SessionLeaseRevalidationHandle>();
+/// ```
+pub struct SessionLeaseRevalidationHandle {
+    identity: ResolvedIdentity,
+}
+
+impl SessionLeaseRevalidationHandle {
+    pub fn session_id(&self) -> &SessionId {
+        self.identity.session_id()
+    }
+
+    pub fn principal_id(&self) -> &PrincipalId {
+        self.identity.principal_id()
+    }
+
+    pub fn caller_context_id(&self) -> &CallerContextId {
+        self.identity.caller_context_id()
+    }
+
+    pub const fn kind(&self) -> SessionKind {
+        self.identity.kind()
+    }
+
+    pub const fn user_id(&self) -> Option<UserId> {
+        self.identity.user_id()
+    }
+
+    pub fn profile_id(&self) -> &ProfileId {
+        self.identity.profile_id()
+    }
+
+    pub fn generation(&self) -> NonZeroU64 {
+        self.identity.live.generation
+    }
+
+    /// Full revalidation against live lease, expiry, issuer, and the current
+    /// committed snapshot. This may perform blocking store I/O.
+    pub fn check_live(&self) -> Result<(), ResolutionError> {
+        self.identity.check_live()
+    }
+
+    /// Zero-wait lease/expiry observation for connection maintenance. It does
+    /// not read current durable state and cannot authorize a protected effect.
+    pub fn try_live_snapshot(&self) -> Result<LiveSnapshot, TryLiveError> {
+        self.identity.try_live_snapshot()
     }
 }
 
@@ -659,6 +734,20 @@ impl<'caller> InteractiveSessionContext<'caller> {
     pub fn identity(&self) -> Result<&ResolvedIdentity, InteractiveSessionError> {
         self.check()?;
         Ok(&self.identity)
+    }
+
+    /// Create an owned revalidation handle for a trusted connection owner.
+    /// The exact caller association and current durable Session are checked
+    /// before the handle is detached from this borrowed context. A consumer
+    /// must bind the handle to the authenticated connection that supplied this
+    /// context; identifiers alone cannot reconstruct one.
+    pub fn revalidation_handle(
+        &self,
+    ) -> Result<SessionLeaseRevalidationHandle, InteractiveSessionError> {
+        self.check()?;
+        Ok(SessionLeaseRevalidationHandle {
+            identity: self.identity.duplicate_observation(),
+        })
     }
 
     pub fn principal_id(&self) -> &PrincipalId {

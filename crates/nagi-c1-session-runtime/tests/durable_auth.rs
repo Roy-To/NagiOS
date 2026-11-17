@@ -14,7 +14,8 @@ use nagi_identity_session::{
     AuthorizationRequest, CallerContextId, GuestCleanupFailure, GuestProfileCleaner,
     IdentityAction, IdentityAuthorizer, IdentityError, IdentityService, LinuxIdentitySnapshotStore,
     LiveStatus, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId, ProfileMetadata,
-    RecoverySource, SessionId, SessionLifecycle, TrustedCallerContext, UnixMillis, UserId,
+    RecoverySource, SessionId, SessionKind, SessionLifecycle, TrustedCallerContext, UnixMillis,
+    UserId,
 };
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(1);
@@ -237,7 +238,7 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
         &caller,
         account,
         user_id,
-        profile_id,
+        profile_id.clone(),
     );
 
     assert_eq!(
@@ -253,6 +254,18 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
     let session_id = login(&mut runtime, &caller);
     let context = runtime.interactive_session(&caller).unwrap();
     assert_eq!(context.identity().unwrap().session_id(), &session_id);
+    let handle = context.revalidation_handle().unwrap();
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<nagi_identity_session::SessionLeaseRevalidationHandle>();
+    assert_eq!(handle.session_id(), &session_id);
+    assert_eq!(handle.kind(), SessionKind::LocalUser);
+    assert_eq!(handle.user_id(), Some(user_id));
+    assert_eq!(handle.profile_id(), &profile_id);
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
+    handle.check_live().unwrap();
     assert_eq!(
         runtime.try_live_snapshot(&context).unwrap().status(),
         LiveStatus::Live
@@ -261,6 +274,11 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
 
     runtime.logout_interactive(&caller).unwrap();
     assert!(runtime.revalidate(&context).is_err());
+    assert!(handle.check_live().is_err());
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert_eq!(
         runtime.try_live_snapshot(&context).unwrap().status(),
         LiveStatus::Revoked
@@ -290,11 +308,17 @@ fn restart_ends_the_saved_session_and_reauthentication_persists_user_profile_wit
     );
     let first_session = login(&mut first, &caller);
     let stale_context = first.interactive_session(&caller).unwrap();
+    let stale_handle = stale_context.revalidation_handle().unwrap();
     assert!(stale_context.check().is_ok());
     let first_lease = first.try_live_snapshot(&stale_context).unwrap();
     assert_eq!(first_lease.status(), LiveStatus::Live);
 
     drop(first);
+    assert!(stale_handle.check_live().is_err());
+    assert_eq!(
+        stale_handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert!(stale_context.check().is_err());
     assert_eq!(
         stale_context.try_live_snapshot().unwrap().status(),
