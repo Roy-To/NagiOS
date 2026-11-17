@@ -5,6 +5,8 @@
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
+**実装準備の横断仕分け（2026-11-17）:** [DEC-111：50項目のImplementation Readiness棚卸し](DEC-111-implementation-readiness-triage.md)で、技術担当への委任と、AIのリスク区分・重要Memory確認・自動削除・1.0提供範囲など製品判断が必要な時期を切り分ける。分類・順序はREVIEW NOTE／PROVISIONALで、全15項目の高水準CONFIRMEDとPARTIALLY_RECORDEDを変更しない。
+
 ## 1. 目的と境界
 
 Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・OS共通サービス・配布などを扱う。本書の15項目は、その上に成立する**利用体験・AIの振る舞い・Memory・純正アプリ・開発者体験・1.0提供範囲**の追加仕様を別チャットで検討するための入口。番号PX-01〜PX-15は既存のFoundation 1〜35とDEC-XXXとは独立する。
