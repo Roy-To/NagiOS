@@ -52,5 +52,8 @@ exclude = [
     # Keeping the product manifest outside root resolution avoids requiring
     # the Servo export just to load the Linux test package.
     "user/nagi-init",
+    # Albert's standalone host tests share the product PID 1 workspace and
+    # lockfile because its target-specific dependency graph includes Servo.
+    "user/nagi-albert",
     "tools/linux-boot/kernel-dev-20261115/package-identity-negative-20261115",
 ]
