@@ -620,6 +620,20 @@ impl SessionLeaseRevalidationHandle {
         self.identity.check_live()
     }
 
+    /// Run one bounded synchronous effect while holding the same Session
+    /// lease gate that C1 takes before persisting logout, expiry, recovery, or
+    /// another revocation. A point-in-time `check_live` followed by an
+    /// unleased effect permits a revoke/commit race; callers that perform
+    /// protected effects must put the owner gate and its effect commit inside
+    /// this callback. The callback must not re-enter C1 lifecycle methods.
+    pub fn with_live_session_effect<R>(
+        &self,
+        effect: impl FnOnce() -> R,
+    ) -> Result<R, ResolutionError> {
+        let _lease = self.identity.checked_live_lease()?;
+        Ok(effect())
+    }
+
     /// Zero-wait lease/expiry observation for connection maintenance. It does
     /// not read current durable state and cannot authorize a protected effect.
     pub fn try_live_snapshot(&self) -> Result<LiveSnapshot, TryLiveError> {
@@ -2138,6 +2152,25 @@ mod durable_store_failure_tests {
         DurableTestDirectory, TestAuthorizer, TestCaller, TestCleaner, TestClock, TestIds,
     };
     use crate::store::{DurableStoreFault, LinuxIdentitySnapshotStore};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    struct EndSessionSignalAuthorizer(mpsc::Sender<()>);
+
+    impl IdentityAuthorizer for EndSessionSignalAuthorizer {
+        fn authorize(
+            &mut self,
+            request: &AuthorizationRequest,
+        ) -> Result<(), AuthorizationFailure> {
+            if request.action == IdentityAction::EndSession {
+                self.0
+                    .send(())
+                    .map_err(|_| AuthorizationFailure::Unavailable)?;
+            }
+            Ok(())
+        }
+    }
 
     fn service(
         directory: &DurableTestDirectory,
@@ -2235,5 +2268,94 @@ mod durable_store_failure_tests {
             SessionLifecycle::Ended { .. }
         ));
         assert!(old_handle.check_live().is_err());
+    }
+
+    #[test]
+    fn live_session_effect_serializes_with_logout_and_stale_handle_denies_effect() {
+        let directory = DurableTestDirectory::new();
+        let caller = TestCaller::new("durable-effect-gate");
+        let clock = TestClock::at(100);
+        let (end_authorized, end_authorized_rx) = mpsc::channel();
+        let mut issuer = IdentityService::new(
+            LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+            TestIds::default(),
+            clock,
+            EndSessionSignalAuthorizer(end_authorized),
+            TestCleaner::default(),
+            NoopIdentityEventSink,
+        );
+        issuer.recover(&caller).unwrap();
+        let (user_id, profile_id) = issuer
+            .create_local_user(
+                &caller,
+                LocalUserMetadata::new("Effect owner").unwrap(),
+                ProfileMetadata::new("Home", Some("en-US".into())).unwrap(),
+            )
+            .unwrap();
+        let session_id = issuer
+            .login_local(
+                &caller,
+                user_id,
+                profile_id,
+                None,
+                IdempotencyKey::new("durable-effect-gate").unwrap(),
+            )
+            .unwrap();
+        let context = issuer.interactive_session(&caller).unwrap();
+        let handle = Arc::new(context.revalidation_handle().unwrap());
+        let issuer = Arc::new(Mutex::new(issuer));
+
+        let (effect_entered, effect_entered_rx) = mpsc::channel();
+        let (release_effect, release_effect_rx) = mpsc::channel();
+        let effect_handle = Arc::clone(&handle);
+        let effect = thread::spawn(move || {
+            effect_handle.with_live_session_effect(|| {
+                assert!(matches!(
+                    effect_handle.identity.live.live.try_write(),
+                    Err(std::sync::TryLockError::WouldBlock)
+                ));
+                effect_entered.send(()).unwrap();
+                release_effect_rx
+                    .recv_timeout(Duration::from_secs(2))
+                    .unwrap();
+            })
+        });
+        effect_entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("live effect gate was not entered");
+
+        let (ended, ended_rx) = mpsc::channel();
+        let end_issuer = Arc::clone(&issuer);
+        let end_caller = caller.clone();
+        let end_session_id = session_id.clone();
+        let revoker = thread::spawn(move || {
+            let result = end_issuer
+                .lock()
+                .unwrap()
+                .end_session(&end_caller, &end_session_id);
+            ended.send(result).unwrap();
+        });
+        end_authorized_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("logout did not reach C1 authorization");
+        assert!(matches!(
+            ended_rx.recv_timeout(Duration::from_millis(50)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        release_effect.send(()).unwrap();
+        assert_eq!(effect.join().unwrap(), Ok(()));
+        assert_eq!(
+            ended_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Ok(EndSessionResult::Ended)
+        );
+        revoker.join().unwrap();
+        assert!(handle.check_live().is_err());
+
+        let mut stale_effect_invoked = false;
+        assert!(handle
+            .with_live_session_effect(|| stale_effect_invoked = true)
+            .is_err());
+        assert!(!stale_effect_invoked);
     }
 }
