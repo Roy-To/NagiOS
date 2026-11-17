@@ -1522,13 +1522,17 @@ where
 
     /// Begin cleanup for one exact child without creating a second reaper.
     /// The pidfd proof selects the candidate slot, then the retained clone3
-    /// process-instance identity and LaunchRecord must both match. A later
-    /// `poll()` uses the existing ProcessOs termination state and Pid1ChildReaper.
+    /// process-instance identity, LaunchRecord, and retained launch lease must
+    /// all match. A later `poll()` uses the existing ProcessOs termination
+    /// state and Pid1ChildReaper.
     pub(crate) fn request_cleanup_exact(
         &mut self,
         proof: &SpawnedProcessPidfd,
         record: LaunchRecord,
-    ) -> Result<(), BackendError> {
+    ) -> Result<(), BackendError>
+    where
+        LaunchLease: ExactChildLaunchLease<LaunchRecord>,
+    {
         let identity = proof.identity();
         let process_id = proof.process_id();
         if let Some(entry) = self.children.iter_mut().find(|entry| entry.process_id == process_id) {
@@ -1537,6 +1541,15 @@ where
             }
             if entry.cleanup_requested {
                 return Err(BackendError::ProtocolViolation);
+            }
+            let Some(bound) = entry.launch_lease.as_ref() else {
+                return Err(BackendError::IdentityRejected);
+            };
+            if !bound.process_instance.same_instance(&identity)
+                || bound.record != record
+                || !bound.lease.matches_spawn(&identity, &record)
+            {
+                return Err(BackendError::IdentityRejected);
             }
             // Publish one-shot ownership before the pidfd syscall. A syscall
             // error remains an ambiguous request; later polls observe/reap but
@@ -1975,3 +1988,120 @@ mod process_lifecycle_exact_child_source;
 
 #[cfg(target_os = "linux")]
 include!("linux_x86_64_process.rs");
+
+#[cfg(test)]
+mod c3_exact_cleanup_lease_tests {
+    use super::*;
+
+    struct MismatchedLease;
+
+    impl ExactChildLaunchLease<u64> for MismatchedLease {
+        fn matches_spawn(&self, _process_instance: &SpawnedProcessIdentity, _record: &u64) -> bool {
+            false
+        }
+    }
+
+    #[derive(Default)]
+    struct MockOs {
+        termination_attempts: usize,
+    }
+
+    impl ProcessOs for MockOs {
+        type Raw = ();
+
+        fn pidfd_handoff(
+            &self,
+            _child: &ProcessHandle<Prepared, Self::Raw>,
+        ) -> std::io::Result<SpawnedProcessPidfd> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn prepare(
+            &mut self,
+            _executable: ExecutablePayload<'_>,
+            _arguments: &[&str],
+            _execution_identity: LinuxExecutionIdentity,
+        ) -> std::io::Result<ProcessHandle<Prepared, Self::Raw>> {
+            unimplemented!("cleanup mismatch test constructs an owned child")
+        }
+
+        fn commit_release_gate<LaunchRecord>(
+            &mut self,
+            _child: &mut ProcessHandle<Prepared, Self::Raw>,
+            _registered: &RegisteredLaunch<LaunchRecord>,
+            _wait_budget: std::time::Duration,
+        ) -> Result<std::time::Instant, ReleaseFailureReason> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn wait_exec_ack(
+            &mut self,
+            _child: &mut ProcessHandle<ReleaseUncertain, Self::Raw>,
+            _started: std::time::Instant,
+            _wait_budget: std::time::Duration,
+            _cancel_check_interval: std::time::Duration,
+            _cancelled: &mut dyn FnMut() -> bool,
+        ) -> Result<(), ReleaseFailureInfo> {
+            unimplemented!("cleanup mismatch test does not spawn")
+        }
+
+        fn same_process_instance<Stage: ProcessStage>(
+            &self,
+            child: &ProcessHandle<Stage, Self::Raw>,
+            identity: &SpawnedProcessIdentity,
+        ) -> bool {
+            child.process_id == identity.process_id()
+        }
+
+        fn try_wait<Stage: ProcessStage>(
+            &mut self,
+            _child: &mut ProcessHandle<Stage, Self::Raw>,
+        ) -> std::io::Result<Option<ServiceExitStatus>> {
+            Ok(None)
+        }
+
+        fn terminate<Stage: ProcessStage>(
+            &mut self,
+            _child: &mut ProcessHandle<Stage, Self::Raw>,
+        ) -> std::io::Result<()> {
+            self.termination_attempts += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn exact_cleanup_rejects_mismatched_lease_before_termination() {
+        let identity = nagi_init_spawn_contract::test_identity(71);
+        let proof = nagi_init_spawn_contract::test_pidfd_for_identity(identity.clone());
+        let mut owner =
+            ProcessLifecycle::<MockOs, u64, u64, MismatchedLease>::new(MockOs::default());
+        owner.children.push(ManagedProcess {
+            process_id: identity.process_id(),
+            service: 1,
+            required: true,
+            child: ProcessHandle {
+                process_id: identity.process_id(),
+                raw: (),
+                _stage: std::marker::PhantomData,
+            },
+            record: 3001,
+            record_cleanup: CleanupAttempt::NotAttempted,
+            launch_lease: Some(BoundLaunchLease {
+                process_instance: identity,
+                record: 3001,
+                gate_disposition: LaunchGateDisposition::Released,
+                lease: MismatchedLease,
+            }),
+            lease_cleanup: LeaseRetirementState::NotAttempted,
+            reaped: None,
+            cleanup_requested: false,
+        });
+
+        assert_eq!(
+            owner.request_cleanup_exact(&proof, 3001),
+            Err(BackendError::IdentityRejected)
+        );
+        assert_eq!(owner.os.termination_attempts, 0);
+        assert!(!owner.children[0].cleanup_requested);
+    }
+}

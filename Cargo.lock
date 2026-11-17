@@ -305,6 +305,7 @@ dependencies = [
  "nagi-history",
  "nagi-init-package-provider",
  "nagi-init-service-call",
+ "nagi-init-spawn-contract",
  "nagi-localization",
  "nagi-model",
  "nagi-model-manager",
@@ -338,6 +339,10 @@ dependencies = [
  "nagi-sdk",
  "nagi-service-contract",
 ]
+
+[[package]]
+name = "nagi-init-spawn-contract"
+version = "0.1.0"
 
 [[package]]
 name = "nagi-isolated-app"
