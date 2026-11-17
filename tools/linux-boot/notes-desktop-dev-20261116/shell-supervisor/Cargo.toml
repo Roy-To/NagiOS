@@ -1,0 +1,31 @@
+[package]
+name = "shell-supervisor-notes-bootstrap-candidate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+libc = "0.2"
+nagi-abi = { path = "../../../../crates/nagi-abi" }
+nagi-model = { path = "../../../../crates/nagi-model" }
+nagi-files = { path = "../../../../apps/nagi-files" }
+nagi-notes = { path = "../../../../user/nagi-notes" }
+nagi-init-spawn-contract = { path = "../../../../crates/nagi-init-spawn-contract" }
+linux-evdev-stream = { path = "../linux-evdev-stream" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libnagi = { path = "../../../../user/libnagi" }
+nagi-localization = { path = "../../../../user/nagi-localization" }
+notes-event-bridge-candidate = { path = "../notes-event-bridge" }
+notes-files-codec-candidate = { path = "../notes-codec" }
+nagi-linux-notes-desktop-dev = { package = "nagi-linux-notes-desktop-dev", path = "../desktop", default-features = false, features = ["linux-development-smoke"] }
+
+[target.'cfg(unix)'.dependencies]
+nagi-storage-consumer-adapters = { path = "../storage-provider/consumer-adapters" }
+nagi-storage-provider = { path = "../storage-provider" }
+
+[dev-dependencies]
+nagi-init-spawn-contract = { path = "../../../../crates/nagi-init-spawn-contract", features = ["test-support"] }
+nagi-storage-provider = { path = "../storage-provider", features = ["test-hooks", "dev-fixtures"] }
