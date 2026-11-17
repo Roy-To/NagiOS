@@ -186,6 +186,7 @@ impl LinuxIdentitySnapshotStore {
             std::fs::TryLockError::Error(_) => DurableStoreError::Unavailable,
         })?;
         validate_regular_private_file(&lock, owner_uid)?;
+        remove_stale_pending_files(&root, &directory, owner_uid)?;
 
         if created {
             lock.write_all(FRESH_MARKER)
@@ -704,6 +705,67 @@ fn ensure_only_lock_file(root: &std::path::Path) -> Result<(), DurableStoreError
     Ok(())
 }
 
+fn remove_stale_pending_files(
+    root: &std::path::Path,
+    directory: &File,
+    owner_uid: u32,
+) -> Result<(), DurableStoreError> {
+    let entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
+    let mut removed_any = false;
+    for entry in entries {
+        let entry = entry.map_err(|_| DurableStoreError::Unavailable)?;
+        let name = entry.file_name();
+        let Some(rest) = name
+            .to_str()
+            .and_then(|name| name.strip_prefix(".pending-"))
+        else {
+            continue;
+        };
+        let mut fields = rest.split('-');
+        let valid_name = fields
+            .next()
+            .and_then(|field| field.parse::<u32>().ok())
+            .is_some_and(|pid| pid != 0)
+            && fields
+                .next()
+                .and_then(|field| field.parse::<u64>().ok())
+                .is_some()
+            && fields
+                .next()
+                .and_then(|field| field.parse::<u64>().ok())
+                .is_some()
+            && fields.next().is_none();
+        if !valid_name {
+            continue;
+        }
+
+        let path = entry.path();
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(NOFOLLOW)
+            .open(&path)
+            .map_err(|_| DurableStoreError::Unavailable)?;
+        validate_regular_private_file(&file, owner_uid)?;
+        if file
+            .metadata()
+            .map_err(|_| DurableStoreError::Unavailable)?
+            .nlink()
+            != 1
+        {
+            return Err(DurableStoreError::Corrupt);
+        }
+        drop(file);
+        fs::remove_file(path).map_err(|_| DurableStoreError::Unavailable)?;
+        removed_any = true;
+    }
+    if removed_any {
+        directory
+            .sync_all()
+            .map_err(|_| DurableStoreError::Unavailable)?;
+    }
+    Ok(())
+}
+
 fn create_pending(
     root: &std::path::Path,
     version: u64,
@@ -831,6 +893,15 @@ mod tests {
         assert_eq!(pending, 1);
     }
 
+    fn assert_no_pending_files(directory: &TestDirectory) {
+        let pending = fs::read_dir(&directory.0)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pending-"))
+            .count();
+        assert_eq!(pending, 0);
+    }
+
     #[test]
     fn child_process_exits_at_selected_store_boundary() {
         const DIRECTORY_ENV: &str = "NAGI_C1_DURABLE_CHILD_DIRECTORY";
@@ -865,6 +936,7 @@ mod tests {
             LinuxIdentitySnapshotStore::open(directory.open_directory()).err(),
             Some(DurableStoreError::Corrupt)
         );
+        assert_no_pending_files(&directory);
     }
 
     #[test]
@@ -883,6 +955,7 @@ mod tests {
         exit_child_at_store_boundary(&directory, "during-high-water-write");
         assert_one_pending_file(&directory);
         let mut reopened = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        assert_no_pending_files(&directory);
         assert_eq!(
             reopened.load_current_state().unwrap(),
             SnapshotStoreState {
@@ -919,6 +992,7 @@ mod tests {
             }
             let mut reopened =
                 LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+            assert_no_pending_files(&directory);
             assert_eq!(
                 reopened.load_current_state().unwrap(),
                 SnapshotStoreState {
