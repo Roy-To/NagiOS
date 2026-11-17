@@ -36,8 +36,9 @@ pub use service::{
     GuestCleanupFailure, GuestProfileCleaner, IdSourceFailure, IdentityAccessContext,
     IdentityAction, IdentityAuthorizer, IdentityError, IdentityEvent, IdentityEventKind,
     IdentityEventReason, IdentityEventSink, IdentityIdSource, IdentityProvider, IdentityService,
-    NoopIdentityEventSink, ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError,
-    ResolvedIdentity, TrustedCallerContext,
+    InteractiveSessionContext, InteractiveSessionError, NoopIdentityEventSink,
+    ProviderLookupFailure, RecoveryReport, RecoverySource, ResolutionError, ResolvedIdentity,
+    TrustedCallerContext,
 };
 pub use storage::{
     NoopStorageRootEventSink, ProfileRootAuthorizer, ProfileStorageBackend, StorageRootEventSink,
