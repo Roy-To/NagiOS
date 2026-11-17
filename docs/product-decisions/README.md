@@ -8,7 +8,9 @@
 
 ## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
 
-[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**、追加15項目の製品詳細は **OPEN**。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。検討テーマ・順序は **REVIEW NOTE / PROVISIONAL**。**PX-12の案内型Smart Paste B＋将来の高度アプリ横断Workflow Cは高水準方針CONFIRMED（詳細PROVISIONAL、PARTIALLY_RECORDED）**。他PXの独立PR・確定範囲は統合時に別途照合し、この分岐では一括変更しない。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+
+**PX-12追加決定（2026-11-17）:** [DEC-056 — Smart PasteとPX-12のB＋将来C](DEC-056-smart-paste-semantic-transfer.md)に、利用可能なコピー／構造化転送／参照とその差異・制限をユーザーに分かりやすく案内する統合体験B、将来は許可されたProject／Task・Provenance・変更影響を扱う高度なアプリ横断ワークフローCへ発展する高水準方針をCONFIRMED。[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の共通参照A・更新検知／提案A・承認済みTaskのScope内限定更新、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)の正規Public Action優先A・明示許可下の限定GUI fallback、DEC-056のSheets→Slides／Albert→Writer／画像→Slidesと従来操作を維持。最初のApp組合せ、コピー／参照の既定、詳細UI・Preview・Transfer／fallback制御・技術・性能・提供版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-12 PARTIALLY_RECORDED。未統合の他PXの決定は統合時に照合する。
 
 ## Foundation統合とDEC改番（2026-11-16）
 
@@ -106,9 +108,9 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
-| DEC-025 | [アプリ横断の共通参照と関連データ更新提案](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本・変更検知と提案・承認済みTask内の自動更新）／PROVISIONAL（実装・適用版） | 2026-11-05 |
+| DEC-025 | [アプリ横断の共通参照・更新提案／PX-12との整合](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本A、変更検知／更新提案A、事前承認Taskの限定自動更新、PX-12高水準体験と整合）／PROVISIONAL（詳細Transfer・更新UI・技術・性能・版） | 2026-11-17 |
 | DEC-026 | [AIによる変更の検証可能性と復元可能性](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（リスク別検証・保護、AI Task開始前のWayback復元可能性表示、`builder`製アプリ正式更新Cとの整合）／PROVISIONAL（UI・事前判定範囲・未対応／不明時の扱い・数値・実装・適用版） | 2026-11-15 |
-| DEC-027 | [正規Public Action APIと限定的なGUI fallback](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先・明示許可下の限定fallback）／PROVISIONAL（具体方式・制御範囲・適用版） | 2026-11-05 |
+| DEC-027 | [正規Public Action優先・限定GUI fallback／PX-12との整合](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先A、明示許可・限定ScopeのGUI fallback、PX-12高水準体験と整合）／PROVISIONAL（具体GUI／fallback制御・対象App・性能・適用版） | 2026-11-17 |
 | DEC-028 | [反復Workflowの学習・改善案・承認制改訂](DEC-028-deterministic-workflows-from-habits.md) | CONFIRMED（Workflow化と正式改訂に明示承認・履歴保持）／PROVISIONAL（変換・検証・UI・保持詳細） | 2026-11-05 |
 | DEC-029 | [明示許可に基づくScheduled / Event-triggered Workflow実行](DEC-029-scheduled-event-triggered-workflows.md) | CONFIRMED（条件付き無人起動・実行時再検証・停止制御）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-030 | [Workflowテンプレートの移植・共有と権限の再承認](DEC-030-workflow-template-portability-and-sharing.md) | CONFIRMED（個人状態・権限から分離、明示的共有、受取側で再設定・再承認）／PROVISIONAL（形式・検証・依存解決・配布経路） | 2026-11-05 |
@@ -136,7 +138,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
 | DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・横断Task・Workspace分離・Project文脈）／PROVISIONAL（名称・技術・実装版） | 2026-11-16 |
-| DEC-056 | [Smart Paste — 意味付きコピー／ドラッグでの純正アプリ横断体験](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来操作維持・意味付き転送・出典／参照保持・選択式提案）／PROVISIONAL（名称・UI・形式・対応アプリ・実装時期） | 2026-11-16 |
+| DEC-056 | [Smart Paste・意味付き転送／PX-12案内型B＋将来高度Workflow C](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来の意味付き転送・通常GUI、PX-12の方式案内B＋将来Workflow Cの高水準体験）／PROVISIONAL（初期App組合せ・既定転送方式・UI／Preview・Transfer／fallback技術・性能・提供版） | 2026-11-17 |
 | DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（OSの中核コンセプト・モデル非依存の継続性・ユーザー主導）／PROVISIONAL（方式・効果測定・適用版） | 2026-11-16 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習の内容・経緯・根拠・支援への反映を確認できる体験）／PROVISIONAL（UI・履歴Schema・評価指標・適用版） | 2026-11-16 |
@@ -244,6 +246,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12のB（利用可能な貼り付け方式を説明・選択できる体験）＋将来C（高度アプリ横断Workflow）を高水準CONFIRMEDとして追記。[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の共通参照A・更新提案A／承認済みTask限定更新、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)の正規Public Action優先A・限定GUI fallbackを維持。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ。初期対象・既定のコピー／参照・詳細UI／Preview・Transfer／fallback技術・性能・版はPROVISIONAL。 |
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
