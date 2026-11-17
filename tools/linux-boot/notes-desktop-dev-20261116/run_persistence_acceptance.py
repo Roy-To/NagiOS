@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run the Linux development Notes UI save, stop, and same-disk readback flow."""
+"""Run the dev-only Linux preview-service and Notes save/readback smoke.
+
+This combines PID 1's fixed NIPC development-preview fixtures with the Notes UI
+on one disk. It is not the production M19 signed Files-client acceptance path.
+"""
 
 from __future__ import annotations
 
@@ -107,6 +111,8 @@ def build_phase_cpio(args: argparse.Namespace, output: Path, phase: str) -> None
         str(args.notes_elf),
         "--notes-phase",
         phase,
+        "--framebuffer-modules-dir",
+        str(args.framebuffer_modules_dir),
         "--output",
         str(output),
     ]
@@ -210,6 +216,24 @@ def read_new_serial(path: Path, offset: int) -> tuple[str, int]:
     except FileNotFoundError:
         return "", offset
     return payload.decode("utf-8", errors="replace"), offset + len(payload)
+
+
+def guest_failure_marker(serial_text: str) -> str | None:
+    """Return a complete guest failure line that makes this phase impossible."""
+    for line in serial_text.splitlines():
+        if line.startswith("Kernel panic - not syncing:"):
+            return line
+        if line.startswith("NAGI_NOTES_DESKTOP_FAIL "):
+            return line
+        if line.startswith("nagi-init: startup failed"):
+            return line
+        if line.startswith("nagi-init: failed to mount devtmpfs "):
+            return line
+        if re.fullmatch(r"nagi-init: lifecycle failure \([^)]+\); stopping services", line):
+            return line
+        if line == "nagi-init: PID 1 remains alive in fail-closed wait; service readiness is not asserted":
+            return line
+    return None
 
 
 def runner_summary(path: Path) -> dict[str, object]:
@@ -397,6 +421,40 @@ def require_successful_supervisor(
         raise AcceptanceError(f"{phase} QEMU was timed out or cancelled: {summary}")
 
 
+def request_supervised_qemu_quit(
+    process: subprocess.Popen,
+    qmp: Path,
+    controls_log: Path,
+    *,
+    race_grace_seconds: float = 2.0,
+) -> bool:
+    """Request QEMU quit and recognize a supervisor that already reaped it.
+
+    QEMU may close its QMP socket as it processes ``quit``, before the client
+    reads the command reply. If that happens, give the supervisor a brief
+    opportunity to record the normal child exit before classifying the run as
+    cancelled.
+    """
+    if process.poll() is not None:
+        return True
+    try:
+        qmp_command(qmp, "quit", timeout=1.0)
+    except (OSError, RuntimeError, TimeoutError, ValueError) as error:
+        try:
+            returncode = process.wait(timeout=race_grace_seconds)
+        except subprocess.TimeoutExpired:
+            return False
+        with controls_log.open("a", encoding="utf-8") as log:
+            log.write(
+                "command=quit qmp_reply=unavailable "
+                f"qmp_error={error.__class__.__name__} supervisor_exit={returncode}\n"
+            )
+        return True
+    with controls_log.open("a", encoding="utf-8") as log:
+        log.write("command=quit qmp_reply=return\n")
+    return True
+
+
 def run_phase(
     args: argparse.Namespace,
     output: Path,
@@ -463,11 +521,7 @@ def run_phase(
             return
         if not stopping:
             stopping = True
-            try:
-                qmp_command(qmp, "quit", timeout=1.0)
-                with controls_log.open("a", encoding="utf-8") as log:
-                    log.write("command=quit qmp_reply=return\n")
-            except (OSError, RuntimeError, TimeoutError, ValueError):
+            if not request_supervised_qemu_quit(process, qmp, controls_log):
                 process.send_signal(signal.SIGTERM)
         try:
             process.wait(timeout=20)
@@ -504,13 +558,9 @@ def run_phase(
             new_text, serial_offset = read_new_serial(serial_path, serial_offset)
             if new_text:
                 serial_text += new_text
-            if (
-                "Kernel panic - not syncing:" in serial_text
-                or "NAGI_NOTES_DESKTOP_FAIL " in serial_text
-                or "nagi-init: startup failed" in serial_text
-                or "nagi-init: failed to mount devtmpfs" in serial_text
-            ):
-                raise AcceptanceError(f"{phase} guest reported a kernel or Notes failure")
+            failure_marker = guest_failure_marker(serial_text)
+            if failure_marker is not None:
+                raise AcceptanceError(f"{phase} guest reported failure marker: {failure_marker}")
             if recovery_ui_smoke and recovery_ui_completion_ready(
                 serial_text,
                 keys_sent=sent_keys,
@@ -598,6 +648,12 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True, help="fixed signed development package")
     parser.add_argument("--service", type=Path, required=True, help="fixed development service ELF")
     parser.add_argument("--client", type=Path, required=True, help="fixed development client ELF")
+    parser.add_argument(
+        "--framebuffer-modules-dir",
+        type=Path,
+        required=True,
+        help="directory containing the four digest-pinned Ubuntu 6.8.0-71 DRM modules",
+    )
     parser.add_argument("--kernel", type=Path, required=True, help="the accepted x86_64 Linux kernel image")
     parser.add_argument("--qemu", type=Path, required=True, help="qemu-system-x86_64 executable")
     parser.add_argument("--output-dir", type=Path, required=True, help="new, unused directory for CPIOs, logs, and the disk")
@@ -614,6 +670,15 @@ def main() -> int:
         args.package = require_regular_file(args.package, "signed development package")
         args.service = require_regular_file(args.service, "development service")
         args.client = require_regular_file(args.client, "development client")
+        try:
+            modules_metadata = args.framebuffer_modules_dir.lstat()
+        except OSError as error:
+            raise AcceptanceError(
+                f"framebuffer modules directory unavailable ({error.__class__.__name__})"
+            ) from None
+        if not stat.S_ISDIR(modules_metadata.st_mode):
+            raise AcceptanceError("framebuffer modules input must be a real directory")
+        args.framebuffer_modules_dir = args.framebuffer_modules_dir.resolve(strict=True)
         args.kernel = require_regular_file(args.kernel, "Linux kernel")
         args.qemu = require_regular_file(args.qemu, "QEMU", executable=True)
         kernel_header = validate_x86_64_kernel(args.kernel)

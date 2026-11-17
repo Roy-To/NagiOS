@@ -124,6 +124,7 @@ jobs:
       - name: Linux development image acceptance helper tests (host-only)
         run: |
           python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_persistence_kernel_preflight.py' -v
+          python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_persistence_acceptance_runner.py' -v
           python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_qmp_socket_path.py' -v
           python3 -m unittest discover -s tools/linux-boot -p 'test_run_qemu_child.py' -v
       - name: Lint host-compatible workspace

@@ -2,6 +2,10 @@
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${NAGI_CARGO_STORE:-}" ]; then
+    CARGO_HOME=$NAGI_CARGO_STORE
+    export CARGO_HOME
+fi
 cargo_path=$(command -v cargo || true)
 rustup_path=$(command -v rustup || true)
 toolchain_pinned=
@@ -41,7 +45,7 @@ if [ -x "/c/Program Files/LLVM/bin/lld-link.exe" ]; then
 fi
 case "${1:-}" in
 fetch|dev|legal)
-    exec "$cargo_path" run --locked --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
+    exec "$cargo_path" run --locked --offline --manifest-path "$script_dir/tools/nagi-bootstrap/Cargo.toml" -p nagi-bootstrap -- "$@"
     ;;
 esac
-exec "$cargo_path" run --locked --manifest-path "$script_dir/Cargo.toml" -p nagi-cli -- "$@"
+exec "$cargo_path" run --locked --offline --manifest-path "$script_dir/Cargo.toml" -p nagi-cli -- "$@"
