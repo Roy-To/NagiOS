@@ -1,0 +1,16 @@
+[package]
+name = "nagi-c1-session-runtime"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+getrandom = "=0.4.3"
+libnagi = { path = "../../user/libnagi" }
+nagi-identity-session = { path = "../nagi-identity-session" }
+
+[dev-dependencies]
+serde_json = "1.0"
