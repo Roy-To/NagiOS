@@ -102,7 +102,15 @@ is introduced. Existing Qt report fields and values are unchanged.
 | Translation and accessibility | UTF-8, XML character references, interface attributes such as `domain`, property attributes such as `translatable`/`context`/`comments`; GTK 3 accessible properties/AtkObject/internal-child; GTK 4 `accessibility` property/relation/state declarations |
 | Signals | `connections`: owner as `sender`, exact signal name, handler as `slot`, optional `object` as `receiver` (empty when absent), all attributes including `after`/`swapped`, always `execution=not_run`; no callback target is inferred |
 | Bindings | `bind-*` property attributes and binding expression trees, including lookup/closure text and attributes; always `execution=not_run`; missing explicit `bind-source` IDs and signal receivers are reported unresolved |
-| Resources and unknowns | `requires`, file/filename/resource/pixbuf properties, include declarations; unknown classes and unknown element trees with text/attributes retained; none loaded |
+| Resources and unknowns | `requires`, file/filename/resource/pixbuf properties, `include` declarations (resources only, not unknown); unknown classes and unknown element trees with text/attributes retained; none loaded |
+
+Unknown element trees: every unknown element is listed in source order, but only
+the outermost one carries the subtree as `content`. Unknown descendants inside it
+are listed with `nested_in_unknown: true` and no `content`, so evidence is kept
+once instead of once per ancestor. Widgets (`object`) inside an unknown element
+are still analyzed normally. `template` is intentionally still reported as unknown
+(with its attributes and body as `content`) because composite templates are not
+analyzed.
 
 Properties containing nested objects retain ownership but do not imply packed
 children: interpreting object-valued properties requires GTK class/type knowledge.
@@ -138,8 +146,18 @@ runner continues to exercise its original fixed C/Qt inputs; GTK coverage is in
 the focused suite, not a new runner benchmark. Host checks do not establish Nagi
 target acceptance.
 
+## 仮定（PROVISIONAL）
+
+- `nested_in_unknown` は内部レポート上の追加フィールドで、公開schemaではない。
+  UI ownerが別の表現（例: 親への参照ID）を望む場合はこの1か所を差し替える。
+- `template` を既知タグにしないのは、本文を解析しない間に「認識済み」に見せない
+  ための保守的な判断。composite template対応を実装する時に見直す。
+- テストの一時ディレクトリはOS既定（`tempfile`）を使う。ソースtreeには作らない。
+
 Verified locally on 2026-11-17 (Python 3.9.6): the analysis discovery command
 above passes all 40 tests (18 existing Qt + 22 GTK); evaluation discovery passes
 7 runner tests; `python3 tests/developer-platform/evaluation/run_host_checks.py`
 passes with three identical C/Qt repetitions and unchanged inputs. Only the
 specified analysis/fixture/README paths changed; target execution remains unrun.
+These numbers predate the NDP-06c follow-up (nested-unknown dedupe, `include`,
+new tests); the follow-up's own test run is recorded by the runner, not here.

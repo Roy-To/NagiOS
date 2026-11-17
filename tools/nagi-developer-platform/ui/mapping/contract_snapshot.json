@@ -1,6 +1,9 @@
 {
   "description": "Generated read-only evidence snapshot for provisional NDP-07 rules; refresh only after source review. Not an SDK version or support promise.",
   "package_version": "0.1.0",
+  "enumerate": [
+    {"dir": "user/nagi-ui/src", "suffix": ".rs"}
+  ],
   "files": [
     {
       "path": "docs/architecture/ui-design-system.md",
