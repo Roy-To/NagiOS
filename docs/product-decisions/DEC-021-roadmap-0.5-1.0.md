@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標、DEC-074の長期的な組織方向）／PROVISIONAL（版別の詳細範囲・順序・実装詳細）  
-**最終確認日:** 2026-11-16  
+**状態:** CONFIRMED（継承する製品方針と1.0一般公開／開発者・配布目標、DEC-074長期方向、PX-14の既存IDE・Cloud AI橋渡し・移植／検証を統合するB＋将来継続保守／配布Cの高水準方針）／PROVISIONAL（具体対象・SDK／CLI／Cloud／署名・配布方式、性能・版別詳細／順序・Acceptance）  
+**最終確認日:** 2026-11-17（PX-14の開発者体験を追加。既存1.0目標・Gateは維持）  
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -18,6 +18,14 @@
 ### 2026-11-16 確認：当面のAI組み込みOS体験を優先
 
 [DEC-074](DEC-074-human-led-agent-organization.md)の後続確認により、当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先する。階層型Agent Organizationは非優先の長期ビジョンとして保持する。以下のPhase・版別配置は候補のままであり、組織の拡大を短期の優先項目や1.0の必須要件へ昇格させない。具体的な提供版、階層数、実装順序はPROVISIONAL。既存0.3／0.4 Gateと初期の単一Nagiによるbuilder Role方式は変更しない。
+
+### 2026-11-17 — PX-14「開発・移植・配布」体験の品質重視B＋将来C
+
+[DEC-017](DEC-017-third-party-developer-ecosystem.md)に、PX-14の**B案：既存IDE／公開SDKと、許可されたCloud AIの任意の橋渡し・移植診断・Build／Test／Package／Target受入を一連の分かりやすい開発者体験としてつなぐ**ことを高水準CONFIRMEDで記録した。将来**C案：SDK・依存互換性の影響評価、継続保守、更新Package／配布準備をより広く支援する環境**へ発展する。Storeを唯一の配布経路とせず、開発・移植の自動成功を約束しない。
+
+**既存CONFIRMEDを維持:** Nagi Native Apps専用、Rust SDK中心・必要境界の安定C ABI、Level 0〜3、Windows／Linux重点・将来Android／Apple系後順位、PT-01〜06の非AI検証とCloud AI／Local LLMの任意選択。PX-13で高度統合型の初心者向け専用制作環境を後順位とした方針に矛盾させず、**1.0までの公開開発者環境・アプリ配布基盤という独立した高水準目標は維持**する。HostとTargetの合否を別にし、Cloud送信とPackage署名・導入・公開の別許可を緩めない。
+
+**PROVISIONAL／OPEN:** 対応する初期言語・Framework・GUI部品／SDK ABI・CLI、Cloud Provider・Bridge実装、Package／署名／審査／Store等の配布具体方式、実測性能・品質・Acceptance・特定Version／納期。0.5〜1.0 Master Roadmapの版別計画はPROVISIONALのままで、0.2 M12／M21と0.3／0.4 Gate・Workstream開始条件を変更しない。
 
 ### 2026-11-05 確定：初期`builder`実行方式C
 
@@ -107,3 +115,4 @@
 | 2026-11-04 | DEC-017〜020を含む最新のProduct Decisionsと、0.3改訂・0.4+ Roadmapに整合する0.5〜1.0の方向案を記録。DEC-017で明示済みの1.0開発者環境・配布基盤目標を区別し、版別範囲・順序、Multi-user / Multi-device、Organization scope、数値・実装詳細は未確定として記録。 |
 | 2026-11-16 | DEC-074の人間が管理する階層型AI組織を長期方向として追加。既存の0.4方式とユーザー窓口を保持し、組織構造・技術・版割当は未確定のままとした。 |
 | 2026-11-16 | 後続確認：当面のAI組み込み体験型OSを優先し、階層型AI組織は非優先の長期ビジョンと明記。既存Gate・builder Roleと暫定の版別案を維持。 |
+| 2026-11-17 | PX-14の既存IDE／公開SDK・Porting Toolkit／任意Cloud AIをつなぐ開発者体験B＋将来の互換性・更新／配布支援Cを高水準CONFIRMED。1.0公開開発者環境・配布基盤目標、PX-13独立高度IDEの後順位、非AI検証とCloud・署名／導入／共有の別承認、Release Gateを維持。初期言語・SDK／CLI・Provider・Package／署名／配布技術・性能・版はPROVISIONAL。 |
