@@ -3,11 +3,12 @@
 //! this module does not provision a product key, invent consent, or fake READY.
 
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use nagi_model::AppId;
 use nagi_package::{
     InstallPolicy, InstalledPackage, PackageError, PackageManifest, PackageService, PackageView,
-    MAX_SLOTS,
+    MAX_PACKAGE_BYTES, MAX_SLOTS,
 };
 use sha2::{Digest, Sha256};
 
@@ -28,6 +29,110 @@ pub trait InstalledPackageInventory {
         &self,
         output: &mut [Option<InstalledPackage>],
     ) -> Result<usize, InventoryReadError>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstalledPackageDigestIndexError {
+    Unavailable,
+    Failed,
+    OutcomeUnknown,
+}
+
+/// Exact digest metadata for one installed package generation. This record is
+/// consistency metadata only; package signature verification and the trusted
+/// catalog digest remain required before a service launch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstalledPackageDigestRecord {
+    app_id: AppId,
+    generation: u64,
+    signed_package_sha256: [u8; 32],
+    executable_sha256: [u8; 32],
+    signed_package_bytes_len: u32,
+    executable_bytes_len: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstalledPackageDigestRecordError {
+    InvalidGeneration,
+    InvalidPackageLength,
+    InvalidExecutableLength,
+}
+
+impl InstalledPackageDigestRecord {
+    /// Rebuild a record decoded from the durable package index. These fields
+    /// are not authority by themselves; `capture_for_system_service` still
+    /// verifies the package signature and exact bytes against this generation.
+    pub fn from_parts(
+        app_id: AppId,
+        generation: u64,
+        signed_package_sha256: [u8; 32],
+        executable_sha256: [u8; 32],
+        signed_package_bytes_len: u32,
+        executable_bytes_len: u32,
+    ) -> Result<Self, InstalledPackageDigestRecordError> {
+        if generation == 0 || generation == u64::MAX {
+            return Err(InstalledPackageDigestRecordError::InvalidGeneration);
+        }
+        if signed_package_bytes_len == 0 || signed_package_bytes_len as usize > MAX_PACKAGE_BYTES {
+            return Err(InstalledPackageDigestRecordError::InvalidPackageLength);
+        }
+        if executable_bytes_len == 0
+            || executable_bytes_len > signed_package_bytes_len
+            || executable_bytes_len as usize > MAX_PACKAGE_BYTES
+        {
+            return Err(InstalledPackageDigestRecordError::InvalidExecutableLength);
+        }
+        Ok(Self {
+            app_id,
+            generation,
+            signed_package_sha256,
+            executable_sha256,
+            signed_package_bytes_len,
+            executable_bytes_len,
+        })
+    }
+
+    pub const fn app_id(self) -> AppId {
+        self.app_id
+    }
+
+    pub const fn generation(self) -> u64 {
+        self.generation
+    }
+
+    pub const fn signed_package_sha256(&self) -> &[u8; 32] {
+        &self.signed_package_sha256
+    }
+
+    pub const fn executable_sha256(&self) -> &[u8; 32] {
+        &self.executable_sha256
+    }
+
+    pub const fn signed_package_bytes_len(self) -> u32 {
+        self.signed_package_bytes_len
+    }
+
+    pub const fn executable_bytes_len(self) -> u32 {
+        self.executable_bytes_len
+    }
+}
+
+/// Durable index boundary for the digest associated with each installed
+/// generation. `replace_snapshot` must make the whole bounded snapshot durable
+/// before it returns. Records are serialized by ascending `app_id`. The owner
+/// then reads them back and compares every field; an implementation returning
+/// a cached write buffer does not meet this contract. No production
+/// implementation is selected in this crate yet.
+pub trait InstalledPackageDigestIndex {
+    fn replace_snapshot(
+        &mut self,
+        records: &[InstalledPackageDigestRecord],
+    ) -> Result<(), InstalledPackageDigestIndexError>;
+
+    fn read_snapshot(
+        &self,
+        output: &mut [Option<InstalledPackageDigestRecord>],
+    ) -> Result<usize, InstalledPackageDigestIndexError>;
 }
 
 impl InstalledPackageInventory for PackageService {
@@ -208,6 +313,11 @@ pub enum PackageServiceSessionOwnerError {
     DigestInventoryFull,
     PackageDigestUnavailable,
     InstalledPackageBytesMismatch,
+    DigestIndexUnavailable,
+    DigestIndexFailed,
+    DigestIndexOutcomeUnknown,
+    DigestIndexCorrupt,
+    DigestIndexReadbackMismatch,
 }
 
 #[must_use = "retain the snapshot and validate it through its owning session before use"]
@@ -218,15 +328,11 @@ pub struct OwnedPackageInventorySnapshot {
     owner_incarnation: u64,
     signed_package_sha256: [u8; 32],
     executable_sha256: [u8; 32],
+    signed_package_bytes_len: u32,
+    executable_bytes_len: u32,
 }
 
-#[derive(Clone, Copy)]
-struct InstalledPackageDigest {
-    app_id: AppId,
-    generation: u64,
-    signed_package_sha256: [u8; 32],
-    executable_sha256: [u8; 32],
-}
+type InstalledPackageDigest = InstalledPackageDigestRecord;
 
 impl OwnedPackageInventorySnapshot {
     pub const fn app_id(self) -> AppId {
@@ -247,6 +353,14 @@ impl OwnedPackageInventorySnapshot {
 
     pub const fn executable_sha256(&self) -> &[u8; 32] {
         &self.executable_sha256
+    }
+
+    pub const fn signed_package_bytes_len(self) -> u32 {
+        self.signed_package_bytes_len
+    }
+
+    pub const fn executable_bytes_len(self) -> u32 {
+        self.executable_bytes_len
     }
 }
 
@@ -299,6 +413,7 @@ pub struct PackageServiceSessionOwner<'key> {
     inventory: PackageService,
     quarantined: Arc<AtomicBool>,
     package_digests: [Option<InstalledPackageDigest>; MAX_SLOTS],
+    digest_index_verified: bool,
 }
 
 fn next_session_owner_incarnation() -> Option<u64> {
@@ -319,6 +434,7 @@ impl<'key> PackageServiceSessionOwner<'key> {
             inventory,
             quarantined: Arc::new(AtomicBool::new(false)),
             package_digests: [None; MAX_SLOTS],
+            digest_index_verified: false,
         }
     }
 
@@ -372,12 +488,34 @@ impl<'key> PackageServiceSessionOwner<'key> {
                 return Err(PackageServiceSessionOwnerError::Package(error));
             }
         };
+        let signed_package_bytes_len = u32::try_from(bytes.len())
+            .map_err(|_| PackageServiceSessionOwnerError::DigestIndexCorrupt)?;
+        let executable_bytes_len = u32::try_from(package.executable().len())
+            .map_err(|_| PackageServiceSessionOwnerError::DigestIndexCorrupt)?;
         self.package_digests[digest_slot] = Some(InstalledPackageDigest {
             app_id,
             generation: installed.generation,
             signed_package_sha256: sha256(bytes),
             executable_sha256: sha256(package.executable()),
+            signed_package_bytes_len,
+            executable_bytes_len,
         });
+        self.digest_index_verified = false;
+        Ok(report)
+    }
+
+    /// Install and require a durable digest-index write followed by an exact
+    /// readback before this owner can bind the generation for a system
+    /// service. Any uncertain or inconsistent post-install result quarantines
+    /// the owner because the package store has already changed.
+    pub fn install_with_digest_index(
+        &mut self,
+        bytes: &[u8],
+        policy: InstallPolicy,
+        index: &mut dyn InstalledPackageDigestIndex,
+    ) -> Result<nagi_package::InstallReport, PackageServiceSessionOwnerError> {
+        let report = self.install(bytes, policy)?;
+        self.replace_and_readback_digest_index(index)?;
         Ok(report)
     }
 
@@ -393,6 +531,142 @@ impl<'key> PackageServiceSessionOwner<'key> {
                 *entry = None;
             }
         }
+        self.digest_index_verified = false;
+        Ok(())
+    }
+
+    /// Remove and durably read back the exact remaining package digest
+    /// snapshot. An uncertain index update quarantines the owner.
+    pub fn remove_with_digest_index(
+        &mut self,
+        app_id: AppId,
+        index: &mut dyn InstalledPackageDigestIndex,
+    ) -> Result<(), PackageServiceSessionOwnerError> {
+        self.remove(app_id)?;
+        self.replace_and_readback_digest_index(index)
+    }
+
+    /// Rehydrate generation digests from the durable index after the package
+    /// inventory has been restored. Every record must match exactly one live
+    /// installed app and generation. Missing, stale, duplicate, oversized, or
+    /// foreign records cannot make a generation launchable.
+    pub fn restore_digest_index(
+        &mut self,
+        index: &dyn InstalledPackageDigestIndex,
+    ) -> Result<(), PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
+        self.digest_index_verified = false;
+        let mut records = [None; MAX_SLOTS];
+        let count = index
+            .read_snapshot(&mut records)
+            .map_err(map_digest_index_error)?;
+        self.load_digest_records(&records, count)
+    }
+
+    fn replace_and_readback_digest_index(
+        &mut self,
+        index: &mut dyn InstalledPackageDigestIndex,
+    ) -> Result<(), PackageServiceSessionOwnerError> {
+        let mut expected = self
+            .package_digests
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        expected.sort_by_key(|record| record.app_id);
+        let result = (|| {
+            index
+                .replace_snapshot(&expected)
+                .map_err(map_digest_index_error)?;
+            let mut readback = [None; MAX_SLOTS];
+            let count = index
+                .read_snapshot(&mut readback)
+                .map_err(map_digest_index_error)?;
+            if count > readback.len()
+                || readback[..count].iter().any(Option::is_none)
+                || readback[count..].iter().any(Option::is_some)
+            {
+                return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+            }
+            let actual = readback[..count]
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>();
+            if actual != expected {
+                return Err(PackageServiceSessionOwnerError::DigestIndexReadbackMismatch);
+            }
+            self.load_digest_records(&readback, count)
+        })();
+        if result.is_err() {
+            self.quarantined.store(true, Ordering::SeqCst);
+            self.digest_index_verified = false;
+        }
+        result
+    }
+
+    fn load_digest_records(
+        &mut self,
+        records: &[Option<InstalledPackageDigestRecord>],
+        count: usize,
+    ) -> Result<(), PackageServiceSessionOwnerError> {
+        if count > records.len()
+            || records[..count].iter().any(Option::is_none)
+            || records[count..].iter().any(Option::is_some)
+        {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
+        if self.trusted_key.is_none() {
+            return Err(PackageServiceSessionOwnerError::TrustUnavailable);
+        }
+        let mut inventory = [None; MAX_SLOTS];
+        let inventory_count = self.inventory.list_inventory(&mut inventory).map_err(|_| {
+            PackageServiceSessionOwnerError::Provider(PackageProviderError::InventoryUnavailable)
+        })?;
+        validate_inventory(&inventory, inventory_count)
+            .map_err(PackageServiceSessionOwnerError::Provider)?;
+        if count != inventory_count {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        }
+        if records[..count]
+            .windows(2)
+            .any(|pair| pair[0].unwrap().app_id >= pair[1].unwrap().app_id)
+        {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
+
+        let mut loaded = [None; MAX_SLOTS];
+        for (index, record) in records[..count].iter().flatten().copied().enumerate() {
+            if record.generation == 0
+                || record.generation == u64::MAX
+                || record.signed_package_bytes_len == 0
+                || record.signed_package_bytes_len as usize > MAX_PACKAGE_BYTES
+                || record.executable_bytes_len == 0
+                || record.executable_bytes_len > record.signed_package_bytes_len
+                || record.executable_bytes_len as usize > MAX_PACKAGE_BYTES
+                || records[..index].iter().flatten().any(|previous| {
+                    previous.app_id == record.app_id || previous.generation == record.generation
+                })
+            {
+                return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+            }
+            let Some(installed) = inventory[..inventory_count]
+                .iter()
+                .flatten()
+                .find(|installed| installed.manifest.app_id() == record.app_id)
+            else {
+                return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+            };
+            if installed.generation != record.generation {
+                return Err(PackageServiceSessionOwnerError::StaleGeneration {
+                    captured: record.generation,
+                    current: installed.generation,
+                });
+            }
+            loaded[index] = Some(record);
+        }
+        self.package_digests = loaded;
+        self.digest_index_verified = true;
         Ok(())
     }
 
@@ -448,6 +722,8 @@ impl<'key> PackageServiceSessionOwner<'key> {
         };
         if record.signed_package_sha256 != signed_package_sha256
             || record.executable_sha256 != executable_sha256
+            || record.signed_package_bytes_len as usize != bytes.len()
+            || record.executable_bytes_len as usize != parsed.executable().len()
         {
             return Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch);
         }
@@ -458,7 +734,24 @@ impl<'key> PackageServiceSessionOwner<'key> {
             owner_incarnation,
             signed_package_sha256,
             executable_sha256,
+            signed_package_bytes_len: u32::try_from(bytes.len())
+                .map_err(|_| PackageServiceSessionOwnerError::DigestIndexCorrupt)?,
+            executable_bytes_len: u32::try_from(parsed.executable().len())
+                .map_err(|_| PackageServiceSessionOwnerError::DigestIndexCorrupt)?,
         })
+    }
+
+    /// Capture only after the durable digest index has been read back and
+    /// matched to this exact installed inventory.
+    pub fn capture_for_system_service(
+        &self,
+        bytes: &[u8],
+        expected_id: &[u8],
+    ) -> Result<OwnedPackageInventorySnapshot, PackageServiceSessionOwnerError> {
+        if !self.digest_index_verified {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        }
+        self.capture(bytes, expected_id)
     }
 
     /// Revalidate the full current inventory and return a borrow of the exact
@@ -522,6 +815,8 @@ impl<'key> PackageServiceSessionOwner<'key> {
         };
         if record.signed_package_sha256 != snapshot.signed_package_sha256
             || record.executable_sha256 != snapshot.executable_sha256
+            || record.signed_package_bytes_len != snapshot.signed_package_bytes_len
+            || record.executable_bytes_len != snapshot.executable_bytes_len
         {
             return Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch);
         }
@@ -533,8 +828,37 @@ impl<'key> PackageServiceSessionOwner<'key> {
         })
     }
 
+    /// Dispatch lease for a system-service generation. This requires the
+    /// current durable digest index readback, in addition to the normal
+    /// same-owner and exact-generation checks.
+    pub fn lease_for_system_service_dispatch<'owner>(
+        &'owner self,
+        snapshot: &OwnedPackageInventorySnapshot,
+    ) -> Result<PackageServiceGenerationLease<'owner>, PackageServiceSessionOwnerError> {
+        if !self.digest_index_verified {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        }
+        self.lease_for_dispatch(snapshot)
+    }
+
     /// Consume the owner after the lifecycle owner has handled process cleanup.
     pub fn end_session(self) {}
+}
+
+fn map_digest_index_error(
+    error: InstalledPackageDigestIndexError,
+) -> PackageServiceSessionOwnerError {
+    match error {
+        InstalledPackageDigestIndexError::Unavailable => {
+            PackageServiceSessionOwnerError::DigestIndexUnavailable
+        }
+        InstalledPackageDigestIndexError::Failed => {
+            PackageServiceSessionOwnerError::DigestIndexFailed
+        }
+        InstalledPackageDigestIndexError::OutcomeUnknown => {
+            PackageServiceSessionOwnerError::DigestIndexOutcomeUnknown
+        }
+    }
 }
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {

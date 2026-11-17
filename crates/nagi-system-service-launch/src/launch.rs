@@ -1,7 +1,7 @@
 use crate::{
     validate_artifact_preflight_report, validate_descriptor_json, ArtifactPreflightRequest,
-    DescriptorError, PackageBindingError, PreflightReportError, SystemServiceLaunchMetadata,
-    ValidatedSystemServiceDescriptor, VerifiedServicePackageBinding,
+    DescriptorError, GenerationTransition, PackageBindingError, PreflightReportError,
+    SystemServiceLaunchMetadata, ValidatedSystemServiceDescriptor, VerifiedServicePackageBinding,
 };
 use nagi_capability::PrincipalKind;
 use nagi_identity_session::{CallerContextId, PrincipalId};
@@ -98,6 +98,137 @@ impl AuthenticatedSystemServiceCatalogBinding {
     }
 }
 
+/// Canonical A/C3 map key for one service slot. The key deliberately excludes
+/// catalog and process generations: a new generation replaces the same
+/// service slot and cannot bypass a recovery fence for that service.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SystemServiceRuntimeSlotKey {
+    service_id: ServiceId,
+}
+
+impl SystemServiceRuntimeSlotKey {
+    pub fn new(service_id: &ServiceId) -> Self {
+        Self {
+            service_id: service_id.clone(),
+        }
+    }
+
+    pub fn service_id(&self) -> &ServiceId {
+        &self.service_id
+    }
+}
+
+/// Exact C3 reservation binding for one canonical service slot. This is
+/// consistency metadata returned by the maintained C3 owner; it is not an
+/// endpoint proof or authority. The proof still must bind the live pidfd,
+/// peer credentials, and this unique C3 launch generation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SystemServiceRuntimeSlotBinding {
+    slot_key: SystemServiceRuntimeSlotKey,
+    role: PrincipalKind,
+    catalog_generation: NonZeroU64,
+    transition: GenerationTransition,
+    package_id: String,
+    package_app_id: AppId,
+    canonical_entry: String,
+    signed_package_sha256: [u8; 32],
+    executable_sha256: [u8; 32],
+    signed_package_bytes_len: u32,
+    executable_bytes_len: u32,
+    package_generation: u64,
+    credentials: (u32, u32),
+    c3_launch_generation: NonZeroU64,
+}
+
+impl SystemServiceRuntimeSlotBinding {
+    /// Build the value returned by C3 only after it has atomically reserved
+    /// the metadata's canonical service slot and allocated a unique process
+    /// generation. The C3 adapter remains responsible for proving that the
+    /// reservation is real and serialized with replacement/revocation.
+    pub fn for_c3_reservation(
+        metadata: &SystemServiceLaunchMetadata,
+        package: &VerifiedServicePackageBinding<'_>,
+        c3_launch_generation: NonZeroU64,
+    ) -> Self {
+        Self {
+            slot_key: SystemServiceRuntimeSlotKey::new(metadata.service_id()),
+            role: metadata.role(),
+            catalog_generation: metadata.generation(),
+            transition: metadata.transition(),
+            package_id: package.package_id().to_owned(),
+            package_app_id: package.app_id(),
+            canonical_entry: package.canonical_entry().to_owned(),
+            signed_package_sha256: *package.signed_package_sha256(),
+            executable_sha256: *package.executable_sha256_bytes(),
+            signed_package_bytes_len: package.signed_package_bytes_len(),
+            executable_bytes_len: package.executable_bytes_len(),
+            package_generation: package.package_generation(),
+            credentials: metadata.credentials(),
+            c3_launch_generation,
+        }
+    }
+
+    pub fn slot_key(&self) -> &SystemServiceRuntimeSlotKey {
+        &self.slot_key
+    }
+
+    pub fn service_id(&self) -> &ServiceId {
+        self.slot_key.service_id()
+    }
+
+    pub fn role(&self) -> PrincipalKind {
+        self.role
+    }
+
+    pub fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
+
+    pub fn transition(&self) -> GenerationTransition {
+        self.transition
+    }
+
+    pub fn package_id(&self) -> &str {
+        &self.package_id
+    }
+
+    pub fn package_app_id(&self) -> AppId {
+        self.package_app_id
+    }
+
+    pub fn canonical_entry(&self) -> &str {
+        &self.canonical_entry
+    }
+
+    pub fn signed_package_sha256(&self) -> &[u8; 32] {
+        &self.signed_package_sha256
+    }
+
+    pub fn executable_sha256_bytes(&self) -> &[u8; 32] {
+        &self.executable_sha256
+    }
+
+    pub fn signed_package_bytes_len(&self) -> u32 {
+        self.signed_package_bytes_len
+    }
+
+    pub fn executable_bytes_len(&self) -> u32 {
+        self.executable_bytes_len
+    }
+
+    pub fn package_generation(&self) -> u64 {
+        self.package_generation
+    }
+
+    pub fn credentials(&self) -> (u32, u32) {
+        self.credentials
+    }
+
+    pub fn c3_launch_generation(&self) -> NonZeroU64 {
+        self.c3_launch_generation
+    }
+}
+
 /// Opaque A-issued C1 admission input. It joins catalog-selected canonical
 /// C1 IDs, descriptor role/service generation, the installed package
 /// generation, and the exact C3 launch generation. The one-shot C3 gate binds
@@ -107,13 +238,7 @@ impl AuthenticatedSystemServiceCatalogBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SystemServiceRecoveryAdmission {
     catalog: AuthenticatedSystemServiceCatalogBinding,
-    package_id: String,
-    package_app_id: AppId,
-    canonical_entry: String,
-    executable_sha256: String,
-    signed_package_sha256: [u8; 32],
-    package_generation: u64,
-    c3_launch_generation: NonZeroU64,
+    runtime_slot: SystemServiceRuntimeSlotBinding,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -127,18 +252,12 @@ pub enum SystemServiceAdmissionError {
 impl SystemServiceRecoveryAdmission {
     fn new(
         catalog: AuthenticatedSystemServiceCatalogBinding,
-        package: &VerifiedServicePackageBinding<'_>,
         lifecycle: &impl SystemServiceLaunchLifecycle,
     ) -> Self {
+        let runtime_slot = lifecycle.runtime_slot_binding().clone();
         Self {
             catalog,
-            package_id: package.package_id().to_owned(),
-            package_app_id: package.app_id(),
-            canonical_entry: package.canonical_entry().to_owned(),
-            executable_sha256: package.executable_sha256().to_owned(),
-            signed_package_sha256: *package.signed_package_sha256(),
-            package_generation: package.package_generation(),
-            c3_launch_generation: lifecycle.c3_launch_generation(),
+            runtime_slot,
         }
     }
 
@@ -169,15 +288,15 @@ impl SystemServiceRecoveryAdmission {
         {
             return Err(SystemServiceAdmissionError::PackageBindingMismatch);
         }
-        Ok(Self {
-            package_id: package.package_id().to_owned(),
-            package_app_id: package.app_id(),
-            canonical_entry: package.canonical_entry().to_owned(),
-            executable_sha256: package.executable_sha256().to_owned(),
-            signed_package_sha256: *package.signed_package_sha256(),
-            package_generation: package.package_generation(),
+        let metadata = catalog.descriptor.launch_metadata();
+        let runtime_slot = SystemServiceRuntimeSlotBinding::for_c3_reservation(
+            &metadata,
+            package,
             c3_launch_generation,
+        );
+        Ok(Self {
             catalog,
+            runtime_slot,
         })
     }
 
@@ -186,11 +305,11 @@ impl SystemServiceRecoveryAdmission {
     }
 
     pub fn service_id(&self) -> &ServiceId {
-        self.catalog.descriptor.service_id()
+        self.runtime_slot.service_id()
     }
 
     pub fn role(&self) -> PrincipalKind {
-        self.catalog.descriptor.role()
+        self.runtime_slot.role()
     }
 
     pub fn principal_id(&self) -> &PrincipalId {
@@ -206,49 +325,46 @@ impl SystemServiceRecoveryAdmission {
     }
 
     pub fn package_id(&self) -> &str {
-        &self.package_id
+        self.runtime_slot.package_id()
     }
 
     pub fn package_app_id(&self) -> AppId {
-        self.package_app_id
+        self.runtime_slot.package_app_id()
     }
 
     pub fn canonical_entry(&self) -> &str {
-        &self.canonical_entry
+        self.runtime_slot.canonical_entry()
     }
 
-    pub fn executable_sha256(&self) -> &str {
-        &self.executable_sha256
+    pub fn executable_sha256_bytes(&self) -> &[u8; 32] {
+        self.runtime_slot.executable_sha256_bytes()
     }
 
     pub fn signed_package_sha256(&self) -> &[u8; 32] {
-        &self.signed_package_sha256
+        self.runtime_slot.signed_package_sha256()
     }
 
     pub fn package_generation(&self) -> u64 {
-        self.package_generation
+        self.runtime_slot.package_generation()
     }
 
     pub fn catalog_generation(&self) -> NonZeroU64 {
-        self.catalog.descriptor.generation()
+        self.runtime_slot.catalog_generation()
     }
 
     pub fn c3_launch_generation(&self) -> NonZeroU64 {
-        self.c3_launch_generation
+        self.runtime_slot.c3_launch_generation()
+    }
+
+    pub fn runtime_slot_binding(&self) -> &SystemServiceRuntimeSlotBinding {
+        &self.runtime_slot
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct RecoveryKey {
-    service_id: String,
-    generation: u64,
-}
+type RecoveryKey = SystemServiceRuntimeSlotKey;
 
 fn recovery_key(descriptor: &ValidatedSystemServiceDescriptor) -> RecoveryKey {
-    RecoveryKey {
-        service_id: descriptor.service_id().as_str().to_owned(),
-        generation: descriptor.generation().get(),
-    }
+    SystemServiceRuntimeSlotKey::new(descriptor.service_id())
 }
 
 fn blocked_recoveries() -> &'static Mutex<HashSet<RecoveryKey>> {
@@ -317,17 +433,7 @@ pub enum ReservationError {
 /// Exact C3 slot binding supplied by the maintained process owner. The C3
 /// launch generation is independent of the catalog lifecycle generation.
 pub trait SystemServiceLaunchLifecycle {
-    fn service_id(&self) -> &ServiceId;
-    fn role(&self) -> PrincipalKind;
-    fn catalog_generation(&self) -> NonZeroU64;
-    fn package_id(&self) -> &str;
-    fn package_app_id(&self) -> AppId;
-    fn canonical_entry(&self) -> &str;
-    fn executable_sha256(&self) -> &str;
-    fn signed_package_sha256(&self) -> &[u8; 32];
-    fn package_generation(&self) -> u64;
-    fn credentials(&self) -> (u32, u32);
-    fn c3_launch_generation(&self) -> NonZeroU64;
+    fn runtime_slot_binding(&self) -> &SystemServiceRuntimeSlotBinding;
     fn process_identity(&self) -> Option<SpawnedProcessIdentity>;
 }
 
@@ -907,7 +1013,7 @@ where
             return Err(LaunchError::ProcessOwnerPanicked);
         }
     };
-    let admission = SystemServiceRecoveryAdmission::new(catalog_binding, &package, &lifecycle);
+    let admission = SystemServiceRecoveryAdmission::new(catalog_binding, &lifecycle);
     if let Err(error) = validate_lifecycle_binding(&descriptor, &package, &lifecycle) {
         let cleanup = finish_lifecycle(
             owner,
@@ -1136,20 +1242,23 @@ fn validate_lifecycle_binding(
     package: &VerifiedServicePackageBinding<'_>,
     lifecycle: &impl SystemServiceLaunchLifecycle,
 ) -> Result<(), ProofValidationError> {
-    if lifecycle.service_id() != descriptor.service_id()
-        || lifecycle.role() != descriptor.role()
-        || lifecycle.catalog_generation() != descriptor.generation()
+    let runtime = lifecycle.runtime_slot_binding();
+    if runtime.slot_key() != &SystemServiceRuntimeSlotKey::new(descriptor.service_id())
+        || runtime.role() != descriptor.role()
+        || runtime.catalog_generation() != descriptor.generation()
     {
         return Err(ProofValidationError::WrongServiceBinding);
     }
     let (uid, gid) = descriptor.credentials();
-    if lifecycle.package_id() != package.package_id()
-        || lifecycle.package_app_id() != package.app_id()
-        || lifecycle.canonical_entry() != package.canonical_entry()
-        || lifecycle.executable_sha256() != package.executable_sha256()
-        || lifecycle.signed_package_sha256() != package.signed_package_sha256()
-        || lifecycle.package_generation() != package.package_generation()
-        || lifecycle.credentials() != (uid, gid)
+    if runtime.package_id() != package.package_id()
+        || runtime.package_app_id() != package.app_id()
+        || runtime.canonical_entry() != package.canonical_entry()
+        || runtime.executable_sha256_bytes() != package.executable_sha256_bytes()
+        || runtime.signed_package_sha256() != package.signed_package_sha256()
+        || runtime.signed_package_bytes_len() != package.signed_package_bytes_len()
+        || runtime.executable_bytes_len() != package.executable_bytes_len()
+        || runtime.package_generation() != package.package_generation()
+        || runtime.credentials() != (uid, gid)
     {
         return Err(ProofValidationError::WrongPackageBinding);
     }
@@ -1168,7 +1277,7 @@ fn validate_owner_proof(
         return Err(ProofValidationError::WrongVersion);
     }
     validate_lifecycle_binding(descriptor, package, lifecycle)?;
-    if proof.launch_generation() != lifecycle.c3_launch_generation() {
+    if proof.launch_generation() != lifecycle.runtime_slot_binding().c3_launch_generation() {
         return Err(ProofValidationError::WrongC3LaunchGeneration);
     }
     let Some(expected_process) = lifecycle.process_identity() else {
@@ -1197,9 +1306,12 @@ mod tests {
     use crate::{bind_installed_service_package, GenerationTransition, SYSTEM_SERVICE_TARGET};
     use ed25519_dalek::{Signer, SigningKey};
     use nagi_capability::PrincipalKind;
-    use nagi_init_package_provider::package_trust::PackageServiceSessionOwner;
+    use nagi_init_package_provider::package_trust::{
+        InstalledPackageDigestIndex, InstalledPackageDigestIndexError,
+        InstalledPackageDigestRecord, PackageServiceSessionOwner,
+    };
     use nagi_package::{
-        build_xapp, InstallPolicy, PackageService, MAX_PACKAGE_BYTES, SIGNATURE_BYTES,
+        build_xapp, InstallPolicy, PackageService, PackageView, MAX_PACKAGE_BYTES, SIGNATURE_BYTES,
         TRUSTED_SIGNING_PUBLIC_KEY,
     };
     use serde_json::{json, Value};
@@ -1226,6 +1338,34 @@ mod tests {
     ];
     const FIXTURE_MANIFEST: &[u8] =
         b"id=org.nagi.fixture\nname=Fixture\nversion=1.0.0\nentry=fixture.elf\nsurfaces=compact\n";
+
+    #[derive(Default)]
+    struct TestDigestIndex {
+        records: Vec<InstalledPackageDigestRecord>,
+    }
+
+    impl InstalledPackageDigestIndex for TestDigestIndex {
+        fn replace_snapshot(
+            &mut self,
+            records: &[InstalledPackageDigestRecord],
+        ) -> Result<(), InstalledPackageDigestIndexError> {
+            self.records = records.to_vec();
+            Ok(())
+        }
+
+        fn read_snapshot(
+            &self,
+            output: &mut [Option<InstalledPackageDigestRecord>],
+        ) -> Result<usize, InstalledPackageDigestIndexError> {
+            if output.len() < self.records.len() {
+                return Err(InstalledPackageDigestIndexError::Failed);
+            }
+            for (destination, record) in output.iter_mut().zip(self.records.iter().copied()) {
+                *destination = Some(record);
+            }
+            Ok(self.records.len())
+        }
+    }
 
     fn valid_descriptor() -> Value {
         json!({
@@ -1316,14 +1456,15 @@ mod tests {
             PackageService::new(),
         );
         owner
-            .install(
+            .install_with_digest_index(
                 package_bytes,
                 InstallPolicy {
                     developer_mode: false,
                     require_signature: true,
                 },
+                &mut TestDigestIndex::default(),
             )
-            .expect("install test package under the fixture key");
+            .expect("install and read back the fixture digest index");
         owner
     }
 
@@ -1609,6 +1750,71 @@ mod tests {
     }
 
     #[test]
+    fn service_binding_rejects_superseded_generation_and_missing_restored_digest() {
+        let executable_a = b"fixture executable generation A";
+        let executable_b = b"fixture executable generation B";
+        let package_a = fixture_package(executable_a);
+        let package_b = fixture_package(executable_b);
+        let digest_a = digest_hex(executable_a);
+        let descriptor_a = validate_descriptor_json(&descriptor_with_digest(&digest_a)).unwrap();
+
+        let mut index = TestDigestIndex::default();
+        let mut owner = PackageServiceSessionOwner::new(
+            Some(&TRUSTED_SIGNING_PUBLIC_KEY),
+            PackageService::new(),
+        );
+        owner
+            .install_with_digest_index(
+                &package_a,
+                InstallPolicy {
+                    developer_mode: false,
+                    require_signature: true,
+                },
+                &mut index,
+            )
+            .unwrap();
+        owner
+            .install_with_digest_index(
+                &package_b,
+                InstallPolicy {
+                    developer_mode: false,
+                    require_signature: true,
+                },
+                &mut index,
+            )
+            .unwrap();
+        assert_eq!(
+            bind_installed_service_package(&descriptor_a, &package_a, &owner).err(),
+            Some(PackageBindingError::Owner(
+                nagi_init_package_provider::package_trust::PackageServiceSessionOwnerError::
+                    InstalledPackageBytesMismatch
+            ))
+        );
+
+        let mut reconstructed_store = PackageService::new();
+        let parsed = PackageView::parse(&package_a).unwrap();
+        reconstructed_store
+            .install_with_trusted_key(
+                &parsed,
+                InstallPolicy {
+                    developer_mode: false,
+                    require_signature: true,
+                },
+                &TRUSTED_SIGNING_PUBLIC_KEY,
+            )
+            .unwrap();
+        let reconstructed_owner =
+            PackageServiceSessionOwner::new(Some(&TRUSTED_SIGNING_PUBLIC_KEY), reconstructed_store);
+        assert_eq!(
+            bind_installed_service_package(&descriptor_a, &package_a, &reconstructed_owner).err(),
+            Some(PackageBindingError::Owner(
+                nagi_init_package_provider::package_trust::PackageServiceSessionOwnerError::
+                    PackageDigestUnavailable
+            ))
+        );
+    }
+
+    #[test]
     fn c3_lifecycle_binding_separates_catalog_and_process_generations() {
         let executable = b"fixture system service executable";
         let package_bytes = fixture_package(executable);
@@ -1622,12 +1828,38 @@ mod tests {
             .reserve_launch(&descriptor.launch_metadata(), &binding)
             .unwrap();
 
-        assert_eq!(lifecycle.catalog_generation(), descriptor.generation());
-        assert_ne!(lifecycle.c3_launch_generation(), descriptor.generation());
+        let runtime_slot = lifecycle.runtime_slot_binding();
+        assert_eq!(runtime_slot.service_id(), descriptor.service_id());
+        assert_eq!(runtime_slot.catalog_generation(), descriptor.generation());
+        assert_eq!(runtime_slot.transition(), descriptor.transition());
+        assert_ne!(runtime_slot.c3_launch_generation(), descriptor.generation());
+        assert_eq!(
+            runtime_slot.package_generation(),
+            binding.package_generation()
+        );
+        assert_eq!(
+            runtime_slot.executable_sha256_bytes(),
+            binding.executable_sha256_bytes()
+        );
         assert_eq!(
             validate_lifecycle_binding(&descriptor, &binding, &lifecycle),
             Ok(())
         );
+    }
+
+    #[test]
+    fn recovery_fence_covers_the_canonical_service_slot_across_catalog_generations() {
+        let _guard = recovery_state_test_guard();
+        let first = validate_descriptor_json(&valid_descriptor().to_string()).unwrap();
+        let mut replacement = valid_descriptor();
+        replacement["generation"] = json!(10);
+        replacement["lifecycle"] = json!({ "mode": "replace", "previous_generation": 9 });
+        let replacement = validate_descriptor_json(&replacement.to_string()).unwrap();
+
+        block_recovery(&first);
+        assert!(is_recovery_blocked(&replacement));
+        clear_recovery_block(&first);
+        assert!(!is_recovery_blocked(&replacement));
     }
 
     #[test]
@@ -1763,63 +1995,13 @@ mod tests {
     }
 
     struct TestLifecycle {
-        service_id: ServiceId,
-        role: PrincipalKind,
-        catalog_generation: NonZeroU64,
-        package_id: String,
-        package_app_id: AppId,
-        canonical_entry: String,
-        executable_sha256: String,
-        signed_package_sha256: [u8; 32],
-        package_generation: u64,
-        credentials: (u32, u32),
-        c3_launch_generation: NonZeroU64,
+        runtime_slot_binding: SystemServiceRuntimeSlotBinding,
         process_identity: Option<SpawnedProcessIdentity>,
     }
 
     impl SystemServiceLaunchLifecycle for TestLifecycle {
-        fn service_id(&self) -> &ServiceId {
-            &self.service_id
-        }
-
-        fn role(&self) -> PrincipalKind {
-            self.role
-        }
-
-        fn catalog_generation(&self) -> NonZeroU64 {
-            self.catalog_generation
-        }
-
-        fn package_id(&self) -> &str {
-            &self.package_id
-        }
-
-        fn package_app_id(&self) -> AppId {
-            self.package_app_id
-        }
-
-        fn canonical_entry(&self) -> &str {
-            &self.canonical_entry
-        }
-
-        fn executable_sha256(&self) -> &str {
-            &self.executable_sha256
-        }
-
-        fn signed_package_sha256(&self) -> &[u8; 32] {
-            &self.signed_package_sha256
-        }
-
-        fn package_generation(&self) -> u64 {
-            self.package_generation
-        }
-
-        fn credentials(&self) -> (u32, u32) {
-            self.credentials
-        }
-
-        fn c3_launch_generation(&self) -> NonZeroU64 {
-            self.c3_launch_generation
+        fn runtime_slot_binding(&self) -> &SystemServiceRuntimeSlotBinding {
+            &self.runtime_slot_binding
         }
 
         fn process_identity(&self) -> Option<SpawnedProcessIdentity> {
@@ -1844,17 +2026,11 @@ mod tests {
             package: &VerifiedServicePackageBinding<'_>,
         ) -> Result<Self::Lifecycle, ReservationError> {
             Ok(TestLifecycle {
-                service_id: metadata.service_id().clone(),
-                role: metadata.role(),
-                catalog_generation: metadata.generation(),
-                package_id: package.package_id().to_owned(),
-                package_app_id: package.app_id(),
-                canonical_entry: package.canonical_entry().to_owned(),
-                executable_sha256: package.executable_sha256().to_owned(),
-                signed_package_sha256: *package.signed_package_sha256(),
-                package_generation: package.package_generation(),
-                credentials: metadata.credentials(),
-                c3_launch_generation: NonZeroU64::new(33).unwrap(),
+                runtime_slot_binding: SystemServiceRuntimeSlotBinding::for_c3_reservation(
+                    metadata,
+                    package,
+                    NonZeroU64::new(33).unwrap(),
+                ),
                 process_identity: None,
             })
         }
@@ -2248,7 +2424,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),
@@ -2312,7 +2488,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),
@@ -2378,7 +2554,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),
@@ -2438,7 +2614,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),
@@ -2495,7 +2671,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),
@@ -2557,7 +2733,7 @@ mod tests {
             CallerContextId::new("caller_fixture_identity").unwrap(),
             NonZeroU64::new(3).unwrap(),
         );
-        let admission = SystemServiceRecoveryAdmission::new(catalog, &binding, &lifecycle);
+        let admission = SystemServiceRecoveryAdmission::new(catalog, &lifecycle);
         let mut identity = Identity {
             calls: AtomicUsize::new(0),
             quarantines: AtomicUsize::new(0),

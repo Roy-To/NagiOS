@@ -21,7 +21,8 @@ pub use launch::{
     LaunchError, LaunchPortError, LifecycleFinish, ProofValidationError, RecoveryGateError,
     ReservationError, SystemServiceAdmissionError, SystemServiceLaunchLifecycle,
     SystemServiceLaunchOwner, SystemServiceReconciliationGate, SystemServiceRecoveryAdmission,
-    SystemServiceRecoveryGate, SystemServiceRuntime, TrustedSystemServiceCatalog,
+    SystemServiceRecoveryGate, SystemServiceRuntime, SystemServiceRuntimeSlotBinding,
+    SystemServiceRuntimeSlotKey, TrustedSystemServiceCatalog,
 };
 pub use package_binding::{
     bind_installed_service_package, PackageBindingError, VerifiedServicePackageBinding,
