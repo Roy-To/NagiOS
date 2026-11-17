@@ -43,3 +43,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-17 NDP-07: UI対応表・未対応レポートと実fixtureテストを実装（PR #168、runnerテスト成功、claudeレビューPASS）
 - 11-17 NDP-04: Windows API差分rulesと暫定adapterを実装、hostテスト30件成功（PR #169、runnerテスト成功、claudeレビューPASS）
 - 11-17 NDP-02: Level 0雛形契約と実ファイル照合テストを実装（PR #170、runnerテスト成功、claudeレビューPASS）
+- 11-17 NDP-05: Linux API差分rulesを実装（公開前チェックの誤検出を修正して再公開）（PR #171、runnerテスト成功、codexレビューPASS）
