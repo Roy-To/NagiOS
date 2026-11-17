@@ -92,7 +92,7 @@
     "symlinks": "reject-in-destination-and-ancestors",
     "overwrite": false,
     "exclusiveCreate": true,
-    "onFailure": "remove-only-files-created-by-this-invocation"
+    "onFailure": "never-delete-leave-created-objects-and-report"
   },
   "prohibited": [
     "overwrite-or-merge-existing-output",

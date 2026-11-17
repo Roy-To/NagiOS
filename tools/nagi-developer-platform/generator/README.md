@@ -30,20 +30,25 @@ python3 tools/nagi-developer-platform/generator/generate.py create ...同じ引�
   fileでも、symlink（dangling含む）でも拒否。上書き・mergeはしない。
 - 親directoryは既存の実directoryのみ。無ければ作らず拒否（`output_parent_missing`）。
 - root以下の各階層をno-follow（`lstat` + `O_NOFOLLOW|O_DIRECTORY`）で辿り、symlinkは拒否。
-- directoryは `mkdir(dir_fd)`、fileは `O_CREAT|O_EXCL|O_NOFOLLOW` で作成し、競合を検出する。
-- 失敗・中断（KeyboardInterrupt含む）時は、この実行が作成したfile/directoryだけを
-  逆順に削除。第三者が途中で置いたfileは消さず、`left_behind` に残りを報告する。
-- 「作成したもの」は名前ではなく、作成したhandleから `fstat` で記録した
-  (dev, inode, type) で識別する。cleanup時に一致しないもの（第三者による削除・差し替え）は
-  削除せず `left_behind` に入れる。
-- POSIXにはhandle指定のunlinkが無いため、fileは確認後すぐ消さず、出力先の隣に排他作成した
-  空の隔離directory（`.<name>.generator-cleanup-<random>`）へ `rename` で移し、移した実体の
-  identityが記録と一致した場合だけunlinkする。確認と移動の間に差し替えられた第三者の実体は
-  `link`（既存名を上書きしない）で元の名前へ戻して `left_behind` とし、戻せなければ
-  隔離directoryに残してそのpathを報告する。隔離directoryは空なら最後に削除する。
-- directoryは `rmdir`（空のときしか消えない）で削除し、事前にidentityも照合する。
-- 作成直後のdirectoryが空でない場合（作成とopenの間の差し替え）は `output_raced` で中止し、
-  そのdirectoryは作成物として扱わない。
+- fileは `O_CREAT|O_EXCL|O_NOFOLLOW` で作成し、作成したhandleから `fstat` で
+  (dev, inode, type) を記録する。書込みはそのhandle経由で行う。
+- **何も削除しない。** `unlink` / `rmdir` / `rename` / `replace` は一切呼ばない
+  （テストのsetUpで全テストに対し強制）。失敗・中断時は、この実行が作成したものを
+  その場に残し、`created` / `left_behind` に報告する（`removed` は常に空）。
+  POSIXにはhandle指定のunlinkやhandleを返すmkdirが無く、並行する差し替えがあると
+  削除対象が自分の作成物だと証明できないため、自動cleanupをやめて安全側に倒した。
+  失敗後の出力先は手動で確認・削除する（再実行は `output_exists` で拒否される）。
+- 作成したfile/directoryのhandleは、最後の照合と仕上げが終わるまで閉じない。
+  開いている間はinodeが再利用されないので、記録したidentityとの一致は同一物の証明になる。
+- directoryは `mkdir(dir_fd, 0o700)` で非公開に作り、no-followでopenした実体が
+  「実directory・所有者が自分・modeがちょうど0o700・空・その名前の現在の実体と同一」の
+  全てを満たす場合だけ受け入れる。満たさなければ（mkdir→open間の差し替えなど）
+  `output_raced` で中止し、その中へは何も書かず、作成物としても扱わない
+  （`left_behind` に名前だけ報告）。
+- 全fileの書込み後、出力先が要求したpathに存在し、各名前の実体が保持中のhandleと同一で、
+  各directoryの中身が作成物と過不足なく一致することを照合する。違えば `output_raced` で
+  失敗にし、修復・削除はしない。照合に通った後でだけ、保持中のhandleで
+  directoryのmodeを `0o755 & ~umask` に広げる。
 - 保護対象: `.git`、`sdk`、`tools/nagi-pkg` 配下への出力は拒否（`PROTECTED_TREES`）。
 - 入力・contractは変更しない。出力は決定的（同じ入力・同じ`output_dir`なら同一bytes）。
 
@@ -63,10 +68,18 @@ python3 tools/nagi-developer-platform/generator/generate.py create ...同じ引�
   で拒否する（native Windowsは対象外、`validation/validate.py` と同じ制限）。
 - `--root` 自体が（例: macOSの `/tmp`）symlinkを含むpathの場合、`realpath` で解決してから
   使う。root以下はno-followで検査する。
-- cleanupの残存競合（意図的な同一uidの妨害は対象外とする前提）: 隔離directory内の名前を
-  第三者が狙って差し替える場合、および空directoryが `identity確認→rmdir` の間に第三者の
-  空directoryへ差し替わる場合は防げない（失われ得るのは空directoryのみ）。
-  file削除を一切行わない保守方針へ切り替える場合は `generate._cleanup` を差し替える。
+- 失敗時は自動削除しない（`level0.json.writePolicy.onFailure` =
+  `never-delete-leave-created-objects-and-report`）。部分出力が残る代わりに、
+  第三者の実体を消す経路を無くした。将来、作成物を証明付きで消せる仕組み
+  （例: handle指定の削除を持つNagi側API）ができたら差し替える（差替え: `generate.generate`
+  の失敗処理と `writePolicy.onFailure`）。
+- 検出できない残存競合: 同一uidのprocessが、こちらのmkdir直後に作成directoryを別名へ移し、
+  **同じmode 0o700の空directory**を自分で作って置いた場合は、POSIXのmkdirがhandleを
+  返さないため自分の作成物と区別できない（`test_residual_mode_matching_swap_...` で
+  挙動を固定）。この場合も削除・上書き・既存内容の変更は起きず、起き得るのは
+  「要求したpathに置かれた空directoryへ雛形の新規fileを書き、そのmodeを0o755に広げる」
+  ことだけ。同一uidのprocessは元々そのdirectoryを自由に操作できる権限を持つため、
+  これは安全境界の越境ではないと仮定する。より強い保証が必要なら、ownerの判断が要る。
 - 生成後のManifest検証・hostでのbuild/testは、PT-05等の別Stageで明示的に行う前提。
   このgeneratorはそれらを呼ばない。
 
@@ -78,8 +91,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/nagi-developer-p
 
 テストは実際の `generate.py` を呼び、一時directoryにだけ書く。生成・決定性・入力不変・
 CLI、無効ID／未対応SDK版／出力先衝突／path逸脱／symlink（出力先・祖先・SDK）／
-書込み失敗・競合・中断時の掃除、作成済みfile/directoryが第三者に差し替えられた後の失敗
-（identity確認前・確認直後の両方）で第三者の実体が残ることを確認する。
+書込み失敗・競合・中断時に何も削除せず報告すること、作成済みfile/directoryの差し替えを
+成功前に検出すること、作成handleが最後の照合まで閉じられないこと、mkdir→open間の
+directory差し替え（空・既定mode／中身あり／group書込み可／symlink、出力先とsrcの両方）を
+拒否してその中へ書かないことを確認する。
 
 `test_generated_manifest_passes_real_validator_when_available` は
 `validation/validate.py` の実validator（`out/ndp-host/target/debug/nagi-pkg`）が

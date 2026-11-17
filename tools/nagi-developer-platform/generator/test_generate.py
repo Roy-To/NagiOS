@@ -9,6 +9,8 @@ import errno
 import importlib.util
 import json
 import os
+import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,18 +52,41 @@ def tree(root):
     return result
 
 
+def make_checkout(root):
+    # Minimal stand-in for the selected checkout: generation only checks that
+    # the SDK Cargo.toml exists; contents are not read.
+    (root / "sdk/rust").mkdir(parents=True)
+    (root / "sdk/rust/Cargo.toml").write_text("# stand-in\n", encoding="utf-8")
+    (root / "samples").mkdir()
+    return root
+
+
+_DELETING_CALLS = ("unlink", "remove", "rmdir", "removedirs", "rename", "replace")
+
+
+def _forbid_from_generator(name):
+    real = getattr(os, name)
+
+    def guard(*args, **kwargs):
+        if sys._getframe(1).f_globals.get("__name__") == gen.__name__:
+            raise AssertionError("generator must never call os." + name)
+        return real(*args, **kwargs)
+    return guard
+
+
 class GeneratorTestCase(unittest.TestCase):
     def setUp(self):
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
-        self.root = Path(holder.name) / "checkout"
-        # Minimal stand-in for the selected checkout: generation only checks that
-        # the SDK Cargo.toml exists; contents are not read.
-        (self.root / "sdk/rust").mkdir(parents=True)
-        (self.root / "sdk/rust/Cargo.toml").write_text("# stand-in\n", encoding="utf-8")
-        (self.root / "samples").mkdir()
+        self.root = make_checkout(Path(holder.name) / "checkout")
         self.outside = Path(holder.name) / "outside"
         self.outside.mkdir()
+        # Policy: the generator never deletes, renames or replaces anything.
+        # Calls made by the tests themselves pass through.
+        for name in _DELETING_CALLS:
+            patcher = mock.patch.object(gen.os, name, _forbid_from_generator(name))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def reason(self, inputs=None, root=None):
         with self.assertRaises(gen.GenerationError) as caught:
@@ -127,6 +152,14 @@ class GenerationTests(GeneratorTestCase):
         manifest = json.loads((self.root / "samples/level-zero/manifest.json")
                               .read_text(encoding="utf-8"))
         self.assertEqual(manifest["displayName"], name)
+
+    def test_directories_are_widened_to_the_usual_mode_only_after_success(self):
+        mask = os.umask(0o022)
+        os.umask(mask)
+        gen.generate(valid_inputs(), self.root)
+        for relative in ("samples/level-zero", "samples/level-zero/src"):
+            mode = stat.S_IMODE(os.lstat(self.root / relative).st_mode)
+            self.assertEqual(mode, 0o755 & ~mask, relative)
 
     def test_plan_reports_files_and_writes_nothing(self):
         before = tree(self.root)
@@ -265,146 +298,255 @@ class RejectionTests(GeneratorTestCase):
         self.assertEqual(caught.exception.code, "destination_root_unavailable")
 
 
-class FailureCleanupTests(GeneratorTestCase):
-    def failing_open(self, fail_name):
+OUT = "samples/level-zero"
+CREATED_BEFORE_LIB_RS = [OUT + "/", OUT + "/Cargo.toml", OUT + "/manifest.json", OUT + "/src/"]
+
+
+class FailureTests(GeneratorTestCase):
+    """Failures never delete anything (enforced by the setUp guard): objects this
+    run created stay in place and are reported; foreign objects are untouched."""
+
+    def hook_open(self, name, action):
+        """Call `action()` when the generator creates file `name`; it may raise."""
         real_open = os.open
 
         def wrapper(path, flags, *args, **kwargs):
-            if path == fail_name and flags & os.O_CREAT:
-                raise OSError(errno.ENOSPC, "injected")
+            if path == name and flags & os.O_CREAT:
+                action()
             return real_open(path, flags, *args, **kwargs)
         return mock.patch.object(gen.os, "open", wrapper)
 
-    def test_write_failure_removes_only_created_files_and_reports_them(self):
+    @staticmethod
+    def fail(code=errno.ENOSPC):
+        def action():
+            raise OSError(code, "injected")
+        return action
+
+    def assertOnlyAdded(self, before, added):
+        after = tree(self.root)
+        for path, data in before.items():
+            self.assertEqual(after.get(path, "missing"), data, path)
+        self.assertEqual(set(after) - set(before), set(added))
+
+    def test_write_failure_deletes_nothing_and_reports_what_was_left(self):
         keep = self.root / "samples/precious.txt"
         keep.write_text("keep", encoding="utf-8")
         before = tree(self.root)
-        with self.failing_open("lib.rs"):
+        with self.hook_open("lib.rs", self.fail()):
             error = self.reason()
         self.assertEqual(error.code, "write_failed:ENOSPC")
-        self.assertIn("samples/level-zero/Cargo.toml", error.created)
-        self.assertIn("samples/level-zero/manifest.json", error.removed)
-        self.assertIn("samples/level-zero/src/", error.removed)
-        self.assertIn("samples/level-zero/", error.removed)
-        self.assertEqual(error.left_behind, [])
-        self.assertEqual(tree(self.root), before)
-        self.assertEqual(keep.read_text(encoding="utf-8"), "keep")
-
-    def test_failure_on_first_file_removes_new_directory(self):
-        before = tree(self.root)
-        with self.failing_open("Cargo.toml"):
-            error = self.reason()
-        self.assertEqual(error.code, "write_failed:ENOSPC")
-        self.assertEqual(tree(self.root), before)
+        self.assertEqual(error.created, CREATED_BEFORE_LIB_RS)
+        self.assertEqual(error.left_behind, CREATED_BEFORE_LIB_RS)
+        self.assertEqual(error.removed, [])
         self.assertEqual(error.report()["status"], "failed")
+        self.assertOnlyAdded(before, [OUT, OUT + "/Cargo.toml", OUT + "/manifest.json",
+                                      OUT + "/src"])
+        preview = gen.contract_module.preview(valid_inputs())
+        for relative in ("Cargo.toml", "manifest.json"):
+            self.assertEqual((self.root / OUT / relative).read_bytes(),
+                             preview[relative].encode("utf-8"))
 
-    def test_failure_after_data_written_does_not_delete_foreign_files(self):
-        # Something else drops a file into our new directory mid-run; cleanup
-        # must not delete it, and the leftover directory must be reported.
-        real_open = os.open
-
-        def wrapper(path, flags, *args, **kwargs):
-            if path == "lib.rs" and flags & os.O_CREAT:
-                (self.root / "samples/level-zero/foreign.txt").write_text("x", encoding="utf-8")
-                raise OSError(errno.EIO, "injected")
-            return real_open(path, flags, *args, **kwargs)
-        with mock.patch.object(gen.os, "open", wrapper):
+    def test_failure_on_first_file_leaves_only_the_new_directory(self):
+        before = tree(self.root)
+        with self.hook_open("Cargo.toml", self.fail()):
             error = self.reason()
-        self.assertTrue((self.root / "samples/level-zero/foreign.txt").exists())
-        self.assertIn("samples/level-zero/", error.left_behind)
-        self.assertNotIn("samples/level-zero/foreign.txt", error.removed)
+        self.assertEqual(error.code, "write_failed:ENOSPC")
+        self.assertEqual(error.left_behind, [OUT + "/"])
+        self.assertOnlyAdded(before, [OUT])
 
-    def replace_then_fail(self, replace):
-        """Run the generator; just before lib.rs is created, `replace()` then fail."""
-        real_open = os.open
+    def test_foreign_file_dropped_mid_run_is_untouched_and_run_fails(self):
+        def drop():
+            (self.root / OUT / "foreign.txt").write_text("x", encoding="utf-8")
+        with self.hook_open("lib.rs", drop):
+            error = self.reason()
+        # Final verification sees an object it did not create and refuses success.
+        self.assertEqual(error.code, "output_raced")
+        self.assertEqual((self.root / OUT / "foreign.txt").read_text(encoding="utf-8"), "x")
+        self.assertIn(OUT + "/", error.left_behind)
+        self.assertNotIn(OUT + "/foreign.txt", error.created)
 
-        def wrapper(path, flags, *args, **kwargs):
-            if path == "lib.rs" and flags & os.O_CREAT:
-                replace()
-                raise OSError(errno.EIO, "injected")
-            return real_open(path, flags, *args, **kwargs)
-        with mock.patch.object(gen.os, "open", wrapper):
-            return self.reason()
+    def test_replaced_created_file_is_left_untouched_on_failure(self):
+        out = self.root / OUT
 
-    def assertNoQuarantineLeft(self):
-        self.assertEqual([n for n in os.listdir(self.root / "samples") if "cleanup" in n], [])
+        def replace_then_fail():
+            (out / "Cargo.toml").unlink()
+            (out / "Cargo.toml").write_text("theirs", encoding="utf-8")
+            raise OSError(errno.EIO, "injected")
+        with self.hook_open("lib.rs", replace_then_fail):
+            error = self.reason()
+        self.assertEqual(error.code, "write_failed:EIO")
+        self.assertEqual((out / "Cargo.toml").read_text(encoding="utf-8"), "theirs")
+        self.assertEqual(error.removed, [])
 
-    def test_replaced_created_file_is_not_deleted_by_cleanup(self):
-        # Review P1: a file we created is replaced by another process (new inode)
-        # before a later write fails. Cleanup must keep the replacement.
-        out = self.root / "samples/level-zero"
+    def test_replacement_of_a_written_file_is_detected_before_success(self):
+        # Review P1 (inode reuse): our Cargo.toml is unlinked and a new file takes
+        # its name. Because the creating fd is still held, the new file cannot
+        # reuse our inode, and the final check refuses to report success.
+        out = self.root / OUT
 
         def replace():
             (out / "Cargo.toml").unlink()
             (out / "Cargo.toml").write_text("theirs", encoding="utf-8")
-        error = self.replace_then_fail(replace)
-        self.assertEqual(error.code, "write_failed:EIO")
+        with self.hook_open("UNSUPPORTED_APIS.md", replace):
+            error = self.reason()
+        self.assertEqual(error.code, "output_raced")
         self.assertEqual((out / "Cargo.toml").read_text(encoding="utf-8"), "theirs")
-        self.assertIn("samples/level-zero/Cargo.toml", error.left_behind)
-        self.assertNotIn("samples/level-zero/Cargo.toml", error.removed)
-        self.assertIn("samples/level-zero/manifest.json", error.removed)
-        self.assertIn("samples/level-zero/", error.left_behind)
-        self.assertEqual(sorted(os.listdir(out)), ["Cargo.toml"])
-        self.assertNoQuarantineLeft()
+        self.assertEqual(error.removed, [])
 
-    def test_replacement_racing_the_identity_check_is_restored_not_deleted(self):
-        # The swap happens after cleanup's identity check, right before the
-        # move: the moved object is foreign, so it is put back, not unlinked.
-        out = self.root / "samples/level-zero"
-        real_rename = os.rename
-        swapped = []
-
-        def rename(src, dst, *args, **kwargs):
-            if src == "Cargo.toml" and not swapped:
-                swapped.append(True)
-                (out / "Cargo.toml").unlink()
-                (out / "Cargo.toml").write_text("theirs", encoding="utf-8")
-            return real_rename(src, dst, *args, **kwargs)
-        with mock.patch.object(gen.os, "rename", rename):
-            error = self.replace_then_fail(lambda: None)
-        self.assertEqual(swapped, [True])
-        self.assertEqual((out / "Cargo.toml").read_text(encoding="utf-8"), "theirs")
-        self.assertIn("samples/level-zero/Cargo.toml", error.left_behind)
-        self.assertNotIn("samples/level-zero/Cargo.toml", error.removed)
-        self.assertNoQuarantineLeft()
-
-    def test_replaced_created_directory_is_not_removed(self):
-        out = self.root / "samples/level-zero"
+    def test_replaced_created_directory_is_detected_and_left(self):
+        out = self.root / OUT
 
         def replace():
+            (out / "src/lib.rs").unlink()
             (out / "src").rmdir()
             (out / "src").mkdir()
-        error = self.replace_then_fail(replace)
+        with self.hook_open("README.md", replace):
+            error = self.reason()
+        self.assertEqual(error.code, "output_raced")
         self.assertTrue((out / "src").is_dir())
-        self.assertIn("samples/level-zero/src/", error.left_behind)
-        self.assertNotIn("samples/level-zero/src/", error.removed)
-        self.assertNoQuarantineLeft()
+        self.assertEqual(os.listdir(out / "src"), [])
+        self.assertEqual(error.removed, [])
+
+    def test_created_handles_stay_open_until_the_run_has_finished_checking(self):
+        # Review P1 (inode reuse): no created file/directory fd may be closed
+        # before the last identity check and the final fchmod.
+        events, created_fds = [], set()
+        real_open, real_close, real_stat, real_fchmod = os.open, os.close, os.stat, os.fchmod
+        real_mkdir = os.mkdir
+        pending_dirs = set()
+
+        def open_(path, flags, *args, **kwargs):
+            fd = real_open(path, flags, *args, **kwargs)
+            if flags & os.O_CREAT or path in pending_dirs:
+                pending_dirs.discard(path)
+                created_fds.add(fd)
+            return fd
+
+        def mkdir(path, *args, **kwargs):
+            real_mkdir(path, *args, **kwargs)
+            pending_dirs.add(path)
+
+        def close(fd):
+            events.append(("close", fd))
+            return real_close(fd)
+
+        def stat_(*args, **kwargs):
+            events.append(("check",))
+            return real_stat(*args, **kwargs)
+
+        def fchmod(fd, mode):
+            events.append(("check",))
+            return real_fchmod(fd, mode)
+        with mock.patch.object(gen.os, "open", open_), mock.patch.object(gen.os, "mkdir", mkdir), \
+                mock.patch.object(gen.os, "close", close), \
+                mock.patch.object(gen.os, "stat", stat_), \
+                mock.patch.object(gen.os, "fchmod", fchmod):
+            gen.generate(valid_inputs(), self.root)
+        self.assertEqual(len(created_fds), 7)       # 2 directories + 5 files
+        last_check = max(i for i, event in enumerate(events) if event[0] == "check")
+        closes = {event[1]: i for i, event in enumerate(events) if event[0] == "close"}
+        for fd in created_fds:
+            self.assertIn(fd, closes, "created fd leaked")
+            self.assertGreater(closes[fd], last_check)
 
     def test_exclusive_create_refuses_a_file_that_appears_concurrently(self):
-        real_open = os.open
-
-        def wrapper(path, flags, *args, **kwargs):
-            if path == "README.md" and flags & os.O_CREAT:
-                (self.root / "samples/level-zero/README.md").write_text("theirs", encoding="utf-8")
-            return real_open(path, flags, *args, **kwargs)
-        with mock.patch.object(gen.os, "open", wrapper):
+        def appear():
+            (self.root / OUT / "README.md").write_text("theirs", encoding="utf-8")
+        with self.hook_open("README.md", appear):
             error = self.reason()
-        self.assertTrue(error.code.startswith("write_failed:"))
-        self.assertEqual((self.root / "samples/level-zero/README.md").read_text(encoding="utf-8"),
-                         "theirs")
+        self.assertEqual(error.code, "write_failed:EEXIST")
+        self.assertEqual((self.root / OUT / "README.md").read_text(encoding="utf-8"), "theirs")
+        self.assertNotIn(OUT + "/README.md", error.created)
 
-    def test_keyboard_interrupt_cleans_up_and_propagates(self):
-        real_open = os.open
-
-        def wrapper(path, flags, *args, **kwargs):
-            if path == "lib.rs" and flags & os.O_CREAT:
-                raise KeyboardInterrupt
-            return real_open(path, flags, *args, **kwargs)
+    def test_keyboard_interrupt_propagates_and_deletes_nothing(self):
+        def interrupt():
+            raise KeyboardInterrupt
         before = tree(self.root)
-        with mock.patch.object(gen.os, "open", wrapper):
+        with self.hook_open("lib.rs", interrupt):
             with self.assertRaises(KeyboardInterrupt):
                 gen.generate(valid_inputs(), self.root)
-        self.assertEqual(tree(self.root), before)
+        self.assertOnlyAdded(before, [OUT, OUT + "/Cargo.toml", OUT + "/manifest.json",
+                                      OUT + "/src"])
+
+
+class DirectorySwapTests(GeneratorTestCase):
+    """Review P1: a directory replaced between our mkdir() and open()."""
+
+    def swap_after_mkdir(self, target, make_replacement):
+        """After the generator's mkdir() of `target`, move it away and install a replacement."""
+        real_mkdir = os.mkdir
+        path = self.root / target
+        moved = path.parent / (path.name + ".moved-ours")
+
+        def mkdir(name, *args, **kwargs):
+            real_mkdir(name, *args, **kwargs)
+            if name == path.name and not moved.exists():
+                os.rename(path, moved)
+                make_replacement(path)
+        return mock.patch.object(gen.os, "mkdir", mkdir), moved
+
+    def assertRefused(self, target, make_replacement, created_before):
+        patcher, moved = self.swap_after_mkdir(target, make_replacement)
+        replacement = self.root / target
+        with patcher:
+            error = self.reason()
+        self.assertEqual(error.code, "output_raced")
+        self.assertEqual(error.created, created_before)
+        self.assertEqual(error.left_behind, created_before + [target + "/"])
+        self.assertEqual(error.removed, [])
+        # Our original directory and the replacement both remain; nothing was
+        # written into the replacement or into what it points to.
+        self.assertTrue(moved.is_dir())
+        self.assertEqual(os.listdir(moved), [])
+        return replacement
+
+    def check_cases(self, target, created_before):
+        def empty_default_mode(path):
+            path.mkdir()                                   # mode 0o777 & ~umask
+
+        def private_but_not_empty(path):
+            path.mkdir(mode=0o700)
+            (path / "theirs.txt").write_text("theirs", encoding="utf-8")
+
+        def group_writable(path):
+            path.mkdir()
+            os.chmod(path, 0o770)
+
+        def symlink(path):
+            os.symlink(self.outside, path)
+        for make in (empty_default_mode, private_but_not_empty, group_writable, symlink):
+            with self.subTest(target=target, replacement=make.__name__):
+                self.fresh_checkout()
+                replacement = self.assertRefused(target, make, created_before)
+                if make is private_but_not_empty:
+                    self.assertEqual(os.listdir(replacement), ["theirs.txt"])
+                elif make is symlink:
+                    self.assertTrue(replacement.is_symlink())
+                    self.assertEqual(os.listdir(self.outside), [])
+                else:
+                    self.assertEqual(os.listdir(replacement), [])
+
+    def fresh_checkout(self):
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.root = make_checkout(Path(holder.name) / "checkout")
+
+    def test_swap_of_the_output_directory_is_refused_and_left(self):
+        self.check_cases(OUT, [])
+
+    def test_swap_of_a_nested_directory_is_refused_and_left(self):
+        self.check_cases(OUT + "/src", [OUT + "/", OUT + "/Cargo.toml", OUT + "/manifest.json"])
+
+    def test_residual_mode_matching_swap_is_not_detectable_but_deletes_nothing(self):
+        # Documented PROVISIONAL residual: a same-user process that installs an
+        # empty 0o700 directory of its own cannot be told apart from ours
+        # (mkdir() returns no handle). Even then nothing is deleted or
+        # overwritten, and our original directory is left where it was moved.
+        patcher, moved = self.swap_after_mkdir(OUT, lambda path: path.mkdir(mode=0o700))
+        with patcher:
+            gen.generate(valid_inputs(), self.root)
+        self.assertTrue(moved.is_dir())
+        self.assertEqual(os.listdir(moved), [])
 
 
 class CliTests(GeneratorTestCase):
