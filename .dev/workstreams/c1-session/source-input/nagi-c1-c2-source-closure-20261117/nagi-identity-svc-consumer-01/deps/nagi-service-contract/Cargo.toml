@@ -1,0 +1,13 @@
+[package]
+name = "nagi-service-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-capability = { path = "../nagi-capability", version = "=0.2.0" }
+
+# This host-side contract remains outside the product workspace until the
+# 0.2 runtime integration gate is explicitly opened.
+[workspace]
+resolver = "2"

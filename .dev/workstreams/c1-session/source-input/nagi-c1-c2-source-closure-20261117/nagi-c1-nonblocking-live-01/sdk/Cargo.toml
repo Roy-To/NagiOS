@@ -1,0 +1,17 @@
+# Isolated candidate from Identity production 4b0745a594e2406acb7e6eab69f94cad89472356.
+# The fixed source checkout and shared dependency/lock files are never edited.
+[package]
+name = "nagi-identity-session"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-capability = { path = "../../nagi-identity-svc-consumer-01/deps/nagi-capability" }
+nagi-model = { path = "../../nagi-identity-svc-consumer-01/deps/nagi-model" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[[test]]
+name = "identity-session-contract"
+path = "tests/legacy_contract.rs"

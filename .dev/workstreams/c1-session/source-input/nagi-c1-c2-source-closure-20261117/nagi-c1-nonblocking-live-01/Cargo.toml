@@ -1,0 +1,13 @@
+[package]
+name = "nagi-c1-shared-live-candidate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+members = ["sdk"]
+resolver = "2"
+
+[dependencies]
+identity = { package = "nagi-identity-session", path = "sdk" }
+svc = { package = "nagi-service-contract", path = "../nagi-identity-svc-consumer-01/deps/nagi-service-contract" }
