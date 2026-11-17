@@ -1,8 +1,8 @@
 # DEC-074 — 人間が管理する階層型AI組織
 
-**状態:** CONFIRMED（当面のAI組み込み体験優先・階層型AI組織は非優先の長期ビジョン）／PROVISIONAL（組織構造・技術・版割当・実装順序）
+**状態:** CONFIRMED（当面のAI組み込み体験優先・階層型Agent組織は非優先の長期ビジョン、PX-15の実用1.0 B＋将来の総合OS Cとの高水準整合）／PROVISIONAL（組織構造・技術・版割当・実装順序、1.0の具体的試験・公開範囲）
 
-**最終合意日:** 2026-11-16  
+**最終合意日:** 2026-11-17（PX-15との整合追記。階層型組織の後順位は不変）  
 **適用候補:** Nagi OSの製品優先順位と長期構想。特定Releaseへの割当ては未決定。
 
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
@@ -31,6 +31,14 @@
 - 対応するローカル構成で応答性・成果品質・資源使用を測り、AIが使えない場合も通常GUIで作業を続けられる。性能向上は実測前に断定しない。
 
 競合の未公表設計や能力の推測は、本決定の根拠や差別化の実証としない。Nagi自身の体験と検証結果で評価する。
+
+## PX-15「実用1.0 B＋将来総合OS C」との整合（2026-11-17）
+
+[DEC-021](DEC-021-roadmap-0.5-1.0.md)のPX-15として、**正式対応するPC／Targetおよび機能の範囲で、日常の代表作業をNagiのAIと通常GUIを利用して安全・安定に完結・継続できる実用OS B**を1.0の高水準到達方針とし、**将来は対象Hardware・アプリ・利用形態を段階的に広げる総合OS C**へ発展する方向がCONFIRMEDになった。
+
+**本DECのCONFIRMEDを維持:** 当面はAIをOSの標準機能として自然に使える体験の確立を優先し、**階層型Agent Organizationは非優先の長期ビジョンであって1.0の必須条件ではない**。初期0.4の単一Nagi `builder` Role、Nagiを一貫した利用者窓口とする既存方針、Scope／Permission／Policy・Task停止／結果の真偽を維持する。すべてのAgent・Supervisor／Workerを1.0の一般公開品質と混同せず、将来の採用方向も取り消さない。
+
+**PROVISIONAL／OPEN:** 1.0に正式対応する代表作業・端末・アプリ・性能／品質の閾値、具体的受入と公開判定、階層型Agent組織の構成／実装／提供版。PX-15は新しいAgent実装開始許可や既存Release／Activation／Acceptance Gateの変更ではない。
 
 ## 例外・禁止・安全境界
 
@@ -64,5 +72,6 @@
 |---|---|
 | 2026-11-16 | ユーザーが、人間を唯一のManager、複数可能な統括AIをSupervisor、その下の専門AgentをWorkerとする長期構想、および端末能力に応じて組織規模・階層を拡張する方向を確認。具体的構造・実装・版割当は未決定として記録。 |
 | 2026-11-16 | 後続確認：当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。既存0.3／0.4 Gate・builder Roleは維持し、具体的な提供版・階層数・実装順序は未確定。 |
+| 2026-11-17 | PX-15の1.0実用OS Bと将来総合OS Cという高水準完成方針へ整合。AIがOS標準体験として自然に働く当面の優先順位と階層型Agent Organization後順位を維持。代表体験・アプリ・端末・性能・Release判定・組織の版はPROVISIONALで、既存Gateを変更しない。 |
 
 | 2026-11-16 | PR #113の旧DEC-052をDEC-074へ改番。実機候補DEC-052との番号競合のみを解消し、当面の優先順位と長期構想・状態・履歴を保持。 |
