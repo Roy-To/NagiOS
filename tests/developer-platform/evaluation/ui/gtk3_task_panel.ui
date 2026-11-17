@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Original synthetic GTK 3 source facts, never instantiated. -->
+<interface>
+  <requires lib="gtk+" version="3.24"/>
+  <object class="GtkWindow" id="taskWindow">
+    <property name="title" translatable="yes">Tasks / タスク</property>
+    <child>
+      <object class="GtkBox" id="body">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="GtkLabel" id="title">
+            <property name="label" translatable="yes" context="task-panel">タスク名</property>
+          </object>
+          <packing>
+            <property name="expand">False</property>
+            <property name="position">0</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkEntry" id="taskName">
+            <property name="text" bind-source="title" bind-property="label" bind-flags="sync-create"/>
+            <child internal-child="accessible">
+              <object class="AtkObject" id="entryAccessible">
+                <property name="accessible-name" translatable="yes">タスク名</property>
+              </object>
+            </child>
+          </object>
+          <packing>
+            <property name="expand">True</property>
+            <property name="position">1</property>
+          </packing>
+        </child>
+        <child>
+          <object class="GtkButton" id="addButton">
+            <property name="label" translatable="yes">Add / 追加</property>
+            <signal name="clicked" handler="on_add_task" object="taskWindow" swapped="no"/>
+          </object>
+          <packing>
+            <property name="position">2</property>
+          </packing>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>
