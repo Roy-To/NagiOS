@@ -36,3 +36,18 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 3 — codex review of 75bc9aab0ffd
+
+HEAD `75bc9aab0ffd` を確認しました。**P1/P2はありません。**
+
+common adapterの再利用、データ駆動rules、手書きfixture、誤検出・未知API・決定性のテストを確認しました。前回P2の修正は回帰テストで検証されています。新scanner、入力由来のファイル読取り・コマンド実行、互換性認定、host成功のtarget成功への読み替えは確認していません。
+
+- **P3 — レビュー記録のパス説明が不正確**
+  `reviews/ndp-runner-ndp-05.md:28–30`
+  「ユーザー名入り」とありますが、実際のリンク（7・11行）は `~/Developer/...` で、ユーザー名は含みません。ただし他環境では参照できないローカル依存リンクです。
+  **最小修正:** 指摘文を訂正し、リンクをrepository相対pathと行番号に置き換えてください。担当path外なのでrunner側で対応できます。
+
+独立実行したAPIテストは **66件すべて成功**。他のrunner提示テストとNagi target試験は再実行していません。ファイル変更は行っていません。
+
+NDP-REVIEW: PASS
+
