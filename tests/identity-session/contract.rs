@@ -1583,7 +1583,9 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
             nagi_identity_session::IdempotencyKey::new("recovery-login").unwrap(),
         )
         .unwrap();
-    let identity = service.resolve_current_identity(&caller).unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let revalidation = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
     assert_eq!(
         identity.try_live_snapshot().unwrap().status(),
         LiveStatus::Live
@@ -1602,6 +1604,11 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
 
     let report = service.recover(&caller).unwrap();
     assert_eq!(report.interrupted_sessions_ended, 1);
+    assert!(revalidation.check_live().is_err());
+    assert_eq!(
+        revalidation.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert!(!identity.is_live());
     assert_eq!(
         identity.try_live_snapshot().unwrap().status(),
@@ -2521,7 +2528,9 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
         nagi_identity_session::IdempotencyKey::new("cross-instance").unwrap(),
     )
     .unwrap();
-    let identity = a.resolve_current_identity(&caller).unwrap();
+    let context = a.interactive_session(&caller).unwrap();
+    let revalidation = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
     let access = IdentityAccessContext::new(&identity, &caller);
     let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
     let mut auth = AllowProfileRoot;
@@ -2538,6 +2547,12 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
         .unwrap();
     let (mut b, _) = new_service(store.clone(), TestCleaner::default());
     assert_eq!(b.recover(&caller).unwrap().interrupted_sessions_ended, 1);
+    assert_eq!(
+        revalidation.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live,
+        "a zero-wait lease snapshot does not read another issuer's durable recovery"
+    );
+    assert!(revalidation.check_live().is_err());
     let saved = IdentitySnapshot::from_json(&store.current().unwrap()).unwrap();
     assert!(matches!(
         saved.sessions[0].lifecycle,
