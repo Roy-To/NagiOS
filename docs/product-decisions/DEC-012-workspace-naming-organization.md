@@ -1,7 +1,7 @@
 # DEC-012 — Workspaceの自動命名とスマート整理
 
 **状態:** CONFIRMED（細部は未確定）  
-**最終合意日:** 2026-11-04  
+**最終合意日:** 2026-11-17（PX-03との整合を追記。従前の合意を維持）  
 **適用候補:** Nagi OSの将来のWorkspace UI/UX（実装バージョンとActivation時期は別途決定）  
 **関連:** DEC-003、DEC-004、DEC-006、DEC-008、DEC-009、DEC-010、DEC-014、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 
@@ -66,10 +66,17 @@ Nagiが作業の目的に即したWorkspace名を付け、一覧を分かりや�
 
 [DEC-055](DEC-055-project-folder-cross-app-context.md)のProjectは仕事の対象・関連資料・長期文脈を束ねる単位であり、本DECのWorkspaceは作業画面・アプリ状態の単位である。1 Projectを複数Workspaceから扱える。Workspaceの命名・検索・復元は既存仕様を維持し、Projectへの関連付けで本文取得権限やTaskの自動再開を認めない。
 
+### 2026-11-17 — PX-03のProject中心統合作業体験との整合
+
+**CONFIRMED（追加高水準方針）:** [DEC-055](DEC-055-project-folder-cross-app-context.md)のPX-03で、Projectの資料・Task・関連Workspace／作業履歴を一元的に見つけて利用できる**統合作業ビューB**を基本とし、将来は許可された文脈や関連性に基づく**高度な作業再発見・継続C**へ発展する方向を採用した。
+
+本DECの**Workspace自動命名、固定した作業／最近の作業／過去の作業の区分、ユーザーの名前・並び順の優先、Workspace自動削除禁止、自然言語検索の理由付き候補とユーザー最終選択**は引き続きCONFIRMED。ProjectとWorkspaceを同じ保存実体にせず、表示・検索からの無断復元や中断Taskの自動再実行、権限外資料の本文取得を認めない。統合表示・関連付け・絞り込み・順位・復元への**具体的UIと技術、性能・適用版はPROVISIONAL**であり、Release／Activation Gateは変更しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | PX-03の統合作業ビューB＋将来文脈理解・作業継続Cの高水準方針をDEC-055に接続。既存Workspace命名・3区分・ユーザー選択／順序・自然言語候補・自動削除禁止・権限を維持し、関連付け・検索／復元UI・技術／提供版はPROVISIONAL。 |
 | 2026-11-16 | DEC-055のProjectとWorkspaceの役割分離、1 Projectを複数Workspaceから扱う関係を補足。既存の命名・整理・復元規則を維持。 |
 | 2026-11-04 | 選択Cを確定。Workspace自動命名、固定した作業／最近の作業／過去の作業への整理、ユーザー指定の名前・並び順の優先、自動削除禁止に合意 |
 | 2026-11-04 | 選択Cを確定。過去Workspaceの自然言語意味検索、候補と復元可能状態の提示、ユーザー選択後のアプリ・資料・画面配置の復元、Permission・Privacyの遵守、AI Task自動再実行禁止に合意 |

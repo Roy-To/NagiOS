@@ -46,6 +46,10 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 **高水準の提案方針は[DEC-073](DEC-073-proactive-friction-discovery.md)でCONFIRMED。** 参照する具体的な利用データ、収集・解析・Score・UI・適用方法、実装版は未確定であり、新たなTelemetry収集や権限を認めない。Memory／Privacy／Permission、明示設定優先、既存Workspaceを無断変更しない方針を維持する。
 
+### 通常a11y基盤との段階の区別（2026-11-16）
+
+[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)で、keyboard／navigation・screen-reader等の通常アクセシビリティ基盤を先に整え、その設計を本ビジョンのAI-nativeで正確なポインティングに依存しない長期方向と両立させる方針をCONFIRMEDとした。当面の基盤整備と遠い将来の操作思想を分け、視線・ジェスチャー・空間入力等の具体技術や搭載時期は採用確定しない。従来GUI・keyboard／mouse、AI不在時の通常操作、Permission／Policyと必要なconfirmationを維持する。
+
 ### 不確かな入力や指し示しの補助
 
 ポインティングデバイスでは、入力された座標だけでは、人が意図した対象を実際に選んだのか判断しにくい場合がある。立体表示では、どの位置や奥行きを指したのか、人がその対象に触れようとしたのかがさらに曖昧になる可能性がある。
@@ -123,6 +127,7 @@ Raspberry Piは、限られた資源を持つ機器の例にすぎない。特�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-16 | [DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)で確定した通常a11y先行・長期操作思想との両立を参照追加。入力技術・時期・実装受入は未決定のまま維持。 |
 | 2026-11-16 | DEC-057で確定した、継続的な学習・適応とモデル非依存の連続性をNagi OSの中核コンセプトとして追記。提供時期・技術・定量効果は未確定のまま維持。 |
 | 2026-11-16 | DEC-074の後続確認を反映。当面のAI組み込みOS体験を優先し、階層型AI組織を非優先の長期ビジョンとして明確化。既存Gate・初期builder Role・版境界は維持。 |
 | 2026-11-15 | DEC-073を参照し、許可されたMemory・利用傾向から潜在的な不便を見つけ、根拠付き改善案を出す高水準方針を追記。詳細は未決定のまま既存のPrivacy・Permission・明示設定・UI保護境界を明記。 |

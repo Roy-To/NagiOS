@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（選択A：正規Public Action API優先、条件付きGUI fallback）／PROVISIONAL（具体的なUI操作方式・許可UI・制御範囲・適用版）  
-**最終合意日:** 2026-11-05  
+**状態:** CONFIRMED（既存選択A：正規Public Action優先・明示許可下の限定GUI fallback、PX-12高水準Smart Paste B＋将来Cとの整合）／PROVISIONAL（具体的UI操作方式・fallback許可UI／詳細制御・対象アプリ・性能・適用版）  
+**最終合意日:** 2026-11-17（PX-12との整合を追記。従前の方式Aを維持）  
 **対象:** Nagi OSが第三者・未統合アプリを含むアプリをTaskの一部として操作する際の製品方針。実装時期は未確定  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[Public 0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Private 0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)
 
@@ -31,6 +31,14 @@
 - 許可されたTask Scope外の操作、未承認Taskの開始・再開、停止後の継続、重要操作の追加承認の回避を認めない。
 - 本決定は0.1 M30、0.2 M21、0.3 Implementation Spec／Activation等の既存Gate、Acceptance条件、Workstream ownershipを変更せず、実装開始・Release activationを許可しない。未公開仕様をPublicリポジトリへ転載しない。
 
+### 2026-11-17 — PX-12アプリ横断Smart Paste体験との整合
+
+**CONFIRMED（追加高水準方針）:** [DEC-056](DEC-056-smart-paste-semantic-transfer.md)のPX-12では、利用できるコピー／構造化転送／連動参照等を案内して本人が選択するSmart Paste Bと、将来的にProject／Task・変更の影響まで扱う高度な横断ワークフローCへの発展方向を確認した。
+
+**従前の選択Aを変更しない:** Nagiによるアプリ操作は型付きPublic Action／Service APIを優先し、未対応アプリへのGUI／Accessibility fallbackはユーザーの明示許可、許可されたTask／対象アプリ／操作／Resourceの限定Scope、現在のPermission／Policy、状態検証、Stop／Cancelを満たす場合に限る。Smart Pasteの通常の非AIな手動コピー操作と、Nagiによるfallback自動操作を混同しない。対応しない形式／Appは利用可能な通常の手動転送へ戻り、Scopeや実結果を確認できないNagi操作は行わない。画面を操作可能であることは新たなAuthorityではなく、Public Actionを避けて権限を増やしてはならない。
+
+**PROVISIONAL／OPEN:** Smart Pasteの最初の対応App組合せ、コピー／参照の既定、具体的な選択UI・Preview・Transfer Schema、fallbackの制御方式／許可UI／対象条件、技術・性能・実装版。既存のfallbackを許す必要条件を未確定へ戻さず、新しい権限・無断更新・Release／Activation Gateを追加しない。
+
 ## 未確定事項（PROVISIONAL）
 
 - GUI／Accessibility／UI automationで採用する具体的な操作方式と対象アプリの適格条件。
@@ -56,3 +64,8 @@
 | 日付 | 内容 |
 |---|---|
 | 2026-11-05 | 思想⑩の選択Aを確定。対応する正規Public Action APIを優先し、未対応アプリでは明示許可と限定Scopeの下でGUI／Accessibility fallbackを認める。権限・承認・検証・Activity・Stop／Cancelを維持し、実態を確認できない場合は手動操作へ戻す。 |
+| 2026-11-17 | PX-12の案内型Smart Paste B＋将来の高度アプリ横断ワークフローCをDEC-056で採用。本DECの正規Public Action優先A、明示許可／限定ScopeのGUI fallback、実行検証・Stop／Cancelと通常手動転送を維持。具体UI・Transfer／fallback制御・性能・技術・提供版はPROVISIONAL。 |
+
+## Foundation #28の後続決定（2026-11-16）
+
+[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)により、通常a11y基盤の先行整備を確定した。これは利用者向けの操作基盤の方針であり、本DECのAI向けGUI／Accessibility fallbackの許可・Scopeを拡大しない。正規Public Action優先、明示許可、認可・確認、検証とStop／Cancelを維持する。

@@ -3,7 +3,7 @@
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 **状態:** CONFIRMED（方式A：検証・復元可能な変更を優先、リスク別の保護、承認範囲内の自律実行、AI Task開始前のWayback復元可能性の可視化）／PROVISIONAL（リスク閾値・表示／UI・事前判定範囲・未対応／不明時の扱い・数値・実装方式・適用版）  
-**最終合意日:** 2026-11-15  
+**最終合意日:** 2026-11-17（PX-05追加、既存の2026-11-15合意は維持）  
 **対象:** Nagi／Agentが扱うデータ変更・アプリ横断Actionの製品安全原則（実装時期は未確定）  
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-075](DEC-075-builder-app-trial-and-installation.md)、[Public 0.2 Platform仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md), [DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)
 
@@ -21,6 +21,12 @@ AIが複数の資料やアプリのデータを変更するとき、実行可能
 6. **結果と根拠の記録:** Activity／Task状態には、実行したAction、対象、確認可能な差分や結果、検証状態、保護・復旧の可否、部分成功・失敗を正直に記録・表示する。記録自体も既存の情報分類・Permission・Retentionに従い、秘密情報の無用な複製を避ける。
 7. **不可逆操作の正直な扱い:** 外部送信、送信済みメール、遠隔環境の副作用等は元に戻せないことがある。Undoや完全復旧を保証せず、既存の追加承認・Scope・Policyに従う。複数アプリにまたがるTaskの部分失敗を、存在しない全体Atomicityで隠さない。
 8. **AI Task開始前の復元可能性表示:** Taskを開始する前に、計画された変更についてWaybackでどこまで復元できるかをユーザーに示す。目的はAIの判断精度や完全復旧を保証することではなく、復元可能・部分復元・復元不能・事前判定できない可能性を隠さず伝え、安心して作業を委ねる判断材料を提供することにある。表示は既存のPermission／Policy・承認条件・Task Scopeを変更せず、Task内のすべての操作がUndoできることも意味しない。事前評価は復元成功の保証ではなく、実行後は実際のAction・Provider結果・Revisionや副作用を確認する。
+
+### PX-05承認体験との接続（2026-11-17／CONFIRMED）
+
+[DEC-001](DEC-001-agent-autonomy-actions.md#px-05--自律実行と承認体験のb案将来c案2026-11-17confirmed)で**段階的なリスク対応承認B＋将来の状況適応型C**を高水準の製品方針として追加確定した。Actionの種類・対象・影響範囲・可逆性・検証可能性・承認済みScope等を踏まえて不要な承認を抑え、別途必要な最終確認は維持する。将来的には許可されたTask文脈・対象データ・利用者設定・検証状態に合わせて確認の詳しさ・提示タイミングを調整する。
+
+これは本DECの**思想⑨・選択A（検証と復元可能性を優先する）を変更・上書きしない**。AIのRisk判断だけでOSの権限・PolicyやDEC-011の画面最終承認を緩めない。未判定時の具体的な分岐、Risk taxonomy／閾値、UI・技術・提供版・対象Acceptanceは引き続き**PROVISIONAL**。既存Release／Activation Gate・実装状態を変更しない。
 
 ## 既存仕様の優先と禁止
 
@@ -63,3 +69,13 @@ AI Task開始前にWaybackで復元できる範囲をユーザーへ示す方向
 | 2026-11-05 | 思想⑨の選択Aを確定。AIによる変更は検証可能・復元可能な方式を優先し、リスクに応じて保護と検証を調整する。承認済みの低リスク操作は都度確認なく実行でき、既存の権限・不可逆操作・Builderの厳格な反映条件を維持する。 |
 | 2026-11-15 | ユーザーがAI Task開始前の復元可能性表示の高水準の方向を確認（DEC-053）。既存のリスク別保護・検証を維持し、表示分類と実装詳細は暫定。 |
 | 2026-11-15 | AI Task開始前にWaybackで復元可能な範囲を示し、復元可能・部分復元・復元不能・事前判定できない可能性を隠さず、作業委任の判断材料とする方針を確認。UI、事前判定範囲、未対応／不明時の具体的扱い、数値、適用版は未確定。すべての操作のUndo保証や既存の承認・Permission変更は含まない。 |
+| 2026-11-17 | PX-05で承認UXのB（リスクに応じた段階的確認）を基本に、将来C（許可された状況に応じた確認の詳細度・提示時機の調整）を高水準方向として追加確定。既存の思想⑨・選択A、現行Permission、画面最終承認、Wayback／不確実性表示を維持。具体判定・UI／技術・版はPROVISIONAL。 |
+
+
+## 2026-11-16 Crash Recovery後続決定・変更履歴
+
+[DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)でFoundation #15のB案をCONFIRMED。共通Recovery Coordinator＋サービス別責務で整合性・保存証拠を検証する。復元可能性の事前表示やCheckpointの存在だけで復旧成功・完全Undoを保証せず、現行Permission／Revision確認、結果不明の副作用Actionと中断Taskの無断再実行禁止を維持する。 具体的な復旧方式・Linux target受入・適用版は未確定で、既存Gate・担当・着手条件は変更しない。本注記は実装・Acceptance成功を示さない。
+
+## #16 Backup / Restoreとの関係・変更履歴（2026-11-16）
+
+[DEC-105](DEC-105-user-environment-backup-and-wayback.md)でユーザー環境全体のB方式バックアップを基本とし、Waybackとの分担・連携、必要時のC方式追加という方向を確定した。Cの具体内容・対象、技術・適用版は未確定。本DECの既存決定を置換せず、Workspace状態保存と本文保護、Waybackの実際の復元可能性、Memoryの明示的忘却と別管理バックアップの削除境界を維持する。復元で忘却情報を自動再学習せず、古い権限や中断Taskを自動再有効化しない。仕様記録であり実装・受入を示さない。
