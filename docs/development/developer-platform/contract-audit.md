@@ -77,3 +77,16 @@ PASS（各約29〜31 ms）。差は数ms以内で起動時間が支配的であ�
 GTKの実インスタンス化・描画・入力、Windows/Linux入力の実行、SDK validator、Nagi targetは
 未実施。自作fixtureのhost結果であり、移植成功やtarget受入を意味しない。
 Python 3.9.6では標準のPython 3.10+ gateを満たさない。
+
+## 2026-11-18 NDP-11c: API rules・generator・Stage 2を含む繰返し評価
+
+`run_host_checks.py` に3種を追加した（各 `--repeats` 回、既定3）。いずれも各toolの実CLIをsubprocessで実行する。
+- NDP-04/05 API rules: 手書きPT-01 report v1 fixture 5件（Windows read_prefix・text_only、Linux watch_changes・text_only・混在）を標準入力で渡し、行・rule id・検出種別・一致aliasと「compatibility=not_assessed／target_acceptance=not_run／approval=PROVISIONAL」を照合。negative controlが既知APIを主張しないことも確認。scanner出力ではない。
+- NDP-03 generator: 一時checkout（SDK `Cargo.toml` はstand-in）へLevel 0雛形を毎回新規に生成。stdout・生成tree一致、5ファイルの過不足、出力先外に何も作らないこと、Manifestの内容（id・表示名・権限なし・third-party）を確認。生成crateのbuild・Manifestの実validator検査はしない。
+- NDP-09s2 Stage 2: 自作portable C fixtureのみ（固定clang引数）。compile/run_testの両step成功とstdout一致を確認。
+
+入力のtool・fixture・templateもsha256で固定し、失敗時を含め不変を確認。runnerのfailure-path/期待値テストは14→40件（clang実行を含み、skipなし）。誤ったが安定した出力、必須要素の欠落、nondeterministic出力、timeout/nonzero、不正JSON、入力改変の各検知を実CLI出力に注入した回帰で確認。
+
+実測（Darwin arm64、Apple clang 21、Python 3.9.6、10回、全PASS・入力不変）: 各API診断の中央値は約41〜43 ms、generatorは約32 ms、Stage 2（clang compile+実行含む）は約300 ms、Qt解析は約30 ms。いずれもsubprocess壁時計でインタプリタ/clang起動を含み、1台・1セッションのみ。
+
+比較限界: 速度比、移植成功、Nagi target成功は主張しない。手動baseline・ローカルLLM・外部開発AIとの比較、能動作業時間は未実施。API rulesの入力は手書きfixtureで本物のscanner接続ではない。Stage 2は自作fixtureのみで第三者/実アプリのbuildではない。Stage 3は未接続。host結果であり、Python 3.9.6は標準の3.10+ gateを満たさない。
