@@ -1,6 +1,6 @@
 # NDP作業ボード
 
-2026-11-15。専用worktreeは利用者が作成を許可。共有checkoutのbranchを切り替えず、専用作業場所で1セッションが書き込む。push/上流merge/共有registry変更は未実施。
+2026-11-17。専用worktreeは利用者が作成を許可。共有checkoutのbranchを切り替えず、専用作業場所で1セッションが書き込む。push/上流merge/共有registry変更は未実施。
 
 | Task | 状態 | 結果 | 次・残件 |
 |---|---|---|---|
@@ -14,7 +14,7 @@
 | NDP-08 | PARTIAL | 正規toolの副作用・終了値を照合 | 実validatorとowner確認 |
 | NDP-09 | NOT STARTED | なし | 正規tool実接続の条件待ち |
 | NDP-10 | PASS | 715d308、独立レビュー済み | 後続の比較評価 |
-| NDP-11 | PARTIAL | UI-01構造解析run成功 | 手動比較・速度測定なし |
+| NDP-11 | PARTIAL | C/UI各3回一致、入力不変 | 手動・LLM比較とtarget未実施 |
 | NDP-12 | NOT STARTED | 上流統合なし | 統合・登録担当の指定待ち |
 
 SDKとtoolの読取結果・具体的な不足は[接続調査](contract-audit.md)。PASSは上記の限定作業のみで、Nagi image受入ではない。
@@ -24,3 +24,7 @@ SDKとtoolの読取結果・具体的な不足は[接続調査](contract-audit.m
 Codexレビュー: 初回P2を修正し、9b68295の独立再レビューで未解決P1/P2なし。詳細は[レビュー記録](../../../reviews/ndp-host-pilots.md)。
 
 DeepSeek: 方式Aの追加条件は非該当と独立担当が判断。重要なOS権限等の変更や未解決・見解不一致はなく、今回の追加送信は不要。実送信はしていない。
+
+2026-11-17: `python3 tests/developer-platform/evaluation/run_host_checks.py` 成功。
+Cを実build/run、UI CLIを各3回実行。UI中央値約34ms（起動込み、速度比ではない）。
+ランナー失敗検知5件と既存UI 18件が成功。詳細・再実行は[評価README](../../../tests/developer-platform/evaluation/README.md)。

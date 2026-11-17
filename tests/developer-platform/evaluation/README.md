@@ -3,7 +3,7 @@
 Original, synthetic sources for PT-06: no third-party application was copied
 or fetched. Existing SDK fixtures and hello-nagi are not duplicated here.
 The existing [PT-06 evaluation form](../../../docs/porting-toolkit/PT06_MIGRATION_EVALUATION_TEMPLATE_2026-11-13.md)
-remains the template for future measured runs; no migration benchmark has run.
+remains the template for future comparisons; no migration benchmark has run.
 Repository license terms remain unchanged.
 
 | Input | Expected observation | Execution scope / unverified |
@@ -49,3 +49,41 @@ all source bytes remain unchanged. XML inspection used Python 3.9.6 and
 does not satisfy the repository-wide Python 3.10 host requirement.
 Platform execution, scanner integration, SDK validation, target acceptance
 and DeepSeek review were not performed.
+
+## Repeatable host evaluation — 2026-11-17
+
+From any working directory, invoke this script by its repository path:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tests/developer-platform/evaluation/run_host_checks.py
+```
+
+Requires the existing Python standard library and `clang` on PATH. `--repeats`
+accepts 2–20 (default 3). The runner builds the fixed portable C test with the
+strict flags above, syntax-checks the text-only control, then repeats the C test
+and NDP-06 UI CLI. It compares stdout bytes and verifies that all seven fixture
+sources and the analyzer source remain unchanged, including on command failure.
+Temporary build output is removed automatically. Nonzero exits, timeouts, changed
+stdout or changed source fail the evaluation. It never compiles or executes the
+Windows/Linux inputs and accepts no arbitrary source or command arguments.
+
+Stdout is a local evaluation JSON summary, not a public SDK/PT report contract.
+It includes environment versions, individual subprocess wall times and medians,
+UI fact counts and explicit unexecuted work. Times include process/interpreter
+startup, file opening and serialization; there is no warmup exclusion. They do
+not measure parser-only time, human effort, porting time or a speedup ratio.
+This runner uses no AI at runtime; its implementation was developed with Codex.
+Python 3.9.6 focused success does not satisfy the normal Python 3.10+ host gate.
+
+Runner failure-path checks (subprocesses mocked for orchestration only):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tests/developer-platform/evaluation -p 'test_*.py' -v
+```
+
+Initial real run: Clang 21 / macOS arm64 / Python 3.9.6; three repeats agree,
+inputs unchanged. UI: 3 widgets, 1 layout, 2 tab stops, 1 unexecuted connection,
+no unknown or unresolved references; CLI wall-time median about 34 ms.
+Five runner checks and all 18 existing UI checks pass. Manual/LLM comparisons,
+SDK validation, rendering, platform execution and Nagi target remain unrun.
