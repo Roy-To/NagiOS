@@ -59,3 +59,21 @@ timeout/cancel、拒否、未接続Stage 2/3を区別する。[実行手順](../
 
 SDKの外部配送契約・owner合意、PT-01正規入力の選択、Stage 2/3、generator、targetは
 この実行では解決していない。package宣言の受理をartifact存在・install/launch・権限付与とはしない。
+
+## 2026-11-17 NDP-11b: GTK入力を含む繰返し評価
+
+`run_host_checks.py` に `gtk3_task_panel.ui` と `gtk4_task_panel.ui` を追加し、Qtと同様に
+stdout一致、部品・layout・signal・binding・unknown・要求versionの照合、入力不変確認を行う
+（期待値は固定XMLから記述。GTKの実行・描画・handler実行はしない）。runnerのfailure-path
+テストはGTK分を含め14件。
+
+実測（Darwin arm64、Apple clang 21、Python 3.9.6、各解析はsubprocess壁時計でインタプリタ起動を含む）:
+10回で全入力のstdout一致、入力不変。中央値は Qt解析 約29.8 ms、GTK 3 約30.3 ms、
+GTK 4 約30.5 ms（portable C実行は約2.1 ms、初回のみ約38 ms）。3回の既定runでも
+PASS（各約29〜31 ms）。差は数ms以内で起動時間が支配的であり、構文間の性能差や速度比は主張しない。
+測定は1台・1セッションのみで、ウォームアップ除外や分散評価はしていない。
+
+比較限界・未実施: 人手のみの移植、ローカルLLM補助、外部開発AIとの比較、能動作業時間、
+GTKの実インスタンス化・描画・入力、Windows/Linux入力の実行、SDK validator、Nagi targetは
+未実施。自作fixtureのhost結果であり、移植成功やtarget受入を意味しない。
+Python 3.9.6では標準のPython 3.10+ gateを満たさない。
