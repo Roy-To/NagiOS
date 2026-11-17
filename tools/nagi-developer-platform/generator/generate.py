@@ -5,7 +5,8 @@ Contents come from the NDP-02 contract preview (`contract/contract.py`); this
 module only decides *where* and *whether* to write, following the contract's
 `writePolicy`: explicit new directory only, no overwrite/merge, no symlinks in
 the destination or its ancestors, exclusive creation, and on failure removal of
-only the files/directories this invocation created.
+only the files/directories this invocation created (verified by the identity
+recorded from the creating handle; replaced objects are kept and reported).
 
 It never builds, fetches, installs, executes or validates the generated output.
 """
@@ -14,6 +15,7 @@ import errno
 import importlib.util
 import json
 import os
+import secrets
 import stat
 import sys
 from pathlib import Path, PurePosixPath
@@ -173,21 +175,129 @@ def plan(inputs, dest_root, source_root=REPO_ROOT, contract=None):
                       for path, text in files.items()]}
 
 
-def _cleanup(files, directories):
-    """Remove only what this invocation created. Returns (removed, left_behind)."""
+def _identity(info):
+    return (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+
+
+def _current_identity(parent_fd, name):
+    try:
+        return _identity(os.stat(name, dir_fd=parent_fd, follow_symlinks=False))
+    except OSError:
+        return None
+
+
+def _restore(quarantine_fd, slot, parent_fd, name, kind):
+    """Put a foreign object moved into quarantine back under `name` without clobbering."""
+    try:
+        if kind == stat.S_IFDIR:
+            if _current_identity(parent_fd, name) is not None:
+                return False
+            os.rename(slot, name, src_dir_fd=quarantine_fd, dst_dir_fd=parent_fd)
+        else:
+            # link() never replaces an existing name (EEXIST), unlike rename().
+            os.link(slot, name, src_dir_fd=quarantine_fd, dst_dir_fd=parent_fd,
+                    follow_symlinks=False)
+            os.unlink(slot, dir_fd=quarantine_fd)
+        return True
+    except OSError:
+        return False
+
+
+def _remove_file(entry, quarantine, index):
+    """Delete a created file only if the object we delete is provably the one we created.
+
+    POSIX has no unlink-by-handle, so the name is first moved into a private,
+    freshly created quarantine directory; only after the moved object's identity
+    matches the recorded (dev, inode, type) is it unlinked. A foreign object
+    (replaced between our check and the move) is put back without clobbering,
+    or left in quarantine and reported. Returns a label for `left_behind` or None.
+    """
+    label, parent_fd, name, created = entry
+    if _current_identity(parent_fd, name) != created:
+        return label                                  # replaced/removed by someone else
+    quarantine_fd, quarantine_label = quarantine
+    slot = str(index)
+    try:
+        os.rename(name, slot, src_dir_fd=parent_fd, dst_dir_fd=quarantine_fd)
+    except OSError:
+        return label
+    moved = _current_identity(quarantine_fd, slot)
+    if moved == created:
+        try:
+            os.unlink(slot, dir_fd=quarantine_fd)
+            return None
+        except OSError:
+            return quarantine_label + "/" + slot
+    if moved is not None and _restore(quarantine_fd, slot, parent_fd, name, moved[2]):
+        return label
+    return quarantine_label + "/" + slot
+
+
+def _open_quarantine(parent_fd, name, output_dir):
+    """Create an exclusive empty directory next to the output for safe cleanup."""
+    for _ in range(8):
+        quarantine = ".{}.generator-cleanup-{}".format(name, secrets.token_hex(6))
+        try:
+            os.mkdir(quarantine, 0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            continue
+        except OSError:
+            return None
+        try:
+            fd = os.open(quarantine, _DIR_FLAGS, dir_fd=parent_fd)
+        except OSError:
+            return None
+        label = str(PurePosixPath(output_dir).parent / quarantine)
+        return quarantine, fd, label, _identity(os.fstat(fd))
+    return None
+
+
+def _cleanup(files, directories, top):
+    """Remove only what this invocation created. Returns (removed, left_behind).
+
+    `files`/`directories` hold (label, parent_fd, name, identity) recorded from
+    the handle at creation time. Anything whose identity no longer matches is
+    left in place and reported, never deleted.
+    """
     removed, left = [], []
-    for label, parent_fd, name in reversed(files):
-        try:
-            os.unlink(name, dir_fd=parent_fd)
-            removed.append(label)
-        except OSError:
-            left.append(label)
-    for label, parent_fd, name in reversed(directories):
-        try:
-            os.rmdir(name, dir_fd=parent_fd)
-            removed.append(label + "/")
-        except OSError:
-            left.append(label + "/")
+    if not files and not directories:
+        return removed, left
+    quarantine = None
+    if files:
+        quarantine = _open_quarantine(top[0], top[1], top[2])
+        if quarantine is None:
+            # Cannot delete safely: leave everything and report it.
+            return removed, ([label for label, _, _, _ in reversed(files)]
+                             + [label + "/" for label, _, _, _ in reversed(directories)])
+    try:
+        for index, entry in enumerate(reversed(files)):
+            leftover = _remove_file(entry, (quarantine[1], quarantine[2]), index)
+            if leftover is None:
+                removed.append(entry[0])
+            else:
+                left.append(leftover)
+        for label, parent_fd, name, created in reversed(directories):
+            # rmdir() only removes empty directories, so foreign content is never
+            # lost; the identity check keeps a foreign empty replacement as well.
+            if _current_identity(parent_fd, name) != created:
+                left.append(label + "/")
+                continue
+            try:
+                os.rmdir(name, dir_fd=parent_fd)
+                removed.append(label + "/")
+            except OSError:
+                left.append(label + "/")
+    finally:
+        if quarantine is not None:
+            name, fd, label, created = quarantine
+            os.close(fd)
+            if _current_identity(top[0], name) != created:
+                left.append(label + "/")
+            else:
+                try:
+                    os.rmdir(name, dir_fd=top[0])
+                except OSError:
+                    left.append(label + "/")
     return removed, left
 
 
@@ -201,17 +311,27 @@ def generate(inputs, dest_root, source_root=REPO_ROOT, contract=None):
     contract = contract_module.load_contract() if contract is None else contract
     files, root_fd, parent_fd, name = _preflight(inputs, dest_root, source_root, contract)
     output_dir = inputs["output_dir"]
-    created_files, created_dirs = [], []   # (label, parent_fd, name), in creation order
+    # (label, parent_fd, name, identity) in creation order; identity comes from
+    # the handle we opened, so cleanup can tell our objects from replacements.
+    created_files, created_dirs = [], []
     open_fds = [parent_fd, root_fd]
     directory_fds = {}
+
+    def make_directory(parent, child_name, label):
+        os.mkdir(child_name, 0o755, dir_fd=parent)   # atomic; fails if anything exists
+        child = os.open(child_name, _DIR_FLAGS, dir_fd=parent)
+        open_fds.append(child)
+        if os.listdir(child):
+            # Not the empty directory we just made: someone swapped it in.
+            raise GenerationError("output_raced")
+        created_dirs.append((label, parent, child_name, _identity(os.fstat(child))))
+        return child
+
     try:
         try:
-            os.mkdir(name, 0o755, dir_fd=parent_fd)   # atomic; fails if anything exists
+            out_fd = make_directory(parent_fd, name, output_dir)
         except FileExistsError:
             raise GenerationError("output_exists") from None
-        created_dirs.append((output_dir, parent_fd, name))
-        out_fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
-        open_fds.append(out_fd)
         directory_fds[PurePosixPath(".")] = out_fd
         for relative, text in files.items():
             target = PurePosixPath(relative)
@@ -219,27 +339,26 @@ def generate(inputs, dest_root, source_root=REPO_ROOT, contract=None):
                 directory = PurePosixPath(*target.parts[:depth])
                 if directory in directory_fds:
                     continue
-                parent = directory_fds[directory.parent]
-                os.mkdir(directory.name, 0o755, dir_fd=parent)
-                created_dirs.append((output_dir + "/" + str(directory), parent, directory.name))
-                child = os.open(directory.name, _DIR_FLAGS, dir_fd=parent)
-                open_fds.append(child)
-                directory_fds[directory] = child
+                directory_fds[directory] = make_directory(
+                    directory_fds[directory.parent], directory.name,
+                    output_dir + "/" + str(directory))
             parent = directory_fds[target.parent]
             descriptor = os.open(target.name,
                                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                                  0o644, dir_fd=parent)
-            created_files.append((output_dir + "/" + relative, parent, target.name))
             with os.fdopen(descriptor, "wb") as handle:
+                created_files.append((output_dir + "/" + relative, parent, target.name,
+                                      _identity(os.fstat(handle.fileno()))))
                 handle.write(text.encode("utf-8"))
     except BaseException as error:
-        removed, left = _cleanup(created_files, created_dirs)
+        removed, left = _cleanup(created_files, created_dirs, (parent_fd, name, output_dir))
         if isinstance(error, GenerationError):
+            error.created = [entry[0] for entry in created_files + created_dirs]
             error.removed, error.left_behind = removed, left
             raise
         if isinstance(error, OSError):
             code = "write_failed:" + errno.errorcode.get(error.errno, "unknown")
-            raise GenerationError(code, [label for label, _, _ in created_files + created_dirs],
+            raise GenerationError(code, [entry[0] for entry in created_files + created_dirs],
                                   removed, left) from None
         raise
     finally:
@@ -250,7 +369,7 @@ def generate(inputs, dest_root, source_root=REPO_ROOT, contract=None):
                 pass
     return {"status": "created", "scope": "host_files_only", "built": False,
             "validated": False, "output_dir": output_dir,
-            "created": [label for label, _, _ in created_files],
+            "created": [entry[0] for entry in created_files],
             "next": "manual review; manifest validation and build are separate explicit steps"}
 
 
