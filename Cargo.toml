@@ -30,6 +30,7 @@ members = [
     "user/nagi-servo",
     "user/nagi-init-package-provider",
     "user/nagi-init-linux-tests",
+    "user/nagi-albert-linux-tests",
     "user/nagi-isolated-app",
 ]
 default-members = [
@@ -46,14 +47,10 @@ exclude = [
     "crates/nagi-service-contract",
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",
-    # The product PID 1 manifest retains its Nagi-only Albert/Servo graph.
-    # Linux unit tests use the sibling manifest at user/nagi-init-linux-tests
-    # with the same source/build script but without target_os=nagi dependencies.
-    # Keeping the product manifest outside root resolution avoids requiring
-    # the Servo export just to load the Linux test package.
+    # Product PID 1 and Albert retain their Nagi-only Servo dependency graphs.
+    # Linux host tests use sibling manifests over the same sources without
+    # target_os=nagi dependencies, keeping those graphs out of root resolution.
     "user/nagi-init",
-    # Albert's standalone host tests share the product PID 1 workspace and
-    # lockfile because its target-specific dependency graph includes Servo.
     "user/nagi-albert",
     "tools/linux-boot/kernel-dev-20261115/package-identity-negative-20261115",
 ]
