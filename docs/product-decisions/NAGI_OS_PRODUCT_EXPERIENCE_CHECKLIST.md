@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-03の統合作業ビューB＋将来の高度な文脈理解／継続Cは高水準方針CONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの決定・未統合PRは個別に照合する。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -19,7 +19,14 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 |---|---|---|---|
 | PX-01 | **Nagi Home / Desktopの詳細仕様** | ログイン直後の画面、会話・アプリ・Taskの入口、Home/Desktopの遷移、AI停止時の操作 | [関連DEC 1](DEC-009-nagi-first-home-desktop.md)・[関連DEC 2](DEC-011-task-approval-progress-ui.md) |
 | PX-02 | **Intent-first UI・適応型画面** | 目的に応じたカードやパネル、選択・却下・固定の方法、既存Workspaceの手動配置保護 | [関連DEC 1](DEC-010-intent-first-adaptive-ui.md)・[関連DEC 2](DEC-008-proactive-behavior.md) |
-| PX-03 | **Project / Workspaceの統合体験** | Project指定UI、複数Workspaceとの関係、資料・Task・作業状態の再発見と再開 | [関連DEC 1](DEC-055-project-folder-cross-app-context.md)・[関連DEC 2](DEC-014-workspace-state-checkpoints.md) |
+| PX-03 | **Project / Workspaceの統合体験** | **B＋将来Cの高水準方針CONFIRMED:** Project中心に許可された資料・参照・Task・関連Workspaceと作業／再開候補を一元的に把握・操作するBを基本に、将来は文脈・関係・履歴から根拠付きで継続を支援するCへ。統合ビュー、関連付け・一覧・検索・復元導線、技術・性能・版はPROVISIONAL | [関連DEC 1](DEC-055-project-folder-cross-app-context.md)・[関連DEC 2](DEC-014-workspace-state-checkpoints.md) |
+
+### PX-03の決定記録（2026-11-17）
+
+- **CONFIRMED:** B＝Project中心の統合作業ビューで、許可された資料・参照・Task・Workspaceと作業／再開候補をまとめて見渡し、選んで操作できる方向。将来C＝許可されたProjectの関係・履歴・状況に基づき、根拠・実際の復元可能性を示す高度な文脈理解／作業継続へ発展する方向。[DEC-055](DEC-055-project-folder-cross-app-context.md)を正本とする。
+- **既存仕様の維持:** 普通のフォルダをProjectとして指定可能、別の場所のResourceも元実体を移さず参照可能、Project／Workspaceの別管理と1 Projectから複数Workspaceの利用、DEC-012／014の自動命名・自動保存・名前付きCheckpoint・本人による復元対象／復元先の選択、DEC-065のHandoff・現行権限・同期／本文転送の別承認。Projectの閲覧／Workspace復元による中断Taskの無断再開は禁止。
+- **PROVISIONAL／OPEN:** 統合ビューの名称・画面、Project指定・関連付け、資料／Task／Workspace一覧、検索順位・候補・復元／Handoffの導線、UI・Metadata／実装技術・性能・提供Version。
+- **進捗:** PARTIALLY_RECORDED（高水準方針の決定をDECに記録。既存のRelease／Activation／Acceptance Gateや実装成否は変更しない）。他PXの独立PRをこの分岐で上書きしない。
 
 ### 第2群：AI・Personal Agentの振る舞い
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-03がPARTIALLY_RECORDED（高水準B基本＋将来C方向をCONFIRMED、詳細PROVISIONAL）。** 他PXの個別決定／未統合PRを一律にOPEN／CONFIRMEDへ書き換えない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-03のProject中心の統合作業ビューBと将来の高度な文脈理解・作業継続Cを高水準方針に採用。既存Project／Workspace分離、Resource／Memory・Workspace復元・Handoffの権限境界を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、一覧・関連付け・検索／復元導線・UI・技術・性能・提供版はPROVISIONAL |
