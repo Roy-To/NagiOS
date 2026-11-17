@@ -1,7 +1,7 @@
 # Nagi OS Product & Experience Checklist — 優先15項目
 
 **作成:** 2026-11-17  
-**状態:** REVIEW NOTE / PROVISIONAL — 検討対象と進め方の提案。各PXの追加詳細はOPEN。  
+**状態:** 検討テーマ・順序はREVIEW NOTE／PROVISIONAL。PX-13は共同制作B＋将来Cの高水準体験、当面のCloud開発AI橋渡し／他OS移植支援優先、独立統合制作環境の長期・低優先方向をCONFIRMED（詳細PROVISIONAL、進捗PARTIALLY_RECORDED）。他PXの個別決定と並行PRはこの分岐で変更しない。  
 **正本:** [製品仕様索引](README.md)・[運用規則](OPERATING_RULES.md)  
 **関連台帳:** [Foundation Checklist（35項目）](NAGI_OS_FOUNDATION_CHECKLIST.md)
 
@@ -45,11 +45,18 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | PX-11 | **純正アプリの標準搭載範囲** | 1.0までに提供する純正アプリと最小機能、必須・任意・後続機能の区別 | [関連DEC 1](DEC-061-first-party-pdf-reader-editor.md)・[関連DEC 2](DEC-062-first-party-utilities.md) |
 | PX-12 | **アプリ横断操作・Smart Pasteの詳細** | 初期に対応するアプリ間操作、参照とコピーの選択、出典・更新提案、未対応時のfallback | [関連DEC 1](DEC-025-cross-app-data-reference-and-updates.md)・[関連DEC 2](DEC-056-smart-paste-semantic-transfer.md) |
 
+### PX-13の後続決定記録（2026-11-17）
+
+- **CONFIRMED — 将来の体験:** B案＝対話しながら設計案・修正・可能なPreview／安全な試用・採用判断へ進む共同制作体験。将来C案＝本人が許可したMemory・保存済み開発Projectを活かして継続改善を提案できる方向。既存のDEC-070／071・builder Role／試用／正式導入・共有／更新の別承認を維持する。
+- **CONFIRMED — 現在の優先度:** Local LLMの独力によるアプリ全面生成を当面の必須成果とせず、既存IDE・人間・許可されたCloud開発AIとNagi SDK／Porting Toolkitの情報を安全に橋渡しし、Windows／Linux等からのNagi Native移植支援を重視する。高度な統合制作環境は1.0計画最終盤を目安にした低優先長期目標で、**1.0の特定版への搭載確約・Release Gateではない**。既存の1.0公開開発者環境／配布基盤目標は変更しない。
+- **PROVISIONAL／OPEN:** 制作画面・Preview・修正UI、Memory利用許可UI、Cloud Provider／Connector・選択／送信範囲・モデル／交換方式、初期移植対象・SDK技術・Target検証、性能・提供Version／時期・Acceptance。DEC-002のCloud事前許可、DEC-075の試用／正式導入の別承認は未決定へ戻さない。
+- **進捗:** PARTIALLY_RECORDED（高水準方針と優先度のみ関連DECに記録。機能実装・統合テスト完了・Release決定ではない）。他PXの独立PRの合意をこのbranchで上書きしない。
+
 ### 第5群：開発者・配布・1.0完成条件
 
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
-| PX-13 | **Nagiによるアプリ制作体験** | 自然言語による依頼、草案・試用・修正、Memory参照の許可、正式導入の流れ | [関連DEC 1](DEC-071-nagi-native-app-creation-experience.md)・[関連DEC 2](DEC-075-builder-app-trial-and-installation.md) |
+| PX-13 | **Nagiによるアプリ制作体験** | **B＋将来Cと優先順位を高水準CONFIRMED:** 将来は対話型共同制作Bから個人適応・継続改善Cへ。**当面はローカル完結型IDEを急がず**、ローカルLLMと許可されたCloud開発AI／既存IDE・人間の橋渡し、他OS→Nagi Native移植支援を重視。高度な統合制作環境は1.0計画の最終盤を目安とする低優先の長期方向。具体UI・Memory同意・Cloud Connector・性能・提供版はPROVISIONAL | [関連DEC 1](DEC-071-nagi-native-app-creation-experience.md)・[関連DEC 2](DEC-045-nagi-porting-toolkit.md)・[関連DEC 3](DEC-075-builder-app-trial-and-installation.md) |
 | PX-14 | **第三者アプリ開発・移植・配布環境** | 初期SDK・言語・UI部品、移植対象、検証・署名・配布のユーザー/開発者体験 | [関連DEC 1](DEC-017-third-party-developer-ecosystem.md)・[関連DEC 2](DEC-045-nagi-porting-toolkit.md) |
 | PX-15 | **Nagi OS 1.0の製品完成基準** | 利用者に約束する代表体験、純正アプリ、対応端末、実測性能、品質・公開基準 | [関連DEC 1](DEC-021-roadmap-0.5-1.0.md)・[関連DEC 2](DEC-074-human-led-agent-organization.md) |
 
@@ -74,8 +81,9 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 ## 5. 進捗と変更履歴
 
-各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**現在はPX-01〜PX-15の追加論点がすべてOPEN。**
+各PXの検討進捗は以下から選ぶ：**OPEN**（未検討）／**IN_DISCUSSION**（検討中）／**PARTIALLY_RECORDED**（部分的にDEC反映）／**RECORDED**（合意範囲をDECに反映）。これは既存DECでの製品採用状態とは別。**本分岐ではPX-13がPARTIALLY_RECORDED（将来のB＋CとCloud橋渡し優先・統合制作環境後順位の高水準方針CONFIRMED、詳細PROVISIONAL）。** 他PXの合意／未統合PRを一律OPEN／CONFIRMEDと扱わない。
 
 | 日付 | 変更 | 状態 |
 |---|---|---|
 | 2026-11-17 | Foundation 35項目から独立した製品体験15項目、既存DEC参照、別チャットでの検討手順を起票 | REVIEW NOTE / PROVISIONAL。新たな15件の製品詳細は未確定 |
+| 2026-11-17 | PX-13の対話型共同制作B＋将来の個人適応・継続制作Cを高水準として維持。独立したローカル完結制作環境は後順位とし、ローカルLLMが許可されたCloud開発AI・既存IDE／人間とNagi SDK・移植診断を橋渡しする支援、他OSアプリ移植を当面優先。 | PARTIALLY_RECORDED：高水準方針・優先度CONFIRMED。1.0計画最終盤は目安で確定版ではない。詳細UI・Cloud連携・モデル・性能・技術・版はPROVISIONAL |
