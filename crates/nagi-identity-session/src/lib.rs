@@ -8,6 +8,10 @@
 #![forbid(unsafe_code)]
 
 #[cfg(test)]
+extern crate self as nagi_c1_session_end_adapter;
+#[cfg(test)]
+extern crate self as nagi_c1_session_runtime;
+#[cfg(test)]
 extern crate self as nagi_identity_session;
 
 mod capability;
@@ -24,6 +28,26 @@ pub(crate) use service::caller_proof_seal;
 #[cfg(test)]
 #[path = "../../../tests/identity-session/contract.rs"]
 mod contract;
+
+// Keep consumer integration coverage in the C1 crate's test build so fixture
+// proofs can reach the crate-private seal without exposing a production token.
+#[cfg(test)]
+#[path = "../../../crates/nagi-c1-session-runtime/src/lib.rs"]
+mod runtime_source;
+#[cfg(test)]
+pub use runtime_source::*;
+#[cfg(test)]
+#[path = "../../../crates/nagi-c1-session-end-adapter/src/lib.rs"]
+mod end_adapter_source;
+#[cfg(test)]
+pub use end_adapter_source::*;
+
+#[cfg(test)]
+#[path = "../../../crates/nagi-c1-session-runtime/tests/durable_auth.rs"]
+mod runtime_durable_auth_tests;
+#[cfg(test)]
+#[path = "../../../crates/nagi-c1-session-end-adapter/tests/routing.rs"]
+mod session_end_adapter_tests;
 
 pub use capability::{
     resolve_capability_principal, CapabilityPrincipalAdapter, DenyCapabilityPrincipalAdapter,

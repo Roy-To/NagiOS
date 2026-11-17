@@ -7,12 +7,13 @@ use nagi_c1_session_end_adapter::owner_proxy::{
 };
 use nagi_c1_session_end_adapter::{bind_exact_child, ChildBindingFailure, RouteError};
 use nagi_identity_session::{
-    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
-    AuthorizationRequest, CallerContextId, Clock, EndSessionResult, GuestCleanupFailure,
-    GuestProfileCleaner, IdSourceFailure, IdentityAction, IdentityAuthorizer, IdentityError,
-    IdentityIdSource, IdentityService, InMemorySnapshotStore, InteractiveSessionContext,
-    InteractiveSessionError, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId,
-    ProfileMetadata, ResolutionError, SessionId, TrustedCallerContext, UnixMillis, UserId,
+    AuthenticatedInteractiveCaller, AuthenticatedProvisioningCaller,
+    AuthenticatedSystemServicePrincipal, AuthorizationFailure, AuthorizationRequest,
+    CallerContextId, Clock, EndSessionResult, GuestCleanupFailure, GuestProfileCleaner,
+    IdSourceFailure, IdentityAction, IdentityAuthorizer, IdentityError, IdentityIdSource,
+    IdentityService, InMemorySnapshotStore, InteractiveSessionContext, InteractiveSessionError,
+    LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId, ProfileMetadata,
+    ResolutionError, SessionId, TrustedCallerContext, UnixMillis, UserId,
 };
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -62,7 +63,61 @@ impl TrustedCallerContext for TestCaller {
 }
 
 impl AuthenticatedInteractiveCaller for TestCaller {}
-impl AuthenticatedSystemServicePrincipal for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::Interactive for TestCaller {}
+
+struct TestProvisioningCaller {
+    principal: PrincipalId,
+    context: CallerContextId,
+}
+
+impl TestProvisioningCaller {
+    fn new() -> Self {
+        Self {
+            principal: PrincipalId::new("system.test-provisioner").unwrap(),
+            context: CallerContextId::new("caller_test_provisioner").unwrap(),
+        }
+    }
+}
+
+impl TrustedCallerContext for TestProvisioningCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.context
+    }
+}
+
+impl AuthenticatedProvisioningCaller for TestProvisioningCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for TestProvisioningCaller {}
+
+struct TestSystemCaller {
+    principal: PrincipalId,
+    context: CallerContextId,
+}
+
+impl TestSystemCaller {
+    fn new() -> Self {
+        Self {
+            principal: PrincipalId::new("system.test-service").unwrap(),
+            context: CallerContextId::new("caller_test_service").unwrap(),
+        }
+    }
+}
+
+impl TrustedCallerContext for TestSystemCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.context
+    }
+}
+
+impl AuthenticatedSystemServicePrincipal for TestSystemCaller {}
+impl nagi_identity_session::caller_proof_seal::SystemService for TestSystemCaller {}
 
 #[derive(Clone)]
 struct TestClock(Arc<AtomicU64>);
@@ -157,7 +212,7 @@ type Service = IdentityService<
 >;
 
 fn service(
-    caller: &TestCaller,
+    _caller: &TestCaller,
     clock: TestClock,
     authorizer: TestAuthorizer,
 ) -> (Service, UserId, ProfileId) {
@@ -169,10 +224,10 @@ fn service(
         TestCleaner,
         NoopIdentityEventSink,
     );
-    service.recover(caller).unwrap();
+    service.recover(&TestSystemCaller::new()).unwrap();
     let (user_id, profile_id) = service
         .create_local_user(
-            caller,
+            &TestProvisioningCaller::new(),
             LocalUserMetadata::new("Test User").unwrap(),
             ProfileMetadata::new("Home", Some("en-US".to_owned())).unwrap(),
         )
@@ -707,7 +762,7 @@ fn recovery_and_relogin_do_not_revive_the_old_c1_context() {
     )
     .unwrap();
 
-    service.recover(&caller).unwrap();
+    service.recover(&TestSystemCaller::new()).unwrap();
     let new_session = login(
         &mut service,
         &caller,
