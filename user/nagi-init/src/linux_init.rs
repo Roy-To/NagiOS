@@ -3169,7 +3169,15 @@ fn backend_error_for_package_session_owner(error: PackageServiceSessionOwnerErro
         | OwnerError::ManifestChanged
         | OwnerError::StaleGeneration { .. }
         | OwnerError::OwnerMismatch => BackendError::Revoked,
-        OwnerError::GenerationSaturated => BackendError::Unavailable,
+        OwnerError::GenerationSaturated
+        | OwnerError::PackageDigestUnavailable
+        | OwnerError::DigestIndexUnavailable
+        | OwnerError::DigestIndexFailed => BackendError::Unavailable,
+        OwnerError::DigestInventoryFull
+        | OwnerError::InstalledPackageBytesMismatch
+        | OwnerError::DigestIndexOutcomeUnknown
+        | OwnerError::DigestIndexCorrupt
+        | OwnerError::DigestIndexReadbackMismatch => BackendError::ProtocolViolation,
     }
 }
 

@@ -57,6 +57,14 @@ impl VerifiedServicePackageBinding<'_> {
         self.lease.snapshot().executable_sha256()
     }
 
+    pub fn signed_package_bytes_len(&self) -> u32 {
+        self.lease.snapshot().signed_package_bytes_len()
+    }
+
+    pub fn executable_bytes_len(&self) -> u32 {
+        self.lease.snapshot().executable_bytes_len()
+    }
+
     /// Immutable copy of the exact executable bytes covered by the installed,
     /// signed package generation. Launch owners must load these bytes and must
     /// not reopen the descriptor's artifact pathname or reuse a mutable file
@@ -101,13 +109,15 @@ pub fn bind_installed_service_package<'owner>(
 
     // capture authenticates the signature against the owner's configured key,
     // checks installed identity/generation, and delegates to the public
-    // PackageSecurityProvider. The lease then fences manifest or generation
-    // replacement until SystemServiceRuntime is dropped.
+    // PackageSecurityProvider. System-service binding additionally requires a
+    // durable digest-index readback for this exact inventory. The lease then
+    // fences manifest or generation replacement until SystemServiceRuntime
+    // is dropped.
     let snapshot = package_owner
-        .capture(package_bytes, descriptor.package_id().as_bytes())
+        .capture_for_system_service(package_bytes, descriptor.package_id().as_bytes())
         .map_err(PackageBindingError::Owner)?;
     let lease = package_owner
-        .lease_for_dispatch(&snapshot)
+        .lease_for_system_service_dispatch(&snapshot)
         .map_err(PackageBindingError::Owner)?;
     Ok(VerifiedServicePackageBinding {
         app_id: descriptor.package_app_id(),
