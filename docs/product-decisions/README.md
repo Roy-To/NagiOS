@@ -6,6 +6,44 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Product & Experienceの優先15項目（2026-11-17、仕様検討用）
+
+[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md) に、[Foundation 35項目](NAGI_OS_FOUNDATION_CHECKLIST.md)とは別のPX-01〜PX-15（基本UI、AIとTask、Memory、純正アプリ連携、開発者体験、1.0提供範囲）を設けた。各項目は関連DECで**既にCONFIRMEDの方針を維持**し、追加詳細を別チャットで検討する入口。**PX-01〜PX-15の高水準製品方針はすべてCONFIRMED（詳細はPROVISIONAL、Checklist進捗はPARTIALLY_RECORDED）**。検討テーマの最初の順序は **REVIEW NOTE / PROVISIONAL**。既存のGate、35項目の状態・優先度・実装評価は変更しない。既存のGate、35項目の状態・優先度・実装評価は変更しない。
+
+## PX-01〜PX-15の統合済み製品決定（2026-11-17）
+
+**PX-01追加決定（2026-11-17）:** [DEC-009 — Nagi-first Home／DesktopとPX-01 B＋将来C](DEC-009-nagi-first-home-desktop.md)で、対話中心のシンプルな統合Home Bを基本に、将来はProject／Task等の状況に合う高度なHome適応Cへ発展する高水準方針をCONFIRMED。[DEC-010](DEC-010-intent-first-adaptive-ui.md)のIntent-first／新規Workspace自動配置と既存Workspace手動配置保護、[DEC-011](DEC-011-task-approval-progress-ui.md)のTask承認・進捗、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)の通常a11y先行とAI不在時GUIを維持。Homeからアプリ直接起動でDesktop切替、委任Task中は原則Home維持、前回Workspaceの復元、状態保持も従前どおり。具体レイアウト・導線・カード数・Nagi Bar位置・AI停止時の詳細UI・技術・提供版はPROVISIONAL。進捗は[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)のPARTIALLY_RECORDEDを参照。並行PXの独立PRは統合時に照合する。
+
+**PX-02追加決定（2026-11-17）:** [DEC-010 — Intent-first UIとPX-02 B＋将来C](DEC-010-intent-first-adaptive-ui.md)で、作業目的に応じたカード／パネルをユーザーが選択・却下・固定・調整できる適応UI Bを基本とし、許可された作業文脈・明示設定・採用履歴に応じて将来の高度な個人適応UI Cへ発展する高水準の方向をCONFIRMED。[DEC-008](DEC-008-proactive-behavior.md)の控えめな提案・無断音声割り込み禁止・権限境界、既存の新規Workspace自動配置／複数ディスプレイ活用・既存Workspaceと固定／手動配置の保護、AI不在時の通常GUIを維持。カードの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)ではPARTIALLY_RECORDEDとする。並行PX PRの決定は統合時に調整する。
+
+**PX-03追加決定（2026-11-17）:** [DEC-055 — Projectフォルダ中心の純正アプリ横断AI体験／PX-03](DEC-055-project-folder-cross-app-context.md)で、Project中心に関連資料・参照・Task・Workspace・作業継続候補を一元的に把握するBを基本とし、将来は許可されたProject文脈・出典関係・履歴から根拠付きに作業の再発見と継続を支援するCへ発展する高水準方針をCONFIRMED。[DEC-012](DEC-012-workspace-naming-organization.md)／[DEC-014](DEC-014-workspace-state-checkpoints.md)のWorkspace保存・自然言語検索・本人による復元先選択／復元前保護、[DEC-065](DEC-065-nagi-handoff-work-continuation.md)の別端末Handoff境界、Project／Workspace・原本文・Memoryの分離と現行Permission／Privacyを維持。統合作業ビューの詳細UI、関連付け・一覧・検索・復元導線・技術・性能・提供版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-03をPARTIALLY_RECORDEDとして記録。並行PXの未統合PRは統合時に各決定を保持する。
+
+**PX-04決定（2026-11-17）:** [DEC-008](DEC-008-proactive-behavior.md) と [DEC-011](DEC-011-task-approval-progress-ui.md) に、B「明示操作で始める複数ターンの音声会話、同じ対話内の音声／テキスト切替、画面での誤認識訂正」と将来C「ユーザーが明示的に有効化するハンズフリー音声操作へ段階的に拡張する」高水準方向をCONFIRMEDとして記録。Wake Word、常時待受、録音／文字起こしの保持・削除、詳細UI、音声本人認証、技術・モデル・提供版・時期・性能数値はPROVISIONAL。画面最終承認、Microphone Permission、DEC-002のCloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持する。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
+
+**PX-05追加決定（2026-11-17）:** [DEC-001 — AIの自律性とAction・PX-05 B＋将来C](DEC-001-agent-autonomy-actions.md)に、段階的なリスク対応承認Bを基本とし、将来はTask文脈・利用者設定・検証状態を踏まえて確認体験を高度化するCへ発展させる方針をCONFIRMEDとして追記。[DEC-026](DEC-026-ai-change-verification-and-recovery.md)の「変更の検証／復元可能性を優先する選択A」は維持し、Risk taxonomy・閾値・未判定時の条件・UI・技術・版はPROVISIONAL。更新範囲と進捗は[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)を参照。並行PXの未統合PRを今回の決定と混同しない。
+
+**PX-06追加決定（2026-11-17）:** [DEC-011 — Task進捗表示とPX-06統合TaskセンターB＋将来C](DEC-011-task-approval-progress-ui.md)で、長時間・複数Taskを一元的に把握・管理できるB案を基本とし、将来CのTask依存・資源・優先度等に応じた高度なオーケストレーションへ発展する高水準方針をCONFIRMED。[DEC-020](DEC-020-ai-os-interaction-path.md)の前景操作優先・明示的優先度変更・条件付きResource継続、[DEC-022](DEC-022-builder-interrupted-task-recovery.md)の障害後の本人選択、既存Gateを維持する。Queue／Priority・状態表示の細部、依存関係・Scheduler・並列度、実装技術・提供版はPROVISIONAL。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。並行PXの独立PRは未統合の場合があるため、統合時に矛盾を解消する。
+
+**PX-07追加決定（2026-11-17）:** [DEC-008 — 標準的な働きかけとPX-07 B＋将来C](DEC-008-proactive-behavior.md)に、許可された文脈・好みに合わせて作業を妨げず自然に提案するBを基本とし、将来は複数の改善候補の整理・根拠／期待効果の比較・Feedback活用を進めるCを高水準方針としてCONFIRMED。[DEC-073](DEC-073-proactive-friction-discovery.md)の根拠付き潜在的不便発見、静かな提案、重大警告の別扱い、Privacy／Permission／実行承認を維持する。頻度・タイミング・抑制・却下／再提示・重要度判定・詳細UI・技術・版はPROVISIONAL。進捗は[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)のPARTIALLY_RECORDED。並行PXの未統合PRは統合時に照合する。
+
+**PX-08決定（2026-11-17）:** [DEC-004 — Memory保存・学習・自然忘却・PX-08 B基本方針](DEC-004-memory-learning-forgetting.md)に、許可された情報から自然に学ぶ、推測は推測のまま扱う、重要な内容は本人確認するというバランス型をCONFIRMEDとして追加。対象情報の細分類・確認条件／UI・閾値・実装詳細はPROVISIONAL。既存DEC-003／005／058／059および各Gateを変更しない。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
+
+**PX-09決定（2026-11-17）:** [DEC-004 — Memoryの保持・忘却・管理体験](DEC-004-memory-learning-forgetting.md)にB案「自然忘却＋ユーザー管理」を基本方針としてCONFIRMEDで記録し、将来C案の高度な重複統合・矛盾検出を追加する方向もCONFIRMEDとした。保持条件・日数・UI・Cの具体方式・提供版／時期はPROVISIONAL。既存DEC-003／005／059、Source／Profile／Permission境界と既存Gateを維持する。進捗は[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の**PARTIALLY_RECORDED**を参照。
+
+**PX-10追加決定（2026-11-17）:** [DEC-057 — 成長するPersonal Agentと対話スタイル](DEC-057-growing-personal-agent-os.md)に、利用者が許可した学習・設定に基づく自然な口調／説明量／説明方法の適応Bと、将来のProject／Task／作業状況に応じた高度な状況適応Cを高水準CONFIRMEDとして記録。具体UI・アルゴリズム・モデル・評価・版はPROVISIONAL。既存Profile／Memory所有・訂正／忘却・明示設定優先を維持。
+
+**PX-11追加決定（2026-11-17）:** [DEC-021 — 1.0ロードマップ境界とPX-11品質重視の純正アプリ構成](DEC-021-roadmap-0.5-1.0.md)で、**日常の主要作業が純正アプリと通常GUIで実用的に完結する品質優先B**を基本とし、**将来Cで幅広い総合純正ソフトウェア環境へ発展**する高水準の方針をCONFIRMED。[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)のPhase 1〜3、[DEC-061](DEC-061-first-party-pdf-reader-editor.md)のPDF Reader／Editor、[DEC-062](DEC-062-first-party-utilities.md)のユーティリティ4分野、DEC-017の1.0公開開発者環境・アプリ配布基盤目標とAI非必須操作を維持する。**個別アプリの1.0必須／任意／後続リスト、最小機能、対応形式、性能、技術、搭載／配布方式と提供版はPROVISIONAL**。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-11 PARTIALLY_RECORDED。並行PXの未統合PRは統合時に別途調整する。
+
+**PX-12追加決定（2026-11-17）:** [DEC-056 — Smart PasteとPX-12のB＋将来C](DEC-056-smart-paste-semantic-transfer.md)に、利用可能なコピー／構造化転送／参照とその差異・制限をユーザーに分かりやすく案内する統合体験B、将来は許可されたProject／Task・Provenance・変更影響を扱う高度なアプリ横断ワークフローCへ発展する高水準方針をCONFIRMED。[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の共通参照A・更新検知／提案A・承認済みTaskのScope内限定更新、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)の正規Public Action優先A・明示許可下の限定GUI fallback、DEC-056のSheets→Slides／Albert→Writer／画像→Slidesと従来操作を維持。最初のApp組合せ、コピー／参照の既定、詳細UI・Preview・Transfer／fallback制御・技術・性能・提供版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-12 PARTIALLY_RECORDED。未統合の他PXの決定は統合時に照合する。
+
+**PX-13後続決定（2026-11-17）:** [DEC-071 — 初心者向けNagi Native App制作／PX-13](DEC-071-nagi-native-app-creation-experience.md)で、将来の**対話型共同制作B＋個人適応・継続開発C**を高水準CONFIRMEDとしつつ、**当面はローカル完結の独立した高度制作環境の完成を急がず、ローカルLLMが既存IDE／人間・許可されたCloud開発AI（例：GPT／Codex等）とNagi SDK・API・Porting Toolkitの診断／移植結果を安全につなぐ支援を優先**する方針を記録。[DEC-045](DEC-045-nagi-porting-toolkit.md)のWindows／Linuxからの移植支援と非AI診断・検証、[DEC-070](DEC-070-memory-informed-native-app-creation.md)の本人同意に基づくMemory個人化、[DEC-002](DEC-002-cloud-ai-data-sharing.md)のCloud送信事前許可、DEC-075の試用／正式導入の独立承認を維持。高度統合制作環境は**1.0計画最終盤を目安とする長期・低優先**であり提供版・完成はPROVISIONAL。[DEC-017](DEC-017-third-party-developer-ecosystem.md)／[DEC-021](DEC-021-roadmap-0.5-1.0.md)の**1.0公開開発者環境・アプリ配布基盤という既存目標は維持**。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)ではPX-13 PARTIALLY_RECORDEDとし、並行PXの未統合PRは統合時に照合。
+
+**PX-14追加決定（2026-11-17）:** [DEC-017 — 第三者アプリ開発／移植／配布とPX-14 B＋将来C](DEC-017-third-party-developer-ecosystem.md)で、**一般的なIDE・公開SDK／Porting Toolkit（PT-01〜06）・Local LLMと許可されたCloud開発AIの橋渡し・Build／Test／Package／独立Target受入を一貫した開発者体験にするB**と、**将来は互換性・更新・保守・配布準備まで支援するC**の高水準方針をCONFIRMED。[DEC-045](DEC-045-nagi-porting-toolkit.md)のPT・非AI基盤、[DEC-002](DEC-002-cloud-ai-data-sharing.md)のCloud送信事前許可、Nagi Native専用・Rust SDK／C ABI・Level 0〜3とWindows／Linux重点・Android将来／Apple系後順位を維持。PX-13の高機能な独立開発IDE後順位、[DEC-021](DEC-021-roadmap-0.5-1.0.md)の**1.0公開開発者環境／配布基盤**目標、Package署名／導入／共有・公開の別承認とHost／Target結果分離を維持。初期言語・Framework・SDK／CLI／Cloud／署名・配布実装・性能・版はPROVISIONAL。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)ではPX-14 PARTIALLY_RECORDED。並行PRは統合時に確定内容を保持する。
+
+**PX-15追加決定（2026-11-17）:** [DEC-021 — Nagi OS 1.0の完成方針B＋将来C](DEC-021-roadmap-0.5-1.0.md)に、**正式対応のTarget／機能で日常の代表作業を安全・安定に完結・継続できる実用OS B**を1.0の高水準完成基準とし、将来は対応機器・アプリ・利用形態を広げた**総合OS C**へ発展する方針をCONFIRMED。[DEC-074](DEC-074-human-led-agent-organization.md)のAI組み込み体験優先・階層型Agent組織後順位、[DEC-017](DEC-017-third-party-developer-ecosystem.md)の1.0公開開発者環境／アプリ配布基盤目標、通常GUI・AI不在時操作・Permission／Privacy・Target実受入と既存Release／Activation Gateを維持。**代表作業・必須アプリ・正式対応PC／Hardware・性能／品質の閾値・具体的公開判定手順と日程はPROVISIONAL**。[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)に高水準完成方針を補足し、版別マップと§6の候補証拠はそのまま候補として維持。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-15をPARTIALLY_RECORDEDと記録。未統合の他PX確定PRは統合時に保持する。
+
+**統合の解釈:** 各PXでCONFIRMEDなのは明示採用された高水準の方向のみ。各DEC内のPROVISIONAL／OPEN、個別の仕様・性能・対象端末／Version、既存Permission／PrivacyとRelease／Activation／Acceptance Gate、Linux／Targetの実装証拠は変更しない。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)へ15件を一覧化した。
+
 ## Foundation統合とDEC改番（2026-11-16）
 
 PR #133〜#140のFoundation #6〜#35に関する方針を、先行する#1〜#5の決定と共存させる。並行branchで重複したIDは以下のように分離し、内容・索引・関連参照を維持する。DEC-094〜104とFoundationの`f25`〜`f35`は改番しない。
@@ -82,33 +120,33 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | ID | テーマ | 状態 | 最終決定 |
 |---|---|---|---|
-| DEC-001 | [AIの自律性とAction](DEC-001-agent-autonomy-actions.md) | CONFIRMED | 2026-10-25 |
+| DEC-001 | [AIの自律性とAction／PX-05 B＋将来C承認体験](DEC-001-agent-autonomy-actions.md) | CONFIRMED（既存自律実行・安全境界／PX-05のB基本＋将来C方向）／PROVISIONAL（Risk分類・閾値・未判定時の条件・UI・実装・版） | 2026-11-17 |
 | DEC-002 | [クラウドAI・外部情報共有](DEC-002-cloud-ai-data-sharing.md) | CONFIRMED | 2026-10-25 |
 | DEC-003 | [Memoryの機密分類と所有範囲](DEC-003-memory-classification.md) | CONFIRMED | 2026-10-25 |
-| DEC-004 | [Memory保存・学習・自然忘却](DEC-004-memory-learning-forgetting.md) | CONFIRMED（一部数値は暫定） | 2026-10-25 |
+| DEC-004 | [Memory保存・学習・自然忘却／PX-08・PX-09基本方針](DEC-004-memory-learning-forgetting.md) | CONFIRMED（既存Memory lifecycle、PX-08 B、PX-09 B、将来Cの方向）／PROVISIONAL（条件・UI・数値・Cの具体方式／版／時期） | 2026-11-17 |
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [標準的な働きかけと通知](DEC-008-proactive-behavior.md) | CONFIRMED | 2026-10-29 |
-| DEC-009 | [Nagi-first操作思想とNagi Home / Desktop](DEC-009-nagi-first-home-desktop.md) | CONFIRMED | 2026-11-15 |
-| DEC-010 | [Intent-first UIと作業別レイアウト提案](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（複数端末を見据えたUI方針／細部未確定） | 2026-11-15 |
-| DEC-011 | [Task承認・進捗UI、`builder`のRole切替・別会話・追加指示表示](DEC-011-task-approval-progress-ui.md) | CONFIRMED（承認UI／Task開始前のWayback復元可能性表示／Role切替C／前景会話優先C／追加指示分類表示C／委任Task進捗C）／PROVISIONAL（UI細部） | 2026-11-15 |
-| DEC-012 | [Workspaceの自動命名・整理と自然言語検索](DEC-012-workspace-naming-organization.md) | CONFIRMED（一部詳細未確定） | 2026-11-04 |
+| DEC-008 | [控えめな働きかけ／小さな用事の静かな準備・学習・Reminder／PX-02・PX-04・PX-07](DEC-008-proactive-behavior.md) | CONFIRMED（既存の控えめな通常提案・客観的重大警告、PX-02適応UIとの整合、PX-04音声／Text基本B＋将来ハンズフリーC、PX-07文脈提案B＋将来高度管理C、小さな用事の静かな準備・会話からの一時記録・状況／期限型Reminder・確証による完了／重要度の学習と不要な催促抑制）／PROVISIONAL（頻度・UI・Wake Word・録音／Transcript・AI技術・性能・版） | 2026-11-17 |
+| DEC-009 | [Nagi-first操作思想・Nagi Home / Desktop／PX-01統合Home B＋将来適応C](DEC-009-nagi-first-home-desktop.md) | CONFIRMED（既存Home／Desktop遷移・状態保持・AI不在時通常GUI、PX-01 B基本＋将来C方向）／PROVISIONAL（画面配置・導線・カード数・Nagi Bar位置・AI停止時UI・技術・提供版） | 2026-11-17 |
+| DEC-010 | [Intent-first／Workspace配置とPX-01統合Home・PX-02適応型UI](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（従前のIntent-first、新規Workspace配置・既存手動配置保護、PX-01統合Home B＋将来C、PX-02ユーザー主導適応UI B＋将来個人化C）／PROVISIONAL（具体画面・配置／表示・適応条件・学習技術・性能・版） | 2026-11-17 |
+| DEC-011 | [Task承認・進捗・PX-04音声／TextとPX-06統合Taskセンター](DEC-011-task-approval-progress-ui.md) | CONFIRMED（従前の承認・進捗・Role／Stop／復旧、PX-04音声／Text切替・画面訂正、PX-06統合TaskセンターB＋将来高度Task管理C）／PROVISIONAL（具体UI・Queue／Priority／Scheduler・Voice UI・技術・性能・版） | 2026-11-17 |
+| DEC-012 | [Workspaceの自動命名・整理と自然言語検索／PX-03との整合](DEC-012-workspace-naming-organization.md) | CONFIRMED（既存の自動命名・分類・意味検索／ユーザー選択優先とPX-03統合作業ビューの高水準接続）／PROVISIONAL（具体的なProjectとの一覧・検索／再開UI・技術・版） | 2026-11-17 |
 | DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
-| DEC-014 | [Workspace保存・チェックポイント・横断検索・選択式端末移行／同期・競合／中断復旧・暗号化Export / Importと鍵／データ管理](DEC-014-workspace-state-checkpoints.md) | CONFIRMED（詳細未確定） | 2026-11-05 |
+| DEC-014 | [Workspace自動保存・Checkpoint・履歴・復元／端末移行・同期／PX-03との整合](DEC-014-workspace-state-checkpoints.md) | CONFIRMED（既存Workspace自動保存・履歴・復元本人選択・現行権限／Handoff分離、PX-03の高水準接続）／PROVISIONAL（Projectビューからの一覧・検索／復元導線・技術・性能・版） | 2026-11-17 |
 | DEC-015 | [`builder` Roleの初期Nagi実行・切替・別会話継続・追加依頼分類](DEC-015-builder-role-review.md) | CONFIRMED（Role名／初期実行C／自動切替C／会話継続C／追加・別件依頼C）／PROVISIONAL（Runtime・Queue詳細） | 2026-11-05 |
 | DEC-016 | [`builder`のScope内自律実行・リスク別完了・追加指示の承認境界](DEC-016-builder-autonomy-risk-based-completion.md) | CONFIRMED（自律B／完了判定C／再試行C／追加指示分類Cと承認・Scope制限）／PROVISIONAL（実装詳細） | 2026-11-05 |
-| DEC-017 | [第三者アプリ開発・参入環境と既存アプリ移植](DEC-017-third-party-developer-ecosystem.md) | CONFIRMED（Nagi Native Apps専用・移植支援：PC Windows／Linux重点、将来Mobile Android優先検討、Apple系後順位・段階的統合）／PROVISIONAL（具体技術・対応範囲・実装時期・工数） | 2026-11-13 |
+| DEC-017 | [Nagi Native開発・移植・公開SDK／配布基盤とPX-13／14／15](DEC-017-third-party-developer-ecosystem.md) | CONFIRMED（従前のNative専用・既存IDE・SDK／移植支援・1.0開発者／配布目標、PX-13 Cloud AI橋渡し・統合IDE後順位、PX-14開発・移植／検証B＋将来C、PX-15実用1.0 B＋将来総合OS C）／PROVISIONAL（初期SDK・Cloud／CLI・署名／配布・性能・Release範囲／日程） | 2026-11-17 |
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
-| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event駆動、前景優先・適応推論、8GB級での日常操作＋ローカルAI連携の実用性目標・0.3完成前の性能試験開始、複数モデル導入／軽量モデルへの適応切替と手動選択、`builder` Resource待機継続C）／PROVISIONAL（モデル・実装・性能値・適用版） | 2026-11-16 |
-| DEC-021 | [0.5〜1.0ロードマップ境界と段階案](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（継承方針・改訂0.3の1.0目標・DEC-017の1.0目標）／PROVISIONAL（版別範囲・順序・実装詳細） | 2026-11-04 |
+| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分／PX-06の整合](DEC-020-ai-os-interaction-path.md) | CONFIRMED（既存Context／Event・前景優先・適応推論・8GB級の実用性目標・モデル切替方針・`builder` Resource待機継続C、PX-06との整合、0.3完成前の8GB級先行性能評価開始）／PROVISIONAL（Queue／Priority／Scheduler・並列度の詳細、実装・性能・適用版） | 2026-11-17 |
+| DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C）／PROVISIONAL（必須アプリ・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-17 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
-| DEC-025 | [アプリ横断の共通参照と関連データ更新提案](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本・変更検知と提案・承認済みTask内の自動更新）／PROVISIONAL（実装・適用版） | 2026-11-05 |
-| DEC-026 | [AIによる変更の検証可能性と復元可能性](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（リスク別検証・保護、AI Task開始前のWayback復元可能性表示、`builder`製アプリ正式更新Cとの整合）／PROVISIONAL（UI・事前判定範囲・未対応／不明時の扱い・数値・実装・適用版） | 2026-11-15 |
-| DEC-027 | [正規Public Action APIと限定的なGUI fallback](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先・明示許可下の限定fallback）／PROVISIONAL（具体方式・制御範囲・適用版） | 2026-11-05 |
+| DEC-025 | [アプリ横断の共通参照・更新提案／PX-12との整合](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本A、変更検知／更新提案A、事前承認Taskの限定自動更新、PX-12高水準体験と整合）／PROVISIONAL（詳細Transfer・更新UI・技術・性能・版） | 2026-11-17 |
+| DEC-026 | [AIによる変更の検証可能性と復元可能性／PX-05との整合](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（既存の思想⑨・選択A／リスク別検証・Wayback事前表示、PX-05 B＋将来C方針との両立）／PROVISIONAL（Risk taxonomy・未判定時の条件・UI・数値・実装・版） | 2026-11-17 |
+| DEC-027 | [正規Public Action優先・限定GUI fallback／PX-12との整合](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先A、明示許可・限定ScopeのGUI fallback、PX-12高水準体験と整合）／PROVISIONAL（具体GUI／fallback制御・対象App・性能・適用版） | 2026-11-17 |
 | DEC-028 | [反復Workflowの学習・改善案・承認制改訂](DEC-028-deterministic-workflows-from-habits.md) | CONFIRMED（Workflow化と正式改訂に明示承認・履歴保持）／PROVISIONAL（変換・検証・UI・保持詳細） | 2026-11-05 |
 | DEC-029 | [明示許可に基づくScheduled / Event-triggered Workflow実行](DEC-029-scheduled-event-triggered-workflows.md) | CONFIRMED（条件付き無人起動・実行時再検証・停止制御）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-030 | [Workflowテンプレートの移植・共有と権限の再承認](DEC-030-workflow-template-portability-and-sharing.md) | CONFIRMED（個人状態・権限から分離、明示的共有、受取側で再設定・再承認）／PROVISIONAL（形式・検証・依存解決・配布経路） | 2026-11-05 |
@@ -126,7 +164,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-042 | [独自Nagi KernelからLinuxカーネルへの方針転換](DEC-042-linux-kernel-transition.md) | CONFIRMED（カーネル選択）／PROVISIONAL（構成・互換方式・移行時期） | 2026-11-12 |
 | DEC-043 | [Linuxカーネル + Nagi専用ユーザーランドと独立OS方針](DEC-043-nagi-userland-independent-os.md) | CONFIRMED（製品方針、後続DEC-017のNagi Nativeアプリ環境）／PROVISIONAL（具体構成・移植方式・Package・移行・ライセンス） | 2026-11-13 |
 | DEC-044 | [Linux移行開発の開始承認と並列開発](DEC-044-linux-migration-development-authorization.md) | CONFIRMED（限定開発承認）／実行場所・個別構成は各割当で確認 | 2026-11-12 |
-| DEC-045 | [Nagi Porting Toolkit — PT-01〜06 診断・生成・移植・検証・継続評価](DEC-045-nagi-porting-toolkit.md) | CONFIRMED（Windows／Linux重点、PT-01〜06設計方針、AI非必須／開発手段を選択可能、PT-06は手動対Toolkit等の実移植比較と改善循環）／PROVISIONAL（実装・サンプル・指標／受入・担当・版・16GB性能評価） | 2026-11-13 |
+| DEC-045 | [Porting Toolkit PT-01〜06とPX-13 Local／Cloud橋渡し・PX-14統合開発者体験](DEC-045-nagi-porting-toolkit.md) | CONFIRMED（Windows／Linux重点・PT-01〜06・非AI診断／Target受入分離、PX-13 Cloud開発AI・人間との橋渡し優先、PX-14移植／検証の統合B＋将来保守／配布C）／PROVISIONAL（初期対象・Framework／CLI・Cloud Provider／署名／Package・性能・担当・版） | 2026-11-17 |
 | DEC-046 | [共同開発者の役割と担当領域の自律性](DEC-046-co-developer-governance.md)／[PT-02〜PT-06担当案](../development/CO_DEVELOPER_ALLOCATION_PROPOSAL.md) | CONFIRMED（役割分担）／PROVISIONAL・未決定（個別担当・path・権限・着手） | 2026-11-15 |
 | DEC-047 | [Linux移行レーンの作業場所・操作許可・統合先](DEC-047-linux-migration-workspaces-and-integration.md) | CONFIRMED（lane別worktree・操作範囲・統合先） | 2026-11-14 |
 | DEC-048 | [DeepSeekによるNagiコード等レビューへの継続承認](DEC-048-deepseek-review-authorization.md) | CONFIRMED（全lane・全payloadのDeepSeekレビュー承認） | 2026-11-14 |
@@ -135,14 +173,14 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-051 | [レビュー方式A/B](DEC-051-review-methods.md) | CONFIRMED（現在は方式A） | 2026-11-15 |
 | DEC-052 | [実機テスト端末の候補選定方針](DEC-052-physical-test-device-candidates.md) | CONFIRMED（候補選定のみ：PC＝Raspberry Pi・型番未指定／タブレット＝PineTab2／スマートフォン・モバイル＝未選定）／対応・購入・時期は未確定 | 2026-11-16 |
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
-| DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・横断Task・Workspace分離・Project文脈）／PROVISIONAL（名称・技術・実装版） | 2026-11-16 |
-| DEC-056 | [Smart Paste — 意味付きコピー／ドラッグでの純正アプリ横断体験](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来操作維持・意味付き転送・出典／参照保持・選択式提案）／PROVISIONAL（名称・UI・形式・対応アプリ・実装時期） | 2026-11-16 |
-| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（OSの中核コンセプト・モデル非依存の継続性・ユーザー主導）／PROVISIONAL（方式・効果測定・適用版） | 2026-11-16 |
+| DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験／PX-03 B＋将来C](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・Resource参照／横断Task・ProjectとWorkspace分離、PX-03統合作業ビューB＋将来文脈継続Cの高水準方針）／PROVISIONAL（画面／関連付け・一覧・検索／復元導線・技術・性能・版） | 2026-11-17 |
+| DEC-056 | [Smart Paste・意味付き転送／PX-12案内型B＋将来高度Workflow C](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来の意味付き転送・通常GUI、PX-12の方式案内B＋将来Workflow Cの高水準体験）／PROVISIONAL（初期App組合せ・既定転送方式・UI／Preview・Transfer／fallback技術・性能・提供版） | 2026-11-17 |
+| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（中核コンセプト・個人適応・モデル非依存の継続・ユーザー主導・PX-10 B／将来C方向）／PROVISIONAL（UI・状況判定・モデル／アルゴリズム・評価・提供版／時期） | 2026-11-17 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
-| DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習の内容・経緯・根拠・支援への反映を確認できる体験）／PROVISIONAL（UI・履歴Schema・評価指標・適用版） | 2026-11-16 |
+| DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
-| DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（採用・段階的拡張・AI非必須・公開API連携）／PROVISIONAL（版・高度機能の順序・技術・合格値） | 2026-11-16 |
-| DEC-062 | [純正ユーティリティ4分野の採用](DEC-062-first-party-utilities.md) | CONFIRMED（画像・スクリーンショット／文書スキャン・圧縮／解凍・動画／音楽の全分野採用、AI非必須の高速・軽量な基本機能優先）／PROVISIONAL（アプリ構成・対応範囲・連携詳細・版・受入） | 2026-11-16 |
+| DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集／PX-11品質優先方針への整合](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（PDF純正採用・基本機能先行・AI非依存／公開API、PX-11高水準方針との整合）／PROVISIONAL（1.0搭載区分・最小機能・高度機能／形式・技術・性能・版） | 2026-11-17 |
+| DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・技術・性能・版） | 2026-11-17 |
 | DEC-063 | [電話・連絡先・SMSの端末横断採用](DEC-063-phone-contacts-messaging.md) | CONFIRMED（純正採用・共通モデルと適応UI・能力／認可依存・People統合原則）／PROVISIONAL（アプリ構成・通信／端末間連携・学習・版） | 2026-11-16 |
 | DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
@@ -150,11 +188,11 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-067 | [Nagi PowerとOS全体の決定論的な電力・熱・資源管理](DEC-067-nagi-power-deterministic-resource-management.md) | CONFIRMED（自動管理・安全／前景優先・簡易の省電力／バランス／高性能モード選択）／PROVISIONAL（名称・数値・端末・効果・実装版・Gate） | 2026-11-16 |
 | DEC-068 | [Nagi Sleep（仮称）— スリープ・休止状態・復帰の管理](DEC-068-nagi-sleep-resume-recovery.md) | CONFIRMED（非LLM管理・状態保存と再検証・通常復帰と障害復旧の区別・段階的Hibernate）／PROVISIONAL（名称・方式・端末・時期・Gate） | 2026-11-16 |
 | DEC-069 | [35項目のFoundation Checklist管理](DEC-069-foundation-checklist-management.md) | CONFIRMED（台帳管理）／PROVISIONAL（推奨優先度・検討順序） | 2026-11-16 |
-| DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（製品方向）／PROVISIONAL（Memory許可・UI・実装・時期） | 2026-11-15 |
-| DEC-071 | [初心者向けNagi Native App制作体験](DEC-071-nagi-native-app-creation-experience.md) | CONFIRMED（純正の初心者向け・自然言語／ローカルLLM支援、小規模日常アプリ、試用／導入／共有方向）／PROVISIONAL（製品形態・技術・モデル・版・配布方式） | 2026-11-15 |
+| DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作／PX-13後期優先・Cloud橋渡しとの整合](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（許可されたMemoryに基づく個人向け制作／改善の方向、Cloud利用は別承認）／PROVISIONAL（Memory許可・UI・Bridge技術・動的適応・提供版） | 2026-11-17 |
+| DEC-071 | [初心者向けNagi Native App制作体験／PX-13 B＋将来C・Cloud AI橋渡し・後期優先](DEC-071-nagi-native-app-creation-experience.md) | CONFIRMED（将来の共同制作B＋個人適応C、当面Cloud AI／移植橋渡し優先・高度制作環境は後順位）／PROVISIONAL（画面／Preview・Model・Cloud接続／許可UI・技術・性能・版） | 2026-11-17 |
 | DEC-072 | [Follow／Evolution — Memoryからの操作支援とアプリ改善ビジョン](DEC-072-follow-evolution.md) | CONFIRMED（概念区分・改善試作を伴う提案の長期方向）／PROVISIONAL（実装・受容性・版割当て） | 2026-11-15 |
-| DEC-073 | [許可された利用傾向からの潜在的な不便の発見と改善提案](DEC-073-proactive-friction-discovery.md) | CONFIRMED（高水準の提案方針）／PROVISIONAL（データ・診断・Score・UI・自動適用・実装版） | 2026-11-15 |
-| DEC-074 | [AI組み込み体験の優先順位と階層型AI組織](DEC-074-human-led-agent-organization.md) | CONFIRMED（当面の体験優先・組織は非優先の長期ビジョン）／PROVISIONAL（構造・技術・提供版・実装順序） | 2026-11-16 |
+| DEC-073 | [許可された利用傾向からの根拠付き改善提案／PX-07との整合](DEC-073-proactive-friction-discovery.md) | CONFIRMED（潜在的不便の根拠付き提案・PX-07 B＋将来Cとの整合）／PROVISIONAL（分析・データ・Score・頻度／抑制・却下／再提示・UI・自動適用・技術・版） | 2026-11-17 |
+| DEC-074 | [AI組み込み体験の優先・階層型Agent組織は長期構想／PX-15との整合](DEC-074-human-led-agent-organization.md) | CONFIRMED（当面のAI組み込みOS体験優先、階層Agent非優先の長期ビジョン、PX-15の1.0実用性基準との整合）／PROVISIONAL（組織構造・技術・適用版・1.0の個別受入条件） | 2026-11-17 |
 | DEC-075 | [`builder`が作成した新規アプリの試用・正式導入](DEC-075-builder-app-trial-and-installation.md) | CONFIRMED（方式C：安全な試用・機能／証拠／権限の説明・採用判断後の別途承認付き正式導入）／PROVISIONAL（実装方式・適用版） | 2026-11-05 |
 | DEC-076 | [`builder`製アプリのNagi連携・Action API提案／生成](DEC-076-builder-generated-action-api-integration.md) | CONFIRMED（方式C：用途別Public Action候補の自動提案／承認済みScope内実装検証／通常GUI両立）／PROVISIONAL（生成方式・Schema・適用版） | 2026-11-05 |
 | DEC-077 | [LinuxカーネルLTS標準採用とStable先行利用](DEC-077-linux-kernel-lts-stable-policy.md) | CONFIRMED（LTS標準・Stable先行利用許可）／PROVISIONAL（具体版・更新保守・patch／config管理・適用版） | 2026-11-16 |
@@ -245,6 +283,22 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | 日付 | 内容 |
 |---|---|
 | 2026-11-17 | DEC-020に8GB RAM級の前景操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する決定を追記。実施詳細は未確定とし、既存Gate・測定証拠の区別を維持。 |
+| 2026-11-17 | [DEC-009](DEC-009-nagi-first-home-desktop.md)／[DEC-010](DEC-010-intent-first-adaptive-ui.md)にPX-01のB（会話中心の統合Home）＋将来C（Project／Task等に応じる高度適応Home）を高水準でCONFIRMEDとして追記。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ更新。既存のHome標準・Desktop自動切替条件・委任Task中のHome維持・Workspace復元と手動配置保護・AI不在時の通常GUI・Gateを維持。具体レイアウト・導線・カード数・Nagi Bar位置・AI停止時詳細UI・技術・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-010](DEC-010-intent-first-adaptive-ui.md)／[DEC-008](DEC-008-proactive-behavior.md)にPX-02のB（ユーザー主導で選択・却下・固定できる適応型UI）＋将来C（高度な個人適応UI）の高水準方針をCONFIRMEDとして記録。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。既存Intent-first・新規Workspace自動配置・複数画面／手動配置保護・控えめな通知・AI不在時通常GUIとGateを維持。カード／パネルの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-055](DEC-055-project-folder-cross-app-context.md)にPX-03のB（Project中心の統合作業ビュー）＋将来C（文脈・関係・履歴に基づく高度な作業再発見／継続）を高水準でCONFIRMEDとして追加。[DEC-012](DEC-012-workspace-naming-organization.md)・[DEC-014](DEC-014-workspace-state-checkpoints.md)との整合を明記し、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。Resource参照とProject／Workspace分離、Workspace検索・保存・本人による復元先選択、Handoff・Memory・Permission／PrivacyとTask無断再開禁止を保持。統合UI・関連付け・一覧／検索／復元導線・技術・性能・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-008](DEC-008-proactive-behavior.md)／[DEC-011](DEC-011-task-approval-progress-ui.md)にPX-04のB基本方針と将来Cの高水準方向をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。Wake Word・常時待受・録音／文字起こしの保持・削除・詳細UI・音声本人認証・技術／モデル／版／時期／性能数値はPROVISIONAL。画面最終承認、Microphone Permission、Cloud送信別許可、音声割り込み抑制、停止・Text/UI fallback・Task状態保持を維持。 |
+| 2026-11-17 | [DEC-001](DEC-001-agent-autonomy-actions.md)／[DEC-026](DEC-026-ai-change-verification-and-recovery.md)にPX-05のB基本＋将来C高水準方針をCONFIRMEDとして追記。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ更新。既存のPermission・画面最終承認・Wayback復元可能性表示・思想⑨の選択AとRelease Gateを維持し、Risk閾値・未判定時条件・UI・技術・提供版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-011](DEC-011-task-approval-progress-ui.md)と[DEC-020](DEC-020-ai-os-interaction-path.md)にPX-06の統合TaskセンターB＋将来の高度オーケストレーションCを高水準方針としてCONFIRMED。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。前景優先、Permission・Scope、資源待機と明示停止／障害復旧待ちの区別、0.3・初期0.4の既存Gateを維持。Queue／Priority・表示・依存関係・Scheduler・並列度・技術・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-008](DEC-008-proactive-behavior.md)・[DEC-073](DEC-073-proactive-friction-discovery.md)にPX-07のB（文脈に応じた自然な提案）＋将来C（高度な複数提案候補の管理・比較・Feedback）を高水準でCONFIRMEDとして追加。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ更新。控えめな先回り、重大警告の別扱い、根拠・不確かさ・Memory／Privacy／PermissionとAction承認を維持。頻度・タイミング・抑制・却下／再提示・重要度判定・UI・技術・提供版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)にPX-08のバランス型B基本方針（許可された情報の自然な学習・推測の区別・重要な内容の確認）をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。情報の細分類・重要判定・確認UX・数値／実装版はPROVISIONAL、既存Memory保護・忘却・Gateは不変。 |
+| 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)でPX-09のB「自然忘却＋ユーザー管理」を基本方針として、将来Cの高度な重複統合・矛盾検出を追加する方向をCONFIRMED。[DEC-059](DEC-059-learning-history-insights.md)と[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)も整合更新。保持条件・管理UI・Cの具体方式・版／時期はPROVISIONAL。Source／Profile／Permission・明示的忘却・既存Gateは維持。 |
+| 2026-11-17 | DEC-057へPX-10のB基本方針と将来Cの高水準な状況適応方向を追記し、Checklistの進捗をPARTIALLY_RECORDEDへ更新。既存のCONFIRMEDとRelease／Activation／Acceptance Gateを維持し、詳細・技術・評価・提供版／時期は未確定。 |
+| 2026-11-17 | [DEC-021](DEC-021-roadmap-0.5-1.0.md)にPX-11のB（日常の主要作業を完結できる純正アプリ構成・品質優先）＋将来C（総合的な純正ソフトウェア環境）を高水準でCONFIRMEDとして追加。[DEC-061](DEC-061-first-party-pdf-reader-editor.md)・[DEC-062](DEC-062-first-party-utilities.md)との整合を追記、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。Phase 1〜3、PDF／ユーティリティ採用、AI非依存操作、1.0公開開発者環境と配布基盤の既存目標を維持。個別アプリの1.0必須／任意／後続、機能、形式、性能、技術、搭載／配布形態、提供版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12のB（利用可能な貼り付け方式を説明・選択できる体験）＋将来C（高度アプリ横断Workflow）を高水準CONFIRMEDとして追記。[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の共通参照A・更新提案A／承認済みTask限定更新、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)の正規Public Action優先A・限定GUI fallbackを維持。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ。初期対象・既定のコピー／参照・詳細UI／Preview・Transfer／fallback技術・性能・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-071](DEC-071-nagi-native-app-creation-experience.md)にPX-13の対話型共同制作B＋将来の個人適応型共同制作Cを高水準CONFIRMEDとして記録。ただし独立・ローカル完結型の高度な制作環境は1.0計画の最終盤を目安とする長期・低優先に整理し、当面は[DEC-045](DEC-045-nagi-porting-toolkit.md)の他OS移植とローカルLLMによるCloud開発AI／既存IDE・人間との橋渡しを重視。[DEC-017](DEC-017-third-party-developer-ecosystem.md)／[DEC-021](DEC-021-roadmap-0.5-1.0.md)の1.0開発者環境／配布基盤、[DEC-070](DEC-070-memory-informed-native-app-creation.md)のMemory／[DEC-002](DEC-002-cloud-ai-data-sharing.md)のCloud事前許可、試用・正式導入・共有の別承認を維持。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。具体的UI・Provider／Schema・モデル・性能・対象・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-017](DEC-017-third-party-developer-ecosystem.md)にPX-14のB（既存IDE・公開SDK・Porting Toolkit・任意Cloud AIの橋渡し・Build／Test／Package／Target検証を統合する開発者体験）＋将来C（互換性・継続保守／更新・配布準備支援）を高水準CONFIRMEDとして追加。[DEC-045](DEC-045-nagi-porting-toolkit.md)・[DEC-021](DEC-021-roadmap-0.5-1.0.md)および0.5〜1.0 Master Roadmapに整合させ、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。Nagi Native、SDK／Level 0〜3、移植優先OS、PT-01〜06非AI基盤、PX-13 Cloud橋渡し優先／高機能IDE後順位、Cloud事前許可、Host／Target独立・署名／導入／外部公開別承認、1.0開発者／配布目標を維持。初期言語・SDK／CLI／AI・署名／配布技術・性能・版はPROVISIONAL。 |
+| 2026-11-17 | [DEC-021](DEC-021-roadmap-0.5-1.0.md)でPX-15の1.0実用OS B（正式対応のTargetと機能で代表的日常作業を安全・安定して完結・継続）＋将来総合OS C（対応機器・アプリ・利用形態を広げる）を高水準CONFIRMED。[DEC-074](DEC-074-human-led-agent-organization.md)と[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[0.5〜1.0 Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)へ整合し、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPX-15 PARTIALLY_RECORDED。既存の一般公開品質・公開SDK／配布基盤、AI組み込み体験優先／階層Agent後順位、通常GUI・Permission／Privacy、Target／Host試験区別、Release／Activation／Acceptance Gateを維持。代表作業・1.0アプリ必須リスト・対応Hardware・性能／品質数値・公開判定・日程はPROVISIONAL。 |
+| 2026-11-17 | PX-01〜PX-15の公開PRにある確定方針を一括統合。重複するDEC-008／010／011／017／021／045、README／Checklistと0.5〜1.0ロードマップを整合し、個別の高水準CONFIRMEDを保持。未決の詳細・既存Gate・Target実装状態を昇格させない。 | 
 | 2026-11-16 | [DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)を追加。Foundation #11で段階的な信頼基盤B案を確定。Secure Boot／Hardware root of trust対応機器では保護を活用し、非対応機器でもSoftware署名検証を行い保証の差を明示。OS／更新／アプリの署名・検証、限定Developer Mode・Owner認可、製品鍵／開発鍵分離・更新／失効・危険なRollback防止と復旧を設計対象にした。具体的Secure Boot／Trust Anchor／鍵・Recovery運用・Linux実機検証・提供版は未決定。 |
 | 2026-11-16 | [DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)を追加。Foundation #10のC案（Nagi Secrets Service＋対応機器ではTPM／TEE等で保護を優先、非対応機器では暗号化ローカルKey Store／パスフレーズ等で利用・回復）を確定。Identity／Permission、User／Profile・用途別鍵分離、AIへの秘密値の不要な露出防止・鍵失効／更新・ログ秘匿・クラウド鍵預託を既定で行わない方針を記録。暗号技術・TPM／TEE・用途別回復可能性・提供版は未決定。B2 #6〜#10の高水準方針が一巡したが実装・Linux受入は別。 |
 | 2026-11-16 | [DEC-085](DEC-085-linux-transport-nagi-service-broker.md)を追加。Foundation #9のB案を基本方針に選択し、Nagi独自の型付きIPC／Service API・Service Brokerを保持しながら、データ輸送はLinux標準IPCを活用。Linux資格情報とNagi Identity／PermissionのBinding、Transport独立契約、低レイヤー再実装を前提としない方向を記録。Unix Domain Socket候補・具体技術・実測性能・適用版は未決定。 |
@@ -410,3 +464,23 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../development/entire-private-history.md)を追加した。保存先の方針と、実際のagent記録・送信・取得の実証範囲を区別する。
 
 同日後続確認：既存履歴2件は候補の文脈審査・原本保全後に移行し、本番の自動送信を再開した。実NagiOS worktreeのCodex CLIで記録→Private自動送信→別環境での取得を実証した。Desktop・他agent等の未検証範囲は[運用記録](../development/entire-private-history.md)を参照する。
+
+## 小さな用事への静かな準備・変更履歴（2026-11-16）
+
+**後続決定（2026-11-16／CONFIRMED）:** 期限超過を含む未完了の小さな用事は、AIが許可された情報に基づいて重要度を推定し、ユーザーの明示指定と許可された反応・修正から優先順位・提示方法を学習する。期限超過だけで一律に重大・高優先とせず、重要度が高くても繰り返しの催促や強い割り込みに直結させない。本人の停止・不要・忘却・訂正を優先し、重要度のScore・重み・通知間隔／上限・UI・実装版はPROVISIONAL。詳細は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**追加決定（2026-11-16／CONFIRMED）:** 小さな用事の完了判定はB「確実なら自動完了、曖昧なら確認」。対象と結果が一致する許可済みProvider／Actionの確実な成功結果、または本人の明示的な完了申告に基づき用事を完了にできる。本人申告と実行結果確認は区別し、部分成功・結果不明は完了と誤表示しない。不要／取消／延期と完了を区別し、誤判定は訂正可能にする。完了・不要な用事は再催促しない。判定基準・UI・Schema・実装版はPROVISIONALで、閲覧／監視／再実行の追加権限を生まない。詳細は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**後続決定（2026-11-16／CONFIRMED）:** リマインド方式は**C「状況中心＋期限による優先制御」**を採用。通常の用事は、関連する会話・作業状況や自然な区切りで控えめに思い出させ、明確な期限のある用事は期限を考慮して通知の優先順位を調整する。本人の明示設定と許可された学習結果を優先し、通知がAction実行や追加データ収集の権限にはならない。通知頻度・時刻・UI・判定方式・リリース版はPROVISIONAL。記録先は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**追加決定（2026-11-16）:** 明確な小さな用事は許可されたNagi会話から静かに一時記録、曖昧なら本人に確認、願望や雑談は勝手にToDo化しない。個別の登録コマンド・毎回の確認を基本要件にせず、誤登録や不要な用事は簡単に訂正・削除できる。具体判定・保存方式・タイミング・実装版はPROVISIONAL。記録はメール送信・購入等の実行許可ではない。
+
+[DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
+
+既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。
