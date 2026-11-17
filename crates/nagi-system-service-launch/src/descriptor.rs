@@ -57,6 +57,7 @@ pub struct SystemServiceLaunchMetadata {
     uid: u32,
     gid: u32,
     generation: NonZeroU64,
+    transition: GenerationTransition,
 }
 
 impl SystemServiceLaunchMetadata {
@@ -90,6 +91,10 @@ impl SystemServiceLaunchMetadata {
 
     pub fn generation(&self) -> NonZeroU64 {
         self.generation
+    }
+
+    pub fn transition(&self) -> GenerationTransition {
+        self.transition
     }
 }
 
@@ -144,6 +149,7 @@ impl ValidatedSystemServiceDescriptor {
             uid: self.uid,
             gid: self.gid,
             generation: self.generation,
+            transition: self.transition,
         }
     }
 
