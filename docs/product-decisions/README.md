@@ -123,7 +123,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
-| DEC-008 | [控えめなNagiの働きかけ／PX-02適応UI・PX-04音声／Text・PX-07文脈提案](DEC-008-proactive-behavior.md) | CONFIRMED（既存の控えめな通常提案・客観的重大警告、PX-02適応UIとの整合、PX-04音声／Text基本B＋将来ハンズフリーC、PX-07文脈提案B＋将来高度管理C）／PROVISIONAL（頻度・UI・Wake Word・録音／Transcript・AI技術・性能・版） | 2026-11-17 |
+| DEC-008 | [控えめな働きかけ／小さな用事の静かな準備・学習・Reminder／PX-02・PX-04・PX-07](DEC-008-proactive-behavior.md) | CONFIRMED（既存の控えめな通常提案・客観的重大警告、PX-02適応UIとの整合、PX-04音声／Text基本B＋将来ハンズフリーC、PX-07文脈提案B＋将来高度管理C、小さな用事の静かな準備・会話からの一時記録・状況／期限型Reminder・確証による完了／重要度の学習と不要な催促抑制）／PROVISIONAL（頻度・UI・Wake Word・録音／Transcript・AI技術・性能・版） | 2026-11-17 |
 | DEC-009 | [Nagi-first操作思想・Nagi Home / Desktop／PX-01統合Home B＋将来適応C](DEC-009-nagi-first-home-desktop.md) | CONFIRMED（既存Home／Desktop遷移・状態保持・AI不在時通常GUI、PX-01 B基本＋将来C方向）／PROVISIONAL（画面配置・導線・カード数・Nagi Bar位置・AI停止時UI・技術・提供版） | 2026-11-17 |
 | DEC-010 | [Intent-first／Workspace配置とPX-01統合Home・PX-02適応型UI](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（従前のIntent-first、新規Workspace配置・既存手動配置保護、PX-01統合Home B＋将来C、PX-02ユーザー主導適応UI B＋将来個人化C）／PROVISIONAL（具体画面・配置／表示・適応条件・学習技術・性能・版） | 2026-11-17 |
 | DEC-011 | [Task承認・進捗・PX-04音声／TextとPX-06統合Taskセンター](DEC-011-task-approval-progress-ui.md) | CONFIRMED（従前の承認・進捗・Role／Stop／復旧、PX-04音声／Text切替・画面訂正、PX-06統合TaskセンターB＋将来高度Task管理C）／PROVISIONAL（具体UI・Queue／Priority／Scheduler・Voice UI・技術・性能・版） | 2026-11-17 |
@@ -459,3 +459,23 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../development/entire-private-history.md)を追加した。保存先の方針と、実際のagent記録・送信・取得の実証範囲を区別する。
 
 同日後続確認：既存履歴2件は候補の文脈審査・原本保全後に移行し、本番の自動送信を再開した。実NagiOS worktreeのCodex CLIで記録→Private自動送信→別環境での取得を実証した。Desktop・他agent等の未検証範囲は[運用記録](../development/entire-private-history.md)を参照する。
+
+## 小さな用事への静かな準備・変更履歴（2026-11-16）
+
+**後続決定（2026-11-16／CONFIRMED）:** 期限超過を含む未完了の小さな用事は、AIが許可された情報に基づいて重要度を推定し、ユーザーの明示指定と許可された反応・修正から優先順位・提示方法を学習する。期限超過だけで一律に重大・高優先とせず、重要度が高くても繰り返しの催促や強い割り込みに直結させない。本人の停止・不要・忘却・訂正を優先し、重要度のScore・重み・通知間隔／上限・UI・実装版はPROVISIONAL。詳細は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**追加決定（2026-11-16／CONFIRMED）:** 小さな用事の完了判定はB「確実なら自動完了、曖昧なら確認」。対象と結果が一致する許可済みProvider／Actionの確実な成功結果、または本人の明示的な完了申告に基づき用事を完了にできる。本人申告と実行結果確認は区別し、部分成功・結果不明は完了と誤表示しない。不要／取消／延期と完了を区別し、誤判定は訂正可能にする。完了・不要な用事は再催促しない。判定基準・UI・Schema・実装版はPROVISIONALで、閲覧／監視／再実行の追加権限を生まない。詳細は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**後続決定（2026-11-16／CONFIRMED）:** リマインド方式は**C「状況中心＋期限による優先制御」**を採用。通常の用事は、関連する会話・作業状況や自然な区切りで控えめに思い出させ、明確な期限のある用事は期限を考慮して通知の優先順位を調整する。本人の明示設定と許可された学習結果を優先し、通知がAction実行や追加データ収集の権限にはならない。通知頻度・時刻・UI・判定方式・リリース版はPROVISIONAL。記録先は[DEC-008](DEC-008-proactive-behavior.md)。
+
+
+
+**追加決定（2026-11-16）:** 明確な小さな用事は許可されたNagi会話から静かに一時記録、曖昧なら本人に確認、願望や雑談は勝手にToDo化しない。個別の登録コマンド・毎回の確認を基本要件にせず、誤登録や不要な用事は簡単に訂正・削除できる。具体判定・保存方式・タイミング・実装版はPROVISIONAL。記録はメール送信・購入等の実行許可ではない。
+
+[DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
+
+既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。
