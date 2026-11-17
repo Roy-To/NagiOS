@@ -5,18 +5,18 @@ use std::thread;
 
 use nagi_identity_session::{
     decode_snapshot_with_migration, resolve_capability_principal, AuthenticatedInteractiveCaller,
-    AuthenticatedSystemServicePrincipal, AuthorizationFailure, AuthorizationRequest,
-    CallerContextId, CapabilityPrincipalAdapter, Clock, CurrentIdentityResolver,
-    DenyCapabilityPrincipalAdapter, EndSessionResult, GuestCleanupFailure, GuestProfileCleaner,
-    IdSourceFailure, IdentityAccessContext, IdentityAction, IdentityAuthorizer, IdentityError,
-    IdentityIdSource, IdentityProvider, IdentityService, IdentitySnapshot,
-    IdentitySnapshotMigrator, IdentitySnapshotStore, InMemorySnapshotStore, LiveStatus,
-    LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator, NoopIdentityEventSink,
-    PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata, ProfileRootAuthorizer,
-    ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef, RecoverySource,
-    ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError, SnapshotStoreState,
-    SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext, TryClockError,
-    TryLiveError, UnixMillis, UserId, UserStorageRootAdapter,
+    AuthenticatedProvisioningCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
+    AuthorizationRequest, CallerContextId, CapabilityPrincipalAdapter, Clock,
+    CurrentIdentityResolver, DenyCapabilityPrincipalAdapter, EndSessionResult, GuestCleanupFailure,
+    GuestProfileCleaner, IdSourceFailure, IdentityAccessContext, IdentityAction,
+    IdentityAuthorizer, IdentityError, IdentityIdSource, IdentityProvider, IdentityService,
+    IdentitySnapshot, IdentitySnapshotMigrator, IdentitySnapshotStore, InMemorySnapshotStore,
+    LiveStatus, LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator,
+    NoopIdentityEventSink, PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata,
+    ProfileRootAuthorizer, ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef,
+    RecoverySource, ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError,
+    SnapshotStoreState, SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext,
+    TryClockError, TryLiveError, UnixMillis, UserId, UserStorageRootAdapter,
 };
 use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
 
@@ -50,7 +50,38 @@ impl TrustedCallerContext for TestCaller {
 }
 
 impl AuthenticatedInteractiveCaller for TestCaller {}
+impl AuthenticatedProvisioningCaller for TestCaller {}
 impl AuthenticatedSystemServicePrincipal for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::Interactive for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::SystemService for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for TestCaller {}
+
+struct ProvisioningOnlyCaller {
+    principal: PrincipalId,
+    context: CallerContextId,
+}
+
+impl ProvisioningOnlyCaller {
+    fn new() -> Self {
+        Self {
+            principal: PrincipalId::new("system.identity-provisioner-test").unwrap(),
+            context: CallerContextId::new("caller_provisioner_test").unwrap(),
+        }
+    }
+}
+
+impl TrustedCallerContext for ProvisioningOnlyCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.context
+    }
+}
+
+impl AuthenticatedProvisioningCaller for ProvisioningOnlyCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for ProvisioningOnlyCaller {}
 
 #[derive(Clone, Default)]
 struct SharedStore(Arc<Mutex<StoreState>>);
@@ -281,10 +312,21 @@ impl IdentityIdSource for TestIds {
 struct TestAuthorizer {
     denied: Option<IdentityAction>,
     unavailable: Option<IdentityAction>,
+    deny_once: Option<IdentityAction>,
+    fail_commit_on_denial: Option<(IdentityAction, SharedStore)>,
 }
 
 impl IdentityAuthorizer for TestAuthorizer {
     fn authorize(&mut self, request: &AuthorizationRequest) -> Result<(), AuthorizationFailure> {
+        if self.deny_once == Some(request.action) {
+            self.deny_once = None;
+            if let Some((action, store)) = self.fail_commit_on_denial.take() {
+                if action == request.action {
+                    store.fail_next_commit();
+                }
+            }
+            return Err(AuthorizationFailure::Denied);
+        }
         if self.unavailable == Some(request.action) {
             return Err(AuthorizationFailure::Unavailable);
         }
@@ -367,6 +409,26 @@ fn metadata(name: &str) -> (LocalUserMetadata, ProfileMetadata) {
 
 fn recover(service: &mut TestService, caller: &TestCaller) {
     service.recover(caller).unwrap();
+}
+
+#[test]
+fn provisioning_proof_creates_users_and_profiles_without_an_interactive_session() {
+    let mut service = new_service(SharedStore::default(), TestCleaner::default()).0;
+    let recovery_caller = TestCaller::new("provisioning-proof-recovery");
+    recover(&mut service, &recovery_caller);
+    let provisioner = ProvisioningOnlyCaller::new();
+    let (user, first_profile) = service
+        .create_local_user(&provisioner, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let second_profile = service
+        .create_profile(
+            &provisioner,
+            user,
+            ProfileMetadata::new("Work", Some("en-US".to_owned())).unwrap(),
+        )
+        .unwrap();
+    assert_ne!(first_profile, second_profile);
+    assert!(service.snapshot().sessions.is_empty());
 }
 
 struct AllowProfileRoot;
@@ -2310,6 +2372,7 @@ fn login_authorization_denial_publishes_no_session() {
         TestAuthorizer {
             denied: Some(IdentityAction::LoginLocalUser),
             unavailable: None,
+            ..TestAuthorizer::default()
         },
     );
     service.recover(&caller).unwrap();
@@ -2324,6 +2387,90 @@ fn login_authorization_denial_publishes_no_session() {
         Err(IdentityError::AuthorizationDenied)
     );
     assert!(service.snapshot().sessions.is_empty());
+}
+
+#[test]
+fn failed_post_commit_session_rollback_is_exposed_and_owner_can_retry_cancellation() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("post-commit-rollback-failure");
+    let (mut setup, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut setup, &caller);
+    let (user_id, profile_id) = setup
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+
+    let authorizer = TestAuthorizer {
+        deny_once: Some(IdentityAction::ResolveCurrentIdentity),
+        fail_commit_on_denial: Some((IdentityAction::ResolveCurrentIdentity, store.clone())),
+        ..TestAuthorizer::default()
+    };
+    let (mut service, _) =
+        new_service_with_authorizer(store.clone(), TestCleaner::default(), authorizer);
+    service.recover(&caller).unwrap();
+    let first_login = service.login_local(
+        &caller,
+        user_id,
+        profile_id.clone(),
+        None,
+        nagi_identity_session::IdempotencyKey::new("rollback-fails").unwrap(),
+    );
+    assert_eq!(first_login, Err(IdentityError::StoreUnavailable));
+
+    let session_id = service.snapshot().sessions[0].session_id.clone();
+    assert!(matches!(
+        service.snapshot().sessions[0].lifecycle,
+        nagi_identity_session::SessionLifecycle::Active
+    ));
+    assert!(
+        matches!(
+            service.resolve_current_identity(&caller),
+            Err(ResolutionError::NoSession)
+        ),
+        "a durable Active record without the published lease is not authority"
+    );
+    assert_eq!(
+        service.login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("retry-before-cancel").unwrap(),
+        ),
+        Err(IdentityError::ProfileAlreadyActive)
+    );
+
+    assert_eq!(
+        service.end_session(&caller, &session_id),
+        Ok(EndSessionResult::Ended),
+        "the recorded owner can retry cancellation without an active caller map or lease"
+    );
+    assert!(matches!(
+        service.resolve_current_identity(&caller),
+        Err(ResolutionError::Ended)
+    ));
+    assert!(matches!(
+        IdentitySnapshot::from_json(&store.current().unwrap())
+            .unwrap()
+            .sessions[0]
+            .lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended { .. }
+    ));
+    let next = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("login-after-cancel").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        service
+            .resolve_current_identity(&caller)
+            .unwrap()
+            .session_id(),
+        &next
+    );
 }
 
 #[test]

@@ -38,11 +38,18 @@ pub trait TrustedCallerContext {
     fn context_id(&self) -> &CallerContextId;
 }
 
+/// Private proof traits seal the authentication boundaries. Only code in this
+/// crate can mint these proofs; external callers must wait for the real C2/C3
+/// producer adapters instead of asserting authentication themselves.
+pub(crate) mod caller_proof_seal {
+    pub trait Interactive {}
+    pub trait SystemService {}
+    pub trait Provisioning {}
+}
+
 /// A caller context emitted by the trusted peer-authentication adapter after
-/// authenticating the OS peer for this connection. C2/Broker integration owns
-/// the peer check and implements this marker only on that authenticated
-/// result; payload-supplied PrincipalId or CallerContextId values are not
-/// evidence and must never be wrapped as this context.
+/// authenticating the OS peer for this connection. The trait is sealed so a
+/// consumer cannot mark its own payload-supplied identifiers as authenticated.
 ///
 /// ```compile_fail,E0277
 /// use nagi_identity_session::{AuthenticatedInteractiveCaller, CallerContextId, PrincipalId, TrustedCallerContext};
@@ -66,12 +73,67 @@ pub trait TrustedCallerContext {
 /// fn require_service<T: AuthenticatedSystemServicePrincipal>() {}
 /// require_service::<InteractivePeer>();
 /// ```
-pub trait AuthenticatedInteractiveCaller: TrustedCallerContext {}
+///
+/// ```compile_fail
+/// use nagi_identity_session::{AuthenticatedInteractiveCaller, CallerContextId, PrincipalId, TrustedCallerContext};
+/// struct PayloadCaller;
+/// impl TrustedCallerContext for PayloadCaller {
+///     fn principal_id(&self) -> &PrincipalId { unimplemented!() }
+///     fn context_id(&self) -> &CallerContextId { unimplemented!() }
+/// }
+/// impl AuthenticatedInteractiveCaller for PayloadCaller {}
+/// ```
+///
+/// ```compile_fail
+/// use nagi_identity_session::{AuthenticatedInteractiveCaller, AuthenticatedProvisioningCaller};
+/// fn interactive_cannot_provision<T: AuthenticatedInteractiveCaller>() {
+///     fn create_profile<T: AuthenticatedProvisioningCaller>() {}
+///     create_profile::<T>();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use nagi_identity_session::{AuthenticatedSystemServicePrincipal, CallerContextId, PrincipalId, TrustedCallerContext};
+/// struct ClaimedSystem;
+/// impl TrustedCallerContext for ClaimedSystem {
+///     fn principal_id(&self) -> &PrincipalId { unimplemented!() }
+///     fn context_id(&self) -> &CallerContextId { unimplemented!() }
+/// }
+/// impl AuthenticatedSystemServicePrincipal for ClaimedSystem {}
+/// ```
+///
+/// ```compile_fail
+/// use nagi_identity_session::{AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal};
+/// fn interactive_cannot_recover<T: AuthenticatedInteractiveCaller>() {
+///     fn recover<T: AuthenticatedSystemServicePrincipal>() {}
+///     recover::<T>();
+/// }
+/// ```
+#[allow(private_bounds)]
+pub trait AuthenticatedInteractiveCaller:
+    TrustedCallerContext + caller_proof_seal::Interactive
+{
+}
 
 /// The distinct caller context for an OS service principal. Its implementation
 /// must bind OS credentials to ownership of the service endpoint. It is not
-/// derived from, or interchangeable with, an interactive Session.
-pub trait AuthenticatedSystemServicePrincipal: TrustedCallerContext {}
+/// derived from, or interchangeable with, an interactive Session. This proof
+/// is separately sealed from interactive and provisioning caller proofs.
+#[allow(private_bounds)]
+pub trait AuthenticatedSystemServicePrincipal:
+    TrustedCallerContext + caller_proof_seal::SystemService
+{
+}
+
+/// A trusted provisioning operation context. Account and profile creation
+/// needs an authenticated provisioning path; an interactive Session context
+/// alone is not sufficient. The account mapping owner supplies the real
+/// producer adapter.
+#[allow(private_bounds)]
+pub trait AuthenticatedProvisioningCaller:
+    TrustedCallerContext + caller_proof_seal::Provisioning
+{
+}
 
 /// Caller contexts may be unique only inside a principal namespace. The
 /// service therefore binds every in-memory current-session key to both values.
@@ -1230,7 +1292,7 @@ where
     /// ProfileId history; this crate has no repair API for that condition.
     pub fn create_local_user(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedProvisioningCaller,
         user_metadata: LocalUserMetadata,
         profile_metadata: ProfileMetadata,
     ) -> Result<(UserId, ProfileId), IdentityError> {
@@ -1295,7 +1357,7 @@ where
     /// ProfileId history; this crate has no repair API for that condition.
     pub fn create_profile(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedProvisioningCaller,
         user_id: UserId,
         metadata: ProfileMetadata,
     ) -> Result<ProfileId, IdentityError> {
@@ -1585,7 +1647,7 @@ where
             Some(session_id.clone()),
         ) {
             let reason = SessionEndReason::Recovery;
-            let _ = self.end_record(&caller_key, &session_id, reason);
+            self.end_record(&caller_key, &session_id, reason)?;
             return Err(error);
         }
 
@@ -1635,6 +1697,19 @@ where
         if self.active_by_caller.get(&caller_key) != Some(session_id) {
             if self.session_owners.get(session_id) != Some(&caller_key) {
                 return Err(IdentityError::SessionNotCurrent);
+            }
+            let active = self
+                .snapshot
+                .sessions
+                .iter()
+                .find(|session| &session.session_id == session_id)
+                .is_some_and(|session| matches!(session.lifecycle, SessionLifecycle::Active));
+            if active {
+                // A post-commit rollback can fail before this session is ever
+                // published in active_by_caller or receives a live lease.
+                // The owner may retry durable cancellation, but the lease-less
+                // record is never accepted as current authority.
+                return self.end_record(&caller_key, session_id, SessionEndReason::UserLogout);
             }
             if let Some(profile_id) = self
                 .snapshot

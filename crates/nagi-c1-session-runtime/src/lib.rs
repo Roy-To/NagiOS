@@ -11,12 +11,12 @@ use std::fs::File;
 use libnagi::credential::AccountRecord;
 use libnagi::security::{AccountStore, Role};
 use nagi_identity_session::{
-    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, CurrentIdentityResolver,
-    DurableStoreError, GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink,
-    IdentityService, InteractiveSessionContext, LinuxIdentitySnapshotStore, LiveSnapshot,
-    LocalUserMetadata, NoopIdentityEventSink, ProfileId, ProfileKind, ProfileMetadata,
-    RecoveryReport, ResolutionError, SessionId, TrustedCallerContext, TryLiveError, UnixMillis,
-    UserId,
+    AuthenticatedInteractiveCaller, AuthenticatedProvisioningCaller,
+    AuthenticatedSystemServicePrincipal, CurrentIdentityResolver, DurableStoreError,
+    GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityService,
+    InteractiveSessionContext, LinuxIdentitySnapshotStore, LiveSnapshot, LocalUserMetadata,
+    NoopIdentityEventSink, ProfileId, ProfileKind, ProfileMetadata, RecoveryReport,
+    ResolutionError, SessionId, TryLiveError, UnixMillis, UserId,
 };
 
 mod clock;
@@ -167,7 +167,7 @@ where
     /// not infer it from a caller label or account name.
     pub fn create_local_user(
         &mut self,
-        caller: &impl TrustedCallerContext,
+        caller: &impl AuthenticatedProvisioningCaller,
         user: LocalUserMetadata,
         profile: ProfileMetadata,
     ) -> Result<(UserId, ProfileId), RuntimeError> {
