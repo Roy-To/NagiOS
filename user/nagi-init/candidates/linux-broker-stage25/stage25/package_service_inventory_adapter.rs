@@ -1108,8 +1108,8 @@ fn map_snapshot_error(error: SnapshotError) -> PeerDenial {
 
 #[cfg(test)]
 mod tests {
-    use super::super as supplier_root;
     use super::*;
+    use crate as supplier_root;
     use nagi_package::{InstallPolicy, PackageView, TRUSTED_SIGNING_PUBLIC_KEY};
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
     use std::sync::Mutex;

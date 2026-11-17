@@ -1,0 +1,11 @@
+[package]
+name = "nagi-dev-service-catalog-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-init-package-provider = { path = "../../../../../nagi-init-package-provider" }
+nagi-model = { path = "../../../../../../crates/nagi-model" }
+nagi-model-manager = { path = "../../../../../nagi-model-manager" }
+nagi-package = { path = "../../../../../nagi-package" }

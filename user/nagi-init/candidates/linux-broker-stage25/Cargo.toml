@@ -1,0 +1,38 @@
+[package]
+name = "nagi-pid1-live-peer-supplier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "stage25/pid1_live_peer_supplier.rs"
+
+[features]
+default = []
+linux-runtime-fixture = ["nagi-init-spawn-contract/test-support"]
+task24-owner-co-location = []
+
+[dependencies]
+nagi-init-spawn-contract = { path = "../../../../../lane-c3-sandbox/crates/nagi-init-spawn-contract" }
+linux-peer-credentials-supplier = { path = "stage25/task39-contract-overlay" }
+nagi-dev-service-catalog-consumer = { path = "stage25/task25-contract-overlay" }
+nagi-task37-receipt-supplier = { path = "stage25/task37-contract-overlay" }
+nagi-init-package-provider = { path = "../../../nagi-init-package-provider" }
+nagi-model = { path = "../../../../crates/nagi-model" }
+nagi-model-manager = { path = "../../../nagi-model-manager" }
+nagi-package = { path = "../../../nagi-package" }
+nagi-init-service-call = { path = "../../../../crates/nagi-init-service-call" }
+nagi-sdk = { path = "../../../../sdk/rust" }
+nagi-service-contract = { path = "../../../../crates/nagi-service-contract" }
+libnagi = { path = "../../../libnagi" }
+libc = "=0.2.189"
+sha2 = "=0.10.9"
+
+[workspace]
+members = [
+    ".",
+    "stage25/task25-contract-overlay",
+    "stage25/task37-contract-overlay",
+    "stage25/task39-contract-overlay",
+]
+resolver = "2"
