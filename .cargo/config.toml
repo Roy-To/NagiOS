@@ -2,7 +2,9 @@
 rustflags = ["-C", "link-arg=-Tkernel/linker.ld"]
 
 [target.x86_64-unknown-nagi-user]
-rustflags = ["-C", "link-arg=-Tuser/nagi-init/linker.ld", "--cfg", "getrandom_backend=\"custom\""]
+# The init package build script supplies its binary-only linker script from
+# CARGO_MANIFEST_DIR so Cargo's package-root link invocation resolves it.
+rustflags = ["--cfg", "getrandom_backend=\"custom\""]
 
 # The UEFI target is soft-float (no SSE/AVX), so curve25519-dalek's SIMD
 # backend cannot be lowered; the loader's slot-manifest signature check

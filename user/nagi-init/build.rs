@@ -72,6 +72,26 @@ fn main() {
         return;
     }
 
+    // Cargo may invoke rustc/linkers with the selected package as its working
+    // directory even when `cargo build` was started at the workspace root.
+    // Resolve the Nagi init script from this manifest and apply it only to the
+    // final nagi-init binary, not every crate built for the target.
+    let init_manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
+    let init_linker_script = init_manifest_dir.join("linker.ld");
+    if !init_linker_script.is_file() {
+        panic!(
+            "Nagi init linker script is missing: {}",
+            init_linker_script.display()
+        );
+    }
+    println!("cargo:rerun-if-changed={}", init_linker_script.display());
+    println!("cargo:rustc-link-arg-bin=nagi-init=-T");
+    println!(
+        "cargo:rustc-link-arg-bin=nagi-init={}",
+        init_linker_script.display()
+    );
+
     if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
         // Keep rust-lld from truncating the undefined-symbol inventory at its
         // default error cap. This is the authoritative M17 target link; seeing
