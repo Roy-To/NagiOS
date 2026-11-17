@@ -1,0 +1,105 @@
+--- a/linux_init_process_owner_candidate.rs
++++ b/linux_init_process_owner_candidate.rs
+@@ -897,6 +897,9 @@
+     launch_lease: Option<BoundLaunchLease<LaunchLease, LaunchRecord>>,
+     lease_cleanup: LeaseRetirementState,
+     reaped: Option<ServiceExitStatus>,
++    /// A C1-selected exact cleanup request. Lifecycle poll performs the one
++    /// termination attempt and continues observation through the sole reaper.
++    cleanup_requested: bool,
+ }
+ 
+ enum PendingChild<Raw> {
+@@ -1194,6 +1197,7 @@
+                         LeaseRetirementState::NotAttempted,
+                     ),
+                     reaped: None,
++                    cleanup_requested: false,
+                 });
+                 Ok(process_id)
+             }
+@@ -1303,7 +1307,21 @@
+         }
+ 
+         for index in 0..self.children.len() {
+-            if self.children[index].reaped.is_none() {
++            if self.children[index].cleanup_requested && self.children[index].reaped.is_none() {
++                // Reserve before exact reap/descriptor close. An unfinished
++                // request stays owner-held and is observed again on a later poll.
++                self.terminal_results
++                    .reserve_completion_slot()
++                    .map_err(|_| BackendError::TransportFailure)?;
++                let entry = &mut self.children[index];
++                if !Self::attempt_running_cleanup(
++                    &mut self.os,
++                    &mut entry.child,
++                    &mut entry.reaped,
++                ) {
++                    continue;
++                }
++            } else if self.children[index].reaped.is_none() {
+                 let status = self
+                     .os
+                     .try_wait(&mut self.children[index].child)
+@@ -1502,12 +1520,59 @@
+         )
+     }
+ 
++    /// Begin cleanup for one exact child without creating a second reaper.
++    /// The pidfd proof selects the candidate slot, then the retained clone3
++    /// process-instance identity and LaunchRecord must both match. A later
++    /// `poll()` uses the existing ProcessOs termination state and Pid1ChildReaper.
++    pub(crate) fn request_cleanup_exact(
++        &mut self,
++        proof: &SpawnedProcessPidfd,
++        record: LaunchRecord,
++    ) -> Result<(), BackendError> {
++        let identity = proof.identity();
++        let process_id = proof.process_id();
++        if let Some(entry) = self.children.iter_mut().find(|entry| entry.process_id == process_id) {
++            if !self.os.same_process_instance(&entry.child, &identity) || entry.record != record {
++                return Err(BackendError::IdentityRejected);
++            }
++            if entry.cleanup_requested {
++                return Err(BackendError::ProtocolViolation);
++            }
++            // Publish one-shot ownership before the pidfd syscall. A syscall
++            // error remains an ambiguous request; later polls observe/reap but
++            // this method cannot send a second signal.
++            entry.cleanup_requested = true;
++            return self
++                .os
++                .terminate(&mut entry.child)
++                .map_err(|_| BackendError::TransportFailure);
++        }
++        if let Some(entry) = self.quarantine.iter().find(|entry| entry.process_id == process_id) {
++            let same_instance = match &entry.child {
++                PendingChild::Prepared(child) => self.os.same_process_instance(child, &identity),
++                PendingChild::ReleaseUncertain(child) => self.os.same_process_instance(child, &identity),
++                PendingChild::Running(child) => self.os.same_process_instance(child, &identity),
++            };
++            let owned_record = entry.record.or_else(|| entry.launch_lease.as_ref().map(|lease| lease.record));
++            if same_instance && owned_record == Some(record) {
++                // Shutdown already owns cleanup for this exact launch. Do not
++                // issue another termination request or create another owner.
++                return Ok(());
++            }
++        }
++        Err(BackendError::IdentityRejected)
++    }
++
+     /// A PID is not an identity. Only a released, unreaped process with a live
+-    /// registered record can be resolved here.
++    /// registered record and no pending exact cleanup request can be resolved.
+     fn live_record(&self, process_id: u32) -> Option<&LaunchRecord> {
+         self.children
+             .iter()
+-            .find(|entry| entry.process_id == process_id && entry.reaped.is_none())
++            .find(|entry| {
++                entry.process_id == process_id
++                    && entry.reaped.is_none()
++                    && !entry.cleanup_requested
++            })
+             .map(|entry| &entry.record)
+     }
+ 
