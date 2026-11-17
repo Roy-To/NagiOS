@@ -10,12 +10,12 @@ use nagi_c1_session_runtime::{
     RuntimeError,
 };
 use nagi_identity_session::{
-    AuthenticatedInteractiveCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
-    AuthorizationRequest, CallerContextId, GuestCleanupFailure, GuestProfileCleaner,
-    IdentityAction, IdentityAuthorizer, IdentityError, IdentityService, LinuxIdentitySnapshotStore,
-    LiveStatus, LocalUserMetadata, NoopIdentityEventSink, PrincipalId, ProfileId, ProfileMetadata,
-    RecoverySource, SessionId, SessionKind, SessionLifecycle, TrustedCallerContext, UnixMillis,
-    UserId,
+    AuthenticatedInteractiveCaller, AuthenticatedProvisioningCaller,
+    AuthenticatedSystemServicePrincipal, AuthorizationFailure, AuthorizationRequest,
+    CallerContextId, GuestCleanupFailure, GuestProfileCleaner, IdentityAction, IdentityAuthorizer,
+    IdentityError, IdentityService, LinuxIdentitySnapshotStore, LiveStatus, LocalUserMetadata,
+    NoopIdentityEventSink, PrincipalId, ProfileId, ProfileMetadata, RecoverySource, SessionId,
+    SessionKind, SessionLifecycle, TrustedCallerContext, UnixMillis, UserId,
 };
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(1);
@@ -45,39 +45,82 @@ impl Drop for TestDirectory {
     }
 }
 
-struct TestCaller {
+struct TestCallerIdentity {
     principal: PrincipalId,
     context: CallerContextId,
 }
 
-impl TestCaller {
-    fn service() -> Self {
-        Self {
+struct TestServiceCaller(TestCallerIdentity);
+
+impl TestServiceCaller {
+    fn new() -> Self {
+        Self(TestCallerIdentity {
             principal: PrincipalId::new("c1.system-service").unwrap(),
             context: CallerContextId::new("caller_issuer_runtime").unwrap(),
-        }
-    }
-
-    fn interactive() -> Self {
-        Self {
-            principal: PrincipalId::new("c1.interactive").unwrap(),
-            context: CallerContextId::new("caller_user_runtime").unwrap(),
-        }
+        })
     }
 }
 
-impl TrustedCallerContext for TestCaller {
+struct TestProvisioningCaller(TestCallerIdentity);
+
+impl TestProvisioningCaller {
+    fn new() -> Self {
+        Self(TestCallerIdentity {
+            principal: PrincipalId::new("c1.system-service").unwrap(),
+            context: CallerContextId::new("caller_provisioner_runtime").unwrap(),
+        })
+    }
+}
+
+struct TestInteractiveCaller(TestCallerIdentity);
+
+impl TestInteractiveCaller {
+    fn new() -> Self {
+        Self(TestCallerIdentity {
+            principal: PrincipalId::new("c1.interactive").unwrap(),
+            context: CallerContextId::new("caller_user_runtime").unwrap(),
+        })
+    }
+}
+
+impl TrustedCallerContext for TestServiceCaller {
     fn principal_id(&self) -> &PrincipalId {
-        &self.principal
+        &self.0.principal
     }
 
     fn context_id(&self) -> &CallerContextId {
-        &self.context
+        &self.0.context
     }
 }
 
-impl AuthenticatedInteractiveCaller for TestCaller {}
-impl AuthenticatedSystemServicePrincipal for TestCaller {}
+impl AuthenticatedSystemServicePrincipal for TestServiceCaller {}
+impl nagi_identity_session::caller_proof_seal::SystemService for TestServiceCaller {}
+
+impl TrustedCallerContext for TestProvisioningCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.0.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.0.context
+    }
+}
+
+impl AuthenticatedProvisioningCaller for TestProvisioningCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for TestProvisioningCaller {}
+
+impl TrustedCallerContext for TestInteractiveCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.0.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.0.context
+    }
+}
+
+impl AuthenticatedInteractiveCaller for TestInteractiveCaller {}
+impl nagi_identity_session::caller_proof_seal::Interactive for TestInteractiveCaller {}
 
 struct ScopedAuthorizer {
     service: PrincipalId,
@@ -85,10 +128,10 @@ struct ScopedAuthorizer {
 }
 
 impl ScopedAuthorizer {
-    fn for_callers(service: &TestCaller, interactive: &TestCaller) -> Self {
+    fn for_callers(service: &TestServiceCaller, interactive: &TestInteractiveCaller) -> Self {
         Self {
-            service: service.principal.clone(),
-            interactive: interactive.principal.clone(),
+            service: service.principal_id().clone(),
+            interactive: interactive.principal_id().clone(),
         }
     }
 }
@@ -132,8 +175,8 @@ impl GuestProfileCleaner for NoGuestCleanup {
 
 fn identity_service(
     directory: &TestDirectory,
-    service_caller: &TestCaller,
-    interactive_caller: &TestCaller,
+    service_caller: &TestServiceCaller,
+    interactive_caller: &TestInteractiveCaller,
 ) -> IdentityService<
     LinuxIdentitySnapshotStore,
     LinuxIdentityIdSource,
@@ -167,14 +210,14 @@ fn expires_later() -> UnixMillis {
 
 fn prepare_persistent_user(
     directory: &TestDirectory,
-    service_caller: &TestCaller,
-    interactive_caller: &TestCaller,
+    service_caller: &TestServiceCaller,
+    interactive_caller: &TestInteractiveCaller,
 ) -> (UserId, ProfileId) {
     let mut service = identity_service(directory, service_caller, interactive_caller);
     service.recover(service_caller).unwrap();
     service
         .create_local_user(
-            service_caller,
+            &TestProvisioningCaller::new(),
             LocalUserMetadata::new("Owner").unwrap(),
             ProfileMetadata::new("Main", Some("en-US".into())).unwrap(),
         )
@@ -183,8 +226,8 @@ fn prepare_persistent_user(
 
 fn runtime(
     directory: &TestDirectory,
-    service_caller: &TestCaller,
-    interactive_caller: &TestCaller,
+    service_caller: &TestServiceCaller,
+    interactive_caller: &TestInteractiveCaller,
     account: AccountRecord,
     user_id: UserId,
     profile_id: ProfileId,
@@ -202,7 +245,7 @@ fn runtime(
 
 fn login(
     runtime: &mut LinuxSessionRuntime<ScopedAuthorizer, NoGuestCleanup, NoopIdentityEventSink>,
-    caller: &TestCaller,
+    caller: &TestInteractiveCaller,
 ) -> SessionId {
     runtime
         .authenticate_and_login(
@@ -228,8 +271,8 @@ fn corrupt_current_and_optional_lkg(directory: &TestDirectory, corrupt_lkg: bool
 #[test]
 fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_it() {
     let directory = TestDirectory::new();
-    let service_caller = TestCaller::service();
-    let caller = TestCaller::interactive();
+    let service_caller = TestServiceCaller::new();
+    let caller = TestInteractiveCaller::new();
     let account = test_account();
     let (user_id, profile_id) = prepare_persistent_user(&directory, &service_caller, &caller);
     let mut runtime = runtime(
@@ -294,8 +337,8 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
 #[test]
 fn restart_ends_the_saved_session_and_reauthentication_persists_user_profile_without_id_reuse() {
     let directory = TestDirectory::new();
-    let service_caller = TestCaller::service();
-    let caller = TestCaller::interactive();
+    let service_caller = TestServiceCaller::new();
+    let caller = TestInteractiveCaller::new();
     let account = test_account();
     let (user_id, profile_id) = prepare_persistent_user(&directory, &service_caller, &caller);
     let mut first = runtime(
@@ -356,8 +399,8 @@ fn restart_ends_the_saved_session_and_reauthentication_persists_user_profile_wit
 #[test]
 fn corrupt_current_uses_lkg_only_for_recovery_and_requires_fresh_authentication() {
     let directory = TestDirectory::new();
-    let service_caller = TestCaller::service();
-    let caller = TestCaller::interactive();
+    let service_caller = TestServiceCaller::new();
+    let caller = TestInteractiveCaller::new();
     let account = test_account();
     let (user_id, profile_id) = prepare_persistent_user(&directory, &service_caller, &caller);
     let mut first = runtime(
@@ -406,8 +449,8 @@ fn corrupt_current_uses_lkg_only_for_recovery_and_requires_fresh_authentication(
 #[test]
 fn failed_durable_recovery_from_corrupt_current_and_lkg_issues_no_session() {
     let directory = TestDirectory::new();
-    let service_caller = TestCaller::service();
-    let caller = TestCaller::interactive();
+    let service_caller = TestServiceCaller::new();
+    let caller = TestInteractiveCaller::new();
     let account = test_account();
     let (user_id, profile_id) = prepare_persistent_user(&directory, &service_caller, &caller);
     let mut first = runtime(
@@ -440,8 +483,8 @@ fn failed_durable_recovery_from_corrupt_current_and_lkg_issues_no_session() {
 #[test]
 fn supplied_account_mapping_must_match_a_persisted_user_and_owned_profile() {
     let directory = TestDirectory::new();
-    let service_caller = TestCaller::service();
-    let caller = TestCaller::interactive();
+    let service_caller = TestServiceCaller::new();
+    let caller = TestInteractiveCaller::new();
     let mut service = identity_service(&directory, &service_caller, &caller);
     service.recover(&service_caller).unwrap();
     drop(service);
