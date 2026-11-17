@@ -1,3 +1,14 @@
+## NDP-11 repeatable synthetic host evaluation — 2026-11-17
+
+Status: `PARTIAL`. `python3 tests/developer-platform/evaluation/run_host_checks.py`
+builds/runs the approved portable C test and repeats the NDP-06 UI CLI three
+times. Both stdout comparisons and source preservation pass. UI CLI wall time
+(including startup) has an observed median of about 34 ms on macOS arm64,
+Clang 21 / Python 3.9.6. Five runner failure checks and all 18 UI tests pass.
+Manual/LLM comparison, SDK validation, rendering and Nagi target are unrun;
+no speedup, standard host readiness or milestone PASS is claimed. See the
+[evaluation README](../tests/developer-platform/evaluation/README.md).
+
 ## Linux development-target acceptance — 2026-11-16 13:16 JST (04:16 UTC)
 
 Status: **PASS for the bounded development-target scenario only; PARTIAL for production Linux integration.**
