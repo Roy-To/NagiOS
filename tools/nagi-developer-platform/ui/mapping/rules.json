@@ -1,0 +1,563 @@
+{
+  "gtk-builder-ui": {
+    "layouts": {
+      "GtkBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Column"
+        ]
+      },
+      "GtkFixed": {
+        "models": [],
+        "reason": "absolute_placement_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkGrid": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "GtkHBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Row"
+        ]
+      },
+      "GtkOverlay": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Stack"
+        ]
+      },
+      "GtkPaned": {
+        "models": [],
+        "reason": "interactive_splitter_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkStack": {
+        "models": [],
+        "reason": "page_switching_not_equivalent_to_layout_stack",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkTable": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "GtkVBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Column"
+        ]
+      }
+    },
+    "widgets": {
+      "GtkApplicationWindow": {
+        "models": [],
+        "reason": "shell_regions_and_stable_labels_require_redesign",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ApplicationShellSpec"
+        ]
+      },
+      "GtkBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Column"
+        ]
+      },
+      "GtkButton": {
+        "models": [
+          "ButtonModel"
+        ],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Button"
+        ]
+      },
+      "GtkCheckButton": {
+        "models": [
+          "ToggleModel"
+        ],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Checkbox"
+        ]
+      },
+      "GtkComboBox": {
+        "models": [
+          "SelectModel"
+        ],
+        "reason": "option_data_and_popup_require_app_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Select"
+        ]
+      },
+      "GtkDialog": {
+        "models": [
+          "DialogModel"
+        ],
+        "reason": "modal_scope_actions_and_focus_restore_need_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::Dialog"
+        ]
+      },
+      "GtkEntry": {
+        "models": [
+          "TextFieldModel"
+        ],
+        "reason": "text_model_excludes_cursor_selection_and_ime_backend",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::TextField"
+        ]
+      },
+      "GtkFixed": {
+        "models": [],
+        "reason": "absolute_placement_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkFrame": {
+        "models": [],
+        "reason": "frame_title_and_content_require_composition",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::Panel"
+        ]
+      },
+      "GtkGrid": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "GtkHBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Row"
+        ]
+      },
+      "GtkImage": {
+        "models": [],
+        "reason": "image_component_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkLabel": {
+        "models": [],
+        "reason": "passive_text_only_rich_text_links_and_images_need_review",
+        "refs": [
+          "user/nagi-ui/src/text.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ResolvedText"
+        ]
+      },
+      "GtkListBox": {
+        "models": [
+          "NavigationModel"
+        ],
+        "reason": "list_selection_and_data_require_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::List"
+        ]
+      },
+      "GtkOverlay": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Stack"
+        ]
+      },
+      "GtkPaned": {
+        "models": [],
+        "reason": "interactive_splitter_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkProgressBar": {
+        "models": [],
+        "reason": "progress_range_and_state_require_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::ProgressIndicator"
+        ]
+      },
+      "GtkRadioButton": {
+        "models": [
+          "ToggleModel"
+        ],
+        "reason": "radio_group_exclusivity_requires_app_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Radio"
+        ]
+      },
+      "GtkScrolledWindow": {
+        "models": [],
+        "reason": "scroll_policy_and_input_require_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::ScrollContainer"
+        ]
+      },
+      "GtkSeparator": {
+        "models": [],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Divider"
+        ]
+      },
+      "GtkSpinButton": {
+        "models": [],
+        "reason": "numeric_spin_control_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkStack": {
+        "models": [],
+        "reason": "page_switching_not_equivalent_to_layout_stack",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkSwitch": {
+        "models": [
+          "ToggleModel"
+        ],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Switch"
+        ]
+      },
+      "GtkTable": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "GtkTextView": {
+        "models": [],
+        "reason": "multiline_editor_not_in_inspected_contract",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "unavailable",
+        "targets": []
+      },
+      "GtkVBox": {
+        "models": [],
+        "reason": "packing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Column"
+        ]
+      },
+      "GtkWindow": {
+        "models": [],
+        "reason": "shell_regions_and_stable_labels_require_redesign",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ApplicationShellSpec"
+        ]
+      }
+    }
+  },
+  "qt-designer-ui": {
+    "layouts": {
+      "QFormLayout": {
+        "models": [],
+        "reason": "spacing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "QGridLayout": {
+        "models": [],
+        "reason": "spacing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Grid"
+        ]
+      },
+      "QHBoxLayout": {
+        "models": [],
+        "reason": "spacing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Row"
+        ]
+      },
+      "QVBoxLayout": {
+        "models": [],
+        "reason": "spacing_positions_spans_and_size_policy_require_review",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "LayoutKind::Column"
+        ]
+      }
+    },
+    "widgets": {
+      "QCheckBox": {
+        "models": [
+          "ToggleModel"
+        ],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Checkbox"
+        ]
+      },
+      "QComboBox": {
+        "models": [
+          "SelectModel"
+        ],
+        "reason": "option_data_and_popup_require_app_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Select"
+        ]
+      },
+      "QDialog": {
+        "models": [
+          "DialogModel"
+        ],
+        "reason": "modal_scope_actions_and_focus_restore_need_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::Dialog"
+        ]
+      },
+      "QLabel": {
+        "models": [],
+        "reason": "passive_text_only_rich_text_links_and_images_need_review",
+        "refs": [
+          "user/nagi-ui/src/text.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ResolvedText"
+        ]
+      },
+      "QLineEdit": {
+        "models": [
+          "TextFieldModel"
+        ],
+        "reason": "text_model_excludes_cursor_selection_and_ime_backend",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::TextField"
+        ]
+      },
+      "QMainWindow": {
+        "models": [],
+        "reason": "shell_regions_and_stable_labels_require_redesign",
+        "refs": [
+          "user/nagi-ui/src/layout.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ApplicationShellSpec"
+        ]
+      },
+      "QPushButton": {
+        "models": [
+          "ButtonModel"
+        ],
+        "reason": "shared_contract_vocabulary",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Button"
+        ]
+      },
+      "QRadioButton": {
+        "models": [
+          "ToggleModel"
+        ],
+        "reason": "radio_group_exclusivity_requires_app_adapter",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "direct",
+        "targets": [
+          "ComponentKind::Radio"
+        ]
+      },
+      "QWidget": {
+        "models": [],
+        "reason": "generic_widget_role_requires_review",
+        "refs": [
+          "user/nagi-ui/src/interaction.rs"
+        ],
+        "relation": "redesign",
+        "targets": [
+          "ComponentKind::Panel"
+        ]
+      }
+    }
+  }
+}
