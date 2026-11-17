@@ -1,7 +1,7 @@
 # DEC-009 — Nagi-first操作思想とNagi Home / Desktop
 
-**状態:** CONFIRMED  
-**最終合意日:** 2026-11-15  
+**状態:** CONFIRMED（既存Nagi-first／Home・Desktop操作規則、PX-01の対話中心の統合Home B＋将来の高度な適応Home Cという高水準方針）／PROVISIONAL（具体的レイアウト・導線・カード数・Nagi Bar位置・AI停止時の詳細UI・技術・提供版）  
+**最終合意日:** 2026-11-17（PX-01を追加。2026-11-15までの既存合意を維持）  
 **対象:** Nagi OSの操作思想とログイン後の製品体験。実装バージョン・採用時期は本決定では確定しない  
 **関連:** DEC-001〜008、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
@@ -52,6 +52,31 @@ NagiをOS操作の第一の窓口としながら、ユーザーが従来のGUI�
 - 中断していたAI Taskは、ユーザーが明示的に「再開」するまで実行しない。
 - 復元できない状態やアプリ状態は、復元成功として扱わない。部分復元・復元不能をユーザーに正直に示す。
 
+## PX-01 — 対話中心の統合Home B＋将来の高度適応Home C（2026-11-17）
+
+### CONFIRMED — B案を基本とする
+
+Nagi Homeは、既存仕様の「**対話中心でシンプルなログイン後の標準画面**」を保ちつつ、ユーザーが必要に応じて**会話・アプリ・Task・Workspace等の日常操作の入口へ分かりやすくアクセスできる統合Home体験**を基本とする。Homeは会話、作業の再開と進行中Taskの把握・操作の中心として機能し、アプリの本格的なGUI作業はNagi Desktopと自然につながるようにする。入口を統合することは、固定のランチャや常設パネルを採用したり、Homeを情報量の多いDashboardへ変更したりする決定ではない。
+
+この高水準Bは既存の具体的な画面規則を置き換えない。**Homeからアプリを直接起動したらDesktopへ自動切替**し、**委任したTaskの実行だけではDesktopへ切り替えず原則Homeを維持**する。DesktopのNagi BarからHomeへ戻れ、双方向の切替でConversation／Task／Workspace／App状態を失わない。既存のログイン後の短い挨拶・中央のText／Voice入力・控えめな「前回の続き」「進行中のTask」カード、前回WorkspaceのDesktop上での復元、復元の限界の表示と停止Taskの無断再実行禁止も維持する。
+
+### CONFIRMED — 将来C案へ高度化する方向
+
+B案の対話中心・ユーザー主導を保ちつつ、[DEC-010](DEC-010-intent-first-adaptive-ui.md)のIntent-first方針に沿い、**現在のProject・Task・利用目的／状況等に応じて、Home上の情報や操作候補・パネルの見せ方をより適切に調整する高度な適応Home体験**へ発展させる。利用者の明示設定と手動選択をAIの推測より優先し、Homeの構造が予期せず変更されて通常操作が阻害されないようにする。特定の推薦アルゴリズム・新しいTask起動方法・カード生成基盤・版別導入計画をこの決定で確定しない。
+
+### 維持する既存CONFIRMEDと安全境界
+
+- Home／Desktopの切替やHomeでの提案・適応表示は、既存Workspaceのウィンドウ配置・固定ウィンドウ・複数ディスプレイのユーザー指定を勝手に書き換えない。DEC-010の「新規Workspaceでは目的に沿う許可済み自動配置、既存Workspaceは提案とユーザー選択を基本」の区別を維持する。
+- AI／Modelが停止・未導入・利用不能でも、通常のDesktop／GUI、キーボード・マウスによるOS・アプリ操作を維持する。Bの統合Homeや将来Cの適応を、通常操作のAI依存化・起動不能の理由にしない。アクセシビリティの先行整備とAI-nativeの将来方向の分離はDEC-097を継承する。
+- 「前回の続き」、Workspace切替、HomeのTask入口の表示・選択だけで、停止・復旧待ちのAI Taskや副作用Actionを無断で再開・再実行しない。Task進捗・承認はDEC-011、Workspace復元はDEC-014に従い、Permission／Capability／Policy・Privacy／Memory／Profile・Waybackの既存境界を保持する。
+- この決定は製品の高水準な画面体験の方向であり、実装完了・性能達成、0.1／0.2／0.3／0.4+のRelease／Activation／Acceptance Gate、Workstream開始条件を変更しない。
+
+### PX-01の未決事項（PROVISIONAL／OPEN）
+
+- Home／Desktopの具体レイアウト、操作導線・Navigation、情報の配置と優先順位、追加カードの種類・件数、Nagi Barの位置・見た目、画面切替の細かなUI／Animation、アクセシビリティの具体契約。
+- Homeのアプリ／Task／Workspaceへの入口の具体機能・提示条件、適応Homeのパネル切替・固定・却下・訂正等のUI、Project／Task文脈の取得・判定と個人化の方法、表示負荷や復元中の動作。
+- AI停止時の利用可能状態・代替操作・復旧案内の詳細UIと失敗時の表現、使用技術・Framework・Provider・性能・受入方法、対象端末・実装時期・提供Version。
+
 ## 例外・禁止・安全境界
 
 - Nagi-firstは従来GUIの削除や利用制限を意味しない。AIが使えないことを理由に通常のOS操作を停止しない。
@@ -84,6 +109,7 @@ NagiをOS操作の第一の窓口としながら、ユーザーが従来のGUI�
 | 2026-10-29 | Nagi-first、Nagi Home / Desktop、ログイン時表示、Workspace再開時のTask実行・復元境界を確認 |
 | 2026-11-04 | 選択Cを確定。通常は複数ディスプレイを含むWorkspace全体を切り替え、ユーザー指定の画面を維持または単独切り替えできる。状態保持・手動配置・Task再実行禁止を継承 |
 | 2026-11-15 | Nagiに委任したTaskの作業中は原則Nagi Homeを維持する方針を確定。アプリの直接起動時にDesktopへ切り替える既存規則は維持する。 |
+| 2026-11-17 | PX-01でB（対話中心でシンプルさを保ち、日常操作への入口を統合したHome）を基本、将来C（Project／Task等に合わせた高度なHome適応）を高水準の方向としてCONFIRMED。ログイン時Home、Homeからのアプリ起動でDesktop切替、委任Task中のHome維持、Workspace復元、AI不在時の通常GUI、DEC-010の既存Workspace保護を維持。具体UI・技術・提供版はPROVISIONAL。 |
 
 ## Foundation #28の後続決定（2026-11-16）
 
