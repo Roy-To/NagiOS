@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 
@@ -125,18 +126,25 @@ def build_phase_cpio(args: argparse.Namespace, output: Path, phase: str) -> None
 
 
 def unique_qmp_socket(output: Path, phase: str) -> Path:
+    """Choose a fresh short QMP socket name relative to the repository root."""
     filename = {"save": "s", "read": "r", "recovery-ui": "u"}.get(phase)
     if filename is None:
         raise AcceptanceError("unknown QMP phase")
     output = output.resolve(strict=True)
     if not output.is_dir():
         raise AcceptanceError("QMP output path must be a directory")
-    path = output / filename
-    if len(os.fsencode(path)) >= 100:
+    # QEMU's Unix socket limit applies to the path string passed to bind(2),
+    # not to the resolved worktree path. Keep it short and worktree-relative
+    # so a deep output directory cannot prevent the guest from starting.
+    path = Path(f".nagi-qmp-{os.getpid():x}-{uuid.uuid4().hex[:8]}-{filename}")
+    if path.is_absolute() or len(os.fsencode(path)) >= 100:
         raise AcceptanceError("QMP socket path exceeds the supported Unix-domain path length")
-    if path.exists():
+    try:
+        (REPO_ROOT / path).lstat()
+    except FileNotFoundError:
+        return path
+    else:
         raise AcceptanceError("refusing to reuse an existing QMP socket path")
-    return path
 
 
 def qemu_argv(
@@ -435,6 +443,7 @@ def run_phase(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            cwd=REPO_ROOT,
         )
     serial_offset = 0
     serial_text = ""
@@ -615,6 +624,9 @@ def main() -> int:
         )
         output = args.output_dir.expanduser().resolve()
         output.mkdir(parents=False, exist_ok=False)
+        # QMP uses a short relative path under this worktree. Inputs and output
+        # have already been resolved, so changing cwd cannot reinterpret them.
+        os.chdir(REPO_ROOT)
         phases = ("save",) if args.recovery_ui_smoke else ("save", "read")
         for phase in phases:
             build_phase_cpio(args, output / f"notes-{phase}.cpio", phase)
