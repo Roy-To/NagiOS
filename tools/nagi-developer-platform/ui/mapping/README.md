@@ -1,0 +1,116 @@
+# NDP-07 — UI対応表・未対応レポート
+
+NDP-06 `analysis/analyze.py` の実出力（`analysis_version=1`、Qt Designer / GTK
+Builder）を標準入力から読み、Nagi UI契約への**仮の候補**と不足をJSONまたは
+Markdownで出力する非AIのhostツール。Python 3.9の標準ライブラリだけを使う。
+renderer、UI契約、SDK、元UI、業務ロジックは生成・変更しない。
+
+## 実行
+
+repository rootから:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/analyze.py \
+  --root tests/developer-platform/evaluation/ui task_panel.ui \
+  | PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/mapping/map_ui.py
+
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/analyze.py \
+  --root tests/developer-platform/evaluation/ui gtk4_task_panel.ui \
+  | PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/mapping/map_ui.py --format markdown
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tools/nagi-developer-platform/ui/mapping -p 'test_*.py'
+```
+
+`gtk3_task_panel.ui`、`gtk_minimal.ui`も同じ経路を使う。入力失敗時は非ゼロで終了し、
+stderrに固定error codeだけを返す。標準入力はUTF-8 JSON、上限4 MiB・構造深度64・
+値100,000個。重複JSON key、不明な解析版、不正なcollectionは拒否する。
+これは内部ツールの処理上限であり製品要件ではない。
+
+`map_analysis(analysis, contract=None, rules=None)` はJSON互換dictを返す。
+`json_report` / `markdown_report` で出力できる。差し替え引数は信頼済みのローカル
+adapter用であり、入力UIからルール、契約path、関数を指定する機能はない。
+
+## 読み方
+
+`mapping.status` と `mapping.relation` は契約の語彙に対する分類。
+`approval=PROVISIONAL` は全候補に付き、UI ownerの承認を表さない。
+
+| status | 意味 |
+|---|---|
+| `supported`（対応） | 同じ役割を表す契約の部品候補が存在する。描画・実行・意味の完全互換は未検証 |
+| `partial`（部分対応） | 合成・再設計が必要な候補。配置、状態、範囲等の変換は未実装 |
+| `unsupported`（未対応） | 調査した契約に相当する部品がない、またはこの工程がbackend接続を提供しない |
+| `needs_decision`（要判断） | 意味情報・候補・根拠が不足。未知クラスや契約の版／根拠の変更を含む |
+
+relationは `direct`（語彙の直接候補）、`redesign`（再設計）、`unavailable`
+（未提供）、`unknown`（不明）。rowの`status`は全体の移植状態で、語彙対応があっても
+最大`partial`。`summary.port_complete`は常にfalseであり、移植完了の判定器ではない。
+
+各rowには次の独立した評価がある。全項目の`verification=not_run`はhostで構造を
+照合しただけで、そのUI動作を実行していないことを表す。
+
+| axis | 根拠と不足 |
+|---|---|
+| `appearance_layout` | ComponentKind / LayoutKind等の候補。token、style、geometry、size policy、grid span、packing、実描画は未検証 |
+| `pointer_keyboard` | ButtonModel等の状態モデル候補。device event変換やアプリの操作接続は未実装。TextFieldModelはEnter/Escape等に限られ、cursor／selection／IMEの実装ではない |
+| `focus` | 元のtab order／focus propertyを保持。情報欠落は要判断。FocusManager／FocusScopeへの変換、modal scope、disabled対象、focus復元は未検証 |
+| `accessibility` | Qtのaccessible属性、GTK3のinternal-child accessible、GTK4 accessibilityを保持。stable name key／role／state／relationへの変換とservice連携は未実装 |
+| `localization` | UTF-8本文・翻訳属性を保持。MessageKey、en-US／ja-JPのcatalog、fallback、shaping、長文の測定とoverflowは未検証。translatable属性だけで対応済みにしない |
+| `backend` | renderer、device input、focus／a11y service、catalog、event／binding／業務ロジックのadapterはこの工程で提供しない |
+
+JSONの`source_analysis`に解析器の**全出力**をdeep copyで保存する。各rowにも元factを
+残し、部品、layout、connection、binding、resource、unknown、custom widget、
+unresolved reference、declared slotを列挙する。元の順序・名前を保ち、GTKのcontainerが
+widgetとlayoutの両方に現れる場合は別rowにする。summaryの件数はrow数であり画面部品数
+ではない。追加propertyや配置証拠を保持することは、その意味を対応済みにすることではない。
+Markdownは候補・軸別statusと理由・契約根拠を一覧にし、全元factの確認にはJSONを使う。
+
+### 実fixtureの例
+
+| 入力／対象 | 候補と判定 | 残るもの |
+|---|---|---|
+| Qt `addButton` | `ComponentKind::Button`、direct / supported（PROVISIONAL） | 外観・pointer/keyboard・focusはpartial、a11yは要判断、backendは未対応。`clicked()` → `addTask()`は別rowで未接続 |
+| Qt `taskName` | `ComponentKind::TextField`、direct / supported（PROVISIONAL） | accessibleNameとtab orderは保持するが、IME、service、stable key、catalogは未接続 |
+| GTK3 `body` | 明示verticalから`LayoutKind::Column`、redesign / partial | packing、spacing、size policyの変換と描画 |
+| GTK4 `grid` | `LayoutKind::Grid`、redesign / partial | row／column／column-spanは元factに残す。正しい変換、描画、操作は未検証 |
+| GTK3 `entryAccessible` | AtkObjectはunknown / needs_decision | entryのa11y証拠として関連付けるが、描画widgetに変換しない |
+
+## 仮定（PROVISIONAL）
+
+- UI ownerの承認前の内部照合であり、公開support matrixや新SDK APIではない。
+  `rules.json`にclass別候補・relation・理由・根拠・model名を分離した。
+  実装方針の変更はこのデータとadapterを差し替える。承認状態を自動昇格しない。
+- 現行`nagi-ui` 0.1.0の
+  [UI契約](../../../../docs/architecture/ui-design-system.md) と
+  [実API](../../../../user/nagi-ui/src/lib.rs)を読み取り参照する。
+  `contract.py`は文書・Cargo.toml・全srcのSHA-256を、同梱`contract_snapshot.json`と
+  照合する。元APIの削除、版の変更、ファイル欠落、内容変更で部品の全非backend軸と
+  対応statusを要判断へ戻す。候補名は過去の候補として残る。変更が意味に無関係でも
+  保守的に要判断になる。snapshotは根拠の読取記録であり正式なSDK版契約ではない。
+  snapshotの更新はowner調整後に文書・APIと各ルールを再確認してから行う。
+- QWidgetはPanel、main windowはApplicationShellSpec、QLabel／GtkLabelはResolvedText
+  を使う再設計候補とする。rich text、画像、link等の等価性は仮定しない。
+  Qt form layoutはGridへの再設計候補。grid span／絶対座標等は実装しない。
+- GtkBoxはorientationが明示されている場合だけRow／Columnを選ぶ。implicit defaultは
+  推測しない。GtkStackのpage切替とNagi LayoutKind::Stackの重なり配置は異なるため
+  未対応。GtkFixed、GtkPaned、GtkImage、GtkTextView、GtkSpinButtonも現調査の未対応。
+  unknown custom widgetはextends先が既知でも自動対応しない。
+- 対応は文字列を同定して候補を提示する段階に限る。source property、disabled状態、
+  focus policy、binding式、signal handler、業務ロジックの完全な意味解釈は行わない。
+  元UIにないfocus／a11y／catalog情報は補完せず要判断にする。
+- backendの未対応は、このtoolと参照したbackend-neutral契約が提供しないという意味。
+  Nagi全体のrendererの不存在は断定しない。hostテストをNagi targetのGUI受入としない。
+
+UI ownerへの後続確認候補: 上記部品対応とlayout再設計、画像／multiline editor／
+spin／splitterの部品方針、公開可能なAPI範囲・版識別、device input／IME、modal focus、
+accessibility service、翻訳とtext layout、型付きevent／binding接続の担当境界。
+本工程の実装はこれらの承認を前提とせず、権限やUI契約を変更しない。
+
+## 検証
+
+runner指定コマンドで23テスト成功（host、Python 3.9）。4つの実fixtureを実解析器の
+API／CLIで読み、対応候補・未対応部品・未知要素・未解決参照・event／binding未接続、
+focus／a11y情報、長い日本語と英語、全候補APIの実在、契約削除／版変更／API変更、adapter差し替え、
+決定性、入力と出力の独立性、元ファイルの不変性、JSON入力の異常系を確認する。
+renderer・操作・Nagi targetの試験は実施していない。
