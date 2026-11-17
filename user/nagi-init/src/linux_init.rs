@@ -3853,6 +3853,126 @@ fn select_notes_keyboard_device() -> Result<String, BackendError> {
 }
 
 #[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+fn load_notes_framebuffer_modules() -> Result<(), BackendError> {
+    use std::ffi::CStr;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    const EXPECTED_RELEASE: &str = "6.8.0-71-generic";
+    const MODULE_INIT_COMPRESSED_FILE: std::os::raw::c_int = 4;
+    const NR_FINIT_MODULE: std::os::raw::c_long = 313;
+    const EMPTY_MODULE_PARAMETERS: &[u8] = b"\0";
+
+    #[repr(C)]
+    struct LinuxUtsname {
+        sysname: [std::os::raw::c_char; 65],
+        nodename: [std::os::raw::c_char; 65],
+        release: [std::os::raw::c_char; 65],
+        version: [std::os::raw::c_char; 65],
+        machine: [std::os::raw::c_char; 65],
+        domainname: [std::os::raw::c_char; 65],
+    }
+
+    #[link(name = "c")]
+    extern "C" {
+        fn uname(name: *mut LinuxUtsname) -> std::os::raw::c_int;
+        fn syscall(number: std::os::raw::c_long, ...) -> std::os::raw::c_long;
+    }
+
+    const MODULES: [(&str, &str); 4] = [
+        ("ttm", "/nagi-dev-modules/ttm.ko.zst"),
+        ("drm_ttm_helper", "/nagi-dev-modules/drm_ttm_helper.ko.zst"),
+        (
+            "drm_vram_helper",
+            "/nagi-dev-modules/drm_vram_helper.ko.zst",
+        ),
+        ("bochs", "/nagi-dev-modules/bochs.ko.zst"),
+    ];
+
+    let mut uts = core::mem::MaybeUninit::<LinuxUtsname>::uninit();
+    // SAFETY: `uname` writes one complete utsname into this uninitialized
+    // output buffer before it is read below.
+    if unsafe { uname(uts.as_mut_ptr()) } != 0 {
+        pid1_log!(
+            "nagi-init: cannot identify kernel before loading the development Notes framebuffer driver: {:?}",
+            std::io::Error::last_os_error()
+        );
+        return Err(BackendError::Unavailable);
+    }
+    // SAFETY: uname succeeded and initialized the full structure.
+    let uts = unsafe { uts.assume_init() };
+    // SAFETY: uname's release field is NUL terminated by the Linux ABI.
+    let release = unsafe { CStr::from_ptr(uts.release.as_ptr()) }
+        .to_str()
+        .map_err(|_| BackendError::ProtocolViolation)?;
+    if release != EXPECTED_RELEASE {
+        pid1_log!(
+            "nagi-init: refusing pinned framebuffer modules for kernel_release={release} expected={EXPECTED_RELEASE}"
+        );
+        return Err(BackendError::IdentityRejected);
+    }
+
+    for (name, path) in MODULES {
+        if std::path::Path::new("/sys/module").join(name).is_dir() {
+            pid1_log!(
+                "nagi-init: development Notes framebuffer module already present name={name}"
+            );
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+            pid1_log!(
+                "nagi-init: pinned framebuffer module unavailable name={name} error_kind={:?}",
+                error.kind()
+            );
+            BackendError::Unavailable
+        })?;
+        if !metadata.file_type().is_file()
+            || metadata.uid() != 0
+            || metadata.gid() != 0
+            || metadata.mode() & 0o7777 != 0o444
+        {
+            pid1_log!("nagi-init: pinned framebuffer module rejected name={name}");
+            return Err(BackendError::ProtocolViolation);
+        }
+        let module = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(NOTES_INPUT_O_NOFOLLOW)
+            .open(path)
+            .map_err(|error| {
+                pid1_log!(
+                    "nagi-init: pinned framebuffer module open failed name={name} error_kind={:?}",
+                    error.kind()
+                );
+                BackendError::Unavailable
+            })?;
+        // SAFETY: the fd refers to a root-owned, immutable, digest-pinned
+        // compressed module included by the A-owned development CPIO builder.
+        // The parameter pointer names a valid empty NUL-terminated string.
+        // The syscall uses only the kernel-supported compressed-module flag;
+        // it does not ignore vermagic, modversions, or signature checks.
+        let loaded = unsafe {
+            syscall(
+                NR_FINIT_MODULE,
+                module.as_raw_fd(),
+                EMPTY_MODULE_PARAMETERS
+                    .as_ptr()
+                    .cast::<std::os::raw::c_char>(),
+                MODULE_INIT_COMPRESSED_FILE,
+            )
+        };
+        if loaded < 0 {
+            let error = std::io::Error::last_os_error();
+            pid1_log!(
+                "nagi-init: pinned framebuffer module load failed name={name} error={error:?}"
+            );
+            return Err(BackendError::Unavailable);
+        }
+        pid1_log!("nagi-init: development Notes framebuffer module loaded name={name}");
+    }
+    Ok(())
+}
+
+#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
 fn prepare_notes_desktop_devices() -> Result<String, BackendError> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
@@ -3860,16 +3980,39 @@ fn prepare_notes_desktop_devices() -> Result<String, BackendError> {
         path: &str,
         is_expected_device: impl FnOnce(&std::fs::FileType) -> bool,
     ) -> Result<(), BackendError> {
-        let metadata = std::fs::symlink_metadata(path).map_err(|_| BackendError::Unavailable)?;
+        let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+            pid1_log!(
+                "nagi-init: Notes device grant failed path={path} operation=stat error_kind={:?}",
+                error.kind()
+            );
+            BackendError::Unavailable
+        })?;
         if metadata.uid() != 0 || metadata.gid() != 0 || !is_expected_device(&metadata.file_type())
         {
+            pid1_log!(
+                "nagi-init: Notes device grant rejected path={path} uid={} gid={} file_type={:?}",
+                metadata.uid(),
+                metadata.gid(),
+                metadata.file_type()
+            );
             return Err(BackendError::ProtocolViolation);
         }
-        chown_dev_path_as(path, DEV_NOTES_DESKTOP_UID, DEV_NOTES_DESKTOP_GID)?;
-        change_dev_path_mode(path, 0o600)
+        chown_dev_path_as(path, DEV_NOTES_DESKTOP_UID, DEV_NOTES_DESKTOP_GID).map_err(|error| {
+            pid1_log!(
+                "nagi-init: Notes device grant failed path={path} operation=chown error={error:?}"
+            );
+            error
+        })?;
+        change_dev_path_mode(path, 0o600).map_err(|error| {
+            pid1_log!(
+                "nagi-init: Notes device grant failed path={path} operation=chmod error={error:?}"
+            );
+            error
+        })
     }
 
     mount_notes_sysfs_read_only()?;
+    load_notes_framebuffer_modules()?;
     let keyboard_path = select_notes_keyboard_device()?;
 
     // Keep the Notes child isolated from the Nagi action service's UID. Grant

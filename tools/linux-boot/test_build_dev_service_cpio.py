@@ -175,6 +175,10 @@ class DevelopmentServiceCpioTests(unittest.TestCase):
 
     def test_notes_desktop_runtime_and_binary_are_pinned_into_dev_cpio(self):
         notes_desktop = b"static-notes-desktop-elf"
+        framebuffer_modules = {
+            filename: f"module:{filename}".encode()
+            for filename in builder.EXPECTED_FRAMEBUFFER_MODULES
+        }
         archive = builder.build_archive(
             self.inputs["init"],
             self.inputs["package"],
@@ -182,6 +186,7 @@ class DevelopmentServiceCpioTests(unittest.TestCase):
             self.inputs["client"],
             notes_desktop=notes_desktop,
             notes_phase="save",
+            framebuffer_modules=framebuffer_modules,
         )
         result = builder.validate_archive(
             archive,
@@ -191,9 +196,68 @@ class DevelopmentServiceCpioTests(unittest.TestCase):
             self.inputs["client"],
             notes_desktop=notes_desktop,
             notes_phase="save",
+            framebuffer_modules=framebuffer_modules,
         )
         self.assertEqual(result["cpio_structure"], "PASS")
         self.assertEqual(result["development_input_bytes_match"], "PASS")
+        module_files = {
+            item["path"]
+            for item in result["development_inputs"]
+            if item["path"].startswith(f"{builder.FRAMEBUFFER_MODULES_DIR}/")
+        }
+        self.assertEqual(
+            module_files,
+            {
+                f"{builder.FRAMEBUFFER_MODULES_DIR}/{filename}"
+                for filename in builder.EXPECTED_FRAMEBUFFER_MODULES
+            },
+        )
+
+    def test_framebuffer_module_inputs_reject_missing_and_tampered_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            modules_dir = Path(directory)
+            with self.assertRaisesRegex(builder.BuildInputError, "input unavailable"):
+                builder.read_framebuffer_modules(modules_dir)
+
+            first_module = next(iter(builder.EXPECTED_FRAMEBUFFER_MODULES))
+            (modules_dir / first_module).write_bytes(b"modified Ubuntu module")
+            with self.assertRaisesRegex(builder.BuildInputError, "fixed input digest mismatch"):
+                builder.read_framebuffer_modules(modules_dir)
+
+    def test_notes_desktop_cpio_rejects_missing_or_extra_framebuffer_modules(self):
+        modules = {
+            filename: f"module:{filename}".encode()
+            for filename in builder.EXPECTED_FRAMEBUFFER_MODULES
+        }
+        with self.assertRaisesRegex(builder.BuildInputError, "pinned framebuffer modules"):
+            builder.validate_archive(
+                builder.build_archive(
+                    self.inputs["init"],
+                    self.inputs["package"],
+                    self.inputs["service"],
+                    self.inputs["client"],
+                    notes_desktop=b"static-notes-desktop-elf",
+                    notes_phase="save",
+                    framebuffer_modules=modules,
+                ),
+                self.inputs["init"],
+                self.inputs["package"],
+                self.inputs["service"],
+                self.inputs["client"],
+                notes_desktop=b"static-notes-desktop-elf",
+                notes_phase="save",
+                framebuffer_modules={"bochs.ko.zst": b"only-bochs"},
+            )
+        with self.assertRaisesRegex(builder.BuildInputError, "pinned Ubuntu driver set"):
+            builder.build_archive(
+                self.inputs["init"],
+                self.inputs["package"],
+                self.inputs["service"],
+                self.inputs["client"],
+                notes_desktop=b"static-notes-desktop-elf",
+                notes_phase="save",
+                framebuffer_modules={"bochs.ko.zst": b"only-bochs"},
+            )
 
     def test_notes_desktop_runtime_requires_matching_binary_and_valid_phase(self):
         with self.assertRaises(builder.BuildInputError):

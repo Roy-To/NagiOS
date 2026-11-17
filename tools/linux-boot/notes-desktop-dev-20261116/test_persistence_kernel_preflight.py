@@ -134,6 +134,8 @@ class PersistenceKernelPreflightTests(unittest.TestCase):
             service.write_bytes(b"service sentinel\n")
             client = root / "client.elf"
             client.write_bytes(b"client sentinel\n")
+            framebuffer_modules = root / "framebuffer-modules"
+            framebuffer_modules.mkdir()
             qemu = root / "qemu-stub"
             qemu.write_text(
                 "#!/bin/sh\nprintf 'invoked\\n' > \"$PERSISTENCE_QEMU_MARKER\"\nexit 97\n",
@@ -159,6 +161,8 @@ class PersistenceKernelPreflightTests(unittest.TestCase):
                     str(service),
                     "--client",
                     str(client),
+                    "--framebuffer-modules-dir",
+                    str(framebuffer_modules),
                     "--kernel",
                     str(elf),
                     "--qemu",

@@ -86,7 +86,7 @@ export PATH
   exit 1
 }
 
-cargo_home="$script_dir/cargo-home-rust198"
+cargo_home="${NAGI_CARGO_STORE:-$HOME/.cargo}"
 target_dir="$script_dir/target-nagi-init-rust198-$label"
 build_dir_value=${CARGO_BUILD_BUILD_DIR-}
 if [ "${CARGO_BUILD_BUILD_DIR+x}" = x ] && [ "$build_dir_value" != "$target_dir" ]; then
@@ -111,8 +111,9 @@ export CARGO_BUILD_TARGET_DIR="$target_dir"
 # override can redirect intermediates independently of the target directory.
 # Pin it here so inherited or Cargo-home config cannot escape the lane target.
 export CARGO_BUILD_BUILD_DIR="$target_dir"
-# Product PID 1 keeps the Servo graph lock separate from the root Linux-test lock.
-export CARGO_RESOLVER_LOCKFILE_PATH="$repo_root/user/nagi-init/Cargo.lock"
+# This Linux preview uses the sibling manifest and root Linux-only lock graph;
+# the product manifest retains Nagi-target Servo patches and its own lockfile.
+export CARGO_RESOLVER_LOCKFILE_PATH="$repo_root/Cargo.lock"
 export CARGO="$cargo"
 export RUSTC="$rustc"
 export CARGO_BUILD_RUSTC="$rustc"
@@ -128,7 +129,7 @@ export RUSTFLAGS='--cfg linux_dev_preview_smoke --cfg linux_desktop_dev_smoke --
 
 set -- "$cargo" build \
   --verbose \
-  --manifest-path "$repo_root/user/nagi-init/Cargo.toml" \
+  --manifest-path "$repo_root/user/nagi-init-linux-tests/Cargo.toml" \
   --package nagi-init \
   --locked \
   --no-default-features \

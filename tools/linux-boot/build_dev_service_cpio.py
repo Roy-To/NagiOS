@@ -16,6 +16,13 @@ import boot_acceptance
 EXPECTED_PACKAGE_SHA256 = "7f58ad97e255860d83af73095dff8903a57740380a64ca0073619e25654c5e0d"
 EXPECTED_SERVICE_SHA256 = "479e01ea9d8a3d8493ff93b14b946321724be2af3df051669ab70006a99497fb"
 EXPECTED_CLIENT_SHA256 = "99b4dc7c3379132238355075c83c4c3bc52b83eea4537ee81c33a163c87ad60b"
+EXPECTED_FRAMEBUFFER_MODULES = {
+    "ttm.ko.zst": "dafc0f343043ed03f347444753ffb8352a69185c778a194f01a76f5d21326016",
+    "drm_ttm_helper.ko.zst": "c7b774f07d12edfd5c54df19b6e3e303b9661c492cf2317b91289590176ec155",
+    "drm_vram_helper.ko.zst": "e7265d8389343e4769eb044ee0e02b109c7565c99c51ee7dccbfde7858bb3f5b",
+    "bochs.ko.zst": "7d6e68803b5e545817729340472e659196ba60ece45ea2fadb4150f0906d0529",
+}
+FRAMEBUFFER_MODULES_DIR = "nagi-dev-modules"
 FIXTURE_PATH = "run/nagi/dev-data/nagi-m19-live-file.txt"
 FIXTURE_BYTES = b"nagi development search fixture\n"
 NOTES_DESKTOP_PATH = "nagi-notes-desktop"
@@ -46,6 +53,25 @@ def _read_fixed(path: Path, expected_sha256: str, label: str) -> bytes:
     if not payload or hashlib.sha256(payload).hexdigest() != expected_sha256:
         raise BuildInputError(f"{label}: fixed input digest mismatch")
     return payload
+
+
+def read_framebuffer_modules(directory: Path) -> dict[str, bytes]:
+    try:
+        metadata = directory.lstat()
+    except OSError as error:
+        raise BuildInputError(
+            f"framebuffer modules directory: input unavailable ({error.__class__.__name__})"
+        ) from None
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise BuildInputError("framebuffer modules directory must be a real directory")
+    return {
+        filename: _read_fixed(
+            directory / filename,
+            expected_sha256,
+            f"Ubuntu 6.8.0-71 framebuffer module {filename}",
+        )
+        for filename, expected_sha256 in EXPECTED_FRAMEBUFFER_MODULES.items()
+    }
 
 
 def _entry(
@@ -92,6 +118,7 @@ def build_archive(
     *,
     notes_desktop: bytes | None = None,
     notes_phase: str | None = None,
+    framebuffer_modules: dict[str, bytes] | None = None,
 ) -> bytes:
     if not all((init, package, service, client)):
         raise BuildInputError("required CPIO input is empty")
@@ -99,6 +126,14 @@ def build_archive(
         raise BuildInputError("Notes desktop ELF and phase must be supplied together")
     if notes_desktop is not None and not notes_desktop:
         raise BuildInputError("Notes desktop ELF input is empty")
+    if (notes_desktop is None) != (framebuffer_modules is None):
+        raise BuildInputError("Notes desktop ELF and framebuffer modules must be supplied together")
+    if framebuffer_modules is not None and set(framebuffer_modules) != set(EXPECTED_FRAMEBUFFER_MODULES):
+        raise BuildInputError("framebuffer module set does not match the pinned Ubuntu driver set")
+    if framebuffer_modules is not None and any(
+        type(payload) is not bytes or not payload for payload in framebuffer_modules.values()
+    ):
+        raise BuildInputError("framebuffer module input is empty or invalid")
     output = bytearray()
     directories = [
         ("dev", 0o755),
@@ -109,6 +144,8 @@ def build_archive(
         ("run/nagi/dev-data", 0o700),
         ("tmp", 0o1777),
     ]
+    if framebuffer_modules is not None:
+        directories.append((FRAMEBUFFER_MODULES_DIR, 0o700))
     inode = 1
     for name, mode in directories:
         _entry(output, name, inode=inode, mode=stat.S_IFDIR | mode, nlink=2)
@@ -148,6 +185,17 @@ def build_archive(
             payload=notes_desktop_input(notes_phase),
         )
         inode += 1
+        assert framebuffer_modules is not None
+        for filename in EXPECTED_FRAMEBUFFER_MODULES:
+            _entry(
+                output,
+                f"{FRAMEBUFFER_MODULES_DIR}/{filename}",
+                inode=inode,
+                mode=stat.S_IFREG | 0o444,
+                nlink=1,
+                payload=framebuffer_modules[filename],
+            )
+            inode += 1
         _entry(
             output,
             NOTES_DESKTOP_PATH,
@@ -171,6 +219,7 @@ def validate_archive(
     *,
     notes_desktop: bytes | None = None,
     notes_phase: str | None = None,
+    framebuffer_modules: dict[str, bytes] | None = None,
 ) -> dict:
     expected_files = {
         "nagi-dev-preview-linux.xapp": (0o644, package),
@@ -178,11 +227,6 @@ def validate_archive(
         "nagi-dev-action-client": (0o755, client),
         FIXTURE_PATH: (0o600, FIXTURE_BYTES),
     }
-    if (notes_desktop is None) != (notes_phase is None):
-        raise BuildInputError("Notes desktop ELF and phase must be supplied together")
-    if notes_desktop is not None and notes_phase is not None:
-        expected_files[NOTES_DESKTOP_INPUT_PATH] = (0o600, notes_desktop_input(notes_phase))
-        expected_files[NOTES_DESKTOP_PATH] = (0o755, notes_desktop)
     expected_directories = {
         "dev": 0o755,
         "proc": 0o555,
@@ -191,6 +235,18 @@ def validate_archive(
         "run/nagi": 0o700,
         "run/nagi/dev-data": 0o700,
     }
+    if (notes_desktop is None) != (notes_phase is None):
+        raise BuildInputError("Notes desktop ELF and phase must be supplied together")
+    if notes_desktop is not None and notes_phase is not None:
+        if framebuffer_modules is None or set(framebuffer_modules) != set(EXPECTED_FRAMEBUFFER_MODULES):
+            raise BuildInputError("Notes desktop CPIO is missing the pinned framebuffer modules")
+        expected_files[NOTES_DESKTOP_INPUT_PATH] = (0o600, notes_desktop_input(notes_phase))
+        expected_files[NOTES_DESKTOP_PATH] = (0o755, notes_desktop)
+        expected_directories[FRAMEBUFFER_MODULES_DIR] = 0o700
+        for filename, payload in framebuffer_modules.items():
+            expected_files[f"{FRAMEBUFFER_MODULES_DIR}/{filename}"] = (0o444, payload)
+    elif framebuffer_modules is not None:
+        raise BuildInputError("framebuffer modules require a Notes desktop CPIO")
     result = boot_acceptance.validate_development_cpio_inputs(
         archive,
         expected_files,
@@ -224,6 +280,7 @@ def build_from_paths(
     *,
     notes_desktop_path: Path | None = None,
     notes_phase: str | None = None,
+    framebuffer_modules_dir: Path | None = None,
 ) -> tuple[bytes, dict]:
     init = init_path.read_bytes()
     package = _read_fixed(package_path, EXPECTED_PACKAGE_SHA256, "signed development package")
@@ -232,6 +289,7 @@ def build_from_paths(
     if (notes_desktop_path is None) != (notes_phase is None):
         raise BuildInputError("Notes desktop ELF and phase must be supplied together")
     notes_desktop = None
+    framebuffer_modules = None
     if notes_desktop_path is not None:
         try:
             metadata = notes_desktop_path.lstat()
@@ -247,6 +305,11 @@ def build_from_paths(
             raise BuildInputError(
                 f"Notes desktop ELF: input read failed ({error.__class__.__name__})"
             ) from None
+        if framebuffer_modules_dir is None:
+            raise BuildInputError("Notes desktop CPIO requires the pinned framebuffer modules directory")
+        framebuffer_modules = read_framebuffer_modules(framebuffer_modules_dir)
+    elif framebuffer_modules_dir is not None:
+        raise BuildInputError("framebuffer modules directory requires a Notes desktop ELF")
     archive = build_archive(
         init,
         package,
@@ -254,6 +317,7 @@ def build_from_paths(
         client,
         notes_desktop=notes_desktop,
         notes_phase=notes_phase,
+        framebuffer_modules=framebuffer_modules,
     )
     return archive, validate_archive(
         archive,
@@ -263,6 +327,7 @@ def build_from_paths(
         client,
         notes_desktop=notes_desktop,
         notes_phase=notes_phase,
+        framebuffer_modules=framebuffer_modules,
     )
 
 
@@ -293,6 +358,7 @@ def main() -> int:
     parser.add_argument("--client", type=Path, required=True)
     parser.add_argument("--notes-desktop", type=Path)
     parser.add_argument("--notes-phase", choices=("save", "read"))
+    parser.add_argument("--framebuffer-modules-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -303,6 +369,7 @@ def main() -> int:
             args.client,
             notes_desktop_path=args.notes_desktop,
             notes_phase=args.notes_phase,
+            framebuffer_modules_dir=args.framebuffer_modules_dir,
         )
         write_new_output(args.output, archive)
         result["cpio_bytes"] = len(archive)

@@ -73,7 +73,7 @@ export PATH
   exit 1
 }
 
-cargo_home="$script_dir/cargo-home-rust198"
+cargo_home="${NAGI_CARGO_STORE:-$HOME/.cargo}"
 target_dir="$script_dir/target-notes-elf-rust198-$label"
 if [ -e "$target_dir" ]; then
   echo "refusing to reuse existing target: $target_dir" >&2

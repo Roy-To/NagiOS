@@ -177,6 +177,7 @@ dependencies = [
  "getrandom",
  "nagi-abi",
  "nagi-model",
+ "sha2",
 ]
 
 [[package]]
