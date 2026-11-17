@@ -132,6 +132,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))
 
 [workspace]
 resolver = "2"
+members = ["../nagi-albert"]
 
 [patch.crates-io]
 cc = { path = "../../third_party/cc-nagi" }

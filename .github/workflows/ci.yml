@@ -175,7 +175,7 @@ jobs:
       - name: Test block I/O user page permissions
         run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Test Albert browser state and input adapters
-        run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
+        run: cargo test --manifest-path user/nagi-init/Cargo.toml --package nagi-albert --locked
       - name: M0 doctor acceptance
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
