@@ -39,6 +39,11 @@ _EXPRESSION_KEYWORDS = frozenset((
     "return", "else", "do", "case", "goto", "throw", "co_return", "co_await", "co_yield",
     "sizeof", "alignof", "decltype", "typeof", "new", "delete", "and", "or", "not"))
 
+# `if (c) ::close(fd);`: a `)` closing one of these conditions ends a statement
+# header, so a following `::name` is global scope. Any other `)` (for example
+# `decltype(obj)::name`, or a fragment whose `(` is missing) stays a qualifier.
+_CONTROL_KEYWORDS = frozenset(("if", "while", "for", "switch"))
+
 _SHAPES = ("call", "declaration_or_definition", "global_scope_call", "identifier")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _HEADER = re.compile(r"[A-Za-z0-9_./+-]+")
@@ -70,6 +75,21 @@ def lex(evidence):
     return tokens
 
 
+def _closes_control_condition(tokens, close_index):
+    """True when tokens[close_index] == `)` matches a `(` right after if/while/for/switch."""
+    depth = 0
+    for j in range(close_index, -1, -1):
+        token = tokens[j]
+        if token == ("op", ")"):
+            depth += 1
+        elif token == ("op", "("):
+            depth -= 1
+            if depth == 0:
+                keyword = tokens[j - 1] if j else None
+                return keyword is not None and keyword[0] == "id" and keyword[1] in _CONTROL_KEYWORDS
+    return False
+
+
 def occurrences(tokens):
     """Project tokens to header names and identifier uses with their syntactic shape.
 
@@ -94,7 +114,8 @@ def occurrences(tokens):
             # not a namespace or class name, so the call stays global scope.
             qualified = before is not None and (
                 (before[0] == "id" and before[1] not in _EXPRESSION_KEYWORDS)
-                or before in (("op", ">"), ("op", ")"), ("op", "]")))
+                or before in (("op", ">"), ("op", "]"))
+                or (before == ("op", ")") and not _closes_control_condition(tokens, i - 2)))
             if qualified:
                 continue
             qualifier = "global"

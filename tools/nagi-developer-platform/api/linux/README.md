@@ -73,7 +73,10 @@ declaration_or_definition/identifier`）、分類、理由、実在ファイル�
   行継続を除外する。`#include <...>`/`"..."`はheader名として扱う。完全なparserではない。
   断片前のblock comment状態、macro展開、条件コンパイル、alias解決、実呼出しは不明。
 - 関数名の照合は保守的: `x.name(`、`p->name(`、`ns::name(`は一致させず、先頭の`::name(`
-  （global scope）は一致させる。`&read`のような括弧なしの関数参照は検出しない。
+  （global scope）は一致させる。`return ::name(`や`if (c) ::name(`のように、直前が式を導く
+  keywordまたは`if/while/for/switch`条件を閉じる`)`ならglobal scope扱い。それ以外の`)`
+  （`decltype(x)::name(`、対応する`(`が断片内に無い場合）は修飾名として一致させない。
+  `&read`のような括弧なしの関数参照は検出しない。
   `connect`/`send`/`signal`/`fopen`のようにQt等と衝突しやすい名前、ISO Cの名前はruleにしない。
   ただし`int read(`の形は宣言・定義とは限らず、型名らしい識別子の有無だけで判断する。
 - CMake/pkg-config等のビルド依存宣言（`find_package(Qt6)`等）は対象外。PT-01のdependencies
