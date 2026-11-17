@@ -76,6 +76,10 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 複数の量子化モデルをストレージに保存し、必要時にのみメモリへロードして、利用可能な標準・軽量モデルを切り替えられる方向も**CONFIRMED**。負荷・Taskの必要能力に応じた**自動的な軽量モデルへの切替を目指し、初期に難しい場合も手動切替を確保する**。ユーザーが明示固定したモデル・自動切替の無効設定、Task品質、権限・明示停止、Nagi Memoryの継続を尊重する。自動化の採用時期、RAM閾値、切替中断や再開、完全に切れ目のない応答、適用版は**PROVISIONAL**であり、8GBでの達成性能は未実証。
 
+## 8GB RAM級性能試験の先行開始（2026-11-17）
+
+[DEC-020](DEC-020-ai-os-interaction-path.md)で、0.3完成を待たずに、8GB RAM級のNagi通常操作とローカルAI連携の実用性を段階的に試験することをCONFIRMED。OS／純正アプリの前景応答性とAI Task速度・品質を分けて評価し、host-only／Linux image・QEMU／実機を区別する。端末・モデル・担当・数値閾値・日程・Release割当てはPROVISIONAL。未実証の快適さを保証せず、既存Gateを変更しない。
+
 ## 学習履歴の可視化（2026-11-16）
 
 [DEC-059 — Nagi Insights（仮称）](DEC-059-learning-history-insights.md)で、ユーザーがNagiの学習内容・経緯・根拠・支援への反映を分かりやすく閲覧する体験をCONFIRMEDとした。DEC-003のMemory可視化と訂正・削除、DEC-004の自然・明示的忘却、DEC-005のSource連動を継承し、学習履歴を全操作の無制限な保存・自動学習の口実としない。表示方式・指標・実装版はPROVISIONALであり、既存Release／Activation Gateを変更しない。
@@ -135,7 +139,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-017 | [Nagi Native開発・移植・公開SDK／配布基盤とPX-13／14／15](DEC-017-third-party-developer-ecosystem.md) | CONFIRMED（従前のNative専用・既存IDE・SDK／移植支援・1.0開発者／配布目標、PX-13 Cloud AI橋渡し・統合IDE後順位、PX-14開発・移植／検証B＋将来C、PX-15実用1.0 B＋将来総合OS C）／PROVISIONAL（初期SDK・Cloud／CLI・署名／配布・性能・Release範囲／日程） | 2026-11-17 |
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
-| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分／PX-06の整合](DEC-020-ai-os-interaction-path.md) | CONFIRMED（既存Context／Event・前景優先・適応推論・8GB級の実用性目標・モデル切替方針・`builder` Resource待機継続C、PX-06との整合）／PROVISIONAL（Queue／Priority／Scheduler・並列度の詳細、実装・性能・適用版） | 2026-11-17 |
+| DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分／PX-06の整合](DEC-020-ai-os-interaction-path.md) | CONFIRMED（既存Context／Event・前景優先・適応推論・8GB級の実用性目標・モデル切替方針・`builder` Resource待機継続C、PX-06との整合、0.3完成前の8GB級先行性能評価開始）／PROVISIONAL（Queue／Priority／Scheduler・並列度の詳細、実装・性能・適用版） | 2026-11-17 |
 | DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C）／PROVISIONAL（必須アプリ・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-17 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
@@ -278,6 +282,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-17 | DEC-020に8GB RAM級の前景操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する決定を追記。実施詳細は未確定とし、既存Gate・測定証拠の区別を維持。 |
 | 2026-11-17 | [DEC-009](DEC-009-nagi-first-home-desktop.md)／[DEC-010](DEC-010-intent-first-adaptive-ui.md)にPX-01のB（会話中心の統合Home）＋将来C（Project／Task等に応じる高度適応Home）を高水準でCONFIRMEDとして追記。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ更新。既存のHome標準・Desktop自動切替条件・委任Task中のHome維持・Workspace復元と手動配置保護・AI不在時の通常GUI・Gateを維持。具体レイアウト・導線・カード数・Nagi Bar位置・AI停止時詳細UI・技術・版はPROVISIONAL。 |
 | 2026-11-17 | [DEC-010](DEC-010-intent-first-adaptive-ui.md)／[DEC-008](DEC-008-proactive-behavior.md)にPX-02のB（ユーザー主導で選択・却下・固定できる適応型UI）＋将来C（高度な個人適応UI）の高水準方針をCONFIRMEDとして記録。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。既存Intent-first・新規Workspace自動配置・複数画面／手動配置保護・控えめな通知・AI不在時通常GUIとGateを維持。カード／パネルの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。 |
 | 2026-11-17 | [DEC-055](DEC-055-project-folder-cross-app-context.md)にPX-03のB（Project中心の統合作業ビュー）＋将来C（文脈・関係・履歴に基づく高度な作業再発見／継続）を高水準でCONFIRMEDとして追加。[DEC-012](DEC-012-workspace-naming-organization.md)・[DEC-014](DEC-014-workspace-state-checkpoints.md)との整合を明記し、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。Resource参照とProject／Workspace分離、Workspace検索・保存・本人による復元先選択、Handoff・Memory・Permission／PrivacyとTask無断再開禁止を保持。統合UI・関連付け・一覧／検索／復元導線・技術・性能・版はPROVISIONAL。 |
