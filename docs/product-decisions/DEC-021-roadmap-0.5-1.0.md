@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（継承する製品方針、改訂0.3 Roadmapに記載された1.0高水準目標、DEC-017の1.0目標、DEC-074の長期的な組織方向）／PROVISIONAL（版別の詳細範囲・順序・実装詳細）  
-**最終確認日:** 2026-11-16  
+**状態:** CONFIRMED（継承する製品方針・一般公開品質／開発者／配布基盤の1.0高水準目標・DEC-074の長期方向、PX-15の「正式対応範囲で日常の代表作業を安全・安定して完結する実用OS B／将来の幅広い総合OS C」という高水準完成方針）／PROVISIONAL（1.0の代表作業・必須アプリ・対応端末／機器・性能／品質の数値・具体的公開判定／手順・日程・詳細Release範囲）  
+**最終確認日:** 2026-11-17（PX-15の完成方針を追記。既存Gateと他の1.0目標は維持）  
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -48,6 +48,24 @@
 - **AIとOSの操作経路（DEC-020）:** 標準では小さく構造化された初期Contextから始め、必要に応じてResource参照を通じて詳細を段階取得する。取得のたびにPermission / Policy、情報分類・由来、owner、scope、Resource / revisionを再検証し、不明・競合・不一致なら取得しない。参照やLLMからの追加要求は権限を広げない。全ファイル・全ログ・raw screen dump・全Memoryの一括投入を標準にしない一方、DEC-002の許可済みCloud共有（非機密Memoryを含む）と、Scope内で広いContextを必要とする明示承認済みTaskを維持する。契約上公開されたEventを受け、状態変更には型付きPublic Action / Service APIと既存IPC / Providerを用いる。Event-drivenを既定とし、決定論的な仕事は通常Serviceで扱い、LLMは推論が必要な箇所で使う。Event検出だけでLLM推論、通知・画面割込み、Action実行を許可しない。人間向けGUIを維持し、スクリーンショット認識と座標クリックをNagi native操作の基本経路にしない。資源効率は測定する設計目標であり、削減効果や性能は実証・保証されていない。Context / Event schema、budget、取得条件、購読・集約、scheduler、legacy-app fallback、数値評価、Release割当ては未確定。
 
 これらの製品方針は将来Versionを自動的に割り当てず、別のAction権限やRelease gateを与えない。
+
+### 2026-11-17 — PX-15：日常の主要作業を完結できる実用OS Bと将来の総合OS C
+
+**CONFIRMED — 1.0の高水準到達方針はB案を基本とする。** Nagi OS 1.0は、**正式にサポートすると明示したPC／Target環境および機能の範囲**で、利用者が代表的な日常作業を**OS基本操作・利用可能な純正／第三者アプリ・Nagiの許可されたAI支援と通常GUIを通じて、開始から結果確認まで安全・安定して完了し、後日も継続利用できる実用OS**として、一般公開にふさわしい品質を備えることを目指す。対応すると宣言した作業においてAIが必須でない操作は、Model・Agent・ネットワークが不在／不調でも通常GUI・キーボード等で続けられる。これは**完成判定の製品方向**であって、具体的な個別機能や数値を確定した新Release Gateではない。
+
+1.0の品質は**搭載機能数よりも、宣言した対応範囲の実際の完遂・安全性・安定性・復旧可能性と検証証拠**を重視する。1.0仕様化で扱う**評価領域の高水準方向**には、インストール／起動／ログイン／基本操作／更新・復旧、AIに許可されたTaskと進捗・承認・停止／結果表示、Profile／MemoryとWorkspace継続、Permission／Privacyとオフライン時の通常操作、対応する代表的アプリ作業、開発者向け公開SDK／正規Package検証・配布基盤、対応Target上の再現試験と応答性・Resource消費の測定を含めて考える。これらは**個別シナリオ・合格数値・必須機能一覧・公開判定手順を採用済みとする列挙ではない**。最終的な1.0仕様と正式Release判断では、利用可能な機器、対応／非対応の範囲、確認済みの事実、既知の制限と不確実性を明示する。
+
+**CONFIRMED — 将来C案の高水準発展方向:** 1.0の実用性・品質を維持しながら、正式対応するハードウェア／周辺機器、純正・第三者アプリ、利用形態・機器間連携、開発・移植環境等の範囲を**一般利用者に向けて段階的に広げる総合OS**へ発展させる。これは1.0で全端末・全アプリ・全機能、階層型Agent組織、初心者向け完全統合IDE、全既存アプリの無変更実行を必須とする判断ではない。既存の将来採用済み機能を取り消したり、個々の1.0対象から排除する決定でもない。
+
+**維持する既存のCONFIRMED／安全境界:**
+
+- [改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)と本DECが掲げる**一般公開可能な品質・安定性・Security・互換性・Developer experience**の1.0目標、および[DEC-017](DEC-017-third-party-developer-ecosystem.md)の**1.0公開開発者環境・アプリ配布基盤**という別の高水準目標を維持する。Storeを唯一の配布経路とはせず、SDK／移植支援や全アプリ同梱の詳細は別決定のままとする。
+- [DEC-074](DEC-074-human-led-agent-organization.md)の**AIがOSの標準体験として自然に働くことを優先**し、階層型Supervisor／Worker組織は非優先の長期ビジョンという境界を維持する。初期0.4の単一Nagi `builder` Role等を変更しない。
+- 既存DEC-009〜014、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)の通常GUI・AI不在時操作、正規Public ActionとOS Permission／Policy、Profile／Memory所有・分類、Workspace状態保存／ユーザー選択による復元・Taskの無断再開禁止、通常a11y基盤の先行方針を維持する。Cloud送信は別認可、失敗・部分結果・不明を成功と偽らない。
+- **正式対応Targetでの客観的なAcceptanceとHost-only試験は分離**する。ビルド・文書・QEMU／host試験だけで、未確認のLinux／実機や周辺機器を正式対応・1.0 PASSと主張しない。既存の0.1〜0.4と各後続版のRelease／Activation／Acceptance Gate、Workstream／Owner・依存条件、Resourceの安全・署名・Backup／Recovery規則を一切緩めたり追加解除したりしない。
+- 既存PXとFoundationの製品決定は独立の正本DECを持つ。本PX-15を**PX-01〜14の全詳細確定・将来機能一括完成という新しい開発停止条件**にしない。
+
+**PROVISIONAL／OPEN — 今回確定しない1.0の具体範囲:** 正式対応PC・機器・CPU／RAM等のHardware profile、周辺機器・言語／Locale・ネットワーク・Offlineの対応範囲、代表的な作業シナリオと操作ごとの受入、純正アプリの1.0必須／任意／後続の個別リスト・最小機能・対応形式、対応第三者アプリ／SDK機能、性能・品質・Security・a11yの定量的な測定閾値と許容不具合、試験母集団／実機試験マトリクス、配布・Support policy、公開判定責任／手順・公開日程。これらは測定と別途の1.0 Implementation／Release Decisionで定める。既存Master Roadmapの候補一覧・版別マップやレビュー提案を自動で必須条件へ昇格させない。
 
 ## 暫定の0.5〜1.0版別案
 
@@ -107,3 +125,4 @@
 | 2026-11-04 | DEC-017〜020を含む最新のProduct Decisionsと、0.3改訂・0.4+ Roadmapに整合する0.5〜1.0の方向案を記録。DEC-017で明示済みの1.0開発者環境・配布基盤目標を区別し、版別範囲・順序、Multi-user / Multi-device、Organization scope、数値・実装詳細は未確定として記録。 |
 | 2026-11-16 | DEC-074の人間が管理する階層型AI組織を長期方向として追加。既存の0.4方式とユーザー窓口を保持し、組織構造・技術・版割当は未確定のままとした。 |
 | 2026-11-16 | 後続確認：当面のAI組み込み体験型OSを優先し、階層型AI組織は非優先の長期ビジョンと明記。既存Gate・builder Roleと暫定の版別案を維持。 |
+| 2026-11-17 | PX-15として1.0は正式対応範囲で日常の代表作業を安全・安定して完結し継続利用できる実用OS Bを高水準完成基準とし、将来は幅広い総合OS Cへ発展する方向をCONFIRMED。既存1.0一般公開品質・開発者／配布基盤、AI組み込み体験優先／階層Agent後順位、通常GUI・Permission／Privacy・Target Acceptance／Gateを維持。代表作業・アプリ必須範囲・対応端末・性能／品質の合格値・公開判定手順・日程はPROVISIONAL。 |
