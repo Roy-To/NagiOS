@@ -3443,26 +3443,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "nagi-bootinfo"
-version = "0.1.0"
-
-[[package]]
 name = "nagi-capability"
 version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "nagi-cli"
-version = "0.1.0"
-dependencies = [
- "nagi-model-manager",
- "nagi-slot-manifest",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -3472,9 +3457,6 @@ version = "0.1.0"
 [[package]]
 name = "nagi-fat32"
 version = "0.1.0"
-dependencies = [
- "nagi-model-manager",
-]
 
 [[package]]
 name = "nagi-history"
@@ -3483,18 +3465,6 @@ dependencies = [
  "nagi-model",
  "sha2",
 ]
-
-[[package]]
-name = "nagi-i18n"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "nagi-idl"
-version = "0.1.0"
 
 [[package]]
 name = "nagi-ime"
@@ -3534,7 +3504,6 @@ dependencies = [
 name = "nagi-init-package-provider"
 version = "0.1.0"
 dependencies = [
- "ed25519-dalek",
  "nagi-model",
  "nagi-package",
 ]
@@ -3548,33 +3517,6 @@ dependencies = [
  "nagi-nipc-v1-stream",
  "nagi-sdk",
  "nagi-service-contract",
-]
-
-[[package]]
-name = "nagi-isolated-app"
-version = "0.1.0"
-dependencies = [
- "nagi-abi",
- "nagi-action-ipc",
- "nagi-search-ipc",
-]
-
-[[package]]
-name = "nagi-job-scheduler"
-version = "0.2.0"
-dependencies = [
- "rustix",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "nagi-kernel"
-version = "0.1.0"
-dependencies = [
- "nagi-abi",
- "nagi-bootinfo",
 ]
 
 [[package]]
