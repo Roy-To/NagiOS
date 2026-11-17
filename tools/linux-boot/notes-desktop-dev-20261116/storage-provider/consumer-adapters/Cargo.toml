@@ -1,0 +1,17 @@
+[package]
+name = "nagi-storage-consumer-adapters"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libnagi = { path = "../../../../../user/libnagi" }
+nagi-storage-provider = { path = ".." }
+nagi-files = { path = "../../../../../apps/nagi-files" }
+
+[dev-dependencies]
+nagi-storage-provider = { path = "..", features = ["test-hooks", "dev-fixtures"] }
+
+[[test]]
+name = "shared_provider_consumers"
+path = "tests/shared_provider_consumers.rs"
