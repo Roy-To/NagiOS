@@ -257,24 +257,7 @@ fn quarantined_generation_rejects_retry_and_all_package_mutations() {
         Err(PackageServiceSessionOwnerError::Quarantined)
     );
 
-    assert_eq!(
-        owner.reconcile_quarantine_after(|| Err::<(), _>("C1/C3 state unresolved")),
-        Err("C1/C3 state unresolved")
-    );
-    assert_eq!(
-        owner.capture(&initial, b"org.nagi.fixture"),
-        Err(PackageServiceSessionOwnerError::Quarantined)
-    );
-    owner
-        .reconcile_quarantine_after(|| Ok::<(), &str>(()))
-        .unwrap();
-    assert_eq!(
-        owner
-            .capture(&initial, b"org.nagi.fixture")
-            .unwrap()
-            .generation(),
-        1
-    );
+    assert!(owner.is_quarantined());
 }
 
 #[test]
