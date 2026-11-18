@@ -197,8 +197,16 @@ dependencies = [
  "nagi-package",
  "nagi-service-contract",
  "nagi-system-principal-contract",
+ "nagi-system-service-recovery-contract",
  "serde",
  "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "nagi-system-service-recovery-contract"
+version = "0.1.0"
+dependencies = [
  "sha2",
 ]
 

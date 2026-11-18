@@ -43,6 +43,9 @@ pub enum PackageError {
     AlreadyInstalled,
     NotInstalled,
     OutputTooSmall,
+    InvalidGeneration,
+    DuplicateGeneration,
+    GenerationExhausted,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -377,6 +380,20 @@ impl PackageService {
         }
     }
 
+    /// Rebuild a service from immutable package blobs and their persisted
+    /// inventory generations. The returned service is published only after
+    /// every blob, signature, identity, and generation has been validated.
+    /// `entries` must contain the exact current blob for each installed app;
+    /// removed generations are intentionally not reconstructed.
+    pub fn restore_with_trusted_key(
+        entries: &[(&[u8], u64)],
+        policy: InstallPolicy,
+        trusted_public_key: &[u8; 32],
+    ) -> Result<Self, PackageError> {
+        let store = PackageStore::restore_with_trusted_key(entries, policy, trusted_public_key)?;
+        Ok(Self { store })
+    }
+
     pub fn install(
         &mut self,
         package: &PackageView<'_>,
@@ -442,17 +459,8 @@ impl PackageStore {
         policy: InstallPolicy,
         trusted_public_key: &[u8; 32],
     ) -> Result<InstallReport, PackageError> {
-        let signed = package.is_signed_by(trusted_public_key);
-        if !package.signature().is_empty() && !signed {
-            return Err(PackageError::InvalidSignature);
-        }
+        let signed = validate_package_policy(package, policy, trusted_public_key)?;
         let unsigned_warning = !signed;
-        if policy.require_signature && !signed {
-            return Err(PackageError::SignatureRequired);
-        }
-        if !signed && !policy.developer_mode {
-            return Err(PackageError::SignatureRequired);
-        }
         let app_id = package.manifest.app_id();
         let existing = self
             .slots
@@ -466,6 +474,9 @@ impl PackageStore {
                 .position(Option::is_none)
                 .ok_or(PackageError::StoreFull)?,
         };
+        if self.next_generation == u64::MAX {
+            return Err(PackageError::GenerationExhausted);
+        }
         let replaced = existing.is_some();
         let installed = InstalledPackage {
             manifest: package.manifest,
@@ -478,6 +489,56 @@ impl PackageStore {
             replaced,
             unsigned_warning,
         })
+    }
+
+    fn restore_with_trusted_key(
+        entries: &[(&[u8], u64)],
+        policy: InstallPolicy,
+        trusted_public_key: &[u8; 32],
+    ) -> Result<Self, PackageError> {
+        if entries.len() > MAX_SLOTS {
+            return Err(PackageError::StoreFull);
+        }
+        let mut restored = Self::new();
+        let mut max_generation = 0;
+        for (bytes, generation) in entries {
+            if *generation == 0 || *generation == u64::MAX {
+                return Err(PackageError::InvalidGeneration);
+            }
+            let package = PackageView::parse(bytes)?;
+            validate_package_policy(&package, policy, trusted_public_key)?;
+            let app_id = package.manifest.app_id();
+            if restored
+                .slots
+                .iter()
+                .flatten()
+                .any(|installed| installed.manifest.app_id() == app_id)
+            {
+                return Err(PackageError::AlreadyInstalled);
+            }
+            if restored
+                .slots
+                .iter()
+                .flatten()
+                .any(|installed| installed.generation == *generation)
+            {
+                return Err(PackageError::DuplicateGeneration);
+            }
+            let index = restored
+                .slots
+                .iter()
+                .position(Option::is_none)
+                .ok_or(PackageError::StoreFull)?;
+            restored.slots[index] = Some(InstalledPackage {
+                manifest: package.manifest,
+                generation: *generation,
+            });
+            max_generation = max_generation.max(*generation);
+        }
+        restored.next_generation = max_generation
+            .checked_add(1)
+            .ok_or(PackageError::GenerationExhausted)?;
+        Ok(restored)
     }
 
     pub fn remove(&mut self, app_id: AppId) -> Result<(), PackageError> {
@@ -525,6 +586,24 @@ impl PackageStore {
         }
         Ok(count)
     }
+}
+
+fn validate_package_policy(
+    package: &PackageView<'_>,
+    policy: InstallPolicy,
+    trusted_public_key: &[u8; 32],
+) -> Result<bool, PackageError> {
+    let signed = package.is_signed_by(trusted_public_key);
+    if !package.signature().is_empty() && !signed {
+        return Err(PackageError::InvalidSignature);
+    }
+    if policy.require_signature && !signed {
+        return Err(PackageError::SignatureRequired);
+    }
+    if !signed && !policy.developer_mode {
+        return Err(PackageError::SignatureRequired);
+    }
+    Ok(signed)
 }
 
 pub fn build_xapp(
@@ -908,6 +987,87 @@ mod tests {
         assert_eq!(service.list_inventory(&mut output), Ok(1));
         assert_eq!(output[0].unwrap().manifest.id(), b"com.example.hello");
         assert!(output[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn restores_exact_generations_and_advances_the_next_install() {
+        let (bytes, length) = package_for_manifest(MANIFEST, true);
+        let restored = PackageService::restore_with_trusted_key(
+            &[(&bytes[..length], 41)],
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+            &TRUSTED_SIGNING_PUBLIC_KEY,
+        )
+        .expect("signed inventory restores with its persisted generation");
+        let app_id = PackageManifest::parse(MANIFEST).unwrap().app_id();
+        assert_eq!(restored.info(app_id).unwrap().generation, 41);
+
+        let (other_bytes, other_length) = package_for_manifest(OTHER_ID_MANIFEST, true);
+        let mut restored = restored;
+        let other = PackageView::parse(&other_bytes[..other_length]).unwrap();
+        restored
+            .install(
+                &other,
+                InstallPolicy {
+                    developer_mode: false,
+                    require_signature: true,
+                },
+            )
+            .expect("the next generation follows the restored inventory");
+        assert_eq!(
+            restored.info(other.manifest().app_id()).unwrap().generation,
+            42
+        );
+    }
+
+    #[test]
+    fn restore_rejects_invalid_or_duplicate_generations_and_identities() {
+        let (first, first_length) = package_for_manifest(MANIFEST, true);
+        let (other, other_length) = package_for_manifest(OTHER_ID_MANIFEST, true);
+        let policy = InstallPolicy {
+            developer_mode: false,
+            require_signature: true,
+        };
+        for invalid in [0, u64::MAX] {
+            assert_eq!(
+                PackageService::restore_with_trusted_key(
+                    &[(&first[..first_length], invalid)],
+                    policy,
+                    &TRUSTED_SIGNING_PUBLIC_KEY,
+                )
+                .err(),
+                Some(PackageError::InvalidGeneration)
+            );
+        }
+        assert_eq!(
+            PackageService::restore_with_trusted_key(
+                &[(&first[..first_length], 7), (&other[..other_length], 7)],
+                policy,
+                &TRUSTED_SIGNING_PUBLIC_KEY,
+            )
+            .err(),
+            Some(PackageError::DuplicateGeneration)
+        );
+        assert_eq!(
+            PackageService::restore_with_trusted_key(
+                &[(&first[..first_length], 7), (&first[..first_length], 8)],
+                policy,
+                &TRUSTED_SIGNING_PUBLIC_KEY,
+            )
+            .err(),
+            Some(PackageError::AlreadyInstalled)
+        );
+        assert_eq!(
+            PackageService::restore_with_trusted_key(
+                &[(&first[..first_length], 7)],
+                policy,
+                &[0x42; 32],
+            )
+            .err(),
+            Some(PackageError::InvalidSignature)
+        );
     }
 
     #[test]

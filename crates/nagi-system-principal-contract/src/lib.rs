@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Version of the C3-to-C1 system-service endpoint-owner proof contract.
-pub const SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION: u32 = 2;
+pub const SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION: u32 = 3;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 static NEXT_ENDPOINT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -33,7 +33,34 @@ struct CurrentSupervisorLaunch {
     process: SpawnedProcessIdentity,
     generation: NonZeroU64,
     role: SupervisorLaunchRole,
+    service_slot: Option<C3SystemServiceSlotIdentity>,
     active: bool,
+}
+
+/// C3-owned identity for one canonical system-service slot. Catalog generation
+/// and process launch generation are separate so replacement cannot make an
+/// old proof appear current for a new catalog entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct C3SystemServiceSlotIdentity {
+    service_id: String,
+    catalog_generation: NonZeroU64,
+}
+
+impl C3SystemServiceSlotIdentity {
+    fn new(service_id: &str, catalog_generation: NonZeroU64) -> Self {
+        Self {
+            service_id: service_id.to_owned(),
+            catalog_generation,
+        }
+    }
+
+    pub fn service_id(&self) -> &str {
+        &self.service_id
+    }
+
+    pub fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
 }
 
 /// The process and exact Supervisor launch generation C3 accepted for a
@@ -44,6 +71,7 @@ pub struct SystemServiceLaunchRecord {
     process: SpawnedProcessIdentity,
     generation: NonZeroU64,
     role: SupervisorLaunchRole,
+    service_slot: Option<C3SystemServiceSlotIdentity>,
     current: Arc<Mutex<CurrentSupervisorLaunch>>,
 }
 
@@ -68,10 +96,45 @@ impl SystemServiceLaunchRecord {
             process: process_identity.clone(),
             generation,
             role,
+            service_slot: None,
             current: Arc::new(Mutex::new(CurrentSupervisorLaunch {
                 process: process_identity,
                 generation,
                 role,
+                service_slot: None,
+                active: true,
+            })),
+        }
+    }
+
+    /// Bind the exact canonical service slot and its catalog generation to a
+    /// newly allocated C3 process-launch generation.
+    ///
+    /// # Safety
+    /// The caller must have validated `service_id`, `catalog_generation`, the
+    /// system-service role, and `process` against the current trusted
+    /// Supervisor/catalog record. The returned handle must be stored in that
+    /// exact C3 slot; replacement and revocation must use this shared gate.
+    /// These values preserve the owner's decision and do not establish catalog
+    /// trust themselves.
+    pub unsafe fn after_supervisor_system_service_slot_validation(
+        process: &SpawnedProcessPidfd,
+        service_id: &str,
+        catalog_generation: NonZeroU64,
+        generation: NonZeroU64,
+    ) -> Self {
+        let process_identity = process.identity();
+        let service_slot = C3SystemServiceSlotIdentity::new(service_id, catalog_generation);
+        Self {
+            process: process_identity.clone(),
+            generation,
+            role: SupervisorLaunchRole::SystemService,
+            service_slot: Some(service_slot.clone()),
+            current: Arc::new(Mutex::new(CurrentSupervisorLaunch {
+                process: process_identity,
+                generation,
+                role: SupervisorLaunchRole::SystemService,
+                service_slot: Some(service_slot),
                 active: true,
             })),
         }
@@ -95,9 +158,20 @@ impl SystemServiceLaunchRecord {
         role: SupervisorLaunchRole,
         replace_registry_record: impl FnOnce() -> bool,
     ) -> io::Result<Self> {
+        if self.service_slot.is_some() {
+            return Err(permission_denied(
+                "system-service replacement requires the exact service-slot binding",
+            ));
+        }
         let process_identity = process.identity();
         let mut current = self.lock_current()?;
-        if !current_matches(&current, &self.process, self.generation, self.role) {
+        if !current_matches(
+            &current,
+            &self.process,
+            self.generation,
+            self.role,
+            self.service_slot.as_ref(),
+        ) {
             return Err(permission_denied(
                 "Supervisor launch slot was already replaced",
             ));
@@ -111,6 +185,7 @@ impl SystemServiceLaunchRecord {
             process: process_identity.clone(),
             generation,
             role,
+            service_slot: None,
             active: true,
         };
         drop(current);
@@ -118,6 +193,78 @@ impl SystemServiceLaunchRecord {
             process: process_identity,
             generation,
             role,
+            service_slot: None,
+            current: Arc::clone(&self.current),
+        })
+    }
+
+    /// Replace the exact catalog generation occupying the same C3 service
+    /// slot. The old proof becomes stale while this gate is held.
+    ///
+    /// # Safety
+    /// The caller must hold the canonical C3 Supervisor lock and validate the
+    /// new catalog record, process token, and role before calling. The registry
+    /// closure must replace that exact service slot atomically and leave it
+    /// unchanged on `false`. The service ID must remain the same canonical
+    /// slot key. The catalog and C3 launch generations must each strictly
+    /// increase from this record's exact prior values. The owner must never
+    /// wrap, reset, or reuse either counter within this service-slot lineage;
+    /// exhaustion must fail closed.
+    pub unsafe fn replace_after_supervisor_system_service_slot_validation(
+        &self,
+        process: &SpawnedProcessPidfd,
+        service_id: &str,
+        previous_catalog_generation: NonZeroU64,
+        catalog_generation: NonZeroU64,
+        generation: NonZeroU64,
+        replace_registry_record: impl FnOnce() -> bool,
+    ) -> io::Result<Self> {
+        let old_slot = self.service_slot.as_ref().ok_or_else(|| {
+            permission_denied("launch record has no validated system-service slot")
+        })?;
+        if self.role != SupervisorLaunchRole::SystemService
+            || old_slot.service_id() != service_id
+            || old_slot.catalog_generation() != previous_catalog_generation
+            || catalog_generation <= previous_catalog_generation
+            || generation <= self.generation
+        {
+            return Err(permission_denied(
+                "system-service replacement does not match and strictly advance the exact prior generations",
+            ));
+        }
+
+        let process_identity = process.identity();
+        let next_slot = C3SystemServiceSlotIdentity::new(service_id, catalog_generation);
+        let mut current = self.lock_current()?;
+        if !current_matches(
+            &current,
+            &self.process,
+            self.generation,
+            self.role,
+            self.service_slot.as_ref(),
+        ) {
+            return Err(permission_denied(
+                "Supervisor launch slot was already replaced",
+            ));
+        }
+        if !replace_registry_record() {
+            return Err(io::Error::other(
+                "Supervisor rejected the system-service slot replacement",
+            ));
+        }
+        *current = CurrentSupervisorLaunch {
+            process: process_identity.clone(),
+            generation,
+            role: SupervisorLaunchRole::SystemService,
+            service_slot: Some(next_slot.clone()),
+            active: true,
+        };
+        drop(current);
+        Ok(Self {
+            process: process_identity,
+            generation,
+            role: SupervisorLaunchRole::SystemService,
+            service_slot: Some(next_slot),
             current: Arc::clone(&self.current),
         })
     }
@@ -130,12 +277,22 @@ impl SystemServiceLaunchRecord {
         self.generation
     }
 
+    pub fn system_service_slot_identity(&self) -> Option<&C3SystemServiceSlotIdentity> {
+        self.service_slot.as_ref()
+    }
+
     pub fn is_live(&self) -> bool {
         self.lock_current()
             .map(|current| {
                 current.active
                     && current.role == SupervisorLaunchRole::SystemService
-                    && current_matches(&current, &self.process, self.generation, self.role)
+                    && current_matches(
+                        &current,
+                        &self.process,
+                        self.generation,
+                        self.role,
+                        self.service_slot.as_ref(),
+                    )
             })
             .unwrap_or(false)
     }
@@ -155,7 +312,14 @@ impl SystemServiceLaunchRecord {
         let Ok(mut current) = self.lock_current() else {
             return false;
         };
-        if !current.active || !current_matches(&current, &self.process, self.generation, self.role)
+        if !current.active
+            || !current_matches(
+                &current,
+                &self.process,
+                self.generation,
+                self.role,
+                self.service_slot.as_ref(),
+            )
         {
             return false;
         }
@@ -178,10 +342,12 @@ fn current_matches(
     process: &SpawnedProcessIdentity,
     generation: NonZeroU64,
     role: SupervisorLaunchRole,
+    service_slot: Option<&C3SystemServiceSlotIdentity>,
 ) -> bool {
     current.process.same_instance(process)
         && current.generation == generation
         && current.role == role
+        && current.service_slot.as_ref() == service_slot
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -205,6 +371,7 @@ pub struct SystemServiceEndpointOwnerProof {
     endpoint: Option<OwnedFd>,
     peer: LinuxPeerCredentials,
     endpoint_generation: NonZeroU64,
+    service_slot: C3SystemServiceSlotIdentity,
     launch: SystemServiceLaunchRecord,
     revoked: bool,
 }
@@ -222,8 +389,15 @@ impl SystemServiceEndpointOwnerProof {
     ) -> io::Result<Self> {
         let current = launch.lock_current()?;
         if !current.active
-            || !current_matches(&current, &launch.process, launch.generation, launch.role)
+            || !current_matches(
+                &current,
+                &launch.process,
+                launch.generation,
+                launch.role,
+                launch.service_slot.as_ref(),
+            )
             || launch.role != SupervisorLaunchRole::SystemService
+            || launch.service_slot.is_none()
             || !launch.process.same_instance(&process.identity())
         {
             return Err(permission_denied(
@@ -266,6 +440,9 @@ impl SystemServiceEndpointOwnerProof {
                     "system-service process exited before endpoint proof issuance",
                 ));
             }
+            let service_slot = launch.service_slot.clone().ok_or_else(|| {
+                permission_denied("system-service launch record has no canonical service slot")
+            })?;
             Ok(Self {
                 process,
                 process_identity,
@@ -273,10 +450,12 @@ impl SystemServiceEndpointOwnerProof {
                 endpoint: Some(endpoint),
                 peer,
                 endpoint_generation,
+                service_slot,
                 launch: SystemServiceLaunchRecord {
                     process: launch.process.clone(),
                     generation: launch.generation,
                     role: launch.role,
+                    service_slot: launch.service_slot.clone(),
                     current: Arc::clone(&launch.current),
                 },
                 revoked: false,
@@ -298,6 +477,10 @@ impl SystemServiceEndpointOwnerProof {
 
     pub fn launch_generation(&self) -> NonZeroU64 {
         self.launch_generation
+    }
+
+    pub fn service_slot_identity(&self) -> &C3SystemServiceSlotIdentity {
+        &self.service_slot
     }
 
     pub fn endpoint_generation(&self) -> NonZeroU64 {
@@ -330,6 +513,7 @@ impl SystemServiceEndpointOwnerProof {
                 &self.process_identity,
                 self.launch_generation,
                 SupervisorLaunchRole::SystemService,
+                Some(&self.service_slot),
             )
         {
             return Ok(false);
@@ -384,6 +568,7 @@ impl SystemServiceEndpointOwnerProof {
                 &self.process_identity,
                 self.launch_generation,
                 SupervisorLaunchRole::SystemService,
+                Some(&self.service_slot),
             )
         {
             return Err(permission_denied(

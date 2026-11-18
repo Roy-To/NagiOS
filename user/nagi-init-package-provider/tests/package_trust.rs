@@ -1,15 +1,25 @@
+#![cfg(unix)]
+
 use ed25519_dalek::{Signer, SigningKey};
-use nagi_init_package_provider::package_trust::{
-    InstallationState, InstalledPackageDigestIndex, InstalledPackageDigestIndexError,
-    InstalledPackageDigestRecord, InstalledPackageInventory, InventoryReadError,
-    PackageProviderError, PackageSecurityProvider, PackageServiceSessionOwner,
-    PackageServiceSessionOwnerError,
+use nagi_init_package_provider::{
+    linux_package_persistence::LinuxInstalledPackagePersistence,
+    package_trust::{
+        InstallationState, InstalledPackageDigestIndex, InstalledPackageDigestRecord,
+        InstalledPackageInventory, InventoryReadError, OwnedPackageInventorySnapshot,
+        PackageProviderError, PackageSecurityProvider, PackageServiceSessionOwner,
+        PackageServiceSessionOwnerError,
+    },
 };
 use nagi_model::AppId;
 use nagi_package::{
     build_xapp, InstallPolicy, InstalledPackage, PackageError, PackageManifest, PackageService,
     PackageView, MAX_PACKAGE_BYTES, MAX_SLOTS, SIGNATURE_BYTES,
 };
+use sha2::{Digest, Sha256};
+use std::fs::{self, File};
+use std::os::unix::fs::MetadataExt;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const TEST_ONLY_RFC8032_SEED: [u8; 32] = [
     0x9d, 0x61, 0xb1, 0x9d, 0xef, 0xfd, 0x5a, 0x60, 0xba, 0x84, 0x4a, 0xf4, 0x92, 0xec, 0x2c, 0xc4,
@@ -18,36 +28,76 @@ const TEST_ONLY_RFC8032_SEED: [u8; 32] = [
 const OTHER_TEST_ONLY_SEED: [u8; 32] = [0x42; 32];
 const MANIFEST: &[u8] =
     b"id=org.nagi.fixture\nname=Fixture\nversion=1.0.0\nentry=fixture.elf\nsurfaces=compact\n";
+const OTHER_MANIFEST: &[u8] =
+    b"id=org.nagi.other\nname=Other\nversion=1.0.0\nentry=other.elf\nsurfaces=compact\n";
 
-#[derive(Default)]
-struct FixtureDigestIndex {
-    records: Vec<InstalledPackageDigestRecord>,
-    return_empty_after_write: bool,
+static NEXT_PACKAGE_STORE_PATH: AtomicUsize = AtomicUsize::new(0);
+
+struct TestPackagePersistence {
+    path: PathBuf,
+    owner_uid: u32,
 }
 
-impl InstalledPackageDigestIndex for FixtureDigestIndex {
-    fn replace_snapshot(
-        &mut self,
-        records: &[InstalledPackageDigestRecord],
-    ) -> Result<(), InstalledPackageDigestIndexError> {
-        self.records = records.to_vec();
-        Ok(())
+impl TestPackagePersistence {
+    fn new() -> Self {
+        let serial = NEXT_PACKAGE_STORE_PATH.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "nagi-package-provider-test-{}-{serial}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).expect("create isolated package store directory");
+        let root = File::open(&path).expect("open isolated package store directory");
+        let owner_uid = root
+            .metadata()
+            .expect("read isolated package store metadata")
+            .uid();
+        drop(root);
+        Self { path, owner_uid }
     }
 
-    fn read_snapshot(
-        &self,
-        output: &mut [Option<InstalledPackageDigestRecord>],
-    ) -> Result<usize, InstalledPackageDigestIndexError> {
-        if self.return_empty_after_write {
-            return Ok(0);
-        }
-        if output.len() < self.records.len() {
-            return Err(InstalledPackageDigestIndexError::Failed);
-        }
-        for (destination, record) in output.iter_mut().zip(self.records.iter().copied()) {
-            *destination = Some(record);
-        }
-        Ok(self.records.len())
+    fn open_adapter(&self) -> LinuxInstalledPackagePersistence {
+        let root = File::open(&self.path).expect("reopen package store directory");
+        LinuxInstalledPackagePersistence::from_trusted_directory(root, self.owner_uid)
+            .expect("adopt reopened package store directory")
+    }
+}
+
+fn durable_index_snapshot(
+    persistence: &TestPackagePersistence,
+) -> (Vec<u8>, [Option<InstalledPackageDigestRecord>; MAX_SLOTS]) {
+    let index = persistence.open_adapter();
+    let mut records = [None; MAX_SLOTS];
+    index
+        .read_snapshot(&mut records)
+        .expect("read durable digest index through the production Linux adapter");
+    assert_eq!(records.iter().flatten().count(), 1);
+    let bytes = fs::read(persistence.path.join("package-digest-index.v1"))
+        .expect("read exact durable digest-index bytes");
+    (bytes, records)
+}
+
+fn assert_rejected_install_preserves_baseline(
+    owner: &PackageServiceSessionOwner<'_>,
+    persistence: &TestPackagePersistence,
+    baseline_package: &[u8],
+    baseline: OwnedPackageInventorySnapshot,
+    before_index_bytes: &[u8],
+    before_records: &[Option<InstalledPackageDigestRecord>; MAX_SLOTS],
+) {
+    assert!(!owner.is_quarantined());
+    assert_eq!(
+        owner.capture_for_system_service(baseline_package, b"org.nagi.fixture"),
+        Ok(baseline)
+    );
+    assert!(owner.lease_for_system_service_dispatch(&baseline).is_ok());
+    let (after_index_bytes, after_records) = durable_index_snapshot(persistence);
+    assert_eq!(after_index_bytes, before_index_bytes);
+    assert_eq!(&after_records, before_records);
+}
+
+impl Drop for TestPackagePersistence {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
     }
 }
 
@@ -354,82 +404,78 @@ fn durable_digest_index_readback_binds_reconstructed_service_generation() {
     let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
     let trusted_key = signing_key.verifying_key().to_bytes();
     let package = signed_package(MANIFEST, &signing_key);
-    let mut index = FixtureDigestIndex::default();
+    let persistence = TestPackagePersistence::new();
+    let mut blob_store = persistence.open_adapter();
+    let mut index = persistence.open_adapter();
     let mut first_owner =
         PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
     first_owner
-        .install_with_digest_index(
+        .install_with_persistent_storage(
             &package,
             InstallPolicy {
                 developer_mode: false,
                 require_signature: true,
             },
+            &mut blob_store,
             &mut index,
         )
-        .expect("index is written and read back after install");
-    assert_eq!(index.records.len(), 1);
+        .expect("package blob and digest index are durably written and read back");
 
-    let mut restored_service = PackageService::new();
-    let parsed = PackageView::parse(&package).unwrap();
-    restored_service
-        .install_with_trusted_key(
-            &parsed,
+    let empty_store = TestPackagePersistence::new();
+    let empty_blobs = empty_store.open_adapter();
+    let empty_index = empty_store.open_adapter();
+    assert!(matches!(
+        PackageServiceSessionOwner::restore_from_persistent_storage(
+            Some(&trusted_key),
             InstallPolicy {
                 developer_mode: false,
                 require_signature: true,
             },
-            &trusted_key,
-        )
-        .unwrap();
-    let mut restored_owner = PackageServiceSessionOwner::new(Some(&trusted_key), restored_service);
+            &empty_blobs,
+            &empty_index,
+        ),
+        Err(PackageServiceSessionOwnerError::DigestIndexUnavailable)
+    ));
 
-    let empty_index = FixtureDigestIndex::default();
-    assert_eq!(
-        restored_owner.restore_digest_index(&empty_index),
-        Err(PackageServiceSessionOwnerError::PackageDigestUnavailable)
-    );
-    assert_eq!(
-        restored_owner.capture_for_system_service(&package, b"org.nagi.fixture"),
-        Err(PackageServiceSessionOwnerError::PackageDigestUnavailable)
-    );
-
-    restored_owner
-        .restore_digest_index(&index)
-        .expect("exact durable generation record is available after reconstruction");
+    let restored_owner = PackageServiceSessionOwner::restore_from_persistent_storage(
+        Some(&trusted_key),
+        InstallPolicy {
+            developer_mode: false,
+            require_signature: true,
+        },
+        &blob_store,
+        &index,
+    )
+    .expect("service generation is reconstructed from durable blobs and index");
     let snapshot = restored_owner
         .capture_for_system_service(&package, b"org.nagi.fixture")
-        .expect("signed bytes match the restored digest record");
+        .expect("signed bytes match the reconstructed generation");
     assert_eq!(snapshot.generation(), 1);
     assert_eq!(snapshot.signed_package_bytes_len(), package.len() as u32);
     assert!(restored_owner
         .lease_for_system_service_dispatch(&snapshot)
         .is_ok());
-    assert_eq!(
-        restored_owner.restore_digest_index(&empty_index),
-        Err(PackageServiceSessionOwnerError::PackageDigestUnavailable)
-    );
-    assert_eq!(
-        restored_owner.capture_for_system_service(&package, b"org.nagi.fixture"),
-        Err(PackageServiceSessionOwnerError::PackageDigestUnavailable)
-    );
 }
 
 #[test]
-fn durable_digest_index_rejects_old_generation_and_unconfirmed_write() {
+fn durable_digest_index_rejects_old_generation() {
     let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
     let trusted_key = signing_key.verifying_key().to_bytes();
     let first = signed_package_with_executable(MANIFEST, b"executable A", &signing_key);
     let replacement = signed_package_with_executable(MANIFEST, b"executable B", &signing_key);
-    let mut old_index = FixtureDigestIndex::default();
+    let persistence = TestPackagePersistence::new();
+    let mut blob_store = persistence.open_adapter();
+    let mut old_index = persistence.open_adapter();
     let mut first_owner =
         PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
     first_owner
-        .install_with_digest_index(
+        .install_with_persistent_storage(
             &first,
             InstallPolicy {
                 developer_mode: false,
                 require_signature: true,
             },
+            &mut blob_store,
             &mut old_index,
         )
         .unwrap();
@@ -456,24 +502,228 @@ fn durable_digest_index_rejects_old_generation_and_unconfirmed_write() {
             current: 2,
         })
     );
+}
 
-    let mut failed_index = FixtureDigestIndex {
-        records: Vec::new(),
-        return_empty_after_write: true,
+#[test]
+fn persistent_restore_preserves_generations_and_advances_next_install() {
+    let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
+    let trusted_key = signing_key.verifying_key().to_bytes();
+    let first = signed_package_with_executable(MANIFEST, b"executable A", &signing_key);
+    let replacement_manifest =
+        b"id=org.nagi.fixture\nname=Fixture\nversion=2.0.0\nentry=fixture.elf\nsurfaces=compact\n";
+    let replacement =
+        signed_package_with_executable(replacement_manifest, b"executable B", &signing_key);
+    let other = signed_package_with_executable(OTHER_MANIFEST, b"other executable", &signing_key);
+    let persistence = TestPackagePersistence::new();
+
+    {
+        let mut blobs = persistence.open_adapter();
+        let mut index = persistence.open_adapter();
+        let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+        let policy = InstallPolicy {
+            developer_mode: false,
+            require_signature: true,
+        };
+        owner
+            .install_with_persistent_storage(&first, policy, &mut blobs, &mut index)
+            .expect("persist first generation");
+        owner
+            .install_with_persistent_storage(&replacement, policy, &mut blobs, &mut index)
+            .expect("persist replacement generation");
+    }
+
+    let mut blobs = persistence.open_adapter();
+    let mut index = persistence.open_adapter();
+    let policy = InstallPolicy {
+        developer_mode: false,
+        require_signature: true,
     };
-    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    let mut restored = PackageServiceSessionOwner::restore_from_persistent_storage(
+        Some(&trusted_key),
+        policy,
+        &blobs,
+        &index,
+    )
+    .expect("restore current inventory from durable storage");
+    let restored_package = restored
+        .read_installed_system_service_package(b"org.nagi.fixture", &blobs)
+        .expect("read the installed generation without an external package copy");
+    assert_eq!(restored_package, replacement);
+    let current = restored
+        .capture_for_system_service(&restored_package, b"org.nagi.fixture")
+        .expect("capture restored replacement");
+    assert_eq!(current.generation(), 2);
     assert_eq!(
-        owner.install_with_digest_index(
-            &first,
-            InstallPolicy {
-                developer_mode: false,
-                require_signature: true,
-            },
-            &mut failed_index,
-        ),
-        Err(PackageServiceSessionOwnerError::DigestIndexReadbackMismatch)
+        restored.capture(&first, b"org.nagi.fixture"),
+        Err(PackageServiceSessionOwnerError::InstalledPackageBytesMismatch)
     );
-    assert!(owner.is_quarantined());
+    restored
+        .install_with_persistent_storage(&other, policy, &mut blobs, &mut index)
+        .expect("new install follows the highest restored generation");
+    assert_eq!(
+        restored
+            .capture_for_system_service(&other, b"org.nagi.other")
+            .unwrap()
+            .generation(),
+        3
+    );
+}
+
+#[test]
+fn persistent_restore_rejects_tampered_blob_and_digest_index() {
+    let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
+    let trusted_key = signing_key.verifying_key().to_bytes();
+    let package = signed_package(MANIFEST, &signing_key);
+    let policy = InstallPolicy {
+        developer_mode: false,
+        require_signature: true,
+    };
+
+    let blob_store = TestPackagePersistence::new();
+    let mut blobs = blob_store.open_adapter();
+    let mut index = blob_store.open_adapter();
+    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    owner
+        .install_with_persistent_storage(&package, policy, &mut blobs, &mut index)
+        .unwrap();
+    let digest = Sha256::digest(&package);
+    let blob_name = format!(
+        "package-{}.xapp",
+        digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    fs::write(blob_store.path.join(blob_name), vec![0; package.len()])
+        .expect("tamper content-addressed package blob");
+    assert_eq!(
+        PackageServiceSessionOwner::restore_from_persistent_storage(
+            Some(&trusted_key),
+            policy,
+            &blobs,
+            &index,
+        )
+        .err(),
+        Some(PackageServiceSessionOwnerError::PackageBlobFailed)
+    );
+
+    let index_store = TestPackagePersistence::new();
+    let mut blobs = index_store.open_adapter();
+    let mut index = index_store.open_adapter();
+    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    owner
+        .install_with_persistent_storage(&package, policy, &mut blobs, &mut index)
+        .unwrap();
+    let index_path = index_store.path.join("package-digest-index.v1");
+    let mut index_bytes = fs::read(&index_path).expect("read persisted digest index");
+    index_bytes[12] ^= 1;
+    fs::write(index_path, index_bytes).expect("tamper digest index");
+    assert_eq!(
+        PackageServiceSessionOwner::restore_from_persistent_storage(
+            Some(&trusted_key),
+            policy,
+            &blobs,
+            &index,
+        )
+        .err(),
+        Some(PackageServiceSessionOwnerError::DigestIndexFailed)
+    );
+}
+
+#[test]
+fn rejected_package_trust_cases_preserve_durable_baseline_and_dispatch() {
+    let signing_key = SigningKey::from_bytes(&TEST_ONLY_RFC8032_SEED);
+    let other_key = SigningKey::from_bytes(&OTHER_TEST_ONLY_SEED);
+    let trusted_key = signing_key.verifying_key().to_bytes();
+    let policy = InstallPolicy {
+        developer_mode: false,
+        require_signature: true,
+    };
+    let baseline_package = signed_package(MANIFEST, &signing_key);
+    let persistence = TestPackagePersistence::new();
+    let mut blobs = persistence.open_adapter();
+    let mut index = persistence.open_adapter();
+    let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+    owner
+        .install_with_persistent_storage(&baseline_package, policy, &mut blobs, &mut index)
+        .expect("install signed baseline through the Linux persistence adapter");
+    let baseline = owner
+        .capture_for_system_service(&baseline_package, b"org.nagi.fixture")
+        .expect("capture durable baseline for system-service dispatch");
+    let (baseline_index_bytes, baseline_records) = durable_index_snapshot(&persistence);
+
+    let mut tampered_executable = baseline_package.clone();
+    let manifest_length =
+        u16::from_le_bytes([tampered_executable[8], tampered_executable[9]]) as usize;
+    tampered_executable[24 + manifest_length] ^= 1;
+    assert_eq!(
+        owner
+            .install_with_persistent_storage(&tampered_executable, policy, &mut blobs, &mut index,),
+        Err(PackageServiceSessionOwnerError::Package(
+            PackageError::InvalidSignature
+        ))
+    );
+    assert_rejected_install_preserves_baseline(
+        &owner,
+        &persistence,
+        &baseline_package,
+        baseline,
+        &baseline_index_bytes,
+        &baseline_records,
+    );
+
+    let other_signer_package = signed_package(MANIFEST, &other_key);
+    assert_eq!(
+        owner.install_with_persistent_storage(
+            &other_signer_package,
+            policy,
+            &mut blobs,
+            &mut index,
+        ),
+        Err(PackageServiceSessionOwnerError::Package(
+            PackageError::InvalidSignature
+        ))
+    );
+    assert_rejected_install_preserves_baseline(
+        &owner,
+        &persistence,
+        &baseline_package,
+        baseline,
+        &baseline_index_bytes,
+        &baseline_records,
+    );
+
+    let unsigned = unsigned_package(MANIFEST);
+    assert_eq!(
+        owner.install_with_persistent_storage(&unsigned, policy, &mut blobs, &mut index),
+        Err(PackageServiceSessionOwnerError::Package(
+            PackageError::SignatureRequired
+        ))
+    );
+    assert_rejected_install_preserves_baseline(
+        &owner,
+        &persistence,
+        &baseline_package,
+        baseline,
+        &baseline_index_bytes,
+        &baseline_records,
+    );
+
+    assert_eq!(
+        owner.capture_for_system_service(&baseline_package, b"org.nagi.other"),
+        Err(PackageServiceSessionOwnerError::IdentityMismatch {
+            actual: AppId::from_identifier(b"org.nagi.fixture"),
+            expected: AppId::from_identifier(b"org.nagi.other"),
+        })
+    );
+    assert_rejected_install_preserves_baseline(
+        &owner,
+        &persistence,
+        &baseline_package,
+        baseline,
+        &baseline_index_bytes,
+        &baseline_records,
+    );
 }
 
 #[test]

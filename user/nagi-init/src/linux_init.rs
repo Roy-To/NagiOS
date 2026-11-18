@@ -20,6 +20,8 @@ use libnagi::security::Session;
 use libnagi::security::{AccountStore, Role};
 #[cfg(feature = "linux-service-action-bridge")]
 use nagi_action_ipc::ActionResult;
+#[cfg(unix)]
+use nagi_init_package_provider::linux_package_persistence::LinuxInstalledPackagePersistence;
 #[cfg(all(target_arch = "x86_64", feature = "m10-desktop"))]
 use nagi_init_package_provider::package_trust::{
     InstallationState, InstalledPackageInventory, PackageProviderError, PackageSecurityProvider,
@@ -40,9 +42,34 @@ use nagi_package::{InstallPolicy, PackageService, PackageView, TRUSTED_SIGNING_P
 use nagi_service_contract::{
     CancellationToken, ContractVersion, IpcErrorCode, OperationId, ServiceClient, ServiceId,
 };
+#[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+#[path = "linux_boot_package_inputs.rs"]
+mod linux_boot_package_inputs;
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(linux_dev_preview_smoke)
+))]
+#[path = "linux_c3_boot_launch.rs"]
+mod linux_c3_boot_launch;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "linux_mount_prerequisites/mod.rs"]
+mod linux_mount_prerequisites;
 #[cfg(all(target_arch = "x86_64", feature = "m10-desktop"))]
 #[path = "linux_package_identity.rs"]
 mod linux_package_identity;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "pid1_child_reaper.rs"]
+mod pid1_child_reaper;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "linux_init_c3_system_service_owner.rs"]
+mod linux_init_c3_system_service_owner;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "linux_init_c3_slot_journal.rs"]
+mod linux_init_c3_slot_journal;
 
 #[cfg(all(
     linux_dev_preview_smoke,
@@ -365,6 +392,34 @@ pub(crate) fn run() -> ExitCode {
     #[cfg(all(linux_pid1_safety_smoke, target_os = "linux", target_arch = "x86_64"))]
     return linux_x86_64_process::run_pid1_safety_smoke();
 
+    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+    let mut backend = match linux_boot_package_inputs::BootPackageInputs::take_inherited() {
+        Ok(inputs) => UnconnectedBackend::with_verified_boot_inputs(inputs),
+        Err(error) => {
+            pid1_log!("nagi-init: Linux boot package inputs unavailable ({error})");
+            UnconnectedBackend::new()
+        }
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        let notes_owner = crate::profile_volume_notes_owner::pending();
+        match normal_startup_profile_notes_bundle(&notes_owner) {
+            Err(error) => log_pid1_stderr(format_args!(
+                "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
+            )),
+            Ok(bundle) => {
+                // PID 1 has no connected C1 identity/C2 sealed-caller source
+                // or Notes bridge launcher yet. Do not retain an orphaned
+                // capability or switch to the development Notes store.
+                drop(bundle);
+                log_pid1_stderr(format_args!(
+                    "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE reason=c1_c2_consumer_unavailable fallback=none"
+                ));
+            }
+        }
+    }
+
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     match mount_devtmpfs_for_pid1() {
         Ok(()) => log_pid1_stderr(format_args!(
@@ -378,11 +433,30 @@ pub(crate) fn run() -> ExitCode {
         }
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    ensure_pid1_proc_and_sysfs();
+
+    // This branch is compiled only in the non-release development preview and
+    // requires an explicit guest command-line token. It never authenticates a
+    // Profile or promotes the ordinary Pending Notes owner.
+    #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
+    let _ = linux_mount_prerequisites::maybe_run_development_data_mount_smoke();
+
     #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
     let mut backend = LinuxDevPreviewBackend::new();
-    #[cfg(not(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(not(target_os = "linux"))]
     let mut backend = UnconnectedBackend::new();
     run_pid1_lifecycle(&mut backend, wait_for_pid1_os_event)
+}
+
+#[cfg(target_os = "linux")]
+fn normal_startup_profile_notes_bundle(
+    owner: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+) -> Result<
+    crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+    crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+> {
+    owner.issue_bundle()
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -393,6 +467,29 @@ fn wait_for_pid1_os_event() {
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 fn wait_for_pid1_os_event() {
     std::thread::park_timeout(std::time::Duration::from_secs(3600));
+}
+
+/// Mount the early virtual filesystems after devtmpfs and before backend
+/// construction. Existing mounts are accepted only when the prerequisite
+/// module verifies their filesystem type, mount identity, and required flags.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn ensure_pid1_proc_and_sysfs() {
+    use linux_mount_prerequisites::ensure_proc_and_sysfs;
+
+    match ensure_proc_and_sysfs() {
+        Ok(report) => {
+            log_pid1_stderr(format_args!(
+                "nagi-init: procfs/sysfs mount prerequisites verified before service startup (procfs={:?}, sysfs={:?})",
+                report.procfs, report.sysfs
+            ));
+        }
+        Err(error) => {
+            log_pid1_stderr(format_args!(
+                "nagi-init: procfs/sysfs prerequisites failed ({error}); procfs may already be mounted, no service is ready"
+            ));
+            wait_in_pid1(wait_for_pid1_os_event)
+        }
+    }
 }
 
 /// PID 1 diagnostics are best effort: a closed stderr must not unwind the
@@ -644,6 +741,7 @@ enum ReleaseFailureReason {
     ExecError(i32),
     ChildExited(ServiceExitStatus),
     PartialErrorReport,
+    ProtocolViolation,
     Io,
 }
 
@@ -705,6 +803,8 @@ impl<'a, Os: ProcessOs, LaunchRecord> GateCommit<'a, Os, LaunchRecord> {
             }
             Err(reason) => {
                 self.failure = Some(reason);
+                #[cfg(test)]
+                eprintln!("C3_PROCESS_GATE_RELEASE_FAILED: {reason:?}");
                 Err(release_failure_backend_error(reason))
             }
         }
@@ -712,10 +812,10 @@ impl<'a, Os: ProcessOs, LaunchRecord> GateCommit<'a, Os, LaunchRecord> {
 }
 
 fn release_failure_backend_error(reason: ReleaseFailureReason) -> BackendError {
-    if reason == ReleaseFailureReason::Cancelled {
-        BackendError::Cancelled
-    } else {
-        BackendError::TransportFailure
+    match reason {
+        ReleaseFailureReason::Cancelled => BackendError::Cancelled,
+        ReleaseFailureReason::ProtocolViolation => BackendError::ProtocolViolation,
+        _ => BackendError::TransportFailure,
     }
 }
 
@@ -1057,7 +1157,41 @@ trait ProcessOs {
         executable: ExecutablePayload<'_>,
         arguments: &[&str],
         execution_identity: LinuxExecutionIdentity,
+        endpoint_policy: ProcessEndpointPolicy,
     ) -> std::io::Result<ProcessHandle<Prepared, Self::Raw>>;
+
+    #[cfg(target_os = "linux")]
+    fn take_handoff_resources(
+        &mut self,
+        _child: &mut ProcessHandle<Running, Self::Raw>,
+    ) -> std::io::Result<ProcessEndpointResources> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "process owner does not expose an endpoint handoff",
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn duplicate_pidfd_for_prepared(
+        &mut self,
+        _child: &ProcessHandle<Prepared, Self::Raw>,
+    ) -> std::io::Result<nagi_init_spawn_contract::SpawnedProcessPidfd> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "process owner does not expose its prepared clone3 pidfd",
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn duplicate_pidfd_for_running(
+        &mut self,
+        _child: &mut ProcessHandle<Running, Self::Raw>,
+    ) -> std::io::Result<nagi_init_spawn_contract::SpawnedProcessPidfd> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "process owner does not expose its running clone3 pidfd",
+        ))
+    }
 
     /// Commit only the nonblocking exec-gate byte. The caller performs this
     /// while the matching Supervisor record and grants are locked.
@@ -1200,11 +1334,25 @@ struct ProcessLaunch<'a, ServiceId> {
     /// Numeric Linux credentials for this process only; they do not create a
     /// Nagi identity or grant application consent.
     execution_identity: LinuxExecutionIdentity,
+    /// Endpoint inheritance is opt-in and carries no service role by itself.
+    endpoint_policy: ProcessEndpointPolicy,
     required: bool,
     /// Caller-selected release deadline. There is intentionally no product default.
     release_wait_budget: std::time::Duration,
     /// Caller-selected maximum poll slice for cancellation checks.
     cancel_check_interval: std::time::Duration,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProcessEndpointPolicy {
+    Disabled,
+    InheritedPeerChannel,
+}
+
+#[cfg(target_os = "linux")]
+struct ProcessEndpointResources {
+    pidfd: nagi_init_spawn_contract::SpawnedProcessPidfd,
+    endpoint: std::os::fd::OwnedFd,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1329,6 +1477,35 @@ where
         ) -> Result<(), BackendError>,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
     ) -> Result<u32, BackendError> {
+        self.spawn_authorized_with_prepared(
+            launch,
+            &mut cancelled,
+            |process_id, _, _| register(process_id),
+            authorize,
+            &mut revoke,
+        )
+    }
+
+    /// Variant for the maintained C3 owner. Registration sees the actual
+    /// prepared child and its ProcessOs owner before the exec gate is released,
+    /// so it can bind the slot record to clone3's atomic pidfd rather than to
+    /// a numeric PID claim.
+    fn spawn_authorized_with_prepared(
+        &mut self,
+        launch: ProcessLaunch<'_, ServiceId>,
+        mut cancelled: impl FnMut() -> bool,
+        register: impl FnOnce(
+            u32,
+            &mut Os,
+            &ProcessHandle<Prepared, Os::Raw>,
+        ) -> Result<LaunchRecord, BackendError>,
+        authorize: impl FnOnce(
+            u32,
+            &LaunchRecord,
+            &mut GateCommit<'_, Os, LaunchRecord>,
+        ) -> Result<(), BackendError>,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+    ) -> Result<u32, BackendError> {
         if cancelled() {
             return Err(BackendError::Cancelled);
         }
@@ -1339,8 +1516,17 @@ where
                 launch.executable,
                 launch.arguments,
                 launch.execution_identity,
+                launch.endpoint_policy,
             )
-            .map_err(|_| BackendError::TransportFailure)?;
+            .map_err(|error| {
+                #[cfg(test)]
+                eprintln!(
+                    "C3_PROCESS_PREPARE_FAILED: kind={:?} errno={:?} error={error}",
+                    error.kind(),
+                    error.raw_os_error()
+                );
+                BackendError::TransportFailure
+            })?;
         let process_id = prepared.process_id;
         if process_id <= 1 {
             self.discard_pending(
@@ -1381,7 +1567,7 @@ where
             return Err(BackendError::Cancelled);
         }
 
-        let record = match register(process_id) {
+        let record = match register(process_id, &mut self.os, &prepared) {
             Ok(record) => record,
             Err(error) => {
                 self.discard_pending(
@@ -1476,7 +1662,7 @@ where
                 // The gate byte was committed. A cancellation, timeout, or
                 // status-channel failure leaves execution uncertain, so reap
                 // and revoke before reporting failure.
-                let was_cancelled = matches!(failure.reason, ReleaseFailureReason::Cancelled);
+                let failure_error = release_failure_backend_error(failure.reason);
                 self.discard_pending(
                     process_id,
                     PendingChild::ReleaseUncertain(failure.child),
@@ -1484,11 +1670,7 @@ where
                     failure.reaped,
                     &mut revoke,
                 )?;
-                if was_cancelled {
-                    Err(BackendError::Cancelled)
-                } else {
-                    Err(BackendError::TransportFailure)
-                }
+                Err(failure_error)
             }
         }
     }
@@ -1557,8 +1739,135 @@ where
             .map(|entry| &entry.record)
     }
 
+    /// Transfer the endpoint exactly once, and only from the live child whose
+    /// current launch record exactly matches the caller's registered record.
+    /// The lifecycle keeps its original pidfd; the recipient gets a duplicate
+    /// for the same opaque clone3 identity and takes ownership of the endpoint.
+    #[cfg(target_os = "linux")]
+    fn take_live_endpoint(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+    ) -> std::io::Result<ProcessEndpointResources>
+    where
+        LaunchRecord: Eq,
+    {
+        let entry = self
+            .children
+            .iter_mut()
+            .find(|entry| {
+                entry.process_id == process_id
+                    && entry.reaped.is_none()
+                    && entry.record == expected_record
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "process or exact launch record is not live",
+                )
+            })?;
+        if let Some(status) = self.os.try_wait(&mut entry.child)? {
+            entry.reaped = Some(status);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "process exited before endpoint handoff",
+            ));
+        }
+        self.os.take_handoff_resources(&mut entry.child)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn duplicate_live_pidfd(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+    ) -> std::io::Result<nagi_init_spawn_contract::SpawnedProcessPidfd>
+    where
+        LaunchRecord: Eq,
+    {
+        let entry = self
+            .children
+            .iter_mut()
+            .find(|entry| {
+                entry.process_id == process_id
+                    && entry.reaped.is_none()
+                    && entry.record == expected_record
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "process or exact launch record is not live",
+                )
+            })?;
+        if let Some(status) = self.os.try_wait(&mut entry.child)? {
+            entry.reaped = Some(status);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "process exited before pidfd duplication",
+            ));
+        }
+        self.os.duplicate_pidfd_for_running(&mut entry.child)
+    }
+
+    /// Stop exactly one process whose retained launch token still matches.
+    /// Unreaped children and their exact record remain quarantined for the
+    /// existing single-owner reaper; PID reuse cannot satisfy this selector.
+    #[cfg(target_os = "linux")]
+    fn terminate_exact(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError>
+    where
+        LaunchRecord: Eq,
+    {
+        let Some(index) = self
+            .children
+            .iter()
+            .position(|entry| entry.process_id == process_id && entry.record == expected_record)
+        else {
+            return Err(BackendError::Revoked);
+        };
+        let entry = self.children.remove(index);
+        let mut child = PendingChild::Running(entry.child);
+        let mut reaped = entry.reaped;
+        let child_clean = Self::attempt_cleanup(&mut self.os, &mut child, &mut reaped);
+        let mut record = Some(entry.record);
+        let record_clean = if child_clean {
+            Self::retry_record_revocation(process_id, &mut record, &mut revoke)
+        } else {
+            false
+        };
+        if child_clean && record_clean {
+            return Ok(());
+        }
+        self.quarantine.push(QuarantinedProcess {
+            process_id,
+            child,
+            record,
+            reaped,
+        });
+        Err(BackendError::TransportFailure)
+    }
+
     fn active_len(&self) -> usize {
         self.children.len() + self.quarantine.len()
+    }
+
+    fn tracks_record(&self, expected_record: &LaunchRecord) -> bool
+    where
+        LaunchRecord: Eq,
+    {
+        self.children
+            .iter()
+            .any(|entry| &entry.record == expected_record)
+            || self.quarantine.iter().any(|entry| {
+                entry
+                    .record
+                    .as_ref()
+                    .is_some_and(|record| record == expected_record)
+            })
     }
 
     fn shutdown(
@@ -1733,17 +2042,33 @@ where
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod linux_x86_64_process {
+    use super::pid1_child_reaper::{
+        drain_serialized, Pid1ChildReaper, ReapKernel, ReapTicket, ReapTicketReservation,
+    };
     use super::*;
     use core::arch::asm;
+    use nagi_init_spawn_contract::{
+        clone3_pid1_service_child, Clone3Pid1Child, SpawnedProcessPidfd,
+    };
     use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd as StdOwnedFd};
     use std::ptr;
 
     const NR_READ: usize = 0;
     const NR_WRITE: usize = 1;
     const NR_CLOSE: usize = 3;
     const NR_DUP2: usize = 33;
+    const NR_DUP3: usize = 292;
     const NR_SOCKETPAIR: usize = 53;
     const NR_CLONE: usize = 56;
+    const NR_UNSHARE: usize = 272;
+    const NR_SETNS: usize = 308;
+    const NR_SECCOMP: usize = 317;
+    const NR_MKDIR: usize = 83;
+    const NR_CHDIR: usize = 80;
+    const NR_CHROOT: usize = 161;
+    const NR_MOUNT: usize = 165;
+    const NR_CLONE3: usize = 435;
     const NR_EXECVEAT: usize = 322;
     const NR_MEMFD_CREATE: usize = 319;
     const NR_EXIT_GROUP: usize = 231;
@@ -1752,6 +2077,14 @@ mod linux_x86_64_process {
     const NR_SETGROUPS: usize = 116;
     const NR_SETRESUID: usize = 117;
     const NR_SETRESGID: usize = 119;
+    const NR_GETPID: usize = 39;
+    const NR_GETGROUPS: usize = 115;
+    const NR_GETRESUID: usize = 118;
+    const NR_GETRESGID: usize = 120;
+    const NR_SETFSUID: usize = 122;
+    const NR_SETFSGID: usize = 123;
+    const NR_CAPGET: usize = 125;
+    const NR_CAPSET: usize = 126;
     const NR_PRCTL: usize = 157;
     const NR_OPENAT: usize = 257;
     const NR_PIPE2: usize = 293;
@@ -1766,7 +2099,12 @@ mod linux_x86_64_process {
     const MFD_EXEC: usize = 0x0010;
     const AT_EMPTY_PATH: usize = 0x1000;
     const NR_SENDTO: usize = 44;
+    const NR_SENDMSG: usize = 46;
+    const NR_RECVMSG: usize = 47;
+    const NR_GETSOCKOPT: usize = 55;
+    const NR_WAITID: usize = 247;
     const NR_CLOSE_RANGE: usize = 436;
+    const NR_PIDFD_SEND_SIGNAL: usize = 424;
     const NR_POLL: usize = 7;
     const NR_RT_SIGPROCMASK: usize = 14;
     const NR_SIGNALFD4: usize = 289;
@@ -1777,6 +2115,10 @@ mod linux_x86_64_process {
     const ESRCH: isize = 3;
     const ECHILD: isize = 10;
     const EAGAIN: isize = 11;
+    const EPERM: isize = 1;
+    const ENOSYS: isize = 38;
+    const EINVAL: isize = 22;
+    const EOVERFLOW: isize = 75;
     #[cfg(linux_pid1_safety_smoke)]
     const EBUSY: i32 = 16;
     const SIGCHLD: usize = 17;
@@ -1785,7 +2127,13 @@ mod linux_x86_64_process {
     const SIG_SETMASK: usize = 2;
     const CLONE_NEWPID: usize = 0x2000_0000;
     const WNOHANG: usize = 1;
+    const WEXITED: usize = 4;
+    const WNOWAIT: usize = 0x0100_0000;
+    const P_ALL: usize = 0;
+    const P_PID: usize = 1;
+    const P_PIDFD: usize = 3;
     const SFD_CLOEXEC: usize = 0x80000;
+    const SFD_NONBLOCK: usize = 0x800;
     const LINUX_SIGNAL_INFO_BYTES: usize = 128;
     const AF_UNIX: usize = 1;
     const SOCK_STREAM: usize = 1;
@@ -1794,33 +2142,190 @@ mod linux_x86_64_process {
     const O_CLOEXEC: usize = 0x80000;
     const AT_FDCWD: usize = (-100isize) as usize;
     const F_DUPFD_CLOEXEC: usize = 1030;
+    const F_GETFD: usize = 1;
+    const F_SETFD: usize = 2;
+    const FD_CLOEXEC: usize = 1;
     const F_SETFL: usize = 4;
     const O_NONBLOCK: usize = 0x800;
     const MSG_NOSIGNAL: usize = 0x4000;
+    const MSG_CMSG_CLOEXEC: usize = 0x4000_0000;
+    const MSG_CTRUNC: i32 = 0x0008;
+    const MSG_TRUNC: i32 = 0x0020;
     const CLOSE_RANGE_CLOEXEC: usize = 1 << 2;
+    const PR_CAPBSET_READ: usize = 23;
+    const PR_CAPBSET_DROP: usize = 24;
+    const PR_GET_SECUREBITS: usize = 27;
+    const PR_SET_SECUREBITS: usize = 28;
     const PR_SET_NO_NEW_PRIVS: usize = 38;
+    const PR_GET_NO_NEW_PRIVS: usize = 39;
+    const PR_GET_SECCOMP: usize = 21;
+    const PR_CAP_AMBIENT: usize = 47;
+    const PR_CAP_AMBIENT_IS_SET: usize = 1;
+    const PR_CAP_AMBIENT_CLEAR_ALL: usize = 4;
+    const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+    const LINUX_CAPABILITY_U32S_3: usize = 2;
+    const MAX_LINUX_CAPABILITIES: usize = LINUX_CAPABILITY_U32S_3 * 32;
+    const SECBIT_NOROOT: usize = 1 << 0;
+    const SECBIT_NOROOT_LOCKED: usize = 1 << 1;
+    const SECBIT_NO_SETUID_FIXUP_LOCKED: usize = 1 << 3;
+    const SECBIT_KEEP_CAPS_LOCKED: usize = 1 << 5;
+    const SECBIT_NO_CAP_AMBIENT_RAISE: usize = 1 << 6;
+    const SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED: usize = 1 << 7;
+    const SERVICE_SECUREBITS: usize = SECBIT_NOROOT
+        | SECBIT_NOROOT_LOCKED
+        | SECBIT_NO_SETUID_FIXUP_LOCKED
+        | SECBIT_KEEP_CAPS_LOCKED
+        | SECBIT_NO_CAP_AMBIENT_RAISE
+        | SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED;
     const SERVICE_SANDBOX_ID: usize = 65_534;
+    const CLONE_NEWNS: usize = 0x0002_0000;
+    const CLONE_NEWTIME: usize = 0x0000_0080;
+    const CLONE_NEWCGROUP: usize = 0x0200_0000;
+    const CLONE_NEWUTS: usize = 0x0400_0000;
+    const CLONE_NEWIPC: usize = 0x0800_0000;
+    const CLONE_NEWUSER: usize = 0x1000_0000;
+    const CLONE_NEWNET: usize = 0x4000_0000;
+    const SERVICE_NAMESPACE_FLAGS: usize =
+        CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
+    const MS_NOSUID: usize = 2;
+    const MS_NODEV: usize = 4;
+    const MS_NOEXEC: usize = 8;
+    const MS_REC: usize = 0x4000;
+    const MS_PRIVATE: usize = 1 << 18;
+    const CLONE_NAMESPACE_FLAGS: usize = CLONE_NEWNS
+        | CLONE_NEWTIME
+        | CLONE_NEWCGROUP
+        | CLONE_NEWUTS
+        | CLONE_NEWIPC
+        | CLONE_NEWUSER
+        | CLONE_NEWPID
+        | CLONE_NEWNET;
+    const X32_SYSCALL_BIT: u32 = 0x4000_0000;
+    const SECCOMP_SET_MODE_FILTER: usize = 1;
+    const SECCOMP_MODE_FILTER: isize = 2;
+    const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
+    const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
+    const SECCOMP_RET_ALLOW: u32 = 0x7fff_0000;
+    const AUDIT_ARCH_X86_64: u32 = 0xc000_003e;
     const RELEASE_BYTE: u8 = 1;
+    const CHILD_SETUP_READY_WORD: u32 = 0x4353_5231;
+    const ENDPOINT_MESSAGE_BYTE: u8 = 0xc3;
+    const SERVICE_ENDPOINT_FD: i32 = 3;
+    const SERVICE_ROOT_PATH: &[u8] = b"/tmp\0";
+    const SERVICE_TMPFS_TYPE: &[u8] = b"tmpfs\0";
+    const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216\0";
+    const SOL_SOCKET: i32 = 1;
+    const SCM_RIGHTS: i32 = 1;
+    const SCM_CREDENTIALS: i32 = 2;
+    const SOCK_DGRAM: usize = 2;
+    const SO_PEERCRED: usize = 17;
+    const POLLIN: i16 = 0x001;
+    const POLLERR: i16 = 0x008;
+    const POLLHUP: i16 = 0x010;
+    const POLLNVAL: i16 = 0x020;
+    const ENDPOINT_CONTROL_BYTES: usize = 256;
+    const MAX_RECEIVED_RIGHTS: usize = 60;
 
     // Cache only a successfully created descriptor. Transient setup failures
     // (including fd exhaustion) must remain retryable on the next timed wait.
-    static PID1_REAPER: std::sync::OnceLock<OwnedFd> = std::sync::OnceLock::new();
+    static PID1_SIGNAL_FD: std::sync::OnceLock<OwnedFd> = std::sync::OnceLock::new();
+    static PID1_CHILD_REAPER: std::sync::OnceLock<std::sync::Mutex<Pid1ChildReaper>> =
+        std::sync::OnceLock::new();
     static PID1_REAPER_WARNED: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
 
     pub(super) fn wait_for_os_event() {
-        if let Err(error) = wait_for_any_child_event() {
-            if !PID1_REAPER_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                super::log_pid1_stderr(format_args!(
-                    "nagi-init: child reaper wait failed ({error}); retrying with timed reap"
-                ));
+        // A timed signalfd poll is only a wake hint. Periodic scans preserve
+        // progress if another pre-existing thread receives SIGCHLD instead.
+        let signal_fd = match pid1_sigchld_fd() {
+            Ok(fd) => Some(fd),
+            Err(error) => {
+                warn_reaper_once("SIGCHLD descriptor setup failed", &error);
+                None
             }
+        };
+        if let Err(error) = reap_pending_child_exits() {
+            warn_reaper_once("child exit scan failed", &error);
+            std::thread::park_timeout(std::time::Duration::from_millis(250));
+            return;
+        }
+        if let Some(signal_fd) = signal_fd {
+            if let Err(error) = wait_for_sigchld(signal_fd) {
+                warn_reaper_once("SIGCHLD wait failed", &error);
+            }
+        } else {
+            std::thread::park_timeout(std::time::Duration::from_millis(250));
+        }
+        if let Err(error) = reap_pending_child_exits() {
+            warn_reaper_once("child reap failed", &error);
             std::thread::park_timeout(std::time::Duration::from_millis(250));
         }
     }
 
+    fn warn_reaper_once(context: &str, error: &io::Error) {
+        if !PID1_REAPER_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            super::log_pid1_stderr(format_args!(
+                "nagi-init: {context} ({error}); retrying with timed wait"
+            ));
+        }
+    }
+
+    fn child_reaper() -> &'static std::sync::Mutex<Pid1ChildReaper> {
+        PID1_CHILD_REAPER.get_or_init(|| std::sync::Mutex::new(Pid1ChildReaper::default()))
+    }
+
+    fn reap_pending_child_exits() -> io::Result<usize> {
+        drain_serialized(child_reaper(), &mut LinuxReapKernel)
+    }
+
+    fn reap_tracked_child(ticket: &ReapTicket) -> io::Result<Option<ServiceExitStatus>> {
+        if let Err(error) = reap_pending_child_exits() {
+            #[cfg(test)]
+            eprintln!("C3_REAPER_SCAN_ERROR: {error}");
+            return Err(error);
+        }
+        let status = ticket.exit_status();
+        #[cfg(test)]
+        if let Err(error) = &status {
+            eprintln!("C3_REAPER_TICKET_ERROR: {error}");
+        }
+        status
+    }
+
+    #[cfg(test)]
+    pub(super) fn initialize_reaper_wait_channel_for_test() -> io::Result<()> {
+        pid1_sigchld_fd().map(|_| ())
+    }
+
+    #[cfg(test)]
+    pub(super) fn waitid_reports_untracked_child_reaped_for_test(
+        process_id: u32,
+    ) -> io::Result<bool> {
+        let mut info = LinuxSigInfo::default();
+        let result = unsafe {
+            syscall5(
+                NR_WAITID,
+                P_PID,
+                process_id as usize,
+                &mut info as *mut LinuxSigInfo as usize,
+                WEXITED | WNOHANG | WNOWAIT,
+                0,
+            )
+        };
+        if result == -(ECHILD) {
+            return Ok(true);
+        }
+        syscall_result(result)?;
+        if info.pid == 0 || info.pid as u32 == process_id {
+            return Ok(false);
+        }
+        Err(io::Error::other(
+            "waitid(P_PID) returned a different child process ID",
+        ))
+    }
+
     fn pid1_sigchld_fd() -> io::Result<&'static OwnedFd> {
-        if let Some(fd) = PID1_REAPER.get() {
+        if let Some(fd) = PID1_SIGNAL_FD.get() {
             return Ok(fd);
         }
 
@@ -1842,18 +2347,19 @@ mod linux_x86_64_process {
                 usize::MAX,
                 &signal_mask as *const u64 as usize,
                 core::mem::size_of::<u64>(),
-                SFD_CLOEXEC,
+                SFD_CLOEXEC | SFD_NONBLOCK,
             )
         };
         let fd = OwnedFd(syscall_result(fd)? as i32);
-        if let Err(unused_fd) = PID1_REAPER.set(fd) {
+        if let Err(unused_fd) = PID1_SIGNAL_FD.set(fd) {
             drop(unused_fd);
         }
-        PID1_REAPER.get().ok_or_else(|| {
+        PID1_SIGNAL_FD.get().ok_or_else(|| {
             io::Error::other("SIGCHLD descriptor initialization did not publish a descriptor")
         })
     }
 
+    #[cfg(linux_pid1_safety_smoke)]
     fn reap_after_notification_failure(
         error: io::Error,
         mut reap: impl FnMut() -> io::Result<(usize, bool)>,
@@ -1866,8 +2372,9 @@ mod linux_x86_64_process {
         }
     }
 
-    /// Reap all exited children known to PID 1. The bool is true when wait4
-    /// observed at least one child that has not exited yet.
+    /// Safety-smoke-only helper for fixture descendants. The normal PID-1
+    /// lifecycle never consumes child status through wait4(-1).
+    #[cfg(linux_pid1_safety_smoke)]
     fn reap_available_children() -> io::Result<(usize, bool)> {
         let mut reaped = 0usize;
         loop {
@@ -1904,6 +2411,26 @@ mod linux_x86_64_process {
     }
 
     fn wait_for_sigchld(signal_fd: &OwnedFd) -> io::Result<()> {
+        let mut poll_fd = PollFd {
+            fd: signal_fd.raw(),
+            events: POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe { syscall3(NR_POLL, &mut poll_fd as *mut PollFd as usize, 1, 250) };
+        if ready == -(EINTR) || ready == 0 {
+            return Ok(());
+        }
+        if ready < 0 {
+            return Err(io::Error::from_raw_os_error((-ready) as i32));
+        }
+        if poll_fd.revents & POLLNVAL != 0 {
+            return Err(io::Error::from_raw_os_error(9));
+        }
+        if poll_fd.revents & (POLLIN | POLLERR | POLLHUP) == 0 {
+            return Err(io::Error::other(
+                "signalfd poll returned an unrelated event",
+            ));
+        }
         let mut signal_info = [0u8; LINUX_SIGNAL_INFO_BYTES];
         loop {
             let result = unsafe {
@@ -1920,6 +2447,11 @@ mod linux_x86_64_process {
             if result == -EINTR {
                 continue;
             }
+            if result == -EAGAIN {
+                // Another waiter may have consumed the signalfd record after
+                // poll reported it. The caller rescans child status either way.
+                return Ok(());
+            }
             if result < 0 {
                 return Err(io::Error::from_raw_os_error((-result) as i32));
             }
@@ -1930,6 +2462,159 @@ mod linux_x86_64_process {
         }
     }
 
+    #[repr(C)]
+    struct LinuxSigInfo {
+        signo: i32,
+        errno: i32,
+        code: i32,
+        _pad0: i32,
+        pid: i32,
+        uid: u32,
+        status: i32,
+        _rest: [u8; 100],
+    }
+
+    impl Default for LinuxSigInfo {
+        fn default() -> Self {
+            Self {
+                signo: 0,
+                errno: 0,
+                code: 0,
+                _pad0: 0,
+                pid: 0,
+                uid: 0,
+                status: 0,
+                _rest: [0; 100],
+            }
+        }
+    }
+
+    const _: [(); LINUX_SIGNAL_INFO_BYTES] = [(); core::mem::size_of::<LinuxSigInfo>()];
+
+    struct LinuxReapKernel;
+
+    impl ReapKernel for LinuxReapKernel {
+        fn observe_any_exit_nonconsuming(&mut self) -> io::Result<Option<u32>> {
+            let mut info = LinuxSigInfo::default();
+            let result = unsafe {
+                syscall5(
+                    NR_WAITID,
+                    P_ALL,
+                    0,
+                    &mut info as *mut LinuxSigInfo as usize,
+                    WEXITED | WNOHANG | WNOWAIT,
+                    0,
+                )
+            };
+            if let Err(error) = syscall_result(result) {
+                if error.raw_os_error() == Some(ECHILD as i32) {
+                    return Err(error);
+                }
+                return Err(io::Error::new(
+                    error.kind(),
+                    format!("waitid(P_ALL): {error}"),
+                ));
+            }
+            if info.pid == 0 {
+                return Ok(None);
+            }
+            if info.pid <= 1 {
+                return Err(io::Error::other(
+                    "waitid(P_ALL) returned an invalid child PID",
+                ));
+            }
+            Ok(Some(info.pid as u32))
+        }
+
+        fn observe_cleanup_exit_nonconsuming(&mut self, process_id: u32) -> io::Result<bool> {
+            if process_id <= 1 {
+                return Err(io::Error::other("refusing to observe a non-child PID"));
+            }
+            let mut info = LinuxSigInfo::default();
+            let result = unsafe {
+                syscall5(
+                    NR_WAITID,
+                    P_PID,
+                    process_id as usize,
+                    &mut info as *mut LinuxSigInfo as usize,
+                    WEXITED | WNOHANG | WNOWAIT,
+                    0,
+                )
+            };
+            syscall_result(result)
+                .map_err(|error| io::Error::new(error.kind(), format!("waitid(P_PID): {error}")))?;
+            if info.pid == 0 {
+                return Ok(false);
+            }
+            if info.pid as u32 != process_id {
+                return Err(io::Error::other(
+                    "waitid(P_PID) returned a different child PID",
+                ));
+            }
+            Ok(true)
+        }
+
+        fn observe_tracked_exit_nonconsuming(
+            &mut self,
+            process_id: u32,
+            pidfd: i32,
+        ) -> io::Result<bool> {
+            if pidfd < 0 {
+                return Err(io::Error::other("tracked process has no pidfd"));
+            }
+            let mut info = LinuxSigInfo::default();
+            let result = unsafe {
+                syscall5(
+                    NR_WAITID,
+                    P_PIDFD,
+                    pidfd as usize,
+                    &mut info as *mut LinuxSigInfo as usize,
+                    WEXITED | WNOHANG | WNOWAIT,
+                    0,
+                )
+            };
+            syscall_result(result).map_err(|error| {
+                io::Error::new(error.kind(), format!("waitid(P_PIDFD): {error}"))
+            })?;
+            if info.pid == 0 {
+                return Ok(false);
+            }
+            if info.pid as u32 != process_id {
+                return Err(io::Error::other(
+                    "waitid(P_PIDFD) returned a different child PID",
+                ));
+            }
+            Ok(true)
+        }
+
+        fn reap_exact(&mut self, process_id: u32) -> io::Result<Option<ServiceExitStatus>> {
+            if process_id <= 1 {
+                return Err(io::Error::other("refusing to reap a non-child PID"));
+            }
+            let mut status = 0i32;
+            let result = unsafe {
+                syscall4(
+                    NR_WAIT4,
+                    process_id as usize,
+                    &mut status as *mut i32 as usize,
+                    WNOHANG,
+                    0,
+                )
+            };
+            let waited_pid = syscall_result(result).map_err(|error| {
+                io::Error::new(error.kind(), format!("wait4(pid={process_id}): {error}"))
+            })? as u32;
+            if waited_pid == 0 {
+                return Ok(None);
+            }
+            if waited_pid != process_id {
+                return Err(io::Error::other("wait4 returned a different child PID"));
+            }
+            Ok(Some(decode_wait_status(status)))
+        }
+    }
+
+    #[cfg(linux_pid1_safety_smoke)]
     fn wait_for_any_child_event() -> io::Result<usize> {
         // Block SIGCHLD before the first wait4 probe. Otherwise an exit between
         // wait4(WNOHANG) and sigprocmask could be discarded under the default
@@ -1949,6 +2634,7 @@ mod linux_x86_64_process {
         }
     }
 
+    #[cfg(linux_pid1_safety_smoke)]
     fn wait_for_tracked_child(pid: u32) -> io::Result<ServiceExitStatus> {
         loop {
             if let Some(status) = wait_child_nonblocking(pid)? {
@@ -2140,16 +2826,10 @@ mod linux_x86_64_process {
                     ));
                 }
 
-                let mut process_os = LinuxProcessOs;
-                let mut service = ProcessHandle::<Running, LinuxChildRaw>::new(
-                    service_pid,
-                    LinuxChildRaw {
-                        gate: None,
-                        exec_error: None,
-                        executable: None,
-                    },
-                );
-                process_os.terminate(&mut service)?;
+                let killed = unsafe { syscall2(NR_KILL, service_pid as usize, SIGKILL) };
+                if killed < 0 && killed != -(ESRCH) {
+                    return Err(io::Error::from_raw_os_error((-killed) as i32));
+                }
                 wait_for_child_bounded(service_pid, std::time::Duration::from_secs(5))?;
                 service_pid_to_cleanup = None;
                 wait_for_pipe_eof(&descendant_hold_read, std::time::Duration::from_secs(5))?;
@@ -2329,16 +3009,10 @@ mod linux_x86_64_process {
         if let Some(status) = wait_child_nonblocking(process_id)? {
             return Ok(status);
         }
-        let mut process_os = LinuxProcessOs;
-        let mut child = ProcessHandle::<Running, LinuxChildRaw>::new(
-            process_id,
-            LinuxChildRaw {
-                gate: None,
-                exec_error: None,
-                executable: None,
-            },
-        );
-        process_os.terminate(&mut child)?;
+        let killed = unsafe { syscall2(NR_KILL, process_id as usize, SIGKILL) };
+        if killed < 0 && killed != -(ESRCH) {
+            return Err(io::Error::from_raw_os_error((-killed) as i32));
+        }
         wait_for_child_bounded(process_id, std::time::Duration::from_secs(5))
     }
 
@@ -2638,6 +3312,7 @@ mod linux_x86_64_process {
         }
     }
 
+    #[cfg(linux_pid1_safety_smoke)]
     fn wait_child_nonblocking(pid: u32) -> io::Result<Option<ServiceExitStatus>> {
         let mut status = 0i32;
         let result = unsafe {
@@ -2661,8 +3336,94 @@ mod linux_x86_64_process {
         Ok(Some(decode_wait_status(status)))
     }
 
+    fn terminate_without_pidfd(pid: u32) -> io::Result<()> {
+        let killed = unsafe { syscall2(NR_KILL, pid as usize, SIGKILL) };
+        if killed < 0 && killed != -(ESRCH) {
+            return Err(io::Error::from_raw_os_error((-killed) as i32));
+        }
+        Ok(())
+    }
+
+    fn wait_for_reap_ticket(ticket: &ReapTicket) -> io::Result<ServiceExitStatus> {
+        loop {
+            match reap_tracked_child(ticket)? {
+                Some(status) => return Ok(status),
+                None => std::thread::sleep(std::time::Duration::from_millis(1)),
+            }
+        }
+    }
+
+    /// Refuse to release a child when launch bookkeeping fails. Close the
+    /// parent gate exactly once; if that close is ambiguous, make one exact
+    /// pidfd signal attempt and leave all later status handling to the reaper.
+    fn fail_closed_child_before_release(
+        gate_parent: &mut OwnedFd,
+        ticket: &ReapTicket,
+        cause: &io::Error,
+    ) -> io::Error {
+        match gate_parent.close_now() {
+            Ok(()) => io::Error::new(
+                cause.kind(),
+                format!(
+                    "{cause}; child exec gate was closed before release and its pidfd remains registered for exact reap"
+                ),
+            ),
+            Err(close_error) => {
+                let signal_result = if ticket.pidfd() >= 0 {
+                    syscall_result(unsafe {
+                        syscall4(
+                            NR_PIDFD_SEND_SIGNAL,
+                            ticket.pidfd() as usize,
+                            SIGKILL,
+                            0,
+                            0,
+                        )
+                    })
+                    .map(|_| ())
+                } else {
+                    Err(io::Error::other("retained pidfd is unavailable"))
+                };
+                let signal_note = match signal_result {
+                    Ok(()) => "one pidfd SIGKILL was sent".to_string(),
+                    Err(error) => format!(
+                        "one pidfd SIGKILL attempt failed or is ambiguous ({error}); it was not retried"
+                    ),
+                };
+                io::Error::other(format!(
+                    "{cause}; exec-gate close outcome is unknown ({close_error}) and was not retried; {signal_note}; the child remains registered for exact reap"
+                ))
+            }
+        }
+    }
+
     fn send_child_error(error_fd: i32, errno: usize) -> ! {
-        let bytes = (errno as u32).to_ne_bytes();
+        send_child_error_code(error_fd, errno as u32)
+    }
+
+    #[derive(Clone, Copy)]
+    #[repr(u32)]
+    enum ChildSetupFailureStage {
+        DescriptorSetup = 1,
+        DescriptorCloseOnExec = 2,
+        NamespaceIsolation = 3,
+        CredentialHardening = 4,
+        SignalMaskReset = 5,
+        TestSecurityProbe = 6,
+    }
+
+    fn send_child_setup_error(error_fd: i32, stage: ChildSetupFailureStage, errno: usize) -> ! {
+        #[cfg(test)]
+        let code = (1u32 << 31) | ((stage as u32) << 24) | (errno as u32 & 0xffff);
+        #[cfg(not(test))]
+        let code = {
+            let _ = stage;
+            errno as u32
+        };
+        send_child_error_code(error_fd, code)
+    }
+
+    fn send_child_error_code(error_fd: i32, code: u32) -> ! {
+        let bytes = code.to_ne_bytes();
         let mut written = 0usize;
         while written < bytes.len() {
             let result = unsafe {
@@ -2688,6 +3449,558 @@ mod linux_x86_64_process {
         }
     }
 
+    #[repr(C)]
+    #[derive(Default)]
+    struct LinuxCapabilityHeader {
+        version: u32,
+        pid: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct LinuxCapabilityData {
+        effective: u32,
+        permitted: u32,
+        inheritable: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct LinuxSockFilter {
+        code: u16,
+        jt: u8,
+        jf: u8,
+        k: u32,
+    }
+
+    #[repr(C)]
+    struct LinuxSockFprog {
+        len: u16,
+        filter: *const LinuxSockFilter,
+    }
+
+    const SERVICE_NAMESPACE_SECCOMP_FILTER: [LinuxSockFilter; 23] = [
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 4,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 1,
+            jf: 0,
+            k: AUDIT_ARCH_X86_64,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_KILL_PROCESS,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x45,
+            jt: 0,
+            jf: 1,
+            k: X32_SYSCALL_BIT,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 4,
+            k: NR_UNSHARE as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 16,
+        },
+        LinuxSockFilter {
+            code: 0x45,
+            jt: 0,
+            jf: 1,
+            k: CLONE_NAMESPACE_FLAGS as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_SETNS as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_CLONE3 as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | ENOSYS as u32,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 4,
+            k: NR_CLONE as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 16,
+        },
+        LinuxSockFilter {
+            code: 0x45,
+            jt: 0,
+            jf: 1,
+            k: CLONE_NAMESPACE_FLAGS as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ALLOW,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ALLOW,
+        },
+    ];
+
+    fn child_syscall_errno(result: isize) -> usize {
+        if result < 0 {
+            (-result) as usize
+        } else {
+            0
+        }
+    }
+
+    fn install_service_namespace_seccomp() -> Result<(), usize> {
+        let mut program = LinuxSockFprog {
+            len: SERVICE_NAMESPACE_SECCOMP_FILTER.len() as u16,
+            filter: SERVICE_NAMESPACE_SECCOMP_FILTER.as_ptr(),
+        };
+        let installed = unsafe {
+            syscall3(
+                NR_SECCOMP,
+                SECCOMP_SET_MODE_FILTER,
+                0,
+                &mut program as *mut LinuxSockFprog as usize,
+            )
+        };
+        if installed < 0 {
+            return Err(child_syscall_errno(installed));
+        }
+        let mode = unsafe { syscall5(NR_PRCTL, PR_GET_SECCOMP, 0, 0, 0, 0) };
+        if mode != SECCOMP_MODE_FILTER {
+            return Err(if mode < 0 {
+                child_syscall_errno(mode)
+            } else {
+                EPERM as usize
+            });
+        }
+        Ok(())
+    }
+
+    fn prctl_capability_bounding_state(capability: usize) -> isize {
+        unsafe { syscall5(NR_PRCTL, PR_CAPBSET_READ, capability, 0, 0, 0) }
+    }
+
+    fn drop_service_capability_bounding_set() -> Result<(), usize> {
+        let mut supported = 0usize;
+        for capability in 0..MAX_LINUX_CAPABILITIES {
+            let current = prctl_capability_bounding_state(capability);
+            if current == -(EINVAL as isize) {
+                continue;
+            }
+            if current < 0 {
+                return Err(child_syscall_errno(current));
+            }
+            if current > 1 {
+                return Err(EINVAL as usize);
+            }
+            supported += 1;
+            if current == 1 {
+                let dropped = unsafe { syscall5(NR_PRCTL, PR_CAPBSET_DROP, capability, 0, 0, 0) };
+                if dropped < 0 {
+                    return Err(child_syscall_errno(dropped));
+                }
+            }
+            if prctl_capability_bounding_state(capability) != 0 {
+                return Err(EPERM as usize);
+            }
+        }
+        if supported == 0 {
+            return Err(EINVAL as usize);
+        }
+        let beyond_v3 = prctl_capability_bounding_state(MAX_LINUX_CAPABILITIES);
+        if beyond_v3 != -(EINVAL as isize) {
+            return Err(if beyond_v3 < 0 {
+                child_syscall_errno(beyond_v3)
+            } else {
+                EOVERFLOW as usize
+            });
+        }
+        Ok(())
+    }
+
+    fn verify_service_capability_bounding_set_empty() -> Result<(), usize> {
+        let mut supported = 0usize;
+        for capability in 0..MAX_LINUX_CAPABILITIES {
+            let current = prctl_capability_bounding_state(capability);
+            if current == -(EINVAL as isize) {
+                continue;
+            }
+            if current < 0 {
+                return Err(child_syscall_errno(current));
+            }
+            supported += 1;
+            if current != 0 {
+                return Err(EPERM as usize);
+            }
+        }
+        if supported == 0 {
+            return Err(EINVAL as usize);
+        }
+        let beyond_v3 = prctl_capability_bounding_state(MAX_LINUX_CAPABILITIES);
+        if beyond_v3 != -(EINVAL as isize) {
+            return Err(if beyond_v3 < 0 {
+                child_syscall_errno(beyond_v3)
+            } else {
+                EOVERFLOW as usize
+            });
+        }
+        Ok(())
+    }
+
+    fn verify_service_capability_sets_empty() -> Result<(), usize> {
+        let mut header = LinuxCapabilityHeader {
+            version: LINUX_CAPABILITY_VERSION_3,
+            pid: 0,
+        };
+        let mut data = [LinuxCapabilityData::default(); LINUX_CAPABILITY_U32S_3];
+        let result = unsafe {
+            syscall2(
+                NR_CAPGET,
+                &mut header as *mut LinuxCapabilityHeader as usize,
+                data.as_mut_ptr() as usize,
+            )
+        };
+        if result < 0 {
+            return Err(child_syscall_errno(result));
+        }
+        if header.version != LINUX_CAPABILITY_VERSION_3
+            || data
+                .iter()
+                .any(|word| word.effective != 0 || word.permitted != 0 || word.inheritable != 0)
+        {
+            return Err(EPERM as usize);
+        }
+        Ok(())
+    }
+
+    fn verify_service_ambient_set_empty() -> Result<(), usize> {
+        let mut supported = 0usize;
+        for capability in 0..MAX_LINUX_CAPABILITIES {
+            let ambient = unsafe {
+                syscall5(
+                    NR_PRCTL,
+                    PR_CAP_AMBIENT,
+                    PR_CAP_AMBIENT_IS_SET,
+                    capability,
+                    0,
+                    0,
+                )
+            };
+            if ambient == -(EINVAL as isize) {
+                continue;
+            }
+            if ambient < 0 {
+                return Err(child_syscall_errno(ambient));
+            }
+            supported += 1;
+            if ambient != 0 {
+                return Err(EPERM as usize);
+            }
+        }
+        if supported == 0 {
+            return Err(EINVAL as usize);
+        }
+        let beyond_v3 = unsafe {
+            syscall5(
+                NR_PRCTL,
+                PR_CAP_AMBIENT,
+                PR_CAP_AMBIENT_IS_SET,
+                MAX_LINUX_CAPABILITIES,
+                0,
+                0,
+            )
+        };
+        if beyond_v3 != -(EINVAL as isize) {
+            return Err(if beyond_v3 < 0 {
+                child_syscall_errno(beyond_v3)
+            } else {
+                EOVERFLOW as usize
+            });
+        }
+        Ok(())
+    }
+
+    fn verify_service_securebits() -> Result<(), usize> {
+        let securebits = unsafe { syscall5(NR_PRCTL, PR_GET_SECUREBITS, 0, 0, 0, 0) };
+        if securebits < 0 {
+            return Err(child_syscall_errno(securebits));
+        }
+        if securebits as usize != SERVICE_SECUREBITS {
+            return Err(EPERM as usize);
+        }
+        Ok(())
+    }
+
+    fn verify_service_identity(uid: u32, gid: u32) -> Result<(), usize> {
+        let mut real_uid = u32::MAX;
+        let mut effective_uid = u32::MAX;
+        let mut saved_uid = u32::MAX;
+        let uids = unsafe {
+            syscall3(
+                NR_GETRESUID,
+                &mut real_uid as *mut u32 as usize,
+                &mut effective_uid as *mut u32 as usize,
+                &mut saved_uid as *mut u32 as usize,
+            )
+        };
+        if uids < 0 {
+            return Err(child_syscall_errno(uids));
+        }
+        let mut real_gid = u32::MAX;
+        let mut effective_gid = u32::MAX;
+        let mut saved_gid = u32::MAX;
+        let gids = unsafe {
+            syscall3(
+                NR_GETRESGID,
+                &mut real_gid as *mut u32 as usize,
+                &mut effective_gid as *mut u32 as usize,
+                &mut saved_gid as *mut u32 as usize,
+            )
+        };
+        if gids < 0 {
+            return Err(child_syscall_errno(gids));
+        }
+        let groups = unsafe { syscall2(NR_GETGROUPS, 0, 0) };
+        if groups < 0 {
+            return Err(child_syscall_errno(groups));
+        }
+        // Linux setresuid/setresgid normally synchronize the filesystem IDs
+        // with the effective IDs. Read the actual values back as well so setup
+        // cannot become ready if an LSM or kernel behavior leaves them apart.
+        let fs_uid = unsafe { syscall1(NR_SETFSUID, u32::MAX as usize) };
+        if fs_uid < 0 {
+            return Err(child_syscall_errno(fs_uid));
+        }
+        let fs_gid = unsafe { syscall1(NR_SETFSGID, u32::MAX as usize) };
+        if fs_gid < 0 {
+            return Err(child_syscall_errno(fs_gid));
+        }
+        if [real_uid, effective_uid, saved_uid] != [uid; 3]
+            || [real_gid, effective_gid, saved_gid] != [gid; 3]
+            || fs_uid as usize != uid as usize
+            || fs_gid as usize != gid as usize
+            || groups != 0
+        {
+            return Err(EPERM as usize);
+        }
+        Ok(())
+    }
+
+    /// Apply irreversible Linux credential hardening in the clone3 child
+    /// before it can report setup-ready or consume the exec release byte.
+    ///
+    /// # Safety
+    /// Must run only in the child branch of `clone3_pid1_service_child()`.
+    /// It permanently changes the calling process credentials and capability
+    /// state; any error requires the caller to exit without executing a file.
+    unsafe fn harden_service_child_credentials(uid: u32, gid: u32) -> Result<(), usize> {
+        if uid == 0 || gid == 0 || uid == u32::MAX || gid == u32::MAX {
+            return Err(EINVAL as usize);
+        }
+        let groups_dropped = syscall2(NR_SETGROUPS, 0, 0);
+        if groups_dropped < 0 {
+            return Err(child_syscall_errno(groups_dropped));
+        }
+        let group_ids_dropped = syscall3(NR_SETRESGID, gid as usize, gid as usize, gid as usize);
+        if group_ids_dropped < 0 {
+            return Err(child_syscall_errno(group_ids_dropped));
+        }
+
+        let securebits_set = syscall5(NR_PRCTL, PR_SET_SECUREBITS, SERVICE_SECUREBITS, 0, 0, 0);
+        if securebits_set < 0 {
+            return Err(child_syscall_errno(securebits_set));
+        }
+
+        let ambient_cleared = syscall5(NR_PRCTL, PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+        if ambient_cleared < 0 {
+            return Err(child_syscall_errno(ambient_cleared));
+        }
+        drop_service_capability_bounding_set()?;
+
+        let user_ids_dropped = syscall3(NR_SETRESUID, uid as usize, uid as usize, uid as usize);
+        if user_ids_dropped < 0 {
+            return Err(child_syscall_errno(user_ids_dropped));
+        }
+
+        let mut header = LinuxCapabilityHeader {
+            version: LINUX_CAPABILITY_VERSION_3,
+            pid: 0,
+        };
+        let data = [LinuxCapabilityData::default(); LINUX_CAPABILITY_U32S_3];
+        let capabilities_cleared = syscall2(
+            NR_CAPSET,
+            &mut header as *mut LinuxCapabilityHeader as usize,
+            data.as_ptr() as usize,
+        );
+        if capabilities_cleared < 0 {
+            return Err(child_syscall_errno(capabilities_cleared));
+        }
+
+        verify_service_identity(uid, gid)?;
+        verify_service_securebits()?;
+        verify_service_capability_sets_empty()?;
+        verify_service_capability_bounding_set_empty()?;
+        verify_service_ambient_set_empty()?;
+
+        let no_new_privileges = syscall5(NR_PRCTL, PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+        if no_new_privileges < 0 {
+            return Err(child_syscall_errno(no_new_privileges));
+        }
+        let no_new_privileges_readback = syscall5(NR_PRCTL, PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0);
+        if no_new_privileges_readback != 1 {
+            return Err(if no_new_privileges_readback < 0 {
+                child_syscall_errno(no_new_privileges_readback)
+            } else {
+                EPERM as usize
+            });
+        }
+        install_service_namespace_seccomp()?;
+        Ok(())
+    }
+
+    /// Give endpoint-bearing system services a private mount/network/IPC/UTS/
+    /// cgroup namespace and a tmpfs-only root before credentials and all
+    /// namespace-changing authority are dropped. Their only inherited service
+    /// channel is fd 3; no pathname in PID 1's root remains reachable after
+    /// chroot. Every setup error aborts before exec.
+    ///
+    /// # Safety
+    /// Must run only in the still-privileged child branch of
+    /// `clone3_pid1_service_child()`. It permanently changes the calling
+    /// process's namespaces and root directory.
+    unsafe fn isolate_system_service_child() -> Result<(), usize> {
+        let namespaces = unsafe { syscall1(NR_UNSHARE, SERVICE_NAMESPACE_FLAGS) };
+        if namespaces < 0 {
+            return Err(child_syscall_errno(namespaces));
+        }
+
+        // The child must not propagate mounts back to PID 1 or sibling
+        // services. Failure is fatal; a shared-propagation mount is not an
+        // acceptable partial sandbox.
+        let private_root = unsafe {
+            syscall5(
+                NR_MOUNT,
+                0,
+                b"/\0".as_ptr() as usize,
+                0,
+                MS_REC | MS_PRIVATE,
+                0,
+            )
+        };
+        if private_root < 0 {
+            return Err(child_syscall_errno(private_root));
+        }
+
+        let private_tmpfs = unsafe {
+            syscall5(
+                NR_MOUNT,
+                0,
+                SERVICE_ROOT_PATH.as_ptr() as usize,
+                SERVICE_TMPFS_TYPE.as_ptr() as usize,
+                MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                SERVICE_TMPFS_OPTIONS.as_ptr() as usize,
+            )
+        };
+        if private_tmpfs < 0 {
+            return Err(child_syscall_errno(private_tmpfs));
+        }
+
+        let entered_root = unsafe { syscall1(NR_CHDIR, SERVICE_ROOT_PATH.as_ptr() as usize) };
+        if entered_root < 0 {
+            return Err(child_syscall_errno(entered_root));
+        }
+        // Keep the service root searchable after dropping root credentials,
+        // while giving it a separate bounded tmpfs scratch directory.
+        let service_tmp = unsafe { syscall2(NR_MKDIR, b"tmp\0".as_ptr() as usize, 0o1777) };
+        if service_tmp < 0 {
+            return Err(child_syscall_errno(service_tmp));
+        }
+        let chrooted = unsafe { syscall1(NR_CHROOT, b".\0".as_ptr() as usize) };
+        if chrooted < 0 {
+            return Err(child_syscall_errno(chrooted));
+        }
+        Ok(())
+    }
+
     // These are the exact descriptors and argv/envp crossing the post-clone
     // exec boundary. Keeping them explicit avoids a wrapper with misleading
     // child-side close semantics.
@@ -2702,10 +4015,92 @@ mod linux_x86_64_process {
         argv: *const *const i8,
         envp: *const *const i8,
         execution_identity: LinuxExecutionIdentity,
+        endpoint_policy: ProcessEndpointPolicy,
     ) -> ! {
         unsafe {
             syscall1(NR_CLOSE, gate_parent as usize);
             syscall1(NR_CLOSE, error_read as usize);
+        }
+
+        unsafe {
+            for target in 0..3usize {
+                // The dedicated Notes development smoke writes its actual
+                // startup and input errors to the inherited QEMU console.
+                // Keep stdin detached and leave every other process on the
+                // normal null-stdio path. Production builds never inherit it.
+                if target != 0 && inherit_child_console_output(execution_identity) {
+                    continue;
+                }
+                let result = syscall2(NR_DUP2, null_fd as usize, target);
+                if result < 0 {
+                    send_child_setup_error(
+                        error_write,
+                        ChildSetupFailureStage::DescriptorSetup,
+                        (-result) as usize,
+                    );
+                }
+            }
+            syscall1(NR_CLOSE, null_fd as usize);
+            let closed = syscall3(NR_CLOSE_RANGE, 3, u32::MAX as usize, CLOSE_RANGE_CLOEXEC);
+            if closed < 0 {
+                send_child_setup_error(
+                    error_write,
+                    ChildSetupFailureStage::DescriptorCloseOnExec,
+                    (-closed) as usize,
+                );
+            }
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                if let Err(errno) = isolate_system_service_child() {
+                    send_child_setup_error(
+                        error_write,
+                        ChildSetupFailureStage::NamespaceIsolation,
+                        errno,
+                    );
+                }
+            }
+            if let Err(errno) =
+                harden_service_child_credentials(execution_identity.uid, execution_identity.gid)
+            {
+                send_child_setup_error(
+                    error_write,
+                    ChildSetupFailureStage::CredentialHardening,
+                    errno,
+                );
+            }
+            // PID 1 blocks SIGCHLD for signalfd-based reaping. Services inherit
+            // that mask across clone; keep SIGCHLD blocked until all credential
+            // and seccomp hardening has completed. clone3 clears caught handlers
+            // before the child can run this setup path.
+            let unblocked_signals = 0u64;
+            let signals_unblocked = syscall4(
+                NR_RT_SIGPROCMASK,
+                SIG_SETMASK,
+                &unblocked_signals as *const u64 as usize,
+                0,
+                core::mem::size_of::<u64>(),
+            );
+            if signals_unblocked < 0 {
+                send_child_setup_error(
+                    error_write,
+                    ChildSetupFailureStage::SignalMaskReset,
+                    (-signals_unblocked) as usize,
+                );
+            }
+            #[cfg(test)]
+            if let Err(errno) =
+                child_credential_negative_probe(execution_identity.uid, execution_identity.gid)
+            {
+                send_child_setup_error(
+                    error_write,
+                    ChildSetupFailureStage::TestSecurityProbe,
+                    errno,
+                );
+            }
+            if !send_child_setup_ready(error_write) {
+                loop {
+                    syscall1(NR_EXIT_GROUP, 126);
+                }
+            }
         }
 
         let mut command = 0u8;
@@ -2732,74 +4127,64 @@ mod linux_x86_64_process {
         }
 
         unsafe {
-            syscall1(NR_CLOSE, gate_child as usize);
-            for target in 0..3usize {
-                // The dedicated Notes development smoke writes its actual
-                // startup and input errors to the inherited QEMU console.
-                // Keep stdin detached and leave every other process on the
-                // normal null-stdio path. Production builds never inherit it.
-                if target != 0 && inherit_child_console_output(execution_identity) {
-                    continue;
+            if endpoint_policy == ProcessEndpointPolicy::Disabled {
+                syscall1(NR_CLOSE, gate_child as usize);
+            }
+
+            let mut exec_fd = executable_fd;
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                // The service endpoint occupies fd 3 after exec. Preserve the
+                // sealed executable above the ordinary descriptor range first.
+                let preserved_exec_fd = syscall3(NR_FCNTL, exec_fd as usize, F_DUPFD_CLOEXEC, 64);
+                if preserved_exec_fd < 0 {
+                    send_child_error(error_write, (-preserved_exec_fd) as usize);
                 }
-                let result = syscall2(NR_DUP2, null_fd as usize, target);
-                if result < 0 {
-                    send_child_error(error_write, (-result) as usize);
+                syscall1(NR_CLOSE, exec_fd as usize);
+                exec_fd = preserved_exec_fd as i32;
+
+                let mut endpoint_fds = [-1i32; 2];
+                let endpoint_pair = syscall4(
+                    NR_SOCKETPAIR,
+                    AF_UNIX,
+                    SOCK_STREAM | SOCK_CLOEXEC,
+                    0,
+                    endpoint_fds.as_mut_ptr() as usize,
+                );
+                if endpoint_pair < 0 {
+                    send_child_error(error_write, (-endpoint_pair) as usize);
+                }
+                let service_endpoint = endpoint_fds[0];
+                let owner_endpoint = endpoint_fds[1];
+                if service_endpoint == SERVICE_ENDPOINT_FD {
+                    let inheritable = syscall3(NR_FCNTL, service_endpoint as usize, F_SETFD, 0);
+                    if inheritable < 0 {
+                        send_child_error(error_write, (-inheritable) as usize);
+                    }
+                } else {
+                    let duplicated = syscall3(
+                        NR_DUP3,
+                        service_endpoint as usize,
+                        SERVICE_ENDPOINT_FD as usize,
+                        0,
+                    );
+                    if duplicated < 0 {
+                        send_child_error(error_write, (-duplicated) as usize);
+                    }
+                    syscall1(NR_CLOSE, service_endpoint as usize);
+                }
+
+                let sent = send_endpoint_descriptor(gate_child, owner_endpoint);
+                syscall1(NR_CLOSE, owner_endpoint as usize);
+                syscall1(NR_CLOSE, gate_child as usize);
+                if sent != 1 {
+                    send_child_error(error_write, if sent < 0 { (-sent) as usize } else { 5 });
                 }
             }
-            syscall1(NR_CLOSE, null_fd as usize);
-            let closed = syscall3(NR_CLOSE_RANGE, 3, u32::MAX as usize, CLOSE_RANGE_CLOEXEC);
-            if closed < 0 {
-                send_child_error(error_write, (-closed) as usize);
-            }
-            // PID 1 blocks SIGCHLD for signalfd-based reaping. Services inherit
-            // that signal mask across clone, so restore an empty mask before
-            // exec in the private service PID namespace.
-            let unblocked_signals = 0u64;
-            let signals_unblocked = syscall4(
-                NR_RT_SIGPROCMASK,
-                SIG_SETMASK,
-                &unblocked_signals as *const u64 as usize,
-                0,
-                core::mem::size_of::<u64>(),
-            );
-            if signals_unblocked < 0 {
-                send_child_error(error_write, (-signals_unblocked) as usize);
-            }
-            // PID 1 owns Linux-side setup, but service ELFs never inherit its
-            // host root identity. These numeric credentials are an OS
-            // sandbox detail only; they do not create Nagi identity or grant
-            // consent. Drop supplementary groups before the primary IDs, then
-            // prohibit privilege-gaining exec transitions.
-            let groups_dropped = syscall2(NR_SETGROUPS, 0, 0);
-            if groups_dropped < 0 {
-                send_child_error(error_write, (-groups_dropped) as usize);
-            }
-            let group_ids_dropped = syscall3(
-                NR_SETRESGID,
-                execution_identity.gid as usize,
-                execution_identity.gid as usize,
-                execution_identity.gid as usize,
-            );
-            if group_ids_dropped < 0 {
-                send_child_error(error_write, (-group_ids_dropped) as usize);
-            }
-            let user_ids_dropped = syscall3(
-                NR_SETRESUID,
-                execution_identity.uid as usize,
-                execution_identity.uid as usize,
-                execution_identity.uid as usize,
-            );
-            if user_ids_dropped < 0 {
-                send_child_error(error_write, (-user_ids_dropped) as usize);
-            }
-            let no_new_privileges = syscall5(NR_PRCTL, PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
-            if no_new_privileges < 0 {
-                send_child_error(error_write, (-no_new_privileges) as usize);
-            }
+
             let empty_path = b"\0";
             let executed = syscall5(
                 NR_EXECVEAT,
-                executable_fd as usize,
+                exec_fd as usize,
                 empty_path.as_ptr() as usize,
                 argv as usize,
                 envp as usize,
@@ -2814,10 +4199,322 @@ mod linux_x86_64_process {
         }
     }
 
-    pub(super) struct LinuxChildRaw {
-        gate: Option<OwnedFd>,
-        exec_error: Option<OwnedFd>,
-        executable: Option<OwnedFd>,
+    fn send_child_setup_ready(error_fd: i32) -> bool {
+        let bytes = CHILD_SETUP_READY_WORD.to_ne_bytes();
+        let mut written = 0usize;
+        while written < bytes.len() {
+            let result = unsafe {
+                syscall3(
+                    NR_WRITE,
+                    error_fd as usize,
+                    bytes.as_ptr().add(written) as usize,
+                    bytes.len() - written,
+                )
+            };
+            if result == -(EINTR) {
+                continue;
+            }
+            if result <= 0 {
+                return false;
+            }
+            written += result as usize;
+        }
+        true
+    }
+
+    fn await_child_setup_ready(error_fd: i32, budget: std::time::Duration) -> io::Result<()> {
+        let started = std::time::Instant::now();
+        let mut bytes = [0u8; core::mem::size_of::<u32>()];
+        let mut received = 0usize;
+        loop {
+            if started.elapsed() >= budget {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "service child credential setup did not report readiness",
+                ));
+            }
+            let result = unsafe {
+                syscall3(
+                    NR_READ,
+                    error_fd as usize,
+                    bytes.as_mut_ptr().add(received) as usize,
+                    bytes.len() - received,
+                )
+            };
+            if result == -(EINTR) {
+                continue;
+            }
+            if result == -(EAGAIN) {
+                let remaining = budget.saturating_sub(started.elapsed());
+                if remaining.is_zero() {
+                    continue;
+                }
+                let rounded_ms = remaining.as_millis().saturating_add(u128::from(
+                    !remaining.subsec_nanos().is_multiple_of(1_000_000),
+                ));
+                let timeout_ms = rounded_ms.max(1).min(i32::MAX as u128) as i32;
+                let mut descriptor = PollFd {
+                    fd: error_fd,
+                    events: POLLIN,
+                    revents: 0,
+                };
+                let ready = unsafe {
+                    syscall3(
+                        NR_POLL,
+                        &mut descriptor as *mut PollFd as usize,
+                        1,
+                        timeout_ms as usize,
+                    )
+                };
+                if ready == -(EINTR) {
+                    continue;
+                }
+                if ready < 0 {
+                    return Err(io::Error::from_raw_os_error((-ready) as i32));
+                }
+                if descriptor.revents & POLLNVAL != 0 {
+                    return Err(io::Error::from_raw_os_error(9));
+                }
+                continue;
+            }
+            if result < 0 {
+                return Err(io::Error::from_raw_os_error((-result) as i32));
+            }
+            if result == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    if received == 0 {
+                        "service child exited before credential setup readiness"
+                    } else {
+                        "service child sent a partial credential setup result"
+                    },
+                ));
+            }
+            received += result as usize;
+            if received != bytes.len() {
+                continue;
+            }
+            let word = u32::from_ne_bytes(bytes);
+            if word == CHILD_SETUP_READY_WORD {
+                return Ok(());
+            }
+            #[cfg(test)]
+            if word & (1u32 << 31) != 0 {
+                let stage = (word >> 24) & 0x7f;
+                let errno = (word & 0xffff) as i32;
+                let stage_name = match stage {
+                    1 => "descriptor setup",
+                    2 => "close-on-exec descriptor setup",
+                    3 => "namespace/root isolation",
+                    4 => "credential/capability/seccomp hardening",
+                    5 => "signal mask reset",
+                    6 => "test security negative probe",
+                    _ => "unknown child setup stage",
+                };
+                eprintln!("C3_CLONE3_CHILD_SETUP_FAILED: stage={stage_name} errno={errno}");
+                return Err(io::Error::from_raw_os_error(errno));
+            }
+            if word == 0 || word > i32::MAX as u32 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "service child sent an invalid credential setup result",
+                ));
+            }
+            return Err(io::Error::from_raw_os_error(word as i32));
+        }
+    }
+
+    #[cfg(test)]
+    fn child_credential_negative_probe(uid: u32, gid: u32) -> Result<(), usize> {
+        let mut header = LinuxCapabilityHeader {
+            version: LINUX_CAPABILITY_VERSION_3,
+            pid: 0,
+        };
+        let mut data = [LinuxCapabilityData::default(); LINUX_CAPABILITY_U32S_3];
+        data[0].effective = 1 << 7; // CAP_SETUID
+        data[0].permitted = 1 << 7;
+        let capset = unsafe {
+            syscall2(
+                NR_CAPSET,
+                &mut header as *mut LinuxCapabilityHeader as usize,
+                data.as_ptr() as usize,
+            )
+        };
+        if capset != -EPERM {
+            return Err(if capset < 0 {
+                child_syscall_errno(capset)
+            } else {
+                EPERM as usize
+            });
+        }
+
+        let set_uid = unsafe { syscall3(NR_SETRESUID, 0, 0, 0) };
+        if set_uid != -EPERM {
+            return Err(if set_uid < 0 {
+                child_syscall_errno(set_uid)
+            } else {
+                EPERM as usize
+            });
+        }
+        let set_gid = unsafe { syscall3(NR_SETRESGID, 0, 0, 0) };
+        if set_gid != -EPERM {
+            return Err(if set_gid < 0 {
+                child_syscall_errno(set_gid)
+            } else {
+                EPERM as usize
+            });
+        }
+        let changed_securebits = SERVICE_SECUREBITS & !SECBIT_NOROOT_LOCKED;
+        let securebits =
+            unsafe { syscall5(NR_PRCTL, PR_SET_SECUREBITS, changed_securebits, 0, 0, 0) };
+        if securebits != -EPERM {
+            return Err(if securebits < 0 {
+                child_syscall_errno(securebits)
+            } else {
+                EPERM as usize
+            });
+        }
+
+        let mut sockets = [-1i32; 2];
+        let pair = unsafe {
+            syscall4(
+                NR_SOCKETPAIR,
+                AF_UNIX,
+                SOCK_DGRAM | SOCK_CLOEXEC,
+                0,
+                sockets.as_mut_ptr() as usize,
+            )
+        };
+        if pair < 0 {
+            return Err(child_syscall_errno(pair));
+        }
+        let own_pid = unsafe { syscall1(NR_GETPID, 0) };
+        if own_pid <= 0 || own_pid > i32::MAX as isize {
+            unsafe {
+                syscall1(NR_CLOSE, sockets[0] as usize);
+                syscall1(NR_CLOSE, sockets[1] as usize);
+            }
+            return Err(EINVAL as usize);
+        }
+        let rejected_pid_forge = send_test_scm_credentials(
+            sockets[0],
+            UnixPeerCredentials {
+                process_id: 0,
+                uid,
+                gid,
+            },
+        );
+        let rejected_uid_gid_forge = send_test_scm_credentials(
+            sockets[0],
+            UnixPeerCredentials {
+                process_id: own_pid as i32,
+                uid: 0,
+                gid: 0,
+            },
+        );
+        unsafe {
+            syscall1(NR_CLOSE, sockets[0] as usize);
+            syscall1(NR_CLOSE, sockets[1] as usize);
+        }
+        if rejected_pid_forge != -EPERM || rejected_uid_gid_forge != -EPERM {
+            return Err(EPERM as usize);
+        }
+
+        let seccomp_mode = unsafe { syscall5(NR_PRCTL, PR_GET_SECCOMP, 0, 0, 0, 0) };
+        if seccomp_mode != 2 {
+            return Err(EPERM as usize);
+        }
+        let unshare = unsafe { syscall1(NR_UNSHARE, CLONE_NEWUSER) };
+        if unshare != -EPERM {
+            return Err(if unshare < 0 {
+                child_syscall_errno(unshare)
+            } else {
+                EPERM as usize
+            });
+        }
+        let setns = unsafe { syscall2(NR_SETNS, usize::MAX, CLONE_NEWUSER) };
+        if setns != -EPERM {
+            return Err(if setns < 0 {
+                child_syscall_errno(setns)
+            } else {
+                EPERM as usize
+            });
+        }
+        let invalid_thread_namespace_clone =
+            CLONE_NEWUSER | 0x0000_0100 | 0x0000_0800 | 0x0001_0000;
+        let clone = unsafe { syscall5(NR_CLONE, invalid_thread_namespace_clone, 0, 0, 0, 0) };
+        if clone != -EPERM {
+            return Err(if clone < 0 {
+                child_syscall_errno(clone)
+            } else {
+                EPERM as usize
+            });
+        }
+        let x32_unshare = unsafe { syscall1(X32_SYSCALL_BIT as usize | NR_UNSHARE, CLONE_NEWUSER) };
+        if x32_unshare != -EPERM {
+            return Err(if x32_unshare < 0 {
+                child_syscall_errno(x32_unshare)
+            } else {
+                EPERM as usize
+            });
+        }
+        let clone3 = unsafe { syscall2(NR_CLONE3, 0, 0) };
+        if clone3 != -ENOSYS {
+            return Err(if clone3 < 0 {
+                child_syscall_errno(clone3)
+            } else {
+                EPERM as usize
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn send_test_scm_credentials(fd: i32, credentials: UnixPeerCredentials) -> isize {
+        let mut payload = 1u8;
+        let mut vector = IoVec {
+            base: &mut payload,
+            len: 1,
+        };
+        let mut control = EndpointControlBuffer([0; ENDPOINT_CONTROL_BYTES]);
+        let header_size = core::mem::size_of::<ControlMessageHeader>();
+        let credential_size = core::mem::size_of::<UnixPeerCredentials>();
+        let cmsg_space = (header_size + credential_size + 7) & !7;
+        unsafe {
+            ptr::write(
+                control.0.as_mut_ptr().cast::<ControlMessageHeader>(),
+                ControlMessageHeader {
+                    len: header_size + credential_size,
+                    level: SOL_SOCKET,
+                    kind: SCM_CREDENTIALS,
+                },
+            );
+            ptr::write_unaligned(
+                control
+                    .0
+                    .as_mut_ptr()
+                    .add(header_size)
+                    .cast::<UnixPeerCredentials>(),
+                credentials,
+            );
+        }
+        let mut message = MessageHeader {
+            name: ptr::null_mut(),
+            name_len: 0,
+            iov: &mut vector,
+            iov_len: 1,
+            control: control.0.as_mut_ptr(),
+            control_len: cmsg_space,
+            flags: 0,
+        };
+        unsafe {
+            syscall3(
+                NR_SENDMSG,
+                fd as usize,
+                &mut message as *mut MessageHeader as usize,
+                MSG_NOSIGNAL,
+            )
+        }
     }
 
     #[repr(C)]
@@ -2827,12 +4524,326 @@ mod linux_x86_64_process {
         revents: i16,
     }
 
-    struct LinuxExecStatusWait {
-        status_fd: i32,
-        process_id: u32,
+    #[repr(C)]
+    struct IoVec {
+        base: *mut u8,
+        len: usize,
     }
 
-    impl ExecStatusWait for LinuxExecStatusWait {
+    #[repr(C)]
+    struct MessageHeader {
+        name: *mut u8,
+        name_len: u32,
+        iov: *mut IoVec,
+        iov_len: usize,
+        control: *mut u8,
+        control_len: usize,
+        flags: i32,
+    }
+
+    #[repr(C)]
+    struct ControlMessageHeader {
+        len: usize,
+        level: i32,
+        kind: i32,
+    }
+
+    #[repr(C)]
+    struct UnixPeerCredentials {
+        process_id: i32,
+        uid: u32,
+        gid: u32,
+    }
+
+    fn endpoint_peer_credentials(fd: i32) -> io::Result<UnixPeerCredentials> {
+        let mut credentials = UnixPeerCredentials {
+            process_id: -1,
+            uid: u32::MAX,
+            gid: u32::MAX,
+        };
+        let mut length = core::mem::size_of::<UnixPeerCredentials>() as u32;
+        let result = unsafe {
+            syscall5(
+                NR_GETSOCKOPT,
+                fd as usize,
+                SOL_SOCKET as usize,
+                SO_PEERCRED,
+                &mut credentials as *mut UnixPeerCredentials as usize,
+                &mut length as *mut u32 as usize,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::from_raw_os_error((-result) as i32));
+        }
+        if length as usize != core::mem::size_of::<UnixPeerCredentials>() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SO_PEERCRED returned an unexpected structure size",
+            ));
+        }
+        Ok(credentials)
+    }
+
+    #[repr(align(8))]
+    struct EndpointControlBuffer([u8; ENDPOINT_CONTROL_BYTES]);
+
+    fn close_received_rights(descriptors: &[i32]) {
+        for descriptor in descriptors.iter().copied().filter(|fd| *fd >= 0) {
+            unsafe {
+                syscall1(NR_CLOSE, descriptor as usize);
+            }
+        }
+    }
+
+    fn receive_endpoint_descriptor(gate_fd: i32) -> io::Result<StdOwnedFd> {
+        let mut payload = [0u8; 16];
+        let mut vector = IoVec {
+            base: payload.as_mut_ptr(),
+            len: payload.len(),
+        };
+        let mut control = EndpointControlBuffer([0; ENDPOINT_CONTROL_BYTES]);
+        let mut message = MessageHeader {
+            name: ptr::null_mut(),
+            name_len: 0,
+            iov: &mut vector,
+            iov_len: 1,
+            control: control.0.as_mut_ptr(),
+            control_len: control.0.len(),
+            flags: 0,
+        };
+        let received = unsafe {
+            syscall3(
+                NR_RECVMSG,
+                gate_fd as usize,
+                &mut message as *mut MessageHeader as usize,
+                MSG_CMSG_CLOEXEC,
+            )
+        };
+        if received < 0 {
+            return Err(io::Error::from_raw_os_error((-received) as i32));
+        }
+
+        let supplied_control_len = message.control_len;
+        let mut malformed = supplied_control_len > control.0.len()
+            || message.flags & (MSG_CTRUNC | MSG_TRUNC) != 0
+            || received != 1
+            || payload[0] != ENDPOINT_MESSAGE_BYTE;
+        let control_len = supplied_control_len.min(control.0.len());
+        let mut descriptors = [-1i32; MAX_RECEIVED_RIGHTS];
+        let mut descriptor_count = 0usize;
+        let mut header_count = 0usize;
+        let mut offset = 0usize;
+        let header_size = core::mem::size_of::<ControlMessageHeader>();
+
+        while offset < control_len {
+            let remaining = control_len - offset;
+            if remaining < header_size {
+                malformed = true;
+                break;
+            }
+            let header = unsafe {
+                ptr::read_unaligned(
+                    control
+                        .0
+                        .as_ptr()
+                        .add(offset)
+                        .cast::<ControlMessageHeader>(),
+                )
+            };
+            if header.len < header_size || header.len > remaining {
+                malformed = true;
+                break;
+            }
+            header_count += 1;
+            if header.level == SOL_SOCKET && header.kind == SCM_RIGHTS {
+                let data_len = header.len - header_size;
+                if data_len % core::mem::size_of::<i32>() != 0 {
+                    malformed = true;
+                }
+                for index in 0..(data_len / core::mem::size_of::<i32>()) {
+                    let raw_fd = unsafe {
+                        ptr::read_unaligned(
+                            control
+                                .0
+                                .as_ptr()
+                                .add(offset + header_size + index * core::mem::size_of::<i32>())
+                                .cast::<i32>(),
+                        )
+                    };
+                    if raw_fd < 0 {
+                        malformed = true;
+                    } else if descriptor_count < descriptors.len() {
+                        descriptors[descriptor_count] = raw_fd;
+                        descriptor_count += 1;
+                    } else {
+                        malformed = true;
+                        unsafe {
+                            syscall1(NR_CLOSE, raw_fd as usize);
+                        }
+                    }
+                }
+            } else {
+                malformed = true;
+            }
+
+            let aligned_len = header.len.saturating_add(7) & !7;
+            if aligned_len > remaining {
+                if header.len != remaining {
+                    malformed = true;
+                    break;
+                }
+                offset = control_len;
+            } else {
+                offset += aligned_len;
+            }
+        }
+
+        if received == 0 && descriptor_count == 0 && supplied_control_len == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "exec gate closed before endpoint transfer",
+            ));
+        }
+        malformed |= header_count != 1 || descriptor_count != 1;
+        if malformed {
+            close_received_rights(&descriptors[..descriptor_count]);
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "endpoint transfer ancillary data is malformed",
+            ));
+        }
+
+        let raw_fd = descriptors[0];
+        let descriptor_flags = unsafe { syscall3(NR_FCNTL, raw_fd as usize, F_GETFD, 0) };
+        if descriptor_flags < 0 {
+            close_received_rights(&descriptors[..descriptor_count]);
+            return Err(io::Error::from_raw_os_error((-descriptor_flags) as i32));
+        }
+        if descriptor_flags as usize & FD_CLOEXEC == 0 {
+            let set_flags = unsafe {
+                syscall3(
+                    NR_FCNTL,
+                    raw_fd as usize,
+                    F_SETFD,
+                    descriptor_flags as usize | FD_CLOEXEC,
+                )
+            };
+            if set_flags < 0 {
+                close_received_rights(&descriptors[..descriptor_count]);
+                return Err(io::Error::from_raw_os_error((-set_flags) as i32));
+            }
+        }
+        descriptors[0] = -1;
+        Ok(unsafe { StdOwnedFd::from_raw_fd(raw_fd) })
+    }
+
+    fn send_endpoint_descriptor(gate_fd: i32, endpoint_fd: i32) -> isize {
+        let mut payload = ENDPOINT_MESSAGE_BYTE;
+        let mut vector = IoVec {
+            base: &mut payload,
+            len: 1,
+        };
+        let mut control = EndpointControlBuffer([0; ENDPOINT_CONTROL_BYTES]);
+        let header_bytes = core::mem::size_of::<ControlMessageHeader>();
+        let cmsg_space = (header_bytes + core::mem::size_of::<i32>() + 7) & !7;
+        unsafe {
+            ptr::write(
+                control.0.as_mut_ptr().cast::<ControlMessageHeader>(),
+                ControlMessageHeader {
+                    len: header_bytes + core::mem::size_of::<i32>(),
+                    level: SOL_SOCKET,
+                    kind: SCM_RIGHTS,
+                },
+            );
+            ptr::write_unaligned(
+                control.0.as_mut_ptr().add(header_bytes).cast::<i32>(),
+                endpoint_fd,
+            );
+        }
+        let mut message = MessageHeader {
+            name: ptr::null_mut(),
+            name_len: 0,
+            iov: &mut vector,
+            iov_len: 1,
+            control: control.0.as_mut_ptr(),
+            control_len: cmsg_space,
+            flags: 0,
+        };
+        unsafe {
+            syscall3(
+                NR_SENDMSG,
+                gate_fd as usize,
+                &mut message as *mut MessageHeader as usize,
+                MSG_NOSIGNAL,
+            )
+        }
+    }
+
+    pub(super) struct LinuxChildRaw {
+        gate: Option<OwnedFd>,
+        exec_error: Option<OwnedFd>,
+        executable: Option<OwnedFd>,
+        spawned: Option<SpawnedProcessPidfd>,
+        reap: ReapTicket,
+        execution_identity: LinuxExecutionIdentity,
+        endpoint_policy: ProcessEndpointPolicy,
+        endpoint: Option<StdOwnedFd>,
+    }
+
+    enum ExecErrorPipeState {
+        Pending,
+        Eof,
+        Error(i32),
+        Partial,
+    }
+
+    fn read_exec_error_pipe(
+        fd: i32,
+        bytes: &mut [u8; 4],
+        received: &mut usize,
+    ) -> Result<ExecErrorPipeState, ReleaseFailureReason> {
+        loop {
+            let result = unsafe {
+                syscall3(
+                    NR_READ,
+                    fd as usize,
+                    bytes[*received..].as_mut_ptr() as usize,
+                    bytes.len() - *received,
+                )
+            };
+            if result == -(EINTR) {
+                continue;
+            }
+            if result == -EAGAIN {
+                return Ok(ExecErrorPipeState::Pending);
+            }
+            if result < 0 {
+                return Err(ReleaseFailureReason::Io);
+            }
+            if result == 0 {
+                return Ok(if *received == 0 {
+                    ExecErrorPipeState::Eof
+                } else {
+                    ExecErrorPipeState::Partial
+                });
+            }
+            let count = result as usize;
+            if count > bytes.len() - *received {
+                return Err(ReleaseFailureReason::Io);
+            }
+            *received += count;
+            if *received == bytes.len() {
+                return Ok(ExecErrorPipeState::Error(i32::from_ne_bytes(*bytes)));
+            }
+        }
+    }
+
+    struct LinuxExecStatusWait<'a> {
+        status_fd: i32,
+        reap: &'a ReapTicket,
+    }
+
+    impl ExecStatusWait for LinuxExecStatusWait<'_> {
         fn read_status_nonblocking(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
             let result = unsafe {
                 syscall3(
@@ -2891,11 +4902,172 @@ mod linux_x86_64_process {
         }
 
         fn child_exit_status(&mut self) -> io::Result<Option<ServiceExitStatus>> {
-            wait_child_nonblocking(self.process_id)
+            reap_tracked_child(self.reap)
         }
     }
 
     impl LinuxChildRaw {
+        fn wait_for_endpoint(
+            &mut self,
+            process_id: u32,
+            started: std::time::Instant,
+            budget: std::time::Duration,
+            cancel_check_interval: std::time::Duration,
+            cancelled: &mut dyn FnMut() -> bool,
+        ) -> Result<(), ReleaseFailureReason> {
+            if cancel_check_interval.is_zero() {
+                return Err(ReleaseFailureReason::Io);
+            }
+            let gate_fd = self.gate.as_ref().ok_or(ReleaseFailureReason::Io)?.raw();
+            let error_fd = self
+                .exec_error
+                .as_ref()
+                .ok_or(ReleaseFailureReason::Io)?
+                .raw();
+            let mut error_bytes = [0u8; 4];
+            let mut error_bytes_read = 0usize;
+
+            loop {
+                if cancelled() {
+                    return Err(ReleaseFailureReason::Cancelled);
+                }
+                if started.elapsed() >= budget {
+                    return Err(ReleaseFailureReason::TimedOut);
+                }
+                match receive_endpoint_descriptor(gate_fd) {
+                    Ok(endpoint) => {
+                        let credentials = endpoint_peer_credentials(endpoint.as_raw_fd())
+                            .map_err(|_| ReleaseFailureReason::Io)?;
+                        if credentials.process_id <= 1
+                            || credentials.process_id as u32 != process_id
+                            || credentials.uid != self.execution_identity.uid
+                            || credentials.gid != self.execution_identity.gid
+                        {
+                            return Err(ReleaseFailureReason::ProtocolViolation);
+                        }
+                        if cancelled() {
+                            return Err(ReleaseFailureReason::Cancelled);
+                        }
+                        if started.elapsed() >= budget {
+                            drop(endpoint);
+                            return Err(ReleaseFailureReason::TimedOut);
+                        }
+                        self.endpoint = Some(endpoint);
+                        return Ok(());
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {}
+                    Err(error) if error.kind() == io::ErrorKind::InvalidData => {
+                        return Err(ReleaseFailureReason::ProtocolViolation);
+                    }
+                    Err(_) => return Err(ReleaseFailureReason::Io),
+                }
+
+                match read_exec_error_pipe(error_fd, &mut error_bytes, &mut error_bytes_read)? {
+                    ExecErrorPipeState::Pending => {}
+                    ExecErrorPipeState::Error(errno) => {
+                        return Err(ReleaseFailureReason::ExecError(errno));
+                    }
+                    ExecErrorPipeState::Partial => {
+                        return Err(ReleaseFailureReason::PartialErrorReport);
+                    }
+                    ExecErrorPipeState::Eof => {
+                        return match reap_tracked_child(&self.reap) {
+                            Ok(Some(status)) => Err(ReleaseFailureReason::ChildExited(status)),
+                            Ok(None) => Err(ReleaseFailureReason::ProtocolViolation),
+                            Err(_) => Err(ReleaseFailureReason::Io),
+                        };
+                    }
+                }
+
+                match reap_tracked_child(&self.reap) {
+                    Ok(Some(status)) => {
+                        return match read_exec_error_pipe(
+                            error_fd,
+                            &mut error_bytes,
+                            &mut error_bytes_read,
+                        )? {
+                            ExecErrorPipeState::Error(errno) => {
+                                Err(ReleaseFailureReason::ExecError(errno))
+                            }
+                            ExecErrorPipeState::Partial => {
+                                Err(ReleaseFailureReason::PartialErrorReport)
+                            }
+                            ExecErrorPipeState::Pending | ExecErrorPipeState::Eof => {
+                                Err(ReleaseFailureReason::ChildExited(status))
+                            }
+                        };
+                    }
+                    Ok(None) => {}
+                    Err(_) => return Err(ReleaseFailureReason::Io),
+                }
+
+                if cancelled() {
+                    return Err(ReleaseFailureReason::Cancelled);
+                }
+                let remaining = budget.saturating_sub(started.elapsed());
+                if remaining.is_zero() {
+                    return Err(ReleaseFailureReason::TimedOut);
+                }
+                let poll_budget = remaining.min(cancel_check_interval);
+                let whole_ms = poll_budget.as_millis();
+                let fractional_ms = if poll_budget.subsec_nanos().is_multiple_of(1_000_000) {
+                    0
+                } else {
+                    1
+                };
+                let timeout_ms = whole_ms
+                    .saturating_add(fractional_ms)
+                    .max(1)
+                    .min(i32::MAX as u128) as i32;
+                let mut descriptors = [
+                    PollFd {
+                        fd: gate_fd,
+                        events: POLLIN,
+                        revents: 0,
+                    },
+                    PollFd {
+                        fd: error_fd,
+                        events: POLLIN,
+                        revents: 0,
+                    },
+                ];
+                let ready = unsafe {
+                    syscall3(
+                        NR_POLL,
+                        descriptors.as_mut_ptr() as usize,
+                        descriptors.len(),
+                        timeout_ms as usize,
+                    )
+                };
+                if ready == -(EINTR) {
+                    continue;
+                }
+                if ready < 0 {
+                    return Err(ReleaseFailureReason::Io);
+                }
+                if descriptors[0].revents & POLLNVAL != 0 {
+                    return Err(ReleaseFailureReason::ProtocolViolation);
+                }
+                if descriptors[1].revents & POLLNVAL != 0 {
+                    return Err(ReleaseFailureReason::Io);
+                }
+                if ready == 0 && started.elapsed() >= budget {
+                    return Err(ReleaseFailureReason::TimedOut);
+                }
+                if descriptors[0].revents & POLLHUP != 0 && descriptors[0].revents & POLLIN == 0 {
+                    continue;
+                }
+                if descriptors[0].revents & (POLLIN | POLLERR | POLLHUP) == 0
+                    && descriptors[1].revents & (POLLIN | POLLERR | POLLHUP) == 0
+                    && ready != 0
+                {
+                    return Err(ReleaseFailureReason::Io);
+                }
+            }
+        }
+
         fn write_release_gate(
             &mut self,
             budget: std::time::Duration,
@@ -2934,6 +5106,22 @@ mod linux_x86_64_process {
             cancel_check_interval: std::time::Duration,
             cancelled: &mut dyn FnMut() -> bool,
         ) -> Result<(), ReleaseFailureReason> {
+            if self.endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                if let Err(reason) = self.wait_for_endpoint(
+                    process_id,
+                    started,
+                    budget,
+                    cancel_check_interval,
+                    cancelled,
+                ) {
+                    if matches!(reason, ReleaseFailureReason::ChildExited(_)) {
+                        self.gate.take();
+                        self.exec_error.take();
+                        self.executable.take();
+                    }
+                    return Err(reason);
+                }
+            }
             let status_fd = self
                 .exec_error
                 .as_ref()
@@ -2941,7 +5129,7 @@ mod linux_x86_64_process {
                 .raw();
             let mut wait = LinuxExecStatusWait {
                 status_fd,
-                process_id,
+                reap: &self.reap,
             };
             let mut elapsed = || started.elapsed();
             match wait_for_exec_ack(
@@ -2978,6 +5166,7 @@ mod linux_x86_64_process {
             executable: ExecutablePayload<'_>,
             arguments: &[&str],
             execution_identity: LinuxExecutionIdentity,
+            endpoint_policy: ProcessEndpointPolicy,
         ) -> io::Result<ProcessHandle<Prepared, Self::Raw>> {
             if execution_identity.uid == 0 || execution_identity.gid == 0 {
                 return Err(io::Error::new(
@@ -3024,38 +5213,176 @@ mod linux_x86_64_process {
             let error_write = promote_fd(error_second)?;
             set_nonblocking(error_read.raw())?;
 
-            // Each launched child becomes PID 1 in a child namespace. If it exits,
-            // Linux terminates every remaining namespace member, letting
-            // shutdown target this tracked PID without signaling helpers.
-            let cloned = unsafe { syscall5(NR_CLONE, SIGCHLD | CLONE_NEWPID, 0, 0, 0, 0) };
-            if cloned == 0 {
-                unsafe {
-                    child_wait_and_exec(
-                        gate_parent.raw(),
-                        gate_child.raw(),
+            // Serialize child creation/registration with every consuming wait.
+            // The child stays behind its gate until its ticket is published.
+            let mut reaper = child_reaper()
+                .lock()
+                .map_err(|_| io::Error::other("PID-1 child reaper lock is poisoned"))?;
+            let ticket_reservation: ReapTicketReservation = reaper.reserve_ticket()?;
+
+            // clone3 atomically returns the exact pidfd. This is the only
+            // production launch path; unsupported kernels fail closed without
+            // a numeric-PID or pidfd_open fallback.
+            match unsafe { clone3_pid1_service_child()? } {
+                Clone3Pid1Child::Child => {
+                    // Never unlock an inherited parent mutex in the child.
+                    std::mem::forget(reaper);
+                    unsafe {
+                        child_wait_and_exec(
+                            gate_parent.raw(),
+                            gate_child.raw(),
+                            error_read.raw(),
+                            error_write.raw(),
+                            null_fd.raw(),
+                            executable_fd.raw(),
+                            argv.as_ptr(),
+                            envp.as_ptr(),
+                            execution_identity,
+                            endpoint_policy,
+                        )
+                    }
+                }
+                Clone3Pid1Child::Parent(spawned) => {
+                    let (ticket_spawn, owner_spawn, duplicate_error) =
+                        match spawned.duplicate_for_authority() {
+                            Ok(ticket_spawn) => (ticket_spawn, Some(spawned), None),
+                            Err(error) => (spawned, None, Some(error)),
+                        };
+                    let ticket = ticket_reservation.bind_owned(ticket_spawn);
+                    let mut gate_parent = gate_parent;
+                    if let Err(error) = reaper.register(ticket.clone()) {
+                        reaper.retain_failed_ticket(ticket.clone());
+                        let launch_error =
+                            fail_closed_child_before_release(&mut gate_parent, &ticket, &error);
+                        drop(gate_child);
+                        drop(error_read);
+                        drop(error_write);
+                        drop(null_fd);
+                        drop(executable_fd);
+                        drop(owner_spawn);
+                        drop(reaper);
+                        return Err(launch_error);
+                    }
+                    if let Some(error) = duplicate_error {
+                        let launch_error =
+                            fail_closed_child_before_release(&mut gate_parent, &ticket, &error);
+                        drop(gate_child);
+                        drop(error_read);
+                        drop(error_write);
+                        drop(null_fd);
+                        drop(executable_fd);
+                        drop(reaper);
+                        return Err(launch_error);
+                    }
+                    let owner_spawn = owner_spawn.ok_or_else(|| {
+                        io::Error::other("successful pidfd duplication lost its lifecycle owner")
+                    })?;
+                    let process_id = ticket.process_id();
+                    drop(reaper);
+                    drop(gate_child);
+                    drop(error_write);
+                    drop(null_fd);
+                    if let Err(error) = await_child_setup_ready(
                         error_read.raw(),
-                        error_write.raw(),
-                        null_fd.raw(),
-                        executable_fd.raw(),
-                        argv.as_ptr(),
-                        envp.as_ptr(),
-                        execution_identity,
-                    )
+                        std::time::Duration::from_secs(10),
+                    ) {
+                        let launch_error =
+                            fail_closed_child_before_release(&mut gate_parent, &ticket, &error);
+                        drop(error_read);
+                        drop(executable_fd);
+                        drop(owner_spawn);
+                        return Err(launch_error);
+                    }
+                    Ok(ProcessHandle::new(
+                        process_id,
+                        LinuxChildRaw {
+                            gate: Some(gate_parent),
+                            exec_error: Some(error_read),
+                            executable: Some(executable_fd),
+                            spawned: Some(owner_spawn),
+                            reap: ticket,
+                            execution_identity,
+                            endpoint_policy,
+                            endpoint: None,
+                        },
+                    ))
+                }
+                Clone3Pid1Child::ParentWithoutPidfd { process_id } => {
+                    // The child exists but cannot be authenticated. Register
+                    // a cleanup-only ticket before closing the gate so the
+                    // single coordinator remains its only wait4 owner.
+                    let ticket = ticket_reservation.bind_unverified(process_id);
+                    let registration = reaper.register(ticket.clone());
+                    let termination = terminate_without_pidfd(process_id);
+                    drop(gate_parent);
+                    drop(gate_child);
+                    drop(error_read);
+                    drop(error_write);
+                    drop(null_fd);
+                    drop(executable_fd);
+                    drop(reaper);
+                    registration?;
+                    termination?;
+                    wait_for_reap_ticket(&ticket)?;
+                    Err(io::Error::other(
+                        "clone3 created a child without its required atomic pidfd",
+                    ))
                 }
             }
-            let process_id = syscall_result(cloned)? as u32;
+        }
 
-            drop(gate_child);
-            drop(error_write);
-            drop(null_fd);
-            Ok(ProcessHandle::new(
-                process_id,
-                LinuxChildRaw {
-                    gate: Some(gate_parent),
-                    exec_error: Some(error_read),
-                    executable: Some(executable_fd),
-                },
-            ))
+        fn take_handoff_resources(
+            &mut self,
+            child: &mut ProcessHandle<Running, Self::Raw>,
+        ) -> io::Result<ProcessEndpointResources> {
+            if child.raw.endpoint_policy != ProcessEndpointPolicy::InheritedPeerChannel {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "launch did not request an inherited peer channel",
+                ));
+            }
+            if child.raw.endpoint.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "launch endpoint was already transferred or is unavailable",
+                ));
+            }
+            let pidfd = child
+                .raw
+                .spawned
+                .as_ref()
+                .ok_or_else(|| io::Error::other("launch lost its clone3 pidfd"))?
+                .duplicate_for_authority()?;
+            let endpoint = child
+                .raw
+                .endpoint
+                .take()
+                .ok_or_else(|| io::Error::other("launch endpoint transfer raced"))?;
+            Ok(ProcessEndpointResources { pidfd, endpoint })
+        }
+
+        fn duplicate_pidfd_for_prepared(
+            &mut self,
+            child: &ProcessHandle<Prepared, Self::Raw>,
+        ) -> io::Result<SpawnedProcessPidfd> {
+            child
+                .raw
+                .spawned
+                .as_ref()
+                .ok_or_else(|| io::Error::other("prepared child has no clone3 pidfd"))?
+                .duplicate_for_authority()
+        }
+
+        fn duplicate_pidfd_for_running(
+            &mut self,
+            child: &mut ProcessHandle<Running, Self::Raw>,
+        ) -> io::Result<SpawnedProcessPidfd> {
+            child
+                .raw
+                .spawned
+                .as_ref()
+                .ok_or_else(|| io::Error::other("running child has no clone3 pidfd"))?
+                .duplicate_for_authority()
         }
 
         fn commit_release_gate<LaunchRecord>(
@@ -3104,15 +5431,155 @@ mod linux_x86_64_process {
             &mut self,
             child: &mut ProcessHandle<Stage, Self::Raw>,
         ) -> io::Result<Option<ServiceExitStatus>> {
-            wait_child_nonblocking(child.process_id)
+            reap_tracked_child(&child.raw.reap)
         }
 
         fn terminate<Stage: ProcessStage>(
             &mut self,
             child: &mut ProcessHandle<Stage, Self::Raw>,
         ) -> io::Result<()> {
-            syscall_result(unsafe { syscall2(NR_KILL, child.process_id as usize, SIGKILL) })
+            let pidfd = child
+                .raw
+                .spawned
+                .as_ref()
+                .ok_or_else(|| io::Error::other("tracked child has no clone3 pidfd"))?
+                .as_raw_fd()?;
+            syscall_result(unsafe { syscall4(NR_PIDFD_SEND_SIGNAL, pidfd as usize, SIGKILL, 0, 0) })
                 .map(|_| ())
+        }
+    }
+
+    #[cfg(test)]
+    mod inline_pidfd_retention_tests {
+        use super::*;
+        use std::time::{Duration, Instant};
+
+        fn process_status_field<'a>(status: &'a str, name: &str) -> &'a str {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(name)?.strip_prefix(':'))
+                .map(str::trim)
+                .unwrap_or_else(|| panic!("/proc status is missing {name}"))
+        }
+
+        fn process_status_ids(status: &str, name: &str) -> Vec<u64> {
+            process_status_field(status, name)
+                .split_whitespace()
+                .map(|value| value.parse().expect("proc status ID must be numeric"))
+                .collect()
+        }
+
+        #[test]
+        fn maintained_prepare_registry_owns_pidfd_after_owner_drop_until_exact_reap() {
+            let executable = super::super::process_lifecycle_tests::synthetic_static_elf();
+            let mut os = LinuxProcessOs;
+            let child = os
+                .prepare(
+                    ExecutablePayload { bytes: &executable },
+                    &[],
+                    LinuxExecutionIdentity::DEV_SERVICE,
+                    ProcessEndpointPolicy::Disabled,
+                )
+                .expect("maintained inline prepare must register the clone3 child");
+            let mut handle = child;
+            let proc_status =
+                std::fs::read_to_string(format!("/proc/{}/status", handle.process_id))
+                    .expect("setup-ready child must remain inspectable before gate release");
+            let identity = handle.raw.execution_identity;
+            assert_eq!(
+                process_status_ids(&proc_status, "Uid"),
+                vec![identity.uid as u64; 4],
+                "all real/effective/saved/filesystem UIDs must match service identity"
+            );
+            assert_eq!(
+                process_status_ids(&proc_status, "Gid"),
+                vec![identity.gid as u64; 4],
+                "all real/effective/saved/filesystem GIDs must match service identity"
+            );
+            assert_eq!(
+                process_status_field(&proc_status, "Groups"),
+                "",
+                "service child must have no supplementary groups"
+            );
+            for name in ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"] {
+                assert_eq!(
+                    u64::from_str_radix(process_status_field(&proc_status, name), 16)
+                        .expect("capability mask must be hexadecimal"),
+                    0,
+                    "{name} must be empty before release"
+                );
+            }
+            assert_eq!(
+                process_status_field(&proc_status, "NoNewPrivs"),
+                "1",
+                "no_new_privs must be active before release"
+            );
+            assert_eq!(
+                process_status_field(&proc_status, "Seccomp"),
+                "2",
+                "namespace seccomp filter must be active before release"
+            );
+            assert_eq!(
+                u64::from_str_radix(process_status_field(&proc_status, "SigCgt"), 16)
+                    .expect("caught signal mask must be hexadecimal"),
+                0,
+                "clone3 must clear inherited caught handlers before child setup"
+            );
+            let blocked_signals =
+                u64::from_str_radix(process_status_field(&proc_status, "SigBlk"), 16)
+                    .expect("blocked signal mask must be hexadecimal");
+            assert_eq!(
+                blocked_signals & (1u64 << (SIGCHLD - 1)),
+                0,
+                "SIGCHLD must be unblocked only after child hardening and before setup-ready"
+            );
+            let observer = handle.raw.reap.observe_terminal_close();
+
+            // Dropping the actual inline ProcessHandle closes the unreleased
+            // child gate and its lifecycle pidfd. The registered ticket must
+            // be the only strong owner until the exact exit is reaped.
+            let reaper = child_reaper()
+                .lock()
+                .expect("global child reaper mutex must remain available");
+            drop(handle);
+            assert_eq!(observer.pidfd_owner_strong_count(), Some(1));
+            assert!(observer.pidfd_owner_is_live());
+            assert_eq!(observer.pidfd_owner_strong_count(), Some(1));
+            drop(reaper);
+
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let status = loop {
+                if let Some(status) = observer
+                    .try_terminal_after_close()
+                    .expect("registry ticket must survive through exact close")
+                {
+                    break status;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "idle reaper did not publish exact child status and close the registry pidfd"
+                );
+                reap_pending_child_exits().expect("maintained idle reaper scan must succeed");
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            assert_eq!(status.exit_code, Some(125));
+            assert_eq!(observer.pidfd_owner_strong_count(), Some(0));
+
+            let no_new_privileges = unsafe { syscall5(NR_PRCTL, PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
+            assert_eq!(no_new_privileges, 0, "test thread must enable no_new_privs");
+            install_service_namespace_seccomp()
+                .expect("the same namespace filter must install in a service thread");
+            // The pinned x86_64-musl Rust std path calls pthread_create, whose
+            // bundled musl implementation uses __clone (NR_CLONE). This checks
+            // that ordinary threads remain usable under the filter; it does
+            // not test or prove a clone3-to-clone fallback.
+            let thread = std::thread::Builder::new()
+                .spawn(|| 0x53ec_c0de_u32)
+                .expect("ordinary thread creation must work under the namespace filter");
+            assert_eq!(
+                thread.join().expect("service thread must complete"),
+                0x53ec_c0de
+            );
         }
     }
 }
@@ -3172,12 +5639,17 @@ fn backend_error_for_package_session_owner(error: PackageServiceSessionOwnerErro
         OwnerError::GenerationSaturated
         | OwnerError::PackageDigestUnavailable
         | OwnerError::DigestIndexUnavailable
-        | OwnerError::DigestIndexFailed => BackendError::Unavailable,
+        | OwnerError::DigestIndexFailed
+        | OwnerError::PackageBlobUnavailable
+        | OwnerError::PackageBlobFailed => BackendError::Unavailable,
+        OwnerError::Quarantined => BackendError::Revoked,
         OwnerError::DigestInventoryFull
         | OwnerError::InstalledPackageBytesMismatch
         | OwnerError::DigestIndexOutcomeUnknown
         | OwnerError::DigestIndexCorrupt
-        | OwnerError::DigestIndexReadbackMismatch => BackendError::ProtocolViolation,
+        | OwnerError::DigestIndexReadbackMismatch
+        | OwnerError::PackageBlobOutcomeUnknown
+        | OwnerError::PackageBlobReadbackMismatch => BackendError::ProtocolViolation,
     }
 }
 
@@ -3265,6 +5737,7 @@ where
             executable,
             arguments: &[],
             execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
+            endpoint_policy: ProcessEndpointPolicy::Disabled,
             required,
             release_wait_budget,
             cancel_check_interval,
@@ -3351,6 +5824,7 @@ fn spawn_development_preview_elf(
             executable,
             arguments,
             execution_identity,
+            endpoint_policy: ProcessEndpointPolicy::Disabled,
             required,
             release_wait_budget: LinuxDevPreviewBackend::RELEASE_WAIT_BUDGET,
             cancel_check_interval: LinuxDevPreviewBackend::CANCEL_CHECK_INTERVAL,
@@ -3720,37 +6194,6 @@ const NOTES_INPUT_KEY_BITMAP_BYTES: usize = (NOTES_INPUT_KEY_MAX + 8) / 8;
 const NOTES_INPUT_O_NOFOLLOW: i32 = 0x0002_0000;
 
 #[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
-fn mount_notes_sysfs_read_only() -> Result<(), BackendError> {
-    const MS_RDONLY: std::os::raw::c_ulong = 1;
-    const MS_NOSUID: std::os::raw::c_ulong = 2;
-    const MS_NODEV: std::os::raw::c_ulong = 4;
-    const MS_NOEXEC: std::os::raw::c_ulong = 8;
-    let source = CString::new("sysfs").map_err(|_| BackendError::ProtocolViolation)?;
-    let target = CString::new("/sys").map_err(|_| BackendError::ProtocolViolation)?;
-    let filesystem = CString::new("sysfs").map_err(|_| BackendError::ProtocolViolation)?;
-    // Do not infer an already-mounted filesystem from EBUSY. The private CPIO
-    // starts with an empty /sys mountpoint, so any mount failure is fatal here.
-    let result = unsafe {
-        mount(
-            source.as_ptr(),
-            target.as_ptr(),
-            filesystem.as_ptr(),
-            MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
-            core::ptr::null(),
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        pid1_log!(
-            "nagi-init: read-only sysfs mount failed ({})",
-            std::io::Error::last_os_error()
-        );
-        Err(BackendError::Unavailable)
-    }
-}
-
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
 const fn notes_event_ioctl_request(number: u32, size: usize) -> std::os::raw::c_ulong {
     ((2u64 << 30) | ((size as u64) << 16) | ((b'E' as u64) << 8) | number as u64) as _
 }
@@ -4019,7 +6462,6 @@ fn prepare_notes_desktop_devices() -> Result<String, BackendError> {
         })
     }
 
-    mount_notes_sysfs_read_only()?;
     load_notes_framebuffer_modules()?;
     let keyboard_path = select_notes_keyboard_device()?;
 
@@ -4602,14 +7044,69 @@ impl InitBackend for LinuxDevPreviewBackend {
     }
 }
 
-/// Adapter used while the Linux process backend is not connected. Its optional
-/// typed action route is empty in `run()` until a runtime supplier has provided
-/// authenticated transport, live registration, and the canonical route.
-struct UnconnectedBackend;
+/// A directory descriptor and the expected owner supplied by a boot/volume
+/// owner. This pair is input to metadata validation only; it does not prove
+/// where the descriptor came from or bind it to a selected product volume.
+#[cfg(unix)]
+struct PackageStoreDirectoryInput {
+    directory: std::fs::File,
+    expected_owner_uid: u32,
+}
+
+#[cfg(unix)]
+impl PackageStoreDirectoryInput {
+    fn new(directory: std::fs::File, expected_owner_uid: u32) -> Self {
+        Self {
+            directory,
+            expected_owner_uid,
+        }
+    }
+}
+
+/// Adapter used while the Linux process backend is not connected. Its
+/// optional package-store input is validated through the existing provider
+/// boundary, then startup still fails closed until product trust/catalog and
+/// authenticated transport are supplied.
+struct UnconnectedBackend {
+    #[cfg(unix)]
+    package_store_directory: Option<PackageStoreDirectoryInput>,
+    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+    boot_catalog: Option<nagi_system_service_launch::VerifiedBootCatalog>,
+    #[cfg(test)]
+    wait_calls: usize,
+}
 
 impl UnconnectedBackend {
     fn new() -> Self {
-        Self
+        Self::with_package_store_directory(None)
+    }
+
+    #[cfg(unix)]
+    fn with_package_store_directory(input: Option<PackageStoreDirectoryInput>) -> Self {
+        Self {
+            package_store_directory: input,
+            #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+            boot_catalog: None,
+            #[cfg(test)]
+            wait_calls: 0,
+        }
+    }
+
+    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+    fn with_verified_boot_inputs(inputs: linux_boot_package_inputs::BootPackageInputs) -> Self {
+        let mut backend = Self::with_package_store_directory(Some(
+            PackageStoreDirectoryInput::new(inputs.directory, 0),
+        ));
+        backend.boot_catalog = Some(inputs.catalog);
+        backend
+    }
+
+    #[cfg(not(unix))]
+    fn with_package_store_directory(_input: Option<()>) -> Self {
+        Self {
+            #[cfg(test)]
+            wait_calls: 0,
+        }
     }
 }
 
@@ -4633,6 +7130,121 @@ impl InitBackend for UnconnectedBackend {
     type ServiceId = &'static str;
 
     fn initialize(&mut self) -> Result<Self::Session, BackendError> {
+        #[cfg(unix)]
+        {
+            let Some(input) = self.package_store_directory.take() else {
+                pid1_log!("nagi-init: boot package-store directory descriptor unavailable");
+                return Err(BackendError::Unavailable);
+            };
+            #[cfg(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                not(linux_dev_preview_smoke)
+            ))]
+            let package_store = input.directory.try_clone().map_err(|error| {
+                pid1_log!("nagi-init: cannot retain boot package directory ({error})");
+                BackendError::Unavailable
+            })?;
+            let persistence = LinuxInstalledPackagePersistence::from_trusted_directory(
+                input.directory,
+                input.expected_owner_uid,
+            )
+            .map_err(|error| {
+                pid1_log!("nagi-init: package-store directory descriptor rejected ({error:?})");
+                BackendError::Unavailable
+            })?;
+
+            #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+            let catalog = self.boot_catalog.take();
+            #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+            let trusted_key = catalog
+                .as_ref()
+                .map(|catalog| catalog.package_signing_public_key());
+            #[cfg(not(all(target_os = "linux", not(linux_dev_preview_smoke))))]
+            let trusted_key = None;
+            let restore =
+                nagi_init_package_provider::package_trust::PackageServiceSessionOwner::
+                    restore_from_persistent_storage(
+                        trusted_key.as_ref(),
+                        nagi_package::InstallPolicy {
+                            developer_mode: false,
+                            require_signature: true,
+                        },
+                        &persistence,
+                        &persistence,
+                    );
+            let package_owner = restore.map_err(|error| {
+                pid1_log!("nagi-init: package-store restore/admission unavailable ({error:?})");
+                BackendError::Unavailable
+            })?;
+            #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+            if let Some(catalog) = catalog.as_ref() {
+                use nagi_system_service_launch::ArtifactPreflight as _;
+
+                let descriptor = catalog.descriptor();
+                let report = linux_boot_package_inputs::LinuxBootArtifactPreflight::new()
+                    .and_then(|mut preflight| {
+                        preflight.inspect(&descriptor.artifact_preflight_request())
+                    })
+                    .map_err(|error| {
+                        pid1_log!("nagi-init: boot service artifact unavailable ({error:?})");
+                        BackendError::Unavailable
+                    })?;
+                let report = nagi_system_service_launch::validate_artifact_preflight_report(
+                    &report, descriptor,
+                )
+                .map_err(|error| {
+                    pid1_log!("nagi-init: boot service artifact rejected ({error:?})");
+                    BackendError::Unavailable
+                })?;
+                let bytes = package_owner
+                    .read_installed_system_service_package(
+                        descriptor.package_id().as_bytes(),
+                        &persistence,
+                    )
+                    .map_err(|error| {
+                        pid1_log!("nagi-init: boot service package read failed ({error:?})");
+                        BackendError::Unavailable
+                    })?;
+                let package = nagi_system_service_launch::bind_installed_service_package(
+                    descriptor,
+                    &bytes,
+                    &package_owner,
+                )
+                .map_err(|error| {
+                    pid1_log!("nagi-init: boot service package binding failed ({error:?})");
+                    BackendError::Unavailable
+                })?;
+                pid1_log!(
+                    "nagi-init: boot service package verified generation={}",
+                    package.package_generation()
+                );
+                #[cfg(target_arch = "x86_64")]
+                {
+                    let authenticated = linux_c3_boot_launch::authenticate_boot_service(
+                        &package_store,
+                        catalog,
+                        &report,
+                        package,
+                    )
+                    .map_err(|error| {
+                        pid1_log!(
+                            "nagi-init: C3 boot service authentication unavailable ({error})"
+                        );
+                        BackendError::Unavailable
+                    })?;
+                    authenticated.retire().map_err(|error| {
+                        pid1_log!("nagi-init: C3 boot service retirement unavailable ({error})");
+                        BackendError::Unavailable
+                    })?;
+                    pid1_log!(
+                        "nagi-init: C3 authenticated and retired the boot service; C1 runtime unavailable"
+                    );
+                }
+            }
+            #[cfg(not(all(target_os = "linux", not(linux_dev_preview_smoke))))]
+            drop(package_owner);
+        }
         Err(BackendError::Unavailable)
     }
 
@@ -4662,6 +7274,10 @@ impl InitBackend for UnconnectedBackend {
         &mut self,
         _session: &mut Self::Session,
     ) -> Result<LifecycleEvent<Self::ServiceId>, BackendError> {
+        #[cfg(test)]
+        {
+            self.wait_calls += 1;
+        }
         Err(BackendError::Unavailable)
     }
 
@@ -4675,6 +7291,10 @@ impl InitBackend for UnconnectedBackend {
 }
 
 #[cfg(test)]
+#[path = "linux_init_process_owner_candidate.rs"]
+mod linux_init_process_owner_candidate;
+
+#[cfg(test)]
 mod process_lifecycle_tests {
     use super::*;
     use std::cell::RefCell;
@@ -4682,7 +7302,7 @@ mod process_lifecycle_tests {
     use std::io;
     use std::rc::Rc;
 
-    const fn synthetic_static_elf() -> [u8; 128] {
+    pub(super) const fn synthetic_static_elf() -> [u8; 128] {
         let mut elf = [0u8; 128];
         elf[0] = 0x7f;
         elf[1] = b'E';
@@ -5053,6 +7673,7 @@ mod process_lifecycle_tests {
             executable: ExecutablePayload<'_>,
             arguments: &[&str],
             _execution_identity: LinuxExecutionIdentity,
+            _endpoint_policy: ProcessEndpointPolicy,
         ) -> io::Result<ProcessHandle<Prepared, Self::Raw>> {
             let argv = process_argv_storage(arguments)?
                 .into_iter()
@@ -5179,6 +7800,9 @@ mod process_lifecycle_tests {
                         ReleaseFailureReason::PartialErrorReport => {
                             ProcessEvent::ReleasePartialError(process_id)
                         }
+                        ReleaseFailureReason::ProtocolViolation => {
+                            ProcessEvent::ReleaseFailed(process_id)
+                        }
                         ReleaseFailureReason::Io => ProcessEvent::ReleaseFailed(process_id),
                     };
                     self.events.borrow_mut().push(event);
@@ -5255,6 +7879,7 @@ mod process_lifecycle_tests {
             executable: ExecutablePayload::from_package_executable(&TEST_EXECUTABLE).unwrap(),
             arguments: &[],
             execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
+            endpoint_policy: ProcessEndpointPolicy::Disabled,
             required,
             release_wait_budget,
             cancel_check_interval: TEST_CANCEL_CHECK_INTERVAL,
@@ -5426,6 +8051,7 @@ mod process_lifecycle_tests {
             executable: ExecutablePayload::from_package_executable(&TEST_EXECUTABLE).unwrap(),
             arguments: &arguments,
             execution_identity: LinuxExecutionIdentity::DEV_NOTES_DESKTOP,
+            endpoint_policy: ProcessEndpointPolicy::Disabled,
             required: true,
             release_wait_budget: TEST_RELEASE_WAIT,
             cancel_check_interval: TEST_CANCEL_CHECK_INTERVAL,
@@ -6565,6 +9191,619 @@ mod process_lifecycle_tests {
     }
 }
 
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
+mod linux_process_resource_tests {
+    use super::*;
+    use std::io::{self, Read, Write};
+    use std::os::fd::AsRawFd;
+    use std::process::Command;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread::JoinHandle;
+
+    const TEST_RECORD: u32 = 0x4353_0001;
+    const TEST_RELEASE_BUDGET: std::time::Duration = std::time::Duration::from_secs(3);
+    const TEST_CANCEL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+
+    fn endpoint_writer_elf() -> Vec<u8> {
+        endpoint_writer_elf_with_exit_code(0)
+    }
+
+    fn endpoint_writer_elf_with_exit_code(exit_code: u8) -> Vec<u8> {
+        let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
+        image.resize(256, 0);
+        let image_len = image.len() as u64;
+        image[96..104].copy_from_slice(&image_len.to_le_bytes());
+        image[104..112].copy_from_slice(&image_len.to_le_bytes());
+        image[112..120].copy_from_slice(&0x1000u64.to_le_bytes());
+        let code = [
+            0xb8, 0x01, 0x00, 0x00, 0x00, // mov eax, SYS_write
+            0xbf, 0x03, 0x00, 0x00, 0x00, // mov edi, endpoint fd 3
+            0x48, 0x8d, 0x35, 0x57, 0x00, 0x00, 0x00, // lea rsi, [rip + 87]
+            0xba, 0x05, 0x00, 0x00, 0x00, // mov edx, 5
+            0x0f, 0x05, // syscall
+            0xb8, 0x00, 0x00, 0x00, 0x00, // mov eax, SYS_read
+            0xbf, 0x03, 0x00, 0x00, 0x00, // mov edi, endpoint fd 3
+            0x48, 0x89, 0xe6, // mov rsi, rsp
+            0xba, 0x01, 0x00, 0x00, 0x00, // mov edx, 1
+            0x0f, 0x05, // syscall
+            0xb8, 0x01, 0x00, 0x00, 0x00, // mov eax, SYS_write
+            0xbf, 0x03, 0x00, 0x00, 0x00, // mov edi, endpoint fd 3
+            0x48, 0x8d, 0x35, 0x30, 0x00, 0x00, 0x00, // lea rsi, [rip + 48]
+            0xba, 0x05, 0x00, 0x00, 0x00, // mov edx, 5
+            0x0f, 0x05, // syscall
+            0xb8, 0x00, 0x00, 0x00, 0x00, // mov eax, SYS_read
+            0xbf, 0x03, 0x00, 0x00, 0x00, // mov edi, endpoint fd 3
+            0x48, 0x89, 0xe6, // mov rsi, rsp
+            0xba, 0x01, 0x00, 0x00, 0x00, // mov edx, 1
+            0x0f, 0x05, // syscall
+            0xb8, 0x3c, 0x00, 0x00, 0x00, // mov eax, SYS_exit
+            0xbf, exit_code, 0x00, 0x00, 0x00, // mov edi, exit_code
+            0x0f, 0x05, // syscall
+        ];
+        image[120..120 + code.len()].copy_from_slice(&code);
+        image[224..229].copy_from_slice(b"HELLO");
+        image[229..234].copy_from_slice(b"READY");
+        image
+    }
+
+    pub(super) fn namespace_root_probe_elf() -> Vec<u8> {
+        const IMAGE_BYTES: usize = 448;
+        const PATH_OFFSET: usize = 320;
+        const ISOLATED_OFFSET: usize = 352;
+        const VISIBLE_OFFSET: usize = 360;
+
+        let mut code = Vec::new();
+        code.extend_from_slice(&[0xb8, 0x01, 0x01, 0x00, 0x00]); // mov eax, SYS_openat
+        code.extend_from_slice(&[0xbf, 0x9c, 0xff, 0xff, 0xff]); // mov edi, AT_FDCWD
+        code.push(0xbe); // mov esi, absolute path in this fixed-address ELF
+        code.extend_from_slice(&((0x400000 + PATH_OFFSET) as u32).to_le_bytes());
+        code.extend_from_slice(&[0x31, 0xd2, 0x0f, 0x05]); // xor edx, edx; syscall
+        code.extend_from_slice(&[0x3d, 0xfe, 0xff, 0xff, 0xff]); // cmp eax, -ENOENT
+        let visible_branch = code.len();
+        code.extend_from_slice(&[0x75, 0]); // jne visible
+
+        code.extend_from_slice(&[0xb8, 0x01, 0x00, 0x00, 0x00]); // mov eax, SYS_write
+        code.extend_from_slice(&[0xbf, 0x03, 0x00, 0x00, 0x00]); // mov edi, fd 3
+        code.push(0xbe);
+        code.extend_from_slice(&((0x400000 + ISOLATED_OFFSET) as u32).to_le_bytes());
+        code.extend_from_slice(&[0xba, 0x08, 0x00, 0x00, 0x00, 0x0f, 0x05]); // write 8
+        code.extend_from_slice(&[0xb8, 0x00, 0x00, 0x00, 0x00]); // mov eax, SYS_read
+        code.extend_from_slice(&[0xbf, 0x03, 0x00, 0x00, 0x00]); // mov edi, fd 3
+        code.extend_from_slice(&[0x48, 0x89, 0xe6]); // mov rsi, rsp
+        code.extend_from_slice(&[0xba, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05]); // read 1
+        code.extend_from_slice(&[0xb8, 0x3c, 0x00, 0x00, 0x00]); // mov eax, SYS_exit
+        code.extend_from_slice(&[0x31, 0xff, 0x0f, 0x05]); // exit 0
+
+        let visible_label = code.len();
+        code.extend_from_slice(&[0xb8, 0x01, 0x00, 0x00, 0x00]); // mov eax, SYS_write
+        code.extend_from_slice(&[0xbf, 0x03, 0x00, 0x00, 0x00]); // mov edi, fd 3
+        code.push(0xbe);
+        code.extend_from_slice(&((0x400000 + VISIBLE_OFFSET) as u32).to_le_bytes());
+        code.extend_from_slice(&[0xba, 0x08, 0x00, 0x00, 0x00, 0x0f, 0x05]); // write 8
+        code.extend_from_slice(&[0xb8, 0x00, 0x00, 0x00, 0x00]); // mov eax, SYS_read
+        code.extend_from_slice(&[0xbf, 0x03, 0x00, 0x00, 0x00]); // mov edi, fd 3
+        code.extend_from_slice(&[0x48, 0x89, 0xe6]); // mov rsi, rsp
+        code.extend_from_slice(&[0xba, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05]); // read 1
+        code.extend_from_slice(&[0xb8, 0x3c, 0x00, 0x00, 0x00]); // mov eax, SYS_exit
+        code.extend_from_slice(&[0xbf, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05]); // exit 1
+        code[visible_branch + 1] = (visible_label - (visible_branch + 2)) as u8;
+        assert!(120 + code.len() < PATH_OFFSET);
+
+        let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
+        image.resize(IMAGE_BYTES, 0);
+        image[96..104].copy_from_slice(&(IMAGE_BYTES as u64).to_le_bytes());
+        image[104..112].copy_from_slice(&(IMAGE_BYTES as u64).to_le_bytes());
+        image[120..120 + code.len()].copy_from_slice(&code);
+        image[PATH_OFFSET..PATH_OFFSET + b"/nagi-c3-root-secret\0".len()]
+            .copy_from_slice(b"/nagi-c3-root-secret\0");
+        image[ISOLATED_OFFSET..ISOLATED_OFFSET + 8].copy_from_slice(b"ISOLATED");
+        image[VISIBLE_OFFSET..VISIBLE_OFFSET + 8].copy_from_slice(b"VISIBLE!");
+        image
+    }
+
+    fn untracked_child_exit_elf() -> Vec<u8> {
+        let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
+        image.resize(160, 0);
+        let image_len = image.len() as u64;
+        image[96..104].copy_from_slice(&image_len.to_le_bytes());
+        image[104..112].copy_from_slice(&image_len.to_le_bytes());
+        image[120..132].copy_from_slice(&[
+            0xb8, 0x3c, 0x00, 0x00, 0x00, // mov eax, SYS_exit
+            0xbf, 0x25, 0x00, 0x00, 0x00, // mov edi, 37
+            0x0f, 0x05, // syscall
+        ]);
+        image
+    }
+
+    fn wrong_machine_elf() -> Vec<u8> {
+        let mut image = endpoint_writer_elf();
+        image[18..20].copy_from_slice(&3u16.to_le_bytes());
+        image
+    }
+
+    fn launch_with_payload<'a>(
+        executable: ExecutablePayload<'a>,
+        endpoint_policy: ProcessEndpointPolicy,
+    ) -> ProcessLaunch<'a, &'static str> {
+        launch_with_service_payload("process-resource-test", executable, endpoint_policy)
+    }
+
+    fn launch_with_service_payload<'a>(
+        service: &'static str,
+        executable: ExecutablePayload<'a>,
+        endpoint_policy: ProcessEndpointPolicy,
+    ) -> ProcessLaunch<'a, &'static str> {
+        ProcessLaunch {
+            service,
+            executable,
+            arguments: &[],
+            execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
+            endpoint_policy,
+            required: true,
+            release_wait_budget: TEST_RELEASE_BUDGET,
+            cancel_check_interval: TEST_CANCEL_INTERVAL,
+        }
+    }
+
+    fn launch<'a>(
+        bytes: &'a [u8],
+        endpoint_policy: ProcessEndpointPolicy,
+    ) -> ProcessLaunch<'a, &'static str> {
+        launch_with_payload(
+            ExecutablePayload::from_package_executable(bytes).unwrap(),
+            endpoint_policy,
+        )
+    }
+
+    fn launch_for_service<'a>(
+        service: &'static str,
+        bytes: &'a [u8],
+        endpoint_policy: ProcessEndpointPolicy,
+    ) -> ProcessLaunch<'a, &'static str> {
+        launch_with_service_payload(
+            service,
+            ExecutablePayload::from_package_executable(bytes).unwrap(),
+            endpoint_policy,
+        )
+    }
+
+    fn no_revoke(_: u32, _: &u32) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn wait_for_exit(
+        table: &mut ProcessLifecycle<linux_x86_64_process::LinuxProcessOs, &'static str, u32>,
+        process_id: u32,
+    ) -> LifecycleEvent<&'static str> {
+        let deadline = std::time::Instant::now() + TEST_RELEASE_BUDGET;
+        loop {
+            if let Some(event) = table.poll(no_revoke).unwrap() {
+                return event;
+            }
+            assert!(std::time::Instant::now() < deadline, "child did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            assert_eq!(table.live_record(process_id).copied(), Some(TEST_RECORD));
+        }
+    }
+
+    fn wait_for_next_event(
+        table: &mut ProcessLifecycle<linux_x86_64_process::LinuxProcessOs, &'static str, u32>,
+    ) -> LifecycleEvent<&'static str> {
+        let deadline = std::time::Instant::now() + TEST_RELEASE_BUDGET;
+        loop {
+            if let Some(event) = table.poll(no_revoke).unwrap() {
+                return event;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "ProcessLifecycle did not observe an exited child"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    struct IdleReaperGuard {
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+
+    impl IdleReaperGuard {
+        fn start() -> Self {
+            linux_x86_64_process::initialize_reaper_wait_channel_for_test().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let worker_stop = Arc::clone(&stop);
+            let worker = std::thread::spawn(move || {
+                while !worker_stop.load(Ordering::Acquire) {
+                    linux_x86_64_process::wait_for_os_event();
+                }
+            });
+            Self {
+                stop,
+                worker: Some(worker),
+            }
+        }
+    }
+
+    impl Drop for IdleReaperGuard {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Release);
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    struct UntrackedChildFixture {
+        process_id: u32,
+        executable_path: std::path::PathBuf,
+    }
+
+    fn spawn_untracked_child_fixture() -> UntrackedChildFixture {
+        use std::os::unix::fs::PermissionsExt;
+
+        let executable_path = std::path::PathBuf::from(format!(
+            "/c3-untracked-child-fixture-{}.elf",
+            std::process::id()
+        ));
+        std::fs::write(&executable_path, untracked_child_exit_elf()).unwrap();
+        let mut permissions = std::fs::metadata(&executable_path).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&executable_path, permissions).unwrap();
+        let child = Command::new(&executable_path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn direct untracked-child ELF fixture");
+        let process_id = child.id();
+        // The shared reaper owns this direct child's wait status; retaining
+        // the std::process::Child handle would introduce a second wait owner.
+        std::mem::forget(child);
+        UntrackedChildFixture {
+            process_id,
+            executable_path,
+        }
+    }
+
+    fn wait_for_untracked_child_reaped(process_id: u32) {
+        let deadline = std::time::Instant::now() + TEST_RELEASE_BUDGET;
+        loop {
+            if linux_x86_64_process::waitid_reports_untracked_child_reaped_for_test(process_id)
+                .unwrap()
+            {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "shared reaper did not reap the untracked child fixture"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    #[repr(C)]
+    struct PeerCredentials {
+        process_id: i32,
+        uid: u32,
+        gid: u32,
+    }
+
+    fn peer_credentials(fd: i32) -> io::Result<PeerCredentials> {
+        use core::arch::asm;
+        const NR_GETSOCKOPT: usize = 55;
+        const SOL_SOCKET: usize = 1;
+        const SO_PEERCRED: usize = 17;
+        let mut credentials = PeerCredentials {
+            process_id: -1,
+            uid: u32::MAX,
+            gid: u32::MAX,
+        };
+        let mut length = core::mem::size_of::<PeerCredentials>() as u32;
+        let result: isize;
+        unsafe {
+            asm!(
+                "syscall",
+                inlateout("rax") NR_GETSOCKOPT as isize => result,
+                in("rdi") fd as usize,
+                in("rsi") SOL_SOCKET,
+                in("rdx") SO_PEERCRED,
+                in("r10") &mut credentials as *mut PeerCredentials as usize,
+                in("r8") &mut length as *mut u32 as usize,
+                lateout("rcx") _,
+                lateout("r11") _,
+                options(nostack)
+            );
+        }
+        if result < 0 {
+            return Err(io::Error::from_raw_os_error((-result) as i32));
+        }
+        if length as usize != core::mem::size_of::<PeerCredentials>() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "SO_PEERCRED returned an unexpected structure size",
+            ));
+        }
+        Ok(credentials)
+    }
+
+    fn open_fd_count() -> usize {
+        std::fs::read_dir("/proc/self/fd")
+            .unwrap()
+            .filter_map(Result::ok)
+            .count()
+    }
+
+    #[test]
+    fn clone3_endpoint_handoff_binds_peer_and_exact_record_once() {
+        let image = endpoint_writer_elf();
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let process_id = table
+            .spawn(
+                launch(&image, ProcessEndpointPolicy::InheritedPeerChannel),
+                || false,
+                |_| Ok(TEST_RECORD),
+                no_revoke,
+            )
+            .unwrap();
+
+        let wrong_record = table.take_live_endpoint(process_id, TEST_RECORD + 1);
+        assert_eq!(
+            wrong_record.err().unwrap().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+
+        let resources = table.take_live_endpoint(process_id, TEST_RECORD).unwrap();
+        assert_eq!(resources.pidfd.process_id(), process_id);
+        let transferred_endpoint = resources.endpoint;
+        let duplicate_transfer = table.take_live_endpoint(process_id, TEST_RECORD);
+        assert_eq!(
+            duplicate_transfer.err().unwrap().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+
+        let credentials = peer_credentials(transferred_endpoint.as_raw_fd()).unwrap();
+        assert_eq!(credentials.process_id as u32, process_id);
+        assert_eq!(credentials.uid, LinuxExecutionIdentity::DEV_SERVICE.uid);
+        assert_eq!(credentials.gid, LinuxExecutionIdentity::DEV_SERVICE.gid);
+
+        let mut endpoint = std::fs::File::from(transferred_endpoint);
+        let mut marker = [0u8; 5];
+        endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"HELLO");
+        endpoint.write_all(b"R").unwrap();
+        endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"READY");
+        endpoint.write_all(b"Q").unwrap();
+        let mut trailing = [0u8; 1];
+        assert_eq!(endpoint.read(&mut trailing).unwrap(), 0);
+
+        let event = wait_for_exit(&mut table, process_id);
+        assert!(matches!(
+            event,
+            LifecycleEvent::ServiceExited {
+                service: "process-resource-test",
+                status: ServiceExitStatus {
+                    exit_code: Some(0),
+                    signal: None,
+                },
+                required: true,
+            }
+        ));
+        assert_eq!(table.active_len(), 0);
+        assert_eq!(resources.pidfd.process_id(), process_id);
+    }
+
+    #[test]
+    fn endpoint_service_child_cannot_open_pid1_root_files_after_namespace_setup() {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let marker_path = "/nagi-c3-root-secret";
+        let mut marker = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .open(marker_path)
+            .expect("create readable PID-1 root probe");
+        marker.write_all(b"PID1 ROOT ONLY").unwrap();
+        marker.sync_all().unwrap();
+        drop(marker);
+
+        let image = namespace_root_probe_elf();
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let process_id = table
+            .spawn(
+                launch(&image, ProcessEndpointPolicy::InheritedPeerChannel),
+                || false,
+                |_| Ok(TEST_RECORD),
+                no_revoke,
+            )
+            .unwrap();
+        let resources = table.take_live_endpoint(process_id, TEST_RECORD).unwrap();
+        let mut endpoint = std::fs::File::from(resources.endpoint);
+        let mut result = [0u8; 8];
+        endpoint.read_exact(&mut result).unwrap();
+        assert_eq!(&result, b"ISOLATED");
+        endpoint.write_all(b"Q").unwrap();
+
+        assert!(matches!(
+            wait_for_exit(&mut table, process_id),
+            LifecycleEvent::ServiceExited {
+                status: ServiceExitStatus {
+                    exit_code: Some(0),
+                    signal: None,
+                },
+                ..
+            }
+        ));
+        std::fs::remove_file(marker_path).unwrap();
+    }
+
+    #[test]
+    fn shared_reaper_races_lifecycle_and_idle_wait_with_mixed_out_of_order_children() {
+        let _idle_reaper = IdleReaperGuard::start();
+        let first_image = endpoint_writer_elf_with_exit_code(17);
+        let second_image = endpoint_writer_elf_with_exit_code(29);
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let first_pid = table
+            .spawn(
+                launch_for_service(
+                    "tracked-first",
+                    &first_image,
+                    ProcessEndpointPolicy::InheritedPeerChannel,
+                ),
+                || false,
+                |_| Ok(TEST_RECORD),
+                no_revoke,
+            )
+            .unwrap();
+        let second_pid = table
+            .spawn(
+                launch_for_service(
+                    "tracked-second",
+                    &second_image,
+                    ProcessEndpointPolicy::InheritedPeerChannel,
+                ),
+                || false,
+                |_| Ok(TEST_RECORD + 1),
+                no_revoke,
+            )
+            .unwrap();
+
+        let first_resources = table.take_live_endpoint(first_pid, TEST_RECORD).unwrap();
+        let second_resources = table
+            .take_live_endpoint(second_pid, TEST_RECORD + 1)
+            .unwrap();
+        let mut first_endpoint = std::fs::File::from(first_resources.endpoint);
+        let mut second_endpoint = std::fs::File::from(second_resources.endpoint);
+        let mut marker = [0u8; 5];
+        first_endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"HELLO");
+        second_endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"HELLO");
+
+        let untracked_child = spawn_untracked_child_fixture();
+        wait_for_untracked_child_reaped(untracked_child.process_id);
+        std::fs::remove_file(untracked_child.executable_path).unwrap();
+        assert_eq!(table.live_record(first_pid).copied(), Some(TEST_RECORD));
+        assert_eq!(
+            table.live_record(second_pid).copied(),
+            Some(TEST_RECORD + 1)
+        );
+
+        // The second launch exits first while PID-1 idle reaping runs beside
+        // ProcessLifecycle::poll. The ticket must receive its own exact status.
+        second_endpoint.write_all(b"R").unwrap();
+        second_endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"READY");
+        second_endpoint.write_all(b"Q").unwrap();
+        match wait_for_next_event(&mut table) {
+            LifecycleEvent::ServiceExited {
+                service: "tracked-second",
+                status:
+                    ServiceExitStatus {
+                        exit_code: Some(29),
+                        signal: None,
+                    },
+                required: true,
+            } => {}
+            _ => panic!("out-of-order tracked child status was misrouted"),
+        }
+        assert_eq!(table.live_record(first_pid).copied(), Some(TEST_RECORD));
+        assert_eq!(table.active_len(), 1);
+
+        first_endpoint.write_all(b"R").unwrap();
+        first_endpoint.read_exact(&mut marker).unwrap();
+        assert_eq!(&marker, b"READY");
+        first_endpoint.write_all(b"Q").unwrap();
+        match wait_for_next_event(&mut table) {
+            LifecycleEvent::ServiceExited {
+                service: "tracked-first",
+                status:
+                    ServiceExitStatus {
+                        exit_code: Some(17),
+                        signal: None,
+                    },
+                required: true,
+            } => {}
+            _ => panic!("first tracked child status was misrouted"),
+        }
+        assert_eq!(table.active_len(), 0);
+    }
+
+    #[test]
+    fn disabled_endpoint_policy_does_not_offer_handoff() {
+        let image = endpoint_writer_elf();
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let process_id = table
+            .spawn(
+                launch(&image, ProcessEndpointPolicy::Disabled),
+                || false,
+                |_| Ok(TEST_RECORD),
+                no_revoke,
+            )
+            .unwrap();
+        let handoff = table.take_live_endpoint(process_id, TEST_RECORD);
+        assert_eq!(
+            handoff.err().unwrap().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        let event = wait_for_exit(&mut table, process_id);
+        assert!(matches!(
+            event,
+            LifecycleEvent::ServiceExited {
+                status: ServiceExitStatus {
+                    exit_code: Some(0),
+                    signal: None,
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn exec_failure_reaps_child_and_closes_unhanded_pidfd_and_endpoint() {
+        let _idle_reaper = IdleReaperGuard::start();
+        let untracked_child = spawn_untracked_child_fixture();
+        wait_for_untracked_child_reaped(untracked_child.process_id);
+        std::fs::remove_file(untracked_child.executable_path).unwrap();
+        let image = wrong_machine_elf();
+        assert!(matches!(
+            ExecutablePayload::from_package_executable(&image),
+            Err(ExecutableFormatError::WrongArchitecture)
+        ));
+        // Bypass only the format constructor in this test so the real child
+        // reaches execveat and exercises its error-report/cleanup path. Normal
+        // launch construction always validates the package executable first.
+        let unchecked_payload = ExecutablePayload { bytes: &image };
+        let before = open_fd_count();
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let registered_pid = std::cell::Cell::new(None);
+        let mut revoked = 0usize;
+        let result = table.spawn(
+            launch_with_payload(
+                unchecked_payload,
+                ProcessEndpointPolicy::InheritedPeerChannel,
+            ),
+            || false,
+            |process_id| {
+                registered_pid.set(Some(process_id));
+                Ok(TEST_RECORD)
+            },
+            |process_id, record| {
+                assert_eq!(Some(process_id), registered_pid.get());
+                assert_eq!(*record, TEST_RECORD);
+                revoked += 1;
+                Ok(())
+            },
+        );
+        assert_eq!(result, Err(BackendError::TransportFailure));
+        assert!(registered_pid.get().is_some());
+        assert_eq!(revoked, 1);
+        assert_eq!(table.active_len(), 0);
+        assert_eq!(open_fd_count(), before);
+    }
+}
+
 #[cfg(all(test, feature = "linux-service-action-bridge"))]
 mod service_action_bridge_tests {
     use super::*;
@@ -6614,6 +9853,16 @@ mod service_action_bridge_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn normal_pid1_notes_startup_returns_unavailable_without_verified_attachment() {
+        let owner = crate::profile_volume_notes_owner::pending();
+        assert!(matches!(
+            normal_startup_profile_notes_bundle(&owner),
+            Err(crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable)
+        ));
+    }
     #[cfg_attr(not(test), allow(unused_imports))]
     use nagi_init_package_provider::package_trust::PackageServiceSessionOwner;
     #[cfg_attr(not(test), allow(unused_imports))]
@@ -6862,6 +10111,124 @@ mod tests {
         assert!(backend.shutdown_causes.is_empty());
     }
 
+    #[cfg(unix)]
+    struct PackageStoreTestDirectory(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl PackageStoreTestDirectory {
+        fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            use std::sync::atomic::{AtomicU64, Ordering};
+
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "nagi-pid1-package-store-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).expect("create isolated package-store directory");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+                .expect("set private package-store directory mode");
+            Self(path)
+        }
+
+        fn open(&self) -> std::fs::File {
+            std::fs::File::open(&self.0).expect("open package-store directory descriptor")
+        }
+
+        fn owner_uid(&self) -> u32 {
+            use std::os::unix::fs::MetadataExt;
+
+            std::fs::metadata(&self.0)
+                .expect("read package-store directory metadata")
+                .uid()
+        }
+
+        fn set_mode(&self, mode: u32) {
+            use std::os::unix::fs::PermissionsExt;
+
+            std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(mode))
+                .expect("set package-store directory mode");
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for PackageStoreTestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    fn assert_package_store_initialization_unavailable(input: Option<PackageStoreDirectoryInput>) {
+        let mut backend = UnconnectedBackend::with_package_store_directory(input);
+        assert_eq!(run_lifecycle(&mut backend), ExitCode::from(EX_UNAVAILABLE));
+        assert_eq!(
+            backend.wait_calls, 0,
+            "no lifecycle event, including Ready, is read"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_rejects_a_missing_descriptor_without_ready() {
+        assert_package_store_initialization_unavailable(None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_rejects_a_non_directory_descriptor_without_ready() {
+        let directory = PackageStoreTestDirectory::new();
+        let file_path = directory.0.join("regular-file");
+        std::fs::write(&file_path, b"not a directory").expect("write regular-file fixture");
+        let input = PackageStoreDirectoryInput::new(
+            std::fs::File::open(file_path).expect("open regular-file descriptor"),
+            directory.owner_uid(),
+        );
+
+        assert_package_store_initialization_unavailable(Some(input));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_rejects_an_unexpected_owner_without_ready() {
+        let directory = PackageStoreTestDirectory::new();
+        let owner_uid = directory.owner_uid();
+        let unexpected_uid = if owner_uid == 0 { 1 } else { 0 };
+        let input = PackageStoreDirectoryInput::new(directory.open(), unexpected_uid);
+
+        assert_package_store_initialization_unavailable(Some(input));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_rejects_group_writable_directory_without_ready() {
+        let directory = PackageStoreTestDirectory::new();
+        directory.set_mode(0o720);
+        let input = PackageStoreDirectoryInput::new(directory.open(), directory.owner_uid());
+
+        assert_package_store_initialization_unavailable(Some(input));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_rejects_other_writable_directory_without_ready() {
+        let directory = PackageStoreTestDirectory::new();
+        directory.set_mode(0o702);
+        let input = PackageStoreDirectoryInput::new(directory.open(), directory.owner_uid());
+
+        assert_package_store_initialization_unavailable(Some(input));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_store_initialization_stays_unavailable_without_product_trust_or_catalog() {
+        let directory = PackageStoreTestDirectory::new();
+        let input = PackageStoreDirectoryInput::new(directory.open(), directory.owner_uid());
+
+        assert_package_store_initialization_unavailable(Some(input));
+    }
+
     #[test]
     fn pid1_non_unavailable_failure_enters_fail_closed_wait() {
         let mut backend = FakeBackend::new(Err(BackendError::IdentityRejected), Vec::new(), Ok(()));
@@ -6905,7 +10272,7 @@ mod tests {
 
     #[test]
     fn pid1_unavailable_startup_stays_alive_without_ready() {
-        let mut backend = UnconnectedBackend;
+        let mut backend = UnconnectedBackend::new();
         let wait_calls = std::cell::Cell::new(0);
         let held = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_pid1_lifecycle(&mut backend, || {
@@ -6916,6 +10283,7 @@ mod tests {
 
         assert!(held.is_err());
         assert_eq!(wait_calls.get(), 1);
+        assert_eq!(backend.wait_calls, 0);
     }
 
     #[test]

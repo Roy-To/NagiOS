@@ -3,6 +3,7 @@
 //! this module does not provision a product key, invent consent, or fake READY.
 
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use nagi_model::AppId;
@@ -36,6 +37,121 @@ pub enum InstalledPackageDigestIndexError {
     Unavailable,
     Failed,
     OutcomeUnknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InstalledPackageBlobError {
+    Unavailable,
+    Failed,
+    OutcomeUnknown,
+}
+
+pub(crate) mod durable_storage_sealed {
+    pub trait DigestIndex {}
+    pub trait PackageBlobs {}
+}
+
+/// Commit evidence for one immutable content-addressed package blob.
+pub struct InstalledPackageBlobCommit {
+    sha256: [u8; 32],
+    bytes_len: u32,
+}
+
+impl InstalledPackageBlobCommit {
+    pub(crate) fn after_durable_insert(sha256: [u8; 32], bytes_len: usize) -> Self {
+        Self {
+            sha256,
+            bytes_len: bytes_len as u32,
+        }
+    }
+
+    pub(crate) fn matches(&self, sha256: &[u8; 32], bytes_len: usize) -> bool {
+        &self.sha256 == sha256 && self.bytes_len as usize == bytes_len
+    }
+}
+
+/// Read evidence for one immutable package blob. Callers still hash the bytes
+/// they received and compare them with both this record and the digest index.
+pub struct InstalledPackageBlobReadback {
+    sha256: [u8; 32],
+    bytes_len: u32,
+}
+
+impl InstalledPackageBlobReadback {
+    pub(crate) fn after_durable_read(sha256: [u8; 32], bytes_len: usize) -> Self {
+        Self {
+            sha256,
+            bytes_len: bytes_len as u32,
+        }
+    }
+
+    pub(crate) fn matches(&self, sha256: &[u8; 32], bytes_len: usize) -> bool {
+        &self.sha256 == sha256 && self.bytes_len as usize == bytes_len
+    }
+}
+
+/// Immutable content-addressed package blob boundary. Implementations must
+/// never replace existing bytes at a digest key and must sync before returning
+/// their commit token.
+pub trait InstalledPackageBlobStore: durable_storage_sealed::PackageBlobs {
+    fn insert_immutable(
+        &mut self,
+        sha256: &[u8; 32],
+        bytes: &[u8],
+    ) -> Result<InstalledPackageBlobCommit, InstalledPackageBlobError>;
+
+    fn read_immutable(
+        &self,
+        sha256: &[u8; 32],
+        output: &mut [u8],
+    ) -> Result<InstalledPackageBlobReadback, InstalledPackageBlobError>;
+}
+
+/// Evidence returned only after a concrete provider-owned adapter has
+/// completed a durable whole-snapshot replacement. External in-memory
+/// implementations cannot construct this value.
+pub struct InstalledPackageDigestIndexCommit {
+    record_count: u8,
+    snapshot_sha256: [u8; 32],
+}
+
+impl InstalledPackageDigestIndexCommit {
+    pub(crate) fn after_durable_replace(records: &[InstalledPackageDigestRecord]) -> Self {
+        Self {
+            record_count: records.len() as u8,
+            snapshot_sha256: digest_index_snapshot(records),
+        }
+    }
+
+    pub(crate) fn matches(&self, records: &[InstalledPackageDigestRecord]) -> bool {
+        self.record_count as usize == records.len()
+            && self.snapshot_sha256 == digest_index_snapshot(records)
+    }
+}
+
+/// Evidence that `read_snapshot` decoded records from its durable source.
+/// The owner verifies this digest against the returned fields before using it.
+pub struct InstalledPackageDigestIndexReadback {
+    record_count: u8,
+    snapshot_sha256: [u8; 32],
+}
+
+impl InstalledPackageDigestIndexReadback {
+    pub(crate) fn after_durable_read(records: &[InstalledPackageDigestRecord]) -> Self {
+        Self {
+            record_count: records.len() as u8,
+            snapshot_sha256: digest_index_snapshot(records),
+        }
+    }
+
+    pub(crate) const fn record_count(&self) -> usize {
+        self.record_count as usize
+    }
+
+    pub(crate) fn matches(&self, records: &[InstalledPackageDigestRecord]) -> bool {
+        self.record_count as usize == records.len()
+            && self.snapshot_sha256 == digest_index_snapshot(records)
+    }
 }
 
 /// Exact digest metadata for one installed package generation. This record is
@@ -123,16 +239,16 @@ impl InstalledPackageDigestRecord {
 /// then reads them back and compares every field; an implementation returning
 /// a cached write buffer does not meet this contract. No production
 /// implementation is selected in this crate yet.
-pub trait InstalledPackageDigestIndex {
+pub trait InstalledPackageDigestIndex: durable_storage_sealed::DigestIndex {
     fn replace_snapshot(
         &mut self,
         records: &[InstalledPackageDigestRecord],
-    ) -> Result<(), InstalledPackageDigestIndexError>;
+    ) -> Result<InstalledPackageDigestIndexCommit, InstalledPackageDigestIndexError>;
 
     fn read_snapshot(
         &self,
         output: &mut [Option<InstalledPackageDigestRecord>],
-    ) -> Result<usize, InstalledPackageDigestIndexError>;
+    ) -> Result<InstalledPackageDigestIndexReadback, InstalledPackageDigestIndexError>;
 }
 
 impl InstalledPackageInventory for PackageService {
@@ -318,6 +434,10 @@ pub enum PackageServiceSessionOwnerError {
     DigestIndexOutcomeUnknown,
     DigestIndexCorrupt,
     DigestIndexReadbackMismatch,
+    PackageBlobUnavailable,
+    PackageBlobFailed,
+    PackageBlobOutcomeUnknown,
+    PackageBlobReadbackMismatch,
 }
 
 #[must_use = "retain the snapshot and validate it through its owning session before use"]
@@ -519,6 +639,140 @@ impl<'key> PackageServiceSessionOwner<'key> {
         Ok(report)
     }
 
+    /// Production install order: authenticate first, persist and read back the
+    /// immutable package blob, mutate the in-memory PackageService, then
+    /// durably replace and read back the generation digest index. A failure
+    /// before inventory mutation may leave an unreferenced content-addressed
+    /// blob; a failure after mutation quarantines this owner.
+    pub fn install_with_persistent_storage(
+        &mut self,
+        bytes: &[u8],
+        policy: InstallPolicy,
+        blobs: &mut dyn InstalledPackageBlobStore,
+        index: &mut dyn InstalledPackageDigestIndex,
+    ) -> Result<nagi_package::InstallReport, PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
+        let trusted_key = self
+            .trusted_key
+            .ok_or(PackageServiceSessionOwnerError::TrustUnavailable)?;
+        let package =
+            PackageView::parse(bytes).map_err(PackageServiceSessionOwnerError::Package)?;
+        let signed = package.is_signed_by(trusted_key);
+        if (!package.signature().is_empty() && !signed)
+            || (policy.require_signature && !signed)
+            || (!signed && !policy.developer_mode)
+        {
+            return Err(PackageServiceSessionOwnerError::Package(
+                if !package.signature().is_empty() && !signed {
+                    PackageError::InvalidSignature
+                } else {
+                    PackageError::SignatureRequired
+                },
+            ));
+        }
+        let digest = sha256(bytes);
+        let commit = blobs
+            .insert_immutable(&digest, bytes)
+            .map_err(map_package_blob_error)?;
+        if !commit.matches(&digest, bytes.len()) {
+            self.quarantined.store(true, Ordering::SeqCst);
+            return Err(PackageServiceSessionOwnerError::PackageBlobReadbackMismatch);
+        }
+        let mut blob_readback = vec![0; bytes.len()];
+        let readback = blobs
+            .read_immutable(&digest, &mut blob_readback)
+            .map_err(map_package_blob_error)?;
+        if !readback.matches(&digest, bytes.len())
+            || blob_readback != bytes
+            || sha256(&blob_readback) != digest
+        {
+            self.quarantined.store(true, Ordering::SeqCst);
+            return Err(PackageServiceSessionOwnerError::PackageBlobReadbackMismatch);
+        }
+        self.install_with_digest_index(bytes, policy, index)
+    }
+
+    /// Reconstitute the PackageService generations from the durable digest
+    /// snapshot and immutable content-addressed blobs. Both index readback and
+    /// each blob are verified before the new owner becomes system-service
+    /// eligible.
+    pub fn restore_from_persistent_storage(
+        trusted_key: Option<&'key [u8; 32]>,
+        policy: InstallPolicy,
+        blobs: &dyn InstalledPackageBlobStore,
+        index: &dyn InstalledPackageDigestIndex,
+    ) -> Result<Self, PackageServiceSessionOwnerError> {
+        let trusted_key = trusted_key.ok_or(PackageServiceSessionOwnerError::TrustUnavailable)?;
+        let mut records = [None; MAX_SLOTS];
+        let readback = index
+            .read_snapshot(&mut records)
+            .map_err(map_digest_index_error)?;
+        let count = readback.record_count();
+        if count > records.len()
+            || records[..count].iter().any(Option::is_none)
+            || records[count..].iter().any(Option::is_some)
+        {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
+        let durable_records = records[..count]
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        if !readback.matches(&durable_records) {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
+
+        let mut package_blobs = Vec::with_capacity(count);
+        let mut generations = Vec::with_capacity(count);
+        for record in &durable_records {
+            let bytes = read_record_blob(blobs, record)?;
+            let package =
+                PackageView::parse(&bytes).map_err(PackageServiceSessionOwnerError::Package)?;
+            if package.manifest().app_id() != record.app_id
+                || package.executable().len() != record.executable_bytes_len as usize
+                || sha256(package.executable()) != record.executable_sha256
+            {
+                return Err(PackageServiceSessionOwnerError::PackageBlobReadbackMismatch);
+            }
+            package_blobs.push(bytes);
+            generations.push(record.generation);
+        }
+
+        let entries = package_blobs
+            .iter()
+            .zip(generations.iter().copied())
+            .map(|(bytes, generation)| (bytes.as_slice(), generation))
+            .collect::<Vec<_>>();
+        let inventory = PackageService::restore_with_trusted_key(&entries, policy, trusted_key)
+            .map_err(PackageServiceSessionOwnerError::Package)?;
+        let mut owner = Self::new(Some(trusted_key), inventory);
+        owner.load_digest_records(&records, count)?;
+        Ok(owner)
+    }
+
+    /// Supply the signed package bytes selected by the verified inventory.
+    /// Launch still authenticates the manifest, signature and executable
+    /// against the catalog and captures the exact generation lease.
+    pub fn read_installed_system_service_package(
+        &self,
+        expected_manifest_id: &[u8],
+        blobs: &dyn InstalledPackageBlobStore,
+    ) -> Result<Vec<u8>, PackageServiceSessionOwnerError> {
+        self.ensure_not_quarantined()?;
+        if !self.digest_index_verified {
+            return Err(PackageServiceSessionOwnerError::PackageDigestUnavailable);
+        }
+        let app_id = AppId::from_identifier(expected_manifest_id);
+        let record = self
+            .package_digests
+            .iter()
+            .flatten()
+            .find(|record| record.app_id == app_id)
+            .ok_or(PackageServiceSessionOwnerError::NotInstalled)?;
+        read_record_blob(blobs, record)
+    }
+
     /// Uninstall through the same retained service. Safe Rust's exclusive
     /// borrow rules prevent this while a generation lease is live.
     pub fn remove(&mut self, app_id: AppId) -> Result<(), PackageServiceSessionOwnerError> {
@@ -557,9 +811,24 @@ impl<'key> PackageServiceSessionOwner<'key> {
         self.ensure_not_quarantined()?;
         self.digest_index_verified = false;
         let mut records = [None; MAX_SLOTS];
-        let count = index
+        let readback = index
             .read_snapshot(&mut records)
             .map_err(map_digest_index_error)?;
+        let count = readback.record_count();
+        if count > records.len()
+            || records[..count].iter().any(Option::is_none)
+            || records[count..].iter().any(Option::is_some)
+        {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
+        let durable = records[..count]
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        if !readback.matches(&durable) {
+            return Err(PackageServiceSessionOwnerError::DigestIndexCorrupt);
+        }
         self.load_digest_records(&records, count)
     }
 
@@ -575,13 +844,17 @@ impl<'key> PackageServiceSessionOwner<'key> {
             .collect::<Vec<_>>();
         expected.sort_by_key(|record| record.app_id);
         let result = (|| {
-            index
+            let commit = index
                 .replace_snapshot(&expected)
                 .map_err(map_digest_index_error)?;
+            if !commit.matches(&expected) {
+                return Err(PackageServiceSessionOwnerError::DigestIndexReadbackMismatch);
+            }
             let mut readback = [None; MAX_SLOTS];
-            let count = index
+            let receipt = index
                 .read_snapshot(&mut readback)
                 .map_err(map_digest_index_error)?;
+            let count = receipt.record_count();
             if count > readback.len()
                 || readback[..count].iter().any(Option::is_none)
                 || readback[count..].iter().any(Option::is_some)
@@ -593,7 +866,7 @@ impl<'key> PackageServiceSessionOwner<'key> {
                 .flatten()
                 .copied()
                 .collect::<Vec<_>>();
-            if actual != expected {
+            if actual != expected || !receipt.matches(&actual) {
                 return Err(PackageServiceSessionOwnerError::DigestIndexReadbackMismatch);
             }
             self.load_digest_records(&readback, count)
@@ -861,9 +1134,110 @@ fn map_digest_index_error(
     }
 }
 
+fn read_record_blob(
+    blobs: &dyn InstalledPackageBlobStore,
+    record: &InstalledPackageDigestRecord,
+) -> Result<Vec<u8>, PackageServiceSessionOwnerError> {
+    let mut bytes = vec![0; record.signed_package_bytes_len as usize];
+    let readback = blobs
+        .read_immutable(&record.signed_package_sha256, &mut bytes)
+        .map_err(map_package_blob_error)?;
+    if !readback.matches(&record.signed_package_sha256, bytes.len())
+        || sha256(&bytes) != record.signed_package_sha256
+    {
+        return Err(PackageServiceSessionOwnerError::PackageBlobReadbackMismatch);
+    }
+    Ok(bytes)
+}
+
+fn map_package_blob_error(error: InstalledPackageBlobError) -> PackageServiceSessionOwnerError {
+    match error {
+        InstalledPackageBlobError::Unavailable => {
+            PackageServiceSessionOwnerError::PackageBlobUnavailable
+        }
+        InstalledPackageBlobError::Failed => PackageServiceSessionOwnerError::PackageBlobFailed,
+        InstalledPackageBlobError::OutcomeUnknown => {
+            PackageServiceSessionOwnerError::PackageBlobOutcomeUnknown
+        }
+    }
+}
+
 fn sha256(bytes: &[u8]) -> [u8; 32] {
     let digest = Sha256::digest(bytes);
     let mut result = [0; 32];
     result.copy_from_slice(&digest);
     result
+}
+
+fn digest_index_snapshot(records: &[InstalledPackageDigestRecord]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"NAGI-PACKAGE-DIGEST-INDEX\0\x01");
+    hasher.update((records.len() as u32).to_le_bytes());
+    for record in records {
+        hasher.update(record.app_id.0.to_le_bytes());
+        hasher.update(record.generation.to_le_bytes());
+        hasher.update(record.signed_package_sha256);
+        hasher.update(record.executable_sha256);
+        hasher.update(record.signed_package_bytes_len.to_le_bytes());
+        hasher.update(record.executable_bytes_len.to_le_bytes());
+    }
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::{
+        durable_storage_sealed, InstalledPackageDigestIndex, InstalledPackageDigestIndexCommit,
+        InstalledPackageDigestIndexError, InstalledPackageDigestIndexReadback,
+        InstalledPackageDigestRecord, PackageServiceSessionOwner, PackageServiceSessionOwnerError,
+    };
+    use nagi_model::AppId;
+    use nagi_package::PackageService;
+
+    struct ReadbackDropsWrittenRecords;
+
+    impl durable_storage_sealed::DigestIndex for ReadbackDropsWrittenRecords {}
+
+    impl InstalledPackageDigestIndex for ReadbackDropsWrittenRecords {
+        fn replace_snapshot(
+            &mut self,
+            records: &[InstalledPackageDigestRecord],
+        ) -> Result<InstalledPackageDigestIndexCommit, InstalledPackageDigestIndexError> {
+            Ok(InstalledPackageDigestIndexCommit::after_durable_replace(
+                records,
+            ))
+        }
+
+        fn read_snapshot(
+            &self,
+            output: &mut [Option<InstalledPackageDigestRecord>],
+        ) -> Result<InstalledPackageDigestIndexReadback, InstalledPackageDigestIndexError> {
+            output.fill(None);
+            Ok(InstalledPackageDigestIndexReadback::after_durable_read(&[]))
+        }
+    }
+
+    #[test]
+    fn mismatched_digest_index_readback_quarantines_installed_owner() {
+        let trusted_key = [0; 32];
+        let mut owner = PackageServiceSessionOwner::new(Some(&trusted_key), PackageService::new());
+        owner.package_digests[0] = Some(
+            InstalledPackageDigestRecord::from_parts(
+                AppId::from_identifier(b"org.nagi.fixture"),
+                1,
+                [1; 32],
+                [2; 32],
+                32,
+                8,
+            )
+            .expect("valid orchestration fixture record"),
+        );
+        let mut index = ReadbackDropsWrittenRecords;
+
+        assert_eq!(
+            owner.replace_and_readback_digest_index(&mut index),
+            Err(PackageServiceSessionOwnerError::DigestIndexReadbackMismatch)
+        );
+        assert!(owner.is_quarantined());
+    }
 }

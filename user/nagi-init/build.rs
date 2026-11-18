@@ -51,6 +51,20 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_EXPECTED_TEXT_FILE");
     println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rerun-if-env-changed=NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY");
+        let public_key = env::var_os("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
+            .map(|path| {
+                let path = PathBuf::from(path);
+                println!("cargo:rerun-if-changed={}", path.display());
+                let bytes = fs::read(path).expect("read Linux boot catalog public key");
+                assert_eq!(bytes.len(), 32, "expected 32 raw public key bytes");
+                bytes
+            })
+            .unwrap_or_default();
+        fs::write(out_dir.join("linux-boot-catalog-public-key"), public_key)
+            .expect("stage Linux boot catalog public key");
+    }
     let package_output = out_dir.join("m16-package.xapp");
     if env::var_os("CARGO_FEATURE_M16_PACKAGE").is_some() {
         let package = env::var_os("NAGI_M16_PACKAGE")
