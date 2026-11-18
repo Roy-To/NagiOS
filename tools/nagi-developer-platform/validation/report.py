@@ -38,6 +38,12 @@ MAX_API_NAME_CHARS = 80  # per API name, in Markdown
 # (it already bounds the items it returns); only the Markdown cap is report's own.
 MAX_STAGE2_DIAGNOSTIC_ITEMS = stage2.MAX_DIAGNOSTIC_ITEMS  # in JSON
 MAX_STAGE2_MARKDOWN_ITEMS = 8  # in Markdown
+MAX_SCAFFOLD_FILES = 32  # generated scaffold file names, in JSON
+MAX_SCAFFOLD_MARKDOWN_FILES = 16  # in Markdown
+MAX_SCAFFOLD_NAME_CHARS = 160
+# One path segment of a generated scaffold file name (PROVISIONAL): identifier-like
+# characters plus `.` and `-`, and not a bare `.` / `..`.
+SCAFFOLD_SEGMENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 TOOL_TIMEOUT = 10
 MAPPING_STATUSES = ("supported", "partial", "unsupported", "needs_decision")
 UI_FACTS = ("widgets", "layouts", "connections", "tab_order", "bindings",
@@ -303,6 +309,25 @@ def adapter_result(result, paths, counts, **details):
     return check(status, reason_code(result["reason"], "adapter_error"), paths, counts, **details)
 
 
+def scaffold_file_details(created):
+    """PROVISIONAL additive `files` detail for the scaffold generation check.
+
+    `created` is the generator's list of scratch-relative file names. Only those
+    relative names are kept (never a scratch absolute path), at most
+    MAX_SCAFFOLD_FILES. A name that is not a relative `/`-separated path of
+    identifier-like segments (absolute, `..`, backslash, empty or odd characters)
+    fails the whole check as `invalid_tool_output`; no name is dropped silently.
+    """
+    if not isinstance(created, list):
+        raise CheckError("invalid_tool_output")
+    for name in created:
+        if (not isinstance(name, str) or not 0 < len(name) <= MAX_SCAFFOLD_NAME_CHARS
+                or not all(SCAFFOLD_SEGMENT.fullmatch(part) and part.strip(".")
+                           for part in name.split("/"))):
+            raise CheckError("invalid_tool_output")
+    return {"items": created[:MAX_SCAFFOLD_FILES], "truncated": len(created) > MAX_SCAFFOLD_FILES}
+
+
 def generate_and_validate():
     manifest = Path(generated_check.DEFAULT_INPUTS["output_dir"]) / generated_check.MANIFEST_NAME
     provenance = {"input_root": "scratch_scaffold"}
@@ -316,7 +341,9 @@ def generate_and_validate():
             def generate():
                 result = generated_check.generate_scaffold(root)
                 if result["status"] == "created":
-                    return check("passed", "scaffold_created", counts={"files": len(result["created"])})
+                    files = scaffold_file_details(result["created"])
+                    return check("passed", "scaffold_created",
+                                 counts={"files": len(result["created"])}, files=files)
                 return adapter_result(result, (), {"files": 0})
 
             generation = attempt((), generate)
@@ -412,12 +439,18 @@ def describe_reason(reason):
     return "`{}`".format(reason) if text is None else "`{}` — {}".format(reason, text)
 
 
+def detail_entries(result, *keys):
+    """Per-file / per-step result lists of a check; other shapes under the same key
+    (e.g. the generation check's `files` name list) hold no per-item status."""
+    return [item for key in keys if isinstance(result.get(key), list) for item in result[key]]
+
+
 def collect_reasons(report):
     """Every reason code in one report: checks, per-file results and steps."""
     reasons = set()
     for result in report["checks"].values():
         reasons.add(result["reason"])
-        reasons.update(item["reason"] for item in (*result.get("files", ()), *result.get("steps", ())))
+        reasons.update(item["reason"] for item in detail_entries(result, "files", "steps"))
     return reasons
 
 
@@ -549,6 +582,23 @@ def stage2_diagnostic_lines(report):
     return ["", "## Stage 2 diagnostics", "", *lines]
 
 
+def scaffold_file_lines(report):
+    """PROVISIONAL "Scaffold files" section from the generation check's `files`.
+
+    Relative names only, at most MAX_SCAFFOLD_MARKDOWN_FILES, with an omission
+    line when more exist. Nothing is emitted when generation gave no file list.
+    """
+    details = report["checks"]["generation"].get("files")
+    if not isinstance(details, dict) or not (details["items"] or details["truncated"]):
+        return []
+    items = details["items"]
+    lines = ["- `{}`".format(name) for name in items[:MAX_SCAFFOLD_MARKDOWN_FILES]]
+    if len(items) > len(lines) or details["truncated"]:
+        total = report["checks"]["generation"]["counts"]["files"]
+        lines.append("- … {} more files omitted (see JSON counts)".format(total - len(lines)))
+    return ["", "## Scaffold files", "", *lines]
+
+
 def markdown_report(report):
     lines = [
         "# Migration evaluation",
@@ -570,13 +620,14 @@ def markdown_report(report):
             name, result["status"], result["reason"], counts, paths or "—"))
     problems = []
     for name, result in report["checks"].items():
-        for item in (*result.get("files", ()), *result.get("steps", ())):
+        for item in detail_entries(result, "files", "steps"):
             if item["status"] != "passed":
                 label = item["name"] if "name" in item else item["input_paths"][0]
                 problems.append("- {} `{}` · `{}` · {}".format(
                     name, label, item["status"], describe_reason(item["reason"])))
     if problems:
         lines.extend(("", *problems))
+    lines.extend(scaffold_file_lines(report))
     lines.extend(stage2_diagnostic_lines(report))
     lines.extend(api_gap_lines(report))
     lines.extend(gap_row_lines(report["checks"]["ui_mapping"]))

@@ -706,6 +706,101 @@ class ReportTests(unittest.TestCase):
             host = report.build_report("portable")["checks"]["stage_2"]
         self.assertEqual(host["reason"], "invalid_tool_output")
 
+    def scaffold_with_created(self, created):
+        return patch.object(generated_check, "generate_scaffold",
+                            side_effect=lambda root: {"status": "created", "created": created})
+
+    @staticmethod
+    def scaffold_files_section(markdown):
+        match = re.search(r"\n## Scaffold files\n\n(.*?)(?:\n\n|\Z)", markdown, re.S)
+        return match.group(1) if match else None
+
+    def test_scaffold_files_match_count_and_leak_no_absolute_path(self):
+        result = report.build_report("windows")
+        generation = result["checks"]["generation"]
+        files = generation["files"]
+        self.assertEqual(set(files), {"items", "truncated"})
+        self.assertFalse(files["truncated"])
+        self.assertEqual(len(files["items"]), generation["counts"]["files"])
+        self.assertIn("samples/level-zero/manifest.json", files["items"])
+        for name in files["items"]:
+            self.assertFalse(name.startswith("/"), name)
+            self.assertNotIn("..", name.split("/"))
+        markdown = report.markdown_report(result)
+        for text in (json.dumps(result), markdown):
+            self.assertNotIn(tempfile.gettempdir(), text)
+            self.assertNotIn("nagi-ndp-report-scaffold-", text)
+        self.assertEqual(self.scaffold_files_section(markdown).splitlines(),
+                         ["- `{}`".format(name) for name in files["items"]])
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(report.undescribed_reasons([result]), [])
+
+    def test_scaffold_files_json_cap_marks_truncated_and_keeps_total_count(self):
+        created = ["samples/app/file{}.rs".format(number) for number in range(5)]
+        with self.scaffold_with_created(created), patch.object(report, "MAX_SCAFFOLD_FILES", 3):
+            result = report.build_report("windows")
+        generation = result["checks"]["generation"]
+        self.assertEqual(generation["status"], "passed")
+        self.assertEqual(generation["files"], {"items": created[:3], "truncated": True})
+        self.assert_counts(generation, files=5)
+        lines = self.scaffold_files_section(report.markdown_report(result)).splitlines()
+        self.assertEqual(lines, ["- `{}`".format(name) for name in created[:3]]
+                         + ["- … 2 more files omitted (see JSON counts)"])
+
+    def test_scaffold_files_markdown_is_capped_and_notes_omission(self):
+        created = ["samples/app/file{}.rs".format(number)
+                   for number in range(report.MAX_SCAFFOLD_MARKDOWN_FILES + 3)]
+        with self.scaffold_with_created(created):
+            result = report.build_report("windows")
+        self.assertEqual(result["checks"]["generation"]["files"],
+                         {"items": created, "truncated": False})
+        lines = self.scaffold_files_section(report.markdown_report(result)).splitlines()
+        self.assertEqual(len(lines), report.MAX_SCAFFOLD_MARKDOWN_FILES + 1)
+        self.assertEqual(lines[-1], "- … 3 more files omitted (see JSON counts)")
+
+    def test_scaffold_files_with_invalid_name_fail_as_invalid_tool_output(self):
+        good = "samples/app/Cargo.toml"
+        for label, bad in (
+                ("posix absolute", "/tmp/nagi-ndp-report-scaffold-x/samples/app/Cargo.toml"),
+                ("parent segment", "samples/../etc/passwd"),
+                ("bare parent", ".."),
+                ("current segment", "samples/./Cargo.toml"),
+                ("leading dot segment", "samples/.hidden"),
+                ("backslash", "samples\\app\\Cargo.toml"),
+                ("windows drive", "C:/samples/Cargo.toml"),
+                ("empty segment", "samples//Cargo.toml"),
+                ("trailing slash", "samples/app/"),
+                ("space", "samples/my app/Cargo.toml"),
+                ("newline", "samples/app/Cargo.toml\n"),
+                ("non-ascii", "samples/アプリ/Cargo.toml"),
+                ("empty", ""),
+                ("too long", "a" * (report.MAX_SCAFFOLD_NAME_CHARS + 1)),
+                ("non-string", 7)):
+            with self.subTest(label):
+                with self.scaffold_with_created([good, bad]):
+                    result = report.build_report("windows")
+                generation = result["checks"]["generation"]
+                self.assertEqual((generation["status"], generation["reason"]),
+                                 ("failed", "invalid_tool_output"))
+                self.assertNotIn("files", generation)
+                self.assertEqual(result["checks"]["stage_1"]["reason"], "generation_did_not_pass")
+                self.assertNotIn("Scaffold files", report.markdown_report(result))
+        with patch.object(generated_check, "generate_scaffold",
+                          side_effect=lambda root: {"status": "created", "created": "x"}):
+            generation = report.build_report("windows")["checks"]["generation"]
+        self.assertEqual(generation["reason"], "invalid_tool_output")
+
+    def test_scaffold_files_section_is_absent_without_file_list(self):
+        with patch.object(generated_check, "generate_scaffold",
+                          side_effect=lambda root: {"status": "failed", "reason": "io_error"}):
+            result = report.build_report("windows")
+        self.assertNotIn("files", result["checks"]["generation"])
+        self.assertNotIn("Scaffold files", report.markdown_report(result))
+        with self.scaffold_with_created([]):
+            result = report.build_report("windows")
+        self.assertEqual(result["checks"]["generation"]["files"], {"items": [], "truncated": False})
+        self.assertNotIn("Scaffold files", report.markdown_report(result))
+
     def test_missing_validator_does_not_stop_portable_build(self):
         with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")):
             result = report.build_report("portable")
