@@ -118,7 +118,7 @@ impl DevelopmentBootVolumeIdentity {
 /// Verified attachment.
 pub(crate) struct BootVolumeInput {
     directory: File,
-    _identity: DevelopmentBootVolumeIdentity,
+    identity: DevelopmentBootVolumeIdentity,
 }
 
 impl BootVolumeInput {
@@ -128,7 +128,7 @@ impl BootVolumeInput {
     ) -> Self {
         Self {
             directory,
-            _identity: identity,
+            identity,
         }
     }
 
@@ -142,7 +142,7 @@ impl BootVolumeInput {
     pub(crate) fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             directory: self.directory.try_clone()?,
-            _identity: self._identity.clone(),
+            identity: self.identity.clone(),
         })
     }
 
@@ -202,16 +202,13 @@ impl ProfileVolumeNotesOwner {
             return Err(CallerMismatch);
         }
         identity.check_live().map_err(|_| Unavailable)?;
-        self.boot_volume
-            .as_ref()
-            .ok_or(Unavailable)?
-            .selected_data_root()
-            .map_err(|_| Unavailable)?;
+        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
         let bundle = self.issue_bundle()?;
         bundle.validate_scope(
             identity.principal_id().as_str(),
             identity.profile_id().as_str(),
         )?;
+        bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
         identity.check_live().map_err(|_| Unavailable)?;
         Ok(bundle)
     }
