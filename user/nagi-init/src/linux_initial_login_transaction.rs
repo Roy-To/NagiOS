@@ -5,7 +5,8 @@ use super::broker::{
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
     stage_initial_interactive_session_from_c2_owner_checked_peer, C1IssuedInteractiveSession,
-    C1PendingInitialInteractiveSession, Clock, GuestProfileCleaner, IdempotencyKey,
+    C1PendingInitialInteractiveSession, C1SystemServiceRecoveryJournal,
+    C1SystemServiceRuntimeAdmission, Clock, GuestProfileCleaner, IdempotencyKey,
     IdentityAuthorizer, IdentityEventSink, IdentityIdSource, IdentityService,
     IdentitySnapshotStore, LiveStatus, SessionLeaseRevalidationHandle, TrustedCallerContext,
     UnixMillis,
@@ -163,6 +164,7 @@ where
 struct InitialSessionTransaction<'owner, S: IdentitySnapshotStore, I, C, A, G, E> {
     owner: MutexGuard<'owner, InitialLoginState<S, I, C, A, G, E>>,
     pending: C1PendingInitialInteractiveSession,
+    admission: C1SystemServiceRuntimeAdmission<'owner>,
     stream: &'owner UnixStream,
     peer: &'owner KernelAuthenticatedUnixPeer,
     selectors: (u64, u64),
@@ -174,7 +176,7 @@ struct InitialSessionTransaction<'owner, S: IdentitySnapshotStore, I, C, A, G, E
 impl<S, I, C, A, G, E> PendingInitialSessionTransaction
     for InitialSessionTransaction<'_, S, I, C, A, G, E>
 where
-    S: IdentitySnapshotStore,
+    S: C1SystemServiceRecoveryJournal,
     I: IdentityIdSource,
     C: Clock,
     A: IdentityAuthorizer,
@@ -185,14 +187,19 @@ where
         let request_key = self.request_key.take().ok_or(PeerDenial::Unavailable)?;
         let issued = self
             .pending
-            .commit_after_c2_owner_postcheck(&mut self.owner.identity, self.expires_at, request_key)
+            .commit_after_c2_owner_postcheck_with_runtime_admission(
+                &mut self.owner.identity,
+                &self.admission,
+                self.expires_at,
+                request_key,
+            )
             .map_err(|_| PeerDenial::Unavailable)?;
         let caller = issued.caller();
         if !caller.matches_kernel_connection(self.peer, self.stream) {
             return Err(PeerDenial::StalePeer);
         }
         let context = issued
-            .checked_context(&mut self.owner.identity)
+            .checked_context_with_runtime_admission(&mut self.owner.identity, &self.admission)
             .map_err(|_| PeerDenial::Unavailable)?;
         let lease = context
             .revalidation_handle()
@@ -241,6 +248,7 @@ where
 /// supply credentials to this transaction.
 pub(super) fn complete_initial_session<'peer, S, I, C, A, G, E>(
     owner: MutexGuard<'peer, InitialLoginState<S, I, C, A, G, E>>,
+    admission: C1SystemServiceRuntimeAdmission<'peer>,
     verifier: &LinuxAccountVerifier,
     request: &'peer AcceptedInitialLoginRequest<'peer>,
     stream: &'peer UnixStream,
@@ -252,7 +260,7 @@ pub(super) fn complete_initial_session<'peer, S, I, C, A, G, E>(
     complete: &mut dyn FnMut(PendingInitialSession<'peer>) -> Result<(), PeerDenial>,
 ) -> Result<(), PeerDenial>
 where
-    S: IdentitySnapshotStore + 'peer,
+    S: C1SystemServiceRecoveryJournal + 'peer,
     I: IdentityIdSource + 'peer,
     C: Clock + 'peer,
     A: IdentityAuthorizer + 'peer,
@@ -286,6 +294,7 @@ where
     let transaction = InitialSessionTransaction {
         owner,
         pending,
+        admission,
         stream,
         peer,
         selectors,

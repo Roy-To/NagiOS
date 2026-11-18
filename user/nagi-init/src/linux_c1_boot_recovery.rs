@@ -160,9 +160,10 @@ impl SelectedBootIdentityRuntime<'_, '_> {
                     .owner
                     .c3
                     .with_durable_live_continuation_gate(scope, &boot.proof, claim, || {
-                        nagi_identity_session::provision_c1_linux_first_owner_binding(
+                        nagi_identity_session::provision_c1_linux_first_owner_binding_with_runtime_admission(
                             identity,
                             principal,
+                            &admission,
                             account_name,
                         )
                         .inspect_err(|error| {
@@ -335,6 +336,7 @@ mod task24 {
                 identity: C1InitialLoginAuthority::new(
                     self.identity,
                     self.handoff,
+                    self.boot.recovery_admission(),
                     self.verifier,
                     request_key,
                     expires_at,
@@ -363,7 +365,7 @@ pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A,
     boot: &'boot AuthenticatedBootService<'package>,
     data: &'boot BootVolumeInput,
     receipt: C3DurableSlotReceipt,
-    identity: C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>,
+    identity: C1InitialLoginAuthority<'boot, LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -457,8 +459,9 @@ where
     A: IdentityAuthorizer,
     G: GuestProfileCleaner,
     E: IdentityEventSink,
-    Login:
-        LinuxInitialLoginOwner<C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>>,
+    Login: LinuxInitialLoginOwner<
+        C1InitialLoginAuthority<'boot, LinuxIdentitySnapshotStore, I, C, A, G, E>,
+    >,
 {
     let caller =
         seal_boot_service_principal(boot, catalog).map_err(BootIdentityRecoveryError::Principal)?;
@@ -473,6 +476,7 @@ where
         identity: C1InitialLoginAuthority::new(
             identity,
             handoff,
+            boot.recovery_admission(),
             verifier,
             request_key,
             expires_at,
