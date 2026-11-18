@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use nagi_model::ObjectId;
@@ -108,30 +108,39 @@ struct PendingCommit {
     origin: ActivityOrigin,
 }
 
-struct Inner {
+struct Inner<'scope> {
     state: Mutex<SessionState>,
     changed: Condvar,
-    store: Arc<dyn NoteStore>,
+    store: Arc<dyn NoteStore + 'scope>,
     clock: Arc<dyn Clock>,
     activity: Arc<dyn ActivitySink>,
     debounce: Duration,
     activity_failures: AtomicU64,
 }
 
-pub struct NoteSession {
-    inner: Arc<Inner>,
-    worker: Mutex<Option<JoinHandle<()>>>,
+type WorkerJob<'scope> = Box<dyn FnOnce() + Send + 'scope>;
+pub(crate) type WorkerSpawner<'scope> = dyn Fn(thread::Builder, WorkerJob<'scope>) -> std::io::Result<WorkerJob<'scope>>
+    + Send
+    + Sync
+    + 'scope;
+
+pub type NoteSession = ScopedNoteSession<'static>;
+
+pub struct ScopedNoteSession<'scope> {
+    inner: Arc<Inner<'scope>>,
+    join_worker: Mutex<Option<WorkerJob<'scope>>>,
 }
 
-impl NoteSession {
+impl<'scope> ScopedNoteSession<'scope> {
     pub(crate) fn start(
         note: NoteDocument,
-        store: Arc<dyn NoteStore>,
+        store: Arc<dyn NoteStore + 'scope>,
         clock: Arc<dyn Clock>,
         activity: Arc<dyn ActivitySink>,
         debounce: Duration,
         new_note: bool,
         origin: ActivityOrigin,
+        spawn: &WorkerSpawner<'scope>,
     ) -> Result<Arc<Self>, SessionError> {
         let dirty = new_note;
         let initial_status = if dirty {
@@ -164,13 +173,12 @@ impl NoteSession {
         });
         let worker_inner = Arc::clone(&inner);
         let sequence = SESSION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let worker = thread::Builder::new()
-            .name(format!("nagi-notes-autosave-{sequence}"))
-            .spawn(move || autosave_worker(worker_inner))
+        let builder = thread::Builder::new().name(format!("nagi-notes-autosave-{sequence}"));
+        let join_worker = spawn(builder, Box::new(move || autosave_worker(worker_inner)))
             .map_err(|error| SessionError::WorkerUnavailable(error.to_string()))?;
         Ok(Arc::new(Self {
             inner,
-            worker: Mutex::new(Some(worker)),
+            join_worker: Mutex::new(Some(join_worker)),
         }))
     }
 
@@ -550,8 +558,8 @@ impl NoteSession {
             state.closing = true;
             self.inner.changed.notify_all();
         }
-        if let Some(worker) = lock(&self.worker).take() {
-            let _ = worker.join();
+        if let Some(join) = lock(&self.join_worker).take() {
+            join();
         }
         let state = lock(&self.inner.state);
         if state.closed {
@@ -562,21 +570,21 @@ impl NoteSession {
     }
 }
 
-impl Drop for NoteSession {
+impl Drop for ScopedNoteSession<'_> {
     fn drop(&mut self) {
         if self.close().is_err() {
             let mut state = lock(&self.inner.state);
             state.closing = true;
             self.inner.changed.notify_all();
             drop(state);
-            if let Some(worker) = lock(&self.worker).take() {
-                let _ = worker.join();
+            if let Some(join) = lock(&self.join_worker).take() {
+                join();
             }
         }
     }
 }
 
-fn autosave_worker(inner: Arc<Inner>) {
+fn autosave_worker(inner: Arc<Inner<'_>>) {
     let mut state = lock(&inner.state);
     loop {
         if state.closing && (!state.dirty || matches!(state.status, SaveStatus::Failed(_))) {
