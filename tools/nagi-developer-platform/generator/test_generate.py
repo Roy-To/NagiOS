@@ -159,7 +159,7 @@ class GenerationTests(GeneratorTestCase):
         gen.generate(valid_inputs(), self.root)
         for relative in ("samples/level-zero", "samples/level-zero/src"):
             mode = stat.S_IMODE(os.lstat(self.root / relative).st_mode)
-            self.assertEqual(mode, 0o755 & ~mask, relative)
+            self.assertEqual(mode, (0o755 & ~mask) | 0o700, relative)
 
     def test_plan_reports_files_and_writes_nothing(self):
         before = tree(self.root)
@@ -549,6 +549,162 @@ class DirectorySwapTests(GeneratorTestCase):
             gen.generate(valid_inputs(), self.root)
         self.assertTrue(moved.is_dir())
         self.assertEqual(os.listdir(moved), [])
+
+
+class UmaskTests(GeneratorTestCase):
+    """The strict 0o700 check must not depend on the caller's umask (NDP-A002)."""
+
+    # 0o022/0o077: usual; 0o277: mkdir(0o700) yields 0o500 (owner cannot write);
+    # 0o177/0o377: owner x / owner w+x masked; 0o000: no masking.
+    MASKS = (0o000, 0o022, 0o077, 0o177, 0o277, 0o377)
+    # The owner read bit is masked: mkdir() makes a directory its owner cannot open.
+    UNSUPPORTED_MASKS = (0o400, 0o577, 0o777)
+
+    def test_umask_that_hides_the_directory_from_its_owner_is_refused_before_creating(self):
+        for mask in self.UNSUPPORTED_MASKS:
+            with self.subTest(umask=oct(mask)):
+                before = tree(self.root)
+                error = self.run_with_umask(mask, self.reason)
+                self.assertEqual(error.code, "unsupported_umask")
+                self.assertEqual((error.created, error.removed, error.left_behind), ([], [], []))
+                self.assertEqual(tree(self.root), before)
+
+    def run_with_umask(self, mask, action):
+        previous = os.umask(mask)
+        try:
+            return action()
+        finally:
+            os.umask(previous)
+
+    def test_generation_succeeds_and_final_modes_follow_the_umask(self):
+        for mask in self.MASKS:
+            with self.subTest(umask=oct(mask)):
+                holder = tempfile.TemporaryDirectory()
+                self.addCleanup(holder.cleanup)
+                root = make_checkout(Path(holder.name) / "checkout")
+                before = os.umask(0o022)
+                os.umask(before)
+                result = self.run_with_umask(
+                    mask, lambda: gen.generate(valid_inputs(), root))
+                self.assertEqual(os.umask(before), before)       # restored by the helper
+                self.assertEqual(result["status"], "created")
+                out = root / "samples/level-zero"
+                for relative in ("samples/level-zero", "samples/level-zero/src"):
+                    self.assertEqual(stat.S_IMODE(os.lstat(root / relative).st_mode),
+                                     (0o755 & ~mask) | 0o700, relative)
+                # Only the test widens the mode (the generator honors the umask),
+                # so the tree can be read and the cleanup can remove it.
+                for directory in (out / "src", out):
+                    os.chmod(directory, 0o700)
+                preview = gen.contract_module.preview(valid_inputs())
+                self.assertEqual(sorted(p for p, d in tree(out).items() if d is not None),
+                                 sorted(preview))
+
+    def test_directory_is_private_while_written_even_under_restrictive_umask(self):
+        seen = []
+        real_open = os.open
+
+        def spying_open(path, flags, mode=0o777, **kwargs):
+            descriptor = real_open(path, flags, mode, **kwargs)
+            if flags & os.O_CREAT:
+                parent = kwargs.get("dir_fd")
+                seen.append(stat.S_IMODE(os.fstat(parent).st_mode))
+            return descriptor
+        with mock.patch.object(gen.os, "open", spying_open):
+            self.run_with_umask(0o277, lambda: gen.generate(valid_inputs(), self.root))
+        self.assertTrue(seen)
+        self.assertEqual(set(seen), {0o700})                   # exactly 0o700 at write time
+        out = self.root / "samples/level-zero"
+        for directory in (out / "src", out):
+            os.chmod(directory, 0o700)
+
+    def test_replacement_directories_are_still_refused_under_each_umask(self):
+        def group_writable(path):
+            path.mkdir()
+            os.chmod(path, 0o770)
+
+        def world_writable(path):
+            path.mkdir()
+            os.chmod(path, 0o777)
+
+        def not_empty(path):
+            path.mkdir()
+            os.chmod(path, 0o700)          # usable whatever the umask is
+            (path / "x").write_text("x", encoding="utf-8")
+        for mask in self.MASKS:
+            for make in (group_writable, world_writable, not_empty):
+                with self.subTest(umask=oct(mask), replacement=make.__name__):
+                    holder = tempfile.TemporaryDirectory()
+                    self.addCleanup(holder.cleanup)
+                    root = make_checkout(Path(holder.name) / "checkout")
+                    real_mkdir = os.mkdir
+                    path = root / OUT
+                    moved = path.parent / (path.name + ".moved-ours")
+
+                    def mkdir(name, *args, _make=make, **kwargs):
+                        real_mkdir(name, *args, **kwargs)
+                        if name == path.name and not moved.exists():
+                            os.rename(path, moved)
+                            _make(path)
+
+                    def attempt():
+                        with mock.patch.object(gen.os, "mkdir", mkdir):
+                            with self.assertRaises(gen.GenerationError) as caught:
+                                gen.generate(valid_inputs(), root)
+                        return caught.exception
+                    # the replacement helpers need a usable mask of their own
+                    error = self.run_with_umask(mask, attempt)
+                    self.assertEqual(error.code, "output_raced")
+                    self.assertEqual(error.created, [])
+                    self.assertEqual(error.removed, [])
+                    # Our rejected directory is untouched: never widened, nothing written.
+                    self.assertEqual(stat.S_IMODE(os.lstat(moved).st_mode), 0o700 & ~mask)
+                    os.chmod(moved, 0o700)
+                    self.assertEqual(os.listdir(moved), [])
+                    if make is not_empty:
+                        self.assertEqual(os.listdir(path), ["x"])
+                    else:
+                        self.assertEqual(os.listdir(path), [])
+
+    def test_directory_owned_by_someone_else_is_refused_under_each_umask(self):
+        real_geteuid = os.geteuid
+        for mask in self.MASKS:
+            with self.subTest(umask=oct(mask)):
+                holder = tempfile.TemporaryDirectory()
+                self.addCleanup(holder.cleanup)
+                root = make_checkout(Path(holder.name) / "checkout")
+
+                def attempt():
+                    # preflight runs before the patch matters only for the claim check
+                    with mock.patch.object(gen.os, "geteuid", lambda: real_geteuid() + 1):
+                        with self.assertRaises(gen.GenerationError) as caught:
+                            gen.generate(valid_inputs(), root)
+                    return caught.exception
+                error = self.run_with_umask(mask, attempt)
+                self.assertEqual(error.code, "output_raced")
+                self.assertEqual(error.removed, [])
+                os.chmod(root / OUT, 0o700)
+
+    def test_umask_is_restored_when_the_run_fails(self):
+        before = os.umask(0o022)
+        os.umask(before)
+        (self.root / OUT).mkdir()
+        try:
+            self.run_with_umask(0o277, self.reason)
+        finally:
+            current = os.umask(before)
+        self.assertEqual(current, before)
+
+    def test_generator_does_not_leave_a_changed_umask_behind(self):
+        for mask in (0o022, 0o277):
+            holder = tempfile.TemporaryDirectory()
+            self.addCleanup(holder.cleanup)
+            root = make_checkout(Path(holder.name) / "checkout")
+            self.run_with_umask(mask, lambda: gen.generate(valid_inputs(), root))
+            for directory in (root / OUT / "src", root / OUT):
+                os.chmod(directory, 0o700)
+            with self.subTest(umask=oct(mask)):
+                self.assertEqual(self.run_with_umask(mask, lambda: os.umask(mask)), mask)
 
 
 class CliTests(GeneratorTestCase):
