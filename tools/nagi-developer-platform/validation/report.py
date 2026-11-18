@@ -36,6 +36,47 @@ UI_FACTS = ("widgets", "layouts", "connections", "tab_order", "bindings",
             "resources", "unknown", "custom_widgets", "unresolved_references")
 
 
+CHECK_STATUSES = ("passed", "failed", "not_run", "unsupported")
+# PROVISIONAL plain-language notes for reason codes. A code missing from this
+# table is shown as the code alone; no explanation is guessed for it.
+REASON_DESCRIPTIONS = {
+    "evidence_diagnosed": "API evidence was diagnosed.",
+    "structure_analyzed": "The UI file structure was analyzed.",
+    "mapping_summarized": "The UI mapping was summarized.",
+    "ui_analyzed": "All UI files were analyzed.",
+    "ui_mapped": "All UI files were mapped.",
+    "scaffold_created": "The scratch scaffold was created.",
+    "metadata_valid": "The validator accepted the scaffold Manifest.",
+    "build_and_test_passed": "The portable fixture compiled and its test passed on the host.",
+    "no_platform_evidence_for_fixture": "This fixture has no API evidence for the platform.",
+    "no_ui_inputs_for_fixture": "This fixture has no UI inputs.",
+    "no_approved_stage2_target_for_fixture": "No approved Stage 2 build target exists for this fixture.",
+    "package_and_signature_checks_not_connected": "Package and signature checks are not connected yet.",
+    "stage_not_connected": "This stage is not connected yet.",
+    "generation_did_not_pass": "Scaffold generation did not pass, so the check was skipped.",
+    "ui_analysis_did_not_pass": "UI analysis did not pass, so mapping was skipped.",
+    "file_failed": "At least one file failed.",
+    "file_not_run": "At least one file was not run.",
+    "file_unsupported": "At least one file is unsupported.",
+    "validator_unavailable": "The validator binary is not available.",
+    "clang_unavailable": "The clang compiler is not available.",
+    "scratch_unavailable": "A scratch directory could not be used.",
+    "scratch_cleanup_failed": "The scratch directory could not be removed.",
+    "approved_target_unavailable": "The approved Stage 2 target is not available.",
+    "tool_unavailable": "A required tool is not available.",
+    "tool_exit_nonzero": "A tool exited with an error.",
+    "invalid_tool_output": "A tool produced output that was not in the expected form.",
+    "unsupported_format": "The input format is not supported.",
+    "input_unavailable": "An input file could not be read.",
+    "input_too_large": "An input file exceeds the size limit.",
+    "fixture_digest_mismatch": "The fixture differs from its approved content digest.",
+    "output_limit": "Tool output exceeded the size limit.",
+    "timeout": "A tool exceeded its time limit.",
+    "io_error": "A file system error occurred.",
+    "invalid_xml": "The file is not valid XML.",
+}
+
+
 class CheckError(Exception):
     def __init__(self, reason, status="failed"):
         super().__init__(reason)
@@ -271,6 +312,40 @@ def host_build(fixture):
     return attempt(paths, run)
 
 
+def build_overview(checks):
+    """Summarize check statuses; the non-passed list keeps check order."""
+    counts = dict.fromkeys(CHECK_STATUSES, 0)
+    for result in checks.values():
+        counts[result["status"]] = counts.get(result["status"], 0) + 1
+    return {"total": len(checks), "counts": counts,
+            "not_passed": [{"name": name, "status": result["status"], "reason": result["reason"]}
+                           for name, result in checks.items() if result["status"] != "passed"]}
+
+
+def describe_reason(reason):
+    text = REASON_DESCRIPTIONS.get(reason)
+    return "`{}`".format(reason) if text is None else "`{}` — {}".format(reason, text)
+
+
+def overview_lines(report):
+    overview = report["overview"]
+    passed = [name for name, result in report["checks"].items() if result["status"] == "passed"]
+    lines = ["## Overview", "",
+             "{} checks: {}.".format(overview["total"], ", ".join(
+                 "{} `{}`".format(count, status) for status, count in overview["counts"].items())),
+             "", "### Passed", ""]
+    lines.extend("- {}".format(name) for name in passed) if passed else lines.append("- none")
+    lines.extend(("", "### Unsupported or not run (reason)", ""))
+    if overview["not_passed"]:
+        lines.extend("- {} · `{}` · {}".format(item["name"], item["status"],
+                                               describe_reason(item["reason"]))
+                     for item in overview["not_passed"])
+    else:
+        lines.append("- none")
+    lines.append("")
+    return lines
+
+
 def build_report(fixture):
     if fixture not in FIXTURES:
         raise ValueError("unknown_fixture")
@@ -279,18 +354,20 @@ def build_report(fixture):
     linux = diagnose(fixture, "linux")
     analysis, mapping = inspect_ui(fixture)
     generation, stage1 = generate_and_validate()
+    checks = {
+        "windows_diagnosis": windows, "linux_diagnosis": linux,
+        "ui_analysis": analysis, "ui_mapping": mapping,
+        "generation": generation, "stage_1": stage1, "stage_2": host_build(fixture),
+        "stage_2_package": unavailable("package_and_signature_checks_not_connected"),
+        "stage_3": unavailable("stage_not_connected"),
+    }
     return {
         "version": 1, "approval": "PROVISIONAL", "recorded_at": recorded_at,
         "fixture": fixture, "source_kind": "self_made_repository_fixture",
         "mode": "toolkit_non_ai", "scope": "host_fixture_evaluation",
         "target_acceptance": "not_run",
-        "checks": {
-            "windows_diagnosis": windows, "linux_diagnosis": linux,
-            "ui_analysis": analysis, "ui_mapping": mapping,
-            "generation": generation, "stage_1": stage1, "stage_2": host_build(fixture),
-            "stage_2_package": unavailable("package_and_signature_checks_not_connected"),
-            "stage_3": unavailable("stage_not_connected"),
-        },
+        "checks": checks,
+        "overview": build_overview(checks),
         "evaluation": {
             "manual_comparison": "not_run", "local_llm": "not_run", "external_ai": "not_run",
             "human_effort": "not_measured", "reuse_and_speedup": "not_measured",
@@ -306,6 +383,9 @@ def markdown_report(report):
         "**PROVISIONAL** · Fixture `{}` · Toolkit (non-AI)".format(report["fixture"]),
         "",
         "Recorded at {}. Nagi target acceptance `not_run`.".format(report["recorded_at"]),
+        "",
+        *overview_lines(report),
+        "## Checks",
         "",
         "| Check | Status | Reason | Counts | Input paths |",
         "|---|---|---|---|---|",
