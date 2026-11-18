@@ -23,7 +23,7 @@ Last verified code commit: `d52edd3ab2fe29cc32bde92720476a622f2688d3`.
 
 | Check | Command | Result |
 |---|---|---|
-| Wayback acceptance harness | `CARGO_TARGET_DIR=/Users/tozawa/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh` | PASS, exit 0: fmt, 20 unit tests, 4 integration scenarios, Clippy `-D warnings`, schema positives and negatives, M15 regression, DF-01 verify |
+| Wayback acceptance harness | `CARGO_TARGET_DIR=${HOME}/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh` | PASS, exit 0: fmt, 20 unit tests, 4 integration scenarios, Clippy `-D warnings`, schema positives and negatives, M15 regression, DF-01 verify |
 | Existing M15 history regression | `cargo test --manifest-path user/nagi-history/Cargo.toml --locked` (inside the harness, pinned toolchain) | PASS, exit 0: 4 tests |
 | Schema validation | `tests/wayback/validate_schemas.py` via harness | PASS, exit 0: 6 serialized contracts, unknown-version negatives, empty-ID and recorded-secret negatives, DF-01 registry/state |
 | DF-01 workstream verify | `./nagi dev verify` (inside the harness) | PASS, exit 0 |

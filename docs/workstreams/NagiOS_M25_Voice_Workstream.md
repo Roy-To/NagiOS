@@ -57,12 +57,12 @@
 Pinned arm64 host toolchain:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m25-host-arm64 \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline \
+${HOME}/.cargo/bin/cargo test --locked --offline \
   -p nagi-audio --all-targets
 ```
 
@@ -71,12 +71,12 @@ Warnings-denied
 Clippy passed with `CARGO_TARGET_DIR=/tmp/nagi-m25-clippy-arm64`:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m25-clippy-arm64 \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+${HOME}/.cargo/bin/cargo clippy --locked --offline \
   -p nagi-audio --all-targets -- -D warnings
 ```
 
@@ -84,21 +84,21 @@ The Nagi user target compiled with `core` and `alloc` using
 `CARGO_TARGET_DIR=/tmp/nagi-m25-target`:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m25-target \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check --locked --offline \
+${HOME}/.cargo/bin/cargo -Z build-std=core,alloc check --locked --offline \
   -p nagi-audio --target targets/x86_64-unknown-nagi-user.json
 ```
 
 Package formatting check passed:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-/Users/tozawa/.cargo/bin/cargo fmt --manifest-path user/nagi-audio/Cargo.toml -- --check
+${HOME}/.cargo/bin/cargo fmt --manifest-path user/nagi-audio/Cargo.toml -- --check
 ```
 
 The host-library verification commands used separate target directories.

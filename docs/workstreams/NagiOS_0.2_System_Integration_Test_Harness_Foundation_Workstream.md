@@ -8,7 +8,7 @@
 - **Owner:** Codex TEST-PLAT-01 workstream owner, assigned by the Integration Owner
 - **Assigned branch:** codex/0.2-test-plat-01
 - **Assigned base:** 198b9f60b41eba14e74c2c04f51ccdcb4030adf9
-- **Assigned worktree:** /Users/tozawa/Developer/NagiOS-0.2-test-plat-01
+- **Assigned worktree:** ${HOME}/Developer/NagiOS-0.2-test-plat-01
 - **State:** .dev/workstreams/test-plat-01/state.json
 - **Target:** Nagi OS 0.2 host-only, deterministic integration-test foundation
 - **Initial status:** NOT_STARTED

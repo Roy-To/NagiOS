@@ -12,7 +12,7 @@
     "commands": [
       "./nagi dev status",
       "./nagi dev resume",
-      "CARGO_TARGET_DIR=/Users/tozawa/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh",
+      "CARGO_TARGET_DIR=${HOME}/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh",
       "./nagi dev verify",
       "./nagi dev diagnose --stage m15-history-regression-standalone-rustc --exit-code 1 --failure-class BUILD --log /tmp/nagi-wayback-m15-standalone-rustc.log",
       "gh run view 36213800837 --json status,conclusion,headSha,jobs,url",
@@ -27,7 +27,7 @@
     "tests": [
       {
         "name": "Wayback host acceptance harness",
-        "command": "CARGO_TARGET_DIR=/Users/tozawa/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh",
+        "command": "CARGO_TARGET_DIR=${HOME}/Developer/NagiOS-0.2-wayback/target ./tests/wayback/verify.sh",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "20 unit tests and integration scenarios A-D (4 tests) passed; fmt check and Clippy -D warnings passed; six Draft 2020-12 contract fixtures plus unknown-version, empty-ID, and recorded-secret negatives passed; M15 history regression passed 4 tests; ./nagi dev verify passed."
