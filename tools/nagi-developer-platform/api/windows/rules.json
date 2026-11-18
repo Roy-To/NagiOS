@@ -68,7 +68,7 @@
     },
     {
       "id": "WIN-PROCESS", "family": "win32", "classification": "process_creation",
-      "aliases": ["CreateProcessA", "CreateProcessW", "ShellExecuteW"],
+      "aliases": ["CreateProcess", "CreateProcessA", "CreateProcessW", "ShellExecuteW"],
       "reason": "Process launch and shell execution cannot be inferred from application identity helpers.",
       "availability": "unsupported", "alternatives": [],
       "gaps": ["No public process-launch client or shell execution equivalent is provided here.", "Explicit authorization and a real runtime contract remain required."],
