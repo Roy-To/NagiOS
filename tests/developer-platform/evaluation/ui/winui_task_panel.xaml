@@ -1,0 +1,19 @@
+<Page x:Class="Synthetic.WinUI.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ctl="using:Synthetic.WinUI.Controls">
+  <Page.Resources>
+    <DataTemplate x:Key="rowTemplate"><TextBlock x:Name="rowLabel" Text="{Binding Label}"/></DataTemplate>
+  </Page.Resources>
+  <StackPanel x:Name="panel" Orientation="Vertical">
+    <TextBlock x:Name="heading" x:Uid="SettingsHeading" Text="設定 / Settings"/>
+    <ToggleSwitch x:Name="notify" Header="通知"
+                  IsOn="{x:Bind ViewModel.Notify, Mode=TwoWay}"
+                  Toggled="{x:Bind ViewModel.OnToggled}"
+                  AutomationProperties.Name="Notifications"/>
+    <Button x:Name="save" Content="Save"
+            Foreground="{ThemeResource AccentTextBrush}"
+            Click="Save_Click"/>
+    <ctl:Meter x:Name="meter"/>
+  </StackPanel>
+</Page>

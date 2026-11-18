@@ -82,6 +82,40 @@ Markdownは候補・軸別statusと理由・契約根拠を一覧にし、全元
 | GTK4 `grid` | `LayoutKind::Grid`、redesign / partial | row／column／column-spanは元factに残す。正しい変換、描画、操作は未検証 |
 | GTK3 `entryAccessible` | AtkObjectはunknown / needs_decision | entryのa11y証拠として関連付けるが、描画widgetに変換しない |
 
+## XAML (WPF / WinUI) — NDP-06d
+
+`format=xaml-ui` の解析結果も同じ経路で処理する（`rules.json` の `xaml-ui` 節）。
+fixture: `xaml_minimal.xaml`、`wpf_task_panel.xaml`、`winui_task_panel.xaml`（`.ui`ではないので
+上のGTK/Qt例のglobには入らず、`test_mapping_xaml.py` が扱う）。
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/analyze.py \
+  --root tests/developer-platform/evaluation/ui wpf_task_panel.xaml \
+  | PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/mapping/map_ui.py
+```
+
+| XAML | 候補 / 判定（PROVISIONAL） |
+|---|---|
+| Button / CheckBox / RadioButton / ComboBox / ToggleSwitch / TextBox / Separator | 契約語彙の直接候補（Button / Checkbox / Radio / Select / Switch / TextField / Divider）。direct / supported だが全体statusは最大partial |
+| TextBlock / Label | `ResolvedText`（再設計） |
+| Window | `ApplicationShellSpec`、Page / UserControl / Border / GroupBox / Expander は `Panel`（再設計） |
+| ContentDialog / ListBox / ListView / ProgressBar / ScrollViewer | Dialog / List / ProgressIndicator / ScrollContainer（再設計） |
+| Grid / UniformGrid | `LayoutKind::Grid`、WrapPanel は `Row`（再設計）。row/column定義、span、size policyは未変換 |
+| StackPanel | **`Orientation` が明示されている場合だけ** Row / Column。省略時の既定は推測せず要判断（GtkBoxと同じ扱い。`ORIENTED_LAYOUTS` 1か所） |
+| Canvas / DockPanel / RelativePanel / VariableSizedWrapGrid / Image / PasswordBox | 現調査の契約に相当部品なし（unavailable / unsupported） |
+| 上記以外の認識済みcontrol（Slider等）・custom control・未知要素 | 規則なし／未知 → needs_decision。基底型や名前から自動対応しない |
+
+`AutomationProperties.*`、`Text`/`Content`/`Header`等、`TabIndex`/`IsTabStop`等は
+既存のa11y・text・focus証拠名の表（`ACCESSIBLE_NAMES`/`TEXT_NAMES`/`FOCUS_NAMES`）に追加しただけで、
+意味解釈はしない。event・binding・resource・`x:Class` は他形式と同じく未接続（backend=unsupported）。
+
+### 仮定（PROVISIONAL, XAML）
+
+- 上表は内部の暫定照合でUI ownerの承認ではない。変更は `rules.json` の `xaml-ui` 節と上記の名前表
+  だけで行える。承認状態は自動昇格しない。
+- Page/UserControl/Border等を `Panel`、WrapPanelを `Row` とするのは再設計候補としての仮置き。
+- hostでの結果はNagi target受入ではない。
+
 ## 仮定（PROVISIONAL）
 
 - UI ownerの承認前の内部照合であり、公開support matrixや新SDK APIではない。
