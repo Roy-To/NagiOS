@@ -44,7 +44,7 @@ pub use store::{
 };
 #[cfg(target_os = "linux")]
 pub use store::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
-pub use ui_controller::NotesUiController;
+pub use ui_controller::{NotesUiController, ScopedNotesUiController};
 
 #[cfg(test)]
 mod session_gate_tests;

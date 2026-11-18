@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::Scope;
 use std::time::Duration;
 
 use nagi_model::ObjectId;
@@ -13,24 +14,27 @@ use crate::domain::{AlbertReference, Block, BlockKind, NoteDocument, NoteSummary
 use crate::identity::{HostObjectIdSource, ObjectIdSource};
 use crate::markdown::{export_markdown, import_markdown};
 use crate::references::valid_web_url;
-use crate::session::{Clock, NoteSession, SessionError, SystemClock};
+use crate::session::{Clock, ScopedNoteSession, SessionError, SystemClock, WorkerSpawner};
 use crate::store::{NoteStore, StoreError};
 
-pub type OpenDocument = Arc<NoteSession>;
+pub type NotesApp = ScopedNotesApp<'static>;
+pub type OpenDocument = ScopedOpenDocument<'static>;
+pub type ScopedOpenDocument<'scope> = Arc<ScopedNoteSession<'scope>>;
 
-pub struct NotesApp {
-    store: Arc<dyn NoteStore>,
+pub struct ScopedNotesApp<'scope> {
+    store: Arc<dyn NoteStore + 'scope>,
+    spawn_worker: Box<WorkerSpawner<'scope>>,
     ids: Arc<dyn ObjectIdSource>,
     clock: Arc<dyn Clock>,
     activity: Arc<dyn ActivitySink>,
     debounce: Duration,
-    open_documents: Mutex<OpenDocuments>,
+    open_documents: Mutex<OpenDocuments<'scope>>,
     activity_failures: AtomicU64,
 }
 
 #[derive(Default)]
-struct OpenDocuments {
-    sessions: HashMap<u64, OpenDocument>,
+struct OpenDocuments<'scope> {
+    sessions: HashMap<u64, ScopedOpenDocument<'scope>>,
     busy: HashSet<u64>,
 }
 
@@ -77,7 +81,7 @@ impl From<SessionError> for AppError {
     }
 }
 
-impl NotesApp {
+impl ScopedNotesApp<'static> {
     pub fn new(store: Arc<dyn NoteStore>) -> Self {
         Self::with_providers(
             store,
@@ -95,8 +99,53 @@ impl NotesApp {
         activity: Arc<dyn ActivitySink>,
         debounce: Duration,
     ) -> Self {
+        Self::with_worker(
+            store,
+            ids,
+            clock,
+            activity,
+            debounce,
+            Box::new(|builder, job| {
+                let worker = builder.spawn(job)?;
+                Ok(Box::new(move || {
+                    let _ = worker.join();
+                }))
+            }),
+        )
+    }
+}
+
+impl<'scope> ScopedNotesApp<'scope> {
+    pub(crate) fn new_scoped<'env: 'scope>(
+        store: Arc<dyn NoteStore + 'scope>,
+        scope: &'scope Scope<'scope, 'env>,
+    ) -> Self {
+        Self::with_worker(
+            store,
+            Arc::new(HostObjectIdSource::new()),
+            Arc::new(SystemClock),
+            Arc::new(NoopActivitySink),
+            Duration::from_millis(700),
+            Box::new(move |builder, job| {
+                let worker = builder.spawn_scoped(scope, job)?;
+                Ok(Box::new(move || {
+                    let _ = worker.join();
+                }))
+            }),
+        )
+    }
+
+    fn with_worker(
+        store: Arc<dyn NoteStore + 'scope>,
+        ids: Arc<dyn ObjectIdSource>,
+        clock: Arc<dyn Clock>,
+        activity: Arc<dyn ActivitySink>,
+        debounce: Duration,
+        spawn_worker: Box<WorkerSpawner<'scope>>,
+    ) -> Self {
         Self {
             store,
+            spawn_worker,
             ids,
             clock,
             activity,
@@ -167,7 +216,10 @@ impl NotesApp {
         self.store.load(id)?.ok_or(AppError::NotFound(id))
     }
 
-    pub fn create_note(&self, title: impl Into<String>) -> Result<OpenDocument, AppError> {
+    pub fn create_note(
+        &self,
+        title: impl Into<String>,
+    ) -> Result<ScopedOpenDocument<'scope>, AppError> {
         self.create_note_by(ActivityOrigin::User, title)
     }
 
@@ -179,7 +231,7 @@ impl NotesApp {
         title: impl Into<String>,
         text: impl Into<String>,
         workspace_id: Option<crate::domain::WorkspaceId>,
-    ) -> Result<OpenDocument, AppError> {
+    ) -> Result<ScopedOpenDocument<'scope>, AppError> {
         let session = self.create_note(title)?;
         let text = text.into();
         if !text.is_empty() {
@@ -198,7 +250,7 @@ impl NotesApp {
         &self,
         origin: ActivityOrigin,
         title: impl Into<String>,
-    ) -> Result<OpenDocument, AppError> {
+    ) -> Result<ScopedOpenDocument<'scope>, AppError> {
         let title = title.into();
         let mut open = lock(&self.open_documents);
         let mut selected = None;
@@ -214,7 +266,7 @@ impl NotesApp {
         }
         let id = selected.ok_or(AppError::IdAllocationFailed)?;
         let note = NoteDocument::new(id, title, self.clock.now());
-        let session = NoteSession::start(
+        let session = ScopedNoteSession::start(
             note,
             Arc::clone(&self.store),
             Arc::clone(&self.clock),
@@ -222,12 +274,13 @@ impl NotesApp {
             self.debounce,
             true,
             origin,
+            &*self.spawn_worker,
         )?;
         open.sessions.insert(id.0, Arc::clone(&session));
         Ok(session)
     }
 
-    pub fn open_note(&self, id: ObjectId) -> Result<OpenDocument, AppError> {
+    pub fn open_note(&self, id: ObjectId) -> Result<ScopedOpenDocument<'scope>, AppError> {
         self.open_note_by(ActivityOrigin::User, id)
     }
 
@@ -235,7 +288,7 @@ impl NotesApp {
         &self,
         origin: ActivityOrigin,
         id: ObjectId,
-    ) -> Result<OpenDocument, AppError> {
+    ) -> Result<ScopedOpenDocument<'scope>, AppError> {
         let mut open = lock(&self.open_documents);
         if open.busy.contains(&id.0) {
             return Err(AppError::DocumentBusy(id));
@@ -249,7 +302,7 @@ impl NotesApp {
         if note.deleted {
             return Err(AppError::Deleted(id));
         }
-        let session = NoteSession::start(
+        let session = ScopedNoteSession::start(
             note.clone(),
             Arc::clone(&self.store),
             Arc::clone(&self.clock),
@@ -257,6 +310,7 @@ impl NotesApp {
             self.debounce,
             false,
             origin,
+            &*self.spawn_worker,
         )?;
         open.sessions.insert(id.0, Arc::clone(&session));
         drop(open);
@@ -431,7 +485,7 @@ impl NotesApp {
 
     pub fn add_file_reference(
         &self,
-        session: &NoteSession,
+        session: &ScopedNoteSession<'scope>,
         object_id: ObjectId,
         label: impl Into<String>,
     ) -> Result<ObjectId, AppError> {
@@ -448,7 +502,7 @@ impl NotesApp {
 
     pub fn add_web_reference(
         &self,
-        session: &NoteSession,
+        session: &ScopedNoteSession<'scope>,
         title: impl Into<String>,
         url: impl Into<String>,
     ) -> Result<ObjectId, AppError> {
@@ -469,7 +523,7 @@ impl NotesApp {
 
     pub fn add_albert_reference(
         &self,
-        session: &NoteSession,
+        session: &ScopedNoteSession<'scope>,
         reference: AlbertReference,
     ) -> Result<ObjectId, AppError> {
         if !valid_web_url(&reference.url) {
@@ -494,7 +548,10 @@ impl NotesApp {
         }
     }
 
-    fn reserve_document(&self, id: ObjectId) -> Result<Option<OpenDocument>, AppError> {
+    fn reserve_document(
+        &self,
+        id: ObjectId,
+    ) -> Result<Option<ScopedOpenDocument<'scope>>, AppError> {
         let mut open = lock(&self.open_documents);
         if !open.busy.insert(id.0) {
             return Err(AppError::DocumentBusy(id));
