@@ -102,6 +102,18 @@ Markdownは候補・軸別statusと理由・契約根拠を一覧にし、全元
   `src`外のファイルは対象外。範囲を広げる／狭めるのはsnapshotデータの変更だけで
   行える（UI ownerの要判断）。未列挙ファイルは`sha256=null`、Markdownでは
   `not_in_snapshot`と表示する。
+- symlinkの扱い（PROVISIONAL、fail-closed）: `contract.py`は`enumerate`配下を
+  `os.walk(followlinks=False)`で列挙し、symlinkを**一切辿らず・読まない**。
+  repo外を指すものもrepo内を指すものも区別せず同じ扱いで、`.rs`のsymlink、
+  symlinkのdirectory、`enumerate`のdir自体や途中のsymlink、およびsnapshot列挙済み
+  ファイルのpath途中にあるsymlinkは、evidenceに固定の`state="symlink_rejected"`
+  （`sha256`／`actual_sha256`は共にnull、Markdownでは`not_in_snapshot`）として載り、
+  全体が`needs_review`になる。リンク先のpath・内容・hashは出力しない（伏字化した固定
+  コードのみ）。repo内を指すsymlinkも「除外」ではなく「拒否」とするのは、同一内容の
+  別名で契約が変わったことを見逃さないための保守的な判断。repo rootより上位の
+  directoryがsymlinkであること（例: 作業場所自体）は検査対象外。Windows等の
+  junction／reparse pointは未検証。方針の変更（除外へ緩和等）はこの1か所の
+  差し替えで行える（UI ownerの要判断）。
 - QWidgetはPanel、main windowはApplicationShellSpec、QLabel／GtkLabelはResolvedText
   を使う再設計候補とする。rich text、画像、link等の等価性は仮定しない。
   Qt form layoutはGridへの再設計候補。grid span／絶対座標等は実装しない。
