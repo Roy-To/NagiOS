@@ -47,6 +47,8 @@ REASON_DESCRIPTIONS = {
     "ui_mapped": "All UI files were mapped.",
     "scaffold_created": "The scratch scaffold was created.",
     "metadata_valid": "The validator accepted the scaffold Manifest.",
+    "compiled": "The portable fixture compiled on the host.",
+    "test_passed": "The compiled test program ran and produced the expected output.",
     "build_and_test_passed": "The portable fixture compiled and its test passed on the host.",
     "no_platform_evidence_for_fixture": "This fixture has no API evidence for the platform.",
     "no_ui_inputs_for_fixture": "This fixture has no UI inputs.",
@@ -75,6 +77,11 @@ REASON_DESCRIPTIONS = {
     "io_error": "A file system error occurred.",
     "invalid_xml": "The file is not valid XML.",
 }
+# PROVISIONAL allowlist of reason codes that are intentionally shown as the code
+# alone. Empty today: every reason in the four fixture reports has a description.
+# Add a code here only on purpose; test_report.py fails for a reason that is in
+# neither this set nor REASON_DESCRIPTIONS.
+CODE_ONLY_REASONS = frozenset()
 
 
 class CheckError(Exception):
@@ -327,6 +334,21 @@ def describe_reason(reason):
     return "`{}`".format(reason) if text is None else "`{}` — {}".format(reason, text)
 
 
+def collect_reasons(report):
+    """Every reason code in one report: checks, per-file results and steps."""
+    reasons = set()
+    for result in report["checks"].values():
+        reasons.add(result["reason"])
+        reasons.update(item["reason"] for item in (*result.get("files", ()), *result.get("steps", ())))
+    return reasons
+
+
+def undescribed_reasons(reports):
+    """Sorted reason codes in `reports` that have neither a description nor an allowlist entry."""
+    found = set().union(*(collect_reasons(item) for item in reports)) if reports else set()
+    return sorted(found - REASON_DESCRIPTIONS.keys() - CODE_ONLY_REASONS)
+
+
 def overview_lines(report):
     overview = report["overview"]
     passed = [name for name, result in report["checks"].items() if result["status"] == "passed"]
@@ -400,8 +422,8 @@ def markdown_report(report):
         for item in (*result.get("files", ()), *result.get("steps", ())):
             if item["status"] != "passed":
                 label = item["name"] if "name" in item else item["input_paths"][0]
-                problems.append("- {} `{}` · `{}` · `{}`".format(
-                    name, label, item["status"], item["reason"]))
+                problems.append("- {} `{}` · `{}` · {}".format(
+                    name, label, item["status"], describe_reason(item["reason"])))
     if problems:
         lines.extend(("", *problems))
     lines.extend(("", "Stage 1 checks metadata of the scratch scaffold. Stage 2 covers the "

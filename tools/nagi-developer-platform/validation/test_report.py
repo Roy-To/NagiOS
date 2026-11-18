@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import generated_check
 import report
+import stage2
 import validate
 
 
@@ -327,6 +328,64 @@ class ReportTests(unittest.TestCase):
         text = "\n".join(report.summary_lines(summary))
         self.assertIn("- windows / stage_3 · `not_run` · `made_up_reason_code`\n", text + "\n")
         self.assertIn("`stage_not_connected` — " + report.REASON_DESCRIPTIONS["stage_not_connected"], text)
+
+    def test_every_reason_in_real_fixture_reports_is_described_or_allowlisted(self):
+        # Real reports for all four fixtures, in the normal environment and with the
+        # validator and clang forced missing, so not_run reasons are covered even on
+        # a host that has both tools (and the normal run on a host that has neither).
+        reports = []
+        for fixture in report.FIXTURES:
+            reports.append(report.build_report(fixture))
+            with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")):
+                reports.append(report.build_report(fixture))
+            with patch.object(stage2.shutil, "which", return_value=None):
+                reports.append(report.build_report(fixture))
+        missing = report.undescribed_reasons(reports)
+        self.assertEqual(missing, [], "add a REASON_DESCRIPTIONS entry (or an intentional "
+                         "CODE_ONLY_REASONS entry) for: {}".format(", ".join(missing)))
+        found = set().union(*(report.collect_reasons(item) for item in reports))
+        for reason in ("clang_unavailable", "validator_unavailable",
+                       "package_and_signature_checks_not_connected"):
+            self.assertIn(reason, found)
+
+    def test_unlisted_reason_is_detected_in_checks_files_and_steps(self):
+        base = report.build_report("windows")
+        self.assertEqual(report.undescribed_reasons([base]), [])
+        planted = report.build_report("windows")
+        planted["checks"]["stage_3"]["reason"] = "new_unlisted_check_reason"
+        planted["checks"]["ui_analysis"]["files"] = [{"status": "failed", "reason": "new_unlisted_file_reason"}]
+        planted["checks"]["stage_2"]["steps"] = [{"status": "failed", "reason": "new_unlisted_step_reason"}]
+        self.assertEqual(report.undescribed_reasons([base, planted]),
+                         ["new_unlisted_check_reason", "new_unlisted_file_reason",
+                          "new_unlisted_step_reason"])
+        with patch.object(report, "CODE_ONLY_REASONS", frozenset({"new_unlisted_file_reason"})):
+            self.assertEqual(report.undescribed_reasons([planted]),
+                             ["new_unlisted_check_reason", "new_unlisted_step_reason"])
+
+    def test_code_only_allowlist_does_not_overlap_descriptions(self):
+        self.assertEqual(set(report.CODE_ONLY_REASONS) & set(report.REASON_DESCRIPTIONS), set())
+        for reason, text in report.REASON_DESCRIPTIONS.items():
+            self.assertTrue(text and text.endswith("."), reason)
+
+    def test_markdown_problem_lines_describe_known_reasons_and_not_unknown_ones(self):
+        result = report.build_report("ui")
+        analysis = result["checks"]["ui_analysis"]
+        analysis["files"][0] = {**analysis["files"][0], "status": "failed", "reason": "invalid_xml"}
+        analysis["files"][1] = {**analysis["files"][1], "status": "not_run", "reason": "made_up_file_reason"}
+        result["checks"]["stage_2"]["steps"] = [
+            {"name": "compile", "status": "failed", "reason": "timeout"},
+            {"name": "run_test", "status": "not_run", "reason": "made_up_step_reason"},
+            {"name": "extra", "status": "passed", "reason": "build_and_test_passed"}]
+        markdown = report.markdown_report(result)
+        first = analysis["files"][0]["input_paths"][0]
+        second = analysis["files"][1]["input_paths"][0]
+        self.assertIn("- ui_analysis `{}` · `failed` · `invalid_xml` — {}\n".format(
+            first, report.REASON_DESCRIPTIONS["invalid_xml"]), markdown)
+        self.assertIn("- ui_analysis `{}` · `not_run` · `made_up_file_reason`\n".format(second), markdown)
+        self.assertIn("- stage_2 `compile` · `failed` · `timeout` — {}\n".format(
+            report.REASON_DESCRIPTIONS["timeout"]), markdown)
+        self.assertIn("- stage_2 `run_test` · `not_run` · `made_up_step_reason`\n", markdown)
+        self.assertNotIn("`extra`", markdown)
 
     def test_real_invalid_xml_skips_only_matching_mapping(self):
         with tempfile.TemporaryDirectory(prefix="ndp-report-input-") as directory:

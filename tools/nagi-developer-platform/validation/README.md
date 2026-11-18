@@ -240,6 +240,20 @@ table in `report.py`. A reason missing from that table is shown as the code
 only, and no explanation is guessed. The table and overview format may change
 and stay inside `validation/`; they are not a contract.
 
+**PROVISIONAL reason coverage.** `test_report.py` builds real reports for all
+four fixtures (normally, with the validator forced missing and with `clang`
+forced missing, so `not_run` reasons are covered on any host), collects every
+reason from each check, each per-file result and each step
+(`collect_reasons`), and fails if one is in neither `REASON_DESCRIPTIONS` nor
+`CODE_ONLY_REASONS` (`undescribed_reasons`). `CODE_ONLY_REASONS` in `report.py`
+is the intentional code-only allowlist; it is empty today. When the test fails,
+add a description that matches what the code actually does, or list the code
+on purpose; never guess a description. Reasons that only occur on other
+failure paths (for example `invalid_template_input:app_id`) are not in the
+four-fixture reports and stay code-only. In Markdown, the problem lines for
+non-passed files and steps also show the table description after the reason;
+an unlisted reason stays code-only.
+
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
 `portable`, `windows`, `linux` and `ui` and adds a fixture x check overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
