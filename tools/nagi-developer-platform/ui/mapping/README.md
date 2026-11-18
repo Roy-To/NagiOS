@@ -148,6 +148,28 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/anal
   directoryがsymlinkであること（例: 作業場所自体）は検査対象外。Windows等の
   junction／reparse pointは未検証。方針の変更（除外へ緩和等）はこの1か所の
   差し替えで行える（UI ownerの要判断）。
+- 読めないディレクトリの扱い（未検証／実測結果、PROVISIONAL）: `os.walk`に`onerror`は
+  無い。macOS（euid≠0、host、Python 3.9）で`chmod 000`を使い、`test_mapping.py`の
+  `UnreadableEntryObservationTests`が現状を断言している。実測は次のとおりで、
+  これは望ましい挙動の宣言ではなく**現状の記録**。
+  - `enumerate`配下の読めないサブディレクトリは**黙って飛ばされる**。エラーも
+    evidenceも出ず、全体は`matched`のまま。その中に新しい`.rs`があっても検知されない
+    （**fail-open**）。読めるsiblingの未列挙ファイルは従来どおり`unlisted`になる。
+  - `enumerate`のdir自体が読めない場合、snapshot列挙済みファイルのsymlink検査で
+    `PermissionError`が未捕捉のまま送出され、構造化された`needs_review`にならない。
+  - 読めないsnapshot列挙済みファイルは削除と同じ`missing`に畳まれる（`OSError`の区別なし）。
+  - 読めない未列挙`.rs`は`unlisted`（`actual_sha256=null`）として検知される。
+  - root実行等で`chmod 000`が効かない環境ではこれらのテストは理由付きでskipされる。
+    その環境での挙動は**未検証**。Windows等の権限モデル（ACL）も未検証。
+  挙動変更（`onerror`で`needs_review`へ倒す、`PermissionError`を捕捉する等）が
+  必要かはUI ownerの判断で、本工程では実装していない（PROVISIONAL）。
+- TOCTOUは範囲外（限界）: symlink検査と読み取りの間、および列挙と読み取りの間に
+  別processがファイル／ディレクトリを差し替える競合（time-of-check/time-of-use）は
+  防いでいない。`contract.py`は`is_symlink()`の後に別操作で`read_bytes()`するため、
+  その間にsymlinkへ差し替えられるとリンク先を読む可能性がある（`O_NOFOLLOW`や
+  fd基準の列挙は使っていない）。これは**host pilotの範囲外**で、対象は信頼できる
+  作業ツリーを単一利用者が静的に検査する場合に限る。敵対的な並行書き込みに対する
+  防御や、Nagi target上での保証ではない。対策が必要になれば別判断とする。
 - QWidgetはPanel、main windowはApplicationShellSpec、QLabel／GtkLabelはResolvedText
   を使う再設計候補とする。rich text、画像、link等の等価性は仮定しない。
   Qt form layoutはGridへの再設計候補。grid span／絶対座標等は実装しない。
