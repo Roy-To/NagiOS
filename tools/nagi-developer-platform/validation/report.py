@@ -21,11 +21,17 @@ TOOLKIT = Path(__file__).resolve().parents[1]
 EVALUATION = Path("tests/developer-platform/evaluation")
 API_EVIDENCE = Path("tests/developer-platform/api")
 API_CASES = {"windows": "read_prefix", "linux": "watch_changes"}
+# PROVISIONAL mixed-platform fixture: one self-made C source holding Windows API and
+# Linux API lines. Each platform keeps its own handwritten report-v1 snapshot for that
+# source (`api/mixed/<basename>.<platform>.report-v1.json`), so a diagnosis never sees
+# the other platform's lines as "unresolved". Not scanner output; see README.md.
+MIXED_FIXTURE = "mixed"
+MIXED_API_BASENAME = "read_and_watch"
 UI_PATHS = tuple(EVALUATION / "ui" / name for name in (
     "task_panel.ui", "gtk_minimal.ui", "gtk3_task_panel.ui", "gtk4_task_panel.ui",
     "xaml_minimal.xaml", "wpf_task_panel.xaml", "winui_task_panel.xaml",
 ))
-FIXTURES = ("portable", "windows", "linux", "ui")
+FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE)
 PORTABLE_TARGET = "portable-summary"
 MAX_TOOL_OUTPUT = 512 * 1024
 MAX_REPORT_BYTES = 128 * 1024
@@ -169,12 +175,28 @@ def run_json_script(script, args=(), data=None):
     return output, execution["stdout"]
 
 
+def api_case_paths(fixture, platform):
+    """(source, evidence snapshot) used by the `platform` diagnosis of `fixture`, or None.
+
+    A platform fixture diagnoses its own case only; the mixed fixture diagnoses its one
+    source for every platform in API_CASES, each with that platform's snapshot.
+    """
+    if fixture == platform and platform in API_CASES:
+        basename = API_CASES[platform]
+        return (EVALUATION / platform / (basename + ".c"),
+                API_EVIDENCE / platform / (basename + ".report-v1.json"))
+    if fixture == MIXED_FIXTURE and platform in API_CASES:
+        return (EVALUATION / MIXED_FIXTURE / (MIXED_API_BASENAME + ".c"),
+                API_EVIDENCE / MIXED_FIXTURE
+                / "{}.{}.report-v1.json".format(MIXED_API_BASENAME, platform))
+    return None
+
+
 def diagnose(fixture, platform):
-    if fixture != platform:
+    case = api_case_paths(fixture, platform)
+    if case is None:
         return check("unsupported", "no_platform_evidence_for_fixture")
-    basename = API_CASES[platform]
-    source = EVALUATION / platform / (basename + ".c")
-    evidence = API_EVIDENCE / platform / (basename + ".report-v1.json")
+    source, evidence = case
     paths = (source, evidence)
 
     def run():

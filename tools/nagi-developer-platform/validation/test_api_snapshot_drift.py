@@ -26,18 +26,23 @@ finally:
 SOURCE_PREFIX = "Source: "
 
 
-def case_paths(platform):
-    basename = report.API_CASES[platform]
-    return (report.EVALUATION / platform / (basename + ".c"),
-            report.API_EVIDENCE / platform / (basename + ".report-v1.json"))
+def case_paths(platform, fixture=None):
+    """(source, snapshot) of a platform diagnosis; `fixture` defaults to the platform.
+
+    The paths come from `report.api_case_paths`, the single table that `report.diagnose` uses.
+    """
+    return report.api_case_paths(fixture or platform, platform)
 
 
-def drift_problems(root, platform):
+def drift_problems(root, platform, fixture=None):
     """Return (problems, checked_api_names) for one platform below `root`.
 
-    A problem is a short human-readable string naming file, line and the mismatch.
+    `fixture` defaults to the platform's own fixture; `report.MIXED_FIXTURE` selects the
+    mixed-platform source with that platform's snapshot. A problem is a short
+    human-readable string naming file, line and the mismatch.
     """
-    source, evidence = case_paths(platform)
+    fixture = fixture or platform
+    source, evidence = case_paths(platform, fixture)
     problems = []
     try:
         source_text = validate.read_manifest(root, source).decode("utf-8")
@@ -66,7 +71,7 @@ def drift_problems(root, platform):
 
     # API names as the existing diagnosis reports them must appear on the cited line.
     with patch.object(report, "REPO", Path(root)):
-        result = report.diagnose(platform, platform)
+        result = report.diagnose(fixture, platform)
     if result["status"] != "passed":
         problems.append("{}: diagnosis did not pass ({})".format(evidence, result["reason"]))
         return problems, 0
@@ -97,13 +102,13 @@ class ApiSnapshotDriftTests(unittest.TestCase):
                 self.assertEqual(problems, [])
                 self.assertGreater(checked, 0, "no API name was checked")
 
-    def make_copy(self, platform):
+    def make_copy(self, platform, fixture=None):
         # Repository reads go through the bounded, no-follow reader so a symlinked
         # fixture or parent directory cannot pull outside files into the copy.
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        for relative in case_paths(platform):
+        for relative in case_paths(platform, fixture):
             data = validate.read_manifest(report.REPO, relative)
             (root / relative).parent.mkdir(parents=True, exist_ok=True)
             (root / relative).write_bytes(data)
@@ -174,6 +179,96 @@ class ApiSnapshotDriftTests(unittest.TestCase):
         _, evidence = case_paths("linux")
         self.rewrite(root, evidence, "evaluation/linux/watch_changes.c", "evaluation/linux/other.c")
         problems, _ = drift_problems(root, "linux")
+        self.assertTrue(any("do not name source" in problem for problem in problems), problems)
+
+    # --- mixed-platform fixture (PROVISIONAL): one source, one snapshot per platform ---
+
+    def test_mixed_fixture_uses_one_source_and_a_snapshot_per_platform(self):
+        self.assertIn(report.MIXED_FIXTURE, report.FIXTURES)
+        sources, snapshots = set(), set()
+        for platform in report.API_CASES:
+            source, evidence = case_paths(platform, report.MIXED_FIXTURE)
+            sources.add(source)
+            snapshots.add(evidence)
+            self.assertEqual(evidence.parent, report.API_EVIDENCE / report.MIXED_FIXTURE)
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(len(snapshots), len(report.API_CASES))
+        # Not the handwritten snapshot that has no source (api/linux/mixed_platform).
+        self.assertFalse(any("mixed_platform" in path.name for path in snapshots))
+
+    def test_mixed_snapshots_match_the_mixed_source(self):
+        for platform in report.API_CASES:
+            with self.subTest(platform=platform):
+                problems, checked = drift_problems(report.REPO, platform, report.MIXED_FIXTURE)
+                self.assertEqual(problems, [])
+                self.assertGreater(checked, 0, "no API name was checked")
+
+    def test_mixed_source_holds_apis_of_both_platforms_on_the_cited_lines(self):
+        source, _ = case_paths("windows", report.MIXED_FIXTURE)
+        lines = validate.read_manifest(report.REPO, source).decode("utf-8").splitlines()
+        expected = {"windows": {3: "windows.h", 5: "CreateFileW", 8: "ReadFile",
+                                10: "CloseHandle"},
+                    "linux": {15: "sys/inotify.h", 16: "unistd.h", 18: "inotify_init1",
+                              21: "inotify_add_watch", 22: "close"}}
+        # Real platform APIs that the bundled rules do not list: Win32 CancelIoEx
+        # (declared via windows.h) and glibc euidaccess (unistd.h with _GNU_SOURCE).
+        unresolved = {"windows": (9, "CancelIoEx"), "linux": (20, "euidaccess")}
+        for platform, names in expected.items():
+            result = report.diagnose(report.MIXED_FIXTURE, platform)
+            self.assertEqual(result["status"], "passed", platform)
+            rows = {row["line"]: row for row in result["rows"]}
+            for number, api in names.items():
+                self.assertIn(api, lines[number - 1], (platform, number))
+                self.assertIsNotNone(rows[number]["rule_id"], (platform, number))
+                self.assertTrue(rows[number]["apis"], (platform, number))
+            number, api = unresolved[platform]
+            self.assertRegex(lines[number - 1], r"\b{}\(".format(api), (platform, number))
+            self.assertIsNone(rows[number]["rule_id"], (platform, number))
+            self.assertEqual(rows[number]["apis"], [], (platform, number))
+            self.assertEqual([row["line"] for row in result["rows"] if row["rule_id"] is None],
+                             [number], platform)
+
+    def test_mixed_unresolved_apis_are_absent_from_the_bundled_rules(self):
+        # Guards the fixture's purpose: the unresolved line names a real API that the
+        # current rules do not list. If a rule later adds it, this fails and the fixture
+        # must pick another unlisted API (rather than silently stop testing "unresolved").
+        for platform, api in (("windows", "CancelIoEx"), ("linux", "euidaccess")):
+            with self.subTest(platform=platform):
+                rules = (report.TOOLKIT / "api" / platform / "rules.json").read_text(encoding="utf-8")
+                self.assertNotIn(api.lower(), rules.lower())
+
+    def test_mixed_shifted_snapshot_line_is_detected(self):
+        for platform, old, new in (("windows", '"line": 5,', '"line": 6,'),
+                                   ("linux", '"line": 18,', '"line": 19,')):
+            with self.subTest(platform=platform):
+                root = self.make_copy(platform, report.MIXED_FIXTURE)
+                self.rewrite(root, case_paths(platform, report.MIXED_FIXTURE)[1], old, new)
+                problems, _ = drift_problems(root, platform, report.MIXED_FIXTURE)
+                self.assertTrue(any(":{}:".format(new[len('"line": '):-1]) in problem
+                                    and "not on that line" in problem for problem in problems),
+                                problems)
+
+    def test_mixed_source_change_that_shifts_lines_is_detected(self):
+        for platform in report.API_CASES:
+            with self.subTest(platform=platform):
+                root = self.make_copy(platform, report.MIXED_FIXTURE)
+                path = root / case_paths(platform, report.MIXED_FIXTURE)[0]
+                path.write_text("/* inserted */\n" + path.read_text(encoding="utf-8"),
+                                encoding="utf-8")
+                problems, _ = drift_problems(root, platform, report.MIXED_FIXTURE)
+                self.assertTrue(problems)
+
+    def test_mixed_snapshot_line_past_end_of_source_is_detected(self):
+        root = self.make_copy("linux", report.MIXED_FIXTURE)
+        self.rewrite(root, case_paths("linux", report.MIXED_FIXTURE)[1], '"line": 22,', '"line": 220,')
+        problems, _ = drift_problems(root, "linux", report.MIXED_FIXTURE)
+        self.assertTrue(any("past the end" in problem for problem in problems), problems)
+
+    def test_mixed_snapshot_that_names_another_source_is_detected(self):
+        root = self.make_copy("windows", report.MIXED_FIXTURE)
+        self.rewrite(root, case_paths("windows", report.MIXED_FIXTURE)[1],
+                     "evaluation/mixed/read_and_watch.c", "evaluation/mixed/other.c")
+        problems, _ = drift_problems(root, "windows", report.MIXED_FIXTURE)
         self.assertTrue(any("do not name source" in problem for problem in problems), problems)
 
     def test_repository_files_are_not_modified_by_the_check(self):
