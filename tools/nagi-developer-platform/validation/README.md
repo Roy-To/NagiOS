@@ -230,6 +230,16 @@ temporary absolute paths. With the same fixture and tool environment,
 | `not_run` | A tool, input prerequisite or stage connection was unavailable. See `reason`. |
 | `unsupported` | The selected fixture or UI format is outside the applicable check's scope. |
 
+**PROVISIONAL overview.** JSON version 1 also has `overview` with `total`,
+`counts` (`passed`, `failed`, `not_run`, `unsupported`, summing to `total`) and
+`not_passed`, which lists every non-passed check as `name`, `status`, `reason`
+in check order. Existing keys are unchanged. Markdown starts with an Overview
+section listing what passed and what is unsupported or not run, with each
+reason. The short English descriptions come from the `REASON_DESCRIPTIONS`
+table in `report.py`. A reason missing from that table is shown as the code
+only, and no explanation is guessed. The table and overview format may change
+and stay inside `validation/`; they are not a contract.
+
 Independent checks continue after a failure. UI files each have their own
 analysis and mapping result. A mapping with a failed analysis gets
 `not_run` with `ui_analysis_did_not_pass`; other files still proceed.
