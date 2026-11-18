@@ -30,6 +30,7 @@ members = [
     "services/nagi-ai",
     "user/nagi-servo",
     "user/nagi-init-package-provider",
+    "user/nagi-linux-account-verifier",
     "user/nagi-init-linux-tests",
     "user/nagi-albert-linux-tests",
     "user/nagi-isolated-app",
