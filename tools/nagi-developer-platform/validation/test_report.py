@@ -36,9 +36,10 @@ def tree_hash():
 
 
 class ReportTests(unittest.TestCase):
-    def run_cli(self, *arguments):
-        return subprocess.run([sys.executable, "-B", str(SCRIPT), *arguments],
-                              cwd=report.REPO, capture_output=True, timeout=60)
+    def run_cli(self, *arguments, root=report.REPO):
+        script = root / SCRIPT.relative_to(report.REPO)
+        return subprocess.run([sys.executable, "-B", str(script), *arguments],
+                              cwd=root, capture_output=True, timeout=60)
 
     def assert_counts(self, item, **counts):
         self.assertEqual(item["counts"], {"inputs": len(item["input_paths"]), **counts})
@@ -229,6 +230,45 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(checks["stage_1"]["reason"], "validator_unavailable")
         self.assert_counts(checks["stage_1"], manifests=0)
         self.assert_portable(checks)
+        self.assert_target_not_run(result)
+
+    def test_cli_fails_when_stage2_rejects_portable_input_before_compile(self):
+        with tempfile.TemporaryDirectory(prefix="ndp-report-portable-") as directory:
+            root = Path(directory) / "checkout"
+            validation_dir = root / SCRIPT.parent.relative_to(report.REPO)
+            validation_dir.mkdir(parents=True)
+            for name in ("report.py", "generated_check.py", "validate.py", "stage2.py", "stages.json"):
+                shutil.copyfile(SCRIPT.with_name(name), validation_dir / name)
+            for relative in (Path("tools/nagi-developer-platform/generator"),
+                             report.EVALUATION / "portable"):
+                shutil.copytree(report.REPO / relative, root / relative)
+            schema = Path("sdk/rust/schemas/app-manifest.schema.json")
+            (root / schema.parent).mkdir(parents=True)
+            shutil.copyfile(report.REPO / schema, root / schema)
+            source = root / report.EVALUATION / "portable/summary.c"
+            outside = root.parent / source.name
+            source.rename(outside)
+            source.symlink_to(outside)
+
+            with self.subTest(reason="input_unavailable"):
+                self.assert_stage2_input_failure(root, "input_unavailable")
+
+            source.unlink()
+            with source.open("wb") as oversized:
+                oversized.truncate(validate.MAX_INPUT + 1)
+            with self.subTest(reason="input_too_large"):
+                self.assert_stage2_input_failure(root, "input_too_large")
+
+    def assert_stage2_input_failure(self, root, reason):
+        run = self.run_cli("--fixture", "portable", root=root)
+        self.assertEqual(run.stderr, b"")
+        result = json.loads(run.stdout)
+        checks = result["checks"]
+        self.assertEqual(checks["generation"]["status"], "passed", checks["generation"])
+        host = checks["stage_2"]
+        self.assertEqual((run.returncode, host["status"], host["reason"]), (1, "failed", reason))
+        self.assert_counts(host, sources=2, headers=1, steps_run=0, steps_passed=0)
+        self.assertEqual(host["steps"], [])
         self.assert_target_not_run(result)
 
     def test_cli_rejects_path_as_fixture(self):
