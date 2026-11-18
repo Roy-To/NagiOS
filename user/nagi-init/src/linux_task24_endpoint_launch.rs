@@ -418,7 +418,7 @@ pub(super) fn run_owner_login(
             consent: &consent,
         };
         let mut lifecycle = new_lifecycle();
-        let (_runtime, attached) = runtime
+        let (runtime, attached) = runtime
             .start_task24_login(
                 &mut lifecycle,
                 selection,
@@ -432,8 +432,29 @@ pub(super) fn run_owner_login(
             )
             .map_err(|_| BackendError::Unavailable)?;
         match attached {
-            Ok(_session) => {
+            Ok(session) => {
                 super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
+                let notes_owner = runtime.notes_owner().map_err(|_| {
+                    crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
+                });
+                let _notes_bundle = match notes_owner
+                    .as_ref()
+                    .map_err(|error| *error)
+                    .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
+                {
+                    Ok(bundle) => {
+                        super::log_pid1_stderr(format_args!(
+                            "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
+                        ));
+                        Some(bundle)
+                    }
+                    Err(error) => {
+                        super::log_pid1_stderr(format_args!(
+                            "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
+                        ));
+                        None
+                    }
+                };
                 super::wait_in_pid1(super::wait_for_pid1_os_event);
             }
             Err(error) => super::log_pid1_stderr(format_args!(
@@ -450,7 +471,7 @@ pub(super) fn run_owner_login(
 
 #[cfg(linux_task24_initial_login_runtime)]
 pub(super) struct AttachedLogin {
-    _session: SessionLease,
+    lease: SessionLease,
     _control: std::os::unix::net::UnixStream,
 }
 
@@ -499,7 +520,7 @@ pub(super) fn start_verified_login(
     .start_and_accept(issuer);
     match result {
         Ok(session) => Ok(AttachedLogin {
-            _session: session,
+            lease: session,
             _control: input_channel.ok_or(PeerDenial::RequestOutcomeUnknown)?,
         }),
         Err(error) => {
