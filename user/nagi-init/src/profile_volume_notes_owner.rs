@@ -13,7 +13,9 @@ use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 
 #[cfg(linux_task24_initial_login_runtime)]
 use nagi_identity_session::{
-    C1AuthenticatedInteractiveCaller, ResolvedIdentity, TrustedCallerContext,
+    C1AuthenticatedInteractiveCaller, CallerContextId, PrincipalId, ProfileId,
+    ProfileRootAuthorizer, ResolvedIdentity, SessionId, SessionKind, StorageRootFailure,
+    TrustedCallerContext, UserId,
 };
 
 pub(crate) use nagi_profile_volume_notes_owner::{
@@ -168,6 +170,52 @@ impl BootVolumeInput {
     }
 }
 
+/// Issued together from the verified Notes attachment and the exact
+/// interactive Session. The factory's bundle and C1 guard enforce liveness
+/// and descriptor ownership during each operation.
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct AuthorizedNotesAttachment {
+    pub(crate) bundle: ProfileVolumeNotesBundle,
+    pub(crate) authorizer: NotesProfileRootAuthorizer,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct NotesProfileRootAuthorizer {
+    session: SessionId,
+    caller: CallerContextId,
+    principal: PrincipalId,
+    profile: ProfileId,
+    user: UserId,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl ProfileRootAuthorizer for NotesProfileRootAuthorizer {
+    fn authorize_profile_root(
+        &mut self,
+        caller: &dyn TrustedCallerContext,
+        identity: &ResolvedIdentity,
+        requested_profile: &ProfileId,
+    ) -> Result<(), StorageRootFailure> {
+        if caller.principal_id() != &self.principal
+            || caller.context_id() != &self.caller
+            || identity.principal_id() != &self.principal
+            || identity.caller_context_id() != &self.caller
+        {
+            return Err(StorageRootFailure::CallerMismatch);
+        }
+        if requested_profile != &self.profile
+            || identity.profile_id() != &self.profile
+            || identity.user_id() != Some(self.user)
+        {
+            return Err(StorageRootFailure::CrossProfile);
+        }
+        if identity.session_id() != &self.session || identity.kind() != SessionKind::LocalUser {
+            return Err(StorageRootFailure::Denied);
+        }
+        Ok(())
+    }
+}
+
 pub(crate) struct ProfileVolumeNotesOwner {
     inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner,
     boot_volume: Option<BootVolumeInput>,
@@ -191,7 +239,7 @@ impl ProfileVolumeNotesOwner {
         &mut self,
         caller: &C1AuthenticatedInteractiveCaller,
         identity: &ResolvedIdentity,
-    ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
+    ) -> Result<AuthorizedNotesAttachment, ProfileVolumeNotesOwnerError> {
         use ProfileVolumeNotesOwnerError::{CallerMismatch, Unavailable};
 
         if caller.principal_id() != identity.principal_id()
@@ -200,6 +248,9 @@ impl ProfileVolumeNotesOwner {
             return Err(CallerMismatch);
         }
         let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        if identity.kind() != SessionKind::LocalUser {
+            return Err(Unavailable);
+        }
         let user = identity.user_id().ok_or(Unavailable)?;
         if self.inner.status() == ProfileVolumeNotesOwnerStatus::Pending {
             self.inner.attach_linux_profile(
@@ -216,7 +267,16 @@ impl ProfileVolumeNotesOwner {
             identity.profile_id().as_str(),
         )?;
         bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
-        Ok(bundle)
+        Ok(AuthorizedNotesAttachment {
+            bundle,
+            authorizer: NotesProfileRootAuthorizer {
+                session: identity.session_id().clone(),
+                caller: caller.context_id().clone(),
+                principal: caller.principal_id().clone(),
+                profile: identity.profile_id().clone(),
+                user,
+            },
+        })
     }
 
     pub(crate) fn has_boot_volume_input(&self) -> bool {

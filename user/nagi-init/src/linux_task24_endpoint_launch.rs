@@ -40,6 +40,10 @@ use super::linux_initial_login_owner::LinuxInitialLoginOwner;
 #[cfg(linux_task24_initial_login_runtime)]
 use pid1_live_peer_supplier::SessionLease;
 
+#[cfg(all(linux_task24_notes_consumer, linux_task24_initial_login_runtime))]
+#[path = "linux_task24_notes_console.rs"]
+mod notes_console;
+
 const LOGIN_PACKAGE_ID: &[u8] = b"org.nagi.dev.task24-login";
 const LOGIN_PACKAGE_ENTRY: &[u8] = b"task24-login.elf";
 const LOGIN_OPERATION: &str = "initial-login";
@@ -437,22 +441,28 @@ pub(super) fn run_owner_login(
                 let mut notes_owner = runtime.notes_owner().map_err(|_| {
                     crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
                 });
-                let _notes_bundle = match notes_owner
+                match notes_owner
                     .as_mut()
                     .map_err(|error| *error)
                     .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
                 {
-                    Ok(bundle) => {
+                    Ok(inputs) => {
                         super::log_pid1_stderr(format_args!(
                             "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
                         ));
-                        Some(bundle)
+                        #[cfg(linux_task24_notes_consumer)]
+                        if notes_console::run(console, inputs).is_err() {
+                            super::log_pid1_stderr(format_args!(
+                                "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE"
+                            ));
+                        }
+                        #[cfg(not(linux_task24_notes_consumer))]
+                        let _ = inputs;
                     }
                     Err(error) => {
                         super::log_pid1_stderr(format_args!(
                             "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
                         ));
-                        None
                     }
                 };
                 super::wait_in_pid1(super::wait_for_pid1_os_event);

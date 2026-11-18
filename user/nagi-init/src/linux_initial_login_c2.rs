@@ -74,7 +74,11 @@ where
         lease: SessionLease,
         notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
-        crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+        (
+            crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
+            nagi_identity_session::ResolvedIdentity,
+            std::sync::Arc<nagi_identity_session::C1IssuedInteractiveSession>,
+        ),
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         self.owner

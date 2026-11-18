@@ -143,9 +143,19 @@ impl SelectedBootIdentityRuntime<'_, '_> {
             |account_name| {
                 let admission = identity
                     .enter_system_service_runtime_admission(handoff, boot.recovery_scope())
-                    .map_err(|error| io::Error::other(format!("{error:?}")))?;
+                    .inspect_err(|_| {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=c1-admission"
+                        ));
+                    })
+                    .map_err(|_| io::Error::other("owner registration admission denied"))?;
                 let scope = admission.scope();
-                let claim = correlated_c3_claim(boot, scope, admission.operation_identity())?;
+                let claim = correlated_c3_claim(boot, scope, admission.operation_identity())
+                    .inspect_err(|_| {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=c1-c3-correlation"
+                        ));
+                    })?;
                 let (binding, current_receipt) = boot
                     .owner
                     .c3
@@ -155,17 +165,46 @@ impl SelectedBootIdentityRuntime<'_, '_> {
                             principal,
                             account_name,
                         )
-                        .map_err(|error| io::Error::other(format!("{error:?}")))
+                        .inspect_err(|error| {
+                            // The C1 provisioning error is an enum with no account data.
+                            super::super::log_pid1_stderr(format_args!(
+                                "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=c1-provision error={error:?}"
+                            ));
+                        })
+                        .map_err(|_| io::Error::other("C1 owner provisioning denied"))
+                    })
+                    .inspect_err(|error| {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=c3-continuation kind={}",
+                            error.kind()
+                        ));
                     })?;
-                require_correlated_live_receipt(scope, claim, &current_receipt)?;
+                require_correlated_live_receipt(scope, claim, &current_receipt).inspect_err(
+                    |_| {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=c3-receipt"
+                        ));
+                    },
+                )?;
                 *receipt = current_receipt;
                 Ok::<_, io::Error>(binding)
             },
         )
         .map_err(|error| io::Error::other(format!("{error:?}")))?;
-        console
-            .run_registration(screen)
-            .map_err(|error| io::Error::other(format!("{error:?}")))
+        console.run_registration(screen).map_err(|error| {
+            use super::super::linux_owner_registration_console::RegistrationConsoleError;
+            use crate::login_screen::LinuxRegistrationError;
+            let stage = match error {
+                RegistrationConsoleError::Io(_) => "console",
+                RegistrationConsoleError::CredentialUnavailable => "derive",
+                RegistrationConsoleError::Save(LinuxRegistrationError::Identity(_)) => "identity",
+                RegistrationConsoleError::Save(LinuxRegistrationError::Save(_)) => "account-store",
+            };
+            super::super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_OWNER_REGISTRATION_DENIED stage={stage}"
+            ));
+            io::Error::other("owner registration failed")
+        })
     }
 }
 
@@ -310,7 +349,11 @@ where
         lease: super::super::pid1_live_peer_supplier::SessionLease,
         owner: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
-        crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+        (
+            crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
+            nagi_identity_session::ResolvedIdentity,
+            std::sync::Arc<nagi_identity_session::C1IssuedInteractiveSession>,
+        ),
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         self.identity.request_notes_attachment(lease, owner)

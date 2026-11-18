@@ -8,6 +8,14 @@ See [kernel transition impact and evidence matrix](product-decisions/KERNEL-TRAN
 
 > **2026-11-15:** Moved here from the former private repository by [DEC-050](product-decisions/DEC-050-public-specification-repository.md). The "NOT ASSIGNED" snapshot above was later superseded by [DEC-047](product-decisions/DEC-047-linux-migration-workspaces-and-integration.md) (lane worktrees, integration branch `codex/linux-integration-20261114`).
 
+## Linux integration A: Task24 Notes guest checkpoint — 2026-11-19
+
+**Status: `BLOCKED` for development E2E at C1 first-owner provisioning.**
+
+A's isolated x86-64 Linux musl graph compiled normal PID 1 calling E's scoped Notes factory at `5c29810eff` with the borrowed C1 caller and verified profile attachment. Independent development QEMU verified the signed login package and reached first-owner registration after C1 recovery and C3 continuation. Virtual-keyboard submission reached C1 provisioning and returned `Identity(StoreUnavailable)`.
+
+The C1 journal is `RuntimeActive` after the verified recovery handoff. The existing first-owner API's generic recovery guard quarantines that phase even inside the live continuation callback. The first Session commit depends on the same guard in static review. An admitted C1 API is needed before repeating registration on a fresh test Data copy. Session attachment, Notes save, same-disk reboot readback, and service READY remain unverified.
+
 ## PR 98 M27 promotion storage failure investigation — 2026-11-05
 
 Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
