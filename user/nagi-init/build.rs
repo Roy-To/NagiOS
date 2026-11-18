@@ -11,6 +11,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(linux_boot_owner_registration)");
     println!("cargo:rustc-check-cfg=cfg(linux_task24_initial_login_runtime)");
     println!("cargo:rustc-check-cfg=cfg(linux_task24_owner_co_location)");
+    println!("cargo:rustc-check-cfg=cfg(linux_task24_notes_consumer)");
     println!("cargo:rustc-check-cfg=cfg(nagi_release_build)");
     if env::var("PROFILE").expect("Cargo PROFILE").as_str() != "debug" {
         println!("cargo:rustc-cfg=nagi_release_build");

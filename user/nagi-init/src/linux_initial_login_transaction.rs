@@ -19,7 +19,7 @@ use std::sync::{Arc, MutexGuard};
 pub enum InitialSessionOutcome {
     Unattached,
     Attached {
-        issued: C1IssuedInteractiveSession,
+        issued: Arc<C1IssuedInteractiveSession>,
         revalidation: Arc<SessionLeaseRevalidationHandle>,
         selectors: (u64, u64),
     },
@@ -129,7 +129,11 @@ where
         lease: SessionLease,
         notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
-        crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+        (
+            crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
+            nagi_identity_session::ResolvedIdentity,
+            Arc<C1IssuedInteractiveSession>,
+        ),
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         use crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable;
@@ -138,18 +142,21 @@ where
         let InitialSessionOutcome::Attached { issued, .. } = &self.outcome else {
             return Err(Unavailable);
         };
-        let context = issued
-            .checked_context(&mut self.identity)
+        use nagi_identity_session::CurrentIdentityResolver;
+
+        let identity = self
+            .identity
+            .resolve_current_identity(issued.caller())
             .map_err(|_| Unavailable)?;
-        let identity = context.identity().map_err(|_| Unavailable)?;
         if identity.session_id() != issued.session_id() {
             return Err(Unavailable);
         }
-        revalidation
+        let attachment = revalidation
             .with_live_session_effect(|| {
-                notes.issue_for_attached_session(issued.caller(), identity)
+                notes.issue_for_attached_session(issued.caller(), &identity)
             })
-            .map_err(|_| Unavailable)?
+            .map_err(|_| Unavailable)??;
+        Ok((attachment, identity, Arc::clone(issued)))
     }
 }
 
@@ -220,7 +227,7 @@ where
         };
         self.owner.outcome = match self.pending.finish_after_c2_attachment() {
             Ok(issued) => InitialSessionOutcome::Attached {
-                issued,
+                issued: Arc::new(issued),
                 revalidation: Arc::new(revalidation),
                 selectors: self.selectors,
             },

@@ -1,5 +1,5 @@
 use crate::app::{AppError, NotesApp, ScopedNotesApp, ScopedOpenDocument};
-use crate::domain::{Block, BlockKind, NoteDocument};
+use crate::domain::{Block, BlockKind, NoteDocument, NoteSummary};
 use crate::store::NoteStore;
 use nagi_model::ObjectId;
 use std::sync::Arc;
@@ -35,6 +35,10 @@ impl<'scope> ScopedNotesUiController<'scope> {
             app: ScopedNotesApp::new_scoped(store, scope),
             active: None,
         }
+    }
+
+    pub fn list_notes(&self) -> Result<Vec<NoteSummary>, AppError> {
+        self.app.list_notes()
     }
 
     pub fn create_note(&mut self, title: impl Into<String>) -> Result<ObjectId, AppError> {

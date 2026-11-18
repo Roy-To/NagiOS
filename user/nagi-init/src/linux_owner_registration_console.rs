@@ -219,7 +219,10 @@ impl BootOwnerConsole {
         })
     }
 
-    fn present(&mut self, render: impl FnOnce(&mut crate::ui::Painter<'_>)) -> io::Result<()> {
+    pub(super) fn present(
+        &mut self,
+        render: impl FnOnce(&mut crate::ui::Painter<'_>),
+    ) -> io::Result<()> {
         self.frame_presented.store(false, Ordering::Release);
         render(&mut crate::ui::Painter::new(&mut self.pixels));
         self.framebuffer.present(&self.pixels)?;
@@ -252,7 +255,7 @@ impl BootOwnerConsole {
         )
     }
 
-    fn next_key(&mut self) -> io::Result<InputEvent> {
+    pub(super) fn next_key(&mut self) -> io::Result<InputEvent> {
         loop {
             if let Some(event) = self.read_key_event()? {
                 return Ok(event);
