@@ -1,15 +1,21 @@
 use super::super::linux_init_c3_slot_journal::{C3DurableSlotReceipt, C3SlotState};
-use super::super::linux_initial_login_c2::C1InitialLoginAuthority;
-use super::super::linux_initial_login_owner::LinuxInitialLoginOwner;
+#[cfg(linux_task24_initial_login_runtime)]
+use super::super::{
+    linux_initial_login_c2::C1InitialLoginAuthority,
+    linux_initial_login_owner::LinuxInitialLoginOwner,
+};
 use super::AuthenticatedBootService;
 use crate::profile_volume_notes_owner::BootVolumeInput;
 use nagi_identity_session::{
+    c1_linux_boot_identity_service_from_store, C1LinuxBootIdentityService,
     C1RecoveryOperationIdentity, C1SystemServiceRecoveryEffectGate,
     C1SystemServiceRecoveryReceiptAdapter, C1SystemServiceRuntimeHandoff,
-    C1VerifiedBootSystemServicePrincipal, Clock, GuestProfileCleaner, IdempotencyKey,
-    IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityIdSource, IdentityService,
-    LinuxIdentitySnapshotStore, RecoveryEffectGateError, UnixMillis,
+    C1VerifiedBootSystemServicePrincipal, Clock, GuestProfileCleaner, IdentityAuthorizer,
+    IdentityError, IdentityEventSink, IdentityIdSource, IdentityService,
+    LinuxIdentitySnapshotStore, RecoveryEffectGateError,
 };
+#[cfg(linux_task24_initial_login_runtime)]
+use nagi_identity_session::{IdempotencyKey, UnixMillis};
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_system_service_recovery_contract::{
     C1RecoveryOperationCorrelation, SystemServiceRecoveryAdmissionScope,
@@ -31,15 +37,80 @@ pub(super) fn seal_boot_service_principal(
 }
 
 #[derive(Debug)]
-pub(super) enum BootIdentityRecoveryError {
+pub(in crate::linux_init) enum BootIdentityRecoveryError {
     Principal(io::Error),
     Data(io::Error),
     Recovery(IdentityError),
     LiveEffect(io::Error),
 }
 
+pub(in crate::linux_init) struct SelectedBootIdentityRuntime<'boot, 'package> {
+    boot: &'boot AuthenticatedBootService<'package>,
+    // Retain the selected account verifier beside the recovered snapshot store
+    // while the login owner is unavailable.
+    _verifier: LinuxAccountVerifier,
+    identity: C1LinuxBootIdentityService,
+    handoff: C1SystemServiceRuntimeHandoff,
+    receipt: C3DurableSlotReceipt,
+}
+
+impl<'package> AuthenticatedBootService<'package> {
+    pub(in crate::linux_init) fn recover_selected_identity_data<'boot>(
+        &'boot self,
+        catalog: &VerifiedRecoveryBootCatalog,
+        data: &'boot BootVolumeInput,
+        snapshot_path: &Path,
+        account_path: &Path,
+    ) -> Result<SelectedBootIdentityRuntime<'boot, 'package>, BootIdentityRecoveryError> {
+        let principal = seal_boot_service_principal(self, catalog)
+            .map_err(BootIdentityRecoveryError::Principal)?;
+        let (store, verifier) = open_boot_identity(data, snapshot_path, account_path)
+            .map_err(BootIdentityRecoveryError::Data)?;
+        let (mut identity, _event_reader) =
+            c1_linux_boot_identity_service_from_store(store, &principal);
+        let (handoff, receipt) = recover_boot_identity(self, &principal, &mut identity)?;
+        Ok(SelectedBootIdentityRuntime {
+            boot: self,
+            _verifier: verifier,
+            identity,
+            handoff,
+            receipt,
+        })
+    }
+}
+
+impl SelectedBootIdentityRuntime<'_, '_> {
+    pub(in crate::linux_init) fn verify_continuing_admission(
+        &mut self,
+    ) -> Result<(), BootIdentityRecoveryError> {
+        let admission = self
+            .identity
+            .enter_system_service_runtime_admission(&self.handoff, self.boot.recovery_scope())
+            .map_err(BootIdentityRecoveryError::Recovery)?;
+        let scope = admission.scope();
+        let claim = correlated_c3_claim(self.boot, scope, admission.operation_identity())
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        let ((), receipt) = self
+            .boot
+            .owner
+            .c3
+            .with_durable_live_continuation_gate(scope, &self.boot.proof, claim, || {
+                self.identity
+                    .validate_system_service_runtime_handoff(&self.handoff)
+                    .map_err(|error| io::Error::other(format!("{error:?}")))
+            })
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        require_correlated_live_receipt(scope, claim, &receipt)
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        self.receipt = receipt;
+        drop(admission);
+        Ok(())
+    }
+}
+
 /// Keep the authenticated C3 launch borrowed for as long as PID 1 retains
 /// the recovered C1 runtime and the corresponding live C3 receipt.
+#[cfg(linux_task24_initial_login_runtime)]
 pub(super) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     boot: &'boot AuthenticatedBootService<'package>,
     _data: &'boot BootVolumeInput,
@@ -47,6 +118,7 @@ pub(super) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     identity: C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
 impl<I, C, A, G, E> RecoveredBootIdentity<'_, '_, I, C, A, G, E>
 where
     I: IdentityIdSource,
@@ -86,6 +158,7 @@ where
 /// Recover the issuer and enter the first-login path while PID 1 still owns
 /// the authenticated boot service. The Task24 launcher is supplied by the
 /// existing owner and is consumed by the first-login adapter.
+#[cfg(linux_task24_initial_login_runtime)]
 pub(super) fn recover_and_start_initial_login<'boot, 'package, I, C, A, G, E, Login>(
     boot: &'boot AuthenticatedBootService<'package>,
     catalog: &VerifiedRecoveryBootCatalog,
