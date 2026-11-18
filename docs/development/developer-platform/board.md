@@ -73,3 +73,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A014: 移植レポートの generation check に上限付き相対名一覧 files と Markdown の Scaff（PR #198、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-A015: レビュー P1(read_manifest 経由のコピーと非変更確認)と P2(API 名照合だけを検証するテスト)を修（PR #199、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A016: ui_mapping の各ファイル結果に軸別件数 axis_gaps を追加し、Markdown に軸別の未対応・要判断（PR #200、runnerテスト成功、claudeレビューPASS）
+- 11-19 NDP-A017: 未解決行を実在の未収録 API（CancelIoEx / euidaccess）に置き換えて snapshot とテスト（PR #201、runnerテスト成功、codexレビューPASS）
