@@ -118,7 +118,7 @@ impl<S: IdentitySnapshotStore, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E
 
 impl<S, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E>
 where
-    S: IdentitySnapshotStore,
+    S: C1SystemServiceRecoveryJournal,
     I: IdentityIdSource,
     C: Clock,
     A: IdentityAuthorizer,
@@ -129,6 +129,7 @@ where
         &mut self,
         lease: SessionLease,
         notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
     ) -> Result<
         (
             crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
@@ -143,11 +144,8 @@ where
         let InitialSessionOutcome::Attached { issued, .. } = &self.outcome else {
             return Err(Unavailable);
         };
-        use nagi_identity_session::CurrentIdentityResolver;
-
-        let identity = self
-            .identity
-            .resolve_current_identity(issued.caller())
+        let identity = issued
+            .checked_identity_with_runtime_admission(&mut self.identity, admission)
             .map_err(|_| Unavailable)?;
         if identity.session_id() != issued.session_id() {
             return Err(Unavailable);
