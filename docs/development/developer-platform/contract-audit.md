@@ -101,4 +101,6 @@ runnerのテストは40→63件（skipなし）。XAMLの誤った安定出力�
 
 実測（Darwin arm64、Python 3.9.6、10回、全PASS・入力不変、stdout一致）: XAML解析の中央値は約32〜33 ms（minimal 31.9／WPF 32.9／WinUI 32.6）、雛形生成＋実validatorの受理は約28 ms（生成を含まないvalidator呼出単体の分離はしていない）。subprocess壁時計でインタプリタ起動を含み、1台・1セッション。
 
+計測・競合の限界: `median_ms` はadapter呼出（accept側）の時間のみで、negative control・生成・fingerprintは含まない。実行直前にvalidatorが差し替えられる競合はfingerprintでは検知できず、脅威モデル外。
+
 比較限界: 実validatorが受理するのはpackage宣言のメタデータのみ（artifact存在・install・権限付与・build成否ではない）。雛形crateのbuildは未実施。XAMLは静的構造のみで実行・描画・WPF/WinUI互換は未検証。negative controlは1種類（不正id）のみで、validatorの拒否網羅ではない。速度比・手動/LLM比較・Stage 3・Nagi targetは未実施で、host結果をtarget受入とは扱わない。

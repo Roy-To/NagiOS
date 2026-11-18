@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -1073,6 +1074,37 @@ class NewPhaseOrchestrationTests(unittest.TestCase):
                         runner.evaluate(root, 2)
                 self.assertEqual((caught.exception.phase, caught.exception.code),
                                  ("input_integrity", "source_changed"))
+
+
+class ReadmeCountSyncTests(unittest.TestCase):
+    """The README's stated suite size must match the checks this module really collects.
+
+    run_host_checks.py has no check counter of its own; its checks are the unittest
+    cases in this module, so the real count is taken from the unittest loader.
+    """
+
+    README = Path(__file__).resolve().parent / "README.md"
+    # The single authoritative sentence in the README; historical counts must not use it.
+    MARKER = re.compile(r"Current suite size: (\d+) checks")
+
+    @staticmethod
+    def collected_count():
+        def count(item):
+            if isinstance(item, unittest.TestSuite):
+                return sum(count(child) for child in item)
+            return 1
+        module = sys.modules[__name__]
+        return count(unittest.defaultTestLoader.loadTestsFromModule(module))
+
+    def test_readme_count_matches_collected_checks(self):
+        text = self.README.read_text(encoding="utf-8")
+        stated = self.MARKER.findall(text)
+        self.assertEqual(len(stated), 1, "README must state the current suite size exactly once")
+        self.assertEqual(int(stated[0]), self.collected_count())
+
+    def test_readme_has_no_stale_forty_checks_claim(self):
+        text = self.README.read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"\b40 checks\b", text))
 
 
 if __name__ == "__main__":
