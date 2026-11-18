@@ -182,7 +182,7 @@ mod task24 {
             VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{
-            PeerDenial, PendingSpawnOwnedEndpoint, Pid1ReadinessAtomicBoundary, SessionLease,
+            PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease, TrustedNipcOperationRoute,
         },
     };
     use std::time::Instant;
@@ -205,8 +205,7 @@ mod task24 {
             lifecycle: &mut LoginLifecycle,
             selection: LoginChildLaunch,
             package: &VerifiedLoginChild<'_>,
-            required_grants: &[&[u8]],
-            pending: PendingSpawnOwnedEndpoint,
+            route: TrustedNipcOperationRoute,
             owners: &EndpointOwners<'_, B>,
             request_key: IdempotencyKey,
             expires_at: Option<UnixMillis>,
@@ -235,8 +234,7 @@ mod task24 {
                 lifecycle,
                 selection,
                 package,
-                required_grants,
-                pending,
+                route,
                 owners,
                 &runtime.identity,
                 deadline,
