@@ -465,7 +465,17 @@ pub(super) fn run_owner_login(
                         ));
                     }
                 };
-                super::wait_in_pid1(super::wait_for_pid1_os_event);
+                // EOF lets the signed sender exit normally. Keep the control
+                // socket and the attached issuer until C3 finishes exact reap.
+                if let Err(error) = session.control.shutdown(std::net::Shutdown::Write) {
+                    super::log_pid1_stderr(format_args!(
+                        "NAGI_DEV_TASK24_CONTROL_EOF_UNAVAILABLE ({})",
+                        error.kind()
+                    ));
+                }
+                wait_for_login_cleanup(&mut lifecycle, &owners);
+                drop(session);
+                drop(runtime);
             }
             Err(error) => {
                 super::log_pid1_stderr(format_args!(
@@ -473,9 +483,10 @@ pub(super) fn run_owner_login(
                 ));
                 // A bounded retirement failure can leave the exact child
                 // and broker lease in this lifecycle's quarantine.
-                super::wait_in_pid1(super::wait_for_pid1_os_event);
+                wait_for_login_cleanup(&mut lifecycle, &owners);
             }
         }
+        Ok(())
     };
     if execute().is_err() {
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_STOPPED"));
@@ -486,7 +497,29 @@ pub(super) fn run_owner_login(
 #[cfg(linux_task24_initial_login_runtime)]
 pub(super) struct AttachedLogin {
     lease: SessionLease,
-    _control: std::os::unix::net::UnixStream,
+    control: std::os::unix::net::UnixStream,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn wait_for_login_cleanup(lifecycle: &mut LoginLifecycle, owners: &EndpointOwners<'_>) {
+    let mut cleanup_warned = false;
+    while lifecycle.active_len() != 0 {
+        super::wait_for_pid1_os_event();
+        match lifecycle
+            .poll_with_launch_lease(revoke_login_record, |lease, _status| owners.retire(lease))
+        {
+            Ok(Some(super::LifecycleEvent::ServiceExited { status, .. })) => {
+                super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_TASK24_CHILD_REAPED_AND_RETIRED status={status:?}"
+                ));
+            }
+            Err(error) if !cleanup_warned => {
+                cleanup_warned = true;
+                super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CLEANUP_PENDING ({error:?})"));
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Start and check out the exact child while the caller retains the recovered
@@ -535,7 +568,7 @@ pub(super) fn start_verified_login(
     match result {
         Ok(session) => Ok(AttachedLogin {
             lease: session,
-            _control: input_channel.ok_or(PeerDenial::RequestOutcomeUnknown)?,
+            control: input_channel.ok_or(PeerDenial::RequestOutcomeUnknown)?,
         }),
         Err(error) => {
             lifecycle
