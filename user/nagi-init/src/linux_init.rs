@@ -383,6 +383,14 @@ macro_rules! pid1_log {
     }};
 }
 
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(linux_dev_preview_smoke)
+))]
+#[path = "linux_initial_login_owner.rs"]
+mod linux_initial_login_owner;
+
 pub(crate) fn run() -> ExitCode {
     if std::process::id() != 1 {
         pid1_log!("nagi-init: refusing Linux init entry outside PID 1");
