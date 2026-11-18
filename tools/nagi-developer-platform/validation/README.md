@@ -66,15 +66,16 @@ tool entries are taken from the NDP-08 audit
 | Stage | Input | May run | Must not run | Results |
 | --- | --- | --- | --- | --- |
 | 1 static | one relative Manifest below a selected directory | `nagi-pkg manifest validate` | input build scripts/entrypoints, fetch, arbitrary commands | passed / failed / unavailable / timeout / cancelled / not_run |
-| 2 host build/test | an approved target id; fixture dir must equal the target's directory | `clang` with a fixed argument vector, then the binary just built from the listed sources | input-specified commands, Makefile/build scripts, unlisted files, fetch, network | same as Stage 1 |
+| 2 host build/test | approved target id, directory and exact source/header bytes | `clang` with a fixed argument vector, then the binary built from the verified snapshot | input-specified commands, Makefile/build scripts, unlisted files, fetch, network | same as Stage 1 |
 | 3 Nagi target | not defined | nothing | everything | `not_run` only; never PASS |
 
 Stage 2 stops, without starting any process, on: a prior stage result that is not
 `passed`, an unknown target, a fixture directory other than the approved one
 (including symlinked paths), a cwd outside the checkout, an unreadable or
-non-regular listed file, invalid timeout, or an unreadable contract. A failed
-compile skips the test step. `unavailable` is a missing `clang`/scratch, not a
-failure of the input. Stage 1/2 results are independent of Stage 3.
+non-regular listed file, a fixture digest mismatch, invalid timeout, or an
+unreadable contract. A failed compile skips the test step. `unavailable`
+indicates missing `clang` or scratch space. Stage 1/2 results are independent
+of Stage 3.
 
 ## Stage 2 (self-made fixtures only)
 
@@ -86,10 +87,14 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/validation/stage
 
 The only target is `portable-summary`: `summary.c`, `summary_test.c` and
 `summary.h` from `tests/developer-platform/evaluation/portable/`. The listed files
-are read through the Stage 1 no-follow bounded reader and copied into a private
-temporary directory, which is also the cwd and `TMPDIR` of both processes and is
-removed afterwards. The fixture directory is never written. The argument vector is
-built in one place (`Target.compile_command`):
+are read through the Stage 1 no-follow bounded reader. Before any subprocess
+starts, Stage 2 compares the complete set of filenames and SHA-256 digests of
+the captured bytes with the approval pinned in `stage2.py` from NDP-10 commit
+`715d308`. A mismatch returns `not_run` with `fixture_digest_mismatch` and
+zero steps executed. On a match, the same bytes go into a private temporary
+directory used as the cwd and `TMPDIR` of both processes and removed afterwards.
+The fixture directory is never written. The argument vector is built in
+`Target.compile_command`:
 
 ```text
 clang -std=c11 -Wall -Wextra -Werror -O0 -fno-color-diagnostics \
@@ -112,10 +117,11 @@ test needs exit 0 and stdout starting with the target's `expect_stdout_prefix`.
 
 Tests (`test_stage2.py`) use the real `clang` for the success, compile-error,
 warning-as-error, failing-test, wrong-output, timeout, output-flood and
-planted-build-script cases. Short fake compiler scripts are used only for compiler
-timeout/cancel/no-binary/output-flood orchestration and are not evidence of the real
-tool. Run: the `unittest discover` command above (clang absent → real-compiler tests
-are skipped, not passed).
+planted-build-script cases. Tests that deliberately compile changed code verify the
+baseline before applying and approving their private test edits. The rejection test
+uses the shipped approval and checks that changes to any listed file start no
+process. Short fake compiler scripts exercise process orchestration. The
+`unittest discover` command above skips real-compiler tests when clang is absent.
 
 ## Generator output -> Stage 1 (NDP-09c)
 
@@ -157,8 +163,11 @@ These are working assumptions so Stage 2 can proceed; none is a CONFIRMED decisi
 and each is isolated in `stages.json` or one function so it can be replaced.
 
 - Stage 2 scope is only the self-made portable C fixture; the target table in
-  `stages.json` is the place to add or change approved targets. Third-party or
-  input-project builds are out of scope until an owner defines them.
+  `stages.json` configures the build. A trusted adapter revision supplies the
+  content approval independently of the evaluated fixture and its target table.
+  CI that evaluates untrusted branches must source the adapter and its
+  dependencies from a trusted revision. Updating the pin requires reviewing the
+  exact new fixture bytes. Third-party and input-project builds are out of scope.
 - The fixture has no Manifest, so Stage 1 is not required for it. If a Stage 1
   result is supplied it must be `passed` (`prior` argument / `--stage1-*`).
 - The compiler is the first `clang` on `PATH` (a trusted developer tool, like the
@@ -228,9 +237,10 @@ Aggregate UI status is the first present of `failed`, `not_run`,
 `unsupported` or `passed`. A generation failure skips Stage 1.
 Stage 2 builds the original portable fixture and is independent of the
 scaffold and its Manifest. A rejected Stage 2 input is `failed` with the
-original reason and zero build or test steps executed. The CLI emits the
-report and exits 1 if any check failed, 0 for other completed reports, and 2
-for invalid arguments.
+original reason and zero build or test steps executed. This includes
+`fixture_digest_mismatch` for a snapshot that differs from the pinned approval.
+The CLI emits the report and exits 1 if any check failed, 0 for other completed
+reports, and 2 for invalid arguments.
 
 | [PT-06 evaluation section](../../../docs/porting-toolkit/PT06_MIGRATION_EVALUATION_TEMPLATE_2026-11-13.md) | Report evidence |
 | --- | --- |
@@ -246,11 +256,10 @@ for invalid arguments.
   handwritten report-v1 evidence snapshots under `tests/developer-platform/api`;
   these can drift from their named source files and are not fresh scanner output.
   The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures.
-- Only the trusted checkout's fixture list and the portable target in
-  `stages.json` can select input files. No caller path, build script, command or
-  flag is accepted. The adapters reject symlinks and path escapes and do not
-  follow declared UI resources. The checkout and local executables are trusted
-  and must remain stable during the run.
+- The fixture list and portable target in `stages.json` select input paths.
+  Stage 2 uses the content approval in the trusted adapter before starting
+  clang. The adapters reject symlinks and path escapes and leave declared
+  UI resources unread. Local executables and the adapter code are trusted.
 - Generator defaults come from `generated_check.py`. The output is temporary and
   removed after checking the Manifest. `validator_unavailable` means Stage 1
   was `not_run`. The scaffold is neither a source conversion nor a built app.
