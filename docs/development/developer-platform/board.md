@@ -55,3 +55,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-18 NDP-A002: generate.pyのdirectory mode判定をumask連動に修正（受入後にfchmod 0o700、0o4（PR #180、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-A003: Stage 2 に伏字化・上限付き diagnostics 要約を追加し、実 clang テスト 67 件が成功（スキッ（PR #181、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-A004: UI mapping の contract 列挙で symlink を fail-closed 拒否（5回帰テストとRE（PR #182、runnerテスト成功、claudeレビューPASS）
+- 11-18 NDP-12c: boardのTask表を統合branchの実状態に更新し、レビュー記録のローカルパスリンクをrepo相対に修正（テストは（PR #183、runnerテスト成功、claudeレビューPASS）
