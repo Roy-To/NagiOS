@@ -22,9 +22,9 @@ use pid1_live_peer_supplier::pidfd_process_instance::{
 };
 use pid1_live_peer_supplier::{
     LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint, Pid1EndpointOwnerRegistry,
-    Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunOwnerLease,
+    Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunOwnerLease, RouteConsentRequirement,
     SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory, TrustedManifest,
-    TrustedServiceRequirements,
+    TrustedNipcOperationRoute, TrustedServiceRequirements,
 };
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
@@ -72,7 +72,7 @@ impl<'owner> VerifiedLoginChild<'owner> {
         let package =
             nagi_package::PackageView::parse(&bytes).map_err(|_| BackendError::IdentityRejected)?;
         let signed = package.manifest();
-        if signed.entry() != LOGIN_PACKAGE_ENTRY {
+        if signed.entry() != LOGIN_PACKAGE_ENTRY || signed.grants().next().is_some() {
             return Err(BackendError::IdentityRejected);
         }
         let manifest = AppManifest::from_declaration(signed.id(), signed.grants())
@@ -222,7 +222,6 @@ impl BootLoginRun {
 
 pub(super) struct EndpointOwners<'a, B> {
     pub(super) run: &'a BootLoginRun,
-    pub(super) requirements: &'a TrustedServiceRequirements<'a>,
     pub(super) consent: &'a BootConsentUiConnection<'a>,
     pub(super) readiness: &'a B,
 }
@@ -254,8 +253,7 @@ pub(super) fn start_verified_login<B>(
     lifecycle: &mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    required_grants: &[&[u8]],
-    pending: PendingSpawnOwnedEndpoint,
+    route: TrustedNipcOperationRoute,
     owners: &EndpointOwners<'_, B>,
     issuer: &BootLoginIssuer,
     deadline: Instant,
@@ -266,21 +264,14 @@ where
     C2InitialLogin {
         directory: &owners.run.directory,
         start_login_child: Some(|deadline| {
-            start_and_borrow(
-                lifecycle,
-                selection,
-                package,
-                required_grants,
-                pending,
-                owners,
-                deadline,
+            start_and_borrow(lifecycle, selection, package, route, owners, deadline).map_err(
+                |error| match error {
+                    BackendError::Revoked => PeerDenial::NotLive,
+                    BackendError::ConsentDenied => PeerDenial::ConsentDenied,
+                    _ if Instant::now() >= deadline => PeerDenial::RequestDeadlineExpired,
+                    _ => PeerDenial::Unavailable,
+                },
             )
-            .map_err(|error| match error {
-                BackendError::Revoked => PeerDenial::NotLive,
-                BackendError::ConsentDenied => PeerDenial::ConsentDenied,
-                _ if Instant::now() >= deadline => PeerDenial::RequestDeadlineExpired,
-                _ => PeerDenial::Unavailable,
-            })
         }),
         consent: owners.consent,
         process_instances: &owners.run.instances,
@@ -291,12 +282,11 @@ where
     .start_and_accept(issuer)
 }
 
-pub(super) fn start_and_borrow<'slot, B>(
+fn start_and_borrow<'slot, B>(
     lifecycle: &'slot mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    required_grants: &[&[u8]],
-    pending: PendingSpawnOwnedEndpoint,
+    route: TrustedNipcOperationRoute,
     owners: &EndpointOwners<'_, B>,
     deadline: Instant,
 ) -> Result<&'slot LoginLease, BackendError>
@@ -308,17 +298,28 @@ where
         return Err(BackendError::Unavailable);
     }
     let app_id = package.generation.snapshot().app_id();
-    if package.manifest.app_id() != app_id
-        || required_grants
-            .iter()
-            .any(|capability| !package.manifest.grants(capability))
-    {
+    if package.manifest.app_id() != app_id {
         return Err(BackendError::IdentityRejected);
     }
     crate::supervisor::register_or_match_manifest(package.manifest)
         .map_err(|_| BackendError::IdentityRejected)?;
     crate::supervisor::check_launch(app_id, selection.placement)
         .map_err(|_| BackendError::IdentityRejected)?;
+    // The route owner supplies the canonical login route. This listener is
+    // checked out only for first Session issuance. Application capabilities
+    // and decisions are handled after C1 attaches the issued Session.
+    let requirements = TrustedServiceRequirements::from_canonical_route(
+        route.route_key(),
+        &[],
+        RouteConsentRequirement::NotRequired,
+    );
+    let pending = PendingSpawnOwnedEndpoint::bind_for_spawn(
+        owners.run.run_owner.run(),
+        route,
+        selection.credentials.uid,
+        selection.credentials.gid,
+    )
+    .map_err(|_| BackendError::Unavailable)?;
     let argv = pending
         .child_arguments(&[])
         .map_err(|_| BackendError::ProtocolViolation)?;
@@ -368,7 +369,7 @@ where
             )?);
             record = Some(*live);
             BootLoginSupervisor
-                .authorize_and_commit(*live, required_grants, || {
+                .authorize_and_commit(*live, &[], || {
                     gate.commit().map_err(|_| PeerDenial::Unavailable)
                 })
                 .map_err(|_| BackendError::Unavailable)
@@ -391,7 +392,7 @@ where
                 &owners.run.instances,
                 &owners.run.registry,
                 &owners.run.directory,
-                owners.requirements,
+                &requirements,
                 package,
                 owners.consent,
                 &BootLoginSupervisor,
