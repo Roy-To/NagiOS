@@ -105,7 +105,7 @@ class RealClangDiagnosticsTests(Copy):
     def test_compile_error_reports_count_and_fixture_relative_location(self):
         self.edit("summary.c", "return 0;", "return 0 +;")
         line = self.line_of("summary.c", "return 0 +;")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertEqual((result["status"], result["reason"]), ("failed", "compile_failed"))
         diagnostics = result["diagnostics"]
         self.assertGreaterEqual(diagnostics["errors"], 1)
@@ -116,7 +116,7 @@ class RealClangDiagnosticsTests(Copy):
 
     def test_werror_warning_is_reported_with_its_category(self):
         self.edit("summary.c", "struct task_summary result", "int unused; struct task_summary result")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertEqual(result["reason"], "compile_failed")
         self.assertTrue(any(item["category"] == "-Wunused-variable" and item["file"] == "summary.c"
                             for item in result["diagnostics"]["items"]))
@@ -124,14 +124,14 @@ class RealClangDiagnosticsTests(Copy):
     def test_header_error_is_reported_against_the_header(self):
         self.edit("summary.h", "#endif", "#error ndp header failure\n#endif")
         line = self.line_of("summary.h", "#error")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertIn({"file": "summary.h", "line": line, "severity": "error", "category": None},
                       result["diagnostics"]["items"])
 
     def test_warning_only_build_passes_and_lists_warnings(self):
         self.edit("summary.c", "struct task_summary result", "int unused_ndp; struct task_summary result")
         line = self.line_of("summary.c", "unused_ndp")
-        result = self.run2(targets=warning_target())
+        result = self.run2_with_test_edits(targets=warning_target())
         self.assertEqual((result["status"], result["reason"]), ("passed", "build_and_test_passed"))
         diagnostics = result["diagnostics"]
         self.assertEqual((diagnostics["errors"], diagnostics["warnings"]), (0, 1))
@@ -142,7 +142,7 @@ class RealClangDiagnosticsTests(Copy):
         self.edit("summary.c", "return 0;", f"return {SECRET_BODY} +;")
         text_before = (self.fixture / "summary.c").read_text()
         with patch.dict(os.environ, {"NDP_SECRET": SECRET_ENV, "HOME": str(self.base / "home-marker")}):
-            result = self.run2()
+            result = self.run2_with_test_edits()
         self.assertEqual(result["reason"], "compile_failed")
         self.assertTrue(result["diagnostics"]["items"])
         text = json.dumps(result)
@@ -159,7 +159,7 @@ class RealClangDiagnosticsTests(Copy):
         functions = "".join(f"static void ndp_noise_{n}(void) {{ int ndp_unused_{n}; }}\n" for n in range(150))
         with (self.fixture / "summary.c").open("a") as handle:
             handle.write(functions)
-        result = self.run2(targets=warning_target())
+        result = self.run2_with_test_edits(targets=warning_target())
         self.assertEqual(result["status"], "passed")
         diagnostics = result["diagnostics"]
         self.assertGreaterEqual(diagnostics["warnings"], 150)

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,12 +34,26 @@ class Copy(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.base = Path(os.path.realpath(self._tmp.name))
         self.fixture = self.base / RELATIVE
-        shutil.copytree(FIXTURE, self.fixture)
+        self.fixture.mkdir(parents=True)
+        self.approval_key = ("portable-summary", Path(RELATIVE).parts)
+        approved = stage2._APPROVED_FIXTURE_SHA256[self.approval_key]
+        for name, digest in approved.items():
+            data = validate.read_manifest(REPO, Path(RELATIVE) / name)
+            self.assertEqual(hashlib.sha256(data).hexdigest(), digest, name)
+            (self.fixture / name).write_bytes(data)
 
     def run2(self, **kwargs):
         kwargs.setdefault("base", self.base)
         kwargs.setdefault("cwd", self.base)
         return stage2.run_stage2("portable-summary", **kwargs)
+
+    def run2_with_test_edits(self, **kwargs):
+        """Approve edits made by a test to the private, verified copy from setUp."""
+        names = stage2._APPROVED_FIXTURE_SHA256[self.approval_key]
+        digests = {name: hashlib.sha256((self.fixture / name).read_bytes()).hexdigest()
+                   for name in names}
+        with patch.dict(stage2._APPROVED_FIXTURE_SHA256, {self.approval_key: digests}):
+            return self.run2(**kwargs)
 
     def edit(self, name, old, new):
         path = self.fixture / name
@@ -98,9 +113,26 @@ class RealClangTests(Copy):
             self.assertNotIn("SECRET_TOKEN", env)
         self.assertEqual(len(seen[1][0]), 1)  # the test binary runs with no arguments
 
+    def test_compile_uses_the_snapshot_even_if_the_source_changes_after_read(self):
+        source = self.fixture / "summary.c"
+        original = source.read_bytes()
+        modified = original + b"\n#error changed after snapshot\n"
+        read = validate.read_manifest
+
+        def read_then_change(root, relative):
+            data = read(root, relative)
+            if Path(root) / relative == source:
+                source.write_bytes(modified)
+            return data
+
+        with patch.object(validate, "read_manifest", side_effect=read_then_change):
+            result = self.run2()
+        self.assertEqual(source.read_bytes(), modified)
+        self.assertEqual((result["status"], result["reason"]), ("passed", "build_and_test_passed"))
+
     def test_compile_error_stops_before_test(self):
         self.edit("summary.c", "return 0;", "return 0 +;")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertEqual((result["status"], result["reason"]), ("failed", "compile_failed"))
         self.assertEqual(result["steps"][0]["exit_code"], 1)
         self.assertEqual(result["steps"][1]["status"], "not_run")
@@ -108,32 +140,32 @@ class RealClangTests(Copy):
 
     def test_warning_is_an_error(self):
         self.edit("summary.c", "struct task_summary result", "int unused; struct task_summary result")
-        self.assertEqual(self.run2()["reason"], "compile_failed")
+        self.assertEqual(self.run2_with_test_edits()["reason"], "compile_failed")
 
     def test_failing_test_binary_is_failed_with_signal_exit_kept(self):
         self.edit("summary.c", "case 1: ++result.done;", "case 1: ++result.open;")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertEqual((result["status"], result["reason"]), ("failed", "test_failed"))
         self.assertNotEqual(result["steps"][1]["exit_code"], 0)
         self.assertIsNotNone(result["steps"][1]["exit_code"])
 
     def test_test_exit_zero_without_expected_output_cannot_pass(self):
         self.edit("summary_test.c", "puts(\"PASS portable summary", "puts(\"nothing portable summary")
-        result = self.run2()
+        result = self.run2_with_test_edits()
         self.assertEqual((result["status"], result["reason"]), ("failed", "invalid_tool_output"))
 
     def test_test_timeout_kills_binary(self):
         self.edit("summary_test.c", "struct task_summary out = {7, 8, 9};",
                   "struct task_summary out = {7, 8, 9}; for (;;) {}")
         start = time.monotonic()
-        result = self.run2(test_timeout=0.3)
+        result = self.run2_with_test_edits(test_timeout=0.3)
         self.assertEqual((result["status"], result["steps"][1]["reason"]), ("timeout", "timeout"))
         self.assertLess(time.monotonic() - start, 30)
 
     def test_excess_test_output_is_bounded(self):
         self.edit("summary_test.c", "struct task_summary out = {7, 8, 9};",
                   "struct task_summary out = {7, 8, 9}; for (;;) fputs(\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\n\", stdout);")
-        result = self.run2(test_timeout=5)
+        result = self.run2_with_test_edits(test_timeout=5)
         self.assertEqual(result["status"], "output_limit")
         self.assertLessEqual(result["steps"][1]["captured_output_bytes"], validate.MAX_OUTPUT)
 
@@ -166,7 +198,7 @@ class RealClangTests(Copy):
         before = {p for p in Path(tempfile.gettempdir()).glob("nagi-ndp-stage2-*")}
         self.assertEqual(self.run2()["status"], "passed")
         self.edit("summary.c", "return 0;", "return 0 +;")
-        self.assertEqual(self.run2()["status"], "failed")
+        self.assertEqual(self.run2_with_test_edits()["status"], "failed")
         self.assertEqual({p for p in Path(tempfile.gettempdir()).glob("nagi-ndp-stage2-*")}, before)
 
 
@@ -223,6 +255,19 @@ class RejectionTests(Copy):
         self.assertEqual((result["status"], result["reason"]), ("not_run", reason))
         self.assertEqual(result["steps"], [])
         return result
+
+    def test_changed_regular_source_or_header_is_rejected_before_compile(self):
+        for name in ("summary.c", "summary_test.c", "summary.h"):
+            with self.subTest(name=name):
+                path = self.fixture / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n/* altered fixture */\n")
+                try:
+                    result = self.assertRejected("fixture_digest_mismatch", "portable-summary",
+                                                 clang=sys.executable)
+                    self.assertNotIn("diagnostics", result)
+                finally:
+                    path.write_bytes(original)
 
     def test_unknown_or_hostile_target_ids_are_not_run_or_echoed(self):
         for target in ("missing", "portable-summary; touch x", "$(touch x)", "../portable-summary",

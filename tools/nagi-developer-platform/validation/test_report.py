@@ -259,6 +259,10 @@ class ReportTests(unittest.TestCase):
             with self.subTest(reason="input_too_large"):
                 self.assert_stage2_input_failure(root, "input_too_large")
 
+            source.write_bytes(outside.read_bytes() + b"\n/* altered fixture */\n")
+            with self.subTest(reason="fixture_digest_mismatch"):
+                self.assert_stage2_input_failure(root, "fixture_digest_mismatch")
+
     def assert_stage2_input_failure(self, root, reason):
         run = self.run_cli("--fixture", "portable", root=root)
         self.assertEqual(run.stderr, b"")
