@@ -32,6 +32,10 @@ _LEXEMES = re.compile(
 )
 
 
+# Token for `/` or `\`; never equal to an identifier or alias part.
+_SEPARATOR = "/"
+
+
 def _skip_literal(evidence, match, nesting=0):
     """Keep C# interpolation expressions opaque, including nested literals."""
     text = match.group()
@@ -88,8 +92,13 @@ def evidence_tokens(evidence):
         elif kind == "quotedinclude":
             name = match.group().split('"', 1)[1]
             tokens.append(None)
-            tokens.extend(re.findall(r"[^\W\d]\w*|\.", name))
+            tokens.extend(_SEPARATOR if t in "/\\" else t
+                          for t in re.findall(r"[^\W\d]\w*|\.|[/\\]", name))
             tokens.append(None)
+        elif kind == "other" and match.group() in "/\\":
+            # Directory separators stay visible so basename-only rules can reject
+            # path-qualified names. They are not identifiers and are not code evidence.
+            tokens.append(_SEPARATOR)
         elif kind != "space":
             # A barrier prevents a dotted alias spanning a comment or literal.
             tokens.append(None)
@@ -101,14 +110,29 @@ def load_rules():
     return json.loads(Path(__file__).with_name("rules.json").read_text(encoding="utf-8"))
 
 
-def _matches(tokens, alias, fold=False):
-    """`fold` (rule data `case_insensitive`) is for names Windows resolves case-insensitively."""
+def _matches(tokens, alias, fold=False, basename=False):
+    """`fold` (rule data `case_insensitive`) is for names Windows resolves case-insensitively.
+
+    `basename` (rule data `basename_only`, PROVISIONAL) is for header names: a match
+    directly adjacent to a directory separator (`sub/windows.h`, `windows.h/x`) is a
+    path-qualified name, not the bare header, and is rejected.
+    """
     expected = re.findall(r"[^\W\d]\w*|\.", alias)
     if fold:
         expected = [t.lower() for t in expected]
         tokens = [t if t is None else t.lower() for t in tokens]
     width = len(expected)
-    return any(tokens[i:i + width] == expected for i in range(len(tokens) - width + 1))
+
+    def hit(i):
+        if tokens[i:i + width] != expected:
+            return False
+        if basename:
+            before = tokens[i - 1] if i > 0 else None
+            after = tokens[i + width] if i + width < len(tokens) else None
+            return _SEPARATOR not in (before, after)
+        return True
+
+    return any(hit(i) for i in range(len(tokens) - width + 1))
 
 
 def diagnose_report(data, *, allowed_paths, adapter=adapt_report_v1, rules=None):
@@ -126,7 +150,8 @@ def diagnose_report(data, *, allowed_paths, adapter=adapt_report_v1, rules=None)
         }
         matched = False
         for rule in rules["rules"]:
-            aliases = sorted(a for a in rule["aliases"] if _matches(tokens, a, rule.get("case_insensitive") is True))
+            aliases = sorted(a for a in rule["aliases"] if _matches(
+                tokens, a, rule.get("case_insensitive") is True, rule.get("basename_only") is True))
             if not aliases:
                 continue
             matched = True
@@ -139,7 +164,7 @@ def diagnose_report(data, *, allowed_paths, adapter=adapt_report_v1, rules=None)
                 "availability": rule["availability"], "approval": "PROVISIONAL",
             })
         if not matched:
-            has_code = any(t is not None and t != "." for t in tokens)
+            has_code = any(t is not None and t not in (".", _SEPARATOR) for t in tokens)
             state = ("unknown_api" if finding.category in rules["windows_categories"]
                      else "not_classified") if has_code else "no_code_evidence"
             rows.append({
