@@ -339,6 +339,20 @@ reports, and 2 for invalid arguments.
   mapping tool is unavailable or analysis failed for the file. Limit: the reason
   is a vocabulary classification, not a rendered or executed compatibility result,
   and the format may change inside `validation/`; it is not a contract.
+- Markdown "API gaps" section (PROVISIONAL; the JSON is unchanged). When a
+  `windows_diagnosis` or `linux_diagnosis` check passed, Markdown adds
+  `## API gaps` after the problem lines. It lists rows from the JSON `rows`
+  (so at most 32 per check, `MAX_API_DETAILS`) whose `availability` is
+  `unsupported` or whose `rule_id` is null, as `- <check> line <n> · <apis> ·
+  <note>`. The note is `unsupported (rule <rule_id>)` or `no rule matched
+  (unresolved)`; no rule description is guessed. Each line shows up to 6 API
+  names (`MAX_API_MARKDOWN_NAMES`), each cut to 80 characters, with `+N more`.
+  When `truncated` is true a line `… rows beyond the first <N> are omitted (see
+  JSON counts)` (N = rows kept in JSON, 32 by default) is added, even if no listed row qualifies. No section is emitted
+  for fixtures with nothing to list (`portable`, `ui`). With `--fixture all` the
+  section appears inside each fixture's own part. The format may change inside
+  `validation/`; it is not a contract, and host diagnosis is not Nagi target
+  acceptance.
 - Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
   permissions and data persistence on Nagi require separate target evidence.
 

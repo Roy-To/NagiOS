@@ -533,6 +533,80 @@ class ReportTests(unittest.TestCase):
         with self.assertRaises(report.CheckError):
             report.gap_row(row)
 
+    def api_gap_section(self, markdown):
+        self.assertEqual(markdown.count("\n## API gaps\n"), 1)
+        return markdown.split("\n## API gaps\n")[1].split("\n\n")[0].strip()
+
+    def test_api_gaps_markdown_lists_real_unsupported_rows_with_line_and_api(self):
+        expected = {
+            "windows": [(2, "windows.h", "WIN-HEADER"), (4, "CreateFileW", "WIN-FILE-OPEN"),
+                        (7, "ReadFile", "WIN-FILE-READ"), (8, "CloseHandle", "WIN-HANDLE-CLOSE")],
+            "linux": [(2, "sys/inotify.h", "LNX-INOTIFY"), (3, "unistd.h", "POSIX-HEADER-FD"),
+                      (5, "`IN_CLOEXEC`, `IN_NONBLOCK`, `inotify_init1`", "LNX-INOTIFY"),
+                      (7, "`IN_MODIFY`, `inotify_add_watch`", "LNX-INOTIFY"),
+                      (8, "close", "POSIX-FD-CLOSE")],
+        }
+        for platform, rows in expected.items():
+            result = report.build_report(platform)
+            markdown = report.markdown_report(result)
+            section = self.api_gap_section(markdown)
+            self.assertEqual(len(section.splitlines()), len(rows))
+            for line, apis, rule in rows:
+                apis = apis if apis.startswith("`") else "`{}`".format(apis)
+                self.assertIn("- {}_diagnosis line {} · {} · unsupported (rule `{}`)".format(
+                    platform, line, apis, rule), section)
+            self.assertNotIn("omitted", section)
+            self.assertLess(markdown.index("## API gaps"), markdown.index("Stage 1 checks metadata"))
+            self.assertTrue(all(len(item) <= 200 for item in section.splitlines()))
+
+    def test_api_gaps_markdown_leaves_json_unchanged_and_is_absent_for_portable_and_ui(self):
+        for fixture in ("portable", "ui"):
+            self.assertNotIn("API gaps", report.markdown_report(report.build_report(fixture)))
+        result = report.build_report("windows")
+        before = json.dumps(result["checks"]["windows_diagnosis"], sort_keys=True)
+        report.markdown_report(result)
+        self.assertEqual(before, json.dumps(result["checks"]["windows_diagnosis"], sort_keys=True))
+        self.assertNotIn("API gaps", before)
+
+    def test_api_gaps_markdown_shows_unresolved_rows_and_caps_api_names(self):
+        result = report.build_report("windows")
+        item = result["checks"]["windows_diagnosis"]
+        names = ["api{}".format(index) for index in range(9)]
+        item["rows"] = [
+            {"line": 3, "rule_id": None, "apis": ["MysteryCall"], "availability": "available"},
+            {"line": 5, "rule_id": "WIN-X", "apis": names + ["x" * 200], "availability": "unsupported"},
+            {"line": 6, "rule_id": "WIN-OK", "apis": ["Fine"], "availability": "available"},
+        ]
+        section = self.api_gap_section(report.markdown_report(result))
+        self.assertIn("- windows_diagnosis line 3 · `MysteryCall` · no rule matched (unresolved)", section)
+        self.assertNotIn("Fine", section)
+        shown = ", ".join("`{}`".format(name) for name in names[:report.MAX_API_MARKDOWN_NAMES])
+        self.assertIn("line 5 · {}, +4 more · unsupported (rule `WIN-X`)".format(shown), section)
+        self.assertEqual(len(section.splitlines()), 2)
+
+    def test_api_gaps_markdown_shows_omission_when_truncated(self):
+        with patch.object(report, "MAX_API_DETAILS", 2):
+            result = report.build_report("linux")
+        item = result["checks"]["linux_diagnosis"]
+        self.assertTrue(item["truncated"])
+        self.assertEqual(len(item["rows"]), 2)
+        section = self.api_gap_section(report.markdown_report(result))
+        self.assertEqual(section.count("unsupported (rule"), 2)
+        self.assertIn("- linux_diagnosis … rows beyond the first 2 are omitted (see JSON counts)",
+                      section)
+
+    def test_api_gaps_appear_in_each_fixture_part_of_all_markdown(self):
+        code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
+        self.assertEqual(code, 0)
+        parts = {fixture: part for fixture, part in zip(
+            report.FIXTURES, markdown.split("\n---\n\n")[1:])}
+        self.assertIn("- windows_diagnosis line 4 · `CreateFileW` · unsupported", parts["windows"])
+        self.assertIn("- linux_diagnosis line 5 · `IN_CLOEXEC`", parts["linux"])
+        self.assertNotIn("API gaps", parts["portable"])
+        self.assertNotIn("API gaps", parts["ui"])
+        self.assertEqual(markdown.count("## API gaps"), 2)
+        self.assertLessEqual(len(markdown.encode()), report.MAX_REPORT_BYTES * len(report.FIXTURES))
+
     def test_missing_validator_does_not_stop_portable_build(self):
         with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")):
             result = report.build_report("portable")
