@@ -7429,6 +7429,23 @@ impl InitBackend for UnconnectedBackend {
                                 Ok(mut runtime) => match runtime.verify_continuing_admission() {
                                     Ok(()) => {
                                         pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED; first login unavailable");
+                                        #[cfg(all(
+                                            linux_task24_owner_co_location,
+                                            linux_task24_initial_login_runtime,
+                                            feature = "desktop-login"
+                                        ))]
+                                        let _login_route = _login_run.as_ref().and_then(|run| {
+                                            match runtime.prepare_task24_route(run) {
+                                                Ok(route) => {
+                                                    pid1_log!("NAGI_DEV_TASK24_INITIAL_LOGIN_ROUTE_BOUND generation={}", run.run_owner.generation());
+                                                    Some(route)
+                                                }
+                                                Err(error) => {
+                                                    pid1_log!("NAGI_DEV_TASK24_INITIAL_LOGIN_ROUTE_UNAVAILABLE ({error:?})");
+                                                    None
+                                                }
+                                            }
+                                        });
                                         #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
                                         match linux_owner_registration_console::BootOwnerConsole::open() {
                                             Ok(mut console) => {

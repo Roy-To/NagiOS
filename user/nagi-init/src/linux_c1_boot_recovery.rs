@@ -178,12 +178,10 @@ mod task24 {
     use super::*;
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
-            start_verified_login, EndpointOwners, LoginChildLaunch, LoginLifecycle,
-            VerifiedLoginChild,
+            start_verified_login, BootInitialLoginRoute, BootLoginRun, EndpointOwners,
+            LoginChildLaunch, LoginLifecycle, VerifiedLoginChild,
         },
-        pid1_live_peer_supplier::{
-            PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease, TrustedNipcOperationRoute,
-        },
+        pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
     };
     use std::time::Instant;
 
@@ -198,25 +196,42 @@ mod task24 {
     >;
 
     impl<'boot, 'package> SelectedBootIdentityRuntime<'boot, 'package> {
+        pub(in crate::linux_init) fn prepare_task24_route(
+            &self,
+            run: &BootLoginRun,
+        ) -> Result<BootInitialLoginRoute, PeerDenial> {
+            self.identity
+                .validate_system_service_runtime_handoff(&self.handoff)
+                .map_err(|_| PeerDenial::Unavailable)?;
+            run.run_owner
+                .readiness_boundary()
+                .with_owner_gate(run.run_owner.run(), None, || {
+                    BootInitialLoginRoute::from_recovered_boot(self.boot, run)
+                })
+        }
+
         /// Reuse the recovered store and its exact C3 handoff for the first
         /// checkout. The process lifecycle remains owned by the caller.
-        pub(in crate::linux_init) fn start_task24_login<B>(
+        pub(in crate::linux_init) fn start_task24_login(
             self,
             lifecycle: &mut LoginLifecycle,
             selection: LoginChildLaunch,
             package: &VerifiedLoginChild<'_>,
-            route: TrustedNipcOperationRoute,
-            owners: &EndpointOwners<'_, B>,
+            route: BootInitialLoginRoute,
+            owners: &EndpointOwners<'_>,
             request_key: IdempotencyKey,
             expires_at: Option<UnixMillis>,
             deadline: Instant,
         ) -> Result<
             (Runtime<'boot, 'package>, Result<SessionLease, PeerDenial>),
             BootIdentityRecoveryError,
-        >
-        where
-            B: Pid1ReadinessAtomicBoundary,
-        {
+        > {
+            if !route.matches(self.boot, owners.run) {
+                return Err(BootIdentityRecoveryError::LiveEffect(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "initial login route belongs to a different boot run",
+                )));
+            }
             let runtime = RecoveredBootIdentity {
                 boot: self.boot,
                 _data: self.data,
