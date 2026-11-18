@@ -234,7 +234,8 @@ class ReportTests(unittest.TestCase):
         summary = result["summary"]
         self.assertEqual(result["fixture"], "all")
         self.assertEqual(result["target_acceptance"], "not_run")
-        self.assertEqual(summary["fixtures"], ["portable", "windows", "linux", "ui"])
+        # NDP-A017 appended the PROVISIONAL `mixed` fixture; the first four keep their order.
+        self.assertEqual(summary["fixtures"], ["portable", "windows", "linux", "ui", "mixed"])
         self.assertEqual(list(result["reports"]), summary["fixtures"])
         self.assertEqual(summary["total"], len(summary["fixtures"]) * len(summary["checks"]))
         for fixture, individual in result["reports"].items():
@@ -702,7 +703,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("- linux_diagnosis line 5 · `IN_CLOEXEC`", parts["linux"])
         self.assertNotIn("API gaps", parts["portable"])
         self.assertNotIn("API gaps", parts["ui"])
-        self.assertEqual(markdown.count("## API gaps"), 2)
+        self.assertNotIn("API gaps", markdown.split("\n---\n\n")[0])
+        self.assertIn("API gaps", parts["mixed"])
+        self.assertEqual(markdown.count("## API gaps"), 3)  # windows, linux, mixed
         self.assertLessEqual(len(markdown.encode()), report.MAX_REPORT_BYTES * len(report.FIXTURES))
 
     def stage2_with_diagnostics(self, diagnostics, status="failed", reason="compile_failed"):

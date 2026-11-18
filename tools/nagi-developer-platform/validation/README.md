@@ -204,12 +204,14 @@ and each is isolated in `stages.json` or one function so it can be replaced.
 
 ## Migration report (PROVISIONAL, NDP-09r)
 
-From the checkout root, select `portable`, `windows`, `linux`, `ui` or `all`.
+From the checkout root, select `portable`, `windows`, `linux`, `ui`, `mixed`
+(PROVISIONAL, mixed Windows/Linux API source) or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
 python3 -B tools/nagi-developer-platform/validation/report.py --fixture portable
 python3 -B tools/nagi-developer-platform/validation/report.py --fixture ui --format markdown
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture mixed --format markdown
 ```
 
 The format and fixture routing are **PROVISIONAL**. JSON version 1 has
@@ -240,8 +242,8 @@ table in `report.py`. A reason missing from that table is shown as the code
 only, and no explanation is guessed. The table and overview format may change
 and stay inside `validation/`; they are not a contract.
 
-**PROVISIONAL reason coverage.** `test_report.py` builds real reports for all
-four fixtures (normally, with the validator forced missing and with `clang`
+**PROVISIONAL reason coverage.** `test_report.py` builds real reports for every
+fixture in `report.FIXTURES`, `mixed` included (normally, with the validator forced missing and with `clang`
 forced missing, so `not_run` reasons are covered on any host), collects every
 reason from each check, each per-file result and each step
 (`collect_reasons`), and fails if one is in neither `REASON_DESCRIPTIONS` nor
@@ -250,12 +252,14 @@ is the intentional code-only allowlist; it is empty today. When the test fails,
 add a description that matches what the code actually does, or list the code
 on purpose; never guess a description. Reasons that only occur on other
 failure paths (for example `invalid_template_input:app_id`) are not in the
-four-fixture reports and stay code-only. In Markdown, the problem lines for
+fixture reports and stay code-only. In Markdown, the problem lines for
 non-passed files and steps also show the table description after the reason;
 an unlisted reason stays code-only.
 
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
-`portable`, `windows`, `linux` and `ui` and adds a fixture x check overview.
+`portable`, `windows`, `linux`, `ui` and `mixed` (the last one added by NDP-A017;
+the first four are unchanged and keep their order) and adds a fixture x check
+overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
 `target_acceptance` fields (`fixture` is `all`), the unchanged per-fixture
 reports under `reports`, and `summary`: `fixtures`, `checks`, `matrix`
@@ -267,7 +271,7 @@ matrix table (status and reason per cell) and the reason list, followed by
 each unchanged single-fixture Markdown report. The exit code follows the
 existing rule over every check of every fixture: 1 if any check `failed`,
 0 for other completed runs, 2 for invalid arguments. Output is capped at
-four times the single-report limit.
+the single-report limit times the number of fixtures (five).
 
 Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
 or compiler that is missing stays `not_run` and is never shown as passed. It is
@@ -314,9 +318,41 @@ reports, and 2 for invalid arguments.
   temporary copies. Limits: this compares one handwritten snapshot with the file
   it names. It is not real scanner output and does not show the snapshot equals
   what a scanner would emit; snapshots with no fixed fixture (for example
-  `text_only`, `mixed_platform`, `api/common`) are not covered. Evidence is matched
+  `text_only`, `api/linux/mixed_platform` — a synthetic snapshot whose named
+  source does not exist — and `api/common`) are not covered. The `mixed`
+  fixture's two snapshots are covered (next item). Evidence is matched
   as text containment, so a changed line that still contains the same text is not
   detected. Host-only, not Nagi target acceptance, and not a PT-01 interface.
+- `mixed` fixture (PROVISIONAL, NDP-A017; additive, the four existing fixtures'
+  JSON is unchanged). Why: API diagnosis used to cover only `windows/read_prefix`
+  and `linux/watch_changes`, so input mixing Windows and Linux APIs was never
+  reported, and the old `api/linux/mixed_platform.report-v1.json` cannot serve as
+  its evidence because it is a synthetic snapshot of a source file that does not
+  exist (it would defeat drift detection). So `report.py` has a new fixture name
+  `mixed` and routing (`api_case_paths`, constants `MIXED_FIXTURE` and
+  `MIXED_API_BASENAME`): a small self-made C source
+  `tests/developer-platform/evaluation/mixed/read_and_watch.c` (an `#ifdef
+  _WIN32` Windows part and a Linux part, each with one API no bundled rule knows)
+  and one handwritten snapshot per platform,
+  `tests/developer-platform/api/mixed/read_and_watch.{windows,linux}.report-v1.json`.
+  `windows_diagnosis` and `linux_diagnosis` both run for this fixture through the
+  existing `diagnose` / `adapt_report_v1` path (no second reader), each with its own
+  snapshot so that one platform's lines never show up as "unresolved" in the other
+  platform's diagnosis. The Markdown `## API gaps` section lists unsupported and
+  unresolved rows of both platforms with line numbers, and `--fixture all` adds a
+  `mixed` row to the matrix, `by_fixture`, `not_passed` and `reasons`. Existing tests
+  that hard-coded four fixtures were updated for the fifth (`summary["fixtures"]`
+  and the number of `## API gaps` sections); no assertion was removed.
+  `test_api_snapshot_drift.py` checks the `mixed` source against both snapshots
+  (line numbers, evidence text, API names) and detects shifted lines;
+  `test_report_mixed.py` checks the report itself.
+  Assumptions and limits: the snapshots are handwritten report-v1 files, not real
+  scanner (PT-01) output; the naming and routing are provisional and may be
+  replaced when the real scanner output exists; the evidence is lexical, so a
+  line's rule match is a candidate and not proof that the API is called (the
+  `#ifdef` guards are not evaluated); host-only static reading, the C file is
+  never compiled or run; not Nagi target acceptance (`target_acceptance` stays
+  `not_run`), not a contract, and `contracts/` is untouched.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared
@@ -390,7 +426,8 @@ reports, and 2 for invalid arguments.
   names (`MAX_API_MARKDOWN_NAMES`), each cut to 80 characters, with `+N more`.
   When `truncated` is true a line `… rows beyond the first <N> are omitted (see
   JSON counts)` (N = rows kept in JSON, 32 by default) is added, even if no listed row qualifies. No section is emitted
-  for fixtures with nothing to list (`portable`, `ui`). With `--fixture all` the
+  for fixtures with nothing to list (`portable`, `ui`); `mixed` lists the rows of
+  both diagnoses. With `--fixture all` the
   section appears inside each fixture's own part. The format may change inside
   `validation/`; it is not a contract, and host diagnosis is not Nagi target
   acceptance.
