@@ -68,3 +68,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A009: `report.py --fixture all`（JSON の summary と Markdown 冒頭の行列表）を（PR #193、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A010: 4 fixture の全 reason を表か許容リストで網羅するテストを追加し、compiled/test_passe（PR #194、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A011: UI mapping未対応行を mapping.status で絞り、深刻な順に上限付きで JSON と Markdow（PR #195、runnerテスト成功、claudeレビューPASS）
+- 11-19 NDP-A012: 移植レポートMarkdownに API gaps 節を追加（unsupported/未解決行を行番号・API名付きで表示（PR #196、runnerテスト成功、claudeレビューPASS）
