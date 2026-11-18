@@ -164,6 +164,8 @@ fn clone3_x86_64() -> io::Result<Clone3Pid1Child> {
     const NR_CLONE3: usize = 435;
     const CLONE_NEWPID: u64 = 0x2000_0000;
     const CLONE_PIDFD: u64 = 0x0000_1000;
+    // Do not inherit PID 1's runtime handlers into the privileged pre-drop child.
+    const CLONE_CLEAR_SIGHAND: u64 = 0x1_0000_0000;
     const SIGCHLD: u64 = 17;
 
     // Allocate the nonce before clone3. The parent path can then construct the
@@ -172,7 +174,7 @@ fn clone3_x86_64() -> io::Result<Clone3Pid1Child> {
     let nonce = Arc::new(());
     let mut pidfd_raw = -1i32;
     let args = CloneArgs {
-        flags: CLONE_NEWPID | CLONE_PIDFD,
+        flags: CLONE_NEWPID | CLONE_PIDFD | CLONE_CLEAR_SIGHAND,
         pidfd: &mut pidfd_raw as *mut i32 as u64,
         exit_signal: SIGCHLD,
         ..CloneArgs::default()

@@ -41,6 +41,19 @@ nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
+nagi-profile-volume-notes-owner = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/profile-volume-notes-owner" }
+nagi-system-service-launch = { path = "../../crates/nagi-system-service-launch" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
+nagi-system-principal-contract = { path = "../../crates/nagi-system-principal-contract" }
+nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }
+serde_json = "1"
+sha2 = { version = "=0.10.9", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
 
 # Cargo's check-cfg should accept all source feature guards, but this test
 # manifest intentionally exposes only the two Linux test features above.

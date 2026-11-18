@@ -46,6 +46,10 @@ exclude = [
     # consumed by path from the Linux init integration crates, but must not
     # also be discovered as nested members of the repository workspace.
     "crates/nagi-capability",
+    "crates/nagi-identity-session",
+    "crates/nagi-init-spawn-contract",
+    "crates/nagi-system-principal-contract",
+    "crates/nagi-system-service-launch",
     "crates/nagi-service-contract",
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",

@@ -5,11 +5,20 @@ use crate::{
 };
 use nagi_capability::PrincipalKind;
 use nagi_identity_session::{CallerContextId, PrincipalId};
-use nagi_init_package_provider::package_trust::PackageServiceSessionOwner;
+use nagi_init_package_provider::package_trust::{
+    InstalledPackageBlobStore, PackageServiceSessionOwner,
+};
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
 use nagi_model::AppId;
 use nagi_service_contract::ServiceId;
 use nagi_system_principal_contract::SystemServiceEndpointOwnerProof;
+use nagi_system_service_recovery_contract::{
+    canonical_recovery_binding_digest, canonical_recovery_binding_digest_from_scope,
+    C1RecoveryOperationCorrelation, C1RecoveryReceiptClient, C3DurableRecoverySlotReceipt,
+    C3RecoverySlotGate, RecoveryClientError, RecoveryLifecycleTransition, RecoveryReceiptMismatch,
+    SystemServiceRecoveryAdmissionScope, SystemServiceRecoveryScopeInput,
+};
+use std::borrow::Cow;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::{collections::HashSet, mem, num::NonZeroU64};
@@ -20,6 +29,26 @@ pub enum LaunchPortError {
     Rejected,
     Failed,
     OutcomeUnknown,
+}
+
+impl From<RecoveryClientError> for LaunchPortError {
+    fn from(error: RecoveryClientError) -> Self {
+        match error {
+            RecoveryClientError::Unavailable => Self::Unavailable,
+            RecoveryClientError::Rejected => Self::Rejected,
+            RecoveryClientError::Failed => Self::Failed,
+            RecoveryClientError::OutcomeUnknown => Self::OutcomeUnknown,
+        }
+    }
+}
+
+fn recovery_client_error(error: LaunchPortError) -> RecoveryClientError {
+    match error {
+        LaunchPortError::Unavailable => RecoveryClientError::Unavailable,
+        LaunchPortError::Rejected => RecoveryClientError::Rejected,
+        LaunchPortError::Failed => RecoveryClientError::Failed,
+        LaunchPortError::OutcomeUnknown => RecoveryClientError::OutcomeUnknown,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -58,6 +87,9 @@ pub enum LaunchError {
     },
     RecoveryReconciliation(LaunchPortError),
     RecoveryReconciliationPanicked,
+    RecoveryTerminalReceiptUnavailable(SystemServiceRecoveryAdmission),
+    RecoveryReceiptMismatch(RecoveryReceiptMismatch, SystemServiceRecoveryAdmission),
+    RecoveryReceiptConsumptionFailed(LaunchPortError, SystemServiceRecoveryAdmission),
     PackageQuarantineReleaseUnavailable(SystemServiceRecoveryAdmission),
     OwnerRevoke(LaunchPortError),
     OwnerCleanupPanicked,
@@ -78,7 +110,6 @@ pub struct AuthenticatedSystemServiceCatalogBinding {
 }
 
 impl AuthenticatedSystemServiceCatalogBinding {
-    #[cfg(test)]
     pub(crate) fn from_trusted_catalog(
         descriptor: &ValidatedSystemServiceDescriptor,
         principal_id: PrincipalId,
@@ -236,13 +267,18 @@ impl SystemServiceRuntimeSlotBinding {
 /// C1 must persist this scope in its recovery journal and must not derive IDs
 /// from descriptor text or kernel credentials.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SystemServiceRecoveryAdmission {
+pub struct SystemServiceRecoveryAdmission(Box<SystemServiceAdmissionData>);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SystemServiceAdmissionData {
     catalog: AuthenticatedSystemServiceCatalogBinding,
     runtime_slot: SystemServiceRuntimeSlotBinding,
+    scope_binding_digest: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SystemServiceAdmissionError {
+    ArtifactDigestMismatch,
     PackageBindingMismatch,
     MappingGenerationMismatch,
     PackageGenerationMismatch,
@@ -255,10 +291,53 @@ impl SystemServiceRecoveryAdmission {
         lifecycle: &impl SystemServiceLaunchLifecycle,
     ) -> Self {
         let runtime_slot = lifecycle.runtime_slot_binding().clone();
-        Self {
+        Self::from_parts(catalog, runtime_slot)
+    }
+
+    fn from_parts(
+        catalog: AuthenticatedSystemServiceCatalogBinding,
+        runtime_slot: SystemServiceRuntimeSlotBinding,
+    ) -> Self {
+        let transition = match runtime_slot.transition() {
+            GenerationTransition::Initial => RecoveryLifecycleTransition::Initial,
+            GenerationTransition::Replace {
+                previous_generation,
+            } => RecoveryLifecycleTransition::Replace {
+                previous_generation,
+            },
+        };
+        let role = match runtime_slot.role() {
+            PrincipalKind::FirstPartyApp => "first_party_app",
+            PrincipalKind::ThirdPartyApp => "third_party_app",
+            PrincipalKind::SystemService => "system_service",
+            PrincipalKind::AiMediatedAction => "ai_mediated_action",
+            PrincipalKind::Automation => "automation",
+        };
+        let (uid, gid) = runtime_slot.credentials();
+        let scope_fields = SystemServiceRecoveryScopeInput {
+            service_id: runtime_slot.service_id().as_str(),
+            principal_id: catalog.principal_id.as_str(),
+            caller_context_id: catalog.caller_context_id.as_str(),
+            mapping_generation: catalog.mapping_generation,
+            role,
+            catalog_generation: runtime_slot.catalog_generation(),
+            transition,
+            package_id: runtime_slot.package_id(),
+            package_app_id: runtime_slot.package_app_id().0,
+            canonical_entry: runtime_slot.canonical_entry(),
+            signed_package_sha256: runtime_slot.signed_package_sha256(),
+            executable_sha256: runtime_slot.executable_sha256_bytes(),
+            package_generation: runtime_slot.package_generation(),
+            c3_launch_generation: runtime_slot.c3_launch_generation(),
+            uid,
+            gid,
+        };
+        let scope_binding_digest = canonical_recovery_binding_digest(&scope_fields);
+        Self(Box::new(SystemServiceAdmissionData {
             catalog,
             runtime_slot,
-        }
+            scope_binding_digest,
+        }))
     }
 
     /// Rebuild the typed input for restart reconciliation from the currently
@@ -281,6 +360,14 @@ impl SystemServiceRecoveryAdmission {
         if *package.signed_package_sha256() != expected_signed_package_sha256 {
             return Err(SystemServiceAdmissionError::SignedPackageDigestMismatch);
         }
+        Self::from_catalog_and_package(catalog, package, c3_launch_generation)
+    }
+
+    pub(crate) fn from_catalog_and_package(
+        catalog: AuthenticatedSystemServiceCatalogBinding,
+        package: &VerifiedServicePackageBinding<'_>,
+        c3_launch_generation: NonZeroU64,
+    ) -> Result<Self, SystemServiceAdmissionError> {
         if catalog.descriptor.package_id() != package.package_id()
             || catalog.descriptor.package_app_id() != package.app_id()
             || catalog.descriptor.canonical_entry() != package.canonical_entry()
@@ -294,70 +381,155 @@ impl SystemServiceRecoveryAdmission {
             package,
             c3_launch_generation,
         );
-        Ok(Self {
-            catalog,
-            runtime_slot,
-        })
+        Ok(Self::from_parts(catalog, runtime_slot))
     }
 
     pub fn descriptor(&self) -> &ValidatedSystemServiceDescriptor {
-        &self.catalog.descriptor
+        &self.0.catalog.descriptor
     }
 
     pub fn service_id(&self) -> &ServiceId {
-        self.runtime_slot.service_id()
+        self.0.runtime_slot.service_id()
     }
 
     pub fn role(&self) -> PrincipalKind {
-        self.runtime_slot.role()
+        self.0.runtime_slot.role()
     }
 
     pub fn principal_id(&self) -> &PrincipalId {
-        &self.catalog.principal_id
+        &self.0.catalog.principal_id
     }
 
     pub fn caller_context_id(&self) -> &CallerContextId {
-        &self.catalog.caller_context_id
+        &self.0.catalog.caller_context_id
     }
 
     pub fn mapping_generation(&self) -> NonZeroU64 {
-        self.catalog.mapping_generation
+        self.0.catalog.mapping_generation
     }
 
     pub fn package_id(&self) -> &str {
-        self.runtime_slot.package_id()
+        self.0.runtime_slot.package_id()
     }
 
     pub fn package_app_id(&self) -> AppId {
-        self.runtime_slot.package_app_id()
+        self.0.runtime_slot.package_app_id()
     }
 
     pub fn canonical_entry(&self) -> &str {
-        self.runtime_slot.canonical_entry()
+        self.0.runtime_slot.canonical_entry()
     }
 
     pub fn executable_sha256_bytes(&self) -> &[u8; 32] {
-        self.runtime_slot.executable_sha256_bytes()
+        self.0.runtime_slot.executable_sha256_bytes()
     }
 
     pub fn signed_package_sha256(&self) -> &[u8; 32] {
-        self.runtime_slot.signed_package_sha256()
+        self.0.runtime_slot.signed_package_sha256()
     }
 
     pub fn package_generation(&self) -> u64 {
-        self.runtime_slot.package_generation()
+        self.0.runtime_slot.package_generation()
     }
 
     pub fn catalog_generation(&self) -> NonZeroU64 {
-        self.runtime_slot.catalog_generation()
+        self.0.runtime_slot.catalog_generation()
     }
 
     pub fn c3_launch_generation(&self) -> NonZeroU64 {
-        self.runtime_slot.c3_launch_generation()
+        self.0.runtime_slot.c3_launch_generation()
+    }
+
+    /// The same canonical scope A passes to C1 and C3. Its digest binds the
+    /// principal mapping, catalog transition, package generations, and exact
+    /// C3 launch slot. The scope's address stays fixed when its owning
+    /// admission moves into the runtime. Cloning the admission creates a
+    /// different scope object for callers that require live object identity.
+    pub fn scope(&self) -> &dyn SystemServiceRecoveryAdmissionScope {
+        self.0.as_ref()
     }
 
     pub fn runtime_slot_binding(&self) -> &SystemServiceRuntimeSlotBinding {
-        &self.runtime_slot
+        &self.0.runtime_slot
+    }
+}
+
+impl SystemServiceRecoveryAdmissionScope for SystemServiceAdmissionData {
+    fn service_id(&self) -> &str {
+        self.runtime_slot.service_id().as_str()
+    }
+
+    fn principal_id(&self) -> &str {
+        self.catalog.principal_id.as_str()
+    }
+
+    fn caller_context_id(&self) -> &str {
+        self.catalog.caller_context_id.as_str()
+    }
+
+    fn mapping_generation(&self) -> NonZeroU64 {
+        self.catalog.mapping_generation
+    }
+
+    fn role(&self) -> &str {
+        match self.runtime_slot.role() {
+            PrincipalKind::FirstPartyApp => "first_party_app",
+            PrincipalKind::ThirdPartyApp => "third_party_app",
+            PrincipalKind::SystemService => "system_service",
+            PrincipalKind::AiMediatedAction => "ai_mediated_action",
+            PrincipalKind::Automation => "automation",
+        }
+    }
+
+    fn catalog_generation(&self) -> NonZeroU64 {
+        self.runtime_slot.catalog_generation()
+    }
+
+    fn transition(&self) -> RecoveryLifecycleTransition {
+        match self.runtime_slot.transition() {
+            GenerationTransition::Initial => RecoveryLifecycleTransition::Initial,
+            GenerationTransition::Replace {
+                previous_generation,
+            } => RecoveryLifecycleTransition::Replace {
+                previous_generation,
+            },
+        }
+    }
+
+    fn package_id(&self) -> &str {
+        self.runtime_slot.package_id()
+    }
+
+    fn package_app_id(&self) -> u64 {
+        self.runtime_slot.package_app_id().0
+    }
+
+    fn canonical_entry(&self) -> &str {
+        self.runtime_slot.canonical_entry()
+    }
+
+    fn signed_package_sha256(&self) -> &[u8; 32] {
+        self.runtime_slot.signed_package_sha256()
+    }
+
+    fn executable_sha256(&self) -> &[u8; 32] {
+        self.runtime_slot.executable_sha256_bytes()
+    }
+
+    fn package_generation(&self) -> u64 {
+        self.runtime_slot.package_generation()
+    }
+
+    fn c3_launch_generation(&self) -> NonZeroU64 {
+        self.runtime_slot.c3_launch_generation()
+    }
+
+    fn credentials(&self) -> (u32, u32) {
+        self.runtime_slot.credentials()
+    }
+
+    fn binding_digest(&self) -> &[u8; 32] {
+        &self.scope_binding_digest
     }
 }
 
@@ -397,9 +569,7 @@ fn clear_recovery_block(descriptor: &ValidatedSystemServiceDescriptor) {
 /// launch. The binding has no public constructor; an implementation must come
 /// from the trusted catalog adapter inside this crate and compare the full
 /// descriptor against its canonical record. Caller JSON, a package signature,
-/// or an artifact digest alone cannot mint this binding. A currently has no
-/// production catalog implementation, so no production launch can pass this
-/// boundary yet.
+/// or an artifact digest alone cannot mint this binding.
 pub trait TrustedSystemServiceCatalog {
     fn authenticate(
         &mut self,
@@ -447,6 +617,8 @@ pub trait SystemServiceLaunchOwner {
     /// generation under C3's serialized slot gate. A stale or mismatched
     /// replacement must fail before child creation.
     type Lifecycle: SystemServiceLaunchLifecycle;
+    /// Exact C3 durable-slot result obtained under the reconciliation gate.
+    type RecoveryReceipt: C3DurableRecoverySlotReceipt;
 
     fn reserve_launch(
         &mut self,
@@ -454,9 +626,11 @@ pub trait SystemServiceLaunchOwner {
         package: &VerifiedServicePackageBinding<'_>,
     ) -> Result<Self::Lifecycle, ReservationError>;
 
+    /// Spawn from the exact A admission built for this reservation. Use
+    /// the same scope object for C3 spawn and endpoint proof issuance.
     fn launch_and_authenticate(
         &mut self,
-        metadata: &SystemServiceLaunchMetadata,
+        admission: &SystemServiceRecoveryAdmission,
         package: &VerifiedServicePackageBinding<'_>,
         lifecycle: &mut Self::Lifecycle,
     ) -> Result<SystemServiceEndpointOwnerProof, LaunchPortError>;
@@ -468,7 +642,7 @@ pub trait SystemServiceLaunchOwner {
     /// token rather than permit a retry. C3 owns all Supervisor mutation.
     fn finish_exact(
         &mut self,
-        metadata: &SystemServiceLaunchMetadata,
+        admission: &SystemServiceRecoveryAdmission,
         lifecycle: Self::Lifecycle,
         proof: Option<&SystemServiceEndpointOwnerProof>,
     ) -> LifecycleFinish<Self::Lifecycle>;
@@ -490,8 +664,9 @@ pub trait SystemServiceLaunchOwner {
     fn with_reconciliation_gate<R>(
         &mut self,
         admission: &SystemServiceRecoveryAdmission,
+        claim: C1RecoveryOperationCorrelation,
         reconcile: impl FnOnce() -> R,
-    ) -> Result<R, LaunchPortError>;
+    ) -> Result<(R, Self::RecoveryReceipt), LaunchPortError>;
 }
 
 pub enum LifecycleFinish<L> {
@@ -594,21 +769,31 @@ pub struct SystemServiceReconciliationGate<'owner, O: SystemServiceLaunchOwner> 
     used: bool,
     successful: bool,
     protocol_violation: bool,
+    receipt: Option<O::RecoveryReceipt>,
 }
 
 impl<O: SystemServiceLaunchOwner> SystemServiceReconciliationGate<'_, O> {
-    pub fn run<R>(&mut self, reconcile: impl FnOnce() -> R) -> Result<R, LaunchPortError> {
-        if self.used {
+    pub fn run<R>(
+        &mut self,
+        claim: C1RecoveryOperationCorrelation,
+        reconcile: impl FnOnce() -> R,
+    ) -> Result<R, LaunchPortError> {
+        if self.used || claim.binding_digest() != self.admission.scope().binding_digest() {
             self.protocol_violation = true;
             return Err(LaunchPortError::Rejected);
         }
         self.used = true;
         match self
             .owner
-            .with_reconciliation_gate(self.admission, reconcile)
+            .with_reconciliation_gate(self.admission, claim, reconcile)
         {
-            Ok(result) => {
+            Ok((result, receipt)) => {
+                if receipt.c1_operation_id() != Some(claim.operation_id()) {
+                    self.protocol_violation = true;
+                    return Err(LaunchPortError::OutcomeUnknown);
+                }
                 self.successful = true;
+                self.receipt = Some(receipt);
                 Ok(result)
             }
             Err(error) => Err(error),
@@ -626,6 +811,25 @@ impl<O: SystemServiceLaunchOwner> SystemServiceReconciliationGate<'_, O> {
     pub fn protocol_violation(&self) -> bool {
         self.protocol_violation
     }
+
+    fn take_receipt(&mut self) -> Option<O::RecoveryReceipt> {
+        self.receipt.take()
+    }
+}
+
+impl<O: SystemServiceLaunchOwner> C3RecoverySlotGate for SystemServiceReconciliationGate<'_, O> {
+    fn with_reconciliation_gate<R>(
+        &mut self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        claim: C1RecoveryOperationCorrelation,
+        reconcile: impl FnOnce() -> R,
+    ) -> Result<R, RecoveryClientError> {
+        if !core::ptr::eq(scope, self.admission.scope()) {
+            self.protocol_violation = true;
+            return Err(RecoveryClientError::Rejected);
+        }
+        self.run(claim, reconcile).map_err(recovery_client_error)
+    }
 }
 
 /// C1-owned private seal/recovery adapter. The implementation receives one
@@ -636,7 +840,7 @@ impl<O: SystemServiceLaunchOwner> SystemServiceReconciliationGate<'_, O> {
 /// exposes no C3 proof, preventing callback re-entry. This bootstrap operation
 /// is independent of any user Session and must not perform user-session-
 /// protected effects.
-pub trait C1SystemServiceRecoveryClient {
+pub trait C1SystemServiceRecoveryClient: C1RecoveryReceiptClient {
     type Runtime;
 
     fn recover_system_service(
@@ -652,18 +856,6 @@ pub trait C1SystemServiceRecoveryClient {
     fn quarantine_recovery(
         &mut self,
         admission: &SystemServiceRecoveryAdmission,
-    ) -> Result<(), LaunchPortError>;
-
-    /// Reconcile the durable C1 state after C3 has proved that the exact slot
-    /// is stopped or otherwise isolated. The terminal action must invalidate
-    /// any older handle on this live C1 service, or return a sealed proof that
-    /// the old authority remains valid. The C3 gate must use this same sealed
-    /// admission. A does not clear package or process fences without an
-    /// operation-bound terminal receipt.
-    fn reconcile_recovery<O: SystemServiceLaunchOwner>(
-        &mut self,
-        admission: &SystemServiceRecoveryAdmission,
-        gate: &mut SystemServiceReconciliationGate<'_, O>,
     ) -> Result<(), LaunchPortError>;
 }
 
@@ -855,9 +1047,8 @@ fn finish_lifecycle<O: SystemServiceLaunchOwner, I: C1SystemServiceRecoveryClien
     admission: &SystemServiceRecoveryAdmission,
     package: Option<VerifiedServicePackageBinding<'_>>,
 ) -> Result<(), LaunchError> {
-    let metadata = descriptor.launch_metadata();
     match catch_unwind(AssertUnwindSafe(|| {
-        owner.finish_exact(&metadata, lifecycle, proof)
+        owner.finish_exact(admission, lifecycle, proof)
     })) {
         Ok(LifecycleFinish::StoppedAndRevoked) => {
             drop(package);
@@ -968,6 +1159,68 @@ where
     O: SystemServiceLaunchOwner,
     I: C1SystemServiceRecoveryClient,
 {
+    launch_identity_service_with_package(
+        descriptor_json,
+        |_| Ok(Cow::Borrowed(package_bytes)),
+        package_owner,
+        catalog,
+        preflight,
+        owner,
+        identity,
+    )
+}
+
+/// Launch using the signed package from the boot-selected durable store.
+/// The caller supplies the authenticated catalog and the same package owner
+/// used to restore that store's inventory.
+pub fn launch_identity_service_from_store<'owner, C, P, O, I>(
+    descriptor_json: &str,
+    blobs: &dyn InstalledPackageBlobStore,
+    package_owner: &'owner PackageServiceSessionOwner<'_>,
+    catalog: &mut C,
+    preflight: &mut P,
+    owner: &'owner mut O,
+    identity: &'owner mut I,
+) -> Result<SystemServiceRuntime<'owner, O, I>, LaunchError>
+where
+    C: TrustedSystemServiceCatalog,
+    P: ArtifactPreflight,
+    O: SystemServiceLaunchOwner,
+    I: C1SystemServiceRecoveryClient,
+{
+    launch_identity_service_with_package(
+        descriptor_json,
+        |descriptor| {
+            package_owner
+                .read_installed_system_service_package(descriptor.package_id().as_bytes(), blobs)
+                .map(Cow::Owned)
+                .map_err(PackageBindingError::Owner)
+        },
+        package_owner,
+        catalog,
+        preflight,
+        owner,
+        identity,
+    )
+}
+
+fn launch_identity_service_with_package<'owner, 'package, C, P, O, I>(
+    descriptor_json: &str,
+    read_package: impl FnOnce(
+        &ValidatedSystemServiceDescriptor,
+    ) -> Result<Cow<'package, [u8]>, PackageBindingError>,
+    package_owner: &'owner PackageServiceSessionOwner<'_>,
+    catalog: &mut C,
+    preflight: &mut P,
+    owner: &'owner mut O,
+    identity: &'owner mut I,
+) -> Result<SystemServiceRuntime<'owner, O, I>, LaunchError>
+where
+    C: TrustedSystemServiceCatalog,
+    P: ArtifactPreflight,
+    O: SystemServiceLaunchOwner,
+    I: C1SystemServiceRecoveryClient,
+{
     let descriptor = validate_descriptor_json(descriptor_json).map_err(LaunchError::Descriptor)?;
     if is_recovery_blocked(&descriptor) {
         return Err(LaunchError::IdentityRecoveryBlocked(
@@ -988,7 +1241,8 @@ where
     let report = validate_artifact_preflight_report(&report_json, &descriptor)
         .map_err(LaunchError::ArtifactReport)?;
 
-    let package = crate::bind_installed_service_package(&descriptor, package_bytes, package_owner)
+    let package_bytes = read_package(&descriptor).map_err(LaunchError::PackageBinding)?;
+    let package = crate::bind_installed_service_package(&descriptor, &package_bytes, package_owner)
         .map_err(LaunchError::PackageBinding)?;
     if report.artifact_sha256() != package.executable_sha256() {
         return Err(LaunchError::ArtifactReport(
@@ -1031,7 +1285,7 @@ where
     }
 
     let launch = catch_unwind(AssertUnwindSafe(|| {
-        owner.launch_and_authenticate(&launch_metadata, &package, &mut lifecycle)
+        owner.launch_and_authenticate(&admission, &package, &mut lifecycle)
     }));
     let proof = match launch {
         Ok(Ok(proof)) => proof,
@@ -1204,15 +1458,24 @@ where
     O: SystemServiceLaunchOwner,
     I: C1SystemServiceRecoveryClient,
 {
+    let scope = admission.scope();
+    if canonical_recovery_binding_digest_from_scope(scope) != *scope.binding_digest() {
+        block_recovery(admission.descriptor());
+        return Err(LaunchError::RecoveryReceiptMismatch(
+            RecoveryReceiptMismatch::NonCanonicalScopeBinding,
+            admission.clone(),
+        ));
+    }
     let mut gate = SystemServiceReconciliationGate {
         owner,
         admission,
         used: false,
         successful: false,
         protocol_violation: false,
+        receipt: None,
     };
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        identity.reconcile_recovery(admission, &mut gate)
+    let terminal_receipt = catch_unwind(AssertUnwindSafe(|| {
+        identity.reconcile_terminal(scope, &mut gate)
     }))
     .map_err(|_| {
         block_recovery(admission.descriptor());
@@ -1220,9 +1483,8 @@ where
     })?
     .map_err(|error| {
         block_recovery(admission.descriptor());
-        LaunchError::RecoveryReconciliation(error)
+        LaunchError::RecoveryReconciliation(error.into())
     })?;
-    let _ = result;
     if !gate.was_used() || !gate.was_successful() || gate.protocol_violation() {
         block_recovery(admission.descriptor());
         return Err(LaunchError::RecoveryGateNotUsed);
@@ -1230,6 +1492,30 @@ where
     if package_owner.is_quarantined() {
         block_recovery(admission.descriptor());
         return Err(LaunchError::PackageQuarantineReleaseUnavailable(
+            admission.clone(),
+        ));
+    }
+    let Some(slot_receipt) = gate.take_receipt() else {
+        block_recovery(admission.descriptor());
+        return Err(LaunchError::RecoveryTerminalReceiptUnavailable(
+            admission.clone(),
+        ));
+    };
+    if let Err(mismatch) = nagi_system_service_recovery_contract::validate_recovery_receipts(
+        scope,
+        &terminal_receipt,
+        &slot_receipt,
+    ) {
+        block_recovery(admission.descriptor());
+        return Err(LaunchError::RecoveryReceiptMismatch(
+            mismatch,
+            admission.clone(),
+        ));
+    }
+    if let Err(error) = identity.consume_terminal_receipt(scope, terminal_receipt) {
+        block_recovery(admission.descriptor());
+        return Err(LaunchError::RecoveryReceiptConsumptionFailed(
+            error.into(),
             admission.clone(),
         ));
     }
@@ -1246,6 +1532,7 @@ fn validate_lifecycle_binding(
     if runtime.slot_key() != &SystemServiceRuntimeSlotKey::new(descriptor.service_id())
         || runtime.role() != descriptor.role()
         || runtime.catalog_generation() != descriptor.generation()
+        || runtime.transition() != descriptor.transition()
     {
         return Err(ProofValidationError::WrongServiceBinding);
     }
@@ -1277,6 +1564,12 @@ fn validate_owner_proof(
         return Err(ProofValidationError::WrongVersion);
     }
     validate_lifecycle_binding(descriptor, package, lifecycle)?;
+    let slot = proof.service_slot_identity();
+    if slot.service_id() != descriptor.service_id().as_str()
+        || slot.catalog_generation() != descriptor.generation()
+    {
+        return Err(ProofValidationError::WrongServiceBinding);
+    }
     if proof.launch_generation() != lifecycle.runtime_slot_binding().c3_launch_generation() {
         return Err(ProofValidationError::WrongC3LaunchGeneration);
     }
@@ -1300,28 +1593,44 @@ fn validate_owner_proof(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::{bind_installed_service_package, GenerationTransition, SYSTEM_SERVICE_TARGET};
     use ed25519_dalek::{Signer, SigningKey};
     use nagi_capability::PrincipalKind;
-    use nagi_init_package_provider::package_trust::{
-        InstalledPackageDigestIndex, InstalledPackageDigestIndexError,
-        InstalledPackageDigestRecord, PackageServiceSessionOwner,
+    use nagi_init_package_provider::{
+        linux_package_persistence::LinuxInstalledPackagePersistence,
+        package_trust::{InstalledPackageDigestIndex, PackageServiceSessionOwner},
     };
     use nagi_package::{
         build_xapp, InstallPolicy, PackageService, PackageView, MAX_PACKAGE_BYTES, SIGNATURE_BYTES,
         TRUSTED_SIGNING_PUBLIC_KEY,
     };
+    use nagi_system_service_recovery_contract::{
+        C1RecoveryReceiptClient, C1RecoveryTerminalReceipt, C3RecoverySlotGate,
+        C3RecoverySlotState, RecoveryClientError,
+    };
     use serde_json::{json, Value};
     use sha2::{Digest, Sha256};
-    use std::fs::OpenOptions;
+    use std::fs::{self, File, OpenOptions};
     use std::io::Write;
+    use std::os::unix::fs::MetadataExt;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    fn test_claim(
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        operation_id: u64,
+    ) -> C1RecoveryOperationCorrelation {
+        C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(operation_id).unwrap(),
+            *scope.binding_digest(),
+        )
+    }
+
     static NEXT_ARTIFACT_TEST_PATH: AtomicUsize = AtomicUsize::new(0);
+    static NEXT_PACKAGE_STORE_PATH: AtomicUsize = AtomicUsize::new(0);
     static RECOVERY_STATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn recovery_state_test_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -1338,32 +1647,128 @@ mod tests {
     ];
     const FIXTURE_MANIFEST: &[u8] =
         b"id=org.nagi.fixture\nname=Fixture\nversion=1.0.0\nentry=fixture.elf\nsurfaces=compact\n";
+    static ALTERNATE_SCOPE_DIGEST: [u8; 32] = [0xa5; 32];
 
-    #[derive(Default)]
-    struct TestDigestIndex {
-        records: Vec<InstalledPackageDigestRecord>,
+    struct AlternatingScope {
+        admission: SystemServiceRecoveryAdmission,
+        binding_digest_reads: AtomicUsize,
     }
 
-    impl InstalledPackageDigestIndex for TestDigestIndex {
-        fn replace_snapshot(
-            &mut self,
-            records: &[InstalledPackageDigestRecord],
-        ) -> Result<(), InstalledPackageDigestIndexError> {
-            self.records = records.to_vec();
-            Ok(())
+    impl AlternatingScope {
+        fn base(&self) -> &dyn SystemServiceRecoveryAdmissionScope {
+            self.admission.scope()
+        }
+    }
+
+    impl SystemServiceRecoveryAdmissionScope for AlternatingScope {
+        fn service_id(&self) -> &str {
+            self.base().service_id()
         }
 
-        fn read_snapshot(
-            &self,
-            output: &mut [Option<InstalledPackageDigestRecord>],
-        ) -> Result<usize, InstalledPackageDigestIndexError> {
-            if output.len() < self.records.len() {
-                return Err(InstalledPackageDigestIndexError::Failed);
+        fn principal_id(&self) -> &str {
+            self.base().principal_id()
+        }
+
+        fn caller_context_id(&self) -> &str {
+            self.base().caller_context_id()
+        }
+
+        fn mapping_generation(&self) -> NonZeroU64 {
+            self.base().mapping_generation()
+        }
+
+        fn role(&self) -> &str {
+            self.base().role()
+        }
+
+        fn catalog_generation(&self) -> NonZeroU64 {
+            self.base().catalog_generation()
+        }
+
+        fn transition(&self) -> RecoveryLifecycleTransition {
+            self.base().transition()
+        }
+
+        fn package_id(&self) -> &str {
+            self.base().package_id()
+        }
+
+        fn package_app_id(&self) -> u64 {
+            self.base().package_app_id()
+        }
+
+        fn canonical_entry(&self) -> &str {
+            self.base().canonical_entry()
+        }
+
+        fn signed_package_sha256(&self) -> &[u8; 32] {
+            self.base().signed_package_sha256()
+        }
+
+        fn executable_sha256(&self) -> &[u8; 32] {
+            self.base().executable_sha256()
+        }
+
+        fn package_generation(&self) -> u64 {
+            self.base().package_generation()
+        }
+
+        fn c3_launch_generation(&self) -> NonZeroU64 {
+            self.base().c3_launch_generation()
+        }
+
+        fn credentials(&self) -> (u32, u32) {
+            self.base().credentials()
+        }
+
+        fn binding_digest(&self) -> &[u8; 32] {
+            if self.binding_digest_reads.fetch_add(1, Ordering::SeqCst) % 2 == 0 {
+                self.base().binding_digest()
+            } else {
+                &ALTERNATE_SCOPE_DIGEST
             }
-            for (destination, record) in output.iter_mut().zip(self.records.iter().copied()) {
-                *destination = Some(record);
+        }
+    }
+
+    struct TestPackagePersistence {
+        path: PathBuf,
+        index: Option<LinuxInstalledPackagePersistence>,
+    }
+
+    impl TestPackagePersistence {
+        fn new() -> Self {
+            let serial = NEXT_PACKAGE_STORE_PATH.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "nagi-package-store-test-{}-{serial}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create isolated package store directory");
+            let root = File::open(&path).expect("open isolated package store directory");
+            let owner_uid = root
+                .metadata()
+                .expect("read isolated package store metadata")
+                .uid();
+            let index = LinuxInstalledPackagePersistence::from_trusted_directory(root, owner_uid)
+                .expect("adopt isolated package store directory");
+            Self {
+                path,
+                index: Some(index),
             }
-            Ok(self.records.len())
+        }
+
+        fn index(&self) -> &LinuxInstalledPackagePersistence {
+            self.index.as_ref().expect("package store is live")
+        }
+
+        fn index_mut(&mut self) -> &mut LinuxInstalledPackagePersistence {
+            self.index.as_mut().expect("package store is live")
+        }
+    }
+
+    impl Drop for TestPackagePersistence {
+        fn drop(&mut self) {
+            drop(self.index.take());
+            let _ = fs::remove_dir_all(&self.path);
         }
     }
 
@@ -1451,6 +1856,7 @@ mod tests {
     }
 
     fn installed_fixture_owner(package_bytes: &[u8]) -> PackageServiceSessionOwner<'static> {
+        let mut persistence = TestPackagePersistence::new();
         let mut owner = PackageServiceSessionOwner::new(
             Some(&TRUSTED_SIGNING_PUBLIC_KEY),
             PackageService::new(),
@@ -1462,10 +1868,27 @@ mod tests {
                     developer_mode: false,
                     require_signature: true,
                 },
-                &mut TestDigestIndex::default(),
+                persistence.index_mut(),
             )
             .expect("install and read back the fixture digest index");
         owner
+    }
+
+    #[test]
+    fn linux_package_persistence_commits_and_reads_empty_snapshot() {
+        let mut persistence = TestPackagePersistence::new();
+        let commit = persistence
+            .index_mut()
+            .replace_snapshot(&[])
+            .expect("commit empty package snapshot");
+        drop(commit);
+        let mut records = [None; nagi_package::MAX_SLOTS];
+        let readback = persistence
+            .index()
+            .read_snapshot(&mut records)
+            .expect("read empty package snapshot");
+        drop(readback);
+        assert!(records.iter().all(Option::is_none));
     }
 
     fn empty_package_owner() -> PackageServiceSessionOwner<'static> {
@@ -1758,7 +2181,7 @@ mod tests {
         let digest_a = digest_hex(executable_a);
         let descriptor_a = validate_descriptor_json(&descriptor_with_digest(&digest_a)).unwrap();
 
-        let mut index = TestDigestIndex::default();
+        let mut index = TestPackagePersistence::new();
         let mut owner = PackageServiceSessionOwner::new(
             Some(&TRUSTED_SIGNING_PUBLIC_KEY),
             PackageService::new(),
@@ -1770,7 +2193,7 @@ mod tests {
                     developer_mode: false,
                     require_signature: true,
                 },
-                &mut index,
+                index.index_mut(),
             )
             .unwrap();
         owner
@@ -1780,7 +2203,7 @@ mod tests {
                     developer_mode: false,
                     require_signature: true,
                 },
-                &mut index,
+                index.index_mut(),
             )
             .unwrap();
         assert_eq!(
@@ -1848,6 +2271,43 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_binding_rejects_initial_replace_transition_mismatch_both_ways() {
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let package_owner = installed_fixture_owner(&package_bytes);
+        let digest = digest_hex(executable);
+        let initial = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        let mut replace_json: Value =
+            serde_json::from_str(&descriptor_with_digest(&digest)).unwrap();
+        replace_json["lifecycle"] = json!({ "mode": "replace", "previous_generation": 8 });
+        let replace = validate_descriptor_json(&replace_json.to_string()).unwrap();
+        let binding =
+            bind_installed_service_package(&initial, &package_bytes, &package_owner).unwrap();
+        let (mut _catalog, _preflight, mut owner, _identity) = launch_ports();
+
+        let replace_reservation = TestLifecycle {
+            runtime_slot_binding: SystemServiceRuntimeSlotBinding::for_c3_reservation(
+                &replace.launch_metadata(),
+                &binding,
+                NonZeroU64::new(33).unwrap(),
+            ),
+            process_identity: None,
+        };
+        assert_eq!(
+            validate_lifecycle_binding(&initial, &binding, &replace_reservation),
+            Err(ProofValidationError::WrongServiceBinding)
+        );
+
+        let initial_reservation = owner
+            .reserve_launch(&initial.launch_metadata(), &binding)
+            .unwrap();
+        assert_eq!(
+            validate_lifecycle_binding(&replace, &binding, &initial_reservation),
+            Err(ProofValidationError::WrongServiceBinding)
+        );
+    }
+
+    #[test]
     fn recovery_fence_covers_the_canonical_service_slot_across_catalog_generations() {
         let _guard = recovery_state_test_guard();
         let first = validate_descriptor_json(&valid_descriptor().to_string()).unwrap();
@@ -1902,6 +2362,35 @@ mod tests {
         assert_eq!(admission.c3_launch_generation().get(), 33);
         assert_eq!(admission.package_generation(), 1);
 
+        let launch_scope_address =
+            admission.scope() as *const dyn SystemServiceRecoveryAdmissionScope as *const ();
+        let runtime_storage = Box::new(admission);
+        let admission = *runtime_storage;
+        assert_eq!(
+            admission.scope() as *const dyn SystemServiceRecoveryAdmissionScope as *const (),
+            launch_scope_address
+        );
+        let cloned_admission = admission.clone();
+        let mut c3_owner = launch_ports().2;
+        let mut gate = SystemServiceReconciliationGate {
+            owner: &mut c3_owner,
+            admission: &admission,
+            used: false,
+            successful: false,
+            protocol_violation: false,
+            receipt: None,
+        };
+        assert_eq!(
+            gate.with_reconciliation_gate(
+                cloned_admission.scope(),
+                test_claim(cloned_admission.scope(), 1),
+                || (),
+            ),
+            Err(RecoveryClientError::Rejected)
+        );
+        assert!(!gate.was_used());
+        assert!(gate.protocol_violation());
+
         assert_eq!(
             SystemServiceRecoveryAdmission::for_reconciliation(
                 catalog_binding.clone(),
@@ -1938,6 +2427,61 @@ mod tests {
             .err(),
             Some(SystemServiceAdmissionError::SignedPackageDigestMismatch)
         );
+    }
+
+    #[test]
+    fn a_b_a_trait_scope_is_rejected_before_c3_gate_observes_it() {
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let package_owner = installed_fixture_owner(&package_bytes);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut catalog = Catalog {
+            error: None,
+            calls: AtomicUsize::new(0),
+        };
+        let admission = SystemServiceRecoveryAdmission::for_reconciliation(
+            catalog.authenticate(&descriptor).unwrap(),
+            &binding,
+            NonZeroU64::new(33).unwrap(),
+            NonZeroU64::new(3).unwrap(),
+            1,
+            *binding.signed_package_sha256(),
+        )
+        .unwrap();
+        let scope = AlternatingScope {
+            admission: admission.clone(),
+            binding_digest_reads: AtomicUsize::new(0),
+        };
+        let original_digest = *admission.scope().binding_digest();
+
+        // The alternate trait view visibly changes A -> B -> A on reread.
+        assert_eq!(*scope.binding_digest(), original_digest);
+        assert_eq!(*scope.binding_digest(), ALTERNATE_SCOPE_DIGEST);
+        assert_eq!(*scope.binding_digest(), original_digest);
+
+        let mut c3_owner = launch_ports().2;
+        let mut gate = SystemServiceReconciliationGate {
+            owner: &mut c3_owner,
+            admission: &admission,
+            used: false,
+            successful: false,
+            protocol_violation: false,
+            receipt: None,
+        };
+        let mut callback_called = false;
+        assert_eq!(
+            gate.with_reconciliation_gate(&scope, test_claim(admission.scope(), 1), || {
+                callback_called = true
+            },),
+            Err(RecoveryClientError::Rejected)
+        );
+        assert_eq!(scope.binding_digest_reads.load(Ordering::SeqCst), 3);
+        assert!(!callback_called);
+        assert!(!gate.was_used());
+        assert!(gate.protocol_violation());
     }
 
     struct Catalog {
@@ -1994,6 +2538,41 @@ mod tests {
         launched_executable: Option<Vec<u8>>,
     }
 
+    struct TestC3RecoveryReceipt {
+        c1_operation_id: NonZeroU64,
+        service_id: String,
+        catalog_generation: u64,
+        c3_launch_generation: u64,
+        binding_digest: [u8; 32],
+        state: C3RecoverySlotState,
+    }
+
+    impl C3DurableRecoverySlotReceipt for TestC3RecoveryReceipt {
+        fn c1_operation_id(&self) -> Option<NonZeroU64> {
+            Some(self.c1_operation_id)
+        }
+
+        fn service_id(&self) -> &str {
+            &self.service_id
+        }
+
+        fn catalog_generation(&self) -> u64 {
+            self.catalog_generation
+        }
+
+        fn c3_launch_generation(&self) -> u64 {
+            self.c3_launch_generation
+        }
+
+        fn scope_binding_digest(&self) -> &[u8; 32] {
+            &self.binding_digest
+        }
+
+        fn state(&self) -> C3RecoverySlotState {
+            self.state
+        }
+    }
+
     struct TestLifecycle {
         runtime_slot_binding: SystemServiceRuntimeSlotBinding,
         process_identity: Option<SpawnedProcessIdentity>,
@@ -2019,6 +2598,7 @@ mod tests {
 
     impl SystemServiceLaunchOwner for Owner {
         type Lifecycle = TestLifecycle;
+        type RecoveryReceipt = TestC3RecoveryReceipt;
 
         fn reserve_launch(
             &mut self,
@@ -2037,11 +2617,12 @@ mod tests {
 
         fn launch_and_authenticate(
             &mut self,
-            metadata: &SystemServiceLaunchMetadata,
+            admission: &SystemServiceRecoveryAdmission,
             package: &VerifiedServicePackageBinding<'_>,
             _lifecycle: &mut Self::Lifecycle,
         ) -> Result<SystemServiceEndpointOwnerProof, LaunchPortError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            let metadata = admission.descriptor().launch_metadata();
             assert_eq!(package.package_id(), metadata.package_id());
             assert_eq!(package.canonical_entry(), metadata.canonical_entry());
             assert_eq!(package.executable_sha256(), metadata.expected_sha256());
@@ -2061,7 +2642,7 @@ mod tests {
 
         fn finish_exact(
             &mut self,
-            _metadata: &SystemServiceLaunchMetadata,
+            _admission: &SystemServiceRecoveryAdmission,
             lifecycle: Self::Lifecycle,
             _proof: Option<&SystemServiceEndpointOwnerProof>,
         ) -> LifecycleFinish<Self::Lifecycle> {
@@ -2084,10 +2665,22 @@ mod tests {
 
         fn with_reconciliation_gate<R>(
             &mut self,
-            _admission: &SystemServiceRecoveryAdmission,
+            admission: &SystemServiceRecoveryAdmission,
+            claim: C1RecoveryOperationCorrelation,
             reconcile: impl FnOnce() -> R,
-        ) -> Result<R, LaunchPortError> {
-            Ok(reconcile())
+        ) -> Result<(R, Self::RecoveryReceipt), LaunchPortError> {
+            let scope = admission.scope();
+            Ok((
+                reconcile(),
+                TestC3RecoveryReceipt {
+                    c1_operation_id: claim.operation_id(),
+                    service_id: scope.service_id().to_owned(),
+                    catalog_generation: scope.catalog_generation().get(),
+                    c3_launch_generation: scope.c3_launch_generation().get(),
+                    binding_digest: *scope.binding_digest(),
+                    state: C3RecoverySlotState::ClearedAndAbsent,
+                },
+            ))
         }
     }
 
@@ -2106,6 +2699,26 @@ mod tests {
     struct Identity {
         calls: AtomicUsize,
         quarantines: AtomicUsize,
+    }
+
+    struct TestC1TerminalReceipt {
+        operation_id: u64,
+        binding_digest: [u8; 32],
+        outcome_digest: [u8; 32],
+    }
+
+    impl C1RecoveryTerminalReceipt for TestC1TerminalReceipt {
+        fn operation_id(&self) -> u64 {
+            self.operation_id
+        }
+
+        fn binding_digest(&self) -> &[u8; 32] {
+            &self.binding_digest
+        }
+
+        fn outcome_digest(&self) -> [u8; 32] {
+            self.outcome_digest
+        }
     }
 
     impl C1SystemServiceRecoveryClient for Identity {
@@ -2128,15 +2741,188 @@ mod tests {
             self.quarantines.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
+    }
 
-        fn reconcile_recovery<O: SystemServiceLaunchOwner>(
+    impl C1RecoveryReceiptClient for Identity {
+        type Receipt = TestC1TerminalReceipt;
+
+        fn reconcile_terminal<G: C3RecoverySlotGate>(
+            &mut self,
+            scope: &dyn SystemServiceRecoveryAdmissionScope,
+            gate: &mut G,
+        ) -> Result<Self::Receipt, RecoveryClientError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            gate.with_reconciliation_gate(scope, test_claim(scope, 1), || ())?;
+            Ok(TestC1TerminalReceipt {
+                operation_id: 0,
+                binding_digest: *scope.binding_digest(),
+                outcome_digest: [0x31; 32],
+            })
+        }
+
+        fn consume_terminal_receipt(
+            &mut self,
+            _scope: &dyn SystemServiceRecoveryAdmissionScope,
+            _receipt: Self::Receipt,
+        ) -> Result<(), RecoveryClientError> {
+            Err(RecoveryClientError::Rejected)
+        }
+    }
+
+    struct WrongOperationIdentity;
+
+    impl C1SystemServiceRecoveryClient for WrongOperationIdentity {
+        type Runtime = TestRuntime;
+
+        fn recover_system_service(
             &mut self,
             _admission: &SystemServiceRecoveryAdmission,
-            gate: &mut SystemServiceReconciliationGate<'_, O>,
+            _package: &VerifiedServicePackageBinding<'_>,
+            _gate: &mut SystemServiceRecoveryGate<'_>,
+        ) -> Result<Self::Runtime, C1RecoveryFailure> {
+            unreachable!("reconciliation-only test client")
+        }
+
+        fn quarantine_recovery(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
         ) -> Result<(), LaunchPortError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            gate.run(|| ())?;
             Ok(())
+        }
+    }
+
+    impl C1RecoveryReceiptClient for WrongOperationIdentity {
+        type Receipt = TestC1TerminalReceipt;
+
+        fn reconcile_terminal<G: C3RecoverySlotGate>(
+            &mut self,
+            scope: &dyn SystemServiceRecoveryAdmissionScope,
+            gate: &mut G,
+        ) -> Result<Self::Receipt, RecoveryClientError> {
+            gate.with_reconciliation_gate(scope, test_claim(scope, 2), || ())?;
+            Ok(TestC1TerminalReceipt {
+                operation_id: 2,
+                binding_digest: *scope.binding_digest(),
+                outcome_digest: [0x52; 32],
+            })
+        }
+
+        fn consume_terminal_receipt(
+            &mut self,
+            _scope: &dyn SystemServiceRecoveryAdmissionScope,
+            receipt: Self::Receipt,
+        ) -> Result<(), RecoveryClientError> {
+            if receipt.operation_id == 1 {
+                Ok(())
+            } else {
+                Err(RecoveryClientError::Rejected)
+            }
+        }
+    }
+
+    struct ConsumingIdentity {
+        consumed: AtomicUsize,
+    }
+
+    struct PostClosureUnknownIdentity {
+        fenced: bool,
+    }
+
+    impl C1SystemServiceRecoveryClient for ConsumingIdentity {
+        type Runtime = TestRuntime;
+
+        fn recover_system_service(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
+            _package: &VerifiedServicePackageBinding<'_>,
+            _gate: &mut SystemServiceRecoveryGate<'_>,
+        ) -> Result<Self::Runtime, C1RecoveryFailure> {
+            unreachable!("reconciliation-only test client")
+        }
+
+        fn quarantine_recovery(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
+        ) -> Result<(), LaunchPortError> {
+            Ok(())
+        }
+    }
+
+    impl C1RecoveryReceiptClient for ConsumingIdentity {
+        type Receipt = TestC1TerminalReceipt;
+
+        fn reconcile_terminal<G: C3RecoverySlotGate>(
+            &mut self,
+            scope: &dyn SystemServiceRecoveryAdmissionScope,
+            gate: &mut G,
+        ) -> Result<Self::Receipt, RecoveryClientError> {
+            gate.with_reconciliation_gate(scope, test_claim(scope, 1), || ())?;
+            Ok(TestC1TerminalReceipt {
+                operation_id: 1,
+                binding_digest: *scope.binding_digest(),
+                outcome_digest: [0x61; 32],
+            })
+        }
+
+        fn consume_terminal_receipt(
+            &mut self,
+            scope: &dyn SystemServiceRecoveryAdmissionScope,
+            receipt: Self::Receipt,
+        ) -> Result<(), RecoveryClientError> {
+            if receipt.operation_id == 1
+                && receipt.binding_digest == *scope.binding_digest()
+                && receipt.outcome_digest == [0x61; 32]
+            {
+                self.consumed.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            } else {
+                Err(RecoveryClientError::Rejected)
+            }
+        }
+    }
+
+    impl C1SystemServiceRecoveryClient for PostClosureUnknownIdentity {
+        type Runtime = TestRuntime;
+
+        fn recover_system_service(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
+            _package: &VerifiedServicePackageBinding<'_>,
+            _gate: &mut SystemServiceRecoveryGate<'_>,
+        ) -> Result<Self::Runtime, C1RecoveryFailure> {
+            unreachable!("reconciliation-only test client")
+        }
+
+        fn quarantine_recovery(
+            &mut self,
+            _admission: &SystemServiceRecoveryAdmission,
+        ) -> Result<(), LaunchPortError> {
+            self.fenced = true;
+            Ok(())
+        }
+    }
+
+    impl C1RecoveryReceiptClient for PostClosureUnknownIdentity {
+        type Receipt = TestC1TerminalReceipt;
+
+        fn reconcile_terminal<G: C3RecoverySlotGate>(
+            &mut self,
+            scope: &dyn SystemServiceRecoveryAdmissionScope,
+            gate: &mut G,
+        ) -> Result<Self::Receipt, RecoveryClientError> {
+            gate.with_reconciliation_gate(scope, test_claim(scope, 1), || ())?;
+            // Model a C1 terminal write whose durable result cannot be read
+            // back. The C1-side fence remains closed and no receipt escapes.
+            self.fenced = true;
+            Err(RecoveryClientError::OutcomeUnknown)
+        }
+
+        fn consume_terminal_receipt(
+            &mut self,
+            _scope: &dyn SystemServiceRecoveryAdmissionScope,
+            _receipt: Self::Receipt,
+        ) -> Result<(), RecoveryClientError> {
+            panic!("unknown terminal outcome must not produce a receipt")
         }
     }
 
@@ -2259,6 +3045,57 @@ mod tests {
     }
 
     #[test]
+    fn boot_launch_uses_the_installed_package_from_the_reopened_store() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let bytes = fixture_package(executable);
+        let mut persistence = TestPackagePersistence::new();
+        let root = File::open(&persistence.path).unwrap();
+        let owner_uid = root.metadata().unwrap().uid();
+        let mut blobs =
+            LinuxInstalledPackagePersistence::from_trusted_directory(root, owner_uid).unwrap();
+        let policy = InstallPolicy {
+            developer_mode: false,
+            require_signature: true,
+        };
+        PackageServiceSessionOwner::new(Some(&TRUSTED_SIGNING_PUBLIC_KEY), PackageService::new())
+            .install_with_persistent_storage(&bytes, policy, &mut blobs, persistence.index_mut())
+            .unwrap();
+        drop(bytes);
+        drop(blobs);
+
+        let blobs = LinuxInstalledPackagePersistence::from_trusted_directory(
+            File::open(&persistence.path).unwrap(),
+            owner_uid,
+        )
+        .unwrap();
+        let package_owner = PackageServiceSessionOwner::restore_from_persistent_storage(
+            Some(&TRUSTED_SIGNING_PUBLIC_KEY),
+            policy,
+            &blobs,
+            persistence.index(),
+        )
+        .unwrap();
+        let (mut catalog, mut preflight, mut owner, mut identity) = launch_ports();
+        let digest = digest_hex(executable);
+        preflight.report = report_for_digest(&digest);
+        let result = launch_identity_service_from_store(
+            &descriptor_with_digest(&digest),
+            &blobs,
+            &package_owner,
+            &mut catalog,
+            &mut preflight,
+            &mut owner,
+            &mut identity,
+        );
+        assert_eq!(
+            result.err(),
+            Some(LaunchError::ProcessOwner(LaunchPortError::Unavailable))
+        );
+        assert_eq!(owner.launched_executable.as_deref(), Some(&executable[..]));
+    }
+
+    #[test]
     fn c3_launch_failure_stops_before_c1_recovery() {
         let _guard = recovery_state_test_guard();
         let (mut catalog, mut preflight, mut owner, mut identity) = launch_ports();
@@ -2369,6 +3206,140 @@ mod tests {
             package_owner.capture(&package_bytes, b"org.nagi.fixture"),
             Err(nagi_init_package_provider::package_trust::PackageServiceSessionOwnerError::Quarantined)
         );
+
+        // A reconstructed owner starts unquarantined even though its
+        // inventory and digest index can be restored. The C1 callback and C3
+        // callback success above are still insufficient to clear A's fence:
+        // no operation-bound terminal receipt is connected to this port.
+        let mut restored_index = TestPackagePersistence::new();
+        let mut index_seed_owner = PackageServiceSessionOwner::new(
+            Some(&TRUSTED_SIGNING_PUBLIC_KEY),
+            PackageService::new(),
+        );
+        index_seed_owner
+            .install_with_digest_index(
+                &package_bytes,
+                InstallPolicy {
+                    developer_mode: false,
+                    require_signature: true,
+                },
+                restored_index.index_mut(),
+            )
+            .unwrap();
+        let restored_inventory = PackageService::restore_with_trusted_key(
+            &[(&package_bytes, 1)],
+            InstallPolicy {
+                developer_mode: false,
+                require_signature: true,
+            },
+            &TRUSTED_SIGNING_PUBLIC_KEY,
+        )
+        .unwrap();
+        let mut reconstructed_owner =
+            PackageServiceSessionOwner::new(Some(&TRUSTED_SIGNING_PUBLIC_KEY), restored_inventory);
+        reconstructed_owner
+            .restore_digest_index(restored_index.index())
+            .unwrap();
+        assert!(!reconstructed_owner.is_quarantined());
+        let mut wrong_operation_identity = WrongOperationIdentity;
+        assert_eq!(
+            reconcile_identity_service(
+                &admission,
+                &mut reconstructed_owner,
+                &mut owner,
+                &mut wrong_operation_identity,
+            ),
+            Err(LaunchError::RecoveryReceiptConsumptionFailed(
+                LaunchPortError::Rejected,
+                admission.clone(),
+            ))
+        );
+        assert!(is_recovery_blocked(&descriptor));
+        assert!(!reconstructed_owner.is_quarantined());
+        clear_recovery_block(&descriptor);
+    }
+
+    #[test]
+    fn reconciliation_consumes_exact_terminal_and_c3_receipts_before_clearing_fence() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        clear_recovery_block(&descriptor);
+        block_recovery(&descriptor);
+
+        let mut package_owner = installed_fixture_owner(&package_bytes);
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut catalog = Catalog {
+            error: None,
+            calls: AtomicUsize::new(0),
+        };
+        let admission = SystemServiceRecoveryAdmission::for_reconciliation(
+            catalog.authenticate(&descriptor).unwrap(),
+            &binding,
+            NonZeroU64::new(33).unwrap(),
+            NonZeroU64::new(3).unwrap(),
+            1,
+            *binding.signed_package_sha256(),
+        )
+        .unwrap();
+        let mut owner = launch_ports().2;
+        let mut identity = ConsumingIdentity {
+            consumed: AtomicUsize::new(0),
+        };
+
+        assert_eq!(
+            reconcile_identity_service(&admission, &mut package_owner, &mut owner, &mut identity),
+            Ok(())
+        );
+        assert_eq!(identity.consumed.load(Ordering::SeqCst), 1);
+        assert!(!is_recovery_blocked(&descriptor));
+        assert!(package_owner
+            .capture_for_system_service(&package_bytes, b"org.nagi.fixture")
+            .is_ok());
+        clear_recovery_block(&descriptor);
+    }
+
+    #[test]
+    fn post_closure_unknown_keeps_c1_and_a_recovery_fences() {
+        let _guard = recovery_state_test_guard();
+        let executable = b"fixture system service executable";
+        let package_bytes = fixture_package(executable);
+        let digest = digest_hex(executable);
+        let descriptor = validate_descriptor_json(&descriptor_with_digest(&digest)).unwrap();
+        clear_recovery_block(&descriptor);
+        block_recovery(&descriptor);
+
+        let mut package_owner = installed_fixture_owner(&package_bytes);
+        let binding =
+            bind_installed_service_package(&descriptor, &package_bytes, &package_owner).unwrap();
+        let mut catalog = Catalog {
+            error: None,
+            calls: AtomicUsize::new(0),
+        };
+        let admission = SystemServiceRecoveryAdmission::for_reconciliation(
+            catalog.authenticate(&descriptor).unwrap(),
+            &binding,
+            NonZeroU64::new(33).unwrap(),
+            NonZeroU64::new(3).unwrap(),
+            1,
+            *binding.signed_package_sha256(),
+        )
+        .unwrap();
+        let mut owner = launch_ports().2;
+        let mut identity = PostClosureUnknownIdentity { fenced: false };
+
+        assert_eq!(
+            reconcile_identity_service(&admission, &mut package_owner, &mut owner, &mut identity),
+            Err(LaunchError::RecoveryReconciliation(
+                LaunchPortError::OutcomeUnknown
+            ))
+        );
+        assert!(identity.fenced);
+        assert!(is_recovery_blocked(&descriptor));
+        assert!(!package_owner.is_quarantined());
         clear_recovery_block(&descriptor);
     }
 

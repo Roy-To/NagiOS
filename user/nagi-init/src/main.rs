@@ -1726,11 +1726,18 @@ fn panic(_info: &PanicInfo<'_>) -> ! {
     libnagi::exit(1)
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub mod c3_system_service_recovery;
+
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 // The Linux development adapter has feature-gated process/service entry points;
 // the default `run()` stays fail closed until those suppliers are connected.
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 mod linux_init;
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod profile_volume_notes_owner;
 
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
