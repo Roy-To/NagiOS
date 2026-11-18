@@ -400,6 +400,17 @@ mod linux_initial_login_owner;
 #[path = "linux_initial_login_c2.rs"]
 mod linux_initial_login_c2;
 
+#[cfg(all(
+    linux_boot_identity_runtime,
+    linux_boot_owner_registration,
+    feature = "desktop-login",
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "linux_owner_registration_console.rs"]
+mod linux_owner_registration_console;
+
 pub(crate) fn run() -> ExitCode {
     if std::process::id() != 1 {
         pid1_log!("nagi-init: refusing Linux init entry outside PID 1");
@@ -6217,22 +6228,64 @@ fn validate_notes_desktop_input(
     }
 }
 
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
 const NOTES_INPUT_KEY_CODES: [u16; 5] = [15, 28, 30, 31, 57]; // Tab, Enter, A, S, Space.
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
 const NOTES_INPUT_KEY_MAX: usize = 0x2ff;
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
 const NOTES_INPUT_KEY_BITMAP_BYTES: usize = (NOTES_INPUT_KEY_MAX + 8) / 8;
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
 const NOTES_INPUT_O_NOFOLLOW: i32 = 0x0002_0000;
 
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
 const fn notes_event_ioctl_request(number: u32, size: usize) -> std::os::raw::c_ulong {
     ((2u64 << 30) | ((size as u64) << 16) | ((b'E' as u64) << 8) | number as u64) as _
 }
 
-#[cfg(all(linux_desktop_dev_smoke, target_os = "linux", target_arch = "x86_64"))]
-fn select_notes_keyboard_device() -> Result<String, BackendError> {
+#[cfg(all(
+    any(
+        linux_desktop_dev_smoke,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+fn select_development_keyboard() -> Result<(String, std::fs::File), BackendError> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 
@@ -6292,6 +6345,14 @@ fn select_notes_keyboard_device() -> Result<String, BackendError> {
         let mut options = std::fs::OpenOptions::new();
         options.read(true).custom_flags(NOTES_INPUT_O_NOFOLLOW);
         let device = options.open(&path).map_err(|_| BackendError::Unavailable)?;
+        let opened = device.metadata().map_err(|_| BackendError::Unavailable)?;
+        if !opened.file_type().is_char_device()
+            || opened.uid() != 0
+            || opened.gid() != 0
+            || opened.rdev() != metadata.rdev()
+        {
+            return Err(BackendError::ProtocolViolation);
+        }
         let mut version: std::os::raw::c_int = 0;
         let version_result = unsafe { ioctl(device.as_raw_fd(), EVIOCGVERSION, &mut version) };
         if version_result < 0 || version <= 0 {
@@ -6314,18 +6375,19 @@ fn select_notes_keyboard_device() -> Result<String, BackendError> {
             capabilities[4]
         );
         if capabilities.into_iter().all(|supported| supported) {
-            matches.push((path, sysfs_name));
+            matches.push((path, sysfs_name, device));
         }
     }
 
-    match matches.as_slice() {
-        [(path, sysfs_name)] => {
+    match matches.len() {
+        1 => {
+            let (path, sysfs_name, device) = matches.pop().expect("one keyboard");
             pid1_log!(
                 "nagi-init: selected evdev keyboard path={path} sysfs_name={sysfs_name:?} required_keys=PASS"
             );
-            Ok(path.clone())
+            Ok((path, device))
         }
-        [] => Err(BackendError::Unavailable),
+        0 => Err(BackendError::Unavailable),
         _ => {
             pid1_log!(
                 "nagi-init: refusing ambiguous evdev keyboard selection count={}",
@@ -6496,7 +6558,7 @@ fn prepare_notes_desktop_devices() -> Result<String, BackendError> {
     }
 
     load_notes_framebuffer_modules()?;
-    let keyboard_path = select_notes_keyboard_device()?;
+    let (keyboard_path, _keyboard) = select_development_keyboard()?;
 
     // Keep the Notes child isolated from the Nagi action service's UID. Grant
     // only its disk, uniquely capability-matched keyboard, and framebuffer;
@@ -7295,6 +7357,11 @@ impl InitBackend for UnconnectedBackend {
                                 Ok(mut runtime) => match runtime.verify_continuing_admission() {
                                     Ok(()) => {
                                         pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED; first login unavailable");
+                                        #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+                                        match runtime.run_owner_registration() {
+                                            Ok(()) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_SAVED"),
+                                            Err(error) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_UNAVAILABLE ({error})"),
+                                        }
                                         wait_in_pid1(wait_for_pid1_os_event);
                                     }
                                     Err(error) => pid1_log!(

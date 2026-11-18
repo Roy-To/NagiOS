@@ -455,30 +455,25 @@ pub(crate) enum LinuxRegistrationOutcome<E> {
 #[cfg(all(target_os = "linux", not(nagi_release_build)))]
 #[derive(Debug)]
 pub(crate) enum LinuxRegistrationError<E> {
-    Data(std::io::Error),
     Identity(E),
     Save(nagi_linux_account_verifier::OwnerAccountSaveError),
 }
 
-/// Open the account directory through PID 1's retained Data input before
-/// showing first-run setup. The C1 owner issues the canonical binding only
-/// after the user submits the derived credential.
+/// Use the account verifier retained by PID 1 from the selected Data volume.
+/// The C1 owner receives only the name and issues the canonical binding after
+/// the user submits the form.
 #[cfg(all(target_os = "linux", not(nagi_release_build)))]
-pub(crate) fn selected_data_owner_registration<E>(
-    data: &crate::profile_volume_notes_owner::BootVolumeInput,
-    account_directory: &std::path::Path,
+pub(crate) fn selected_data_owner_registration<'owner, E>(
+    verifier: &'owner nagi_linux_account_verifier::LinuxAccountVerifier,
     locale: Locale,
-    provision: impl FnOnce(
-        &AccountRecord,
-    ) -> Result<nagi_linux_account_verifier::OwnerAccountBinding, E>,
+    provision: impl FnOnce(&[u8]) -> Result<nagi_linux_account_verifier::OwnerAccountBinding, E>
+        + 'owner,
 ) -> Result<
-    LinuxOwnerRegistration<impl FnOnce(AccountRecord) -> Result<(), LinuxRegistrationError<E>>>,
+    LinuxOwnerRegistration<
+        impl FnOnce(AccountRecord) -> Result<(), LinuxRegistrationError<E>> + 'owner,
+    >,
     LinuxRegistrationError<E>,
 > {
-    let verifier = data
-        .selected_data_root()
-        .and_then(|root| root.prepare_account_verifier(account_directory))
-        .map_err(LinuxRegistrationError::Data)?;
     verifier
         .require_unprovisioned_private_directory()
         .map_err(LinuxRegistrationError::Save)?;
@@ -486,7 +481,7 @@ pub(crate) fn selected_data_owner_registration<E>(
         verifier
             .require_unprovisioned_private_directory()
             .map_err(LinuxRegistrationError::Save)?;
-        let binding = provision(&record).map_err(LinuxRegistrationError::Identity)?;
+        let binding = provision(record.name()).map_err(LinuxRegistrationError::Identity)?;
         verifier
             .publish_first_owner(binding, record)
             .map_err(LinuxRegistrationError::Save)
