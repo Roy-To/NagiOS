@@ -2,7 +2,7 @@ use super::super::linux_init_c3_slot_journal::{C3DurableSlotReceipt, C3SlotState
 use super::super::linux_initial_login_c2::C1InitialLoginAuthority;
 use super::super::linux_initial_login_owner::LinuxInitialLoginOwner;
 use super::AuthenticatedBootService;
-use crate::profile_volume_notes_owner::{BootVolumeInput, SelectedDataRoot};
+use crate::profile_volume_notes_owner::BootVolumeInput;
 use nagi_identity_session::{
     C1RecoveryOperationIdentity, C1SystemServiceRecoveryEffectGate,
     C1SystemServiceRecoveryReceiptAdapter, C1SystemServiceRuntimeHandoff,
@@ -16,7 +16,6 @@ use nagi_system_service_recovery_contract::{
     VerifiedRecoveryBootCatalog,
 };
 use std::io;
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 /// Seal the caller while the exact C3 slot is live. The owned principal only
@@ -61,19 +60,23 @@ where
     /// held through the C3 callback and durable receipt validation.
     pub(super) fn with_live_effect<R>(
         &mut self,
-        effect: impl FnOnce() -> R,
+        effect: impl FnOnce() -> io::Result<R>,
     ) -> Result<R, BootIdentityRecoveryError> {
         let admission = self
             .identity
             .enter_runtime_admission(self.boot.recovery_scope())
             .map_err(BootIdentityRecoveryError::Recovery)?;
-        let (result, receipt) = with_correlated_c3_effect(
-            self.boot,
-            admission.scope(),
-            admission.operation_identity(),
-            effect,
-        )
-        .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        let scope = admission.scope();
+        let claim = correlated_c3_claim(self.boot, scope, admission.operation_identity())
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        let (result, receipt) = self
+            .boot
+            .owner
+            .c3
+            .with_durable_live_continuation_gate(scope, &self.boot.proof, claim, effect)
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        require_correlated_live_receipt(scope, claim, &receipt)
+            .map_err(BootIdentityRecoveryError::LiveEffect)?;
         self.receipt = receipt;
         drop(admission);
         Ok(result)
@@ -113,10 +116,7 @@ where
 {
     let caller =
         seal_boot_service_principal(boot, catalog).map_err(BootIdentityRecoveryError::Principal)?;
-    let root = data
-        .selected_data_root()
-        .map_err(BootIdentityRecoveryError::Data)?;
-    let (store, verifier) = open_boot_identity(&root, snapshot_path, account_path)
+    let (store, verifier) = open_boot_identity(data, snapshot_path, account_path)
         .map_err(BootIdentityRecoveryError::Data)?;
     let mut identity = create_identity(store);
     let (handoff, receipt) = recover_boot_identity(boot, &caller, &mut identity)?;
@@ -158,19 +158,26 @@ impl C1SystemServiceRecoveryEffectGate for BootRecoveryGate<'_, '_> {
             return Err(RecoveryEffectGateError::Unavailable);
         }
         self.used = true;
-        let (result, receipt) = with_correlated_c3_effect(self.boot, admission, operation, effect)
+        let claim = correlated_c3_claim(self.boot, scope, operation)
+            .map_err(|_| RecoveryEffectGateError::Unavailable)?;
+        let (result, receipt) = self
+            .boot
+            .owner
+            .c3
+            .with_durable_live_effect_gate(scope, &self.boot.proof, claim, effect)
+            .map_err(|_| RecoveryEffectGateError::Unavailable)?;
+        require_correlated_live_receipt(scope, claim, &receipt)
             .map_err(|_| RecoveryEffectGateError::Unavailable)?;
         self.receipt = Some(receipt);
         Ok(result)
     }
 }
 
-fn with_correlated_c3_effect<R>(
+fn correlated_c3_claim(
     boot: &AuthenticatedBootService<'_>,
     scope: &dyn SystemServiceRecoveryAdmissionScope,
     operation: C1RecoveryOperationIdentity,
-    effect: impl FnOnce() -> R,
-) -> io::Result<(R, C3DurableSlotReceipt)> {
+) -> io::Result<C1RecoveryOperationCorrelation> {
     if !std::ptr::eq(scope, boot.recovery_scope())
         || operation.binding_digest() != scope.binding_digest()
     {
@@ -179,12 +186,17 @@ fn with_correlated_c3_effect<R>(
             "C1 operation does not match the boot admission",
         ));
     }
-    let claim =
-        C1RecoveryOperationCorrelation::new(operation.operation_id(), *operation.binding_digest());
-    let (result, receipt) =
-        boot.owner
-            .c3
-            .with_durable_live_effect_gate(scope, &boot.proof, claim, effect)?;
+    Ok(C1RecoveryOperationCorrelation::new(
+        operation.operation_id(),
+        *operation.binding_digest(),
+    ))
+}
+
+fn require_correlated_live_receipt(
+    scope: &dyn SystemServiceRecoveryAdmissionScope,
+    claim: C1RecoveryOperationCorrelation,
+    receipt: &C3DurableSlotReceipt,
+) -> io::Result<()> {
     if receipt.state() != C3SlotState::Live
         || receipt.c1_operation_id() != Some(claim.operation_id())
         || receipt.service_id() != scope.service_id()
@@ -196,7 +208,7 @@ fn with_correlated_c3_effect<R>(
             "C3 live receipt does not match the C1 operation",
         ));
     }
-    Ok((result, receipt))
+    Ok(())
 }
 
 /// Start recovery after principal issuance releases its gate and retain both
@@ -239,19 +251,11 @@ where
 /// Open the actual C1 snapshot store and retain the verifier on the same
 /// owner-selected Data volume. Both relative paths come from the boot owner.
 pub(super) fn open_boot_identity(
-    data: &SelectedDataRoot,
+    data: &BootVolumeInput,
     snapshot_path: &Path,
     account_path: &Path,
 ) -> io::Result<(LinuxIdentitySnapshotStore, LinuxAccountVerifier)> {
-    let verifier = data.prepare_account_verifier(account_path)?;
-    let directory = data.retain_profile_directory(snapshot_path)?;
-    let metadata = directory.metadata()?;
-    if metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "identity snapshot directory is not private to the boot owner",
-        ));
-    }
+    let (directory, verifier) = data.identity_inputs(account_path, snapshot_path)?;
     let store = LinuxIdentitySnapshotStore::open(directory).map_err(|error| {
         io::Error::other(format!("identity snapshot directory rejected: {error:?}"))
     })?;
