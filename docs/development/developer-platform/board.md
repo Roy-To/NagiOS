@@ -65,3 +65,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-09r: Stage 2 の承認済みスナップショット照合を追加し、指定テスト78件が成功（PR #190、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-08b: 利用表12行を更新し、根拠検査5件が成功（PR #191、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A008: 移植レポートに overview（件数と非passed一覧）と reason 説明表付きの Markdown 冒頭節を追（PR #192、runnerテスト成功、claudeレビューPASS）
+- 11-19 NDP-A009: `report.py --fixture all`（JSON の summary と Markdown 冒頭の行列表）を（PR #193、runnerテスト成功、claudeレビューPASS）
