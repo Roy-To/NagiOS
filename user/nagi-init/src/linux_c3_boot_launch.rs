@@ -4,6 +4,7 @@ use super::{
     linux_boot_package_inputs::LinuxBootArtifactPreflight,
     linux_init_c3_slot_journal::C3DurableSlotReceipt,
     linux_init_c3_system_service_owner::LinuxC3SystemServiceSlotOwner,
+    linux_initial_login_owner::LinuxInitialLoginOwner,
 };
 use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceSessionOwner,
@@ -18,7 +19,8 @@ use nagi_system_service_launch::{
     VerifiedBootCatalog, VerifiedServicePackageBinding,
 };
 use nagi_system_service_recovery_contract::{
-    C1RecoveryOperationCorrelation, LiveBootSystemServiceBinding, VerifiedRecoveryBootCatalog,
+    C1RecoveryOperationCorrelation, LiveBootSystemServiceBinding,
+    SystemServiceRecoveryAdmissionScope, VerifiedRecoveryBootCatalog,
 };
 use std::fs::File;
 use std::io;
@@ -71,17 +73,28 @@ impl LinuxBootServiceOwner {
 
     /// Enter the shared runtime path once the configured C1 owner can
     /// recover. The result retains the exact C3 proof, package and lifecycle.
-    pub(super) fn launch_recovered<'owner, I: C1SystemServiceRecoveryClient>(
+    pub(super) fn launch_recovered<'owner, I, L>(
         &'owner mut self,
         catalog: &mut VerifiedBootCatalog,
         blobs: &dyn InstalledPackageBlobStore,
         package_owner: &'owner PackageServiceSessionOwner<'_>,
         identity: &'owner mut I,
-    ) -> Result<SystemServiceRuntime<'owner, Self, I>, LaunchError> {
+        login: &mut L,
+    ) -> Result<
+        (
+            SystemServiceRuntime<'owner, Self, I>,
+            Result<L::Attached, L::Error>,
+        ),
+        LaunchError,
+    >
+    where
+        I: C1SystemServiceRecoveryClient,
+        L: LinuxInitialLoginOwner<I::Runtime>,
+    {
         let descriptor = catalog.descriptor_json().to_owned();
         let mut preflight =
             LinuxBootArtifactPreflight::new().map_err(LaunchError::ArtifactPreflight)?;
-        launch_identity_service_from_store(
+        let runtime = launch_identity_service_from_store(
             &descriptor,
             blobs,
             package_owner,
@@ -89,7 +102,9 @@ impl LinuxBootServiceOwner {
             &mut preflight,
             self,
             identity,
-        )
+        )?;
+        let attached = login.start_and_accept(runtime.identity_runtime());
+        Ok((runtime, attached))
     }
 }
 
@@ -224,6 +239,10 @@ pub(super) struct AuthenticatedBootService<'package> {
 }
 
 impl AuthenticatedBootService<'_> {
+    pub(super) fn recovery_scope(&self) -> &dyn SystemServiceRecoveryAdmissionScope {
+        self.admission.scope()
+    }
+
     /// Offer the authenticated mapping to the future C1 seal receiver.
     /// The receiver must leave the gate before running C1's recovery effect.
     pub(super) fn with_verified_system_mapping<R>(
