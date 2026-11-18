@@ -401,6 +401,26 @@ mod linux_initial_login_owner;
 mod linux_initial_login_c2;
 
 #[cfg(all(
+    linux_task24_owner_co_location,
+    target_os = "linux",
+    target_arch = "x86_64",
+    feature = "desktop-login",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "../candidates/linux-broker-stage25/stage25/pid1_live_peer_supplier.rs"]
+mod pid1_live_peer_supplier;
+
+#[cfg(all(
+    linux_task24_owner_co_location,
+    target_os = "linux",
+    target_arch = "x86_64",
+    feature = "desktop-login",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "linux_task24_endpoint_launch.rs"]
+mod linux_task24_endpoint_launch;
+
+#[cfg(all(
     linux_boot_identity_runtime,
     linux_boot_owner_registration,
     feature = "desktop-login",

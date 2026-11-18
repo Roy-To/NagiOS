@@ -1,3 +1,7 @@
+use super::broker::{
+    AcceptedInitialLoginRequest, PeerDenial, PendingInitialSession,
+    PendingInitialSessionTransaction, SessionLease,
+};
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
     stage_initial_interactive_session_from_c2_owner_checked_peer, C1IssuedInteractiveSession,
@@ -8,10 +12,6 @@ use nagi_identity_session::{
 };
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
-use nagi_pid1_live_peer_supplier::{
-    AcceptedInitialLoginRequest, PeerDenial, PendingInitialSession,
-    PendingInitialSessionTransaction, SessionLease,
-};
 use std::num::NonZeroU64;
 use std::os::unix::net::UnixStream;
 use std::sync::MutexGuard;

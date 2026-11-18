@@ -1,5 +1,28 @@
 # A receiver / C3 endpoint adoption review — 2026-11-18
 
+## Resume the first-owner screen — 2026-11-19
+
+Use `out/evidence/a-owner-registration-ui-20261119/normal-registration.cpio` from A commit `1ca5daa7a` and the pinned `linux-boot-userland-20261115/tools/linux-boot/kernel-dev-20261115/kernel-fbdev-6.18.63-r1/bzImage` from the sibling boot worktree. The prepared Data source is `out/evidence/a-dev-identity-provision-20261119/development-copy/data.raw`. For persistent registration, attach a new private copy in an A-owned run directory and keep the source image detached. Reuse the copy only after a clean, known registration outcome.
+
+The verified QEMU devices are q35 with TCG and `i8042=off`, 4 vCPUs, 8 GiB, `virtio-vga,xres=640,yres=480,edid=on`, and `virtio-keyboard-pci`. Attach Data as a raw Virtio block drive with serial `NAGI-DATA-1f89b8bf`. Use a visible QEMU display and append the following guest arguments.
+
+```text
+console=ttyS0,115200n8 rdinit=/init panic=-1
+nagi.dev_data.boot=identity nagi.dev_data.serial=NAGI-DATA-1f89b8bf
+nagi.dev_data.fs_uuid=1f89b8bf-cf0f-42cd-a6bb-2397dcc0c0be
+nagi.dev_data.accounts=accounts nagi.dev_data.snapshots=snapshots
+```
+
+Wait for `NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT`. Select the language, enter the owner name and password twice directly in the guest, and press Enter. The verified run pressed Enter at language selection only. Its screenshots and serial log are under `out/evidence/a-owner-registration-ui-20261119/`. Registration save, Session, Notes, and READY are pending.
+
+## Task24 maintained-init assembly — 2026-11-19
+
+The opt-in `linux_task24_owner_co_location` assembly compiles the unmodified C2 `8178f7d34e` module and gate helper beside C3 `cdfc2e87fb` (provenance `2501ea247`) in the normal PID 1 crate. The same C2 type reaches first-login checkout and `ProcessLifecycle<LinuxProcessOs, ServiceId, LaunchRecord, Task24EndpointLaunchLease<LaunchRecord>>`. The assembly retains the listener before the exec gate, lets C3 supply the live child's attestation after exec acknowledgement, activates the lease under C2's existing owner checks, and borrows it from the same slot. An activation error goes through C3's exact termination and C2's slot retirement callbacks.
+
+The combined Linux musl build used the fixed C2 sources once, with `c2-issuer` on the canonical proof leaf and the exact C3 source patches in the isolated graph. A normal signed QEMU boot of that build reached C1 recovery, C3 continuation and the registration screen. The prepared Data hash matched before and after. See `out/evidence/a-task24-colocation-20261119/normal-combined-serial.log`.
+
+The Task24 launch function has no normal caller yet. It requires a trusted installed login child and its pre-session route, the production consent source, and C2's sealed `Pid1ReadinessAtomicBoundary` implementation. The selected signed boot package supplies C1 recovery, and no production readiness implementation is present in fixed C2. Therefore this boot did not execute Task24's clone3/exec acknowledgement, lease activation, lease borrow, or initial checkout.
+
 ## Decision
 
 Accept C3 commit `4db0a45a96878ecc1dabad4bb4d8b9d3d3dc02a4` as the transport and lifetime API reference. Do not merge or copy its `linux_init.rs` implementation into A yet, and do not enable an endpoint callsite. The fixed commit provides an opt-in child endpoint handoff, but it does not provide a production SystemService proof producer or a trusted service slot. A's current product source has no SystemService catalog record or launch callsite to connect.
