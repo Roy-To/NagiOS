@@ -423,37 +423,78 @@ class ReportTests(unittest.TestCase):
         self.assert_portable(checks)
         self.assert_target_not_run(result)
 
+    @staticmethod
+    def raw_mapping_rows(path):
+        """Rows of map_ui.py for one fixture file, straight from the tools."""
+        _, encoded = report.run_json_script("ui/analysis/analyze.py",
+                                            ("--root", str(report.REPO), path))
+        mapping, _ = report.run_json_script("ui/mapping/map_ui.py", data=encoded)
+        return mapping["rows"]
+
     def test_ui_gap_rows_match_status_counts_with_only_allowed_fields(self):
         mapped = report.build_report("ui")["checks"]["ui_mapping"]
+        excluded = 0
         for item in mapped["files"]:
-            non_supported = sum(item["counts"][s] for s in report.MAPPING_STATUSES
-                                if s != "supported")
+            counts, gaps = item["counts"], item["gap_rows"]
+            raw = self.raw_mapping_rows(item["input_paths"][0])
+            expected = [row["id"] for row in raw if row["mapping"]["status"] != "supported"]
+            excluded += len(raw) - len(expected)
+            self.assertEqual(item["gap_rows_total"], len(expected))
             self.assertFalse(item["gap_rows_truncated"])
-            self.assertEqual(len(item["gap_rows"]), non_supported)
-            for status in report.MAPPING_STATUSES:
-                self.assertEqual(sum(row["status"] == status for row in item["gap_rows"]),
-                                 0 if status == "supported" else item["counts"][status])
-            for row in item["gap_rows"]:
-                self.assertEqual(set(row), {"id", "source_kind", "status", "reason"})
-        self.assertEqual(sum(len(item["gap_rows"]) for item in mapped["files"]), 63)
+            self.assertEqual(sorted(row["id"] for row in gaps), sorted(expected))
+            # Row status counts bound the listed rows: unsupported and
+            # needs_decision are listed in full, partial only when not a
+            # supported vocabulary match.
+            for status in ("unsupported", "needs_decision"):
+                self.assertEqual(sum(row["status"] == status for row in gaps), counts[status])
+            self.assertLessEqual(sum(row["status"] == "partial" for row in gaps), counts["partial"])
+            self.assertLessEqual(len(gaps), counts["rows"])
+            for row in gaps:
+                self.assertEqual(set(row), {"id", "source_kind", "status", "mapping_status", "reason"})
+                self.assertNotEqual(row["mapping_status"], "supported")
+            ranks = [report.GAP_ORDER[row["mapping_status"]] for row in gaps]
+            self.assertEqual(ranks, sorted(ranks))
+        # The fixture has vocabulary-supported rows and they are left out.
+        self.assertGreater(excluded, 0)
         # Existing keys stay as before.
-        self.assertEqual(set(mapped["files"][0]) - {"gap_rows", "gap_rows_truncated"},
+        self.assertEqual(set(mapped["files"][0]) - {"gap_rows", "gap_rows_total", "gap_rows_truncated"},
                          {"status", "reason", "input_paths", "counts", "format", "contract_evidence"})
+
+    def test_ui_gap_rows_exclude_supported_and_keep_severe_rows_when_truncated(self):
+        def row(index, mapping_status, row_status):
+            return {"id": "widgets:{}".format(index), "source_kind": "widgets", "status": row_status,
+                    "mapping": {"status": mapping_status, "reason": "reason_{}".format(index)}}
+        rows = [row(0, "supported", "partial"), row(1, "partial", "partial"),
+                row(2, "supported", "partial"), row(3, "partial", "partial"),
+                row(4, "needs_decision", "needs_decision"), row(5, "unsupported", "unsupported")]
+        gaps = report.gap_rows(rows)
+        self.assertEqual([gap["id"] for gap in gaps],
+                         ["widgets:5", "widgets:4", "widgets:1", "widgets:3"])
+        self.assertEqual([gap["mapping_status"] for gap in gaps],
+                         ["unsupported", "needs_decision", "partial", "partial"])
+        bad = rows + [row(6, "supported", "/abs/path")]
+        with self.assertRaises(report.CheckError):
+            report.gap_rows(bad)
 
     def test_ui_gap_rows_are_truncated_and_markdown_shows_omission(self):
         with patch.object(report, "MAX_UI_DETAILS", 3):
             result = report.build_report("ui")
         mapped = result["checks"]["ui_mapping"]
-        largest = mapped["files"][-1]
-        self.assertEqual(largest["counts"]["rows"], 19)
+        largest = max(mapped["files"], key=lambda item: item["gap_rows_total"])
+        total = largest["gap_rows_total"]
+        self.assertGreater(total, 3)
         self.assertEqual(len(largest["gap_rows"]), 3)
         self.assertTrue(largest["gap_rows_truncated"])
-        self.assertFalse(mapped["files"][1]["gap_rows_truncated"])
+        for item in mapped["files"]:
+            self.assertEqual(item["gap_rows_truncated"], item["gap_rows_total"] > 3)
+        # Truncation keeps the most severe rows.
+        everything = report.gap_rows(self.raw_mapping_rows(largest["input_paths"][0]))
+        self.assertEqual(largest["gap_rows"], everything[:3])
         with patch.object(report, "MAX_UI_MARKDOWN_ROWS", 2):
             markdown = report.markdown_report(result)
         path = largest["input_paths"][0]
-        self.assertIn("- ui_mapping `{}` … 17 more non-supported rows omitted (see JSON)".format(path),
-                      markdown)
+        self.assertIn("- ui_mapping `{}` … {} more non-supported rows omitted (see JSON)".format(
+            path, total - 2), markdown)
         self.assertEqual(markdown.count("- ui_mapping `{}` row ".format(path)), 2)
 
     def test_ui_gap_rows_markdown_lists_reasons_and_leaks_no_absolute_path(self):
@@ -462,7 +503,7 @@ class ReportTests(unittest.TestCase):
         first = result["checks"]["ui_mapping"]["files"][0]
         row = first["gap_rows"][0]
         self.assertIn("- ui_mapping `{}` row `{}` ({}) · `{}` · {}\n".format(
-            first["input_paths"][0], row["id"], row["source_kind"], row["status"],
+            first["input_paths"][0], row["id"], row["source_kind"], row["mapping_status"],
             report.describe_reason(row["reason"])), markdown)
         self.assertNotIn(str(report.REPO), markdown)
         self.assertNotIn(str(report.REPO), json.dumps(result))
@@ -485,7 +526,10 @@ class ReportTests(unittest.TestCase):
 
     def test_ui_gap_row_with_unsafe_values_is_rejected(self):
         row = {"id": "widgets:0", "source_kind": "widgets", "status": "partial",
-               "mapping": {"reason": "/abs/path"}}
+               "mapping": {"status": "partial", "reason": "/abs/path"}}
+        with self.assertRaises(report.CheckError):
+            report.gap_row(row)
+        row["mapping"] = {"status": "made_up_status", "reason": "valid_code"}
         with self.assertRaises(report.CheckError):
             report.gap_row(row)
 
