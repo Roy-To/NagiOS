@@ -352,10 +352,34 @@ reports, and 2 for invalid arguments.
   `REASON_DESCRIPTIONS`, and adds an "omitted (see JSON)" line computed from
   `gap_rows_total`. Vocabulary-supported rows are not listed even though their
   other axes (focus, accessibility, localization, backend) may still be gaps;
-  those axis details stay in the `map_ui.py` output. The fields are absent when the
+  per-row axis details stay in the `map_ui.py` output, and `axis_gaps` (next
+  item) shows per-axis counts. The fields are absent when the
   mapping tool is unavailable or analysis failed for the file. Limit: the reason
   is a vocabulary classification, not a rendered or executed compatibility result,
   and the format may change inside `validation/`; it is not a contract.
+- UI mapping axis gaps (PROVISIONAL, additive; existing report version 1 keys
+  are unchanged). Each `ui_mapping` file result also gains `axis_gaps` =
+  `{axis: {supported, partial, unsupported, needs_decision: int}}`, aggregated
+  from the per-row `axes[*].status` that `map_ui.py` already emits. For each
+  axis the four counts sum to the file's `counts.rows`. This closes the
+  misreading that a UI file whose vocabulary rows are all `supported` "passed":
+  for example `backend` is `unsupported` or `needs_decision` for every row, and
+  `focus`, `accessibility` and `localization` are at best `partial`. Axis names
+  are taken from `map_ui.py`'s own `summary.axis_status_counts`; `report.py` does
+  not redefine the axis list. Every row must carry exactly those axes with one
+  of the four known statuses, and the aggregate must equal the tool's own
+  summary; an unknown or missing axis, an unknown status or a mismatch fails
+  that file as `invalid_tool_output` and nothing is dropped silently. Only axis
+  names and integer counts are kept; widget names, text and absolute paths are
+  never copied. Markdown adds one line per mapped file before the row list:
+  `- ui_mapping <path> axis gaps · <axis> unsupported=N needs_decision=N, ...`
+  (`partial` is not shown there; see JSON). The key is absent when analysis
+  failed for the file, when the mapping tool is unavailable and for fixtures
+  without UI inputs. Limits: these are counts of the vocabulary and static
+  analysis of `map_ui.py` on the host. They are not real rendering, not a real
+  accessibility, focus or localization run, and not Nagi target acceptance
+  (`target_acceptance` stays `not_run`). A low gap count does not mean a UI
+  works; the format may change inside `validation/` and is not a contract.
 - Markdown "API gaps" section (PROVISIONAL; the JSON is unchanged). When a
   `windows_diagnosis` or `linux_diagnosis` check passed, Markdown adds
   `## API gaps` after the problem lines. It lists rows from the JSON `rows`

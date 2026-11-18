@@ -256,6 +256,37 @@ def gap_rows(rows):
     return sorted(gaps, key=lambda row: GAP_ORDER[row["mapping_status"]])
 
 
+AXIS_GAP_STATUSES = ("unsupported", "needs_decision")  # statuses shown in Markdown
+
+
+def axis_gaps(mapping):
+    """PROVISIONAL per-axis status counts of the rows of one map_ui.py output.
+
+    Axis names come only from map_ui.py's own `summary.axis_status_counts`; they
+    are not redefined here. Every row must carry exactly those axes with a known
+    status, and the totals must equal the tool's own summary; anything else fails
+    as `invalid_tool_output`. Only axis name -> status -> integer count is kept,
+    so no widget name, text or path is copied.
+    """
+    summary = mapping["summary"]["axis_status_counts"]
+    if (not isinstance(summary, dict) or not summary
+            or any(reason_code(axis, None) is None for axis in summary)):
+        raise CheckError("invalid_tool_output")
+    result = {axis: dict.fromkeys(MAPPING_STATUSES, 0) for axis in summary}
+    for row in mapping["rows"]:
+        axes = row["axes"]
+        if not isinstance(axes, dict) or set(axes) != set(result):
+            raise CheckError("invalid_tool_output")
+        for axis, value in axes.items():
+            status = value["status"]
+            if status not in MAPPING_STATUSES:
+                raise CheckError("invalid_tool_output")
+            result[axis][status] += 1
+    if any(summary[axis] != counts for axis, counts in result.items()):
+        raise CheckError("invalid_tool_output")
+    return result
+
+
 def inspect_ui(fixture):
     if fixture != "ui":
         return (check("unsupported", "no_ui_inputs_for_fixture"),
@@ -286,11 +317,12 @@ def inspect_ui(fixture):
                     or sum(status_counts.values()) != len(mapping["rows"])):
                 raise CheckError("invalid_tool_output")
             gaps = gap_rows(mapping["rows"])
+            axes = axis_gaps(mapping)
             return check("passed", "mapping_summarized", (path,),
                          {"rows": len(mapping["rows"]), **status_counts},
                          format=mapping["source_format"], contract_evidence=mapping["contract"]["state"],
                          gap_rows=gaps[:MAX_UI_DETAILS], gap_rows_total=len(gaps),
-                         gap_rows_truncated=len(gaps) > MAX_UI_DETAILS)
+                         gap_rows_truncated=len(gaps) > MAX_UI_DETAILS, axis_gaps=axes)
 
         analysis = attempt((path,), analyze)
         analyzed.append(analysis)
@@ -528,6 +560,20 @@ def gap_row_lines(mapping):
     return ["", *lines] if lines else []
 
 
+def axis_gap_lines(mapping):
+    """One line per mapped UI file: unsupported / needs_decision rows for each axis."""
+    lines = []
+    for item in mapping.get("files", ()):
+        axes = item.get("axis_gaps")
+        if not axes:
+            continue
+        cells = ", ".join("{} {}".format(axis, " ".join(
+            "{}={}".format(status, counts[status]) for status in AXIS_GAP_STATUSES))
+            for axis, counts in axes.items())
+        lines.append("- ui_mapping `{}` axis gaps · {}".format(item["input_paths"][0], cells))
+    return ["", *lines] if lines else []
+
+
 def api_gap_lines(report):
     """PROVISIONAL "API gaps" section: unsupported or unresolved API rows.
 
@@ -630,6 +676,7 @@ def markdown_report(report):
     lines.extend(scaffold_file_lines(report))
     lines.extend(stage2_diagnostic_lines(report))
     lines.extend(api_gap_lines(report))
+    lines.extend(axis_gap_lines(report["checks"]["ui_mapping"]))
     lines.extend(gap_row_lines(report["checks"]["ui_mapping"]))
     lines.extend(("", "Stage 1 checks metadata of the scratch scaffold. Stage 2 covers the "
                   "approved host fixture only. Manual and AI comparisons, effort and reuse "
