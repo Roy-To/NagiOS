@@ -63,3 +63,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A006: evaluation README から旧「40 checks」を除去し、README 件数（65）と収集テスト数の一致（PR #188、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A007: 読めないディレクトリの列挙挙動を実測し、テストとREADMEに反映（PR #189、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-09r: Stage 2 の承認済みスナップショット照合を追加し、指定テスト78件が成功（PR #190、runnerテスト成功、codexレビューPASS）
+- 11-19 NDP-08b: 利用表12行を更新し、根拠検査5件が成功（PR #191、runnerテスト成功、claudeレビューPASS）
