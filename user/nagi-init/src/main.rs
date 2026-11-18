@@ -156,7 +156,16 @@ mod action_ipc;
     ))
 ))]
 mod boot;
-#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
+#[cfg(any(
+    all(target_os = "nagi", feature = "consent-dialog"),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "desktop-login",
+        any(linux_boot_owner_registration, linux_task24_owner_co_location),
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    )
+))]
 mod consent_dialog;
 #[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
 mod consent_settings;

@@ -124,7 +124,10 @@ impl SelectedBootIdentityRuntime<'_, '_> {
     }
 
     #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
-    pub(in crate::linux_init) fn run_owner_registration(&mut self) -> io::Result<()> {
+    pub(in crate::linux_init) fn run_owner_registration(
+        &mut self,
+        console: &mut super::super::linux_owner_registration_console::BootOwnerConsole,
+    ) -> io::Result<()> {
         let Self {
             boot,
             verifier,
@@ -160,7 +163,8 @@ impl SelectedBootIdentityRuntime<'_, '_> {
             },
         )
         .map_err(|error| io::Error::other(format!("{error:?}")))?;
-        super::super::linux_owner_registration_console::run(screen)
+        console
+            .run_registration(screen)
             .map_err(|error| io::Error::other(format!("{error:?}")))
     }
 }
@@ -178,8 +182,7 @@ mod task24 {
             VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{
-            ConsentSource, PeerDenial, PendingSpawnOwnedEndpoint, Pid1ReadinessAtomicBoundary,
-            SessionLease,
+            PeerDenial, PendingSpawnOwnedEndpoint, Pid1ReadinessAtomicBoundary, SessionLease,
         },
     };
     use std::time::Instant;
@@ -197,14 +200,14 @@ mod task24 {
     impl<'boot, 'package> SelectedBootIdentityRuntime<'boot, 'package> {
         /// Reuse the recovered store and its exact C3 handoff for the first
         /// checkout. The process lifecycle remains owned by the caller.
-        pub(in crate::linux_init) fn start_task24_login<C, B>(
+        pub(in crate::linux_init) fn start_task24_login<B>(
             self,
             lifecycle: &mut LoginLifecycle,
             selection: LoginChildLaunch,
             package: &VerifiedLoginChild<'_>,
             required_grants: &[&[u8]],
             pending: PendingSpawnOwnedEndpoint,
-            owners: &EndpointOwners<'_, C, B>,
+            owners: &EndpointOwners<'_, B>,
             request_key: IdempotencyKey,
             expires_at: Option<UnixMillis>,
             deadline: Instant,
@@ -213,7 +216,6 @@ mod task24 {
             BootIdentityRecoveryError,
         >
         where
-            C: ConsentSource,
             B: Pid1ReadinessAtomicBoundary,
         {
             let runtime = RecoveredBootIdentity {

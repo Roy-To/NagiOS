@@ -81,6 +81,24 @@ where
             .identity_mut()
             .enter_system_service_runtime_admission(&self.handoff, scope)
     }
+
+    /// Hold C1's exact attached Session across the final Ready consumer.
+    /// Release the issuer mutex before entering the live guard so the C2
+    /// callback can still perform its independent zero-wait observations.
+    pub(super) fn with_ready_session<T>(
+        &self,
+        lease: SessionLease,
+        consume: impl FnOnce() -> Result<T, PeerDenial>,
+    ) -> Result<T, PeerDenial> {
+        let revalidation = self
+            .owner
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?
+            .retained_revalidation(lease)?;
+        revalidation
+            .with_live_session_effect(consume)
+            .map_err(|_| PeerDenial::SessionRevoked)?
+    }
 }
 
 impl<S, I, C, A, G, E> LiveSessionAuthority for C1InitialLoginAuthority<S, I, C, A, G, E>

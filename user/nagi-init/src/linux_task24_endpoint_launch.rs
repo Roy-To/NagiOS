@@ -2,6 +2,7 @@
 //! inside the same PID 1 crate. The caller supplies the installed login
 //! package and the existing policy owners.
 
+use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
 use super::pid1_owned_launch_lease::{BoundLaunchLease, ExactChildLaunchLease};
@@ -20,8 +21,8 @@ use pid1_live_peer_supplier::pidfd_process_instance::{
     LinuxPidfdKernel, PidfdProcessInstanceAuthority,
 };
 use pid1_live_peer_supplier::{
-    ConsentSource, LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint,
-    Pid1EndpointOwnerRegistry, Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunInstance,
+    LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint, Pid1EndpointOwnerRegistry,
+    Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunOwnerLease,
     SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory, TrustedManifest,
     TrustedServiceRequirements,
 };
@@ -197,13 +198,32 @@ pub(super) type LoginLease = Task24EndpointLaunchLease<LaunchRecord>;
 pub(super) type LoginLifecycle =
     ProcessLifecycle<LinuxProcessOs, ServiceId, LaunchRecord, LoginLease>;
 
-pub(super) struct EndpointOwners<'a, C, B> {
-    pub(super) run: &'a Pid1RunInstance,
-    pub(super) instances: &'a PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
-    pub(super) registry: &'a Pid1EndpointOwnerRegistry,
-    pub(super) directory: &'a Pid1LivePeerDirectory<LaunchRecord>,
+pub(super) struct BootLoginRun {
+    pub(super) directory: Pid1LivePeerDirectory<LaunchRecord>,
+    pub(super) run_owner: Pid1RunOwnerLease,
+    pub(super) instances: PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
+    pub(super) registry: Pid1EndpointOwnerRegistry,
+}
+
+impl BootLoginRun {
+    pub(super) fn begin() -> Result<Self, BackendError> {
+        let directory = Pid1LivePeerDirectory::new();
+        let run_owner = directory
+            .begin_run_owner_lease()
+            .map_err(|_| BackendError::Unavailable)?;
+        Ok(Self {
+            directory,
+            run_owner,
+            instances: PidfdProcessInstanceAuthority::new(LinuxPidfdKernel),
+            registry: Pid1EndpointOwnerRegistry::new(),
+        })
+    }
+}
+
+pub(super) struct EndpointOwners<'a, B> {
+    pub(super) run: &'a BootLoginRun,
     pub(super) requirements: &'a TrustedServiceRequirements<'a>,
-    pub(super) consent: &'a C,
+    pub(super) consent: &'a BootConsentUiConnection<'a>,
     pub(super) readiness: &'a B,
 }
 
@@ -230,22 +250,21 @@ pub(super) type BootLoginIssuer = C1InitialLoginAuthority<
 /// Start and check out the exact child while the caller retains the recovered
 /// C1 issuer, signed package, and C3 process lifecycle.
 #[cfg(linux_task24_initial_login_runtime)]
-pub(super) fn start_verified_login<C, B>(
+pub(super) fn start_verified_login<B>(
     lifecycle: &mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
     required_grants: &[&[u8]],
     pending: PendingSpawnOwnedEndpoint,
-    owners: &EndpointOwners<'_, C, B>,
+    owners: &EndpointOwners<'_, B>,
     issuer: &BootLoginIssuer,
     deadline: Instant,
 ) -> Result<SessionLease, PeerDenial>
 where
-    C: ConsentSource,
     B: Pid1ReadinessAtomicBoundary,
 {
     C2InitialLogin {
-        directory: owners.directory,
+        directory: &owners.run.directory,
         start_login_child: Some(|deadline| {
             start_and_borrow(
                 lifecycle,
@@ -264,7 +283,7 @@ where
             })
         }),
         consent: owners.consent,
-        process_instances: owners.instances,
+        process_instances: &owners.run.instances,
         supervisor: &BootLoginSupervisor,
         readiness_boundary: owners.readiness,
         deadline,
@@ -272,17 +291,16 @@ where
     .start_and_accept(issuer)
 }
 
-pub(super) fn start_and_borrow<'slot, C, B>(
+pub(super) fn start_and_borrow<'slot, B>(
     lifecycle: &'slot mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
     required_grants: &[&[u8]],
     pending: PendingSpawnOwnedEndpoint,
-    owners: &EndpointOwners<'_, C, B>,
+    owners: &EndpointOwners<'_, B>,
     deadline: Instant,
 ) -> Result<&'slot LoginLease, BackendError>
 where
-    C: ConsentSource,
     B: Pid1ReadinessAtomicBoundary,
 {
     let release_wait_budget = deadline.saturating_duration_since(Instant::now());
@@ -329,8 +347,8 @@ where
     let retire = |saved: &mut BoundLaunchLease<LoginLease, LaunchRecord>, _status| {
         gate::retire_task41_endpoint_after_exact_reap(
             saved,
-            owners.directory,
-            owners.instances,
+            &owners.run.directory,
+            &owners.run.instances,
             owners.readiness,
         )
     };
@@ -345,8 +363,8 @@ where
             boot_proof = Some(gate::retain_task41_endpoint_before_gate(
                 gate,
                 pending,
-                owners.run,
-                owners.instances,
+                owners.run.run_owner.run(),
+                &owners.run.instances,
             )?);
             record = Some(*live);
             BootLoginSupervisor
@@ -369,10 +387,10 @@ where
                 &proof,
                 record,
                 attestation,
-                owners.run,
-                owners.instances,
-                owners.registry,
-                owners.directory,
+                owners.run.run_owner.run(),
+                &owners.run.instances,
+                &owners.run.registry,
+                &owners.run.directory,
                 owners.requirements,
                 package,
                 owners.consent,

@@ -14,13 +14,13 @@ use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
 use std::num::NonZeroU64;
 use std::os::unix::net::UnixStream;
-use std::sync::MutexGuard;
+use std::sync::{Arc, MutexGuard};
 
 pub enum InitialSessionOutcome {
     Unattached,
     Attached {
         issued: C1IssuedInteractiveSession,
-        revalidation: SessionLeaseRevalidationHandle,
+        revalidation: Arc<SessionLeaseRevalidationHandle>,
         selectors: (u64, u64),
     },
     RollbackRequired(C1PendingInitialInteractiveSession),
@@ -100,6 +100,19 @@ impl<S: IdentitySnapshotStore, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E
             .map(|snapshot| snapshot.status() == LiveStatus::Live)
             .map_err(|_| PeerDenial::Unavailable)
     }
+
+    pub(super) fn retained_revalidation(
+        &self,
+        lease: SessionLease,
+    ) -> Result<Arc<SessionLeaseRevalidationHandle>, PeerDenial> {
+        let InitialSessionOutcome::Attached { revalidation, .. } = &self.outcome else {
+            return Err(PeerDenial::SessionUnavailable);
+        };
+        if self.lease != Some(lease) {
+            return Err(PeerDenial::SessionMismatch);
+        }
+        Ok(Arc::clone(revalidation))
+    }
 }
 
 struct InitialSessionTransaction<'owner, S: IdentitySnapshotStore, I, C, A, G, E> {
@@ -170,7 +183,7 @@ where
         self.owner.outcome = match self.pending.finish_after_c2_attachment() {
             Ok(issued) => InitialSessionOutcome::Attached {
                 issued,
-                revalidation,
+                revalidation: Arc::new(revalidation),
                 selectors: self.selectors,
             },
             Err(_) => InitialSessionOutcome::OutcomeUnknown,

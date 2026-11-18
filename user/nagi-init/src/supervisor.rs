@@ -18,12 +18,20 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(any(
+    feature = "consent-dialog",
+    all(
+        target_os = "linux",
+        any(linux_boot_owner_registration, linux_task24_owner_co_location)
+    )
+))]
+use libnagi::launch::ConsentRequest;
 use libnagi::launch::{
     AppManifest, GrantCheck, GrantDecision, LaunchError, LaunchPlacement, LaunchRecord,
     LaunchRegistry,
 };
 #[cfg(feature = "consent-dialog")]
-use libnagi::launch::{ConsentRequest, DecisionStoreError, MAX_ENCODED_DECISIONS};
+use libnagi::launch::{DecisionStoreError, MAX_ENCODED_DECISIONS};
 use libnagi::security::{AccountStore, Role, Session};
 #[cfg(target_os = "nagi")]
 use libnagi::{
@@ -254,16 +262,40 @@ fn authorize_launch_and_commit_in_registry<E>(
     required_grants: &[&[u8]],
     commit_gate: impl FnOnce() -> Result<(), E>,
 ) -> Result<(), LaunchCommitError<E>> {
-    if registry.resolve(expected.process_id) != Some(*expected) {
-        return Err(LaunchCommitError::RecordMismatch);
-    }
-    for capability in required_grants {
-        let check = registry.check_grant(expected.app_id, expected.app_session_id, capability);
-        if check != GrantCheck::Granted {
-            return Err(LaunchCommitError::Grant(check));
+    authorize_launch_set_in_registry(registry, &[(expected, required_grants)], commit_gate)
+}
+
+fn authorize_launch_set_in_registry<T, E>(
+    registry: &LaunchRegistry,
+    launches: &[(&LaunchRecord, &[&[u8]])],
+    commit: impl FnOnce() -> Result<T, E>,
+) -> Result<T, LaunchCommitError<E>> {
+    for (expected, required_grants) in launches {
+        if registry.resolve(expected.process_id) != Some(**expected) {
+            return Err(LaunchCommitError::RecordMismatch);
+        }
+        for capability in *required_grants {
+            let check = registry.check_grant(expected.app_id, expected.app_session_id, capability);
+            if check != GrantCheck::Granted {
+                return Err(LaunchCommitError::Grant(check));
+            }
         }
     }
-    commit_gate().map_err(LaunchCommitError::Commit)
+    commit().map_err(LaunchCommitError::Commit)
+}
+
+/// The final Ready consumer may use this after entering the C1 Session and
+/// C2 run gates. The callback must not reenter those gates or this registry.
+#[cfg(all(target_os = "linux", linux_task24_owner_co_location))]
+pub(crate) fn authorize_launch_set_and_commit<T, E>(
+    launches: &[(&LaunchRecord, &[&[u8]])],
+    commit: impl FnOnce() -> Result<T, E>,
+) -> Result<T, LaunchCommitError<E>> {
+    if launches.is_empty() {
+        return Err(LaunchCommitError::RecordMismatch);
+    }
+    with_registry(|registry| authorize_launch_set_in_registry(registry, launches, commit))
+        .unwrap_or(Err(LaunchCommitError::RegistryUnavailable))
 }
 
 /// Check the exact live launch and its required grants, then run one short,
@@ -307,7 +339,13 @@ pub fn request_consent(
 }
 
 /// The oldest prompt waiting for the consent dialog.
-#[cfg(feature = "consent-dialog")]
+#[cfg(any(
+    feature = "consent-dialog",
+    all(
+        target_os = "linux",
+        any(linux_boot_owner_registration, linux_task24_owner_co_location)
+    )
+))]
 pub fn next_consent_request() -> Option<ConsentRequest> {
     with_registry(|registry| registry.next_consent_request()).flatten()
 }
