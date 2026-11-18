@@ -6,11 +6,11 @@
 
 use libnagi::credential::{AccountRecord, ACCOUNT_RECORD_BYTES};
 use nagi_capability::PrincipalId;
-use rustix::fs::{openat, Mode, OFlags};
+use rustix::fs::{linkat, openat, statat, AtFlags, Mode, OFlags};
 use rustix::net::sockopt::socket_cookie;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::Read;
+use std::io::{self, Read, Write};
 use std::num::NonZeroU64;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
@@ -26,7 +26,7 @@ pub enum AccountAuthenticationError {
     WrongVerifierOrConnection,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PersistedAccountProfile {
     version: u32,
@@ -35,6 +35,22 @@ struct PersistedAccountProfile {
     profile_id: String,
     principal_id: PrincipalId,
     account_record: Vec<u8>,
+}
+
+/// The account mapping supplied by the identity provisioning owner.
+pub struct OwnerAccountBinding {
+    pub account_id: NonZeroU64,
+    pub user_id: NonZeroU64,
+    pub profile_id: String,
+    pub principal_id: PrincipalId,
+}
+
+#[derive(Debug)]
+pub enum OwnerAccountSaveError {
+    InvalidBinding,
+    AlreadyExists,
+    BeforePublication(io::Error),
+    PublicationUnknown(io::Error),
 }
 
 /// Authenticated account evidence with no public constructor. Keep this
@@ -70,6 +86,76 @@ impl LinuxAccountVerifier {
     /// Adopt the protected directory descriptor selected by the boot owner.
     pub fn from_protected_directory(directory: File) -> Result<Self, AccountAuthenticationError> {
         Self::from_owner_directory(directory, 0)
+    }
+
+    pub fn require_unprovisioned_private_directory(&self) -> Result<(), OwnerAccountSaveError> {
+        use OwnerAccountSaveError::*;
+
+        let metadata = self.directory.metadata().map_err(BeforePublication)?;
+        if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
+            return Err(BeforePublication(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "account directory is not private to the boot owner",
+            )));
+        }
+        match statat(&self.directory, ACCOUNT_FILE, AtFlags::SYMLINK_NOFOLLOW) {
+            Err(rustix::io::Errno::NOENT) => Ok(()),
+            Ok(_) => Err(AlreadyExists),
+            Err(error) => Err(BeforePublication(error.into())),
+        }
+    }
+
+    /// Publish the first owner credential on the same retained Data account
+    /// directory used for login. The canonical identity owner must supply the
+    /// binding. A prior account is never replaced.
+    pub fn publish_first_owner(
+        &self,
+        binding: OwnerAccountBinding,
+        credential: AccountRecord,
+    ) -> Result<(), OwnerAccountSaveError> {
+        use OwnerAccountSaveError::*;
+
+        self.require_unprovisioned_private_directory()?;
+        let record = PersistedAccountProfile {
+            version: 1,
+            account_id: binding.account_id,
+            user_id: binding.user_id,
+            profile_id: binding.profile_id,
+            principal_id: binding.principal_id,
+            account_record: credential.encode().to_vec(),
+        };
+        if !record.has_supported_binding() {
+            return Err(InvalidBinding);
+        }
+        let bytes = serde_json::to_vec(&record)
+            .map_err(|error| BeforePublication(io::Error::other(error)))?;
+        if bytes.len() > MAX_RECORD_BYTES {
+            return Err(InvalidBinding);
+        }
+        let mut file = File::from(
+            openat(
+                &self.directory,
+                ".",
+                OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
+                Mode::RUSR | Mode::WUSR,
+            )
+            .map_err(|error| BeforePublication(error.into()))?,
+        );
+        file.write_all(&bytes).map_err(BeforePublication)?;
+        file.sync_all().map_err(BeforePublication)?;
+        match linkat(
+            &file,
+            "",
+            &self.directory,
+            ACCOUNT_FILE,
+            AtFlags::EMPTY_PATH,
+        ) {
+            Ok(()) => {}
+            Err(rustix::io::Errno::EXIST) => return Err(AlreadyExists),
+            Err(error) => return Err(PublicationUnknown(error.into())),
+        }
+        self.directory.sync_all().map_err(PublicationUnknown)?;
+        Ok(())
     }
 
     fn from_owner_directory(
@@ -121,6 +207,16 @@ impl LinuxAccountVerifier {
             return Err(AccountAuthenticationError::WrongVerifierOrConnection);
         }
         Ok(evidence.account)
+    }
+}
+
+impl PersistedAccountProfile {
+    fn has_supported_binding(&self) -> bool {
+        self.version == 1
+            && self.account_record.len() == ACCOUNT_RECORD_BYTES
+            && !self.profile_id.is_empty()
+            && self.profile_id.len() <= 128
+            && self.principal_id.as_str().starts_with("user:")
     }
 }
 
@@ -194,12 +290,7 @@ impl AuthenticatedAccountProfile {
         }
         let record: PersistedAccountProfile =
             serde_json::from_slice(&bytes).map_err(|_| InvalidRecord)?;
-        if record.version != 1
-            || record.account_record.len() != ACCOUNT_RECORD_BYTES
-            || record.profile_id.is_empty()
-            || record.profile_id.len() > 128
-            || !record.principal_id.as_str().starts_with("user:")
-        {
+        if !record.has_supported_binding() {
             return Err(InvalidRecord);
         }
         let credential =
@@ -222,7 +313,7 @@ mod tests {
     use libnagi::credential::{Credential, MIN_ITERATIONS, SALT_BYTES};
     use std::fs::{self, OpenOptions};
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     use std::os::unix::net::UnixListener;
 
     #[test]
@@ -275,5 +366,48 @@ mod tests {
         assert_eq!(account.user_id().get(), 29);
         assert_eq!(account.profile_id(), "profile_owner");
         assert_eq!(account.principal_id().as_str(), "user:canonical-owner");
+    }
+
+    #[test]
+    #[ignore = "requires a root-run Linux guest and a filesystem supporting O_TMPFILE"]
+    fn publishes_private_first_owner_and_refuses_to_replace_it() {
+        let path = std::env::temp_dir().join(format!("nagi-first-owner-{}", std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let verifier =
+            LinuxAccountVerifier::from_protected_directory(File::open(&path).unwrap()).unwrap();
+        let binding = || OwnerAccountBinding {
+            account_id: NonZeroU64::new(11).unwrap(),
+            user_id: NonZeroU64::new(29).unwrap(),
+            profile_id: "profile_owner".into(),
+            principal_id: serde_json::from_str(r#""user:canonical-owner""#).unwrap(),
+        };
+        let credential = |password| {
+            let credential =
+                Credential::derive(password, [0x71; SALT_BYTES], MIN_ITERATIONS).unwrap();
+            AccountRecord::new(b"owner", credential).unwrap()
+        };
+        verifier.require_unprovisioned_private_directory().unwrap();
+        verifier
+            .publish_first_owner(binding(), credential(b"first-password"))
+            .unwrap();
+        assert!(matches!(
+            verifier.publish_first_owner(binding(), credential(b"other-password")),
+            Err(OwnerAccountSaveError::AlreadyExists)
+        ));
+        let account = AuthenticatedAccountProfile::authenticate(
+            &verifier.directory,
+            0,
+            b"owner",
+            b"first-password",
+        )
+        .unwrap();
+        assert_eq!(account.user_id().get(), 29);
+        assert_eq!(account.profile_id(), "profile_owner");
+        assert_eq!(
+            fs::metadata(path.join(ACCOUNT_FILE)).unwrap().mode() & 0o777,
+            0o600
+        );
+        fs::remove_file(path.join(ACCOUNT_FILE)).unwrap();
+        fs::remove_dir(path).unwrap();
     }
 }
