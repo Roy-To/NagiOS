@@ -9,7 +9,6 @@ Nothing in the repository is modified; drift cases use temporary copies only.
 """
 
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 import unittest
@@ -99,12 +98,15 @@ class ApiSnapshotDriftTests(unittest.TestCase):
                 self.assertGreater(checked, 0, "no API name was checked")
 
     def make_copy(self, platform):
+        # Repository reads go through the bounded, no-follow reader so a symlinked
+        # fixture or parent directory cannot pull outside files into the copy.
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
         for relative in case_paths(platform):
+            data = validate.read_manifest(report.REPO, relative)
             (root / relative).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(report.REPO / relative, root / relative)
+            (root / relative).write_bytes(data)
         return root
 
     def rewrite(self, root, relative, old, new):
@@ -137,11 +139,24 @@ class ApiSnapshotDriftTests(unittest.TestCase):
         self.assertTrue(any("past the end" in problem for problem in problems), problems)
 
     def test_changed_snapshot_api_name_is_detected(self):
+        # Source and snapshot evidence stay identical, so the evidence check passes;
+        # only the API name of one diagnosis row is replaced by a name absent from its
+        # line. This isolates the API-name check from the evidence check.
         root = self.make_copy("windows")
-        _, evidence = case_paths("windows")
-        self.rewrite(root, evidence, "ReadFile(file", "WriteFile(file")
-        problems, _ = drift_problems(root, "windows")
-        self.assertTrue(any("not on that line" in problem for problem in problems), problems)
+        original = report.diagnose
+
+        def renamed(fixture, platform):
+            result = original(fixture, platform)
+            for row in result["rows"]:
+                row["apis"] = ["NotOnThisLine" if api == "ReadFile" else api
+                               for api in row["apis"]]
+            return result
+
+        with patch.object(report, "diagnose", renamed):
+            problems, _ = drift_problems(root, "windows")
+        self.assertFalse(any("snapshot evidence" in problem for problem in problems), problems)
+        self.assertIn("{}:7: API name 'NotOnThisLine' is not on that line".format(
+            case_paths("windows")[0]), problems)
 
     def test_source_change_that_shifts_lines_is_detected(self):
         for platform in report.API_CASES:
@@ -165,11 +180,11 @@ class ApiSnapshotDriftTests(unittest.TestCase):
         before = {}
         for platform in report.API_CASES:
             for relative in case_paths(platform):
-                before[relative] = (report.REPO / relative).read_bytes()
+                before[relative] = validate.read_manifest(report.REPO, relative)
         for platform in report.API_CASES:
             drift_problems(report.REPO, platform)
         for relative, data in before.items():
-            self.assertEqual((report.REPO / relative).read_bytes(), data)
+            self.assertEqual(validate.read_manifest(report.REPO, relative), data)
 
 
 if __name__ == "__main__":
