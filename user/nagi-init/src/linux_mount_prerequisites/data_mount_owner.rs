@@ -2,8 +2,10 @@
 //!
 //! The input is selected by both QEMU's virtio-blk serial and the ext4 UUID
 //! provisioned on the host. This module never formats, repairs, or initializes
-//! a device. It retains the mounted directory FD and does not authenticate a
-//! Profile or issue a Verified Notes attachment.
+//! a device. The explicit development provisioning boot may create the two
+//! private identity directories on a copy of an existing development disk.
+//! It retains the mounted directory FD and does not authenticate a Profile
+//! or issue a Verified Notes attachment.
 
 use crate::profile_volume_notes_owner::{BootVolumeInput, DevelopmentBootVolumeIdentity};
 use std::ffi::CString;
@@ -46,6 +48,8 @@ enum SmokeMode {
     Write,
     Read,
     Reject,
+    #[cfg(linux_dev_preview_smoke)]
+    ProvisionIdentityDirectories,
 }
 
 #[derive(Debug)]
@@ -238,6 +242,33 @@ impl DevelopmentDataMountOwner {
         }
     }
 
+    #[cfg(linux_dev_preview_smoke)]
+    fn provision_identity_directories(&self) -> io::Result<()> {
+        self.verify_marker()
+            .map_err(|error| io::Error::other(error.label()))?;
+        let input = self
+            .boot_volume_input()
+            .map_err(|error| io::Error::other(error.label()))?;
+        let selected = input.selected_data_root()?;
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| io::Error::other("Data owner ended"))?;
+        for name in ["accounts", "snapshots"] {
+            match rustix::fs::mkdirat(root, name, rustix::fs::Mode::RWXU) {
+                Ok(()) | Err(rustix::io::Errno::EXIST) => {}
+                Err(error) => return Err(error.into()),
+            }
+            // Require private ownership for both directories and open them
+            // below the retained root without crossing mounts or symlinks.
+            selected
+                .retain_identity_snapshot_directory(Path::new(name))?
+                .sync_all()?;
+        }
+        input.identity_inputs(Path::new("accounts"), Path::new("snapshots"))?;
+        root.sync_all()
+    }
+
     fn open_marker(&self, write: bool) -> Result<File, DataMountError> {
         let root = self.root.as_ref().ok_or(DataMountError::OwnerEndFailed)?;
         let flags = if write {
@@ -401,6 +432,8 @@ fn parse_smoke_request() -> Result<Option<SmokeRequest>, DataMountError> {
                     "write" => SmokeMode::Write,
                     "read" => SmokeMode::Read,
                     "reject" => SmokeMode::Reject,
+                    #[cfg(linux_dev_preview_smoke)]
+                    "provision-identity-directories" => SmokeMode::ProvisionIdentityDirectories,
                     _ => return Err(DataMountError::SelectionMalformed),
                 });
             }
@@ -653,6 +686,32 @@ pub(super) fn maybe_run_smoke() -> bool {
 
 fn run_smoke(request: SmokeRequest) -> ! {
     match request.mode {
+        #[cfg(linux_dev_preview_smoke)]
+        SmokeMode::ProvisionIdentityDirectories => {
+            let result = (|| -> io::Result<()> {
+                let mut owner = DevelopmentDataMountOwner::mount(
+                    request.device_serial.as_deref(),
+                    request.filesystem_uuid.as_deref(),
+                )
+                .map_err(|error| io::Error::other(error.label()))?;
+                owner.provision_identity_directories()?;
+                owner
+                    .end()
+                    .map_err(|error| io::Error::other(error.label()))?;
+                owner
+                    .verify_ended()
+                    .map_err(|error| io::Error::other(error.label()))
+            })();
+            match result {
+                Ok(()) => super::super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED accounts=accounts snapshots=snapshots owner_ended=true"
+                )),
+                Err(error) => super::super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISION_FAILED ({error})"
+                )),
+            }
+            hold_pid1();
+        }
         SmokeMode::Reject => {
             match DevelopmentDataMountOwner::mount(
                 request.device_serial.as_deref(),
@@ -709,7 +768,7 @@ fn run_smoke(request: SmokeRequest) -> ! {
             let persistence = match request.mode {
                 SmokeMode::Write => owner.write_marker(),
                 SmokeMode::Read => owner.verify_marker(),
-                SmokeMode::Reject => unreachable!(),
+                _ => unreachable!(),
             };
             if persistence.is_err() || !notes_are_pending {
                 super::super::log_pid1_stderr(format_args!(
@@ -757,5 +816,7 @@ const fn smoke_mode_name(mode: SmokeMode) -> &'static str {
         SmokeMode::Write => "write",
         SmokeMode::Read => "read",
         SmokeMode::Reject => "reject",
+        #[cfg(linux_dev_preview_smoke)]
+        SmokeMode::ProvisionIdentityDirectories => "provision-identity-directories",
     }
 }
