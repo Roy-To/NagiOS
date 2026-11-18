@@ -457,11 +457,15 @@ pub(super) fn run_owner_login(
                 };
                 super::wait_in_pid1(super::wait_for_pid1_os_event);
             }
-            Err(error) => super::log_pid1_stderr(format_args!(
-                "NAGI_DEV_TASK24_LOGIN_UNAVAILABLE ({error:?})"
-            )),
+            Err(error) => {
+                super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_TASK24_LOGIN_UNAVAILABLE ({error:?})"
+                ));
+                // A bounded retirement failure can leave the exact child
+                // and broker lease in this lifecycle's quarantine.
+                super::wait_in_pid1(super::wait_for_pid1_os_event);
+            }
         }
-        Err(BackendError::Unavailable)
     };
     if execute().is_err() {
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_STOPPED"));

@@ -301,6 +301,40 @@ impl ProfileVolumeNotesBundle {
         Ok(())
     }
 
+    /// Check that the profile directory and the retained Data root are on
+    /// the same Linux mount. The Volume Manager still supplies the profile
+    /// mapping and reservation from its own authority.
+    #[cfg(target_os = "linux")]
+    pub fn validate_data_mount(
+        &self,
+        data_root: impl std::os::fd::AsFd,
+        selected_mount_id: u64,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        use rustix::fs::{statx, AtFlags, FileType, StatxFlags};
+        use ProfileVolumeNotesOwnerError::{ForeignAttachment, Unavailable};
+
+        let mount_id = |fd| {
+            let requested = StatxFlags::TYPE | StatxFlags::MNT_ID;
+            let stat = statx(fd, c"", AtFlags::EMPTY_PATH, requested).map_err(|_| Unavailable)?;
+            if stat.stx_mask & requested.bits() != requested.bits()
+                || FileType::from_raw_mode(stat.stx_mode.into()) != FileType::Directory
+            {
+                return Err(Unavailable);
+            }
+            Ok(stat.stx_mnt_id)
+        };
+        self.with_active(|| {
+            use std::os::fd::AsFd;
+
+            if mount_id(data_root.as_fd())? != selected_mount_id
+                || mount_id(self.attachment.object_directory.as_fd())? != selected_mount_id
+            {
+                return Err(ForeignAttachment);
+            }
+            Ok(())
+        })?
+    }
+
     /// Run an entire consumer operation while serialized against revoke/end.
     /// This does not replace C1's live Session effect lease.
     pub fn with_active<R>(
