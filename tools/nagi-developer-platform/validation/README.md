@@ -300,6 +300,23 @@ reports, and 2 for invalid arguments.
   handwritten report-v1 evidence snapshots under `tests/developer-platform/api`;
   these can drift from their named source files and are not fresh scanner output.
   The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures.
+- API snapshot drift test (PROVISIONAL, read-only; `test_api_snapshot_drift.py`).
+  For each platform in `report.API_CASES` (the snapshots the fixed fixtures use:
+  `windows/read_prefix` and `linux/watch_changes`) it checks that (a) the snapshot's
+  `limitations` name the expected source fixture, (b) every finding's `line` exists
+  in that source and its `evidence` text is on that line, and (c) every API name
+  that `report.diagnose` reports for a row appears on the cited line. A mismatch
+  fails with `<source>:<line>` and what differs. Snapshots are read through the
+  existing `api/common` `adapt_report_v1` / `load_report_document` and the fixed
+  list and paths come from `report.py`; no second reader or list is kept. The test
+  changes no repository file: the drift cases (shifted snapshot line, renamed API,
+  line past the end, another named source, a line inserted into the source) run on
+  temporary copies. Limits: this compares one handwritten snapshot with the file
+  it names. It is not real scanner output and does not show the snapshot equals
+  what a scanner would emit; snapshots with no fixed fixture (for example
+  `text_only`, `mixed_platform`, `api/common`) are not covered. Evidence is matched
+  as text containment, so a changed line that still contains the same text is not
+  detected. Host-only, not Nagi target acceptance, and not a PT-01 interface.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared
