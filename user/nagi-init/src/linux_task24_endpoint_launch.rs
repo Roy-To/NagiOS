@@ -572,6 +572,11 @@ pub(super) fn start_verified_login(
             control: input_channel.ok_or(PeerDenial::RequestOutcomeUnknown)?,
         }),
         Err(error) => {
+            // Preserve the admission failure even if bounded cleanup has
+            // an independently unresolved outcome.
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_INITIAL_ADMISSION_FAILED ({error:?})"
+            ));
             lifecycle
                 .shutdown_with_launch_lease(revoke_login_record, |lease, _status| {
                     owners.retire(lease)

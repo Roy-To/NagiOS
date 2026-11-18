@@ -4,8 +4,8 @@ use super::broker::{
 };
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
-    stage_initial_interactive_session_from_c2_owner_checked_peer, C1IssuedInteractiveSession,
-    C1PendingInitialInteractiveSession, C1SystemServiceRecoveryJournal,
+    stage_initial_interactive_session_from_c2_owner_checked_peer, C1InitialInteractiveSessionError,
+    C1IssuedInteractiveSession, C1PendingInitialInteractiveSession, C1SystemServiceRecoveryJournal,
     C1SystemServiceRuntimeAdmission, Clock, GuestProfileCleaner, IdempotencyKey,
     IdentityAuthorizer, IdentityEventSink, IdentityIdSource, IdentityService,
     IdentitySnapshotStore, LiveStatus, SessionLeaseRevalidationHandle, TrustedCallerContext,
@@ -193,17 +193,21 @@ where
                 self.expires_at,
                 request_key,
             )
-            .map_err(|_| PeerDenial::Unavailable)?;
+            .map_err(|error| deny_initial_session("commit", error))?;
+        super::super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_C1_SESSION_COMMITTED"));
         let caller = issued.caller();
         if !caller.matches_kernel_connection(self.peer, self.stream) {
             return Err(PeerDenial::StalePeer);
         }
         let context = issued
             .checked_context_with_runtime_admission(&mut self.owner.identity, &self.admission)
-            .map_err(|_| PeerDenial::Unavailable)?;
-        let lease = context
-            .revalidation_handle()
-            .map_err(|_| PeerDenial::Unavailable)?;
+            .map_err(|error| deny_initial_session("checked-context", error))?;
+        let lease = context.revalidation_handle().map_err(|error| {
+            deny_initial_session(
+                "revalidation",
+                C1InitialInteractiveSessionError::Interactive(error),
+            )
+        })?;
         if lease.session_id() != issued.session_id()
             || lease.principal_id() != caller.principal_id()
             || lease.caller_context_id() != caller.context_id()
@@ -216,11 +220,11 @@ where
     }
 
     fn abort(mut self: Box<Self>) -> Result<(), PeerDenial> {
-        if self
+        if let Err(error) = self
             .pending
             .abort_before_c2_attachment(&mut self.owner.identity)
-            .is_err()
         {
+            deny_initial_session("rollback", error);
             self.owner.outcome = InitialSessionOutcome::RollbackRequired(self.pending);
             return Err(PeerDenial::RequestOutcomeUnknown);
         }
@@ -281,7 +285,13 @@ where
             request.account_name().as_bytes(),
             request.secret().as_bytes(),
         )
-        .map_err(|_| PeerDenial::Unavailable)?;
+        .map_err(|_| {
+            super::super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED"
+            ));
+            PeerDenial::Unavailable
+        })?;
+    super::super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATED"));
     let pending = stage_initial_interactive_session_from_c2_owner_checked_peer(
         &owner.identity,
         verifier,
@@ -290,7 +300,7 @@ where
         stream,
         proof,
     )
-    .map_err(|_| PeerDenial::Unavailable)?;
+    .map_err(|error| deny_initial_session("stage", error))?;
     let transaction = InitialSessionTransaction {
         owner,
         pending,
@@ -308,4 +318,22 @@ where
         proof,
         transaction,
     )?)
+}
+
+fn deny_initial_session(stage: &str, error: C1InitialInteractiveSessionError) -> PeerDenial {
+    use C1InitialInteractiveSessionError::*;
+    let reason = match error {
+        Account(_) => "account-binding".to_owned(),
+        Peer(_) => "peer".to_owned(),
+        ConnectionProofMismatch => "connection-proof-mismatch".to_owned(),
+        IdentityIssuerMismatch => "issuer-mismatch".to_owned(),
+        InvalidIdentityMapping => "invalid-identity-mapping".to_owned(),
+        InvalidTransactionState => "invalid-transaction-state".to_owned(),
+        Identity(ref error) => format!("{error:?}"),
+        Interactive(ref error) => format!("{error:?}"),
+    };
+    super::super::log_pid1_stderr(format_args!(
+        "NAGI_DEV_TASK24_C1_INITIAL_SESSION_DENIED stage={stage} reason={reason}"
+    ));
+    PeerDenial::Unavailable
 }
