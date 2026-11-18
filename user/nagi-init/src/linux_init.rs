@@ -421,8 +421,7 @@ mod pid1_live_peer_supplier;
 mod linux_task24_endpoint_launch;
 
 #[cfg(all(
-    linux_boot_identity_runtime,
-    linux_boot_owner_registration,
+    any(linux_boot_owner_registration, linux_task24_owner_co_location),
     feature = "desktop-login",
     target_os = "linux",
     target_arch = "x86_64",
@@ -6251,7 +6250,10 @@ fn validate_notes_desktop_input(
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -6260,7 +6262,10 @@ const NOTES_INPUT_KEY_CODES: [u16; 5] = [15, 28, 30, 31, 57]; // Tab, Enter, A, 
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -6269,7 +6274,10 @@ const NOTES_INPUT_KEY_MAX: usize = 0x2ff;
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -6278,7 +6286,10 @@ const NOTES_INPUT_KEY_BITMAP_BYTES: usize = (NOTES_INPUT_KEY_MAX + 8) / 8;
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -6288,7 +6299,10 @@ const NOTES_INPUT_O_NOFOLLOW: i32 = 0x0002_0000;
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -6300,7 +6314,10 @@ const fn notes_event_ioctl_request(number: u32, size: usize) -> std::os::raw::c_
 #[cfg(all(
     any(
         linux_desktop_dev_smoke,
-        all(linux_boot_owner_registration, feature = "desktop-login")
+        all(
+            any(linux_boot_owner_registration, linux_task24_owner_co_location),
+            feature = "desktop-login"
+        )
     ),
     target_os = "linux",
     target_arch = "x86_64"
@@ -7327,6 +7344,22 @@ impl InitBackend for UnconnectedBackend {
                     }
                     None => None,
                 };
+                #[cfg(all(
+                    linux_task24_owner_co_location,
+                    target_arch = "x86_64",
+                    feature = "desktop-login",
+                    not(nagi_release_build)
+                ))]
+                let _login_run = if _login_package.is_some() {
+                    let run = linux_task24_endpoint_launch::BootLoginRun::begin()?;
+                    pid1_log!(
+                        "NAGI_DEV_TASK24_RUN_RETAINED generation={}",
+                        run.run_owner.generation()
+                    );
+                    Some(run)
+                } else {
+                    None
+                };
                 let catalog = &inputs.catalog;
                 let descriptor = catalog.descriptor();
                 let report = linux_boot_package_inputs::LinuxBootArtifactPreflight::new()
@@ -7397,9 +7430,15 @@ impl InitBackend for UnconnectedBackend {
                                     Ok(()) => {
                                         pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED; first login unavailable");
                                         #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
-                                        match runtime.run_owner_registration() {
-                                            Ok(()) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_SAVED"),
-                                            Err(error) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_UNAVAILABLE ({error})"),
+                                        match linux_owner_registration_console::BootOwnerConsole::open() {
+                                            Ok(mut console) => {
+                                                match runtime.run_owner_registration(&mut console) {
+                                                    Ok(()) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_SAVED"),
+                                                    Err(error) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_UNAVAILABLE ({error})"),
+                                                }
+                                                wait_in_pid1(wait_for_pid1_os_event);
+                                            }
+                                            Err(error) => pid1_log!("NAGI_LINUX_OWNER_UI_UNAVAILABLE ({error})"),
                                         }
                                         wait_in_pid1(wait_for_pid1_os_event);
                                     }

@@ -181,63 +181,192 @@ impl Framebuffer {
 
 #[derive(Debug)]
 pub(super) enum RegistrationConsoleError<E> {
-    Device,
     Io(io::Error),
     CredentialUnavailable,
     Save(E),
 }
 
-pub(super) fn run<SaveAccount, E>(
-    mut screen: LinuxOwnerRegistration<SaveAccount>,
-) -> Result<(), RegistrationConsoleError<E>>
-where
-    SaveAccount: FnOnce(AccountRecord) -> Result<(), E>,
-{
-    use RegistrationConsoleError::*;
-    let (_, mut keyboard) = select_development_keyboard().map_err(|_| Device)?;
-    // The kernel accepts the scalar argument for EVIOCGRAB. Ownership remains
-    // on this retained descriptor and ends when the descriptor closes.
-    if unsafe { ioctl(keyboard.as_raw_fd(), EVIOCGRAB, 1i32) } < 0 {
-        return Err(Io(io::Error::last_os_error()));
+pub(super) struct BootOwnerConsole {
+    keyboard: File,
+    framebuffer: Framebuffer,
+    pixels: Vec<u32>,
+    frame_presented: bool,
+}
+
+impl BootOwnerConsole {
+    pub(super) fn open() -> io::Result<Self> {
+        let (_, keyboard) = select_development_keyboard()
+            .map_err(|_| io::Error::other("trusted boot keyboard unavailable"))?;
+        // EVIOCGRAB gives this retained descriptor exclusive input delivery.
+        if unsafe { ioctl(keyboard.as_raw_fd(), EVIOCGRAB, 1i32) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            keyboard,
+            framebuffer: Framebuffer::open()?,
+            pixels: vec![0; (SURFACE_WIDTH * SURFACE_HEIGHT) as usize],
+            frame_presented: false,
+        })
     }
-    let mut framebuffer = Framebuffer::open().map_err(Io)?;
-    let mut pixels = vec![0; (SURFACE_WIDTH * SURFACE_HEIGHT) as usize];
-    let mut redraw = |screen: &LinuxOwnerRegistration<SaveAccount>| {
-        screen.render(&mut crate::ui::Painter::new(&mut pixels));
-        framebuffer.present(&pixels).map_err(Io)
-    };
-    redraw(&screen)?;
-    super::log_pid1_stderr(format_args!(
-        "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
-    ));
-    loop {
-        // Linux input_event has a 16-byte timestamp followed by type, code and value.
-        let mut data = [0u8; 24];
-        keyboard.read_exact(&mut data).map_err(Io)?;
-        let event_type = u16::from_le_bytes([data[16], data[17]]);
-        let code = u16::from_le_bytes([data[18], data[19]]);
-        let value = i32::from_le_bytes(data[20..24].try_into().unwrap());
-        if event_type == 0 && code == 3 {
-            return Err(Io(io::Error::other("keyboard events were lost")));
-        }
-        if event_type != libnagi::INPUT_EVENT_KEY || value != 1 {
-            continue;
-        }
-        match screen.handle_event(InputEvent {
-            event_type,
-            code,
-            value,
-        }) {
-            LinuxRegistrationOutcome::Ignored => {}
-            LinuxRegistrationOutcome::Redraw => redraw(&screen)?,
-            LinuxRegistrationOutcome::CredentialUnavailable => {
-                redraw(&screen)?;
-                return Err(CredentialUnavailable);
+
+    fn present(&mut self, render: impl FnOnce(&mut crate::ui::Painter<'_>)) -> io::Result<()> {
+        self.frame_presented = false;
+        render(&mut crate::ui::Painter::new(&mut self.pixels));
+        self.framebuffer.present(&self.pixels)?;
+        self.frame_presented = true;
+        Ok(())
+    }
+
+    fn next_key(&mut self) -> io::Result<InputEvent> {
+        loop {
+            // x86-64 input_event ends in u16 type, u16 code, and i32 value.
+            let mut data = [0u8; 24];
+            if let Err(error) = self.keyboard.read_exact(&mut data) {
+                self.frame_presented = false;
+                return Err(error);
             }
-            LinuxRegistrationOutcome::Submitted(result) => {
-                redraw(&screen)?;
-                return result.map_err(Save);
+            let event_type = u16::from_le_bytes([data[16], data[17]]);
+            let code = u16::from_le_bytes([data[18], data[19]]);
+            let value = i32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+            if event_type == 0 && code == 3 {
+                self.frame_presented = false;
+                return Err(io::Error::other("keyboard events were lost"));
+            }
+            if event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1) {
+                return Ok(InputEvent {
+                    event_type,
+                    code,
+                    value,
+                });
             }
         }
+    }
+
+    pub(super) fn run_registration<SaveAccount, E>(
+        &mut self,
+        mut screen: LinuxOwnerRegistration<SaveAccount>,
+    ) -> Result<(), RegistrationConsoleError<E>>
+    where
+        SaveAccount: FnOnce(AccountRecord) -> Result<(), E>,
+    {
+        use RegistrationConsoleError::*;
+        self.present(|painter| screen.render(painter)).map_err(Io)?;
+        #[cfg(linux_task24_owner_co_location)]
+        if let Ok(connection) = self.consent_connection() {
+            use super::pid1_live_peer_supplier::ConsentSource;
+            if matches!(connection.connected(), Ok(true)) {
+                super::log_pid1_stderr(format_args!("NAGI_LINUX_OWNER_UI_CONNECTED"));
+            }
+        }
+        super::log_pid1_stderr(format_args!(
+            "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
+        ));
+        loop {
+            let event = self.next_key().map_err(Io)?;
+            if event.value == 0 {
+                continue;
+            }
+            match screen.handle_event(event) {
+                LinuxRegistrationOutcome::Ignored => {}
+                LinuxRegistrationOutcome::Redraw => {
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                }
+                LinuxRegistrationOutcome::CredentialUnavailable => {
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    return Err(CredentialUnavailable);
+                }
+                LinuxRegistrationOutcome::Submitted(result) => {
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    return result.map_err(Save);
+                }
+            }
+        }
+    }
+
+    /// The authenticated desktop and Supervisor still own the consent
+    /// request, its Session, and recording its answer.
+    pub(super) fn wait_for_consent(
+        &mut self,
+        dialog: &mut crate::consent_dialog::ConsentDialog,
+        user: &libnagi::security::Session,
+        locale: nagi_localization::Locale,
+    ) -> io::Result<crate::consent_dialog::ConsentAnswer> {
+        use crate::consent_dialog::PromptOutcome;
+
+        if user.token() == 0
+            || user.is_locked()
+            || dialog.is_armed()
+            || crate::supervisor::next_consent_request() != Some(dialog.request())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "consent dialog unavailable",
+            ));
+        }
+        self.present(|painter| dialog.render(painter, locale))?;
+        dialog.arm();
+        loop {
+            match dialog.handle_event(self.next_key()?, 0, 0) {
+                PromptOutcome::Ignored => {}
+                PromptOutcome::Changed => self.present(|painter| dialog.render(painter, locale))?,
+                PromptOutcome::Answered(answer) => {
+                    if crate::supervisor::next_consent_request() != Some(dialog.request()) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::PermissionDenied,
+                            "consent request no longer pending",
+                        ));
+                    }
+                    return Ok(answer);
+                }
+            }
+        }
+    }
+
+    #[cfg(linux_task24_owner_co_location)]
+    pub(super) fn consent_connection(&self) -> io::Result<BootConsentUiConnection<'_>> {
+        if !self.frame_presented {
+            return Err(io::Error::other("no frame presented by the owner UI"));
+        }
+        Ok(BootConsentUiConnection { console: self })
+    }
+}
+
+#[cfg(linux_task24_owner_co_location)]
+pub(super) struct BootConsentUiConnection<'a> {
+    console: &'a BootOwnerConsole,
+}
+
+#[cfg(linux_task24_owner_co_location)]
+impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection<'_> {
+    fn connected(&self) -> Result<bool, super::pid1_live_peer_supplier::PeerDenial> {
+        use super::pid1_live_peer_supplier::PeerDenial;
+
+        #[repr(C)]
+        struct PollFd {
+            fd: i32,
+            events: i16,
+            returned: i16,
+        }
+        unsafe extern "C" {
+            fn poll(fds: *mut PollFd, len: usize, timeout: i32) -> i32;
+        }
+        let mut fds = [
+            PollFd {
+                fd: self.console.keyboard.as_raw_fd(),
+                events: 0,
+                returned: 0,
+            },
+            PollFd {
+                fd: self.console.framebuffer.device.as_raw_fd(),
+                events: 0,
+                returned: 0,
+            },
+        ];
+        // No read, wait, callback, or decision under the broker/registry lock.
+        let result = unsafe { poll(fds.as_mut_ptr(), fds.len(), 0) };
+        if result < 0 {
+            return Err(PeerDenial::ConsentUnavailable);
+        }
+        Ok(self.console.frame_presented && fds.iter().all(|fd| fd.returned == 0))
     }
 }
