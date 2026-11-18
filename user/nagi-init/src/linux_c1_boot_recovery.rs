@@ -48,7 +48,9 @@ pub(in crate::linux_init) struct SelectedBootIdentityRuntime<'boot, 'package> {
     boot: &'boot AuthenticatedBootService<'package>,
     // Retain the selected account verifier beside the recovered snapshot store
     // while the login owner is unavailable.
-    _verifier: LinuxAccountVerifier,
+    verifier: LinuxAccountVerifier,
+    #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+    principal: C1VerifiedBootSystemServicePrincipal,
     identity: C1LinuxBootIdentityService,
     handoff: C1SystemServiceRuntimeHandoff,
     receipt: C3DurableSlotReceipt,
@@ -71,7 +73,9 @@ impl<'package> AuthenticatedBootService<'package> {
         let (handoff, receipt) = recover_boot_identity(self, &principal, &mut identity)?;
         Ok(SelectedBootIdentityRuntime {
             boot: self,
-            _verifier: verifier,
+            verifier,
+            #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+            principal,
             identity,
             handoff,
             receipt,
@@ -105,6 +109,46 @@ impl SelectedBootIdentityRuntime<'_, '_> {
         self.receipt = receipt;
         drop(admission);
         Ok(())
+    }
+
+    #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn run_owner_registration(&mut self) -> io::Result<()> {
+        let Self {
+            boot,
+            verifier,
+            principal,
+            identity,
+            handoff,
+            receipt,
+        } = self;
+        let screen = crate::login_screen::selected_data_owner_registration(
+            verifier,
+            nagi_localization::Locale::EnUs,
+            |account_name| {
+                let admission = identity
+                    .enter_system_service_runtime_admission(handoff, boot.recovery_scope())
+                    .map_err(|error| io::Error::other(format!("{error:?}")))?;
+                let scope = admission.scope();
+                let claim = correlated_c3_claim(boot, scope, admission.operation_identity())?;
+                let (binding, current_receipt) = boot
+                    .owner
+                    .c3
+                    .with_durable_live_continuation_gate(scope, &boot.proof, claim, || {
+                        nagi_identity_session::provision_c1_linux_first_owner_binding(
+                            identity,
+                            principal,
+                            account_name,
+                        )
+                        .map_err(|error| io::Error::other(format!("{error:?}")))
+                    })?;
+                require_correlated_live_receipt(scope, claim, &current_receipt)?;
+                *receipt = current_receipt;
+                Ok::<_, io::Error>(binding)
+            },
+        )
+        .map_err(|error| io::Error::other(format!("{error:?}")))?;
+        super::super::linux_owner_registration_console::run(screen)
+            .map_err(|error| io::Error::other(format!("{error:?}")))
     }
 }
 
