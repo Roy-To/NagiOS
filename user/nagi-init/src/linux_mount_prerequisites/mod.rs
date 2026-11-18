@@ -16,7 +16,11 @@ use std::fmt;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-#[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    any(linux_dev_preview_smoke, not(nagi_release_build))
+))]
 #[path = "data_mount_owner.rs"]
 pub(super) mod data_mount_owner;
 #[path = "mount_flags.rs"]

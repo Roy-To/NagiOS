@@ -444,6 +444,22 @@ pub(crate) fn run() -> ExitCode {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     ensure_pid1_proc_and_sysfs();
 
+    #[cfg(all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ))]
+    if backend.boot_catalog.is_some() {
+        match linux_mount_prerequisites::data_mount_owner::mount_identity_data() {
+            Ok(Some(data)) => {
+                pid1_log!("NAGI_DEV_IDENTITY_DATA_MOUNTED retained_fd=true");
+                backend.identity_data = Some(data);
+            }
+            Ok(None) => {}
+            Err(reason) => pid1_log!("NAGI_DEV_IDENTITY_DATA_UNAVAILABLE reason={reason}"),
+        }
+    }
+
     // This branch is compiled only in the non-release development preview and
     // requires an explicit guest command-line token. It never authenticates a
     // Profile or promotes the ordinary Pending Notes owner.
@@ -7080,6 +7096,12 @@ struct UnconnectedBackend {
     package_store_directory: Option<PackageStoreDirectoryInput>,
     #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
     boot_catalog: Option<linux_boot_package_inputs::BootCatalogInputs>,
+    #[cfg(all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ))]
+    identity_data: Option<linux_mount_prerequisites::data_mount_owner::DevelopmentIdentityData>,
     #[cfg(test)]
     wait_calls: usize,
 }
@@ -7095,6 +7117,12 @@ impl UnconnectedBackend {
             package_store_directory: input,
             #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
             boot_catalog: None,
+            #[cfg(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                not(any(linux_dev_preview_smoke, nagi_release_build))
+            ))]
+            identity_data: None,
             #[cfg(test)]
             wait_calls: 0,
         }
@@ -7246,6 +7274,17 @@ impl InitBackend for UnconnectedBackend {
                         .with_verified_system_mapping(&inputs.recovery_catalog, |mapping| {
                             mapping.mapping_generation()
                         });
+                    #[cfg(not(nagi_release_build))]
+                    if mapping.is_ok() {
+                        if let Some(data) = self.identity_data.as_ref() {
+                            match data.input.identity_inputs(&data.accounts, &data.snapshots) {
+                                Ok(_) => pid1_log!("NAGI_DEV_IDENTITY_DATA_INPUTS_VALIDATED"),
+                                Err(error) => {
+                                    pid1_log!("NAGI_DEV_IDENTITY_DATA_INPUTS_UNAVAILABLE ({error})")
+                                }
+                            }
+                        }
+                    }
                     authenticated.retire().map_err(|error| {
                         pid1_log!("nagi-init: C3 boot service retirement unavailable ({error})");
                         BackendError::Unavailable

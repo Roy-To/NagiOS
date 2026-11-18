@@ -120,6 +120,34 @@ impl BootVolumeInput {
     pub(crate) fn selected_data_root(&self) -> io::Result<SelectedDataRoot> {
         SelectedDataRoot::from_selected_volume(self.directory.try_clone()?)
     }
+
+    pub(crate) fn identity_inputs(
+        &self,
+        accounts: &Path,
+        snapshots: &Path,
+    ) -> io::Result<(File, LinuxAccountVerifier)> {
+        let root = self.selected_data_root()?;
+        let verifier = root.prepare_account_verifier(accounts).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("protected account directory: {error}"),
+            )
+        })?;
+        let directory = root.retain_profile_directory(snapshots).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("protected identity snapshot directory: {error}"),
+            )
+        })?;
+        let metadata = directory.metadata()?;
+        if metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "identity snapshot directory is not private to the boot owner",
+            ));
+        }
+        Ok((directory, verifier))
+    }
 }
 
 pub(crate) struct ProfileVolumeNotesOwner {

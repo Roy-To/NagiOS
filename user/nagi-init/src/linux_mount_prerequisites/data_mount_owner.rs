@@ -107,15 +107,12 @@ pub(super) struct DevelopmentDataMountOwner {
 }
 
 impl DevelopmentDataMountOwner {
-    fn mount(request: &SmokeRequest) -> Result<Self, DataMountError> {
-        let device_serial = request
-            .device_serial
-            .as_deref()
-            .ok_or(DataMountError::SelectionMissing)?;
-        let filesystem_uuid = request
-            .filesystem_uuid
-            .as_deref()
-            .ok_or(DataMountError::SelectionMissing)?;
+    fn mount(
+        device_serial: Option<&str>,
+        filesystem_uuid: Option<&str>,
+    ) -> Result<Self, DataMountError> {
+        let device_serial = device_serial.ok_or(DataMountError::SelectionMissing)?;
+        let filesystem_uuid = filesystem_uuid.ok_or(DataMountError::SelectionMissing)?;
         if !valid_serial(device_serial) || !valid_uuid(filesystem_uuid) {
             return Err(DataMountError::SelectionMalformed);
         }
@@ -292,6 +289,72 @@ impl DevelopmentDataMountOwner {
     fn mount_id(&self) -> u64 {
         self.mount_id
     }
+}
+
+/// Owns the retained boot input and releases it before ending the mount.
+#[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+pub(in crate::linux_init) struct DevelopmentIdentityData {
+    pub(in crate::linux_init) input: BootVolumeInput,
+    pub(in crate::linux_init) accounts: PathBuf,
+    pub(in crate::linux_init) snapshots: PathBuf,
+    _mount: DevelopmentDataMountOwner,
+}
+
+/// Opt in to the same verified development mount while running normal PID 1.
+#[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+pub(in crate::linux_init) fn mount_identity_data(
+) -> Result<Option<DevelopmentIdentityData>, &'static str> {
+    let command_line = fs::read_to_string("/proc/cmdline")
+        .map_err(|_| DataMountError::SelectionMalformed.label())?;
+    let selected = || {
+        command_line
+            .split_ascii_whitespace()
+            .filter(|token| token.starts_with("nagi.dev_data."))
+    };
+    if !selected().any(|token| token.starts_with("nagi.dev_data.boot=")) {
+        return Ok(None);
+    }
+
+    let mut enabled = false;
+    let mut serial = None;
+    let mut uuid = None;
+    let mut accounts = None;
+    let mut snapshots = None;
+    for token in selected() {
+        match token.split_once('=') {
+            Some(("nagi.dev_data.boot", "identity")) if !enabled => enabled = true,
+            Some(("nagi.dev_data.serial", value)) if serial.is_none() => serial = Some(value),
+            Some(("nagi.dev_data.fs_uuid", value)) if uuid.is_none() => uuid = Some(value),
+            Some(("nagi.dev_data.accounts", value)) if accounts.is_none() => accounts = Some(value),
+            Some(("nagi.dev_data.snapshots", value)) if snapshots.is_none() => {
+                snapshots = Some(value)
+            }
+            _ => return Err(DataMountError::SelectionMalformed.label()),
+        }
+    }
+    let directories = |value: Option<&str>| {
+        let path = value
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .ok_or(DataMountError::SelectionMissing.label())?;
+        if !path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(DataMountError::SelectionMalformed.label());
+        }
+        Ok(path)
+    };
+    let accounts = directories(accounts)?;
+    let snapshots = directories(snapshots)?;
+    let mount = DevelopmentDataMountOwner::mount(serial, uuid).map_err(DataMountError::label)?;
+    let input = mount.boot_volume_input().map_err(DataMountError::label)?;
+    Ok(Some(DevelopmentIdentityData {
+        input,
+        accounts,
+        snapshots,
+        _mount: mount,
+    }))
 }
 
 impl Drop for DevelopmentDataMountOwner {
@@ -591,7 +654,10 @@ pub(super) fn maybe_run_smoke() -> bool {
 fn run_smoke(request: SmokeRequest) -> ! {
     match request.mode {
         SmokeMode::Reject => {
-            match DevelopmentDataMountOwner::mount(&request) {
+            match DevelopmentDataMountOwner::mount(
+                request.device_serial.as_deref(),
+                request.filesystem_uuid.as_deref(),
+            ) {
                 Ok(mut owner) => {
                     let _ = owner.end();
                     super::super::log_pid1_stderr(format_args!(
@@ -608,7 +674,10 @@ fn run_smoke(request: SmokeRequest) -> ! {
             hold_pid1();
         }
         SmokeMode::Write | SmokeMode::Read => {
-            let mut owner = match DevelopmentDataMountOwner::mount(&request) {
+            let mut owner = match DevelopmentDataMountOwner::mount(
+                request.device_serial.as_deref(),
+                request.filesystem_uuid.as_deref(),
+            ) {
                 Ok(owner) => owner,
                 Err(error) => {
                     super::super::log_pid1_stderr(format_args!(
