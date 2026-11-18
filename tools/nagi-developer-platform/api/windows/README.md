@@ -70,10 +70,21 @@ Nagi OS全体の内部サービスの不存在を断定しない。`contract_onl
 - headerの照合: rules.jsonで`"case_insensitive": true`を持つruleだけ大文字小文字を
   無視する（現在は`windows.h`のみ。Windowsのinclude解決がcase-insensitiveという
   暫定仮定。API名は区別したまま）。`#include "windows.h"`（同一行・空白のみの区切り）
-  も候補にする。`#include /* c */ "windows.h"`のようにcommentを挟む引用符形式、
-  `<sub/windows.h>`のようなpath付き、`windowsx.h`等の別headerの扱いは未確定のまま
-  （path付きは区切りがあるため現状は`windows.h`に一致し得る。限界として残す）。
-  根拠はテスト`test_windows_header_case_and_quoted_include`。
+  も候補にする。根拠はテスト`test_windows_header_case_and_quoted_include`。
+  `#include /* c */ "windows.h"`のようにcommentを挟む引用符形式は引き続き未確定。
+- path付きheader（NDP-A001、PROVISIONAL）: rules.jsonで`"basename_only": true`を持つ
+  ruleは、alias（`windows.h`）がディレクトリ区切り（`/`または`\`）に隣接する場合は
+  一致させない（現在は`WIN-HEADER`のみ）。`<sub/windows.h>`、`<sub\windows.h>`、
+  `"third_party/windows.h"`、`"../windows.h"`、`<./windows.h>`、`</windows.h>`は
+  `windows.h`ではなく別pathのファイルを指す可能性が高いという暫定仮定により
+  `lexical_candidate`にせず、他に一致がなければ`unknown_api`（category依存）になる。
+  `windowsx.h`・`mywindows.h`は従来どおりidentifier境界で別名として扱う。同じ断片内に
+  素の`#include <windows.h>`が別にあればそちらは候補になる。
+  この判定は「include path上のどこかの`sub/windows.h`が実際はSDKのWindows
+  headerかもしれない」可能性を捨てる偽陰性側の仮定であり、include search pathや
+  実ファイル解決は見ない（断片のみ）。区切り文字は他ruleのalias照合には影響しない。
+  後で方針が変わる場合は`basename_only`をJSONから外せば従来動作（区切りを無視）に戻る。
+  根拠はテスト`test_windows_header_match_is_limited_to_bare_basename`。
 - symbolだけのevidenceでは元がコメントか文字列かを判別できない。候補と限界を残し、
   ソースを読み足して判定済みにしない。同名の変数やlocal typeも候補になり得る。
   短縮.NET名は特に要symbol解決。.NET利用自体をWindows専用と断定しない。
@@ -87,7 +98,14 @@ Nagi OS全体の内部サービスの不存在を断定しない。`contract_onl
 
 ## 検証結果
 
-runner指定コマンドで30テスト成功（host、Python 3.9）。既存`read_prefix.c`と
+NDP-A001（host、Python 3.9.6）: runner指定の
+`python3 -m unittest discover -s tools/nagi-developer-platform/api/windows -p 'test_*.py'`
+で33テスト成功（`test_windows_header_match_is_limited_to_bare_basename`と既存の
+`test_windows_header_case_and_quoted_include`を含む）。上記`-s tools/nagi-developer-platform/api`
+でも69テスト成功。windows dirを起点にdiscoverすると`api/`がsys.pathに無く`common`を
+import できなかったため、`test_windows.py`が`api/`をsys.pathへ追加する（共有adapterは
+そのまま使い、二重実装しない）。hostの結果でありNagi target受入ではない。
+以下は変更前（NDP-04時点）の結果: runner指定コマンドで30テスト成功（host、Python 3.9）。既存`read_prefix.c`と
 negative controlの手書きreportを元入力の各行に照合し、本体rulesとCLIで診断した。
 全aliasと実在参照、CRT/.NET、未知API、同名識別子、コメント・各種文字列、
 壊れた／巨大／深いreport、相対path・範囲拒否、決定性、入力不変性を確認。
