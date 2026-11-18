@@ -180,6 +180,11 @@ only. Resource-only roots (`ResourceDictionary`, `Application`) have no screen a
 are rejected as `missing_root_widget`. Limits (bytes/elements/depth), DTD/entity/PI
 rejection, UTF-8/NUL checks and the safe file opener are the shared ones.
 
+Known limits (PROVISIONAL, host-only, not target acceptance): elements of an unknown
+namespace are treated as `custom` because non-visual elements (Style/Setter-like) cannot be
+told apart without type resolution, and `x:Name` is assumed unique across the whole document
+(same name in two templates → `duplicate_object_name`). See the PROVISIONAL section below.
+
 Not implemented: type/base-class resolution (so inherited content properties and
 event types), x:Bind path/function typing, namespace scoping, styles/triggers/visual
 states, template instantiation, resource lookup across files or merged dictionaries,
@@ -221,6 +226,15 @@ single input and never writes. Analyze a private copy if the directory is shared
 - WPFとWinUIを区別しない。`dialect_hints` は判定ではなくnamespace URI形式の証拠。
 - `nested_in_unknown` は内部レポート上の追加フィールドで、公開schemaではない。
   UI ownerが別の表現（例: 親への参照ID）を望む場合はこの1か所を差し替える。
+- 未知namespaceの要素は、型解決をしないため非視覚（`Style`/`Setter`等）か判定できず、
+  `x:Key` を持たない限りcustomとして扱う。結果としてwidget（`recognized=false`）・`unknown`・
+  `custom_widgets` に数えられ、NDP-07 mappingでは `needs_decision`（候補なし）の行になる。
+  `x:Key` 付きの未知namespace要素はwidgetにせず `resources`（`resource_definition`）と `unknown` に残す。
+  現状を `test_xaml.py` / `../mapping/test_mapping_xaml.py` で固定しているだけで、望ましい分類の決定ではない。
+- `x:Name` はdocument全体で一意とみなす。別の `DataTemplate` 内の同名 `x:Name` は
+  XAMLとして有効でも `duplicate_object_name` で失敗する（`test_xaml.py` で固定）。
+  namescope対応時に見直す。
+- 上記2点の固定はhostでのunittestのみで、Nagi target受入ではない。
 - `template` を既知タグにしないのは、本文を解析しない間に「認識済み」に見せない
   ための保守的な判断。composite template対応を実装する時に見直す。
 - テストの一時ディレクトリはOS既定（`tempfile`）を使う。ソースtreeには作らない。
