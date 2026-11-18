@@ -193,6 +193,75 @@ and each is isolated in `stages.json` or one function so it can be replaced.
   checkout) and as the base for a relative `--fixture-dir`; execution itself always
   happens in the private scratch directory.
 
+## Migration report (PROVISIONAL, NDP-09r)
+
+From the checkout root, select `portable`, `windows`, `linux` or `ui`.
+JSON is the default. Markdown summarizes the same report fields on stdout.
+
+```sh
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture portable
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture ui --format markdown
+```
+
+The format and fixture routing are **PROVISIONAL**. JSON version 1 has
+`recorded_at` (UTC), `fixture`, `source_kind`, `mode`, `scope`,
+`target_acceptance`, `checks`, and `evaluation`. Each check has a `status`,
+stable `reason`, `input_paths` and `counts`. `counts.inputs` counts the paths
+scheduled for the check. Other count keys describe the available evidence
+for that check, such as diagnostic rows, UI facts or executed build steps.
+The paths are relative to the checkout, except when `input_root` is
+`scratch_scaffold` for the generated Manifest. The report never includes
+temporary absolute paths. With the same fixture and tool environment,
+`recorded_at` is the only time-dependent field.
+
+| Status | Meaning |
+| --- | --- |
+| `passed` | The check completed successfully within its scope. API and UI checks can pass while reporting gaps. |
+| `failed` | A selected check reported an input, tool or validation error. |
+| `not_run` | A tool, input prerequisite or stage connection was unavailable. See `reason`. |
+| `unsupported` | The selected fixture or UI format is outside the applicable check's scope. |
+
+Independent checks continue after a failure. UI files each have their own
+analysis and mapping result. A mapping with a failed analysis gets
+`not_run` with `ui_analysis_did_not_pass`; other files still proceed.
+Aggregate UI status is the first present of `failed`, `not_run`,
+`unsupported` or `passed`. A generation failure skips Stage 1.
+Stage 2 builds the original portable fixture and is independent of the
+scaffold and its Manifest. The CLI emits the report and exits 1 if any check
+failed, 0 for other completed reports, and 2 for invalid arguments.
+
+| [PT-06 evaluation section](../../../docs/porting-toolkit/PT06_MIGRATION_EVALUATION_TEMPLATE_2026-11-13.md) | Report evidence |
+| --- | --- |
+| A. Input and permission scope | Bundled self-made fixture ID and relative paths. The [fixture README](../../../tests/developer-platform/evaluation/README.md) records provenance and the permitted execution scope. |
+| B. Comparison conditions | `toolkit_non_ai` run. Manual, local LLM and external AI runs are `not_run`. |
+| C. Work and gaps | Level 0 scaffold file count, API rows and availability counts, UI fact and mapping counts. Human effort, reuse, speedup and resource usage are unmeasured. |
+| D. Verification | Stage 1 checks the scratch Manifest with the real `nagi-pkg` when prepared. Stage 2 records approved portable host compile and test results. Package/signature and all Nagi target checks are `not_run`. |
+| E. Follow-up evidence | Check reasons, API rule IDs and per-file UI counts expose gaps for review. A comparison or improvement estimate requires separate runs. |
+
+### 仮定（PROVISIONAL）
+
+- The fixed fixture list lives in `report.py`. API diagnosis uses the existing
+  handwritten report-v1 evidence snapshots under `tests/developer-platform/api`;
+  these can drift from their named source files and are not fresh scanner output.
+  The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures.
+- Only the trusted checkout's fixture list and the portable target in
+  `stages.json` can select input files. No caller path, build script, command or
+  flag is accepted. The adapters reject symlinks and path escapes and do not
+  follow declared UI resources. The checkout and local executables are trusted
+  and must remain stable during the run.
+- Generator defaults come from `generated_check.py`. The output is temporary and
+  removed after checking the Manifest. `validator_unavailable` means Stage 1
+  was `not_run`. The scaffold is neither a source conversion nor a built app.
+  The report runs offline with the available Python tools, the prepared
+  `nagi-pkg` binary and the existing Stage 2 host compiler.
+- The API source/evidence reader is capped at 1 MiB per file; the UI analyzer's
+  existing limits apply. API/UI subprocesses have a 10 s timeout and a combined
+  stdout/stderr cap of 512 KiB per invocation. API details show up to 32 rows
+  with a `truncated` flag. UI entries cover at most seven paths, and each output
+  format is capped at 128 KiB. Stage 1 and 2 keep their existing limits.
+- Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
+  permissions and data persistence on Nagi require separate target evidence.
+
 ## Evidence and remaining scope — 2026-11-17
 
 On macOS arm64, Clang 21, Python 3.9.6, pinned nightly Rust 1.90.0-nightly:

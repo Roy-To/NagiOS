@@ -61,7 +61,8 @@ def _kill_group(process):
         pass
 
 
-def _run(command, cwd, timeout, cancel=None, output_limit=MAX_OUTPUT, env=None):
+def _run(command, cwd, timeout, cancel=None, output_limit=MAX_OUTPUT, env=None,
+         stdin=subprocess.DEVNULL):
     """Bounded process transport; arbitrary test commands are internal test inputs only.
 
     `env=None` inherits the caller's environment (Stage 1); Stage 2 passes an allowlist.
@@ -69,7 +70,7 @@ def _run(command, cwd, timeout, cancel=None, output_limit=MAX_OUTPUT, env=None):
     if cancel is not None and cancel.is_set():
         return {"status": "cancelled", "exit_code": None, "stdout": b"", "stderr": b""}
     try:
-        process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
+        process = subprocess.Popen(command, cwd=cwd, stdin=stdin,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    start_new_session=True, env=env)
     except OSError:
