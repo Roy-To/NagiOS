@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Run the development Data mount owner against one fresh disk across two boots."""
+"""Check development Data persistence or prepare identity directories on a new copy."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -14,9 +17,11 @@ from pathlib import Path
 
 RUNNER = Path(__file__).with_name("run_qemu_child.py")
 DISK_BYTES = 128 * 1024 * 1024
+PROVISION_PHASE = "provision-identity-directories"
 FAILURE_MARKERS = (
     "NAGI_DEV_DATA_OWNER_FAIL",
     "NAGI_DEV_DATA_OWNER_UNAVAILABLE",
+    "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISION_FAILED",
     "Kernel panic",
     "Attempted to kill init",
 )
@@ -40,6 +45,12 @@ def run_phase(
         r"notes_pending=true owner_ended=true$",
         re.MULTILINE,
     )
+    if phase == PROVISION_PHASE:
+        expected = re.compile(
+            r"^NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED "
+            r"accounts=accounts snapshots=snapshots owner_ended=true$",
+            re.MULTILINE,
+        )
     command = [
         sys.executable, "-B", str(RUNNER), "--timeout-seconds", "60",
         "--qmp-socket", str(socket), "--qemu-log", str(phase_dir / "qemu.log"),
@@ -88,6 +99,28 @@ def run_phase(
     print(match.group(), flush=True)
 
 
+def copy_development_disk(source: Path, destination: Path) -> str:
+    # Only the exclusive new regular file is passed to QEMU as a drive.
+    with os.fdopen(os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as image:
+        metadata = os.fstat(image.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size != DISK_BYTES:
+            raise ValueError("expected a regular image from the development Data runner")
+        image.seek(1024)
+        superblock = image.read(120)
+        if len(superblock) != 120 or superblock[56:58] != b"\x53\xef":
+            raise ValueError("expected an ext4 development Data image")
+        filesystem_uuid = str(uuid.UUID(bytes=superblock[104:120]))
+        image.seek(0)
+        fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as copy:
+            shutil.copyfileobj(image, copy)
+            if copy.tell() != metadata.st_size:
+                raise ValueError("development Data image size changed during copy")
+            copy.flush()
+            os.fsync(copy.fileno())
+        return filesystem_uuid
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kernel", required=True, type=Path)
@@ -95,15 +128,25 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path, help="new run directory")
     parser.add_argument("--qemu", default="qemu-system-x86_64")
     parser.add_argument("--mkfs", default="mkfs.ext4")
+    parser.add_argument(
+        "--provision-identity-from", type=Path, metavar="DEV_DATA_IMAGE",
+        help="copy a stopped development Data image and prepare its private identity directories",
+    )
     args = parser.parse_args()
     args.kernel = args.kernel.resolve(strict=True)
     args.initramfs = args.initramfs.resolve(strict=True)
     args.output.mkdir()
     args.output = args.output.resolve()
 
+    disk = args.output / "data.raw"
+    if args.provision_identity_from is not None:
+        filesystem_uuid = copy_development_disk(args.provision_identity_from, disk)
+        serial = f"NAGI-DATA-{filesystem_uuid[:8]}"
+        run_phase(args, PROVISION_PHASE, serial, filesystem_uuid)
+        return
+
     filesystem_uuid = str(uuid.uuid4())
     serial = f"NAGI-DATA-{filesystem_uuid[:8]}"
-    disk = args.output / "data.raw"
     with disk.open("xb") as image:
         image.truncate(DISK_BYTES)
     subprocess.run(
