@@ -391,6 +391,15 @@ macro_rules! pid1_log {
 #[path = "linux_initial_login_owner.rs"]
 mod linux_initial_login_owner;
 
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "linux_initial_login_c2.rs"]
+mod linux_initial_login_c2;
+
 pub(crate) fn run() -> ExitCode {
     if std::process::id() != 1 {
         pid1_log!("nagi-init: refusing Linux init entry outside PID 1");
@@ -7274,6 +7283,30 @@ impl InitBackend for UnconnectedBackend {
                         .with_verified_system_mapping(&inputs.recovery_catalog, |mapping| {
                             mapping.mapping_generation()
                         });
+                    #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+                    if mapping.is_ok() {
+                        if let Some(data) = self.identity_data.as_ref() {
+                            match authenticated.recover_selected_identity_data(
+                                &inputs.recovery_catalog,
+                                &data.input,
+                                &data.snapshots,
+                                &data.accounts,
+                            ) {
+                                Ok(mut runtime) => match runtime.verify_continuing_admission() {
+                                    Ok(()) => {
+                                        pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED; first login unavailable");
+                                        wait_in_pid1(wait_for_pid1_os_event);
+                                    }
+                                    Err(error) => pid1_log!(
+                                        "NAGI_C3_BOOT_CONTINUATION_UNAVAILABLE ({error:?})"
+                                    ),
+                                },
+                                Err(error) => {
+                                    pid1_log!("NAGI_C1_BOOT_RECOVERY_UNAVAILABLE ({error:?})")
+                                }
+                            }
+                        }
+                    }
                     #[cfg(not(nagi_release_build))]
                     if mapping.is_ok() {
                         if let Some(data) = self.identity_data.as_ref() {

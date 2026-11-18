@@ -32,6 +32,10 @@ const RELEASE_BUDGET: Duration = Duration::from_secs(2);
 const RETIREMENT_BUDGET: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+#[path = "linux_c1_boot_recovery.rs"]
+mod linux_c1_boot_recovery;
+
 /// A's normal-boot adapter to the maintained C3 process and journal owner.
 pub(super) struct LinuxBootServiceOwner {
     c3: LinuxC3SystemServiceSlotOwner,
