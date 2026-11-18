@@ -30,6 +30,10 @@ unsafe fn syscall(number: i64, a: usize, b: usize, c: usize, d: usize) -> isize 
             in("rsi") b,
             in("rdx") c,
             in("r10") d,
+            // All calls here use at most four arguments. In particular,
+            // sendto on the connected broker stream needs a null destination.
+            in("r8") 0usize,
+            in("r9") 0usize,
             lateout("rcx") _,
             lateout("r11") _,
             options(nostack),
