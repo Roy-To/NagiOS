@@ -204,7 +204,7 @@ and each is isolated in `stages.json` or one function so it can be replaced.
 
 ## Migration report (PROVISIONAL, NDP-09r)
 
-From the checkout root, select `portable`, `windows`, `linux` or `ui`.
+From the checkout root, select `portable`, `windows`, `linux`, `ui` or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
@@ -239,6 +239,26 @@ reason. The short English descriptions come from the `REASON_DESCRIPTIONS`
 table in `report.py`. A reason missing from that table is shown as the code
 only, and no explanation is guessed. The table and overview format may change
 and stay inside `validation/`; they are not a contract.
+
+**PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
+`portable`, `windows`, `linux` and `ui` and adds a fixture x check overview.
+JSON has the same `version`, `approval`, `recorded_at`, `scope` and
+`target_acceptance` fields (`fixture` is `all`), the unchanged per-fixture
+reports under `reports`, and `summary`: `fixtures`, `checks`, `matrix`
+(`matrix[fixture][check]` = `status` + `reason`), `total`, `counts` (the sum
+of each fixture's `overview.counts`), `by_fixture`, `not_passed` (with
+`fixture`) and `reasons`. A `reasons` entry carries the `REASON_DESCRIPTIONS`
+text, or `null` for a code missing from that table. Markdown begins with the
+matrix table (status and reason per cell) and the reason list, followed by
+each unchanged single-fixture Markdown report. The exit code follows the
+existing rule over every check of every fixture: 1 if any check `failed`,
+0 for other completed runs, 2 for invalid arguments. Output is capped at
+four times the single-report limit.
+
+Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
+or compiler that is missing stays `not_run` and is never shown as passed. It is
+not Nagi target acceptance (`target_acceptance` stays `not_run`), and the
+format may change inside `validation/`; it is not a contract.
 
 Independent checks continue after a failure. UI files each have their own
 analysis and mapping result. A mapping with a failed analysis gets

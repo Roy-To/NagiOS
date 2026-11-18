@@ -1,8 +1,11 @@
 """Run the migration report on the checked-in evaluation fixtures."""
 
+import contextlib
 import hashlib
+import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -214,6 +217,116 @@ class ReportTests(unittest.TestCase):
                       + report.REASON_DESCRIPTIONS["package_and_signature_checks_not_connected"], head)
         self.assertIn("- stage_3 · `not_run` · `made_up_reason_code`\n", head)
         self.assertLess(head.index("## Overview"), markdown.index("| Check |"))
+
+    def run_main(self, *arguments):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = report.main(list(arguments))
+        return code, out.getvalue()
+
+    def test_all_json_matrix_covers_four_fixtures_and_matches_overviews(self):
+        run = self.run_cli("--fixture", "all")
+        self.assertEqual(run.stderr, b"")
+        self.assertEqual(run.returncode, 0, run.stdout.decode())
+        self.assertNotIn(os.fsencode(report.REPO), run.stdout)
+        result = json.loads(run.stdout)
+        summary = result["summary"]
+        self.assertEqual(result["fixture"], "all")
+        self.assertEqual(result["target_acceptance"], "not_run")
+        self.assertEqual(summary["fixtures"], ["portable", "windows", "linux", "ui"])
+        self.assertEqual(list(result["reports"]), summary["fixtures"])
+        self.assertEqual(summary["total"], len(summary["fixtures"]) * len(summary["checks"]))
+        for fixture, individual in result["reports"].items():
+            self.assertEqual(individual["fixture"], fixture)
+            self.assertEqual(summary["by_fixture"][fixture], individual["overview"]["counts"])
+            self.assertEqual(summary["matrix"][fixture], {
+                name: {"status": item["status"], "reason": item["reason"]}
+                for name, item in individual["checks"].items()})
+        for status in report.CHECK_STATUSES:
+            self.assertEqual(summary["counts"][status], sum(
+                item["overview"]["counts"][status] for item in result["reports"].values()))
+            self.assertEqual(summary["counts"][status], sum(
+                cell["status"] == status for row in summary["matrix"].values()
+                for cell in row.values()))
+        self.assertEqual(sum(summary["counts"].values()), summary["total"])
+        self.assertEqual(summary["matrix"]["windows"]["windows_diagnosis"]["status"], "passed")
+        self.assertEqual(summary["matrix"]["ui"]["stage_3"],
+                         {"status": "not_run", "reason": "stage_not_connected"})
+        self.assertEqual(summary["matrix"]["portable"]["windows_diagnosis"],
+                         {"status": "unsupported", "reason": "no_platform_evidence_for_fixture"})
+
+    def test_all_markdown_starts_with_matrix_and_keeps_individual_output(self):
+        code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
+        self.assertEqual(code, 0)
+        head = markdown.split("# Migration evaluation\n")[0]
+        self.assertTrue(markdown.startswith("# Migration evaluation: all fixtures"))
+        self.assertIn("## Fixture x check matrix", head)
+        for fixture in report.FIXTURES:
+            self.assertIn("\n| {} | ".format(fixture), head)
+        self.assertIn("| Fixture | windows_diagnosis | linux_diagnosis |", head)
+        self.assertIn("`unsupported`<br>`no_platform_evidence_for_fixture`", head)
+        self.assertIn("`no_ui_inputs_for_fixture` — "
+                      + report.REASON_DESCRIPTIONS["no_ui_inputs_for_fixture"], head)
+        self.assertEqual(markdown.count("# Migration evaluation\n"), len(report.FIXTURES))
+        for fixture in report.FIXTURES:
+            self.assertIn("**PROVISIONAL** · Fixture `{}` · Toolkit (non-AI)".format(fixture), markdown)
+        # Each individual section equals the single-fixture output (time aside).
+        sections = markdown.split("\n---\n\n")[1:]
+        self.assertEqual(len(sections), len(report.FIXTURES))
+        strip = lambda text: re.sub(r"Recorded at [^ ]+\.", "Recorded at T.", text)
+        for fixture, section in zip(report.FIXTURES, sections):
+            self.assertEqual(strip(section), strip(report.markdown_report(report.build_report(fixture))))
+
+    def test_all_counts_and_exit_code_follow_failed_checks(self):
+        real = report.build_report
+
+        def failing(fixture):
+            result = real(fixture)
+            if fixture == "linux":
+                result["checks"]["stage_3"] = {**result["checks"]["stage_3"],
+                                               "status": "failed", "reason": "tool_exit_nonzero"}
+                result["overview"] = report.build_overview(result["checks"])
+            return result
+
+        with patch.object(report, "build_report", failing):
+            code, output = self.run_main("--fixture", "all")
+        self.assertEqual(code, 1)
+        summary = json.loads(output)["summary"]
+        self.assertEqual(summary["counts"]["failed"], 1)
+        self.assertEqual(summary["matrix"]["linux"]["stage_3"]["status"], "failed")
+        self.assertIn({"fixture": "linux", "name": "stage_3", "status": "failed",
+                       "reason": "tool_exit_nonzero"}, summary["not_passed"])
+        with patch.object(report, "build_report", real):
+            code, _ = self.run_main("--fixture", "all")
+        self.assertEqual(code, 0)
+
+    def test_all_not_run_is_never_counted_as_passed(self):
+        with patch.object(report, "host_build",
+                          lambda fixture: report.unavailable("clang_unavailable")), \
+                patch.object(generated_check, "generate_scaffold",
+                             side_effect=lambda root: {"status": "unavailable", "reason": "x"}):
+            code, output = self.run_main("--fixture", "all")
+        summary = json.loads(output)["summary"]
+        self.assertEqual(code, 0)
+        self.assertEqual(summary["matrix"]["portable"]["stage_2"],
+                         {"status": "not_run", "reason": "clang_unavailable"})
+        self.assertEqual(summary["counts"]["passed"], sum(
+            cell["status"] == "passed" for row in summary["matrix"].values() for cell in row.values()))
+
+    def test_all_reasons_use_descriptions_and_unknown_codes_stay_code_only(self):
+        reports = {fixture: report.build_report(fixture) for fixture in ("windows", "ui")}
+        reports["windows"]["checks"]["stage_3"]["reason"] = "made_up_reason_code"
+        reports["windows"]["overview"] = report.build_overview(reports["windows"]["checks"])
+        summary = report.build_summary(reports)
+        by_reason = {item["reason"]: item["description"] for item in summary["reasons"]}
+        self.assertIsNone(by_reason["made_up_reason_code"])
+        self.assertEqual(by_reason["no_ui_inputs_for_fixture"],
+                         report.REASON_DESCRIPTIONS["no_ui_inputs_for_fixture"])
+        self.assertEqual(by_reason["stage_not_connected"],
+                         report.REASON_DESCRIPTIONS["stage_not_connected"])
+        text = "\n".join(report.summary_lines(summary))
+        self.assertIn("- windows / stage_3 · `not_run` · `made_up_reason_code`\n", text + "\n")
+        self.assertIn("`stage_not_connected` — " + report.REASON_DESCRIPTIONS["stage_not_connected"], text)
 
     def test_real_invalid_xml_skips_only_matching_mapping(self):
         with tempfile.TemporaryDirectory(prefix="ndp-report-input-") as directory:
