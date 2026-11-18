@@ -1,9 +1,9 @@
 use super::linux_initial_login_owner::LinuxInitialLoginOwner;
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
-    C1SystemServiceRecoveryJournal, C1SystemServiceRuntimeHandoff, Clock, GuestProfileCleaner,
-    IdempotencyKey, IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityIdSource,
-    IdentityService, IdentitySnapshotStore, UnixMillis,
+    C1SystemServiceRecoveryJournal, C1SystemServiceRuntimeAdmission, C1SystemServiceRuntimeHandoff,
+    Clock, GuestProfileCleaner, IdempotencyKey, IdentityAuthorizer, IdentityError,
+    IdentityEventSink, IdentityIdSource, IdentityService, IdentitySnapshotStore, UnixMillis,
 };
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
@@ -13,6 +13,7 @@ use nagi_pid1_live_peer_supplier::{
     Pid1ReadinessAtomicBoundary, SessionLease, SupervisorLaunchAuthority,
     Task24EndpointLaunchLease,
 };
+use nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope;
 use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -62,6 +63,19 @@ where
             .identity()
             .validate_system_service_runtime_handoff(&self.handoff)
             .map_err(|_| PeerDenial::Unavailable)
+    }
+
+    pub(super) fn enter_runtime_admission<'runtime>(
+        &'runtime self,
+        scope: &'runtime dyn SystemServiceRecoveryAdmissionScope,
+    ) -> Result<C1SystemServiceRuntimeAdmission<'runtime>, IdentityError> {
+        let mut owner = self
+            .owner
+            .try_lock()
+            .map_err(|_| IdentityError::StoreUnavailable)?;
+        owner
+            .identity_mut()
+            .enter_system_service_runtime_admission(&self.handoff, scope)
     }
 }
 
