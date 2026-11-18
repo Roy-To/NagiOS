@@ -202,13 +202,17 @@ def _current_umask():
     return mask
 
 
-def _claim_directory(parent_fd, name):
+def _claim_directory(parent_fd, name, expected_mode):
     """Open the directory just created by mkdir() and check it is the one we made.
 
     mkdir() returns no handle, so the object is bound only at open(). It is
-    accepted only if it is a real directory owned by us with exactly the private
-    creation mode, empty, and still the object at `name`. Otherwise the run
-    stops before writing anything into it. Returns (fd, identity).
+    accepted only if it is a real directory owned by us with exactly the mode
+    mkdir() produces (`_PRIVATE_DIR_MODE & ~umask`, passed as `expected_mode`),
+    empty, and still the object at `name`. Otherwise the run stops before
+    writing anything into it. Only after acceptance is the mode set to exactly
+    0o700 through the held handle, so a restrictive umask (e.g. 0o277, which
+    makes mkdir() produce 0o500) cannot block our own writes. The mode is never
+    changed before the object is accepted. Returns (fd, identity).
     """
     try:
         fd = os.open(name, _DIR_FLAGS, dir_fd=parent_fd)
@@ -218,10 +222,12 @@ def _claim_directory(parent_fd, name):
         info = os.fstat(fd)
         if (not stat.S_ISDIR(info.st_mode)
                 or info.st_uid != os.geteuid()
-                or stat.S_IMODE(info.st_mode) != _PRIVATE_DIR_MODE
+                or stat.S_IMODE(info.st_mode) != expected_mode
                 or os.listdir(fd)
                 or _current_identity(parent_fd, name) != _identity(info)):
             raise GenerationError("output_raced")
+        if expected_mode != _PRIVATE_DIR_MODE:
+            os.fchmod(fd, _PRIVATE_DIR_MODE)
         return fd, _identity(info)
     except BaseException:
         os.close(fd)
@@ -252,10 +258,20 @@ def generate(inputs, dest_root, source_root=REPO_ROOT, contract=None):
     KeyboardInterrupt and other non-OS exceptions propagate unchanged.
     """
     contract = contract_module.load_contract() if contract is None else contract
+    # Read once, before the first mkdir(); the creation mode of every directory
+    # is derived from it, so the check and the creation cannot disagree.
+    umask = _current_umask()
+    created_dir_mode = _PRIVATE_DIR_MODE & ~umask
+    if not created_dir_mode & stat.S_IRUSR:
+        # mkdir() would make a directory even its owner cannot open(), so it
+        # could not be bound to a handle or verified. Refuse before creating
+        # anything rather than change the process-wide umask.
+        raise GenerationError("unsupported_umask")
+    # Honor the umask, but never leave the owner without rwx on its own output.
+    final_dir_mode = (_FINAL_DIR_MODE & ~umask) | _PRIVATE_DIR_MODE
     files, root_fd, parent_fd, name = _preflight(inputs, dest_root, source_root, contract)
     output_dir = inputs["output_dir"]
     parent_parts = PurePosixPath(output_dir).parts[:-1]
-    final_dir_mode = _FINAL_DIR_MODE & ~_current_umask()
     # (label, parent_fd, name, fd, identity) in creation order. Every fd stays
     # open until the run ends, so a recorded (dev, inode) cannot be reused by
     # another object while it is still compared against.
@@ -267,7 +283,7 @@ def generate(inputs, dest_root, source_root=REPO_ROOT, contract=None):
     def make_directory(parent, child_name, label):
         os.mkdir(child_name, _PRIVATE_DIR_MODE, dir_fd=parent)   # fails if anything exists
         try:
-            child, identity = _claim_directory(parent, child_name)
+            child, identity = _claim_directory(parent, child_name, created_dir_mode)
         except GenerationError:
             rejected.append(label + "/")
             raise
