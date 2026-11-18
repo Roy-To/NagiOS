@@ -194,8 +194,40 @@ fingerprint and must be unchanged afterwards, even after a failure. The suite is
 40 checks (real CLI output as the base for injected regressions; the Stage 2 tests need
 `clang` and are skipped, not passed, without it).
 
+## XAML and the real nagi-pkg — NDP-11d
+
+`run_host_checks.py` additionally repeats (`--repeats` times, default 3):
+
+- **XAML** (`xaml_minimal_analysis`, `wpf_xaml_analysis`, `winui_xaml_analysis`): the
+  analyzer CLI on the three `ui/*.xaml` fixtures. Stdout must be identical between
+  runs; widgets/parents, layout children and `Grid.Row`, tab order, declared handlers,
+  bindings, resources, unknown classes/elements and unresolved resource keys are
+  compared with tables (`XAML_CASES`) written from the XAML text. Handlers and
+  bindings must stay `not_run`. The inputs are in the source fingerprint.
+- **Manifest validation** (`generated_manifest_validation`): the Level 0 scaffold is
+  generated into a fresh temporary stand-in checkout and its `manifest.json` is checked
+  by the existing Stage 1 adapter (`validation/validate.py`), which runs the already
+  prepared `out/ndp-host/target/debug/nagi-pkg manifest validate`. The accepted report
+  envelope must match exactly (status, reason, exit code, SDK contract 1.0, numeric
+  app id), stdout and the generated tree must be identical between runs, the validator
+  must not modify the manifest, and a negative control (a copy whose `id` is `BAD ID`
+  in a separate directory) must be rejected, so an accept-everything validator or
+  adapter fails the run.
+- **Missing validator**: if the prepared binary is absent, a symlink or not executable,
+  no process is started; the phase is reported as `{"status": "not_run", "reason":
+  "validator_unavailable"}` and `sdk_validator` / `generated_manifest_validation` stay in
+  the top-level `not_run` list. That is never a success. The runner does not build,
+  fetch or modify `nagi-pkg`; its sha256 is recorded and checked as unchanged.
+
+The suite is now 63 checks (the manifest-validation class is skipped, not passed,
+if the prepared validator is absent; the other tests run regardless).
+
 ### 仮定（PROVISIONAL）
 
+- The negative control (`id` = `BAD ID`) and the adapter envelope keys follow the current
+  `nagi-pkg` / adapter behaviour. If the owners change them, replace `validate_manifest_report`
+  and the control in `check_manifest_validation` only. The XAML expectation tables describe
+  the current synthetic fixtures and the analyzer's provisional vocabulary (not CONFIRMED).
 - Expectations in `API_CASES`, `GENERATOR_ARGS`/`GENERATOR_FILES` and the manifest
   checks describe the current Level 0 scaffold and rules (rules are PROVISIONAL, the
   PT-01 report is the interim v1). When the owners change them, replace the data tables

@@ -148,7 +148,9 @@ class GTKExpectationTests(unittest.TestCase):
                 patch.object(runner, "repeat_command", side_effect=outputs), \
                 patch.object(runner, "check_stage2", return_value={}), \
                 patch.object(runner, "check_api", return_value={}), \
-                patch.object(runner, "check_generator", return_value={}):
+                patch.object(runner, "check_generator", return_value={}), \
+                patch.object(runner, "check_xaml", return_value={}), \
+                patch.object(runner, "check_manifest_validation", return_value={}):
             result = runner.evaluate(runner.ROOT, 3)
         self.assertEqual(result["gtk3_ui_analysis"]["facts"]["unknown"], 1)
         self.assertEqual(result["gtk4_ui_analysis"]["facts"]["widgets"], 5)
@@ -605,11 +607,381 @@ class GeneratorExpectationTests(unittest.TestCase):
                          ("generator_scaffold", "exit_1"))
 
 
+class XamlExpectationTests(unittest.TestCase):
+    SOURCES = ("xaml_minimal.xaml", "wpf_task_panel.xaml", "winui_task_panel.xaml")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.reports = {}
+        for name in cls.SOURCES:
+            cls.reports[name] = json.loads(cli_output(
+                [str(runner.ANALYZER), "--root", str(runner.FIXTURES / "ui"), name]))
+
+    def run_with(self, replacements=None, **kwargs):
+        """check_xaml over real reports; `replacements` maps a source to other stdout."""
+        outputs = []
+        for name in self.SOURCES:
+            data = (replacements or {}).get(name, self.reports[name])
+            outputs.append((data if isinstance(data, bytes) else json.dumps(data).encode("utf-8"),
+                            {}))
+        with patch.object(runner, "repeat_command", side_effect=kwargs.get("side", outputs)):
+            return runner.check_xaml(runner.ROOT, 3)
+
+    def assert_rejected(self, name, facts, code="fixture_expectation_mismatch"):
+        phase = {s: p for p, s, _ in runner.XAML_CASES}[name]
+        with self.assertRaises(runner.EvaluationError) as caught:
+            self.run_with({name: facts})
+        self.assertEqual((caught.exception.phase, caught.exception.code), (phase, code))
+
+    def test_real_xaml_reports_pass_three_times_with_identical_stdout(self):
+        before = runner.fingerprint(runner.ROOT)
+        result = runner.check_xaml(runner.ROOT, 3)
+        self.assertEqual(sorted(result), sorted(p for p, _, _ in runner.XAML_CASES))
+        for info in result.values():
+            self.assertTrue(info["stdout_identical"])
+            self.assertEqual(len(info["samples_ms"]), 3)
+        self.assertEqual(result["wpf_xaml_analysis"]["facts"]["widgets"], 7)
+        self.assertEqual(result["winui_xaml_analysis"]["facts"]["unresolved_references"], 1)
+        self.assertEqual(runner.fingerprint(runner.ROOT), before)
+
+    def test_unmodified_reports_pass_the_mocked_orchestration(self):
+        self.assertEqual(len(self.run_with()), 3)
+
+    def test_stable_but_empty_reports_fail(self):
+        for name in self.SOURCES:
+            with self.subTest(name=name):
+                facts = copy.deepcopy(self.reports[name])
+                for key in ("widgets", "layouts", "tab_order", "connections", "bindings",
+                            "unknown", "unresolved_references", "custom_widgets", "resources"):
+                    facts[key] = []
+                self.assert_rejected(name, facts)
+
+    def test_wrong_identity_structure_or_event_fails(self):
+        changes = {
+            "wpf_task_panel.xaml": (
+                lambda f: f["widgets"][4].update(name="wrongName"),
+                lambda f: f["widgets"][5].update(parent_widget="grid"),
+                lambda f: f["layouts"][0].update({"class": "StackPanel"}),
+                lambda f: f["layouts"][0]["items"][1]["attributes"].update({"Grid.Row": "5"}),
+                lambda f: f["tab_order"].reverse(),
+                lambda f: f["connections"][0].update(slot="Other_Click"),
+                lambda f: f["connections"][0].update(execution="run"),
+                lambda f: f["bindings"][0].update(execution="run"),
+                lambda f: f["bindings"][1].update(tag="x:Bind"),
+                lambda f: f["unknown"].clear(),
+                lambda f: f["unresolved_references"].append({"kind": "resource_key", "name": "k"}),
+                lambda f: f.update(form_class="Synthetic.Other"),
+                lambda f: f.update(format="gtk-builder-ui"),
+                lambda f: f.update(source="other.xaml")),
+            "winui_task_panel.xaml": (
+                lambda f: f["unresolved_references"].clear(),
+                lambda f: f["unknown"].pop(),
+                lambda f: f["connections"].reverse(),
+                lambda f: f["bindings"][1].update(property="IsEnabled"),
+                lambda f: f["widgets"][1].update(parent_widget="panel")),
+            "xaml_minimal.xaml": (
+                lambda f: f["widgets"][0].update(**{"class": "TextBox"}),
+                lambda f: f["widgets"][0].update(name="other")),
+        }
+        for name, items in changes.items():
+            for index, change in enumerate(items):
+                with self.subTest(name=name, change=index):
+                    facts = copy.deepcopy(self.reports[name])
+                    change(facts)
+                    self.assert_rejected(name, facts)
+
+    def test_malformed_reports_fail_as_invalid(self):
+        for bad in (b"not json", b"[]", b"{}", json.dumps({"format": "xaml-ui"}).encode()):
+            with self.subTest(bad=bad):
+                self.assert_rejected("wpf_task_panel.xaml", bad, "invalid_report")
+
+    def test_changed_stdout_between_runs_fails_with_the_xaml_phase(self):
+        with patch.object(runner, "run_command", side_effect=[(b"one", 1), (b"two", 1)]):
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.check_xaml(runner.ROOT, 2)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("xaml_minimal_analysis", "nondeterministic_stdout"))
+
+    def test_timeout_and_nonzero_exit_keep_the_phase(self):
+        with patch.object(runner.subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired("tool", 1)):
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.check_xaml(runner.ROOT, 2)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("xaml_minimal_analysis", "timeout"))
+        result = subprocess.CompletedProcess(["tool"], 3, stdout=b"{}", stderr=b"")
+        with patch.object(runner.subprocess, "run", return_value=result):
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.check_xaml(runner.ROOT, 2)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("xaml_minimal_analysis", "exit_3"))
+
+    def test_later_case_failure_keeps_its_own_phase(self):
+        side = [(json.dumps(self.reports[self.SOURCES[0]]).encode(), {}),
+                (json.dumps(self.reports[self.SOURCES[1]]).encode(), {}),
+                runner.EvaluationError("winui_xaml_analysis", "timeout")]
+        with self.assertRaises(runner.EvaluationError) as caught:
+            self.run_with(side=side)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("winui_xaml_analysis", "timeout"))
+
+    def test_xaml_input_mutation_is_detected_even_after_failure(self):
+        xaml_inputs = [path for path in runner.INPUTS if path.suffix == ".xaml"]
+        self.assertEqual(len(xaml_inputs), 3)
+        for xaml_input in xaml_inputs:
+            with self.subTest(source=xaml_input.name), tempfile.TemporaryDirectory(
+                    prefix="ndp-runner-xaml-integrity-") as directory:
+                root = Path(directory)
+                for path in runner.INPUTS:
+                    (root / path).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(runner.ROOT / path, root / path)
+                changed = root / xaml_input
+
+                def mutate_then_fail(*args, **kwargs):
+                    changed.write_bytes(changed.read_bytes() + b"<!-- changed -->")
+                    raise runner.EvaluationError("xaml_phase", "exit_1")
+
+                with patch.object(runner.shutil, "which", return_value="clang"), \
+                        patch.object(runner, "run_command", side_effect=mutate_then_fail):
+                    with self.assertRaises(runner.EvaluationError) as caught:
+                        runner.evaluate(root, 2)
+                self.assertEqual((caught.exception.phase, caught.exception.code),
+                                 ("input_integrity", "source_changed"))
+                self.assertTrue(changed.read_bytes().endswith(b"<!-- changed -->"))
+
+
+@unittest.skipIf(runner.validator_unavailable(runner.ROOT),
+                 "prepared out/ndp-host nagi-pkg is not available (reported as not_run)")
+class ManifestValidationTests(unittest.TestCase):
+    PHASE = runner.MANIFEST_PHASE
+
+    def run_with(self, mutate=None, repeats=3):
+        """Run the real generator and adapter; optionally alter stdout or the written files."""
+        real = runner.run_command
+        calls = []
+
+        def wrapper(command, root, phase, **kwargs):
+            output, elapsed = real(command, root, phase, **kwargs)
+            if str(runner.VALIDATION_ADAPTER) in command:
+                directory = Path(command[command.index("--root") + 1])
+                calls.append(directory)
+                if mutate is not None:
+                    output = mutate(len(calls), directory, output)
+            return output, elapsed
+
+        with patch.object(runner, "run_command", side_effect=wrapper):
+            return runner.check_manifest_validation(runner.ROOT, repeats), calls
+
+    def assert_fails(self, code, mutate):
+        with self.assertRaises(runner.EvaluationError) as caught:
+            self.run_with(mutate)
+        self.assertEqual((caught.exception.phase, caught.exception.code), (self.PHASE, code))
+
+    @staticmethod
+    def on_call(number, change):
+        """Alter the report of adapter call `number` (1 valid, 2 control, ... per repeat)."""
+        def mutate(n, directory, out):
+            if n != number:
+                return out
+            data = json.loads(out)
+            change(data)
+            return json.dumps(data).encode("utf-8")
+        return mutate
+
+    def test_real_validator_accepts_the_scaffold_three_times_and_rejects_the_control(self):
+        before = runner.fingerprint(runner.ROOT)
+        info, calls = self.run_with()
+        self.assertEqual(len(calls), 6)  # (scaffold, control) x 3
+        self.assertEqual(info["status"], "passed")
+        self.assertEqual(info["negative_control"], "rejected")
+        self.assertTrue(info["stdout_identical"] and info["tree_identical"])
+        self.assertEqual(info["sdk_contract"], [1, 0])
+        self.assertEqual(len(info["samples_ms"]), 3)
+        for directory in calls:  # always a throwaway directory outside the checkout
+            self.assertNotIn(runner.ROOT.resolve(), (directory.resolve(),
+                                                    *directory.resolve().parents))
+        self.assertEqual(runner.fingerprint(runner.ROOT), before)
+        self.assertFalse((runner.ROOT / "samples/level-zero").exists())
+
+    def test_accept_everything_validator_is_detected_by_the_negative_control(self):
+        accepted = {"app_id": "1", "captured_output_bytes": 1, "check": "manifest",
+                    "exit_code": 0, "reason": "metadata_valid", "scope": "host_metadata_only",
+                    "sdk_contract": [1, 0], "stage": 1, "status": "passed"}
+        self.assert_fails("fixture_expectation_mismatch",
+                          lambda n, d, out: json.dumps(accepted).encode() if n == 2 else out)
+
+    def test_rejected_or_altered_report_for_the_scaffold_fails(self):
+        changes = (
+            lambda d: d.update(status="failed", reason="validator_rejected", exit_code=2),
+            lambda d: d.update(reason="other"),
+            lambda d: d.update(exit_code=1),
+            lambda d: d.update(sdk_contract=[2, 0]),
+            lambda d: d.update(app_id="not-digits"),
+            lambda d: d.update(scope="nagi_target"),
+            lambda d: d.update(stage=2),
+            lambda d: d.update(check="package"),
+            lambda d: d.update(extra=True),
+            lambda d: d.pop("sdk_contract"),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(change=index):
+                self.assert_fails("fixture_expectation_mismatch", self.on_call(1, change))
+
+    def test_altered_control_report_fails(self):
+        changes = (
+            lambda d: d.update(reason="validator_failed"),
+            lambda d: d.update(exit_code=1),
+            lambda d: d.update(status="unavailable"),
+            lambda d: d.update(app_id="1"),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(change=index):
+                self.assert_fails("fixture_expectation_mismatch", self.on_call(2, change))
+
+    def test_changed_report_between_runs_fails(self):
+        self.assert_fails("nondeterministic_output",
+                          self.on_call(3, lambda d: d.update(app_id="1234")))
+        self.assert_fails("nondeterministic_output",
+                          self.on_call(4, lambda d: d.update(captured_output_bytes=1)))
+
+    def test_validator_that_rewrites_the_manifest_fails(self):
+        def rewrite(n, directory, out):
+            if n == 1:
+                (directory / "manifest.json").write_bytes(b"{}")
+            return out
+        self.assert_fails("manifest_changed_by_validator", rewrite)
+
+    def test_malformed_reports_fail_as_invalid(self):
+        for bad in (b"not json", b"[]"):
+            with self.subTest(bad=bad):
+                self.assert_fails("invalid_report", lambda n, d, out, bad=bad: bad)
+
+    def test_timeout_and_unexpected_exit_codes_keep_the_phase(self):
+        real = subprocess.run
+
+        def make_fake(code):
+            def fake(command, *args, **kwargs):
+                if str(runner.VALIDATION_ADAPTER) not in command:
+                    return real(command, *args, **kwargs)  # the real generator
+                if code is None:
+                    raise subprocess.TimeoutExpired(command, 1)
+                return subprocess.CompletedProcess(command, code, stdout=b"{}", stderr=b"")
+            return fake
+
+        for code, expected in ((None, "timeout"), (2, "exit_2"), (124, "exit_124")):
+            with self.subTest(code=code):
+                with patch.object(runner.subprocess, "run", side_effect=make_fake(code)):
+                    with self.assertRaises(runner.EvaluationError) as caught:
+                        runner.check_manifest_validation(runner.ROOT, 2)
+                self.assertEqual((caught.exception.phase, caught.exception.code),
+                                 (self.PHASE, expected))
+
+    def test_generator_failure_keeps_the_phase(self):
+        with patch.object(runner.subprocess, "run",
+                          side_effect=subprocess.TimeoutExpired("tool", 1)):
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.check_manifest_validation(runner.ROOT, 2)
+        self.assertEqual((caught.exception.phase, caught.exception.code), (self.PHASE, "timeout"))
+
+
+class ManifestValidatorAvailabilityTests(unittest.TestCase):
+    def make_root(self, directory, mode=0o755, symlink=False):
+        root = Path(directory)
+        target = root / runner.VALIDATOR
+        target.parent.mkdir(parents=True)
+        if symlink:
+            real = root / "real-tool"
+            real.write_bytes(b"#!/bin/sh\n")
+            real.chmod(0o755)
+            target.symlink_to(real)
+        else:
+            target.write_bytes(b"#!/bin/sh\n")
+            target.chmod(mode)
+        return root
+
+    def test_missing_validator_is_not_run_and_starts_no_process(self):
+        with tempfile.TemporaryDirectory(prefix="ndp-runner-novalidator-") as directory:
+            with patch.object(runner.subprocess, "run") as process:
+                result = runner.check_manifest_validation(Path(directory), 3)
+        self.assertEqual(result["status"], "not_run")
+        self.assertEqual(result["reason"], "validator_unavailable")
+        self.assertNotIn("stdout_identical", result)
+        process.assert_not_called()
+
+    def test_symlinked_or_non_executable_validator_is_not_run(self):
+        for kwargs in ({"mode": 0o644}, {"symlink": True}):
+            with self.subTest(kwargs=kwargs), tempfile.TemporaryDirectory(
+                    prefix="ndp-runner-badvalidator-") as directory:
+                root = self.make_root(directory, **kwargs)
+                with patch.object(runner.subprocess, "run") as process:
+                    result = runner.check_manifest_validation(root, 2)
+                self.assertEqual((result["status"], result["reason"]),
+                                 ("not_run", "validator_unavailable"))
+                process.assert_not_called()
+
+    def test_unavailable_validator_is_listed_as_not_run_never_as_passed(self):
+        stubs = {"check_stage2": {}, "check_api": {}, "check_generator": {}, "check_xaml": {}}
+        patches = [patch.object(runner.shutil, "which", return_value="clang"),
+                   patch.object(runner, "run_command", return_value=(b"clang version", 1)),
+                   patch.object(runner, "repeat_command", return_value=(b"{}", {})),
+                   patch.object(runner, "validator_unavailable", return_value=True),
+                   patch.object(runner, "UI_CASES", tuple(
+                       (phase, source, lambda facts: {}) for phase, source, _ in runner.UI_CASES))]
+        patches += [patch.object(runner, name, return_value=value) for name, value in stubs.items()]
+        for item in patches:
+            item.start()
+            self.addCleanup(item.stop)
+        result = runner.evaluate(runner.ROOT, 2)
+        self.assertEqual(result[runner.MANIFEST_PHASE]["status"], "not_run")
+        self.assertIn(runner.MANIFEST_PHASE, result["not_run"])
+        self.assertIn("sdk_validator", result["not_run"])
+
+    def test_ran_validator_is_removed_from_not_run(self):
+        result = NewPhaseOrchestrationTests.evaluate_with(
+            self, check_manifest_validation={"status": "passed"})
+        self.assertNotIn(runner.MANIFEST_PHASE, result["not_run"])
+        self.assertNotIn("sdk_validator", result["not_run"])
+        self.assertIn("generated_crate_build", result["not_run"])
+
+    def test_validator_binary_change_is_detected_as_input_change(self):
+        with tempfile.TemporaryDirectory(prefix="ndp-runner-validator-integrity-") as directory:
+            root = self.make_root(directory)
+            for path in runner.INPUTS:
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(runner.ROOT / path, root / path)
+            self.assertIn(runner.VALIDATOR.as_posix(), runner.fingerprint(root))
+
+            def swap_validator(*args, **kwargs):
+                (root / runner.VALIDATOR).write_bytes(b"#!/bin/sh\nexit 0\n")
+                return {"status": "passed"}
+
+            patches = [patch.object(runner.shutil, "which", return_value="clang"),
+                       patch.object(runner, "run_command", return_value=(b"clang version", 1)),
+                       patch.object(runner, "repeat_command", return_value=(b"{}", {})),
+                       patch.object(runner, "UI_CASES", tuple(
+                           (phase, source, lambda facts: {})
+                           for phase, source, _ in runner.UI_CASES)),
+                       patch.object(runner, "check_stage2", return_value={}),
+                       patch.object(runner, "check_api", return_value={}),
+                       patch.object(runner, "check_generator", return_value={}),
+                       patch.object(runner, "check_xaml", return_value={}),
+                       patch.object(runner, "check_manifest_validation",
+                                    side_effect=swap_validator)]
+            for item in patches:
+                item.start()
+                self.addCleanup(item.stop)
+            with self.assertRaises(runner.EvaluationError) as caught:
+                runner.evaluate(root, 2)
+        self.assertEqual((caught.exception.phase, caught.exception.code),
+                         ("input_integrity", "source_changed"))
+
+
 class NewPhaseOrchestrationTests(unittest.TestCase):
     PHASES = ("stage2_build_test", "api_windows_read_prefix", "generator_scaffold")
 
     def evaluate_with(self, **stubs):
-        quiet = {"check_stage2": {}, "check_api": {}, "check_generator": {}}
+        quiet = {"check_stage2": {}, "check_api": {}, "check_generator": {},
+                 "check_xaml": {}, "check_manifest_validation": {}}
         quiet.update(stubs)
         patches = [patch.object(runner.shutil, "which", return_value="clang"),
                    patch.object(runner, "run_command", return_value=(b"clang version", 1)),
@@ -627,8 +999,10 @@ class NewPhaseOrchestrationTests(unittest.TestCase):
 
     def test_each_new_phase_failure_is_reported_with_its_phase_and_stops_later_phases(self):
         names = {"stage2_build_test": "check_stage2", "api_windows_read_prefix": "check_api",
-                 "generator_scaffold": "check_generator"}
-        order = ["check_stage2", "check_api", "check_generator"]
+                 "generator_scaffold": "check_generator", "wpf_xaml_analysis": "check_xaml",
+                 runner.MANIFEST_PHASE: "check_manifest_validation"}
+        order = ["check_stage2", "check_api", "check_generator", "check_xaml",
+                 "check_manifest_validation"]
         for phase, name in names.items():
             for code in ("timeout", "exit_1", "nondeterministic_stdout",
                          "fixture_expectation_mismatch"):
@@ -643,16 +1017,20 @@ class NewPhaseOrchestrationTests(unittest.TestCase):
 
     def test_all_new_phases_are_reported_on_success(self):
         result = self.evaluate_with(check_stage2={"stage": 2}, check_api={"a": {}},
-                                    check_generator={"files": []})
+                                    check_generator={"files": []},
+                                    check_xaml={"wpf_xaml_analysis": {}},
+                                    check_manifest_validation={"status": "passed"})
         self.assertEqual(result["status"], "PASS")
-        for key in ("stage2_build_test", "api_rules", "generator_scaffold"):
+        for key in ("stage2_build_test", "api_rules", "generator_scaffold",
+                    "wpf_xaml_analysis", runner.MANIFEST_PHASE):
             self.assertIn(key, result)
         for item in ("scanner_output_to_api_rules", "generated_crate_build",
                      "stage2_third_party_build", "stage3_nagi_target"):
             self.assertIn(item, result["not_run"])
 
     def test_new_inputs_are_fingerprinted_for_every_tool_and_fixture(self):
-        for group in (runner.API_INPUTS, runner.GENERATOR_INPUTS, runner.STAGE2_INPUTS):
+        for group in (runner.API_INPUTS, runner.GENERATOR_INPUTS, runner.STAGE2_INPUTS,
+                      runner.XAML_INPUTS):
             self.assertTrue(set(group) <= set(runner.INPUTS))
             for path in group:
                 self.assertTrue((runner.ROOT / path).is_file(), path)
@@ -660,6 +1038,9 @@ class NewPhaseOrchestrationTests(unittest.TestCase):
         self.assertEqual(len(runner.API_INPUTS), 10)
         self.assertEqual(len(runner.GENERATOR_INPUTS), 8)
         self.assertEqual(len(runner.STAGE2_INPUTS), 3)
+        self.assertEqual(len(runner.XAML_INPUTS), 3)
+        # The adapter that drives the real validator is already a fingerprinted input.
+        self.assertIn(runner.VALIDATION_ADAPTER, runner.STAGE2_INPUTS)
 
     def test_input_mutation_after_a_passing_phase_is_detected(self):
         for group, index in ((runner.API_INPUTS, 0), (runner.API_INPUTS, 6),
@@ -685,7 +1066,9 @@ class NewPhaseOrchestrationTests(unittest.TestCase):
                             for phase, source, _ in runner.UI_CASES)), \
                         patch.object(runner, "check_stage2", side_effect=mutate_then_pass), \
                         patch.object(runner, "check_api", return_value={}), \
-                        patch.object(runner, "check_generator", return_value={}):
+                        patch.object(runner, "check_generator", return_value={}), \
+                        patch.object(runner, "check_xaml", return_value={}), \
+                        patch.object(runner, "check_manifest_validation", return_value={}):
                     with self.assertRaises(runner.EvaluationError) as caught:
                         runner.evaluate(root, 2)
                 self.assertEqual((caught.exception.phase, caught.exception.code),
