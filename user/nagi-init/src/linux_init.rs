@@ -673,17 +673,15 @@ pub(crate) fn run_lifecycle<B: InitBackend>(backend: &mut B) -> ExitCode {
         };
 
         match event {
-            LifecycleEvent::Ready if ready => {
-                return stop_after_failure(
-                    backend,
-                    &mut session,
-                    ShutdownCause::ProtocolViolation,
-                    BackendError::ProtocolViolation,
-                );
-            }
             LifecycleEvent::Ready => {
-                ready = true;
-                pid1_log!("nagi-init: state=ready");
+                if let Err(error) = publish_lifecycle_ready(&mut ready) {
+                    return stop_after_failure(
+                        backend,
+                        &mut session,
+                        ShutdownCause::ProtocolViolation,
+                        error,
+                    );
+                }
             }
             LifecycleEvent::ServiceExited {
                 service,
@@ -724,6 +722,15 @@ pub(crate) fn run_lifecycle<B: InitBackend>(backend: &mut B) -> ExitCode {
             }
         }
     }
+}
+
+fn publish_lifecycle_ready(ready: &mut bool) -> Result<(), BackendError> {
+    if *ready {
+        return Err(BackendError::ProtocolViolation);
+    }
+    *ready = true;
+    pid1_log!("nagi-init: state=ready");
+    Ok(())
 }
 
 fn stop_after_failure<B: InitBackend>(
