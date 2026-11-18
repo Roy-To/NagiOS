@@ -771,6 +771,308 @@ impl LinuxC3SystemServiceSlotOwner {
         Ok(entry.launch_record.process_identity())
     }
 
+    /// Retire only the exact admission supplied by A and verify its durable
+    /// slot is cleared before reporting success to the launch owner.
+    pub(super) fn finish_admitted(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        proof: Option<&SystemServiceEndpointOwnerProof>,
+        wait_budget: Duration,
+        poll_interval: Duration,
+    ) -> io::Result<()> {
+        validate_reaper_wait(wait_budget, poll_interval)?;
+        let deadline = Instant::now().checked_add(wait_budget).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "retirement budget overflow")
+        })?;
+        let scope_snapshot = capture_scope(scope)?;
+        validate_scope_for_slot(&scope_snapshot, &self.service_id)?;
+        let scope_address = scope_data_address(scope);
+        let mut state = self.lock_state()?;
+        if state.reserved_generation.is_some() || state.reserved_operation.is_some() {
+            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+        }
+
+        let matching_entry = state.launches.iter().find(|entry| {
+            entry.token.0 == scope_snapshot.c3_launch_generation
+                && entry.scope == scope_snapshot
+                && entry.scope_data_address == scope_address
+        });
+        if let Some(current) = state.current {
+            if matching_entry.is_none_or(|entry| entry.token != current) {
+                return Err(permission_denied(
+                    "C3 current launch is not the exact admission being finished",
+                ));
+            }
+            let entry = find_launch(&state.launches, current)
+                .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+            validate_entry_scope(
+                entry,
+                scope,
+                &scope_snapshot,
+                scope_address,
+                &self.service_id,
+            )?;
+        }
+        if let Some(proof) = proof {
+            validate_proof_for_scope(proof, &scope_snapshot, &self.service_id, matching_entry)?;
+        }
+
+        let journal = state
+            .durable_journal
+            .clone()
+            .ok_or_else(|| io::Error::other("exact C3 finish requires the durable slot journal"))?;
+        let before = match journal.readback_with_timeout(retirement_budget_remaining(deadline)?) {
+            C3SlotJournalReadback::Committed(row) => row,
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        };
+        if !slot_row_matches_scope(&before, &self.service_id, &scope_snapshot) {
+            return Err(permission_denied(
+                "C3 durable row does not match the exact A admission being finished",
+            ));
+        }
+        match before.state() {
+            C3SlotState::ClearedAndAbsent => {
+                validate_quiescent_retired_state(&state)?;
+                return Ok(());
+            }
+            C3SlotState::Live | C3SlotState::Quarantined => {
+                if matching_entry.is_none() {
+                    return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+                }
+                if state.launches.iter().any(|entry| {
+                    entry.state != LaunchState::Retired
+                        && (entry.scope != scope_snapshot
+                            || entry.scope_data_address != scope_address)
+                }) {
+                    return Err(permission_denied(
+                        "C3 owner retains a child outside the exact admission being finished",
+                    ));
+                }
+            }
+            C3SlotState::Reserved => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        }
+
+        retire_owner_state_once(
+            &mut state,
+            retirement_budget_remaining(deadline)?,
+            poll_interval,
+        )?;
+        validate_quiescent_retired_state(&state)?;
+        let after = match journal.readback_with_timeout(retirement_budget_remaining(deadline)?) {
+            C3SlotJournalReadback::Committed(row) => row,
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        };
+        if !slot_row_matches_scope(&after, &self.service_id, &scope_snapshot)
+            || after.state() != C3SlotState::ClearedAndAbsent
+        {
+            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+        }
+        state.highest_operation_id = state.highest_operation_id.max(after.highest_operation_id());
+        Ok(())
+    }
+
+    /// Persist an exact C3 quarantine for an unresolved A admission. Repeating
+    /// the call is safe. An outstanding reservation is bound to this exact
+    /// admission before it is recorded as quarantined.
+    pub(super) fn persist_recovery_quarantine_admitted(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+    ) -> io::Result<()> {
+        let scope_snapshot = capture_scope(scope)?;
+        validate_scope_for_slot(&scope_snapshot, &self.service_id)?;
+        let scope_address = scope_data_address(scope);
+        let mut state = self.lock_state()?;
+        let journal = state
+            .durable_journal
+            .clone()
+            .ok_or_else(|| io::Error::other("C3 quarantine requires the durable slot journal"))?;
+
+        if let Some(reserved_generation) = state.reserved_generation {
+            if reserved_generation != scope_snapshot.c3_launch_generation {
+                return Err(permission_denied(
+                    "C3 reservation does not match the exact A admission being quarantined",
+                ));
+            }
+            if state.current.is_some() || state.lifecycle.active_len() != 0 {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+            let reservation = state
+                .reserved_operation
+                .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+            let receipt = journal
+                .transition_reserved_quarantine(
+                    reservation,
+                    scope_snapshot.catalog_generation,
+                    scope_snapshot.binding_digest,
+                    || {
+                        if state.current.is_none() && state.lifecycle.active_len() == 0 {
+                            Ok(())
+                        } else {
+                            Err(io::Error::other(
+                                "C3 owner changed while persisting reserved quarantine",
+                            ))
+                        }
+                    },
+                )
+                .map_err(c3_journal_io_error)?;
+            if !exact_durable_receipt(
+                &receipt,
+                &self.service_id,
+                scope_snapshot.catalog_generation,
+                scope_snapshot.c3_launch_generation,
+                &scope_snapshot.binding_digest,
+                C3SlotState::Quarantined,
+            ) {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+            state.reserved_generation = None;
+            state.reserved_operation = None;
+            state.highest_catalog_generation = Some(
+                state
+                    .highest_catalog_generation
+                    .map_or(scope_snapshot.catalog_generation, |current| {
+                        current.max(scope_snapshot.catalog_generation)
+                    }),
+            );
+            state.highest_generation = state
+                .highest_generation
+                .max(scope_snapshot.c3_launch_generation.get());
+            state.highest_operation_id =
+                state.highest_operation_id.max(receipt.operation_id().get());
+            return Ok(());
+        }
+        if state.reserved_operation.is_some() {
+            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+        }
+
+        let row = match journal.readback() {
+            C3SlotJournalReadback::Committed(row) => row,
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        };
+        if row.service_id() != self.service_id
+            || row.catalog_generation() != scope_snapshot.catalog_generation.get()
+            || row.c3_launch_generation() != scope_snapshot.c3_launch_generation.get()
+            || row.scope_binding_digest() != &scope_snapshot.binding_digest
+        {
+            return Err(permission_denied(
+                "C3 durable row does not match the exact A admission being quarantined",
+            ));
+        }
+        match row.state() {
+            C3SlotState::ClearedAndAbsent => {
+                validate_quiescent_retired_state(&state)?;
+                let receipt = journal
+                    .transition_next(
+                        scope_snapshot.catalog_generation,
+                        scope_snapshot.c3_launch_generation,
+                        scope_snapshot.binding_digest,
+                        C3SlotState::Quarantined,
+                        || validate_quiescent_retired_state(&state),
+                    )
+                    .map_err(c3_journal_io_error)?;
+                if !exact_durable_receipt(
+                    &receipt,
+                    &self.service_id,
+                    scope_snapshot.catalog_generation,
+                    scope_snapshot.c3_launch_generation,
+                    &scope_snapshot.binding_digest,
+                    C3SlotState::Quarantined,
+                ) {
+                    return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+                }
+                state.highest_catalog_generation = Some(
+                    state
+                        .highest_catalog_generation
+                        .map_or(scope_snapshot.catalog_generation, |current| {
+                            current.max(scope_snapshot.catalog_generation)
+                        }),
+                );
+                state.highest_generation = state
+                    .highest_generation
+                    .max(scope_snapshot.c3_launch_generation.get());
+                state.highest_operation_id =
+                    state.highest_operation_id.max(receipt.operation_id().get());
+                Ok(())
+            }
+            C3SlotState::Quarantined => Ok(()),
+            C3SlotState::Live => {
+                let matching_token = state
+                    .launches
+                    .iter()
+                    .find(|entry| {
+                        entry.token.0 == scope_snapshot.c3_launch_generation
+                            && entry.scope == scope_snapshot
+                            && entry.scope_data_address == scope_address
+                    })
+                    .map(|entry| entry.token)
+                    .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+                if state
+                    .current
+                    .is_some_and(|current| current != matching_token)
+                {
+                    return Err(permission_denied(
+                        "C3 current launch is not the exact admission being quarantined",
+                    ));
+                }
+                if state.launches.iter().any(|entry| {
+                    entry.state != LaunchState::Retired
+                        && (entry.scope != scope_snapshot
+                            || entry.scope_data_address != scope_address)
+                }) {
+                    return Err(permission_denied(
+                        "C3 owner retains a child outside the exact admission being quarantined",
+                    ));
+                }
+                let receipt = journal
+                    .transition_next(
+                        scope_snapshot.catalog_generation,
+                        scope_snapshot.c3_launch_generation,
+                        scope_snapshot.binding_digest,
+                        C3SlotState::Quarantined,
+                        || {
+                            let still_exact =
+                                find_launch(&state.launches, matching_token).is_some_and(|entry| {
+                                    entry.scope == scope_snapshot
+                                        && entry.scope_data_address == scope_address
+                                }) && state
+                                    .current
+                                    .is_none_or(|current| current == matching_token);
+                            if still_exact {
+                                Ok(())
+                            } else {
+                                Err(io::Error::other(
+                                    "C3 owner changed while persisting exact quarantine",
+                                ))
+                            }
+                        },
+                    )
+                    .map_err(c3_journal_io_error)?;
+                if !exact_durable_receipt(
+                    &receipt,
+                    &self.service_id,
+                    scope_snapshot.catalog_generation,
+                    scope_snapshot.c3_launch_generation,
+                    &scope_snapshot.binding_digest,
+                    C3SlotState::Quarantined,
+                ) {
+                    return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+                }
+                state.highest_operation_id =
+                    state.highest_operation_id.max(receipt.operation_id().get());
+                Ok(())
+            }
+            C3SlotState::Reserved => Err(c3_journal_io_error(C3SlotJournalError::Unknown)),
+        }
+    }
+
     /// Transfer the single endpoint descriptor from the exact live child.
     /// This is an internal handoff to `issue_current_service_endpoint`; it is
     /// not an IPC descriptor-delegation API.
@@ -1341,6 +1643,51 @@ fn retire_owner_state_effect(
             "C3 system-service children remain owned after shutdown pass",
         )
     }))
+}
+
+fn slot_row_matches_scope(
+    row: &super::linux_init_c3_slot_journal::C3DurableSlotRowReadback,
+    service_id: &str,
+    scope: &RecoveryScopeSnapshot,
+) -> bool {
+    row.service_id() == service_id
+        && row.catalog_generation() == scope.catalog_generation.get()
+        && row.c3_launch_generation() == scope.c3_launch_generation.get()
+        && row.scope_binding_digest() == &scope.binding_digest
+}
+
+fn validate_proof_for_scope(
+    proof: &SystemServiceEndpointOwnerProof,
+    scope: &RecoveryScopeSnapshot,
+    service_id: &str,
+    entry: Option<&OwnedLaunch>,
+) -> io::Result<()> {
+    let slot = proof.service_slot_identity();
+    let peer = proof.peer_credentials();
+    if proof.version()
+        != nagi_system_principal_contract::SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION
+        || slot.service_id() != service_id
+        || slot.catalog_generation() != scope.catalog_generation
+        || proof.launch_generation() != scope.c3_launch_generation
+        || (peer.uid, peer.gid) != (scope.uid, scope.gid)
+        || proof.process_identity().process_id() != peer.process_id
+    {
+        return Err(permission_denied(
+            "C3 endpoint proof does not match the exact A recovery admission",
+        ));
+    }
+    if entry.is_some_and(|entry| {
+        entry.process_id != proof.process_id()
+            || !entry
+                .launch_record
+                .process_identity()
+                .same_instance(&proof.process_identity())
+    }) {
+        return Err(permission_denied(
+            "C3 endpoint proof does not match the exact registered child",
+        ));
+    }
+    Ok(())
 }
 
 fn exact_durable_receipt(
@@ -2413,6 +2760,16 @@ mod tests {
         confirm_isolated_endpoint(&proof);
         assert!(proof.is_live().unwrap());
         assert_eq!(owner.active_child_count().unwrap(), 1);
+        owner
+            .finish_admitted(
+                &scope,
+                Some(&proof),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
+            )
+            .unwrap();
+        assert!(!proof.is_live().unwrap());
+        assert_eq!(owner.active_child_count().unwrap(), 0);
 
         let c1_operation_id = NonZeroU64::new(73).unwrap();
         let correlation = C1RecoveryOperationCorrelation::new(c1_operation_id, scope.binding);
