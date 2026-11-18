@@ -4,5 +4,8 @@ pub(super) trait LinuxInitialLoginOwner<IdentityRuntime> {
     type Attached;
     type Error;
 
-    fn start_and_accept(&mut self, identity: &IdentityRuntime) -> Result<Self::Attached, Self::Error>;
+    fn start_and_accept(
+        &mut self,
+        identity: &IdentityRuntime,
+    ) -> Result<Self::Attached, Self::Error>;
 }
