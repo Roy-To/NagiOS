@@ -14,26 +14,33 @@ NDP-03へ渡す前に必要なのは、SDK ownerが確認したout-of-tree参照
 
 ## NDP-08: 正規toolの利用表
 
-根拠は[nagi wrapper](../../../nagi)、[CLI dispatch](../../../tools/nagi-cli/src/commands.rs)、[Package CLI](../../../tools/nagi-pkg/src/main.rs)。下記は呼出し候補の調査で、対象アプリを自動実行する許可ではない。
+照合対象は手元の `codex/ndp-host-integration` (`dd5dca8`)。下表の終了値はコードから確認したもので、今回の照合で各コマンドは実行していない。
 
-| 正規entry | 入力と結果 | 副作用・前提 / Stage |
-|---|---|---|
-| ./nagi doctor | host依存とnagi.toml。CLIの終了値は成功0、依存不足10、設定不備4 | wrapperはCargoでtrusted CLIをbuild/runする。Cargoがなければwrapper自体が4で終了。入力appを実行する検査ではない |
-| ./nagi fetch | pinned source/dependency設定、取得結果 | bootstrapへ委譲。network/cache書込みがあり、Stage 1の既定処理にしない |
-| ./nagi build / test | host workspaceのbuild/test結果 | Cargo呼出し。arm64ではhost互換packageを明示選択する。任意の入力appに向けた汎用build APIではない。実行はStage 2相当の許可範囲だけ |
-| ./nagi image | kernel/init等のtarget buildとイメージ作成結果 | target toolchainと出力書込みが必要。入力appの静的確認として起動しない |
-| ./nagi run | QEMU等の起動結果 | VM・イメージ・資源が必要。Stage 3は別のtarget条件が揃ってから。起動だけで受入成功としない |
-| nagi-pkg manifest validate <manifest.json> | JSON v1メタデータ、成功メッセージ。成功0、usage/validation失敗2 | 検証器はentrypointを起動しない。Cargoで起動する場合はtrusted toolのbuildが先に必要。appのbuild scriptをStage 1から実行しない |
-| nagi-pkg info <package> | 既存packageの解析結果 | JSON Manifest v1の検証とM16 package解析は別。署名の信頼やinstall成功まで含めない |
+`./nagi` の各行に共通して、shell・Cargo・Rust toolchain と、読める Nagi checkout（`nagi.toml`、`rust-toolchain.toml`、`third_party/sources.lock`）が必要。wrapper は `cargo run --locked` で CLI をビルド・実行し、依存取得とビルド出力の書込みが起こり得る。`--locked` はオフライン指定ではない。Cargo が見つからない場合は wrapper が `4` で終了し、Cargo 側で起動に失敗した場合は CLI の終了値に到達しない。CLI は引数不正を `2`、プロジェクト設定エラーを `4` で返し、`NAGI_RUN_RECEIPT_DIR` 等で有効化した場合は実行記録も書く。根拠は `nagi` (`--locked`)、`tools/nagi-cli/src/config.rs` (`validate_project`)、`tools/nagi-cli/src/main.rs` (`take_from_env_at_startup`)、`tools/nagi-cli/src/run_receipt.rs` (`NAGI_RUN_RECEIPT_DIR`)。
 
-Manifest検証の正規開発入口は次のとおり。対象入力はSDK-owned fixtureで、第三者appではない。実行はしていない。
+Stage 1 は静的検査の段階。この表で使うのは準備済みの信頼できる `nagi-pkg` を固定引数で呼ぶ Manifest 検証のみで、入力の build script・entrypoint・任意コマンドの実行、Cargo 経由の起動、依存取得は行わない。Stage 2 は許可された host コマンドと環境に限る。Stage 3 は実在する対象、個別の実行許可、既存の release Gate が揃った場合に限る。現行 NDP-09 の接続は Manifest 検証と承認済みの自作 C fixture の host テストまでで、Stage 3 は未接続。[PT-05 の Stage 契約](../../product-decisions/DEC-045-nagi-porting-toolkit.md)・[NDP-09 adapter](../../../tools/nagi-developer-platform/validation/README.md)
 
-```sh
-cargo run --locked --manifest-path tools/nagi-pkg/Cargo.toml -- \
-  manifest validate sdk/rust/fixtures/manifests/notes.json
-```
+**NDP-08 は PARTIAL。CLI / Package owner の確認待ち。**
 
-NDP-09はこの既存validatorへの1本のadapterから始める候補。任意shell文字列、入力appのbuild script、network取得、Stage 2/3への自動昇格は行わない。timeout/cancel/nonzero/未実行を別に保持する。実validatorの利用とCLI/Package owner確認ができるまで接続済みとはしない。
+- CLI owner — NDP-09 が依存できる CLI の版・終了値・出力契約、承認対象とする host コマンド、Linux target で使う起動・受入 entry と条件（未確認）。
+- Package owner — 準備済み validator の固定・提供方法、Manifest の終了値・出力の互換性、`.xapp` の構造・署名検査に使える入口、正式署名・install の手順と権限（未確認）。
+
+| 正規entry | 入力 | 出力 | 終了状態 | 副作用 | 依存・実行許可 | Stage | 根拠（repo 相対パスと識別子・flag） |
+|---|---|---|---|---|---|---|---|
+| `./nagi doctor [--allow-missing]` | host の `PATH`・既定探索先、OVMF、`nagi.toml` の要件 | 各依存の PASS / WARN / FAIL と件数 | `0` 失敗なし、`10` 検査失敗、`4` 設定不備、`2` 引数不正。`--allow-missing` は未検出を警告にする | CLI はツールの `--version` を実行して OVMF ファイルを探す。wrapper のビルド副作用あり | 共通条件と、信頼済み host ツールを探して起動する許可 | 2・3 の環境準備。1 では使用しない | `nagi` (`--locked`)<br>`tools/nagi-cli/src/commands.rs` (`execute_doctor`, `--allow-missing`)<br>`tools/nagi-cli/src/doctor.rs` (`run_doctor_with_requirements`, `run_candidate`) |
+| `./nagi fetch` | `third_party/sources.lock` と各 source / patch / font の固定情報 | 取得フェーズの進捗（stderr）、検証済み source の場所（stdout） | `0` 成功、読込・取得・検証エラーは `4`、Servo の Cargo fetch 失敗はその終了値を引き継ぐ（起動不能や終了値なしは `4`） | bootstrap 経由で固定 source・Cargo 依存・font を取得／検証し、checkout やキャッシュへ書込み、Nagi patch を適用 | 共通条件、Cargo・Git・必要時 curl。取得先への通信とキャッシュ書込みの許可 | 2・3 用の事前準備を別途許可された場合のみ。1 では依存取得禁止 | `nagi` (`nagi-bootstrap`)<br>`tools/nagi-bootstrap/Cargo.toml` (`nagi-bootstrap`)<br>`tools/nagi-cli/src/commands.rs` (`execute_fetch`, `ensure_servo_checkout`)<br>`tools/nagi-cli/src/registry_source.rs` (`apply_patch`)<br>`tools/nagi-cli/src/fonts.rs` (`curl`) |
+| `./nagi build` | Nagi checkout の host package、Cargo 設定と lockfile | ビルド成果物、PASS 要約または Cargo の失敗診断 | `0` 成功、Cargo の非ゼロ値を引き継ぐ（起動不能や終了値なしは `4`） | `cargo build --locked` でビルドスクリプト等を実行し得る。ビルド先やキャッシュに書込み。依存未準備なら取得が起こり得る | 共通条件と対象 package の依存、承認済み checkout・Cargo 実行と書込みの許可 | 2。1 では使用しない | `tools/nagi-cli/src/commands.rs` (`Command::Build`, `host_workspace_args_for_arch`, `--locked`, `finish_tool`) |
+| `./nagi image` | checkout の init・kernel・UEFI loader と target 設定 | FAT12 イメージ `out/artifacts/nagi-0.1-m1.img`、サイズと配置の要約 | `0` 生成成功、ビルド失敗はその終了値を引き継ぐ。読込・生成エラーは `4` | init・kernel・loader を target 向けにビルドし、イメージを書込む。ゲストは起動しない | 共通条件、nightly Cargo/Rust・`rust-src`（`-Zbuild-std`）、`x86_64-unknown-uefi`、target ビルド・成果物書込みの許可 | 3 のイメージ準備。1・2 では使用しない | `tools/nagi-cli/src/commands.rs` (`execute_image`, `execute_image_with_init_build_env_using_writer_and_recovery`, `x86_64-unknown-uefi`)<br>`tools/nagi-cli/src/image.rs` (`write_fat12_image`) |
+| `./nagi run` | 自身が再生成する既定イメージ、QEMU、許可リストにある OVMF CODE/VARS、永続データディスク | シリアルログ（`out/logs/m1-qemu-boot.log` など）、ゲストマーカーと結果の要約 | `0` ゲスト受入マーカー確認、イメージ失敗はその終了値を引き継ぐ。QEMU／OVMF 不備、タイムアウト、マーカー不足等は `4` | イメージ生成後に QEMU user networking 付きでゲストを起動。VARS コピーとログを書き、永続ディスクを作成・再利用し、旧形式なら移行し得る | `image` の依存、QEMU x86-64・対応 OVMF、VM 実行・永続ディスク変更の許可 | 3 の既定イメージ起動・永続化確認。移植対象 app の受入 entry は未確認 | `tools/nagi-cli/src/commands.rs` (`execute_run`, `qemu-system-x86_64`)<br>`tools/nagi-cli/src/image.rs` (`run_qemu`, `ensure_persistent_disk`, `GUEST_ACCEPTANCE_MARKER`, `-netdev`) |
+| `./nagi test` | Nagi checkout の host package とテスト、Cargo 設定と lockfile | PASS 要約または Cargo の失敗診断 | `0` 成功、Cargo の非ゼロ値を引き継ぐ（起動不能や終了値なしは `4`） | `cargo test --locked` でビルドしたテストと該当する doctest を実行。ビルド先やキャッシュに書込み。依存未準備なら取得が起こり得る | 共通条件と対象 package の依存、承認済み checkout・ビルド・テスト実行と書込みの許可 | 2。1 では使用しない | `tools/nagi-cli/src/commands.rs` (`Command::Test`, `host_workspace_args_for_arch`, `--locked`, `finish_tool`) |
+| `./nagi test --acceptance [options]` | `tests/acceptance/registry.tsv` と登録済みケース。`--host-only` / `--target-only` 等で選択 | ケース結果・集計、`--ci` / `--json` で JSON、`--list` で一覧 | `0` 選択ケースに FAIL / SKIP / BLOCKED なし（一覧・ヘルプ成功も `0`）、`11` いずれかあり、`2` 引数不正・選択なし、`4` registry・報告等のエラー | 登録済みスクリプトを実行しログを書込む（`--list` は一覧のみ）。追加の副作用はケースに依存し、この表では未確認 | 共通条件、登録済みスクリプトの実行・レポート書込み許可と選択ケースの依存 | 承認済み host ケースは 2、target ケースは 3。1 では使用しない | `tools/nagi-cli/src/commands.rs` (`--acceptance`, `Command::Acceptance`)<br>`tools/nagi-cli/src/acceptance.rs` (`REGISTRY_PATH`, `run_case`, `--host-only`, `--target-only`, `EXIT_ACCEPTANCE_FAILURE`) |
+| `nagi-pkg manifest validate <manifest.json>` | JSON Manifest v1（1 MiB 以下、SDK contract 1.0） | stdout に PASS・入力パス・AppId・SDK contract 版、拒否理由は stderr | `0` メタデータ受理、`2` 引数不正・入力読込／検証失敗 | 検証器は JSON を読み取る。アプリ起動・ビルド・書込み・取得なし | 準備済み `nagi-pkg` の実行と指定 Manifest の読取許可。現行 adapter は入力を限定して一時コピーを渡す | 1。validator 自体の Cargo ビルドは事前準備 | `tools/nagi-pkg/src/main.rs` (`manifest_command`, `usage`)<br>`tools/nagi-pkg/src/app_manifest.rs` (`load_manifest`, `MAX_APP_MANIFEST_BYTES`)<br>`tools/nagi-developer-platform/validation/validate.py` (`VALIDATOR`) |
+| `nagi-pkg info <package>` | 既存 `.xapp` ファイル | stdout に Manifest の ID・版・実行部のバイト数 | `0` 解析成功、`2` パス引数なし。読込・解析失敗は panic（数値は未確認） | ファイル全体を読み取って構造を解析。署名の信頼判定や install はしない | 準備済み `nagi-pkg` の実行と Package の読取許可 | 2 の Package 構造検査候補。1 の adapter 対象外 | `tools/nagi-pkg/src/main.rs` (`info`, `PackageView::parse`)<br>`user/nagi-package/src/lib.rs` (`PackageView`, `is_signed`) |
+| `nagi-pkg build-hello <napp> [output]` | NAPP サンプル、組み込み SDK Manifest、任意の出力パス | 未署名 `.xapp`（既定 `out/artifacts/hello-nagi.xapp`）、PASS と AppId | `0` 成功、`2` 引数不正・NAPP 不適合・生成検証失敗。I/O 等の panic の数値は未確認 | 親ディレクトリを作成して Package を書込み、その後に SDK identity を確認する | 準備済み `nagi-pkg` の実行、サンプル読取と出力先書込みの許可 | 2 のサンプル Package 生成候補 | `tools/nagi-pkg/src/main.rs` (`build-hello`, `build_hello`, `HELLO_MANIFEST`) |
+| `nagi-pkg build-signed-hello <napp> [output]` | NAPP サンプル、組み込み SDK Manifest、任意の出力パス | Developer Preview テスト署名付き `.xapp`（既定 `out/artifacts/hello-nagi.xapp`）、PASS と AppId | `0` 成功、`2` 引数不正・NAPP 不適合・生成検証失敗。I/O 等の panic の数値は未確認 | 組み込みテスト鍵で署名し、書込み後に SDK identity と署名を確認する | `build-hello` の依存と、テスト署名付き成果物を作る許可 | 2 のサンプル Package 生成候補 | `tools/nagi-pkg/src/main.rs` (`build-signed-hello`, `build_hello`, `DEVELOPER_PREVIEW_SIGNING_SECRET`) |
+| `nagi-pkg build-signed <manifest> <elf> <output>` | `.xapp` 用の行形式 Manifest（`grant=` 等）、Nagi ELF、出力パス | Developer Preview テスト署名付き `.xapp`、PASS・AppId・grant 件数 | `0` 成功、`2` 引数不正・ELF マジック不一致・生成検証失敗。I/O 等の panic の数値は未確認 | 必要なら `entry=` をメモリ上で補完し、Package を生成・テスト署名して書込む | 準備済み `nagi-pkg` の実行、入力読取、出力先書込みとテスト署名の許可 | 2 の Package 生成候補。正式署名と install の手順は未確認 | `tools/nagi-pkg/src/main.rs` (`build-signed`, `build_signed`, `DEVELOPER_PREVIEW_SIGNING_SECRET`) |
+
+`build` と通常の `test` は x86-64 で `nagi-kernel` を除く workspace、その他の host ではコードに列挙された package を対象とする。準備済みバイナリを使う Stage 1 とそのビルド手順は [adapter README](../../../tools/nagi-developer-platform/validation/README.md) を参照。Package 生成や host テストの成功から、正式署名・install・権限付与・Nagi target 受入は判定しない。
 
 ## 残る接続
 
