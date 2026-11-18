@@ -9,6 +9,16 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+#[cfg(linux_task24_initial_login_runtime)]
+use std::{os::unix::net::UnixStream, time::Instant};
+
+#[cfg(linux_task24_initial_login_runtime)]
+#[path = "../../../tools/linux-boot/task24-login/input.rs"]
+pub(super) mod task24_input;
 
 const O_NOFOLLOW: i32 = 0x20000;
 const FBIOGET_VSCREENINFO: u64 = 0x4600;
@@ -190,7 +200,7 @@ pub(super) struct BootOwnerConsole {
     keyboard: File,
     framebuffer: Framebuffer,
     pixels: Vec<u32>,
-    frame_presented: bool,
+    frame_presented: Arc<AtomicBool>,
 }
 
 impl BootOwnerConsole {
@@ -205,39 +215,47 @@ impl BootOwnerConsole {
             keyboard,
             framebuffer: Framebuffer::open()?,
             pixels: vec![0; (SURFACE_WIDTH * SURFACE_HEIGHT) as usize],
-            frame_presented: false,
+            frame_presented: Arc::new(AtomicBool::new(false)),
         })
     }
 
     fn present(&mut self, render: impl FnOnce(&mut crate::ui::Painter<'_>)) -> io::Result<()> {
-        self.frame_presented = false;
+        self.frame_presented.store(false, Ordering::Release);
         render(&mut crate::ui::Painter::new(&mut self.pixels));
         self.framebuffer.present(&self.pixels)?;
-        self.frame_presented = true;
+        self.frame_presented.store(true, Ordering::Release);
         Ok(())
+    }
+
+    fn read_key_event(&mut self) -> io::Result<Option<InputEvent>> {
+        // x86-64 input_event ends in u16 type, u16 code, and i32 value.
+        let mut data = [0u8; 24];
+        if let Err(error) = self.keyboard.read_exact(&mut data) {
+            self.frame_presented.store(false, Ordering::Release);
+            return Err(error);
+        }
+        let event_type = u16::from_le_bytes([data[16], data[17]]);
+        let code = u16::from_le_bytes([data[18], data[19]]);
+        let value = i32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+        if event_type == 0 && code == 3 {
+            self.frame_presented.store(false, Ordering::Release);
+            return Err(io::Error::other("keyboard events were lost"));
+        }
+        Ok(
+            (event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1)).then_some(
+                InputEvent {
+                    event_type,
+                    code,
+                    value,
+                },
+            ),
+        )
     }
 
     fn next_key(&mut self) -> io::Result<InputEvent> {
         loop {
-            // x86-64 input_event ends in u16 type, u16 code, and i32 value.
-            let mut data = [0u8; 24];
-            if let Err(error) = self.keyboard.read_exact(&mut data) {
-                self.frame_presented = false;
-                return Err(error);
-            }
-            let event_type = u16::from_le_bytes([data[16], data[17]]);
-            let code = u16::from_le_bytes([data[18], data[19]]);
-            let value = i32::from_le_bytes([data[20], data[21], data[22], data[23]]);
-            if event_type == 0 && code == 3 {
-                self.frame_presented = false;
-                return Err(io::Error::other("keyboard events were lost"));
-            }
-            if event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1) {
-                return Ok(InputEvent {
-                    event_type,
-                    code,
-                    value,
-                });
+            if let Some(event) = self.read_key_event()? {
+                return Ok(event);
             }
         }
     }
@@ -283,6 +301,82 @@ impl BootOwnerConsole {
         }
     }
 
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(super) fn present_unlock(
+        &mut self,
+        screen: &crate::login_screen::LinuxOwnerUnlock<'_>,
+    ) -> io::Result<()> {
+        self.present(|painter| screen.render(painter))
+    }
+
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(super) fn submit_unlock(
+        &mut self,
+        screen: &mut crate::login_screen::LinuxOwnerUnlock<'_>,
+        control: &mut UnixStream,
+        route: task24_input::RequestRoute,
+        deadline: Instant,
+    ) -> io::Result<()> {
+        super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_UNLOCK_WAITING_FOR_INPUT"));
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            let mut fd = libc::pollfd {
+                fd: self.keyboard.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let ready = unsafe {
+                libc::poll(
+                    &mut fd,
+                    1,
+                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
+                )
+            };
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if ready == 0 {
+                continue;
+            }
+            if fd.revents & libc::POLLIN == 0 {
+                return Err(io::Error::other("trusted boot keyboard unavailable"));
+            }
+            let Some(event) = self.read_key_event()? else {
+                continue;
+            };
+            match screen.handle_event(event, |account, password| {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+                control.set_write_timeout(Some(remaining))?;
+                if !task24_input::send(
+                    |bytes| control.write_all(bytes).is_ok(),
+                    route,
+                    account,
+                    password,
+                ) {
+                    return Err(io::Error::other("Task24 UI submission unavailable"));
+                }
+                Ok(())
+            }) {
+                LinuxRegistrationOutcome::Redraw => self.present_unlock(screen)?,
+                LinuxRegistrationOutcome::Submitted(result) => {
+                    self.present_unlock(screen)?;
+                    return result;
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// The authenticated desktop and Supervisor still own the consent
     /// request, its Session, and recording its answer.
     pub(super) fn wait_for_consent(
@@ -323,21 +417,27 @@ impl BootOwnerConsole {
     }
 
     #[cfg(linux_task24_owner_co_location)]
-    pub(super) fn consent_connection(&self) -> io::Result<BootConsentUiConnection<'_>> {
-        if !self.frame_presented {
+    pub(super) fn consent_connection(&self) -> io::Result<BootConsentUiConnection> {
+        if !self.frame_presented.load(Ordering::Acquire) {
             return Err(io::Error::other("no frame presented by the owner UI"));
         }
-        Ok(BootConsentUiConnection { console: self })
+        Ok(BootConsentUiConnection {
+            keyboard: self.keyboard.try_clone()?,
+            framebuffer: self.framebuffer.device.try_clone()?,
+            frame_presented: Arc::clone(&self.frame_presented),
+        })
     }
 }
 
 #[cfg(linux_task24_owner_co_location)]
-pub(super) struct BootConsentUiConnection<'a> {
-    console: &'a BootOwnerConsole,
+pub(super) struct BootConsentUiConnection {
+    keyboard: File,
+    framebuffer: File,
+    frame_presented: Arc<AtomicBool>,
 }
 
 #[cfg(linux_task24_owner_co_location)]
-impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection<'_> {
+impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection {
     fn connected(&self) -> Result<bool, super::pid1_live_peer_supplier::PeerDenial> {
         use super::pid1_live_peer_supplier::PeerDenial;
 
@@ -352,12 +452,12 @@ impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection<'
         }
         let mut fds = [
             PollFd {
-                fd: self.console.keyboard.as_raw_fd(),
+                fd: self.keyboard.as_raw_fd(),
                 events: 0,
                 returned: 0,
             },
             PollFd {
-                fd: self.console.framebuffer.device.as_raw_fd(),
+                fd: self.framebuffer.as_raw_fd(),
                 events: 0,
                 returned: 0,
             },
@@ -367,6 +467,6 @@ impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection<'
         if result < 0 {
             return Err(PeerDenial::ConsentUnavailable);
         }
-        Ok(self.console.frame_presented && fds.iter().all(|fd| fd.returned == 0))
+        Ok(self.frame_presented.load(Ordering::Acquire) && fds.iter().all(|fd| fd.returned == 0))
     }
 }

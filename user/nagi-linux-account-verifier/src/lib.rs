@@ -169,6 +169,13 @@ impl LinuxAccountVerifier {
         })
     }
 
+    /// Read the display name for the trusted boot unlock screen from the
+    /// same protected record used by authentication.
+    pub fn owner_login_name(&self) -> Result<Vec<u8>, AccountAuthenticationError> {
+        let (_, account) = read_account(&self.directory, self.owner_uid)?;
+        Ok(account.name().to_vec())
+    }
+
     /// Verify the provisioned credential while borrowing the exact accepted
     /// stream. This proof carries no C2 owner or C1 Session authority.
     pub fn authenticate<'verifier, 'connection>(
@@ -266,35 +273,9 @@ impl AuthenticatedAccountProfile {
         account_name: &[u8],
         password: &[u8],
     ) -> Result<Self, AccountAuthenticationError> {
-        use AccountAuthenticationError::{InvalidRecord, Rejected, Unavailable};
+        use AccountAuthenticationError::Rejected;
 
-        validate_directory(account_directory, owner_uid)?;
-        let fd = openat(
-            account_directory,
-            ACCOUNT_FILE,
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
-            Mode::empty(),
-        )
-        .map_err(|_| Unavailable)?;
-        let file = File::from(fd);
-        let metadata = file.metadata().map_err(|_| Unavailable)?;
-        if !metadata.is_file() || metadata.uid() != owner_uid || metadata.mode() & 0o077 != 0 {
-            return Err(Unavailable);
-        }
-        let mut bytes = Vec::new();
-        file.take((MAX_RECORD_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|_| Unavailable)?;
-        if bytes.len() > MAX_RECORD_BYTES {
-            return Err(InvalidRecord);
-        }
-        let record: PersistedAccountProfile =
-            serde_json::from_slice(&bytes).map_err(|_| InvalidRecord)?;
-        if !record.has_supported_binding() {
-            return Err(InvalidRecord);
-        }
-        let credential =
-            AccountRecord::decode(&record.account_record).map_err(|_| InvalidRecord)?;
+        let (record, credential) = read_account(account_directory, owner_uid)?;
         if credential.name() != account_name || !credential.credential.verify(password) {
             return Err(Rejected);
         }
@@ -305,6 +286,41 @@ impl AuthenticatedAccountProfile {
             principal_id: record.principal_id,
         })
     }
+}
+
+fn read_account(
+    account_directory: &File,
+    owner_uid: u32,
+) -> Result<(PersistedAccountProfile, AccountRecord), AccountAuthenticationError> {
+    use AccountAuthenticationError::{InvalidRecord, Unavailable};
+
+    validate_directory(account_directory, owner_uid)?;
+    let fd = openat(
+        account_directory,
+        ACCOUNT_FILE,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(|_| Unavailable)?;
+    let file = File::from(fd);
+    let metadata = file.metadata().map_err(|_| Unavailable)?;
+    if !metadata.is_file() || metadata.uid() != owner_uid || metadata.mode() & 0o077 != 0 {
+        return Err(Unavailable);
+    }
+    let mut bytes = Vec::new();
+    file.take((MAX_RECORD_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| Unavailable)?;
+    if bytes.len() > MAX_RECORD_BYTES {
+        return Err(InvalidRecord);
+    }
+    let record: PersistedAccountProfile =
+        serde_json::from_slice(&bytes).map_err(|_| InvalidRecord)?;
+    if !record.has_supported_binding() {
+        return Err(InvalidRecord);
+    }
+    let credential = AccountRecord::decode(&record.account_record).map_err(|_| InvalidRecord)?;
+    Ok((record, credential))
 }
 
 #[cfg(test)]
