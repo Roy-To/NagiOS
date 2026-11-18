@@ -434,11 +434,11 @@ pub(super) fn run_owner_login(
         match attached {
             Ok(session) => {
                 super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
-                let notes_owner = runtime.notes_owner().map_err(|_| {
+                let mut notes_owner = runtime.notes_owner().map_err(|_| {
                     crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
                 });
                 let _notes_bundle = match notes_owner
-                    .as_ref()
+                    .as_mut()
                     .map_err(|error| *error)
                     .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
                 {

@@ -127,14 +127,14 @@ where
     pub(super) fn request_notes_attachment(
         &mut self,
         lease: SessionLease,
-        notes: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
         crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         use crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable;
 
-        self.retained_revalidation(lease).map_err(|_| Unavailable)?;
+        let revalidation = self.retained_revalidation(lease).map_err(|_| Unavailable)?;
         let InitialSessionOutcome::Attached { issued, .. } = &self.outcome else {
             return Err(Unavailable);
         };
@@ -145,7 +145,11 @@ where
         if identity.session_id() != issued.session_id() {
             return Err(Unavailable);
         }
-        notes.issue_for_attached_session(issued.caller(), identity)
+        revalidation
+            .with_live_session_effect(|| {
+                notes.issue_for_attached_session(issued.caller(), identity)
+            })
+            .map_err(|_| Unavailable)?
     }
 }
 

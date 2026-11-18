@@ -308,7 +308,7 @@ where
     pub(in crate::linux_init) fn request_notes_attachment(
         &self,
         lease: super::super::pid1_live_peer_supplier::SessionLease,
-        owner: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        owner: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
         crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,

@@ -1,9 +1,7 @@
 //! Startup-side wrapper for the shared opaque Notes attachment contract.
 //!
-//! The development Data mount may be retained as a typed boot-volume input,
-//! but it is not a Profile identity, reservation, or authorization source.
-//! The shared owner therefore remains Pending and every bundle request fails
-//! closed until the real C1/C2 and Volume Manager producers are connected.
+//! PID 1 retains the selected Data root and invokes the Volume Manager
+//! producer after C1 attaches the authenticated interactive Session.
 
 use std::fs::File;
 use std::io;
@@ -186,11 +184,11 @@ impl ProfileVolumeNotesOwner {
         self.inner.issue_bundle()
     }
 
-    /// Check the post-login scope at the A owner boundary. Only the shared
-    /// owner may issue a verified bundle from its own attachment.
+    /// Called under the exact C1 Session effect guard after C2 attachment.
+    /// The Volume Manager owns persistent profile and object selection.
     #[cfg(linux_task24_initial_login_runtime)]
     pub(crate) fn issue_for_attached_session(
-        &self,
+        &mut self,
         caller: &C1AuthenticatedInteractiveCaller,
         identity: &ResolvedIdentity,
     ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
@@ -201,15 +199,23 @@ impl ProfileVolumeNotesOwner {
         {
             return Err(CallerMismatch);
         }
-        identity.check_live().map_err(|_| Unavailable)?;
         let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        let user = identity.user_id().ok_or(Unavailable)?;
+        if self.inner.status() == ProfileVolumeNotesOwnerStatus::Pending {
+            self.inner.attach_linux_profile(
+                &boot_volume.directory,
+                boot_volume.identity.mount_id,
+                user.to_model(),
+                identity.profile_id().as_str(),
+                identity.principal_id().as_str(),
+            )?;
+        }
         let bundle = self.issue_bundle()?;
         bundle.validate_scope(
             identity.principal_id().as_str(),
             identity.profile_id().as_str(),
         )?;
         bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
-        identity.check_live().map_err(|_| Unavailable)?;
         Ok(bundle)
     }
 
