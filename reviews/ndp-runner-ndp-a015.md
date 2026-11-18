@@ -9,3 +9,28 @@
 
 NDP-REVIEW: FIX
 
+## Round 2 — claude review of 85e78f63564a
+
+**レビュー結果:P1/P2 は見つかりませんでした。** 目標と受入条件の 3 点を満たしています。
+
+**目標と受入条件**
+- `report.API_CASES` と `report.FIXTURES` から固定 fixture を引き、全プラットフォーム(windows, linux)の snapshot を検査しています(`test_api_snapshot_drift.py:87-98`)。検査内容は 3 つです。
+  - `limitations` が元ソースを名指ししていること
+  - 各 finding の行番号が存在し、evidence がその行にあること
+  - `report.diagnose` が返す API 名がその行にあること
+- snapshot の読込は `adapt_report_v1` と `load_report_document` を使っており、パーサの二重実装はありません。
+- 行番号の変更、行末超過、API 名の差し替え、ソースへの行挿入、別ソースの名指しは、いずれも一時コピー上で検知を確認しています(`:123-177`)。
+- API 名テスト(`:141-159`)は evidence 照合を通したまま API 名照合だけを働かせます。API 名の照合を削ると失敗します。
+- 実ファイルは変更していません(`:179-187`)。
+- README の追記は PROVISIONAL で、手書き snapshot との照合であり実 scanner 出力ではないこと、host のみで Nagi target 受入ではないことを明記しています。
+
+**範囲とセキュリティ**
+- 変更は `validation/` 配下と `reviews/` のレビュー記録だけです。`api/` と snapshot は変更していません。
+- ファイル読込は `validate.read_manifest` を経由します。symlink を辿らず、サイズ上限があり、リポジトリ外は読みません。前回の P1 は解消済みです。
+
+**P3(軽微)**
+1. `test_api_snapshot_drift.py:81`: API 名の照合は大文字小文字を区別しない部分文字列一致です。たとえば `ReadFile` は `ReadFileEx` の行にも一致します。README の限界の項に「API 名も部分文字列一致」と一文足すと、説明が揃います。
+2. 一時コピーの作成から検査までの間に、同時に動く別プロセスがファイルを書き換える競合は考慮していません。host pilot の範囲外ですが、README に限界として一行記載してください。
+
+NDP-REVIEW: PASS
+
