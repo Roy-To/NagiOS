@@ -6,7 +6,7 @@
 
 - Fixed M17 PASS base: `94e9a027618182b10c0ac2315e94673543f22423`
 - Dedicated branch: `codex/m19prep-semantic-search`
-- Worktree: `/Users/tozawa/.codex/worktrees/m19prep-semantic-search/NagiOS`
+- Worktree: `${HOME}/.codex/worktrees/m19prep-semantic-search/NagiOS`
 - Initial HEAD and merge-base: `94e9a027618182b10c0ac2315e94673543f22423`
 - Baseline M17 acceptance execution head: `31bf815b7230f2658f654643e6d6c898d9881d77`
 
@@ -56,10 +56,10 @@ IDs must be indistinguishable from missing IDs.
 
 ## Verification
 
-- `RUSTC=/Users/tozawa/.cargo/bin/rustc RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc /Users/tozawa/.cargo/bin/cargo test --manifest-path user/nagi-search/Cargo.toml --locked --offline` — PASS, 15 tests plus doc tests. Includes file-backend restart persistence for records, relations, Workspace membership, tags, attributes, and stable IDs after rename.
-- `PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin RUSTC=/Users/tozawa/.cargo/bin/rustc CARGO_TARGET_DIR=user/nagi-search/target-clippy /Users/tozawa/.cargo/bin/cargo clippy --manifest-path user/nagi-search/Cargo.toml --all-targets --locked --offline -- -D warnings` — PASS.
-- `/Users/tozawa/.cargo/bin/cargo fmt --manifest-path user/nagi-search/Cargo.toml -- --check` — PASS.
-- `RUSTC=/Users/tozawa/.cargo/bin/rustc /Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check --manifest-path user/nagi-search/Cargo.toml --target targets/x86_64-unknown-nagi-user.json --target-dir user/nagi-search/target-nagi --locked --offline` — PASS; builds the isolated no-std package and `nagi-model` for the Nagi user target.
+- `RUSTC=${HOME}/.cargo/bin/rustc RUSTDOC=${HOME}/.cargo/bin/rustdoc ${HOME}/.cargo/bin/cargo test --manifest-path user/nagi-search/Cargo.toml --locked --offline` — PASS, 15 tests plus doc tests. Includes file-backend restart persistence for records, relations, Workspace membership, tags, attributes, and stable IDs after rename.
+- `PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin RUSTC=${HOME}/.cargo/bin/rustc CARGO_TARGET_DIR=user/nagi-search/target-clippy ${HOME}/.cargo/bin/cargo clippy --manifest-path user/nagi-search/Cargo.toml --all-targets --locked --offline -- -D warnings` — PASS.
+- `${HOME}/.cargo/bin/cargo fmt --manifest-path user/nagi-search/Cargo.toml -- --check` — PASS.
+- `RUSTC=${HOME}/.cargo/bin/rustc ${HOME}/.cargo/bin/cargo -Z build-std=core,alloc check --manifest-path user/nagi-search/Cargo.toml --target targets/x86_64-unknown-nagi-user.json --target-dir user/nagi-search/target-nagi --locked --offline` — PASS; builds the isolated no-std package and `nagi-model` for the Nagi user target.
 - `git diff --check` — PASS.
 - A supplementary root-workspace test attempt for `nagi-model`/`nagi-history` could not resolve the fixed-base root patch path `third_party/cc-nagi/Cargo.toml` (not present/materialized at this baseline). The isolated package tests compile the shared model dependency; M15/M16 code was not modified. No QEMU or guest persistence claim is made.
 

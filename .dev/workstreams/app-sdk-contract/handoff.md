@@ -5,7 +5,7 @@
 **PASS — host-side contract acceptance only.** The implementation source is
 `0117bf51830fc77863b3468f0e8406b3eab4817b` on branch
 `codex/0.2-app-sdk-contract`, in worktree
-`/Users/tozawa/Developer/NagiOS-0.2-app-sdk`. The authoritative live status and
+`${HOME}/Developer/NagiOS-0.2-app-sdk`. The authoritative live status and
 test evidence are in [`state.json`](state.json); this handoff is a concise
 integration note, not a second state ledger.
 

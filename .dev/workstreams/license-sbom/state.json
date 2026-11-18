@@ -48,21 +48,21 @@
       },
       {
         "name": "Repository inventory and structural policy check",
-        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- check --root ${HOME}/.codex/worktrees/license-sbom/NagiOS",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Revision 9a2234c0a12d34ba61be506e4663431d6aebc806; 822 components; 806 unknown-license records; 0 structural inventory or SPDX profile errors."
       },
       {
         "name": "SPDX 2.3 generation and output checks",
-        "command": "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/nagi-legal.spdx.json",
+        "command": "SOURCE_DATE_EPOCH=1780272000 cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- sbom --root ${HOME}/.codex/worktrees/license-sbom/NagiOS --output /tmp/nagi-legal.spdx.json",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "SPDX-2.3; 823 packages; 2888 relationships; licenseListVersion 3.29.0; generated output has no absolute host paths or credential markers."
       },
       {
         "name": "NOTICE candidate generation",
-        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root /Users/tozawa/.codex/worktrees/license-sbom/NagiOS --output /tmp/NOTICE.candidate.md",
+        "command": "cargo run --manifest-path tools/legal/Cargo.toml --locked --offline -- notice --root ${HOME}/.codex/worktrees/license-sbom/NagiOS --output /tmp/NOTICE.candidate.md",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Candidate generated; it records references/review metadata and does not copy the synthetic upstream license-text marker."
