@@ -11,3 +11,14 @@
 
 NDP-REVIEW: FIX
 
+## Round 2 — codex review of 30827802cc73
+
+P1・P2 の指摘はありません。`mixed` は既存の診断経路を使い、Windows と Linux の未対応・未解決行を JSON と Markdown に行番号付きで出します。テストは CLI の実出力、ソースと snapshot の照合、`all` の matrix と reasons の集約を検証しています。既存4 fixture の個別レポート経路に出力を変える差分はなく、`contracts/` にも差分はありません。
+
+- **P3** [evaluation/README.md](tests/developer-platform/evaluation/README.md:14) — fixture 一覧を読むと、実装から置き換え済みの `NtFancyFlush` と `fancy_notify_create` が現在も使われているように見えます。一覧の API 名を `CancelIoEx` と `euidaccess` に更新してください。
+- **P3** [ndp-runner-ndp-a017.md](reviews/ndp-runner-ndp-a017.md:13) — BASE–HEAD 全体には担当パス外の前回レビュー記録が含まれ、全体に対する `git diff --check` は末尾の空行を検出します。担当3パスに限ったチェックは通りました。runner 側で記録の末尾の空行を削除し、担当パスの確認ではレビュー記録コミットを区別してください。
+
+テストは提示された runner 結果を参照し、再実行していません。Nagi target の受入は `not_run` です。
+
+NDP-REVIEW: PASS
+
