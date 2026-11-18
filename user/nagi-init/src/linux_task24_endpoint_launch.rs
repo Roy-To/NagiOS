@@ -346,7 +346,8 @@ pub(super) struct LoginChildLaunch {
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
-pub(super) type BootLoginIssuer = C1InitialLoginAuthority<
+pub(super) type BootLoginIssuer<'boot> = C1InitialLoginAuthority<
+    'boot,
     nagi_identity_session::LinuxIdentitySnapshotStore,
     nagi_identity_session::LinuxIdentityIdSource,
     nagi_identity_session::LinuxIdentityClock,
@@ -531,7 +532,7 @@ pub(super) fn start_verified_login(
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     owners: &EndpointOwners<'_>,
-    issuer: &BootLoginIssuer,
+    issuer: &BootLoginIssuer<'_>,
     submit: impl FnOnce(&mut std::os::unix::net::UnixStream) -> std::io::Result<()>,
     deadline: Instant,
 ) -> Result<AttachedLogin, PeerDenial> {

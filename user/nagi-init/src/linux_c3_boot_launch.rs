@@ -243,6 +243,11 @@ pub(super) struct AuthenticatedBootService<'package> {
 }
 
 impl AuthenticatedBootService<'_> {
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(super) fn recovery_admission(&self) -> &SystemServiceRecoveryAdmission {
+        &self.admission
+    }
+
     pub(super) fn recovery_scope(&self) -> &dyn SystemServiceRecoveryAdmissionScope {
         self.admission.scope()
     }

@@ -17,6 +17,7 @@ use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
 #[cfg(not(linux_task24_owner_co_location))]
 use nagi_pid1_live_peer_supplier as broker;
+use nagi_system_service_launch::SystemServiceRecoveryAdmission;
 use nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope;
 use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
@@ -26,15 +27,16 @@ use std::time::Instant;
 mod transaction;
 
 /// Own the recovered issuer and its verifier for the first attached C2 lease.
-pub(super) struct C1InitialLoginAuthority<S: IdentitySnapshotStore, I, C, A, G, E> {
+pub(super) struct C1InitialLoginAuthority<'boot, S: IdentitySnapshotStore, I, C, A, G, E> {
     owner: Mutex<transaction::InitialLoginState<S, I, C, A, G, E>>,
     handoff: C1SystemServiceRuntimeHandoff,
+    boot_admission: &'boot SystemServiceRecoveryAdmission,
     verifier: LinuxAccountVerifier,
     request_key: IdempotencyKey,
     expires_at: Option<UnixMillis>,
 }
 
-impl<S, I, C, A, G, E> C1InitialLoginAuthority<S, I, C, A, G, E>
+impl<'boot, S, I, C, A, G, E> C1InitialLoginAuthority<'boot, S, I, C, A, G, E>
 where
     S: C1SystemServiceRecoveryJournal,
     I: IdentityIdSource,
@@ -46,6 +48,7 @@ where
     pub(super) fn new(
         identity: IdentityService<S, I, C, A, G, E>,
         handoff: C1SystemServiceRuntimeHandoff,
+        boot_admission: &'boot SystemServiceRecoveryAdmission,
         verifier: LinuxAccountVerifier,
         request_key: IdempotencyKey,
         expires_at: Option<UnixMillis>,
@@ -54,6 +57,7 @@ where
         Ok(Self {
             owner: Mutex::new(transaction::InitialLoginState::new(identity)),
             handoff,
+            boot_admission,
             verifier,
             request_key,
             expires_at,
@@ -121,7 +125,7 @@ where
     }
 }
 
-impl<S, I, C, A, G, E> LiveSessionAuthority for C1InitialLoginAuthority<S, I, C, A, G, E>
+impl<S, I, C, A, G, E> LiveSessionAuthority for C1InitialLoginAuthority<'_, S, I, C, A, G, E>
 where
     S: C1SystemServiceRecoveryJournal + Send,
     I: IdentityIdSource + Send,
@@ -158,9 +162,14 @@ where
         request: &'peer AcceptedInitialLoginRequest<'peer>,
         complete: &mut dyn FnMut(PendingInitialSession<'peer>) -> Result<(), PeerDenial>,
     ) -> Result<(), PeerDenial> {
-        let owner = self.owner.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let mut owner = self.owner.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let admission = owner
+            .identity_mut()
+            .enter_system_service_runtime_admission(&self.handoff, self.boot_admission.scope())
+            .map_err(|_| PeerDenial::Unavailable)?;
         transaction::complete_initial_session(
             owner,
+            admission,
             &self.verifier,
             request,
             stream,
@@ -186,8 +195,8 @@ pub(super) struct C2InitialLogin<'run, R: LaunchRecordView, C, P, A, B, Start> {
     pub(super) deadline: Instant,
 }
 
-impl<'run, R, S, I, C, IA, G, E, Consent, P, Supervisor, B, Start>
-    LinuxInitialLoginOwner<C1InitialLoginAuthority<S, I, C, IA, G, E>>
+impl<'run, 'boot, R, S, I, C, IA, G, E, Consent, P, Supervisor, B, Start>
+    LinuxInitialLoginOwner<C1InitialLoginAuthority<'boot, S, I, C, IA, G, E>>
     for C2InitialLogin<'run, R, Consent, P, Supervisor, B, Start>
 where
     R: LaunchRecordView + 'run,
@@ -208,7 +217,7 @@ where
 
     fn start_and_accept(
         &mut self,
-        sessions: &C1InitialLoginAuthority<S, I, C, IA, G, E>,
+        sessions: &C1InitialLoginAuthority<'boot, S, I, C, IA, G, E>,
     ) -> Result<SessionLease, PeerDenial> {
         let start = self
             .start_login_child
