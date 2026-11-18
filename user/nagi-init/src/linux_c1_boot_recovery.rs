@@ -218,9 +218,15 @@ mod task24 {
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
             start_verified_login, AttachedLogin, BootInitialLoginRoute, BootLoginRun,
-            EndpointOwners, LoginChildLaunch, LoginLifecycle, VerifiedLoginChild,
+            BootLoginSupervisor, EndpointOwners, LoginChildLaunch, LoginLifecycle,
+            VerifiedLoginChild,
         },
-        pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary},
+        pid1_live_peer_supplier::{
+            CompletedServiceHandshakeAuthority, PeerDenial, Pid1LifecycleReadyAdapter,
+            Pid1ReadinessAtomicBoundary, RequiredServiceSet, SessionLease, TrustedInventory,
+            TrustedServiceEndpointAuthority,
+        },
+        publish_lifecycle_ready,
     };
     use std::time::Instant;
 
@@ -233,6 +239,41 @@ mod task24 {
         nagi_identity_session::C1LinuxGuestProfileCleanupUnavailable,
         nagi_identity_session::LinuxIdentityEventSink,
     >;
+
+    impl Runtime<'_, '_> {
+        /// Publish the normal init transition inside the C2 owner gate and
+        /// the exact attached C1 Session effect. The boot plan and handshake
+        /// authorities are supplied by their owners.
+        pub(in crate::linux_init) fn publish_task24_ready(
+            &self,
+            attached: SessionLease,
+            owners: &EndpointOwners<'_>,
+            required: &RequiredServiceSet,
+            inventory: &impl TrustedInventory,
+            endpoints: &impl TrustedServiceEndpointAuthority,
+            handshakes: &impl CompletedServiceHandshakeAuthority,
+            ready: &mut bool,
+        ) -> Result<(), PeerDenial> {
+            let run = owners.run;
+            let event = run.directory.ready_event(
+                &run.run_owner,
+                required,
+                inventory,
+                &self.identity,
+                owners.consent,
+                endpoints,
+                &run.instances,
+                handshakes,
+                &BootLoginSupervisor,
+                run.run_owner.readiness_boundary(),
+            )?;
+            Pid1LifecycleReadyAdapter.map_current(Some(&run.run_owner), &event, |_| {
+                self.identity.with_ready_session(attached, || {
+                    publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
+                })
+            })?
+        }
+    }
 
     impl<'boot, 'package> SelectedBootIdentityRuntime<'boot, 'package> {
         pub(in crate::linux_init) fn prepare_task24_route(
