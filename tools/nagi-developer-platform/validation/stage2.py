@@ -26,6 +26,10 @@ ENV_ALLOWLIST = ("PATH", "HOME", "DEVELOPER_DIR", "SDKROOT")
 NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*\Z")
 DEFAULT_COMPILE_TIMEOUT = 30
 DEFAULT_TEST_TIMEOUT = 10
+# Redacted, bounded diagnostics summary (PROVISIONAL shape; see README). Limits are data.
+MAX_DIAGNOSTIC_ITEMS = 16
+MAX_DIAGNOSTIC_CHARS = 1024
+CATEGORY = re.compile(r"-W[a-z0-9+-]{1,40}\Z")
 BASE_RESULT = {"stage": 2, "check": "portable_build_test", "scope": "host_build_test_fixture_only",
                "status": "not_run", "reason": "not_run", "steps": []}
 
@@ -88,6 +92,54 @@ def _step(name, execution, ok_reason, fail_reason):
         reason = status
     return {"name": name, "status": status, "reason": reason, "exit_code": exit_code,
             "captured_output_bytes": len(execution["stdout"]) + len(execution["stderr"])}
+
+
+def _category(rest):
+    """The warning-flag name from a trailing `[-Wflag]` / `[-Werror,-Wflag]`, or None."""
+    bracket = re.search(rb"\[([-A-Za-z0-9+,]{1,80})\]\Z", rest)
+    for flag in (bracket[1].decode().split(",") if bracket else ()):
+        if flag != "-Werror" and CATEGORY.match(flag):
+            return flag
+    return None
+
+
+def summarize_diagnostics(output, names, scratch_prefixes=(), max_items=MAX_DIAGNOSTIC_ITEMS,
+                          max_chars=MAX_DIAGNOSTIC_CHARS):
+    """Reduce raw compiler output to counts plus (file, line, severity, category) items.
+
+    Only `file:line:col: error|warning:` lines naming one of `names` (fixture-relative; a
+    leading scratch directory is stripped) are recognised. Message text, source snippets,
+    other paths and everything else are dropped, never copied. `items` is bounded by item
+    count and by the serialised size; `truncated` says whether anything was left out.
+    """
+    alternation = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+    line_pattern = re.compile(rb"(?P<file>" + alternation.encode() + rb"):(?P<line>[0-9]{1,9}):[0-9]{1,9}: "
+                              rb"(?P<kind>fatal error|error|warning):(?P<rest>.*)\Z")
+    prefixes = tuple(sorted({p.rstrip("/") + "/" for p in scratch_prefixes if p}, key=len, reverse=True))
+    summary = {"errors": 0, "warnings": 0, "items": [], "truncated": False}
+    used = 0
+    for raw in output.split(b"\n"):
+        for prefix in prefixes:
+            if raw.startswith(prefix.encode()):
+                raw = raw[len(prefix):]
+                break
+        while raw.startswith(b"./"):
+            raw = raw[2:]
+        match = line_pattern.match(raw.rstrip(b"\r"))
+        if match is None:
+            continue
+        severity = "warning" if match["kind"] == b"warning" else "error"
+        summary["errors" if severity == "error" else "warnings"] += 1
+        category = _category(match["rest"])
+        item = {"file": match["file"].decode(), "line": int(match["line"]), "severity": severity,
+                "category": category}
+        size = len(json.dumps(item, sort_keys=True))
+        if len(summary["items"]) >= max_items or used + size > max_chars:
+            summary["truncated"] = True
+            continue
+        summary["items"].append(item)
+        used += size
+    return summary
 
 
 def _gate(prior):
@@ -154,6 +206,7 @@ def run_stage2(target_id, fixture_dir=None, cwd=None, prior=None, compile_timeou
     if clang_path is None or not os.access(clang_path, os.X_OK):
         return _result("unavailable", "clang_unavailable", **known)
     steps = []
+    diagnostics = None
     try:
         with tempfile.TemporaryDirectory(prefix="nagi-ndp-stage2-") as scratch:
             for name, data in contents.items():
@@ -165,6 +218,9 @@ def run_stage2(target_id, fixture_dir=None, cwd=None, prior=None, compile_timeou
             if built["status"] == "unavailable":
                 return _result("unavailable", "clang_unavailable", **known)
             steps.append(_step("compile", built, "compiled", "compile_failed"))
+            diagnostics = summarize_diagnostics(
+                built["stdout"] + b"\n" + built["stderr"], (*target.sources, *target.headers),
+                (scratch, str(_real(scratch))))
             binary = Path(scratch) / target.output
             if steps[-1]["status"] == "passed" and (
                     binary.is_symlink() or not binary.is_file() or not os.access(binary, os.X_OK)):
@@ -182,6 +238,8 @@ def run_stage2(target_id, fixture_dir=None, cwd=None, prior=None, compile_timeou
     except OSError:
         return _result("unavailable", "scratch_unavailable", **known)
     failing = next((step for step in steps if step["status"] != "passed"), None)
+    # Additive field: present whenever the compiler ran, never on rejection results.
+    known = {**known, "diagnostics": diagnostics}
     if failing is None:
         return _result("passed", "build_and_test_passed", steps=steps, **known)
     return _result(failing["status"], failing["reason"], steps=steps, **known)

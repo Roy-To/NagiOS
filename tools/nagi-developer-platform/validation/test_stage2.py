@@ -208,7 +208,10 @@ class ProcessControlTests(Copy):
     def test_compiler_nonzero_exit_is_kept(self):
         result = self.run2(clang=self.script("echo diagnostic >&2; exit 5"))
         self.assertEqual((result["reason"], result["steps"][0]["exit_code"]), ("compile_failed", 5))
-        self.assertNotIn("diagnostic", json.dumps(result))
+        # Raw compiler text is still never copied; only the additive summary field (whose
+        # name contains the word) may appear, and it must be empty for text without locations.
+        self.assertEqual(result["diagnostics"]["items"], [])
+        self.assertNotIn("diagnostic", json.dumps({k: v for k, v in result.items() if k != "diagnostics"}))
 
 
 class RejectionTests(Copy):
