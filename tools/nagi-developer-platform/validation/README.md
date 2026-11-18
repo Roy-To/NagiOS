@@ -314,6 +314,31 @@ reports, and 2 for invalid arguments.
   stdout/stderr cap of 512 KiB per invocation. API details show up to 32 rows
   with a `truncated` flag. UI entries cover at most seven paths, and each output
   format is capped at 128 KiB. Stage 1 and 2 keep their existing limits.
+- UI mapping row details (PROVISIONAL, additive; existing report version 1 keys
+  are unchanged). Each `ui_mapping` file result gains `gap_rows`,
+  `gap_rows_total` and `gap_rows_truncated`. `gap_rows` lists the mapping rows
+  whose `mapping.status` is not `supported`. The filter uses `mapping.status`
+  because the row `status` is a whole-port state that `map_ui.py` never sets
+  better than `partial`; filtering on it would list every row. Rows are stably
+  ordered `unsupported`, `needs_decision`, `partial` (then `map_ui.py` order) and
+  cut to 32 per file (`MAX_UI_DETAILS`), so truncation drops the least severe
+  rows first. `gap_rows_total` is the count before the cut and
+  `gap_rows_truncated` is true when it exceeds the cap. Each entry has only `id`,
+  `source_kind`, `status` (row), `mapping_status` and `reason` (the row's
+  `mapping.reason` code); a value that is not a plain identifier fails that file
+  as `invalid_tool_output`. Widget names, text, properties and absolute paths are
+  not copied. Row `status` counts bound the list: `unsupported` and
+  `needs_decision` rows are listed in full (up to the cap), `partial` rows only
+  when their vocabulary match is not `supported`. Markdown lists up to 8 rows per
+  file (`MAX_UI_MARKDOWN_ROWS`) as `- ui_mapping <path> row <id> (<kind>) ·
+  <mapping_status> · <reason>`, with a description only for codes in
+  `REASON_DESCRIPTIONS`, and adds an "omitted (see JSON)" line computed from
+  `gap_rows_total`. Vocabulary-supported rows are not listed even though their
+  other axes (focus, accessibility, localization, backend) may still be gaps;
+  those axis details stay in the `map_ui.py` output. The fields are absent when the
+  mapping tool is unavailable or analysis failed for the file. Limit: the reason
+  is a vocabulary classification, not a rendered or executed compatibility result,
+  and the format may change inside `validation/`; it is not a contract.
 - Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
   permissions and data persistence on Nagi require separate target evidence.
 
