@@ -2,6 +2,7 @@
 //! inside the same PID 1 crate. The caller supplies the installed login
 //! package and the existing policy owners.
 
+use super::linux_c3_boot_launch::AuthenticatedBootService;
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
@@ -16,15 +17,18 @@ use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
 };
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
-use nagi_service_contract::ServiceId;
+use nagi_service_contract::{
+    CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
+};
+use nagi_task37_receipt_supplier::service_effect::ServiceEffectOwnerId;
 use pid1_live_peer_supplier::pidfd_process_instance::{
     LinuxPidfdKernel, PidfdProcessInstanceAuthority,
 };
 use pid1_live_peer_supplier::{
     LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint, Pid1EndpointOwnerRegistry,
-    Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunOwnerLease, RouteConsentRequirement,
+    Pid1LivePeerDirectory, Pid1RunInstance, Pid1RunOwnerLease, RouteConsentRequirement,
     SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory, TrustedManifest,
-    TrustedNipcOperationRoute, TrustedServiceRequirements,
+    TrustedNipcOperationRoute, TrustedRouteKey, TrustedServiceRequirements,
 };
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
@@ -38,6 +42,8 @@ use pid1_live_peer_supplier::SessionLease;
 
 const LOGIN_PACKAGE_ID: &[u8] = b"org.nagi.dev.task24-login";
 const LOGIN_PACKAGE_ENTRY: &[u8] = b"task24-login.elf";
+const LOGIN_OPERATION: &str = "initial-login";
+const LOGIN_PAYLOAD: &str = "nagi.auth.initial-login@1";
 const LOGIN_PACKAGE_PIN: &str =
     include_str!(concat!(env!("OUT_DIR"), "/linux-dev-login-package-sha256"));
 
@@ -220,10 +226,107 @@ impl BootLoginRun {
     }
 }
 
-pub(super) struct EndpointOwners<'a, B> {
+/// Pre-Session route from the recovered system-service binding and this
+/// exact C2 run. Only the first-checkout path can take its broker route.
+pub(super) struct BootInitialLoginRoute {
+    run: Pid1RunInstance,
+    boot_binding: [u8; 32],
+    route: TrustedNipcOperationRoute,
+}
+
+impl BootInitialLoginRoute {
+    pub(super) fn from_recovered_boot(
+        boot: &AuthenticatedBootService<'_>,
+        run: &BootLoginRun,
+    ) -> Result<Self, PeerDenial> {
+        use sha2::{Digest, Sha256};
+
+        let instance = run.run_owner.run();
+        if !instance.is_active() {
+            return Err(PeerDenial::StaleRun);
+        }
+        let scope = boot.recovery_scope();
+        let service =
+            ServiceId::new(scope.service_id()).map_err(|_| PeerDenial::UnknownNipcRoute)?;
+        let operation =
+            OperationId::new(LOGIN_OPERATION).map_err(|_| PeerDenial::UnknownNipcOperation)?;
+        let version = ContractVersion::new(1, 0).map_err(|_| PeerDenial::UnknownNipcOperation)?;
+        let service_selector = nagi_model::AppId::from_identifier(service.as_str().as_bytes());
+        let operation_selector = nagi_model::AppId::from_identifier(LOGIN_PAYLOAD.as_bytes());
+        let key = TrustedRouteKey::from_canonical_route(
+            service_selector.0,
+            operation_selector.0,
+            version.major(),
+            version.minor(),
+            instance.generation().get(),
+        )
+        .ok_or(PeerDenial::UnknownNipcRoute)?;
+
+        // The generic C2 route descriptor requires a capability label. This
+        // operation enters only the pre-Session checkout, is excluded from
+        // the general mapper, and the pinned child declares no grants.
+        let label = CapabilityId::new("auth.initial-login").map_err(|_| PeerDenial::NotDeclared)?;
+        let descriptor = ServiceDescriptor::new(
+            service,
+            [version],
+            [ServiceOperation::new(operation.clone(), Some(label))],
+        )
+        .map_err(|_| PeerDenial::UnknownNipcOperation)?;
+        let mut binding = Sha256::new();
+        binding.update(b"Nagi initial login route owner v1\0");
+        binding.update(scope.binding_digest());
+        binding.update(instance.generation().get().to_be_bytes());
+        let digest = binding.finalize();
+        let mut owner = [0; 16];
+        owner.copy_from_slice(&digest[..16]);
+        let route = TrustedNipcOperationRoute::from_service_contract(
+            key,
+            scope.package_app_id(),
+            LOGIN_PAYLOAD,
+            &descriptor,
+            version,
+            &operation,
+            ServiceEffectOwnerId::new(owner),
+        )?;
+        Ok(Self {
+            run: instance.clone(),
+            boot_binding: *scope.binding_digest(),
+            route,
+        })
+    }
+
+    pub(super) fn matches(&self, boot: &AuthenticatedBootService<'_>, run: &BootLoginRun) -> bool {
+        self.run.is_active()
+            && self.run.is_same_run(run.run_owner.run())
+            && &self.boot_binding == boot.recovery_scope().binding_digest()
+    }
+}
+
+pub(super) struct EndpointOwners<'a> {
     pub(super) run: &'a BootLoginRun,
     pub(super) consent: &'a BootConsentUiConnection<'a>,
-    pub(super) readiness: &'a B,
+}
+
+impl EndpointOwners<'_> {
+    fn retire(
+        &self,
+        lease: &mut BoundLaunchLease<LoginLease, LaunchRecord>,
+    ) -> Result<(), BackendError> {
+        gate::retire_task41_endpoint_after_exact_reap(
+            lease,
+            &self.run.directory,
+            &self.run.instances,
+            self.run.run_owner.readiness_boundary(),
+        )
+    }
+}
+
+fn revoke_login_record(pid: u32, launch: &LaunchRecord) -> Result<(), BackendError> {
+    if crate::supervisor::record_exit_if_matches(pid, launch) {
+        Ok(())
+    } else {
+        Err(BackendError::Revoked)
+    }
 }
 
 pub(super) fn new_lifecycle() -> LoginLifecycle {
@@ -249,19 +352,16 @@ pub(super) type BootLoginIssuer = C1InitialLoginAuthority<
 /// Start and check out the exact child while the caller retains the recovered
 /// C1 issuer, signed package, and C3 process lifecycle.
 #[cfg(linux_task24_initial_login_runtime)]
-pub(super) fn start_verified_login<B>(
+pub(super) fn start_verified_login(
     lifecycle: &mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    route: TrustedNipcOperationRoute,
-    owners: &EndpointOwners<'_, B>,
+    route: BootInitialLoginRoute,
+    owners: &EndpointOwners<'_>,
     issuer: &BootLoginIssuer,
     deadline: Instant,
-) -> Result<SessionLease, PeerDenial>
-where
-    B: Pid1ReadinessAtomicBoundary,
-{
-    C2InitialLogin {
+) -> Result<SessionLease, PeerDenial> {
+    let result = C2InitialLogin {
         directory: &owners.run.directory,
         start_login_child: Some(|deadline| {
             start_and_borrow(lifecycle, selection, package, route, owners, deadline).map_err(
@@ -276,28 +376,32 @@ where
         consent: owners.consent,
         process_instances: &owners.run.instances,
         supervisor: &BootLoginSupervisor,
-        readiness_boundary: owners.readiness,
+        readiness_boundary: owners.run.run_owner.readiness_boundary(),
         deadline,
     }
-    .start_and_accept(issuer)
+    .start_and_accept(issuer);
+    if result.is_err() {
+        lifecycle
+            .shutdown_with_launch_lease(revoke_login_record, |lease, _status| owners.retire(lease))
+            .map_err(|_| PeerDenial::RequestOutcomeUnknown)?;
+    }
+    result
 }
 
-fn start_and_borrow<'slot, B>(
+fn start_and_borrow<'slot>(
     lifecycle: &'slot mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    route: TrustedNipcOperationRoute,
-    owners: &EndpointOwners<'_, B>,
+    route: BootInitialLoginRoute,
+    owners: &EndpointOwners<'_>,
     deadline: Instant,
-) -> Result<&'slot LoginLease, BackendError>
-where
-    B: Pid1ReadinessAtomicBoundary,
-{
+) -> Result<&'slot LoginLease, BackendError> {
     let release_wait_budget = deadline.saturating_duration_since(Instant::now());
     if release_wait_budget.is_zero() {
         return Err(BackendError::Unavailable);
     }
     let app_id = package.generation.snapshot().app_id();
+    let readiness = owners.run.run_owner.readiness_boundary();
     if package.manifest.app_id() != app_id {
         return Err(BackendError::IdentityRejected);
     }
@@ -309,13 +413,13 @@ where
     // checked out only for first Session issuance. Application capabilities
     // and decisions are handled after C1 attaches the issued Session.
     let requirements = TrustedServiceRequirements::from_canonical_route(
-        route.route_key(),
+        route.route.route_key(),
         &[],
         RouteConsentRequirement::NotRequired,
     );
     let pending = PendingSpawnOwnedEndpoint::bind_for_spawn(
         owners.run.run_owner.run(),
-        route,
+        route.route,
         selection.credentials.uid,
         selection.credentials.gid,
     )
@@ -338,21 +442,8 @@ where
 
     let mut boot_proof = None;
     let mut record = None;
-    let revoke = |pid, launch: &LaunchRecord| {
-        if crate::supervisor::record_exit_if_matches(pid, launch) {
-            Ok(())
-        } else {
-            Err(BackendError::Revoked)
-        }
-    };
-    let retire = |saved: &mut BoundLaunchLease<LoginLease, LaunchRecord>, _status| {
-        gate::retire_task41_endpoint_after_exact_reap(
-            saved,
-            &owners.run.directory,
-            &owners.run.instances,
-            owners.readiness,
-        )
-    };
+    let retire =
+        |saved: &mut BoundLaunchLease<LoginLease, LaunchRecord>, _status| owners.retire(saved);
     let pid = lifecycle.spawn_authorized_with_prepared_and_launch_lease(
         launch,
         || Instant::now() >= deadline,
@@ -374,7 +465,7 @@ where
                 })
                 .map_err(|_| BackendError::Unavailable)
         },
-        revoke,
+        revoke_login_record,
         retire,
     )?;
     let proof = boot_proof.ok_or(BackendError::ProtocolViolation)?;
@@ -396,12 +487,12 @@ where
                 package,
                 owners.consent,
                 &BootLoginSupervisor,
-                owners.readiness,
+                readiness,
             )
         })
     };
     if let Err(error) = activation {
-        lifecycle.terminate_exact_with_launch_lease(pid, record, revoke, retire)?;
+        lifecycle.terminate_exact_with_launch_lease(pid, record, revoke_login_record, retire)?;
         return Err(error);
     }
     lifecycle.borrow_current_launch_lease(&proof, record)
