@@ -61,3 +61,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-18 NDP-11d: 実nagi-pkgによる雛形Manifest受理（未準備時はnot_run）とXAML 3件の繰返し評価をrunnerに（PR #186、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A005: 未知namespace要素のcustom扱い・x:Key・DataTemplate同名x:Nameの現状をテスト固定し、（PR #187、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A006: evaluation README から旧「40 checks」を除去し、README 件数（65）と収集テスト数の一致（PR #188、runnerテスト成功、claudeレビューPASS）
+- 11-19 NDP-A007: 読めないディレクトリの列挙挙動を実測し、テストとREADMEに反映（PR #189、runnerテスト成功、codexレビューPASS）
