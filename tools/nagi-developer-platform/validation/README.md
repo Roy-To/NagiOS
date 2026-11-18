@@ -332,7 +332,11 @@ reports, and 2 for invalid arguments.
   `mixed` and routing (`api_case_paths`, constants `MIXED_FIXTURE` and
   `MIXED_API_BASENAME`): a small self-made C source
   `tests/developer-platform/evaluation/mixed/read_and_watch.c` (an `#ifdef
-  _WIN32` Windows part and a Linux part, each with one API no bundled rule knows)
+  _WIN32` Windows part and a Linux part, each calling one real platform API that
+  the bundled rules do not list — Win32 `CancelIoEx` (declared via `windows.h`)
+  and glibc `euidaccess` (`unistd.h`, needs `_GNU_SOURCE`) — so the "unresolved"
+  rows come from real APIs, not invented names; a test fails if a rule later adds
+  either name, and the fixture must then switch to another unlisted API)
   and one handwritten snapshot per platform,
   `tests/developer-platform/api/mixed/read_and_watch.{windows,linux}.report-v1.json`.
   `windows_diagnosis` and `linux_diagnosis` both run for this fixture through the
@@ -345,7 +349,9 @@ reports, and 2 for invalid arguments.
   and the number of `## API gaps` sections); no assertion was removed.
   `test_api_snapshot_drift.py` checks the `mixed` source against both snapshots
   (line numbers, evidence text, API names) and detects shifted lines;
-  `test_report_mixed.py` checks the report itself.
+  `test_report_mixed.py` checks the report itself, including that the `--fixture
+  all` `reasons` list equals the set of `not_passed` reasons of every report
+  (mixed included).
   Assumptions and limits: the snapshots are handwritten report-v1 files, not real
   scanner (PT-01) output; the naming and routing are provisional and may be
   replaced when the real scanner output exists; the evidence is lexical, so a
