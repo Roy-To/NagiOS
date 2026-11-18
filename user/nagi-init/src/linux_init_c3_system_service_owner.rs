@@ -27,7 +27,7 @@ use std::cell::RefCell;
 use std::io;
 use std::num::NonZeroU64;
 use std::os::fd::OwnedFd;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -761,7 +761,13 @@ impl LinuxC3SystemServiceSlotOwner {
         let state = self.lock_state()?;
         let entry = current_launch(&state)?
             .ok_or_else(|| permission_denied("system-service slot has no current launch"))?;
-        validate_entry_scope(entry, scope, &scope_snapshot, scope_address, &self.service_id)?;
+        validate_entry_scope(
+            entry,
+            scope,
+            &scope_snapshot,
+            scope_address,
+            &self.service_id,
+        )?;
         Ok(entry.launch_record.process_identity())
     }
 
@@ -1955,9 +1961,9 @@ mod tests {
     };
     use crate::linux_init::linux_process_resource_tests::namespace_root_probe_elf;
     use nagi_system_service_recovery_contract::{
-        C1RecoveryOperationCorrelation, C3DurableRecoverySlotReceipt, C3RecoverySlotState,
-        RecoveryClientError, RecoveryLifecycleTransition, SystemServiceRecoveryScopeInput,
-        canonical_recovery_binding_digest,
+        canonical_recovery_binding_digest, C1RecoveryOperationCorrelation,
+        C3DurableRecoverySlotReceipt, C3RecoverySlotState, RecoveryClientError,
+        RecoveryLifecycleTransition, SystemServiceRecoveryScopeInput,
     };
     use sha2::{Digest, Sha256};
     use std::io::{Read, Write};
@@ -1965,7 +1971,7 @@ mod tests {
     use std::os::fd::AsFd;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     use std::os::unix::net::UnixStream;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::process::{Child, Command};
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};

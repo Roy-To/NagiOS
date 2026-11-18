@@ -53,6 +53,7 @@ exclude = [
     "crates/nagi-service-contract",
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",
+    "tools/linux-boot/notes-desktop-dev-20261116/profile-volume-notes-owner",
     # Product PID 1 and Albert retain their Nagi-only Servo dependency graphs.
     # Linux host tests use sibling manifests over the same sources without
     # target_os=nagi dependencies, keeping those graphs out of root resolution.

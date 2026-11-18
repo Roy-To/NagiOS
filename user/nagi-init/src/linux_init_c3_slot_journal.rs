@@ -14,7 +14,7 @@ use std::io::{self, Read, Write};
 use std::num::NonZeroU64;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 

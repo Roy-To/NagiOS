@@ -16,13 +16,13 @@ use std::fmt;
 use std::mem::MaybeUninit;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
+#[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
+#[path = "data_mount_owner.rs"]
+pub(super) mod data_mount_owner;
 #[path = "mount_flags.rs"]
 mod mount_flags;
 #[path = "syscalls.rs"]
 mod syscalls;
-#[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
-#[path = "data_mount_owner.rs"]
-pub(super) mod data_mount_owner;
 
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn maybe_run_development_data_mount_smoke() -> bool {
