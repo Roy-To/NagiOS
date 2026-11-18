@@ -333,6 +333,30 @@ impl C3SlotJournal {
         self.transition_scanned(&mut scan, transition, effect)
     }
 
+    /// Bind an otherwise unconsumed reservation to the exact A scope and
+    /// durably quarantine it without creating a child. Reusing the reserved
+    /// C3 operation ID consumes only that opaque reservation.
+    pub(super) fn transition_reserved_quarantine(
+        &self,
+        reservation: C3SlotReservation,
+        catalog_generation: NonZeroU64,
+        scope_binding_digest: [u8; 32],
+        effect: impl FnOnce() -> io::Result<()>,
+    ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
+        let _lock = self.lock_exclusive()?;
+        let mut scan = scan_journal(&self.path, &self.service_id, Some(reservation.operation_id))
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        let transition = C3SlotTransition::new(
+            &self.service_id,
+            catalog_generation,
+            reservation.launch_generation,
+            scope_binding_digest,
+            reservation.operation_id,
+            C3SlotState::Quarantined,
+        )?;
+        self.transition_scanned(&mut scan, transition, effect)
+    }
+
     /// Run one effect only after its intent is durable. The returned receipt
     /// follows the completed row's sync and full-journal readback.
     #[cfg(test)]
@@ -420,18 +444,20 @@ impl C3SlotJournal {
             c1_operation_id: transition.c1_operation_id.map_or(0, NonZeroU64::get),
             state: transition.state,
         };
-        let reserved_launch = scan.reservation.as_ref().is_some_and(|reservation| {
+        let reserved_transition = scan.reservation.as_ref().is_some_and(|reservation| {
             reservation.row.operation_id == row.operation_id
                 && reservation.row.c3_launch_generation == row.c3_launch_generation
-                && row.state == C3SlotState::Live
+                && matches!(row.state, C3SlotState::Live | C3SlotState::Quarantined)
                 && row.catalog_generation >= scan.highest_catalog_generation
                 && scan
                     .current
                     .as_ref()
                     .is_none_or(|current| current.row.state != C3SlotState::Quarantined)
         });
-        let is_valid = if row.state == C3SlotState::Live {
-            reserved_launch
+        let is_valid = if reserved_transition {
+            true
+        } else if row.state == C3SlotState::Live {
+            false
         } else {
             scan.reservation.is_none()
                 && row.operation_id > scan.highest_operation_id
@@ -824,7 +850,10 @@ fn valid_transition(
                 }
         }),
         C3SlotState::Quarantined => current.is_some_and(|current| {
-            current.state == C3SlotState::Live && same_slot_binding(current, next)
+            matches!(
+                current.state,
+                C3SlotState::Live | C3SlotState::ClearedAndAbsent
+            ) && same_slot_binding(current, next)
         }),
     }
 }
@@ -920,29 +949,28 @@ fn scan_journal(
                 scan.reservation = Some(record.clone());
             }
             RecordKind::Intent => {
-                let reserved_launch = scan.reservation.as_ref().is_some_and(|reservation| {
+                let reserved_transition = scan.reservation.as_ref().is_some_and(|reservation| {
                     reservation.row.operation_id == record.row.operation_id
                         && reservation.row.c3_launch_generation == record.row.c3_launch_generation
-                        && record.row.state == C3SlotState::Live
+                        && matches!(
+                            record.row.state,
+                            C3SlotState::Live | C3SlotState::Quarantined
+                        )
                         && record.row.catalog_generation >= scan.highest_catalog_generation
                         && scan
                             .current
                             .as_ref()
                             .is_none_or(|current| current.row.state != C3SlotState::Quarantined)
                 });
-                let operation_id_is_valid = if reserved_launch {
+                let operation_id_is_valid = if reserved_transition {
                     true
                 } else {
                     record.row.operation_id > scan.highest_operation_id
                 };
-                let transition_is_valid = if record.row.state == C3SlotState::Live {
-                    reserved_launch
-                        || valid_transition(
-                            scan.current.as_ref().map(|current| &current.row),
-                            scan.highest_catalog_generation,
-                            scan.highest_c3_launch_generation,
-                            &record.row,
-                        )
+                let transition_is_valid = if reserved_transition {
+                    true
+                } else if record.row.state == C3SlotState::Live {
+                    false
                 } else {
                     scan.reservation.is_none()
                         && valid_transition(
@@ -962,7 +990,7 @@ fn scan_journal(
                     .highest_c3_launch_generation
                     .max(record.row.c3_launch_generation);
                 scan.highest_operation_id = scan.highest_operation_id.max(record.row.operation_id);
-                if reserved_launch {
+                if reserved_transition {
                     scan.reservation = None;
                 }
                 scan.pending = Some(record.clone());
