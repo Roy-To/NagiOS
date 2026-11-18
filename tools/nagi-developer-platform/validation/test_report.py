@@ -185,6 +185,36 @@ class ReportTests(unittest.TestCase):
         self.assertIn("Nagi target acceptance `not_run`", markdown)
         self.assertNotRegex(markdown, r"(?i)(stage_3|target acceptance)[^\n]*(pass|acceptance achieved)")
 
+    def test_overview_matches_checks_for_all_fixtures(self):
+        for fixture in ("portable", "windows", "linux", "ui"):
+            with self.subTest(fixture=fixture):
+                result = report.build_report(fixture)
+                checks, overview = result["checks"], result["overview"]
+                self.assertEqual(overview["total"], len(checks))
+                self.assertEqual(sum(overview["counts"].values()), len(checks))
+                for status in ("passed", "failed", "not_run", "unsupported"):
+                    self.assertEqual(overview["counts"][status],
+                                     sum(item["status"] == status for item in checks.values()))
+                self.assertEqual(
+                    overview["not_passed"],
+                    [{"name": name, "status": item["status"], "reason": item["reason"]}
+                     for name, item in checks.items() if item["status"] != "passed"])
+                self.assertEqual(result["version"], 1)
+
+    def test_markdown_overview_describes_known_reasons_and_not_unknown_ones(self):
+        result = report.build_report("windows")
+        result["checks"]["stage_3"]["reason"] = "made_up_reason_code"
+        result["overview"] = report.build_overview(result["checks"])
+        markdown = report.markdown_report(result)
+        head = markdown.split("## Checks")[0]
+        self.assertIn("### Passed", head)
+        self.assertIn("### Unsupported or not run (reason)", head)
+        self.assertIn("- windows_diagnosis", head)
+        self.assertIn("`package_and_signature_checks_not_connected` — "
+                      + report.REASON_DESCRIPTIONS["package_and_signature_checks_not_connected"], head)
+        self.assertIn("- stage_3 · `not_run` · `made_up_reason_code`\n", head)
+        self.assertLess(head.index("## Overview"), markdown.index("| Check |"))
+
     def test_real_invalid_xml_skips_only_matching_mapping(self):
         with tempfile.TemporaryDirectory(prefix="ndp-report-input-") as directory:
             root = Path(directory)
