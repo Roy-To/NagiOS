@@ -166,9 +166,27 @@ and each is isolated in `stages.json` or one function so it can be replaced.
   guess at "strict but portable". Change `flags` in `stages.json` within the
   allowlist.
 - Passing is judged by exit 0 plus the fixture's stdout prefix, not by parsing the
-  test's assertions. Raw compiler diagnostics are intentionally not returned, which
-  costs diagnosability; a redacted, bounded diagnostic field is a possible later
-  addition.
+  test's assertions. Raw compiler output is still never returned.
+- Diagnostics summary (NDP-A003, additive and unconfirmed): when the compiler ran,
+  the Stage 2 result has a top-level `diagnostics` object
+  `{"errors": n, "warnings": n, "items": [{"file", "line", "severity", "category"}],
+  "truncated": bool}` (`passed` with no output gives zero counts and no items; a
+  warning-only build lists warnings). It is built from the bounded 64 KiB compile
+  capture by `summarize_diagnostics`; only `file:line:col: error|warning:` lines
+  naming a listed fixture file are recognised, `file` is the fixture-relative name
+  (a leading scratch directory or `./` is stripped; other paths are dropped),
+  `severity` is `error` (including `fatal error`) or `warning`, and `category` is the
+  `-W...` flag name or `null`. Message text, source snippets, notes, absolute paths,
+  input text and environment values are never copied. `items` holds at most
+  `MAX_DIAGNOSTIC_ITEMS` (16) entries and `MAX_DIAGNOSTIC_CHARS` (1024) serialised
+  characters; `truncated` reports omissions while the counts still cover all
+  recognised lines. Limits: only the compile step is summarised (the test binary's
+  output is not); counts stop at the 64 KiB capture (an `output_limit` result is a
+  partial count) and at clang's own error limit; clang message wording is not
+  returned, which still costs diagnosability. Rejection and `unavailable` results
+  carry no `diagnostics`; `status`, `reason` and exit codes are unchanged. Format
+  and limits are constants in `stage2.py`, easy to replace. Host result only, not
+  Stage 3 / Nagi target acceptance.
 - Host build/test results are not Nagi target (Stage 3) acceptance, and the host
   `clang` binary does not represent the Nagi toolchain.
 - "cwd" is the caller's working directory used only as an allow gate (inside the
