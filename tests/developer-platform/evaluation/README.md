@@ -137,7 +137,7 @@ version and empty tab order. Both inputs are in the source fingerprint, checked
 even after a failed command. GTK is never instantiated and no handler or
 binding runs.
 
-The failure-path suite (now 14 checks, subprocesses mocked) covers, for GTK:
+The failure-path suite (14 checks at NDP-11b, subprocesses mocked) covers, for GTK:
 empty stable reports, malformed JSON, correct counts with a wrong widget,
 parent, layout class, placement value or order, receiver/slot, unknown class,
 binding owner/tag and `requires` version, plus per-phase timeout, nonzero exit
@@ -190,9 +190,9 @@ analyzer README).
   `compile` and `run_test` steps must pass.
 
 The tools, report fixtures, templates and the manifest schema are in the source
-fingerprint and must be unchanged afterwards, even after a failure. The suite is now
-40 checks (real CLI output as the base for injected regressions; the Stage 2 tests need
-`clang` and are skipped, not passed, without it).
+fingerprint and must be unchanged afterwards, even after a failure. The suite grew in this step (real CLI output as the base for injected regressions; the
+Stage 2 tests need `clang` and are skipped, not passed, without it). The current count is
+stated once, under NDP-11d.
 
 ## XAML and the real nagi-pkg — NDP-11d
 
@@ -219,8 +219,11 @@ fingerprint and must be unchanged afterwards, even after a failure. The suite is
   the top-level `not_run` list. That is never a success. The runner does not build,
   fetch or modify `nagi-pkg`; its sha256 is recorded and checked as unchanged.
 
-The suite is now 63 checks (the manifest-validation class is skipped, not passed,
-if the prepared validator is absent; the other tests run regardless).
+Current suite size: 65 checks (the manifest-validation class is skipped, not passed,
+if the prepared validator is absent; the other tests run regardless). This number is the
+unittest cases collected from `test_run_host_checks.py`, including the two that compare it
+with this sentence (`ReadmeCountSyncTests`); update it when tests are added or removed.
+The runner itself has no check counter.
 
 ### 仮定（PROVISIONAL）
 
@@ -237,3 +240,11 @@ if the prepared validator is absent; the other tests run regardless).
 - Stage 2 timeout is 90 s per run in this runner; the tool's own limits stay unchanged.
 - Host-only evidence: no speed ratio, porting success or Nagi target acceptance is
   claimed.
+
+### 限界（Limits）
+
+- `median_ms` is the median wall time of the adapter call (the accept side) only; the
+  negative control, generation and fingerprinting are not included.
+- Replacing the validator binary immediately before it runs is a race the fingerprint
+  cannot detect; it is outside the threat model (the sha256 is recorded, not enforced
+  against a concurrent swap).
