@@ -353,6 +353,26 @@ reports, and 2 for invalid arguments.
   section appears inside each fixture's own part. The format may change inside
   `validation/`; it is not a contract, and host diagnosis is not Nagi target
   acceptance.
+- Stage 2 diagnostics items (PROVISIONAL, additive; existing report version 1
+  keys are unchanged). When the compiler ran, the `stage_2` check gains
+  `diagnostics` = `{"items": [...], "truncated": bool}`, taken from
+  `stage2.summarize_diagnostics`. Each item has only `file` (fixture-relative),
+  `line`, `severity` (`error` or `warning`) and `category` (a `-W...` flag name or
+  null). Message text, snippets and absolute paths are never copied. The JSON
+  cap `MAX_STAGE2_DIAGNOSTIC_ITEMS` refers to the stage2.py constant, which
+  remains the only definition. A value that is not an approved fixture file
+  name, an integer line, a known severity or a flag name (or null) fails the
+  check as `invalid_tool_output`; no item is dropped silently. The key is absent
+  for rejections, `clang_unavailable` and fixtures other than `portable`. A
+  passing real build has `{"items": [], "truncated": false}`. Markdown adds
+  `## Stage 2 diagnostics` after the problem lines, as `- host_build <file>:<line>
+  · <severity> · <category|none>`, at most 8 lines (`MAX_STAGE2_MARKDOWN_ITEMS`)
+  plus an omission line; the section is omitted when there are no items.
+  Limits: host compiler results for the self-made portable fixture only, not
+  Nagi target acceptance, and not a contract; the format may change inside
+  `validation/`. `test_report.py` checks the warning/error path by replacing the
+  Stage 2 result (orchestration only), because the approved fixture compiles
+  without diagnostics.
 - Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
   permissions and data persistence on Nagi require separate target evidence.
 

@@ -607,6 +607,105 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(markdown.count("## API gaps"), 2)
         self.assertLessEqual(len(markdown.encode()), report.MAX_REPORT_BYTES * len(report.FIXTURES))
 
+    def stage2_with_diagnostics(self, diagnostics, status="failed", reason="compile_failed"):
+        """Orchestration-only stand-in for `stage2.run_stage2` (compile step failed)."""
+        steps = [{"name": "compile", "status": "failed", "reason": "compile_failed",
+                  "exit_code": 1, "captured_output_bytes": 10},
+                 {"name": "run_test", "status": "not_run", "reason": "compile_did_not_succeed",
+                  "exit_code": None, "captured_output_bytes": 0}]
+        return lambda *args, **kwargs: {"stage": 2, "status": status, "reason": reason,
+                                        "steps": steps, "diagnostics": diagnostics}
+
+    def stage2_diagnostics_section(self, markdown):
+        self.assertEqual(markdown.count("\n## Stage 2 diagnostics\n"), 1)
+        return markdown.split("\n## Stage 2 diagnostics\n")[1].split("\n\n")[0].strip()
+
+    @unittest.skipUnless(HAS_CLANG, "clang is required for the real host build")
+    def test_stage2_diagnostics_real_build_has_no_items_and_no_markdown_section(self):
+        result = report.build_report("portable")
+        host = result["checks"]["stage_2"]
+        self.assertEqual(host["status"], "passed")
+        self.assertEqual(host["diagnostics"], {"items": [], "truncated": False})
+        self.assert_counts(host, sources=2, headers=1, steps_run=2, steps_passed=2,
+                           errors=0, warnings=0)
+        self.assertNotIn("Stage 2 diagnostics", report.markdown_report(result))
+
+    def test_stage2_diagnostics_absent_without_clang_or_for_other_fixtures(self):
+        with patch.object(stage2.shutil, "which", return_value=None):
+            result = report.build_report("portable")
+        host = result["checks"]["stage_2"]
+        self.assertEqual(host["reason"], "clang_unavailable")
+        self.assertNotIn("diagnostics", host)
+        self.assertNotIn("Stage 2 diagnostics", report.markdown_report(result))
+        for fixture in ("windows", "ui"):
+            other = report.build_report(fixture)
+            self.assertNotIn("diagnostics", other["checks"]["stage_2"])
+            self.assertNotIn("Stage 2 diagnostics", report.markdown_report(other))
+
+    def test_stage2_diagnostics_items_are_listed_with_json_and_markdown(self):
+        items = [{"file": "summary.c", "line": 12, "severity": "warning", "category": "-Wunused-variable"},
+                 {"file": "summary.h", "line": 3, "severity": "error", "category": None}]
+        diagnostics = {"errors": 1, "warnings": 1, "items": items, "truncated": False}
+        with patch.object(stage2, "run_stage2", self.stage2_with_diagnostics(diagnostics)):
+            result = report.build_report("portable")
+        host = result["checks"]["stage_2"]
+        self.assertEqual(host["status"], "failed")
+        self.assertEqual(host["diagnostics"], {"items": items, "truncated": False})
+        self.assert_counts(host, sources=2, headers=1, steps_run=1, steps_passed=0,
+                           errors=1, warnings=1)
+        self.assertEqual(result["version"], 1)
+        section = self.stage2_diagnostics_section(report.markdown_report(result))
+        self.assertEqual(section.splitlines(), [
+            "- host_build summary.c:12 · warning · -Wunused-variable",
+            "- host_build summary.h:3 · error · none"])
+        self.assertNotIn(str(report.REPO), section)
+
+    def test_stage2_diagnostics_markdown_is_capped_and_notes_omission(self):
+        items = [{"file": "summary.c", "line": number, "severity": "warning", "category": "-Wextra"}
+                 for number in range(1, report.MAX_STAGE2_MARKDOWN_ITEMS + 4)]
+        diagnostics = {"errors": 0, "warnings": len(items), "items": items, "truncated": False}
+        with patch.object(stage2, "run_stage2", self.stage2_with_diagnostics(diagnostics)):
+            result = report.build_report("portable")
+        self.assertEqual(len(result["checks"]["stage_2"]["diagnostics"]["items"]), len(items))
+        lines = self.stage2_diagnostics_section(report.markdown_report(result)).splitlines()
+        self.assertEqual(len(lines), report.MAX_STAGE2_MARKDOWN_ITEMS + 1)
+        self.assertEqual(lines[-1], "- host_build … more diagnostics omitted (see JSON counts)")
+
+    def test_stage2_diagnostics_json_cap_marks_truncated(self):
+        items = [{"file": "summary.c", "line": number, "severity": "warning", "category": None}
+                 for number in range(1, 6)]
+        diagnostics = {"errors": 0, "warnings": 5, "items": items, "truncated": False}
+        with patch.object(stage2, "run_stage2", self.stage2_with_diagnostics(diagnostics)), \
+                patch.object(report, "MAX_STAGE2_DIAGNOSTIC_ITEMS", 2):
+            host = report.build_report("portable")["checks"]["stage_2"]
+        self.assertEqual(host["diagnostics"], {"items": items[:2], "truncated": True})
+
+    def test_stage2_diagnostics_with_invalid_item_fail_as_invalid_tool_output(self):
+        good = {"file": "summary.c", "line": 4, "severity": "warning", "category": "-Wextra"}
+        for label, change in (
+                ("absolute path", {"file": "/Users/someone/summary.c"}),
+                ("unknown file", {"file": "other.c"}),
+                ("non-integer line", {"line": "4"}),
+                ("bool line", {"line": True}),
+                ("zero line", {"line": 0}),
+                ("unknown severity", {"severity": "note"}),
+                ("message as category", {"category": "unused variable 'x'"}),
+                ("non-string category", {"category": 7}),
+                ("extra key", {"message": "text"})):
+            with self.subTest(label):
+                diagnostics = {"errors": 0, "warnings": 1, "items": [{**good, **change}],
+                               "truncated": False}
+                with patch.object(stage2, "run_stage2", self.stage2_with_diagnostics(diagnostics)):
+                    result = report.build_report("portable")
+                host = result["checks"]["stage_2"]
+                self.assertEqual((host["status"], host["reason"]), ("failed", "invalid_tool_output"))
+                self.assertNotIn("diagnostics", host)
+                self.assertNotIn("Stage 2 diagnostics", report.markdown_report(result))
+        with patch.object(stage2, "run_stage2", self.stage2_with_diagnostics(
+                {"errors": 0, "warnings": 0, "items": "x", "truncated": False})):
+            host = report.build_report("portable")["checks"]["stage_2"]
+        self.assertEqual(host["reason"], "invalid_tool_output")
+
     def test_missing_validator_does_not_stop_portable_build(self):
         with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")):
             result = report.build_report("portable")
