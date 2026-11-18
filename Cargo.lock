@@ -458,6 +458,7 @@ dependencies = [
  "nagi-init-package-provider",
  "nagi-init-service-call",
  "nagi-init-spawn-contract",
+ "nagi-linux-account-verifier",
  "nagi-localization",
  "nagi-model",
  "nagi-model-manager",
