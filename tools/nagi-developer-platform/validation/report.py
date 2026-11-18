@@ -34,6 +34,10 @@ MAX_UI_DETAILS = 32  # per mapped UI file, in JSON
 MAX_UI_MARKDOWN_ROWS = 8  # per mapped UI file, in Markdown
 MAX_API_MARKDOWN_NAMES = 6  # API names per row, in the Markdown "API gaps" section
 MAX_API_NAME_CHARS = 80  # per API name, in Markdown
+# Stage 2 diagnostics items. The JSON cap follows the single source in stage2.py
+# (it already bounds the items it returns); only the Markdown cap is report's own.
+MAX_STAGE2_DIAGNOSTIC_ITEMS = stage2.MAX_DIAGNOSTIC_ITEMS  # in JSON
+MAX_STAGE2_MARKDOWN_ITEMS = 8  # in Markdown
 TOOL_TIMEOUT = 10
 MAPPING_STATUSES = ("supported", "partial", "unsupported", "needs_decision")
 UI_FACTS = ("widgets", "layouts", "connections", "tab_order", "bindings",
@@ -330,6 +334,33 @@ def generate_and_validate():
     return generation, stage1
 
 
+def stage2_diagnostic_details(diagnostics, names):
+    """PROVISIONAL additive detail from `stage2.summarize_diagnostics` output.
+
+    Keeps only fixture-relative `file`, `line`, `severity` and `category` of each
+    item, as returned by stage2.py. A value that is not an approved fixture file
+    name, a positive integer, a known severity or a warning-flag name (or None)
+    fails the whole check as `invalid_tool_output`; no item is dropped silently.
+    """
+    items, truncated = diagnostics["items"], diagnostics["truncated"]
+    if not isinstance(items, list) or type(truncated) is not bool:
+        raise CheckError("invalid_tool_output")
+    details = []
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"file", "line", "severity", "category"}:
+            raise CheckError("invalid_tool_output")
+        file, line, severity, category = (item[key] for key in ("file", "line", "severity", "category"))
+        if (file not in names or type(line) is not int or not 0 < line <= 999999999
+                or severity not in ("error", "warning")
+                or not (category is None or (isinstance(category, str)
+                                             and stage2.CATEGORY.match(category)))):
+            raise CheckError("invalid_tool_output")
+        details.append({"file": file, "line": line, "severity": severity, "category": category})
+    if len(details) > MAX_STAGE2_DIAGNOSTIC_ITEMS:
+        details, truncated = details[:MAX_STAGE2_DIAGNOSTIC_ITEMS], True
+    return {"items": details, "truncated": truncated}
+
+
 def host_build(fixture):
     if fixture != "portable":
         return check("unsupported", "no_approved_stage2_target_for_fixture")
@@ -356,9 +387,12 @@ def host_build(fixture):
         counts = {"sources": len(target.sources), "headers": len(target.headers),
                   "steps_run": sum(step["exit_code"] is not None for step in steps),
                   "steps_passed": sum(step["status"] == "passed" for step in steps)}
+        details = {}
         if result.get("diagnostics") is not None:
             counts.update({key: result["diagnostics"][key] for key in ("errors", "warnings")})
-        return adapter_result(result, paths, counts, steps=steps)
+            details["diagnostics"] = stage2_diagnostic_details(
+                result["diagnostics"], {*target.sources, *target.headers})
+        return adapter_result(result, paths, counts, steps=steps, **details)
 
     return attempt(paths, run)
 
@@ -494,6 +528,27 @@ def api_gap_lines(report):
     return ["", "## API gaps", "", *lines] if lines else []
 
 
+def stage2_diagnostic_lines(report):
+    """PROVISIONAL "Stage 2 diagnostics" section from `host_build` JSON `diagnostics`.
+
+    One `- host_build <file>:<line> · <severity> · <category|none>` line per item,
+    at most MAX_STAGE2_MARKDOWN_ITEMS. No message text, snippet or absolute path
+    exists in the data. Nothing is emitted when there is no diagnostics detail
+    (rejection, unavailable, other fixtures) or when it lists no items.
+    """
+    details = report["checks"]["stage_2"].get("diagnostics")
+    if not details or not (details["items"] or details["truncated"]):
+        return []
+    items = details["items"]
+    lines = ["- host_build {}:{} · {} · {}".format(
+        item["file"], item["line"], item["severity"], item["category"] or "none")
+        for item in items[:MAX_STAGE2_MARKDOWN_ITEMS]]
+    omitted = len(items) - len(lines)
+    if omitted > 0 or details["truncated"]:
+        lines.append("- host_build … more diagnostics omitted (see JSON counts)")
+    return ["", "## Stage 2 diagnostics", "", *lines]
+
+
 def markdown_report(report):
     lines = [
         "# Migration evaluation",
@@ -522,6 +577,7 @@ def markdown_report(report):
                     name, label, item["status"], describe_reason(item["reason"])))
     if problems:
         lines.extend(("", *problems))
+    lines.extend(stage2_diagnostic_lines(report))
     lines.extend(api_gap_lines(report))
     lines.extend(gap_row_lines(report["checks"]["ui_mapping"]))
     lines.extend(("", "Stage 1 checks metadata of the scratch scaffold. Stage 2 covers the "
