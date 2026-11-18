@@ -1,4 +1,12 @@
 use super::linux_initial_login_owner::LinuxInitialLoginOwner;
+#[cfg(linux_task24_owner_co_location)]
+use super::pid1_live_peer_supplier as broker;
+use broker::{
+    AcceptedInitialLoginRequest, ConsentSource, LaunchRecordView, LiveSessionAuthority, PeerDenial,
+    PeerProcessInstanceAuthority, PendingInitialSession, Pid1LivePeerDirectory,
+    Pid1ReadinessAtomicBoundary, SessionLease, SupervisorLaunchAuthority,
+    Task24EndpointLaunchLease,
+};
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
     C1SystemServiceRecoveryJournal, C1SystemServiceRuntimeAdmission, C1SystemServiceRuntimeHandoff,
@@ -7,12 +15,8 @@ use nagi_identity_session::{
 };
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
-use nagi_pid1_live_peer_supplier::{
-    AcceptedInitialLoginRequest, ConsentSource, LaunchRecordView, LiveSessionAuthority, PeerDenial,
-    PeerProcessInstanceAuthority, PendingInitialSession, Pid1LivePeerDirectory,
-    Pid1ReadinessAtomicBoundary, SessionLease, SupervisorLaunchAuthority,
-    Task24EndpointLaunchLease,
-};
+#[cfg(not(linux_task24_owner_co_location))]
+use nagi_pid1_live_peer_supplier as broker;
 use nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope;
 use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
