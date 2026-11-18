@@ -13,6 +13,11 @@ use std::path::{Component, Path};
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
 
+#[cfg(linux_task24_initial_login_runtime)]
+use nagi_identity_session::{
+    C1AuthenticatedInteractiveCaller, ResolvedIdentity, TrustedCallerContext,
+};
+
 pub(crate) use nagi_profile_volume_notes_owner::{
     ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError, ProfileVolumeNotesOwnerStatus,
 };
@@ -133,6 +138,14 @@ impl BootVolumeInput {
         SelectedDataRoot::from_selected_volume(self.directory.try_clone()?)
     }
 
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            directory: self.directory.try_clone()?,
+            _identity: self._identity.clone(),
+        })
+    }
+
     pub(crate) fn identity_inputs(
         &self,
         accounts: &Path,
@@ -171,6 +184,36 @@ impl ProfileVolumeNotesOwner {
         &self,
     ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
         self.inner.issue_bundle()
+    }
+
+    /// Check the post-login scope at the A owner boundary. Only the shared
+    /// owner may issue a verified bundle from its own attachment.
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn issue_for_attached_session(
+        &self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+    ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::{CallerMismatch, Unavailable};
+
+        if caller.principal_id() != identity.principal_id()
+            || caller.context_id() != identity.caller_context_id()
+        {
+            return Err(CallerMismatch);
+        }
+        identity.check_live().map_err(|_| Unavailable)?;
+        self.boot_volume
+            .as_ref()
+            .ok_or(Unavailable)?
+            .selected_data_root()
+            .map_err(|_| Unavailable)?;
+        let bundle = self.issue_bundle()?;
+        bundle.validate_scope(
+            identity.principal_id().as_str(),
+            identity.profile_id().as_str(),
+        )?;
+        identity.check_live().map_err(|_| Unavailable)?;
+        Ok(bundle)
     }
 
     pub(crate) fn has_boot_volume_input(&self) -> bool {

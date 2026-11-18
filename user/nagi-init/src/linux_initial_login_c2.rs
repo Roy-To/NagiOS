@@ -69,6 +69,22 @@ where
             .map_err(|_| PeerDenial::Unavailable)
     }
 
+    pub(super) fn request_notes_attachment(
+        &self,
+        lease: SessionLease,
+        notes: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+    ) -> Result<
+        crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.owner
+            .try_lock()
+            .map_err(|_| {
+                crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
+            })?
+            .request_notes_attachment(lease, notes)
+    }
+
     pub(super) fn enter_runtime_admission<'runtime>(
         &'runtime self,
         scope: &'runtime dyn SystemServiceRecoveryAdmissionScope,

@@ -250,7 +250,7 @@ mod task24 {
             }
             let runtime = RecoveredBootIdentity {
                 boot: self.boot,
-                _data: self.data,
+                data: self.data,
                 receipt: self.receipt,
                 identity: C1InitialLoginAuthority::new(
                     self.identity,
@@ -281,7 +281,7 @@ mod task24 {
 #[cfg(linux_task24_initial_login_runtime)]
 pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     boot: &'boot AuthenticatedBootService<'package>,
-    _data: &'boot BootVolumeInput,
+    data: &'boot BootVolumeInput,
     receipt: C3DurableSlotReceipt,
     identity: C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
@@ -295,6 +295,27 @@ where
     G: GuestProfileCleaner,
     E: IdentityEventSink,
 {
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn notes_owner(
+        &self,
+    ) -> io::Result<crate::profile_volume_notes_owner::ProfileVolumeNotesOwner> {
+        self.data
+            .try_clone()
+            .map(crate::profile_volume_notes_owner::pending_with_boot_volume)
+    }
+
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_notes_attachment(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owner: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+    ) -> Result<
+        crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_notes_attachment(lease, owner)
+    }
+
     /// Enter C1 issuer activity before C3's exact live gate. The issuer
     /// mutex has been released before the effect, while the C1 guard stays
     /// held through the C3 callback and durable receipt validation.
@@ -363,7 +384,7 @@ where
     let (handoff, receipt) = recover_boot_identity(boot, &caller, &mut identity)?;
     let runtime = RecoveredBootIdentity {
         boot,
-        _data: data,
+        data,
         receipt,
         identity: C1InitialLoginAuthority::new(
             identity,
