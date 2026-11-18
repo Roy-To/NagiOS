@@ -6,8 +6,14 @@ use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
 use super::pid1_owned_launch_lease::{BoundLaunchLease, ExactChildLaunchLease};
 use super::{BackendError, GateCommit, ProcessOs};
-use super::{ProcessEndpointPolicy, ProcessLaunch, ProcessLifecycle};
-use libnagi::launch::{LaunchPlacement, LaunchRecord};
+use super::{
+    ExecutablePayload, LinuxExecutionIdentity, ProcessEndpointPolicy, ProcessLaunch,
+    ProcessLifecycle,
+};
+use libnagi::launch::{AppManifest, LaunchPlacement, LaunchRecord};
+use nagi_init_package_provider::package_trust::{
+    InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
+};
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
 use nagi_service_contract::ServiceId;
 use pid1_live_peer_supplier::pidfd_process_instance::{
@@ -19,7 +25,64 @@ use pid1_live_peer_supplier::{
     SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory,
     TrustedServiceRequirements,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+const LOGIN_PACKAGE_ID: &[u8] = b"org.nagi.dev.task24-login";
+const LOGIN_PACKAGE_ENTRY: &[u8] = b"task24-login.elf";
+const LOGIN_PACKAGE_PIN: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/linux-dev-login-package-sha256"));
+
+/// A development package selected by the init image and verified against
+/// the installed index using the signer from the authenticated boot catalog.
+pub(super) struct VerifiedLoginChild<'owner> {
+    executable: Box<[u8]>,
+    manifest: AppManifest,
+    generation: PackageServiceGenerationLease<'owner>,
+}
+
+impl<'owner> VerifiedLoginChild<'owner> {
+    pub(super) fn load(
+        owner: &'owner PackageServiceSessionOwner<'_>,
+        blobs: &dyn InstalledPackageBlobStore,
+    ) -> Result<Option<Self>, BackendError> {
+        if LOGIN_PACKAGE_PIN.is_empty() {
+            return Ok(None);
+        }
+        let bytes = owner
+            .read_installed_system_service_package(LOGIN_PACKAGE_ID, blobs)
+            .map_err(|_| BackendError::Unavailable)?;
+        let snapshot = owner
+            .capture_for_system_service(&bytes, LOGIN_PACKAGE_ID)
+            .map_err(|_| BackendError::IdentityRejected)?;
+        use sha2::{Digest, Sha256};
+        if format!("{:x}", Sha256::digest(&bytes)) != LOGIN_PACKAGE_PIN {
+            return Err(BackendError::IdentityRejected);
+        }
+        let package =
+            nagi_package::PackageView::parse(&bytes).map_err(|_| BackendError::IdentityRejected)?;
+        let signed = package.manifest();
+        if signed.entry() != LOGIN_PACKAGE_ENTRY {
+            return Err(BackendError::IdentityRejected);
+        }
+        let manifest = AppManifest::from_declaration(signed.id(), signed.grants())
+            .map_err(|_| BackendError::IdentityRejected)?;
+        let executable = Box::from(package.executable());
+        ExecutablePayload::from_package_executable(&executable)
+            .map_err(|_| BackendError::ProtocolViolation)?;
+        let generation = owner
+            .lease_for_system_service_dispatch(&snapshot)
+            .map_err(|_| BackendError::IdentityRejected)?;
+        Ok(Some(Self {
+            executable,
+            manifest,
+            generation,
+        }))
+    }
+
+    pub(super) fn package_generation(&self) -> u64 {
+        self.generation.snapshot().generation()
+    }
+}
 
 #[path = "../candidates/linux-broker-stage25/stage25/task24_gate_callsite.rs"]
 mod gate;
@@ -50,11 +113,16 @@ pub(super) fn new_lifecycle() -> LoginLifecycle {
     LoginLifecycle::new_with_launch_lease(LinuxProcessOs)
 }
 
+pub(super) struct LoginChildLaunch {
+    pub(super) service: ServiceId,
+    pub(super) credentials: LinuxExecutionIdentity,
+    pub(super) placement: LaunchPlacement,
+}
+
 pub(super) fn start_and_borrow<'slot, I, C, A, B>(
     lifecycle: &'slot mut LoginLifecycle,
-    launch: ProcessLaunch<'_, ServiceId>,
-    placement: LaunchPlacement,
-    app_id: nagi_model::AppId,
+    selection: LoginChildLaunch,
+    package: &VerifiedLoginChild<'_>,
     required_grants: &[&[u8]],
     pending: PendingSpawnOwnedEndpoint,
     owners: &EndpointOwners<'_, I, C, A, B>,
@@ -66,20 +134,36 @@ where
     A: SupervisorLaunchAuthority<Record = LaunchRecord>,
     B: Pid1ReadinessAtomicBoundary,
 {
-    if !matches!(
-        launch.endpoint_policy,
-        ProcessEndpointPolicy::InheritedPeerChannel
-    ) || Instant::now() >= deadline
-    {
+    let release_wait_budget = deadline.saturating_duration_since(Instant::now());
+    if release_wait_budget.is_zero() {
         return Err(BackendError::Unavailable);
     }
+    let app_id = package.generation.snapshot().app_id();
+    if package.manifest.app_id() != app_id
+        || required_grants
+            .iter()
+            .any(|capability| !package.manifest.grants(capability))
+    {
+        return Err(BackendError::IdentityRejected);
+    }
+    crate::supervisor::register_or_match_manifest(package.manifest)
+        .map_err(|_| BackendError::IdentityRejected)?;
+    crate::supervisor::check_launch(app_id, selection.placement)
+        .map_err(|_| BackendError::IdentityRejected)?;
     let argv = pending
-        .child_arguments(launch.arguments)
+        .child_arguments(&[])
         .map_err(|_| BackendError::ProtocolViolation)?;
     let arguments: Vec<&str> = argv.iter().map(String::as_str).collect();
     let launch = ProcessLaunch {
+        service: selection.service,
+        executable: ExecutablePayload::from_package_executable(&package.executable)
+            .map_err(|_| BackendError::ProtocolViolation)?,
         arguments: &arguments,
-        ..launch
+        execution_identity: selection.credentials,
+        endpoint_policy: ProcessEndpointPolicy::InheritedPeerChannel,
+        required: false,
+        release_wait_budget,
+        cancel_check_interval: Duration::from_millis(10),
     };
 
     let mut boot_proof = None;
@@ -103,7 +187,7 @@ where
         launch,
         || Instant::now() >= deadline,
         |pid, _, _| {
-            crate::supervisor::record_launch(pid, app_id, placement)
+            crate::supervisor::record_launch(pid, app_id, selection.placement)
                 .map_err(|_| BackendError::IdentityRejected)
         },
         |_, live, gate| {

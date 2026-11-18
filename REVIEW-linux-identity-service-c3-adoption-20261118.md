@@ -23,6 +23,12 @@ The combined Linux musl build used the fixed C2 sources once, with `c2-issuer` o
 
 The Task24 launch function has no normal caller yet. It requires a trusted installed login child and its pre-session route, the production consent source, and C2's sealed `Pid1ReadinessAtomicBoundary` implementation. The selected signed boot package supplies C1 recovery, and no production readiness implementation is present in fixed C2. Therefore this boot did not execute Task24's clone3/exec acknowledgement, lease activation, lease borrow, or initial checkout.
 
+## Development Task24 login package — 2026-11-19
+
+The development image selects `org.nagi.dev.task24-login` with a package SHA-256 pin at build time. PID 1 restores the installed index with the authenticated boot catalog's package signing key, verifies the package ID, canonical entry and exact installed executable, and retains its package generation. The Task24 launch function now builds the exact C3 launch and registers the Supervisor declaration from that retained package. The minimal freestanding child holds the inherited Unix control endpoint and has no credential input until the sandboxed input and broker transports are supplied. The existing development signer signs the package, and the C1 recovery catalog and signer input are byte-identical to the prior development image.
+
+Normal QEMU boot verified the installed login package at generation 2 and reached first-owner input wait. It did not launch the Task24 child or submit credentials. C3's private tmpfs root does not expose the pathname used by C2's child bootstrap at `/run/nagi/ipc`. The route needs a jointly owned C2/C3 transport that preserves the child sandbox, in addition to C2's sealed readiness provider. The existing trusted consent UI records decisions only from an authenticated unlocked user. No consent event or connected-consent provider was fabricated for pre-session activation. See `out/evidence/a-task24-login-package-20261119/final/normal-serial.log`.
+
 ## Decision
 
 Accept C3 commit `4db0a45a96878ecc1dabad4bb4d8b9d3d3dc02a4` as the transport and lifetime API reference. Do not merge or copy its `linux_init.rs` implementation into A yet, and do not enable an endpoint callsite. The fixed commit provides an opt-in child endpoint handoff, but it does not provide a production SystemService proof producer or a trusted service slot. A's current product source has no SystemService catalog record or launch callsite to connect.
