@@ -55,7 +55,10 @@ pub(in crate::linux_init) struct SelectedBootIdentityRuntime<'boot, 'package> {
     // Retain the selected account verifier beside the recovered snapshot store
     // while the login owner is unavailable.
     verifier: LinuxAccountVerifier,
-    #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+    #[cfg(any(
+        linux_task24_initial_login_runtime,
+        all(linux_boot_owner_registration, feature = "desktop-login")
+    ))]
     principal: C1VerifiedBootSystemServicePrincipal,
     identity: C1LinuxBootIdentityService,
     handoff: C1SystemServiceRuntimeHandoff,
@@ -86,7 +89,10 @@ impl<'package> AuthenticatedBootService<'package> {
             ))]
             data,
             verifier,
-            #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+            #[cfg(any(
+                linux_task24_initial_login_runtime,
+                all(linux_boot_owner_registration, feature = "desktop-login")
+            ))]
             principal,
             identity,
             handoff,
@@ -333,6 +339,7 @@ mod task24 {
                 boot: self.boot,
                 data: self.data,
                 receipt: self.receipt,
+                principal: self.principal,
                 identity: C1InitialLoginAuthority::new(
                     self.identity,
                     self.handoff,
@@ -365,6 +372,7 @@ pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A,
     boot: &'boot AuthenticatedBootService<'package>,
     data: &'boot BootVolumeInput,
     receipt: C3DurableSlotReceipt,
+    principal: C1VerifiedBootSystemServicePrincipal,
     identity: C1InitialLoginAuthority<'boot, LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
 
@@ -377,6 +385,48 @@ where
     G: GuestProfileCleaner,
     E: IdentityEventSink,
 {
+    pub(in crate::linux_init) fn reconcile_after_normal_exit(
+        &self,
+        package_owner: &nagi_init_package_provider::package_trust::PackageServiceSessionOwner<'_>,
+    ) -> io::Result<()> {
+        use nagi_system_service_recovery_contract::{
+            validate_recovery_receipts, C1RecoveryReceiptClient,
+        };
+
+        if package_owner.is_quarantined() {
+            return Err(io::Error::other("boot package owner is quarantined"));
+        }
+        self.identity.with_identity_for_terminal(|identity| {
+            let scope = self.boot.recovery_scope();
+            let mut client = C1SystemServiceRecoveryReceiptAdapter::new_for_verified_boot_principal(
+                identity,
+                &self.principal,
+            );
+            let mut gate = BootTerminalGate {
+                boot: self.boot,
+                receipt: None,
+                used: false,
+            };
+            let terminal = client
+                .reconcile_terminal(scope, &mut gate)
+                .map_err(|error| {
+                    io::Error::other(format!("C1/C3 terminal reconciliation: {error:?}"))
+                })?;
+            let slot = gate
+                .receipt
+                .ok_or_else(|| io::Error::other("C3 terminal receipt absent"))?;
+            if package_owner.is_quarantined() {
+                return Err(io::Error::other("boot package owner is quarantined"));
+            }
+            validate_recovery_receipts(scope, &terminal, &slot).map_err(|error| {
+                io::Error::other(format!("C1/C3 terminal receipt mismatch: {error:?}"))
+            })?;
+            client
+                .consume_terminal_receipt(scope, terminal)
+                .map_err(|error| io::Error::other(format!("C1 terminal readback: {error:?}")))
+        })
+    }
+
     #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
     pub(in crate::linux_init) fn notes_owner(
         &self,
@@ -473,6 +523,7 @@ where
         boot,
         data,
         receipt,
+        principal: caller,
         identity: C1InitialLoginAuthority::new(
             identity,
             handoff,
@@ -485,6 +536,42 @@ where
     };
     let attached = login.start_and_accept(&runtime.identity);
     Ok((runtime, attached))
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+struct BootTerminalGate<'boot, 'package> {
+    boot: &'boot AuthenticatedBootService<'package>,
+    receipt: Option<C3DurableSlotReceipt>,
+    used: bool,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl nagi_system_service_recovery_contract::C3RecoverySlotGate for BootTerminalGate<'_, '_> {
+    fn with_reconciliation_gate<R>(
+        &mut self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        claim: C1RecoveryOperationCorrelation,
+        reconcile: impl FnOnce() -> R,
+    ) -> Result<R, nagi_system_service_recovery_contract::RecoveryClientError> {
+        use nagi_system_service_recovery_contract::RecoveryClientError;
+
+        let retained = self.boot.recovery_scope();
+        if self.used
+            || !std::ptr::addr_eq(scope, retained)
+            || claim.binding_digest() != retained.binding_digest()
+        {
+            return Err(RecoveryClientError::Rejected);
+        }
+        self.used = true;
+        let (result, receipt) = self
+            .boot
+            .owner
+            .c3
+            .with_durable_reconciliation_gate(retained, claim, reconcile)
+            .map_err(|_| RecoveryClientError::OutcomeUnknown)?;
+        self.receipt = Some(receipt);
+        Ok(result)
+    }
 }
 
 struct BootRecoveryGate<'boot, 'package> {

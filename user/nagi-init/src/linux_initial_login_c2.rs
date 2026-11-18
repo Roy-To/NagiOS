@@ -108,6 +108,16 @@ where
             .enter_system_service_runtime_admission(&self.handoff, scope)
     }
 
+    pub(super) fn with_identity_for_terminal<T>(
+        &self,
+        reconcile: impl FnOnce(&mut IdentityService<S, I, C, A, G, E>) -> std::io::Result<T>,
+    ) -> std::io::Result<T> {
+        let mut owner = self.owner.try_lock().map_err(|_| {
+            std::io::Error::other("C1 runtime unavailable during terminal reconciliation")
+        })?;
+        reconcile(owner.identity_mut())
+    }
+
     /// Hold C1's exact attached Session across the final Ready consumer.
     /// Release the issuer mutex before entering the live guard so the C2
     /// callback can still perform its independent zero-wait observations.
