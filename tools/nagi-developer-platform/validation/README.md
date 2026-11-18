@@ -227,8 +227,10 @@ analysis and mapping result. A mapping with a failed analysis gets
 Aggregate UI status is the first present of `failed`, `not_run`,
 `unsupported` or `passed`. A generation failure skips Stage 1.
 Stage 2 builds the original portable fixture and is independent of the
-scaffold and its Manifest. The CLI emits the report and exits 1 if any check
-failed, 0 for other completed reports, and 2 for invalid arguments.
+scaffold and its Manifest. A rejected Stage 2 input is `failed` with the
+original reason and zero build or test steps executed. The CLI emits the
+report and exits 1 if any check failed, 0 for other completed reports, and 2
+for invalid arguments.
 
 | [PT-06 evaluation section](../../../docs/porting-toolkit/PT06_MIGRATION_EVALUATION_TEMPLATE_2026-11-13.md) | Report evidence |
 | --- | --- |

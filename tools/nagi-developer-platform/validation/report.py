@@ -255,6 +255,10 @@ def host_build(fixture):
         # Stage 1 validates the generated scaffold. This independent host check
         # builds only the portable fixture described by the Stage 2 contract.
         result = stage2.run_stage2(target.id, fixture_dir=REPO / directory, cwd=REPO, targets=targets)
+        # With the target selected and no prior-stage gate, Stage 2's not_run
+        # denotes a rejected input. Report it as a failure and preserve the reason.
+        if result["status"] == "not_run":
+            result = {**result, "status": "failed"}
         steps = [{"name": item["name"], **adapter_result(
             item, paths, {}, exit_code=item["exit_code"])} for item in result["steps"]]
         counts = {"sources": len(target.sources), "headers": len(target.headers),
