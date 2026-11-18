@@ -29,6 +29,8 @@ The development image selects `org.nagi.dev.task24-login` with a package SHA-256
 
 Normal QEMU boot verified the installed login package at generation 2 and reached first-owner input wait. It did not launch the Task24 child or submit credentials. C3's private tmpfs root does not expose the pathname used by C2's child bootstrap at `/run/nagi/ipc`. The route needs a jointly owned C2/C3 transport that preserves the child sandbox, in addition to C2's sealed readiness provider. The existing trusted consent UI records decisions only from an authenticated unlocked user. No consent event or connected-consent provider was fabricated for pre-session activation. See `out/evidence/a-task24-login-package-20261119/final/normal-serial.log`.
 
+The A call path supplies C2 inventory checks from the retained and revalidated PackageService generation. Supervisor resolve and commit use the current launch registry and its existing grant lock. The first checkout can consume the already recovered C1 issuer, verifier, and matching boot handoff without a second recovery. The call still requires the canonical pending endpoint, consent connection, and readiness gate. The combined development build and normal boot are recorded under `out/evidence/a-task24-installed-owner-20261119/`.
+
 ## Decision
 
 Accept C3 commit `4db0a45a96878ecc1dabad4bb4d8b9d3d3dc02a4` as the transport and lifetime API reference. Do not merge or copy its `linux_init.rs` implementation into A yet, and do not enable an endpoint callsite. The fixed commit provides an opt-in child endpoint handoff, but it does not provide a production SystemService proof producer or a trusted service slot. A's current product source has no SystemService catalog record or launch callsite to connect.

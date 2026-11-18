@@ -46,6 +46,12 @@ pub(in crate::linux_init) enum BootIdentityRecoveryError {
 
 pub(in crate::linux_init) struct SelectedBootIdentityRuntime<'boot, 'package> {
     boot: &'boot AuthenticatedBootService<'package>,
+    #[cfg(all(
+        linux_task24_owner_co_location,
+        linux_task24_initial_login_runtime,
+        feature = "desktop-login"
+    ))]
+    data: &'boot BootVolumeInput,
     // Retain the selected account verifier beside the recovered snapshot store
     // while the login owner is unavailable.
     verifier: LinuxAccountVerifier,
@@ -73,6 +79,12 @@ impl<'package> AuthenticatedBootService<'package> {
         let (handoff, receipt) = recover_boot_identity(self, &principal, &mut identity)?;
         Ok(SelectedBootIdentityRuntime {
             boot: self,
+            #[cfg(all(
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                feature = "desktop-login"
+            ))]
+            data,
             verifier,
             #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
             principal,
@@ -120,6 +132,7 @@ impl SelectedBootIdentityRuntime<'_, '_> {
             identity,
             handoff,
             receipt,
+            ..
         } = self;
         let screen = crate::login_screen::selected_data_owner_registration(
             verifier,
@@ -149,6 +162,85 @@ impl SelectedBootIdentityRuntime<'_, '_> {
         .map_err(|error| io::Error::other(format!("{error:?}")))?;
         super::super::linux_owner_registration_console::run(screen)
             .map_err(|error| io::Error::other(format!("{error:?}")))
+    }
+}
+
+#[cfg(all(
+    linux_task24_owner_co_location,
+    linux_task24_initial_login_runtime,
+    feature = "desktop-login"
+))]
+mod task24 {
+    use super::*;
+    use crate::linux_init::{
+        linux_task24_endpoint_launch::{
+            start_verified_login, EndpointOwners, LoginChildLaunch, LoginLifecycle,
+            VerifiedLoginChild,
+        },
+        pid1_live_peer_supplier::{
+            ConsentSource, PeerDenial, PendingSpawnOwnedEndpoint, Pid1ReadinessAtomicBoundary,
+            SessionLease,
+        },
+    };
+    use std::time::Instant;
+
+    type Runtime<'boot, 'package> = RecoveredBootIdentity<
+        'boot,
+        'package,
+        nagi_identity_session::LinuxIdentityIdSource,
+        nagi_identity_session::LinuxIdentityClock,
+        nagi_identity_session::C1LinuxBootIdentityAuthorizer,
+        nagi_identity_session::C1LinuxGuestProfileCleanupUnavailable,
+        nagi_identity_session::LinuxIdentityEventSink,
+    >;
+
+    impl<'boot, 'package> SelectedBootIdentityRuntime<'boot, 'package> {
+        /// Reuse the recovered store and its exact C3 handoff for the first
+        /// checkout. The process lifecycle remains owned by the caller.
+        pub(in crate::linux_init) fn start_task24_login<C, B>(
+            self,
+            lifecycle: &mut LoginLifecycle,
+            selection: LoginChildLaunch,
+            package: &VerifiedLoginChild<'_>,
+            required_grants: &[&[u8]],
+            pending: PendingSpawnOwnedEndpoint,
+            owners: &EndpointOwners<'_, C, B>,
+            request_key: IdempotencyKey,
+            expires_at: Option<UnixMillis>,
+            deadline: Instant,
+        ) -> Result<
+            (Runtime<'boot, 'package>, Result<SessionLease, PeerDenial>),
+            BootIdentityRecoveryError,
+        >
+        where
+            C: ConsentSource,
+            B: Pid1ReadinessAtomicBoundary,
+        {
+            let runtime = RecoveredBootIdentity {
+                boot: self.boot,
+                _data: self.data,
+                receipt: self.receipt,
+                identity: C1InitialLoginAuthority::new(
+                    self.identity,
+                    self.handoff,
+                    self.verifier,
+                    request_key,
+                    expires_at,
+                )
+                .map_err(BootIdentityRecoveryError::Recovery)?,
+            };
+            let attached = start_verified_login(
+                lifecycle,
+                selection,
+                package,
+                required_grants,
+                pending,
+                owners,
+                &runtime.identity,
+                deadline,
+            );
+            Ok((runtime, attached))
+        }
     }
 }
 
