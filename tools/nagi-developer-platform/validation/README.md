@@ -373,6 +373,23 @@ reports, and 2 for invalid arguments.
   `validation/`. `test_report.py` checks the warning/error path by replacing the
   Stage 2 result (orchestration only), because the approved fixture compiles
   without diagnostics.
+- Scaffold file list (PROVISIONAL, additive; existing report version 1 keys are
+  unchanged). The `generation` check gains `files` = `{"items": [...],
+  "truncated": bool}`, taken from the generator's `created` list. `items` are
+  scratch-relative names only (for example `samples/level-zero/Cargo.toml`); the
+  scratch absolute path is never copied. `counts.files` stays the total number of
+  generated files, so it equals `len(items)` unless `truncated` is true. The JSON
+  cap is `MAX_SCAFFOLD_FILES` (32). A name that is not a string, is absolute,
+  contains `..`, `.`, a backslash, an empty segment or any character outside
+  `[A-Za-z0-9_.-]` fails the check as `invalid_tool_output`; no name is dropped
+  silently. Markdown adds `## Scaffold files` (`- \`<name>\``, at most 16 lines,
+  `MAX_SCAFFOLD_MARKDOWN_FILES`) plus an omission line when more exist; it is
+  omitted when generation produced no list. Because the `files` key already holds
+  per-file result lists for the UI checks, the report treats only list values
+  there as per-file results. The scaffold is neither a conversion result nor a
+  built app: it is generated files in a scratch directory only. `contracts/` and
+  `generator/` are unchanged. Host-only, not Nagi target acceptance, not a
+  contract; the format may change inside `validation/`.
 - Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
   permissions and data persistence on Nagi require separate target evidence.
 
