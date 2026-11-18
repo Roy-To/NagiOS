@@ -410,21 +410,107 @@ def markdown_report(report):
     return "\n".join(lines)
 
 
+def build_summary(reports):
+    """PROVISIONAL fixture x check matrix over per-fixture reports.
+
+    Status counts are summed from each report's own overview, so the
+    classification stays in build_overview and is not implemented twice.
+    """
+    names = list(next(iter(reports.values()))["checks"]) if reports else []
+    counts = dict.fromkeys(CHECK_STATUSES, 0)
+    not_passed = []
+    for fixture, result in reports.items():
+        for status, count in result["overview"]["counts"].items():
+            counts[status] = counts.get(status, 0) + count
+        not_passed.extend({"fixture": fixture, **item} for item in result["overview"]["not_passed"])
+    reasons = {}
+    for item in not_passed:
+        reasons.setdefault(item["reason"], REASON_DESCRIPTIONS.get(item["reason"]))
+    return {
+        "fixtures": list(reports), "checks": names,
+        "matrix": {fixture: {name: {"status": result["checks"][name]["status"],
+                                    "reason": result["checks"][name]["reason"]}
+                             for name in names}
+                   for fixture, result in reports.items()},
+        "total": sum(result["overview"]["total"] for result in reports.values()),
+        "counts": counts,
+        "by_fixture": {fixture: result["overview"]["counts"] for fixture, result in reports.items()},
+        "not_passed": not_passed,
+        # null means the code is not in REASON_DESCRIPTIONS; nothing is guessed.
+        "reasons": [{"reason": reason, "description": text} for reason, text in reasons.items()],
+    }
+
+
+def build_all_report():
+    reports = {fixture: build_report(fixture) for fixture in FIXTURES}
+    return {
+        "version": 1, "approval": "PROVISIONAL",
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "fixture": "all", "source_kind": "self_made_repository_fixture",
+        "mode": "toolkit_non_ai", "scope": "host_fixture_evaluation",
+        "target_acceptance": "not_run",
+        "summary": build_summary(reports),
+        "reports": reports,
+    }
+
+
+def summary_lines(summary):
+    names = summary["checks"]
+    counts = summary["counts"]
+    lines = ["## Fixture x check matrix", "",
+             "{} results: {}.".format(summary["total"], ", ".join(
+                 "{} `{}`".format(count, status) for status, count in counts.items())),
+             "", "| Fixture | " + " | ".join(names) + " |",
+             "|---|" + "---|" * len(names)]
+    for fixture, row in summary["matrix"].items():
+        lines.append("| {} | ".format(fixture) + " | ".join(
+            "`{}`<br>`{}`".format(row[name]["status"], row[name]["reason"]) for name in names) + " |")
+    lines.extend(("", "### Unsupported or not run (reason)", ""))
+    if summary["not_passed"]:
+        lines.extend("- {} / {} · `{}` · {}".format(item["fixture"], item["name"], item["status"],
+                                                   describe_reason(item["reason"]))
+                     for item in summary["not_passed"])
+    else:
+        lines.append("- none")
+    lines.append("")
+    return lines
+
+
+def markdown_all_report(result):
+    lines = ["# Migration evaluation: all fixtures", "",
+             "**PROVISIONAL** · Toolkit (non-AI) · host fixtures only. "
+             "Nagi target acceptance `not_run`.", "",
+             *summary_lines(result["summary"])]
+    parts = ["\n".join(lines)]
+    parts.extend(markdown_report(item) for item in result["reports"].values())
+    return "\n---\n\n".join(parts)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fixture", required=True, choices=FIXTURES)
+    parser.add_argument("--fixture", required=True, choices=(*FIXTURES, "all"))
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
     args = parser.parse_args(argv)
-    report = build_report(args.fixture)
+    if args.fixture == "all":
+        report = build_all_report()
+        reports = list(report["reports"].values())
+        limit = MAX_REPORT_BYTES * len(FIXTURES)
+        render = markdown_all_report
+    else:
+        report = build_report(args.fixture)
+        reports = [report]
+        limit = MAX_REPORT_BYTES
+        render = markdown_report
     if args.format == "markdown":
-        output = markdown_report(report)
+        output = render(report)
     else:
         output = json.dumps(report, indent=2) + "\n"
-    if len(output.encode("utf-8")) > MAX_REPORT_BYTES:
+    if len(output.encode("utf-8")) > limit:
         print("report_output_limit", file=sys.stderr)
         return 1
     sys.stdout.write(output)
-    return int(any(item["status"] == "failed" for item in report["checks"].values()))
+    return int(any(item["status"] == "failed" for result in reports
+                   for item in result["checks"].values()))
 
 
 if __name__ == "__main__":
