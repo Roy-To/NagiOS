@@ -58,3 +58,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-18 NDP-12c: boardのTask表を統合branchの実状態に更新し、レビュー記録のローカルパスリンクをrepo相対に修正（テストは（PR #183、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-04d: PR #91 scannerのreport schemaとadapter/fixtureを静的照合し、差異（catego（PR #184、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-06d: XAMLを3つ目のUI形式として解析・NDP-07 mapping・fixture・focused test・READM（PR #185、runnerテスト成功、claudeレビューPASS）
+- 11-18 NDP-11d: 実nagi-pkgによる雛形Manifest受理（未準備時はnot_run）とXAML 3件の繰返し評価をrunnerに（PR #186、runnerテスト成功、claudeレビューPASS）
