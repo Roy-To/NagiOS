@@ -7,6 +7,173 @@ use sha2::{Digest, Sha256};
 
 const RECOVERY_SCOPE_DOMAIN: &[u8] = b"NAGI-SYSTEM-SERVICE-RECOVERY-SCOPE\0\x01";
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod boot_binding {
+    use alloc::{string::String, vec::Vec};
+    use core::num::NonZeroU64;
+    use ed25519_dalek::{Signature, VerifyingKey};
+    use nagi_system_principal_contract::{
+        SystemServiceEndpointOwnerProof, SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION,
+    };
+    use serde::Deserialize;
+
+    const SIGNATURE_DOMAIN: &[u8] = b"Nagi Linux boot system service catalog v1\0";
+    const SIGNATURE_BYTES: usize = 64;
+    const MAX_ENVELOPE_BYTES: usize = 32 * 1024 + SIGNATURE_BYTES;
+    const PINNED_BOOT_KEY: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/recovery-boot-catalog-key"));
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum BootSystemBindingError {
+        UntrustedSigner,
+        InvalidEnvelope,
+        InvalidSignature,
+        InvalidMapping,
+        EndpointMismatch,
+        EndpointUnavailable,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Envelope {
+        schema_version: u32,
+        #[serde(rename = "package_signing_public_key")]
+        _package_signing_public_key: [u8; 32],
+        descriptor_json: String,
+        principal_id: String,
+        caller_context_id: String,
+        mapping_generation: NonZeroU64,
+    }
+
+    #[derive(Deserialize)]
+    struct ServiceMapping {
+        schema_version: u32,
+        service_id: String,
+        role: String,
+        generation: NonZeroU64,
+        credentials: Credentials,
+    }
+
+    #[derive(Deserialize)]
+    struct Credentials {
+        uid: u32,
+        gid: u32,
+    }
+
+    /// A system mapping read from an envelope signed by the init image's
+    /// pinned boot key. This value alone carries no live caller authority.
+    pub struct VerifiedRecoveryBootCatalog {
+        envelope: Envelope,
+        service: ServiceMapping,
+    }
+
+    /// A signed mapping bound to the current C3 process and launch slot.
+    /// It is available only for the synchronous live-gate callback.
+    pub struct LiveBootSystemServiceBinding<'gate> {
+        catalog: &'gate VerifiedRecoveryBootCatalog,
+        proof: &'gate SystemServiceEndpointOwnerProof,
+    }
+
+    impl VerifiedRecoveryBootCatalog {
+        /// Authenticate the original boot envelope. The signer is part of
+        /// the verified init build and is never accepted from the caller.
+        pub fn verify(envelope: &[u8]) -> Result<Self, BootSystemBindingError> {
+            use BootSystemBindingError::*;
+            let key = <&[u8; 32]>::try_from(PINNED_BOOT_KEY).map_err(|_| UntrustedSigner)?;
+            if key == &nagi_package::TRUSTED_SIGNING_PUBLIC_KEY {
+                return Err(UntrustedSigner);
+            }
+            let key = VerifyingKey::from_bytes(key).map_err(|_| UntrustedSigner)?;
+            if key.is_weak() {
+                return Err(UntrustedSigner);
+            }
+            if envelope.len() <= SIGNATURE_BYTES || envelope.len() > MAX_ENVELOPE_BYTES {
+                return Err(InvalidEnvelope);
+            }
+            let (payload, signature) = envelope.split_at(envelope.len() - SIGNATURE_BYTES);
+            let signature = Signature::from_slice(signature).map_err(|_| InvalidSignature)?;
+            let mut message = Vec::with_capacity(SIGNATURE_DOMAIN.len() + payload.len());
+            message.extend_from_slice(SIGNATURE_DOMAIN);
+            message.extend_from_slice(payload);
+            key.verify_strict(&message, &signature)
+                .map_err(|_| InvalidSignature)?;
+            let envelope: Envelope =
+                serde_json::from_slice(payload).map_err(|_| InvalidEnvelope)?;
+            let service: ServiceMapping =
+                serde_json::from_str(&envelope.descriptor_json).map_err(|_| InvalidMapping)?;
+            if envelope.schema_version != 1
+                || service.schema_version != 1
+                || service.role != "system_service"
+                || !envelope.principal_id.starts_with("service:")
+                || !envelope.caller_context_id.starts_with("caller_")
+            {
+                return Err(InvalidMapping);
+            }
+            Ok(Self { envelope, service })
+        }
+
+        /// Issue the opaque input while C3 holds and revalidates the exact
+        /// process/endpoint gate. The receiver can issue a C1 seal here but
+        /// must leave this gate before entering durable recovery.
+        pub fn with_live_binding<R>(
+            &self,
+            proof: &SystemServiceEndpointOwnerProof,
+            receive: impl for<'gate> FnOnce(LiveBootSystemServiceBinding<'gate>) -> R,
+        ) -> Result<R, BootSystemBindingError> {
+            let slot = proof.service_slot_identity();
+            let peer = proof.peer_credentials();
+            if proof.version() != SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION
+                || slot.service_id() != self.service.service_id
+                || slot.catalog_generation() != self.service.generation
+                || (peer.uid, peer.gid)
+                    != (self.service.credentials.uid, self.service.credentials.gid)
+                || proof.process_identity().process_id() != peer.process_id
+            {
+                return Err(BootSystemBindingError::EndpointMismatch);
+            }
+            proof
+                .with_live_authority_effect(|| {
+                    receive(LiveBootSystemServiceBinding {
+                        catalog: self,
+                        proof,
+                    })
+                })
+                .map_err(|_| BootSystemBindingError::EndpointUnavailable)
+        }
+    }
+
+    impl LiveBootSystemServiceBinding<'_> {
+        pub fn service_id(&self) -> &str {
+            &self.catalog.service.service_id
+        }
+
+        pub fn principal_id(&self) -> &str {
+            &self.catalog.envelope.principal_id
+        }
+
+        pub fn caller_context_id(&self) -> &str {
+            &self.catalog.envelope.caller_context_id
+        }
+
+        pub fn mapping_generation(&self) -> NonZeroU64 {
+            self.catalog.envelope.mapping_generation
+        }
+
+        pub fn catalog_generation(&self) -> NonZeroU64 {
+            self.catalog.service.generation
+        }
+
+        pub fn c3_launch_generation(&self) -> NonZeroU64 {
+            self.proof.launch_generation()
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use boot_binding::{
+    BootSystemBindingError, LiveBootSystemServiceBinding, VerifiedRecoveryBootCatalog,
+};
+
 /// The exact catalog lifecycle transition bound into a recovery operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RecoveryLifecycleTransition {

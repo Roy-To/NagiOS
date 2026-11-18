@@ -3696,6 +3696,11 @@ dependencies = [
 name = "nagi-system-service-recovery-contract"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
+ "nagi-package",
+ "nagi-system-principal-contract",
+ "serde",
+ "serde_json",
  "sha2",
 ]
 
