@@ -20,3 +20,21 @@ Markdown の列挙がノイズで埋まり、目標である「どの要素が�
 
 NDP-REVIEW: FIX
 
+## Round 2 — claude review of 40da72a50d5e
+
+P1・P2 の指摘はありません。実装は目標を満たしていると判断しました。再実行はしておらず、runner の結果（95 件 OK）と、diff・コードの読解で確認しています。
+
+**確認できた点**
+- **map_ui の実出力との一致**: 行の `id` は `kind:index` 形式で、`source_kind` と共に `reason_code` の正規表現を通ります。実装は推測ではなく、`map_ui.py:212,238` の実出力に合わせてあります。
+- **絞り込みの基準**: `row["mapping"]["status"] != "supported"` で絞っています。行の `status` は `partial` より良くならないため、そちらで絞ると全行が載ってしまいます。ここは正しく直っています。
+- **上限と整合**: `MAX_UI_DETAILS` の 32 件で切り、`gap_rows_total` と `gap_rows_truncated` を出します。既存キーは変えていません。
+- **安全性**: 載せるのは `id`・`source_kind`・`status`・`mapping_status`・`reason` のコードだけです。widget 名、本文、絶対パスは含みません。想定外の値は `invalid_tool_output` で拒否します。
+- **テスト**: ui fixture の実出力（`analyze.py` と `map_ui.py` の直接実行）と照合しています。truncated、Markdown の省略件数、ツール不在や非 ui fixture での不在、不正値の拒否も検証しています。
+- **README**: PROVISIONAL として形式と限界が書かれています。`contracts/` は変更されていません。
+
+**P3（軽微）**
+- `report.py:454` の `item.get("gap_rows_total", len(rows))` は、`gap_rows_total` がない場合の代替値です。ツール出力からは常にあるので実害はありません。
+- README にある「`partial` rows only when their vocabulary match is not `supported`」は、README の別箇所の「`partial` は `status_counts` 以下」というテストの扱いと並べると分かりにくいです。言い回しの整理を勧めます。
+
+NDP-REVIEW: PASS
+
