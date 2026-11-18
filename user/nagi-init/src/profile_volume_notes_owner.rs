@@ -73,6 +73,18 @@ impl SelectedDataRoot {
             ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
         )?))
     }
+
+    pub(crate) fn retain_identity_snapshot_directory(&self, relative: &Path) -> io::Result<File> {
+        let directory = self.retain_profile_directory(relative)?;
+        let metadata = directory.metadata()?;
+        if metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "identity snapshot directory is not private to the boot owner",
+            ));
+        }
+        Ok(directory)
+    }
 }
 
 /// Development device identity from the explicit QEMU serial and ext4 UUID.
@@ -133,19 +145,14 @@ impl BootVolumeInput {
                 format!("protected account directory: {error}"),
             )
         })?;
-        let directory = root.retain_profile_directory(snapshots).map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!("protected identity snapshot directory: {error}"),
-            )
-        })?;
-        let metadata = directory.metadata()?;
-        if metadata.uid() != 0 || metadata.mode() & 0o077 != 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "identity snapshot directory is not private to the boot owner",
-            ));
-        }
+        let directory = root
+            .retain_identity_snapshot_directory(snapshots)
+            .map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!("protected identity snapshot directory: {error}"),
+                )
+            })?;
         Ok((directory, verifier))
     }
 }
