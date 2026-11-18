@@ -457,7 +457,7 @@ class ReportTests(unittest.TestCase):
         # The fixture has vocabulary-supported rows and they are left out.
         self.assertGreater(excluded, 0)
         # Existing keys stay as before.
-        self.assertEqual(set(mapped["files"][0]) - {"gap_rows", "gap_rows_total", "gap_rows_truncated"},
+        self.assertEqual(set(mapped["files"][0]) - {"gap_rows", "gap_rows_total", "gap_rows_truncated", "axis_gaps"},
                          {"status", "reason", "input_paths", "counts", "format", "contract_evidence"})
 
     def test_ui_gap_rows_exclude_supported_and_keep_severe_rows_when_truncated(self):
@@ -532,6 +532,104 @@ class ReportTests(unittest.TestCase):
         row["mapping"] = {"status": "made_up_status", "reason": "valid_code"}
         with self.assertRaises(report.CheckError):
             report.gap_row(row)
+
+    @staticmethod
+    def raw_mapping(path):
+        _, encoded = report.run_json_script("ui/analysis/analyze.py",
+                                            ("--root", str(report.REPO), path))
+        return report.run_json_script("ui/mapping/map_ui.py", data=encoded)[0]
+
+    def test_ui_axis_gaps_sum_to_rows_for_all_real_files_and_match_tool_rows(self):
+        mapped = report.build_report("ui")["checks"]["ui_mapping"]
+        self.assertEqual(len(mapped["files"]), 7)
+        for item in mapped["files"]:
+            axes = item["axis_gaps"]
+            raw = self.raw_mapping_rows(item["input_paths"][0])
+            self.assertGreater(len(raw), 0)
+            self.assertEqual(set(axes), set(raw[0]["axes"]))
+            for axis, counts in axes.items():
+                self.assertEqual(set(counts), set(report.MAPPING_STATUSES))
+                self.assertTrue(all(type(n) is int and n >= 0 for n in counts.values()))
+                self.assertEqual(sum(counts.values()), item["counts"]["rows"])
+                for status in report.MAPPING_STATUSES:
+                    self.assertEqual(counts[status], sum(
+                        row["axes"][axis]["status"] == status for row in raw))
+            # backend is never supported: it shows up as a count, not a pass.
+            self.assertEqual(axes["backend"]["supported"], 0)
+            self.assertEqual(axes["backend"]["partial"], 0)
+            self.assertEqual(axes["backend"]["unsupported"] + axes["backend"]["needs_decision"],
+                             item["counts"]["rows"])
+
+    def test_ui_axis_gaps_hold_only_axis_names_and_integers_without_paths_or_text(self):
+        result = report.build_report("ui")
+        for item in result["checks"]["ui_mapping"]["files"]:
+            for axis, counts in item["axis_gaps"].items():
+                self.assertRegex(axis, r"^[a-z_]+$")
+                self.assertEqual(set(counts), set(report.MAPPING_STATUSES))
+        encoded = json.dumps([item["axis_gaps"] for item in result["checks"]["ui_mapping"]["files"]])
+        self.assertNotIn(str(report.REPO), encoded)
+        self.assertNotIn("/", encoded)
+
+    def test_ui_axis_gaps_markdown_line_shows_axis_counts_per_file(self):
+        result = report.build_report("ui")
+        markdown = report.markdown_report(result)
+        for item in result["checks"]["ui_mapping"]["files"]:
+            prefix = "- ui_mapping `{}` axis gaps · ".format(item["input_paths"][0])
+            lines = [line for line in markdown.splitlines() if line.startswith(prefix)]
+            self.assertEqual(len(lines), 1)
+            for axis, counts in item["axis_gaps"].items():
+                self.assertIn("{} unsupported={} needs_decision={}".format(
+                    axis, counts["unsupported"], counts["needs_decision"]), lines[0])
+            backend = item["axis_gaps"]["backend"]
+            self.assertIn("backend unsupported={} needs_decision={}".format(
+                backend["unsupported"], backend["needs_decision"]), lines[0])
+        self.assertNotIn(str(report.REPO), markdown)
+
+    def test_ui_axis_gaps_unknown_axis_or_status_is_invalid_tool_output(self):
+        path = report.UI_PATHS[0].as_posix()
+        good = self.raw_mapping(path)
+        self.assertEqual(set(report.axis_gaps(good)), set(good["summary"]["axis_status_counts"]))
+
+        def invalid(mutate):
+            mapping = json.loads(json.dumps(good))
+            mutate(mapping)
+            with self.assertRaises(report.CheckError) as caught:
+                report.axis_gaps(mapping)
+            self.assertEqual(str(caught.exception), "invalid_tool_output")
+
+        invalid(lambda m: m["rows"][0]["axes"].update(made_up_axis=m["rows"][0]["axes"]["focus"]))
+        invalid(lambda m: m["rows"][0]["axes"].pop("focus"))
+        invalid(lambda m: m["rows"][0]["axes"]["focus"].update(status="made_up_status"))
+        invalid(lambda m: m["summary"]["axis_status_counts"].update(
+            made_up_axis=m["summary"]["axis_status_counts"]["focus"]))
+        invalid(lambda m: m["summary"]["axis_status_counts"]["focus"].update(supported=99))
+        invalid(lambda m: m["summary"]["axis_status_counts"].update({"/abs/path": {}}))
+
+        # The failure is reported per file through build_report, not dropped.
+        def tampered(script, args=(), data=None):
+            mapping, encoded = real_run(script, args, data)
+            if script.endswith("map_ui.py"):
+                mapping["rows"][0]["axes"]["focus"]["status"] = "made_up_status"
+            return mapping, encoded
+        real_run = report.run_json_script
+        with patch.object(report, "run_json_script", side_effect=tampered):
+            mapped = report.build_report("ui")["checks"]["ui_mapping"]
+        self.assertEqual(mapped["status"], "failed")
+        for item in mapped["files"]:
+            self.assertEqual(item["reason"], "invalid_tool_output")
+            self.assertNotIn("axis_gaps", item)
+
+    def test_ui_axis_gaps_absent_when_tool_unavailable_or_fixture_not_ui(self):
+        error = report.CheckError("tool_unavailable", "not_run")
+        with patch.object(report, "run_json_script", side_effect=error):
+            result = report.build_report("ui")
+        mapped = result["checks"]["ui_mapping"]
+        for item in mapped["files"]:
+            self.assertNotIn("axis_gaps", item)
+        self.assertEqual(report.axis_gap_lines(mapped), [])
+        self.assertNotIn("axis gaps", report.markdown_report(result))
+        other = report.build_report("windows")["checks"]["ui_mapping"]
+        self.assertEqual(report.axis_gap_lines(other), [])
 
     def api_gap_section(self, markdown):
         self.assertEqual(markdown.count("\n## API gaps\n"), 1)
