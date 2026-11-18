@@ -162,6 +162,60 @@ class XamlAnalysisTests(unittest.TestCase):
         self.assertEqual(unknown[0]["content"]["children"][0]["attributes"], {"b": "2"})
         self.assertIn("inside", by_name(result))
 
+    def test_unknown_namespace_style_like_elements_are_counted_as_custom_widgets(self):
+        # Pins current behavior (PROVISIONAL): an element from an unknown namespace cannot be
+        # judged non-visual, so Style/Setter-like elements become unrecognized custom widgets.
+        result = analyze.analyze_bytes(xaml(
+            '<v:Style TargetType="Button"><v:Setter Property="Width" Value="3"/></v:Style>'
+            '<Button x:Name="b"/>', extra=' xmlns:v="urn:vendor"'))
+        self.assertEqual([(w["name"], w["class"], w["recognized"], w["parent_widget"])
+                          for w in result["widgets"]],
+                         [("root", "Grid", True, None),
+                          ("@xaml-object-2", "{urn:vendor}Style", False, "root"),
+                          ("@xaml-object-3", "{urn:vendor}Setter", False, "@xaml-object-2"),
+                          ("b", "Button", True, "root")])
+        self.assertEqual([(x["class"], x["execution"]) for x in result["custom_widgets"]],
+                         [("Style", "not_run"), ("Setter", "not_run")])
+        self.assertEqual([(x["kind"], x["name"]) for x in result["unknown"]],
+                         [("widget", "@xaml-object-2"), ("widget", "@xaml-object-3")])
+        # The same elements in the presentation namespace are not controls: no widget.
+        known = analyze.analyze_bytes(xaml(
+            '<Style TargetType="Button"><Setter Property="Width" Value="3"/></Style>'
+            '<Button x:Name="b"/>'))
+        self.assertEqual([w["name"] for w in known["widgets"]], ["root", "b"])
+        self.assertEqual(known["custom_widgets"], [])
+
+    def test_xkey_on_unknown_namespace_element_is_a_resource_not_a_widget(self):
+        result = analyze.analyze_bytes(xaml(
+            '<v:Setter x:Key="k" Property="Width"/><Button x:Name="b"/>',
+            extra=' xmlns:v="urn:vendor"'))
+        self.assertEqual([w["name"] for w in result["widgets"]], ["root", "b"])
+        self.assertEqual(result["custom_widgets"], [])
+        self.assertEqual([x["tag"] for x in result["unknown"]], ["{urn:vendor}Setter"])
+        self.assertEqual([(x["kind"], x["value"]) for x in result["resources"]],
+                         [("resource_definition", "k")])
+        # x:Key on a known control does not change its widget status.
+        keyed = analyze.analyze_bytes(xaml('<Button x:Name="b" x:Key="k"/>'))
+        self.assertEqual([(w["name"], w["recognized"]) for w in keyed["widgets"]],
+                         [("root", True), ("b", True)])
+        self.assertEqual([(x["kind"], x["value"]) for x in keyed["resources"]],
+                         [("resource_definition", "k")])
+
+    def test_same_x_name_in_separate_data_templates_is_duplicate_object_name(self):
+        # Names are treated as unique across the whole document (PROVISIONAL): no
+        # per-template namescope, so this valid XAML is rejected.
+        source = xaml('<Grid.Resources>'
+                      '<DataTemplate x:Key="a"><Button x:Name="same"/></DataTemplate>'
+                      '<DataTemplate x:Key="b"><Button x:Name="same"/></DataTemplate>'
+                      '</Grid.Resources>')
+        self.assert_error(source, "duplicate_object_name")
+        distinct = analyze.analyze_bytes(xaml(
+            '<Grid.Resources>'
+            '<DataTemplate x:Key="a"><Button x:Name="one"/></DataTemplate>'
+            '<DataTemplate x:Key="b"><Button x:Name="two"/></DataTemplate>'
+            '</Grid.Resources>'))
+        self.assertEqual([w["name"] for w in distinct["widgets"]], ["root", "one", "two"])
+
     def test_events_declared_not_run_including_attached_and_event_setter(self):
         result = analyze.analyze_bytes(xaml(
             '<Button x:Name="b" Click="OnClick" Button.GotFocus="OnFocus" Content="x"/>'

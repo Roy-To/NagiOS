@@ -73,6 +73,31 @@ class XamlMappingTests(unittest.TestCase):
         self.assertEqual([], row["mapping"]["candidates"])
         self.assertTrue(any(r["source_kind"] == "custom_widgets" for r in result["rows"]))
 
+    def test_unknown_namespace_style_like_elements_need_decision_and_map_to_nothing(self):
+        # Pins current behavior (PROVISIONAL): non-visual elements of an unknown namespace
+        # appear as custom widgets and get unmapped needs_decision rows, never a candidate.
+        source = ("<Grid " + NAMESPACES + ' xmlns:v="urn:vendor" x:Name="root">'
+                  '<v:Style TargetType="Button"><v:Setter Property="Width" Value="3"/></v:Style>'
+                  '<Button x:Name="b"/></Grid>')
+        result = map_ui.map_analysis(analyze.analyze_bytes(source.encode("utf-8")))
+        for name in ("@xaml-object-2", "@xaml-object-3"):
+            for kind in ("widgets", "unknown"):
+                with self.subTest(name=name, kind=kind):
+                    row = row_named(result, name, kind)
+                    self.assertEqual("needs_decision", row["status"])
+                    self.assertEqual("unknown", row["mapping"]["relation"])
+                    self.assertEqual([], row["mapping"]["candidates"])
+        for name in ("Style", "Setter"):
+            with self.subTest(custom=name):
+                row = next(r for r in result["rows"] if r["source_kind"] == "custom_widgets"
+                           and r["source"]["class"] == name)
+                self.assertEqual("needs_decision", row["status"])
+                self.assertEqual([], row["mapping"]["candidates"])
+                self.assertEqual("custom_widget_requires_owner_review", row["mapping"]["reason"])
+        self.assertEqual(["ComponentKind::Button"], row_named(result, "b")["mapping"]["candidates"])
+        self.assertFalse(result["summary"]["port_complete"])
+        self.assertEqual("not_run", result["summary"]["target_acceptance"])
+
     def test_events_bindings_resources_unknown_and_unresolved_stay_unconnected(self):
         for name in ("wpf_task_panel.xaml", "winui_task_panel.xaml"):
             with self.subTest(name=name):
