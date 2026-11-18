@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -422,30 +423,21 @@ class UnreadableEntryObservationTests(unittest.TestCase):
         self.repo.mkdir()
         EvidenceDriftTests._copy_evidence(self, self.repo)
         self.src = self.repo / "user/nagi-ui/src"
-        self._restore = []
-        # Registered after the temp cleanup, so it runs first (LIFO).
-        self.addCleanup(self._restore_modes)
-
-    def _restore_modes(self):
-        for path, mode in reversed(self._restore):
-            os.chmod(path, mode)
 
     def _deny(self, path):
         """chmod 000, or skip with an explicit reason when it is not enforced."""
-        path = Path(path)
-        self._restore.append((path, 0o700 if path.is_dir() else 0o600))
-        os.chmod(path, 0)
+        mode = path.stat().st_mode
+        self.addCleanup(path.chmod, stat.S_IMODE(mode))
+        path.chmod(0o000)
         try:
-            if path.is_dir():
+            if stat.S_ISDIR(mode):
                 os.listdir(path)
             else:
                 path.read_bytes()
         except PermissionError:
             return
-        except OSError:
-            pass
-        self.skipTest("chmod 000 is not enforced here (euid=%s, e.g. root); "
-                      "unreadable-entry behaviour not reproducible" % os.geteuid())
+        self.skipTest("Entry remains readable after chmod 000 with current permissions "
+                      "(e.g. root); unreadable-entry behaviour is not reproducible")
 
     def _not_matched(self, state):
         return {e["path"]: e for e in state["evidence"] if e["state"] != "matched"}
@@ -454,25 +446,32 @@ class UnreadableEntryObservationTests(unittest.TestCase):
         self.assertEqual("matched", contract.inspect_contract(self.repo)["state"])
 
     def test_unreadable_subdirectory_is_silently_skipped(self):
+        baseline = contract.inspect_contract(self.repo)
+        self.assertEqual("matched", baseline["state"])
         hidden = self.src / "hidden"
         hidden.mkdir()
-        (hidden / "extra.rs").write_text("pub fn extra() {}\n")
+        extra = hidden / "extra.rs"
+        extra.write_text("pub fn extra() {}\n")
+        readable = contract.inspect_contract(self.repo)
+        self.assertEqual("needs_review", readable["state"])
+        entry = self._not_matched(readable)[extra.relative_to(self.repo).as_posix()]
+        self.assertEqual("unlisted", entry["state"])
+
         self._deny(hidden)
-        state = contract.inspect_contract(self.repo)
-        # Observed: no error, no evidence entry, and the contract still reads "matched".
-        # A new .rs file inside an unreadable directory is therefore NOT detected.
-        self.assertEqual("matched", state["state"])
-        self.assertEqual({}, self._not_matched(state))
-        self.assertNotIn("hidden", json.dumps(state))
+        self.assertEqual(baseline, contract.inspect_contract(self.repo))
 
     def test_readable_sibling_is_still_enumerated_next_to_unreadable_directory(self):
         hidden = self.src / "hidden"
         hidden.mkdir()
         self._deny(hidden)
-        (self.src / "visible_extra.rs").write_text("pub fn visible() {}\n")
+        visible = self.src / "visible_extra.rs"
+        visible.write_text("pub fn visible() {}\n")
         state = contract.inspect_contract(self.repo)
         self.assertEqual("needs_review", state["state"])
-        self.assertEqual(["user/nagi-ui/src/visible_extra.rs"], list(self._not_matched(state)))
+        entries = self._not_matched(state)
+        relative = visible.relative_to(self.repo).as_posix()
+        self.assertEqual([relative], list(entries))
+        self.assertEqual("unlisted", entries[relative]["state"])
 
     def test_unreadable_enumerated_root_raises_instead_of_failing_closed(self):
         self._deny(self.src)
