@@ -1,16 +1,16 @@
 //! Opaque A-owned handoff from one verified profile-volume attachment to Notes.
 //!
-//! Production code may request a bundle only from a `ProfileVolumeNotesOwner`
-//! that already owns a verified attachment. No public constructor accepts an
-//! FD, an ObjectId, a path, or caller metadata. The verified attachment
-//! issuance source is not connected in this checkout, so normal construction
-//! remains Pending and returns `Unavailable`.
+//! The Volume Manager owns profile directory selection and ObjectId
+//! reservation. Consumers receive the resulting opaque attachment.
 
 use nagi_model::ObjectId;
 use rustix::io::fcntl_dupfd_cloexec;
 use std::fmt;
 use std::os::fd::OwnedFd;
 use std::sync::{Arc, Mutex, MutexGuard};
+
+#[cfg(target_os = "linux")]
+mod linux_data;
 
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -67,10 +67,7 @@ enum AttachmentStatus {
 }
 
 impl VerifiedProfileVolumeAttachment {
-    /// Private constructor. The missing production Volume Manager source must
-    /// establish the profile-to-volume mapping, retained directory FD, and
-    /// same-volume reserved Notes ObjectId before this owner can call it.
-    #[cfg(test)]
+    #[cfg(any(test, target_os = "linux"))]
     fn new(
         principal_id: impl Into<String>,
         profile_id: impl Into<String>,
@@ -104,7 +101,7 @@ impl VerifiedProfileVolumeAttachment {
 
 enum OwnerState {
     Pending,
-    #[allow(dead_code)] // production Verified issuance awaits the Volume Manager source
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Verified(Arc<VerifiedProfileVolumeAttachment>),
     Revoked,
     Ended,
@@ -112,9 +109,6 @@ enum OwnerState {
 
 /// A-owned state for one selected profile-volume attachment.
 ///
-/// `pending()` is the only production constructor currently available. A
-/// product Volume Manager attachment source must be connected before the
-/// owner can enter `Verified`; caller data cannot perform that transition.
 /// This owner instance is also the storage namespace key: do not merge
 /// attachments by PrincipalId/ProfileId alone. Reopening the same logical root
 /// must reuse this owner, while another trust domain gets a separate owner.
@@ -128,6 +122,34 @@ impl ProfileVolumeNotesOwner {
         Self {
             state: OwnerState::Pending,
         }
+    }
+
+    /// Volume Manager entry point for the boot-selected Linux Data mount.
+    /// PID 1 supplies claims from its live C1 Session while holding the
+    /// Session effect guard. Directory names and ObjectId are selected here.
+    #[cfg(target_os = "linux")]
+    pub fn attach_linux_profile(
+        &mut self,
+        data_root: &impl std::os::fd::AsFd,
+        mount_id: u64,
+        user: nagi_model::UserId,
+        profile: &str,
+        principal: &str,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::{Ended, ForeignAttachment, Revoked, Unavailable};
+        match self.state {
+            OwnerState::Pending => {}
+            OwnerState::Verified(_) => return Err(ForeignAttachment),
+            OwnerState::Revoked => return Err(Revoked),
+            OwnerState::Ended => return Err(Ended),
+        }
+        let (directory, object) =
+            linux_data::reserve(data_root, mount_id, user, profile, principal)
+                .map_err(|_| Unavailable)?;
+        self.state = OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
+            principal, profile, directory, object,
+        )));
+        Ok(())
     }
 
     pub fn status(&self) -> ProfileVolumeNotesOwnerStatus {
@@ -310,27 +332,13 @@ impl ProfileVolumeNotesBundle {
         data_root: impl std::os::fd::AsFd,
         selected_mount_id: u64,
     ) -> Result<(), ProfileVolumeNotesOwnerError> {
-        use rustix::fs::{statx, AtFlags, FileType, StatxFlags};
-        use ProfileVolumeNotesOwnerError::{ForeignAttachment, Unavailable};
-
-        let mount_id = |fd| {
-            let requested = StatxFlags::TYPE | StatxFlags::MNT_ID;
-            let stat = statx(fd, c"", AtFlags::EMPTY_PATH, requested).map_err(|_| Unavailable)?;
-            if stat.stx_mask & requested.bits() != requested.bits()
-                || FileType::from_raw_mode(stat.stx_mode.into()) != FileType::Directory
-            {
-                return Err(Unavailable);
-            }
-            Ok(stat.stx_mnt_id)
-        };
         self.with_active(|| {
-            use std::os::fd::AsFd;
+            use ProfileVolumeNotesOwnerError::ForeignAttachment;
 
-            if mount_id(data_root.as_fd())? != selected_mount_id
-                || mount_id(self.attachment.object_directory.as_fd())? != selected_mount_id
-            {
-                return Err(ForeignAttachment);
-            }
+            linux_data::require_same_mount(&data_root, selected_mount_id)
+                .map_err(|_| ForeignAttachment)?;
+            linux_data::require_same_mount(&self.attachment.object_directory, selected_mount_id)
+                .map_err(|_| ForeignAttachment)?;
             Ok(())
         })?
     }

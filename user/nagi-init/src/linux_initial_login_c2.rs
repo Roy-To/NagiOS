@@ -72,7 +72,7 @@ where
     pub(super) fn request_notes_attachment(
         &self,
         lease: SessionLease,
-        notes: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
     ) -> Result<
         crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
