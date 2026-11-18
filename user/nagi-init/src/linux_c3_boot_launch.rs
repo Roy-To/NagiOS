@@ -17,7 +17,9 @@ use nagi_system_service_launch::{
     SystemServiceRecoveryAdmission, SystemServiceRuntime, SystemServiceRuntimeSlotBinding,
     VerifiedBootCatalog, VerifiedServicePackageBinding,
 };
-use nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation;
+use nagi_system_service_recovery_contract::{
+    C1RecoveryOperationCorrelation, LiveBootSystemServiceBinding, VerifiedRecoveryBootCatalog,
+};
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -222,6 +224,42 @@ pub(super) struct AuthenticatedBootService<'package> {
 }
 
 impl AuthenticatedBootService<'_> {
+    /// Offer the authenticated mapping to the future C1 seal receiver.
+    /// The receiver must leave the gate before running C1's recovery effect.
+    pub(super) fn with_verified_system_mapping<R>(
+        &self,
+        catalog: &VerifiedRecoveryBootCatalog,
+        receive: impl for<'mapping> FnOnce(LiveBootSystemServiceBinding<'mapping>) -> R,
+    ) -> io::Result<R> {
+        let process = self
+            .owner
+            .c3
+            .registered_process_identity(self.admission.scope())?;
+        if !self.proof.process_identity().same_instance(&process) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "C3 launch no longer matches the signed boot identity",
+            ));
+        }
+        catalog
+            .with_live_binding(&self.proof, |binding| {
+                if binding.service_id() != self.admission.service_id().as_str()
+                    || binding.principal_id() != self.admission.principal_id().as_str()
+                    || binding.caller_context_id() != self.admission.caller_context_id().as_str()
+                    || binding.mapping_generation() != self.admission.mapping_generation()
+                    || binding.catalog_generation() != self.admission.catalog_generation()
+                    || binding.c3_launch_generation() != self.admission.c3_launch_generation()
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "signed C1 mapping differs from the exact C3 admission",
+                    ));
+                }
+                Ok(receive(binding))
+            })
+            .map_err(|error| io::Error::other(format!("live boot mapping rejected: {error:?}")))?
+    }
+
     pub(super) fn retire(mut self) -> io::Result<()> {
         finish_without_c1(
             &mut self.owner,

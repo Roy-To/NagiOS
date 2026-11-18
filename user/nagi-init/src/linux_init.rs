@@ -7071,7 +7071,7 @@ struct UnconnectedBackend {
     #[cfg(unix)]
     package_store_directory: Option<PackageStoreDirectoryInput>,
     #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
-    boot_catalog: Option<nagi_system_service_launch::VerifiedBootCatalog>,
+    boot_catalog: Option<linux_boot_package_inputs::BootCatalogInputs>,
     #[cfg(test)]
     wait_calls: usize,
 }
@@ -7097,7 +7097,7 @@ impl UnconnectedBackend {
         let mut backend = Self::with_package_store_directory(Some(
             PackageStoreDirectoryInput::new(inputs.directory, 0),
         ));
-        backend.boot_catalog = Some(inputs.catalog);
+        backend.boot_catalog = Some(inputs.catalogs);
         backend
     }
 
@@ -7159,7 +7159,7 @@ impl InitBackend for UnconnectedBackend {
             #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
             let trusted_key = catalog
                 .as_ref()
-                .map(|catalog| catalog.package_signing_public_key());
+                .map(|inputs| inputs.catalog.package_signing_public_key());
             #[cfg(not(all(target_os = "linux", not(linux_dev_preview_smoke))))]
             let trusted_key = None;
             let restore =
@@ -7178,9 +7178,10 @@ impl InitBackend for UnconnectedBackend {
                 BackendError::Unavailable
             })?;
             #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
-            if let Some(catalog) = catalog.as_ref() {
+            if let Some(inputs) = catalog.as_ref() {
                 use nagi_system_service_launch::ArtifactPreflight as _;
 
+                let catalog = &inputs.catalog;
                 let descriptor = catalog.descriptor();
                 let report = linux_boot_package_inputs::LinuxBootArtifactPreflight::new()
                     .and_then(|mut preflight| {
@@ -7233,10 +7234,21 @@ impl InitBackend for UnconnectedBackend {
                         );
                         BackendError::Unavailable
                     })?;
+                    let mapping = authenticated
+                        .with_verified_system_mapping(&inputs.recovery_catalog, |mapping| {
+                            mapping.mapping_generation()
+                        });
                     authenticated.retire().map_err(|error| {
                         pid1_log!("nagi-init: C3 boot service retirement unavailable ({error})");
                         BackendError::Unavailable
                     })?;
+                    let mapping_generation = mapping.map_err(|error| {
+                        pid1_log!("nagi-init: signed C3 system identity unavailable ({error})");
+                        BackendError::Unavailable
+                    })?;
+                    pid1_log!(
+                        "nagi-init: signed C3 system identity verified mapping_generation={mapping_generation}"
+                    );
                     pid1_log!(
                         "nagi-init: C3 authenticated and retired the boot service; C1 runtime unavailable"
                     );

@@ -27,7 +27,13 @@ unsafe extern "C" {
 
 pub(super) struct BootPackageInputs {
     pub(super) directory: File,
+    pub(super) catalogs: BootCatalogInputs,
+}
+
+pub(super) struct BootCatalogInputs {
     pub(super) catalog: VerifiedBootCatalog,
+    #[cfg(target_arch = "x86_64")]
+    pub(super) recovery_catalog: nagi_system_service_recovery_contract::VerifiedRecoveryBootCatalog,
 }
 
 impl BootPackageInputs {
@@ -48,7 +54,18 @@ impl BootPackageInputs {
             .map_err(|_| "boot_catalog_read_failed")?;
         let catalog = VerifiedBootCatalog::verify(&bytes, key)
             .map_err(|_| "boot_catalog_verification_failed")?;
-        Ok(Self { directory, catalog })
+        #[cfg(target_arch = "x86_64")]
+        let recovery_catalog =
+            nagi_system_service_recovery_contract::VerifiedRecoveryBootCatalog::verify(&bytes)
+                .map_err(|_| "boot_recovery_catalog_verification_failed")?;
+        Ok(Self {
+            directory,
+            catalogs: BootCatalogInputs {
+                catalog,
+                #[cfg(target_arch = "x86_64")]
+                recovery_catalog,
+            },
+        })
     }
 }
 
