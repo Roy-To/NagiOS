@@ -8,12 +8,12 @@
 
 use nagi_system_principal_contract::SystemServiceEndpointOwnerProof;
 use nagi_system_service_recovery_contract::{
-    C1RecoveryOperationCorrelation, C3RecoverySlotGate, RecoveryClientError,
-    RecoveryLifecycleTransition, SystemServiceRecoveryAdmissionScope,
-    SystemServiceRecoveryScopeInput, canonical_recovery_binding_digest,
+    canonical_recovery_binding_digest, C1RecoveryOperationCorrelation, C3RecoverySlotGate,
+    RecoveryClientError, RecoveryLifecycleTransition, SystemServiceRecoveryAdmissionScope,
+    SystemServiceRecoveryScopeInput,
 };
 use std::num::NonZeroU64;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// One-shot C3 callback gate retaining the exact admission reference passed by
 /// the A/C1 owner. The proof is non-Clone and must come from the maintained C3
@@ -194,9 +194,8 @@ mod tests {
         SystemServiceEndpointOwnerProof, SystemServiceLaunchRecord,
     };
     use nagi_system_service_recovery_contract::{
-        C1RecoveryOperationCorrelation, C3RecoverySlotGate, RecoveryClientError,
-        RecoveryLifecycleTransition, SystemServiceRecoveryScopeInput,
-        canonical_recovery_binding_digest,
+        canonical_recovery_binding_digest, C1RecoveryOperationCorrelation, C3RecoverySlotGate,
+        RecoveryClientError, RecoveryLifecycleTransition, SystemServiceRecoveryScopeInput,
     };
     use std::num::NonZeroU64;
     use std::os::fd::OwnedFd;

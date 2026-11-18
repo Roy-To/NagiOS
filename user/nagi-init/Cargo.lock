@@ -3467,6 +3467,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-identity-session"
+version = "0.1.0"
+dependencies = [
+ "nagi-capability",
+ "nagi-model",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nagi-ime"
 version = "0.1.0"
 
@@ -3484,6 +3494,8 @@ dependencies = [
  "nagi-history",
  "nagi-init-package-provider",
  "nagi-init-service-call",
+ "nagi-init-spawn-contract",
+ "nagi-linux-account-verifier",
  "nagi-localization",
  "nagi-model",
  "nagi-model-manager",
@@ -3491,13 +3503,20 @@ dependencies = [
  "nagi-package",
  "nagi-pal",
  "nagi-posix",
+ "nagi-profile-volume-notes-owner",
  "nagi-sdk",
  "nagi-search",
  "nagi-search-ipc",
  "nagi-service-contract",
  "nagi-slot-manifest",
+ "nagi-system-principal-contract",
+ "nagi-system-service-launch",
+ "nagi-system-service-recovery-contract",
  "nagi-ui",
  "relibc",
+ "rustix",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3506,6 +3525,7 @@ version = "0.1.0"
 dependencies = [
  "nagi-model",
  "nagi-package",
+ "sha2",
 ]
 
 [[package]]
@@ -3517,6 +3537,21 @@ dependencies = [
  "nagi-nipc-v1-stream",
  "nagi-sdk",
  "nagi-service-contract",
+]
+
+[[package]]
+name = "nagi-init-spawn-contract"
+version = "0.1.0"
+
+[[package]]
+name = "nagi-linux-account-verifier"
+version = "0.1.0"
+dependencies = [
+ "libnagi",
+ "nagi-capability",
+ "rustix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3579,6 +3614,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-profile-volume-notes-owner"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "rustix",
+]
+
+[[package]]
 name = "nagi-sdk"
 version = "0.1.0"
 dependencies = [
@@ -3620,6 +3663,39 @@ name = "nagi-slot-manifest"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "sha2",
+]
+
+[[package]]
+name = "nagi-system-principal-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-init-spawn-contract",
+]
+
+[[package]]
+name = "nagi-system-service-launch"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "nagi-capability",
+ "nagi-identity-session",
+ "nagi-init-package-provider",
+ "nagi-init-spawn-contract",
+ "nagi-model",
+ "nagi-package",
+ "nagi-service-contract",
+ "nagi-system-principal-contract",
+ "nagi-system-service-recovery-contract",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "nagi-system-service-recovery-contract"
+version = "0.1.0"
+dependencies = [
  "sha2",
 ]
 
