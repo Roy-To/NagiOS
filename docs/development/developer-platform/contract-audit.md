@@ -90,3 +90,15 @@ Python 3.9.6では標準のPython 3.10+ gateを満たさない。
 実測（Darwin arm64、Apple clang 21、Python 3.9.6、10回、全PASS・入力不変）: 各API診断の中央値は約41〜43 ms、generatorは約32 ms、Stage 2（clang compile+実行含む）は約300 ms、Qt解析は約30 ms。いずれもsubprocess壁時計でインタプリタ/clang起動を含み、1台・1セッションのみ。
 
 比較限界: 速度比、移植成功、Nagi target成功は主張しない。手動baseline・ローカルLLM・外部開発AIとの比較、能動作業時間は未実施。API rulesの入力は手書きfixtureで本物のscanner接続ではない。Stage 2は自作fixtureのみで第三者/実アプリのbuildではない。Stage 3は未接続。host結果であり、Python 3.9.6は標準の3.10+ gateを満たさない。
+
+## 2026-11-18 NDP-11d: 実nagi-pkgによる雛形Manifest受理とXAML入力の繰返し評価
+
+`run_host_checks.py` に2種を追加した（各 `--repeats` 回、既定3）。
+- XAML（NDP-06d）: `xaml_minimal`・WPF・WinUIの自作fixture 3件を解析器CLIで評価。stdout一致、部品/親、layout子とGrid.Row、tab順、宣言ハンドラ・binding（未実行のまま）、resources、unknown、未解決resource keyを、XAML本文から書いた表と照合。実行・描画・読込はしない。
+- Manifest受理: generatorで作った雛形のmanifestを既存Stage 1 adapter経由で準備済みの実 `nagi-pkg manifest validate` に通す（build・変更はしない。バイナリのsha256も不変確認）。受理報告の形（SDK contract 1.0等）・stdoutと生成treeの一致・validatorがmanifestを書換えないことを確認し、`id` を不正値にしたnegative controlが拒否されることで「何でも受理」するvalidator/adapterを検知する。バイナリが無い/symlink/実行不可なら、プロセスを起動せず `not_run`（理由 `validator_unavailable`）を出し、成功にしない。
+
+runnerのテストは40→63件（skipなし）。XAMLの誤った安定出力・空出力・不正JSON・不一致・timeout/nonzero・入力改変、validatorの全受理・報告改変・実行間不一致・manifest書換え・不正出力・timeout/想定外exit・binary差替え・未準備時の `not_run` を、実CLI出力に注入して検知を確認。
+
+実測（Darwin arm64、Python 3.9.6、10回、全PASS・入力不変、stdout一致）: XAML解析の中央値は約32〜33 ms（minimal 31.9／WPF 32.9／WinUI 32.6）、雛形生成＋実validatorの受理は約28 ms（生成を含まないvalidator呼出単体の分離はしていない）。subprocess壁時計でインタプリタ起動を含み、1台・1セッション。
+
+比較限界: 実validatorが受理するのはpackage宣言のメタデータのみ（artifact存在・install・権限付与・build成否ではない）。雛形crateのbuildは未実施。XAMLは静的構造のみで実行・描画・WPF/WinUI互換は未検証。negative controlは1種類（不正id）のみで、validatorの拒否網羅ではない。速度比・手動/LLM比較・Stage 3・Nagi targetは未実施で、host結果をtarget受入とは扱わない。
