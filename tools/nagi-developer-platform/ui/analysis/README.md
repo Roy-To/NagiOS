@@ -155,9 +155,9 @@ target acceptance.
 - テストの一時ディレクトリはOS既定（`tempfile`）を使う。ソースtreeには作らない。
 
 Verified locally on 2026-11-17 (Python 3.9.6): the analysis discovery command
-above passes all 40 tests (18 existing Qt + 22 GTK); evaluation discovery passes
-7 runner tests; `python3 tests/developer-platform/evaluation/run_host_checks.py`
-passes with three identical C/Qt repetitions and unchanged inputs. Only the
-specified analysis/fixture/README paths changed; target execution remains unrun.
-These numbers predate the NDP-06c follow-up (nested-unknown dedupe, `include`,
-new tests); the follow-up's own test run is recorded by the runner, not here.
+above passed, evaluation discovery passed, and
+`python3 tests/developer-platform/evaluation/run_host_checks.py` passed with
+three identical C/Qt repetitions and unchanged inputs. Target execution remains
+unrun. Test counts are intentionally not recorded here because they go stale
+(the earlier "40 tests" figure predated the NDP-06c follow-up); the current
+count is whatever the runner's discovery command reports.

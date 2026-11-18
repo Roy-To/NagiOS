@@ -306,6 +306,107 @@ class EvidenceDriftTests(unittest.TestCase):
         self._drift("api")
 
 
+class SymlinkRejectionTests(unittest.TestCase):
+    """Symlinks are never read; they fail closed as `symlink_rejected` (PROVISIONAL)."""
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory(prefix="ndp-a004-symlink-")
+        self.addCleanup(self._temp.cleanup)
+        self.repo = Path(self._temp.name) / "repo"
+        self.outside = Path(self._temp.name) / "outside"
+        self.repo.mkdir()
+        self.outside.mkdir()
+        EvidenceDriftTests._copy_evidence(self, self.repo)
+        self.src = self.repo / "user/nagi-ui/src"
+
+    def _inspect_recording_reads(self):
+        reads = []
+        original = contract._sha256
+
+        def recording(path):
+            reads.append(Path(path).as_posix())
+            return original(path)
+
+        contract._sha256 = recording
+        try:
+            state = contract.inspect_contract(self.repo)
+        finally:
+            contract._sha256 = original
+        return state, reads
+
+    def _link(self, link, target, directory=False):
+        try:
+            link.symlink_to(target, target_is_directory=directory)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest("symlink creation unavailable: " + type(error).__name__)
+
+    def _rejected(self, state):
+        return [e for e in state["evidence"] if e["state"] == "symlink_rejected"]
+
+    def test_symlink_to_file_outside_repo_is_not_read(self):
+        secret = self.outside / "secret.rs"
+        secret.write_text("outside secret\n")
+        secret_hash = hashlib.sha256(secret.read_bytes()).hexdigest()
+        self._link(self.src / "leak.rs", secret)
+        state, reads = self._inspect_recording_reads()
+        self.assertEqual("needs_review", state["state"])
+        rejected = self._rejected(state)
+        self.assertEqual(["user/nagi-ui/src/leak.rs"], [e["path"] for e in rejected])
+        self.assertIsNone(rejected[0]["actual_sha256"])
+        self.assertIsNone(rejected[0]["sha256"])
+        self.assertFalse([r for r in reads if r.endswith("leak.rs") or "outside" in r])
+        self.assertNotIn(secret_hash, json.dumps(state))
+        self.assertNotIn(str(self.outside), json.dumps(state))
+        self.assertIn("symlink_rejected (SHA-256 not_in_snapshot)",
+                      map_ui.markdown_report(map_ui.map_analysis(fixture(), contract=state)))
+
+    def test_symlink_to_file_inside_repo_is_rejected_not_hashed(self):
+        target = self.src / "interaction.rs"
+        self._link(self.src / "alias.rs", target.name)
+        state, reads = self._inspect_recording_reads()
+        self.assertEqual("needs_review", state["state"])
+        self.assertEqual(["user/nagi-ui/src/alias.rs"],
+                         [e["path"] for e in self._rejected(state)])
+        self.assertFalse([r for r in reads if r.endswith("alias.rs")])
+        # The real, listed target is still checked normally.
+        listed = [e for e in state["evidence"] if e["path"] == "user/nagi-ui/src/interaction.rs"]
+        self.assertEqual(["matched"], [e["state"] for e in listed])
+
+    def test_symlinked_directory_is_not_followed(self):
+        (self.outside / "nested.rs").write_text("outside nested\n")
+        self._link(self.src / "linked_dir", self.outside, directory=True)
+        state, reads = self._inspect_recording_reads()
+        self.assertEqual("needs_review", state["state"])
+        self.assertEqual(["user/nagi-ui/src/linked_dir"],
+                         [e["path"] for e in self._rejected(state)])
+        self.assertFalse([r for r in reads if "outside" in r or "linked_dir" in r])
+        self.assertEqual([], [e for e in state["evidence"] if e["state"] == "unlisted"])
+
+    def test_listed_file_replaced_by_symlink_is_rejected(self):
+        outside = self.outside / "replacement.rs"
+        outside.write_text("replacement\n")
+        listed = self.src / "interaction.rs"
+        listed.unlink()
+        self._link(listed, outside)
+        state, reads = self._inspect_recording_reads()
+        self.assertEqual("needs_review", state["state"])
+        self.assertEqual(["user/nagi-ui/src/interaction.rs"],
+                         [e["path"] for e in self._rejected(state)])
+        self.assertFalse([r for r in reads if r.endswith("interaction.rs")])
+        self.assertEqual(1, len([e for e in state["evidence"]
+                                 if e["path"] == "user/nagi-ui/src/interaction.rs"]))
+
+    def test_symlinked_enumerated_directory_is_rejected(self):
+        moved = self.outside / "src"
+        shutil.copytree(self.src, moved)
+        shutil.rmtree(self.src)
+        self._link(self.src, moved, directory=True)
+        state, reads = self._inspect_recording_reads()
+        self.assertEqual("needs_review", state["state"])
+        self.assertFalse([r for r in reads if "outside" in r])
+        self.assertTrue(self._rejected(state))
+
+
 class CliAndValidationTests(unittest.TestCase):
     def run_cli(self, data, *args):
         return subprocess.run([sys.executable, str(HERE / "map_ui.py")] + list(args),
