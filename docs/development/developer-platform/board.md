@@ -71,3 +71,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A012: 移植レポートMarkdownに API gaps 節を追加（unsupported/未解決行を行番号・API名付きで表示（PR #196、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A013: 移植レポートの host_build に Stage 2 診断項目（file/line/severity/categor（PR #197、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-A014: 移植レポートの generation check に上限付き相対名一覧 files と Markdown の Scaff（PR #198、runnerテスト成功、codexレビューPASS）
+- 11-19 NDP-A015: レビュー P1(read_manifest 経由のコピーと非変更確認)と P2(API 名照合だけを検証するテスト)を修（PR #199、runnerテスト成功、claudeレビューPASS）
