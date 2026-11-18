@@ -100,7 +100,7 @@ impl DevelopmentBootVolumeIdentity {
 /// Profile, establish a same-volume Notes ObjectId reservation, or issue a
 /// Verified attachment.
 pub(crate) struct BootVolumeInput {
-    _directory: File,
+    directory: File,
     _identity: DevelopmentBootVolumeIdentity,
 }
 
@@ -110,9 +110,15 @@ impl BootVolumeInput {
         identity: DevelopmentBootVolumeIdentity,
     ) -> Self {
         Self {
-            _directory: directory,
+            directory,
             _identity: identity,
         }
+    }
+
+    /// Retain the volume already selected by the mount owner for boot-time
+    /// identity inputs. The mount owner still controls its lifetime.
+    pub(crate) fn selected_data_root(&self) -> io::Result<SelectedDataRoot> {
+        SelectedDataRoot::from_selected_volume(self.directory.try_clone()?)
     }
 }
 
