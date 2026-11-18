@@ -127,6 +127,8 @@ pub enum C3RecoverySlotState {
 /// Implemented by the maintained C3 owner only after durable readback of the
 /// exact service/catalog/C3 generation slot under its serialized slot gate.
 pub trait C3DurableRecoverySlotReceipt {
+    /// The C1 claim recorded for this effect, separate from C3's sequence.
+    fn c1_operation_id(&self) -> Option<NonZeroU64>;
     fn service_id(&self) -> &str;
     fn catalog_generation(&self) -> u64;
     fn c3_launch_generation(&self) -> u64;
@@ -141,6 +143,31 @@ pub trait C1RecoveryTerminalReceipt {
     fn operation_id(&self) -> u64;
     fn binding_digest(&self) -> &[u8; 32];
     fn outcome_digest(&self) -> [u8; 32];
+}
+
+/// Correlation data copied from C1's exact durable effect claim. The C3
+/// process and slot authorization still comes from the sealed admission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct C1RecoveryOperationCorrelation {
+    operation_id: NonZeroU64,
+    binding_digest: [u8; 32],
+}
+
+impl C1RecoveryOperationCorrelation {
+    pub const fn new(operation_id: NonZeroU64, binding_digest: [u8; 32]) -> Self {
+        Self {
+            operation_id,
+            binding_digest,
+        }
+    }
+
+    pub const fn operation_id(self) -> NonZeroU64 {
+        self.operation_id
+    }
+
+    pub const fn binding_digest(&self) -> &[u8; 32] {
+        &self.binding_digest
+    }
 }
 
 /// Bounded error vocabulary for the cycle-free C1 receipt client. A durable
@@ -161,12 +188,15 @@ pub enum RecoveryClientError {
 /// irreversible terminal/fence-closure point. If a gate rejection or later
 /// reconciliation error occurs after C1 closes its fence, C1 must keep that
 /// fence closed; dropping the writer must never reopen the raw reader path.
+/// C1 supplies the correlation from its exact effect claim before entering
+/// the callback. C3 stores that identity separately from its own sequence.
 /// A retains the C3 durable-slot receipt separately and compares it before
 /// clearing its own fence.
 pub trait C3RecoverySlotGate {
     fn with_reconciliation_gate<R>(
         &mut self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
+        claim: C1RecoveryOperationCorrelation,
         reconcile: impl FnOnce() -> R,
     ) -> Result<R, RecoveryClientError>;
 }
@@ -203,6 +233,7 @@ pub trait C1RecoveryReceiptClient {
 pub enum RecoveryReceiptMismatch {
     NonCanonicalScopeBinding,
     ZeroOperationId,
+    WrongOperationId,
     WrongC1Binding,
     WrongC3Binding,
     WrongService,
@@ -229,6 +260,9 @@ where
     }
     if c1.operation_id() == 0 {
         return Err(RecoveryReceiptMismatch::ZeroOperationId);
+    }
+    if c3.c1_operation_id().map(NonZeroU64::get) != Some(c1.operation_id()) {
+        return Err(RecoveryReceiptMismatch::WrongOperationId);
     }
     if c1.binding_digest() != scope.binding_digest() {
         return Err(RecoveryReceiptMismatch::WrongC1Binding);
@@ -400,6 +434,10 @@ mod tests {
     }
 
     impl C3DurableRecoverySlotReceipt for SlotReceipt<'_> {
+        fn c1_operation_id(&self) -> Option<NonZeroU64> {
+            NonZeroU64::new(1)
+        }
+
         fn service_id(&self) -> &str {
             self.service_id
         }
