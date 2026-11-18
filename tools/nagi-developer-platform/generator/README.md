@@ -41,14 +41,14 @@ python3 tools/nagi-developer-platform/generator/generate.py create ...同じ引�
 - 作成したfile/directoryのhandleは、最後の照合と仕上げが終わるまで閉じない。
   開いている間はinodeが再利用されないので、記録したidentityとの一致は同一物の証明になる。
 - directoryは `mkdir(dir_fd, 0o700)` で非公開に作り、no-followでopenした実体が
-  「実directory・所有者が自分・modeがちょうど0o700・空・その名前の現在の実体と同一」の
+  「実directory・所有者が自分・modeがちょうど `0o700 & ~umask`（通常は0o700）・空・その名前の現在の実体と同一」の
   全てを満たす場合だけ受け入れる。満たさなければ（mkdir→open間の差し替えなど）
   `output_raced` で中止し、その中へは何も書かず、作成物としても扱わない
   （`left_behind` に名前だけ報告）。
 - 全fileの書込み後、出力先が要求したpathに存在し、各名前の実体が保持中のhandleと同一で、
   各directoryの中身が作成物と過不足なく一致することを照合する。違えば `output_raced` で
   失敗にし、修復・削除はしない。照合に通った後でだけ、保持中のhandleで
-  directoryのmodeを `0o755 & ~umask` に広げる。
+  directoryのmodeを `(0o755 & ~umask) | 0o700` に広げる。
 - 保護対象: `.git`、`sdk`、`tools/nagi-pkg` 配下への出力は拒否（`PROTECTED_TREES`）。
 - 入力・contractは変更しない。出力は決定的（同じ入力・同じ`output_dir`なら同一bytes）。
 
@@ -99,6 +99,29 @@ file・directory・symlink、範囲外path、不正な入力）と、実行中�
 - 上記でも削除・rename・既存内容の上書きは行わない。mkdir→open間の差替えのうち
   mode／所有者／中身／symlinkで判別できるものと、書込み後の照合で判別できるものは
   best-effortで `output_raced` にするが、全ての競合の検出は主張しない。
+
+### directory modeの厳密判定とumask（NDP-A002、PROVISIONAL）
+
+`mkdir(0o700)` の結果は `0o700 & ~umask` になるため、受け入れ判定を固定の `0o700` にすると
+制限的なumask（例: `0o277` → 実際は `0o500`）で正常な作成が `output_raced` になっていた。
+現在の扱い（いずれも仮定で、CONFIRMEDではない）:
+
+- umaskは `generate()` の冒頭で1回だけ読み、mkdir後の期待modeを `0o700 & ~umask` として
+  判定する（mkdirと判定が同じ値から導かれ、食い違わない）。期待modeと一致しない実体
+  （group/world書込み可への差し替えなど）・所有者違い・空でない・symlinkは従来どおり
+  `output_raced` で拒否する。**受け入れる前にmodeを変更しない**ので、差し替えられた
+  directoryを `fchmod` で「正常に見せかける」ことはない。
+- 受け入れた後、保持中のhandleで `fchmod(0o700)` して初めて中へ書き込む。
+  書込み中のdirectoryは常にちょうど `0o700`。
+- 公開後のdirectory modeは `(0o755 & ~umask) | 0o700`（umaskを尊重しつつ、所有者から
+  自分の出力のrwxを奪わない）。通常のumask（`0o022` / `0o077`）では従来と同じ。
+- umaskに所有者の読取りbit（`0o400`）が含まれる場合（例: `0o777`）は、mkdirが所有者自身も
+  `open` できないdirectoryを作りhandleに束縛できないため、何も作らず
+  `unsupported_umask` で拒否する（process全体のumaskを一時変更する方式は採らない）。
+- 限界: 期待modeと一致する同一uidの差し替え（上記）は、umaskを変えても判別できない。
+  `0o077` や `0o277` では期待modeが `0o700` / `0o500` で、差し替えをmodeで区別する余地は
+  通常のumaskと同じかそれ以下。umask取得は「設定して即復元」で、他threadが同時にumaskを
+  使う場合は保証しない。差替え箇所: `generate._claim_directory` / `generate.generate`。
 
 多人数・常駐・CIなど他processが同じ作業領域を操作し得る環境で使う場合は、専用の作業領域を
 排他的に確保する等の運用か、ownerによる要件変更（排他管理方式の採用）が別途必要。
