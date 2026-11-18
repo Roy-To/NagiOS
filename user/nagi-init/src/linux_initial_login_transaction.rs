@@ -38,6 +38,10 @@ impl<S: IdentitySnapshotStore, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E
         &self.identity
     }
 
+    pub(super) fn identity_mut(&mut self) -> &mut IdentityService<S, I, C, A, G, E> {
+        &mut self.identity
+    }
+
     pub(super) fn new(identity: IdentityService<S, I, C, A, G, E>) -> Self {
         Self {
             identity,

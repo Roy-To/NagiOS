@@ -35,14 +35,47 @@ pub(super) fn seal_boot_service_principal(
 pub(super) enum BootIdentityRecoveryError {
     Principal(io::Error),
     Recovery(IdentityError),
+    LiveEffect(io::Error),
 }
 
 /// Keep the authenticated C3 launch borrowed for as long as PID 1 retains
 /// the recovered C1 runtime and the corresponding live C3 receipt.
 pub(super) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
-    _boot: &'boot AuthenticatedBootService<'package>,
-    _receipt: C3DurableSlotReceipt,
+    boot: &'boot AuthenticatedBootService<'package>,
+    receipt: C3DurableSlotReceipt,
     identity: C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>,
+}
+
+impl<I, C, A, G, E> RecoveredBootIdentity<'_, '_, I, C, A, G, E>
+where
+    I: IdentityIdSource,
+    C: Clock,
+    A: IdentityAuthorizer,
+    G: GuestProfileCleaner,
+    E: IdentityEventSink,
+{
+    /// Enter C1 issuer activity before C3's exact live gate. The issuer
+    /// mutex has been released before the effect, while the C1 guard stays
+    /// held through the C3 callback and durable receipt validation.
+    pub(super) fn with_live_effect<R>(
+        &mut self,
+        effect: impl FnOnce() -> R,
+    ) -> Result<R, BootIdentityRecoveryError> {
+        let admission = self
+            .identity
+            .enter_runtime_admission(self.boot.recovery_scope())
+            .map_err(BootIdentityRecoveryError::Recovery)?;
+        let (result, receipt) = with_correlated_c3_effect(
+            self.boot,
+            admission.scope(),
+            admission.operation_identity(),
+            effect,
+        )
+        .map_err(BootIdentityRecoveryError::LiveEffect)?;
+        self.receipt = receipt;
+        drop(admission);
+        Ok(result)
+    }
 }
 
 /// Recover the issuer and enter the first-login path while PID 1 still owns
@@ -74,8 +107,8 @@ where
 {
     let (handoff, receipt) = recover_boot_identity(boot, catalog, &mut identity)?;
     let runtime = RecoveredBootIdentity {
-        _boot: boot,
-        _receipt: receipt,
+        boot,
+        receipt,
         identity: C1InitialLoginAuthority::new(
             identity,
             handoff,
@@ -110,28 +143,45 @@ impl C1SystemServiceRecoveryEffectGate for BootRecoveryGate<'_, '_> {
             return Err(RecoveryEffectGateError::Unavailable);
         }
         self.used = true;
-        let claim = C1RecoveryOperationCorrelation::new(
-            operation.operation_id(),
-            *operation.binding_digest(),
-        );
-        let (result, receipt) = self
-            .boot
-            .owner
-            .c3
-            .with_durable_live_effect_gate(admission, &self.boot.proof, claim, effect)
+        let (result, receipt) = with_correlated_c3_effect(self.boot, admission, operation, effect)
             .map_err(|_| RecoveryEffectGateError::Unavailable)?;
-        if receipt.state() != C3SlotState::Live
-            || receipt.c1_operation_id() != Some(claim.operation_id())
-            || receipt.service_id() != admission.service_id()
-            || receipt.catalog_generation() != admission.catalog_generation()
-            || receipt.c3_launch_generation() != admission.c3_launch_generation()
-            || receipt.scope_binding_digest() != claim.binding_digest()
-        {
-            return Err(RecoveryEffectGateError::Unavailable);
-        }
         self.receipt = Some(receipt);
         Ok(result)
     }
+}
+
+fn with_correlated_c3_effect<R>(
+    boot: &AuthenticatedBootService<'_>,
+    scope: &dyn SystemServiceRecoveryAdmissionScope,
+    operation: C1RecoveryOperationIdentity,
+    effect: impl FnOnce() -> R,
+) -> io::Result<(R, C3DurableSlotReceipt)> {
+    if !std::ptr::eq(scope, boot.recovery_scope())
+        || operation.binding_digest() != scope.binding_digest()
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "C1 operation does not match the boot admission",
+        ));
+    }
+    let claim =
+        C1RecoveryOperationCorrelation::new(operation.operation_id(), *operation.binding_digest());
+    let (result, receipt) =
+        boot.owner
+            .c3
+            .with_durable_live_effect_gate(scope, &boot.proof, claim, effect)?;
+    if receipt.state() != C3SlotState::Live
+        || receipt.c1_operation_id() != Some(claim.operation_id())
+        || receipt.service_id() != scope.service_id()
+        || receipt.catalog_generation() != scope.catalog_generation()
+        || receipt.c3_launch_generation() != scope.c3_launch_generation()
+        || receipt.scope_binding_digest() != claim.binding_digest()
+    {
+        return Err(io::Error::other(
+            "C3 live receipt does not match the C1 operation",
+        ));
+    }
+    Ok((result, receipt))
 }
 
 /// Start recovery after principal issuance releases its gate and retain both
