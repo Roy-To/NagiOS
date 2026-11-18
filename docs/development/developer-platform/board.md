@@ -70,3 +70,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A011: UI mapping未対応行を mapping.status で絞り、深刻な順に上限付きで JSON と Markdow（PR #195、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A012: 移植レポートMarkdownに API gaps 節を追加（unsupported/未解決行を行番号・API名付きで表示（PR #196、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A013: 移植レポートの host_build に Stage 2 診断項目（file/line/severity/categor（PR #197、runnerテスト成功、codexレビューPASS）
+- 11-19 NDP-A014: 移植レポートの generation check に上限付き相対名一覧 files と Markdown の Scaff（PR #198、runnerテスト成功、codexレビューPASS）
