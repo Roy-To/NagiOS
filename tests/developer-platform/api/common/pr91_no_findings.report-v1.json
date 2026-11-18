@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["rust"],
+  "manifests": [],
+  "dependencies": [],
+  "analysis": {
+    "files_scanned": 1,
+    "directories_visited": 1,
+    "entries_visited": 1,
+    "bytes_read": 40,
+    "truncated": false,
+    "conclusion": "no-known-boundary-detected"
+  },
+  "findings": [],
+  "limitations": [
+    "This heuristic scan does not establish Nagi compatibility or POSIX/ABI compatibility.",
+    "Dependency versions, licenses, transitive dependencies, and runtime behavior require separate review.",
+    "A host build or package validation does not prove that an application installs or runs on Nagi OS."
+  ]
+}
