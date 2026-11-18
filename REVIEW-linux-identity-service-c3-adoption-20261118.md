@@ -89,3 +89,44 @@ This is a fail-closed adoption decision, not Linux production acceptance. No C3,
 - `git -C <C3> grep -n -E 'SystemServiceEndpointOwnerProof::authenticate|SystemServiceLaunchRecord::after_supervisor_record_validation' 4db0a45a96 -- user/nagi-init/src` — all matches are in `linux_x86_64_process.rs`'s test-only principal module; no production proof issue callsite.
 - A source checks: `rg -n -C 3 'UnconnectedBackend::new|LinuxDevPreviewBackend::new' user/nagi-init/src/linux_init.rs` — normal path is unconnected; preview is separately gated. `rg -n -i 'trusted.*catalog|system_service|identity service' user/nagi-init/src` — no production catalog/Identity service callsite.
 - A contract source comparison: `git diff --exit-code 5b257f139fade408bc0d4d5e9df19c680be08701 -- crates/nagi-init-spawn-contract crates/nagi-system-principal-contract` — exit 0, byte-identical.
+
+## Task24 signed login sender
+
+The development login package now contains the freestanding x86-64 musl
+sender. Its 7,128-byte ELF consumes the exact C2 listener locator. It opens
+that stream itself and reports the connection over the inherited C3 control
+channel. PID 1 supplies one explicit submission from the trusted framebuffer
+and exclusive keyboard UI after same-child activation. The child encodes
+the C2 v1 request using the NIPC SDK and retains the stream while C2 checks
+the peer and C1 issues the Session. UI input and wire buffers are transient.
+The normal first-owner registration path remains available on empty Data.
+The development unlock screen uses a five-minute attempt deadline.
+
+The package SHA-256 is
+`171e4233a148b2505692b8d67642b757e3f5f09de9840bc6233ef9c50d313a49`.
+The signature was verified with the existing development boot catalog's
+package key. The normal initramfs pins that digest and retains the previous
+boot fixture package and catalog. The musl build linked with C2
+`447f2232c93e9289daa6bcb64f9fcbbe16a81719` and the C3 source from
+`7e5f32ae5e9dee174f847b0b178512729f228e17`.
+
+Two locked builds used identical source, lockfile, toolchain and link
+settings in the worktree and the isolated source copy. Cargo assigned
+different crate metadata to the two absolute checkout paths. Each path
+reproduced its earlier ELF byte-for-byte. The package and the latest
+guest image use only the 7,128-byte worktree ELF.
+
+The no-input QEMU diagnostic used the same boot Data, signed package loader,
+run and route, and A's actual launch/activation call. Linux 6.18.63 verified
+the latest signed package at generation 2 and bound the initial login route
+at generation 1. An earlier instrumented run identified the protected
+`/run/nagi` parent at mode `0700`. C3's fixed source requires other-search
+permission on that parent even though the unprivileged child only accesses
+the projected socket inside its private root. A's final preflight preserves
+the Data mode and validates root ownership, owner traversal and resistance
+to third-party writes. With that preflight, the guest advanced to C3 launch
+and returned `TransportFailure` before exec acknowledgement. The C3
+parent-side check still needs the matching fix. The diagnostic supplied no
+credentials and did not obtain child exec acknowledgement, activation, a
+borrowed lease, a Session, or READY. See
+`out/evidence/a-task24-signed-sender-20261119/attempt-3-preinput-serial.log`.

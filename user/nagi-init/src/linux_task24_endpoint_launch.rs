@@ -231,6 +231,7 @@ impl BootLoginRun {
 pub(super) struct BootInitialLoginRoute {
     run: Pid1RunInstance,
     boot_binding: [u8; 32],
+    pub(super) destination: nagi_sdk::AppId,
     route: TrustedNipcOperationRoute,
 }
 
@@ -291,6 +292,7 @@ impl BootInitialLoginRoute {
         Ok(Self {
             run: instance.clone(),
             boot_binding: *scope.binding_digest(),
+            destination: nagi_sdk::AppId(scope.package_app_id()),
             route,
         })
     }
@@ -304,7 +306,7 @@ impl BootInitialLoginRoute {
 
 pub(super) struct EndpointOwners<'a> {
     pub(super) run: &'a BootLoginRun,
-    pub(super) consent: &'a BootConsentUiConnection<'a>,
+    pub(super) consent: &'a BootConsentUiConnection,
 }
 
 impl EndpointOwners<'_> {
@@ -349,6 +351,109 @@ pub(super) type BootLoginIssuer = C1InitialLoginAuthority<
     nagi_identity_session::LinuxIdentityEventSink,
 >;
 
+#[cfg(all(linux_task24_initial_login_runtime, linux_boot_owner_registration))]
+pub(super) fn run_owner_login(
+    mut runtime: super::linux_c3_boot_launch::linux_c1_boot_recovery::SelectedBootIdentityRuntime<
+        '_,
+        '_,
+    >,
+    package: &VerifiedLoginChild<'_>,
+    route: BootInitialLoginRoute,
+    run: &BootLoginRun,
+    console: &mut super::linux_owner_registration_console::BootOwnerConsole,
+) -> ! {
+    use super::linux_owner_registration_console::task24_input::RequestRoute;
+    use std::io::Read;
+
+    let mut execute = || -> Result<(), BackendError> {
+        if runtime
+            .owner_registration_required()
+            .map_err(|_| BackendError::Unavailable)?
+        {
+            runtime
+                .run_owner_registration(console)
+                .map_err(|_| BackendError::Unavailable)?;
+            super::log_pid1_stderr(format_args!("NAGI_LINUX_OWNER_REGISTRATION_SAVED"));
+        }
+        let account = runtime
+            .owner_login_name()
+            .map_err(|_| BackendError::Unavailable)?;
+        let mut unlock =
+            crate::login_screen::LinuxOwnerUnlock::new(&account, nagi_localization::Locale::EnUs);
+        console
+            .present_unlock(&unlock)
+            .map_err(|_| BackendError::Unavailable)?;
+        let consent = console
+            .consent_connection()
+            .map_err(|_| BackendError::Unavailable)?;
+        let mut request = [0; 16];
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut random| random.read_exact(&mut request))
+            .map_err(|_| BackendError::Unavailable)?;
+        let request_key = nagi_identity_session::IdempotencyKey::new(
+            request
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+        )
+        .map_err(|_| BackendError::ProtocolViolation)?;
+        let input = RequestRoute {
+            destination: route.destination,
+            request,
+        };
+        let deadline = Instant::now() + Duration::from_secs(300);
+        let placement = LaunchPlacement {
+            app_session_id: nagi_model::AppSessionId(1),
+            node_id: nagi_model::NodeId(1),
+            workspace_id: None,
+        };
+        let selection = LoginChildLaunch {
+            service: ServiceId::new("dev.task24-login")
+                .map_err(|_| BackendError::ProtocolViolation)?,
+            credentials: LinuxExecutionIdentity::DEV_SERVICE,
+            placement,
+        };
+        let owners = EndpointOwners {
+            run,
+            consent: &consent,
+        };
+        let mut lifecycle = new_lifecycle();
+        let (_runtime, attached) = runtime
+            .start_task24_login(
+                &mut lifecycle,
+                selection,
+                package,
+                route,
+                &owners,
+                request_key,
+                None,
+                |channel| console.submit_unlock(&mut unlock, channel, input, deadline),
+                deadline,
+            )
+            .map_err(|_| BackendError::Unavailable)?;
+        match attached {
+            Ok(_session) => {
+                super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
+                super::wait_in_pid1(super::wait_for_pid1_os_event);
+            }
+            Err(error) => super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_LOGIN_UNAVAILABLE ({error:?})"
+            )),
+        }
+        Err(BackendError::Unavailable)
+    };
+    if execute().is_err() {
+        super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_STOPPED"));
+    }
+    super::wait_in_pid1(super::wait_for_pid1_os_event)
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) struct AttachedLogin {
+    _session: SessionLease,
+    _control: std::os::unix::net::UnixStream,
+}
+
 /// Start and check out the exact child while the caller retains the recovered
 /// C1 issuer, signed package, and C3 process lifecycle.
 #[cfg(linux_task24_initial_login_runtime)]
@@ -359,19 +464,31 @@ pub(super) fn start_verified_login(
     route: BootInitialLoginRoute,
     owners: &EndpointOwners<'_>,
     issuer: &BootLoginIssuer,
+    submit: impl FnOnce(&mut std::os::unix::net::UnixStream) -> std::io::Result<()>,
     deadline: Instant,
-) -> Result<SessionLease, PeerDenial> {
+) -> Result<AttachedLogin, PeerDenial> {
+    let mut input_channel = None;
     let result = C2InitialLogin {
         directory: &owners.run.directory,
         start_login_child: Some(|deadline| {
-            start_and_borrow(lifecycle, selection, package, route, owners, deadline).map_err(
-                |error| match error {
-                    BackendError::Revoked => PeerDenial::NotLive,
-                    BackendError::ConsentDenied => PeerDenial::ConsentDenied,
-                    _ if Instant::now() >= deadline => PeerDenial::RequestDeadlineExpired,
-                    _ => PeerDenial::Unavailable,
+            start_and_borrow(
+                lifecycle,
+                selection,
+                package,
+                route,
+                owners,
+                |channel| {
+                    let stream = input_channel.insert(channel);
+                    submit(stream).map_err(|_| BackendError::Unavailable)
                 },
+                deadline,
             )
+            .map_err(|error| match error {
+                BackendError::Revoked => PeerDenial::NotLive,
+                BackendError::ConsentDenied => PeerDenial::ConsentDenied,
+                _ if Instant::now() >= deadline => PeerDenial::RequestDeadlineExpired,
+                _ => PeerDenial::Unavailable,
+            })
         }),
         consent: owners.consent,
         process_instances: &owners.run.instances,
@@ -380,20 +497,30 @@ pub(super) fn start_verified_login(
         deadline,
     }
     .start_and_accept(issuer);
-    if result.is_err() {
-        lifecycle
-            .shutdown_with_launch_lease(revoke_login_record, |lease, _status| owners.retire(lease))
-            .map_err(|_| PeerDenial::RequestOutcomeUnknown)?;
+    match result {
+        Ok(session) => Ok(AttachedLogin {
+            _session: session,
+            _control: input_channel.ok_or(PeerDenial::RequestOutcomeUnknown)?,
+        }),
+        Err(error) => {
+            lifecycle
+                .shutdown_with_launch_lease(revoke_login_record, |lease, _status| {
+                    owners.retire(lease)
+                })
+                .map_err(|_| PeerDenial::RequestOutcomeUnknown)?;
+            Err(error)
+        }
     }
-    result
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
 fn start_and_borrow<'slot>(
     lifecycle: &'slot mut LoginLifecycle,
     selection: LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     owners: &EndpointOwners<'_>,
+    receive_control: impl FnOnce(std::os::unix::net::UnixStream) -> Result<(), BackendError>,
     deadline: Instant,
 ) -> Result<&'slot LoginLease, BackendError> {
     let release_wait_budget = deadline.saturating_duration_since(Instant::now());
@@ -403,12 +530,17 @@ fn start_and_borrow<'slot>(
     let app_id = package.generation.snapshot().app_id();
     let readiness = owners.run.run_owner.readiness_boundary();
     if package.manifest.app_id() != app_id {
+        super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LAUNCH_PACKAGE_ID_MISMATCH"));
         return Err(BackendError::IdentityRejected);
     }
-    crate::supervisor::register_or_match_manifest(package.manifest)
-        .map_err(|_| BackendError::IdentityRejected)?;
-    crate::supervisor::check_launch(app_id, selection.placement)
-        .map_err(|_| BackendError::IdentityRejected)?;
+    crate::supervisor::register_or_match_manifest(package.manifest).map_err(|error| {
+        super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LAUNCH_MANIFEST ({error:?})"));
+        BackendError::IdentityRejected
+    })?;
+    crate::supervisor::check_launch(app_id, selection.placement).map_err(|error| {
+        super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LAUNCH_CHECK ({error:?})"));
+        BackendError::IdentityRejected
+    })?;
     // The route owner supplies the canonical login route. This listener is
     // checked out only for first Session issuance. Application capabilities
     // and decisions are handled after C1 attaches the issued Session.
@@ -417,6 +549,7 @@ fn start_and_borrow<'slot>(
         &[],
         RouteConsentRequirement::NotRequired,
     );
+    prepare_task24_endpoint_directory()?;
     let pending = PendingSpawnOwnedEndpoint::bind_for_spawn(
         owners.run.run_owner.run(),
         route.route,
@@ -444,30 +577,44 @@ fn start_and_borrow<'slot>(
     let mut record = None;
     let retire =
         |saved: &mut BoundLaunchLease<LoginLease, LaunchRecord>, _status| owners.retire(saved);
-    let pid = lifecycle.spawn_authorized_with_prepared_and_launch_lease(
-        launch,
-        || Instant::now() >= deadline,
-        |pid, _, _| {
-            crate::supervisor::record_launch(pid, app_id, selection.placement)
-                .map_err(|_| BackendError::IdentityRejected)
-        },
-        |_, live, gate| {
-            boot_proof = Some(gate::retain_task41_endpoint_before_gate(
-                gate,
-                pending,
-                owners.run.run_owner.run(),
-                &owners.run.instances,
-            )?);
-            record = Some(*live);
-            BootLoginSupervisor
-                .authorize_and_commit(*live, &[], || {
-                    gate.commit().map_err(|_| PeerDenial::Unavailable)
-                })
-                .map_err(|_| BackendError::Unavailable)
-        },
-        revoke_login_record,
-        retire,
-    )?;
+    let pid = lifecycle
+        .spawn_authorized_with_prepared_and_launch_lease(
+            launch,
+            || Instant::now() >= deadline,
+            |pid, _, _| {
+                crate::supervisor::record_launch(pid, app_id, selection.placement).map_err(
+                    |error| {
+                        super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_TASK24_LAUNCH_RECORD ({error:?})"
+                        ));
+                        BackendError::IdentityRejected
+                    },
+                )
+            },
+            |_, live, gate| {
+                boot_proof = Some(gate::retain_task41_endpoint_before_gate(
+                    gate,
+                    pending,
+                    owners.run.run_owner.run(),
+                    &owners.run.instances,
+                )?);
+                record = Some(*live);
+                BootLoginSupervisor
+                    .authorize_and_commit(*live, &[], || {
+                        gate.commit().map_err(|_| PeerDenial::Unavailable)
+                    })
+                    .map_err(|_| BackendError::Unavailable)
+            },
+            revoke_login_record,
+            retire,
+        )
+        .map_err(|error| {
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_CHILD_START_FAILED ({error:?})"
+            ));
+            error
+        })?;
+    super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CHILD_EXEC_ACK"));
     let proof = boot_proof.ok_or(BackendError::ProtocolViolation)?;
     let record = record.ok_or(BackendError::ProtocolViolation)?;
     let activation = if Instant::now() >= deadline {
@@ -492,8 +639,61 @@ fn start_and_borrow<'slot>(
         })
     };
     if let Err(error) = activation {
+        super::log_pid1_stderr(format_args!(
+            "NAGI_DEV_TASK24_CHILD_ACTIVATE_FAILED ({error:?})"
+        ));
         lifecycle.terminate_exact_with_launch_lease(pid, record, revoke_login_record, retire)?;
         return Err(error);
     }
+    lifecycle.borrow_current_launch_lease(&proof, record)?;
+    super::log_pid1_stderr(format_args!(
+        "NAGI_DEV_TASK24_CHILD_ACK_ATTESTED_AND_BORROWED"
+    ));
+    let owner_channel = lifecycle
+        .take_live_endpoint(pid, record)
+        .map_err(|_| BackendError::Unavailable)?;
+    use std::io::Read;
+    let mut channel: std::os::unix::net::UnixStream = owner_channel.endpoint.into();
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    channel
+        .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
+        .map_err(|_| BackendError::Unavailable)?;
+    let mut ready = [0u8; 1];
+    channel
+        .read_exact(&mut ready)
+        .map_err(|_| BackendError::Unavailable)?;
+    if ready != [super::linux_owner_registration_console::task24_input::CONNECTED] {
+        return Err(BackendError::ProtocolViolation);
+    }
+    super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CHILD_BROKER_CONNECTED"));
+    receive_control(channel)?;
     lifecycle.borrow_current_launch_lease(&proof, record)
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn prepare_task24_endpoint_directory() -> Result<(), BackendError> {
+    use std::io::ErrorKind;
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+
+    // Validate the parent namespace without changing the Data owner's
+    // private /run/nagi. C3 exposes only its listener inside the child.
+    for parent in ["/run", "/run/nagi"] {
+        let metadata = std::fs::symlink_metadata(parent).map_err(|_| BackendError::Unavailable)?;
+        if !metadata.is_dir()
+            || metadata.uid() != 0
+            || metadata.mode() & 0o022 != 0
+            || metadata.mode() & 0o100 == 0
+        {
+            return Err(BackendError::IdentityRejected);
+        }
+    }
+    match std::fs::DirBuilder::new()
+        .mode(0o755)
+        .create("/run/nagi/ipc")
+    {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(_) => Err(BackendError::Unavailable),
+    }
+    // C2 independently validates the IPC directory before binding.
 }

@@ -7428,7 +7428,7 @@ impl InitBackend for UnconnectedBackend {
                             ) {
                                 Ok(mut runtime) => match runtime.verify_continuing_admission() {
                                     Ok(()) => {
-                                        pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED; first login unavailable");
+                                        pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED");
                                         #[cfg(all(
                                             linux_task24_owner_co_location,
                                             linux_task24_initial_login_runtime,
@@ -7449,6 +7449,23 @@ impl InitBackend for UnconnectedBackend {
                                         #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
                                         match linux_owner_registration_console::BootOwnerConsole::open() {
                                             Ok(mut console) => {
+                                                #[cfg(all(
+                                                    linux_task24_owner_co_location,
+                                                    linux_task24_initial_login_runtime
+                                                ))]
+                                                if let (Some(run), Some(package), Some(route)) = (
+                                                    _login_run.as_ref(),
+                                                    _login_package.as_ref(),
+                                                    _login_route,
+                                                ) {
+                                                    linux_task24_endpoint_launch::run_owner_login(
+                                                        runtime,
+                                                        package,
+                                                        route,
+                                                        run,
+                                                        &mut console,
+                                                    );
+                                                }
                                                 match runtime.run_owner_registration(&mut console) {
                                                     Ok(()) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_SAVED"),
                                                     Err(error) => pid1_log!("NAGI_LINUX_OWNER_REGISTRATION_UNAVAILABLE ({error})"),

@@ -178,10 +178,10 @@ mod task24 {
     use super::*;
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
-            start_verified_login, BootInitialLoginRoute, BootLoginRun, EndpointOwners,
-            LoginChildLaunch, LoginLifecycle, VerifiedLoginChild,
+            start_verified_login, AttachedLogin, BootInitialLoginRoute, BootLoginRun,
+            EndpointOwners, LoginChildLaunch, LoginLifecycle, VerifiedLoginChild,
         },
-        pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
+        pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary},
     };
     use std::time::Instant;
 
@@ -210,6 +210,21 @@ mod task24 {
                 })
         }
 
+        pub(in crate::linux_init) fn owner_login_name(&self) -> io::Result<Vec<u8>> {
+            self.verifier
+                .owner_login_name()
+                .map_err(|_| io::Error::other("owner account unavailable"))
+        }
+
+        pub(in crate::linux_init) fn owner_registration_required(&self) -> io::Result<bool> {
+            use nagi_linux_account_verifier::OwnerAccountSaveError;
+            match self.verifier.require_unprovisioned_private_directory() {
+                Ok(()) => Ok(true),
+                Err(OwnerAccountSaveError::AlreadyExists) => Ok(false),
+                Err(error) => Err(io::Error::other(format!("{error:?}"))),
+            }
+        }
+
         /// Reuse the recovered store and its exact C3 handoff for the first
         /// checkout. The process lifecycle remains owned by the caller.
         pub(in crate::linux_init) fn start_task24_login(
@@ -221,9 +236,10 @@ mod task24 {
             owners: &EndpointOwners<'_>,
             request_key: IdempotencyKey,
             expires_at: Option<UnixMillis>,
+            submit: impl FnOnce(&mut std::os::unix::net::UnixStream) -> io::Result<()>,
             deadline: Instant,
         ) -> Result<
-            (Runtime<'boot, 'package>, Result<SessionLease, PeerDenial>),
+            (Runtime<'boot, 'package>, Result<AttachedLogin, PeerDenial>),
             BootIdentityRecoveryError,
         > {
             if !route.matches(self.boot, owners.run) {
@@ -252,6 +268,7 @@ mod task24 {
                 route,
                 owners,
                 &runtime.identity,
+                submit,
                 deadline,
             );
             Ok((runtime, attached))
@@ -262,7 +279,7 @@ mod task24 {
 /// Keep the authenticated C3 launch borrowed for as long as PID 1 retains
 /// the recovered C1 runtime and the corresponding live C3 receipt.
 #[cfg(linux_task24_initial_login_runtime)]
-pub(super) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
+pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     boot: &'boot AuthenticatedBootService<'package>,
     _data: &'boot BootVolumeInput,
     receipt: C3DurableSlotReceipt,

@@ -160,6 +160,19 @@ impl LoginScreen {
     }
 
     pub fn render(&self, painter: &mut Painter<'_>, locale: Locale) {
+        self.render_with_account_name(
+            painter,
+            locale,
+            self.account.as_ref().map(AccountRecord::name),
+        );
+    }
+
+    fn render_with_account_name(
+        &self,
+        painter: &mut Painter<'_>,
+        locale: Locale,
+        account_name: Option<&[u8]>,
+    ) {
         if let Some(picker) = &self.language {
             self.render_language(painter, locale, picker);
             return;
@@ -196,8 +209,8 @@ impl LoginScreen {
             ],
             LoginMode::Unlock => &[(LoginField::Password, "login.password")],
         };
-        if let (LoginMode::Unlock, Some(account)) = (self.form.mode(), &self.account) {
-            painter.text(PANEL.x + 20, y, account.name(), text);
+        if let (LoginMode::Unlock, Some(account_name)) = (self.form.mode(), account_name) {
+            painter.text(PANEL.x + 20, y, account_name, text);
             y += 14;
         }
         for (field, label) in fields {
@@ -437,6 +450,54 @@ fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
 /// The Linux first-run display uses the same language picker, form and
 /// rendering as the desktop screen. The normal boot owner supplies the
 /// persistence callback, which receives only the derived account record.
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+pub(crate) struct LinuxOwnerUnlock<'a> {
+    screen: LoginScreen,
+    account_name: &'a [u8],
+    locale: Locale,
+}
+
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+impl<'a> LinuxOwnerUnlock<'a> {
+    pub(crate) fn new(account_name: &'a [u8], locale: Locale) -> Self {
+        let mut screen = LoginScreen::new(LoginStart::Unavailable);
+        screen.unavailable = false;
+        Self {
+            screen,
+            account_name,
+            locale,
+        }
+    }
+
+    pub(crate) fn render(&self, painter: &mut Painter<'_>) {
+        self.screen
+            .render_with_account_name(painter, self.locale, Some(self.account_name));
+    }
+
+    pub(crate) fn handle_event<E>(
+        &mut self,
+        event: InputEvent,
+        submit: impl FnOnce(&[u8], &[u8]) -> Result<(), E>,
+    ) -> LinuxRegistrationOutcome<E> {
+        match self.screen.handle_screen_event(event) {
+            ScreenAction::Changed => LinuxRegistrationOutcome::Redraw,
+            ScreenAction::Unlock => {
+                let result = submit(self.account_name, self.screen.form.password());
+                self.screen.form.clear_secrets();
+                LinuxRegistrationOutcome::Submitted(result)
+            }
+            _ => LinuxRegistrationOutcome::Ignored,
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+impl Drop for LinuxOwnerUnlock<'_> {
+    fn drop(&mut self) {
+        self.screen.form.clear_secrets();
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) struct LinuxOwnerRegistration<Save> {
     screen: LoginScreen,
