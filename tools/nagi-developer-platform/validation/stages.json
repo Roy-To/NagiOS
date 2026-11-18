@@ -16,7 +16,7 @@
       "stage": 2,
       "entry": "clang <fixed flags> -o <scratch>/<output> <fixed sources>; then <scratch>/<output>",
       "source": "stage2.py (fixed argument vector built from targets below)",
-      "side_effects": "writes only a private temporary directory; runs only the binary just built from the listed fixture sources",
+      "side_effects": "writes only a private temporary directory; runs only the binary just built from digest-verified fixture inputs",
       "exit": {"0": "built / test passed", "other": "failed"}
     }
   ],
@@ -35,14 +35,14 @@
     {
       "stage": 2,
       "name": "host build/test of approved self-made fixtures",
-      "input": "a target id from this table; fixture directory must equal the target directory",
+      "input": "a target id from this table; directory and exact source/header bytes must match the approval pinned in stage2.py",
       "may_run": ["clang with the fixed argument vector", "the test binary built from the listed sources"],
       "must_not_run": ["input-specified commands", "Makefile/build scripts in the fixture directory", "files not listed in the target", "dependency fetch", "network"],
       "requires": ["prior stage result, if one is supplied, is passed"],
       "results": ["passed", "failed", "unavailable", "timeout", "cancelled", "not_run"],
       "connected": true,
       "may_pass": true,
-      "stop_scope": "a failed or not_run prior stage, unknown target, disallowed input or cwd, or invalid timeout ends Stage 2 without executing anything; a failed compile skips the test step"
+      "stop_scope": "a failed or not_run prior stage, unknown target, disallowed input or cwd, fixture digest mismatch, or invalid timeout ends Stage 2 without executing anything; a failed compile skips the test step"
     },
     {
       "stage": 3,
