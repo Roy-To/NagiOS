@@ -7308,6 +7308,25 @@ impl InitBackend for UnconnectedBackend {
             if let Some(inputs) = catalog.as_ref() {
                 use nagi_system_service_launch::ArtifactPreflight as _;
 
+                #[cfg(all(
+                    linux_task24_owner_co_location,
+                    target_arch = "x86_64",
+                    feature = "desktop-login",
+                    not(nagi_release_build)
+                ))]
+                let _login_package = match linux_task24_endpoint_launch::VerifiedLoginChild::load(
+                    &package_owner,
+                    &persistence,
+                )? {
+                    Some(package) => {
+                        pid1_log!(
+                            "NAGI_DEV_TASK24_LOGIN_PACKAGE_VERIFIED generation={}",
+                            package.package_generation()
+                        );
+                        Some(package)
+                    }
+                    None => None,
+                };
                 let catalog = &inputs.catalog;
                 let descriptor = catalog.descriptor();
                 let report = linux_boot_package_inputs::LinuxBootArtifactPreflight::new()
