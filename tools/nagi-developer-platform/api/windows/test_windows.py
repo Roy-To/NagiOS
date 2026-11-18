@@ -12,7 +12,14 @@ import sys
 import unittest
 from unittest import mock
 
-from common import pt01_report as adapter
+# Discovery may start at `api/` (README) or at `api/windows/` (runner); in the
+# latter only this directory is on sys.path, so add `api/` for the shared
+# `common` adapter and the `windows` package (no duplicate implementation).
+_API_DIR = str(Path(__file__).resolve().parents[1])
+if _API_DIR not in sys.path:
+    sys.path.insert(0, _API_DIR)
+
+from common import pt01_report as adapter  # noqa: E402
 from windows import diagnose
 
 
@@ -208,6 +215,45 @@ class WindowsRulesTests(unittest.TestCase):
             with self.subTest(evidence=evidence):
                 row = run(report(evidence, category="windows-header"))["rows"][0]
                 self.assertEqual((detection, None), (row["detection"], row["rule_id"]))
+
+    def test_windows_header_match_is_limited_to_bare_basename(self):
+        # NDP-A001 (PROVISIONAL): a path-qualified include names a different file
+        # (a local or third-party header), so it is not the bare Windows header.
+        # The directory separator must not be erased by the lexer's barrier token.
+        for evidence in ("#include <sub/windows.h>", "#include <sub\\windows.h>",
+                         '#include "third_party/windows.h"', '#include "third_party\\Windows.H"',
+                         "#include <sys/WINDOWS.H>", '#include "../windows.h"',
+                         "#include <./windows.h>", "#include <windows.h/extra>",
+                         '#include "a/b/windows.h"', "#include </windows.h>"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="windows-header"))["rows"][0]
+                self.assertEqual(("unknown_api", None, []),
+                                 (row["detection"], row["rule_id"], row["original_apis"]))
+        # Other header names remain distinct from windows.h.
+        for evidence in ('#include "windowsx.h"', '#include "mywindows.h"', "#include <windowsx.h>",
+                         "#include <sub/windowsx.h>"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="windows-header"))["rows"][0]
+                self.assertEqual(("unknown_api", None), (row["detection"], row["rule_id"]))
+        # A bare include elsewhere in the same fragment is still reported (once).
+        for evidence in ("#include <sub/windows.h>\n#include <windows.h>",
+                         '#include "third_party/windows.h"\r\n#include "Windows.h"'):
+            with self.subTest(evidence=evidence):
+                rows = run(report(evidence, category="windows-header"))["rows"]
+                self.assertEqual([("WIN-HEADER", ["windows.h"], "lexical_candidate")],
+                                 [(r["rule_id"], r["original_apis"], r["detection"]) for r in rows])
+        # Separator-only evidence is not code evidence.
+        for evidence in ("/", "\\"):
+            with self.subTest(evidence=evidence):
+                row = run(report(evidence, category="windows-header"))["rows"][0]
+                self.assertEqual("no_code_evidence", row["detection"])
+        # The restriction is rule data, limited to the header rule; API names are unaffected.
+        rules = diagnose.load_rules()
+        self.assertEqual(["WIN-HEADER"], [r["id"] for r in rules["rules"] if r.get("basename_only")])
+        self.assertEqual("WIN-FILE-READ", run(report("x / ReadFile(h)"))["rows"][0]["rule_id"])
+        rules["rules"][0]["basename_only"] = False
+        row = run(report("#include <sub/windows.h>", category="windows-header"), rules=rules)["rows"][0]
+        self.assertEqual("WIN-HEADER", row["rule_id"])
 
     def test_case_folding_is_limited_to_rules_that_opt_in(self):
         # API names remain case-sensitive; only `case_insensitive` rule data folds.
