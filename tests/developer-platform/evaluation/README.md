@@ -143,6 +143,36 @@ parent, layout class, placement value or order, receiver/slot, unknown class,
 binding owner/tag and `requires` version, plus per-phase timeout, nonzero exit
 and nondeterministic stdout, and GTK fixture mutation.
 
+## XAML (WPF / WinUI) as the third UI input — NDP-06d
+
+Three original synthetic fixtures were written for this task (no third-party source
+copied or fetched); none is executed, compiled or rendered:
+
+| Input | Expected observation | Execution scope / unverified |
+|---|---|---|
+| ui/xaml_minimal.xaml | A single named Button with a Unicode `Content`, `x:Uid` kept as data | Static source facts only |
+| ui/wpf_task_panel.xaml | WPF Window/Grid/StackPanel hierarchy, `Grid.Row` placement, `{Binding}`, `{StaticResource}`, `{x:Reference}`, `Click` handler, `AutomationProperties.Name`, `TabIndex`, resource dictionary, `clr-namespace:` custom control | `x:Class` and the handler are not loaded or run; the custom control stays unknown |
+| ui/winui_task_panel.xaml | WinUI Page/StackPanel, `{x:Bind}` (also on an event), `{ThemeResource}` with an undefined key, `DataTemplate`, `using:` custom control | No resource, template or binding is resolved or run |
+
+The files use `.xaml` on purpose, so the existing `*.ui` fixture globs and the
+repeated runner (`run_host_checks.py`, which is outside this task's scope) are
+unchanged. Run the real parser/CLI tests:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tools/nagi-developer-platform/ui/analysis -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tools/nagi-developer-platform/ui/mapping -p 'test_*.py'
+```
+
+Verified locally on 2026-11-18 (Python 3.9): both discovery commands pass (analysis
+71 tests incl. 26 XAML; mapping 41 incl. 10 XAML) and the evaluation discovery
+passes (40). `run_host_checks.py` was re-run once afterwards and completed with
+identical repeated stdout (it does not exercise the XAML inputs). Host-only; Nagi
+target execution, rendering and runtime compatibility are not claimed. A concurrent
+process modifying the input during analysis is outside the threat model (see the
+analyzer README).
+
 ## API rules, generator and Stage 2 — NDP-11c
 
 `run_host_checks.py` also repeats three trusted host tools `--repeats` times

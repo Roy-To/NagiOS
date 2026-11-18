@@ -16,6 +16,31 @@ AXES = ("appearance_layout", "pointer_keyboard", "focus", "accessibility",
 COLLECTIONS = ("widgets", "layouts", "connections", "bindings", "resources",
                "unknown", "custom_widgets", "unresolved_references")
 MAX_INPUT_BYTES = 4 * 1024 * 1024
+# Source property names carrying accessibility / text / focus evidence. Extended
+# per format by adding names only (PROVISIONAL vocabulary, not semantics).
+ACCESSIBLE_NAMES = frozenset({
+    "accessibleName", "accessibleDescription", "accessible-name",
+    "accessible-description", "accessibility",
+    "AutomationProperties.Name", "AutomationProperties.HelpText",
+    "AutomationProperties.LabeledBy", "AutomationProperties.AutomationId",
+    "AutomationProperties.AccessibilityView", "AutomationProperties.LiveSetting",
+})
+TEXT_NAMES = frozenset({
+    "text", "label", "title", "windowTitle", "placeholderText",
+    "placeholder-text", "toolTip", "tooltip-text",
+    "Text", "Content", "Header", "Title", "ToolTip", "PlaceholderText",
+    "ToolTipService.ToolTip",
+}) | ACCESSIBLE_NAMES
+FOCUS_NAMES = frozenset({
+    "focusPolicy", "focusable", "can-focus", "has-focus", "focus-on-click",
+    "Focusable", "IsTabStop", "TabIndex", "TabNavigation", "AllowFocusOnInteraction",
+})
+# Classes whose layout direction must be explicit in the source (never guessed):
+# class -> (property name, {value: target}).
+ORIENTED_LAYOUTS = {
+    "GtkBox": ("orientation", {"horizontal": "Row", "vertical": "Column"}),
+    "StackPanel": ("Orientation", {"horizontal": "Row", "vertical": "Column"}),
+}
 
 
 class MappingError(ValueError):
@@ -51,7 +76,7 @@ def _validate(analysis):
         raise MappingError("invalid_analysis")
     if type(analysis.get("analysis_version")) is not int or analysis["analysis_version"] != 1:
         raise MappingError("unsupported_analysis_version")
-    if analysis.get("format") not in ("qt-designer-ui", "gtk-builder-ui"):
+    if analysis.get("format") not in ("qt-designer-ui", "gtk-builder-ui", "xaml-ui"):
         raise MappingError("unsupported_analysis_format")
     for key in COLLECTIONS:
         if not isinstance(analysis.get(key), list) or not all(
@@ -100,20 +125,14 @@ def _property_text(fact, name):
 def _metadata(fact, analysis):
     """Keep the source metadata associated with its widget; infer no semantics."""
     props = fact["properties"]
-    accessible = [p for p in props if p["name"] in
-                  ("accessibleName", "accessibleDescription", "accessible-name",
-                   "accessible-description", "accessibility")]
+    accessible = [p for p in props if p["name"] in ACCESSIBLE_NAMES]
     # GTK3's AtkObject lives in an internal-child rather than a direct property.
     accessible_ids = set()
     for child in fact.get("children", []):
         if child.get("attributes", {}).get("internal-child") == "accessible":
             accessible_ids.update(o.get("name") for o in child.get("objects", []))
     accessible += [w for w in analysis["widgets"] if w["name"] in accessible_ids]
-    text_names = {"text", "label", "title", "windowTitle", "placeholderText",
-                  "placeholder-text", "toolTip", "tooltip-text", "accessibleName",
-                  "accessibleDescription", "accessible-name", "accessible-description",
-                  "accessibility"}
-    text = [p for p in props if p["name"] in text_names]
+    text = [p for p in props if p["name"] in TEXT_NAMES]
     return accessible, text
 
 
@@ -123,11 +142,12 @@ def _select_rule(fact, kind, rules, source_format):
         return None
     if rule is not None:
         rule = copy.deepcopy(rule)
-        if fact["class"] == "GtkBox":
-            orientation = _property_text(fact, "orientation").strip().lower()
-            if orientation not in ("horizontal", "vertical"):
+        if fact["class"] in ORIENTED_LAYOUTS:
+            name, targets = ORIENTED_LAYOUTS[fact["class"]]
+            orientation = _property_text(fact, name).strip().lower()
+            if orientation not in targets:
                 return None  # Never invent the toolkit's implicit default.
-            rule["targets"] = ["LayoutKind::" + ("Row" if orientation == "horizontal" else "Column")]
+            rule["targets"] = ["LayoutKind::" + targets[orientation]]
     return rule
 
 
@@ -161,8 +181,7 @@ def _control_row(fact, kind, index, analysis, rules, contract):
             mapping_status, reason = "needs_decision", "contract_evidence_changed_or_missing"
 
     accessible, text = _metadata(fact, analysis)
-    focus_props = [p for p in fact["properties"] if p["name"] in
-                   ("focusPolicy", "focusable", "can-focus", "has-focus", "focus-on-click")]
+    focus_props = [p for p in fact["properties"] if p["name"] in FOCUS_NAMES]
     focus_order = [name for name in analysis["tab_order"] if name == fact["name"]]
     models = rule.get("models", []) if rule and valid else []
     mapped = bool(targets) and valid

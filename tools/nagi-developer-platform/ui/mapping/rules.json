@@ -559,5 +559,49 @@
         ]
       }
     }
+  },
+  "xaml-ui": {
+    "layouts": {
+      "Canvas": {"models": [], "reason": "absolute_placement_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "DockPanel": {"models": [], "reason": "dock_edges_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "Grid": {"models": [], "reason": "row_column_definitions_spans_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Grid"]},
+      "RelativePanel": {"models": [], "reason": "relative_placement_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "StackPanel": {"models": [], "reason": "spacing_alignment_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Column"]},
+      "UniformGrid": {"models": [], "reason": "row_column_definitions_spans_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Grid"]},
+      "VariableSizedWrapGrid": {"models": [], "reason": "wrapping_variable_cells_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "WrapPanel": {"models": [], "reason": "wrapping_semantics_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Row"]}
+    },
+    "widgets": {
+      "Border": {"models": [], "reason": "decorator_role_requires_review", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Panel"]},
+      "Button": {"models": ["ButtonModel"], "reason": "shared_contract_vocabulary", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Button"]},
+      "Canvas": {"models": [], "reason": "absolute_placement_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "CheckBox": {"models": ["ToggleModel"], "reason": "shared_contract_vocabulary", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Checkbox"]},
+      "ComboBox": {"models": ["SelectModel"], "reason": "option_data_and_popup_require_app_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Select"]},
+      "ContentDialog": {"models": ["DialogModel"], "reason": "modal_scope_actions_and_focus_restore_need_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Dialog"]},
+      "DockPanel": {"models": [], "reason": "dock_edges_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "Expander": {"models": [], "reason": "collapsible_region_requires_composition", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Panel"]},
+      "Grid": {"models": [], "reason": "row_column_definitions_spans_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Grid"]},
+      "GroupBox": {"models": [], "reason": "frame_title_and_content_require_composition", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Panel"]},
+      "Image": {"models": [], "reason": "image_component_not_in_inspected_contract", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "unavailable", "targets": []},
+      "Label": {"models": [], "reason": "passive_text_only_rich_text_links_and_images_need_review", "refs": ["user/nagi-ui/src/text.rs"], "relation": "redesign", "targets": ["ResolvedText"]},
+      "ListBox": {"models": ["NavigationModel"], "reason": "list_selection_and_data_require_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::List"]},
+      "ListView": {"models": ["NavigationModel"], "reason": "list_selection_and_data_require_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::List"]},
+      "Page": {"models": [], "reason": "generic_widget_role_requires_review", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Panel"]},
+      "PasswordBox": {"models": [], "reason": "masked_text_entry_not_in_inspected_contract", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "unavailable", "targets": []},
+      "ProgressBar": {"models": [], "reason": "progress_range_and_state_require_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::ProgressIndicator"]},
+      "RadioButton": {"models": ["ToggleModel"], "reason": "radio_group_exclusivity_requires_app_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Radio"]},
+      "RelativePanel": {"models": [], "reason": "relative_placement_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "ScrollViewer": {"models": [], "reason": "scroll_policy_and_input_require_adapter", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::ScrollContainer"]},
+      "Separator": {"models": [], "reason": "shared_contract_vocabulary", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Divider"]},
+      "StackPanel": {"models": [], "reason": "spacing_alignment_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Column"]},
+      "TextBlock": {"models": [], "reason": "passive_text_only_rich_text_links_and_images_need_review", "refs": ["user/nagi-ui/src/text.rs"], "relation": "redesign", "targets": ["ResolvedText"]},
+      "TextBox": {"models": ["TextFieldModel"], "reason": "text_model_excludes_cursor_selection_and_ime_backend", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::TextField"]},
+      "ToggleSwitch": {"models": ["ToggleModel"], "reason": "shared_contract_vocabulary", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "direct", "targets": ["ComponentKind::Switch"]},
+      "UniformGrid": {"models": [], "reason": "row_column_definitions_spans_and_size_policy_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Grid"]},
+      "UserControl": {"models": [], "reason": "generic_widget_role_requires_review", "refs": ["user/nagi-ui/src/interaction.rs"], "relation": "redesign", "targets": ["ComponentKind::Panel"]},
+      "VariableSizedWrapGrid": {"models": [], "reason": "wrapping_variable_cells_not_in_inspected_contract", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "unavailable", "targets": []},
+      "Window": {"models": [], "reason": "shell_regions_and_stable_labels_require_redesign", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["ApplicationShellSpec"]},
+      "WrapPanel": {"models": [], "reason": "wrapping_semantics_require_review", "refs": ["user/nagi-ui/src/layout.rs"], "relation": "redesign", "targets": ["LayoutKind::Row"]}
+    }
   }
 }

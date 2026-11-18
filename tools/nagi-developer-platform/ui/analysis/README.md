@@ -146,8 +146,79 @@ runner continues to exercise its original fixed C/Qt inputs; GTK coverage is in
 the focused suite, not a new runner benchmark. Host checks do not establish Nagi
 target acceptance.
 
+## XAML (WPF / WinUI) as the third input — NDP-06d
+
+Selection stays root-based after the shared bounded parse: a root element in the
+XAML presentation namespace (`http://schemas.microsoft.com/winfx/2006/xaml/presentation`,
+shared by WPF and WinUI) selects `format=xaml-ui`; `<ui version="4.0">` and
+`<interface>` still select Qt and GTK. The file suffix is never used. WPF and
+WinUI are not distinguished (`dialect_hints` only lists whether `clr-namespace:` /
+`using:` namespace URIs were declared). The existing API/CLI and Qt/GTK reports are
+unchanged; the shared parser additionally records `xmlns` declarations as data.
+
+Same internal collections as Qt/GTK (`widgets`, `layouts`, `connections`, `bindings`,
+`resources`, `unknown`, `custom_widgets`, `unresolved_references`, `tab_order`), plus
+additive `namespaces` and `dialect_hints`. No public UI schema is introduced.
+
+| Source facts | Retained representation |
+|---|---|
+| Hierarchy | Object elements in the provisional control table become `widgets` in source order with `parent_widget`; panels (Grid, StackPanel, WrapPanel, DockPanel, Canvas, UniformGrid, RelativePanel, VariableSizedWrapGrid) are also `layouts` with `items` (child placement) |
+| Identity | `x:Name` or `Name` (equal values allowed; different values → `conflicting_object_name`); anonymous objects get `@xaml-object-N` (suffixed `_` on collision). Names are global: the same name in two templates is rejected as `duplicate_object_name` |
+| Placement | Attached-property attributes (`Grid.Row`, `Canvas.Left`, …) of each child are kept in its `items[].attributes`; property-element children (`Button.Content`) are tagged with `property` |
+| Text / properties | Attributes → `properties` (names as written; `x:` prefix for the XAML-language namespace); property elements (`Grid.RowDefinitions`) and direct text/inline content (property `Text`/`Inlines`/`Content`) with nested evidence |
+| Events | Attributes whose name is in the provisional event table (also attached, e.g. `Button.GotFocus`) and `EventSetter` → `connections` (`slot` = handler text, `execution=not_run`). An empty handler is `incomplete_connection` |
+| Bindings | `{Binding}`, `{x:Bind}`, `{TemplateBinding}` (also nested inside other extensions) and binding elements (`Binding`, `MultiBinding`, …) → `bindings` with the parsed argument tree, `execution=not_run`. `ElementName`/`x:Reference` names missing from the file → `unresolved_references` (`binding_source`) |
+| Resources | `{StaticResource}`/`{DynamicResource}`/`{ThemeResource}` → `resources` (`resource_reference`); `x:Key` → `resource_definition`; `Source`/`ImageSource`/`NavigateUri`/`UriSource` text → `resources`. A key not defined **in this file** → `unresolved_references` (`resource_key`); scoping/merged dictionaries are not modeled |
+| Accessibility / focus | `AutomationProperties.*`, `x:Uid`, `TabIndex` etc. stay ordinary properties; `tab_order` lists widgets with an integer `TabIndex` (ascending, source order for ties) |
+| Code-behind | `x:Class` → `form_class`; the class, handlers and any named assembly are never loaded |
+| Unknown | Unlisted element names, templates (`DataTemplate`/`ControlTemplate`, body kept as `content`, widgets inside still analyzed), meta-namespace elements, unknown or unparseable markup extensions (`parse=unparseable`), custom-namespace controls (unrecognized widget + `unknown` + `custom_widgets`) |
+
+Markup extensions are split structurally (balanced braces/quotes, depth ≤ 8) and
+never looked up or run; `{}` prefix is a literal escape. Inert-by-construction
+syntax (`x:Null`, `x:Type`, `x:Static`, `RelativeSource`) is retained as evidence
+only. Resource-only roots (`ResourceDictionary`, `Application`) have no screen and
+are rejected as `missing_root_widget`. Limits (bytes/elements/depth), DTD/entity/PI
+rejection, UTF-8/NUL checks and the safe file opener are the shared ones.
+
+Not implemented: type/base-class resolution (so inherited content properties and
+event types), x:Bind path/function typing, namespace scoping, styles/triggers/visual
+states, template instantiation, resource lookup across files or merged dictionaries,
+x:Load/deferred loading, WPF/WinUI differences, rendering, accessibility backend,
+localization catalogs (x:Uid keys are not looked up), runtime compatibility.
+
+Fixtures (original, synthetic): `xaml_minimal.xaml`, `wpf_task_panel.xaml`,
+`winui_task_panel.xaml` under `tests/developer-platform/evaluation/ui/`. Tests:
+`test_xaml.py` (minimal screen, nesting, unknown elements/controls, events, bindings,
+malformed syntax, byte/element/depth boundaries, DTD/entity/PI, Unicode, determinism,
+input unchanged, inert sources, CLI) and the mapping tests in
+`../mapping/test_mapping_xaml.py`. Host-only; not Nagi target acceptance.
+
+### Limits of the threat model
+
+Another process changing the input file, a parent directory or a symlink *while* the
+analyzer runs (a concurrent race) is **outside the threat model**. The safe opener
+checks the path at open time with no-follow handles and reads a bounded number of
+bytes, but it does not defend against a hostile concurrent process and the XAML/Qt/GTK
+analyses make no atomicity claim about the file on disk. The analyzer only reads its
+single input and never writes. Analyze a private copy if the directory is shared.
+
 ## 仮定（PROVISIONAL）
 
+- XAML（NDP-06d）: コントロール表 `XAML_CONTROLS`/`XAML_LAYOUTS`、データ型表 `XAML_VALUE_TYPES`、
+  イベント名表 `XAML_EVENTS`、既定のcontent property表 `XAML_CONTENT_PROPERTY`、
+  markup extension分類（`XAML_BINDING_EXTENSIONS`/`XAML_RESOURCE_EXTENSIONS`/`XAML_INERT_EXTENSIONS`）、
+  resource属性名表は、型解決なしで置いた暫定の語彙。差し替えは各表1か所で、実行系には影響しない。
+  CONFIRMEDなUI owner決定ではない。
+- `x:` 接頭辞をXAML言語namespaceとして固定せず、解析は名前空間URIで行うが、markup extension内の
+  `x:Bind` 等は文字列としての `x:` 接頭辞で照合する（`{xaml:Bind}` のような別名は unknown になる）。
+- 名前はdocument全体で一意とみなす（template毎のnamescopeは扱わない。重複はerror）。
+  NDP-07の`_validate`が名前の一意性を前提にしているため。namescope対応時に見直す。
+- `Grid.Row`等の「`.` を含むattribute」はすべてplacement attributeとして `items[].attributes` に入れる
+  （`AutomationProperties.*` も含む）。型情報がないため配置専用と区別しない。
+- Template本文内のcontrolもwidgetとして列挙する（所有widgetはtemplateを持つ親）。
+  `DataTemplate`/`ControlTemplate` 自体はunknown。
+- event属性は名前表だけで判定する（型情報なし）。表にないevent名は通常のpropertyになる。
+- WPFとWinUIを区別しない。`dialect_hints` は判定ではなくnamespace URI形式の証拠。
 - `nested_in_unknown` は内部レポート上の追加フィールドで、公開schemaではない。
   UI ownerが別の表現（例: 親への参照ID）を望む場合はこの1か所を差し替える。
 - `template` を既知タグにしないのは、本文を解析しない間に「認識済み」に見せない
