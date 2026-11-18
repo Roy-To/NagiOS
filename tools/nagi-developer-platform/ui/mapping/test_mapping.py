@@ -407,6 +407,101 @@ class SymlinkRejectionTests(unittest.TestCase):
         self.assertTrue(self._rejected(state))
 
 
+class UnreadableEntryObservationTests(unittest.TestCase):
+    """Observed (NDP-A007) behaviour for entries the adapter cannot read.
+
+    These tests pin the *current* behaviour; they do not endorse it. The silent skip
+    of an unreadable directory is fail-open and is recorded as PROVISIONAL in the
+    README. Changing it is a separate decision, not part of this observation.
+    """
+
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory(prefix="ndp-a007-unreadable-")
+        self.addCleanup(self._temp.cleanup)
+        self.repo = Path(self._temp.name) / "repo"
+        self.repo.mkdir()
+        EvidenceDriftTests._copy_evidence(self, self.repo)
+        self.src = self.repo / "user/nagi-ui/src"
+        self._restore = []
+        # Registered after the temp cleanup, so it runs first (LIFO).
+        self.addCleanup(self._restore_modes)
+
+    def _restore_modes(self):
+        for path, mode in reversed(self._restore):
+            os.chmod(path, mode)
+
+    def _deny(self, path):
+        """chmod 000, or skip with an explicit reason when it is not enforced."""
+        path = Path(path)
+        self._restore.append((path, 0o700 if path.is_dir() else 0o600))
+        os.chmod(path, 0)
+        try:
+            if path.is_dir():
+                os.listdir(path)
+            else:
+                path.read_bytes()
+        except PermissionError:
+            return
+        except OSError:
+            pass
+        self.skipTest("chmod 000 is not enforced here (euid=%s, e.g. root); "
+                      "unreadable-entry behaviour not reproducible" % os.geteuid())
+
+    def _not_matched(self, state):
+        return {e["path"]: e for e in state["evidence"] if e["state"] != "matched"}
+
+    def test_baseline_copy_is_matched(self):
+        self.assertEqual("matched", contract.inspect_contract(self.repo)["state"])
+
+    def test_unreadable_subdirectory_is_silently_skipped(self):
+        hidden = self.src / "hidden"
+        hidden.mkdir()
+        (hidden / "extra.rs").write_text("pub fn extra() {}\n")
+        self._deny(hidden)
+        state = contract.inspect_contract(self.repo)
+        # Observed: no error, no evidence entry, and the contract still reads "matched".
+        # A new .rs file inside an unreadable directory is therefore NOT detected.
+        self.assertEqual("matched", state["state"])
+        self.assertEqual({}, self._not_matched(state))
+        self.assertNotIn("hidden", json.dumps(state))
+
+    def test_readable_sibling_is_still_enumerated_next_to_unreadable_directory(self):
+        hidden = self.src / "hidden"
+        hidden.mkdir()
+        self._deny(hidden)
+        (self.src / "visible_extra.rs").write_text("pub fn visible() {}\n")
+        state = contract.inspect_contract(self.repo)
+        self.assertEqual("needs_review", state["state"])
+        self.assertEqual(["user/nagi-ui/src/visible_extra.rs"], list(self._not_matched(state)))
+
+    def test_unreadable_enumerated_root_raises_instead_of_failing_closed(self):
+        self._deny(self.src)
+        # Observed: the uncaught PermissionError comes from the per-file symlink check on
+        # a snapshot-listed file; it is not a structured `needs_review` result.
+        with self.assertRaises(PermissionError):
+            contract.inspect_contract(self.repo)
+
+    def test_unreadable_listed_file_is_reported_as_missing(self):
+        listed = self.src / "interaction.rs"
+        self._deny(listed)
+        state = contract.inspect_contract(self.repo)
+        entry = self._not_matched(state)["user/nagi-ui/src/interaction.rs"]
+        # Observed: OSError is folded into the same "missing" state as a deleted file.
+        self.assertEqual("missing", entry["state"])
+        self.assertIsNone(entry["actual_sha256"])
+        self.assertEqual("needs_review", state["state"])
+
+    def test_unreadable_unlisted_file_is_unlisted_without_hash(self):
+        extra = self.src / "extra.rs"
+        extra.write_text("pub fn extra() {}\n")
+        self._deny(extra)
+        state = contract.inspect_contract(self.repo)
+        entry = self._not_matched(state)["user/nagi-ui/src/extra.rs"]
+        self.assertEqual("unlisted", entry["state"])
+        self.assertIsNone(entry["actual_sha256"])
+        self.assertEqual("needs_review", state["state"])
+
+
 class CliAndValidationTests(unittest.TestCase):
     def run_cli(self, data, *args):
         return subprocess.run([sys.executable, str(HERE / "map_ui.py")] + list(args),
