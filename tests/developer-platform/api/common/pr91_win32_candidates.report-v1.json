@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["c"],
+  "manifests": [],
+  "dependencies": [],
+  "analysis": {
+    "files_scanned": 1,
+    "directories_visited": 1,
+    "entries_visited": 1,
+    "bytes_read": 512,
+    "truncated": false,
+    "conclusion": "requires-review"
+  },
+  "findings": [
+    {"category": "os-contract", "path": "win_worker.c", "line": 2, "evidence": "matched tokens: _WIN32", "review_status": "requires-review"},
+    {"category": "networking", "path": "win_worker.c", "line": 3, "evidence": "matched tokens: WSAStartup", "review_status": "requires-review"},
+    {"category": "networking", "path": "win_worker.c", "line": 4, "evidence": "matched tokens: socket(, connect(", "review_status": "requires-review"},
+    {"category": "threading", "path": "win_worker.c", "line": 5, "evidence": "matched tokens: CreateThread", "review_status": "requires-review"},
+    {"category": "process", "path": "win_worker.c", "line": 6, "evidence": "matched tokens: CreateProcess", "review_status": "requires-review"},
+    {"category": "dynamic-loading", "path": "win_worker.c", "line": 7, "evidence": "matched tokens: LoadLibrary(", "review_status": "requires-review"},
+    {"category": "process", "path": "win_worker.c", "line": 8, "evidence": "matched tokens: CreateProcess", "review_status": "requires-review"}
+  ],
+  "limitations": [
+    "This heuristic scan does not establish Nagi compatibility or POSIX/ABI compatibility.",
+    "Dependency versions, licenses, transitive dependencies, and runtime behavior require separate review.",
+    "A host build or package validation does not prove that an application installs or runs on Nagi OS."
+  ]
+}

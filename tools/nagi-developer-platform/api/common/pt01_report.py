@@ -6,11 +6,14 @@ import math
 import re
 
 
-MAX_REPORT_BYTES = 1024 * 1024
-MAX_FINDINGS = 4096
+# Resource bounds (PROVISIONAL, not a product requirement). MAX_FINDINGS follows the
+# finding cap observed in the PR #91 scanner (10,000), so a report the scanner can
+# legitimately emit is not rejected; byte/value bounds are sized for that count.
+MAX_REPORT_BYTES = 8 * 1024 * 1024
+MAX_FINDINGS = 10000
 MAX_EVIDENCE_CHARS = 4096
 MAX_DEPTH = 32
-MAX_VALUES = 50000
+MAX_VALUES = 200000
 
 
 class ReportError(ValueError):
@@ -76,12 +79,8 @@ def _check_tree(document):
             stack.extend((v, depth + 1) for v in value)
 
 
-def adapt_report_v1(data, *, allowed_paths):
-    """Accept UTF-8 bytes and an explicit allowlist, return immutable findings.
-
-    Extra report/row fields are ignored after bounded JSON validation. Only the
-    five documented fields are projected; schema evolution belongs here.
-    """
+def load_report_document(data):
+    """Bounded JSON parse of report bytes. Returns the document, validates nothing else."""
     if not isinstance(data, bytes):
         raise ReportError("report_requires_bytes")
     if len(data) > MAX_REPORT_BYTES:
@@ -94,6 +93,18 @@ def adapt_report_v1(data, *, allowed_paths):
             raise
         raise ReportError("invalid_report_json") from None
     _check_tree(document)
+    return document
+
+
+def adapt_report_v1(data, *, allowed_paths, strict=False):
+    """Accept UTF-8 bytes and an explicit allowlist, return immutable findings.
+
+    Extra report/row fields are ignored after bounded JSON validation. Only the
+    five documented fields are projected; schema evolution belongs here.
+    `strict=True` additionally requires conformance with the PR #91 schema facts
+    (see pt01_conformance.py); the default stays the lenient provisional projection.
+    """
+    document = load_report_document(data)
     if (not isinstance(document, dict)
             or type(document.get("schema_version")) is not int
             or document["schema_version"] != 1):
@@ -127,6 +138,10 @@ def adapt_report_v1(data, *, allowed_paths):
                 or any(0xD800 <= ord(c) <= 0xDFFF for c in evidence)):
             raise ReportError("invalid_finding_evidence")
         findings.append(Finding(row["category"], path, line, evidence, row["review_status"]))
+    if strict:
+        from .pt01_conformance import check_document
+        if check_document(document):
+            raise ReportError("pr91_conformance_violation")
     return tuple(findings)
 
 
