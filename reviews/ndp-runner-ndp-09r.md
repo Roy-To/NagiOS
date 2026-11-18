@@ -18,3 +18,13 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 3 — codex review of 38c94bdc2912
+
+**P1・P2なし。** 指定の `BASE..HEAD` をレビューし、Stage 2 の固定 SHA-256 が承認済みコミット `715d308` の3ファイルと一致することを確認しました。実装差分は `validation/` 内に収まり、担当パス外の差分は過去2ラウンドのレビュー記録でした。
+
+- **P3 — 実行中のファイルシステム変更に関する限界が README にありません。** 別のローカルプロセスが入力ディレクトリを実行中に移動する場合、各工程が同じ入力ツリーを見たことまでは保証されません。最小修正は、実行中に入力ツリーを変更する運用が host pilot の対象外である旨を PROVISIONAL の限界に1文追記することです。 [validation/README.md:259](tools/nagi-developer-platform/validation/README.md:259)
+
+4 fixture の実 CLI 実行で工程別の status と具体的な件数、入力ハッシュの不変、時刻を除く再現性を検証するテストを確認しました。不正 XML の解析に失敗しても、他の UI ファイルと生成工程が続くことを検証しています。JSON と Markdown の両方で Stage 3 と Nagi target 受入は `not_run` です。テスト結果は runner の報告を参照し、今回は再実行していません。
+
+NDP-REVIEW: PASS
+
