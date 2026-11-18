@@ -2,7 +2,7 @@ use super::super::linux_init_c3_slot_journal::{C3DurableSlotReceipt, C3SlotState
 use super::super::linux_initial_login_c2::C1InitialLoginAuthority;
 use super::super::linux_initial_login_owner::LinuxInitialLoginOwner;
 use super::AuthenticatedBootService;
-use crate::profile_volume_notes_owner::SelectedDataRoot;
+use crate::profile_volume_notes_owner::{BootVolumeInput, SelectedDataRoot};
 use nagi_identity_session::{
     C1RecoveryOperationIdentity, C1SystemServiceRecoveryEffectGate,
     C1SystemServiceRecoveryReceiptAdapter, C1SystemServiceRuntimeHandoff,
@@ -34,6 +34,7 @@ pub(super) fn seal_boot_service_principal(
 #[derive(Debug)]
 pub(super) enum BootIdentityRecoveryError {
     Principal(io::Error),
+    Data(io::Error),
     Recovery(IdentityError),
     LiveEffect(io::Error),
 }
@@ -42,6 +43,7 @@ pub(super) enum BootIdentityRecoveryError {
 /// the recovered C1 runtime and the corresponding live C3 receipt.
 pub(super) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     boot: &'boot AuthenticatedBootService<'package>,
+    _data: &'boot BootVolumeInput,
     receipt: C3DurableSlotReceipt,
     identity: C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
@@ -84,8 +86,12 @@ where
 pub(super) fn recover_and_start_initial_login<'boot, 'package, I, C, A, G, E, Login>(
     boot: &'boot AuthenticatedBootService<'package>,
     catalog: &VerifiedRecoveryBootCatalog,
-    mut identity: IdentityService<LinuxIdentitySnapshotStore, I, C, A, G, E>,
-    verifier: LinuxAccountVerifier,
+    data: &'boot BootVolumeInput,
+    snapshot_path: &Path,
+    account_path: &Path,
+    create_identity: impl FnOnce(
+        LinuxIdentitySnapshotStore,
+    ) -> IdentityService<LinuxIdentitySnapshotStore, I, C, A, G, E>,
     request_key: IdempotencyKey,
     expires_at: Option<UnixMillis>,
     login: &mut Login,
@@ -105,9 +111,18 @@ where
     Login:
         LinuxInitialLoginOwner<C1InitialLoginAuthority<LinuxIdentitySnapshotStore, I, C, A, G, E>>,
 {
-    let (handoff, receipt) = recover_boot_identity(boot, catalog, &mut identity)?;
+    let caller =
+        seal_boot_service_principal(boot, catalog).map_err(BootIdentityRecoveryError::Principal)?;
+    let root = data
+        .selected_data_root()
+        .map_err(BootIdentityRecoveryError::Data)?;
+    let (store, verifier) = open_boot_identity(&root, snapshot_path, account_path)
+        .map_err(BootIdentityRecoveryError::Data)?;
+    let mut identity = create_identity(store);
+    let (handoff, receipt) = recover_boot_identity(boot, &caller, &mut identity)?;
     let runtime = RecoveredBootIdentity {
         boot,
+        _data: data,
         receipt,
         identity: C1InitialLoginAuthority::new(
             identity,
@@ -186,9 +201,9 @@ fn with_correlated_c3_effect<R>(
 
 /// Start recovery after principal issuance releases its gate and retain both
 /// owners' evidence for the same authenticated boot launch.
-pub(super) fn recover_boot_identity<I, C, A, G, E>(
+fn recover_boot_identity<I, C, A, G, E>(
     boot: &AuthenticatedBootService<'_>,
-    catalog: &VerifiedRecoveryBootCatalog,
+    caller: &C1VerifiedBootSystemServicePrincipal,
     identity: &mut IdentityService<LinuxIdentitySnapshotStore, I, C, A, G, E>,
 ) -> Result<(C1SystemServiceRuntimeHandoff, C3DurableSlotReceipt), BootIdentityRecoveryError>
 where
@@ -198,8 +213,6 @@ where
     G: GuestProfileCleaner,
     E: IdentityEventSink,
 {
-    let caller =
-        seal_boot_service_principal(boot, catalog).map_err(BootIdentityRecoveryError::Principal)?;
     let scope = boot.recovery_scope();
     let mut gate = BootRecoveryGate {
         boot,
@@ -207,7 +220,7 @@ where
         used: false,
     };
     let handoff =
-        C1SystemServiceRecoveryReceiptAdapter::new_for_verified_boot_principal(identity, &caller)
+        C1SystemServiceRecoveryReceiptAdapter::new_for_verified_boot_principal(identity, caller)
             .recover_with_new_intent_into_runtime(scope, &mut gate)
             .map_err(BootIdentityRecoveryError::Recovery)?;
     let receipt = gate
