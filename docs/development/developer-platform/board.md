@@ -52,3 +52,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-18 NDP-11c: API rules・generator・Stage 2を繰返し評価に追加（各3回一致・入力不変・失敗検知）、runner（PR #177、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-12b: 統合済み成果・PROVISIONAL一覧・未検証事項・他owner依頼を handover.md に記録（テストは Ba（PR #178、runnerテスト成功、claudeレビューPASS）
 - 11-18 NDP-A001: `WIN-HEADER` は path 付き include（`<sub/windows.h>` など）に一致しなくなり（PR #179、runnerテスト成功、claudeレビューPASS）
+- 11-18 NDP-A002: generate.pyのdirectory mode判定をumask連動に修正（受入後にfchmod 0o700、0o4（PR #180、runnerテスト成功、claudeレビューPASS）
