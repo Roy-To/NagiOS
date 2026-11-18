@@ -423,6 +423,72 @@ class ReportTests(unittest.TestCase):
         self.assert_portable(checks)
         self.assert_target_not_run(result)
 
+    def test_ui_gap_rows_match_status_counts_with_only_allowed_fields(self):
+        mapped = report.build_report("ui")["checks"]["ui_mapping"]
+        for item in mapped["files"]:
+            non_supported = sum(item["counts"][s] for s in report.MAPPING_STATUSES
+                                if s != "supported")
+            self.assertFalse(item["gap_rows_truncated"])
+            self.assertEqual(len(item["gap_rows"]), non_supported)
+            for status in report.MAPPING_STATUSES:
+                self.assertEqual(sum(row["status"] == status for row in item["gap_rows"]),
+                                 0 if status == "supported" else item["counts"][status])
+            for row in item["gap_rows"]:
+                self.assertEqual(set(row), {"id", "source_kind", "status", "reason"})
+        self.assertEqual(sum(len(item["gap_rows"]) for item in mapped["files"]), 63)
+        # Existing keys stay as before.
+        self.assertEqual(set(mapped["files"][0]) - {"gap_rows", "gap_rows_truncated"},
+                         {"status", "reason", "input_paths", "counts", "format", "contract_evidence"})
+
+    def test_ui_gap_rows_are_truncated_and_markdown_shows_omission(self):
+        with patch.object(report, "MAX_UI_DETAILS", 3):
+            result = report.build_report("ui")
+        mapped = result["checks"]["ui_mapping"]
+        largest = mapped["files"][-1]
+        self.assertEqual(largest["counts"]["rows"], 19)
+        self.assertEqual(len(largest["gap_rows"]), 3)
+        self.assertTrue(largest["gap_rows_truncated"])
+        self.assertFalse(mapped["files"][1]["gap_rows_truncated"])
+        with patch.object(report, "MAX_UI_MARKDOWN_ROWS", 2):
+            markdown = report.markdown_report(result)
+        path = largest["input_paths"][0]
+        self.assertIn("- ui_mapping `{}` … 17 more non-supported rows omitted (see JSON)".format(path),
+                      markdown)
+        self.assertEqual(markdown.count("- ui_mapping `{}` row ".format(path)), 2)
+
+    def test_ui_gap_rows_markdown_lists_reasons_and_leaks_no_absolute_path(self):
+        result = report.build_report("ui")
+        markdown = report.markdown_report(result)
+        first = result["checks"]["ui_mapping"]["files"][0]
+        row = first["gap_rows"][0]
+        self.assertIn("- ui_mapping `{}` row `{}` ({}) · `{}` · {}\n".format(
+            first["input_paths"][0], row["id"], row["source_kind"], row["status"],
+            report.describe_reason(row["reason"])), markdown)
+        self.assertNotIn(str(report.REPO), markdown)
+        self.assertNotIn(str(report.REPO), json.dumps(result))
+        # A code without a description is shown as the code alone.
+        row["reason"] = "made_up_row_reason"
+        self.assertIn("· `made_up_row_reason`\n", report.markdown_report(result))
+
+    def test_ui_gap_rows_absent_when_tool_unavailable_or_fixture_not_ui(self):
+        error = report.CheckError("tool_unavailable", "not_run")
+        with patch.object(report, "run_json_script", side_effect=error):
+            result = report.build_report("ui")
+        mapped = result["checks"]["ui_mapping"]
+        self.assertEqual(mapped["status"], "not_run")
+        for item in mapped["files"]:
+            self.assertNotIn("gap_rows", item)
+        self.assertEqual(report.gap_row_lines(mapped), [])
+        self.assertNotIn("row `", report.markdown_report(result))
+        other = report.build_report("windows")["checks"]["ui_mapping"]
+        self.assertEqual(report.gap_row_lines(other), [])
+
+    def test_ui_gap_row_with_unsafe_values_is_rejected(self):
+        row = {"id": "widgets:0", "source_kind": "widgets", "status": "partial",
+               "mapping": {"reason": "/abs/path"}}
+        with self.assertRaises(report.CheckError):
+            report.gap_row(row)
+
     def test_missing_validator_does_not_stop_portable_build(self):
         with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")):
             result = report.build_report("portable")

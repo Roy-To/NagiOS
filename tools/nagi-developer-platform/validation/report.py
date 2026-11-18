@@ -30,6 +30,8 @@ PORTABLE_TARGET = "portable-summary"
 MAX_TOOL_OUTPUT = 512 * 1024
 MAX_REPORT_BYTES = 128 * 1024
 MAX_API_DETAILS = 32
+MAX_UI_DETAILS = 32  # per mapped UI file, in JSON
+MAX_UI_MARKDOWN_ROWS = 8  # per mapped UI file, in Markdown
 TOOL_TIMEOUT = 10
 MAPPING_STATUSES = ("supported", "partial", "unsupported", "needs_decision")
 UI_FACTS = ("widgets", "layouts", "connections", "tab_order", "bindings",
@@ -205,6 +207,20 @@ def summarize_ui(paths, files, success_reason):
     return check("passed", success_reason, paths, counts, files=files)
 
 
+def gap_row(row):
+    """PROVISIONAL detail of one non-supported mapping row.
+
+    Only the row id, source kind, status and mapping reason code are kept; source
+    names, text and paths from the analyzed file are never copied.
+    """
+    reason = row["mapping"]["reason"]
+    if (row["status"] not in MAPPING_STATUSES or reason_code(row["id"], None) is None
+            or reason_code(row["source_kind"], None) is None or reason_code(reason, None) is None):
+        raise CheckError("invalid_tool_output")
+    return {"id": row["id"], "source_kind": row["source_kind"], "status": row["status"],
+            "reason": reason}
+
+
 def inspect_ui(fixture):
     if fixture != "ui":
         return (check("unsupported", "no_ui_inputs_for_fixture"),
@@ -234,9 +250,11 @@ def inspect_ui(fixture):
                     or not isinstance(mapping["rows"], list)
                     or sum(status_counts.values()) != len(mapping["rows"])):
                 raise CheckError("invalid_tool_output")
+            gaps = [gap_row(row) for row in mapping["rows"] if row["status"] != "supported"]
             return check("passed", "mapping_summarized", (path,),
                          {"rows": len(mapping["rows"]), **status_counts},
-                         format=mapping["source_format"], contract_evidence=mapping["contract"]["state"])
+                         format=mapping["source_format"], contract_evidence=mapping["contract"]["state"],
+                         gap_rows=gaps[:MAX_UI_DETAILS], gap_rows_truncated=len(gaps) > MAX_UI_DETAILS)
 
         analysis = attempt((path,), analyze)
         analyzed.append(analysis)
@@ -398,6 +416,24 @@ def build_report(fixture):
     }
 
 
+def gap_row_lines(mapping):
+    """Short list of non-supported UI mapping rows per file, with an omission note."""
+    lines = []
+    for item in mapping.get("files", ()):
+        rows = item.get("gap_rows")
+        if not rows:
+            continue
+        path = item["input_paths"][0]
+        lines.extend("- ui_mapping `{}` row `{}` ({}) · `{}` · {}".format(
+            path, row["id"], row["source_kind"], row["status"], describe_reason(row["reason"]))
+            for row in rows[:MAX_UI_MARKDOWN_ROWS])
+        total = sum(item["counts"][status] for status in MAPPING_STATUSES if status != "supported")
+        if total > min(len(rows), MAX_UI_MARKDOWN_ROWS):
+            lines.append("- ui_mapping `{}` … {} more non-supported rows omitted (see JSON)".format(
+                path, total - min(len(rows), MAX_UI_MARKDOWN_ROWS)))
+    return ["", *lines] if lines else []
+
+
 def markdown_report(report):
     lines = [
         "# Migration evaluation",
@@ -426,6 +462,7 @@ def markdown_report(report):
                     name, label, item["status"], describe_reason(item["reason"])))
     if problems:
         lines.extend(("", *problems))
+    lines.extend(gap_row_lines(report["checks"]["ui_mapping"]))
     lines.extend(("", "Stage 1 checks metadata of the scratch scaffold. Stage 2 covers the "
                   "approved host fixture only. Manual and AI comparisons, effort and reuse "
                   "measurements are pending.", ""))
