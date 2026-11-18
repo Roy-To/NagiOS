@@ -32,6 +32,8 @@ MAX_REPORT_BYTES = 128 * 1024
 MAX_API_DETAILS = 32
 MAX_UI_DETAILS = 32  # per mapped UI file, in JSON
 MAX_UI_MARKDOWN_ROWS = 8  # per mapped UI file, in Markdown
+MAX_API_MARKDOWN_NAMES = 6  # API names per row, in the Markdown "API gaps" section
+MAX_API_NAME_CHARS = 80  # per API name, in Markdown
 TOOL_TIMEOUT = 10
 MAPPING_STATUSES = ("supported", "partial", "unsupported", "needs_decision")
 UI_FACTS = ("widgets", "layouts", "connections", "tab_order", "bindings",
@@ -459,6 +461,39 @@ def gap_row_lines(mapping):
     return ["", *lines] if lines else []
 
 
+def api_gap_lines(report):
+    """PROVISIONAL "API gaps" section: unsupported or unresolved API rows.
+
+    Built only from the JSON `rows` of the API diagnosis checks; the JSON is not
+    changed. Rows whose availability is `unsupported` or whose rule_id is null
+    are listed with line, API names and a note. Nothing is emitted (no empty
+    section) when no row qualifies and the row list is not truncated.
+    """
+    lines = []
+    for name in ("windows_diagnosis", "linux_diagnosis"):
+        result = report["checks"][name]
+        if result["status"] != "passed":
+            continue
+        entries = []
+        for row in result.get("rows", ()):
+            unresolved = row["rule_id"] is None
+            if row["availability"] != "unsupported" and not unresolved:
+                continue
+            apis = ["`{}`".format(api[:MAX_API_NAME_CHARS]) for api in row["apis"][:MAX_API_MARKDOWN_NAMES]]
+            hidden = len(row["apis"]) - len(apis)
+            if hidden > 0:
+                apis.append("+{} more".format(hidden))
+            note = ("no rule matched (unresolved)" if unresolved
+                    else "unsupported (rule `{}`)".format(row["rule_id"]))
+            entries.append("- {} line {} · {} · {}".format(
+                name, row["line"], ", ".join(apis) or "—", note))
+        if result.get("truncated"):
+            entries.append("- {} … rows beyond the first {} are omitted (see JSON counts)".format(
+                name, len(result.get("rows", ()))))
+        lines.extend(entries)
+    return ["", "## API gaps", "", *lines] if lines else []
+
+
 def markdown_report(report):
     lines = [
         "# Migration evaluation",
@@ -487,6 +522,7 @@ def markdown_report(report):
                     name, label, item["status"], describe_reason(item["reason"])))
     if problems:
         lines.extend(("", *problems))
+    lines.extend(api_gap_lines(report))
     lines.extend(gap_row_lines(report["checks"]["ui_mapping"]))
     lines.extend(("", "Stage 1 checks metadata of the scratch scaffold. Stage 2 covers the "
                   "approved host fixture only. Manual and AI comparisons, effort and reuse "
