@@ -41,6 +41,25 @@ def load_generator():
     return module
 
 
+def generate_scaffold(root, inputs=None, generator=None):
+    """Generate in a fresh scratch root and return the generator's result or error code."""
+    inputs = dict(DEFAULT_INPUTS if inputs is None else inputs)
+    try:
+        generator = load_generator() if generator is None else generator
+    except (OSError, SyntaxError, ImportError):
+        return {"status": "unavailable", "reason": "generator_unavailable"}
+    try:
+        # Stand-in checkout: the generator only checks that the SDK Cargo.toml exists.
+        (root / "sdk/rust").mkdir(parents=True)
+        (root / "sdk/rust/Cargo.toml").write_text("# stand-in\n", encoding="utf-8")
+        (root / "samples").mkdir()
+        return generator.generate(inputs, root)
+    except generator.GenerationError as error:
+        return {"status": "failed", "reason": error.code}
+    except OSError:
+        return {"status": "failed", "reason": "io_error"}
+
+
 def check_generated(inputs=None, timeout=10, cancel=None, generator=None):
     """Generate a scaffold in a temp checkout stand-in and run Stage 1 on its Manifest.
 
@@ -51,25 +70,15 @@ def check_generated(inputs=None, timeout=10, cancel=None, generator=None):
     inputs = dict(DEFAULT_INPUTS if inputs is None else inputs)
     base = {"stage": 1, "check": "generated_manifest", "scope": "host_metadata_only",
             "status": "failed", "exit_code": None, "built": False}
-    try:
-        generator = load_generator() if generator is None else generator
-    except (OSError, SyntaxError, ImportError):
-        return {**base, "generator": "unavailable", "reason": "generator_unavailable"}
     output_dir = inputs.get("output_dir")
     with tempfile.TemporaryDirectory(prefix="nagi-ndp-gen-stage1-") as directory:
         root = Path(directory)
-        # Stand-in checkout: the generator only checks that the SDK Cargo.toml exists.
-        (root / "sdk/rust").mkdir(parents=True)
-        (root / "sdk/rust/Cargo.toml").write_text("# stand-in\n", encoding="utf-8")
-        (root / "samples").mkdir()
-        try:
-            generator.generate(inputs, root)
-        except generator.GenerationError as error:
+        generated = generate_scaffold(root, inputs, generator)
+        if generated["status"] == "unavailable":
+            return {**base, "generator": "unavailable", "reason": generated["reason"]}
+        if generated["status"] != "created":
             return {**base, "generator": "failed", "reason": "generation_failed",
-                    "generator_reason": error.code}
-        except OSError:
-            return {**base, "generator": "failed", "reason": "generation_failed",
-                    "generator_reason": "io_error"}
+                    "generator_reason": generated["reason"]}
         result = validate.validate(root, "{}/{}".format(output_dir, MANIFEST_NAME),
                                    stage=1, timeout=timeout, cancel=cancel)
     return {**result, "check": "generated_manifest", "built": False,
