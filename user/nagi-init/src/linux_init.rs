@@ -7277,8 +7277,17 @@ impl InitBackend for UnconnectedBackend {
                     #[cfg(not(nagi_release_build))]
                     if mapping.is_ok() {
                         if let Some(data) = self.identity_data.as_ref() {
-                            match data.input.identity_inputs(&data.accounts, &data.snapshots) {
-                                Ok(_) => pid1_log!("NAGI_DEV_IDENTITY_DATA_INPUTS_VALIDATED"),
+                            match data.input.selected_data_root() {
+                                Ok(root) => {
+                                    match root.prepare_account_verifier(&data.accounts) {
+                                        Ok(_) => pid1_log!("NAGI_DEV_IDENTITY_ACCOUNTS_DIRECTORY_VALIDATED"),
+                                        Err(error) => pid1_log!("NAGI_DEV_IDENTITY_ACCOUNTS_DIRECTORY_UNAVAILABLE ({error})"),
+                                    }
+                                    match root.retain_identity_snapshot_directory(&data.snapshots) {
+                                        Ok(_) => pid1_log!("NAGI_DEV_IDENTITY_SNAPSHOTS_DIRECTORY_VALIDATED"),
+                                        Err(error) => pid1_log!("NAGI_DEV_IDENTITY_SNAPSHOTS_DIRECTORY_UNAVAILABLE ({error})"),
+                                    }
+                                }
                                 Err(error) => {
                                     pid1_log!("NAGI_DEV_IDENTITY_DATA_INPUTS_UNAVAILABLE ({error})")
                                 }
