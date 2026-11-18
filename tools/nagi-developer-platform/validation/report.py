@@ -207,18 +207,41 @@ def summarize_ui(paths, files, success_reason):
     return check("passed", success_reason, paths, counts, files=files)
 
 
-def gap_row(row):
-    """PROVISIONAL detail of one non-supported mapping row.
+GAP_ORDER = {"unsupported": 0, "needs_decision": 1, "partial": 2}  # most severe first
 
-    Only the row id, source kind, status and mapping reason code are kept; source
-    names, text and paths from the analyzed file are never copied.
+
+def gap_row(row):
+    """PROVISIONAL detail of one mapping row whose `mapping.status` is not supported.
+
+    Only the row id, source kind, row status, mapping status and mapping reason
+    code are kept; source names, text and paths from the analyzed file are never
+    copied.
     """
-    reason = row["mapping"]["reason"]
-    if (row["status"] not in MAPPING_STATUSES or reason_code(row["id"], None) is None
+    mapping = row["mapping"]
+    reason = mapping["reason"]
+    if (row["status"] not in MAPPING_STATUSES or mapping["status"] not in GAP_ORDER
+            or reason_code(row["id"], None) is None
             or reason_code(row["source_kind"], None) is None or reason_code(reason, None) is None):
         raise CheckError("invalid_tool_output")
     return {"id": row["id"], "source_kind": row["source_kind"], "status": row["status"],
-            "reason": reason}
+            "mapping_status": mapping["status"], "reason": reason}
+
+
+def gap_rows(rows):
+    """Rows not matched as `supported` against the UI contract vocabulary.
+
+    The row `status` of map_ui.py is never better than `partial`, so the filter
+    uses `mapping.status`. Rows are stably ordered unsupported, needs_decision,
+    partial so that truncation drops the least severe rows first.
+    """
+    gaps = []
+    for row in rows:
+        if row["mapping"]["status"] == "supported":
+            if row["status"] not in MAPPING_STATUSES:
+                raise CheckError("invalid_tool_output")
+            continue
+        gaps.append(gap_row(row))
+    return sorted(gaps, key=lambda row: GAP_ORDER[row["mapping_status"]])
 
 
 def inspect_ui(fixture):
@@ -250,11 +273,12 @@ def inspect_ui(fixture):
                     or not isinstance(mapping["rows"], list)
                     or sum(status_counts.values()) != len(mapping["rows"])):
                 raise CheckError("invalid_tool_output")
-            gaps = [gap_row(row) for row in mapping["rows"] if row["status"] != "supported"]
+            gaps = gap_rows(mapping["rows"])
             return check("passed", "mapping_summarized", (path,),
                          {"rows": len(mapping["rows"]), **status_counts},
                          format=mapping["source_format"], contract_evidence=mapping["contract"]["state"],
-                         gap_rows=gaps[:MAX_UI_DETAILS], gap_rows_truncated=len(gaps) > MAX_UI_DETAILS)
+                         gap_rows=gaps[:MAX_UI_DETAILS], gap_rows_total=len(gaps),
+                         gap_rows_truncated=len(gaps) > MAX_UI_DETAILS)
 
         analysis = attempt((path,), analyze)
         analyzed.append(analysis)
@@ -424,13 +448,14 @@ def gap_row_lines(mapping):
         if not rows:
             continue
         path = item["input_paths"][0]
+        shown = rows[:MAX_UI_MARKDOWN_ROWS]
         lines.extend("- ui_mapping `{}` row `{}` ({}) · `{}` · {}".format(
-            path, row["id"], row["source_kind"], row["status"], describe_reason(row["reason"]))
-            for row in rows[:MAX_UI_MARKDOWN_ROWS])
-        total = sum(item["counts"][status] for status in MAPPING_STATUSES if status != "supported")
-        if total > min(len(rows), MAX_UI_MARKDOWN_ROWS):
+            path, row["id"], row["source_kind"], row["mapping_status"],
+            describe_reason(row["reason"])) for row in shown)
+        omitted = item.get("gap_rows_total", len(rows)) - len(shown)
+        if omitted > 0:
             lines.append("- ui_mapping `{}` … {} more non-supported rows omitted (see JSON)".format(
-                path, total - min(len(rows), MAX_UI_MARKDOWN_ROWS)))
+                path, omitted))
     return ["", *lines] if lines else []
 
 
