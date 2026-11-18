@@ -1,23 +1,23 @@
 # NDP作業ボード
 
-2026-11-17。専用worktreeは利用者が作成を許可。共有checkoutのbranchを切り替えず、専用作業場所で1セッションが書き込む。push/上流merge/共有registry変更は未実施。
+2026-11-18更新。専用worktreeは利用者が作成を許可。共有checkoutのbranchを切り替えず、専用作業場所で1セッションが書き込む。push/上流merge/共有registry変更は未実施。
 
 | Task | 状態 | 結果 | 次・残件 |
 |---|---|---|---|
 | NDP-01 | PASS | e8071ecの開始記録 | 担当確定済み |
-| NDP-02 | PARTIAL | 最小Manifestを実validatorで確認 | SDK外部参照方式とowner合意 |
-| NDP-03 | NOT STARTED | なし | SDK参照契約待ち |
-| NDP-04 | NOT STARTED | なし | PT-01正規入力の接続待ち |
-| NDP-05 | NOT STARTED | なし | PT-01正規入力の接続待ち |
-| NDP-06 | PASS | 9b68295、18テスト・再レビュー成功 | Qt XMLのhost pilot限定 |
-| NDP-07 | NOT STARTED | なし | UI owner接続待ち |
+| NDP-02 | PARTIAL | Level 0雛形契約を実ファイルで照合 | SDK外部参照方式とowner合意 |
+| NDP-03 | PARTIAL | 雛形generator、41件OK（実validator依存1件skip） | 雛形のbuild・署名・install未実施 |
+| NDP-04 | PARTIAL | Windows API差分rulesと暫定adapter、68件OK | PT-01正規入力と実scanner接続 |
+| NDP-05 | PARTIAL | Linux API差分rules、66件OK | PT-01正規入力と実scanner接続 |
+| NDP-06 | PASS | Qt XMLとGTK Builderの静的解析、host限定 | renderer・実event・実instance化は未実施 |
+| NDP-07 | PARTIAL | UI対応表と未対応レポート、26件OK | UI ownerの部品対応の確認 |
 | NDP-08 | PARTIAL | 正規validatorを実接続 | CLI/Package owner確認 |
-| NDP-09 | PARTIAL | Stage 1実接続、11テスト成功 | Stage 2/3と生成物接続 |
+| NDP-09 | PARTIAL | Stage 1/2と生成物接続、Stage 3は未接続 | Stage 3と実nagi-pkg環境での確認 |
 | NDP-10 | PASS | 715d308、独立レビュー済み | 後続の比較評価 |
-| NDP-11 | PARTIAL | C/UI各3回一致、入力不変 | 手動・LLM比較とtarget未実施 |
-| NDP-12 | NOT STARTED | 上流統合なし | 統合・登録担当の指定待ち |
+| NDP-11 | PARTIAL | API・generator・Stage 2を各3回評価 | 手動・LLM比較とtarget未実施 |
+| NDP-12 | PARTIAL | 統合済み成果と未検証事項をhandoverに記録 | main等への反映順序をIntegration Ownerへ |
 
-SDKとtoolの読取結果・具体的な不足は[接続調査](contract-audit.md)。PASSは上記の限定作業のみで、Nagi image受入ではない。
+SDKとtoolの読取結果・具体的な不足は[接続調査](contract-audit.md)。引渡しは[handover](handover.md)。PASSは上記の限定作業のみで、Nagi image受入ではない。
 
 確認結果: portable Cの警告エラー付きbuild・境界条件・繰返し一致・入力不変が成功。NDP-06は実際のNDP-10入力とCLIを含む18テストが成功。標準host全体のdoctor、SDK validator、VM/targetは未実施。
 
