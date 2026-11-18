@@ -5,12 +5,12 @@
   "dependencies": [],
   "analysis": {},
   "findings": [
-    {"category": "linux-header", "path": "read_and_watch.c", "line": 14, "evidence": "#include <sys/inotify.h>", "review_status": "needs_review"},
-    {"category": "posix-header", "path": "read_and_watch.c", "line": 15, "evidence": "#include <unistd.h>", "review_status": "needs_review"},
-    {"category": "linux-api", "path": "read_and_watch.c", "line": 17, "evidence": "    int descriptor = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);", "review_status": "needs_review"},
-    {"category": "linux-api", "path": "read_and_watch.c", "line": 19, "evidence": "    int extra = fancy_notify_create(descriptor);", "review_status": "needs_review"},
-    {"category": "linux-api", "path": "read_and_watch.c", "line": 20, "evidence": "    if (inotify_add_watch(descriptor, path, IN_MODIFY) < 0) {", "review_status": "needs_review"},
-    {"category": "posix-api", "path": "read_and_watch.c", "line": 21, "evidence": "        close(descriptor);", "review_status": "needs_review"}
+    {"category": "linux-header", "path": "read_and_watch.c", "line": 15, "evidence": "#include <sys/inotify.h>", "review_status": "needs_review"},
+    {"category": "posix-header", "path": "read_and_watch.c", "line": 16, "evidence": "#include <unistd.h>", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "read_and_watch.c", "line": 18, "evidence": "    int descriptor = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "read_and_watch.c", "line": 20, "evidence": "    int readable = euidaccess(path, R_OK);", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "read_and_watch.c", "line": 21, "evidence": "    if (readable < 0 || inotify_add_watch(descriptor, path, IN_MODIFY) < 0) {", "review_status": "needs_review"},
+    {"category": "posix-api", "path": "read_and_watch.c", "line": 22, "evidence": "        close(descriptor);", "review_status": "needs_review"}
   ],
   "limitations": ["Handwritten interim report fixture (Linux lines of a mixed-platform source), not scanner output. Source: tests/developer-platform/evaluation/mixed/read_and_watch.c"]
 }

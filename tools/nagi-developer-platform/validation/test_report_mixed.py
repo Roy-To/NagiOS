@@ -23,10 +23,12 @@ SOURCE = "tests/developer-platform/evaluation/mixed/read_and_watch.c"
 WINDOWS_SNAPSHOT = "tests/developer-platform/api/mixed/read_and_watch.windows.report-v1.json"
 LINUX_SNAPSHOT = "tests/developer-platform/api/mixed/read_and_watch.linux.report-v1.json"
 # (line, rule_id) in the handwritten snapshots; None is a line no bundled rule matches.
+# The unresolved lines call real platform APIs that the bundled rules do not list:
+# Win32 `CancelIoEx` (windows.h) and glibc `euidaccess` (unistd.h, _GNU_SOURCE).
 WINDOWS_ROWS = [(3, "WIN-HEADER"), (5, "WIN-FILE-OPEN"), (8, "WIN-FILE-READ"),
                 (9, None), (10, "WIN-HANDLE-CLOSE")]
-LINUX_ROWS = [(14, "LNX-INOTIFY"), (15, "POSIX-HEADER-FD"), (17, "LNX-INOTIFY"),
-              (19, None), (20, "LNX-INOTIFY"), (21, "POSIX-FD-CLOSE")]
+LINUX_ROWS = [(15, "LNX-INOTIFY"), (16, "POSIX-HEADER-FD"), (18, "LNX-INOTIFY"),
+              (20, None), (21, "LNX-INOTIFY"), (22, "POSIX-FD-CLOSE")]
 
 
 def gap_section(markdown):
@@ -103,9 +105,9 @@ class MixedReportTests(unittest.TestCase):
         for expected in (
                 "- windows_diagnosis line 5 · `CreateFileW` · unsupported (rule `WIN-FILE-OPEN`)",
                 "- windows_diagnosis line 9 · — · no rule matched (unresolved)",
-                "- linux_diagnosis line 20 · `IN_MODIFY`, `inotify_add_watch` · "
+                "- linux_diagnosis line 21 · `IN_MODIFY`, `inotify_add_watch` · "
                 "unsupported (rule `LNX-INOTIFY`)",
-                "- linux_diagnosis line 19 · — · no rule matched (unresolved)"):
+                "- linux_diagnosis line 20 · — · no rule matched (unresolved)"):
             self.assertIn(expected, lines)
 
     def test_all_matrix_and_reasons_include_mixed(self):
@@ -124,6 +126,15 @@ class MixedReportTests(unittest.TestCase):
                          result["reports"]["mixed"]["overview"]["counts"])
         self.assertTrue(any(item["fixture"] == "mixed" for item in summary["not_passed"]))
         self.assertEqual(report.undescribed_reasons(list(result["reports"].values())), [])
+        # `reasons` aggregates every report's not_passed reason, mixed included.
+        mixed_reasons = {item["reason"] for item in
+                         result["reports"]["mixed"]["overview"]["not_passed"]}
+        expected = {item["reason"] for report_item in result["reports"].values()
+                    for item in report_item["overview"]["not_passed"]}
+        self.assertTrue(mixed_reasons)
+        self.assertEqual({item["reason"] for item in summary["reasons"]}, expected)
+        self.assertEqual(len(summary["reasons"]), len(expected))
+        self.assertLessEqual(mixed_reasons, {item["reason"] for item in summary["reasons"]})
         for item in summary["reasons"]:
             self.assertTrue(item["reason"] in report.REASON_DESCRIPTIONS
                             or item["reason"] in report.CODE_ONLY_REASONS, item["reason"])

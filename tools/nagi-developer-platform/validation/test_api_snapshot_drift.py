@@ -208,8 +208,11 @@ class ApiSnapshotDriftTests(unittest.TestCase):
         lines = validate.read_manifest(report.REPO, source).decode("utf-8").splitlines()
         expected = {"windows": {3: "windows.h", 5: "CreateFileW", 8: "ReadFile",
                                 10: "CloseHandle"},
-                    "linux": {14: "sys/inotify.h", 15: "unistd.h", 17: "inotify_init1",
-                              20: "inotify_add_watch", 21: "close"}}
+                    "linux": {15: "sys/inotify.h", 16: "unistd.h", 18: "inotify_init1",
+                              21: "inotify_add_watch", 22: "close"}}
+        # Real platform APIs that the bundled rules do not list: Win32 CancelIoEx
+        # (declared via windows.h) and glibc euidaccess (unistd.h with _GNU_SOURCE).
+        unresolved = {"windows": (9, "CancelIoEx"), "linux": (20, "euidaccess")}
         for platform, names in expected.items():
             result = report.diagnose(report.MIXED_FIXTURE, platform)
             self.assertEqual(result["status"], "passed", platform)
@@ -218,13 +221,25 @@ class ApiSnapshotDriftTests(unittest.TestCase):
                 self.assertIn(api, lines[number - 1], (platform, number))
                 self.assertIsNotNone(rows[number]["rule_id"], (platform, number))
                 self.assertTrue(rows[number]["apis"], (platform, number))
-        # The unresolved lines name an API that no bundled rule knows.
-        self.assertIn("NtFancyFlush", lines[8])
-        self.assertIn("fancy_notify_create", lines[18])
+            number, api = unresolved[platform]
+            self.assertRegex(lines[number - 1], r"\b{}\(".format(api), (platform, number))
+            self.assertIsNone(rows[number]["rule_id"], (platform, number))
+            self.assertEqual(rows[number]["apis"], [], (platform, number))
+            self.assertEqual([row["line"] for row in result["rows"] if row["rule_id"] is None],
+                             [number], platform)
+
+    def test_mixed_unresolved_apis_are_absent_from_the_bundled_rules(self):
+        # Guards the fixture's purpose: the unresolved line names a real API that the
+        # current rules do not list. If a rule later adds it, this fails and the fixture
+        # must pick another unlisted API (rather than silently stop testing "unresolved").
+        for platform, api in (("windows", "CancelIoEx"), ("linux", "euidaccess")):
+            with self.subTest(platform=platform):
+                rules = (report.TOOLKIT / "api" / platform / "rules.json").read_text(encoding="utf-8")
+                self.assertNotIn(api.lower(), rules.lower())
 
     def test_mixed_shifted_snapshot_line_is_detected(self):
         for platform, old, new in (("windows", '"line": 5,', '"line": 6,'),
-                                   ("linux", '"line": 17,', '"line": 18,')):
+                                   ("linux", '"line": 18,', '"line": 19,')):
             with self.subTest(platform=platform):
                 root = self.make_copy(platform, report.MIXED_FIXTURE)
                 self.rewrite(root, case_paths(platform, report.MIXED_FIXTURE)[1], old, new)
@@ -245,7 +260,7 @@ class ApiSnapshotDriftTests(unittest.TestCase):
 
     def test_mixed_snapshot_line_past_end_of_source_is_detected(self):
         root = self.make_copy("linux", report.MIXED_FIXTURE)
-        self.rewrite(root, case_paths("linux", report.MIXED_FIXTURE)[1], '"line": 21,', '"line": 210,')
+        self.rewrite(root, case_paths("linux", report.MIXED_FIXTURE)[1], '"line": 22,', '"line": 220,')
         problems, _ = drift_problems(root, "linux", report.MIXED_FIXTURE)
         self.assertTrue(any("past the end" in problem for problem in problems), problems)
 
