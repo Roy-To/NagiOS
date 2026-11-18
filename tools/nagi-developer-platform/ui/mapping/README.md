@@ -136,8 +136,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/anal
   `src`外のファイルは対象外。範囲を広げる／狭めるのはsnapshotデータの変更だけで
   行える（UI ownerの要判断）。未列挙ファイルは`sha256=null`、Markdownでは
   `not_in_snapshot`と表示する。
-- symlinkの扱い（PROVISIONAL、fail-closed）: `contract.py`は`enumerate`配下を
-  `os.walk(followlinks=False)`で列挙し、symlinkを**一切辿らず・読まない**。
+- symlinkの扱い（PROVISIONAL、fail-closed）: 作業ツリーが検査中に変わらない場合、
+  `contract.py`は`enumerate`配下を`os.walk(followlinks=False)`で列挙し、検出したsymlinkを拒否する。
   repo外を指すものもrepo内を指すものも区別せず同じ扱いで、`.rs`のsymlink、
   symlinkのdirectory、`enumerate`のdir自体や途中のsymlink、およびsnapshot列挙済み
   ファイルのpath途中にあるsymlinkは、evidenceに固定の`state="symlink_rejected"`
@@ -148,6 +148,24 @@ PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/ui/analysis/anal
   directoryがsymlinkであること（例: 作業場所自体）は検査対象外。Windows等の
   junction／reparse pointは未検証。方針の変更（除外へ緩和等）はこの1か所の
   差し替えで行える（UI ownerの要判断）。
+- 読めないディレクトリの扱い（実測結果）。非rootのmacOSホスト（Python 3.9.6）で
+  `test_mapping.py`の`UnreadableEntryObservationTests`を実行した。
+  - `enumerate`配下のサブディレクトリが読める間は、新しい`.rs`が`unlisted`となり、
+    全体が`needs_review`になる。同じディレクトリを`chmod 000`にすると、`onerror`を
+    指定していない`os.walk`がそのディレクトリを黙って飛ばし、結果は`.rs`を追加する前の
+    `matched`に戻る（**fail-open**）。隣にある読める未列挙ファイルは`unlisted`になる。
+  - `enumerate`のdir自体が読めない場合、snapshot列挙済みファイルのsymlink検査で
+    `PermissionError`が未捕捉のまま送出され、構造化された`needs_review`にならない。
+  - 読めないsnapshot列挙済みファイルは削除と同じ`missing`に畳まれる（`OSError`の区別なし）。
+  - 読めない未列挙`.rs`は`unlisted`（`actual_sha256=null`）として検知される。
+  - root実行などで`chmod 000`の後も対象を読める場合、権限拒否を前提とするテストは
+    理由付きでskipする。Windowsなどの権限モデル（ACL）での挙動は未検証。
+  走査エラーを`onerror`で受けて`needs_review`にする案や、`PermissionError`を捕捉する案は
+  PROVISIONAL。採否はUI ownerの判断とする。
+- **TOCTOUはhost pilotの範囲外**。symlink検査や列挙とファイル読み取りは別操作なので、
+  その間に別processがファイルやディレクトリを差し替える競合（time-of-check/time-of-use）が
+  あり得る。読み取り時に検査済みのパスが別の実体を指す可能性があるため、pilotの対象は
+  信頼できる作業ツリーを単一利用者が静的に検査する場合に限る。
 - QWidgetはPanel、main windowはApplicationShellSpec、QLabel／GtkLabelはResolvedText
   を使う再設計候補とする。rich text、画像、link等の等価性は仮定しない。
   Qt form layoutはGridへの再設計候補。grid span／絶対座標等は実装しない。
