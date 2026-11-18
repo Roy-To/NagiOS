@@ -11,6 +11,7 @@ members = [
     "crates/nagi-search-ipc",
     "crates/nagi-job-scheduler",
     "crates/nagi-slot-manifest",
+    "crates/nagi-system-service-recovery-contract",
     "crates/nagi-fat32",
     "kernel",
     "user/libnagi",
