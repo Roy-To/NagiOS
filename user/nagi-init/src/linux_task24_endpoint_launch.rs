@@ -474,8 +474,23 @@ pub(super) fn run_owner_login(
                         error.kind()
                     ));
                 }
-                wait_for_login_cleanup(&mut lifecycle, &owners);
+                let normal_exit = wait_for_login_cleanup(&mut lifecycle, &owners);
                 drop(session);
+                if normal_exit {
+                    match runtime.reconcile_after_normal_exit(package.owner) {
+                        Ok(()) => super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_TASK24_IDENTITY_TERMINAL_CONSUMED"
+                        )),
+                        Err(error) => {
+                            super::log_pid1_stderr(format_args!(
+                                "NAGI_DEV_TASK24_IDENTITY_TERMINAL_UNAVAILABLE ({error})"
+                            ));
+                            // The operation may have reached either durable
+                            // owner. Keep the runtime and scope for recovery.
+                            super::wait_in_pid1(super::wait_for_pid1_os_event);
+                        }
+                    }
+                }
                 drop(runtime);
             }
             Err(error) => {
@@ -502,14 +517,16 @@ pub(super) struct AttachedLogin {
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
-fn wait_for_login_cleanup(lifecycle: &mut LoginLifecycle, owners: &EndpointOwners<'_>) {
+fn wait_for_login_cleanup(lifecycle: &mut LoginLifecycle, owners: &EndpointOwners<'_>) -> bool {
     let mut cleanup_warned = false;
+    let mut normal_exit = false;
     while lifecycle.active_len() != 0 {
         super::wait_for_pid1_os_event();
         match lifecycle
             .poll_with_launch_lease(revoke_login_record, |lease, _status| owners.retire(lease))
         {
             Ok(Some(super::LifecycleEvent::ServiceExited { status, .. })) => {
+                normal_exit = status.exit_code == Some(0) && status.signal.is_none();
                 super::log_pid1_stderr(format_args!(
                     "NAGI_DEV_TASK24_CHILD_REAPED_AND_RETIRED status={status:?}"
                 ));
@@ -521,6 +538,7 @@ fn wait_for_login_cleanup(lifecycle: &mut LoginLifecycle, owners: &EndpointOwner
             _ => {}
         }
     }
+    normal_exit
 }
 
 /// Start and check out the exact child while the caller retains the recovered
