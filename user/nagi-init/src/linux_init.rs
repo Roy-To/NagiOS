@@ -7358,7 +7358,9 @@ impl InitBackend for UnconnectedBackend {
                     not(nagi_release_build)
                 ))]
                 let _login_run = if _login_package.is_some() {
-                    let run = linux_task24_endpoint_launch::BootLoginRun::begin()?;
+                    let run = linux_task24_endpoint_launch::BootLoginRun::begin(
+                        inputs.ready_plan.as_ref(),
+                    )?;
                     pid1_log!(
                         "NAGI_DEV_TASK24_RUN_RETAINED generation={}",
                         run.run_owner.generation()

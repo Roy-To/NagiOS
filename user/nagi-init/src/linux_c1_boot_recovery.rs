@@ -230,7 +230,7 @@ mod task24 {
         },
         pid1_live_peer_supplier::{
             CompletedServiceHandshakeAuthority, PeerDenial, Pid1LifecycleReadyAdapter,
-            Pid1ReadinessAtomicBoundary, RequiredServiceSet, SessionLease, TrustedInventory,
+            Pid1ReadinessAtomicBoundary, SessionLease, TrustedInventory,
             TrustedServiceEndpointAuthority,
         },
         publish_lifecycle_ready,
@@ -255,13 +255,13 @@ mod task24 {
             &self,
             attached: SessionLease,
             owners: &EndpointOwners<'_>,
-            required: &RequiredServiceSet,
             inventory: &impl TrustedInventory,
             endpoints: &impl TrustedServiceEndpointAuthority,
             handshakes: &impl CompletedServiceHandshakeAuthority,
             ready: &mut bool,
         ) -> Result<(), PeerDenial> {
             let run = owners.run;
+            let (_generation, required) = run.required_ready_services()?;
             let event = run.directory.ready_event(
                 &run.run_owner,
                 required,

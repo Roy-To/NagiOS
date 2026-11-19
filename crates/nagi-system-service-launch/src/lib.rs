@@ -12,7 +12,10 @@ mod launch;
 mod package_binding;
 mod preflight;
 
-pub use boot_catalog::{BootCatalogError, VerifiedBootCatalog, MAX_SIGNED_BOOT_CATALOG_BYTES};
+pub use boot_catalog::{
+    BootCatalogError, BootReadyRoute, VerifiedBootCatalog, VerifiedBootReadyPlan,
+    MAX_SIGNED_BOOT_CATALOG_BYTES,
+};
 pub use descriptor::{
     validate_descriptor_json, ArtifactPreflightRequest, DescriptorError, GenerationTransition,
     SystemServiceLaunchMetadata, ValidatedSystemServiceDescriptor, SYSTEM_SERVICE_TARGET,
