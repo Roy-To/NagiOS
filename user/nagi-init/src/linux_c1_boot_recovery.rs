@@ -222,8 +222,6 @@ impl SelectedBootIdentityRuntime<'_, '_> {
 ))]
 mod task24 {
     use super::*;
-    #[cfg(all(linux_boot_owner_registration, feature = "system-service-readiness"))]
-    use crate::linux_init::linux_task24_endpoint_launch::ActivatedIdentityEndpoint;
     #[cfg(feature = "system-service-readiness")]
     use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
@@ -240,8 +238,7 @@ mod task24 {
             VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{
-            CompletedServiceHandshakeAuthority, PeerDenial, Pid1ReadinessAtomicBoundary,
-            SessionLease, TrustedServiceEndpointAuthority,
+            PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease,
         },
         publish_lifecycle_ready,
     };
@@ -315,15 +312,14 @@ mod task24 {
             )
         }
 
-        /// Complete the C2 request while PID 1 services the separate C3
-        /// control stream. The caller retains the handshake owner for READY.
+        /// Complete the C2 request alongside the C3 control exchange, then
+        /// publish its retained evidence inside the current C1 Session gate.
         #[cfg(feature = "system-service-readiness")]
-        pub(in crate::linux_init) fn complete_task24_identity_handshake(
+        pub(in crate::linux_init) fn complete_and_publish_task24_ready(
             &self,
             attached: SessionLease,
             run: &BootLoginRun,
             launch_lease: &LoginLease,
-            endpoints: &impl TrustedServiceEndpointAuthority,
             handshakes: &Pid1CompletedServiceHandshakeOwner<
                 '_,
                 PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
@@ -334,7 +330,7 @@ mod task24 {
             let proof = &self.boot.proof;
             let instance = run.run_owner.run();
             let boundary = run.run_owner.readiness_boundary();
-            std::thread::scope(|scope| {
+            let event = std::thread::scope(|scope| {
                 let worker = std::thread::Builder::new()
                     .spawn_scoped(scope, || {
                         launch_lease.complete_system_service_handshake_before_ready(
@@ -342,7 +338,6 @@ mod task24 {
                             proof,
                             &run.directory,
                             handshakes,
-                            endpoints,
                             &BootLoginSupervisor,
                             boundary,
                             plan,
@@ -351,51 +346,20 @@ mod task24 {
                     })
                     .map_err(|_| PeerDenial::Unavailable)?;
                 let control = self.confirm_task24_identity_readiness(attached, plan, deadline);
-                worker
+                let event = worker
                     .join()
                     .map_err(|_| PeerDenial::RequestOutcomeUnknown)??;
-                control.map_err(|_| PeerDenial::HandshakeIncomplete)
-            })
-        }
-
-        /// Keep the live C1 Session through C2's final validation of the
-        /// exact C3 service proof and retained NIPC connection.
-        #[cfg(all(linux_boot_owner_registration, feature = "system-service-readiness"))]
-        pub(in crate::linux_init) fn publish_task24_ready(
-            &self,
-            attached: SessionLease,
-            run: &BootLoginRun,
-            identity: &ActivatedIdentityEndpoint<'_>,
-            handshakes: &impl CompletedServiceHandshakeAuthority,
-            ready: &mut bool,
-        ) -> Result<(), PeerDenial> {
-            let plan = run.identity_ready.as_ref().ok_or(PeerDenial::Unavailable)?;
-            let event = run.directory.system_service_ready_event(
-                run.run_owner.run(),
-                &self.boot.proof,
-                identity.endpoint,
-                &run.instances,
-                handshakes,
-                &BootLoginSupervisor,
-                run.run_owner.readiness_boundary(),
-                plan,
-            )?;
+                control.map_err(|_| PeerDenial::HandshakeIncomplete)?;
+                Ok(event)
+            })?;
+            crate::linux_init::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_IDENTITY_HANDSHAKE_COMPLETED"
+            ));
+            let mut ready = false;
             self.with_current_identity_session(attached, || {
-                identity
-                    .launch_lease
-                    .with_current_system_service_ready_owner(
-                        identity.spawn,
-                        identity.record,
-                        &event,
-                        |registration, endpoint| {
-                            if registration != identity.registration
-                                || endpoint.endpoint() != identity.endpoint.endpoint()
-                            {
-                                return Err(PeerDenial::StaleRegistration);
-                            }
-                            publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
-                        },
-                    )
+                event.with_current(|_| {
+                    publish_lifecycle_ready(&mut ready).map_err(|_| PeerDenial::Unavailable)
+                })?
             })
         }
     }
