@@ -117,7 +117,8 @@ class MixedReportTests(unittest.TestCase):
         summary = result["summary"]
         self.assertEqual(result["target_acceptance"], "not_run")
         self.assertEqual(summary["fixtures"], list(report.FIXTURES))
-        self.assertEqual(summary["fixtures"][-1], "mixed")
+        # `mixed` stays fifth; NDP-A018 appended `app_windows` after it.
+        self.assertEqual(summary["fixtures"][4], "mixed")
         self.assertEqual(summary["matrix"]["mixed"]["windows_diagnosis"],
                          {"status": "passed", "reason": "evidence_diagnosed"})
         self.assertEqual(summary["matrix"]["mixed"]["linux_diagnosis"],
