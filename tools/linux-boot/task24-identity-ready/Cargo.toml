@@ -10,6 +10,10 @@ publish = false
 name = "task24-identity-ready"
 path = "main.rs"
 
+[[bin]]
+name = "task24-identity-boot"
+path = "boot.rs"
+
 [dependencies]
 libc = "=0.2.189"
 nagi-sdk = { path = "../../../sdk/rust" }
