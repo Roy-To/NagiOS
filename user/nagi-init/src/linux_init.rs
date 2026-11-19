@@ -421,6 +421,17 @@ mod pid1_live_peer_supplier;
 mod linux_task24_endpoint_launch;
 
 #[cfg(all(
+    linux_task24_owner_co_location,
+    linux_task24_initial_login_runtime,
+    target_os = "linux",
+    target_arch = "x86_64",
+    feature = "desktop-login",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "linux_task24_identity_ready.rs"]
+mod linux_task24_identity_ready;
+
+#[cfg(all(
     any(linux_boot_owner_registration, linux_task24_owner_co_location),
     feature = "desktop-login",
     target_os = "linux",
