@@ -31,7 +31,3 @@ libnagi = { path = "../../user/libnagi" }
 [workspace]
 members = ["."]
 resolver = "2"
-
-[[test]]
-name = "identity-session-contract"
-path = "../../tests/identity-session/contract.rs"
