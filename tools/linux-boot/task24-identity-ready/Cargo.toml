@@ -1,0 +1,22 @@
+[package]
+name = "nagi-task24-identity-ready"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "task24-identity-ready"
+path = "main.rs"
+
+[dependencies]
+libc = "=0.2.189"
+nagi-sdk = { path = "../../../sdk/rust" }
+
+[profile.release]
+opt-level = "z"
+panic = "abort"
+lto = true
+strip = true
+codegen-units = 1
