@@ -205,7 +205,8 @@ and each is isolated in `stages.json` or one function so it can be replaced.
 ## Migration report (PROVISIONAL, NDP-09r)
 
 From the checkout root, select `portable`, `windows`, `linux`, `ui`, `mixed`
-(PROVISIONAL, mixed Windows/Linux API source) or `all`.
+(PROVISIONAL, mixed Windows/Linux API source), `app_windows` (PROVISIONAL, Windows C
+API + WPF XAML in one project) or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
@@ -257,7 +258,7 @@ non-passed files and steps also show the table description after the reason;
 an unlisted reason stays code-only.
 
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
-`portable`, `windows`, `linux`, `ui` and `mixed` (the last one added by NDP-A017;
+`portable`, `windows`, `linux`, `ui`, `mixed` (NDP-A017) and `app_windows` (NDP-A018;
 the first four are unchanged and keep their order) and adds a fixture x check
 overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
@@ -271,7 +272,7 @@ matrix table (status and reason per cell) and the reason list, followed by
 each unchanged single-fixture Markdown report. The exit code follows the
 existing rule over every check of every fixture: 1 if any check `failed`,
 0 for other completed runs, 2 for invalid arguments. Output is capped at
-the single-report limit times the number of fixtures (five).
+the single-report limit times the number of fixtures (six).
 
 Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
 or compiler that is missing stays `not_run` and is never shown as passed. It is
@@ -303,7 +304,9 @@ reports, and 2 for invalid arguments.
 - The fixed fixture list lives in `report.py`. API diagnosis uses the existing
   handwritten report-v1 evidence snapshots under `tests/developer-platform/api`;
   these can drift from their named source files and are not fresh scanner output.
-  The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures.
+  The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures; the UI
+  inputs of each fixture are data in `UI_FIXTURE_PATHS` (`ui`: the seven files,
+  `app_windows`: the WPF file only; any other fixture has none).
 - API snapshot drift test (PROVISIONAL, read-only; `test_api_snapshot_drift.py`).
   For each platform in `report.API_CASES` (the snapshots the fixed fixtures use:
   `windows/read_prefix` and `linux/watch_changes`) it checks that (a) the snapshot's
@@ -359,6 +362,28 @@ reports, and 2 for invalid arguments.
   `#ifdef` guards are not evaluated); host-only static reading, the C file is
   never compiled or run; not Nagi target acceptance (`target_acceptance` stays
   `not_run`), not a contract, and `contracts/` is untouched.
+- `app_windows` fixture (PROVISIONAL, NDP-A018; additive, the JSON of the five existing
+  fixtures is unchanged). Why: `windows`/`linux`/`mixed` only had API evidence and `ui` only
+  UI files, so no single report showed API differences, UI row/axis gaps, scaffold files and
+  the Stage 1/2/3 state for one project. `report.py` has a new fixture name `app_windows`
+  and routing (`APP_FIXTURE`, `api_case_paths`, `UI_FIXTURE_PATHS`): the self-made pair of
+  the existing `evaluation/windows/read_prefix.c` (with its handwritten snapshot
+  `api/windows/read_prefix.report-v1.json`) and `evaluation/ui/wpf_task_panel.xaml`. Nothing is
+  copied (documented in `evaluation/app_windows/README.md`), so the existing drift test keeps
+  covering the C snapshot and the existing analyzer/mapper results are reused, not
+  re-implemented. One report runs `windows_diagnosis` (4 rows, all `unsupported`, so Markdown
+  `## API gaps` lists them) and `ui_analysis`/`ui_mapping` (one file; Markdown shows the axis
+  gaps line and the non-supported rows), plus `## Scaffold files`; `linux_diagnosis` is
+  `unsupported` (`no_platform_evidence_for_fixture`) and `stage_2` is `unsupported`
+  (`no_approved_stage2_target_for_fixture`). `--fixture all` appends `app_windows` after
+  `mixed`; existing tests that counted five fixtures were updated to six and no assertion
+  was removed (`test_report_app.py` covers the fixture). Assumptions and limits: the
+  fixture is self-made, the naming and routing are provisional and may be replaced by real
+  scanner/project input; host static reading only (the C file and XAML are never compiled,
+  loaded or run); there is no approved Stage 2 target for it; Stage 3 stays `not_run` and
+  `target_acceptance` stays `not_run`; the UI mapping is a vocabulary classification, not a
+  rendering or runtime result; not a contract, and `contracts/` is untouched. Not Nagi
+  target acceptance.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared
