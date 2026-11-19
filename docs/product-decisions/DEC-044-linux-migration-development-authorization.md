@@ -59,3 +59,11 @@ Linux + Nagi専用userland、既存distributionを製品OS基盤にしない方�
 ## 変更履歴
 
 - 2026-11-12: ユーザーの明示承認を記録。対象限定のLinux移行開発を開始可能とし、製品切替・公開・既存release Gateとは分離。個別実装割当は未確定として記録。
+
+## 開発環境での初回統合到達点（2026-11-16 13:16 JST）
+
+**実装記録／開発target限定:** 04:16 UTCの保存済み実行結果を再確認し、x86-64 QEMUで Linux起動 → Nagi userland → 開発用service READY → Notes通常Desktop入力からNagi VFSへ保存 → 同じディスクで別起動後に同一object・revision・本文を読戻す経路を確認した。両phaseのNotes childとQEMUはexit 0、timeout/cancelなし。固定sourceの新しいexportからlocked buildした成果物に対する結果であり、今回の文書更新で再実行した結果ではない。
+
+この到達点は本DECの最初の開発統合目標に対応する。**実機受入、製品向け認証済みREADY、Linux移行全体の完了、電源断耐久、ReleaseのPASSを意味しない。** 開発限定handshakeと通常製品initの認証経路は別で、後者の未接続部分はUnavailableを維持する。後続変更のhost testや型検査をこのrunのruntime成功へ合算しない。既存のRelease／Activation／Acceptance Gateと安全境界は変更しない。
+
+詳細・残条件は [implementation status](../implementation_status.md) の「Linux development-target acceptance — 2026-11-16 13:16 JST」を参照。非公開の生ログ・ローカル個人パス・会話記録は本記録に含めない。
