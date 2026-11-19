@@ -310,6 +310,13 @@ pub(crate) fn pending() -> ProfileVolumeNotesOwner {
     }
 }
 
+pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> ProfileVolumeNotesOwner {
+    ProfileVolumeNotesOwner {
+        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
+        boot_volume: Some(input),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,12 +356,5 @@ mod tests {
         fs::remove_dir(path.join("profiles")).unwrap();
         fs::remove_dir(path.join("accounts")).unwrap();
         fs::remove_dir(path).unwrap();
-    }
-}
-
-pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> ProfileVolumeNotesOwner {
-    ProfileVolumeNotesOwner {
-        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
-        boot_volume: Some(input),
     }
 }
