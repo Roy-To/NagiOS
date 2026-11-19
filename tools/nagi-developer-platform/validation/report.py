@@ -34,6 +34,12 @@ MIXED_API_BASENAME = "read_and_watch"
 APP_FIXTURE = "app_windows"
 APP_API_PLATFORM = "windows"
 UI_UNSUPPORTED_FIXTURE = "ui_unsupported"
+# PROVISIONAL app fixture (NDP-A020): the Linux counterpart of `app_windows`. The API
+# diagnosis reuses the existing `linux/watch_changes.c` + its report-v1 snapshot and the UI
+# analysis/mapping reads the existing GTK Builder `ui/gtk3_task_panel.ui`. Nothing is copied.
+# See README.md in `evaluation/app_linux`.
+APP_LINUX_FIXTURE = "app_linux"
+APP_LINUX_API_PLATFORM = "linux"
 UI_PATHS = tuple(EVALUATION / "ui" / name for name in (
     "task_panel.ui", "gtk_minimal.ui", "gtk3_task_panel.ui", "gtk4_task_panel.ui",
     "xaml_minimal.xaml", "wpf_task_panel.xaml", "winui_task_panel.xaml",
@@ -46,9 +52,12 @@ UI_FIXTURE_PATHS = {
     # PROVISIONAL (NDP-A019): one self-made UI file in a format the analyzer does not
     # support, so the report shows `unsupported_format` end to end. See README.md.
     UI_UNSUPPORTED_FIXTURE: (EVALUATION / "ui_unsupported" / "panel_layout.xml",),
+    APP_LINUX_FIXTURE: (EVALUATION / "ui" / "gtk3_task_panel.ui",),
 }
 FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE, APP_FIXTURE,
-            UI_UNSUPPORTED_FIXTURE)
+            UI_UNSUPPORTED_FIXTURE, APP_LINUX_FIXTURE)
+# Fixtures that reuse another fixture's API case: {fixture: the one platform it diagnoses}.
+APP_API_FIXTURES = {APP_FIXTURE: APP_API_PLATFORM, APP_LINUX_FIXTURE: APP_LINUX_API_PLATFORM}
 PORTABLE_TARGET = "portable-summary"
 MAX_TOOL_OUTPUT = 512 * 1024
 MAX_REPORT_BYTES = 128 * 1024
@@ -197,11 +206,11 @@ def api_case_paths(fixture, platform):
 
     A platform fixture diagnoses its own case only; the mixed fixture diagnoses its one
     source for every platform in API_CASES, each with that platform's snapshot; the
-    app_windows fixture diagnoses the windows case only.
+    app_windows fixture diagnoses the windows case only and app_linux the linux case only.
     """
     if platform in API_CASES and (fixture == platform or (
-            fixture == APP_FIXTURE and platform == APP_API_PLATFORM)):
-        # The app fixture reuses the windows case (same source and snapshot).
+            APP_API_FIXTURES.get(fixture) == platform)):
+        # An app fixture reuses its platform case (same source and snapshot).
         basename = API_CASES[platform]
         return (EVALUATION / platform / (basename + ".c"),
                 API_EVIDENCE / platform / (basename + ".report-v1.json"))
