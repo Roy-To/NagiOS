@@ -33,6 +33,7 @@ MIXED_API_BASENAME = "read_and_watch"
 # the pair is routed to the existing files. See README.md in `evaluation/app_windows`.
 APP_FIXTURE = "app_windows"
 APP_API_PLATFORM = "windows"
+UI_UNSUPPORTED_FIXTURE = "ui_unsupported"
 UI_PATHS = tuple(EVALUATION / "ui" / name for name in (
     "task_panel.ui", "gtk_minimal.ui", "gtk3_task_panel.ui", "gtk4_task_panel.ui",
     "xaml_minimal.xaml", "wpf_task_panel.xaml", "winui_task_panel.xaml",
@@ -42,8 +43,12 @@ UI_PATHS = tuple(EVALUATION / "ui" / name for name in (
 UI_FIXTURE_PATHS = {
     "ui": UI_PATHS,
     APP_FIXTURE: (EVALUATION / "ui" / "wpf_task_panel.xaml",),
+    # PROVISIONAL (NDP-A019): one self-made UI file in a format the analyzer does not
+    # support, so the report shows `unsupported_format` end to end. See README.md.
+    UI_UNSUPPORTED_FIXTURE: (EVALUATION / "ui_unsupported" / "panel_layout.xml",),
 }
-FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE, APP_FIXTURE)
+FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE, APP_FIXTURE,
+            UI_UNSUPPORTED_FIXTURE)
 PORTABLE_TARGET = "portable-summary"
 MAX_TOOL_OUTPUT = 512 * 1024
 MAX_REPORT_BYTES = 128 * 1024
