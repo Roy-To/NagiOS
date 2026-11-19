@@ -1834,13 +1834,33 @@ mod tests {
             "catalog_sha256": catalog_digest,
             "generation": catalog.descriptor().generation().get(),
             "mandatory_routes": [{
-                "service_id": 1,
+                "service_id": nagi_model::AppId::from_identifier(b"fixture.identity").0,
                 "operation_id": 2,
                 "version_major": 1,
                 "version_minor": 0
             }]
         });
-        let signed_plan = sign(&boot_key, READY_DOMAIN, &plan_record);
+        let route: crate::BootReadyRoute =
+            serde_json::from_value(plan_record["mandatory_routes"][0].clone()).unwrap();
+        assert_eq!(
+            catalog
+                .sign_development_identity_ready_plan(&other_key, route)
+                .err(),
+            Some(BootCatalogError::UntrustedSigner)
+        );
+        let foreign_route = crate::BootReadyRoute {
+            service_id: NonZeroU64::new(route.service_id.get() ^ (1 << 63)).unwrap(),
+            ..route
+        };
+        assert_eq!(
+            catalog
+                .sign_development_identity_ready_plan(&boot_key, foreign_route)
+                .err(),
+            Some(BootCatalogError::InvalidReadyPlanRoutes)
+        );
+        let signed_plan = catalog
+            .sign_development_identity_ready_plan(&boot_key, route)
+            .unwrap();
         let plan = catalog.verify_ready_plan(&signed_plan).unwrap();
         assert_eq!(plan.generation(), catalog.descriptor().generation());
         assert_eq!(plan.mandatory_routes().len(), 1);
