@@ -91,7 +91,7 @@ pub(super) fn serve_identity_readiness(
         deadline,
     };
     control.write_all(&challenge)?;
-    let mut confirmed = [0; CHALLENGE_BYTES];
+    let mut confirmed = [0; wire::CONTROL_CONFIRMATION_BYTES];
     control.read_exact(&mut confirmed)?;
     let response = wire::response(request, &challenge, &confirmed)
         .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
@@ -114,7 +114,7 @@ pub(super) fn confirm_identity_readiness(
     let mut challenge = [0; CHALLENGE_BYTES];
     control.read_exact(&mut challenge)?;
     check_current_identity(&challenge)?;
-    control.write_all(&challenge)
+    control.write_all(&wire::control_confirmation(&challenge))
 }
 
 #[cfg(test)]
@@ -191,5 +191,49 @@ mod tests {
                 }
             });
         }
+    }
+
+    #[test]
+    fn service_rejects_legacy_control_echo() {
+        let (mut broker, service) = UnixStream::pair().unwrap();
+        let (mut owner, control) = UnixStream::pair().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let request = IpcEnvelope {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            source: AppId(7),
+            destination: Some(AppId(8)),
+            kind: MessageKind::Request,
+            correlation_id: CorrelationId([11; 16]),
+            request_id: Some(RequestId([12; 16])),
+            ordering: OrderingMetadata {
+                timestamp_micros: None,
+                sequence: None,
+            },
+            payload_type: REQUEST_TYPE,
+            payload: &[],
+        };
+        std::thread::scope(|scope| {
+            let owner_task = scope.spawn(move || {
+                let mut challenge = [0; CHALLENGE_BYTES];
+                owner
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                owner.read_exact(&mut challenge).unwrap();
+                owner.write_all(&challenge).unwrap();
+            });
+            let service_task = scope.spawn(move || {
+                serve_identity_readiness(&service, &control, AppId(7), AppId(8), deadline)
+            });
+            broker
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            nipc::write_frame(&mut broker, &request).unwrap();
+            assert!(nipc::read_frame(&mut broker).unwrap().is_none());
+            owner_task.join().unwrap();
+            assert_eq!(
+                service_task.join().unwrap().unwrap_err().kind(),
+                io::ErrorKind::UnexpectedEof
+            );
+        });
     }
 }
