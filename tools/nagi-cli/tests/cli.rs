@@ -58,7 +58,9 @@ fn run_fixture_git(
     stdout.trim().to_owned()
 }
 
-use nagi_cli::commands::{execute, parse_command, Command, EXIT_SUCCESS, EXIT_USAGE};
+use nagi_cli::commands::{
+    execute, parse_command, Command, EXIT_CONFIG_ERROR, EXIT_SUCCESS, EXIT_USAGE,
+};
 use nagi_cli::config::load_toolchain_requirements;
 use nagi_cli::doctor::{
     run_doctor, run_doctor_with_requirements, CommandEvidence, DoctorPolicy, HostProbe,
@@ -651,6 +653,428 @@ fn format_commands_match_ci_source_scope_without_vendored_servo() {
         .iter()
         .flat_map(|(_, args)| args)
         .all(|arg| !arg.contains("third_party/servo")));
+}
+
+struct PortingFixture(std::path::PathBuf);
+
+impl PortingFixture {
+    fn new(label: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "nagi-port-readiness-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("fixture timestamp")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).expect("create porting fixture");
+        Self(path)
+    }
+
+    fn write(&self, relative: &str, contents: &str) {
+        let path = self.0.join(relative);
+        fs::create_dir_all(path.parent().expect("fixture parent"))
+            .expect("create fixture subdirectory");
+        fs::write(path, contents).expect("write fixture source");
+    }
+
+    fn write_bytes(&self, relative: &str, contents: &[u8]) {
+        let path = self.0.join(relative);
+        fs::create_dir_all(path.parent().expect("fixture parent"))
+            .expect("create fixture subdirectory");
+        fs::write(path, contents).expect("write fixture bytes");
+    }
+
+    fn readiness(&self) -> std::process::Output {
+        host_cli_output(&[
+            "port",
+            "readiness",
+            self.0.to_str().expect("UTF-8 fixture path"),
+            "--format",
+            "json",
+        ])
+    }
+
+    fn readiness_text(&self) -> std::process::Output {
+        host_cli_output(&[
+            "port",
+            "readiness",
+            self.0.to_str().expect("UTF-8 fixture path"),
+            "--format",
+            "text",
+        ])
+    }
+
+    fn readiness_from_external_cwd(&self) -> std::process::Output {
+        let binary = option_env!("CARGO_BIN_EXE_nagi-bootstrap")
+            .or(option_env!("CARGO_BIN_EXE_nagi"))
+            .expect("host CLI binary");
+        std::process::Command::new(binary)
+            .args(["port", "readiness", ".", "--format", "json"])
+            .current_dir(&self.0)
+            .env_remove("NAGI_RUN_RECEIPT_DIR")
+            .env_remove("NAGI_RUN_ID")
+            .env_remove("NAGI_RUN_STAGE")
+            .output()
+            .expect("run readiness command outside a Nagi checkout")
+    }
+
+    fn readiness_with_receipt(&self, receipt_dir: &Path) -> std::process::Output {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("repository root");
+        let binary = option_env!("CARGO_BIN_EXE_nagi-bootstrap")
+            .or(option_env!("CARGO_BIN_EXE_nagi"))
+            .expect("host CLI binary");
+        std::process::Command::new(binary)
+            .args([
+                "port",
+                "readiness",
+                self.0.to_str().expect("UTF-8 fixture path"),
+                "--format",
+                "json",
+            ])
+            .current_dir(repo_root)
+            .env("NAGI_RUN_RECEIPT_DIR", receipt_dir)
+            .env("NAGI_RUN_ID", "port-readiness-run")
+            .env("NAGI_RUN_STAGE", "port-readiness-test")
+            .output()
+            .expect("run readiness with receipts from a Nagi checkout")
+    }
+
+    fn readiness_from_external_cwd_with_receipt(&self, receipt_dir: &Path) -> std::process::Output {
+        let binary = option_env!("CARGO_BIN_EXE_nagi-bootstrap")
+            .or(option_env!("CARGO_BIN_EXE_nagi"))
+            .expect("host CLI binary");
+        std::process::Command::new(binary)
+            .args(["port", "readiness", ".", "--format", "json"])
+            .current_dir(&self.0)
+            .env("NAGI_RUN_RECEIPT_DIR", receipt_dir)
+            .env("NAGI_RUN_ID", "external-port-readiness-run")
+            .env("NAGI_RUN_STAGE", "port-readiness-test")
+            .output()
+            .expect("run readiness with receipts outside a Nagi checkout")
+    }
+}
+
+impl Drop for PortingFixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn port_readiness_reports_a_portable_rust_project_without_running_build_scripts() {
+    let fixture = PortingFixture::new("portable-rust");
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"portable\"\nversion = \"0.1.0\"\n",
+    );
+    fixture.write("src/lib.rs", "pub fn answer() -> u8 { 42 }\n");
+    fixture.write(
+        "build.rs",
+        "fn main() { println!(\"cargo:warning=build-script-ran\"); }\n",
+    );
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "readiness command failed: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["schema_version"], 1);
+    assert_eq!(report["detected_languages"], serde_json::json!(["rust"]));
+    assert_eq!(
+        report["analysis"]["conclusion"],
+        "no-known-boundary-detected"
+    );
+    assert!(report["findings"].as_array().unwrap().is_empty());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("build-script-ran"));
+}
+
+#[test]
+fn port_readiness_reports_rust_filesystem_process_and_unverified_dependencies() {
+    let fixture = PortingFixture::new("rust-boundaries");
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"boundaries\"\nversion = \"0.1.0\"\n[dependencies]\nserde = \"1\"\n",
+    );
+    fixture.write(
+        "src/main.rs",
+        "fn main() { let _ = std::fs::read(\"data\"); let _ = std::process::Command::new(\"tool\"); }\n",
+    );
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    let findings = report["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|item| item["category"] == "filesystem"));
+    assert!(findings.iter().any(|item| item["category"] == "process"));
+    assert_eq!(report["dependencies"][0]["name"], "serde");
+    assert_eq!(
+        report["dependencies"][0]["review_status"],
+        "requires-review"
+    );
+    assert_eq!(report["analysis"]["conclusion"], "requires-review");
+}
+
+#[test]
+fn port_readiness_reports_c_process_and_thread_boundaries() {
+    let fixture = PortingFixture::new("c-boundaries");
+    fixture.write("Makefile", "all:\n\tcc main.c -lpthread\n");
+    fixture.write(
+        "main.c",
+        "#include <pthread.h>\n#include <unistd.h>\nvoid *work(void *p) { return p; }\nint main(void) { pthread_create(0, 0, work, 0); fork(); }\n",
+    );
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["detected_languages"], serde_json::json!(["c"]));
+    let findings = report["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|item| item["category"] == "process"));
+    assert!(findings.iter().any(|item| item["category"] == "threading"));
+}
+
+#[test]
+fn port_readiness_reports_cpp_gui_framework_evidence_for_manual_review() {
+    let fixture = PortingFixture::new("cpp-gui");
+    fixture.write(
+        "CMakeLists.txt",
+        "find_package(Qt6 REQUIRED COMPONENTS Widgets)\npkg_check_modules(PCRE2 REQUIRED IMPORTED_TARGET libpcre2-8)\n",
+    );
+    fixture.write(
+        "src/main.cpp",
+        "#include <QApplication>\nint main(int argc, char **argv) { QApplication app(argc, argv); }\n",
+    );
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["detected_languages"], serde_json::json!(["c++"]));
+    assert!(report["findings"].as_array().unwrap().iter().any(|item| {
+        item["category"] == "gui-framework" && item["review_status"] == "requires-review"
+    }));
+    assert!(report["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| { item["name"] == "Qt6" && item["review_status"] == "requires-review" }));
+    assert!(report["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item["name"] == "libpcre2-8" && item["review_status"] == "requires-review"
+        }));
+    assert!(report["limitations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| { item.as_str().unwrap().contains("compatibility") }));
+}
+
+#[test]
+fn port_readiness_rejects_a_file_as_project_root() {
+    let fixture = PortingFixture::new("malformed-root");
+    fixture.write("not-a-project", "plain file\n");
+    let file = fixture.0.join("not-a-project");
+    let output = host_cli_output(&[
+        "port",
+        "readiness",
+        file.to_str().expect("UTF-8 fixture path"),
+    ]);
+    assert_eq!(output.status.code(), Some(4));
+}
+
+#[test]
+fn port_readiness_json_is_stable_across_repeated_runs() {
+    let fixture = PortingFixture::new("stable-json");
+    fixture.write("main.c", "int main(void) { return 0; }\n");
+    let first = fixture.readiness();
+    let second = fixture.readiness();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stdout)
+    );
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stdout)
+    );
+    assert_eq!(first.stdout, second.stdout);
+}
+
+#[test]
+fn port_readiness_bounds_directory_only_trees() {
+    let fixture = PortingFixture::new("deep-empty-tree");
+    let mut path = fixture.0.clone();
+    for _ in 0..70 {
+        path.push("d");
+        fs::create_dir(&path).expect("create nested empty directory");
+    }
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["analysis"]["truncated"], true);
+    assert_eq!(report["analysis"]["files_scanned"], 0);
+}
+
+#[test]
+fn port_readiness_counts_non_utf8_bytes_toward_the_total_read_limit() {
+    let fixture = PortingFixture::new("non-utf8-total-limit");
+    let invalid_source = vec![0xff; 512 * 1024];
+    for index in 0..41 {
+        fixture.write_bytes(&format!("src/file-{index:02}.rs"), &invalid_source);
+    }
+
+    let output = fixture.readiness();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["analysis"]["bytes_read"], 20 * 1024 * 1024);
+    assert_eq!(report["analysis"]["truncated"], true);
+    assert!(report["limitations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| { item.as_str().unwrap().contains("file or total-size limit") }));
+}
+
+#[test]
+fn port_readiness_does_not_echo_source_literals_or_terminal_controls() {
+    let fixture = PortingFixture::new("untrusted-source-text");
+    fixture.write(
+        "main.c",
+        "int main(void) { fopen(\"C:\\\\Users\\\\alice\\\\private.txt\", \"r\"); /*\u{1b}[31m*/ }\n",
+    );
+
+    let json = fixture.readiness();
+    assert!(
+        json.status.success(),
+        "{}",
+        String::from_utf8_lossy(&json.stdout)
+    );
+    let json = String::from_utf8_lossy(&json.stdout);
+    assert!(!json.contains("alice"));
+    assert!(!json
+        .chars()
+        .any(|character| character != '\n' && char::is_control(character)));
+
+    let text = fixture.readiness_text();
+    assert!(
+        text.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text.stdout)
+    );
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(!text.contains("alice"));
+    assert!(!text
+        .chars()
+        .any(|character| character != '\n' && char::is_control(character)));
+}
+
+#[test]
+fn port_readiness_shows_dependencies_and_scan_limits_in_text_output() {
+    let fixture = PortingFixture::new("text-summary");
+    fixture.write(
+        "Cargo.toml",
+        "[package]\nname = \"text-summary\"\nversion = \"0.1.0\"\n[dependencies]\nserde = \"1\"\n",
+    );
+    fixture.write(
+        "src/lib.rs",
+        "pub fn read() { let _ = std::fs::read(\"x\"); }\n",
+    );
+    let mut path = fixture.0.join("deep");
+    for _ in 0..70 {
+        path.push("d");
+        fs::create_dir_all(&path).expect("create nested directory");
+    }
+
+    let output = fixture.readiness_text();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("serde"));
+    assert!(text.contains("Cargo.toml"));
+    assert!(text.contains("truncated: yes"));
+    assert!(text.contains("directory-depth limit"));
+    assert!(text.contains("does not establish Nagi"));
+}
+
+#[test]
+fn port_readiness_can_run_from_an_external_project_directory() {
+    let fixture = PortingFixture::new("external-cwd");
+    fixture.write("src/lib.rs", "pub fn portable() -> bool { true }\n");
+
+    let output = fixture.readiness_from_external_cwd();
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON report");
+    assert_eq!(report["detected_languages"], serde_json::json!(["rust"]));
+}
+
+#[test]
+fn port_readiness_preserves_explicit_run_receipts_in_a_nagi_checkout() {
+    let fixture = PortingFixture::new("receipt-in-checkout");
+    fixture.write("src/lib.rs", "pub fn portable() -> bool { true }\n");
+    let receipt_dir = fixture.0.join("receipts");
+
+    let output = fixture.readiness_with_receipt(&receipt_dir);
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(receipt_dir.join("started.json").is_file());
+    let terminal = fs::read(receipt_dir.join("terminal.json")).expect("terminal receipt");
+    let terminal: serde_json::Value = serde_json::from_slice(&terminal).expect("receipt JSON");
+    assert_eq!(terminal["command_result"], 0);
+}
+
+#[test]
+fn port_readiness_rejects_explicit_run_receipts_outside_a_nagi_checkout() {
+    let fixture = PortingFixture::new("receipt-outside-checkout");
+    fixture.write("src/lib.rs", "pub fn portable() -> bool { true }\n");
+    let receipt_dir = fixture.0.join("receipts");
+
+    let output = fixture.readiness_from_external_cwd_with_receipt(&receipt_dir);
+    assert_eq!(output.status.code(), Some(EXIT_CONFIG_ERROR));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("run receipts require a Nagi repository when enabled"));
+    assert!(!receipt_dir.exists());
 }
 
 #[test]

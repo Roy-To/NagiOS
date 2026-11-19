@@ -30,6 +30,22 @@ Registration does not claim app implementation or host acceptance; each owner
 creates its own State and evidence. M30 PASS plus an explicit release boundary
 remains mandatory for every 0.2 guest/runtime integration.
 
+### Approved host-only checkpoint PORT-READINESS-HOST-20261104
+
+The user's explicit instruction approves a bounded Integration Owner checkpoint
+on `codex/0.2-developer-tooling`. It adds a read-only source and manifest
+readiness report to the existing host CLI, a separate portable-core sample based
+on Nagi Files, and English/Japanese migration guidance. The sample and report
+must use only public contracts and must not claim target compatibility. This
+checkpoint does not take ownership of `samples/hello-nagi/**`, `sdk/**`, or
+`tools/nagi-pkg/**`; those paths remain with their existing owners. It also
+excludes the independent `docs/porting/multiarch/**` work.
+
+Only the exact paths in the `developer-tooling` registry row are authorized.
+The report must not build, execute, install, or launch the inspected project.
+Nagi 0.1 M30 remains `PARTIAL`; guest install/launch and all 0.2 runtime
+integration still require M30 PASS and an explicit 0.2 release boundary.
+
 ## Required workstream record
 
 Each stream entry declares:
