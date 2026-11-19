@@ -21,7 +21,7 @@ use nagi_model::{AppSessionId, NodeId};
 use nagi_system_service_launch::VerifiedServicePackageBinding;
 use std::io;
 use std::num::NonZeroU64;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(in crate::linux_init) fn pin_boot_package_key(key: &[u8; 32]) -> io::Result<&'static [u8; 32]> {
     static BOOT_PACKAGE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
@@ -33,6 +33,7 @@ pub(in crate::linux_init) fn pin_boot_package_key(key: &[u8; 32]) -> io::Result<
 
 pub(in crate::linux_init) struct PendingIdentityListener {
     pending: Option<PendingSpawnOwnedEndpoint>,
+    lease: Arc<Mutex<Option<LoginLease>>>,
     run: Arc<BootLoginRun>,
     inventory: IdentityInventory,
     placement: LaunchPlacement,
@@ -139,6 +140,7 @@ impl PendingIdentityListener {
         })?;
         Ok(Self {
             pending: Some(pending),
+            lease: Arc::new(Mutex::new(None)),
             run,
             inventory: IdentityInventory {
                 owner,
@@ -155,6 +157,16 @@ impl PendingIdentityListener {
             .ok_or_else(|| denied("Identity listener already transferred"))?
             .child_arguments(&[])
             .map_err(|_| denied("Identity listener locator rejected"))
+    }
+
+    /// Lend the lease retained by this launch. C2 checks the exact C3 proof
+    /// before it uses the registration and again before publishing READY.
+    pub(in crate::linux_init) fn with_lease<T>(
+        &self,
+        use_lease: impl FnOnce(&LoginLease) -> Result<T, PeerDenial>,
+    ) -> Result<T, PeerDenial> {
+        let lease = self.lease.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        use_lease(lease.as_ref().ok_or(PeerDenial::RequiredServiceMissing)?)
     }
 }
 
@@ -176,7 +188,11 @@ impl C3PendingIdentityListener for PendingIdentityListener {
         {
             return Err(denied("C3 Identity spawn does not match the signed plan"));
         }
-        if self.pending.is_none() {
+        let mut lease_slot = self
+            .lease
+            .try_lock()
+            .map_err(|_| denied("Identity lease busy"))?;
+        if self.pending.is_none() || lease_slot.is_some() {
             return Err(denied("Identity listener already transferred"));
         }
         let record = supervisor::try_with_registry(|registry| {
@@ -189,13 +205,13 @@ impl C3PendingIdentityListener for PendingIdentityListener {
         .ok_or_else(|| denied("Identity Supervisor busy"))?
         .map_err(|_| denied("Identity live record rejected"))?;
         let pending = self.pending.take().expect("pending listener checked above");
-        let lease = LoginLease::retain_pending_before_exec_gate(
+        *lease_slot = Some(LoginLease::retain_pending_before_exec_gate(
             pending,
             child,
             record,
             self.run.run_owner.run(),
             &self.run.instances,
-        );
+        ));
         Ok(Box::new(IdentityLaunchLease {
             run: Arc::clone(&self.run),
             inventory: IdentityInventory {
@@ -203,7 +219,7 @@ impl C3PendingIdentityListener for PendingIdentityListener {
                 snapshot: self.inventory.snapshot,
                 manifest: self.inventory.manifest.clone(),
             },
-            lease,
+            lease: Arc::clone(&self.lease),
             identity,
             record,
             binding_digest: *binding.scope_binding_digest(),
@@ -215,7 +231,7 @@ impl C3PendingIdentityListener for PendingIdentityListener {
 struct IdentityLaunchLease {
     run: Arc<BootLoginRun>,
     inventory: IdentityInventory,
-    lease: LoginLease,
+    lease: Arc<Mutex<Option<LoginLease>>>,
     identity: SpawnedProcessIdentity,
     record: LaunchRecord,
     binding_digest: [u8; 32],
@@ -225,9 +241,6 @@ struct IdentityLaunchLease {
 impl IdentityLaunchLease {
     fn same_binding(&self, binding: &C3IdentityLaunchBinding) -> bool {
         self.identity.same_instance(binding.process_identity())
-            && self
-                .lease
-                .matches_spawn(binding.process_identity(), &self.record)
             && self.binding_digest == *binding.scope_binding_digest()
             && self.launch_generation == binding.c3_launch_generation()
     }
@@ -258,6 +271,10 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
             RouteConsentRequirement::NotRequired,
         );
         self.lease
+            .try_lock()
+            .map_err(|_| denied("Identity lease busy"))?
+            .as_mut()
+            .ok_or_else(|| denied("Identity lease unavailable"))?
             .activate_after_c3_identity_exec_ack(
                 binding.process_identity(),
                 self.record,
@@ -279,6 +296,16 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
         if !self.same_binding(binding) {
             return Err(denied("foreign Identity retirement binding"));
         }
+        let mut lease_slot = self
+            .lease
+            .try_lock()
+            .map_err(|_| denied("Identity lease busy"))?;
+        let lease = lease_slot
+            .as_mut()
+            .ok_or_else(|| denied("Identity lease unavailable"))?;
+        if !lease.matches_spawn(binding.process_identity(), &self.record) {
+            return Err(denied("foreign Identity C2 retirement binding"));
+        }
         let revoked = supervisor::try_with_registry(|registry| {
             supervisor::record_exit_if_matches_in_registry(
                 registry,
@@ -289,7 +316,7 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
         if revoked != Some(true) {
             return Err(denied("Identity Supervisor record could not be revoked"));
         }
-        self.lease
+        lease
             .retire_after_exact_child_reap(
                 binding.process_identity(),
                 self.record,
@@ -299,7 +326,9 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
             )
             .map_err(peer_error)?
             .then_some(())
-            .ok_or_else(|| io::Error::other("Identity lease retirement outcome unknown"))
+            .ok_or_else(|| io::Error::other("Identity lease retirement outcome unknown"))?;
+        *lease_slot = None;
+        Ok(())
     }
 }
 

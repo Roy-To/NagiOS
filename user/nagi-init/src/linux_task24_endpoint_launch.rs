@@ -52,9 +52,7 @@ use pid1_live_peer_supplier::SessionLease;
     linux_boot_owner_registration,
     feature = "system-service-readiness"
 ))]
-use pid1_live_peer_supplier::{
-    Pid1CompletedServiceHandshakeOwner, Pid1SpawnEndpointLease, RegistrationId,
-};
+use pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner;
 
 #[cfg(all(linux_task24_notes_consumer, linux_task24_initial_login_runtime))]
 #[path = "linux_task24_notes_console.rs"]
@@ -230,20 +228,6 @@ impl<R: LaunchRecordView> ExactChildLaunchLease<R> for Task24EndpointLaunchLease
 pub(super) type LoginLease = Task24EndpointLaunchLease<LaunchRecord>;
 pub(super) type LoginLifecycle =
     ProcessLifecycle<LinuxProcessOs, ServiceId, LaunchRecord, LoginLease>;
-
-/// Values lent by the independent activation owner through login and READY.
-#[cfg(all(
-    linux_task24_initial_login_runtime,
-    linux_boot_owner_registration,
-    feature = "system-service-readiness"
-))]
-pub(super) struct ActivatedIdentityEndpoint<'a> {
-    pub(super) registration: RegistrationId,
-    pub(super) endpoint: &'a Pid1SpawnEndpointLease,
-    pub(super) launch_lease: &'a LoginLease,
-    pub(super) spawn: &'a nagi_init_spawn_contract::SpawnedProcessPidfd,
-    pub(super) record: LaunchRecord,
-}
 
 pub(super) struct BootLoginRun {
     pub(super) directory: Pid1LivePeerDirectory<LaunchRecord>,
@@ -597,9 +581,8 @@ pub(super) fn run_owner_login(
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     run: &BootLoginRun,
-    #[cfg(feature = "system-service-readiness")] identity_endpoint: Option<
-        ActivatedIdentityEndpoint<'_>,
-    >,
+    #[cfg(feature = "system-service-readiness")]
+    identity_listener: Option<&identity_listener::PendingIdentityListener>,
     console: &mut super::linux_owner_registration_console::BootOwnerConsole,
 ) -> ! {
     use super::linux_owner_registration_console::task24_input::RequestRoute;
@@ -679,27 +662,19 @@ pub(super) fn run_owner_login(
                 super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
                 let notes_allowed = if run.identity_ready.is_some() {
                     #[cfg(feature = "system-service-readiness")]
-                    let readiness = identity_endpoint
-                        .as_ref()
+                    let readiness = identity_listener
                         .ok_or(PeerDenial::RequiredServiceMissing)
                         .and_then(|identity| {
                             let deadline = Instant::now() + Duration::from_secs(5);
-                            runtime.complete_task24_identity_handshake(
-                                session.lease,
-                                run,
-                                identity.launch_lease,
-                                identity.endpoint,
-                                &handshakes,
-                                deadline,
-                            )?;
-                            let mut ready = false;
-                            runtime.publish_task24_ready(
-                                session.lease,
-                                run,
-                                identity,
-                                &handshakes,
-                                &mut ready,
-                            )
+                            identity.with_lease(|lease| {
+                                runtime.complete_and_publish_task24_ready(
+                                    session.lease,
+                                    run,
+                                    lease,
+                                    &handshakes,
+                                    deadline,
+                                )
+                            })
                         });
                     #[cfg(not(feature = "system-service-readiness"))]
                     let readiness: Result<(), PeerDenial> = Err(PeerDenial::Unavailable);
