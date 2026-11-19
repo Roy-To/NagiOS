@@ -1,6 +1,6 @@
 # NDP-04 — Windows由来APIの静的差分rules
 
-状態: PROPOSED / NOT STARTED。PT-03。NDP-01と既存PT-01の正規入力/report interface、担当path・host条件の確認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-03。NDP-01と既存PT-01の正規入力/report interface、担当path・host条件の確認が必要。
 
 ## 目的
 

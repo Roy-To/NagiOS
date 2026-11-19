@@ -1,6 +1,6 @@
 # NDP-09 — 薄い検証オーケストレーター
 
-状態: PROPOSED / NOT STARTED。PT-05。NDP-08、独立path、実行Scope、host条件の明示承認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-05。NDP-08、独立path、実行Scope、host条件の明示承認が必要。
 
 ## 目的
 

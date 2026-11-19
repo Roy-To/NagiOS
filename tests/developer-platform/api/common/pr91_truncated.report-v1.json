@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["c", "c++"],
+  "manifests": ["CMakeLists.txt"],
+  "dependencies": [
+    {"name": "ws2_32", "source": "CMakeLists.txt", "review_status": "requires-review"}
+  ],
+  "analysis": {
+    "files_scanned": 3,
+    "directories_visited": 2,
+    "entries_visited": 5,
+    "bytes_read": 900,
+    "truncated": true,
+    "conclusion": "requires-review"
+  },
+  "findings": [
+    {"category": "threading", "path": "src/pool.cpp", "line": 12, "evidence": "matched tokens: CreateThread", "review_status": "requires-review"}
+  ],
+  "limitations": [
+    "The scan stopped at a file or total-size limit.",
+    "This heuristic scan does not establish Nagi compatibility or POSIX/ABI compatibility.",
+    "Dependency versions, licenses, transitive dependencies, and runtime behavior require separate review.",
+    "A host build or package validation does not prove that an application installs or runs on Nagi OS."
+  ]
+}

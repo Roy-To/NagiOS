@@ -1,6 +1,6 @@
 # NDP-10 — 評価fixtureの選定・権利・作成準備
 
-状態: PROPOSED / NOT STARTED。PT-06。NDP-01と、fixture作成path・host実行範囲の承認が必要。
+状態: PASS（初回の自作fixture準備・host確認のみ、2026-11-15）。[開始記録](../START_AUTHORIZATION.md)に基づくPT-06の限定成果。実アプリ比較・Nagi target受入は未実施。
 
 ## 目的
 
@@ -37,3 +37,7 @@ DEC-045 PT-06と `docs/porting-toolkit/PT06_MIGRATION_EVALUATION_TEMPLATE_2026-1
 利用可能なPT工程からNDP-11へ渡す。第三者アプリが未承認でも、承認済み自作fixtureの準備までを止めない。
 
 共通: [規則](../03_COMMON_RULES.md)、[キュー](../05_BACKLOG_AND_PARALLEL.md)。
+
+## 2026-11-15 初回結果
+
+`tests/developer-platform/evaluation/**` にportable C、Windows/Linuxの静的入力、text-only誤検出対照、Qt XMLを追加。Clangの警告エラー付きbuild・境界条件・2回の結果一致、XML構造、入力不変の確認が成功。確認手順と未検証範囲は同pathのREADME。Python 3.9.6による限定確認であり、標準hostのdoctor成功ではない。

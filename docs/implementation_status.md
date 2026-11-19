@@ -1,3 +1,26 @@
+## NDP-02/08/09 real Manifest validator connection — 2026-11-17
+
+Status: `PARTIAL`. The repository-pinned nightly is installed in an ignored,
+worktree-local tool/cache directory. Locked `nagi-pkg` build and all 7 existing
+contract tests pass without SDK, Package source or lockfile changes. The NDP
+Stage 1 adapter calls that real tool; 11 tests pass, including real acceptance,
+rejection, bounded output, timeout/cancel and source preservation. Stage 2/3
+return not-run. SDK delivery/owner agreement, generator and target remain open.
+See the [adapter README](../tools/nagi-developer-platform/validation/README.md).
+
+## NDP-11 repeatable synthetic host evaluation — 2026-11-17
+
+Status: `PARTIAL`. `python3 tests/developer-platform/evaluation/run_host_checks.py`
+builds/runs the approved portable C test and repeats the NDP-06 UI CLI three
+times. Both stdout comparisons and source preservation pass. UI CLI wall time
+(including startup) has an observed median of about 34 ms on macOS arm64,
+Clang 21 / Python 3.9.6. Seven runner failure checks and all 18 UI tests pass. Stable but incorrect UI
+reports are rejected by explicit fixture expectations; the added regressions
+detect five cases on the original runner.
+Manual/LLM comparison, SDK validation, rendering and Nagi target are unrun;
+no speedup, standard host readiness or milestone PASS is claimed. See the
+[evaluation README](../tests/developer-platform/evaluation/README.md).
+
 ## Kernel-policy documentation checkpoint — 2026-11-13
 
 This entry records documentation reconciliation only. DEC-042/043 confirm Linux kernel plus Nagi-owned userland; DEC-044 permits bounded Linux migration development. It is not a Linux implementation start, build/test result, release activation or milestone PASS.
