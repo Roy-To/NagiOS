@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Self-made minimal UI layout in a format the UI analyzer does not support (NDP-A019). -->
+<PanelLayout orientation="vertical">
+  <Label id="title" text="Tasks"/>
+  <Button id="add" text="Add"/>
+</PanelLayout>

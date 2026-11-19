@@ -206,7 +206,8 @@ and each is isolated in `stages.json` or one function so it can be replaced.
 
 From the checkout root, select `portable`, `windows`, `linux`, `ui`, `mixed`
 (PROVISIONAL, mixed Windows/Linux API source), `app_windows` (PROVISIONAL, Windows C
-API + WPF XAML in one project) or `all`.
+API + WPF XAML in one project), `ui_unsupported` (PROVISIONAL, one UI file in an
+unsupported format) or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
@@ -258,8 +259,8 @@ non-passed files and steps also show the table description after the reason;
 an unlisted reason stays code-only.
 
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
-`portable`, `windows`, `linux`, `ui`, `mixed` (NDP-A017) and `app_windows` (NDP-A018;
-the first four are unchanged and keep their order) and adds a fixture x check
+`portable`, `windows`, `linux`, `ui`, `mixed` (NDP-A017), `app_windows` (NDP-A018) and
+`ui_unsupported` (NDP-A019; the first four are unchanged and keep their order) and adds a fixture x check
 overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
 `target_acceptance` fields (`fixture` is `all`), the unchanged per-fixture
@@ -272,7 +273,7 @@ matrix table (status and reason per cell) and the reason list, followed by
 each unchanged single-fixture Markdown report. The exit code follows the
 existing rule over every check of every fixture: 1 if any check `failed`,
 0 for other completed runs, 2 for invalid arguments. Output is capped at
-the single-report limit times the number of fixtures (six).
+the single-report limit times the number of fixtures (seven).
 
 Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
 or compiler that is missing stays `not_run` and is never shown as passed. It is
@@ -384,6 +385,34 @@ reports, and 2 for invalid arguments.
   `target_acceptance` stays `not_run`; the UI mapping is a vocabulary classification, not a
   rendering or runtime result; not a contract, and `contracts/` is untouched. Not Nagi
   target acceptance.
+- `ui_unsupported` fixture (PROVISIONAL, NDP-A019; additive, the JSON of the six existing
+  fixtures is unchanged). Why: `report.py` already treats the analyzer's
+  `unsupported_format` as `unsupported`, but every fixture UI file was one of the three
+  supported formats, so how an unsupported UI input looks in a whole report was not
+  pinned by any fixture or test. `report.py` has a new fixture name `ui_unsupported`
+  (`UI_UNSUPPORTED_FIXTURE`, one entry in `UI_FIXTURE_PATHS`) that routes one
+  self-made file, `tests/developer-platform/evaluation/ui_unsupported/panel_layout.xml`
+  (three elements, root `PanelLayout`), through the existing analyzer. Pinned result
+  (`test_report_ui_unsupported.py`, exit code 0): `ui_analysis` is `unsupported`
+  (`file_unsupported`; the file entry carries `unsupported_format`), `ui_mapping` is
+  `not_run` (`file_not_run`; the file entry carries `ui_analysis_did_not_pass`), and the
+  independent checks continue (`generation` passes, API checks and `stage_2` are
+  `unsupported`, `stage_3` is `not_run`). The Overview and the Markdown problem lines
+  show these reasons with their `REASON_DESCRIPTIONS` text, and `undescribed_reasons`
+  finds nothing for the fixture; no description had to be added because the four codes
+  were already listed. `--fixture all` appends `ui_unsupported` after `app_windows`
+  (seven fixtures; the report-size cap scales with the count); existing tests that
+  counted six fixtures were updated and no assertion was removed.
+  Assumptions and limits: the file is self-made and not taken from any external project;
+  its format is a guess at "some other layout format", not a model of a real product.
+  The analyzer does **not** choose the format by file extension: it selects Qt Designer,
+  GTK Builder or XAML from the parsed XML root, and any other well-formed XML root is
+  `unsupported_format`. A non-XML text (for example QML-like source) is therefore
+  `invalid_xml`, a `failed` check that makes the CLI exit 1, not `unsupported`; a test
+  records this. The analyzer is unchanged and no new format is analysed or mapped; if the
+  analyzer later supports this root or separates other formats, replace the fixture file
+  and the expectations. Host static reading only, not Nagi target acceptance
+  (`target_acceptance` stays `not_run`), not a contract.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared
