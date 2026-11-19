@@ -2,8 +2,12 @@
 //! inside the same PID 1 crate. The caller supplies the installed login
 //! package and the existing policy owners.
 
+use super::linux_boot_package_inputs::BootCatalogInputs;
 use super::linux_c3_boot_launch::AuthenticatedBootService;
 use super::linux_owner_registration_console::BootConsentUiConnection;
+use super::linux_task24_identity_ready::{
+    readiness_challenge, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+};
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
 use super::pid1_owned_launch_lease::{BoundLaunchLease, ExactChildLaunchLease};
@@ -17,22 +21,24 @@ use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
 };
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
+use nagi_sdk::app_contract::OrderingMetadata;
+use nagi_sdk::AppId;
 use nagi_service_contract::{
     CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
 };
-use nagi_system_service_launch::VerifiedBootReadyPlan;
 use nagi_task37_receipt_supplier::service_effect::ServiceEffectOwnerId;
 use pid1_live_peer_supplier::pidfd_process_instance::{
     LinuxPidfdKernel, PidfdProcessInstanceAuthority,
 };
 use pid1_live_peer_supplier::{
     LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint, Pid1EndpointOwnerRegistry,
-    Pid1LivePeerDirectory, Pid1RunInstance, Pid1RunOwnerLease, RequiredServiceSet,
-    RouteConsentRequirement, SupervisorLaunchAuthority, Task24EndpointLaunchLease,
-    TrustedInventory, TrustedManifest, TrustedNipcOperationRoute, TrustedRouteKey,
-    TrustedServiceRequirements,
+    Pid1LivePeerDirectory, Pid1RunInstance, Pid1RunOwnerLease, RouteConsentRequirement,
+    ServiceHandshakeAttemptIds, ServiceHandshakeProtocol, SupervisorLaunchAuthority,
+    Task24EndpointLaunchLease, TrustedInventory, TrustedManifest, TrustedNipcOperationRoute,
+    TrustedRouteKey, TrustedServiceRequirements,
 };
 use std::num::NonZeroU64;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -215,56 +221,136 @@ pub(super) struct BootLoginRun {
     pub(super) run_owner: Pid1RunOwnerLease,
     pub(super) instances: PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
     pub(super) registry: Pid1EndpointOwnerRegistry,
-    ready_plan: Option<(NonZeroU64, RequiredServiceSet)>,
+    pub(super) identity_ready: Option<IdentityReadyProtocol>,
 }
 
 impl BootLoginRun {
-    pub(super) fn begin(plan: Option<&VerifiedBootReadyPlan>) -> Result<Self, BackendError> {
+    pub(super) fn begin(catalogs: &BootCatalogInputs) -> Result<Self, BackendError> {
         let directory = Pid1LivePeerDirectory::new();
         let run_owner = directory
             .begin_run_owner_lease()
             .map_err(|_| BackendError::Unavailable)?;
-        let ready_plan = plan.and_then(|plan| {
-            let routes: Option<Vec<_>> = plan
-                .mandatory_routes()
-                .iter()
-                .map(|route| {
-                    TrustedRouteKey::from_canonical_route(
-                        route.service_id.get(),
-                        route.operation_id.get(),
-                        route.version_major,
-                        route.version_minor,
-                        run_owner.generation().get(),
-                    )
-                })
-                .collect();
-            let required = routes
-                .ok_or(PeerDenial::UnknownNipcRoute)
-                .and_then(RequiredServiceSet::from_canonical_service_plan);
-            match required {
-                Ok(required) => Some((plan.generation(), required)),
-                Err(error) => {
-                    super::log_pid1_stderr(format_args!(
-                        "nagi-init: development READY plan cannot bind this run ({error:?})"
-                    ));
-                    None
-                }
-            }
-        });
+        let identity_ready = IdentityReadyProtocol::from_verified_catalog(catalogs, &run_owner);
+        if catalogs.ready_plan.is_some() && identity_ready.is_none() {
+            super::log_pid1_stderr(format_args!(
+                "nagi-init: development READY plan does not select the boot Identity operation"
+            ));
+        }
         Ok(Self {
             directory,
             run_owner,
             instances: PidfdProcessInstanceAuthority::new(LinuxPidfdKernel),
             registry: Pid1EndpointOwnerRegistry::new(),
-            ready_plan,
+            identity_ready,
         })
     }
+}
 
-    pub(super) fn required_ready_services(
+const IDENTITY_PACKAGE_ID: &str = "org.nagi.dev.task24-identity";
+const BROKER_APP: AppId = AppId::from_identifier(b"org.nagi.init");
+
+/// The single read-only Identity operation selected by the signed Task24 plan.
+pub(super) struct IdentityReadyProtocol {
+    route: TrustedRouteKey,
+    service_id: String,
+    catalog_generation: NonZeroU64,
+    destination: AppId,
+    challenge: Mutex<Option<[u8; CHALLENGE_BYTES]>>,
+}
+
+impl IdentityReadyProtocol {
+    fn from_verified_catalog(
+        catalogs: &BootCatalogInputs,
+        run: &Pid1RunOwnerLease,
+    ) -> Option<Self> {
+        let plan = catalogs.ready_plan.as_ref()?;
+        let [mandatory] = plan.mandatory_routes() else {
+            return None;
+        };
+        let descriptor = catalogs.catalog.descriptor();
+        let service_id = descriptor.service_id().as_str();
+        let service_selector = AppId::from_identifier(service_id.as_bytes());
+        let operation = AppId::from_identifier(REQUEST_TYPE.as_bytes());
+        if descriptor.package_id() != IDENTITY_PACKAGE_ID
+            || descriptor.generation() != plan.generation()
+            || mandatory.service_id.get() != service_selector.0
+            || mandatory.operation_id.get() != operation.0
+            || (mandatory.version_major, mandatory.version_minor) != (1, 0)
+        {
+            return None;
+        }
+        Some(Self {
+            route: TrustedRouteKey::from_canonical_route(
+                service_selector.0,
+                operation.0,
+                1,
+                0,
+                run.generation().get(),
+            )?,
+            service_id: service_id.to_owned(),
+            catalog_generation: plan.generation(),
+            destination: AppId::from_identifier(IDENTITY_PACKAGE_ID.as_bytes()),
+            challenge: Mutex::new(None),
+        })
+    }
+}
+
+impl ServiceHandshakeProtocol for IdentityReadyProtocol {
+    fn route(&self) -> TrustedRouteKey {
+        self.route
+    }
+
+    fn system_service_slot(&self) -> Option<(&str, NonZeroU64)> {
+        Some((&self.service_id, self.catalog_generation))
+    }
+
+    fn source_app_id(&self) -> AppId {
+        BROKER_APP
+    }
+
+    fn destination_app_id(&self) -> AppId {
+        self.destination
+    }
+
+    fn request_payload_type(&self) -> &str {
+        REQUEST_TYPE
+    }
+
+    fn response_payload_type(&self) -> &str {
+        RESPONSE_TYPE
+    }
+
+    fn ordering(&self) -> OrderingMetadata {
+        OrderingMetadata {
+            timestamp_micros: None,
+            sequence: None,
+        }
+    }
+
+    fn build_request_payload(
         &self,
-    ) -> Result<(NonZeroU64, &RequiredServiceSet), PeerDenial> {
-        let (generation, required) = self.ready_plan.as_ref().ok_or(PeerDenial::Unavailable)?;
-        Ok((*generation, required))
+        ids: ServiceHandshakeAttemptIds,
+    ) -> Result<Vec<u8>, PeerDenial> {
+        let mut challenge = self
+            .challenge
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?;
+        if challenge.is_some() {
+            return Err(PeerDenial::HandshakeIncomplete);
+        }
+        *challenge = Some(readiness_challenge(ids.request_id(), ids.correlation_id()));
+        Ok(Vec::new())
+    }
+
+    fn validate_response_payload(&self, payload: &[u8]) -> Result<(), PeerDenial> {
+        let challenge = self
+            .challenge
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?;
+        if challenge.as_ref().map(|expected| expected.as_slice()) != Some(payload) {
+            return Err(PeerDenial::HandshakeIncomplete);
+        }
+        Ok(())
     }
 }
 

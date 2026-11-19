@@ -75,6 +75,7 @@ consent-dialog-acceptance = ["consent-dialog"]
 # desktop and its readiness report.
 desktop-login = ["m10-desktop", "m19-runtime"]
 desktop-login-acceptance = ["desktop-login"]
+system-service-readiness = []
 # ADR 0069: route normal Files panel searches through one signed product client.
 m19-files-search-production = ["desktop-login", "consent-dialog", "dep:nagi-search-ipc"]
 # ADR 0066: keep the login acceptance input loop active until a password

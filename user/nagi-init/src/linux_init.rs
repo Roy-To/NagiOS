@@ -422,7 +422,6 @@ mod linux_task24_endpoint_launch;
 
 #[cfg(all(
     linux_task24_owner_co_location,
-    linux_task24_initial_login_runtime,
     target_os = "linux",
     target_arch = "x86_64",
     feature = "desktop-login",
@@ -7369,9 +7368,7 @@ impl InitBackend for UnconnectedBackend {
                     not(nagi_release_build)
                 ))]
                 let _login_run = if _login_package.is_some() {
-                    let run = linux_task24_endpoint_launch::BootLoginRun::begin(
-                        inputs.ready_plan.as_ref(),
-                    )?;
+                    let run = linux_task24_endpoint_launch::BootLoginRun::begin(inputs)?;
                     pid1_log!(
                         "NAGI_DEV_TASK24_RUN_RETAINED generation={}",
                         run.run_owner.generation()

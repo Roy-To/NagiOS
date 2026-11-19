@@ -1,9 +1,9 @@
-use nagi_sdk::app_contract::{IpcEnvelope, MessageKind};
+use nagi_sdk::app_contract::{CorrelationId, IpcEnvelope, MessageKind, RequestId};
 use nagi_sdk::AppId;
 
-pub(super) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@1";
-pub(super) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@1";
-pub(super) const CHALLENGE_BYTES: usize = 32;
+pub(crate) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@1";
+pub(crate) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@1";
+pub(crate) const CHALLENGE_BYTES: usize = 32;
 
 pub(super) fn challenge(
     request: &IpcEnvelope<'_>,
@@ -18,10 +18,17 @@ pub(super) fn challenge(
     {
         return None;
     }
+    Some(challenge_for(request.request_id?, request.correlation_id))
+}
+
+pub(crate) fn challenge_for(
+    request: RequestId,
+    correlation: CorrelationId,
+) -> [u8; CHALLENGE_BYTES] {
     let mut challenge = [0; CHALLENGE_BYTES];
-    challenge[..16].copy_from_slice(&request.request_id?.0);
-    challenge[16..].copy_from_slice(&request.correlation_id.0);
-    Some(challenge)
+    challenge[..16].copy_from_slice(&request.0);
+    challenge[16..].copy_from_slice(&correlation.0);
+    challenge
 }
 
 pub(super) fn response<'a>(
