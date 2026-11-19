@@ -76,3 +76,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A017: 未解決行を実在の未収録 API（CancelIoEx / euidaccess）に置き換えて snapshot とテスト（PR #201、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-A018: `report.py --fixture app_windows`（API+WPF XAML の自作 fixture）を（PR #203、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-A019: `ui_unsupported` fixture を追加し、unsupported_format の通しレポート表示・r（PR #204、runnerテスト成功、codexレビューPASS）
+- 11-20 NDP-A020: 移植レポートに自作fixture app_linux（Linux C + GTK Builder、PROVISIONAL（PR #208、runnerテスト成功、codexレビューPASS）
