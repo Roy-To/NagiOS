@@ -4,6 +4,18 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_preview_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_desktop_dev_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_pid1_safety_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_boot_identity_runtime)");
+    println!("cargo:rustc-check-cfg=cfg(linux_boot_owner_registration)");
+    println!("cargo:rustc-check-cfg=cfg(linux_task24_initial_login_runtime)");
+    println!("cargo:rustc-check-cfg=cfg(linux_task24_owner_co_location)");
+    println!("cargo:rustc-check-cfg=cfg(linux_task24_notes_consumer)");
+    println!("cargo:rustc-check-cfg=cfg(nagi_release_build)");
+    if env::var("PROFILE").expect("Cargo PROFILE").as_str() != "debug" {
+        println!("cargo:rustc-cfg=nagi_release_build");
+    }
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
     println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");
@@ -44,6 +56,32 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_M25_WHISPER_EXPECTED_TEXT_FILE");
     println!("cargo:rerun-if-env-changed=NAGI_CXX_HEADERS");
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"));
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rerun-if-env-changed=NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY");
+        let public_key = env::var_os("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
+            .map(|path| {
+                let path = PathBuf::from(path);
+                println!("cargo:rerun-if-changed={}", path.display());
+                let bytes = fs::read(path).expect("read Linux boot catalog public key");
+                assert_eq!(bytes.len(), 32, "expected 32 raw public key bytes");
+                bytes
+            })
+            .unwrap_or_default();
+        fs::write(out_dir.join("linux-boot-catalog-public-key"), public_key)
+            .expect("stage Linux boot catalog public key");
+        println!("cargo:rerun-if-env-changed=NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256");
+        let login_pin = env::var("NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256").unwrap_or_default();
+        assert!(
+            login_pin.is_empty()
+                || (login_pin.len() == 64
+                    && login_pin
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))),
+            "expected a lowercase SHA-256 for the development login package"
+        );
+        fs::write(out_dir.join("linux-dev-login-package-sha256"), login_pin)
+            .expect("stage development login package digest");
+    }
     let package_output = out_dir.join("m16-package.xapp");
     if env::var_os("CARGO_FEATURE_M16_PACKAGE").is_some() {
         let package = env::var_os("NAGI_M16_PACKAGE")
@@ -64,6 +102,26 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("nagi") {
         return;
     }
+
+    // Cargo may invoke rustc/linkers with the selected package as its working
+    // directory even when `cargo build` was started at the workspace root.
+    // Resolve the Nagi init script from this manifest and apply it only to the
+    // final nagi-init binary, not every crate built for the target.
+    let init_manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
+    let init_linker_script = init_manifest_dir.join("linker.ld");
+    if !init_linker_script.is_file() {
+        panic!(
+            "Nagi init linker script is missing: {}",
+            init_linker_script.display()
+        );
+    }
+    println!("cargo:rerun-if-changed={}", init_linker_script.display());
+    println!("cargo:rustc-link-arg-bin=nagi-init=-T");
+    println!(
+        "cargo:rustc-link-arg-bin=nagi-init={}",
+        init_linker_script.display()
+    );
 
     if env::var_os("CARGO_FEATURE_M17_SERVO").is_some() {
         // Keep rust-lld from truncating the undefined-symbol inventory at its

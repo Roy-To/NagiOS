@@ -1,0 +1,15 @@
+[package]
+name = "nagi-package-identity-negative"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../../../../crates/nagi-model" }
+
+[dev-dependencies]
+nagi-package = { path = "../../../../user/nagi-package" }
+
+[workspace]
+members = ["."]
+resolver = "2"

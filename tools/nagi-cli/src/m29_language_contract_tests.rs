@@ -35,8 +35,13 @@ fn system_language_is_committed_to_user_data_before_desktop_selection() {
     ));
 
     let init = compact(INIT);
-    assert!(init
-        .contains("desktop::run(block_capability,display_capability,input_capability,volume,);"));
+    let volume_owner = init
+        .find("letSome(volume)=volumeelse")
+        .expect("desktop boot must require the initialized User Data volume");
+    let desktop_call = init
+        .find("desktop::run(block_capability,display_capability,input_capability,volume,)")
+        .expect("desktop boot must pass the same User Data volume to locale persistence");
+    assert!(volume_owner < desktop_call);
 }
 
 #[test]

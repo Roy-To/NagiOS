@@ -36,3 +36,12 @@ Thumbs.db
 *.raw
 *.img
 *.log
+
+# Linux boot lane build and image artifacts
+/tools/linux-boot/target-*/
+/tools/linux-boot/**/target-*/
+/tools/linux-boot/**/*.cpio
+/tools/linux-boot/**/cargo-home*/
+/tools/linux-boot/**/*.sparsebundle/
+/tools/linux-boot/**/*.fd
+/tools/linux-boot/pt-caseid-runtime-v1/**/__pycache__/

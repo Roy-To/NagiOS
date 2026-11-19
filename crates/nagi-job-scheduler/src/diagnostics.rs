@@ -98,6 +98,7 @@ impl ProgressSummary {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProgressError {
+    ClockUnavailable,
     InvalidRange,
     RateLimited,
     StoreUnavailable,

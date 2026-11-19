@@ -1,0 +1,16 @@
+[package]
+name = "nagi-init-service-call"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-abi = { path = "../nagi-abi" }
+nagi-action-ipc = { path = "../nagi-action-ipc" }
+nagi-nipc-v1-stream-candidate = { package = "nagi-nipc-v1-stream", path = "../nagi-nipc-v1-stream" }
+nagi-sdk = { path = "../../sdk/rust" }
+nagi-service-contract = { path = "../nagi-service-contract" }
+
+[workspace]
+members = ["."]
+resolver = "2"

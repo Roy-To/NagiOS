@@ -52,10 +52,10 @@
 Pinned nightly host tests, isolated from other worktree builds:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
 CARGO_TARGET_DIR=/tmp/nagi-m24-index-host \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-search
+${HOME}/.cargo/bin/cargo test --locked --offline -p nagi-search
 ```
 
 Result: 29 tests passed.
@@ -63,20 +63,20 @@ Result: 29 tests passed.
 Clippy also passed for all package targets with warnings denied:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
 CARGO_TARGET_DIR=/tmp/nagi-m24-index-clippy \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+${HOME}/.cargo/bin/cargo clippy --locked --offline \
   -p nagi-search --all-targets -- -D warnings
 ```
 
 The crate also compiled for the Nagi no-std user target:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
 CARGO_TARGET_DIR=/tmp/nagi-m24-index-target \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check --locked --offline \
+${HOME}/.cargo/bin/cargo -Z build-std=core,alloc check --locked --offline \
   -p nagi-search --target targets/x86_64-unknown-nagi-user.json
 ```
 

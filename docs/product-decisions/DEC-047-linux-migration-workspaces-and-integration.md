@@ -13,7 +13,7 @@
 
 ## 確定した作業場所と操作許可
 
-1. Nagi実装repository `/Volumes/SSD/NagiOS-Development-20261012/Developer/NagiOS` からlaneごとに新しいworktreeを作成し、公式 `/Volumes/SSD/NagiOS-Development-20261012/nagi-ssd.py new-worktree` を使う。
+1. Nagi実装repository `${NAGI_DEVELOPMENT_ROOT}/Developer/NagiOS` からlaneごとに新しいworktreeを作成し、公式 `${NAGI_DEVELOPMENT_ROOT}/nagi-ssd.py new-worktree` を使う。
 2. 割り当てられたworktree内では、本人の都度承認なしに次を行える: branch作成、commit、worktree作成、Linux移行統合branchへのmerge、build/test、QEMU/VM起動、kernel source/toolchain/library等の依存取得・install。
 3. Linux移行統合branchは **`codex/linux-integration-20261114`** とする。各laneはそこへ統合する。board.mdで確認した基準候補は `codex/integration-next-phase` @ `b5b33491d2d3704ab0f1f765a6b200cfa272518c`。この候補の現行状態は、作業開始時のowner handoffで固定する。
 
@@ -45,4 +45,4 @@
 
 ## 後続の履歴・未共有commitの取扱い（2026-11-14）
 
-2026-11-14の本人の後続決定により、本人が作成または割り当てた `/Volumes/SSD/NagiOS-Development-20261012/worktrees` 配下のworktree内では、laneは都度確認なしに編集、commit（自己の未共有commitのamendを含む）、build、test、QEMU実行、依存取得を行える。force-pushは禁止し、共有branch historyの書換えも禁止する。既存の「履歴書換えをしない」は共有済み履歴に適用し、自己の未共有commitのamendは許可する。その他のDEC-047条項は変更しない。
+2026-11-14の本人の後続決定により、本人が作成または割り当てた `${NAGI_DEVELOPMENT_ROOT}/worktrees` 配下のworktree内では、laneは都度確認なしに編集、commit（自己の未共有commitのamendを含む）、build、test、QEMU実行、依存取得を行える。force-pushは禁止し、共有branch historyの書換えも禁止する。既存の「履歴書換えをしない」は共有済み履歴に適用し、自己の未共有commitのamendは許可する。その他のDEC-047条項は変更しない。

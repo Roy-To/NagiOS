@@ -23,12 +23,12 @@
       "python3 import jsonschema / bundled Python import jsonschema — FAIL: ModuleNotFoundError in both environments; no package was installed.",
       "Temporary scratch repo: append proposed registry entry, copy TEST-PLAT-01 state, then invoke tools/nagi-bootstrap/target/debug/nagi-bootstrap dev verify — first attempt FAIL, exit 4 because blocker.class was null while blocker.active was true; after setting blocker.class to UNKNOWN, rerun PASS (19 streams, 1 state validated).",
       "./nagi dev verify — PASS: 18 registered workstreams and 11 registered state files validated; unregistered TEST-PLAT-01 is excluded.",
-      "git worktree add -b codex/0.2-test-plat-01 /Users/tozawa/Developer/NagiOS-0.2-test-plat-01 198b9f60b41eba14e74c2c04f51ccdcb4030adf9 — PASS: new assigned branch HEAD equals the approved base SHA."
+      "git worktree add -b codex/0.2-test-plat-01 ${HOME}/Developer/NagiOS-0.2-test-plat-01 198b9f60b41eba14e74c2c04f51ccdcb4030adf9 — PASS: new assigned branch HEAD equals the approved base SHA."
     ],
     "tests": [
       {
         "name": "Formal Draft 2020-12 JSON Schema validation availability",
-        "command": "python3 -c 'import jsonschema'; /Users/tozawa/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c 'import jsonschema'",
+        "command": "python3 -c 'import jsonschema'; ${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 -c 'import jsonschema'",
         "outcome": "FAIL",
         "exit_code": 1,
         "evidence": "Both checked Python environments returned ModuleNotFoundError: No module named 'jsonschema'. No dependency was installed. The exact state and proposed registry entry were subsequently checked with the repository's existing DF-01 CLI validator in a disposable scratch repository."

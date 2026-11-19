@@ -97,6 +97,15 @@ impl Harness {
         Self::with_authority(Arc::new(FakeAuthority))
     }
     fn with_authority(authority: Arc<dyn JobAuthorization>) -> Self {
+        Self::with_authority_and_constraints(authority, JobConstraints::default())
+    }
+    fn with_constraints(constraints: JobConstraints) -> Self {
+        Self::with_authority_and_constraints(Arc::new(FakeAuthority), constraints)
+    }
+    fn with_authority_and_constraints(
+        authority: Arc<dyn JobAuthorization>,
+        constraints: JobConstraints,
+    ) -> Self {
         let clock = Arc::new(ManualClock::default());
         let events = Arc::new(BoundedJobEventRecorder::new(64));
         let providers = Arc::new(JobProviderRegistry::new());
@@ -134,7 +143,9 @@ impl Harness {
         let id = scheduler
             .enqueue(
                 &caller,
-                JobRequest::new(reference()).with_retry_policy(retry),
+                JobRequest::new(reference())
+                    .with_retry_policy(retry)
+                    .with_constraints(constraints),
             )
             .unwrap()
             .record
@@ -184,6 +195,76 @@ fn stale_results_cannot_complete_a_recovered_queued_record() {
             "an obsolete attempt must be reported as superseded"
         );
     }
+}
+
+#[test]
+fn cancellation_recovery_supersedes_late_unknown_without_reexecution() {
+    let h = Harness::new();
+    let old = h.spawn();
+    h.started.recv().unwrap();
+    h.cancel();
+
+    let recovered = h.scheduler.recover_startup().unwrap();
+    assert_eq!(h.record().state(), &JobState::Cancelled);
+    assert_eq!(recovered.len(), 1);
+    h.releases[0]
+        .send(HandlerOutcome::OutcomeUnknown(JobFailureCode::Transient))
+        .unwrap();
+
+    assert!(matches!(
+        old.join().unwrap().unwrap(),
+        DispatchResult::Superseded { attempt: 1, .. }
+    ));
+    assert_eq!(h.record().state(), &JobState::Cancelled);
+    assert!(matches!(
+        h.started.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(!h
+        .events
+        .snapshot()
+        .iter()
+        .any(|event| event.code() == JobEventCode::RecoveryRequired));
+    assert_eq!(h.scheduler.dispatch_one().unwrap(), DispatchResult::Idle);
+    assert!(matches!(
+        h.started.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+}
+
+#[test]
+fn deadline_recovery_supersedes_late_unknown_without_reexecution() {
+    let h = Harness::with_constraints(JobConstraints::default().with_deadline(TimestampMillis(1)));
+    let old = h.spawn();
+    h.started.recv().unwrap();
+    h.clock.set(TimestampMillis(1)).unwrap();
+
+    let recovered = h.scheduler.recover_startup().unwrap();
+    assert_eq!(h.record().state(), &JobState::TimedOut);
+    assert_eq!(recovered.len(), 1);
+    h.releases[0]
+        .send(HandlerOutcome::OutcomeUnknown(JobFailureCode::Transient))
+        .unwrap();
+
+    assert!(matches!(
+        old.join().unwrap().unwrap(),
+        DispatchResult::Superseded { attempt: 1, .. }
+    ));
+    assert_eq!(h.record().state(), &JobState::TimedOut);
+    assert!(matches!(
+        h.started.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(!h
+        .events
+        .snapshot()
+        .iter()
+        .any(|event| event.code() == JobEventCode::RecoveryRequired));
+    assert_eq!(h.scheduler.dispatch_one().unwrap(), DispatchResult::Idle);
+    assert!(matches!(
+        h.started.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
 }
 
 #[test]

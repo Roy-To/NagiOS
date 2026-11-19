@@ -73,45 +73,45 @@
 Using the pinned aarch64 macOS Rust toolchain:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m21-host-arm64 \
-/Users/tozawa/.cargo/bin/cargo test --locked --offline -p nagi-ai
+${HOME}/.cargo/bin/cargo test --locked --offline -p nagi-ai
 ```
 
 Result: 24 orchestration and SearchService integration tests passed; no doc
 tests are defined.
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m21-clippy-arm64 \
-/Users/tozawa/.cargo/bin/cargo clippy --locked --offline \
+${HOME}/.cargo/bin/cargo clippy --locked --offline \
   -p nagi-ai --all-targets -- -D warnings
 ```
 
 Clippy passed with warnings denied. Formatting passed:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-/Users/tozawa/.cargo/bin/cargo fmt \
+${HOME}/.cargo/bin/cargo fmt \
   --manifest-path services/nagi-ai/Cargo.toml -- --check
 ```
 
 The service compiled for Nagi `no_std` user target:
 
 ```sh
-PATH=/Users/tozawa/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
+PATH=${HOME}/.cargo/bin:/usr/bin:/bin:/usr/local/bin \
 RUSTUP_TOOLCHAIN=nightly-2025-08-01-aarch64-apple-darwin \
-RUSTC=/Users/tozawa/.cargo/bin/rustc \
-RUSTDOC=/Users/tozawa/.cargo/bin/rustdoc \
+RUSTC=${HOME}/.cargo/bin/rustc \
+RUSTDOC=${HOME}/.cargo/bin/rustdoc \
 CARGO_TARGET_DIR=/tmp/nagi-m21-target \
-/Users/tozawa/.cargo/bin/cargo -Z build-std=core,alloc check \
+${HOME}/.cargo/bin/cargo -Z build-std=core,alloc check \
   --manifest-path Cargo.toml -p nagi-ai \
   --target targets/x86_64-unknown-nagi-user.json --locked --offline
 ```

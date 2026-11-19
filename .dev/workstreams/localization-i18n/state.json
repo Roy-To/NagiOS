@@ -14,7 +14,7 @@
       "cargo test --locked -p nagi-i18n",
       "cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
       "cargo run --locked -p nagi-i18n --bin localization-check",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "./nagi dev verify",
       "git diff --check; git diff --cached --check"
     ],
@@ -42,7 +42,7 @@
       },
       {
         "name": "Nagi user-target localization library compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The localization library compiled for the x86_64 Nagi user target; this is compile evidence only, with no process/runtime integration or QEMU claim."

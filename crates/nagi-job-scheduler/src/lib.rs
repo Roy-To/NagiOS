@@ -31,9 +31,10 @@ pub use model::{
     RetryTerminalAction, ScheduleRef, TimestampMillis, TriggerKind, JOB_RECORD_SCHEMA_VERSION,
 };
 pub use scheduler::{
-    CancellationReason, CancellationToken, Clock, DispatchResult, EnqueueResult, HandlerContext,
-    HandlerOutcome, JobHandler, JobProviderRegistry, ManualClock, NetworkConditions, Scheduler,
-    SchedulerConfig, SchedulerConfigError, SchedulerError, SystemConditions,
+    CancellationReason, CancellationToken, Clock, ClockUnavailable, DispatchResult, EnqueueResult,
+    FallibleClock, HandlerContext, HandlerOutcome, JobHandler, JobProviderRegistry, ManualClock,
+    NetworkConditions, RetainedClockOutcome, Scheduler, SchedulerConfig, SchedulerConfigError,
+    SchedulerError, SystemConditions,
 };
 pub use store::{DedupeScope, InMemoryJobStore, InsertOutcome, JobStore, JobStoreError};
 

@@ -67,3 +67,9 @@ Linux + Nagi専用userland、既存distributionを製品OS基盤にしない方�
 この到達点は本DECの最初の開発統合目標に対応する。**実機受入、製品向け認証済みREADY、Linux移行全体の完了、電源断耐久、ReleaseのPASSを意味しない。** 開発限定handshakeと通常製品initの認証経路は別で、後者の未接続部分はUnavailableを維持する。後続変更のhost testや型検査をこのrunのruntime成功へ合算しない。既存のRelease／Activation／Acceptance Gateと安全境界は変更しない。
 
 詳細・残条件は [implementation status](../implementation_status.md) の「Linux development-target acceptance — 2026-11-16 13:16 JST」を参照。非公開の生ログ・ローカル個人パス・会話記録は本記録に含めない。
+
+## 認証付き正常経路の開発QEMU実測（2026-11-19）
+
+署名済み開発イメージの x86-64 Linux QEMU（2 GiB RAM、4 vCPU）で、実認証、C1 Session、正式な service READY、Notes の保存・正常終了、同じ Data での冷間再起動・再認証と同一オブジェクト／版／描画内容の読戻しが成立した。固定版は A `eecf55f988` と C2 `747feeefd4`、同一接続証明は `6064decb3b`。手順と result.json の要点は[実装状況](../implementation_status.md#linux-development-target-acceptance--2026-11-19-task24)を参照。
+
+これは開発環境の正常系の記録であり、製品の署名や構成、実System RO、WS-10、8 GiB／4 vCPU性能、実機、Notes用profile volumeの受入を示さない。
