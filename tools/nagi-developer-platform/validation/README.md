@@ -79,6 +79,11 @@ of Stage 3.
 
 ## Stage 2 (self-made fixtures only)
 
+Stage 2 is approved only for running the pinned self-made fixture with the fixed
+commands below in a trusted development environment. It selects the first
+`clang` on the host's `PATH`. Neither compilation nor test execution runs in an
+OS sandbox; the private scratch directory does not provide sandbox isolation.
+
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 tools/nagi-developer-platform/validation/stage2.py \
   --target portable-summary --fixture-dir tests/developer-platform/evaluation/portable
@@ -159,8 +164,8 @@ a skip is not a pass. Host result only, not Nagi target acceptance.
   Only Level 0 default inputs are checked; user-supplied inputs are possible via the
   Python API but not exposed on the CLI.
 
-These are working assumptions so Stage 2 can proceed; none is a CONFIRMED decision,
-and each is isolated in `stages.json` or one function so it can be replaced.
+The fixture-only execution boundary above is confirmed. The following details
+remain provisional; each is isolated in `stages.json` or one function.
 
 - Stage 2 scope is only the self-made portable C fixture; the target table in
   `stages.json` configures the build. A trusted adapter revision supplies the
