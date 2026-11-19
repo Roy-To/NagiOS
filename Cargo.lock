@@ -432,8 +432,10 @@ dependencies = [
 name = "nagi-identity-session"
 version = "0.1.0"
 dependencies = [
+ "getrandom",
  "nagi-capability",
  "nagi-model",
+ "nagi-system-service-recovery-contract",
  "serde",
  "serde_json",
 ]
