@@ -7323,10 +7323,24 @@ impl InitBackend for UnconnectedBackend {
                 .map(|inputs| inputs.catalog.package_signing_public_key());
             #[cfg(not(all(target_os = "linux", not(linux_dev_preview_smoke))))]
             let trusted_key = None;
+            let trusted_key = trusted_key.as_ref();
+            #[cfg(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                feature = "desktop-login",
+                feature = "system-service-readiness",
+                not(any(linux_dev_preview_smoke, nagi_release_build))
+            ))]
+            let trusted_key = trusted_key
+                .map(linux_task24_endpoint_launch::identity_listener::pin_boot_package_key)
+                .transpose()
+                .map_err(|_| BackendError::IdentityRejected)?;
             let restore =
                 nagi_init_package_provider::package_trust::PackageServiceSessionOwner::
                     restore_from_persistent_storage(
-                        trusted_key.as_ref(),
+                        trusted_key,
                         nagi_package::InstallPolicy {
                             developer_mode: false,
                             require_signature: true,
@@ -7338,6 +7352,16 @@ impl InitBackend for UnconnectedBackend {
                 pid1_log!("nagi-init: package-store restore/admission unavailable ({error:?})");
                 BackendError::Unavailable
             })?;
+            #[cfg(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                feature = "desktop-login",
+                feature = "system-service-readiness",
+                not(any(linux_dev_preview_smoke, nagi_release_build))
+            ))]
+            let package_owner = std::sync::Arc::new(package_owner);
             #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
             if let Some(inputs) = catalog.as_ref() {
                 use nagi_system_service_launch::ArtifactPreflight as _;
@@ -7373,6 +7397,16 @@ impl InitBackend for UnconnectedBackend {
                         "NAGI_DEV_TASK24_RUN_RETAINED generation={}",
                         run.run_owner.generation()
                     );
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let run = std::sync::Arc::new(run);
                     Some(run)
                 } else {
                     None
@@ -7418,13 +7452,103 @@ impl InitBackend for UnconnectedBackend {
                 );
                 #[cfg(target_arch = "x86_64")]
                 {
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let mut pending_identity = _login_run
+                        .as_ref()
+                        .filter(|run| run.identity_ready.is_some())
+                        .map(|run| {
+                            linux_task24_endpoint_launch::identity_listener::PendingIdentityListener::new(
+                                std::sync::Arc::clone(run),
+                                std::sync::Arc::clone(&package_owner),
+                                &package,
+                                &bytes,
+                            )
+                        })
+                        .transpose()
+                        .map_err(|error| {
+                            pid1_log!("nagi-init: Identity pending listener unavailable ({error})");
+                            BackendError::Unavailable
+                        })?;
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let identity_arguments = pending_identity
+                        .as_ref()
+                        .map(|pending| pending.child_arguments())
+                        .transpose()
+                        .map_err(|_| BackendError::ProtocolViolation)?;
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let arguments = identity_arguments
+                        .as_ref()
+                        .map(|argv| argv.iter().map(String::as_str).collect::<Vec<_>>())
+                        .unwrap_or_default();
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let identity_listener = pending_identity.as_mut().map(|pending| {
+                        linux_c3_boot_launch::IdentityListenerHandoff {
+                            arguments: &arguments,
+                            pending,
+                        }
+                    });
+                    #[cfg(all(
+                        feature = "system-service-readiness",
+                        not(all(
+                            target_os = "linux",
+                            target_arch = "x86_64",
+                            linux_task24_owner_co_location,
+                            linux_task24_initial_login_runtime,
+                            feature = "desktop-login",
+                            feature = "system-service-readiness",
+                            not(any(linux_dev_preview_smoke, nagi_release_build))
+                        ))
+                    ))]
+                    let identity_listener = None;
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    let activating_identity = identity_listener.is_some();
                     let authenticated = linux_c3_boot_launch::authenticate_boot_service(
                         &package_store,
                         catalog,
                         &report,
                         package,
                         #[cfg(feature = "system-service-readiness")]
-                        None,
+                        identity_listener,
                     )
                     .map_err(|error| {
                         pid1_log!(
@@ -7432,6 +7556,18 @@ impl InitBackend for UnconnectedBackend {
                         );
                         BackendError::Unavailable
                     })?;
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        feature = "desktop-login",
+                        feature = "system-service-readiness",
+                        not(any(linux_dev_preview_smoke, nagi_release_build))
+                    ))]
+                    if activating_identity {
+                        pid1_log!("NAGI_DEV_TASK24_IDENTITY_LISTENER_ACTIVATED");
+                    }
                     let mapping = authenticated
                         .with_verified_system_mapping(&inputs.recovery_catalog, |mapping| {
                             mapping.mapping_generation()

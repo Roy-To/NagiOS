@@ -102,6 +102,22 @@ fn with_registry<R>(operation: impl FnOnce(&mut LaunchRegistry) -> R) -> Option<
     Some(operation(registry))
 }
 
+/// Use the existing registry without waiting while an external owner gate is held.
+#[cfg(all(
+    target_os = "linux",
+    linux_task24_owner_co_location,
+    feature = "system-service-readiness"
+))]
+pub(crate) fn try_with_registry<R>(operation: impl FnOnce(&mut LaunchRegistry) -> R) -> Option<R> {
+    SUPERVISOR
+        .locked
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .ok()?;
+    let _unlock = RegistryUnlockGuard;
+    let registry = unsafe { &mut *SUPERVISOR.registry.get() };
+    Some(operation(registry))
+}
+
 /// Match a declaration in the Supervisor-owned registry.
 ///
 /// The caller remains responsible for authenticating the declaration's source;
@@ -132,7 +148,7 @@ pub(crate) fn record_launch(
 }
 
 /// Remove a launch only if the current registry entry still matches its identity.
-fn record_exit_if_matches_in_registry(
+pub(crate) fn record_exit_if_matches_in_registry(
     registry: &mut LaunchRegistry,
     process_id: u32,
     expected: &LaunchRecord,
@@ -265,7 +281,7 @@ fn authorize_launch_and_commit_in_registry<E>(
     authorize_launch_set_in_registry(registry, &[(expected, required_grants)], commit_gate)
 }
 
-fn authorize_launch_set_in_registry<T, E>(
+pub(crate) fn authorize_launch_set_in_registry<T, E>(
     registry: &LaunchRegistry,
     launches: &[(&LaunchRecord, &[&[u8]])],
     commit: impl FnOnce() -> Result<T, E>,

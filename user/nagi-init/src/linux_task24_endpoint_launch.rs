@@ -60,6 +60,13 @@ use pid1_live_peer_supplier::{
 #[path = "linux_task24_notes_console.rs"]
 mod notes_console;
 
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    feature = "system-service-readiness"
+))]
+#[path = "linux_task24_identity_c2_adapter.rs"]
+pub(super) mod identity_listener;
+
 const LOGIN_PACKAGE_ID: &[u8] = b"org.nagi.dev.task24-login";
 const LOGIN_PACKAGE_ENTRY: &[u8] = b"task24-login.elf";
 const LOGIN_OPERATION: &str = "initial-login";
