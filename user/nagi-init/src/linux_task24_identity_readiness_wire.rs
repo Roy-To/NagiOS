@@ -4,6 +4,7 @@ use nagi_sdk::AppId;
 pub(crate) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@1";
 pub(crate) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@1";
 pub(crate) const CHALLENGE_BYTES: usize = 32;
+pub(crate) const BROKER_APP: AppId = AppId::from_identifier(b"org.nagi.init");
 
 pub(super) fn challenge(
     request: &IpcEnvelope<'_>,

@@ -57,30 +57,14 @@ fn panic(_: &PanicInfo<'_>) -> ! {
 
 #[no_mangle]
 extern "C" fn task24_identity_start(stack: *const usize) -> ! {
-    let ok = unsafe {
-        *stack == 3
-            && run(
-                CStr::from_ptr(*stack.add(2) as *const i8).to_bytes(),
-                CStr::from_ptr(*stack.add(3) as *const i8).to_bytes(),
-            )
-    };
+    let ok = unsafe { *stack == 2 && run(CStr::from_ptr(*stack.add(2) as *const i8).to_bytes()) };
     exit(if ok { 0 } else { 69 })
 }
 
-fn run(locator: &[u8], source: &[u8]) -> bool {
+fn run(locator: &[u8]) -> bool {
     let Some(path) = broker_path(locator) else {
         return false;
     };
-    let Some(broker_app) = source
-        .strip_prefix(b"--nagi-broker-app-id=")
-        .and_then(|id| core::str::from_utf8(id).ok())
-        .and_then(|id| id.parse::<u64>().ok())
-        .filter(|id| *id != 0 && *id != IDENTITY_APP.0)
-        .map(AppId)
-    else {
-        return false;
-    };
-
     // C3 transfers one end of the child-created control socketpair to
     // PID 1. SO_PEERCRED records the creating child on both ends.
     let pid = call(libc::SYS_getpid, 0, 0, 0);
@@ -120,7 +104,7 @@ fn run(locator: &[u8], source: &[u8]) -> bool {
 
     match wait_for_request(broker) {
         Some(false) => true,
-        Some(true) => serve(broker, broker_app) && wait_for_request(broker) == Some(false),
+        Some(true) => serve(broker) && wait_for_request(broker) == Some(false),
         None => false,
     }
 }
@@ -197,7 +181,7 @@ fn wait_for_request(broker: usize) -> Option<bool> {
     }
 }
 
-fn serve(broker: usize, broker_app: AppId) -> bool {
+fn serve(broker: usize) -> bool {
     let Some(deadline) = monotonic_ms().and_then(|now| now.checked_add(REQUEST_BUDGET_MS)) else {
         return false;
     };
@@ -208,7 +192,7 @@ fn serve(broker: usize, broker_app: AppId) -> bool {
     let Ok(request) = IpcEnvelope::decode(&frame) else {
         return false;
     };
-    let Some(challenge) = wire::challenge(&request, broker_app, IDENTITY_APP) else {
+    let Some(challenge) = wire::challenge(&request, wire::BROKER_APP, IDENTITY_APP) else {
         return false;
     };
     let mut confirmed = [0; wire::CHALLENGE_BYTES];
