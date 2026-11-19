@@ -6,7 +6,7 @@ use super::linux_boot_package_inputs::BootCatalogInputs;
 use super::linux_c3_boot_launch::AuthenticatedBootService;
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_task24_identity_ready::{
-    readiness_challenge, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+    readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
@@ -244,10 +244,20 @@ impl BootLoginRun {
             identity_ready,
         })
     }
+
+    /// Bind the pending service listener to the run that owns its signed plan.
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(super) fn prepare_identity_listener(
+        &self,
+    ) -> Result<PendingSpawnOwnedEndpoint, BackendError> {
+        self.identity_ready
+            .as_ref()
+            .ok_or(BackendError::Unavailable)?
+            .prepare_listener(&self.run_owner)
+    }
 }
 
 const IDENTITY_PACKAGE_ID: &str = "org.nagi.dev.task24-identity";
-const BROKER_APP: AppId = AppId::from_identifier(b"org.nagi.init");
 
 /// The single read-only Identity operation selected by the signed Task24 plan.
 pub(super) struct IdentityReadyProtocol {
@@ -255,6 +265,7 @@ pub(super) struct IdentityReadyProtocol {
     service_id: String,
     catalog_generation: NonZeroU64,
     destination: AppId,
+    credentials: (u32, u32),
     challenge: Mutex<Option<[u8; CHALLENGE_BYTES]>>,
 }
 
@@ -290,8 +301,58 @@ impl IdentityReadyProtocol {
             service_id: service_id.to_owned(),
             catalog_generation: plan.generation(),
             destination: AppId::from_identifier(IDENTITY_PACKAGE_ID.as_bytes()),
+            credentials: descriptor.credentials(),
             challenge: Mutex::new(None),
         })
+    }
+
+    /// Prepare the owner-derived service locator and retain its listener
+    /// for C3's pre-exec gate. This does not publish a live registration.
+    #[cfg(linux_task24_initial_login_runtime)]
+    fn prepare_listener(
+        &self,
+        run: &Pid1RunOwnerLease,
+    ) -> Result<PendingSpawnOwnedEndpoint, BackendError> {
+        use sha2::{Digest, Sha256};
+
+        let service = ServiceId::new(self.service_id.as_str())
+            .map_err(|_| BackendError::ProtocolViolation)?;
+        let version = ContractVersion::new(1, 0).map_err(|_| BackendError::ProtocolViolation)?;
+        let operation =
+            OperationId::new("readiness").map_err(|_| BackendError::ProtocolViolation)?;
+        let label = CapabilityId::new("auth.identity-readiness")
+            .map_err(|_| BackendError::ProtocolViolation)?;
+        let descriptor = ServiceDescriptor::new(
+            service,
+            [version],
+            [ServiceOperation::new(operation.clone(), Some(label))],
+        )
+        .map_err(|_| BackendError::ProtocolViolation)?;
+        let mut binding = Sha256::new();
+        binding.update(b"Nagi Task24 Identity readiness owner v1\0");
+        binding.update(self.service_id.as_bytes());
+        binding.update(self.catalog_generation.get().to_be_bytes());
+        binding.update(run.generation().get().to_be_bytes());
+        let mut owner = [0; 16];
+        owner.copy_from_slice(&binding.finalize()[..16]);
+        let route = TrustedNipcOperationRoute::from_service_contract(
+            self.route,
+            self.destination.0,
+            REQUEST_TYPE,
+            &descriptor,
+            version,
+            &operation,
+            ServiceEffectOwnerId::new(owner),
+        )
+        .map_err(|_| BackendError::ProtocolViolation)?;
+        prepare_task24_endpoint_directory()?;
+        PendingSpawnOwnedEndpoint::bind_for_spawn(
+            run.run(),
+            route,
+            self.credentials.0,
+            self.credentials.1,
+        )
+        .map_err(|_| BackendError::Unavailable)
     }
 }
 

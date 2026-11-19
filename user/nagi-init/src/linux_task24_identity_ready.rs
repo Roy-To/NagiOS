@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 #[path = "linux_task24_identity_readiness_wire.rs"]
 mod wire;
 pub(super) use wire::{
-    challenge_for as readiness_challenge, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+    challenge_for as readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
 };
 
 struct Until<'a> {
