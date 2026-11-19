@@ -1214,7 +1214,7 @@ where
         self.waiting = Some(prepared.transition());
         let mut cancellation_panicked = false;
         let mut safe_cancelled =
-            || match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cancelled())) {
+            || match std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut cancelled)) {
                 Ok(value) => value,
                 Err(_) => {
                     cancellation_panicked = true;

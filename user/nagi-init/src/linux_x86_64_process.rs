@@ -151,7 +151,7 @@ pub(crate) mod linux_x86_64_process {
             std::thread::park_timeout(std::time::Duration::from_millis(250));
             return;
         }
-        let result = pid1_sigchld_fd().and_then(|signal_fd| wait_for_sigchld(signal_fd));
+        let result = pid1_sigchld_fd().and_then(wait_for_sigchld);
         match result {
             Ok(()) => {
                 if let Err(error) = reap_pending_child_exits() {
@@ -1219,8 +1219,7 @@ pub(crate) mod linux_x86_64_process {
             return Ok(false);
         }
         if info.pid as u32 != pid {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
+            return Err(io::Error::other(
                 "waitid(P_PID) returned a different child PID",
             ));
         }
@@ -1660,7 +1659,7 @@ pub(crate) mod linux_x86_64_process {
             const POLLNVAL: i16 = 0x020;
 
             let whole_ms = timeout.as_millis();
-            let fractional_ms = if timeout.subsec_nanos() % 1_000_000 == 0 {
+            let fractional_ms = if timeout.subsec_nanos().is_multiple_of(1_000_000) {
                 0
             } else {
                 1
@@ -3352,11 +3351,10 @@ pub(crate) mod linux_x86_64_process {
                 effect.join().expect("authority worker panicked").unwrap(),
                 1
             );
-            assert_eq!(
+            assert!(
                 revoke_done_rx
                     .recv_timeout(Duration::from_secs(2))
-                    .expect("revoke remained blocked after authority callback returned"),
-                true
+                    .expect("revoke remained blocked after authority callback returned")
             );
             revoker.join().expect("revoke worker panicked");
         }
