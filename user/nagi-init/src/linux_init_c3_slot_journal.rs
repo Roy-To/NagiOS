@@ -1664,7 +1664,6 @@ mod tests {
         journal
             .transition_once(reserved_live_transition(&journal, 1), || Ok(()))
             .unwrap();
-        drop(journal);
 
         let mut file = OpenOptions::new()
             .read(true)
@@ -1679,20 +1678,30 @@ mod tests {
         file.write_all(&byte).unwrap();
         file.sync_all().unwrap();
 
-        let reopened = C3SlotJournal::open(&path, SERVICE_ID).unwrap();
+        drop(file);
+        let corrupt_bytes = fs::read(&path).unwrap();
+
         assert!(matches!(
-            reopened.readback(),
-            C3SlotJournalReadback::Unknown
+            C3SlotJournal::open(&path, SERVICE_ID),
+            Err(C3SlotJournalError::Unknown)
         ));
+        assert!(matches!(journal.readback(), C3SlotJournalReadback::Unknown));
         let mut callback_ran = false;
         assert!(matches!(
-            reopened.transition_once(transition(32, 6, C3SlotState::Live), || {
-                callback_ran = true;
-                Ok(())
-            }),
+            journal.transition_next(
+                nonzero(1),
+                nonzero(1),
+                DIGEST,
+                C3SlotState::ClearedAndAbsent,
+                || {
+                    callback_ran = true;
+                    Ok(())
+                },
+            ),
             Err(C3SlotJournalError::Unknown)
         ));
         assert!(!callback_ran);
+        assert_eq!(fs::read(&path).unwrap(), corrupt_bytes);
     }
 
     #[test]

@@ -11487,6 +11487,12 @@ mod linux_process_resource_tests {
         let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
         let registered_pid = std::cell::Cell::new(None);
         let mut revoked = 0usize;
+        let mut revoke = |process_id, record: &u32| {
+            assert_eq!(Some(process_id), registered_pid.get());
+            assert_eq!(*record, TEST_RECORD);
+            revoked += 1;
+            Ok(())
+        };
         let result = table.spawn(
             launch_with_payload(
                 unchecked_payload,
@@ -11497,15 +11503,33 @@ mod linux_process_resource_tests {
                 registered_pid.set(Some(process_id));
                 Ok(TEST_RECORD)
             },
-            |process_id, record| {
-                assert_eq!(Some(process_id), registered_pid.get());
-                assert_eq!(*record, TEST_RECORD);
-                revoked += 1;
-                Ok(())
-            },
+            &mut revoke,
         );
         assert_eq!(result, Err(BackendError::TransportFailure));
-        assert!(registered_pid.get().is_some());
+        let pid = registered_pid
+            .get()
+            .expect("exec failure must follow registration");
+        assert!(table.children.is_empty());
+        assert!(table.live_record(pid).is_none());
+        // A child can report exec failure before its exit is observable.
+        // Drive the real reaper to completion rather than requiring that
+        // asynchronous child exit has already happened when spawn returns.
+        let deadline = std::time::Instant::now() + TEST_RELEASE_BUDGET;
+        loop {
+            match table.poll(&mut revoke) {
+                Ok(None) => break,
+                Err(BackendError::TransportFailure) => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "child cleanup did not settle"
+                    );
+                    assert!(table.live_record(pid).is_none());
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                other => panic!("unexpected exec failure cleanup result: {other:?}"),
+            }
+        }
+        assert!(table.quarantine.is_empty());
         assert_eq!(revoked, 1);
         assert_eq!(table.active_len(), 0);
         assert_eq!(open_fd_count(), before);
