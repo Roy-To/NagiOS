@@ -47,6 +47,14 @@ use super::linux_initial_login_c2::{C1InitialLoginAuthority, C2InitialLogin};
 use super::linux_initial_login_owner::LinuxInitialLoginOwner;
 #[cfg(linux_task24_initial_login_runtime)]
 use pid1_live_peer_supplier::SessionLease;
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    linux_boot_owner_registration,
+    feature = "system-service-readiness"
+))]
+use pid1_live_peer_supplier::{
+    Pid1CompletedServiceHandshakeOwner, Pid1SpawnEndpointLease, RegistrationId,
+};
 
 #[cfg(all(linux_task24_notes_consumer, linux_task24_initial_login_runtime))]
 #[path = "linux_task24_notes_console.rs"]
@@ -550,6 +558,10 @@ pub(super) fn run_owner_login(
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     run: &BootLoginRun,
+    #[cfg(feature = "system-service-readiness")] identity_endpoint: Option<(
+        RegistrationId,
+        &Pid1SpawnEndpointLease,
+    )>,
     console: &mut super::linux_owner_registration_console::BootOwnerConsole,
 ) -> ! {
     use super::linux_owner_registration_console::task24_input::RequestRoute;
@@ -607,6 +619,9 @@ pub(super) fn run_owner_login(
             run,
             consent: &consent,
         };
+        #[cfg(feature = "system-service-readiness")]
+        let handshakes =
+            Pid1CompletedServiceHandshakeOwner::new(run.run_owner.run(), &run.instances);
         let mut lifecycle = new_lifecycle();
         let (runtime, attached) = runtime
             .start_task24_login(
@@ -624,33 +639,69 @@ pub(super) fn run_owner_login(
         match attached {
             Ok(session) => {
                 super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
-                let mut notes_owner = runtime.notes_owner().map_err(|_| {
-                    crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
-                });
-                match notes_owner
-                    .as_mut()
-                    .map_err(|error| *error)
-                    .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
-                {
-                    Ok(inputs) => {
+                let notes_allowed = if run.identity_ready.is_some() {
+                    #[cfg(feature = "system-service-readiness")]
+                    let readiness = identity_endpoint
+                        .ok_or(PeerDenial::RequiredServiceMissing)
+                        .and_then(|(registration, endpoints)| {
+                            let deadline = Instant::now() + Duration::from_secs(5);
+                            runtime.complete_task24_identity_handshake(
+                                session.lease,
+                                run,
+                                registration,
+                                endpoints,
+                                &handshakes,
+                                deadline,
+                            )?;
+                            let mut ready = false;
+                            runtime.publish_task24_ready(
+                                session.lease,
+                                run,
+                                endpoints,
+                                &handshakes,
+                                &mut ready,
+                            )
+                        });
+                    #[cfg(not(feature = "system-service-readiness"))]
+                    let readiness: Result<(), PeerDenial> = Err(PeerDenial::Unavailable);
+                    if let Err(error) = &readiness {
                         super::log_pid1_stderr(format_args!(
-                            "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
+                            "NAGI_DEV_TASK24_IDENTITY_READY_UNAVAILABLE ({error:?})"
                         ));
-                        #[cfg(linux_task24_notes_consumer)]
-                        if notes_console::run(console, inputs).is_err() {
+                    }
+                    readiness.is_ok()
+                } else {
+                    true
+                };
+                if notes_allowed {
+                    let mut notes_owner = runtime.notes_owner().map_err(|_| {
+                        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
+                    });
+                    match notes_owner
+                        .as_mut()
+                        .map_err(|error| *error)
+                        .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
+                    {
+                        Ok(inputs) => {
                             super::log_pid1_stderr(format_args!(
-                                "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE"
+                                "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
+                            ));
+                            #[cfg(linux_task24_notes_consumer)]
+                            if notes_console::run(console, inputs).is_err() {
+                                super::log_pid1_stderr(format_args!(
+                                    "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE"
+                                ));
+                            }
+                            #[cfg(not(linux_task24_notes_consumer))]
+                            let _ = inputs;
+                        }
+                        Err(error) => {
+                            super::log_pid1_stderr(format_args!(
+                                "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
                             ));
                         }
-                        #[cfg(not(linux_task24_notes_consumer))]
-                        let _ = inputs;
-                    }
-                    Err(error) => {
-                        super::log_pid1_stderr(format_args!(
-                            "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
-                        ));
-                    }
-                };
+                    };
+                }
                 // EOF lets the signed sender exit normally. Keep the control
                 // socket and the attached issuer until C3 finishes exact reap.
                 if let Err(error) = session.control.shutdown(std::net::Shutdown::Write) {
