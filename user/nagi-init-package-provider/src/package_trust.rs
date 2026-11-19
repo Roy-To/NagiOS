@@ -658,9 +658,10 @@ impl<'key> PackageServiceSessionOwner<'key> {
         let package =
             PackageView::parse(bytes).map_err(PackageServiceSessionOwnerError::Package)?;
         let signed = package.is_signed_by(trusted_key);
-        if (!package.signature().is_empty() && !signed)
-            || (policy.require_signature && !signed)
-            || (!signed && !policy.developer_mode)
+        if !signed
+            && (!package.signature().is_empty()
+                || policy.require_signature
+                || !policy.developer_mode)
         {
             return Err(PackageServiceSessionOwnerError::Package(
                 if !package.signature().is_empty() && !signed {
