@@ -212,7 +212,8 @@ remain provisional; each is isolated in `stages.json` or one function.
 From the checkout root, select `portable`, `windows`, `linux`, `ui`, `mixed`
 (PROVISIONAL, mixed Windows/Linux API source), `app_windows` (PROVISIONAL, Windows C
 API + WPF XAML in one project), `ui_unsupported` (PROVISIONAL, one UI file in an
-unsupported format) or `all`.
+unsupported format), `app_linux` (PROVISIONAL, Linux C API + GTK Builder XML in one
+project) or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
@@ -265,7 +266,7 @@ an unlisted reason stays code-only.
 
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
 `portable`, `windows`, `linux`, `ui`, `mixed` (NDP-A017), `app_windows` (NDP-A018) and
-`ui_unsupported` (NDP-A019; the first four are unchanged and keep their order) and adds a fixture x check
+`ui_unsupported` (NDP-A019) and `app_linux` (NDP-A020; the first four are unchanged and keep their order) and adds a fixture x check
 overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
 `target_acceptance` fields (`fixture` is `all`), the unchanged per-fixture
@@ -278,7 +279,7 @@ matrix table (status and reason per cell) and the reason list, followed by
 each unchanged single-fixture Markdown report. The exit code follows the
 existing rule over every check of every fixture: 1 if any check `failed`,
 0 for other completed runs, 2 for invalid arguments. Output is capped at
-the single-report limit times the number of fixtures (seven).
+the single-report limit times the number of fixtures (eight).
 
 Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
 or compiler that is missing stays `not_run` and is never shown as passed. It is
@@ -312,7 +313,8 @@ reports, and 2 for invalid arguments.
   these can drift from their named source files and are not fresh scanner output.
   The UI pilot reads the seven Qt Designer, GTK Builder and XAML fixtures; the UI
   inputs of each fixture are data in `UI_FIXTURE_PATHS` (`ui`: the seven files,
-  `app_windows`: the WPF file only; any other fixture has none).
+  `app_windows`: the WPF file only, `app_linux`: the GTK Builder file only; any other
+  fixture has none).
 - API snapshot drift test (PROVISIONAL, read-only; `test_api_snapshot_drift.py`).
   For each platform in `report.API_CASES` (the snapshots the fixed fixtures use:
   `windows/read_prefix` and `linux/watch_changes`) it checks that (a) the snapshot's
@@ -418,6 +420,31 @@ reports, and 2 for invalid arguments.
   analyzer later supports this root or separates other formats, replace the fixture file
   and the expectations. Host static reading only, not Nagi target acceptance
   (`target_acceptance` stays `not_run`), not a contract.
+- `app_linux` fixture (PROVISIONAL, NDP-A020; additive, the JSON and order of the seven
+  existing fixtures are unchanged). Why: `app_windows` was the only project that combines
+  API diagnosis with UI analysis/mapping in one report, so the Linux combination (Linux C
+  API + GTK Builder XML) could not be checked end to end. `report.py` has a new fixture
+  name `app_linux` (`APP_LINUX_FIXTURE`; one entry in `UI_FIXTURE_PATHS`, one in
+  `APP_API_FIXTURES`, read by `api_case_paths`). Nothing is copied: the pair is routed to
+  the existing `evaluation/linux/watch_changes.c` with its handwritten report-v1 snapshot
+  `api/linux/watch_changes.report-v1.json` (the diagnosis is the one the `linux` fixture
+  already runs, not a second implementation; the existing drift test keeps covering the
+  snapshot) and to `evaluation/ui/gtk3_task_panel.ui`. `evaluation/app_linux/README.md`
+  documents the pairing. Pinned result (`test_report_app_linux.py`, exit code 0):
+  `linux_diagnosis` is `passed` with five `unsupported` rows, `windows_diagnosis` is
+  `unsupported` (`no_platform_evidence_for_fixture`), `ui_analysis`/`ui_mapping` are
+  `passed` for the GTK Builder file (`gtk-builder-ui`), `stage_2` is `unsupported` and
+  `stage_3` is `not_run`. Markdown shows the API gaps section and the UI mapping axis and
+  row details. `--fixture all` appends `app_linux` after `ui_unsupported` (eight fixtures;
+  the report-size cap scales with the count); existing tests that counted seven fixtures
+  were updated and no assertion was removed.
+  Assumptions and limits: the name and the routing are PROVISIONAL and may be replaced by
+  real project inputs. It is a self-made fixture built from existing self-made inputs (no
+  external project code), read on the host by static analysis only; the C file and the
+  `.ui` file are never compiled, loaded or run, no real scanner is connected (the API
+  evidence is the handwritten snapshot), and GTK signal handlers and bindings are not
+  resolved against the C source. It is not Nagi target acceptance (`target_acceptance`
+  stays `not_run`) and not a contract; `contracts/` is untouched.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared

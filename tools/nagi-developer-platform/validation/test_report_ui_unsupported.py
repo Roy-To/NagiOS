@@ -121,7 +121,8 @@ class UiUnsupportedReportTests(unittest.TestCase):
         self.assertEqual(code, 0)
         everything = json.loads(output)
         summary = everything["summary"]
-        self.assertEqual(summary["fixtures"][-1], FIXTURE)
+        # NDP-A019 appended `ui_unsupported` seventh; NDP-A020 appended `app_linux` after it.
+        self.assertEqual(summary["fixtures"][6], FIXTURE)
         self.assertEqual(summary["matrix"][FIXTURE]["ui_analysis"],
                          {"status": "unsupported", "reason": "file_unsupported"})
         self.assertEqual(summary["matrix"][FIXTURE]["ui_mapping"],

@@ -131,11 +131,11 @@ class AppWindowsReportTests(unittest.TestCase):
         self.assertEqual(code, 0)
         result = json.loads(output)
         summary = result["summary"]
-        # NDP-A019 appended `ui_unsupported` after `app_windows`.
-        self.assertEqual(len(report.FIXTURES), 7)
+        # NDP-A019 appended `ui_unsupported` after `app_windows`; NDP-A020 `app_linux`.
+        self.assertEqual(len(report.FIXTURES), 8)
         self.assertEqual(summary["fixtures"], list(report.FIXTURES))
         self.assertEqual(summary["fixtures"][5], "app_windows")
-        self.assertEqual(summary["total"], 7 * len(summary["checks"]))
+        self.assertEqual(summary["total"], 8 * len(summary["checks"]))
         for status in report.CHECK_STATUSES:
             self.assertEqual(summary["counts"][status], sum(
                 item["overview"]["counts"][status] for item in result["reports"].values()))
@@ -153,7 +153,8 @@ class AppWindowsReportTests(unittest.TestCase):
         # other fixtures (app_windows aside) still have no UI inputs.
         self.assertEqual(report.UI_FIXTURE_PATHS["ui"], report.UI_PATHS)
         self.assertEqual(len(report.UI_PATHS), 7)
-        self.assertEqual(set(report.UI_FIXTURE_PATHS), {"ui", "app_windows", "ui_unsupported"})
+        self.assertEqual(set(report.UI_FIXTURE_PATHS),
+                         {"ui", "app_windows", "ui_unsupported", "app_linux"})
         for fixture in ("portable", "windows", "linux", "mixed"):
             with self.subTest(fixture=fixture):
                 checks = report.build_report(fixture)["checks"]
