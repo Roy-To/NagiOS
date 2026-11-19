@@ -569,6 +569,8 @@ impl LinuxC3SystemServiceSlotOwner {
     /// reservation. `executable` must be the exact executable slice covered by
     /// that admission. The admission reference must remain the same object
     /// through endpoint issuance and any later C1/C3 reconciliation.
+    // The existing separately validated budgets and launch inputs stay explicit.
+    #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn launch_admitted(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
@@ -608,6 +610,8 @@ impl LinuxC3SystemServiceSlotOwner {
     /// `launch_admitted`. The listener adapter must represent the current C2
     /// registration for this exact service launch and obey the phase contract
     /// on `C3PendingIdentityListener` and `C3IdentityListenerLaunchLease`.
+    // The existing separately validated budgets and launch inputs stay explicit.
+    #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn launch_admitted_with_identity_listener(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
@@ -637,6 +641,8 @@ impl LinuxC3SystemServiceSlotOwner {
         }
     }
 
+    // The existing separately validated budgets and launch inputs stay explicit.
+    #[allow(clippy::too_many_arguments)]
     unsafe fn launch_admitted_inner(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
@@ -1002,6 +1008,8 @@ impl LinuxC3SystemServiceSlotOwner {
     /// executable bytes from the verified package bound into that scope. The
     /// caller must keep that same admission object alive through all later C1
     /// and C3 reconciliation.
+    // The existing separately validated budgets and launch inputs stay explicit.
+    #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn launch_and_authenticate_admitted(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
@@ -1041,6 +1049,8 @@ impl LinuxC3SystemServiceSlotOwner {
     /// The scope, executable, and admission-lifetime requirements are the same
     /// as `launch_and_authenticate_admitted`. `pending_listener` must borrow
     /// the current C2 pending registration for this exact Identity launch.
+    // The existing separately validated budgets and launch inputs stay explicit.
+    #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn launch_and_authenticate_admitted_with_identity_listener(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
@@ -2448,6 +2458,8 @@ fn current_launch(state: &OwnerState) -> io::Result<Option<&OwnedLaunch>> {
     }
 }
 
+// Keep the epoch, exact child and the rollback outputs visible at this boundary.
+#[allow(clippy::too_many_arguments)]
 fn register_prepared_launch<Os: ProcessOs>(
     launches: &mut Vec<OwnedLaunch>,
     current: &mut Option<LaunchToken>,

@@ -1463,6 +1463,8 @@ pub(crate) mod linux_x86_64_process {
         }
     }
 
+    // Keep the exact child descriptor handoff explicit across the exec boundary.
+    #[allow(clippy::too_many_arguments)]
     unsafe fn child_wait_and_exec(
         gate_parent: i32,
         gate_child: i32,

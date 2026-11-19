@@ -344,7 +344,6 @@ mod tests {
             status(127),
             &mut retire
         ));
-        drop(retire);
         assert_eq!(observed, Some(LaunchGateDisposition::NotAttempted));
         assert_eq!(state, LeaseRetirementState::Complete);
     }
@@ -376,7 +375,6 @@ mod tests {
             status(1),
             &mut retire
         ));
-        drop(retire);
         assert_eq!(observed, Some(LaunchGateDisposition::Unknown));
         assert_eq!(state, LeaseRetirementState::Complete);
     }
