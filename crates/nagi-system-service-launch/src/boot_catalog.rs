@@ -3,10 +3,10 @@ use crate::{
     DescriptorError, LaunchPortError, SystemServiceAdmissionError, SystemServiceRecoveryAdmission,
     TrustedSystemServiceCatalog, ValidatedSystemServiceDescriptor, VerifiedServicePackageBinding,
 };
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use nagi_identity_session::{CallerContextId, PrincipalId};
 use nagi_package::TRUSTED_SIGNING_PUBLIC_KEY;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::num::NonZeroU64;
@@ -29,7 +29,7 @@ pub enum BootCatalogError {
     InvalidReadyPlanRoutes,
 }
 
-#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BootReadyRoute {
     pub service_id: NonZeroU64,
@@ -38,7 +38,7 @@ pub struct BootReadyRoute {
     pub version_minor: u16,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct BootReadyPlanRecord {
     schema_version: u32,
@@ -151,6 +151,35 @@ impl VerifiedBootCatalog {
             return Err(BootCatalogError::InvalidReadyPlanRoutes);
         }
         Ok(VerifiedBootReadyPlan(plan))
+    }
+
+    /// Author the development plan with the mandatory Identity route selected
+    /// by the boot image owner. PID 1 verifies actual endpoint readiness later.
+    pub fn sign_development_identity_ready_plan(
+        &self,
+        signer: &SigningKey,
+        identity_route: BootReadyRoute,
+    ) -> Result<Vec<u8>, BootCatalogError> {
+        if signer.verifying_key() != self.signer {
+            return Err(BootCatalogError::UntrustedSigner);
+        }
+        let service_id =
+            nagi_model::AppId::from_identifier(self.descriptor.service_id().as_str().as_bytes());
+        if identity_route.service_id.get() != service_id.0 {
+            return Err(BootCatalogError::InvalidReadyPlanRoutes);
+        }
+        let record = BootReadyPlanRecord {
+            schema_version: 1,
+            catalog_sha256: self.signed_sha256,
+            generation: self.descriptor.generation(),
+            mandatory_routes: vec![identity_route],
+        };
+        let mut payload =
+            serde_json::to_vec(&record).map_err(|_| BootCatalogError::InvalidRecord)?;
+        let signature = signer.sign(&[READY_PLAN_SIGNATURE_DOMAIN, payload.as_slice()].concat());
+        payload.extend_from_slice(&signature.to_bytes());
+        self.verify_ready_plan(&payload)?;
+        Ok(payload)
     }
 
     pub fn descriptor(&self) -> &ValidatedSystemServiceDescriptor {
