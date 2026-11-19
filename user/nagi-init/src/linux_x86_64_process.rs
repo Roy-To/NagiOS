@@ -2949,27 +2949,57 @@ pub(crate) mod linux_x86_64_process {
             .expect("self-reported credentials were accepted");
             assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
 
-            let mut child = std::process::Command::new("/testbin")
-                .arg("--list")
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+            use std::io::BufRead;
+            let module = module_path!().split_once("::").unwrap().1;
+            let helper = format!("{module}::endpoint_mismatch_waiting_child");
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "--nocapture", &helper])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
                 .spawn()
                 .expect("spawn a distinct process for the endpoint mismatch case");
+            let mut output = io::BufReader::new(child.stdout.take().unwrap());
+            let ready = (&mut output)
+                .lines()
+                .map_while(Result::ok)
+                .any(|line| line.ends_with("NAGI_C3_ENDPOINT_MISMATCH_CHILD_READY"));
+            if !ready {
+                drop(child.stdin.take());
+                let _ = child.wait();
+                panic!("endpoint mismatch fixture child did not become ready");
+            }
             let other_process = process_pidfd(child.id());
             let other_record = launch_record(&other_process, 43);
             let (endpoint, _peer) = UnixStream::pair().unwrap();
-            let error = SystemServiceEndpointOwnerProof::authenticate(
+            let result = SystemServiceEndpointOwnerProof::authenticate(
                 &other_process,
                 &other_record,
                 into_owned_fd(endpoint),
                 uid,
                 gid,
-            )
-            .err()
-            .expect("endpoint from another process was accepted");
-            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            );
+            let live = child.try_wait().expect("check the endpoint mismatch child");
+            drop(child.stdin.take());
             let status = child.wait().expect("reap the endpoint mismatch child");
+            assert!(live.is_none(), "endpoint mismatch fixture child exited early");
             assert!(status.success(), "endpoint mismatch fixture child failed");
+            let error = result.err().expect("endpoint from another process was accepted");
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(
+                error.to_string(),
+                "kernel peer credentials do not match the exact C3 process launch"
+            );
+        }
+
+        #[test]
+        #[ignore = "subprocess fixture for the endpoint mismatch test"]
+        fn endpoint_mismatch_waiting_child() {
+            use std::io::Write;
+            let mut stdout = io::stdout().lock();
+            writeln!(stdout, "NAGI_C3_ENDPOINT_MISMATCH_CHILD_READY").unwrap();
+            stdout.flush().unwrap();
+            drop(stdout);
+            io::copy(&mut io::stdin().lock(), &mut io::sink()).unwrap();
         }
 
         #[test]

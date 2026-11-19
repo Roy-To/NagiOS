@@ -141,7 +141,31 @@ jobs:
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
-        run: cargo test --workspace --exclude nagi-kernel --locked
+        run: |
+          # Only these exact lifecycle cases require a disposable guest; the
+          # next required step runs the very same list with real clone3.
+          mapfile -t guest_only < <(python3 -c 'import json; from pathlib import Path; print(*json.loads(Path("tools/linux-boot/live_pid1_ci_tests.json").read_text()), sep=chr(10))')
+          test "${#guest_only[@]}" -eq 20
+          host_args=(--exact)
+          for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
+          cargo test --workspace --exclude nagi-kernel --locked -- "${host_args[@]}"
+      - name: Required Linux PID1 lifecycle tests in diskless QEMU
+        run: |
+          mkdir -p out/logs/linux-pid1-inputs
+          inputs=out/logs/linux-pid1-inputs
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
+          sysroot=$(rustc +nightly-2025-08-01 --print sysroot)
+          rust_lld="$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
+          test -x "$rust_lld"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$rust_lld"
+          cargo +nightly-2025-08-01 test -p nagi-init --locked --target x86_64-unknown-linux-musl --no-run --message-format=json > "$inputs/test-build.jsonl"
+          test_elf=$(python3 -c 'import json,sys; xs=[r["executable"] for r in map(json.loads,sys.stdin) if r.get("reason")=="compiler-artifact" and r.get("executable") and r.get("target",{}).get("name")=="nagi-init" and r.get("profile",{}).get("test") is True]; assert len(xs)==1; print(xs[0])' < "$inputs/test-build.jsonl")
+          rustc +nightly-2025-08-01 --edition 2021 --target x86_64-unknown-linux-musl -C linker="$rust_lld" -o "$inputs/init" tools/linux-boot/live_pid1_ci_init.rs
+          # Read the preinstalled runner kernel, but never run the Rust
+          # tests with sudo or change runner namespace/security settings.
+          runner_kernel="/boot/vmlinuz-$(uname -r)"
+          sudo cat "$runner_kernel" > "$inputs/kernel"
+          python3 -B tools/linux-boot/run_live_pid1_ci.py --kernel "$inputs/kernel" --test-elf "$test_elf" --init-elf "$inputs/init" --manifest tools/linux-boot/live_pid1_ci_tests.json --output-dir out/logs/linux-pid1-live --timeout-seconds 240
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
@@ -167,6 +191,10 @@ jobs:
           path: |
             out/test-results/
             out/logs/acceptance/
+            out/logs/linux-pid1-live/serial.log
+            out/logs/linux-pid1-live/supervisor.log
+            out/logs/linux-pid1-live/result.json
+            out/logs/linux-pid1-live/failure.json
           if-no-files-found: ignore
       - name: Verify development workstream state
         run: ./nagi dev verify
