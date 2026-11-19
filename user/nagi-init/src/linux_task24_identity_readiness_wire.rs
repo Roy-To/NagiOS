@@ -1,9 +1,12 @@
 use nagi_sdk::app_contract::{CorrelationId, IpcEnvelope, MessageKind, RequestId};
 use nagi_sdk::AppId;
 
-pub(crate) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@1";
-pub(crate) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@1";
+pub(crate) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@2";
+pub(crate) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@2";
 pub(crate) const CHALLENGE_BYTES: usize = 32;
+const CONTROL_CONFIRMATION_TAG: [u8; 8] = *b"NAGIRDY2";
+pub(crate) const CONTROL_CONFIRMATION_BYTES: usize =
+    CONTROL_CONFIRMATION_TAG.len() + CHALLENGE_BYTES;
 pub(crate) const BROKER_APP: AppId = AppId::from_identifier(b"org.nagi.init");
 
 pub(super) fn challenge(
@@ -32,12 +35,22 @@ pub(crate) fn challenge_for(
     challenge
 }
 
+pub(crate) fn control_confirmation(
+    challenge: &[u8; CHALLENGE_BYTES],
+) -> [u8; CONTROL_CONFIRMATION_BYTES] {
+    let mut confirmation = [0; CONTROL_CONFIRMATION_BYTES];
+    let (tag, payload) = confirmation.split_at_mut(CONTROL_CONFIRMATION_TAG.len());
+    tag.copy_from_slice(&CONTROL_CONFIRMATION_TAG);
+    payload.copy_from_slice(challenge);
+    confirmation
+}
+
 pub(super) fn response<'a>(
     request: IpcEnvelope<'a>,
     expected: &[u8; CHALLENGE_BYTES],
-    confirmed: &'a [u8; CHALLENGE_BYTES],
+    confirmed: &'a [u8; CONTROL_CONFIRMATION_BYTES],
 ) -> Option<IpcEnvelope<'a>> {
-    if confirmed != expected {
+    if confirmed != &control_confirmation(expected) {
         return None;
     }
     Some(IpcEnvelope {
@@ -45,7 +58,7 @@ pub(super) fn response<'a>(
         destination: Some(request.source),
         kind: MessageKind::Response,
         payload_type: RESPONSE_TYPE,
-        payload: confirmed,
+        payload: &confirmed[CONTROL_CONFIRMATION_TAG.len()..],
         ..request
     })
 }

@@ -70,7 +70,7 @@ fn run(locator: &[u8]) -> bool {
     let pid = call(libc::SYS_getpid, 0, 0, 0);
     let uid = call(libc::SYS_geteuid, 0, 0, 0);
     let gid = call(libc::SYS_getegid, 0, 0, 0);
-    if !peer_matches(CONTROL_FD, pid, uid, gid)
+    if !peer_matches(CONTROL_FD, Some(pid), uid, gid)
         || call(libc::SYS_prctl, libc::PR_SET_DUMPABLE as usize, 0, 0) != 0
     {
         return false;
@@ -97,11 +97,14 @@ fn run(locator: &[u8]) -> bool {
         &address as *const _ as usize,
         3 + path.len(),
     ) != 0
-        || !peer_matches(broker, 1, 0, 0)
+        || !peer_matches(broker, None, 0, 0)
     {
         return false;
     }
 
+    // PID 1 is outside this PID namespace. The root credentials are an
+    // early filter. Only a matching confirmation from the C3 control FD
+    // authorizes a reply on this broker stream.
     match wait_for_request(broker) {
         Some(false) => true,
         Some(true) => serve(broker) && wait_for_request(broker) == Some(false),
@@ -123,7 +126,7 @@ fn broker_path(argument: &[u8]) -> Option<&[u8]> {
     .then_some(path)
 }
 
-fn peer_matches(fd: usize, pid: isize, uid: isize, gid: isize) -> bool {
+fn peer_matches(fd: usize, pid: Option<isize>, uid: isize, gid: isize) -> bool {
     let mut credentials = libc::ucred {
         pid: 0,
         uid: 0,
@@ -145,7 +148,7 @@ fn peer_matches(fd: usize, pid: isize, uid: isize, gid: isize) -> bool {
     };
     result == 0
         && length as usize == core::mem::size_of_val(&credentials)
-        && credentials.pid as isize == pid
+        && pid.is_none_or(|expected| credentials.pid as isize == expected)
         && credentials.uid as isize == uid
         && credentials.gid as isize == gid
 }
@@ -195,7 +198,7 @@ fn serve(broker: usize) -> bool {
     let Some(challenge) = wire::challenge(&request, wire::BROKER_APP, IDENTITY_APP) else {
         return false;
     };
-    let mut confirmed = [0; wire::CHALLENGE_BYTES];
+    let mut confirmed = [0; wire::CONTROL_CONFIRMATION_BYTES];
     if !write_all(CONTROL_FD, &challenge, deadline)
         || !read_exact(CONTROL_FD, &mut confirmed, deadline)
     {

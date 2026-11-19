@@ -27,7 +27,7 @@ const IDENTITY_MANIFEST: &[u8] =
     include_bytes!("../../../user/nagi-init/manifests/org.nagi.dev.task24-identity.manifest");
 const IDENTITY_FILE: &str = "task24-identity-ready.elf";
 const IDENTITY_PATH: &str = "/system/task24-identity-ready.elf";
-const READINESS_REQUEST: &str = "nagi.identity.readiness.request@1";
+const READINESS_REQUEST: &str = "nagi.identity.readiness.request@2";
 const GENERATION: u64 = 2;
 const UID: u32 = 1001;
 const GID: u32 = 1002;
