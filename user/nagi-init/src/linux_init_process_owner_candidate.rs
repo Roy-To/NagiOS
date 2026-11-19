@@ -974,10 +974,12 @@ struct QuarantinedProcess<Raw, LaunchRecord, LaunchLease> {
     reaped: Option<ServiceExitStatus>,
 }
 
+type RunningChild<Raw, ServiceId, LaunchRecord, LaunchLease> =
+    ManagedProcess<ProcessHandle<Running, Raw>, ServiceId, LaunchRecord, LaunchLease>;
+
 struct ProcessLifecycle<Os: ProcessOs, ServiceId, LaunchRecord, LaunchLease = ()> {
     os: Os,
-    children:
-        Vec<ManagedProcess<ProcessHandle<Running, Os::Raw>, ServiceId, LaunchRecord, LaunchLease>>,
+    children: Vec<RunningChild<Os::Raw, ServiceId, LaunchRecord, LaunchLease>>,
     /// Handles awaiting cleanup/revocation are hidden from live_record and block
     /// PID reuse until both obligations have completed.
     quarantine: Vec<QuarantinedProcess<Os::Raw, LaunchRecord, LaunchLease>>,
@@ -1168,23 +1170,25 @@ where
         }
 
         let registered = RegisteredLaunch { record };
-        let mut gate_commit = {
+        let (authorization, gate_attempted, duplicate_gate_attempt, release_started, gate_failure) = {
             let prepared = self.acquiring.as_mut().expect("prepared child retained");
-            GateCommit::new(
+            let mut gate_commit = GateCommit::new(
                 &mut self.os,
                 prepared,
                 &registered,
                 &mut self.acquiring_lease,
                 &mut self.acquiring_lease_cleanup,
                 launch.release_wait_budget,
+            );
+            let authorization = authorize(process_id, &record, &mut gate_commit);
+            (
+                authorization,
+                gate_commit.attempted,
+                gate_commit.duplicate_attempt,
+                gate_commit.started,
+                gate_commit.failure,
             )
         };
-        let authorization = authorize(process_id, &record, &mut gate_commit);
-        let gate_attempted = gate_commit.attempted;
-        let duplicate_gate_attempt = gate_commit.duplicate_attempt;
-        let release_started = gate_commit.started;
-        let gate_failure = gate_commit.failure;
-        drop(gate_commit);
 
         let authorization_error = match authorization {
             Err(error) => Some(error),

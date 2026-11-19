@@ -60,6 +60,8 @@ mod linux_mount_prerequisites;
 mod linux_package_identity;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+// The standalone lifecycle candidate has its own exit-status type and reaper state.
+#[cfg_attr(test, allow(clippy::duplicate_mod))]
 #[path = "pid1_child_reaper.rs"]
 mod pid1_child_reaper;
 
@@ -71,6 +73,8 @@ mod linux_init_c3_system_service_owner;
 #[path = "linux_init_c3_slot_journal.rs"]
 mod linux_init_c3_slot_journal;
 
+// The standalone lifecycle candidate intentionally binds its own error/status types.
+#[cfg_attr(test, allow(clippy::duplicate_mod))]
 #[path = "pid1_owned_launch_lease.rs"]
 mod pid1_owned_launch_lease;
 
@@ -1628,10 +1632,12 @@ struct QuarantinedProcess<Raw, LaunchRecord, LaunchLease = ()> {
     fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
 }
 
+type RunningChild<Raw, ServiceId, LaunchRecord, LaunchLease> =
+    ManagedProcess<ProcessHandle<Running, Raw>, ServiceId, LaunchRecord, LaunchLease>;
+
 struct ProcessLifecycle<Os: ProcessOs, ServiceId, LaunchRecord, LaunchLease = ()> {
     os: Os,
-    children:
-        Vec<ManagedProcess<ProcessHandle<Running, Os::Raw>, ServiceId, LaunchRecord, LaunchLease>>,
+    children: Vec<RunningChild<Os::Raw, ServiceId, LaunchRecord, LaunchLease>>,
     /// Handles awaiting cleanup/revocation are hidden from live_record and block
     /// PID reuse until both obligations have completed.
     quarantine: Vec<QuarantinedProcess<Os::Raw, LaunchRecord, LaunchLease>>,
@@ -1741,6 +1747,8 @@ where
         )
     }
 
+    // Keep exact launch, authorization, and cleanup callbacks explicit.
+    #[allow(clippy::too_many_arguments)]
     fn spawn_authorized_with_prepared_inner(
         &mut self,
         launch: ProcessLaunch<'_, ServiceId>,
@@ -2495,6 +2503,8 @@ where
         }
     }
 
+    // Keep the reap, revocation, and lease obligations explicit for this path.
+    #[allow(clippy::too_many_arguments)]
     fn discard_pending(
         &mut self,
         process_id: u32,

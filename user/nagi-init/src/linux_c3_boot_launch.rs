@@ -59,6 +59,14 @@ pub(super) struct LinuxBootServiceLifecycle {
     process: Option<SpawnedProcessIdentity>,
 }
 
+type RecoveredLaunch<'owner, C3, I, Attached, AttachError> = Result<
+    (
+        SystemServiceRuntime<'owner, C3, I>,
+        Result<Attached, AttachError>,
+    ),
+    LaunchError,
+>;
+
 impl SystemServiceLaunchLifecycle for LinuxBootServiceLifecycle {
     fn runtime_slot_binding(&self) -> &SystemServiceRuntimeSlotBinding {
         &self.slot
@@ -95,13 +103,7 @@ impl LinuxBootServiceOwner {
         package_owner: &'owner PackageServiceSessionOwner<'_>,
         identity: &'owner mut I,
         login: &mut L,
-    ) -> Result<
-        (
-            SystemServiceRuntime<'owner, Self, I>,
-            Result<L::Attached, L::Error>,
-        ),
-        LaunchError,
-    >
+    ) -> RecoveredLaunch<'owner, Self, I, L::Attached, L::Error>
     where
         I: C1SystemServiceRecoveryClient,
         L: LinuxInitialLoginOwner<I::Runtime>,
