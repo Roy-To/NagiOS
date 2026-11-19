@@ -24,6 +24,7 @@ pub enum StoreError {
     RevisionOverflow,
     InvalidDocument(&'static str),
     SandboxViolation(String),
+    SessionGateRejected,
 }
 
 impl fmt::Display for StoreError {
@@ -37,6 +38,9 @@ impl fmt::Display for StoreError {
             Self::RevisionOverflow => f.write_str("note revision is exhausted"),
             Self::InvalidDocument(message) => write!(f, "invalid note document: {message}"),
             Self::SandboxViolation(message) => write!(f, "host sandbox rejected path: {message}"),
+            Self::SessionGateRejected => {
+                f.write_str("Notes operation requires a live canonical Session")
+            }
         }
     }
 }
@@ -75,6 +79,78 @@ pub trait NoteStore: Send + Sync {
         note: &NoteDocument,
         expected_revision: u64,
     ) -> Result<NoteDocument, StoreError>;
+}
+
+/// Adapter boundary for a canonical, live-session effect gate.
+///
+/// Implementations must return `Err` without invoking `effect`; on `Ok`, they
+/// must run it exactly once while holding the issuing Session's effect
+/// admission through completion. A point-in-time `check_live` followed by an
+/// unguarded effect permits logout or expiry to race a Notes commit. C1
+/// integrations should delegate this callback to
+/// `SessionLeaseRevalidationHandle::with_live_session_effect`. This trait has
+/// no default or allow implementation; test gates prove only this consumer
+/// boundary, not that a production caller supplied C1's handle.
+pub trait NoteSessionEffectGate: Send + Sync {
+    fn with_live_session_effect<R, F>(&self, effect: F) -> Result<R, SessionGateError>
+    where
+        F: FnOnce() -> R;
+}
+
+/// Opaque denial from a session effect gate. Notes does not expose identity
+/// service internals through storage errors.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SessionGateError;
+
+/// `NoteStore` adapter that runs every read and write inside a required live
+/// Session effect gate. Constructing it always requires an explicit gate.
+pub struct SessionGatedNoteStore<S: ?Sized, G> {
+    inner: Arc<S>,
+    gate: G,
+}
+
+impl<S: ?Sized, G> SessionGatedNoteStore<S, G> {
+    pub fn new(inner: Arc<S>, gate: G) -> Self {
+        Self { inner, gate }
+    }
+}
+
+impl<S, G> NoteStore for SessionGatedNoteStore<S, G>
+where
+    S: NoteStore + ?Sized,
+    G: NoteSessionEffectGate,
+{
+    fn list(&self, include_deleted: bool) -> Result<Vec<NoteSummary>, StoreError> {
+        self.gate
+            .with_live_session_effect(|| self.inner.list(include_deleted))
+            .map_err(|_| StoreError::SessionGateRejected)?
+    }
+
+    fn load(&self, id: ObjectId) -> Result<Option<NoteDocument>, StoreError> {
+        self.gate
+            .with_live_session_effect(|| self.inner.load(id))
+            .map_err(|_| StoreError::SessionGateRejected)?
+    }
+
+    fn load_revision(
+        &self,
+        id: ObjectId,
+        revision: u64,
+    ) -> Result<Option<NoteDocument>, StoreError> {
+        self.gate
+            .with_live_session_effect(|| self.inner.load_revision(id, revision))
+            .map_err(|_| StoreError::SessionGateRejected)?
+    }
+
+    fn commit(
+        &self,
+        note: &NoteDocument,
+        expected_revision: u64,
+    ) -> Result<NoteDocument, StoreError> {
+        self.gate
+            .with_live_session_effect(|| self.inner.commit(note, expected_revision))
+            .map_err(|_| StoreError::SessionGateRejected)?
+    }
 }
 
 /// Volatile backend intended for unit tests and explicit in-memory preview.

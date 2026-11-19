@@ -1707,12 +1707,8 @@ fn execute_image_with_init_build_env_using_writer_and_recovery(
         external_model_store_file,
         build_features,
     } = request;
-    let init_build = match rust_std_source {
-        Some(source) => {
-            run_cargo_with_rust_std_source(root, "user init", init_args, source, cargo_env)
-        }
-        None => run_cargo_with_env(root, "user init", init_args, cargo_env),
-    };
+    let init_build =
+        run_product_init_cargo(root, "user init", init_args, rust_std_source, cargo_env);
     if init_build.exit_code != EXIT_SUCCESS {
         return init_build;
     }
@@ -3357,7 +3353,13 @@ fn execute_model_store_artifact_with_options(
         "--locked",
         "--offline",
     ];
-    let recovery_build = run_cargo(root, "Model Store Recovery init", &recovery_init_args);
+    let recovery_build = run_product_init_cargo(
+        root,
+        "Model Store Recovery init",
+        &recovery_init_args,
+        None,
+        &[],
+    );
     if recovery_build.exit_code != EXIT_SUCCESS {
         return recovery_build;
     }
@@ -4159,7 +4161,8 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
             "--release",
             "--locked",
         ];
-        let recovery_init_build = run_cargo(root, "M30 Recovery init", &recovery_init_args);
+        let recovery_init_build =
+            run_product_init_cargo(root, "M30 Recovery init", &recovery_init_args, None, &[]);
         if recovery_init_build.exit_code != EXIT_SUCCESS {
             return recovery_init_build;
         }
@@ -4553,7 +4556,13 @@ fn execute_m30(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--release",
         "--locked",
     ];
-    let recovery_init_build = run_cargo(root, "M20 fixture Recovery init", &recovery_init_args);
+    let recovery_init_build = run_product_init_cargo(
+        root,
+        "M20 fixture Recovery init",
+        &recovery_init_args,
+        None,
+        &[],
+    );
     if recovery_init_build.exit_code != EXIT_SUCCESS {
         return recovery_init_build;
     }
@@ -8039,6 +8048,70 @@ fn execute_run(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
+const NAGI_INIT_MANIFEST_PATH: &str = "user/nagi-init/Cargo.toml";
+const NAGI_INIT_TARGET_DIR: &str = "target";
+
+fn product_init_cargo_args(args: &[&str]) -> Result<Vec<String>, &'static str> {
+    if args.first().copied() != Some("build") {
+        return Err("product init Cargo invocation must start with `build`");
+    }
+    let package_selector_count = args
+        .windows(2)
+        .filter(|pair| pair[0] == "-p" && pair[1] == "nagi-init")
+        .count();
+    if package_selector_count != 1 {
+        return Err("product init Cargo invocation must select `nagi-init` exactly once");
+    }
+    if args
+        .iter()
+        .any(|arg| *arg == "--manifest-path" || *arg == "--target-dir")
+    {
+        return Err(
+            "product init Cargo invocation must not override its manifest or target directory",
+        );
+    }
+
+    let mut normalized = vec![
+        "build".to_owned(),
+        "--manifest-path".to_owned(),
+        NAGI_INIT_MANIFEST_PATH.to_owned(),
+        "--target-dir".to_owned(),
+        NAGI_INIT_TARGET_DIR.to_owned(),
+    ];
+    let mut index = 1;
+    while index < args.len() {
+        if args[index] == "-p" && args.get(index + 1) == Some(&"nagi-init") {
+            index += 2;
+        } else {
+            normalized.push(args[index].to_owned());
+            index += 1;
+        }
+    }
+    Ok(normalized)
+}
+
+fn run_product_init_cargo(
+    root: &Path,
+    label: &str,
+    args: &[&str],
+    rust_std_source: Option<&Path>,
+    cargo_env: &[(&str, &Path)],
+) -> CommandResult {
+    let args = match product_init_cargo_args(args) {
+        Ok(args) => args,
+        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("{label}: {error}")),
+    };
+    let mut command = ProcessCommand::new("cargo");
+    command.args(&args).current_dir(root);
+    if let Some(source_root) = rust_std_source {
+        command.env("__CARGO_TESTS_ONLY_SRC_ROOT", source_root);
+    }
+    for (key, value) in cargo_env {
+        command.env(key, value);
+    }
+    finish_cargo(label, command.output())
+}
+
 fn run_cargo(root: &Path, label: &str, args: &[&str]) -> CommandResult {
     finish_cargo(
         label,
@@ -8080,38 +8153,6 @@ fn run_cargo_in(
             .current_dir(root.join(relative_directory))
             .output(),
     )
-}
-
-fn run_cargo_with_env(
-    root: &Path,
-    label: &str,
-    args: &[&str],
-    cargo_env: &[(&str, &Path)],
-) -> CommandResult {
-    let mut command = ProcessCommand::new("cargo");
-    command.args(args).current_dir(root);
-    for (key, value) in cargo_env {
-        command.env(key, value);
-    }
-    finish_cargo(label, command.output())
-}
-
-fn run_cargo_with_rust_std_source(
-    root: &Path,
-    label: &str,
-    args: &[&str],
-    source_root: &Path,
-    cargo_env: &[(&str, &Path)],
-) -> CommandResult {
-    let mut command = ProcessCommand::new("cargo");
-    command
-        .args(args)
-        .env("__CARGO_TESTS_ONLY_SRC_ROOT", source_root)
-        .current_dir(root);
-    for (key, value) in cargo_env {
-        command.env(key, value);
-    }
-    finish_cargo(label, command.output())
 }
 
 fn finish_cargo(label: &str, output: std::io::Result<std::process::Output>) -> CommandResult {
@@ -8512,23 +8553,24 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
+// Required serial lines in producer order; the final acceptance line is appended below.
 const ISOLATED_PROCESS_MARKERS: [&str; 16] = [
     "Nagi Kernel started",
+    "Nagi Supervisor signed package verification PASS",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
     "Nagi isolated process forged payload identity denied PASS",
     "Nagi isolated process address space and syscall isolation PASS",
     "Nagi ADR0043 isolated process exit pid=2 code=0",
-    "Nagi isolated process exit cleanup PASS",
-    "Nagi ADR0047 isolated process fault pid=3 vector=14",
-    "Nagi ADR0047 isolated process fault pid=4 vector=6",
-    "Nagi ADR0047 isolated process fault pid=5 vector=13",
-    "Nagi isolated process fault containment PASS",
     "Nagi Supervisor process exit status PASS",
-    "Nagi Supervisor signed package verification PASS",
+    "Nagi isolated process exit cleanup PASS",
     "Nagi isolated processes concurrent PASS",
     "Nagi Supervisor grant consent required PASS",
+    "Nagi ADR0047 isolated process fault pid=3 vector=14",
+    "Nagi ADR0047 isolated process fault pid=4 vector=6",
     "Nagi Supervisor grant decisions PASS",
+    "Nagi ADR0047 isolated process fault pid=5 vector=13",
+    "Nagi isolated process fault containment PASS",
 ];
 const ISOLATED_PROCESS_PASS_MARKER: &str = "Nagi isolated process acceptance PASS";
 
@@ -8826,7 +8868,19 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
     };
     let status = match run_qemu(&config) {
         Ok(status) => status,
-        Err(error) => return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}")),
+        Err(error) => {
+            if error.starts_with("QEMU did not reach acceptance within ") {
+                let serial = fs::read_to_string(&serial_log).ok();
+                return failure(
+                    EXIT_CONFIG_ERROR,
+                    format!(
+                        "isolated-process: {error}; {}",
+                        isolated_process_marker_progress(serial.as_deref())
+                    ),
+                );
+            }
+            return failure(EXIT_CONFIG_ERROR, format!("isolated-process: {error}"));
+        }
     };
     let serial = match fs::read_to_string(&serial_log) {
         Ok(serial) => serial,
@@ -8844,8 +8898,9 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
         return failure(
             EXIT_CONFIG_ERROR,
             format!(
-                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {})",
-                serial_log.display()
+                "isolated-process: guest did not print `{missing}` (QEMU exit {status}; log {}); {}",
+                serial_log.display(),
+                isolated_process_marker_progress(Some(&serial)),
             ),
         );
     }
@@ -8859,15 +8914,69 @@ fn execute_isolated_process(root: &Path, probe: &dyn HostProbe) -> CommandResult
 }
 
 fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
-    if serial.contains("Nagi isolated process acceptance FAIL")
-        || serial.contains("Nagi faulting app survived its fault FAIL")
+    const ACCEPTANCE_FAILURE_PREFIX: &str = "Nagi isolated process acceptance FAIL ";
+    const FAULTING_APP_FAILURE: &str = "Nagi faulting app survived its fault FAIL";
+
+    let lines = serial.lines().collect::<Vec<_>>();
+    if lines
+        .iter()
+        .any(|line| line.starts_with(ACCEPTANCE_FAILURE_PREFIX) || *line == FAULTING_APP_FAILURE)
     {
         return Some(ISOLATED_PROCESS_PASS_MARKER);
     }
-    ISOLATED_PROCESS_MARKERS
+
+    // Extra copies are harmless, but each required phase must follow the previous one.
+    let mut next_line = 0;
+    for marker in ISOLATED_PROCESS_MARKERS
         .into_iter()
         .chain([ISOLATED_PROCESS_PASS_MARKER])
-        .find(|marker| !serial.contains(marker))
+    {
+        let Some(offset) = lines[next_line..].iter().position(|line| *line == marker) else {
+            return Some(marker);
+        };
+        next_line += offset + 1;
+    }
+    None
+}
+
+/// Report only fixed marker labels; this diagnostic never determines acceptance.
+fn isolated_process_marker_progress(serial: Option<&str>) -> String {
+    let Some(serial) = serial else {
+        return "isolated_process_progress=unavailable".to_owned();
+    };
+
+    let markers = ISOLATED_PROCESS_MARKERS
+        .iter()
+        .copied()
+        .chain([ISOLATED_PROCESS_PASS_MARKER])
+        .collect::<Vec<_>>();
+    let lines = serial.lines().collect::<Vec<_>>();
+    let mut found = 0;
+    let mut first_missing = None;
+    let mut has_lookalike = false;
+
+    for (index, marker) in markers.iter().enumerate() {
+        if lines.iter().any(|line| line == marker) {
+            found += 1;
+        } else {
+            first_missing.get_or_insert(index + 1);
+            has_lookalike |= lines.iter().any(|line| line.contains(marker));
+        }
+    }
+
+    if found == markers.len() {
+        "isolated_process_progress=complete_marker_set".to_owned()
+    } else if found == 0 && has_lookalike {
+        "isolated_process_progress=lookalike_only".to_owned()
+    } else if found == 0 {
+        "isolated_process_progress=none".to_owned()
+    } else {
+        format!(
+            "isolated_process_progress=partial:{found}/{},first_missing_marker={:02}",
+            markers.len(),
+            first_missing.expect("a partial marker set has a missing marker")
+        )
+    }
 }
 
 fn execute_m19(root: &Path, probe: &dyn HostProbe) -> CommandResult {
@@ -9828,7 +9937,8 @@ fn execute_m27(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         "--release",
         "--locked",
     ];
-    let recovery_init_build = run_cargo(root, "M27 Recovery init", &recovery_init_args);
+    let recovery_init_build =
+        run_product_init_cargo(root, "M27 Recovery init", &recovery_init_args, None, &[]);
     if recovery_init_build.exit_code != EXIT_SUCCESS {
         return recovery_init_build;
     }
@@ -11105,15 +11215,174 @@ fn failure(exit_code: i32, message: impl Into<String>) -> CommandResult {
 mod tests {
     use super::{
         append_nagi_target_archive_tools, has_pre_guest_firmware_timeout_signature,
-        last_serial_lines, m17_trace_excerpt, m27_bootstrap_markers_present,
-        m27_readiness_consumed_before_promotion, m27_readiness_persisted_after_sign_in,
-        m27_readiness_reported_after_persisted, m27_trial_failure_observed,
-        m30_image_build_info_matches, parse_command, path_with_suffix, pinned_granite_manifest,
+        isolated_process_marker_progress, last_serial_lines, m17_trace_excerpt,
+        m27_bootstrap_markers_present, m27_readiness_consumed_before_promotion,
+        m27_readiness_persisted_after_sign_in, m27_readiness_reported_after_persisted,
+        m27_trial_failure_observed, m30_image_build_info_matches, missing_isolated_process_marker,
+        parse_command, path_with_suffix, pinned_granite_manifest, product_init_cargo_args,
         run_headless_with_pre_guest_retry_using, scoped_artifact_name, verify_external_artifact,
         Command, QemuConfig, NAGI_WRITE_MARKER,
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
+
+    #[test]
+    fn isolated_process_progress_distinguishes_absent_partial_complete_and_near_text() {
+        assert_eq!(
+            isolated_process_marker_progress(Some("")),
+            "isolated_process_progress=none"
+        );
+        assert_eq!(
+            isolated_process_marker_progress(None),
+            "isolated_process_progress=unavailable"
+        );
+        assert_eq!(
+            isolated_process_marker_progress(Some(super::ISOLATED_PROCESS_PASS_MARKER)),
+            "isolated_process_progress=partial:1/17,first_missing_marker=01"
+        );
+
+        let partial = concat!(
+            "Nagi Kernel started\n",
+            "Nagi Supervisor signed package verification PASS\n",
+            "password=private-value\n"
+        );
+        let partial_summary = isolated_process_marker_progress(Some(partial));
+        assert_eq!(
+            partial_summary,
+            "isolated_process_progress=partial:2/17,first_missing_marker=03"
+        );
+        assert!(!partial_summary.contains("private-value"));
+        assert!(!partial_summary.contains("password"));
+
+        let complete = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            isolated_process_marker_progress(Some(&complete)),
+            "isolated_process_progress=complete_marker_set"
+        );
+
+        let near_text = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .map(|marker| format!("prefix {marker} suffix"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            isolated_process_marker_progress(Some(&near_text)),
+            "isolated_process_progress=lookalike_only"
+        );
+    }
+
+    #[test]
+    fn isolated_process_acceptance_requires_ordered_exact_marker_lines() {
+        let expected = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>();
+        let complete = expected.join("\r\n");
+        assert_eq!(missing_isolated_process_marker(&complete), None);
+
+        let lookalikes = expected
+            .iter()
+            .map(|marker| format!("prefix {marker} suffix"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            missing_isolated_process_marker(&lookalikes),
+            Some(expected[0])
+        );
+
+        let mut reversed = expected.clone();
+        reversed.reverse();
+        assert_eq!(
+            missing_isolated_process_marker(&reversed.join("\n")),
+            Some(expected[1])
+        );
+
+        let mut duplicated = expected.clone();
+        duplicated.insert(1, expected[0]);
+        assert_eq!(
+            missing_isolated_process_marker(&duplicated.join("\n")),
+            None
+        );
+    }
+
+    #[test]
+    fn isolated_process_acceptance_failure_markers_override_complete_pass_set() {
+        let complete = super::ISOLATED_PROCESS_MARKERS
+            .iter()
+            .copied()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for failure in [
+            "Nagi isolated process acceptance FAIL fixture failure",
+            "Nagi faulting app survived its fault FAIL",
+        ] {
+            let serial = format!("{complete}\n{failure}\n");
+            assert_eq!(
+                missing_isolated_process_marker(&serial),
+                Some(super::ISOLATED_PROCESS_PASS_MARKER),
+                "failure marker must override all progress and final PASS lines: {failure}"
+            );
+        }
+    }
+
+    #[test]
+    fn product_init_cargo_args_select_product_workspace_and_preserve_root_target_path() {
+        let args = [
+            "build",
+            "-p",
+            "nagi-init",
+            "--features",
+            "m27-recovery",
+            "--target",
+            "targets/x86_64-unknown-nagi-user.json",
+            "-Zbuild-std=core,alloc,compiler_builtins",
+            "--release",
+            "--locked",
+            "--offline",
+        ];
+        assert_eq!(
+            product_init_cargo_args(&args).expect("valid product init build"),
+            [
+                "build",
+                "--manifest-path",
+                "user/nagi-init/Cargo.toml",
+                "--target-dir",
+                "target",
+                "--features",
+                "m27-recovery",
+                "--target",
+                "targets/x86_64-unknown-nagi-user.json",
+                "-Zbuild-std=core,alloc,compiler_builtins",
+                "--release",
+                "--locked",
+                "--offline",
+            ]
+            .map(str::to_owned)
+        );
+    }
+
+    #[test]
+    fn product_init_cargo_args_reject_ambiguous_package_or_output_selection() {
+        assert!(product_init_cargo_args(&["build", "-p", "nagi-init-linux-tests"]).is_err());
+        assert!(product_init_cargo_args(&[
+            "build",
+            "-p",
+            "nagi-init",
+            "--manifest-path",
+            "other/Cargo.toml",
+        ])
+        .is_err());
+    }
 
     #[test]
     fn m22_retries_only_a_running_pre_guest_firmware_timeout_with_diagnostics() {

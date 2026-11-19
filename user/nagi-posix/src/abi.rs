@@ -1480,38 +1480,14 @@ pub unsafe extern "C" fn realpath(path: *const c_char, resolved: *mut c_char) ->
     resolved
 }
 
-const CLOCK_REALTIME: c_int = 1;
-const CLOCK_MONOTONIC: c_int = 4;
-
-#[repr(C)]
-pub struct NagiTimespec {
-    tv_sec: i64,
-    tv_nsec: i64,
-}
+pub use crate::posix_time::PosixTimespec as NagiTimespec;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn clock_gettime(clock: c_int, output: *mut NagiTimespec) -> c_int {
-    if output.is_null() {
-        return write_errno_and_fail(EINVAL);
+    match unsafe { crate::posix_time::clock_gettime(clock, output, &GuestClock) } {
+        Ok(()) => 0,
+        Err(error) => write_errno_and_fail(error),
     }
-    let nanos = if clock == CLOCK_REALTIME {
-        match GuestClock.realtime_ns() {
-            Ok(nanos) => nanos,
-            Err(_) => return write_errno_and_fail(ENOSYS),
-        }
-    } else if clock == CLOCK_MONOTONIC {
-        match GuestClock.monotonic_ns() {
-            Ok(nanos) => nanos,
-            Err(_) => return write_errno_and_fail(ENOSYS),
-        }
-    } else {
-        return write_errno_and_fail(EINVAL);
-    };
-    output.write(NagiTimespec {
-        tv_sec: (nanos / 1_000_000_000) as i64,
-        tv_nsec: (nanos % 1_000_000_000) as i64,
-    });
-    0
 }
 
 #[linkage = "weak"]

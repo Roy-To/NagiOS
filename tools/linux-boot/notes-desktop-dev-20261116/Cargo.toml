@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "desktop",
+    "linux-evdev-decoder",
+    "linux-evdev-stream",
+    "notes-codec",
+    "notes-event-bridge",
+    "notes-localization-adapter",
+]
+resolver = "2"

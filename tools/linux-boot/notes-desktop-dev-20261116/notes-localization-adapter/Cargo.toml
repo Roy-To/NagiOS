@@ -1,0 +1,12 @@
+[package]
+name = "notes-desktop-localization-adapter-candidate"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "notes_desktop_localization_adapter"
+
+[dependencies]
+nagi-i18n = { path = "../../../../crates/nagi-i18n" }
+nagi-localization = { path = "../../../../user/nagi-localization" }

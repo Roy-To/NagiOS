@@ -113,7 +113,7 @@ pub struct InMemoryJobStore {
     inner: Arc<Mutex<StoreInner>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct StoreInner {
     records: BTreeMap<JobId, JobRecord>,
     dedupe: HashMap<DedupeScope, DedupeEntry>,
@@ -121,6 +121,11 @@ struct StoreInner {
     fail_next_write: bool,
     fail_reads: bool,
 }
+
+#[cfg(feature = "linux-development-runtime")]
+#[allow(dead_code)] // No production or boot consumer is authorized for this private path.
+#[path = "store/linux_development.rs"]
+mod linux_development;
 
 #[derive(Clone)]
 struct DedupeEntry {

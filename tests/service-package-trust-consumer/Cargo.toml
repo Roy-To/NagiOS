@@ -1,0 +1,15 @@
+[package]
+name = "nagi-service-package-trust-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dev-dependencies]
+ed25519-dalek = { version = "=2.1.1", default-features = false }
+nagi-init-package-provider = { path = "../../user/nagi-init-package-provider" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-package = { path = "../../user/nagi-package" }
+
+[workspace]
+members = ["."]
+resolver = "2"
