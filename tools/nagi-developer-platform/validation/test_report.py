@@ -234,10 +234,11 @@ class ReportTests(unittest.TestCase):
         summary = result["summary"]
         self.assertEqual(result["fixture"], "all")
         self.assertEqual(result["target_acceptance"], "not_run")
-        # NDP-A017 appended the PROVISIONAL `mixed` fixture and NDP-A018 `app_windows`;
-        # the first four keep their order.
+        # NDP-A017 appended the PROVISIONAL `mixed` fixture, NDP-A018 `app_windows` and
+        # NDP-A019 `ui_unsupported`; the first four keep their order.
         self.assertEqual(summary["fixtures"],
-                         ["portable", "windows", "linux", "ui", "mixed", "app_windows"])
+                         ["portable", "windows", "linux", "ui", "mixed", "app_windows",
+                          "ui_unsupported"])
         self.assertEqual(list(result["reports"]), summary["fixtures"])
         self.assertEqual(summary["total"], len(summary["fixtures"]) * len(summary["checks"]))
         for fixture, individual in result["reports"].items():
