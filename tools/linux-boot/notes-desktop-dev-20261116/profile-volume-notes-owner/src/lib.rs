@@ -52,6 +52,8 @@ struct VerifiedProfileVolumeAttachment {
     profile_id: String,
     object_directory: OwnedFd,
     notes_object_id: ObjectId,
+    #[cfg(target_os = "linux")]
+    allow_initial_index: bool,
     lifecycle: Mutex<AttachmentLifecycle>,
 }
 
@@ -79,6 +81,8 @@ impl VerifiedProfileVolumeAttachment {
             profile_id: profile_id.into(),
             object_directory,
             notes_object_id,
+            #[cfg(target_os = "linux")]
+            allow_initial_index: false,
             lifecycle: Mutex::new(AttachmentLifecycle {
                 status: AttachmentStatus::Active,
             }),
@@ -143,12 +147,13 @@ impl ProfileVolumeNotesOwner {
             OwnerState::Revoked => return Err(Revoked),
             OwnerState::Ended => return Err(Ended),
         }
-        let (directory, object) =
+        let (directory, object, allow_initial_index) =
             linux_data::reserve(data_root, mount_id, user, profile, principal)
                 .map_err(|_| Unavailable)?;
-        self.state = OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
-            principal, profile, directory, object,
-        )));
+        let mut attachment =
+            VerifiedProfileVolumeAttachment::new(principal, profile, directory, object);
+        attachment.allow_initial_index = allow_initial_index;
+        self.state = OwnerState::Verified(Arc::new(attachment));
         Ok(())
     }
 
@@ -302,6 +307,13 @@ impl ProfileVolumeNotesBundle {
 
     pub fn notes_object_id(&self) -> ObjectId {
         self.attachment.notes_object_id
+    }
+
+    /// A new reservation permits the codec to create its initial index.
+    /// The codec also checks its durable initialization marker.
+    #[cfg(target_os = "linux")]
+    pub fn allows_initial_index(&self) -> bool {
+        self.attachment.allow_initial_index
     }
 
     /// Compare the bundle's stored scope labels with values obtained from the

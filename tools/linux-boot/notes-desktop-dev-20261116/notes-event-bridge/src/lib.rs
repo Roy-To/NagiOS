@@ -5,11 +5,20 @@ pub use linux_evdev_decoder::{
 pub use linux_evdev_stream::StreamError;
 use linux_evdev_stream::{EvdevStream, StreamItem};
 use nagi_abi::{InputEvent, INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_SPACE};
-use notes_files_codec_candidate::{
-    AppError, NoteDocument, NoteSessionEffectGate, NoteStore, NotesUiController, ObjectId,
-    SessionGatedNoteStore,
+#[cfg(target_os = "linux")]
+use nagi_identity_session::{
+    AuthenticatedInteractiveCaller, ProfileRootAuthorizer, ResolvedIdentity,
 };
+use notes_files_codec_candidate::{
+    AppError, C1ProfileRootNotesInput, NoteDocument, NoteSessionEffectGate, NoteStore, NoteSummary,
+    NotesUiController, ObjectId, ProfileRootNotesContext, ProfileRootNotesInputError,
+    ProfileRootNotesStore, ScopedNotesUiController, SessionGatedNoteStore,
+};
+#[cfg(target_os = "linux")]
+use notes_files_codec_candidate::{ProfileVolumeNotesBundle, ProfileVolumeNotesOwner};
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
+use std::thread::Scope;
 
 /// Failure while turning one caller-framed Linux evdev record into a Notes action.
 #[derive(Debug, PartialEq, Eq)]
@@ -87,7 +96,7 @@ impl<R: std::io::Read> NotesEventStream<R> {
 
     pub fn poll(
         &mut self,
-        bridge: &mut NotesEventBridge,
+        bridge: &mut ScopedNotesEventBridge<'_>,
     ) -> Result<NotesStreamPoll, NotesStreamError> {
         if let Some(terminal) = self.terminal {
             return match terminal {
@@ -185,11 +194,13 @@ const fn key_char(code: u16) -> Option<u8> {
 
 /// Routes the real Nagi input ABI through the public Notes controller.
 /// Callers pass only events already routed to the Notes window.
-pub struct NotesEventBridge {
-    controller: NotesUiController,
+pub type NotesEventBridge = ScopedNotesEventBridge<'static>;
+
+pub struct ScopedNotesEventBridge<'scope> {
+    controller: ScopedNotesUiController<'scope>,
 }
 
-impl NotesEventBridge {
+impl ScopedNotesEventBridge<'static> {
     /// Construct an explicitly unauthenticated bridge for developer previews
     /// and fixtures. Production launchers must use `new_with_session_gate`.
     pub fn new<S: NoteStore + 'static>(store: Arc<S>) -> Self {
@@ -209,8 +220,93 @@ impl NotesEventBridge {
         Self::new(gated)
     }
 
-    pub fn from_controller(controller: NotesUiController) -> Self {
+    /// Construct a bridge from the same typed context that owns the C1 caller,
+    /// Session, profile and root. Each NoteStore operation runs wholly inside
+    /// one C1 profile-root lease, so this path must not be wrapped in
+    /// `new_with_session_gate` (that would acquire the same Session lease a
+    /// second time).
+    pub fn new_with_profile_root<I>(input: I) -> Self
+    where
+        I: ProfileRootNotesContext + 'static,
+    {
+        let store = Arc::new(ProfileRootNotesStore::new(input));
+        Self::from_controller(NotesUiController::new(store))
+    }
+
+    /// Construct a Linux bridge from the A startup owner and its verified
+    /// attachment. Pending/revoked/ended owners return an explicit error; this
+    /// path never falls back to an unauthenticated or development Notes store.
+    #[cfg(target_os = "linux")]
+    pub fn new_with_linux_profile_owner<C, A>(
+        owner: &ProfileVolumeNotesOwner,
+        identity: ResolvedIdentity,
+        caller: C,
+        authorizer: A,
+        io_budget: std::time::Duration,
+    ) -> Result<Self, ProfileRootNotesInputError>
+    where
+        C: AuthenticatedInteractiveCaller + Send + 'static,
+        A: ProfileRootAuthorizer + Send + 'static,
+    {
+        let bundle = issue_linux_profile_bundle(owner)?;
+        Self::new_with_linux_profile_root(bundle, identity, caller, authorizer, io_budget)
+    }
+
+    /// Construct a Linux bridge from one opaque profile-volume Notes bundle
+    /// and the same C1 identity/C2 caller used for every Notes effect. This
+    /// method does not create a caller seal, select a volume, or grant storage
+    /// authority.
+    #[cfg(target_os = "linux")]
+    pub fn new_with_linux_profile_root<C, A>(
+        bundle: ProfileVolumeNotesBundle,
+        identity: ResolvedIdentity,
+        caller: C,
+        authorizer: A,
+        io_budget: std::time::Duration,
+    ) -> Result<Self, ProfileRootNotesInputError>
+    where
+        C: AuthenticatedInteractiveCaller + Send + 'static,
+        A: ProfileRootAuthorizer + Send + 'static,
+    {
+        let input =
+            C1ProfileRootNotesInput::open_linux(bundle, identity, caller, authorizer, io_budget)?;
+        Ok(Self::new_with_profile_root(input))
+    }
+}
+
+impl<'scope> ScopedNotesEventBridge<'scope> {
+    /// Keep the caller and its autosave workers inside the same scope.
+    #[cfg(target_os = "linux")]
+    pub fn new_with_linux_profile_root_scoped<'env: 'scope, C, A>(
+        scope: &'scope Scope<'scope, 'env>,
+        bundle: ProfileVolumeNotesBundle,
+        identity: ResolvedIdentity,
+        caller: C,
+        authorizer: A,
+        io_budget: std::time::Duration,
+    ) -> Result<Self, ProfileRootNotesInputError>
+    where
+        C: AuthenticatedInteractiveCaller + Send + 'scope,
+        A: ProfileRootAuthorizer + Send + 'scope,
+    {
+        let input =
+            C1ProfileRootNotesInput::open_linux(bundle, identity, caller, authorizer, io_budget)?;
+        let store = Arc::new(ProfileRootNotesStore::new(input));
+        Ok(Self::from_controller(ScopedNotesUiController::new_scoped(
+            store, scope,
+        )))
+    }
+
+    pub fn from_controller(controller: ScopedNotesUiController<'scope>) -> Self {
         Self { controller }
+    }
+
+    pub fn list_notes(&self) -> Result<Vec<NoteSummary>, AppError> {
+        self.controller.list_notes()
+    }
+
+    pub fn create_note(&mut self, title: impl Into<String>) -> Result<ObjectId, AppError> {
+        self.controller.create_note(title)
     }
 
     /// Open a selected persisted note and return its real document model for rendering.
@@ -276,5 +372,83 @@ impl NotesEventBridge {
     /// Retry the same active Notes session after an explicit recovery action.
     pub fn retry_active(&self) -> Result<Option<NoteDocument>, AppError> {
         self.controller.retry_active()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn issue_linux_profile_bundle(
+    owner: &ProfileVolumeNotesOwner,
+) -> Result<ProfileVolumeNotesBundle, ProfileRootNotesInputError> {
+    owner
+        .issue_bundle()
+        .map_err(ProfileRootNotesInputError::Bundle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notes_files_codec_candidate::{InMemoryNoteStore, NoteDocument, NoteStore, Timestamp};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pending_profile_volume_owner_is_unavailable_without_development_fallback() {
+        let owner = ProfileVolumeNotesOwner::pending();
+        assert!(matches!(
+            issue_linux_profile_bundle(&owner),
+            Err(ProfileRootNotesInputError::Bundle(
+                notes_files_codec_candidate::ProfileVolumeNotesOwnerError::Unavailable
+            ))
+        ));
+    }
+
+    #[test]
+    fn real_input_event_updates_and_saves_notes_through_the_codec() {
+        let store = Arc::new(InMemoryNoteStore::new());
+        let note_id = ObjectId(0x4e41_4749_4e4f_5445);
+        let initial = NoteDocument::new(note_id, "Input bridge", Timestamp(1));
+        let initial = store.commit(&initial, 0).expect("seed Notes codec store");
+        assert_eq!(initial.revision, 1);
+
+        let mut bridge = NotesEventBridge::new(store.clone());
+        let opened = bridge.open_note(note_id).expect("open real Notes document");
+        assert_eq!(opened.revision, 1);
+
+        let updated = bridge
+            .handle_event(InputEvent {
+                event_type: INPUT_EVENT_KEY,
+                code: 30, // US-layout `a`
+                value: 1,
+            })
+            .expect("route key-down through Notes controller")
+            .expect("key-down updates the active document");
+        assert_eq!(updated.search_text(), "a");
+
+        assert_eq!(
+            bridge
+                .handle_event(InputEvent {
+                    event_type: INPUT_EVENT_KEY,
+                    code: 30,
+                    value: 0,
+                })
+                .expect("ignore key-up"),
+            None
+        );
+
+        let saved = bridge
+            .handle_event(InputEvent {
+                event_type: INPUT_EVENT_KEY,
+                code: INPUT_KEY_ENTER,
+                value: 1,
+            })
+            .expect("route Enter through Notes save")
+            .expect("Enter flushes the active note");
+        assert_eq!(saved.revision, 2);
+        assert_eq!(saved.search_text(), "a");
+
+        let persisted = store
+            .load(note_id)
+            .expect("read Notes codec store")
+            .expect("saved note remains present");
+        assert_eq!(persisted, saved);
     }
 }

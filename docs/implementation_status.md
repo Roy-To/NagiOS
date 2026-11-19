@@ -11311,4 +11311,6 @@ Both boots recorded account authentication, C1 session commit, the Identity hand
 
 ### Still open
 
-Real System read-only integration (the test observed writable Data); WS-10 restriction, revocation, logout and crash acceptance on the integrated image; fixed 8 GiB/4-vCPU performance acceptance; physical-device results; and connection to the intended Notes profile volume (`NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE`).
+Real System read-only integration (the test observed writable Data); WS-10 restriction, revocation, logout and crash acceptance on the integrated image; fixed 8 GiB/4-vCPU performance acceptance. Physical-device validation is a separate DEC-102 follow-up, not a PR #163 acceptance condition.
+
+A later signed development run with E `0f6980ac72` observed the volume warning only before authentication. The authenticated path then completed profile attachment, Notes save, and same-Data readback after cold reboot. This scope does not establish general production permission acceptance.

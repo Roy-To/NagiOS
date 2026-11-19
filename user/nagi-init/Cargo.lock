@@ -80,6 +80,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-authority"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -574,6 +580,36 @@ checksum = "5abbd6eeda6885048d357edc66748eea6e0268e3dd11f326fff5bd248d779c26"
 dependencies = [
  "core_maths",
  "displaydoc",
+]
+
+[[package]]
+name = "cap-primitives"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b5f74729fd2f44701d1a8eb47e906cdb3ccd9ec0f02baad85a744b791940b18"
+dependencies = [
+ "ambient-authority",
+ "fs-set-times",
+ "io-extras",
+ "io-lifetimes 3.0.1",
+ "ipnet",
+ "maybe-owned",
+ "rustix",
+ "rustix-linux-procfs",
+ "windows-sys 0.61.2",
+ "winx",
+]
+
+[[package]]
+name = "cap-std"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ec78e242cfa2cfe276807ac2ecc00315a6c97786977414bcd1c3963b6c91b8"
+dependencies = [
+ "cap-primitives",
+ "io-extras",
+ "io-lifetimes 3.0.1",
+ "rustix",
 ]
 
 [[package]]
@@ -1305,6 +1341,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "e-profile-root-canonical-consumer"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+ "nagi-identity-session",
+ "notes-event-bridge-candidate",
+ "notes-files-codec-candidate",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1444,7 +1490,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1687,6 +1733,17 @@ dependencies = [
  "cc",
  "libz-sys",
  "pkg-config",
+]
+
+[[package]]
+name = "fs-set-times"
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e7099f6313ecacbe1256e8ff9d617b75d1bcb16a6fddef94866d225a01a14a"
+dependencies = [
+ "io-lifetimes 2.0.4",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2745,6 +2802,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-extras"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20fd6de4ccfcc187e38bc21cfa543cb5a302cb86a8b114eb7f0bf0dc9f8ac00f"
+dependencies = [
+ "io-lifetimes 3.0.1",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "io-lifetimes"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06432fb54d3be7964ecd3649233cddf80db2832f47fec34c01f65b3d9d774983"
+
+[[package]]
+name = "io-lifetimes"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f0fb0570afe1fed943c5c3d4102d5358592d8625fda6a0007fdbe65a92fba96"
+
+[[package]]
 name = "ipc-channel"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3032,6 +3111,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
+name = "linux-evdev-decoder"
+version = "0.1.0"
+dependencies = [
+ "nagi-abi",
+]
+
+[[package]]
+name = "linux-evdev-stream"
+version = "0.1.0"
+dependencies = [
+ "linux-evdev-decoder",
+ "nagi-abi",
+]
+
+[[package]]
+name = "linux-peer-credentials-supplier"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "nagi-sdk",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3110,6 +3212,12 @@ dependencies = [
  "tendril",
  "web_atoms",
 ]
+
+[[package]]
+name = "maybe-owned"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "maybe-rayon"
@@ -3443,6 +3551,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-c2-accepted-connection-proof-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-peer-authenticated-connection",
+]
+
+[[package]]
 name = "nagi-capability"
 version = "0.2.0"
 dependencies = [
@@ -3455,8 +3570,25 @@ name = "nagi-clipboard"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-dev-service-catalog-consumer"
+version = "0.1.0"
+dependencies = [
+ "nagi-init-package-provider",
+ "nagi-model",
+ "nagi-model-manager",
+ "nagi-package",
+]
+
+[[package]]
 name = "nagi-fat32"
 version = "0.1.0"
+
+[[package]]
+name = "nagi-files"
+version = "0.1.0"
+dependencies = [
+ "cap-std",
+]
 
 [[package]]
 name = "nagi-history"
@@ -3470,10 +3602,16 @@ dependencies = [
 name = "nagi-identity-session"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "nagi-c2-accepted-connection-proof-contract",
  "nagi-capability",
+ "nagi-linux-account-verifier",
  "nagi-model",
+ "nagi-peer-authenticated-connection",
+ "nagi-system-service-recovery-contract",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -3484,14 +3622,20 @@ version = "0.1.0"
 name = "nagi-init"
 version = "0.1.0"
 dependencies = [
+ "e-profile-root-canonical-consumer",
+ "libc",
  "libnagi",
+ "linux-peer-credentials-supplier",
  "nagi-action-ipc",
  "nagi-ai",
  "nagi-albert",
  "nagi-audio",
+ "nagi-c2-accepted-connection-proof-contract",
  "nagi-clipboard",
+ "nagi-dev-service-catalog-consumer",
  "nagi-fat32",
  "nagi-history",
+ "nagi-identity-session",
  "nagi-init-package-provider",
  "nagi-init-service-call",
  "nagi-init-spawn-contract",
@@ -3500,8 +3644,10 @@ dependencies = [
  "nagi-model",
  "nagi-model-manager",
  "nagi-net",
+ "nagi-nipc-v1-stream",
  "nagi-package",
  "nagi-pal",
+ "nagi-peer-authenticated-connection",
  "nagi-posix",
  "nagi-profile-volume-notes-owner",
  "nagi-sdk",
@@ -3512,11 +3658,14 @@ dependencies = [
  "nagi-system-principal-contract",
  "nagi-system-service-launch",
  "nagi-system-service-recovery-contract",
+ "nagi-task37-receipt-supplier",
  "nagi-ui",
+ "notes-files-codec-candidate",
  "relibc",
  "rustix",
  "serde_json",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -3602,6 +3751,13 @@ dependencies = [
  "itoa",
  "libnagi",
  "nagi-net",
+]
+
+[[package]]
+name = "nagi-peer-authenticated-connection"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -3705,6 +3861,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-task37-receipt-supplier"
+version = "0.1.0"
+dependencies = [
+ "nagi-model-manager",
+]
+
+[[package]]
 name = "nagi-ui"
 version = "0.1.0"
 
@@ -3768,6 +3931,30 @@ name = "noop_proc_macro"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
+
+[[package]]
+name = "notes-event-bridge-candidate"
+version = "0.1.0"
+dependencies = [
+ "linux-evdev-decoder",
+ "linux-evdev-stream",
+ "nagi-abi",
+ "nagi-identity-session",
+ "notes-files-codec-candidate",
+]
+
+[[package]]
+name = "notes-files-codec-candidate"
+version = "0.1.0"
+dependencies = [
+ "libnagi",
+ "nagi-files",
+ "nagi-identity-session",
+ "nagi-model",
+ "nagi-profile-volume-notes-owner",
+ "rustix",
+ "sha2",
+]
 
 [[package]]
 name = "num-bigint"
@@ -4818,7 +5005,17 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rustix-linux-procfs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc84bf7e9aa16c4f2c758f27412dc9841341e16aa682d9c7ac308fe3ee12056"
+dependencies = [
+ "once_cell",
+ "rustix",
 ]
 
 [[package]]
@@ -4875,7 +5072,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6965,7 +7162,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7862,7 +8059,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8076,6 +8273,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winx"
+version = "0.36.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3fd376f71958b862e7afb20cfe5a22830e1963462f3a17f49d82a6c1d1f42d"
+dependencies = [
+ "bitflags 2.13.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

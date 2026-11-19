@@ -8,7 +8,10 @@ publish = false
 libnagi = { path = "../../../../user/libnagi" }
 nagi-model = { path = "../../../../crates/nagi-model" }
 nagi-files = { path = "../../../../apps/nagi-files" }
+# Local integration input only: mutable C1 lane, sharing A's canonical model source.
+nagi-identity-session = { path = "../../../../crates/nagi-identity-session" }
 sha2 = "0.10.9"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
+nagi-profile-volume-notes-owner = { path = "../profile-volume-notes-owner" }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }

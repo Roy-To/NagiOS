@@ -9,3 +9,6 @@ nagi-abi = { path = "../../../../crates/nagi-abi" }
 linux-evdev-decoder = { path = "../linux-evdev-decoder" }
 linux-evdev-stream = { path = "../linux-evdev-stream" }
 notes-files-codec-candidate = { path = "../notes-codec" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-identity-session = { path = "../../../../crates/nagi-identity-session" }

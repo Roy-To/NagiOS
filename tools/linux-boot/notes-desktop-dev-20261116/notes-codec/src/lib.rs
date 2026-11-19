@@ -30,6 +30,10 @@ pub use domain::{
 pub use identity::{HostObjectIdSource, ObjectIdSource};
 pub use markdown::{export_markdown, import_markdown, MarkdownError, StoredNoteError};
 pub use nagi_model::{AppId, ObjectId, WorkspaceId as NagiWorkspaceId};
+#[cfg(target_os = "linux")]
+pub use nagi_profile_volume_notes_owner::{
+    ProfileVolumeNotesBundle, ProfileVolumeNotesOwner, ProfileVolumeNotesOwnerError,
+};
 pub use session::{Clock, NoteSession, SaveError, SaveStatus, SessionError, SystemClock};
 /// Path-based host preview persistence for explicit developer-owned test roots only.
 /// It is susceptible to concurrent path replacement and is not an authorization or
@@ -39,11 +43,16 @@ pub use store::HostPreviewStore;
 #[cfg(target_os = "linux")]
 pub use store::LinuxDirectoryNoteStore;
 pub use store::{
-    InMemoryNoteStore, NoteSessionEffectGate, NoteStore, SandboxError, SessionGateError,
+    empty_profile_root_notes_object, C1ProfileRootNotesInput, InMemoryNoteStore,
+    NoteSessionEffectGate, NoteStore, ProfileRootNotesBinding, ProfileRootNotesBindingError,
+    ProfileRootNotesContext, ProfileRootNotesEffectProvider, ProfileRootNotesInputError,
+    ProfileRootNotesObjectIo, ProfileRootNotesStore, SandboxError, SessionGateError,
     SessionGatedNoteStore, StoreError,
 };
 #[cfg(target_os = "linux")]
 pub use store::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
+#[cfg(target_os = "linux")]
+pub use store::{LinuxProfileStorageBackend, LinuxProfileStorageRoot};
 pub use ui_controller::{NotesUiController, ScopedNotesUiController};
 
 #[cfg(test)]
