@@ -477,10 +477,10 @@ static NEXT_BUSY_RETRY_PROBE_ID: AtomicUsize = AtomicUsize::new(1);
 
 #[derive(Debug)]
 enum BusyRetryProbeOutcome {
-    ExitedBeforeReady,
-    ExitedAfterReady(ExitStatus),
-    TimedOutBeforeReady,
-    TimedOutAfterReady,
+    BeforeReadyExit,
+    AfterReadyExit(ExitStatus),
+    BeforeReadyTimeout,
+    AfterReadyTimeout,
 }
 
 fn mark_busy_retry_probe_ready() {
@@ -516,16 +516,16 @@ fn run_busy_retry_probe(timeout: Duration) -> BusyRetryProbeOutcome {
         if let Some(status) = child.try_wait().unwrap() {
             let _ = std::fs::remove_file(&ready_file);
             return if ready {
-                BusyRetryProbeOutcome::ExitedAfterReady(status)
+                BusyRetryProbeOutcome::AfterReadyExit(status)
             } else {
-                BusyRetryProbeOutcome::ExitedBeforeReady
+                BusyRetryProbeOutcome::BeforeReadyExit
             };
         }
         if Instant::now() >= deadline {
             let outcome = if ready {
-                BusyRetryProbeOutcome::TimedOutAfterReady
+                BusyRetryProbeOutcome::AfterReadyTimeout
             } else {
-                BusyRetryProbeOutcome::TimedOutBeforeReady
+                BusyRetryProbeOutcome::BeforeReadyTimeout
             };
             child.kill().unwrap();
             child.wait().unwrap();
@@ -539,7 +539,7 @@ fn run_busy_retry_probe(timeout: Duration) -> BusyRetryProbeOutcome {
 #[test]
 fn busy_end_retries_after_the_admitted_effect_releases() {
     match run_busy_retry_probe(Duration::from_secs(6)) {
-        BusyRetryProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+        BusyRetryProbeOutcome::AfterReadyExit(status) if status.success() => {}
         outcome => panic!("bounded SessionLeaseBusy retry probe failed: {outcome:?}"),
     }
 }

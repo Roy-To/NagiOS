@@ -13,11 +13,18 @@ use serde::{Deserialize, Serialize};
 use crate::model::IdentitySnapshot;
 use crate::store::{
     C1RecoveryOperationIdentity, CurrentSnapshotReader, IdentitySnapshotStore, ReconciliationFence,
-    RecoveryBinding, RecoveryEffectClaim, RecoveryJournal, RecoveryJournalError,
-    RecoveryJournalPhase, RecoveryJournalRecord, RecoveryJournalStore, RecoveryOperationId,
-    RecoveryOperationPermit, RecoveryReconciliation, RecoveryReconciliationPermit,
-    SnapshotStoreError, SnapshotStoreState, SnapshotVersion, StoredSnapshot,
+    RecoveryJournal, RecoveryJournalPhase, SnapshotStoreError, SnapshotStoreState, SnapshotVersion,
+    StoredSnapshot,
 };
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
+use crate::store::{
+    RecoveryBinding, RecoveryEffectClaim, RecoveryJournalError, RecoveryJournalRecord,
+    RecoveryJournalStore, RecoveryOperationId, RecoveryOperationPermit, RecoveryReconciliation,
+    RecoveryReconciliationPermit,
+};
+
+#[cfg(test)]
+type ReaderPauseAfterFenceCheck = Arc<Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>>;
 
 const SCHEMA: u32 = 1;
 const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
@@ -166,7 +173,7 @@ pub struct LinuxIdentitySnapshotStore {
     #[cfg(test)]
     fault: Option<Fault>,
     #[cfg(test)]
-    reader_pause_after_fence_check: Arc<Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>>,
+    reader_pause_after_fence_check: ReaderPauseAfterFenceCheck,
 }
 
 #[cfg(test)]
@@ -616,6 +623,7 @@ impl IdentitySnapshotStore for LinuxIdentitySnapshotStore {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
     type ReconciliationPermit = RecoveryReconciliationPermit;
 
@@ -831,6 +839,7 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 fn map_journal_store_error(error: SnapshotStoreError) -> RecoveryJournalError {
     match error {
         SnapshotStoreError::Unavailable => RecoveryJournalError::Unavailable,
@@ -1046,8 +1055,8 @@ fn read_high_water(
 }
 
 fn ensure_only_lock_file(root: &std::path::Path) -> Result<(), DurableStoreError> {
-    let mut entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
-    while let Some(entry) = entries.next() {
+    let entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
+    for entry in entries {
         let entry = entry.map_err(|_| DurableStoreError::Unavailable)?;
         if entry.file_name() != LOCK_FILE {
             return Err(DurableStoreError::Corrupt);
@@ -1057,8 +1066,8 @@ fn ensure_only_lock_file(root: &std::path::Path) -> Result<(), DurableStoreError
 }
 
 fn ensure_only_lock_and_state_file(root: &std::path::Path) -> Result<(), DurableStoreError> {
-    let mut entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
-    while let Some(entry) = entries.next() {
+    let entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
+    for entry in entries {
         let entry = entry.map_err(|_| DurableStoreError::Unavailable)?;
         if !matches!(entry.file_name().to_str(), Some(LOCK_FILE | STATE_FILE)) {
             return Err(DurableStoreError::Corrupt);

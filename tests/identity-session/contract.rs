@@ -1820,7 +1820,7 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     let mut root_auth = AllowProfileRoot;
     let handle = roots
         .resolve_root(
-            &IdentityAccessContext::new(&identity, &caller),
+            &IdentityAccessContext::new(identity, &caller),
             &profile_id,
             &mut root_auth,
         )
@@ -1844,7 +1844,7 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     );
     assert_eq!(
         roots.read_object(
-            &IdentityAccessContext::new(&identity, &caller),
+            &IdentityAccessContext::new(identity, &caller),
             &handle,
             &profile_id,
             ObjectId(3),
@@ -2923,7 +2923,7 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
     let context = a.interactive_session(&caller).unwrap();
     let revalidation = context.revalidation_handle().unwrap();
     let identity = context.identity().unwrap();
-    let access = IdentityAccessContext::new(&identity, &caller);
+    let access = IdentityAccessContext::new(identity, &caller);
     let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
     let mut auth = AllowProfileRoot;
     let handle = roots.resolve_root(&access, &profile, &mut auth).unwrap();
@@ -2953,7 +2953,7 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
     let read = roots.read_object(&access, &handle, &profile, ObjectId(1), &mut auth);
     let write = roots.write_object(&access, &handle, &profile, ObjectId(1), b"after", &mut auth);
     let calls = Arc::new(AtomicUsize::new(0));
-    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity);
+    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), identity);
     let current_mapping =
         a.capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()));
     let backend = roots.into_backend();
@@ -3177,12 +3177,12 @@ fn current_store_corruption_cannot_use_last_known_good_for_authority() {
     assert!(!identity.is_live());
     let calls = Arc::new(AtomicUsize::new(0));
     assert_eq!(
-        resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity),
+        resolve_capability_principal(&CountingPrincipal(calls.clone()), identity),
         Err(PrincipalMappingFailure::CorruptState)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 
-    let access = IdentityAccessContext::new(&identity, &caller);
+    let access = IdentityAccessContext::new(identity, &caller);
     let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
     let mut auth = AllowProfileRoot;
     assert_eq!(

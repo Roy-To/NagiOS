@@ -70,11 +70,13 @@ impl RecoveryOperationId {
 /// check, then consumes it only after the durable EffectStarted claim succeeds.
 #[must_use]
 #[derive(Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) struct RecoveryOperationPermit {
     operation_id: RecoveryOperationId,
     binding: RecoveryBinding,
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl RecoveryOperationPermit {
     #[cfg(test)]
     pub(crate) const fn for_test(
@@ -100,11 +102,13 @@ impl RecoveryOperationPermit {
 /// to EffectStarted. It is never serialized or cloneable.
 #[must_use]
 #[derive(Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) struct RecoveryEffectClaim {
     operation_id: RecoveryOperationId,
     binding: RecoveryBinding,
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl RecoveryEffectClaim {
     pub(crate) const fn operation_id(&self) -> RecoveryOperationId {
         self.operation_id
@@ -136,6 +140,7 @@ impl C1RecoveryOperationIdentity {
         &self.binding_digest
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn from_effect_claim(
         claim: &RecoveryEffectClaim,
         expected_binding: &RecoveryBinding,
@@ -181,12 +186,14 @@ impl RecoveryBinding {
 /// production constructor is intentionally absent until the fixed A/C3 typed
 /// admission APIs can be consumed by the private C1 SystemService adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) struct RecoveryReconciliation {
     operation_id: RecoveryOperationId,
     binding: RecoveryBinding,
     outcome_digest: [u8; 32],
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl RecoveryReconciliation {
     #[cfg(test)]
     pub(crate) const fn for_test(
@@ -204,6 +211,7 @@ impl RecoveryReconciliation {
     /// Build only from C1's current durable journal row. This is not a public
     /// permit constructor; the caller must compare the row's operation and
     /// binding against the shared admission before reserving the store fence.
+    #[cfg(feature = "system-service-recovery-contract")]
     pub(crate) fn from_journal_record(
         record: &RecoveryJournalRecord,
         outcome_digest: [u8; 32],
@@ -275,6 +283,7 @@ impl ReconciliationFence {
         Ok(state.closed || state.writer_reserved)
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn reserve_reconciliation(
         self: &Arc<Self>,
         reconciliation: &RecoveryReconciliation,
@@ -325,6 +334,7 @@ impl Drop for CurrentSnapshotReadPermit {
 }
 
 #[must_use]
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) struct RecoveryReconciliationPermit {
     fence: Arc<ReconciliationFence>,
     operation_id: RecoveryOperationId,
@@ -333,6 +343,7 @@ pub(crate) struct RecoveryReconciliationPermit {
     terminal_started: bool,
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl RecoveryReconciliationPermit {
     pub(crate) fn belongs_to(&self, fence: &Arc<ReconciliationFence>) -> bool {
         Arc::ptr_eq(&self.fence, fence)
@@ -389,6 +400,7 @@ impl RecoveryReconciliationPermit {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl Drop for RecoveryReconciliationPermit {
     fn drop(&mut self) {
         if self.terminal_started {
@@ -450,6 +462,7 @@ impl RecoveryJournal {
             })
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn blocks_new_operation(&self) -> bool {
         self.record
             .as_ref()
@@ -471,6 +484,7 @@ impl RecoveryJournal {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) enum RecoveryJournalError {
     Unavailable,
     Busy,
@@ -484,6 +498,7 @@ pub(crate) enum RecoveryJournalError {
 /// Internal durable quarantine interface. Only the C1 system-service adapter
 /// may use it; public constructors and generic consumers cannot create or
 /// reconcile a production recovery operation.
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) trait RecoveryJournalStore {
     type ReconciliationPermit;
 

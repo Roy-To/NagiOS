@@ -102,11 +102,11 @@ impl AuthenticatedInteractiveCaller for C1AuthenticatedInteractiveCaller {}
 // without an already-issued C1 caller.
 impl crate::TrustedCallerContext for &C1AuthenticatedInteractiveCaller {
     fn principal_id(&self) -> &PrincipalId {
-        &(**self).principal_id
+        &self.principal_id
     }
 
     fn context_id(&self) -> &CallerContextId {
-        &(**self).caller_context_id
+        &self.caller_context_id
     }
 }
 
@@ -176,7 +176,7 @@ impl C1PendingInitialInteractiveSession {
         let session_id = identity
             .login_local(
                 &caller,
-                self.user_id.clone(),
+                self.user_id,
                 self.profile_id.clone(),
                 expires_at,
                 idempotency_key,
@@ -236,7 +236,7 @@ impl C1PendingInitialInteractiveSession {
             .login_local_with_runtime_admission(
                 admission,
                 &caller,
-                self.user_id.clone(),
+                self.user_id,
                 self.profile_id.clone(),
                 expires_at,
                 idempotency_key,

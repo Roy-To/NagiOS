@@ -18,10 +18,14 @@ use crate::model::{
     SnapshotError, TryClockError, UnixMillis, IDENTITY_SCHEMA_VERSION,
 };
 use crate::storage::{ProfileStorageBackend, StorageRootEventSink, UserStorageRootAdapter};
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 use crate::store::{
-    C1RecoveryOperationIdentity, CurrentSnapshotReader, IdentitySnapshotStore, RecoveryBinding,
-    RecoveryJournalError, RecoveryJournalPhase, RecoveryJournalStore, RecoveryOperationId,
-    RecoveryOperationPermit, RecoveryReconciliation, SnapshotStoreError, SnapshotVersion,
+    C1RecoveryOperationIdentity, RecoveryJournalError, RecoveryJournalPhase, RecoveryJournalStore,
+    RecoveryOperationId, RecoveryOperationPermit, RecoveryReconciliation,
+};
+use crate::store::{
+    CurrentSnapshotReader, IdentitySnapshotStore, RecoveryBinding, SnapshotStoreError,
+    SnapshotVersion,
 };
 use crate::{CallerContextId, IdempotencyKey, ProfileId, ProviderSubjectRef, SessionId, UserId};
 use crate::{CapabilityPrincipalAdapter, PrincipalId, PrincipalMappingFailure};
@@ -462,6 +466,7 @@ impl C1SystemServiceRecoveryJournal for crate::store::LinuxIdentitySnapshotStore
 
 /// Leaf adapter seam for running one C1 recovery effect under the current
 /// exact-generation owner gate without making C1 depend on A or C3 crates.
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) trait SystemServiceRecoveryEffectGate {
     /// The exact C1 binding represented by this owner admission. Production
     /// adapters must derive it from the same sealed A/C3 admission used by
@@ -1421,6 +1426,7 @@ struct IssuerGuard {
 /// Opaque identity for one live C1 issuer instance. Staged login state keeps
 /// this token so a later commit cannot be redirected to another IdentityService
 /// that happens to contain the same User/Profile IDs.
+#[cfg(all(feature = "linux-interactive-account", target_os = "linux"))]
 #[derive(Clone)]
 pub(crate) struct IdentityIssuerBinding(Arc<IssuerAdmission>);
 
@@ -1549,6 +1555,7 @@ impl IssuerAdmission {
         Ok(Some(IssuerActivityGuard(Arc::clone(self))))
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn begin_recovery(self: &Arc<Self>) -> Result<IssuerRecoveryAdmissionGuard, IdentityError> {
         #[cfg(test)]
         RECOVERY_WRITE_GUARDS_ACQUIRED.with(|count| count.set(0));
@@ -1585,6 +1592,7 @@ impl IssuerAdmission {
     /// issuer may perform this store-only terminal operation, but remains
     /// closed for the entire reservation and afterward. This lets a
     /// post-claim failure be reconciled without reopening any old identity.
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn begin_terminal_reconciliation(
         self: &Arc<Self>,
     ) -> Result<IssuerRecoveryAdmissionGuard, IdentityError> {
@@ -1691,11 +1699,13 @@ impl Drop for IssuerActivityGuard {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 pub(crate) struct IssuerRecoveryAdmissionGuard {
     admission: Arc<IssuerAdmission>,
     preserve_closed: bool,
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl IssuerRecoveryAdmissionGuard {
     pub(crate) fn is_permanently_closed(&self) -> bool {
         self.preserve_closed
@@ -1729,6 +1739,7 @@ impl IssuerRecoveryAdmissionGuard {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl Drop for IssuerRecoveryAdmissionGuard {
     fn drop(&mut self) {
         let mut state = self
@@ -1813,6 +1824,11 @@ impl<S: IdentitySnapshotStore> DeferredSnapshotStore<S> {
     /// Transfer the store wrapper to a fresh issuer only after recovery has
     /// permanently closed and drained the previous issuer. The old Session
     /// handles keep their old closed admission and cannot regain authority.
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
     fn rebind_from_closed_issuer(
         &mut self,
         previous: &IssuerGuard,
@@ -2065,6 +2081,7 @@ pub struct C1SystemServiceRecoveryTerminalReceipt {
 }
 
 impl C1SystemServiceRecoveryTerminalReceipt {
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn from_reconciliation(reconciliation: &RecoveryReconciliation) -> Self {
         Self {
             operation_id: reconciliation.operation_id(),
@@ -2326,6 +2343,7 @@ impl C1SystemServiceRuntimeHandoff {
 impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
     C1SystemServiceRecoveryReceiptAdapter<'issuer, 'caller, S, I, C, A, G, E>
 {
+    #[cfg(test)]
     pub(crate) fn new(
         identity: &'issuer mut IdentityService<S, I, C, A, G, E>,
         caller: &'caller dyn AuthenticatedSystemServicePrincipal,
@@ -2633,12 +2651,14 @@ impl<Gate: C1SystemServiceRecoveryEffectGate> SystemServiceRecoveryEffectGate
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 #[derive(Clone)]
 struct OwnedTrustedCallerContext {
     principal_id: PrincipalId,
     caller_context_id: CallerContextId,
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 impl TrustedCallerContext for OwnedTrustedCallerContext {
     fn principal_id(&self) -> &PrincipalId {
         &self.principal_id
@@ -2683,9 +2703,25 @@ impl nagi_system_service_recovery_contract::C1RecoveryTerminalReceipt
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 struct RecoveryOperationSuccess {
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
     operation: C1RecoveryOperationIdentity,
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
     operation_id: RecoveryOperationId,
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
     binding: RecoveryBinding,
     report: RecoveryReport,
 }
@@ -2783,6 +2819,14 @@ where
         self.issue_fresh_caller_context_id_after_admission()
     }
 
+    #[cfg(any(
+        all(feature = "linux-interactive-account", target_os = "linux"),
+        all(
+            feature = "system-service-recovery-contract",
+            target_os = "linux",
+            target_arch = "x86_64"
+        )
+    ))]
     fn issue_fresh_caller_context_id_after_admission(
         &mut self,
     ) -> Result<CallerContextId, IdentityError> {
@@ -2909,6 +2953,8 @@ where
     /// drop until already-admitted work exits. If this issuer opened profile
     /// roots, use `into_parts_with_storage` so its adapter-owned roots are also
     /// released before extraction.
+    // An unsuccessful close returns the owning service unchanged and without allocating.
+    #[allow(clippy::result_large_err, clippy::type_complexity)]
     pub fn into_parts(self) -> Result<(S, I, C, A, G, E), Self> {
         if !self.issuer.admission.close_if_idle(&self.issuer.alive) {
             return Err(self);
@@ -2922,6 +2968,8 @@ where
     /// the issuer unchanged and does not touch the adapter. Retry after that
     /// work exits or pass the registered adapter. Other issuer roots are never
     /// removed.
+    // An unsuccessful close returns the owning service unchanged and without allocating.
+    #[allow(clippy::result_large_err, clippy::type_complexity)]
     pub fn into_parts_with_storage<B, SE>(
         self,
         storage: &mut UserStorageRootAdapter<B, SE>,
@@ -3004,7 +3052,7 @@ where
             return Err(IdentityError::LeaseEffectReentry);
         }
         self.authorizer
-            .authorize(&request)
+            .authorize(request)
             .map_err(|error| match error {
                 AuthorizationFailure::Denied => IdentityError::AuthorizationDenied,
                 AuthorizationFailure::Unavailable => IdentityError::AuthorizationUnavailable,
@@ -3068,6 +3116,7 @@ where
             })
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn authorize_recovery(
         &mut self,
         caller: &dyn AuthenticatedSystemServicePrincipal,
@@ -3077,6 +3126,7 @@ where
         self.authorize_recovery_with_captured_caller(principal_id, caller_context_id)
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn authorize_recovery_with_captured_caller(
         &mut self,
         principal_id: PrincipalId,
@@ -3190,6 +3240,7 @@ where
         }
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn read_valid_snapshot(&self, bytes: &[u8]) -> Result<IdentitySnapshot, IdentityError> {
         IdentitySnapshot::from_json(bytes).map_err(map_snapshot_error)
     }
@@ -3228,7 +3279,7 @@ where
             // connected, this legacy entrypoint denies every production call
             // before reserving issuer admission or touching the store.
             let _ = caller;
-            return Err(IdentityError::StoreUnavailable);
+            Err(IdentityError::StoreUnavailable)
         }
         #[cfg(test)]
         {
@@ -3259,6 +3310,7 @@ where
     /// API cannot return its one-shot permit, so it closes the issuer and
     /// leaves an exact OutcomeUnknown row for reconciliation instead of
     /// promising retry.
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn recover_with_new_intent(
         &mut self,
         caller: &dyn AuthenticatedSystemServicePrincipal,
@@ -3294,6 +3346,7 @@ where
         self.promote_committed_recovery_runtime(success)
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn recover_with_new_intent_run(
         &mut self,
         caller: &dyn AuthenticatedSystemServicePrincipal,
@@ -3601,6 +3654,7 @@ where
     /// any later error that cannot return its one-shot permit closes the issuer
     /// and leaves the operation for exact reconciliation before roots are
     /// released.
+    #[cfg(test)]
     pub(crate) fn recover_with_new_intent_and_storage<B, SE>(
         &mut self,
         caller: &impl AuthenticatedSystemServicePrincipal,
@@ -3633,6 +3687,7 @@ where
     /// mismatches and already-claimed operations are rejected before the gate
     /// callback. C1 does not reconstruct permits after restart; an unresolved
     /// persisted intent then requires exact owner reconciliation.
+    #[cfg(test)]
     pub(crate) fn recover_with_operation(
         &mut self,
         caller: &impl AuthenticatedSystemServicePrincipal,
@@ -3653,6 +3708,7 @@ where
         self.recover_with_operation_after_authorization(permit, gate, &expected_binding)
     }
 
+    #[cfg(test)]
     fn recover_with_operation_after_authorization(
         &mut self,
         permit: &mut Option<RecoveryOperationPermit>,
@@ -3678,7 +3734,7 @@ where
     /// permit before delegating to the ordinary C1 recovery gate path. This is
     /// an integration preflight only; a public scope cannot mint the permit or
     /// authenticate `caller`.
-    #[cfg(feature = "system-service-recovery-contract")]
+    #[cfg(all(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn recover_with_scoped_operation(
         &mut self,
         caller: &impl AuthenticatedSystemServicePrincipal,
@@ -3709,6 +3765,7 @@ where
     /// Reconcile one exact durable operation after reserving the store fence
     /// and draining this issuer. The returned opaque receipt attests to the
     /// exact durable terminal record; it never reopens this issuer.
+    #[cfg(test)]
     pub(crate) fn reconcile_recovery(
         &mut self,
         caller: &impl AuthenticatedSystemServicePrincipal,
@@ -3721,6 +3778,7 @@ where
         self.reconcile_recovery_after_authorization(reconciliation)
     }
 
+    #[cfg(test)]
     fn reconcile_recovery_after_authorization(
         &mut self,
         reconciliation: RecoveryReconciliation,
@@ -3733,6 +3791,7 @@ where
         self.commit_prepared_recovery_reconciliation(&mut admission, store_permit, reconciliation)
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn prepare_recovery_reconciliation(
         &mut self,
         reconciliation: RecoveryReconciliation,
@@ -3776,6 +3835,7 @@ where
         Ok((admission, store_permit))
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn commit_prepared_recovery_reconciliation(
         &mut self,
         admission: &mut IssuerRecoveryAdmissionGuard,
@@ -3798,7 +3858,7 @@ where
     /// the existing path can reserve the store fence or close issuer admission.
     /// The permit is supplied by C1's caller; this method never reconstructs it
     /// from the public scope metadata.
-    #[cfg(feature = "system-service-recovery-contract")]
+    #[cfg(all(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn reconcile_recovery_with_scope(
         &mut self,
         caller: &impl AuthenticatedSystemServicePrincipal,
@@ -3828,6 +3888,7 @@ where
     /// Consume C1's exact terminal receipt by checking the durable journal
     /// again. This verifies evidence only; it never resumes a Session issuer
     /// or clears an A/C3 owner quarantine.
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn consume_reconciliation_receipt(
         &self,
         receipt: C1SystemServiceRecoveryTerminalReceipt,
@@ -3856,7 +3917,7 @@ where
     /// Check that the opaque C1 receipt belongs to the same canonical A scope,
     /// then re-read the durable row through the existing exact operation,
     /// binding, and outcome check. Scope metadata alone never clears a fence.
-    #[cfg(feature = "system-service-recovery-contract")]
+    #[cfg(all(test, feature = "system-service-recovery-contract"))]
     pub(crate) fn consume_reconciliation_receipt_with_scope(
         &self,
         scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
@@ -3870,6 +3931,7 @@ where
         self.consume_reconciliation_receipt(receipt)
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn run_recovery_operation(
         &mut self,
         recovery_admission: &mut IssuerRecoveryAdmissionGuard,
@@ -4023,8 +4085,23 @@ where
                     return Err(IdentityError::StoreUnavailable);
                 }
                 Ok(RecoveryOperationSuccess {
+                    #[cfg(all(
+                        feature = "system-service-recovery-contract",
+                        target_os = "linux",
+                        target_arch = "x86_64"
+                    ))]
                     operation: operation_identity,
+                    #[cfg(all(
+                        feature = "system-service-recovery-contract",
+                        target_os = "linux",
+                        target_arch = "x86_64"
+                    ))]
                     operation_id: claim.operation_id(),
+                    #[cfg(all(
+                        feature = "system-service-recovery-contract",
+                        target_os = "linux",
+                        target_arch = "x86_64"
+                    ))]
                     binding: claim.binding().clone(),
                     report,
                 })
@@ -4049,6 +4126,7 @@ where
         }
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn mark_recovery_outcome_unknown_safely(
         &mut self,
         operation_id: RecoveryOperationId,
@@ -4067,6 +4145,7 @@ where
         }
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn close_after_uncertain_recovery_claim(
         &mut self,
         recovery_admission: &mut IssuerRecoveryAdmissionGuard,
@@ -4091,6 +4170,7 @@ where
         }
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn close_after_uncertain_recovery_intent(
         &mut self,
         recovery_admission: &mut IssuerRecoveryAdmissionGuard,
@@ -4110,6 +4190,7 @@ where
     /// intent is staged. C1 admission is reserved with `active == 0`, so no
     /// new callback can race between this preflight and the durable claim.
     /// Partial acquisitions are dropped automatically on contention.
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn preflight_recovery_session_gates(&self) -> Result<(), IdentityError> {
         #[cfg(test)]
         RECOVERY_WRITE_GUARDS_ACQUIRED.with(|count| count.set(0));
@@ -4131,6 +4212,7 @@ where
         Ok(())
     }
 
+    #[cfg(any(test, feature = "system-service-recovery-contract"))]
     fn recover_inner_authorized(&mut self) -> Result<RecoveryReport, IdentityError> {
         let store_state = self.store.load_current_state().map_err(map_store_error)?;
         let current_version = store_state.high_water_version;
@@ -5491,6 +5573,7 @@ fn map_store_error(error: SnapshotStoreError) -> IdentityError {
     }
 }
 
+#[cfg(any(test, feature = "system-service-recovery-contract"))]
 fn map_recovery_journal_error(error: RecoveryJournalError) -> IdentityError {
     match error {
         RecoveryJournalError::Busy => IdentityError::SessionLeaseBusy,
@@ -6718,10 +6801,10 @@ mod durable_store_failure_tests {
 
     #[derive(Debug)]
     enum ProbeOutcome {
-        ExitedBeforeReady,
-        ExitedAfterReady(ExitStatus),
-        TimedOutBeforeReady,
-        TimedOutAfterReady,
+        BeforeReadyExit,
+        AfterReadyExit(ExitStatus),
+        BeforeReadyTimeout,
+        AfterReadyTimeout,
     }
 
     static NEXT_PROBE_ID: AtomicU64 = AtomicU64::new(1);
@@ -6758,16 +6841,16 @@ mod durable_store_failure_tests {
             if let Some(status) = child.try_wait().unwrap() {
                 let _ = std::fs::remove_file(&ready_file);
                 return if ready {
-                    ProbeOutcome::ExitedAfterReady(status)
+                    ProbeOutcome::AfterReadyExit(status)
                 } else {
-                    ProbeOutcome::ExitedBeforeReady
+                    ProbeOutcome::BeforeReadyExit
                 };
             }
             if Instant::now() >= deadline {
                 let outcome = if ready {
-                    ProbeOutcome::TimedOutAfterReady
+                    ProbeOutcome::AfterReadyTimeout
                 } else {
-                    ProbeOutcome::TimedOutBeforeReady
+                    ProbeOutcome::BeforeReadyTimeout
                 };
                 let killed = child.kill().is_ok();
                 let status = child.wait().unwrap();
@@ -6775,7 +6858,7 @@ mod durable_store_failure_tests {
                 if killed {
                     return outcome;
                 }
-                return ProbeOutcome::ExitedAfterReady(status);
+                return ProbeOutcome::AfterReadyExit(status);
             }
             thread::sleep(Duration::from_millis(10));
         }
@@ -7134,7 +7217,7 @@ mod durable_store_failure_tests {
         assert_eq!(busy.lease_states, expected_lease_states);
         assert!(busy.lease_states.iter().all(|(session_id, (_, _, live))| {
             if session_id == &held_session_id {
-                *live == None
+                live.is_none()
             } else {
                 *live == Some(true)
             }
@@ -7228,7 +7311,7 @@ mod durable_store_failure_tests {
             "multi_session_recovery_contention_probe",
             Duration::from_secs(8),
         ) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("multi-Session recovery contention probe failed: {outcome:?}"),
         }
     }
@@ -7825,7 +7908,7 @@ mod durable_store_failure_tests {
     #[test]
     fn profile_storage_cleanup_is_retryable_while_effect_lease_is_active() {
         match run_ignored_probe("profile_storage_cleanup_busy_probe", Duration::from_secs(8)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("profile-root cleanup busy/retry probe failed: {outcome:?}"),
         }
     }
@@ -8156,7 +8239,7 @@ mod durable_store_failure_tests {
     #[test]
     fn writer_held_unavailable_is_typed_and_live_recovers_after_failed_commit() {
         match run_ignored_probe("writer_held_live_state_probe", Duration::from_secs(6)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => {
                 panic!("writer-held lease status probe failed: {outcome:?}")
             }
@@ -8210,7 +8293,7 @@ mod durable_store_failure_tests {
     #[test]
     fn lifecycle_reentry_fails_fast_in_watchdog_child() {
         match run_ignored_probe("lifecycle_reentry_probe", Duration::from_secs(4)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("same-thread lifecycle reentry was not rejected: {outcome:?}"),
         }
     }
@@ -8266,7 +8349,7 @@ mod durable_store_failure_tests {
     #[test]
     fn child_thread_end_session_fails_fast_in_watchdog_child() {
         match run_ignored_probe("child_thread_end_session_probe", Duration::from_secs(5)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("child-thread end_session was not rejected promptly: {outcome:?}"),
         }
     }
@@ -8339,7 +8422,7 @@ mod durable_store_failure_tests {
     #[test]
     fn issuer_self_drop_closes_and_defers_store_in_watchdog_child() {
         match run_ignored_probe("issuer_self_drop_probe", Duration::from_secs(5)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("issuer self-drop did not finish safely: {outcome:?}"),
         }
     }
@@ -8469,7 +8552,7 @@ mod durable_store_failure_tests {
             "issuer_callback_panic_with_panicking_store_probe",
             Duration::from_secs(5),
         ) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("double-panic cleanup was not bounded and caught: {outcome:?}"),
         }
     }
@@ -8557,7 +8640,7 @@ mod durable_store_failure_tests {
             "non_store_component_drop_panic_probe",
             Duration::from_secs(8),
         ) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("non-store component double-panic cleanup failed: {outcome:?}"),
         }
     }
@@ -8571,7 +8654,7 @@ mod durable_store_failure_tests {
     #[test]
     fn issuer_into_parts_refuses_child_drop_and_defers_store_in_watchdog_child() {
         match run_ignored_probe("issuer_into_parts_probe", Duration::from_secs(5)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("busy issuer into_parts did not finish safely: {outcome:?}"),
         }
     }
@@ -8688,7 +8771,7 @@ mod durable_store_failure_tests {
     #[test]
     fn deferred_store_destructor_panic_keeps_issuer_closed() {
         match run_ignored_probe("issuer_deferred_store_panic_probe", Duration::from_secs(5)) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("store destructor panic was not bounded and caught: {outcome:?}"),
         }
     }
@@ -10632,7 +10715,7 @@ mod durable_store_failure_tests {
 
         drop(issuer);
         let reopened = service(&directory, TestClock::at(100));
-        assert_eq!(reopened.store.recovery_quarantined().unwrap(), true);
+        assert!(reopened.store.recovery_quarantined().unwrap());
         assert_eq!(
             reopened
                 .store
@@ -12046,7 +12129,7 @@ mod durable_store_failure_tests {
             "reopened_store_reissues_only_exact_terminal_receipt_probe",
             Duration::from_secs(90),
         ) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("reopened exact receipt probe did not complete: {outcome:?}"),
         }
     }
@@ -12370,7 +12453,7 @@ mod durable_store_failure_tests {
             "paused_raw_snapshot_reader_entry_timeout_probe",
             Duration::from_secs(3),
         ) {
-            ProbeOutcome::ExitedAfterReady(status) if status.success() => {}
+            ProbeOutcome::AfterReadyExit(status) if status.success() => {}
             outcome => panic!("paused raw-reader cleanup did not complete safely: {outcome:?}"),
         }
     }
