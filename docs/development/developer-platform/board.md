@@ -75,3 +75,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A016: ui_mapping の各ファイル結果に軸別件数 axis_gaps を追加し、Markdown に軸別の未対応・要判断（PR #200、runnerテスト成功、claudeレビューPASS）
 - 11-19 NDP-A017: 未解決行を実在の未収録 API（CancelIoEx / euidaccess）に置き換えて snapshot とテスト（PR #201、runnerテスト成功、codexレビューPASS）
 - 11-19 NDP-A018: `report.py --fixture app_windows`（API+WPF XAML の自作 fixture）を（PR #203、runnerテスト成功、codexレビューPASS）
+- 11-19 NDP-A019: `ui_unsupported` fixture を追加し、unsupported_format の通しレポート表示・r（PR #204、runnerテスト成功、codexレビューPASS）
