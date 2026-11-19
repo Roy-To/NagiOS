@@ -106,12 +106,17 @@ pub(crate) fn ensure_mesa_checkout(root: &Path) -> Result<PathBuf, String> {
     ));
 
     run_git_clone(parent, &temporary)?;
-    if let Err(error) = run_git(
-        root,
-        ["checkout", "--detach", MESA_REVISION],
-        &temporary,
-        "checkout pinned Mesa revision",
-    )
+    let checkout_revision = || {
+        run_git(
+            root,
+            ["checkout", "--detach", MESA_REVISION],
+            &temporary,
+            "checkout pinned Mesa revision",
+        )
+    };
+    if let Err(error) = retry_mesa_checkout(checkout_revision, || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    })
     .and_then(|_| exclude_marker(&temporary))
     .and_then(|_| apply_mesa_patches(&temporary, &patch_files))
     .and_then(|_| write_generated_marker(root, &temporary, &spec))
@@ -403,6 +408,26 @@ fn run_git_clone(parent: &Path, destination: &Path) -> Result<(), String> {
     unreachable!("Mesa clone attempts must return from the loop");
 }
 
+// A blobless clone can need another network request when checking out the pin.
+fn retry_mesa_checkout<T>(
+    mut checkout: impl FnMut() -> Result<T, String>,
+    wait: impl FnOnce(),
+) -> Result<T, String> {
+    match checkout() {
+        Err(error)
+            if error.lines().any(|line| {
+                line.strip_prefix("fatal: unable to access '")
+                    .and_then(|line| line.strip_prefix(MESA_REPOSITORY))
+                    == Some("/': The requested URL returned error: 500")
+            }) =>
+        {
+            wait();
+            checkout()
+        }
+        result => result,
+    }
+}
+
 fn is_retryable_clone_error(detail: &str) -> bool {
     let detail = detail.to_ascii_lowercase();
     [
@@ -502,7 +527,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        is_retryable_clone_error, load_mesa_source_spec, validate_mesa_source_lock, MesaSourceSpec,
+        is_retryable_clone_error, load_mesa_source_spec, retry_mesa_checkout,
+        validate_mesa_source_lock, MesaSourceSpec, MESA_REPOSITORY,
     };
 
     fn temp_root(name: &str) -> PathBuf {
@@ -554,6 +580,52 @@ mod tests {
         let error = validate_mesa_source_lock(&root).unwrap_err();
         assert!(error.contains("revision"), "{error}");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mesa_checkout_retries_only_the_pinned_remote_http_500_once() {
+        let http_500 = format!(
+            "cannot checkout pinned Mesa revision: remote: Internal Server Error\nfatal: unable to access '{MESA_REPOSITORY}/': The requested URL returned error: 500"
+        );
+        let mut attempts = 0;
+        let result = retry_mesa_checkout(
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(http_500.clone())
+                } else {
+                    Ok("checked out")
+                }
+            },
+            || {},
+        );
+        assert_eq!(result, Ok("checked out"));
+        assert_eq!(attempts, 2);
+
+        attempts = 0;
+        let result = retry_mesa_checkout(
+            || {
+                attempts += 1;
+                Err::<(), _>(http_500.clone())
+            },
+            || {},
+        );
+        assert_eq!(result, Err(http_500.clone()));
+        assert_eq!(attempts, 2);
+
+        for permanent_error in [
+            http_500.replace("500", "404"),
+            http_500.replace(MESA_REPOSITORY, "https://example.com/mesa.git"),
+            "fatal: reference is not a tree".to_string(),
+        ] {
+            assert_eq!(
+                retry_mesa_checkout(
+                    || Err::<(), _>(permanent_error.clone()),
+                    || panic!("unrelated checkout failure must not retry"),
+                ),
+                Err(permanent_error),
+            );
+        }
     }
 
     #[test]
