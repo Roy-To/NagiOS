@@ -72,4 +72,4 @@ Linux + Nagi専用userland、既存distributionを製品OS基盤にしない方�
 
 署名済み開発イメージの x86-64 Linux QEMU（2 GiB RAM、4 vCPU）で、実認証、C1 Session、正式な service READY、Notes の保存・正常終了、同じ Data での冷間再起動・再認証と同一オブジェクト／版／描画内容の読戻しが成立した。固定版は A `eecf55f988` と C2 `747feeefd4`、同一接続証明は `6064decb3b`。手順と result.json の要点は[実装状況](../implementation_status.md#linux-development-target-acceptance--2026-11-19-task24)を参照。
 
-これは開発環境の正常系の記録であり、製品の署名や構成、実System RO、WS-10、8 GiB／4 vCPU性能、実機、Notes用profile volumeの受入を示さない。
+これは開発環境の正常系の記録であり、製品の署名や構成、実System RO、WS-10、8 GiB／4 vCPU性能の受入を示さない。実機検証は #163 の受入条件から外し、DEC-102 の別工程とする。

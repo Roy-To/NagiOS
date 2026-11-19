@@ -23,7 +23,7 @@ pub(super) fn reserve(
     user: UserId,
     profile: &str,
     principal: &str,
-) -> io::Result<(OwnedFd, ObjectId)> {
+) -> io::Result<(OwnedFd, ObjectId, bool)> {
     if user.0 == 0
         || !valid_label(profile.strip_prefix("profile_").unwrap_or(""), false)
         || !valid_label(principal, true)
@@ -40,11 +40,8 @@ pub(super) fn reserve(
     let profile_root = private_directory(&profiles, profile)?;
     flock(&profile_root, FlockOperation::NonBlockingLockExclusive)?;
     let objects = private_directory(&profile_root, OBJECT_DIRECTORY)?;
-    let prefix = format!(
-        "NAGI-NOTES-PROFILE-1\n{:016x}\n{profile}\n{principal}\n",
-        user.0
-    );
-    let object = match open_beneath(
+    let scope = format!("{:016x}\n{profile}\n{principal}\n", user.0);
+    let (object, allow_initial_index) = match open_beneath(
         &profile_root,
         RESERVATION,
         OFlags::RDONLY | OFlags::NONBLOCK,
@@ -63,8 +60,19 @@ pub(super) fn reserve(
             (&file)
                 .take(MAX_RECORD_BYTES + 1)
                 .read_to_string(&mut record)?;
+            let (record, allow_initial_index) =
+                if let Some(rest) = record.strip_prefix("NAGI-NOTES-PROFILE-2\n") {
+                    (rest, true)
+                } else {
+                    (
+                        record
+                            .strip_prefix("NAGI-NOTES-PROFILE-1\n")
+                            .ok_or(io::ErrorKind::InvalidData)?,
+                        false,
+                    )
+                };
             let hex = record
-                .strip_prefix(&prefix)
+                .strip_prefix(&scope)
                 .and_then(|suffix| suffix.strip_suffix('\n'))
                 .ok_or(io::ErrorKind::InvalidData)?;
             let object = u64::from_str_radix(hex, 16).map_err(|_| io::ErrorKind::InvalidData)?;
@@ -72,7 +80,7 @@ pub(super) fn reserve(
                 return Err(io::ErrorKind::InvalidData.into());
             }
             file.sync_all()?;
-            ObjectId(object)
+            (ObjectId(object), allow_initial_index)
         }
         Err(Errno::NOENT) => {
             // A profile with existing objects needs its original reservation.
@@ -94,7 +102,7 @@ pub(super) fn reserve(
                 OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
                 Mode::RUSR | Mode::WUSR,
             )?);
-            writeln!(pending, "{prefix}{object:016x}")?;
+            writeln!(pending, "NAGI-NOTES-PROFILE-2\n{scope}{object:016x}")?;
             pending.sync_all()?;
             // Atomic publication without replacing an existing reservation.
             linkat(
@@ -104,12 +112,12 @@ pub(super) fn reserve(
                 RESERVATION,
                 AtFlags::EMPTY_PATH,
             )?;
-            ObjectId(object)
+            (ObjectId(object), true)
         }
         Err(error) => return Err(error.into()),
     };
     profile_root.sync_all()?;
-    Ok((objects.into(), object))
+    Ok((objects.into(), object, allow_initial_index))
 }
 
 pub(super) fn require_same_mount(fd: &impl AsFd, expected: u64) -> io::Result<()> {

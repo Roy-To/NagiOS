@@ -71,6 +71,9 @@ mod linux_init_c3_system_service_owner;
 #[path = "linux_init_c3_slot_journal.rs"]
 mod linux_init_c3_slot_journal;
 
+#[path = "pid1_owned_launch_lease.rs"]
+mod pid1_owned_launch_lease;
+
 #[cfg(all(
     linux_dev_preview_smoke,
     not(any(
@@ -408,7 +411,7 @@ mod linux_initial_login_c2;
     not(any(linux_dev_preview_smoke, nagi_release_build))
 ))]
 #[path = "../candidates/linux-broker-stage25/stage25/pid1_live_peer_supplier.rs"]
-mod pid1_live_peer_supplier;
+pub(crate) mod pid1_live_peer_supplier;
 
 #[cfg(all(
     linux_task24_owner_co_location,
@@ -837,10 +840,14 @@ type ExecAckResult<Raw> =
 /// One-shot capability to write the exec gate after registry authorization.
 /// It prevents a caller from writing the gate twice or reporting success
 /// without committing it.
-struct GateCommit<'a, Os: ProcessOs, LaunchRecord> {
+struct GateCommit<'a, Os: ProcessOs, LaunchRecord, LaunchLease = ()> {
     os: &'a mut Os,
     child: &'a mut ProcessHandle<Prepared, Os::Raw>,
     registered: &'a RegisteredLaunch<LaunchRecord>,
+    launch_lease:
+        &'a mut Option<pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>>,
+    lease_retirement: &'a mut pid1_owned_launch_lease::LeaseRetirementState,
+    require_launch_lease: bool,
     wait_budget: std::time::Duration,
     attempted: bool,
     duplicate_attempt: bool,
@@ -848,17 +855,25 @@ struct GateCommit<'a, Os: ProcessOs, LaunchRecord> {
     failure: Option<ReleaseFailureReason>,
 }
 
-impl<'a, Os: ProcessOs, LaunchRecord> GateCommit<'a, Os, LaunchRecord> {
+impl<'a, Os: ProcessOs, LaunchRecord, LaunchLease> GateCommit<'a, Os, LaunchRecord, LaunchLease> {
     fn new(
         os: &'a mut Os,
         child: &'a mut ProcessHandle<Prepared, Os::Raw>,
         registered: &'a RegisteredLaunch<LaunchRecord>,
+        launch_lease: &'a mut Option<
+            pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+        >,
+        lease_retirement: &'a mut pid1_owned_launch_lease::LeaseRetirementState,
+        require_launch_lease: bool,
         wait_budget: std::time::Duration,
     ) -> Self {
         Self {
             os,
             child,
             registered,
+            launch_lease,
+            lease_retirement,
+            require_launch_lease,
             wait_budget,
             attempted: false,
             duplicate_attempt: false,
@@ -868,6 +883,9 @@ impl<'a, Os: ProcessOs, LaunchRecord> GateCommit<'a, Os, LaunchRecord> {
     }
 
     fn commit(&mut self) -> Result<(), BackendError> {
+        if self.require_launch_lease && self.launch_lease.is_none() {
+            return Err(BackendError::ProtocolViolation);
+        }
         if self.attempted {
             self.duplicate_attempt = true;
             return Err(BackendError::ProtocolViolation);
@@ -878,16 +896,68 @@ impl<'a, Os: ProcessOs, LaunchRecord> GateCommit<'a, Os, LaunchRecord> {
             .commit_release_gate(self.child, self.registered, self.wait_budget)
         {
             Ok(started) => {
+                if let Some(lease) = self.launch_lease.as_mut() {
+                    lease.gate_disposition =
+                        pid1_owned_launch_lease::LaunchGateDisposition::Released;
+                }
                 self.started = Some(started);
                 Ok(())
             }
             Err(reason) => {
+                if let Some(lease) = self.launch_lease.as_mut() {
+                    lease.gate_disposition =
+                        pid1_owned_launch_lease::LaunchGateDisposition::Unknown;
+                }
                 self.failure = Some(reason);
                 #[cfg(test)]
                 eprintln!("C3_PROCESS_GATE_RELEASE_FAILED: {reason:?}");
                 Err(release_failure_backend_error(reason))
             }
         }
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn install_and_retain_spawn_lease(
+        &mut self,
+        install: impl FnOnce(
+            nagi_init_spawn_contract::SpawnedProcessPidfd,
+            &LaunchRecord,
+        ) -> Result<LaunchLease, BackendError>,
+    ) -> Result<(), BackendError>
+    where
+        LaunchRecord: Copy + Eq,
+        LaunchLease: pid1_owned_launch_lease::ExactChildLaunchLease<LaunchRecord>,
+    {
+        if self.attempted || self.launch_lease.is_some() {
+            return Err(BackendError::ProtocolViolation);
+        }
+        let proof = self
+            .os
+            .duplicate_pidfd_for_prepared(self.child)
+            .map_err(|_| BackendError::Unavailable)?;
+        let process_instance = proof.identity();
+        let record = self.registered.record;
+        let lease = install(proof, &record)?;
+        pid1_owned_launch_lease::adopt_exact_child_lease(
+            self.launch_lease,
+            self.lease_retirement,
+            process_instance,
+            record,
+            lease,
+        )?;
+        Ok(())
+    }
+
+    /// Give a bounded C3/C2 pre-exec adapter an opaque duplicate of this exact
+    /// still-gated child. It conveys process identity only; ProcessLifecycle
+    /// remains the sole owner of wait and reap.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn duplicate_prepared_spawn_pidfd(
+        &mut self,
+    ) -> Result<nagi_init_spawn_contract::SpawnedProcessPidfd, BackendError> {
+        self.os
+            .duplicate_pidfd_for_prepared(self.child)
+            .map_err(|_| BackendError::Unavailable)
     }
 }
 
@@ -1273,6 +1343,19 @@ trait ProcessOs {
         ))
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn take_fd_delegation_restriction_attestation(
+        &mut self,
+        _child: &mut ProcessHandle<Running, Self::Raw>,
+    ) -> std::io::Result<Option<FdDelegationRestrictionAttestation>> {
+        Ok(None)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn is_process_live(&self, _child: &ProcessHandle<Running, Self::Raw>) -> std::io::Result<bool> {
+        Ok(false)
+    }
+
     /// Commit only the nonblocking exec-gate byte. The caller performs this
     /// while the matching Supervisor record and grants are locked.
     fn commit_release_gate<LaunchRecord>(
@@ -1301,6 +1384,34 @@ trait ProcessOs {
         &mut self,
         child: &mut ProcessHandle<Stage, Self::Raw>,
     ) -> std::io::Result<()>;
+}
+
+/// Opaque evidence that the exact clone3 child installed the C3 endpoint
+/// delegation restriction after its one authorized endpoint transfer and
+/// before exec. Only the Linux child owner can construct this value.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(super) struct FdDelegationRestrictionAttestation {
+    process_identity: nagi_init_spawn_contract::SpawnedProcessIdentity,
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+impl FdDelegationRestrictionAttestation {
+    fn from_verified_child(
+        process_identity: nagi_init_spawn_contract::SpawnedProcessIdentity,
+    ) -> Self {
+        Self { process_identity }
+    }
+
+    pub(super) fn matches_process(
+        &self,
+        process_identity: &nagi_init_spawn_contract::SpawnedProcessIdentity,
+    ) -> bool {
+        self.process_identity.same_instance(process_identity)
+    }
+
+    pub(super) fn process_identity(&self) -> &nagi_init_spawn_contract::SpawnedProcessIdentity {
+        &self.process_identity
+    }
 }
 
 /// Nonblocking source for the exec error pipe. The production implementation
@@ -1478,13 +1589,25 @@ fn process_argv_storage(arguments: &[&str]) -> std::io::Result<Vec<CString>> {
     Ok(storage)
 }
 
-struct ManagedProcess<OsChild, ServiceId, LaunchRecord> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LaunchLeaseActivationState {
+    NotAttempted,
+    Active,
+    Unknown,
+}
+
+struct ManagedProcess<OsChild, ServiceId, LaunchRecord, LaunchLease = ()> {
     process_id: u32,
     service: ServiceId,
     required: bool,
     child: OsChild,
     record: LaunchRecord,
     reaped: Option<ServiceExitStatus>,
+    launch_lease: Option<pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>>,
+    lease_retirement: pid1_owned_launch_lease::LeaseRetirementState,
+    lease_activation: LaunchLeaseActivationState,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
 }
 
 enum PendingChild<Raw> {
@@ -1493,27 +1616,28 @@ enum PendingChild<Raw> {
     Running(ProcessHandle<Running, Raw>),
 }
 
-struct QuarantinedProcess<Raw, LaunchRecord> {
+struct QuarantinedProcess<Raw, LaunchRecord, LaunchLease = ()> {
     process_id: u32,
     child: PendingChild<Raw>,
     record: Option<LaunchRecord>,
     reaped: Option<ServiceExitStatus>,
+    launch_lease: Option<pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>>,
+    lease_retirement: pid1_owned_launch_lease::LeaseRetirementState,
+    lease_activation: LaunchLeaseActivationState,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
 }
 
-struct ProcessLifecycle<Os: ProcessOs, ServiceId, LaunchRecord> {
+struct ProcessLifecycle<Os: ProcessOs, ServiceId, LaunchRecord, LaunchLease = ()> {
     os: Os,
-    children: Vec<ManagedProcess<ProcessHandle<Running, Os::Raw>, ServiceId, LaunchRecord>>,
+    children:
+        Vec<ManagedProcess<ProcessHandle<Running, Os::Raw>, ServiceId, LaunchRecord, LaunchLease>>,
     /// Handles awaiting cleanup/revocation are hidden from live_record and block
     /// PID reuse until both obligations have completed.
-    quarantine: Vec<QuarantinedProcess<Os::Raw, LaunchRecord>>,
+    quarantine: Vec<QuarantinedProcess<Os::Raw, LaunchRecord, LaunchLease>>,
 }
 
-impl<Os, ServiceId, LaunchRecord> ProcessLifecycle<Os, ServiceId, LaunchRecord>
-where
-    Os: ProcessOs,
-    ServiceId: Clone + std::fmt::Debug + Eq,
-    LaunchRecord: Copy,
-{
+impl<Os: ProcessOs, ServiceId, LaunchRecord> ProcessLifecycle<Os, ServiceId, LaunchRecord, ()> {
     fn new(os: Os) -> Self {
         Self {
             os,
@@ -1521,7 +1645,27 @@ where
             quarantine: Vec::new(),
         }
     }
+}
 
+impl<Os: ProcessOs, ServiceId, LaunchRecord, LaunchLease>
+    ProcessLifecycle<Os, ServiceId, LaunchRecord, LaunchLease>
+{
+    fn new_with_launch_lease(os: Os) -> Self {
+        Self {
+            os,
+            children: Vec::new(),
+            quarantine: Vec::new(),
+        }
+    }
+}
+
+impl<Os, ServiceId, LaunchRecord, LaunchLease>
+    ProcessLifecycle<Os, ServiceId, LaunchRecord, LaunchLease>
+where
+    Os: ProcessOs,
+    ServiceId: Clone + std::fmt::Debug + Eq,
+    LaunchRecord: Copy + Eq,
+{
     /// Test-only convenience shim for orchestration tests; production uses the
     /// authorization callback in spawn_authorized.
     #[cfg(test)]
@@ -1553,7 +1697,7 @@ where
         authorize: impl FnOnce(
             u32,
             &LaunchRecord,
-            &mut GateCommit<'_, Os, LaunchRecord>,
+            &mut GateCommit<'_, Os, LaunchRecord, LaunchLease>,
         ) -> Result<(), BackendError>,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
     ) -> Result<u32, BackendError> {
@@ -1573,6 +1717,33 @@ where
     fn spawn_authorized_with_prepared(
         &mut self,
         launch: ProcessLaunch<'_, ServiceId>,
+        cancelled: impl FnMut() -> bool,
+        register: impl FnOnce(
+            u32,
+            &mut Os,
+            &ProcessHandle<Prepared, Os::Raw>,
+        ) -> Result<LaunchRecord, BackendError>,
+        authorize: impl FnOnce(
+            u32,
+            &LaunchRecord,
+            &mut GateCommit<'_, Os, LaunchRecord, LaunchLease>,
+        ) -> Result<(), BackendError>,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+    ) -> Result<u32, BackendError> {
+        self.spawn_authorized_with_prepared_inner(
+            launch,
+            cancelled,
+            register,
+            authorize,
+            &mut revoke,
+            false,
+            |_, _| Err(BackendError::ProtocolViolation),
+        )
+    }
+
+    fn spawn_authorized_with_prepared_inner(
+        &mut self,
+        launch: ProcessLaunch<'_, ServiceId>,
         mut cancelled: impl FnMut() -> bool,
         register: impl FnOnce(
             u32,
@@ -1582,9 +1753,14 @@ where
         authorize: impl FnOnce(
             u32,
             &LaunchRecord,
-            &mut GateCommit<'_, Os, LaunchRecord>,
+            &mut GateCommit<'_, Os, LaunchRecord, LaunchLease>,
         ) -> Result<(), BackendError>,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        require_launch_lease: bool,
+        mut retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
     ) -> Result<u32, BackendError> {
         if cancelled() {
             return Err(BackendError::Cancelled);
@@ -1608,13 +1784,24 @@ where
                 BackendError::TransportFailure
             })?;
         let process_id = prepared.process_id;
+        let mut acquiring_lease = None;
+        let mut lease_retirement = pid1_owned_launch_lease::LeaseRetirementState::NotAttempted;
+        let mut lease_activation = LaunchLeaseActivationState::NotAttempted;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        let mut fd_delegation_attestation = None;
         if process_id <= 1 {
             self.discard_pending(
                 process_id,
                 PendingChild::Prepared(prepared),
                 None,
                 None,
+                acquiring_lease,
+                lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
                 &mut revoke,
+                &mut retire_lease,
             )?;
             return Err(BackendError::ProtocolViolation);
         }
@@ -1632,7 +1819,13 @@ where
                 PendingChild::Prepared(prepared),
                 None,
                 None,
+                acquiring_lease,
+                lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
                 &mut revoke,
+                &mut retire_lease,
             )?;
             return Err(BackendError::ProtocolViolation);
         }
@@ -1642,7 +1835,13 @@ where
                 PendingChild::Prepared(prepared),
                 None,
                 None,
+                acquiring_lease,
+                lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
                 &mut revoke,
+                &mut retire_lease,
             )?;
             return Err(BackendError::Cancelled);
         }
@@ -1655,7 +1854,13 @@ where
                     PendingChild::Prepared(prepared),
                     None,
                     None,
+                    acquiring_lease,
+                    lease_retirement,
+                    lease_activation,
+                    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                    fd_delegation_attestation,
                     &mut revoke,
+                    &mut retire_lease,
                 )?;
                 return Err(error);
             }
@@ -1668,7 +1873,13 @@ where
                 PendingChild::Prepared(prepared),
                 Some(record),
                 None,
+                acquiring_lease,
+                lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
                 &mut revoke,
+                &mut retire_lease,
             )?;
             return Err(BackendError::Cancelled);
         }
@@ -1679,6 +1890,9 @@ where
                 &mut self.os,
                 &mut prepared,
                 &registered,
+                &mut acquiring_lease,
+                &mut lease_retirement,
+                require_launch_lease,
                 launch.release_wait_budget,
             );
             let authorization = authorize(process_id, &record, &mut gate_commit);
@@ -1713,7 +1927,13 @@ where
                 pending,
                 Some(registered.into_record()),
                 None,
+                acquiring_lease,
+                lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
                 &mut revoke,
+                &mut retire_lease,
             )?;
             return Err(error);
         }
@@ -1726,8 +1946,44 @@ where
             launch.cancel_check_interval,
             &mut cancelled,
         ) {
-            Ok(child) => {
+            Ok(mut child) => {
                 let record = registered.into_record();
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                if require_launch_lease {
+                    let attestation = self
+                        .os
+                        .take_fd_delegation_restriction_attestation(&mut child)
+                        .ok()
+                        .flatten();
+                    let exact_attestation = attestation.filter(|attestation| {
+                        acquiring_lease.as_ref().is_some_and(|lease| {
+                            attestation.matches_process(&lease.process_instance)
+                                && lease.gate_disposition
+                                    == pid1_owned_launch_lease::LaunchGateDisposition::Released
+                        })
+                    });
+                    if exact_attestation.is_none() {
+                        lease_activation = LaunchLeaseActivationState::Unknown;
+                        self.discard_pending(
+                            process_id,
+                            PendingChild::Running(child),
+                            Some(record),
+                            None,
+                            acquiring_lease,
+                            lease_retirement,
+                            lease_activation,
+                            fd_delegation_attestation,
+                            &mut revoke,
+                            &mut retire_lease,
+                        )?;
+                        return Err(BackendError::ProtocolViolation);
+                    }
+                    fd_delegation_attestation = exact_attestation;
+                }
+                #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+                if require_launch_lease {
+                    return Err(BackendError::ProtocolViolation);
+                }
                 self.children.push(ManagedProcess {
                     process_id,
                     service: launch.service,
@@ -1735,6 +1991,11 @@ where
                     child,
                     record,
                     reaped: None,
+                    launch_lease: acquiring_lease,
+                    lease_retirement,
+                    lease_activation,
+                    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                    fd_delegation_attestation,
                 });
                 Ok(process_id)
             }
@@ -1748,7 +2009,13 @@ where
                     PendingChild::ReleaseUncertain(failure.child),
                     Some(registered.into_record()),
                     failure.reaped,
+                    acquiring_lease,
+                    lease_retirement,
+                    lease_activation,
+                    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                    fd_delegation_attestation,
                     &mut revoke,
+                    &mut retire_lease,
                 )?;
                 Err(failure_error)
             }
@@ -1761,6 +2028,17 @@ where
         &mut self,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
     ) -> Result<Option<LifecycleEvent<ServiceId>>, BackendError> {
+        self.poll_with_launch_lease_inner(&mut revoke, |_, _| Err(BackendError::ProtocolViolation))
+    }
+
+    fn poll_with_launch_lease_inner(
+        &mut self,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        mut retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<Option<LifecycleEvent<ServiceId>>, BackendError> {
         let mut index = 0;
         let mut cleanup_failed = false;
         while index < self.quarantine.len() {
@@ -1772,7 +2050,17 @@ where
             } else {
                 false
             };
-            if child_clean && record_clean {
+            let lease_clean = if child_clean && record_clean {
+                Self::retire_launch_lease(
+                    &mut entry.launch_lease,
+                    &mut entry.lease_retirement,
+                    entry.reaped,
+                    &mut retire_lease,
+                )
+            } else {
+                false
+            };
+            if child_clean && record_clean && lease_clean {
                 self.quarantine.remove(index);
             } else {
                 cleanup_failed = true;
@@ -1801,10 +2089,42 @@ where
             let record = &self.children[index].record;
             revoke(process_id, record)?;
             let child = self.children.remove(index);
+            let ManagedProcess {
+                process_id,
+                service,
+                required,
+                child,
+                record: _,
+                reaped: _,
+                mut launch_lease,
+                mut lease_retirement,
+                lease_activation,
+                #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                fd_delegation_attestation,
+            } = child;
+            if !Self::retire_launch_lease(
+                &mut launch_lease,
+                &mut lease_retirement,
+                Some(status),
+                &mut retire_lease,
+            ) {
+                self.quarantine.push(QuarantinedProcess {
+                    process_id,
+                    child: PendingChild::Running(child),
+                    record: None,
+                    reaped: Some(status),
+                    launch_lease,
+                    lease_retirement,
+                    lease_activation,
+                    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                    fd_delegation_attestation,
+                });
+                return Err(BackendError::TransportFailure);
+            }
             return Ok(Some(LifecycleEvent::ServiceExited {
-                service: child.service,
+                service,
                 status,
-                required: child.required,
+                required,
             }));
         }
         Ok(None)
@@ -1889,6 +2209,75 @@ where
         self.os.duplicate_pidfd_for_running(&mut entry.child)
     }
 
+    /// Take only the restriction evidence reported by the exact live child
+    /// after its final pre-exec seccomp filter was installed and read back.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn take_live_fd_delegation_restriction_attestation(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+    ) -> std::io::Result<FdDelegationRestrictionAttestation>
+    where
+        LaunchRecord: Eq,
+    {
+        let entry = self
+            .children
+            .iter_mut()
+            .find(|entry| {
+                entry.process_id == process_id
+                    && entry.reaped.is_none()
+                    && entry.record == expected_record
+            })
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "process or exact launch record is not live",
+                )
+            })?;
+        if let Some(status) = self.os.try_wait(&mut entry.child)? {
+            entry.reaped = Some(status);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "process exited before delegation restriction evidence was retained",
+            ));
+        }
+        let attestation = self
+            .os
+            .take_fd_delegation_restriction_attestation(&mut entry.child)?
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "live child has no verified FD delegation restriction",
+                )
+            })?;
+        if attestation.process_identity.process_id() != process_id {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "FD delegation evidence belongs to a different clone3 child",
+            ));
+        }
+        Ok(attestation)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn is_live_record(
+        &self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+    ) -> std::io::Result<bool>
+    where
+        LaunchRecord: Eq,
+    {
+        let Some(entry) = self.children.iter().find(|entry| {
+            entry.process_id == process_id
+                && entry.reaped.is_none()
+                && entry.record == expected_record
+        }) else {
+            return Ok(false);
+        };
+        self.os.is_process_live(&entry.child)
+    }
+
     /// Stop exactly one process whose retained launch token still matches.
     /// Unreaped children and their exact record remain quarantined for the
     /// existing single-owner reaper; PID reuse cannot satisfy this selector.
@@ -1898,6 +2287,28 @@ where
         process_id: u32,
         expected_record: LaunchRecord,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError>
+    where
+        LaunchRecord: Eq,
+    {
+        self.terminate_exact_with_launch_lease_inner(
+            process_id,
+            expected_record,
+            &mut revoke,
+            |_, _| Err(BackendError::ProtocolViolation),
+        )
+    }
+
+    #[cfg(target_os = "linux")]
+    fn terminate_exact_with_launch_lease_inner(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        mut retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
     ) -> Result<(), BackendError>
     where
         LaunchRecord: Eq,
@@ -1919,7 +2330,22 @@ where
         } else {
             false
         };
-        if child_clean && record_clean {
+        let mut launch_lease = entry.launch_lease;
+        let mut lease_retirement = entry.lease_retirement;
+        let lease_activation = entry.lease_activation;
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        let fd_delegation_attestation = entry.fd_delegation_attestation;
+        let lease_clean = if child_clean && record_clean {
+            Self::retire_launch_lease(
+                &mut launch_lease,
+                &mut lease_retirement,
+                reaped,
+                &mut retire_lease,
+            )
+        } else {
+            false
+        };
+        if child_clean && record_clean && lease_clean {
             return Ok(());
         }
         self.quarantine.push(QuarantinedProcess {
@@ -1927,6 +2353,11 @@ where
             child,
             record,
             reaped,
+            launch_lease,
+            lease_retirement,
+            lease_activation,
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            fd_delegation_attestation,
         });
         Err(BackendError::TransportFailure)
     }
@@ -1954,6 +2385,19 @@ where
         &mut self,
         mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
     ) -> Result<(), BackendError> {
+        self.shutdown_with_launch_lease_inner(&mut revoke, |_, _| {
+            Err(BackendError::ProtocolViolation)
+        })
+    }
+
+    fn shutdown_with_launch_lease_inner(
+        &mut self,
+        mut revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        mut retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError> {
         // Each Linux service is the init process of its own PID namespace.
         // Killing a tracked service therefore terminates its remaining namespace
         // members. Never signal untracked processes in PID 1's namespace.
@@ -1974,7 +2418,17 @@ where
             } else {
                 false
             };
-            if child_clean && record_clean {
+            let lease_clean = if child_clean && record_clean {
+                Self::retire_launch_lease(
+                    &mut entry.launch_lease,
+                    &mut entry.lease_retirement,
+                    entry.reaped,
+                    &mut retire_lease,
+                )
+            } else {
+                false
+            };
+            if child_clean && record_clean && lease_clean {
                 self.quarantine.remove(index);
             } else {
                 failed = true;
@@ -1982,9 +2436,8 @@ where
             }
         }
 
-        // Any registered child that is still alive after this bounded cleanup
-        // pass stops being IPC-visible and moves intact into quarantine. A later
-        // poll/shutdown retries nonblocking reap while retaining its record/handle.
+        // Any child not reaped in this bounded pass moves intact into quarantine.
+        // A reaped child has its exact record revoked before lease retirement.
         let mut index = 0;
         while index < self.children.len() {
             if self.children[index].reaped.is_none() {
@@ -1994,23 +2447,45 @@ where
                     child: PendingChild::Running(entry.child),
                     record: Some(entry.record),
                     reaped: entry.reaped,
+                    launch_lease: entry.launch_lease,
+                    lease_retirement: entry.lease_retirement,
+                    lease_activation: entry.lease_activation,
+                    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                    fd_delegation_attestation: entry.fd_delegation_attestation,
                 });
                 failed = true;
             } else {
-                index += 1;
+                let process_id = self.children[index].process_id;
+                let record = &self.children[index].record;
+                if revoke(process_id, record).is_err() {
+                    failed = true;
+                    index += 1;
+                    continue;
+                }
+                let entry = self.children.remove(index);
+                let mut launch_lease = entry.launch_lease;
+                let mut lease_retirement = entry.lease_retirement;
+                let lease_clean = Self::retire_launch_lease(
+                    &mut launch_lease,
+                    &mut lease_retirement,
+                    entry.reaped,
+                    &mut retire_lease,
+                );
+                if !lease_clean {
+                    self.quarantine.push(QuarantinedProcess {
+                        process_id,
+                        child: PendingChild::Running(entry.child),
+                        record: None,
+                        reaped: entry.reaped,
+                        launch_lease,
+                        lease_retirement,
+                        lease_activation: entry.lease_activation,
+                        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+                        fd_delegation_attestation: entry.fd_delegation_attestation,
+                    });
+                    failed = true;
+                }
             }
-        }
-
-        let mut index = 0;
-        while index < self.children.len() {
-            let process_id = self.children[index].process_id;
-            let record = &self.children[index].record;
-            if revoke(process_id, record).is_ok() {
-                self.children.remove(index);
-                continue;
-            }
-            failed = true;
-            index += 1;
         }
 
         if failed || !self.children.is_empty() || !self.quarantine.is_empty() {
@@ -2026,7 +2501,19 @@ where
         mut child: PendingChild<Os::Raw>,
         mut record: Option<LaunchRecord>,
         already_reaped: Option<ServiceExitStatus>,
+        mut launch_lease: Option<
+            pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+        >,
+        mut lease_retirement: pid1_owned_launch_lease::LeaseRetirementState,
+        lease_activation: LaunchLeaseActivationState,
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))] fd_delegation_attestation: Option<
+            FdDelegationRestrictionAttestation,
+        >,
         revoke: &mut impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        retire_lease: &mut impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
     ) -> Result<(), BackendError> {
         let mut reaped = already_reaped;
         let child_clean = Self::attempt_cleanup(&mut self.os, &mut child, &mut reaped);
@@ -2035,18 +2522,71 @@ where
         } else {
             false
         };
-        if child_clean && record_clean {
+        let lease_clean = if child_clean && record_clean {
+            Self::retire_launch_lease(
+                &mut launch_lease,
+                &mut lease_retirement,
+                reaped,
+                retire_lease,
+            )
+        } else {
+            false
+        };
+        if child_clean && record_clean && lease_clean {
             return Ok(());
         }
 
-        // Keep both the OS handle and any record whose revocation failed.
+        // Keep the OS handle, unrevoked record, and non-Clone lease together
+        // until exact wait/reap, record revoke, and lease retirement all finish.
         self.quarantine.push(QuarantinedProcess {
             process_id,
             child,
             record,
             reaped,
+            launch_lease,
+            lease_retirement,
+            lease_activation,
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            fd_delegation_attestation,
         });
         Err(BackendError::TransportFailure)
+    }
+
+    fn retire_launch_lease(
+        launch_lease: &mut Option<
+            pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+        >,
+        retirement: &mut pid1_owned_launch_lease::LeaseRetirementState,
+        reaped: Option<ServiceExitStatus>,
+        retire: &mut impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> bool {
+        let Some(bound) = launch_lease.as_ref() else {
+            return match *retirement {
+                pid1_owned_launch_lease::LeaseRetirementState::NotAttempted => {
+                    *retirement = pid1_owned_launch_lease::LeaseRetirementState::Complete;
+                    true
+                }
+                pid1_owned_launch_lease::LeaseRetirementState::Complete => true,
+                pid1_owned_launch_lease::LeaseRetirementState::Attempted
+                | pid1_owned_launch_lease::LeaseRetirementState::Unknown => false,
+            };
+        };
+        let Some(status) = reaped else {
+            return false;
+        };
+        let expected_instance = bound.process_instance.clone();
+        let expected_record = bound.record;
+        pid1_owned_launch_lease::retire_exact_once(
+            launch_lease,
+            retirement,
+            &expected_instance,
+            expected_record,
+            status,
+            retire,
+        )
     }
 
     fn retry_record_revocation(
@@ -2120,6 +2660,208 @@ where
     }
 }
 
+impl<Os, ServiceId, LaunchRecord, LaunchLease>
+    ProcessLifecycle<Os, ServiceId, LaunchRecord, LaunchLease>
+where
+    Os: ProcessOs,
+    ServiceId: Clone + std::fmt::Debug + Eq,
+    LaunchRecord: Copy + Eq,
+    LaunchLease: pid1_owned_launch_lease::ExactChildLaunchLease<LaunchRecord>,
+{
+    /// Task24 entry point: the selected production launch path cannot release
+    /// the exec gate until its exact-child lease has been adopted into this
+    /// ProcessLifecycle and provides the retirement callback for failures.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn spawn_authorized_with_prepared_and_launch_lease(
+        &mut self,
+        launch: ProcessLaunch<'_, ServiceId>,
+        cancelled: impl FnMut() -> bool,
+        register: impl FnOnce(
+            u32,
+            &mut Os,
+            &ProcessHandle<Prepared, Os::Raw>,
+        ) -> Result<LaunchRecord, BackendError>,
+        authorize: impl FnOnce(
+            u32,
+            &LaunchRecord,
+            &mut GateCommit<'_, Os, LaunchRecord, LaunchLease>,
+        ) -> Result<(), BackendError>,
+        revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<u32, BackendError> {
+        self.spawn_authorized_with_prepared_inner(
+            launch,
+            cancelled,
+            register,
+            authorize,
+            revoke,
+            true,
+            retire_lease,
+        )
+    }
+
+    /// Activate the pending lease only after exec acknowledgement, while the
+    /// same exact child remains live and the C3 FD restriction attestation is
+    /// still held in its lifecycle slot.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn activate_current_launch_lease(
+        &mut self,
+        proof: &nagi_init_spawn_contract::SpawnedProcessPidfd,
+        record: LaunchRecord,
+        activate: impl FnOnce(
+            &mut LaunchLease,
+            &FdDelegationRestrictionAttestation,
+        ) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError> {
+        let identity = proof.identity();
+        let process_id = proof.process_id();
+        let entry = self
+            .children
+            .iter_mut()
+            .find(|entry| entry.process_id == process_id && entry.record == record)
+            .ok_or(BackendError::IdentityRejected)?;
+        if entry.reaped.is_some()
+            || entry.lease_activation != LaunchLeaseActivationState::NotAttempted
+            || !self
+                .os
+                .is_process_live(&entry.child)
+                .map_err(|_| BackendError::TransportFailure)?
+        {
+            return Err(BackendError::Revoked);
+        }
+        let bound = entry
+            .launch_lease
+            .as_mut()
+            .ok_or(BackendError::IdentityRejected)?;
+        let attestation = entry
+            .fd_delegation_attestation
+            .as_ref()
+            .ok_or(BackendError::IdentityRejected)?;
+        let lease_matches = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            bound.lease.matches_spawn(&identity, &record)
+        }))
+        .unwrap_or(false);
+        if !bound.process_instance.same_instance(&identity)
+            || bound.record != record
+            || bound.gate_disposition != pid1_owned_launch_lease::LaunchGateDisposition::Released
+            || !lease_matches
+            || !attestation.matches_process(&identity)
+        {
+            return Err(BackendError::IdentityRejected);
+        }
+
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            activate(&mut bound.lease, attestation)
+        })) {
+            Ok(Ok(())) => {
+                entry.lease_activation = LaunchLeaseActivationState::Active;
+                Ok(())
+            }
+            Ok(Err(error)) => {
+                entry.lease_activation = LaunchLeaseActivationState::Unknown;
+                Err(error)
+            }
+            Err(_) => {
+                entry.lease_activation = LaunchLeaseActivationState::Unknown;
+                Err(BackendError::TransportFailure)
+            }
+        }
+    }
+
+    /// Return a lease borrowed from the current child slot only while the same
+    /// clone3 process, record, FD attestation, and live pidfd all still match.
+    /// Holding this reference prevents mutable poll/reap/replacement until the
+    /// caller completes the initial checkout.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn borrow_current_launch_lease<'a>(
+        &'a self,
+        proof: &nagi_init_spawn_contract::SpawnedProcessPidfd,
+        record: LaunchRecord,
+    ) -> Result<&'a LaunchLease, BackendError> {
+        let identity = proof.identity();
+        let process_id = proof.process_id();
+        let entry = self
+            .children
+            .iter()
+            .find(|entry| entry.process_id == process_id && entry.record == record)
+            .ok_or(BackendError::IdentityRejected)?;
+        if entry.reaped.is_some()
+            || entry.lease_activation != LaunchLeaseActivationState::Active
+            || !self
+                .os
+                .is_process_live(&entry.child)
+                .map_err(|_| BackendError::TransportFailure)?
+        {
+            return Err(BackendError::Revoked);
+        }
+        let bound = entry
+            .launch_lease
+            .as_ref()
+            .ok_or(BackendError::IdentityRejected)?;
+        let attestation = entry
+            .fd_delegation_attestation
+            .as_ref()
+            .ok_or(BackendError::IdentityRejected)?;
+        let lease_matches = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            bound.lease.matches_spawn(&identity, &record)
+        }))
+        .unwrap_or(false);
+        if !bound.process_instance.same_instance(&identity)
+            || bound.record != record
+            || bound.gate_disposition != pid1_owned_launch_lease::LaunchGateDisposition::Released
+            || !lease_matches
+            || !attestation.matches_process(&identity)
+        {
+            return Err(BackendError::IdentityRejected);
+        }
+        Ok(&bound.lease)
+    }
+
+    fn poll_with_launch_lease(
+        &mut self,
+        revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<Option<LifecycleEvent<ServiceId>>, BackendError> {
+        self.poll_with_launch_lease_inner(revoke, retire_lease)
+    }
+
+    fn shutdown_with_launch_lease(
+        &mut self,
+        revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError> {
+        self.shutdown_with_launch_lease_inner(revoke, retire_lease)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn terminate_exact_with_launch_lease(
+        &mut self,
+        process_id: u32,
+        expected_record: LaunchRecord,
+        revoke: impl FnMut(u32, &LaunchRecord) -> Result<(), BackendError>,
+        retire_lease: impl FnMut(
+            &mut pid1_owned_launch_lease::BoundLaunchLease<LaunchLease, LaunchRecord>,
+            ServiceExitStatus,
+        ) -> Result<(), BackendError>,
+    ) -> Result<(), BackendError> {
+        self.terminate_exact_with_launch_lease_inner(
+            process_id,
+            expected_record,
+            revoke,
+            retire_lease,
+        )
+    }
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod linux_x86_64_process {
     use super::pid1_child_reaper::{
@@ -2181,6 +2923,13 @@ mod linux_x86_64_process {
     const NR_SENDTO: usize = 44;
     const NR_SENDMSG: usize = 46;
     const NR_RECVMSG: usize = 47;
+    const NR_FORK: usize = 57;
+    const NR_VFORK: usize = 58;
+    const NR_SENDMMSG: usize = 307;
+    const NR_IO_URING_SETUP: usize = 425;
+    const NR_IO_URING_ENTER: usize = 426;
+    const NR_IO_URING_REGISTER: usize = 427;
+    const NR_PIDFD_GETFD: usize = 438;
     const NR_GETSOCKOPT: usize = 55;
     const NR_WAITID: usize = 247;
     const NR_CLOSE_RANGE: usize = 436;
@@ -2219,6 +2968,9 @@ mod linux_x86_64_process {
     const SOCK_STREAM: usize = 1;
     const SOCK_CLOEXEC: usize = 0x80000;
     const O_RDWR: usize = 2;
+    const O_WRONLY: usize = 1;
+    const O_CREAT: usize = 0x40;
+    const O_EXCL: usize = 0x80;
     const O_CLOEXEC: usize = 0x80000;
     const AT_FDCWD: usize = (-100isize) as usize;
     const F_DUPFD_CLOEXEC: usize = 1030;
@@ -2265,12 +3017,19 @@ mod linux_x86_64_process {
     const CLONE_NEWIPC: usize = 0x0800_0000;
     const CLONE_NEWUSER: usize = 0x1000_0000;
     const CLONE_NEWNET: usize = 0x4000_0000;
+    const CLONE_VM: usize = 0x0000_0100;
+    const CLONE_FILES: usize = 0x0000_0400;
+    const CLONE_SIGHAND: usize = 0x0000_0800;
+    const CLONE_THREAD: usize = 0x0001_0000;
+    const SERVICE_CLONE_THREAD_FLAGS: u32 =
+        (CLONE_VM | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD) as u32;
     const SERVICE_NAMESPACE_FLAGS: usize =
         CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWNET;
     const MS_NOSUID: usize = 2;
     const MS_NODEV: usize = 4;
     const MS_NOEXEC: usize = 8;
     const MS_REC: usize = 0x4000;
+    const MS_BIND: usize = 0x1000;
     const MS_PRIVATE: usize = 1 << 18;
     const CLONE_NAMESPACE_FLAGS: usize = CLONE_NEWNS
         | CLONE_NEWTIME
@@ -2289,11 +3048,16 @@ mod linux_x86_64_process {
     const AUDIT_ARCH_X86_64: u32 = 0xc000_003e;
     const RELEASE_BYTE: u8 = 1;
     const CHILD_SETUP_READY_WORD: u32 = 0x4353_5231;
+    const CHILD_FD_DELEGATION_READY_WORD: u32 = 0x4346_4431;
     const ENDPOINT_MESSAGE_BYTE: u8 = 0xc3;
     const SERVICE_ENDPOINT_FD: i32 = 3;
     const SERVICE_ROOT_PATH: &[u8] = b"/tmp\0";
     const SERVICE_TMPFS_TYPE: &[u8] = b"tmpfs\0";
     const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216\0";
+    const TASK24_ENDPOINT_ARGUMENT_PREFIX: &str = "--nagi-service-endpoint-v1=";
+    const TASK24_ENDPOINT_ARGUMENT_FAMILY: &str = "--nagi-service-endpoint";
+    const TASK24_ENDPOINT_SOCKET_ROOT: &str = "/run/nagi/ipc/";
+    const TASK24_ENDPOINT_SOCKET_LEAF_LEN: usize = 40;
     const SOL_SOCKET: i32 = 1;
     const SCM_RIGHTS: i32 = 1;
     const SCM_CREDENTIALS: i32 = 2;
@@ -3377,6 +4141,115 @@ mod linux_x86_64_process {
         promote_fd(OwnedFd::from_result(opened)?)
     }
 
+    struct Task24EndpointMountPaths {
+        source: CString,
+        target: CString,
+    }
+
+    /// Validate the exact C2 run/slot locator and prepare a single-file
+    /// projection into the service tmpfs. The pathname remains a locator;
+    /// C2 still owns listener creation, peer authentication, and readiness.
+    fn task24_endpoint_mount_paths(
+        arguments: &[&str],
+        endpoint_policy: ProcessEndpointPolicy,
+        execution_identity: LinuxExecutionIdentity,
+    ) -> io::Result<Option<Task24EndpointMountPaths>> {
+        let mut endpoint_path = None;
+        for argument in arguments {
+            if !argument.starts_with(TASK24_ENDPOINT_ARGUMENT_FAMILY) {
+                continue;
+            }
+            if endpoint_path.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Task24 launch contains duplicate broker endpoint arguments",
+                ));
+            }
+            let path = argument
+                .strip_prefix(TASK24_ENDPOINT_ARGUMENT_PREFIX)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Task24 launch contains an unsupported broker endpoint argument",
+                    )
+                })?;
+            let Some(leaf) = path.strip_prefix(TASK24_ENDPOINT_SOCKET_ROOT) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Task24 broker endpoint is outside the private IPC directory",
+                ));
+            };
+            let bytes = leaf.as_bytes();
+            let is_lower_hex = |byte: &u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte);
+            if bytes.len() != TASK24_ENDPOINT_SOCKET_LEAF_LEN
+                || bytes[0] != b'r'
+                || !bytes[1..17].iter().all(is_lower_hex)
+                || &bytes[17..19] != b"-e"
+                || !bytes[19..35].iter().all(is_lower_hex)
+                || &bytes[35..] != b".sock"
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Task24 broker endpoint does not match the C2 run/slot locator format",
+                ));
+            }
+            endpoint_path = Some(path);
+        }
+
+        let Some(path) = endpoint_path else {
+            return Ok(None);
+        };
+        if endpoint_policy != ProcessEndpointPolicy::InheritedPeerChannel {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Task24 broker endpoint requires the isolated peer-channel launch policy",
+            ));
+        }
+
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        for directory in ["/run", "/run/nagi", "/run/nagi/ipc"] {
+            let metadata = std::fs::symlink_metadata(directory)?;
+            if !metadata.file_type().is_dir()
+                || metadata.uid() != 0
+                || metadata.mode() & 0o022 != 0
+                || metadata.mode() & 0o100 == 0
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Task24 broker path is not beneath a root-owned, owner-searchable, not group/world-writable directory",
+                ));
+            }
+        }
+        let socket_metadata = std::fs::symlink_metadata(path)?;
+        if !socket_metadata.file_type().is_socket()
+            || socket_metadata.uid() != execution_identity.uid
+            || socket_metadata.gid() != execution_identity.gid
+            || socket_metadata.mode() & 0o777 != 0o600
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Task24 broker path is not the exact child-owned C2 listener",
+            ));
+        }
+
+        let source = CString::new(path).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Task24 broker path contains NUL",
+            )
+        })?;
+        let mut target_bytes = Vec::with_capacity(b"/tmp".len() + path.len());
+        target_bytes.extend_from_slice(b"/tmp");
+        target_bytes.extend_from_slice(path.as_bytes());
+        let target = CString::new(target_bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Task24 broker mount target contains NUL",
+            )
+        })?;
+        Ok(Some(Task24EndpointMountPaths { source, target }))
+    }
+
     fn decode_wait_status(status: i32) -> ServiceExitStatus {
         let terminating_signal = status & 0x7f;
         if terminating_signal == 0 {
@@ -3700,6 +4573,201 @@ mod linux_x86_64_process {
         },
     ];
 
+    // Installed only after C3 has transferred the one authorized endpoint fd
+    // to PID 1. The preceding filter already kills non-x86_64 execution and
+    // rejects x32 syscalls. This filter then closes every supported outbound
+    // descriptor-passing route and prevents a separate process from inheriting
+    // the connected endpoint. CLONE_THREAD remains available for ordinary
+    // in-process worker threads; clone3 remains denied by the preceding filter.
+    const SERVICE_FD_DELEGATION_SECCOMP_FILTER: [LinuxSockFilter; 31] = [
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_SENDMSG as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_SENDMMSG as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_FORK as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_VFORK as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_IO_URING_SETUP as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_IO_URING_ENTER as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_IO_URING_REGISTER as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 1,
+            k: NR_PIDFD_GETFD as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 0,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 0,
+            jf: 4,
+            k: NR_CLONE as u32,
+        },
+        LinuxSockFilter {
+            code: 0x20,
+            jt: 0,
+            jf: 0,
+            k: 16,
+        },
+        LinuxSockFilter {
+            code: 0x54,
+            jt: 0,
+            jf: 0,
+            k: SERVICE_CLONE_THREAD_FLAGS,
+        },
+        LinuxSockFilter {
+            code: 0x15,
+            jt: 1,
+            jf: 0,
+            k: SERVICE_CLONE_THREAD_FLAGS,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | EPERM as u32,
+        },
+        LinuxSockFilter {
+            code: 0x06,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ALLOW,
+        },
+    ];
+
     fn child_syscall_errno(result: isize) -> usize {
         if result < 0 {
             (-result) as usize
@@ -3712,6 +4780,33 @@ mod linux_x86_64_process {
         let mut program = LinuxSockFprog {
             len: SERVICE_NAMESPACE_SECCOMP_FILTER.len() as u16,
             filter: SERVICE_NAMESPACE_SECCOMP_FILTER.as_ptr(),
+        };
+        let installed = unsafe {
+            syscall3(
+                NR_SECCOMP,
+                SECCOMP_SET_MODE_FILTER,
+                0,
+                &mut program as *mut LinuxSockFprog as usize,
+            )
+        };
+        if installed < 0 {
+            return Err(child_syscall_errno(installed));
+        }
+        let mode = unsafe { syscall5(NR_PRCTL, PR_GET_SECCOMP, 0, 0, 0, 0) };
+        if mode != SECCOMP_MODE_FILTER {
+            return Err(if mode < 0 {
+                child_syscall_errno(mode)
+            } else {
+                EPERM as usize
+            });
+        }
+        Ok(())
+    }
+
+    fn install_service_fd_delegation_seccomp() -> Result<(), usize> {
+        let mut program = LinuxSockFprog {
+            len: SERVICE_FD_DELEGATION_SECCOMP_FILTER.len() as u16,
+            filter: SERVICE_FD_DELEGATION_SECCOMP_FILTER.as_ptr(),
         };
         let installed = unsafe {
             syscall3(
@@ -4019,15 +5114,63 @@ mod linux_x86_64_process {
 
     /// Give endpoint-bearing system services a private mount/network/IPC/UTS/
     /// cgroup namespace and a tmpfs-only root before credentials and all
-    /// namespace-changing authority are dropped. Their only inherited service
-    /// channel is fd 3; no pathname in PID 1's root remains reachable after
-    /// chroot. Every setup error aborts before exec.
+    /// namespace-changing authority are dropped. The exact C2 Task24 listener,
+    /// when present, is the only pathname projected into that root. Their only
+    /// inherited C3 service channel remains fd 3. Every setup error aborts
+    /// before exec.
     ///
     /// # Safety
     /// Must run only in the still-privileged child branch of
     /// `clone3_pid1_service_child()`. It permanently changes the calling
     /// process's namespaces and root directory.
-    unsafe fn isolate_system_service_child() -> Result<(), usize> {
+    unsafe fn bind_task24_endpoint_into_service_root(
+        source: *const i8,
+        target: *const i8,
+    ) -> Result<(), usize> {
+        for directory in [
+            b"/tmp/run\0".as_slice(),
+            b"/tmp/run/nagi\0".as_slice(),
+            b"/tmp/run/nagi/ipc\0".as_slice(),
+        ] {
+            let created = unsafe { syscall2(NR_MKDIR, directory.as_ptr() as usize, 0o755) };
+            if created < 0 {
+                return Err(child_syscall_errno(created));
+            }
+        }
+
+        // The mount target must exist. It is created in the fresh private
+        // tmpfs, then replaced by a bind mount of this one C2 socket inode.
+        let placeholder = unsafe {
+            syscall4(
+                NR_OPENAT,
+                AT_FDCWD,
+                target as usize,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+                0o600,
+            )
+        };
+        if placeholder < 0 {
+            return Err(child_syscall_errno(placeholder));
+        }
+        let closed = unsafe { syscall1(NR_CLOSE, placeholder as usize) };
+        if closed < 0 {
+            return Err(child_syscall_errno(closed));
+        }
+        let mounted =
+            unsafe { syscall5(NR_MOUNT, source as usize, target as usize, 0, MS_BIND, 0) };
+        if mounted < 0 {
+            return Err(child_syscall_errno(mounted));
+        }
+        Ok(())
+    }
+
+    unsafe fn isolate_system_service_child(
+        task24_endpoint_source: *const i8,
+        task24_endpoint_target: *const i8,
+    ) -> Result<(), usize> {
+        if task24_endpoint_source.is_null() != task24_endpoint_target.is_null() {
+            return Err(EINVAL as usize);
+        }
         let namespaces = unsafe { syscall1(NR_UNSHARE, SERVICE_NAMESPACE_FLAGS) };
         if namespaces < 0 {
             return Err(child_syscall_errno(namespaces));
@@ -4064,6 +5207,15 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(private_tmpfs));
         }
 
+        if !task24_endpoint_source.is_null() {
+            unsafe {
+                bind_task24_endpoint_into_service_root(
+                    task24_endpoint_source,
+                    task24_endpoint_target,
+                )?
+            };
+        }
+
         let entered_root = unsafe { syscall1(NR_CHDIR, SERVICE_ROOT_PATH.as_ptr() as usize) };
         if entered_root < 0 {
             return Err(child_syscall_errno(entered_root));
@@ -4092,6 +5244,8 @@ mod linux_x86_64_process {
         error_write: i32,
         null_fd: i32,
         executable_fd: i32,
+        task24_endpoint_source: *const i8,
+        task24_endpoint_target: *const i8,
         argv: *const *const i8,
         envp: *const *const i8,
         execution_identity: LinuxExecutionIdentity,
@@ -4130,7 +5284,9 @@ mod linux_x86_64_process {
                 );
             }
             if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
-                if let Err(errno) = isolate_system_service_child() {
+                if let Err(errno) =
+                    isolate_system_service_child(task24_endpoint_source, task24_endpoint_target)
+                {
                     send_child_setup_error(
                         error_write,
                         ChildSetupFailureStage::NamespaceIsolation,
@@ -4259,6 +5415,14 @@ mod linux_x86_64_process {
                 if sent != 1 {
                     send_child_error(error_write, if sent < 0 { (-sent) as usize } else { 5 });
                 }
+                if let Err(errno) = install_service_fd_delegation_seccomp() {
+                    send_child_error(error_write, errno);
+                }
+                if !send_child_fd_delegation_ready(error_write) {
+                    loop {
+                        syscall1(NR_EXIT_GROUP, 126);
+                    }
+                }
             }
 
             let empty_path = b"\0";
@@ -4281,6 +5445,29 @@ mod linux_x86_64_process {
 
     fn send_child_setup_ready(error_fd: i32) -> bool {
         let bytes = CHILD_SETUP_READY_WORD.to_ne_bytes();
+        let mut written = 0usize;
+        while written < bytes.len() {
+            let result = unsafe {
+                syscall3(
+                    NR_WRITE,
+                    error_fd as usize,
+                    bytes.as_ptr().add(written) as usize,
+                    bytes.len() - written,
+                )
+            };
+            if result == -(EINTR) {
+                continue;
+            }
+            if result <= 0 {
+                return false;
+            }
+            written += result as usize;
+        }
+        true
+    }
+
+    fn send_child_fd_delegation_ready(error_fd: i32) -> bool {
+        let bytes = CHILD_FD_DELEGATION_READY_WORD.to_ne_bytes();
         let mut written = 0usize;
         while written < bytes.len() {
             let result = unsafe {
@@ -4868,11 +6055,13 @@ mod linux_x86_64_process {
         execution_identity: LinuxExecutionIdentity,
         endpoint_policy: ProcessEndpointPolicy,
         endpoint: Option<StdOwnedFd>,
+        fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
     }
 
     enum ExecErrorPipeState {
         Pending,
         Eof,
+        DelegationRestrictionReady,
         Error(i32),
         Partial,
     }
@@ -4913,7 +6102,12 @@ mod linux_x86_64_process {
             }
             *received += count;
             if *received == bytes.len() {
-                return Ok(ExecErrorPipeState::Error(i32::from_ne_bytes(*bytes)));
+                let word = u32::from_ne_bytes(*bytes);
+                return Ok(if word == CHILD_FD_DELEGATION_READY_WORD {
+                    ExecErrorPipeState::DelegationRestrictionReady
+                } else {
+                    ExecErrorPipeState::Error(word as i32)
+                });
             }
         }
     }
@@ -5006,6 +6200,7 @@ mod linux_x86_64_process {
                 .raw();
             let mut error_bytes = [0u8; 4];
             let mut error_bytes_read = 0usize;
+            let mut delegation_restriction_ready = false;
 
             loop {
                 if cancelled() {
@@ -5014,38 +6209,58 @@ mod linux_x86_64_process {
                 if started.elapsed() >= budget {
                     return Err(ReleaseFailureReason::TimedOut);
                 }
-                match receive_endpoint_descriptor(gate_fd) {
-                    Ok(endpoint) => {
-                        let credentials = endpoint_peer_credentials(endpoint.as_raw_fd())
-                            .map_err(|_| ReleaseFailureReason::Io)?;
-                        if credentials.process_id <= 1
-                            || credentials.process_id as u32 != process_id
-                            || credentials.uid != self.execution_identity.uid
-                            || credentials.gid != self.execution_identity.gid
-                        {
+                if self.endpoint.is_none() {
+                    match receive_endpoint_descriptor(gate_fd) {
+                        Ok(endpoint) => {
+                            let credentials = endpoint_peer_credentials(endpoint.as_raw_fd())
+                                .map_err(|_| ReleaseFailureReason::Io)?;
+                            if credentials.process_id <= 1
+                                || credentials.process_id as u32 != process_id
+                                || credentials.uid != self.execution_identity.uid
+                                || credentials.gid != self.execution_identity.gid
+                            {
+                                return Err(ReleaseFailureReason::ProtocolViolation);
+                            }
+                            if cancelled() {
+                                return Err(ReleaseFailureReason::Cancelled);
+                            }
+                            if started.elapsed() >= budget {
+                                drop(endpoint);
+                                return Err(ReleaseFailureReason::TimedOut);
+                            }
+                            self.endpoint = Some(endpoint);
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {}
+                        Err(error) if error.kind() == io::ErrorKind::InvalidData => {
                             return Err(ReleaseFailureReason::ProtocolViolation);
                         }
-                        if cancelled() {
-                            return Err(ReleaseFailureReason::Cancelled);
-                        }
-                        if started.elapsed() >= budget {
-                            drop(endpoint);
-                            return Err(ReleaseFailureReason::TimedOut);
-                        }
-                        self.endpoint = Some(endpoint);
-                        return Ok(());
+                        Err(_) => return Err(ReleaseFailureReason::Io),
                     }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => {}
-                    Err(error) if error.kind() == io::ErrorKind::InvalidData => {
-                        return Err(ReleaseFailureReason::ProtocolViolation);
-                    }
-                    Err(_) => return Err(ReleaseFailureReason::Io),
                 }
 
                 match read_exec_error_pipe(error_fd, &mut error_bytes, &mut error_bytes_read)? {
                     ExecErrorPipeState::Pending => {}
+                    ExecErrorPipeState::DelegationRestrictionReady => {
+                        if delegation_restriction_ready {
+                            return Err(ReleaseFailureReason::ProtocolViolation);
+                        }
+                        let identity = self
+                            .spawned
+                            .as_ref()
+                            .ok_or(ReleaseFailureReason::Io)?
+                            .identity();
+                        if identity.process_id() != process_id {
+                            return Err(ReleaseFailureReason::ProtocolViolation);
+                        }
+                        self.fd_delegation_attestation = Some(
+                            FdDelegationRestrictionAttestation::from_verified_child(identity),
+                        );
+                        delegation_restriction_ready = true;
+                        error_bytes = [0; 4];
+                        error_bytes_read = 0;
+                    }
                     ExecErrorPipeState::Error(errno) => {
                         return Err(ReleaseFailureReason::ExecError(errno));
                     }
@@ -5061,6 +6276,10 @@ mod linux_x86_64_process {
                     }
                 }
 
+                if self.endpoint.is_some() && delegation_restriction_ready {
+                    return Ok(());
+                }
+
                 match reap_tracked_child(&self.reap) {
                     Ok(Some(status)) => {
                         return match read_exec_error_pipe(
@@ -5073,6 +6292,9 @@ mod linux_x86_64_process {
                             }
                             ExecErrorPipeState::Partial => {
                                 Err(ReleaseFailureReason::PartialErrorReport)
+                            }
+                            ExecErrorPipeState::DelegationRestrictionReady => {
+                                Err(ReleaseFailureReason::ProtocolViolation)
                             }
                             ExecErrorPipeState::Pending | ExecErrorPipeState::Eof => {
                                 Err(ReleaseFailureReason::ChildExited(status))
@@ -5258,6 +6480,14 @@ mod linux_x86_64_process {
             // seal it before creating the gated child. No pathname is resolved.
             let executable_fd =
                 create_sealed_executable(&mut LinuxSealedExecutableOps, executable.bytes())?;
+            let task24_endpoint_mount =
+                task24_endpoint_mount_paths(arguments, endpoint_policy, execution_identity)?;
+            let task24_endpoint_source = task24_endpoint_mount
+                .as_ref()
+                .map_or(ptr::null(), |paths| paths.source.as_ptr());
+            let task24_endpoint_target = task24_endpoint_mount
+                .as_ref()
+                .map_or(ptr::null(), |paths| paths.target.as_ptr());
             let argv_storage = process_argv_storage(arguments)?;
             let mut argv = argv_storage
                 .iter()
@@ -5315,6 +6545,8 @@ mod linux_x86_64_process {
                             error_write.raw(),
                             null_fd.raw(),
                             executable_fd.raw(),
+                            task24_endpoint_source,
+                            task24_endpoint_target,
                             argv.as_ptr(),
                             envp.as_ptr(),
                             execution_identity,
@@ -5384,6 +6616,7 @@ mod linux_x86_64_process {
                             execution_identity,
                             endpoint_policy,
                             endpoint: None,
+                            fd_delegation_attestation: None,
                         },
                     ))
                 }
@@ -5463,6 +6696,33 @@ mod linux_x86_64_process {
                 .as_ref()
                 .ok_or_else(|| io::Error::other("running child has no clone3 pidfd"))?
                 .duplicate_for_authority()
+        }
+
+        fn take_fd_delegation_restriction_attestation(
+            &mut self,
+            child: &mut ProcessHandle<Running, Self::Raw>,
+        ) -> io::Result<Option<FdDelegationRestrictionAttestation>> {
+            Ok(child.raw.fd_delegation_attestation.take())
+        }
+
+        fn is_process_live(&self, child: &ProcessHandle<Running, Self::Raw>) -> io::Result<bool> {
+            let pidfd = child
+                .raw
+                .spawned
+                .as_ref()
+                .ok_or_else(|| io::Error::other("running child has no clone3 pidfd"))?
+                .as_raw_fd()?;
+            let mut descriptor = PollFd {
+                fd: pidfd,
+                events: POLLIN,
+                revents: 0,
+            };
+            let result =
+                unsafe { syscall3(NR_POLL, &mut descriptor as *mut PollFd as usize, 1, 0) };
+            if result < 0 {
+                return Err(io::Error::from_raw_os_error((-result) as i32));
+            }
+            Ok(result == 0 && descriptor.revents == 0)
         }
 
         fn commit_release_gate<LaunchRecord>(

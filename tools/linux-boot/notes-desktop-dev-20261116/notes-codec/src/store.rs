@@ -13,6 +13,17 @@ use nagi_model::ObjectId;
 mod linux_vfs;
 #[cfg(target_os = "linux")]
 pub use linux_vfs::{LinuxBlockDevice, SharedVfs, VfsNoteStore};
+#[cfg(target_os = "linux")]
+mod linux_profile_backend;
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub use linux_profile_backend::{LinuxProfileStorageBackend, LinuxProfileStorageRoot};
+mod profile_root;
+pub use profile_root::{
+    empty_profile_root_notes_object, C1ProfileRootNotesInput, ProfileRootNotesBinding,
+    ProfileRootNotesBindingError, ProfileRootNotesContext, ProfileRootNotesEffectProvider,
+    ProfileRootNotesInputError, ProfileRootNotesObjectIo, ProfileRootNotesStore,
+};
 
 use crate::domain::{NoteDocument, NoteSummary};
 use crate::identity::{HostObjectIdSource, ObjectIdSource};
@@ -30,6 +41,7 @@ pub enum StoreError {
     InvalidDocument(&'static str),
     SandboxViolation(String),
     SessionGateRejected,
+    Unavailable,
 }
 
 impl fmt::Display for StoreError {
@@ -46,6 +58,7 @@ impl fmt::Display for StoreError {
             Self::SessionGateRejected => {
                 f.write_str("Notes operation requires a live canonical Session")
             }
+            Self::Unavailable => f.write_str("profile-root Notes storage is unavailable"),
         }
     }
 }

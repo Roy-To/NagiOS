@@ -1,0 +1,24 @@
+[package]
+name = "e-profile-root-canonical-consumer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-abi = { path = "../../crates/nagi-abi" }
+notes-event-bridge-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-event-bridge" }
+notes-files-codec-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-codec" }
+
+[target.'cfg(any(target_os = "linux", all(target_os = "macos", target_arch = "x86_64")))'.dev-dependencies]
+nagi-linux-notes-desktop-dev = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/desktop", default-features = false, features = ["linux-development-smoke"] }
+nagi-localization = { path = "../../user/nagi-localization" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-identity-session = { path = "../../crates/nagi-identity-session", features = ["linux-interactive-account"] }
+
+[workspace]
+members = ["."]
+resolver = "2"
