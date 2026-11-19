@@ -544,10 +544,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 .checked_add(1)
                 .and_then(NonZeroU64::new)
                 .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "C3 system-service launch generation is exhausted",
-                    )
+                    io::Error::other("C3 system-service launch generation is exhausted")
                 })?;
             (next, None)
         };
@@ -650,7 +647,7 @@ impl LinuxC3SystemServiceSlotOwner {
         cancel_check_interval: Duration,
         retirement_wait_budget: Duration,
         reaper_poll_interval: Duration,
-        mut identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
+        identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
         mut cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
         if release_wait_budget.is_zero()
@@ -756,8 +753,8 @@ impl LinuxC3SystemServiceSlotOwner {
                         let mut highest_catalog_generation =
                             highest_catalog_generation.borrow_mut();
                         register_prepared_launch(
-                            &mut **launches,
-                            &mut **current,
+                            &mut launches,
+                            &mut current,
                             os,
                             prepared,
                             process_id,
@@ -766,7 +763,7 @@ impl LinuxC3SystemServiceSlotOwner {
                             scope_snapshot.clone(),
                             scope_data_address,
                             previous_token,
-                            &mut **highest_catalog_generation,
+                            &mut highest_catalog_generation,
                             &mut replacement_committed,
                         )
                     },
@@ -785,7 +782,7 @@ impl LinuxC3SystemServiceSlotOwner {
                             &self.service_id,
                         )
                         .map_err(|_| BackendError::Revoked)?;
-                        if let Some(registration) = identity_listener_registration.as_deref_mut() {
+                        if let Some(registration) = identity_listener_registration {
                             let prepared_entry = find_launch(&launches, token)
                                 .filter(|entry| entry.process_id == process_id)
                                 .ok_or(BackendError::ProtocolViolation)?;
@@ -831,8 +828,8 @@ impl LinuxC3SystemServiceSlotOwner {
                         let mut launches = launches.borrow_mut();
                         let mut current = current.borrow_mut();
                         revoke_and_retire_identity_listener(
-                            &mut **launches,
-                            &mut **current,
+                            &mut launches,
+                            &mut current,
                             process_id,
                             *registered,
                         )
@@ -975,8 +972,7 @@ impl LinuxC3SystemServiceSlotOwner {
                         )?;
                     }
                     if let Some(effect_error) = effect_error {
-                        Err(io::Error::new(
-                            io::ErrorKind::Other,
+                        Err(io::Error::other(
                             format!(
                                 "C3 slot journal outcome is unknown after effect failure: {effect_error}"
                             ),
@@ -1500,9 +1496,7 @@ impl LinuxC3SystemServiceSlotOwner {
         let resources = match state.lifecycle.take_live_endpoint(process_id, token) {
             Ok(resources) => resources,
             Err(error) => {
-                if let Err(reconciliation_error) = poll_and_record_absence(&mut state) {
-                    return Err(reconciliation_error);
-                }
+                poll_and_record_absence(&mut state)?;
                 return Err(error);
             }
         };
@@ -1540,9 +1534,7 @@ impl LinuxC3SystemServiceSlotOwner {
         let pidfd = match state.lifecycle.duplicate_live_pidfd(process_id, token) {
             Ok(pidfd) => pidfd,
             Err(error) => {
-                if let Err(reconciliation_error) = poll_and_record_absence(&mut state) {
-                    return Err(reconciliation_error);
-                }
+                poll_and_record_absence(&mut state)?;
                 return Err(error);
             }
         };
@@ -1556,13 +1548,11 @@ impl LinuxC3SystemServiceSlotOwner {
             Ok(proof) => Ok(proof),
             Err(error) => {
                 if state.durable_journal.is_some() {
-                    if let Err(retirement_error) = retire_owner_state_once(
+                    retire_owner_state_once(
                         &mut state,
                         DEFAULT_RETIREMENT_WAIT_BUDGET,
                         DEFAULT_REAPER_POLL_INTERVAL,
-                    ) {
-                        return Err(retirement_error);
-                    }
+                    )?;
                     return Err(error);
                 }
                 if let Ok(Some((process_id, token))) = revoke_current_record(&mut state) {

@@ -1774,15 +1774,15 @@ where
                 launch.execution_identity,
                 launch.endpoint_policy,
             )
-            .map_err(|error| {
+            .inspect_err(|_error| {
                 #[cfg(test)]
                 eprintln!(
-                    "C3_PROCESS_PREPARE_FAILED: kind={:?} errno={:?} error={error}",
-                    error.kind(),
-                    error.raw_os_error()
+                    "C3_PROCESS_PREPARE_FAILED: kind={:?} errno={:?} error={_error}",
+                    _error.kind(),
+                    _error.raw_os_error()
                 );
-                BackendError::TransportFailure
-            })?;
+            })
+            .map_err(|_| BackendError::TransportFailure)?;
         let process_id = prepared.process_id;
         let mut acquiring_lease = None;
         let mut lease_retirement = pid1_owned_launch_lease::LeaseRetirementState::NotAttempted;
@@ -3123,11 +3123,10 @@ mod linux_x86_64_process {
     }
 
     fn reap_tracked_child(ticket: &ReapTicket) -> io::Result<Option<ServiceExitStatus>> {
-        if let Err(error) = reap_pending_child_exits() {
+        reap_pending_child_exits().inspect_err(|_error| {
             #[cfg(test)]
-            eprintln!("C3_REAPER_SCAN_ERROR: {error}");
-            return Err(error);
-        }
+            eprintln!("C3_REAPER_SCAN_ERROR: {_error}");
+        })?;
         let status = ticket.exit_status();
         #[cfg(test)]
         if let Err(error) = &status {
@@ -4838,7 +4837,7 @@ mod linux_x86_64_process {
         let mut supported = 0usize;
         for capability in 0..MAX_LINUX_CAPABILITIES {
             let current = prctl_capability_bounding_state(capability);
-            if current == -(EINVAL as isize) {
+            if current == -EINVAL {
                 continue;
             }
             if current < 0 {
@@ -4862,7 +4861,7 @@ mod linux_x86_64_process {
             return Err(EINVAL as usize);
         }
         let beyond_v3 = prctl_capability_bounding_state(MAX_LINUX_CAPABILITIES);
-        if beyond_v3 != -(EINVAL as isize) {
+        if beyond_v3 != -EINVAL {
             return Err(if beyond_v3 < 0 {
                 child_syscall_errno(beyond_v3)
             } else {
@@ -4876,7 +4875,7 @@ mod linux_x86_64_process {
         let mut supported = 0usize;
         for capability in 0..MAX_LINUX_CAPABILITIES {
             let current = prctl_capability_bounding_state(capability);
-            if current == -(EINVAL as isize) {
+            if current == -EINVAL {
                 continue;
             }
             if current < 0 {
@@ -4891,7 +4890,7 @@ mod linux_x86_64_process {
             return Err(EINVAL as usize);
         }
         let beyond_v3 = prctl_capability_bounding_state(MAX_LINUX_CAPABILITIES);
-        if beyond_v3 != -(EINVAL as isize) {
+        if beyond_v3 != -EINVAL {
             return Err(if beyond_v3 < 0 {
                 child_syscall_errno(beyond_v3)
             } else {
@@ -4940,7 +4939,7 @@ mod linux_x86_64_process {
                     0,
                 )
             };
-            if ambient == -(EINVAL as isize) {
+            if ambient == -EINVAL {
                 continue;
             }
             if ambient < 0 {
@@ -4964,7 +4963,7 @@ mod linux_x86_64_process {
                 0,
             )
         };
-        if beyond_v3 != -(EINVAL as isize) {
+        if beyond_v3 != -EINVAL {
             return Err(if beyond_v3 < 0 {
                 child_syscall_errno(beyond_v3)
             } else {
@@ -5183,7 +5182,7 @@ mod linux_x86_64_process {
             syscall5(
                 NR_MOUNT,
                 0,
-                b"/\0".as_ptr() as usize,
+                c"/".as_ptr() as usize,
                 0,
                 MS_REC | MS_PRIVATE,
                 0,
@@ -5222,11 +5221,11 @@ mod linux_x86_64_process {
         }
         // Keep the service root searchable after dropping root credentials,
         // while giving it a separate bounded tmpfs scratch directory.
-        let service_tmp = unsafe { syscall2(NR_MKDIR, b"tmp\0".as_ptr() as usize, 0o1777) };
+        let service_tmp = unsafe { syscall2(NR_MKDIR, c"tmp".as_ptr() as usize, 0o1777) };
         if service_tmp < 0 {
             return Err(child_syscall_errno(service_tmp));
         }
-        let chrooted = unsafe { syscall1(NR_CHROOT, b".\0".as_ptr() as usize) };
+        let chrooted = unsafe { syscall1(NR_CHROOT, c".".as_ptr() as usize) };
         if chrooted < 0 {
             return Err(child_syscall_errno(chrooted));
         }
@@ -5924,7 +5923,7 @@ mod linux_x86_64_process {
             header_count += 1;
             if header.level == SOL_SOCKET && header.kind == SCM_RIGHTS {
                 let data_len = header.len - header_size;
-                if data_len % core::mem::size_of::<i32>() != 0 {
+                if !data_len.is_multiple_of(core::mem::size_of::<i32>()) {
                     malformed = true;
                 }
                 for index in 0..(data_len / core::mem::size_of::<i32>()) {
