@@ -185,7 +185,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::write(output.join("catalog.pub"), boot_public)?;
     fs::write(output.join("catalog.bin"), signed_catalog)?;
     fs::write(output.join("identity-ready-plan.bin"), plan)?;
-    fs::write(output.join(IDENTITY_FILE), identity)?;
+    let system = output.join("system");
+    fs::DirBuilder::new().mode(0o755).create(&system)?;
+    fs::write(system.join(IDENTITY_FILE), identity)?;
     fs::write(output.join("task24-login.xapp"), login)?;
     Ok(())
 }
