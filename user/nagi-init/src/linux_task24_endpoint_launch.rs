@@ -293,7 +293,12 @@ pub(super) struct IdentityReadyProtocol {
     catalog_generation: NonZeroU64,
     destination: AppId,
     credentials: (u32, u32),
-    challenge: Mutex<Option<[u8; CHALLENGE_BYTES]>>,
+    attempt: Mutex<Option<IdentityHandshakeAttempt>>,
+}
+
+struct IdentityHandshakeAttempt {
+    challenge: [u8; CHALLENGE_BYTES],
+    confirmed_on_control: bool,
 }
 
 impl IdentityReadyProtocol {
@@ -329,8 +334,21 @@ impl IdentityReadyProtocol {
             catalog_generation: plan.generation(),
             destination: AppId::from_identifier(TASK24_IDENTITY_PACKAGE_ID.as_bytes()),
             credentials: descriptor.credentials(),
-            challenge: Mutex::new(None),
+            attempt: Mutex::new(None),
         })
+    }
+
+    pub(super) fn confirm_control_challenge(
+        &self,
+        challenge: &[u8; CHALLENGE_BYTES],
+    ) -> Result<(), PeerDenial> {
+        let mut attempt = self.attempt.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let attempt = attempt.as_mut().ok_or(PeerDenial::HandshakeIncomplete)?;
+        if attempt.confirmed_on_control || &attempt.challenge != challenge {
+            return Err(PeerDenial::HandshakeIncomplete);
+        }
+        attempt.confirmed_on_control = true;
+        Ok(())
     }
 
     /// Prepare the owner-derived service locator and retain its listener
@@ -419,23 +437,25 @@ impl ServiceHandshakeProtocol for IdentityReadyProtocol {
         &self,
         ids: ServiceHandshakeAttemptIds,
     ) -> Result<Vec<u8>, PeerDenial> {
-        let mut challenge = self
-            .challenge
+        let mut attempt = self
+            .attempt
             .try_lock()
             .map_err(|_| PeerDenial::Unavailable)?;
-        if challenge.is_some() {
+        if attempt.is_some() {
             return Err(PeerDenial::HandshakeIncomplete);
         }
-        *challenge = Some(readiness_challenge(ids.request_id(), ids.correlation_id()));
+        *attempt = Some(IdentityHandshakeAttempt {
+            challenge: readiness_challenge(ids.request_id(), ids.correlation_id()),
+            confirmed_on_control: false,
+        });
         Ok(Vec::new())
     }
 
     fn validate_response_payload(&self, payload: &[u8]) -> Result<(), PeerDenial> {
-        let challenge = self
-            .challenge
-            .try_lock()
-            .map_err(|_| PeerDenial::Unavailable)?;
-        if challenge.as_ref().map(|expected| expected.as_slice()) != Some(payload) {
+        let attempt = self.attempt.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        if !attempt.as_ref().is_some_and(|attempt| {
+            attempt.confirmed_on_control && attempt.challenge.as_slice() == payload
+        }) {
             return Err(PeerDenial::HandshakeIncomplete);
         }
         Ok(())
@@ -667,7 +687,7 @@ pub(super) fn run_owner_login(
                             runtime.complete_task24_identity_handshake(
                                 session.lease,
                                 run,
-                                identity.registration,
+                                identity.launch_lease,
                                 identity.endpoint,
                                 &handshakes,
                                 deadline,

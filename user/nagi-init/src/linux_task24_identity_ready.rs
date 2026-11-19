@@ -105,7 +105,7 @@ pub(super) fn serve_identity_readiness(
 pub(super) fn confirm_identity_readiness(
     control: &UnixStream,
     deadline: Instant,
-    check_current_identity: impl FnOnce() -> io::Result<()>,
+    check_current_identity: impl FnOnce(&[u8; CHALLENGE_BYTES]) -> io::Result<()>,
 ) -> io::Result<()> {
     let mut control = Until {
         stream: control,
@@ -113,7 +113,7 @@ pub(super) fn confirm_identity_readiness(
     };
     let mut challenge = [0; CHALLENGE_BYTES];
     control.read_exact(&mut challenge)?;
-    check_current_identity()?;
+    check_current_identity(&challenge)?;
     control.write_all(&challenge)
 }
 
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn service_replies_only_after_owner_confirms_current_state() {
-        for owner_ready in [true, false] {
+        for (owner_ready, matching_attempt) in [(true, true), (false, true), (true, false)] {
             let (mut broker, service) = UnixStream::pair().unwrap();
             let (owner, control) = UnixStream::pair().unwrap();
             let deadline = Instant::now() + Duration::from_secs(2);
@@ -144,10 +144,15 @@ mod tests {
                 payload_type: REQUEST_TYPE,
                 payload: &[],
             };
+            let mut expected =
+                readiness_challenge(request.request_id.unwrap(), request.correlation_id);
+            if !matching_attempt {
+                expected[0] ^= 1;
+            }
             std::thread::scope(|scope| {
                 let owner_task = scope.spawn(move || {
-                    confirm_identity_readiness(&owner, deadline, || {
-                        owner_ready
+                    confirm_identity_readiness(&owner, deadline, |challenge| {
+                        (owner_ready && challenge == &expected)
                             .then_some(())
                             .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
                     })
@@ -160,7 +165,7 @@ mod tests {
                     .unwrap();
                 nipc::write_frame(&mut broker, &request).unwrap();
                 let frame = nipc::read_frame(&mut broker).unwrap();
-                if owner_ready {
+                if owner_ready && matching_attempt {
                     owner_task.join().unwrap().unwrap();
                     service_task.join().unwrap().unwrap();
                     let frame = frame.unwrap();

@@ -229,8 +229,9 @@ mod task24 {
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
     };
     #[cfg(feature = "system-service-readiness")]
-    use crate::linux_init::pid1_live_peer_supplier::{
-        Pid1CompletedServiceHandshakeOwner, RegistrationId,
+    use crate::linux_init::{
+        linux_task24_endpoint_launch::{IdentityReadyProtocol, LoginLease},
+        pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner,
     };
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
@@ -288,9 +289,11 @@ mod task24 {
         /// Answer the separately launched Identity process on the control
         /// endpoint retained by its exact C3 proof. I/O stays outside the
         /// C1/C3 effect gates and uses the handshake's absolute deadline.
+        #[cfg(feature = "system-service-readiness")]
         pub(in crate::linux_init) fn confirm_task24_identity_readiness(
             &self,
             attached: SessionLease,
+            plan: &IdentityReadyProtocol,
             deadline: Instant,
         ) -> io::Result<()> {
             let control = self
@@ -303,9 +306,11 @@ mod task24 {
             crate::linux_init::linux_task24_identity_ready::confirm_identity_readiness(
                 &control,
                 deadline,
-                || {
-                    self.with_current_identity_status(attached, || Ok(()))
-                        .map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))
+                |challenge| {
+                    self.with_current_identity_status(attached, || {
+                        plan.confirm_control_challenge(challenge)
+                    })
+                    .map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))
                 },
             )
         }
@@ -317,7 +322,7 @@ mod task24 {
             &self,
             attached: SessionLease,
             run: &BootLoginRun,
-            registration: RegistrationId,
+            launch_lease: &LoginLease,
             endpoints: &impl TrustedServiceEndpointAuthority,
             handshakes: &Pid1CompletedServiceHandshakeOwner<
                 '_,
@@ -329,32 +334,23 @@ mod task24 {
             let proof = &self.boot.proof;
             let instance = run.run_owner.run();
             let boundary = run.run_owner.readiness_boundary();
-            run.directory.bind_system_service_registration(
-                instance,
-                registration,
-                proof,
-                endpoints,
-                &BootLoginSupervisor,
-                boundary,
-                plan,
-            )?;
             std::thread::scope(|scope| {
                 let worker = std::thread::Builder::new()
                     .spawn_scoped(scope, || {
-                        handshakes.complete_system_service_handshake(
-                            &run.directory,
+                        launch_lease.complete_system_service_handshake_before_ready(
                             instance,
-                            boundary,
-                            registration,
                             proof,
+                            &run.directory,
+                            handshakes,
                             endpoints,
                             &BootLoginSupervisor,
+                            boundary,
                             plan,
                             deadline,
                         )
                     })
                     .map_err(|_| PeerDenial::Unavailable)?;
-                let control = self.confirm_task24_identity_readiness(attached, deadline);
+                let control = self.confirm_task24_identity_readiness(attached, plan, deadline);
                 worker
                     .join()
                     .map_err(|_| PeerDenial::RequestOutcomeUnknown)??;
