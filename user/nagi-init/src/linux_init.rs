@@ -7423,6 +7423,8 @@ impl InitBackend for UnconnectedBackend {
                         catalog,
                         &report,
                         package,
+                        #[cfg(feature = "system-service-readiness")]
+                        None,
                     )
                     .map_err(|error| {
                         pid1_log!(

@@ -28,6 +28,17 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(feature = "system-service-readiness")]
+use super::linux_init_c3_system_service_owner::C3PendingIdentityListener;
+
+pub(super) const TASK24_IDENTITY_PACKAGE_ID: &str = "org.nagi.dev.task24-identity";
+
+#[cfg(feature = "system-service-readiness")]
+pub(super) struct IdentityListenerHandoff<'a> {
+    pub(super) arguments: &'a [&'a str],
+    pub(super) pending: &'a mut dyn C3PendingIdentityListener,
+}
+
 const RELEASE_BUDGET: Duration = Duration::from_secs(2);
 const RETIREMENT_BUDGET: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -112,6 +123,94 @@ impl LinuxBootServiceOwner {
     }
 }
 
+impl LinuxBootServiceOwner {
+    fn launch_boot_payload(
+        &mut self,
+        admission: &SystemServiceRecoveryAdmission,
+        package: &VerifiedServicePackageBinding<'_>,
+        lifecycle: &mut LinuxBootServiceLifecycle,
+        #[cfg(feature = "system-service-readiness")] identity_listener: Option<
+            IdentityListenerHandoff<'_>,
+        >,
+    ) -> Result<SystemServiceEndpointOwnerProof, LaunchPortError> {
+        if admission.runtime_slot_binding() != &lifecycle.slot || lifecycle.process.is_some() {
+            return Err(LaunchPortError::Rejected);
+        }
+        // SAFETY: the immutable executable is bound to this admission.
+        // The Identity adapter is the C2 owner of the matching pending listener.
+        let proof = unsafe {
+            #[cfg(feature = "system-service-readiness")]
+            let result = if let Some(listener) = identity_listener {
+                self.c3
+                    .launch_and_authenticate_admitted_with_identity_listener(
+                        admission.scope(),
+                        package.executable_bytes(),
+                        listener.arguments,
+                        true,
+                        RELEASE_BUDGET,
+                        POLL_INTERVAL,
+                        RETIREMENT_BUDGET,
+                        POLL_INTERVAL,
+                        listener.pending,
+                        || false,
+                    )
+            } else {
+                self.launch_control_endpoint(admission, package)
+            };
+            #[cfg(not(feature = "system-service-readiness"))]
+            let result = self.launch_control_endpoint(admission, package);
+            result
+        }
+        .map_err(|error| {
+            super::log_pid1_stderr(format_args!(
+                "nagi-init: C3 service launch failed ({error})"
+            ));
+            LaunchPortError::Failed
+        })?;
+        let process = self
+            .c3
+            .registered_process_identity(admission.scope())
+            .map_err(|_| LaunchPortError::Unavailable)?;
+        let slot = proof.service_slot_identity();
+        let credentials = proof.peer_credentials();
+        if proof.version()
+            != nagi_system_principal_contract::SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION
+            || slot.service_id() != admission.service_id().as_str()
+            || slot.catalog_generation() != admission.catalog_generation()
+            || proof.launch_generation() != admission.c3_launch_generation()
+            || !proof.process_identity().same_instance(&process)
+            || (credentials.uid, credentials.gid) != lifecycle.slot.credentials()
+            || proof.endpoint().is_none()
+            || !proof.is_live().map_err(|_| LaunchPortError::Unavailable)?
+        {
+            return Err(LaunchPortError::Rejected);
+        }
+        lifecycle.process = Some(process);
+        Ok(proof)
+    }
+
+    unsafe fn launch_control_endpoint(
+        &self,
+        admission: &SystemServiceRecoveryAdmission,
+        package: &VerifiedServicePackageBinding<'_>,
+    ) -> io::Result<SystemServiceEndpointOwnerProof> {
+        // SAFETY: launch_boot_payload checks the matching admission and package.
+        unsafe {
+            self.c3.launch_and_authenticate_admitted(
+                admission.scope(),
+                package.executable_bytes(),
+                &[],
+                true,
+                RELEASE_BUDGET,
+                POLL_INTERVAL,
+                RETIREMENT_BUDGET,
+                POLL_INTERVAL,
+                || false,
+            )
+        }
+    }
+}
+
 impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
     type Lifecycle = LinuxBootServiceLifecycle;
     type RecoveryReceipt = C3DurableSlotReceipt;
@@ -150,45 +249,13 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
         package: &VerifiedServicePackageBinding<'_>,
         lifecycle: &mut Self::Lifecycle,
     ) -> Result<SystemServiceEndpointOwnerProof, LaunchPortError> {
-        if admission.runtime_slot_binding() != &lifecycle.slot || lifecycle.process.is_some() {
-            return Err(LaunchPortError::Rejected);
-        }
-        // SAFETY: the launch crate binds the immutable executable snapshot
-        // to this admission, which owns a stable scope for all C3 operations.
-        let proof = unsafe {
-            self.c3.launch_and_authenticate_admitted(
-                admission.scope(),
-                package.executable_bytes(),
-                &[],
-                true,
-                RELEASE_BUDGET,
-                POLL_INTERVAL,
-                RETIREMENT_BUDGET,
-                POLL_INTERVAL,
-                || false,
-            )
-        }
-        .map_err(|_| LaunchPortError::Failed)?;
-        let process = self
-            .c3
-            .registered_process_identity(admission.scope())
-            .map_err(|_| LaunchPortError::Unavailable)?;
-        let slot = proof.service_slot_identity();
-        let credentials = proof.peer_credentials();
-        if proof.version()
-            != nagi_system_principal_contract::SYSTEM_SERVICE_ENDPOINT_OWNER_PROOF_VERSION
-            || slot.service_id() != admission.service_id().as_str()
-            || slot.catalog_generation() != admission.catalog_generation()
-            || proof.launch_generation() != admission.c3_launch_generation()
-            || !proof.process_identity().same_instance(&process)
-            || (credentials.uid, credentials.gid) != lifecycle.slot.credentials()
-            || proof.endpoint().is_none()
-            || !proof.is_live().map_err(|_| LaunchPortError::Unavailable)?
-        {
-            return Err(LaunchPortError::Rejected);
-        }
-        lifecycle.process = Some(process);
-        Ok(proof)
+        self.launch_boot_payload(
+            admission,
+            package,
+            lifecycle,
+            #[cfg(feature = "system-service-readiness")]
+            None,
+        )
     }
 
     fn finish_exact(
@@ -324,16 +391,36 @@ pub(super) fn authenticate_boot_service<'package>(
     catalog: &VerifiedBootCatalog,
     report: &ArtifactPreflightReport,
     package: VerifiedServicePackageBinding<'package>,
+    #[cfg(feature = "system-service-readiness")] identity_listener: Option<
+        IdentityListenerHandoff<'_>,
+    >,
 ) -> io::Result<AuthenticatedBootService<'package>> {
     let mut owner = LinuxBootServiceOwner::new(package_store, catalog)?;
     super::log_pid1_stderr(format_args!("nagi-init: C3 boot slot journal opened"));
+    #[cfg(feature = "system-service-readiness")]
+    let has_identity_listener = identity_listener.is_some();
+    #[cfg(not(feature = "system-service-readiness"))]
+    let has_identity_listener = false;
+    if (catalog.descriptor().package_id() == TASK24_IDENTITY_PACKAGE_ID) != has_identity_listener {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "Task24 Identity requires its C2 pending listener adapter",
+        ));
+    }
+
     let mut lifecycle = owner
         .reserve_launch(&catalog.descriptor().launch_metadata(), &package)
         .map_err(|error| io::Error::other(format!("C3 reservation failed: {error:?}")))?;
     let admission = catalog
         .admit_installed_package(report, &package, lifecycle.slot.c3_launch_generation())
         .map_err(|error| io::Error::other(format!("boot admission rejected: {error:?}")))?;
-    match owner.launch_and_authenticate(&admission, &package, &mut lifecycle) {
+    match owner.launch_boot_payload(
+        &admission,
+        &package,
+        &mut lifecycle,
+        #[cfg(feature = "system-service-readiness")]
+        identity_listener,
+    ) {
         Ok(proof) => Ok(AuthenticatedBootService {
             proof,
             owner,
