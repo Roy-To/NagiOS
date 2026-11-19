@@ -20,15 +20,17 @@ use nagi_init_spawn_contract::SpawnedProcessIdentity;
 use nagi_service_contract::{
     CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
 };
+use nagi_system_service_launch::VerifiedBootReadyPlan;
 use nagi_task37_receipt_supplier::service_effect::ServiceEffectOwnerId;
 use pid1_live_peer_supplier::pidfd_process_instance::{
     LinuxPidfdKernel, PidfdProcessInstanceAuthority,
 };
 use pid1_live_peer_supplier::{
     LaunchRecordView, PeerDenial, PendingSpawnOwnedEndpoint, Pid1EndpointOwnerRegistry,
-    Pid1LivePeerDirectory, Pid1RunInstance, Pid1RunOwnerLease, RouteConsentRequirement,
-    SupervisorLaunchAuthority, Task24EndpointLaunchLease, TrustedInventory, TrustedManifest,
-    TrustedNipcOperationRoute, TrustedRouteKey, TrustedServiceRequirements,
+    Pid1LivePeerDirectory, Pid1RunInstance, Pid1RunOwnerLease, RequiredServiceSet,
+    RouteConsentRequirement, SupervisorLaunchAuthority, Task24EndpointLaunchLease,
+    TrustedInventory, TrustedManifest, TrustedNipcOperationRoute, TrustedRouteKey,
+    TrustedServiceRequirements,
 };
 use std::num::NonZeroU64;
 use std::time::{Duration, Instant};
@@ -213,20 +215,56 @@ pub(super) struct BootLoginRun {
     pub(super) run_owner: Pid1RunOwnerLease,
     pub(super) instances: PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
     pub(super) registry: Pid1EndpointOwnerRegistry,
+    ready_plan: Option<(NonZeroU64, RequiredServiceSet)>,
 }
 
 impl BootLoginRun {
-    pub(super) fn begin() -> Result<Self, BackendError> {
+    pub(super) fn begin(plan: Option<&VerifiedBootReadyPlan>) -> Result<Self, BackendError> {
         let directory = Pid1LivePeerDirectory::new();
         let run_owner = directory
             .begin_run_owner_lease()
             .map_err(|_| BackendError::Unavailable)?;
+        let ready_plan = plan.and_then(|plan| {
+            let routes: Option<Vec<_>> = plan
+                .mandatory_routes()
+                .iter()
+                .map(|route| {
+                    TrustedRouteKey::from_canonical_route(
+                        route.service_id.get(),
+                        route.operation_id.get(),
+                        route.version_major,
+                        route.version_minor,
+                        run_owner.generation().get(),
+                    )
+                })
+                .collect();
+            let required = routes
+                .ok_or(PeerDenial::UnknownNipcRoute)
+                .and_then(RequiredServiceSet::from_canonical_service_plan);
+            match required {
+                Ok(required) => Some((plan.generation(), required)),
+                Err(error) => {
+                    super::log_pid1_stderr(format_args!(
+                        "nagi-init: development READY plan cannot bind this run ({error:?})"
+                    ));
+                    None
+                }
+            }
+        });
         Ok(Self {
             directory,
             run_owner,
             instances: PidfdProcessInstanceAuthority::new(LinuxPidfdKernel),
             registry: Pid1EndpointOwnerRegistry::new(),
+            ready_plan,
         })
+    }
+
+    pub(super) fn required_ready_services(
+        &self,
+    ) -> Result<(NonZeroU64, &RequiredServiceSet), PeerDenial> {
+        let (generation, required) = self.ready_plan.as_ref().ok_or(PeerDenial::Unavailable)?;
+        Ok((*generation, required))
     }
 }
 

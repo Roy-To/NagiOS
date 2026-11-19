@@ -7,9 +7,12 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use nagi_identity_session::{CallerContextId, PrincipalId};
 use nagi_package::TRUSTED_SIGNING_PUBLIC_KEY;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::num::NonZeroU64;
 
 const SIGNATURE_DOMAIN: &[u8] = b"Nagi Linux boot system service catalog v1\0";
+const READY_PLAN_SIGNATURE_DOMAIN: &[u8] = b"Nagi Linux development boot ready plan v1\0";
 const SIGNATURE_BYTES: usize = 64;
 pub const MAX_SIGNED_BOOT_CATALOG_BYTES: usize = 32 * 1024 + SIGNATURE_BYTES;
 
@@ -22,6 +25,39 @@ pub enum BootCatalogError {
     InvalidPackageKey,
     InvalidIdentityMapping,
     InvalidDescriptor(DescriptorError),
+    ReadyPlanCatalogMismatch,
+    InvalidReadyPlanRoutes,
+}
+
+#[derive(Clone, Copy, Deserialize, Eq, Hash, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BootReadyRoute {
+    pub service_id: NonZeroU64,
+    pub operation_id: NonZeroU64,
+    pub version_major: u16,
+    pub version_minor: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BootReadyPlanRecord {
+    schema_version: u32,
+    catalog_sha256: [u8; 32],
+    generation: NonZeroU64,
+    mandatory_routes: Vec<BootReadyRoute>,
+}
+
+/// An optional development input signed by the verified boot catalog signer.
+pub struct VerifiedBootReadyPlan(BootReadyPlanRecord);
+
+impl VerifiedBootReadyPlan {
+    pub fn generation(&self) -> NonZeroU64 {
+        self.0.generation
+    }
+
+    pub fn mandatory_routes(&self) -> &[BootReadyRoute] {
+        &self.0.mandatory_routes
+    }
 }
 
 #[derive(Deserialize)]
@@ -43,6 +79,8 @@ pub struct VerifiedBootCatalog {
     descriptor: ValidatedSystemServiceDescriptor,
     principal_id: PrincipalId,
     caller_context_id: CallerContextId,
+    signer: VerifyingKey,
+    signed_sha256: [u8; 32],
 }
 
 impl VerifiedBootCatalog {
@@ -52,19 +90,9 @@ impl VerifiedBootCatalog {
         file: &[u8],
         boot_catalog_public_key: &[u8; 32],
     ) -> Result<Self, BootCatalogError> {
-        if file.len() <= SIGNATURE_BYTES || file.len() > MAX_SIGNED_BOOT_CATALOG_BYTES {
-            return Err(BootCatalogError::InvalidLength);
-        }
         let key = checked_product_key(boot_catalog_public_key)
             .ok_or(BootCatalogError::UntrustedSigner)?;
-        let (payload, signature) = file.split_at(file.len() - SIGNATURE_BYTES);
-        let signature =
-            Signature::from_slice(signature).map_err(|_| BootCatalogError::InvalidSignature)?;
-        let mut message = Vec::with_capacity(SIGNATURE_DOMAIN.len() + payload.len());
-        message.extend_from_slice(SIGNATURE_DOMAIN);
-        message.extend_from_slice(payload);
-        key.verify_strict(&message, &signature)
-            .map_err(|_| BootCatalogError::InvalidSignature)?;
+        let payload = verify_signed_payload(file, SIGNATURE_DOMAIN, &key)?;
 
         let record: CatalogRecord =
             serde_json::from_slice(payload).map_err(|_| BootCatalogError::InvalidRecord)?;
@@ -87,7 +115,42 @@ impl VerifiedBootCatalog {
             descriptor,
             principal_id,
             caller_context_id,
+            signer: key,
+            signed_sha256: Sha256::digest(file).into(),
         })
+    }
+
+    /// Verify the signed plan against this exact catalog, including its
+    /// generation. The boot owner supplies the complete mandatory list.
+    pub fn verify_ready_plan(
+        &self,
+        file: &[u8],
+    ) -> Result<VerifiedBootReadyPlan, BootCatalogError> {
+        let payload = verify_signed_payload(file, READY_PLAN_SIGNATURE_DOMAIN, &self.signer)?;
+        let plan: BootReadyPlanRecord =
+            serde_json::from_slice(payload).map_err(|_| BootCatalogError::InvalidRecord)?;
+        if plan.schema_version != 1 {
+            return Err(BootCatalogError::InvalidRecord);
+        }
+        if plan.catalog_sha256 != self.signed_sha256
+            || plan.generation != self.descriptor.generation()
+        {
+            return Err(BootCatalogError::ReadyPlanCatalogMismatch);
+        }
+        let mut routes = HashSet::new();
+        if plan.mandatory_routes.is_empty()
+            || !plan.mandatory_routes.iter().all(|route| {
+                nagi_service_contract::ContractVersion::new(
+                    route.version_major,
+                    route.version_minor,
+                )
+                .is_ok()
+                    && routes.insert(*route)
+            })
+        {
+            return Err(BootCatalogError::InvalidReadyPlanRoutes);
+        }
+        Ok(VerifiedBootReadyPlan(plan))
     }
 
     pub fn descriptor(&self) -> &ValidatedSystemServiceDescriptor {
@@ -128,6 +191,25 @@ impl VerifiedBootCatalog {
             self.record.mapping_generation,
         )
     }
+}
+
+fn verify_signed_payload<'a>(
+    file: &'a [u8],
+    domain: &[u8],
+    key: &VerifyingKey,
+) -> Result<&'a [u8], BootCatalogError> {
+    if file.len() <= SIGNATURE_BYTES || file.len() > MAX_SIGNED_BOOT_CATALOG_BYTES {
+        return Err(BootCatalogError::InvalidLength);
+    }
+    let (payload, signature) = file.split_at(file.len() - SIGNATURE_BYTES);
+    let signature =
+        Signature::from_slice(signature).map_err(|_| BootCatalogError::InvalidSignature)?;
+    let mut message = Vec::with_capacity(domain.len() + payload.len());
+    message.extend_from_slice(domain);
+    message.extend_from_slice(payload);
+    key.verify_strict(&message, &signature)
+        .map_err(|_| BootCatalogError::InvalidSignature)?;
+    Ok(payload)
 }
 
 impl TrustedSystemServiceCatalog for VerifiedBootCatalog {
