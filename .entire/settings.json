@@ -5,5 +5,10 @@
       "provider": "github",
       "repo": "Roy-To/nagi-checkpoints"
     }
+  },
+  "checkpoints": {
+    "primary": {
+      "type": "git-refs"
+    }
   }
 }
