@@ -11440,7 +11440,21 @@ mod linux_process_resource_tests {
 
     #[test]
     fn disabled_endpoint_policy_does_not_offer_handoff() {
-        let image = endpoint_writer_elf();
+        // With the endpoint disabled there is no peer read to hold the child.
+        // Give PID 1 time to observe exec acknowledgement before normal exit.
+        let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
+        image.resize(176, 0);
+        let image_len = image.len() as u64;
+        image[96..104].copy_from_slice(&image_len.to_le_bytes());
+        image[104..112].copy_from_slice(&image_len.to_le_bytes());
+        image[120..145].copy_from_slice(&[
+            0xb8, 35, 0, 0, 0, // mov eax, SYS_nanosleep
+            0x48, 0x8d, 0x3d, 28, 0, 0, 0, // lea rdi, [rip + 28] (timespec)
+            0x31, 0xf6, 0x0f, 0x05, // xor esi, esi; syscall
+            0xb8, 60, 0, 0, 0, // mov eax, SYS_exit
+            0x31, 0xff, 0x0f, 0x05, // xor edi, edi; syscall
+        ]);
+        image[160..168].copy_from_slice(&1i64.to_le_bytes());
         let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
         let process_id = table
             .spawn(
