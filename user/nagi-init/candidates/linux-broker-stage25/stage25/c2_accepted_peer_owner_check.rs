@@ -1,8 +1,8 @@
 use super::{
-    EndpointCheckoutRecipient, LaunchRecordView, PeerDenial, PeerProcessInstanceAuthority,
-    Pid1LivePeerDirectory, Pid1RunInstance, ProcessInstanceKey, RegistrationId,
-    SupervisorLaunchAuthority, TrustedServiceEndpoint, TrustedServiceEndpointAuthority,
-    map_peer_authentication_error,
+    map_peer_authentication_error, EndpointCheckoutRecipient, LaunchRecordView, PeerDenial,
+    PeerProcessInstanceAuthority, Pid1LivePeerDirectory, Pid1RunInstance, ProcessInstanceKey,
+    RegistrationId, SupervisorLaunchAuthority, TrustedServiceEndpoint,
+    TrustedServiceEndpointAuthority,
 };
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_init_spawn_contract::SpawnedProcessIdentity;

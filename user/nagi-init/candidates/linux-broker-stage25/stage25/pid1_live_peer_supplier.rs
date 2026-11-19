@@ -72,7 +72,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 
@@ -85,9 +85,8 @@ mod initial_login_wire;
 pub use initial_login_wire::AcceptedInitialLoginRequest;
 pub mod initial_login {
     pub use super::initial_login_wire::{
-        send_initial_login_request_until, AcceptedInitialLoginRequest,
-        InitialLoginRequestMetadata, LoginWireError, MAX_LOGIN_ACCOUNT_NAME_BYTES,
-        MAX_LOGIN_SECRET_BYTES,
+        send_initial_login_request_until, AcceptedInitialLoginRequest, InitialLoginRequestMetadata,
+        LoginWireError, MAX_LOGIN_ACCOUNT_NAME_BYTES, MAX_LOGIN_SECRET_BYTES,
     };
 }
 mod nipc_operation_mapper;
@@ -109,15 +108,12 @@ pub use pid1_authenticated_endpoint_owner::{
 };
 mod service_handshake_owner;
 pub use service_handshake_owner::{
-    Pid1CompletedServiceHandshakeOwner, ServiceHandshakeAttemptIds,
-    ServiceHandshakeProtocol,
+    Pid1CompletedServiceHandshakeOwner, ServiceHandshakeAttemptIds, ServiceHandshakeProtocol,
 };
 #[cfg(feature = "system-service-readiness")]
 mod system_service_readiness;
 #[cfg(feature = "system-service-readiness")]
-pub use system_service_readiness::{
-    Pid1SystemServiceReadyEvent, ReadySystemServiceInstance,
-};
+pub use system_service_readiness::{Pid1SystemServiceReadyEvent, ReadySystemServiceInstance};
 
 pub(crate) mod package_service_inventory_adapter;
 pub(crate) mod pidfd_process_instance;
@@ -148,38 +144,38 @@ use nagi_peer_authenticated_connection::{KernelAuthenticatedUnixPeer, PeerAuthen
 /// named API module without opening constructors for run IDs, spawn proofs, routes,
 /// endpoints, required-service sets, or readiness events.
 pub mod pid1_ready {
-    #[cfg(feature = "system-service-readiness")]
-    pub use super::{Pid1SystemServiceReadyEvent, ReadySystemServiceInstance};
-    #[cfg(feature = "system-service-readiness")]
-    pub use super::Task24EndpointLaunchLease;
     /// Child-side locator for the Task24-selected endpoint. The parsed argv
     /// value is only a path; C2 still authenticates the accepted kernel peer
     /// and rechecks its spawn-owned endpoint before any effect.
     pub use super::child_service_bootstrap::{ChildServiceBootstrap, EndpointBootstrapError};
+    pub use super::initial_login::{
+        send_initial_login_request_until, InitialLoginRequestMetadata, LoginWireError,
+    };
+    #[cfg(feature = "system-service-readiness")]
+    pub use super::Task24EndpointLaunchLease;
     pub use super::{
-        BoundPeerSessionEffectGate, C2AcceptedPeerProof, C2AppSessionAdmission,
-        CanonicalNipcOperationBinding, CompleteServiceRequestFrame,
+        AcceptedInitialLoginRequest, BoundPeerSessionEffectGate, C2AcceptedPeerProof,
+        C2AppSessionAdmission, CanonicalNipcOperationBinding, CompleteServiceRequestFrame,
         CompletedServiceHandshakeAuthority, ConsentSource, DecodedNipcRequest,
         EndpointCheckoutRecipient, LaunchRecordView, LiveSessionAuthority, NipcRequestDecoder,
-        NipcRequestRead, AcceptedInitialLoginRequest, PeerDenial, PeerProcessInstanceAuthority,
-        PendingBoundPeerSession, PendingInitialSession, PendingServiceRequestFrame, Pid1AuthorityDomain,
-        Pid1LifecycleReadyAdapter, Pid1LivePeerDirectory, Pid1PackageRequestReceipt,
-        Pid1ReadinessAtomicBoundary, Pid1ReadyEvent, Pid1RunInstance, Pid1RunOwnerLease,
-        Pid1CompletedServiceHandshakeOwner, ServiceHandshakeAttemptIds, ServiceHandshakeProtocol,
-        Pid1SpawnProof, ProcessInstanceKey, ReadyServiceInstance, RegistrationId, SessionLease,
-        RequiredServiceSet, RouteConsentRequirement, ServiceOwnerEffectTransaction,
-        ServiceRequestAdmission, ServiceRequestFingerprint, ServiceRequestOperationState,
-        ServiceRequestReceiptTransaction, StableServiceRequestId, SupervisorLaunchAuthority,
-        TrustedInventory, TrustedManifest, TrustedRouteKey, TrustedServiceEndpoint,
-        TrustedServiceEndpointAuthority, TrustedServiceRequirements,
+        NipcRequestRead, PeerDenial, PeerProcessInstanceAuthority, PendingBoundPeerSession,
+        PendingInitialSession, PendingServiceRequestFrame, Pid1AuthorityDomain,
+        Pid1CompletedServiceHandshakeOwner, Pid1LifecycleReadyAdapter, Pid1LivePeerDirectory,
+        Pid1PackageRequestReceipt, Pid1ReadinessAtomicBoundary, Pid1ReadyEvent, Pid1RunInstance,
+        Pid1RunOwnerLease, Pid1SpawnProof, ProcessInstanceKey, ReadyServiceInstance,
+        RegistrationId, RequiredServiceSet, RouteConsentRequirement, ServiceHandshakeAttemptIds,
+        ServiceHandshakeProtocol, ServiceOwnerEffectTransaction, ServiceRequestAdmission,
+        ServiceRequestFingerprint, ServiceRequestOperationState, ServiceRequestReceiptTransaction,
+        SessionLease, StableServiceRequestId, SupervisorLaunchAuthority, TrustedInventory,
+        TrustedManifest, TrustedRouteKey, TrustedServiceEndpoint, TrustedServiceEndpointAuthority,
+        TrustedServiceRequirements,
     };
+    #[cfg(feature = "system-service-readiness")]
+    pub use super::{Pid1SystemServiceReadyEvent, ReadySystemServiceInstance};
     pub use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
     pub use nagi_peer_authenticated_connection::{
         AuthenticatedInteractivePeer, AuthenticatedInteractivePeerSelector,
         KernelAuthenticatedUnixPeer, TrustedInteractivePeerKey,
-    };
-    pub use super::initial_login::{
-        send_initial_login_request_until, InitialLoginRequestMetadata, LoginWireError,
     };
     pub use nagi_task37_receipt_supplier::service_effect::{
         DurableServiceEffectOwner, DurableServiceRequestBinding, DurableServiceRequestIdentity,
@@ -1522,7 +1518,7 @@ pub trait ServiceOwnerEffectTransaction: service_effect_commit_seal::Sealed + Se
     /// package generation, and revocation state under the same service-owner
     /// serialization boundary used by `DurableServiceEffectOwner`.
     fn admission_is_current(&self, admission: &ServiceRequestAdmission)
-    -> Result<bool, PeerDenial>;
+        -> Result<bool, PeerDenial>;
 
     /// Read the durable task-37 owner outcome for this exact shared identity.
     /// Production implementations must delegate to `DurableServiceEffectOwner`
@@ -3188,11 +3184,11 @@ pub trait LiveSessionAuthority: Send + Sync {
 #[cfg(test)]
 mod pending_bound_peer_session_tests {
     use super::{
-        BoundPeerSessionEffectGate, PeerDenial, PendingBoundPeerSession, SessionEffectGate,
-        SessionLease, run_session_effect,
+        run_session_effect, BoundPeerSessionEffectGate, PeerDenial, PendingBoundPeerSession,
+        SessionEffectGate, SessionLease,
     };
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     struct TestSessionEffectGate;
 
@@ -3474,7 +3470,7 @@ fn run_session_effect<T>(
 
 #[cfg(test)]
 mod session_effect_gate_tests {
-    use super::{PeerDenial, SessionEffectGate, run_session_effect};
+    use super::{run_session_effect, PeerDenial, SessionEffectGate};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
@@ -3528,13 +3524,11 @@ mod session_effect_gate_tests {
             Ok(())
         };
 
-        assert!(
-            run_session_effect(gate, || {
-                effects.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            })
-            .is_ok()
-        );
+        assert!(run_session_effect(gate, || {
+            effects.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .is_ok());
         assert_eq!(effects.load(Ordering::SeqCst), 1);
     }
 
@@ -3689,11 +3683,7 @@ struct Pid1AuthorityDomainState {
 pub struct Pid1AuthorityDomain(Arc<Pid1AuthorityDomainState>);
 
 impl Pid1AuthorityDomain {
-    fn for_run(
-        generation: NonZeroU64,
-        authority_nonce: [u8; 32],
-        active: Arc<AtomicBool>,
-    ) -> Self {
+    fn for_run(generation: NonZeroU64, authority_nonce: [u8; 32], active: Arc<AtomicBool>) -> Self {
         Self(Arc::new(Pid1AuthorityDomainState {
             generation,
             authority_nonce,
@@ -4030,11 +4020,8 @@ impl<R: LaunchRecordView> Pid1LivePeerDirectory<R> {
             .ok_or(PeerDenial::GenerationExhausted)?;
         let generation = NonZeroU64::new(generation).ok_or(PeerDenial::GenerationExhausted)?;
         let active = Arc::new(AtomicBool::new(true));
-        let authority_domain = Pid1AuthorityDomain::for_run(
-            generation,
-            authority_nonce,
-            Arc::clone(&active),
-        );
+        let authority_domain =
+            Pid1AuthorityDomain::for_run(generation, authority_nonce, Arc::clone(&active));
         state.current_run_generation = Some(generation);
         state.current_run_authority_nonce = Some(authority_nonce);
         state.current_run_active = Some(Arc::clone(&active));
@@ -8906,15 +8893,13 @@ mod tests {
             .end_run_owner_lease(&fixture.run_owner_lease, &fixture.readiness)
             .unwrap();
         assert!(!admission.run().is_active());
-        assert!(
-            fixture
-                .directory
-                .request_ledger
-                .lock()
-                .unwrap()
-                .entries
-                .is_empty()
-        );
+        assert!(fixture
+            .directory
+            .request_ledger
+            .lock()
+            .unwrap()
+            .entries
+            .is_empty());
         assert_eq!(
             admission.operation_state(),
             ServiceRequestOperationState::OutcomeUnknown,
@@ -8935,15 +8920,13 @@ mod tests {
             peer.admit_request(complete_request_frame(&peer, 62), b"files.read"),
             PeerDenial::StaleRun
         );
-        assert!(
-            fixture
-                .directory
-                .request_ledger
-                .lock()
-                .unwrap()
-                .entries
-                .is_empty()
-        );
+        assert!(fixture
+            .directory
+            .request_ledger
+            .lock()
+            .unwrap()
+            .entries
+            .is_empty());
         assert!(fixture.directory.begin_run_owner_lease().is_ok());
     }
 
@@ -9648,23 +9631,19 @@ mod tests {
         let fixture = Fixture::new();
         let registration = fixture.register();
         *fixture.supervisor.record.lock().unwrap() = None;
-        assert!(
-            fixture
-                .directory
-                .retire_after_supervisor_revoke(
-                    &fixture.run,
-                    fixture.process,
-                    registration,
-                    &fixture.readiness,
-                )
-                .unwrap()
-        );
-        assert!(
-            fixture
-                .process_instances
-                .retire_after_revoke(fixture.process)
-                .unwrap()
-        );
+        assert!(fixture
+            .directory
+            .retire_after_supervisor_revoke(
+                &fixture.run,
+                fixture.process,
+                registration,
+                &fixture.readiness,
+            )
+            .unwrap());
+        assert!(fixture
+            .process_instances
+            .retire_after_revoke(fixture.process)
+            .unwrap());
         assert_denial!(
             fixture.authorize(fixture.process.pid(), registration),
             PeerDenial::StaleRegistration
@@ -9691,17 +9670,15 @@ mod tests {
         assert_eq!(fixture.directory.state.lock().unwrap().entries.len(), 1);
 
         *fixture.supervisor.record.lock().unwrap() = None;
-        assert!(
-            fixture
-                .directory
-                .retire_after_supervisor_revoke(
-                    &fixture.run,
-                    fixture.process,
-                    registration,
-                    &fixture.readiness,
-                )
-                .unwrap()
-        );
+        assert!(fixture
+            .directory
+            .retire_after_supervisor_revoke(
+                &fixture.run,
+                fixture.process,
+                registration,
+                &fixture.readiness,
+            )
+            .unwrap());
         assert!(fixture.directory.state.lock().unwrap().entries.is_empty());
     }
 
@@ -10072,11 +10049,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first_checkout.socket_cookie, alias_checkout.socket_cookie);
-        assert!(
-            first_checkout
-                .recipient
-                .is_same_recipient(&alias_checkout.recipient)
-        );
+        assert!(first_checkout
+            .recipient
+            .is_same_recipient(&alias_checkout.recipient));
 
         let first_peer = fixture
             .authorize_checkout(first_checkout, registration, &fixture.requirements())
@@ -12375,11 +12350,9 @@ mod tests {
             &effect_owner,
             &package_authority,
             || {
-                assert!(
-                    package_authority
-                        .generation_is_current(app_id.0, generation)
-                        .expect("revalidate under the same package lease")
-                );
+                assert!(package_authority
+                    .generation_is_current(app_id.0, generation)
+                    .expect("revalidate under the same package lease"));
                 callback_count.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             },
@@ -12512,11 +12485,9 @@ mod tests {
         let mut ended_run_view = peer
             .resolve_package_request_receipt_record(&admission, &fixture.readiness, &receipt_owner)
             .expect("resolve before run shutdown");
-        assert!(
-            package_authority
-                .revoke_admission(&admission, &fixture.readiness)
-                .expect("revoke request under owner gate")
-        );
+        assert!(package_authority
+            .revoke_admission(&admission, &fixture.readiness)
+            .expect("revoke request under owner gate"));
         assert_denial!(
             peer.with_current_package_request_receipt(
                 &mut revoked_admission_view,
@@ -12629,17 +12600,15 @@ mod tests {
                 Ok(())
             })
             .unwrap();
-        assert!(
-            fixture
-                .directory
-                .retire_after_supervisor_revoke(
-                    &fixture.run,
-                    fixture.process,
-                    registration,
-                    &fixture.readiness,
-                )
-                .unwrap()
-        );
+        assert!(fixture
+            .directory
+            .retire_after_supervisor_revoke(
+                &fixture.run,
+                fixture.process,
+                registration,
+                &fixture.readiness,
+            )
+            .unwrap());
 
         assert_eq!(authority.test_admission_count().unwrap(), 0);
         assert!(authority.test_outcome_snapshot().unwrap().is_empty());
@@ -13006,18 +12975,14 @@ mod tests {
         let old_process = fixture.process;
         let old = fixture.register();
         *fixture.supervisor.record.lock().unwrap() = None;
-        assert!(
-            fixture
-                .directory
-                .retire_after_supervisor_revoke(&fixture.run, old_process, old, &fixture.readiness,)
-                .unwrap()
-        );
-        assert!(
-            fixture
-                .process_instances
-                .retire_after_revoke(old_process)
-                .unwrap()
-        );
+        assert!(fixture
+            .directory
+            .retire_after_supervisor_revoke(&fixture.run, old_process, old, &fixture.readiness,)
+            .unwrap());
+        assert!(fixture
+            .process_instances
+            .retire_after_revoke(old_process)
+            .unwrap());
         fixture
             .process_instances
             .kernel()
@@ -13040,19 +13005,15 @@ mod tests {
             .register_proof(proof, &fixture.requirements(), fixture.endpoint)
             .unwrap();
         assert_ne!(old, replacement);
-        assert!(
-            !fixture
-                .directory
-                .retire_after_supervisor_revoke(&fixture.run, old_process, old, &fixture.readiness,)
-                .unwrap()
-        );
+        assert!(!fixture
+            .directory
+            .retire_after_supervisor_revoke(&fixture.run, old_process, old, &fixture.readiness,)
+            .unwrap());
         let (stream, _peer) = UnixStream::pair().unwrap();
         let checkout = fixture.checkout(fixture.endpoint, stream).unwrap();
-        assert!(
-            fixture
-                .authorize_checkout(checkout, replacement, &fixture.requirements())
-                .is_ok()
-        );
+        assert!(fixture
+            .authorize_checkout(checkout, replacement, &fixture.requirements())
+            .is_ok());
     }
 }
 
@@ -13075,7 +13036,7 @@ pub(crate) mod linux_runtime_fixture_support {
     use std::num::NonZeroU64;
     use std::os::fd::AsRawFd;
     use std::os::unix::net::{UnixListener, UnixStream};
-    use std::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize};
+    use std::sync::atomic::{AtomicU32, AtomicU8, AtomicUsize};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

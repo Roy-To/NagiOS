@@ -7,13 +7,13 @@
 //! session, consent, Model terms, durable service effect, or READY.
 
 use super::{
-    PackageRequestReceiptRevoker, PeerDenial, Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary,
-    Pid1RunInstance, Pid1RunOwnerLease, ProcessInstanceKey, RegistrationId,
-    ServiceRequestAdmission, ServiceRequestReceiptTransaction, TrustedInventory, TrustedManifest,
-    package_request_receipt_revoker_seal, service_effect_commit_seal,
+    package_request_receipt_revoker_seal, service_effect_commit_seal, PackageRequestReceiptRevoker,
+    PeerDenial, Pid1LivePeerDirectory, Pid1ReadinessAtomicBoundary, Pid1RunInstance,
+    Pid1RunOwnerLease, ProcessInstanceKey, RegistrationId, ServiceRequestAdmission,
+    ServiceRequestReceiptTransaction, TrustedInventory, TrustedManifest,
 };
 use nagi_dev_service_catalog_consumer::stage13_borrow_adapter_candidate::{
-    Stage13BorrowedInventoryConsumer, Stage13PackageServiceLease, with_stage13_borrowed_inventory,
+    with_stage13_borrowed_inventory, Stage13BorrowedInventoryConsumer, Stage13PackageServiceLease,
 };
 use nagi_dev_service_catalog_consumer::{
     GenerationBoundCommitError, GenerationBoundOperationRequest, OwnedPackageInventorySnapshot,
@@ -28,9 +28,9 @@ use nagi_model::AppId;
 use nagi_package::PackageService;
 use nagi_package::PackageView;
 use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 use std::sync::MutexGuard;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A borrow of an already-owned PackageService session. Its generation lease
@@ -1140,8 +1140,8 @@ mod tests {
     use super::*;
     use crate::supplier_root;
     use nagi_package::{InstallPolicy, PackageView, TRUSTED_SIGNING_PUBLIC_KEY};
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+    use std::sync::Mutex;
 
     const EXPECTED_ID: &[u8] = b"org.nagi.acceptance.isolated-app";
 
@@ -1299,11 +1299,9 @@ mod tests {
         let manifest = adapter.installed_manifest(app_id.0).unwrap().unwrap();
         assert_eq!(manifest.app_id, app_id.0);
         assert_eq!(manifest.inventory_generation.get(), 1);
-        assert!(
-            adapter
-                .generation_is_current(app_id.0, manifest.inventory_generation)
-                .unwrap()
-        );
+        assert!(adapter
+            .generation_is_current(app_id.0, manifest.inventory_generation)
+            .unwrap());
         let lease = adapter.lock_current_for_spawn().unwrap();
         assert_eq!(lease.generation(), 1);
         assert!(!lease.executable_bytes().is_empty());
