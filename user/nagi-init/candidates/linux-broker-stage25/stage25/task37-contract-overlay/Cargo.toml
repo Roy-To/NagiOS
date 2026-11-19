@@ -1,0 +1,8 @@
+[package]
+name = "nagi-task37-receipt-supplier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model-manager = { path = "../../../../../nagi-model-manager" }

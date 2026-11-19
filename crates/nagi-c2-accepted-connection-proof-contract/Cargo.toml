@@ -1,0 +1,16 @@
+[package]
+name = "nagi-c2-accepted-connection-proof-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+c2-issuer = []
+
+[dependencies]
+nagi-peer-authenticated-connection = { path = "../nagi-peer-authenticated-connection" }
+
+[workspace]
+members = ["."]
+resolver = "2"
