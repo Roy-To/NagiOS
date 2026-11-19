@@ -326,6 +326,7 @@ pub(super) fn authenticate_boot_service<'package>(
     package: VerifiedServicePackageBinding<'package>,
 ) -> io::Result<AuthenticatedBootService<'package>> {
     let mut owner = LinuxBootServiceOwner::new(package_store, catalog)?;
+    super::log_pid1_stderr(format_args!("nagi-init: C3 boot slot journal opened"));
     let mut lifecycle = owner
         .reserve_launch(&catalog.descriptor().launch_metadata(), &package)
         .map_err(|error| io::Error::other(format!("C3 reservation failed: {error:?}")))?;

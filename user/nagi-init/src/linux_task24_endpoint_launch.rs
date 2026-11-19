@@ -224,6 +224,20 @@ pub(super) type LoginLease = Task24EndpointLaunchLease<LaunchRecord>;
 pub(super) type LoginLifecycle =
     ProcessLifecycle<LinuxProcessOs, ServiceId, LaunchRecord, LoginLease>;
 
+/// Values lent by the independent activation owner through login and READY.
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    linux_boot_owner_registration,
+    feature = "system-service-readiness"
+))]
+pub(super) struct ActivatedIdentityEndpoint<'a> {
+    pub(super) registration: RegistrationId,
+    pub(super) endpoint: &'a Pid1SpawnEndpointLease,
+    pub(super) launch_lease: &'a LoginLease,
+    pub(super) spawn: &'a nagi_init_spawn_contract::SpawnedProcessPidfd,
+    pub(super) record: LaunchRecord,
+}
+
 pub(super) struct BootLoginRun {
     pub(super) directory: Pid1LivePeerDirectory<LaunchRecord>,
     pub(super) run_owner: Pid1RunOwnerLease,
@@ -558,10 +572,9 @@ pub(super) fn run_owner_login(
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     run: &BootLoginRun,
-    #[cfg(feature = "system-service-readiness")] identity_endpoint: Option<(
-        RegistrationId,
-        &Pid1SpawnEndpointLease,
-    )>,
+    #[cfg(feature = "system-service-readiness")] identity_endpoint: Option<
+        ActivatedIdentityEndpoint<'_>,
+    >,
     console: &mut super::linux_owner_registration_console::BootOwnerConsole,
 ) -> ! {
     use super::linux_owner_registration_console::task24_input::RequestRoute;
@@ -642,14 +655,15 @@ pub(super) fn run_owner_login(
                 let notes_allowed = if run.identity_ready.is_some() {
                     #[cfg(feature = "system-service-readiness")]
                     let readiness = identity_endpoint
+                        .as_ref()
                         .ok_or(PeerDenial::RequiredServiceMissing)
-                        .and_then(|(registration, endpoints)| {
+                        .and_then(|identity| {
                             let deadline = Instant::now() + Duration::from_secs(5);
                             runtime.complete_task24_identity_handshake(
                                 session.lease,
                                 run,
-                                registration,
-                                endpoints,
+                                identity.registration,
+                                identity.endpoint,
                                 &handshakes,
                                 deadline,
                             )?;
@@ -657,7 +671,7 @@ pub(super) fn run_owner_login(
                             runtime.publish_task24_ready(
                                 session.lease,
                                 run,
-                                endpoints,
+                                identity,
                                 &handshakes,
                                 &mut ready,
                             )
