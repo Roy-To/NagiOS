@@ -27,11 +27,23 @@ API_CASES = {"windows": "read_prefix", "linux": "watch_changes"}
 # the other platform's lines as "unresolved". Not scanner output; see README.md.
 MIXED_FIXTURE = "mixed"
 MIXED_API_BASENAME = "read_and_watch"
+# PROVISIONAL app fixture (NDP-A018): one small Windows-flavoured project that combines
+# the API diagnosis (existing `windows/read_prefix.c` + its snapshot) with the UI analysis
+# and mapping (existing `ui/wpf_task_panel.xaml`) in a single report. Nothing is copied:
+# the pair is routed to the existing files. See README.md in `evaluation/app_windows`.
+APP_FIXTURE = "app_windows"
+APP_API_PLATFORM = "windows"
 UI_PATHS = tuple(EVALUATION / "ui" / name for name in (
     "task_panel.ui", "gtk_minimal.ui", "gtk3_task_panel.ui", "gtk4_task_panel.ui",
     "xaml_minimal.xaml", "wpf_task_panel.xaml", "winui_task_panel.xaml",
 ))
-FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE)
+# Per-fixture UI inputs; a fixture that is not listed has no UI inputs. `ui` keeps the
+# full seven-file pilot, `app_windows` maps its single WPF XAML file.
+UI_FIXTURE_PATHS = {
+    "ui": UI_PATHS,
+    APP_FIXTURE: (EVALUATION / "ui" / "wpf_task_panel.xaml",),
+}
+FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE, APP_FIXTURE)
 PORTABLE_TARGET = "portable-summary"
 MAX_TOOL_OUTPUT = 512 * 1024
 MAX_REPORT_BYTES = 128 * 1024
@@ -179,9 +191,12 @@ def api_case_paths(fixture, platform):
     """(source, evidence snapshot) used by the `platform` diagnosis of `fixture`, or None.
 
     A platform fixture diagnoses its own case only; the mixed fixture diagnoses its one
-    source for every platform in API_CASES, each with that platform's snapshot.
+    source for every platform in API_CASES, each with that platform's snapshot; the
+    app_windows fixture diagnoses the windows case only.
     """
-    if fixture == platform and platform in API_CASES:
+    if platform in API_CASES and (fixture == platform or (
+            fixture == APP_FIXTURE and platform == APP_API_PLATFORM)):
+        # The app fixture reuses the windows case (same source and snapshot).
         basename = API_CASES[platform]
         return (EVALUATION / platform / (basename + ".c"),
                 API_EVIDENCE / platform / (basename + ".report-v1.json"))
@@ -310,11 +325,12 @@ def axis_gaps(mapping):
 
 
 def inspect_ui(fixture):
-    if fixture != "ui":
+    ui_paths = UI_FIXTURE_PATHS.get(fixture)
+    if ui_paths is None:
         return (check("unsupported", "no_ui_inputs_for_fixture"),
                 check("unsupported", "no_ui_inputs_for_fixture"))
     analyzed, mapped = [], []
-    for path in UI_PATHS:
+    for path in ui_paths:
         payload = None
 
         def analyze():
@@ -350,8 +366,8 @@ def inspect_ui(fixture):
         analyzed.append(analysis)
         mapped.append(attempt((path,), map_ui) if analysis["status"] == "passed" else
                       unavailable("ui_analysis_did_not_pass", (path,)))
-    return (summarize_ui(UI_PATHS, analyzed, "ui_analyzed"),
-            summarize_ui(UI_PATHS, mapped, "ui_mapped"))
+    return (summarize_ui(ui_paths, analyzed, "ui_analyzed"),
+            summarize_ui(ui_paths, mapped, "ui_mapped"))
 
 
 def adapter_result(result, paths, counts, **details):
