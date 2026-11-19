@@ -12,8 +12,9 @@ use super::linux_init_c3_slot_journal::{
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::{
-    BackendError, ExecutablePayload, GateCommit, LinuxExecutionIdentity, Prepared,
-    ProcessEndpointPolicy, ProcessHandle, ProcessLaunch, ProcessLifecycle, ProcessOs,
+    BackendError, ExecutablePayload, FdDelegationRestrictionAttestation, GateCommit,
+    LinuxExecutionIdentity, Prepared, ProcessEndpointPolicy, ProcessHandle, ProcessLaunch,
+    ProcessLifecycle, ProcessOs,
 };
 use crate::c3_system_service_recovery::{C3ProofRecoveryGate, RecoveryScopeSnapshot};
 use nagi_system_principal_contract::{SystemServiceEndpointOwnerProof, SystemServiceLaunchRecord};
@@ -35,6 +36,102 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LaunchToken(NonZeroU64);
 
+/// Non-forgeable selectors for the C3-owned standalone Identity spawn. The
+/// caller cannot construct this value; C2 adapters receive it by borrow and
+/// must also bind their own endpoint-registration generation.
+pub(super) struct C3IdentityLaunchBinding {
+    service_id: String,
+    catalog_generation: NonZeroU64,
+    c3_launch_generation: NonZeroU64,
+    scope_binding_digest: [u8; 32],
+    process_identity: nagi_init_spawn_contract::SpawnedProcessIdentity,
+}
+
+impl C3IdentityLaunchBinding {
+    pub(super) fn service_id(&self) -> &str {
+        &self.service_id
+    }
+
+    pub(super) fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
+
+    pub(super) fn c3_launch_generation(&self) -> NonZeroU64 {
+        self.c3_launch_generation
+    }
+
+    pub(super) fn scope_binding_digest(&self) -> &[u8; 32] {
+        &self.scope_binding_digest
+    }
+
+    pub(super) fn process_identity(&self) -> &nagi_init_spawn_contract::SpawnedProcessIdentity {
+        &self.process_identity
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        self.service_id == other.service_id
+            && self.catalog_generation == other.catalog_generation
+            && self.c3_launch_generation == other.c3_launch_generation
+            && self.scope_binding_digest == other.scope_binding_digest
+            && self.process_identity.same_instance(&other.process_identity)
+    }
+}
+
+/// C2 supplies its current pending Identity listener through this mutable
+/// borrow. Binding runs after C3 has registered the exact prepared child and
+/// before its exec gate can commit. On error, C2 must retain responsibility
+/// for any pending state it did not transfer. C3 holds the owner lock while
+/// calling this method, so it must be bounded, nonblocking, and must not
+/// re-enter the C3 owner.
+pub(super) trait C3PendingIdentityListener {
+    fn bind_pending_before_exec(
+        &mut self,
+        child: nagi_init_spawn_contract::SpawnedProcessPidfd,
+        binding: &C3IdentityLaunchBinding,
+    ) -> io::Result<Box<dyn C3IdentityListenerLaunchLease>>;
+}
+
+/// Non-clone C2 state transferred to C3 after the pending listener is bound
+/// to the exact prepared spawn. Implementations validate their own current
+/// registration and endpoint generation on every phase. Activation and
+/// retirement run under the C3 owner lock and must be bounded, nonblocking,
+/// and non-reentrant.
+pub(super) trait C3IdentityListenerLaunchLease: Send {
+    fn matches_binding(&self, binding: &C3IdentityLaunchBinding) -> bool;
+
+    fn activate_after_exec_ack(
+        &mut self,
+        binding: &C3IdentityLaunchBinding,
+        attestation: &FdDelegationRestrictionAttestation,
+    ) -> io::Result<()>;
+
+    /// Called only after ProcessLifecycle observed the exact child reap and
+    /// C3 revoked its matching launch record. Success must make Drop inert;
+    /// an error or panic is an unknown outcome and is never retried.
+    fn retire_after_exact_reap(&mut self, binding: &C3IdentityLaunchBinding) -> io::Result<()>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IdentityListenerActivation {
+    Pending,
+    Active,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IdentityListenerRetirement {
+    NotAttempted,
+    Complete,
+    Unknown,
+}
+
+struct BoundIdentityListener {
+    binding: C3IdentityLaunchBinding,
+    lease: Box<dyn C3IdentityListenerLaunchLease>,
+    activation: IdentityListenerActivation,
+    retirement: IdentityListenerRetirement,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LaunchState {
     Prepared,
@@ -51,6 +148,50 @@ struct OwnedLaunch {
     scope_data_address: usize,
     launch_record: SystemServiceLaunchRecord,
     state: LaunchState,
+    fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
+    identity_listener: Option<BoundIdentityListener>,
+}
+
+/// Borrowed C3 evidence for the exact current service child. The constructor
+/// remains private to this owner, and the reference is exposed only while the
+/// owner holds its nonblocking current-slot check.
+pub(super) struct C3FdDelegationPreventionAttestation<'a> {
+    service_id: &'a str,
+    catalog_generation: NonZeroU64,
+    launch_generation: NonZeroU64,
+    scope_binding_digest: &'a [u8; 32],
+    process_identity: &'a nagi_init_spawn_contract::SpawnedProcessIdentity,
+    _kernel_attestation: &'a FdDelegationRestrictionAttestation,
+}
+
+impl C3FdDelegationPreventionAttestation<'_> {
+    pub(super) fn service_id(&self) -> &str {
+        self.service_id
+    }
+
+    pub(super) fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
+
+    pub(super) fn launch_generation(&self) -> NonZeroU64 {
+        self.launch_generation
+    }
+
+    pub(super) fn scope_binding_digest(&self) -> &[u8; 32] {
+        self.scope_binding_digest
+    }
+
+    pub(super) fn process_identity(&self) -> &nagi_init_spawn_contract::SpawnedProcessIdentity {
+        self.process_identity
+    }
+
+    /// Borrow the underlying C3-only nondelegation attestation for C2's
+    /// endpoint-registration adapter. This exposes no endpoint descriptor or
+    /// principal authority; C2 must still match it against its retained spawn
+    /// identity and run while this callback is active.
+    pub(super) fn c2_fd_delegation_restriction(&self) -> &FdDelegationRestrictionAttestation {
+        self._kernel_attestation
+    }
 }
 
 struct OwnerState {
@@ -198,13 +339,22 @@ impl LinuxC3SystemServiceSlotOwner {
     }
 
     /// Open the maintained owner against its private file-backed C3 slot
-    /// journal. PID-1 startup fails closed unless the prior slot is durably
-    /// recorded as absent; a live or unknown row is never reconstructed as an
-    /// in-memory child.
+    /// journal. Normal startup requires a committed absent row. A development
+    /// build may create genesis only when an exact first-provision marker is
+    /// present and both journal paths are absent. A live or unknown row is
+    /// never reconstructed as an in-memory child.
     pub(super) fn new_with_journal(
         service_id: &str,
         journal_path: impl AsRef<Path>,
     ) -> io::Result<Self> {
+        let journal_path = journal_path.as_ref();
+        #[cfg(not(nagi_release_build))]
+        if let Some(journal) =
+            C3SlotJournal::create_from_first_provision_marker(journal_path, service_id)
+                .map_err(c3_journal_io_error)?
+        {
+            return Self::from_open_journal(service_id, Arc::new(journal), true);
+        }
         let journal =
             Arc::new(C3SlotJournal::open(journal_path, service_id).map_err(c3_journal_io_error)?);
         Self::from_open_journal(service_id, journal, false)
@@ -432,6 +582,75 @@ impl LinuxC3SystemServiceSlotOwner {
         cancel_check_interval: Duration,
         retirement_wait_budget: Duration,
         reaper_poll_interval: Duration,
+        cancelled: impl FnMut() -> bool,
+    ) -> io::Result<()> {
+        unsafe {
+            self.launch_admitted_inner(
+                scope,
+                executable,
+                arguments,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
+                None,
+                cancelled,
+            )
+        }
+    }
+
+    /// C3-owned standalone Identity path. C2 lends its current pending
+    /// listener-registration owner by mutable borrow; C3 binds it to the
+    /// prepared clone3 identity before the exec gate, activates it only after
+    /// the same child's exec acknowledgement and FD attestation, and retires
+    /// it only after exact reap and C3 launch-record revocation.
+    ///
+    /// # Safety
+    /// The `scope`, executable, and lifetime requirements are identical to
+    /// `launch_admitted`. The listener adapter must represent the current C2
+    /// registration for this exact service launch and obey the phase contract
+    /// on `C3PendingIdentityListener` and `C3IdentityListenerLaunchLease`.
+    pub(super) unsafe fn launch_admitted_with_identity_listener(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        executable: &[u8],
+        arguments: &[&str],
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
+        pending_listener: &mut dyn C3PendingIdentityListener,
+        cancelled: impl FnMut() -> bool,
+    ) -> io::Result<()> {
+        unsafe {
+            self.launch_admitted_inner(
+                scope,
+                executable,
+                arguments,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
+                Some(pending_listener),
+                cancelled,
+            )
+        }
+    }
+
+    unsafe fn launch_admitted_inner(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        executable: &[u8],
+        arguments: &[&str],
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
+        mut identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
         mut cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
         if release_wait_budget.is_zero()
@@ -510,7 +729,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 }
             };
 
-            let spawn_result = {
+            let mut spawn_result = {
                 let OwnerState {
                     lifecycle,
                     launches,
@@ -566,6 +785,40 @@ impl LinuxC3SystemServiceSlotOwner {
                             &self.service_id,
                         )
                         .map_err(|_| BackendError::Revoked)?;
+                        if let Some(registration) = identity_listener_registration.as_deref_mut() {
+                            let prepared_entry = find_launch(&launches, token)
+                                .filter(|entry| entry.process_id == process_id)
+                                .ok_or(BackendError::ProtocolViolation)?;
+                            if prepared_entry.identity_listener.is_some() {
+                                return Err(BackendError::ProtocolViolation);
+                            }
+                            let binding = identity_launch_binding(prepared_entry);
+                            let child = gate.duplicate_prepared_spawn_pidfd()?;
+                            if !child.identity().same_instance(binding.process_identity()) {
+                                return Err(BackendError::IdentityRejected);
+                            }
+                            let lease = match catch_unwind(AssertUnwindSafe(|| {
+                                registration.bind_pending_before_exec(child, &binding)
+                            })) {
+                                Ok(Ok(lease)) => lease,
+                                Ok(Err(_)) => return Err(BackendError::Unavailable),
+                                Err(_) => return Err(BackendError::TransportFailure),
+                            };
+                            let matches_binding =
+                                catch_unwind(AssertUnwindSafe(|| lease.matches_binding(&binding)))
+                                    .unwrap_or(false);
+                            let entry = find_launch_mut(&mut launches, token, process_id)
+                                .ok_or(BackendError::ProtocolViolation)?;
+                            entry.identity_listener = Some(BoundIdentityListener {
+                                binding,
+                                lease,
+                                activation: IdentityListenerActivation::Pending,
+                                retirement: IdentityListenerRetirement::NotAttempted,
+                            });
+                            if !matches_binding {
+                                return Err(BackendError::IdentityRejected);
+                            }
+                        }
                         gate.commit()?;
                         if let Some(entry) = find_launch_mut(&mut launches, token, process_id) {
                             entry.state = LaunchState::Running;
@@ -577,7 +830,7 @@ impl LinuxC3SystemServiceSlotOwner {
                     |process_id, registered| {
                         let mut launches = launches.borrow_mut();
                         let mut current = current.borrow_mut();
-                        revoke_registered_launch(
+                        revoke_and_retire_identity_listener(
                             &mut **launches,
                             &mut **current,
                             process_id,
@@ -586,6 +839,35 @@ impl LinuxC3SystemServiceSlotOwner {
                     },
                 )
             };
+
+            if let Some(process_id) = spawn_result.as_ref().ok().copied() {
+                let attestation = state
+                    .lifecycle
+                    .take_live_fd_delegation_restriction_attestation(process_id, token);
+                let retained = match attestation {
+                    Ok(attestation) => find_launch_mut(&mut state.launches, token, process_id)
+                        .is_some_and(|entry| {
+                            let activation =
+                                activate_identity_listener_after_exec_ack(entry, &attestation);
+                            entry.fd_delegation_attestation = Some(attestation);
+                            activation.is_ok()
+                        }),
+                    Err(_) => false,
+                };
+                if !retained {
+                    if let Ok(Some((failed_pid, failed_token))) = revoke_current_record(&mut state)
+                    {
+                        let _ = terminate_launch_bounded(
+                            &mut state,
+                            failed_pid,
+                            failed_token,
+                            retirement_wait_budget,
+                            reaper_poll_interval,
+                        );
+                    }
+                    spawn_result = Err(BackendError::ProtocolViolation);
+                }
+            }
 
             if let Some(previous_token) = previous_token {
                 let previous_process_id = previous_process_id.expect("previous token has a PID");
@@ -710,10 +992,13 @@ impl LinuxC3SystemServiceSlotOwner {
     }
 
     /// Launch the executable admitted by the exact A scope, take the child’s
-    /// inherited endpoint, and authenticate that endpoint against the live
-    /// child record before returning. The C3 owner retains the child and its
-    /// pidfd after the proof is issued; the caller must keep the same scope
-    /// object alive for later effects and reconciliation.
+    /// inherited C3 control endpoint, and authenticate that endpoint against
+    /// the live child record before returning. This does not bind a C2 service
+    /// listener. Standalone Identity callers that supply one must use
+    /// `launch_and_authenticate_admitted_with_identity_listener`. The C3 owner
+    /// retains the child and its pidfd after the proof is issued; the caller
+    /// must keep the same scope object alive for later effects and
+    /// reconciliation.
     ///
     /// # Safety
     /// `scope` must be the exact immutable scope view from A's private
@@ -750,6 +1035,47 @@ impl LinuxC3SystemServiceSlotOwner {
         self.issue_current_service_endpoint(scope, endpoint)
     }
 
+    /// Launch and authenticate the inherited C3 control endpoint while also
+    /// binding C2's borrowed current listener registration through the exact
+    /// pre-exec, attested activation, and post-reap retirement phases.
+    /// Standalone Identity readiness callers must use this entry point when
+    /// they have a C2 service listener; the control endpoint remains separate.
+    ///
+    /// # Safety
+    /// The scope, executable, and admission-lifetime requirements are the same
+    /// as `launch_and_authenticate_admitted`. `pending_listener` must borrow
+    /// the current C2 pending registration for this exact Identity launch.
+    pub(super) unsafe fn launch_and_authenticate_admitted_with_identity_listener(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        executable: &[u8],
+        arguments: &[&str],
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
+        pending_listener: &mut dyn C3PendingIdentityListener,
+        cancelled: impl FnMut() -> bool,
+    ) -> io::Result<SystemServiceEndpointOwnerProof> {
+        unsafe {
+            self.launch_admitted_with_identity_listener(
+                scope,
+                executable,
+                arguments,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
+                pending_listener,
+                cancelled,
+            )?;
+        }
+        let endpoint = self.take_current_service_endpoint(scope)?;
+        self.issue_current_service_endpoint(scope, endpoint)
+    }
+
     /// Read the process identity from the registered launch for A's
     /// independent endpoint-proof comparison.
     pub(super) fn registered_process_identity(
@@ -769,6 +1095,81 @@ impl LinuxC3SystemServiceSlotOwner {
             &self.service_id,
         )?;
         Ok(entry.launch_record.process_identity())
+    }
+
+    /// Borrow the real C3 endpoint nondelegation attestation only for the
+    /// current, unreaped clone3 process and exact A admission. The owner uses
+    /// `try_lock`, checks the live pidfd without waiting, and keeps the slot
+    /// locked while invoking a bounded adapter. A C2 adapter may register its
+    /// own listener against this exact spawn; it must not perform blocking I/O
+    /// or re-enter this owner. This check does not expose or replace the
+    /// separate PID 1 control endpoint, and it does not perform A/C1's
+    /// after-login Session revalidation.
+    pub(super) fn with_current_fd_delegation_prevention<R>(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        expected_process_identity: &nagi_init_spawn_contract::SpawnedProcessIdentity,
+        consume: impl FnOnce(&C3FdDelegationPreventionAttestation<'_>) -> R,
+    ) -> io::Result<R> {
+        let scope_snapshot = capture_scope(scope)?;
+        validate_scope_for_slot(&scope_snapshot, &self.service_id)?;
+        let scope_address = scope_data_address(scope);
+        let state = match self.state.try_lock() {
+            Ok(state) => state,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "C3 system-service slot is busy",
+                ));
+            }
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err(io::Error::other("C3 system-service slot owner is poisoned"));
+            }
+        };
+        let token = state
+            .current
+            .ok_or_else(|| permission_denied("system-service slot has no current launch"))?;
+        let entry = find_launch(&state.launches, token)
+            .ok_or_else(|| permission_denied("current system-service launch record is missing"))?;
+        validate_entry_scope(
+            entry,
+            scope,
+            &scope_snapshot,
+            scope_address,
+            &self.service_id,
+        )?;
+        if entry.state != LaunchState::Running
+            || token.0 != scope_snapshot.c3_launch_generation
+            || state.lifecycle.live_record(entry.process_id) != Some(&token)
+            || !state.lifecycle.is_live_record(entry.process_id, token)?
+        {
+            return Err(permission_denied(
+                "C3 endpoint delegation evidence is not for the live current child",
+            ));
+        }
+        let restriction = entry.fd_delegation_attestation.as_ref().ok_or_else(|| {
+            permission_denied("C3 child has no verified FD delegation restriction")
+        })?;
+        let process_identity = restriction.process_identity();
+        if !restriction.matches_process(expected_process_identity)
+            || !entry
+                .launch_record
+                .process_identity()
+                .same_instance(expected_process_identity)
+        {
+            return Err(permission_denied(
+                "FD delegation evidence belongs to a different clone3 process",
+            ));
+        }
+        let attestation = C3FdDelegationPreventionAttestation {
+            service_id: &entry.scope.service_id,
+            catalog_generation: entry.scope.catalog_generation,
+            launch_generation: entry.scope.c3_launch_generation,
+            scope_binding_digest: &entry.scope.binding_digest,
+            process_identity,
+            _kernel_attestation: restriction,
+        };
+        Ok(consume(&attestation))
     }
 
     /// Retire only the exact admission supplied by A and verify its durable
@@ -1222,6 +1623,208 @@ impl LinuxC3SystemServiceSlotOwner {
         gate.with_reconciliation_gate(scope, claim, reconcile)
     }
 
+    /// Apply one C1 recovery effect under the exact live C3 proof and persist
+    /// the unchanged C1 operation correlation before invoking the callback.
+    /// The C3 row remains Live only after the callback returns and that exact
+    /// correlated row has been committed and read back. Any incomplete journal
+    /// transaction or rejected proof leaves recovery fail-closed.
+    ///
+    /// The callback must not re-enter this owner or its journal. The C1
+    /// operation identity is correlation only and never grants authority.
+    pub(super) fn with_durable_live_effect_gate<R>(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        proof: &SystemServiceEndpointOwnerProof,
+        claim: C1RecoveryOperationCorrelation,
+        effect: impl FnOnce() -> R,
+    ) -> io::Result<(R, C3DurableSlotReceipt)> {
+        let scope_snapshot = capture_scope(scope)?;
+        validate_scope_for_slot(&scope_snapshot, &self.service_id)?;
+        if claim.binding_digest() != &scope_snapshot.binding_digest {
+            return Err(permission_denied(
+                "C1 operation correlation does not match the exact A recovery admission",
+            ));
+        }
+        let scope_address = scope_data_address(scope);
+        let mut state = self.lock_state()?;
+        let token = state
+            .current
+            .ok_or_else(|| permission_denied("system-service slot has no current launch"))?;
+        let entry = find_launch(&state.launches, token)
+            .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+        validate_entry_scope(
+            entry,
+            scope,
+            &scope_snapshot,
+            scope_address,
+            &self.service_id,
+        )?;
+        let peer = proof.peer_credentials();
+        if entry.state != LaunchState::Running
+            || token.0 != scope_snapshot.c3_launch_generation
+            || entry.process_id != proof.process_id()
+            || token.0 != proof.launch_generation()
+            || entry.scope.catalog_generation != proof.service_slot_identity().catalog_generation()
+            || entry.scope.service_id != proof.service_slot_identity().service_id()
+            || (entry.scope.uid, entry.scope.gid) != (peer.uid, peer.gid)
+            || proof.process_identity().process_id() != peer.process_id
+            || !entry
+                .launch_record
+                .process_identity()
+                .same_instance(&proof.process_identity())
+            || state.lifecycle.live_record(entry.process_id) != Some(&token)
+            || !state.lifecycle.is_live_record(entry.process_id, token)?
+        {
+            return Err(permission_denied(
+                "C3 live-effect proof is not for the exact current child",
+            ));
+        }
+
+        let journal = state.durable_journal.clone().ok_or_else(|| {
+            io::Error::other("C3 live-effect gate requires the durable slot journal")
+        })?;
+        let row = match journal.readback() {
+            C3SlotJournalReadback::Committed(row) => row,
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        };
+        if row.service_id() != self.service_id
+            || row.catalog_generation() != scope_snapshot.catalog_generation.get()
+            || row.c3_launch_generation() != scope_snapshot.c3_launch_generation.get()
+            || row.scope_binding_digest() != &scope_snapshot.binding_digest
+            || row.state() != C3SlotState::Live
+        {
+            return Err(permission_denied(
+                "C3 durable live row does not match the exact A recovery admission",
+            ));
+        }
+
+        let (result, receipt) = journal
+            .with_c1_correlated_live_receipt(
+                scope_snapshot.catalog_generation,
+                scope_snapshot.c3_launch_generation,
+                &scope_snapshot.binding_digest,
+                claim,
+                || proof.with_live_authority_effect(effect),
+            )
+            .map_err(c3_journal_io_error)?;
+        if receipt.c1_operation_id() != Some(claim.operation_id())
+            || !exact_durable_receipt(
+                &receipt,
+                &self.service_id,
+                scope_snapshot.catalog_generation,
+                scope_snapshot.c3_launch_generation,
+                &scope_snapshot.binding_digest,
+                C3SlotState::Live,
+            )
+        {
+            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+        }
+        state.highest_operation_id = state.highest_operation_id.max(receipt.operation_id().get());
+        Ok((result, receipt))
+    }
+
+    /// Gate a continuing effect for the same C1 runtime operation after its
+    /// initial recovery has made the exact correlated Live row durable. This
+    /// entry cannot replay the bootstrap transition: it requires the current
+    /// journal row to match that same C1 operation ID and exact live slot.
+    pub(super) fn with_durable_live_continuation_gate<R>(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        proof: &SystemServiceEndpointOwnerProof,
+        claim: C1RecoveryOperationCorrelation,
+        effect: impl FnOnce() -> io::Result<R>,
+    ) -> io::Result<(R, C3DurableSlotReceipt)> {
+        let scope_snapshot = capture_scope(scope)?;
+        validate_scope_for_slot(&scope_snapshot, &self.service_id)?;
+        if claim.binding_digest() != &scope_snapshot.binding_digest {
+            return Err(permission_denied(
+                "C1 continuation correlation does not match the exact A recovery admission",
+            ));
+        }
+        let scope_address = scope_data_address(scope);
+        let mut state = self.lock_state()?;
+        let token = state
+            .current
+            .ok_or_else(|| permission_denied("system-service slot has no current launch"))?;
+        let entry = find_launch(&state.launches, token)
+            .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+        validate_entry_scope(
+            entry,
+            scope,
+            &scope_snapshot,
+            scope_address,
+            &self.service_id,
+        )?;
+        let peer = proof.peer_credentials();
+        if entry.state != LaunchState::Running
+            || token.0 != scope_snapshot.c3_launch_generation
+            || entry.process_id != proof.process_id()
+            || token.0 != proof.launch_generation()
+            || entry.scope.catalog_generation != proof.service_slot_identity().catalog_generation()
+            || entry.scope.service_id != proof.service_slot_identity().service_id()
+            || (entry.scope.uid, entry.scope.gid) != (peer.uid, peer.gid)
+            || proof.process_identity().process_id() != peer.process_id
+            || !entry
+                .launch_record
+                .process_identity()
+                .same_instance(&proof.process_identity())
+            || state.lifecycle.live_record(entry.process_id) != Some(&token)
+            || !state.lifecycle.is_live_record(entry.process_id, token)?
+        {
+            return Err(permission_denied(
+                "C3 continuation proof is not for the exact current child",
+            ));
+        }
+
+        let journal = state.durable_journal.clone().ok_or_else(|| {
+            io::Error::other("C3 live-continuation gate requires the durable slot journal")
+        })?;
+        let row = match journal.readback() {
+            C3SlotJournalReadback::Committed(row) => row,
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            }
+        };
+        if row.service_id() != self.service_id
+            || row.catalog_generation() != scope_snapshot.catalog_generation.get()
+            || row.c3_launch_generation() != scope_snapshot.c3_launch_generation.get()
+            || row.scope_binding_digest() != &scope_snapshot.binding_digest
+            || row.state() != C3SlotState::Live
+            || row.c1_operation_id() != Some(claim.operation_id())
+        {
+            return Err(permission_denied(
+                "C3 Live row does not match the continuing C1 operation and exact admission",
+            ));
+        }
+
+        let (result, receipt) = journal
+            .with_c1_correlated_live_continuation_receipt(
+                scope_snapshot.catalog_generation,
+                scope_snapshot.c3_launch_generation,
+                &scope_snapshot.binding_digest,
+                claim,
+                || proof.with_live_authority_effect(effect),
+            )
+            .map_err(c3_journal_io_error)?;
+        let result = result?;
+        if receipt.c1_operation_id() != Some(claim.operation_id())
+            || !exact_durable_receipt(
+                &receipt,
+                &self.service_id,
+                scope_snapshot.catalog_generation,
+                scope_snapshot.c3_launch_generation,
+                &scope_snapshot.binding_digest,
+                C3SlotState::Live,
+            )
+        {
+            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+        }
+        state.highest_operation_id = state.highest_operation_id.max(receipt.operation_id().get());
+        Ok((result, receipt))
+    }
+
     /// Reconcile the exact C3 slot before C1 terminal recovery. A tracked
     /// current or quarantined child is revoked and reaped first; then the C1
     /// operation identity is written into a durable C3 intent before its
@@ -1629,12 +2232,11 @@ fn retire_owner_state_effect(
             ..
         } = state;
         lifecycle.shutdown(|process_id, token| {
-            revoke_registered_launch(launches, current, process_id, *token)
+            revoke_and_retire_identity_listener(launches, current, process_id, *token)
         })
     };
     prune_retired_launches(state);
-    if state.current.is_none() && state.lifecycle.active_len() == 0 {
-        state.launches.clear();
+    if state.current.is_none() && state.lifecycle.active_len() == 0 && state.launches.is_empty() {
         return validate_quiescent_retired_state(state);
     }
     Err(shutdown_result.err().map(backend_error).unwrap_or_else(|| {
@@ -1938,9 +2540,25 @@ fn register_prepared_launch<Os: ProcessOs>(
         scope_data_address,
         launch_record,
         state: LaunchState::Prepared,
+        fd_delegation_attestation: None,
+        identity_listener: None,
     });
     *highest_catalog_generation = Some(catalog_generation);
     Ok(token)
+}
+
+fn identity_launch_binding(entry: &OwnedLaunch) -> C3IdentityLaunchBinding {
+    C3IdentityLaunchBinding {
+        service_id: entry.scope.service_id.clone(),
+        catalog_generation: entry.scope.catalog_generation,
+        c3_launch_generation: entry.token.0,
+        scope_binding_digest: entry.scope.binding_digest,
+        process_identity: entry.launch_record.process_identity().clone(),
+    }
+}
+
+fn identity_binding_matches_launch(binding: &C3IdentityLaunchBinding, entry: &OwnedLaunch) -> bool {
+    binding.matches(&identity_launch_binding(entry))
 }
 
 fn authorize_prepared_launch<Os: ProcessOs>(
@@ -2015,6 +2633,107 @@ fn revoke_registered_launch(
     }
 }
 
+fn activate_identity_listener_after_exec_ack(
+    entry: &mut OwnedLaunch,
+    attestation: &FdDelegationRestrictionAttestation,
+) -> Result<(), BackendError> {
+    let Some(bound_binding) = entry.identity_listener.as_ref().map(|bound| &bound.binding) else {
+        return Ok(());
+    };
+    let binding_matches = identity_binding_matches_launch(bound_binding, entry);
+    let Some(bound) = entry.identity_listener.as_mut() else {
+        return Err(BackendError::ProtocolViolation);
+    };
+    if bound.activation != IdentityListenerActivation::Pending
+        || bound.retirement != IdentityListenerRetirement::NotAttempted
+        || !binding_matches
+        || !attestation.matches_process(bound.binding.process_identity())
+    {
+        bound.activation = IdentityListenerActivation::Unknown;
+        return Err(BackendError::IdentityRejected);
+    }
+    let matches = catch_unwind(AssertUnwindSafe(|| {
+        bound.lease.matches_binding(&bound.binding)
+    }))
+    .unwrap_or(false);
+    if !matches {
+        bound.activation = IdentityListenerActivation::Unknown;
+        return Err(BackendError::IdentityRejected);
+    }
+
+    // An error or panic may have partially published the listener. Never
+    // retry activation or report the registration live in that state.
+    bound.activation = IdentityListenerActivation::Unknown;
+    match catch_unwind(AssertUnwindSafe(|| {
+        bound
+            .lease
+            .activate_after_exec_ack(&bound.binding, attestation)
+    })) {
+        Ok(Ok(())) => {
+            bound.activation = IdentityListenerActivation::Active;
+            Ok(())
+        }
+        Ok(Err(_)) | Err(_) => Err(BackendError::TransportFailure),
+    }
+}
+
+/// ProcessLifecycle invokes this callback only after its sole reaper has an
+/// exact wait result. The C3 Supervisor record is revoked first; only then
+/// may C2 retire the listener bound to that same C3 launch binding.
+fn revoke_and_retire_identity_listener(
+    launches: &mut [OwnedLaunch],
+    current: &mut Option<LaunchToken>,
+    process_id: u32,
+    token: LaunchToken,
+) -> Result<(), BackendError> {
+    revoke_registered_launch(launches, current, process_id, token)?;
+    retire_identity_listener_after_exact_reap(launches, process_id, token)
+}
+
+fn retire_identity_listener_after_exact_reap(
+    launches: &mut [OwnedLaunch],
+    process_id: u32,
+    token: LaunchToken,
+) -> Result<(), BackendError> {
+    let entry = find_launch_mut(launches, token, process_id).ok_or(BackendError::Revoked)?;
+    let Some(bound_binding) = entry.identity_listener.as_ref().map(|bound| &bound.binding) else {
+        return Ok(());
+    };
+    let binding_matches = entry.state == LaunchState::Retired
+        && identity_binding_matches_launch(bound_binding, entry);
+    let matches_registration = catch_unwind(AssertUnwindSafe(|| {
+        entry
+            .identity_listener
+            .as_ref()
+            .is_some_and(|bound| bound.lease.matches_binding(&bound.binding))
+    }))
+    .unwrap_or(false);
+    let Some(bound) = entry.identity_listener.as_mut() else {
+        return Err(BackendError::ProtocolViolation);
+    };
+    if bound.retirement != IdentityListenerRetirement::NotAttempted
+        || !binding_matches
+        || !matches_registration
+    {
+        bound.retirement = IdentityListenerRetirement::Unknown;
+        return Err(BackendError::IdentityRejected);
+    }
+
+    // Mark first: a failing callback has an unknown result and is never
+    // retried by a later reap/reconcile pass.
+    bound.retirement = IdentityListenerRetirement::Unknown;
+    let retirement = catch_unwind(AssertUnwindSafe(|| {
+        bound.lease.retire_after_exact_reap(&bound.binding)
+    }));
+    if matches!(retirement, Ok(Ok(()))) {
+        bound.retirement = IdentityListenerRetirement::Complete;
+        entry.identity_listener = None;
+        Ok(())
+    } else {
+        Err(BackendError::TransportFailure)
+    }
+}
+
 fn terminate_launch(state: &mut OwnerState, process_id: u32, token: LaunchToken) -> io::Result<()> {
     let OwnerState {
         lifecycle,
@@ -2024,7 +2743,7 @@ fn terminate_launch(state: &mut OwnerState, process_id: u32, token: LaunchToken)
     } = state;
     lifecycle
         .terminate_exact(process_id, token, |pid, record| {
-            revoke_registered_launch(launches, current, pid, *record)
+            revoke_and_retire_identity_listener(launches, current, pid, *record)
         })
         .map_err(backend_error)
 }
@@ -2047,17 +2766,13 @@ fn terminate_launch_bounded(
         })?;
     let first_error = terminate_launch(state, process_id, token).err();
     loop {
-        if find_launch(&state.launches, token).is_some_and(|entry| {
-            entry.process_id == process_id && entry.state == LaunchState::Retired
-        }) {
-            prune_retired_launches(state);
+        prune_retired_launches(state);
+        if find_launch(&state.launches, token).is_none() {
             return Ok(());
         }
         let _ = poll_state(state);
-        if find_launch(&state.launches, token).is_some_and(|entry| {
-            entry.process_id == process_id && entry.state == LaunchState::Retired
-        }) {
-            prune_retired_launches(state);
+        prune_retired_launches(state);
+        if find_launch(&state.launches, token).is_none() {
             return Ok(());
         }
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -2136,8 +2851,9 @@ fn poll_state(
         current,
         ..
     } = state;
-    lifecycle
-        .poll(|process_id, token| revoke_registered_launch(launches, current, process_id, *token))
+    lifecycle.poll(|process_id, token| {
+        revoke_and_retire_identity_listener(launches, current, process_id, *token)
+    })
 }
 
 fn poll_and_record_absence(
@@ -2166,9 +2882,9 @@ fn record_current_absent_after_reap(
     state: &mut OwnerState,
     deadline: Option<Instant>,
 ) -> io::Result<()> {
-    if state.current.is_some() {
+    if state.current.is_some() || !state.launches.is_empty() || state.lifecycle.active_len() != 0 {
         return Err(io::Error::other(
-            "C3 current slot changed while recording an observed child exit",
+            "C3 child or listener lease remains while recording an observed slot exit",
         ));
     }
     let Some(journal) = state.durable_journal.clone() else {
@@ -2258,7 +2974,9 @@ fn prune_retired_launches(state: &mut OwnerState) {
         ..
     } = state;
     launches.retain(|entry| {
-        entry.state != LaunchState::Retired || lifecycle.tracks_record(&entry.token)
+        entry.state != LaunchState::Retired
+            || lifecycle.tracks_record(&entry.token)
+            || entry.identity_listener.is_some()
     });
 }
 
@@ -2316,7 +3034,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::num::NonZeroU64;
     use std::os::fd::AsFd;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
     use std::os::unix::net::UnixStream;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::process::{Child, Command};
@@ -2654,6 +3372,26 @@ mod tests {
         assert_eq!(first.launch_generation(), generation1);
         assert!(first.is_live().unwrap());
         confirm_isolated_endpoint(&first);
+        let first_process_identity = first.process_identity();
+        let exact_live_attestation = owner
+            .with_current_fd_delegation_prevention(
+                &scope1,
+                &first_process_identity,
+                |attestation| {
+                    attestation.service_id() == service_id
+                        && attestation.catalog_generation().get() == 1
+                        && attestation.launch_generation() == generation1
+                        && attestation.scope_binding_digest() == &scope1.binding
+                        && attestation
+                            .process_identity()
+                            .same_instance(&first_process_identity)
+                        && attestation
+                            .c2_fd_delegation_restriction()
+                            .matches_process(&first_process_identity)
+                },
+            )
+            .unwrap();
+        assert!(exact_live_attestation);
 
         let generation2 = owner.reserve_launch_generation().unwrap();
         let scope2 = FixtureScope::new(
@@ -2742,6 +3480,141 @@ mod tests {
             .unwrap();
     }
 
+    #[cfg(not(nagi_release_build))]
+    #[test]
+    fn c3_slot_journal_dev_first_provision_creates_private_pair_and_first_launch() {
+        let service_id = "system.fixture.dev-first-provision";
+        let directory = JournalDirectory::new();
+        let journal_path = directory.journal_path();
+        let marker_path = directory.0.join("slot.journal.first-provision");
+        let mut marker = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&marker_path)
+            .unwrap();
+        marker
+            .write_all(b"NAGI-C3-SLOT-FIRST-PROVISION-V1\nsystem.fixture.dev-first-provision\n")
+            .unwrap();
+        marker.sync_all().unwrap();
+        drop(marker);
+
+        let owner =
+            LinuxC3SystemServiceSlotOwner::new_with_journal(service_id, &journal_path).unwrap();
+        assert!(
+            !marker_path.exists(),
+            "first-provision marker was not consumed"
+        );
+        let lock_path = directory.0.join("slot.journal.lock");
+        for path in [&journal_path, &lock_path] {
+            let metadata = std::fs::metadata(path).unwrap();
+            assert_eq!(metadata.mode() & 0o777, 0o600);
+            assert_eq!(metadata.nlink(), 1);
+        }
+        assert!(matches!(
+            owner_journal(&owner).readback(),
+            C3SlotJournalReadback::Empty
+        ));
+
+        let generation = owner.reserve_launch_generation().unwrap();
+        assert_eq!(generation, NonZeroU64::new(1).unwrap());
+        let scope = FixtureScope::new(
+            service_id,
+            1,
+            RecoveryLifecycleTransition::Initial,
+            generation,
+        );
+        launch(&owner, &scope);
+        match owner_journal(&owner).readback() {
+            C3SlotJournalReadback::Committed(row) => {
+                assert_eq!(row.service_id(), service_id);
+                assert_eq!(row.catalog_generation(), 1);
+                assert_eq!(row.c3_launch_generation(), 1);
+                assert_eq!(row.scope_binding_digest(), &scope.binding);
+                assert_eq!(row.state(), C3SlotState::Live);
+            }
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                panic!("first launch did not commit a durable Live row")
+            }
+        }
+        owner
+            .revoke_current(Duration::from_secs(2), Duration::from_millis(10))
+            .unwrap();
+        owner
+            .shutdown(Duration::from_secs(2), Duration::from_millis(10))
+            .unwrap();
+    }
+
+    #[cfg(not(nagi_release_build))]
+    #[test]
+    fn c3_slot_journal_dev_first_provision_rejects_replay_and_partial_inputs() {
+        let cases = ["mismatch", "journal-only", "lock-only", "journal-and-lock"];
+        for (index, case) in cases.into_iter().enumerate() {
+            let service_id = format!("system.fixture.dev-first-provision-{index}");
+            let directory = JournalDirectory::new();
+            let journal_path = directory.journal_path();
+            let lock_path = directory.0.join("slot.journal.lock");
+            let marker_path = directory.0.join("slot.journal.first-provision");
+            if case == "journal-only" || case == "journal-and-lock" {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&journal_path)
+                    .unwrap()
+                    .write_all(b"existing-journal")
+                    .unwrap();
+            }
+            if case == "lock-only" || case == "journal-and-lock" {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&lock_path)
+                    .unwrap()
+                    .write_all(b"existing-lock")
+                    .unwrap();
+            }
+            let marker_service = if case == "mismatch" {
+                "system.fixture.other"
+            } else {
+                service_id.as_str()
+            };
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&marker_path)
+                .unwrap()
+                .write_all(
+                    format!("NAGI-C3-SLOT-FIRST-PROVISION-V1\n{marker_service}\n").as_bytes(),
+                )
+                .unwrap();
+
+            assert!(
+                LinuxC3SystemServiceSlotOwner::new_with_journal(&service_id, &journal_path)
+                    .is_err(),
+                "accepted unsafe first-provision input case {case}"
+            );
+            assert!(
+                marker_path.exists(),
+                "rejected marker was consumed for {case}"
+            );
+            assert_eq!(
+                std::fs::read(&journal_path).ok(),
+                (case == "journal-only" || case == "journal-and-lock")
+                    .then_some(b"existing-journal".to_vec()),
+                "journal changed for {case}"
+            );
+            assert_eq!(
+                std::fs::read(&lock_path).ok(),
+                (case == "lock-only" || case == "journal-and-lock")
+                    .then_some(b"existing-lock".to_vec()),
+                "lock changed for {case}"
+            );
+        }
+    }
+
     #[test]
     fn c3_slot_journal_reconciliation_returns_exact_cleared_receipt() {
         let service_id = "system.fixture.reconciliation-receipt";
@@ -2757,9 +3630,80 @@ mod tests {
             generation,
         );
         let proof = launch_and_authenticate(&owner, &scope);
-        confirm_isolated_endpoint(&proof);
         assert!(proof.is_live().unwrap());
         assert_eq!(owner.active_child_count().unwrap(), 1);
+
+        let live_effect_id = NonZeroU64::new(72).unwrap();
+        let live_effect_claim = C1RecoveryOperationCorrelation::new(live_effect_id, scope.binding);
+        let live_effect_count = AtomicUsize::new(0);
+        let (live_effect_result, live_effect_receipt) = owner
+            .with_durable_live_effect_gate(&scope, &proof, live_effect_claim, || {
+                live_effect_count.fetch_add(1, Ordering::SeqCst);
+                71
+            })
+            .unwrap();
+        assert_eq!(live_effect_result, 71);
+        assert_eq!(live_effect_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c1_operation_id(&live_effect_receipt),
+            Some(live_effect_id)
+        );
+        assert_ne!(live_effect_receipt.operation_id(), live_effect_id);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&live_effect_receipt),
+            C3RecoverySlotState::Live
+        );
+        match owner_journal(&owner).readback() {
+            C3SlotJournalReadback::Committed(row) => {
+                assert_eq!(row.state(), C3SlotState::Live);
+                assert_eq!(row.service_id(), service_id);
+                assert_eq!(row.catalog_generation(), 1);
+                assert_eq!(row.c3_launch_generation(), generation.get());
+                assert_eq!(row.scope_binding_digest(), &scope.binding);
+                assert_eq!(row.c1_operation_id(), Some(live_effect_id));
+            }
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                panic!("C3 live-effect correlation was not committed and read back")
+            }
+        }
+
+        let continuation_count = AtomicUsize::new(0);
+        let (continuation_result, continuation_receipt) = owner
+            .with_durable_live_continuation_gate(&scope, &proof, live_effect_claim, || {
+                continuation_count.fetch_add(1, Ordering::SeqCst);
+                Ok(72)
+            })
+            .unwrap();
+        assert_eq!(continuation_result, 72);
+        assert_eq!(continuation_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c1_operation_id(&continuation_receipt),
+            Some(live_effect_id)
+        );
+        assert_ne!(
+            continuation_receipt.operation_id(),
+            live_effect_receipt.operation_id()
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&continuation_receipt),
+            C3RecoverySlotState::Live
+        );
+        match owner_journal(&owner).readback() {
+            C3SlotJournalReadback::Committed(row) => {
+                assert_eq!(row.state(), C3SlotState::Live);
+                assert_eq!(row.c1_operation_id(), Some(live_effect_id));
+                assert_eq!(
+                    row.operation_id(),
+                    continuation_receipt.operation_id().get()
+                );
+                assert_eq!(row.scope_binding_digest(), &scope.binding);
+            }
+            C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
+                panic!("C3 continuation did not commit and read back its exact Live row")
+            }
+        }
+
+        confirm_isolated_endpoint(&proof);
         owner
             .finish_admitted(
                 &scope,
