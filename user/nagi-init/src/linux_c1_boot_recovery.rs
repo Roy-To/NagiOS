@@ -248,6 +248,26 @@ mod task24 {
     >;
 
     impl Runtime<'_, '_> {
+        /// Read-only Identity status boundary for the already-attached
+        /// Session. The operation must perform bounded local work and must
+        /// not do transport I/O or re-enter these owners.
+        fn with_current_identity_status<T>(
+            &self,
+            attached: SessionLease,
+            read: impl FnOnce() -> Result<T, PeerDenial>,
+        ) -> Result<T, PeerDenial> {
+            let _runtime = self
+                .identity
+                .enter_runtime_admission(self.boot.recovery_scope())
+                .map_err(|_| PeerDenial::Unavailable)?;
+            self.identity.with_ready_session(attached, || {
+                self.boot
+                    .proof
+                    .with_live_authority_effect(read)
+                    .map_err(|_| PeerDenial::StalePeer)?
+            })
+        }
+
         /// Publish the normal init transition inside the C2 owner gate and
         /// the exact attached C1 Session effect. The boot plan and handshake
         /// authorities are supplied by their owners.
@@ -275,7 +295,7 @@ mod task24 {
                 run.run_owner.readiness_boundary(),
             )?;
             Pid1LifecycleReadyAdapter.map_current(Some(&run.run_owner), &event, |_| {
-                self.identity.with_ready_session(attached, || {
+                self.with_current_identity_status(attached, || {
                     publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
                 })
             })?
