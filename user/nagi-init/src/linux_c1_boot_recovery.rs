@@ -222,6 +222,8 @@ impl SelectedBootIdentityRuntime<'_, '_> {
 ))]
 mod task24 {
     use super::*;
+    #[cfg(all(linux_boot_owner_registration, feature = "system-service-readiness"))]
+    use crate::linux_init::linux_task24_endpoint_launch::ActivatedIdentityEndpoint;
     #[cfg(feature = "system-service-readiness")]
     use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
@@ -362,12 +364,12 @@ mod task24 {
 
         /// Keep the live C1 Session through C2's final validation of the
         /// exact C3 service proof and retained NIPC connection.
-        #[cfg(feature = "system-service-readiness")]
+        #[cfg(all(linux_boot_owner_registration, feature = "system-service-readiness"))]
         pub(in crate::linux_init) fn publish_task24_ready(
             &self,
             attached: SessionLease,
             run: &BootLoginRun,
-            endpoints: &impl TrustedServiceEndpointAuthority,
+            identity: &ActivatedIdentityEndpoint<'_>,
             handshakes: &impl CompletedServiceHandshakeAuthority,
             ready: &mut bool,
         ) -> Result<(), PeerDenial> {
@@ -375,7 +377,7 @@ mod task24 {
             let event = run.directory.system_service_ready_event(
                 run.run_owner.run(),
                 &self.boot.proof,
-                endpoints,
+                identity.endpoint,
                 &run.instances,
                 handshakes,
                 &BootLoginSupervisor,
@@ -383,9 +385,21 @@ mod task24 {
                 plan,
             )?;
             self.with_current_identity_session(attached, || {
-                event.with_current(|_| {
-                    publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
-                })?
+                identity
+                    .launch_lease
+                    .with_current_system_service_ready_owner(
+                        identity.spawn,
+                        identity.record,
+                        &event,
+                        |registration, endpoint| {
+                            if registration != identity.registration
+                                || endpoint.endpoint() != identity.endpoint.endpoint()
+                            {
+                                return Err(PeerDenial::StaleRegistration);
+                            }
+                            publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
+                        },
+                    )
             })
         }
     }
