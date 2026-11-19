@@ -1,0 +1,4 @@
+id=org.nagi.dev.task24-identity
+name=Task24 development Identity
+version=0.1.0
+entry=task24-identity-ready.elf

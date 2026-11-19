@@ -3,15 +3,15 @@
 //! the launch owner. Neither route IDs nor the request confer authority.
 
 use nagi_nipc_v1_stream_candidate as nipc;
-use nagi_sdk::app_contract::{IpcEnvelope, MessageKind};
+use nagi_sdk::app_contract::IpcEnvelope;
 use nagi_sdk::AppId;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
-pub(super) const REQUEST_TYPE: &str = "nagi.identity.readiness.request@1";
-pub(super) const RESPONSE_TYPE: &str = "nagi.identity.readiness.response@1";
-const CHALLENGE_BYTES: usize = 32;
+#[path = "linux_task24_identity_readiness_wire.rs"]
+mod wire;
+use wire::CHALLENGE_BYTES;
 
 struct Until<'a> {
     stream: &'a UnixStream,
@@ -81,18 +81,8 @@ pub(super) fn serve_identity_readiness(
         .map_err(transport_error)?
         .ok_or_else(|| io::Error::from(io::ErrorKind::UnexpectedEof))?;
     let request = IpcEnvelope::decode(&frame).map_err(|_| invalid_request())?;
-    if request.kind != MessageKind::Request
-        || request.source != broker_app
-        || request.destination != Some(identity_app)
-        || request.payload_type != REQUEST_TYPE
-        || !request.payload.is_empty()
-    {
-        return Err(invalid_request());
-    }
-    let request_id = request.request_id.ok_or_else(invalid_request)?;
-    let mut challenge = [0; CHALLENGE_BYTES];
-    challenge[..16].copy_from_slice(&request_id.0);
-    challenge[16..].copy_from_slice(&request.correlation_id.0);
+    let challenge =
+        wire::challenge(&request, broker_app, identity_app).ok_or_else(invalid_request)?;
 
     let mut control = Until {
         stream: control,
@@ -101,25 +91,9 @@ pub(super) fn serve_identity_readiness(
     control.write_all(&challenge)?;
     let mut confirmed = [0; CHALLENGE_BYTES];
     control.read_exact(&mut confirmed)?;
-    if confirmed != challenge {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Identity status was not confirmed",
-        ));
-    }
-
-    nipc::write_frame(
-        &mut broker,
-        &IpcEnvelope {
-            source: identity_app,
-            destination: Some(broker_app),
-            kind: MessageKind::Response,
-            payload_type: RESPONSE_TYPE,
-            payload: &confirmed,
-            ..request
-        },
-    )
-    .map_err(transport_error)?;
+    let response = wire::response(request, &challenge, &confirmed)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
+    nipc::write_frame(&mut broker, &response).map_err(transport_error)?;
     Ok(())
 }
 
@@ -145,8 +119,9 @@ pub(super) fn confirm_identity_readiness(
 mod tests {
     use super::*;
     use nagi_sdk::app_contract::{
-        CorrelationId, OrderingMetadata, RequestId, IPC_PROTOCOL_VERSION,
+        CorrelationId, MessageKind, OrderingMetadata, RequestId, IPC_PROTOCOL_VERSION,
     };
+    use wire::{REQUEST_TYPE, RESPONSE_TYPE};
 
     #[test]
     fn service_replies_only_after_owner_confirms_current_state() {
