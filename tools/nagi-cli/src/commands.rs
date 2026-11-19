@@ -8553,15 +8553,20 @@ fn execute_m18(root: &Path, probe: &dyn HostProbe) -> CommandResult {
         )],
     }
 }
-// Required serial lines in producer order; the final acceptance line is appended below.
+const ISOLATED_PROCESS_REPORT: &str =
+    "Nagi isolated process address space and syscall isolation PASS";
+const ISOLATED_PROCESS_EXIT: &str = "Nagi ADR0043 isolated process exit pid=2 code=0";
+const ISOLATED_PROCESS_FAULT_PREFIX: &str = "Nagi ADR0047 isolated process fault ";
+
+// Required serial checkpoints in phase order; the final acceptance line is appended below.
 const ISOLATED_PROCESS_MARKERS: [&str; 16] = [
     "Nagi Kernel started",
     "Nagi Supervisor signed package verification PASS",
     "Nagi ADR0043 isolated process spawned pid=2",
     "Nagi isolated process kernel-stamped sender PASS",
     "Nagi isolated process forged payload identity denied PASS",
-    "Nagi isolated process address space and syscall isolation PASS",
-    "Nagi ADR0043 isolated process exit pid=2 code=0",
+    ISOLATED_PROCESS_REPORT,
+    ISOLATED_PROCESS_EXIT,
     "Nagi Supervisor process exit status PASS",
     "Nagi isolated process exit cleanup PASS",
     "Nagi isolated processes concurrent PASS",
@@ -8931,12 +8936,56 @@ fn missing_isolated_process_marker(serial: &str) -> Option<&'static str> {
         .into_iter()
         .chain([ISOLATED_PROCESS_PASS_MARKER])
     {
-        let Some(offset) = lines[next_line..].iter().position(|line| *line == marker) else {
+        if marker == ISOLATED_PROCESS_EXIT {
+            // Already checked in the report/exit phase.
+            continue;
+        }
+        let remaining = &lines[next_line..];
+        let report_or_marker = remaining
+            .iter()
+            .position(|line| isolated_process_marker_matches(marker, line));
+        let Some(offset) = report_or_marker else {
             return Some(marker);
         };
-        next_line += offset + 1;
+        let last_offset = if marker == ISOLATED_PROCESS_REPORT {
+            // The child queues its report and exits without waiting for init to
+            // log the report. Both records must precede the verified reap.
+            let Some(exit_offset) = remaining
+                .iter()
+                .position(|line| isolated_process_marker_matches(ISOLATED_PROCESS_EXIT, line))
+            else {
+                return Some(ISOLATED_PROCESS_EXIT);
+            };
+            offset.max(exit_offset)
+        } else {
+            offset
+        };
+        next_line += last_offset + 1;
     }
     None
+}
+
+fn isolated_process_marker_matches(marker: &str, line: &str) -> bool {
+    if !marker.starts_with(ISOLATED_PROCESS_FAULT_PREFIX) {
+        return line == marker;
+    }
+    // kernel/src/syscall.rs emits the fixed pid/vector followed by two
+    // 64-bit hexadecimal values. Require the entire row, not a prefix hit.
+    let Some((rip, cr2)) = line
+        .strip_prefix(marker)
+        .and_then(|suffix| suffix.strip_prefix(" rip="))
+        .and_then(|suffix| suffix.split_once(" cr2="))
+    else {
+        return false;
+    };
+    [rip, cr2].into_iter().all(|value| {
+        value.strip_prefix("0x").is_some_and(|digits| {
+            digits.len() == 16
+                && digits
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        })
+    })
 }
 
 /// Report only fixed marker labels; this diagnostic never determines acceptance.
@@ -8956,7 +9005,10 @@ fn isolated_process_marker_progress(serial: Option<&str>) -> String {
     let mut has_lookalike = false;
 
     for (index, marker) in markers.iter().enumerate() {
-        if lines.iter().any(|line| line == marker) {
+        if lines
+            .iter()
+            .any(|line| isolated_process_marker_matches(marker, line))
+        {
             found += 1;
         } else {
             first_missing.get_or_insert(index + 1);
@@ -11226,6 +11278,20 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::path::Path;
 
+    fn isolated_process_test_rows() -> Vec<String> {
+        super::ISOLATED_PROCESS_MARKERS
+            .into_iter()
+            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
+            .map(|marker| {
+                if marker.starts_with(super::ISOLATED_PROCESS_FAULT_PREFIX) {
+                    format!("{marker} rip=0x0000400000000000 cr2=0x0000000000000000")
+                } else {
+                    marker.to_owned()
+                }
+            })
+            .collect()
+    }
+
     #[test]
     fn isolated_process_progress_distinguishes_absent_partial_complete_and_near_text() {
         assert_eq!(
@@ -11254,12 +11320,7 @@ mod tests {
         assert!(!partial_summary.contains("private-value"));
         assert!(!partial_summary.contains("password"));
 
-        let complete = super::ISOLATED_PROCESS_MARKERS
-            .iter()
-            .copied()
-            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
-            .collect::<Vec<_>>()
-            .join("\n");
+        let complete = isolated_process_test_rows().join("\n");
         assert_eq!(
             isolated_process_marker_progress(Some(&complete)),
             "isolated_process_progress=complete_marker_set"
@@ -11280,11 +11341,7 @@ mod tests {
 
     #[test]
     fn isolated_process_acceptance_requires_ordered_exact_marker_lines() {
-        let expected = super::ISOLATED_PROCESS_MARKERS
-            .iter()
-            .copied()
-            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
-            .collect::<Vec<_>>();
+        let expected = isolated_process_test_rows();
         let complete = expected.join("\r\n");
         assert_eq!(missing_isolated_process_marker(&complete), None);
 
@@ -11295,18 +11352,18 @@ mod tests {
             .join("\n");
         assert_eq!(
             missing_isolated_process_marker(&lookalikes),
-            Some(expected[0])
+            Some(expected[0].as_str())
         );
 
         let mut reversed = expected.clone();
         reversed.reverse();
         assert_eq!(
             missing_isolated_process_marker(&reversed.join("\n")),
-            Some(expected[1])
+            Some(expected[1].as_str())
         );
 
         let mut duplicated = expected.clone();
-        duplicated.insert(1, expected[0]);
+        duplicated.insert(1, expected[0].clone());
         assert_eq!(
             missing_isolated_process_marker(&duplicated.join("\n")),
             None
@@ -11314,13 +11371,53 @@ mod tests {
     }
 
     #[test]
-    fn isolated_process_acceptance_failure_markers_override_complete_pass_set() {
-        let complete = super::ISOLATED_PROCESS_MARKERS
+    fn isolated_process_acceptance_handles_report_exit_order_within_one_phase() {
+        let mut rows = isolated_process_test_rows();
+        let report = rows
             .iter()
-            .copied()
-            .chain([super::ISOLATED_PROCESS_PASS_MARKER])
-            .collect::<Vec<_>>()
-            .join("\n");
+            .position(|row| row == super::ISOLATED_PROCESS_REPORT)
+            .unwrap();
+        let exit = rows
+            .iter()
+            .position(|row| row == super::ISOLATED_PROCESS_EXIT)
+            .unwrap();
+
+        rows.swap(report, exit);
+        assert_eq!(missing_isolated_process_marker(&rows.join("\n")), None);
+        // Exit appearing before the preceding phase cannot satisfy this phase.
+        rows.swap(report - 1, report);
+        assert_eq!(
+            missing_isolated_process_marker(&rows.join("\n")),
+            Some(super::ISOLATED_PROCESS_EXIT)
+        );
+    }
+
+    #[test]
+    fn isolated_process_acceptance_requires_full_kernel_fault_rows() {
+        let fault = "Nagi ADR0047 isolated process fault pid=3 vector=14";
+        let mut rows = isolated_process_test_rows();
+        let index = rows.iter().position(|row| row.starts_with(fault)).unwrap();
+        let valid = rows[index].clone();
+        for invalid in [
+            fault.to_owned(),
+            format!("prefix {valid}"),
+            format!("{valid} extra"),
+            valid.replace("pid=3", "pid=30"),
+            valid.replace("vector=14", "vector=140"),
+            valid.replace("0x0000400000000000", "0x12"),
+            valid.replace("cr2=0x0000000000000000", "cr2=0x000000000000000g"),
+        ] {
+            rows[index] = invalid;
+            assert_eq!(
+                missing_isolated_process_marker(&rows.join("\n")),
+                Some(fault)
+            );
+        }
+    }
+
+    #[test]
+    fn isolated_process_acceptance_failure_markers_override_complete_pass_set() {
+        let complete = isolated_process_test_rows().join("\n");
 
         for failure in [
             "Nagi isolated process acceptance FAIL fixture failure",
