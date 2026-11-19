@@ -7480,6 +7480,10 @@ impl InitBackend for UnconnectedBackend {
                                                         package,
                                                         route,
                                                         run,
+                                                        #[cfg(feature = "system-service-readiness")]
+                                                        // The independent C3 boot slot does not yet
+                                                        // return its activated C2 endpoint here.
+                                                        None,
                                                         &mut console,
                                                     );
                                                 }
