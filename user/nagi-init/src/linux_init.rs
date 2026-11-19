@@ -7581,10 +7581,11 @@ impl InitBackend for UnconnectedBackend {
                                 &data.snapshots,
                                 &data.accounts,
                             ) {
-                                Ok(mut runtime) => match runtime.verify_continuing_admission() {
-                                    Ok(()) => {
-                                        pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED");
-                                        #[cfg(all(
+                                Ok(mut runtime) => {
+                                    match runtime.verify_continuing_admission() {
+                                        Ok(()) => {
+                                            pid1_log!("NAGI_C1_BOOT_RECOVERY_AND_C3_CONTINUATION_VERIFIED");
+                                            #[cfg(all(
                                             linux_task24_owner_co_location,
                                             linux_task24_initial_login_runtime,
                                             feature = "desktop-login"
@@ -7601,7 +7602,7 @@ impl InitBackend for UnconnectedBackend {
                                                 }
                                             }
                                         });
-                                        #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+                                            #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
                                         match linux_owner_registration_console::BootOwnerConsole::open() {
                                             Ok(mut console) => {
                                                 #[cfg(all(
@@ -7631,12 +7632,13 @@ impl InitBackend for UnconnectedBackend {
                                             }
                                             Err(error) => pid1_log!("NAGI_LINUX_OWNER_UI_UNAVAILABLE ({error})"),
                                         }
-                                        wait_in_pid1(wait_for_pid1_os_event);
+                                            wait_in_pid1(wait_for_pid1_os_event);
+                                        }
+                                        Err(error) => pid1_log!(
+                                            "NAGI_C3_BOOT_CONTINUATION_UNAVAILABLE ({error:?})"
+                                        ),
                                     }
-                                    Err(error) => pid1_log!(
-                                        "NAGI_C3_BOOT_CONTINUATION_UNAVAILABLE ({error:?})"
-                                    ),
-                                },
+                                }
                                 Err(error) => {
                                     pid1_log!("NAGI_C1_BOOT_RECOVERY_UNAVAILABLE ({error:?})")
                                 }

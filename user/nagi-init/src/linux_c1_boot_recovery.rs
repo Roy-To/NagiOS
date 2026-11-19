@@ -226,21 +226,19 @@ mod task24 {
     use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
     };
-    #[cfg(feature = "system-service-readiness")]
-    use crate::linux_init::{
-        linux_task24_endpoint_launch::{IdentityReadyProtocol, LoginLease},
-        pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner,
-    };
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
             start_verified_login, AttachedLogin, BootInitialLoginRoute, BootLoginRun,
             BootLoginSupervisor, EndpointOwners, LoginChildLaunch, LoginLifecycle,
             VerifiedLoginChild,
         },
-        pid1_live_peer_supplier::{
-            PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease,
-        },
+        pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
         publish_lifecycle_ready,
+    };
+    #[cfg(feature = "system-service-readiness")]
+    use crate::linux_init::{
+        linux_task24_endpoint_launch::{IdentityReadyProtocol, LoginLease},
+        pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner,
     };
     use std::time::Instant;
 

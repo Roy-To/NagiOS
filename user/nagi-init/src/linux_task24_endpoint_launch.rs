@@ -45,14 +45,14 @@ use std::time::{Duration, Instant};
 use super::linux_initial_login_c2::{C1InitialLoginAuthority, C2InitialLogin};
 #[cfg(linux_task24_initial_login_runtime)]
 use super::linux_initial_login_owner::LinuxInitialLoginOwner;
-#[cfg(linux_task24_initial_login_runtime)]
-use pid1_live_peer_supplier::SessionLease;
 #[cfg(all(
     linux_task24_initial_login_runtime,
     linux_boot_owner_registration,
     feature = "system-service-readiness"
 ))]
 use pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner;
+#[cfg(linux_task24_initial_login_runtime)]
+use pid1_live_peer_supplier::SessionLease;
 
 #[cfg(all(linux_task24_notes_consumer, linux_task24_initial_login_runtime))]
 #[path = "linux_task24_notes_console.rs"]
@@ -326,7 +326,10 @@ impl IdentityReadyProtocol {
         &self,
         challenge: &[u8; CHALLENGE_BYTES],
     ) -> Result<(), PeerDenial> {
-        let mut attempt = self.attempt.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let mut attempt = self
+            .attempt
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?;
         let attempt = attempt.as_mut().ok_or(PeerDenial::HandshakeIncomplete)?;
         if attempt.confirmed_on_control || &attempt.challenge != challenge {
             return Err(PeerDenial::HandshakeIncomplete);
@@ -436,7 +439,10 @@ impl ServiceHandshakeProtocol for IdentityReadyProtocol {
     }
 
     fn validate_response_payload(&self, payload: &[u8]) -> Result<(), PeerDenial> {
-        let attempt = self.attempt.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let attempt = self
+            .attempt
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?;
         if !attempt.as_ref().is_some_and(|attempt| {
             attempt.confirmed_on_control && attempt.challenge.as_slice() == payload
         }) {
@@ -581,8 +587,9 @@ pub(super) fn run_owner_login(
     package: &VerifiedLoginChild<'_>,
     route: BootInitialLoginRoute,
     run: &BootLoginRun,
-    #[cfg(feature = "system-service-readiness")]
-    identity_listener: Option<&identity_listener::PendingIdentityListener>,
+    #[cfg(feature = "system-service-readiness")] identity_listener: Option<
+        &identity_listener::PendingIdentityListener,
+    >,
     console: &mut super::linux_owner_registration_console::BootOwnerConsole,
 ) -> ! {
     use super::linux_owner_registration_console::task24_input::RequestRoute;
