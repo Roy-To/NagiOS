@@ -2530,7 +2530,11 @@ pub(crate) mod linux_x86_64_process {
         /// data file remains writable. Requires a Linux test kernel permitting
         /// clone3(CLONE_NEWPID|CLONE_PIDFD), setresuid, and Landlock ABI 12.
         #[test]
+        #[ignore = "WS-10 acceptance requires the dedicated privileged Linux guest and test probe"]
         fn notes_child_denies_same_uid_cross_app_profile_and_closes_held_fd() {
+            let probe_path = std::env::var_os("NAGI_WS04_LANDLOCK_PROBE_ELF")
+                .expect("set NAGI_WS04_LANDLOCK_PROBE_ELF to the owned test fixture");
+            let probe_elf = fs::read(probe_path).expect("read Landlock test fixture");
             let nonce = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -2657,7 +2661,7 @@ pub(crate) mod linux_x86_64_process {
             ];
             let arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
             let executable = super::super::ExecutablePayload::from_package_executable(
-                include_bytes!(env!("NAGI_WS04_LANDLOCK_PROBE_ELF")),
+                &probe_elf,
             )
             .expect("static test probe is a valid x86_64 ET_EXEC ELF");
 
@@ -2786,7 +2790,7 @@ pub(crate) mod linux_x86_64_process {
             let launch = super::super::ProcessLaunch {
                 service: "notes",
                 executable: super::super::ExecutablePayload {
-                    bytes: include_bytes!(env!("NAGI_WS04_LANDLOCK_PROBE_ELF")),
+                    bytes: &[],
                 },
                 arguments: &[],
                 execution_identity: super::super::LinuxExecutionIdentity {
