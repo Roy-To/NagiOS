@@ -3,7 +3,7 @@
 //! package and the existing policy owners.
 
 use super::linux_boot_package_inputs::BootCatalogInputs;
-use super::linux_c3_boot_launch::AuthenticatedBootService;
+use super::linux_c3_boot_launch::{AuthenticatedBootService, TASK24_IDENTITY_PACKAGE_ID};
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_task24_identity_ready::{
     readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
@@ -279,8 +279,6 @@ impl BootLoginRun {
     }
 }
 
-const IDENTITY_PACKAGE_ID: &str = "org.nagi.dev.task24-identity";
-
 /// The single read-only Identity operation selected by the signed Task24 plan.
 pub(super) struct IdentityReadyProtocol {
     route: TrustedRouteKey,
@@ -304,7 +302,7 @@ impl IdentityReadyProtocol {
         let service_id = descriptor.service_id().as_str();
         let service_selector = AppId::from_identifier(service_id.as_bytes());
         let operation = AppId::from_identifier(REQUEST_TYPE.as_bytes());
-        if descriptor.package_id() != IDENTITY_PACKAGE_ID
+        if descriptor.package_id() != TASK24_IDENTITY_PACKAGE_ID
             || descriptor.generation() != plan.generation()
             || mandatory.service_id.get() != service_selector.0
             || mandatory.operation_id.get() != operation.0
@@ -322,7 +320,7 @@ impl IdentityReadyProtocol {
             )?,
             service_id: service_id.to_owned(),
             catalog_generation: plan.generation(),
-            destination: AppId::from_identifier(IDENTITY_PACKAGE_ID.as_bytes()),
+            destination: AppId::from_identifier(TASK24_IDENTITY_PACKAGE_ID.as_bytes()),
             credentials: descriptor.credentials(),
             challenge: Mutex::new(None),
         })
