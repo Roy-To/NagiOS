@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const JOURNAL_MAGIC: &[u8; 8] = b"NGIC3SL1";
-const JOURNAL_VERSION: u8 = 3;
+const JOURNAL_VERSION: u8 = 4;
+const LEGACY_JOURNAL_VERSION: u8 = 3;
+const FIRST_PROVISION_MARKER_MAGIC: &[u8] = b"NAGI-C3-SLOT-FIRST-PROVISION-V1\n";
 const HEADER_LEN: usize = 85;
 const CHECKSUM_LEN: usize = 32;
 const MAX_SERVICE_ID_LEN: usize = 128;
@@ -158,6 +160,7 @@ impl C3DurableSlotReceipt {
 pub(super) struct C3SlotJournal {
     path: PathBuf,
     lock_path: PathBuf,
+    first_provision_marker_path: PathBuf,
     parent: PathBuf,
     service_id: String,
 }
@@ -188,7 +191,7 @@ impl C3SlotJournal {
         Ok(journal)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, not(nagi_release_build)))]
     pub(super) fn create(
         path: impl AsRef<Path>,
         service_id: &str,
@@ -215,6 +218,44 @@ impl C3SlotJournal {
         Ok(journal)
     }
 
+    /// Create a genesis-only journal exactly once for an explicitly marked
+    /// development image. Existing journal or lock entries are never opened,
+    /// replaced, or repaired through this path.
+    #[cfg(not(nagi_release_build))]
+    pub(super) fn create_from_first_provision_marker(
+        path: impl AsRef<Path>,
+        service_id: &str,
+    ) -> Result<Option<Self>, C3SlotJournalError> {
+        let journal = Self::from_path(path, service_id)?;
+        let mut marker =
+            match open_existing_private_file(&journal.first_provision_marker_path, false) {
+                Ok(marker) => marker,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(_) => return Err(C3SlotJournalError::Unknown),
+            };
+        validate_private_file(&marker).map_err(|_| C3SlotJournalError::Rejected)?;
+        let mut marker_bytes = Vec::new();
+        Read::take(
+            &mut marker,
+            (MAX_SERVICE_ID_LEN + FIRST_PROVISION_MARKER_MAGIC.len() + 2) as u64,
+        )
+        .read_to_end(&mut marker_bytes)
+        .map_err(|_| C3SlotJournalError::Unknown)?;
+        if marker_bytes != first_provision_marker_bytes(service_id)? {
+            return Err(C3SlotJournalError::Rejected);
+        }
+
+        require_missing_path(&journal.path)?;
+        require_missing_path(&journal.lock_path)?;
+        drop(marker);
+
+        let created = Self::create(&journal.path, service_id)?;
+        fs::remove_file(&journal.first_provision_marker_path)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        sync_parent(&journal.parent).map_err(|_| C3SlotJournalError::Unknown)?;
+        Ok(Some(created))
+    }
+
     fn from_path(path: impl AsRef<Path>, service_id: &str) -> Result<Self, C3SlotJournalError> {
         if !canonical_service_id(service_id) {
             return Err(C3SlotJournalError::InvalidInput);
@@ -234,9 +275,12 @@ impl C3SlotJournal {
         let path = parent.join(file_name);
         let mut lock_name: OsString = file_name.to_os_string();
         lock_name.push(".lock");
+        let mut first_provision_marker_name = file_name.to_os_string();
+        first_provision_marker_name.push(".first-provision");
         Ok(Self {
             path,
             lock_path: parent.join(lock_name),
+            first_provision_marker_path: parent.join(first_provision_marker_name),
             parent,
             service_id: service_id.to_owned(),
         })
@@ -448,6 +492,7 @@ impl C3SlotJournal {
             reservation.row.operation_id == row.operation_id
                 && reservation.row.c3_launch_generation == row.c3_launch_generation
                 && matches!(row.state, C3SlotState::Live | C3SlotState::Quarantined)
+                && row.c1_operation_id == 0
                 && row.catalog_generation >= scan.highest_catalog_generation
                 && scan
                     .current
@@ -456,7 +501,7 @@ impl C3SlotJournal {
         });
         let is_valid = if reserved_transition {
             true
-        } else if row.state == C3SlotState::Live {
+        } else if row.state == C3SlotState::Live && row.c1_operation_id == 0 {
             false
         } else {
             scan.reservation.is_none()
@@ -606,6 +651,133 @@ impl C3SlotJournal {
         Ok((result, receipt))
     }
 
+    /// Persist the exact C1 operation correlation before its first live-slot
+    /// effect, then return only after the same Live binding and correlation
+    /// have been committed and read back. The C3 operation sequence remains
+    /// independent from C1's operation ID.
+    pub(super) fn with_c1_correlated_live_receipt<R>(
+        &self,
+        catalog_generation: NonZeroU64,
+        c3_launch_generation: NonZeroU64,
+        scope_binding_digest: &[u8; 32],
+        correlation: C1RecoveryOperationCorrelation,
+        effect: impl FnOnce() -> io::Result<R>,
+    ) -> Result<(R, C3DurableSlotReceipt), C3SlotJournalError> {
+        if correlation.binding_digest() != scope_binding_digest {
+            return Err(C3SlotJournalError::Rejected);
+        }
+        let _lock = self.lock_exclusive()?;
+        let mut scan = scan_journal(&self.path, &self.service_id, None)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        if scan.pending.is_some() || scan.reservation.is_some() {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let before = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+        if before.kind != RecordKind::Committed
+            || before.row.service_id != self.service_id
+            || before.row.catalog_generation != catalog_generation.get()
+            || before.row.c3_launch_generation != c3_launch_generation.get()
+            || &before.row.scope_binding_digest != scope_binding_digest
+            || before.row.state != C3SlotState::Live
+        {
+            return Err(C3SlotJournalError::Rejected);
+        }
+        if before.row.c1_operation_id == correlation.operation_id().get() {
+            return Err(C3SlotJournalError::Replay);
+        }
+
+        let operation_id = scan
+            .highest_operation_id
+            .checked_add(1)
+            .and_then(NonZeroU64::new)
+            .ok_or(C3SlotJournalError::Unknown)?;
+        let mut transition = C3SlotTransition::new(
+            &self.service_id,
+            catalog_generation,
+            c3_launch_generation,
+            *scope_binding_digest,
+            operation_id,
+            C3SlotState::Live,
+        )?;
+        transition.c1_operation_id = Some(correlation.operation_id());
+        let mut result = None;
+        let receipt = self.transition_scanned(&mut scan, transition, || {
+            result = Some(effect()?);
+            Ok(())
+        })?;
+        if receipt.c1_operation_id() != Some(correlation.operation_id())
+            || receipt.scope_binding_digest() != scope_binding_digest
+            || receipt.state() != C3SlotState::Live
+        {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let result = result.ok_or(C3SlotJournalError::Unknown)?;
+        Ok((result, receipt))
+    }
+
+    /// Continue a C1 runtime operation whose initial recovery already committed
+    /// the exact correlated Live row. The bootstrap entry remains one-shot;
+    /// this separate entry requires the current row to carry the same C1 ID,
+    /// slot generations, and scope digest before it writes a fresh C3-local
+    /// intent for the continuation callback.
+    pub(super) fn with_c1_correlated_live_continuation_receipt<R>(
+        &self,
+        catalog_generation: NonZeroU64,
+        c3_launch_generation: NonZeroU64,
+        scope_binding_digest: &[u8; 32],
+        correlation: C1RecoveryOperationCorrelation,
+        effect: impl FnOnce() -> io::Result<R>,
+    ) -> Result<(R, C3DurableSlotReceipt), C3SlotJournalError> {
+        if correlation.binding_digest() != scope_binding_digest {
+            return Err(C3SlotJournalError::Rejected);
+        }
+        let _lock = self.lock_exclusive()?;
+        let mut scan = scan_journal(&self.path, &self.service_id, None)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        if scan.pending.is_some() || scan.reservation.is_some() {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let before = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+        if before.kind != RecordKind::Committed
+            || before.row.service_id != self.service_id
+            || before.row.catalog_generation != catalog_generation.get()
+            || before.row.c3_launch_generation != c3_launch_generation.get()
+            || &before.row.scope_binding_digest != scope_binding_digest
+            || before.row.state != C3SlotState::Live
+            || before.row.c1_operation_id != correlation.operation_id().get()
+        {
+            return Err(C3SlotJournalError::Rejected);
+        }
+
+        let operation_id = scan
+            .highest_operation_id
+            .checked_add(1)
+            .and_then(NonZeroU64::new)
+            .ok_or(C3SlotJournalError::Unknown)?;
+        let mut transition = C3SlotTransition::new(
+            &self.service_id,
+            catalog_generation,
+            c3_launch_generation,
+            *scope_binding_digest,
+            operation_id,
+            C3SlotState::Live,
+        )?;
+        transition.c1_operation_id = Some(correlation.operation_id());
+        let mut result = None;
+        let receipt = self.transition_scanned(&mut scan, transition, || {
+            result = Some(effect()?);
+            Ok(())
+        })?;
+        if receipt.c1_operation_id() != Some(correlation.operation_id())
+            || receipt.scope_binding_digest() != scope_binding_digest
+            || receipt.state() != C3SlotState::Live
+        {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let result = result.ok_or(C3SlotJournalError::Unknown)?;
+        Ok((result, receipt))
+    }
+
     fn lock_exclusive(&self) -> Result<ExclusiveFileLock, C3SlotJournalError> {
         self.lock_exclusive_with_timeout(DEFAULT_JOURNAL_LOCK_WAIT)
     }
@@ -648,6 +820,24 @@ impl C3SlotJournal {
             }
             _ => Err(()),
         }
+    }
+}
+
+fn first_provision_marker_bytes(service_id: &str) -> Result<Vec<u8>, C3SlotJournalError> {
+    if !canonical_service_id(service_id) {
+        return Err(C3SlotJournalError::InvalidInput);
+    }
+    let mut bytes = FIRST_PROVISION_MARKER_MAGIC.to_vec();
+    bytes.extend_from_slice(service_id.as_bytes());
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+fn require_missing_path(path: &Path) -> Result<(), C3SlotJournalError> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(_) => Err(C3SlotJournalError::Rejected),
+        Err(_) => Err(C3SlotJournalError::Unknown),
     }
 }
 
@@ -828,7 +1018,11 @@ fn valid_transition(
         || next.catalog_generation == 0
         || next.c3_launch_generation == 0
         || next.operation_id == 0
-        || (next.c1_operation_id != 0 && next.state != C3SlotState::ClearedAndAbsent)
+        || (next.c1_operation_id != 0
+            && !matches!(
+                next.state,
+                C3SlotState::Live | C3SlotState::ClearedAndAbsent
+            ))
         || next.catalog_generation < highest_catalog_generation
         || next.c3_launch_generation < highest_c3_launch_generation
     {
@@ -837,8 +1031,14 @@ fn valid_transition(
 
     match next.state {
         C3SlotState::Live => {
-            next.c3_launch_generation > highest_c3_launch_generation
-                && current.is_none_or(|current| current.state != C3SlotState::Quarantined)
+            if next.c1_operation_id != 0 {
+                current.is_some_and(|current| {
+                    current.state == C3SlotState::Live && same_slot_binding(current, next)
+                })
+            } else {
+                next.c3_launch_generation > highest_c3_launch_generation
+                    && current.is_none_or(|current| current.state != C3SlotState::Quarantined)
+            }
         }
         C3SlotState::Reserved => false,
         C3SlotState::ClearedAndAbsent => current.is_some_and(|current| {
@@ -956,6 +1156,7 @@ fn scan_journal(
                             record.row.state,
                             C3SlotState::Live | C3SlotState::Quarantined
                         )
+                        && record.row.c1_operation_id == 0
                         && record.row.catalog_generation >= scan.highest_catalog_generation
                         && scan
                             .current
@@ -969,7 +1170,7 @@ fn scan_journal(
                 };
                 let transition_is_valid = if reserved_transition {
                     true
-                } else if record.row.state == C3SlotState::Live {
+                } else if record.row.state == C3SlotState::Live && record.row.c1_operation_id == 0 {
                     false
                 } else {
                     scan.reservation.is_none()
@@ -1029,7 +1230,10 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
         Err(_) => return Err(()),
     }
     reader.read_exact(&mut header[1..]).map_err(|_| ())?;
-    if &header[..JOURNAL_MAGIC.len()] != JOURNAL_MAGIC || header[8] != JOURNAL_VERSION {
+    let version = header[8];
+    if &header[..JOURNAL_MAGIC.len()] != JOURNAL_MAGIC
+        || !matches!(version, LEGACY_JOURNAL_VERSION | JOURNAL_VERSION)
+    {
         return Err(());
     }
 
@@ -1095,7 +1299,9 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
         RecordKind::Intent | RecordKind::Committed
             if state != C3SlotState::Reserved
                 && operation_id != 0
-                && (c1_operation_id == 0 || state == C3SlotState::ClearedAndAbsent)
+                && (c1_operation_id == 0
+                    || state == C3SlotState::ClearedAndAbsent
+                    || (version == JOURNAL_VERSION && state == C3SlotState::Live))
                 && c3_launch_generation != 0
                 && catalog_generation != 0 => {}
         _ => return Err(()),
@@ -1145,7 +1351,10 @@ fn encode_record(record: &JournalRecord) -> Result<Vec<u8>, ()> {
             if record.row.state != C3SlotState::Reserved
                 && record.row.operation_id != 0
                 && (record.row.c1_operation_id == 0
-                    || record.row.state == C3SlotState::ClearedAndAbsent)
+                    || matches!(
+                        record.row.state,
+                        C3SlotState::Live | C3SlotState::ClearedAndAbsent
+                    ))
                 && record.row.c3_launch_generation != 0
                 && record.row.catalog_generation != 0 => {}
         _ => return Err(()),
