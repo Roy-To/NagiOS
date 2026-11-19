@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 
 #[path = "linux_task24_identity_readiness_wire.rs"]
 mod wire;
-use wire::CHALLENGE_BYTES;
+pub(super) use wire::{
+    challenge_for as readiness_challenge, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+};
 
 struct Until<'a> {
     stream: &'a UnixStream,
@@ -121,7 +123,6 @@ mod tests {
     use nagi_sdk::app_contract::{
         CorrelationId, MessageKind, OrderingMetadata, RequestId, IPC_PROTOCOL_VERSION,
     };
-    use wire::{REQUEST_TYPE, RESPONSE_TYPE};
 
     #[test]
     fn service_replies_only_after_owner_confirms_current_state() {

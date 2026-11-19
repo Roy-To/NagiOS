@@ -222,6 +222,14 @@ impl SelectedBootIdentityRuntime<'_, '_> {
 ))]
 mod task24 {
     use super::*;
+    #[cfg(feature = "system-service-readiness")]
+    use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
+        LinuxPidfdKernel, PidfdProcessInstanceAuthority,
+    };
+    #[cfg(feature = "system-service-readiness")]
+    use crate::linux_init::pid1_live_peer_supplier::{
+        Pid1CompletedServiceHandshakeOwner, RegistrationId,
+    };
     use crate::linux_init::{
         linux_task24_endpoint_launch::{
             start_verified_login, AttachedLogin, BootInitialLoginRoute, BootLoginRun,
@@ -229,9 +237,8 @@ mod task24 {
             VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{
-            CompletedServiceHandshakeAuthority, PeerDenial, Pid1LifecycleReadyAdapter,
-            Pid1ReadinessAtomicBoundary, SessionLease, TrustedInventory,
-            TrustedServiceEndpointAuthority,
+            CompletedServiceHandshakeAuthority, PeerDenial, Pid1ReadinessAtomicBoundary,
+            SessionLease, TrustedServiceEndpointAuthority,
         },
         publish_lifecycle_ready,
     };
@@ -256,16 +263,24 @@ mod task24 {
             attached: SessionLease,
             read: impl FnOnce() -> Result<T, PeerDenial>,
         ) -> Result<T, PeerDenial> {
-            let _runtime = self
-                .identity
-                .enter_runtime_admission(self.boot.recovery_scope())
-                .map_err(|_| PeerDenial::Unavailable)?;
-            self.identity.with_ready_session(attached, || {
+            self.with_current_identity_session(attached, || {
                 self.boot
                     .proof
                     .with_live_authority_effect(read)
                     .map_err(|_| PeerDenial::StalePeer)?
             })
+        }
+
+        fn with_current_identity_session<T>(
+            &self,
+            attached: SessionLease,
+            read: impl FnOnce() -> Result<T, PeerDenial>,
+        ) -> Result<T, PeerDenial> {
+            let _runtime = self
+                .identity
+                .enter_runtime_admission(self.boot.recovery_scope())
+                .map_err(|_| PeerDenial::Unavailable)?;
+            self.identity.with_ready_session(attached, read)
         }
 
         /// Answer the separately launched Identity process on the control
@@ -293,37 +308,85 @@ mod task24 {
             )
         }
 
-        /// Publish the normal init transition inside the C2 owner gate and
-        /// the exact attached C1 Session effect. The boot plan and handshake
-        /// authorities are supplied by their owners.
+        /// Complete the C2 request while PID 1 services the separate C3
+        /// control stream. The caller retains the handshake owner for READY.
+        #[cfg(feature = "system-service-readiness")]
+        pub(in crate::linux_init) fn complete_task24_identity_handshake(
+            &self,
+            attached: SessionLease,
+            run: &BootLoginRun,
+            registration: RegistrationId,
+            endpoints: &impl TrustedServiceEndpointAuthority,
+            handshakes: &Pid1CompletedServiceHandshakeOwner<
+                '_,
+                PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
+            >,
+            deadline: Instant,
+        ) -> Result<(), PeerDenial> {
+            let plan = run.identity_ready.as_ref().ok_or(PeerDenial::Unavailable)?;
+            let proof = &self.boot.proof;
+            let instance = run.run_owner.run();
+            let boundary = run.run_owner.readiness_boundary();
+            run.directory.bind_system_service_registration(
+                instance,
+                registration,
+                proof,
+                endpoints,
+                &BootLoginSupervisor,
+                boundary,
+                plan,
+            )?;
+            std::thread::scope(|scope| {
+                let worker = std::thread::Builder::new()
+                    .spawn_scoped(scope, || {
+                        handshakes.complete_system_service_handshake(
+                            &run.directory,
+                            instance,
+                            boundary,
+                            registration,
+                            proof,
+                            endpoints,
+                            &BootLoginSupervisor,
+                            plan,
+                            deadline,
+                        )
+                    })
+                    .map_err(|_| PeerDenial::Unavailable)?;
+                let control = self.confirm_task24_identity_readiness(attached, deadline);
+                worker
+                    .join()
+                    .map_err(|_| PeerDenial::RequestOutcomeUnknown)??;
+                control.map_err(|_| PeerDenial::HandshakeIncomplete)
+            })
+        }
+
+        /// Keep the live C1 Session through C2's final validation of the
+        /// exact C3 service proof and retained NIPC connection.
+        #[cfg(feature = "system-service-readiness")]
         pub(in crate::linux_init) fn publish_task24_ready(
             &self,
             attached: SessionLease,
-            owners: &EndpointOwners<'_>,
-            inventory: &impl TrustedInventory,
+            run: &BootLoginRun,
             endpoints: &impl TrustedServiceEndpointAuthority,
             handshakes: &impl CompletedServiceHandshakeAuthority,
             ready: &mut bool,
         ) -> Result<(), PeerDenial> {
-            let run = owners.run;
-            let (_generation, required) = run.required_ready_services()?;
-            let event = run.directory.ready_event(
-                &run.run_owner,
-                required,
-                inventory,
-                &self.identity,
-                owners.consent,
+            let plan = run.identity_ready.as_ref().ok_or(PeerDenial::Unavailable)?;
+            let event = run.directory.system_service_ready_event(
+                run.run_owner.run(),
+                &self.boot.proof,
                 endpoints,
                 &run.instances,
                 handshakes,
                 &BootLoginSupervisor,
                 run.run_owner.readiness_boundary(),
+                plan,
             )?;
-            Pid1LifecycleReadyAdapter.map_current(Some(&run.run_owner), &event, |_| {
-                self.with_current_identity_status(attached, || {
+            self.with_current_identity_session(attached, || {
+                event.with_current(|_| {
                     publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
-                })
-            })?
+                })?
+            })
         }
     }
 
