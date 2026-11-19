@@ -268,6 +268,31 @@ mod task24 {
             })
         }
 
+        /// Answer the separately launched Identity process on the control
+        /// endpoint retained by its exact C3 proof. I/O stays outside the
+        /// C1/C3 effect gates and uses the handshake's absolute deadline.
+        pub(in crate::linux_init) fn confirm_task24_identity_readiness(
+            &self,
+            attached: SessionLease,
+            deadline: Instant,
+        ) -> io::Result<()> {
+            let control = self
+                .boot
+                .proof
+                .endpoint()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?
+                .try_clone_to_owned()?;
+            let control = std::os::unix::net::UnixStream::from(control);
+            crate::linux_init::linux_task24_identity_ready::confirm_identity_readiness(
+                &control,
+                deadline,
+                || {
+                    self.with_current_identity_status(attached, || Ok(()))
+                        .map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))
+                },
+            )
+        }
+
         /// Publish the normal init transition inside the C2 owner gate and
         /// the exact attached C1 Session effect. The boot plan and handshake
         /// authorities are supplied by their owners.
