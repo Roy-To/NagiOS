@@ -33,7 +33,7 @@ receive fixes. A support period for each version will be defined at 1.0.
 ## Response targets
 
 These are targets, not guarantees
-([DEC-117](docs/product-decisions/DEC-117-support-period-and-vulnerability-response.md)):
+([DEC-118](docs/product-decisions/DEC-118-support-period-and-vulnerability-response.md)):
 
 | Kind of vulnerability | Target for shipping a fix |
 | --- | --- |
