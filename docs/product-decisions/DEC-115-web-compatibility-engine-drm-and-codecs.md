@@ -1,13 +1,13 @@
-# DEC-114 — Web互換性・ブラウザーエンジン・DRM・コーデック
+# DEC-115 — Web互換性・ブラウザーエンジン・DRM・コーデック
 
 **状態:** CONFIRMED（Q1 実測を先に行いB寄りで判断、Q2 動かないサイトの扱い、Q3 DRMとコーデックの方針、ライセンス対応は費用をかけない範囲で行う方針）／PROVISIONAL（主要サイトリスト、試験方法、予備エンジンの選定、コーデックの最終判断、適用版）／REVIEW NOTE（関連ADR・DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** Albertと、Nagiの動画・音声再生全般（Files等のローカル再生を含む）。適用版は未確定  
-**関連:** [ADR-0003](../decisions/ADR-0003-servo-browser.md)、[Decision 0017](../decisions/0017-servo-pin-and-adapter-boundary.md)、[DEC-042](DEC-042-linux-kernel-transition.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)、[DEC-113](DEC-113-web-use-developer-linux-environment-and-app-compat-message.md)
+**関連:** [ADR-0003](../decisions/ADR-0003-servo-browser.md)、[Decision 0017](../decisions/0017-servo-pin-and-adapter-boundary.md)、[DEC-042](DEC-042-linux-kernel-transition.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)、[DEC-114](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md)
 
 ## 目的と背景
 
-DEC-113により、WebサービスはAlbertでサイトを開いて利用する。そのため、主要なWebサービスがAlbertで動くかどうかが、Nagiを日常的に使えるかどうかを直接左右する。
+DEC-114により、WebサービスはAlbertでサイトを開いて利用する。そのため、主要なWebサービスがAlbertで動くかどうかが、Nagiを日常的に使えるかどうかを直接左右する。
 
 ADR-0003は「AlbertはServoのみで、Chromium・WebKit・NetSurfを予備エンジンにしない」と定めている。これは独自カーネル時代の0.1向けの決定であり、当時は他のエンジンを独自カーネルへ移植するのが現実的ではなかった。Linuxカーネルへの移行（DEC-042／043）で、この前提が変わった。
 
@@ -48,7 +48,7 @@ ADR-0003は「AlbertはServoのみで、Chromium・WebKit・NetSurfを予備エ�
 
 ## 例外・禁止・安全境界
 
-- 予備エンジンも、Albertと同じNagiのPermission／サイト権限、DEC-112の外部コンテンツの扱い、Sandboxの境界に従う。エンジンを切り替えることで権限を広げない。
+- 予備エンジンも、Albertと同じNagiのPermission／サイト権限、DEC-113の外部コンテンツの扱い、Sandboxの境界に従う。エンジンを切り替えることで権限を広げない。
 - 予備エンジンで開いたことを、ユーザーにわかるように示す方向とする。
 - DRMの解読部品（Widevine CDM等）を、ライセンスなしで組み込む・取り出して利用する方法は採らない。
 - H.264・HEVCの再生部品を、ライセンスの確認前に一般公開の配布物へ含めない。
@@ -62,7 +62,7 @@ ADR-0003は「AlbertはServoのみで、Chromium・WebKit・NetSurfを予備エ�
   - FedoraはH.264・HEVC等の特許付きコーデックを標準では含めず、H.264はCiscoが提供するOpenH264で対応している。全面的な対応は別の外部リポジトリ（RPM Fusion）で提供されている。
   - H.264の特許は、日本など多くの国ですでに切れたが、米国・ブラジル等では一部が残っているとされる。
 - **お金を払わずにH.264へ対応する候補（未検証・法的判断ではない）:** CiscoのOpenH264の利用（対応範囲に制限がある可能性）、GPUメーカーが提供するハードウェアデコーダーの利用、ユーザーが自分で追加する外部コーデックパック。HEVCは権利関係がより複雑で、無償での標準対応は難しい見込み。いずれも配布前に確認が必要で、本DECでは採用しない。
-- **関連文書への注記:** ADR-0003（Linux版での予備エンジン制約の解除）、Decision 0017、DEC-113（Web利用の前提）に、本DECへの日付付き参照注記を追加する必要がある。
+- **関連文書への注記:** ADR-0003（Linux版での予備エンジン制約の解除）、Decision 0017、DEC-114（Web利用の前提）に、本DECへの日付付き参照注記を追加する必要がある。
 
 ## 未確定・暫定案（PROVISIONAL）
 
