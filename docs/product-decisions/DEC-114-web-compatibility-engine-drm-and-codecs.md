@@ -1,6 +1,6 @@
 # DEC-114 — Web互換性・ブラウザーエンジン・DRM・コーデック
 
-**状態:** CONFIRMED（Q1 実測を先に行いB寄りで判断、Q2 動かないサイトの扱い、Q3 DRMとコーデックの方針）／PROVISIONAL（主要サイトリスト、試験方法、予備エンジンの選定、コーデックの最終判断、適用版）／REVIEW NOTE（関連ADR・DECとの整合）  
+**状態:** CONFIRMED（Q1 実測を先に行いB寄りで判断、Q2 動かないサイトの扱い、Q3 DRMとコーデックの方針、ライセンス対応は費用をかけない範囲で行う方針）／PROVISIONAL（主要サイトリスト、試験方法、予備エンジンの選定、コーデックの最終判断、適用版）／REVIEW NOTE（関連ADR・DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** Albertと、Nagiの動画・音声再生全般（Files等のローカル再生を含む）。適用版は未確定  
 **関連:** [ADR-0003](../decisions/ADR-0003-servo-browser.md)、[Decision 0017](../decisions/0017-servo-pin-and-adapter-boundary.md)、[DEC-042](DEC-042-linux-kernel-transition.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-104](DEC-104-build-supply-chain-baseline-independent-verification-staged.md)、[DEC-113](DEC-113-web-use-developer-linux-environment-and-app-compat-message.md)
@@ -41,12 +41,18 @@ ADR-0003は「AlbertはServoのみで、Chromium・WebKit・NetSurfを予備エ�
 3. **H.264とHEVCは保留とし、一般公開（配布）の前に、ライセンスを確認して結論を出す。**
 4. この判断はWebだけでなく、Files等でのローカル動画再生にも適用する。スマートフォンやカメラで撮影した動画の多くはH.264またはHEVCであるため、配布前の結論は日常利用に大きく影響する。
 
+### ライセンス対応の基本姿勢
+
+1. **DRM・コーデック等のライセンスは、費用をかけずに対応できる範囲で対応する。** ライセンス料の支払いは前提にしない。
+2. 費用なしではどうにもならない部分は、対象外として割り切り、利用者に正直に示す。
+
 ## 例外・禁止・安全境界
 
 - 予備エンジンも、Albertと同じNagiのPermission／サイト権限、DEC-112の外部コンテンツの扱い、Sandboxの境界に従う。エンジンを切り替えることで権限を広げない。
 - 予備エンジンで開いたことを、ユーザーにわかるように示す方向とする。
 - DRMの解読部品（Widevine CDM等）を、ライセンスなしで組み込む・取り出して利用する方法は採らない。
 - H.264・HEVCの再生部品を、ライセンスの確認前に一般公開の配布物へ含めない。
+- 費用をかけない方針は、ライセンス条件を守らない方法を採ってよいという意味ではない。
 
 ## REVIEW NOTE（assistantの整理・未承認）
 
@@ -97,3 +103,4 @@ ADR-0003は「AlbertはServoのみで、Chromium・WebKit・NetSurfを予備エ�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-20 | 初版。ユーザーがQ1（主要サイトでの実測を先に行い、Servo標準＋予備エンジンのB寄りで判断。予備エンジンはWPEを第一候補とし、Linux版ではADR-0003の予備エンジン禁止を外す）、Q2（動かないサイトは正直に表示し、報告はユーザーが選んで送る）、Q3（1.0ではDRM動画を対象外と明言し、将来はDRM対応ブラウザーの道を検討。当面はAV1・VP9・Opusを標準、開発中はH.264をテスト用に使用可、H.264・HEVCは保留して配布前に結論）を確定。主要サイトリストと詳細はPROVISIONAL。 |
+| 2026-11-20 | ユーザーが、ライセンスは費用をかけずに対応できる範囲で対応し、どうにもならない部分は割り切る方針を確定。 |
