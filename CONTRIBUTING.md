@@ -123,7 +123,7 @@ source is not clearance of a complete release image.
 
 Contributions are accepted under the
 [Developer Certificate of Origin 1.1](https://developercertificate.org/)
-([DEC-119](docs/product-decisions/DEC-119-development-codename-and-dco.md)).
+([DEC-120](docs/product-decisions/DEC-120-development-codename-and-dco.md)).
 Add a sign-off line to every commit:
 
 ```text
