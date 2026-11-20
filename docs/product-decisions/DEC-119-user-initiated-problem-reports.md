@@ -1,13 +1,13 @@
-# DEC-118 — テレメトリーなしでの不具合報告の届け方
+# DEC-119 — テレメトリーなしでの不具合報告の届け方
 
 **状態:** CONFIRMED（Q1〜Q4の高水準方針）／PROVISIONAL（報告の形式・画面・伏せ字の方式・適用版）／REVIEW NOTE（関連DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** Nagi OS全体の不具合報告（Albertの動かないサイトの報告を含む）。適用版は未確定  
-**関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-112](DEC-112-untrusted-content-and-prompt-injection.md)、[DEC-114](DEC-114-web-compatibility-engine-drm-and-codecs.md)、[DEC-116](DEC-116-user-data-encryption-and-lost-device.md)、[DEC-117](DEC-117-support-period-and-vulnerability-response.md)、[SECURITY.md](../../SECURITY.md)
+**関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)、[DEC-115](DEC-115-web-compatibility-engine-drm-and-codecs.md)、[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)、[DEC-118](DEC-118-support-period-and-vulnerability-response.md)、[SECURITY.md](../../SECURITY.md)
 
 ## 目的と背景
 
-Nagiは、テレメトリー（利用状況や障害情報の自動送信）に依存しないLocal-firstのOSを目指している。DEC-098で、診断情報をNagiが統合して管理し、秘密情報を伏せ字にし、許可なく外部へ送らない方針は確定している。一方、集めた情報を**どのように開発者へ届けるか**は決まっていなかった。DEC-114で決めた「動かないサイトの報告」も、この仕組みを使う。
+Nagiは、テレメトリー（利用状況や障害情報の自動送信）に依存しないLocal-firstのOSを目指している。DEC-098で、診断情報をNagiが統合して管理し、秘密情報を伏せ字にし、許可なく外部へ送らない方針は確定している。一方、集めた情報を**どのように開発者へ届けるか**は決まっていなかった。DEC-115で決めた「動かないサイトの報告」も、この仕組みを使う。
 
 ## 確定した仕様（CONFIRMED）
 
@@ -15,7 +15,7 @@ Nagiは、テレメトリー（利用状況や障害情報の自動送信）に�
 
 1. **基本（B）:** Nagiの「報告する」操作で、AlbertにGitHub Issueの下書きを開く。ユーザーが内容を確認し、**自分で送信する。**
 2. **予備（A）:** 報告内容をファイルに書き出し、ユーザーが自分でGitHub Issue等に添付する方法も残す。
-3. Nagi専用の報告サーバーは用意しない（費用をかけない方針、DEC-114）。
+3. Nagi専用の報告サーバーは用意しない（費用をかけない方針、DEC-115）。
 
 ### Q2 — 報告に含める内容
 
@@ -25,7 +25,7 @@ Nagiは、テレメトリー（利用状況や障害情報の自動送信）に�
 
 ### Q3 — セキュリティに関わる報告
 
-1. セキュリティに関わりそうな報告は、公開のGitHub Issueではなく、**GitHubの非公開の脆弱性報告窓口（DEC-117）へ案内する。**
+1. セキュリティに関わりそうな報告は、公開のGitHub Issueではなく、**GitHubの非公開の脆弱性報告窓口（DEC-118）へ案内する。**
 
 ### Q4 — 自動のクラッシュ報告
 
@@ -34,16 +34,16 @@ Nagiは、テレメトリー（利用状況や障害情報の自動送信）に�
 ## 例外・禁止・安全境界
 
 - 報告の送信は、必ずユーザー本人の操作で行う。Nagi・AI・アプリが、ユーザーに代わって報告を送信しない。
-- 認証情報・暗号鍵・回復キーを報告に含めない（DEC-086／DEC-116）。伏せ字処理で取り除けたかどうかを確認できない情報は、標準では含めない。
+- 認証情報・暗号鍵・回復キーを報告に含めない（DEC-086／DEC-117）。伏せ字処理で取り除けたかどうかを確認できない情報は、標準では含めない。
 - 報告を作る過程で、Q2で除外した情報をAIのContextやCloudへ送らない（DEC-002／DEC-003）。
-- 報告用に書き出したファイルにも、Memory・Profileの暗号化されていないコピーを含めない（DEC-116）。
+- 報告用に書き出したファイルにも、Memory・Profileの暗号化されていないコピーを含めない（DEC-117）。
 
 ## REVIEW NOTE（assistantの整理・未承認）
 
 - **GitHub Issueは公開される:** 下書きを送ると誰でも読める状態になる。プレビュー画面で、そのことを明示する必要がある。
 - **セキュリティ関連の判定:** 何を「セキュリティに関わりそう」とみなして非公開窓口へ案内するか（権限・認証・暗号化に関するエラー、ユーザーの選択など）は未決定。迷う場合は非公開窓口を勧める案。
 - **AIの関わり方:** DEC-098のAI支援診断（C）が入った段階で、ローカルAIが報告の要約や伏せ字の補助をする案がある。その場合も、送る内容はユーザーがプレビューで最終確認する。
-- **関連DECへの注記:** DEC-098（報告の届け方）、DEC-114（動かないサイトの報告）に、本DECへの日付付き参照注記を追加する必要がある。
+- **関連DECへの注記:** DEC-098（報告の届け方）、DEC-115（動かないサイトの報告）に、本DECへの日付付き参照注記を追加する必要がある。
 
 ## 未確定・暫定案（PROVISIONAL）
 
