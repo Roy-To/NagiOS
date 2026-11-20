@@ -1,9 +1,9 @@
-# DEC-116 — ユーザーデータの暗号化と端末紛失時の方針
+# DEC-117 — ユーザーデータの暗号化と端末紛失時の方針
 
 **状態:** CONFIRMED（Q1〜Q5の高水準方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・UI・適用版）／REVIEW NOTE（関連DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** Linuxカーネル＋Nagi userlandのUser Data・Profile・Memory。適用版は未確定  
-**関連:** [DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)、[DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)、[DEC-105](DEC-105-user-environment-backup-and-wayback.md)、[DEC-115](DEC-115-performance-targets-and-minimum-requirements.md)
+**関連:** [DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)、[DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)、[DEC-105](DEC-105-user-environment-backup-and-wayback.md)、[DEC-116](DEC-116-performance-targets-and-minimum-requirements.md)
 
 ## 目的と背景
 
@@ -52,7 +52,7 @@ Personal AgentのMemoryとProfileは利用者の記憶・習慣を含むため�
 ## REVIEW NOTE（assistantの整理・未承認）
 
 - **TPM自動解錠の注意点:** TPMによる自動解錠は、盗難時にもログイン画面までは起動できる。ログインの保護（DEC-083、試行回数の制限）と組み合わせて守る前提であり、より強い保護が必要な利用者向けにQ2の起動時PINを用意する。
-- **性能への影響:** 暗号化によるストレージ性能とCPU負荷の影響を、DEC-115の仮目標値の測定に含める必要がある。
+- **性能への影響:** 暗号化によるストレージ性能とCPU負荷の影響を、DEC-116の仮目標値の測定に含める必要がある。
 - **関連DECへの注記:** DEC-088（暗号化が未確定だった点）、DEC-086（Memory・ユーザーデータへの適用）、DEC-099（初回セットアップでの回復キー表示）に、本DECへの日付付き参照注記を追加する必要がある。
 
 ## 未確定・暫定案（PROVISIONAL）
