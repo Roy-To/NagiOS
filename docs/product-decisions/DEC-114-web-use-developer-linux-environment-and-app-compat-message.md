@@ -1,9 +1,9 @@
-# DEC-113 — Web利用・開発者向けLinux環境・アプリ互換の説明
+# DEC-114 — Web利用・開発者向けLinux環境・アプリ互換の説明
 
 **状態:** CONFIRMED（Q1 Webはブラウザーで利用、Q2 開発者モードの隔離Linux環境と最低限ツールの同梱、Q3 利用者向け説明の趣旨）／PROVISIONAL（開発者環境の技術・範囲・同梱ツール、説明文の最終文言、適用版）／REVIEW NOTE（GUIアプリの扱い、関連DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** 一般利用者向けのアプリ環境、開発者・`builder`の開発環境。適用版は未確定  
-**関連:** [DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-045](DEC-045-nagi-porting-toolkit.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)、[DEC-112](DEC-112-untrusted-content-and-prompt-injection.md)
+**関連:** [DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-045](DEC-045-nagi-porting-toolkit.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)、[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)
 
 ## 目的と背景
 
@@ -24,7 +24,7 @@ DEC-017により、一般向けのアプリ実行・配布環境はNagi Native A
 1. **開発者モードを基本とする（A）:** ユーザーが明示的に有効にした場合に限り、**隔離されたLinux環境**の中で、cargo・git・コンパイラなどのLinux用CLIツールを使えるようにする。標準では無効とする。
 2. この環境は開発用であり、一般向けのアプリ実行・配布環境（Nagi Native Apps専用）とは別扱いとする。DEC-017の「汎用互換レイヤーは標準搭載しない」に対する、開発用途に限った明示的な例外として位置づける。
 3. **`builder`が使う最低限のツールは同梱する（B）:** Nagi上でのアプリ制作（DEC-015／DEC-071）に必要な最低限の開発ツールは、Nagi側で用意・管理し、開発者モードを有効にしなくても`builder`が使えるようにする。
-4. 開発者環境と同梱ツールも、NagiのPermission／Capability／Policy、非特権AI、DEC-112の外部コンテンツの扱いに従う。環境があることだけで、ユーザーデータ・Memory・他アプリのデータへのアクセス権は得られない。
+4. 開発者環境と同梱ツールも、NagiのPermission／Capability／Policy、非特権AI、DEC-113の外部コンテンツの扱いに従う。環境があることだけで、ユーザーデータ・Memory・他アプリのデータへのアクセス権は得られない。
 
 ### Q3 — 利用者向けの説明
 
