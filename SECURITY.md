@@ -10,9 +10,9 @@ Do not disclose credentials, private keys, access tokens, personal data, or
 other sensitive material in a public issue, pull request, commit, or log.
 
 Report security vulnerabilities privately through GitHub's
-**Private vulnerability reporting**: open the repository's **Security** tab
-and choose **Report a vulnerability**. Please do not open a public issue for a
-suspected vulnerability.
+**Private vulnerability reporting**: open the repository's **Security** tab,
+go to **Advisories**, and choose **Report a vulnerability**. Please do not open
+a public issue for a suspected vulnerability.
 
 Include the affected revision, component, reproduction conditions, and impact
 assessment in the private report. Do not include real credentials or personal
