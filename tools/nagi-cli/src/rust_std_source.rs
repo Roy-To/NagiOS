@@ -34,6 +34,9 @@ struct Stamp {
 pub(crate) struct PreparedSource {
     pub library: PathBuf,
     pub reused: bool,
+    // The shared generated path must stay stable until its Cargo consumer exits.
+    // Keep this handle alive on both fresh preparations and verified cache hits.
+    _lock: File,
 }
 
 fn timing(phase: &str, start: Instant) {
@@ -102,6 +105,7 @@ pub(crate) fn prepare(
         return Ok(PreparedSource {
             library: generated.join("library"),
             reused: true,
+            _lock: lock,
         });
     }
 
@@ -178,6 +182,7 @@ pub(crate) fn prepare(
     Ok(PreparedSource {
         library: generated.join("library"),
         reused: false,
+        _lock: lock,
     })
 }
 

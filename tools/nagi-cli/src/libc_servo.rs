@@ -86,17 +86,42 @@ pub(crate) fn validate_libc_servo_source_lock(root: &Path) -> Result<LibcServoSo
     Ok(spec)
 }
 
+// Use the same authenticated archive snapshot/extraction boundary as the
+// registry adapters. The independent libc source lock and Servo selection
+// checks remain authoritative; libc still requires pre-fetched dependencies.
+fn archive_spec(spec: &LibcServoSourceSpec) -> crate::registry_source::RegistrySourceSpec<'_> {
+    crate::registry_source::RegistrySourceSpec {
+        section: SECTION,
+        component: "libc-servo",
+        package: "libc",
+        version: &spec.version,
+        repository: &spec.repository,
+        registry_archive: &spec.registry_archive,
+        source_hash: &spec.source_hash,
+        license: &spec.license,
+        vendored_path: "third_party/libc-servo",
+        patch_path: "third_party/libc-servo-patches",
+    }
+}
+
 /// Materialize the exact libc archive already fetched by Cargo, then apply the
 /// tracked Nagi ABI patch set. This keeps Servo's newer libc requirement
 /// separate from the M13 libc source while preserving a reproducible boundary.
 pub(crate) fn ensure_libc_servo_checkout(root: &Path) -> Result<PathBuf, String> {
     let spec = validate_libc_servo_source_lock(root)?;
+    materialize_libc_servo_checkout(root, &spec)
+}
+
+fn materialize_libc_servo_checkout(
+    root: &Path,
+    spec: &LibcServoSourceSpec,
+) -> Result<PathBuf, String> {
     let checkout = root.join(&spec.vendored_path);
     if checkout.exists() {
-        return validate_checkout(root, &spec);
+        return validate_checkout(root, spec);
     }
-    let source = find_registry_source(root, &spec)?;
-    let patches = patch_files(root, &spec)?;
+    let source = find_registry_source(root, spec)?;
+    let patches = patch_files(root, spec)?;
     let parent = checkout
         .parent()
         .ok_or_else(|| format!("libc-servo checkout has no parent: {}", checkout.display()))?;
@@ -116,12 +141,12 @@ pub(crate) fn ensure_libc_servo_checkout(root: &Path) -> Result<PathBuf, String>
             temporary.display()
         ));
     }
-    copy_directory(&source, &temporary)?;
     let result = (|| {
+        crate::registry_source::extract_verified_archive(&source, &temporary, &archive_spec(spec))?;
         for patch in &patches {
             apply_patch(root, &temporary, patch)?;
         }
-        write_marker(root, &temporary, &spec)
+        write_marker(root, &temporary, spec)
     })();
     match result {
         Ok(()) => {
@@ -140,7 +165,7 @@ pub(crate) fn ensure_libc_servo_checkout(root: &Path) -> Result<PathBuf, String>
                     checkout.display()
                 )
             })?;
-            validate_checkout(root, &spec)
+            validate_checkout(root, spec)
         }
         Err(error) => {
             let _ = fs::remove_dir_all(&temporary);
@@ -175,6 +200,9 @@ fn validate_checkout(root: &Path, spec: &LibcServoSourceSpec) -> Result<PathBuf,
             checkout.display()
         )
     })?;
+    if marker_value(&contents, "format_version") != Some("2") {
+        return Err(format!("generated libc-servo checkout has no authenticated-archive provenance marker; refusing to modify {}", checkout.display()));
+    }
     let expected_patch = patch_fingerprint(root, spec)?;
     if marker_value(&contents, "source_hash") != Some(spec.source_hash.as_str())
         || marker_value(&contents, "patch_fingerprint") != Some(expected_patch.as_str())
@@ -194,7 +222,7 @@ fn validate_checkout(root: &Path, spec: &LibcServoSourceSpec) -> Result<PathBuf,
     Ok(checkout)
 }
 
-fn find_registry_source(root: &Path, spec: &LibcServoSourceSpec) -> Result<PathBuf, String> {
+fn find_registry_source(root: &Path, spec: &LibcServoSourceSpec) -> Result<Vec<u8>, String> {
     let cargo_home = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| {
@@ -202,7 +230,6 @@ fn find_registry_source(root: &Path, spec: &LibcServoSourceSpec) -> Result<PathB
         })
         .or_else(|| std::env::var_os("HOME").map(|value| PathBuf::from(value).join(".cargo")))
         .ok_or_else(|| "cannot locate Cargo home for the pinned libc-servo archive".to_owned())?;
-    let source_root = cargo_home.join("registry").join("src");
     let expected_hash = spec
         .source_hash
         .strip_prefix("sha256:")
@@ -216,46 +243,11 @@ fn find_registry_source(root: &Path, spec: &LibcServoSourceSpec) -> Result<PathB
             expected_hash
         ));
     }
-    for index in fs::read_dir(&source_root).map_err(|error| {
-        format!(
-            "cannot read Cargo registry source cache {}: {error}",
-            source_root.display()
-        )
-    })? {
-        let index = index
-            .map_err(|error| format!("cannot inspect Cargo registry source cache: {error}"))?
-            .path();
-        let candidate = index.join(format!("libc-{}", spec.version));
-        if !candidate.is_dir() {
-            continue;
-        }
-        let checksum = candidate.join(".cargo-checksum.json");
-        match fs::read_to_string(&checksum) {
-            Ok(checksum) if checksum.contains(expected_hash) => return Ok(candidate),
-            Ok(_) => continue,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // Some CI images pre-populate Cargo's registry source cache
-                // from the exact registry package but omit Cargo's checksum
-                // sidecar. The locked Servo package record plus Cargo's
-                // `.cargo-ok` marker still identify the source Cargo selected;
-                // require both before accepting this cache representation.
-                if registry_source_manifest_matches(&candidate, spec)
-                    && candidate.join(".cargo-ok").is_file()
-                {
-                    return Ok(candidate);
-                }
-            }
-            Err(error) => {
-                return Err(format!(
-                    "cannot read pinned libc-servo checksum {}: {error}",
-                    checksum.display()
-                ));
-            }
-        }
-    }
-    Err(format!(
-        "pinned libc-servo {VERSION} source is absent from Cargo's registry cache; fetch the locked Servo dependencies before bootstrapping"
-    ))
+    crate::registry_source::locate_registry_archive(&cargo_home, &archive_spec(spec))?
+        .ok_or_else(|| format!(
+            "pinned libc-servo {} archive is absent from Cargo's registry cache; fetch the locked Servo dependencies before bootstrapping",
+            spec.version
+        ))
 }
 
 fn servo_lock_has_pinned_libc(
@@ -290,18 +282,6 @@ fn servo_lock_has_pinned_libc(
         }
     }
     Ok(false)
-}
-
-fn registry_source_manifest_matches(candidate: &Path, spec: &LibcServoSourceSpec) -> bool {
-    let Ok(manifest) = fs::read_to_string(candidate.join("Cargo.toml")) else {
-        return false;
-    };
-    manifest
-        .lines()
-        .any(|line| line.trim() == "name = \"libc\"")
-        && manifest
-            .lines()
-            .any(|line| line.trim() == format!("version = \"{}\"", spec.version))
 }
 
 fn patch_files(root: &Path, spec: &LibcServoSourceSpec) -> Result<Vec<PathBuf>, String> {
@@ -427,7 +407,7 @@ fn write_marker(root: &Path, checkout: &Path, spec: &LibcServoSourceSpec) -> Res
     fs::write(
         checkout.join(GENERATED_MARKER),
         format!(
-            "format_version = 1\nsource_hash = {}\npatch_fingerprint = {}\ncheckout_fingerprint = {}\n",
+            "format_version = 2\nsource_hash = {}\npatch_fingerprint = {}\ncheckout_fingerprint = {}\n",
             spec.source_hash, patch_fingerprint, checkout_fingerprint
         ),
     )
@@ -493,35 +473,6 @@ fn collect_files(
             collect_files(root, &path, files)?;
         } else {
             files.push((path.strip_prefix(root).unwrap_or(&path).to_path_buf(), path));
-        }
-    }
-    Ok(())
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
-    fs::create_dir_all(destination)
-        .map_err(|error| format!("cannot create {}: {error}", destination.display()))?;
-    for entry in fs::read_dir(source)
-        .map_err(|error| format!("cannot enumerate {}: {error}", source.display()))?
-    {
-        let entry =
-            entry.map_err(|error| format!("cannot inspect {}: {error}", source.display()))?;
-        let source_path = entry.path();
-        let destination_path = destination.join(entry.file_name());
-        if entry
-            .file_type()
-            .map_err(|error| format!("cannot inspect {}: {error}", source_path.display()))?
-            .is_dir()
-        {
-            copy_directory(&source_path, &destination_path)?;
-        } else {
-            fs::copy(&source_path, &destination_path).map_err(|error| {
-                format!(
-                    "cannot copy {} to {}: {error}",
-                    source_path.display(),
-                    destination_path.display()
-                )
-            })?;
         }
     }
     Ok(())
@@ -680,5 +631,169 @@ mod tests {
         let error = validate_libc_servo_source_lock(&root).unwrap_err();
         assert!(error.contains("source_hash"), "{error}");
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn fixture_archive() -> Vec<u8> {
+        let output = std::process::Command::new("python3")
+            .args([
+                "-c",
+                r#"
+import io, sys, tarfile
+result = io.BytesIO()
+with tarfile.open(fileobj=result, mode='w:gz') as archive:
+    for name, content in [('Cargo.toml', b'[package]\nname = "libc"\nversion = "0.2.189"\n'),
+                          ('src/lib.rs', b'upstream libc fixture\n')]:
+        entry = tarfile.TarInfo('libc-0.2.189/' + name)
+        entry.size = len(content)
+        archive.addfile(entry, io.BytesIO(content))
+sys.stdout.buffer.write(result.getvalue())
+"#,
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        output.stdout
+    }
+
+    fn run_source_fixture(root: &Path, expected: &str) {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "libc_servo::tests::libc_archive_fixture_child",
+                "--nocapture",
+            ])
+            .env("CARGO_HOME", root.join("cargo"))
+            .env("CARGO_NET_OFFLINE", "true")
+            .env("NAGI_LIBC_FIXTURE_ROOT", root)
+            .env("NAGI_LIBC_EXPECT", expected)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[ignore = "isolated fake-CARGO_HOME child invoked by libc archive fixture"]
+    fn libc_archive_fixture_child() {
+        let root = PathBuf::from(std::env::var_os("NAGI_LIBC_FIXTURE_ROOT").unwrap());
+        let mut spec = expected_spec();
+        spec.source_hash = fs::read_to_string(root.join("expected-hash")).unwrap();
+        let result = super::materialize_libc_servo_checkout(&root, &spec);
+        let expected = std::env::var("NAGI_LIBC_EXPECT").unwrap();
+        if expected == "success" {
+            let checkout = result.unwrap();
+            assert_eq!(
+                fs::read(checkout.join("src/lib.rs")).unwrap(),
+                b"patched libc fixture\n"
+            );
+            assert!(super::materialize_libc_servo_checkout(&root, &spec).is_ok());
+            let marker = checkout.join(super::GENERATED_MARKER);
+            let current = fs::read_to_string(&marker).unwrap();
+            assert!(current.starts_with("format_version = 2\n"));
+            let legacy = current.replace("format_version = 2", "format_version = 1");
+            fs::write(&marker, &legacy).unwrap();
+            let error = super::materialize_libc_servo_checkout(&root, &spec).unwrap_err();
+            assert!(
+                error.contains("no authenticated-archive provenance"),
+                "{error}"
+            );
+            assert_eq!(fs::read_to_string(&marker).unwrap(), legacy);
+            fs::write(marker, current).unwrap();
+            fs::write(checkout.join("src/lib.rs"), "tampered generated libc").unwrap();
+            let error = super::materialize_libc_servo_checkout(&root, &spec).unwrap_err();
+            assert!(error.contains("state does not match"), "{error}");
+            assert_eq!(
+                fs::read_to_string(checkout.join("src/lib.rs")).unwrap(),
+                "tampered generated libc"
+            );
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.contains(&expected), "{error}");
+            assert!(!root.join("third_party/libc-servo").exists());
+        }
+    }
+
+    #[test]
+    fn libc_archive_binding_ignores_spoofed_expanded_cache_and_preserves_lock_check() {
+        use sha2::{Digest, Sha256};
+        let bytes = fixture_archive();
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        for case in [
+            "cargo-ok",
+            "substring-checksum",
+            "correct-checksum",
+            "wrong-archive",
+            "archive",
+            "wrong-servo-lock",
+        ] {
+            let root = temp_root(case);
+            fs::write(root.join("expected-hash"), format!("sha256:{hash}")).unwrap();
+            let patches = root.join("third_party/libc-servo-patches");
+            fs::create_dir_all(&patches).unwrap();
+            fs::write(patches.join("0001-fixture.patch"), "diff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-upstream libc fixture\n+patched libc fixture\n").unwrap();
+            let expanded = root.join("cargo/registry/src/fixture-index/libc-0.2.189");
+            fs::create_dir_all(&expanded).unwrap();
+            fs::write(
+                expanded.join("Cargo.toml"),
+                "[package]\nname = \"libc\"\nversion = \"0.2.189\"\n",
+            )
+            .unwrap();
+            fs::write(expanded.join("src.rs"), "spoofed libc").unwrap();
+            fs::write(expanded.join(".cargo-ok"), "").unwrap();
+            if case != "cargo-ok" {
+                let package = if case == "substring-checksum" {
+                    format!("prefix{hash}suffix")
+                } else {
+                    hash.clone()
+                };
+                fs::write(
+                    expanded.join(".cargo-checksum.json"),
+                    format!(r#"{{"package":"{package}","files":{{}}}}"#),
+                )
+                .unwrap();
+            }
+            if matches!(case, "archive" | "wrong-archive" | "wrong-servo-lock") {
+                let archive = root.join("cargo/registry/cache/fixture-index/libc-0.2.189.crate");
+                fs::create_dir_all(archive.parent().unwrap()).unwrap();
+                fs::write(
+                    archive,
+                    if case == "wrong-archive" {
+                        b"wrong libc archive"
+                    } else {
+                        &bytes[..]
+                    },
+                )
+                .unwrap();
+            }
+            if matches!(case, "archive" | "wrong-servo-lock") {
+                fs::create_dir_all(root.join("third_party/servo")).unwrap();
+                let checksum = if case == "archive" { &hash } else { "wrong" };
+                fs::write(root.join("third_party/servo/Cargo.lock"), format!("[[package]]\nname = \"libc\"\nversion = \"0.2.189\"\nchecksum = \"{checksum}\"\n")).unwrap();
+            }
+            run_source_fixture(
+                &root,
+                match case {
+                    "archive" => "success",
+                    "wrong-archive" => "SHA-256 mismatch",
+                    "wrong-servo-lock" => "does not select pinned libc-servo",
+                    _ => "archive is absent",
+                },
+            );
+            assert_eq!(
+                fs::read_to_string(expanded.join("src.rs")).unwrap(),
+                "spoofed libc"
+            );
+            assert!(fs::read_dir(root.join("third_party")).unwrap().all(|e| !e
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains("bootstrap")));
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 }
