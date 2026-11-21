@@ -72,3 +72,7 @@ B案のユーザーによる方式選択を保ち、既に許可されたProject
 |---|---|
 | 2026-11-16 | ユーザーがSmart Paste構想を採用。純正アプリ間の意味付きコピー／ドラッグ、Sheets→Slidesの表・グラフ／参照、Albert→Writerの出典付き引用、画像→Slidesの候補提示、通常GUI維持、Project連携の方向をCONFIRMED。名称・実装詳細・Photos・適用版はPROVISIONAL。 |
 | 2026-11-17 | PX-12で貼り付け方式を分かりやすく案内する統合Smart Paste体験Bと、将来の高度なアプリ横断ワークフローCを高水準でCONFIRMED。DEC-025／027の既存方式A、DEC-056の既存体験・通常GUI・権限／承認を維持。最初の対応App組合せ、既定のコピー／参照、詳細UI・Transfer契約・fallback制御・技術・性能・提供版はPROVISIONAL。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-113](DEC-113-untrusted-content-and-prompt-injection.md) — AIが貼り付け・添付から受け取る外部由来の内容は処理対象のデータとして扱い、ユーザーが自分で記述した依頼部分を指示として扱う。明示的な委任には同決定の範囲と確認条件を適用する。

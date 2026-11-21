@@ -70,3 +70,7 @@ DEC-017により、一般向けのアプリ実行・配布環境はNagi Native A
 | 日付 | 内容 |
 |---|---|
 | 2026-11-20 | 初版。ユーザーがQ1（WebサイトはAlbertで利用し、Webアプリの特別扱いは採用しない）、Q2（開発者モードの隔離Linux環境を基本とし、`builder`が使う最低限のツールは同梱）、Q3（Nagiアプリ・Webサイト・移植ツールの趣旨で利用者に説明）を確定。技術・範囲・最終文言はPROVISIONAL、GUIアプリの扱いと関連DECの整合はREVIEW NOTE。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-115](DEC-115-web-compatibility-engine-drm-and-codecs.md) — Albertで利用する主要サイトをServoで先に実測する。Linux版では予備エンジンの制約を解除し、Servoを標準とする予備エンジン方式の採否は実測後に判断する。

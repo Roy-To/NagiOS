@@ -243,3 +243,7 @@ PT-02〜06の実施順序は上の表を基準案とするが、既存SDKの進�
 | 2026-11-13 | ユーザーがPT-06をWindows・Linux由来の実アプリ移植を用いた継続的な工数／再利用／検証比較とPT-01〜05への改善フィードバック方式として承認。手動とToolkit、AIなしとローカルLLMの寄与を比較し、HostとTargetの結果を分離。具体例・採用OSS・数値閾値・実装担当・実施許可は未確定。 |
 | 2026-11-17 | PX-13を受けて、ローカルLLMをNagi SDK／移植診断と外部開発AI／既存IDE・人間との橋渡しへ活かす高水準方向を追加CONFIRMED。PT-01〜06、非AI工程、Windows／Linux重点、現行Cloud送信許可・Target受入・Workstream Gateを維持。Cloud連携方式・対象・性能・版はPROVISIONAL、統合IDE等は低優先の長期目標。 |
 | 2026-11-17 | PX-14でPT-01〜06と公開SDK／既存IDE・Cloud開発AI橋渡し・Build／Test／Package・Target実受入を統合的に使える開発者体験B、将来はSDK影響・アプリ継続保守／更新・配布準備を支援するCの高水準方向をCONFIRMED。非AI基盤、Cloud別許可、Host／Target分離、署名／導入／公開別承認を維持。技術・初期対象・性能・担当・提供版はPROVISIONAL。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-114](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md) — 利用者に既存アプリの移植支援を説明する際は「Nagi Porting Toolkit」の名称を用いる。`builder`は新規アプリ制作のRoleとして案内する。
