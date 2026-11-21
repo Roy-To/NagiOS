@@ -51,3 +51,7 @@ Foundation B2 #10の高水準仕様。0.2のIdentity／Permission／Platform Ser
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #10のC案を「CでOK」と承認。Nagi独自Secrets Service、TPM／TEE等の対応機器ではハードウェア保護を優先、非対応機器でも暗号化ローカル保管と回復経路、Identity／Permission連携、AIへの秘密値非露出、鍵の用途／所有者分離・更新／失効・ログ秘匿・クラウド自動預託なしを基本方針とし、具体的暗号／KDF・TPM・回復技術・適用版を未確定とした。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-117](DEC-117-user-data-encryption-and-lost-device.md) — User／Profileごとの鍵の分離をMemoryとユーザーデータの暗号化に適用する。MemoryとProfileは常時暗号化し、回復キーは端末外での保管を案内する。
