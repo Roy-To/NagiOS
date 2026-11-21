@@ -1,0 +1,33 @@
+[package]
+name = "nagi-linux-notes-desktop-dev"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "nagi_desktop_notes_integration_candidate"
+path = "src/lib.rs"
+
+[features]
+default = ["linux-development-smoke"]
+consent-dialog = []
+consent-dialog-acceptance = []
+desktop-login = []
+desktop-login-acceptance = []
+desktop-password-change-acceptance = []
+dev-host-preview = []
+linux-development-smoke = []
+linux-recovery-ui-smoke = ["linux-development-smoke"]
+m19-files-search-production = []
+m19-runtime = []
+m29-settings-acceptance = []
+
+[dependencies]
+libnagi = { path = "../../../../user/libnagi" }
+nagi-localization = { path = "../../../../user/nagi-localization" }
+nagi-ui = { path = "../../../../user/nagi-ui" }
+linux-evdev-decoder = { path = "../linux-evdev-decoder" }
+linux-evdev-stream = { path = "../linux-evdev-stream" }
+notes_desktop_localization_adapter = { package = "notes-desktop-localization-adapter-candidate", path = "../notes-localization-adapter" }
+notes_event_bridge_candidate = { package = "notes-event-bridge-candidate", path = "../notes-event-bridge" }
+notes_files_codec_candidate = { package = "notes-files-codec-candidate", path = "../notes-codec" }

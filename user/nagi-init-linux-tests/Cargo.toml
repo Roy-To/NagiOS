@@ -1,0 +1,65 @@
+# Linux-only test manifest for the exact PID 1 source below user/nagi-init.
+# The product manifest remains user/nagi-init/Cargo.toml and keeps Servo.
+[package]
+name = "nagi-init"
+version = "0.1.0"
+edition = "2021"
+build = "../nagi-init/build.rs"
+publish = false
+
+[features]
+linux-service-action-bridge = [
+    "dep:nagi-action-ipc",
+    "dep:nagi-init-service-call",
+    "dep:nagi-service-contract",
+]
+m10-desktop = []
+
+[[bin]]
+name = "nagi-init"
+path = "../nagi-init/src/main.rs"
+test = true
+bench = false
+
+[dependencies]
+libnagi = { path = "../libnagi" }
+nagi-audio = { path = "../nagi-audio" }
+nagi-history = { path = "../nagi-history" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-clipboard = { path = "../nagi-clipboard", optional = true }
+nagi-model-manager = { path = "../nagi-model-manager", optional = true }
+nagi-localization = { path = "../nagi-localization" }
+nagi-package = { path = "../nagi-package" }
+nagi-init-package-provider = { path = "../nagi-init-package-provider" }
+nagi-sdk = { path = "../../sdk/rust" }
+nagi-ui = { path = "../nagi-ui" }
+nagi-net = { path = "../nagi-net" }
+nagi-pal = { path = "../nagi-pal" }
+nagi-posix = { path = "../nagi-posix" }
+nagi-search = { path = "../nagi-search", optional = true }
+nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
+nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
+nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
+nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
+nagi-linux-account-verifier = { path = "../nagi-linux-account-verifier" }
+nagi-profile-volume-notes-owner = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/profile-volume-notes-owner" }
+nagi-system-principal-contract = { path = "../../crates/nagi-system-principal-contract" }
+nagi-system-service-launch = { path = "../../crates/nagi-system-service-launch" }
+nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }
+serde_json = "1"
+sha2 = { version = "=0.10.9", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
+
+# Cargo's check-cfg should accept all source feature guards, but this test
+# manifest intentionally exposes only the two Linux test features above.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("nagi"))',
+    'cfg(feature, values("consent-dialog", "consent-dialog-acceptance", "desktop-login", "desktop-login-acceptance", "desktop-password-change-acceptance", "isolated-process-acceptance", "linux-service-action-bridge", "m10-desktop", "m11-security", "m12-network", "m13-posix", "m13-std", "m14-audio", "m15-history", "m16-package", "m17-servo", "m18-acceptance", "m19-browser-search-acceptance", "m19-files-search-production", "m19-runtime", "m19-search", "m19-search-ipc", "m20-fixture-acceptance", "m20-granite-artifact-acceptance", "m20-llama-inference-acceptance", "m20-llama-link-smoke", "m20-model-service", "m20-model-store-acceptance", "m21-action-ipc", "m22-history", "m25-voice-acceptance", "m25-whisper-artifact-acceptance", "m25-whisper-inference-acceptance", "m26-gemma-artifact-acceptance", "m26-qwen-artifact-acceptance", "m27-recovery", "m27-recovery-undo-acceptance", "m27-ro-vfs-check", "m29-settings-acceptance", "m30-update-install", "m8-shell", "m9-window", "private-browser-account-owner", "private-browser-profile-storage", "private-browser-session-adapter", "private-history-read-adapter", "private-installed-model-acceptance", "production-session", "read-only-update-candidate", "system-service-readiness"))',
+] }

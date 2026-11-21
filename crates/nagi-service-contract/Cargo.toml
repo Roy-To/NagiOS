@@ -1,0 +1,12 @@
+[package]
+name = "nagi-service-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-capability = { path = "../nagi-capability", version = "=0.2.0" }
+
+[workspace]
+members = ["."]
+resolver = "2"

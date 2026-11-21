@@ -673,7 +673,12 @@ impl JobState {
             ),
             S::CancelRequested => matches!(
                 next,
-                S::Succeeded | S::Failed(_) | S::Cancelled | S::TimedOut | S::Interrupted
+                S::Succeeded
+                    | S::Failed(_)
+                    | S::Cancelled
+                    | S::TimedOut
+                    | S::Interrupted
+                    | S::RecoveryRequired(_)
             ),
             S::PauseRequested => matches!(
                 next,
@@ -960,6 +965,11 @@ impl JobRecord {
 
     pub fn request_ref(&self) -> Option<&OpaqueRef> {
         self.request_ref.as_ref()
+    }
+
+    #[cfg(feature = "linux-development-runtime")]
+    pub(crate) fn idempotency_key(&self) -> Option<&IdempotencyKey> {
+        self.idempotency_key.as_ref()
     }
 
     pub fn checkpoint_ref(&self) -> Option<&CheckpointRef> {

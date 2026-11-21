@@ -1,0 +1,15 @@
+[package]
+name = "nagi-system-principal-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-init-spawn-contract = { path = "../nagi-init-spawn-contract" }
+
+[workspace]
+members = ["."]
+resolver = "2"

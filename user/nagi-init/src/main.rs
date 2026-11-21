@@ -1,8 +1,54 @@
-#![cfg_attr(all(target_os = "nagi", not(feature = "m13-std")), no_std)]
+#![cfg_attr(
+    all(
+        target_os = "nagi",
+        not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+    ),
+    no_std
+)]
 #![cfg_attr(target_os = "nagi", no_main)]
-#![cfg_attr(all(target_os = "nagi", feature = "m13-std"), feature(restricted_std))]
+#![cfg_attr(
+    all(
+        target_os = "nagi",
+        any(feature = "m13-std", feature = "private-browser-profile-storage")
+    ),
+    feature(restricted_std)
+)]
+
+// A production session must never accidentally run a milestone's boot path.
+// In particular Servo and M20 acceptance entry points terminate the process.
+#[cfg(all(
+    feature = "production-session",
+    any(
+        feature = "m8-shell",
+        feature = "m9-window",
+        feature = "m11-security",
+        feature = "m12-network",
+        feature = "m13-posix",
+        feature = "m13-std",
+        feature = "m14-audio",
+        feature = "m15-history",
+        feature = "m16-package",
+        feature = "m17-servo",
+        feature = "m18-acceptance",
+        feature = "m19-search",
+        feature = "m20-model-store-acceptance",
+        feature = "m20-llama-link-smoke",
+        feature = "m20-llama-inference-acceptance",
+        feature = "m22-history",
+        feature = "m25-voice-acceptance",
+        feature = "m27-recovery",
+        feature = "m27-ro-vfs-check",
+        feature = "m29-settings-acceptance",
+        feature = "desktop-login-acceptance",
+        feature = "consent-dialog-acceptance",
+        feature = "isolated-process-acceptance",
+        feature = "m30-update-install"
+    )
+))]
+compile_error!("production-session is incompatible with milestone/fixture boot paths");
 
 #[cfg(any(
+    feature = "m10-desktop",
     feature = "m16-package",
     feature = "m19-runtime",
     feature = "m27-recovery",
@@ -67,7 +113,10 @@ static GUEST_ALLOCATOR: GuestAllocator = GuestAllocator;
 
 #[cfg(all(target_os = "nagi", not(feature = "m27-recovery")))]
 use core::arch::asm;
-#[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
+#[cfg(all(
+    target_os = "nagi",
+    not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+))]
 use core::panic::PanicInfo;
 #[cfg(all(
     target_os = "nagi",
@@ -107,17 +156,36 @@ mod action_ipc;
     ))
 ))]
 mod boot;
-#[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
+#[cfg(any(
+    all(target_os = "nagi", feature = "consent-dialog"),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "desktop-login",
+        any(linux_boot_owner_registration, linux_task24_owner_co_location),
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    )
+))]
 mod consent_dialog;
 #[cfg(all(target_os = "nagi", feature = "consent-dialog"))]
 mod consent_settings;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod desktop;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod font;
+
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;
-#[cfg(all(target_os = "nagi", feature = "desktop-login"))]
+#[cfg(any(
+    all(target_os = "nagi", feature = "desktop-login"),
+    all(target_os = "linux", target_arch = "x86_64", feature = "desktop-login")
+))]
 mod login_screen;
 #[cfg(all(target_os = "nagi", feature = "m13-posix"))]
 mod m13;
@@ -131,18 +199,36 @@ mod m15_history;
 mod m16_package;
 #[cfg(all(target_os = "nagi", feature = "m19-files-search-production"))]
 mod m19_files_client;
-#[cfg(all(
-    target_os = "nagi",
-    feature = "m19-runtime",
-    feature = "m10-desktop",
-    feature = "desktop-login"
+#[cfg(any(
+    all(
+        target_os = "nagi",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    ),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    )
 ))]
 mod m19_runtime;
 #[cfg(all(target_os = "nagi", feature = "m19-search"))]
 mod m19_search;
 #[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
 mod m19_search_service;
-#[cfg(all(target_os = "nagi", feature = "m19-runtime"))]
+#[cfg(any(
+    all(target_os = "nagi", feature = "m19-runtime"),
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "m19-runtime",
+        feature = "m10-desktop",
+        feature = "desktop-login"
+    )
+))]
 mod m19_storage;
 #[cfg(all(target_os = "nagi", feature = "m20-llama-inference-acceptance"))]
 mod m20_granite;
@@ -155,6 +241,8 @@ mod m22_history;
 mod m25_voice;
 #[cfg(all(target_os = "nagi", feature = "m25-whisper-inference-acceptance"))]
 mod m25_whisper;
+#[cfg(all(target_os = "nagi", feature = "m20-model-service"))]
+mod model_service;
 #[cfg(all(
     target_os = "nagi",
     feature = "m12-network",
@@ -175,16 +263,27 @@ mod security;
     not(feature = "m13-posix")
 ))]
 mod shell;
-#[cfg(all(
-    target_os = "nagi",
-    any(
-        feature = "isolated-process-acceptance",
-        feature = "m19-search-ipc",
-        feature = "m19-runtime",
-        feature = "consent-dialog"
+#[cfg(any(
+    all(
+        target_os = "nagi",
+        any(
+            feature = "isolated-process-acceptance",
+            feature = "m19-search-ipc",
+            feature = "m19-runtime",
+            feature = "consent-dialog"
+        )
+    ),
+    all(target_os = "linux", target_arch = "x86_64", feature = "m10-desktop"),
+    all(
+        test,
+        target_os = "macos",
+        target_arch = "x86_64",
+        feature = "m10-desktop"
     )
 ))]
 // The consent dialog acceptance uses only the launch and consent paths.
+// The x86_64 host test build also exercises these platform-independent registry
+// tests; Nagi-only syscall entry points remain target-gated inside the module.
 #[cfg_attr(
     not(any(
         feature = "isolated-process-acceptance",
@@ -194,9 +293,15 @@ mod shell;
     allow(dead_code)
 )]
 mod supervisor;
-#[cfg(all(target_os = "nagi", feature = "m30-update-install"))]
+#[cfg(all(
+    target_os = "nagi",
+    any(feature = "m30-update-install", feature = "read-only-update-candidate")
+))]
 mod system_update;
-#[cfg(all(target_os = "nagi", feature = "m10-desktop"))]
+#[cfg(all(
+    feature = "m10-desktop",
+    any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
+))]
 mod ui;
 #[cfg(all(target_os = "nagi", feature = "m9-window"))]
 mod window;
@@ -1094,6 +1199,15 @@ pub extern "C" fn _start(
         FPU_STATE_ROUND_TRIP_PASS_LEN
     ));
 
+    // Keep the actual Nagi relibc provider in the normal native link too.
+    // A Cargo dependency with no Rust reference is otherwise omitted, leaving
+    // libc++/llama's C ABI symbols unresolved. This probe performs no inference.
+    #[cfg(feature = "m20-model-service")]
+    if relibc::nagi_backend_probe() != 0x4e41_4749 {
+        libnagi::console_write(b"Nagi model service C ABI unavailable\r\n");
+        libnagi::exit(1);
+    }
+
     unsafe { run_elf_initializers() };
 
     #[cfg(feature = "isolated-process-acceptance")]
@@ -1520,6 +1634,14 @@ pub extern "C" fn _start(
             libnagi::console_write(b"Nagi M10 User Data handoff FAIL\r\n");
             libnagi::exit(1);
         };
+        #[cfg(feature = "production-session")]
+        libnagi::console_write(b"Nagi production profile signed-in-files-v1\r\n");
+        // Capture only the read-only Model Store authority. Desktop creates the
+        // bridge with its guest admission budget and starts its worker after
+        // authenticated readiness; boot configuration performs no model I/O.
+        // The dedicated actor takes exclusive User Data ownership. Its worker
+        // constructs the concrete receipt producer; the ordinary desktop never
+        // shares this VFS while installed-model acceptance is running.
         desktop::run(
             block_capability,
             display_capability,
@@ -1604,11 +1726,35 @@ pub extern "C" fn _start(
     libnagi::exit(exit_code)
 }
 
-#[cfg(all(target_os = "nagi", not(feature = "m13-std")))]
+#[cfg(all(
+    target_os = "nagi",
+    not(any(feature = "m13-std", feature = "private-browser-profile-storage"))
+))]
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
     libnagi::exit(1)
 }
 
-#[cfg(not(target_os = "nagi"))]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub mod c3_system_service_recovery;
+
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+// The Linux development adapter has feature-gated process/service entry points;
+// the default `run()` stays fail closed until those suppliers are connected.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+mod linux_init;
+
+#[cfg(all(test, target_os = "linux", linux_task24_owner_co_location))]
+pub(crate) use linux_init::pid1_live_peer_supplier as supplier_root;
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod profile_volume_notes_owner;
+
+#[cfg(target_os = "linux")]
+fn main() -> std::process::ExitCode {
+    linux_init::run()
+}
+
+#[cfg(not(any(target_os = "nagi", target_os = "linux")))]
 fn main() {}

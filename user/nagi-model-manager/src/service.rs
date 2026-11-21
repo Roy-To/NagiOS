@@ -153,7 +153,11 @@ impl<B: ModelBackend, A: ModelArtifactSource, C: ModelServiceClock> LazyModelSer
     pub fn unload(&mut self) -> Result<(), ModelServiceError> {
         match self.runtime.unload() {
             Ok(()) => {
-                self.state = LifecycleState::Unloaded;
+                // Successful retry cleans resources but does not re-enable a
+                // service whose unload failure made it terminally disabled.
+                if self.state != LifecycleState::Disabled {
+                    self.state = LifecycleState::Unloaded;
+                }
                 Ok(())
             }
             Err(error) => {

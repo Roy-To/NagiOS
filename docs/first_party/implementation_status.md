@@ -13,8 +13,7 @@ not modify or merge into M17 worktrees.
 - Preparation created four dedicated local branches/worktrees. No product
   implementation, app test suite, shared-contract integration, or M17 change
   is part of this checkpoint.
-- The detailed per-workstream request is in
-  `/Users/tozawa/.codex/attachments/150d2efc-b6d8-4c60-8493-2a749c535bd0/貼り付けたテキスト.txt`.
+- The owner supplied the detailed per-workstream request separately.
   A new task should read only its assigned section, plus the specifications
   listed below.
 - This is the first-party status record required by
@@ -26,7 +25,7 @@ not modify or merge into M17 worktrees.
 
 - **Status:** `PARTIAL`
 - **Branch:** `codex/app-activity-wayback`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-activity-wayback`
+- **Worktree:** `${HOME}/Developer/NagiOS-activity-wayback`
 - **Base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`
 - **Implemented components:**
   - Additive, bounded append-only Activity events with actor/provenance,
@@ -110,7 +109,7 @@ not modify or merge into M17 worktrees.
 
 - **Status:** `PARTIAL`
 - **Branch:** `codex/app-home-search`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-home-search`
+- **Worktree:** `${HOME}/Developer/NagiOS-home-search`
 - **Base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`
 - **Resume checkpoint:** Implemented on top of the preparation commit
   `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85` in this dedicated worktree.
@@ -155,7 +154,7 @@ not modify or merge into M17 worktrees.
 
 - **Status:** `IN_PROGRESS`
 - **Branch:** `codex/app-files`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-app-files`
+- **Worktree:** `${HOME}/Developer/NagiOS-app-files`
 - **Product base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`; the branch
   also contains the committed first-party status preparation checkpoint
   `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`.
@@ -231,7 +230,7 @@ not modify or merge into M17 worktrees.
 
 - **Status:** `IN_PROGRESS`
 - **Branch:** `codex/app-notes`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-app-notes`
+- **Worktree:** `${HOME}/Developer/NagiOS-app-notes`
 - **Base:** `ab9a580c04f0fa7c18ff6b996ac370ce15cd8df9`
 - **Preparation commit:** `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`.
 - **Implementation checkpoint:** `690b1a6855cc8e69cb815c815a015e429e3ca993`
@@ -289,7 +288,7 @@ not modify or merge into M17 worktrees.
 ## First-party integration checkpoint
 
 - **Integration branch:** `codex/first-party-integration`
-- **Worktree:** `/Users/tozawa/Developer/NagiOS-first-party-integration`
+- **Worktree:** `${HOME}/Developer/NagiOS-first-party-integration`
 - **Common base:** `be18b0287434f1a5e351fc3ef1fa0cc4bfa2eb85`
 - **Integration implementation commit:**
   `36bf5ba4ad0b1d87060a451c49aaafd66b124a81` (pushed to

@@ -11,19 +11,26 @@
 
 use libnagi::consent::ConsentPrompt;
 pub use libnagi::consent::{ConsentAnswer, ConsentChoice, PromptOutcome};
-use libnagi::launch::{ConsentRequest, DecisionStoreError, GrantCheck};
+use libnagi::launch::ConsentRequest;
+#[cfg(target_os = "nagi")]
+use libnagi::launch::{DecisionStoreError, GrantCheck};
+#[cfg(target_os = "nagi")]
 use libnagi::security::Session;
+#[cfg(target_os = "nagi")]
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
 use libnagi::InputEvent;
 use nagi_localization::Locale;
 use nagi_ui::{color, ColorRole, ThemeMode};
 
+#[cfg(target_os = "nagi")]
 use crate::supervisor;
 use crate::ui::{Painter, Rect};
 
+#[cfg(target_os = "nagi")]
 type UserDataVolume = Vfs<SyscallBlockDevice>;
 
 /// User Data file holding the persisted `Allow`/`Deny` decisions.
+#[cfg(target_os = "nagi")]
 const DECISIONS_PATH: &[u8] = b"consent-decisions";
 
 const THEME: ThemeMode = ThemeMode::Light;
@@ -177,6 +184,7 @@ impl ConsentDialog {
 
 /// Record `answer` for `request` with `user` and persist the decisions that
 /// outlive the session. Returns the resulting grant check.
+#[cfg(target_os = "nagi")]
 pub fn resolve(
     volume: &mut UserDataVolume,
     user: &Session,
@@ -198,6 +206,7 @@ pub fn resolve(
     ))
 }
 
+#[cfg(target_os = "nagi")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RestoredDecisions {
     None,
@@ -207,6 +216,7 @@ pub enum RestoredDecisions {
 }
 
 /// Apply persisted decisions for `user` from User Data.
+#[cfg(target_os = "nagi")]
 pub fn restore_decisions(volume: &mut UserDataVolume, user: &Session) -> RestoredDecisions {
     let handle = match volume.open_path(DECISIONS_PATH) {
         Ok(handle) => handle,
@@ -225,6 +235,7 @@ pub fn restore_decisions(volume: &mut UserDataVolume, user: &Session) -> Restore
     }
 }
 
+#[cfg(target_os = "nagi")]
 pub fn persist_decisions(volume: &mut UserDataVolume) -> bool {
     let mut encoded = [0; libnagi::launch::MAX_ENCODED_DECISIONS];
     let length = supervisor::encode_decisions(&mut encoded);
@@ -245,7 +256,7 @@ pub fn persist_decisions(volume: &mut UserDataVolume) -> bool {
 /// The ADR 0060 acceptance: a signed application whose manifest requests a
 /// capability is launched; the desktop must ask the user before the grant
 /// is effective, and a persisted answer must hold after a restart.
-#[cfg(feature = "consent-dialog-acceptance")]
+#[cfg(all(target_os = "nagi", feature = "consent-dialog-acceptance"))]
 pub mod acceptance {
     use super::*;
     use libnagi::launch::LaunchPlacement;

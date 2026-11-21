@@ -496,7 +496,7 @@
       "id": "ui-design-system",
       "owner": "Codex integration owner",
       "owner_branch": "codex/ws-ui-design-system",
-      "recommended_worktree": "/Users/tozawa/.codex/worktrees/nagi-ui-design-system",
+      "recommended_worktree": "${HOME}/.codex/worktrees/nagi-ui-design-system",
       "state_file": ".dev/workstreams/ui-design-system/state.json",
       "dependencies": [],
       "allowed_paths": [
@@ -527,7 +527,7 @@
       "id": "test-plat-01",
       "owner": "Codex TEST-PLAT-01 workstream owner",
       "owner_branch": "codex/0.2-test-plat-01",
-      "recommended_worktree": "/Users/tozawa/Developer/NagiOS-0.2-test-plat-01",
+      "recommended_worktree": "${HOME}/Developer/NagiOS-0.2-test-plat-01",
       "state_file": ".dev/workstreams/test-plat-01/state.json",
       "dependencies": [
         "development-foundation"

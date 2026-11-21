@@ -120,12 +120,6 @@ impl ModelStoreRecord {
     }
 
     pub fn request_install(&mut self) -> Result<(), StoreError> {
-        if self.manifest.license.acknowledgement_required && !self.license_acknowledged {
-            return Err(StoreError::LicenseAcknowledgementRequired);
-        }
-        if self.integrity().is_none() {
-            return Err(StoreError::IntegrityRequired);
-        }
         self.transition(InstallState::InstallRequested)
     }
 
@@ -155,16 +149,29 @@ impl ModelStoreRecord {
     }
 
     pub fn request_remove(&mut self) -> Result<(), StoreError> {
-        match self.removal_eligibility() {
-            RemovalEligibility::NotInstalled => return Err(StoreError::NotInstalled),
-            RemovalEligibility::InUse => return Err(StoreError::InUse),
-            RemovalEligibility::SystemRequired => return Err(StoreError::SystemRequired),
-            RemovalEligibility::Removable => {}
-        }
         self.transition(InstallState::RemovalRequested)
     }
 
     pub fn transition(&mut self, next: InstallState) -> Result<(), StoreError> {
+        // Both convenience requests and direct transitions pass the same gates.
+        // Check before mutating any metadata, preserving rejection atomicity.
+        match next {
+            InstallState::InstallRequested => {
+                if self.manifest.license.acknowledgement_required && !self.license_acknowledged {
+                    return Err(StoreError::LicenseAcknowledgementRequired);
+                }
+                if self.integrity().is_none() {
+                    return Err(StoreError::IntegrityRequired);
+                }
+            }
+            InstallState::RemovalRequested => match self.removal_eligibility() {
+                RemovalEligibility::NotInstalled => return Err(StoreError::NotInstalled),
+                RemovalEligibility::InUse => return Err(StoreError::InUse),
+                RemovalEligibility::SystemRequired => return Err(StoreError::SystemRequired),
+                RemovalEligibility::Removable => {}
+            },
+            _ => {}
+        }
         let allowed = matches!(
             (self.state, next),
             (InstallState::NotInstalled, InstallState::InstallRequested)
@@ -198,7 +205,7 @@ impl ModelStoreRecord {
             return Err(StoreError::InvalidTransition);
         }
         match next {
-            InstallState::Installed => {
+            InstallState::Installed if self.state != InstallState::RemovalRequested => {
                 self.installed_version = Some(
                     self.update_version
                         .take()

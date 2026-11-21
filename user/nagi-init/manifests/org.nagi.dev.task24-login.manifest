@@ -1,0 +1,4 @@
+id=org.nagi.dev.task24-login
+name=Task24 development login
+version=0.1.0
+entry=task24-login.elf

@@ -535,10 +535,11 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .expect("workspace root");
-        let cargo_toml = fs::read_to_string(workspace.join("Cargo.toml")).expect("root manifest");
+        let product_manifest = fs::read_to_string(workspace.join("user/nagi-init/Cargo.toml"))
+            .expect("product init manifest");
         assert!(
-            cargo_toml.contains("surfman = { path = \"third_party/surfman\" }"),
-            "the Nagi workspace must bind Servo's Surfman dependency to its pinned patched checkout"
+            product_manifest.contains("surfman = { path = \"../../third_party/surfman\" }"),
+            "the product init workspace must bind Servo's Surfman dependency to its pinned patched checkout"
         );
     }
 

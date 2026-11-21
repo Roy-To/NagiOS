@@ -20,6 +20,14 @@ See [kernel transition impact and evidence matrix](product-decisions/KERNEL-TRAN
 
 > **2026-11-15:** Moved here from the former private repository by [DEC-050](product-decisions/DEC-050-public-specification-repository.md). The "NOT ASSIGNED" snapshot above was later superseded by [DEC-047](product-decisions/DEC-047-linux-migration-workspaces-and-integration.md) (lane worktrees, integration branch `codex/linux-integration-20261114`).
 
+## Linux integration A: Task24 Notes guest checkpoint — 2026-11-19
+
+**Status: `BLOCKED` for development E2E at C1 first-owner provisioning.**
+
+A's isolated x86-64 Linux musl graph compiled normal PID 1 calling E's scoped Notes factory at `5c29810eff` with the borrowed C1 caller and verified profile attachment. Independent development QEMU verified the signed login package and reached first-owner registration after C1 recovery and C3 continuation. Virtual-keyboard submission reached C1 provisioning and returned `Identity(StoreUnavailable)`.
+
+The C1 journal is `RuntimeActive` after the verified recovery handoff. The existing first-owner API's generic recovery guard quarantines that phase even inside the live continuation callback. The first Session commit depends on the same guard in static review. An admitted C1 API is needed before repeating registration on a fresh test Data copy. Session attachment, Notes save, same-disk reboot readback, and service READY remain unverified.
+
 ## PR 98 M27 promotion storage failure investigation — 2026-11-05
 
 Status: `BLOCKED` for the original guest failure cause; diagnostic-only candidate.
@@ -1553,6 +1561,7 @@ backend or inference is claimed. The patch, test source, host CTest output,
 target object and build log have a verified manifest at
 `out/evidence/m20-tensor-weight-status-20261002/SHA256SUMS`. M20 remains
 `PARTIAL`.
+
 The 2026-10-02 tensor-data follow-up adds numbered patch
 `0014-nagi-llama-data-validation-status.patch`. Invalid row data in
 `load_all_data()` now sets sticky loader failure and returns a failed status
@@ -2098,8 +2107,7 @@ M18-B chrome, and M18 three-site HTTPS/QEMU acceptance. This is the predecessor
 baseline; M19 live VFS and M22 regression steps were added to CI in the current
 checkpoint and await its new run.
 **Last known checkpoint:** The user-directed continuation remains on
-`codex/m19-m22-continuation` in
-`/Users/tozawa/.codex/worktrees/m19-m22-continuation/NagiOS`. On 2026-09-30,
+`codex/m19-m22-continuation` in its assigned worktree. On 2026-09-30,
 `./nagi m19` passed on a fresh isolated disk through bootstrap, initial, and
 restart boots, indexing a real VFS file and verifying its fixture ObjectId
 after rename and restart. A fresh-disk `./nagi m22` run passed M21 guest
@@ -10874,6 +10882,283 @@ context request, and the "Summarize this page" acceptance (which needs M20
 guest inference) remain. `nagi-albert` 91 tests, `nagi-cli` 260 tests,
 warning-denied Clippy.
 
+## Job/Automation Item 08: scheduler package integration (2026-11-14 17:00 UTC / 2026-11-15 02:00 JST)
+
+**Item status: `PARTIAL`.** This is an Item 08 workstream checkpoint, not an
+M0–M30 milestone status change. The complete existing
+`nagi-job-scheduler` crate is now a root workspace member. Its package manifest
+was moved into the root workspace by removing the nested `[workspace]` stanza.
+The root `Cargo.lock` is unchanged because the root resolver did not reach
+compilation.
+
+On `nightly-2025-08-01`, the focused cancellation regression passed (1/1) and
+the complete package suite passed (69 unit tests, 27 interruption-contract
+tests) for `aarch64-apple-darwin`. These ran from a temporary one-member test
+workspace containing the exact scheduler source hashes; they are package
+verification, not root-workspace acceptance. Root `cargo metadata --no-deps`
+confirmed 29 workspace members and the scheduler package registration.
+
+The focused root-workspace test stopped before compilation (exit 101, 0 tests)
+at the unresolved `third_party/surfman/Cargo.toml` path. That source was not
+copied because its owner checkout has an unverified symlink boundary. The
+temporary package lock retained the same versions for its 11 package
+identities shared with the 768-entry root lock; the root lock has an
+`indexmap` edge from `serde_json` absent in the temporary lock, so full root
+feature and lock parity is still unverified.
+
+Production acceptance remains open: the imported crate describes itself as a
+host-only orchestration foundation, contains only `InMemoryJobStore`, and has
+no boot consumer. No Identity-backed authorization adapter, durable JobStore,
+PAL clock adapter, or reboot-epoch connection was found in this checkout.
+`nagi-pal::GuestClock` exposes monotonic nanoseconds separately, but the
+scheduler does not use it. Manual-clock and in-memory recovery tests therefore
+do not establish the required production execution path.
+
+### Verification follow-up (2026-11-14 17:36 UTC / 2026-11-15 02:36 JST)
+
+The earlier root-resolution stop above is historical. Cargo now resolves the
+pinned path inputs and has added exactly one root lock entry for
+`nagi-job-scheduler` 0.2.0 (`serde`, `serde_json`). `Cargo.lock` SHA-256 changed
+from `afce8b56191be10e0ef226a970ad5974cd98c47152191ee64289e7c49e9a6543` to
+`9bb7ba5013b5749681dc3556621baccacfe07cee48254edfddffdf734db30f6f`; no other
+lock entries changed.
+
+Using `nightly-2025-08-01`, the root package-only command
+`cargo test -p nagi-job-scheduler --target aarch64-apple-darwin --offline --locked`
+passed 69 unit and 27 interruption-contract tests (96 total, 0 doc tests).
+`cargo check --all-targets -p nagi-job-scheduler --target
+x86_64-unknown-linux-gnu --offline --locked` passed as a Linux-target compile
+check only. No Linux execution or guest acceptance is claimed. Exact command
+invocations, dependency provenance, and the external-review status are
+preserved in the Item 08 handoff record.
+
+Root resolution required the repository-pinned Surfman, tempfile, Tokio, and
+Servo source bootstraps in this worktree. The tempfile archive hash and 27/27
+files matched; the Tokio archive hash and 563/563 files matched with no links.
+The existing CLI Servo checkout passed the official read-only validator
+before its pinned source was bootstrapped here. These generated, ignored
+inputs are not committed. The broad `./nagi fetch` command was not run.
+
+An earlier test attempt combined `--workspace` with the package selector and
+therefore compiled unrelated workspace members; it failed in x86-64-specific
+`libnagi` assembly under `aarch64-apple-darwin` (exit 101) before running
+scheduler tests. This was a command-selection error, not a scheduler result;
+the corrected package-only locked command above passed.
+
+Item 08 remains `PARTIAL`: Identity-backed authorization, durable atomic
+storage, a PAL monotonic-clock adapter with reboot epoch handling, and a boot
+consumer are still unconnected. The tests and compile check above do not
+demonstrate those production paths.
+
+### Production API handoff (2026-11-14 17:40 UTC / 2026-11-15 02:40 JST)
+
+The existing authorization seam is `JobAuthorization` in
+`crates/nagi-job-scheduler/src/authorization.rs`, but its implementations are
+test fakes. `nagi_model::UserId` currently has no provider; `libnagi::security::Session`
+does not expose a stable user ID, and `action_ipc::caller_identity` identifies
+the calling app process rather than the human owner. To connect this checkout,
+the Job adapter needs the Identity owner's authenticated-session-to-stable
+`UserId` API and a Job-specific one-time approval/revocation contract before
+it can safely construct `CallerRef`.
+
+`JobStore` in `crates/nagi-job-scheduler/src/store.rs` requires atomic
+insert/dedupe, revision updates, and claims; `InMemoryJobStore` is its only
+implementation. The guest VFS has file replace and flush operations but no
+multi-record transaction API, and its fixed inode/file limits constrain a
+durable snapshot. The existing history archive is a bounded A/B pattern, not
+a reusable JobStore. A Job backend must atomically cover records, dedupe state,
+and sequence allocation, then fail closed on uncertain writes and reload the
+canonical committed snapshot before granting execution again.
+
+`nagi-pal::GuestClock` exposes fallible monotonic, realtime, and sleep calls.
+Kernel timer ticks restart at zero each boot; `BootInfo` supplies a realtime
+seed but no monotonic boot-generation identifier. The scheduler's
+`FallibleClock` returns only `TimestampMillis`, with no clock-domain or epoch
+field. Do not persist monotonic deadlines across reboots until the scheduler
+store and PAL expose a verified epoch rule; checked clock failures must remain
+fail-closed.
+
+`user/nagi-init` is the target entry point and already depends on `nagi-pal`,
+but it has no scheduler dependency or `recover_startup` call. After Identity,
+clock-domain, and durable-store contracts exist, add a long-lived consumer
+that injects those production adapters, completes `recover_startup` before
+enabling dispatch, and then run crash/write/flush/restart and duplicate-receive
+acceptance on the Nagi target. Item 14 environment discovery and Item 24
+monitoring remain separate work.
+
+### Linux Job boundary follow-up (2026-11-15 03:17 JST / 2026-11-14 18:17 UTC)
+
+This follow-up scopes the earlier tick-counter and guest-VFS observations to
+the legacy source files where they were measured. They are not Linux Job
+runtime requirements. At fixed checkout `aa454e4c8910527bb732c913f605d50b352eb0e7`,
+the scheduler and `nagi-pal` contain no `target_os="linux"` clock or Job
+consumer. `nagi-pal::GuestClock` is implemented for `target_os="nagi"` and
+returns `Unsupported` for other targets. `nagi-search::HostFileBackend` is
+explicitly a host reference backend, not a production Job storage service.
+The Nagi POSIX `clock_gettime(CLOCK_REALTIME/CLOCK_MONOTONIC)` shim is likewise
+gated by its `target_os="nagi"` ABI module and delegates to `GuestClock`; it is
+not a Linux clock implementation.
+
+The 0.2 Background Jobs requirements call for deadlines, deterministic clock
+injection, bounded persistence, retry/backoff, cancellation, and
+deduplication/idempotency; they do not define the persisted timestamp domain or
+a Job snapshot schema. `TimestampMillis` is one serialized `u64` used by job
+metadata, deadlines, and retry times. `FallibleClock` returns that single
+value, while `JobStore` requires atomic record, dedupe, revision, and claim
+updates. Only `InMemoryJobStore` implements it in this checkout.
+
+Do not add a Linux clock or durable store until these two contracts are
+selected. Recommended clock direction: use an explicit Unix-epoch domain for
+persisted deadlines and a separate Linux monotonic source for elapsed
+within-run intervals. Impact: the current single-value clock seam cannot
+express both; it needs a typed API split and a defined response to wall-clock
+correction. The alternative is to persist a monotonic clock domain and boot
+identity, which requires a versioned schema and an explicit post-reboot
+recovery rule. Recommended storage direction: one versioned atomic snapshot
+covering records, dedupe state, and sequence allocation, with a canonical
+generation readback before dispatch after an uncertain commit. This requires a
+new persisted schema and an explicit `CommitUnknown`/fencing contract; the
+host reference backend's best-effort directory sync is insufficient evidence
+for that contract.
+
+Fresh package verification on the same source passed 69 unit plus 27
+interruption-contract tests (96 total, 0 doc tests) at 2026-11-15
+03:08:42–03:08:43 JST. The clock-fence cancellation/pause/timeout regression
+and later-record recovery-write-failure regression both passed. Linux-target
+`cargo check --all-targets` passed at 03:08:50–03:08:51 JST; this is a
+compile-only check from the macOS host. No source changed and no Linux runtime,
+durable JobStore, or boot acceptance is claimed.
+
+### Private Linux development runtime prototype (2026-11-15 04:34 JST / 2026-11-14 19:34 UTC)
+
+The preceding Linux-boundary recommendation remains in force for production
+and guest integration. This follow-up adds an optional, crate-private
+`linux-development-runtime` feature with no default activation, public API
+export, boot consumer, SDK change, or Identity/authentication change. It is a
+development candidate only; Item 08 remains `PARTIAL`.
+
+The candidate clock uses Unix-epoch `CLOCK_REALTIME` values for persisted
+`TimestampMillis`, pairs them with Linux `CLOCK_BOOTTIME` to detect in-process
+clock discontinuities (a 2-second tolerance), and records `/proc` boot ID in
+the snapshot. A backward clock relative to the last committed sample fails
+closed. A clean snapshot may be re-anchored to a new boot ID; any persisted
+`Running`, `CancelRequested`, `PauseRequested`, or `Interrupted` record blocks
+startup with `RecoveryRequired` and is never auto-replayed. The runtime wrapper
+requires an idempotency key for enqueue retries, injects the existing
+`JobAuthorization`, and completes `recover_startup` before exposing dispatch.
+
+The version-1 snapshot retains `JobRecord` schema v1 and atomically covers
+records, idempotency scopes, and sequence allocation. It uses a SHA-256
+integrity checksum (not an authenticity mechanism), an 8 MiB default and
+64 MiB hard byte cap, a private 0700 directory, a single-writer `flock`,
+same-directory temporary files, file and directory sync, atomic rename,
+canonical readback, and a durable pending-intent marker. Any unknown commit
+keeps the live store fenced; a pending marker or unresolved execution blocks
+reopen. No automatic recovery or deletion of evidence is performed.
+
+Fresh macOS ARM64 host verification on this source, `bd3bf674198e6126cd2856fa61eb00ff14a51144`
+plus the candidate diff, passed with the development feature off: 69 unit and
+27 interruption-contract tests (96 total, 0 doc tests) at 2026-11-15
+04:34:10–04:34:11 JST. With the feature on, 82 unit and 27
+interruption-contract tests passed (109 total, 0 doc tests) at 04:34:11–04:34:14
+JST. `cargo check --all-targets` with the feature on passed for
+`x86_64-unknown-linux-gnu` at 04:34:14 JST from the macOS host. This verifies
+Linux-target compilation only; Linux execution, crash/power-loss behavior,
+filesystem durability on the target, production boot integration, Identity
+principal/session binding, and one-time approval/revocation remain unverified.
+
+
+External safety review did not produce a usable verdict. The full-diff POST
+ended with `ConnectionResetError` before any HTTP response. One permitted
+reduced-source follow-up returned HTTP 200 with API status `incomplete`
+(`max_output_tokens`), 9,208 input tokens and 64,000 output tokens (all
+reasoning), but no final `output_text`. The attempts are recorded in the
+private orchestration review log; this is not a no-findings result. No further
+review POST was sent. Item 08 remains `PARTIAL`.
+
+### Authorization-unavailable regression and production boundary (2026-11-15 05:26 JST / 2026-11-14 20:26 UTC)
+
+A test-only regression, `unavailable_priority_authorization_does_not_insert_job_or_emit_acceptance`, verifies that an `Unavailable` result from priority authorization is returned unchanged and leaves the JobStore empty with the accepted-event snapshot unchanged. This covers the enqueue pre-persistence boundary only; it does not exercise dispatch or establish a production authorization adapter or one-shot approval transaction.
+
+A scoped inventory of the current `crates/`, `user/`, and `apps/` trees found no production consumer of the scheduler. The scheduler seam still accepts a `CallerRef` and returns only an authorization result; its record schema carries owner metadata but no live caller-context or approval receipt. The capability evaluator's one-shot consumption and `JobStore` insertion are separate operations, with no shared durable transaction in this checkout. At dispatch, handler authorization receives only the stored owner and handler. The current dispatch path maps any handler-authorization error to `PermissionDenied`; the intended handling of `Unavailable` at that boundary remains a contract decision and was not changed here.
+
+After review removed the provider-call assertion, verification on the fixed source passed: the focused regression 1/1 at 2026-11-14 20:26:36–20:26:39 UTC; the no-default package suite 70 unit and 27 interruption-contract tests (97 total) at 20:26:39 UTC; the `linux-development-runtime` suite 83 unit and 27 interruption-contract tests (110 total) at 20:26:39–20:26:42 UTC. `cargo check --all-targets -p nagi-job-scheduler --features linux-development-runtime --target x86_64-unknown-linux-gnu --offline --locked` passed at 20:26:42–20:26:43 UTC from the macOS host. This is Linux-target compilation only. No Linux execution, live Identity binding, one-shot approval/revocation, shared grant-and-insert transaction, durable JobStore, or boot consumer is established. Item 08 remains `PARTIAL`.
+
+### Linux runtime execution update (2026-11-14)
+
+Fresh ARM64 macOS package tests on the tested source passed with the feature
+off (70 unit and 27 interruption-contract tests, 97 total) and on (83 unit and
+27 interruption-contract tests, 110 total). Zig 0.17.1 linked both Linux test
+executables with `--no-run --offline --locked` for
+`x86_64-unknown-linux-gnu`. The updated executables then ran in a QEMU Alpine
+3.24.4 x86-64 guest on Linux 6.18.60-0-virt: 84 unit tests (including the
+Linux-only development-runtime test) and 27 interruption-contract tests passed.
+The ELF binaries use the GNU dynamic loader; its loader was copied into the
+temporary guest and the Debian glibc libraries were exposed there over a
+read-only 9p mount for the test run. This verifies the private
+development runtime on a Linux host, not Nagi guest or production integration.
+Identity-backed caller/issuer binding, one-shot approval and revocation, a
+shared grant-and-insert transaction, durable production JobStore, and a boot
+consumer remain unimplemented. Item 08 remains `PARTIAL`.
+
+### Review-driven Linux regression hardening (2026-11-14)
+
+A completed DeepSeek high-effort review of only the test added in commit
+`48fadbae` found no concrete runtime defect, but identified two test gaps: the
+clock assertion only checked availability, and the restart check did not prove
+that idempotency state survived reopening. The regression now bounds the
+runtime clock sample between adjacent `SystemTime` samples, checks that reopen
+returns exactly the expected succeeded record, and repeats the same idempotent
+request after reopen to verify deduplication and a single handler execution.
+The Zig-linked Linux test executable rebuilt successfully, and this focused
+Linux-only test passed 1/1 in QEMU Alpine 3.24.4 on Linux 6.18.60-0-virt.
+This review-driven change is test-only; Item 08 remains `PARTIAL`.
+
+### Reusable Linux development-test entry (2026-11-15)
+
+Added package-local `scripts/link-linux-development-tests.sh` and
+`scripts/zig-linux-linker.sh`. The runner takes the Zig executable and cache
+locations through environment variables, copies the current crate manifest,
+source, and integration test into a task-local isolated workspace, verifies
+the copied Rust sources match, and links both test executables with
+`linux-development-runtime` enabled. It writes only under the dedicated
+`target/job-scheduler-linux-zig` tree; the root manifest and lockfile remain
+unchanged. The initial entry run linked the executables that passed 84 unit
+plus 27 interruption-contract tests in the existing Alpine Linux 3.24.4 QEMU
+guest. Later wrapper-only fixes canonicalized a caller-relative Zig path,
+selected the repository's rustup override when invoked outside the worktree,
+and exported the isolated `CARGO_HOME`; a fresh external-cwd link then
+succeeded, and a PATH-shadow negative check confirmed that `NAGI_ZIG=zig`
+used the caller's executable. The final wrapper outputs were subsequently staged
+under separate filenames and run in Alpine Linux 3.24.4 on Linux
+6.18.60-0-virt: 84 unit and 27 interruption-contract tests passed, both with
+exit 0. Item 08 remains `PARTIAL`.
+
+### Linux boot userland integration checkpoint (2026-11-15)
+
+This is a checkpoint for `codex/linux-integration-20261114`, not a change to
+any M0–M30 milestone status. On the existing Linux 6.18.63 kernel, the
+development-only `nagi-init` target launched the fixed signed package's real
+task51 service and client through the supervised process lifecycle. It emitted
+`LifecycleEvent::Ready` only after the NIPC handshake, correlated
+`file.search` response, and rejection cases completed. The Linux `nagi-init`
+suite passed 60 tests in QEMU. Production identity, consent, transport, and
+service suppliers remain unconnected; this checkpoint does not claim
+production READY or milestone acceptance. The integration workstream remains
+`PARTIAL`.
+
+### Linux boot follow-up (2026-11-17)
+
+The PT case-ID initramfs builder now takes explicit normalized input and
+workspace paths instead of embedding workstation paths. Its focused host suite
+passes 11/11 with synthetic ELF/CPIO fixtures; this is tooling validation, not a
+guest run. The post-`161f8c1c` PID1 lifecycle regression remains `NOT RUN`
+because no matching init test binary is available. The existing ARM Linux VM
+assets and prior kernel output were inspected read-only; no kernel rebuild was
+run. The current Linux source has no System/Data GPT writer or mount callsite,
+so the separate plan producer does not establish image acceptance. Production
+authenticated READY remains unavailable pending real identity and transport
+suppliers. The integration workstream remains `PARTIAL`.
 ## M24 scoped production read boundary candidate (2026-11-05)
 
 M24 remains PARTIAL. A separate candidate based on `87b7dea4061be2572526181ab559d63037f823d0`
@@ -10991,3 +11276,41 @@ third_party/cc-nagi materialization. Original CI remains failed; no push,
 CI rerun, VM or guest execution was performed. Native host revalidation and
 independent review of this correction remain pending. M24 remains PARTIAL.
 See `docs/workstreams/search-host-path-allocation.md` for evidence and limits.
+
+## Linux development-target acceptance — 2026-11-19 (Task24)
+
+### Scope
+
+One development target: an x86-64 Linux guest in QEMU (4 vCPUs, 2 GiB RAM). Identity ran as a separately signed and verified development service; Data and Notes remained in PID 1. This does not select the product service topology or establish release signing, physical-device support, or product acceptance.
+
+- A integration source: `eecf55f988`; C2 retained-endpoint handshake: `747feeefd4`; canonical same-connection proof contract: `6064decb3b`.
+- Evidence run: `a-task24-same-registration-ready-20261119`. The run used a development-only signing scope; no keys, credentials, raw Data images, private paths or raw logs are included here.
+
+### Procedure
+
+1. Build the fixed Linux x86-64 musl PID 1 and Identity artifacts. Prepare the signed development catalog and boot plan with the repository's Task24 development signing and image tools, and attach a dedicated writable Data image. Keep the product trust configuration separate.
+2. Cold-boot QEMU. Register and authenticate the test Owner through the normal entry point. Verify that account authentication, C1 session commit and the same-registration Identity handshake are followed by `nagi-init: state=ready`.
+3. Save a Notes item; verify the recorded object and revision. Shut down normally and check the terminal receipt and exit code.
+4. Cold-boot the same configuration with the *same* Data image. Reauthenticate, verify READY again, then reopen Notes. Compare the object, revision and rendered text with the first boot.
+
+### Result
+
+Sanitized summary of the measured `result.json` (not a new run):
+
+```json
+{
+  "full_e2e_pass": true,
+  "ready_verified": true,
+  "same_disk_reboot": true,
+  "same_object_and_revision": true,
+  "revision": 1
+}
+```
+
+Both boots recorded account authentication, C1 session commit, the Identity handshake and a single READY transition. The initial save completed with exit code 0 and a terminal receipt. The second boot matched the saved Notes object, revision and rendered glyphs. This validates the normal signed-development path, not every Notes persistence backend.
+
+### Still open
+
+Real System read-only integration (the test observed writable Data); WS-10 restriction, revocation, logout and crash acceptance on the integrated image; fixed 8 GiB/4-vCPU performance acceptance. Physical-device validation is a separate DEC-102 follow-up, not a PR #163 acceptance condition.
+
+A later signed development run with E `0f6980ac72` observed the volume warning only before authentication. The authenticated path then completed profile attachment, Notes save, and same-Data readback after cold reboot. This scope does not establish general production permission acceptance.

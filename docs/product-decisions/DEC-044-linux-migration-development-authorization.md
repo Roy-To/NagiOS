@@ -67,3 +67,18 @@ Linux + Nagi専用userland、既存distributionを製品OS基盤にしない方�
 この到達点は本DECの最初の開発統合目標に対応する。**実機受入、製品向け認証済みREADY、Linux移行全体の完了、電源断耐久、ReleaseのPASSを意味しない。** 開発限定handshakeと通常製品initの認証経路は別で、後者の未接続部分はUnavailableを維持する。後続変更のhost testや型検査をこのrunのruntime成功へ合算しない。既存のRelease／Activation／Acceptance Gateと安全境界は変更しない。
 
 詳細・残条件は [implementation status](../implementation_status.md) の「Linux development-target acceptance — 2026-11-16 13:16 JST」を参照。非公開の生ログ・ローカル個人パス・会話記録は本記録に含めない。
+
+## 認証付き正常経路の開発QEMU実測（2026-11-19）
+
+署名済み開発イメージの x86-64 Linux QEMU（2 GiB RAM、4 vCPU）で、実認証、C1 Session、正式な service READY、Notes の保存・正常終了、同じ Data での冷間再起動・再認証と同一オブジェクト／版／描画内容の読戻しが成立した。固定版は A `eecf55f988` と C2 `747feeefd4`、同一接続証明は `6064decb3b`。手順と result.json の要点は[実装状況](../implementation_status.md#linux-development-target-acceptance--2026-11-19-task24)を参照。
+
+これは開発環境の正常系の記録であり、製品の署名や構成、実System RO、WS-10、8 GiB／4 vCPU性能の受入を示さない。実機検証は #163 の受入条件から外し、DEC-102 の別工程とする。
+
+## PR #163 の開発イメージ受入基準（2026-11-20）
+
+この節は #163 の開発イメージに限る。製品構成、対応機器、既存 Release Gate は変更しない。
+
+1. **性能の測定・記録:** ARM ホスト上で x86-64 を TCG によりエミュレートする QEMU を 8 GiB・4 vCPU に固定し、通常操作の入力から描画までの遅延と、ゲスト RAM の最大使用量を測定・記録する。測定方法、測定窓とサンプリングの限界を明記し、ホスト側 QEMU プロセスのメモリをゲスト RAM の代用にしない。#163 に数値による合格ラインは置かない。数値基準は DEC-102 の実機検証で決める。
+2. **PID 1 の全体 READY:** 開発イメージの必須サービス（現在は Identity のみ）すべての READY を確認した後、PID 1 自身が起動全体の READY を起動ごとに一度だけ外部へ通知する。Identity 側の通知だけでは代用しない。必須サービスが揃う前には全体 READY を通知しない。これは製品の必須サービス構成を確定しない。
+
+System RO と WS-10 は引き続き別の受入項目。クラッシュ時の回収確認では、別の単体試験だけで代用せず、統合イメージで通常稼働中のサービスが異常終了した経路を試す。
