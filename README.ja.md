@@ -15,10 +15,15 @@
 
 ## プロジェクト概要
 
-Nagi は、独自カーネルとユーザー空間を持つゼロベースの OS プロジェクトです。
-Linux・Windows・macOS は開発ホストとして使いますが、Nagi は Linux
-ディストリビューションではありません。現在の実装ラインは Nagi OS 0.1
-Developer Preview で、公式ターゲットは QEMU x86-64 です。
+現在の Nagi OS 0.1 実装は、独自カーネルとユーザー空間を持つゼロベースの
+OS で、公式ターゲットは QEMU x86-64 です。製品決定
+[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md) と
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
+により、今後の製品方針は **Linux カーネル + Nagi 専用ユーザーランド**
+に確定しています。これは 0.1 の実装や受け入れ証拠が移行済みであることを
+意味しません。既存の Linux ディストリビューションを製品 OS の基盤として
+採用することはありません。0.1 ラインでは Linux・Windows・macOS を
+開発ホストとして使います。
 
 通常の GUI・キーボード・ポインター操作を大切にしながら、利用者の意図に
 沿った作業を AI が支援するローカルファーストのデスクトップを探求します。
@@ -55,8 +60,9 @@ Agent 構想では、ユーザー所有の Profile やモデル非依存の Memo
 
 ## なぜ Nagi OS か
 
-- **OS を OS として作る:** Linux 上の独自シェルではなく、独自カーネル、
-  ABI、サービス、ネイティブデスクトップを持ちます。
+- **OS を OS として作る:** 現在の 0.1 実装は、独自カーネル、ABI、
+  サービス、ネイティブデスクトップを持ちます。確定した製品方針は、
+  Linux 上に Nagi 専用ユーザーランドを構築することです。
 - **利用者が権限を保つ:** ソフトウェアの操作権限を Capability と明示的な
   許可で決め、確率的な AI 出力に権限を与えません。
 - **ローカルデータを基本にする:** ユーザーオブジェクト、履歴、将来の AI
@@ -95,11 +101,12 @@ nagi-init / Supervisor
 ネイティブアプリ · Albert ブラウザー (Servo)
 ~~~
 
-カーネルは Linux ではなく Nagi 独自です。ファイルシステム、ネットワーク、
-デスクトップ、オーディオ、パッケージ、AI ポリシーはユーザー空間に置く
-設計です。Albert のブラウザーエンジンには Servo を使います。Preview の
-一部サービスはまだ init 内で動くため、この図は目標とする境界を示しており、
-本番レベルのサービス分離を意味しません。
+現在の 0.1 のカーネルは Nagi 独自です。Linux カーネルを使う製品方針は
+DEC-042/043 で別途確定していますが、この実装はまだ移行していません。
+ファイルシステム、ネットワーク、デスクトップ、オーディオ、パッケージ、
+AI ポリシーはユーザー空間に置く設計です。Albert のブラウザーエンジンには
+Servo を使います。Preview の一部サービスはまだ init 内で動くため、この図は
+目標とする境界を示しており、本番レベルのサービス分離を意味しません。
 
 詳細は
 [0.1 実装仕様](docs/Nagi_OS_0.1_Codex_Implementation_Spec.md)と
@@ -165,6 +172,15 @@ workstream の記録を参照してください。
 [0.2 実装仕様](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、
 [0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md)も
 参照してください。
+
+確定した製品方針は Linux カーネル + Nagi 専用ユーザーランドです
+（[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)、
+[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)）。
+現在の 0.1 実装は引き続き独自カーネルを使っており、その受け入れ証拠は
+Linux ターゲットでの受け入れを示すものではありません。
+ユーザーが承認した製品決定、改訂済みの 0.3・0.4+・0.5–1.0 ロードマップ、
+長期ビジョンは [docs/product-decisions](docs/product-decisions/README.md)
+にまとめています。
 
 ## はじめ方
 
