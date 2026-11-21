@@ -3,7 +3,7 @@
 **状態:** CONFIRMED（Q1〜Q4の高水準方針）／PROVISIONAL（報告の形式・画面・伏せ字の方式・適用版）／REVIEW NOTE（関連DECとの整合）  
 **最終合意日:** 2026-11-20  
 **適用候補:** Nagi OS全体の不具合報告（Albertの動かないサイトの報告を含む）。適用版は未確定  
-**関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)、[DEC-115](DEC-115-web-compatibility-engine-drm-and-codecs.md)、[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)、[DEC-118（PR #215、未マージ）](https://github.com/Roy-To/NagiOS/pull/215)、[SECURITY.md](../../SECURITY.md)
+**関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)、[DEC-115](DEC-115-web-compatibility-engine-drm-and-codecs.md)、[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)、[DEC-118](DEC-118-support-period-and-vulnerability-response.md)、[SECURITY.md](../../SECURITY.md)
 
 ## 目的と背景
 
