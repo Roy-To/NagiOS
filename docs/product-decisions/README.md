@@ -243,7 +243,9 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-115 | [Web互換性・ブラウザーエンジン・DRM・コーデック](DEC-115-web-compatibility-engine-drm-and-codecs.md) | CONFIRMED（Servoで実測を先行しLinux版の予備エンジン制約を解除、サイト報告・DRM・コーデックの方針）／PROVISIONAL（予備エンジンの採否・評価方法・コーデックの最終判断・適用版） | 2026-11-20 |
 | DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版） | 2026-11-20 |
 | DEC-117 | [ユーザーデータの暗号化と端末紛失時の方針](DEC-117-user-data-encryption-and-lost-device.md) | CONFIRMED（ユーザーデータの既定暗号化、Memory／Profileの常時暗号化、解錠・回復と端末紛失時の方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・UI・適用版） | 2026-11-20 |
+| DEC-118 | [サポート期間と脆弱性対応の目標](DEC-118-support-period-and-vulnerability-response.md) | CONFIRMED（1.0までは最新版のみサポート、種類別の脆弱性修正目標、GitHubの非公開報告機能を利用） | 2026-11-20 |
 | DEC-119 | [テレメトリーなしでの不具合報告の届け方](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人が確認・送信する不具合報告、診断情報の範囲、Nagi 1.0まで自動クラッシュ報告なし）／PROVISIONAL（報告の形式・UI・伏せ字方式・適用版） | 2026-11-20 |
+| DEC-120 | [開発名称「Nagi」とDCOによる貢献の受け付け](DEC-120-development-codename-and-dco.md) | CONFIRMED（「Nagi」を開発名称として使用し、1.0までに製品名の扱いを決定、DCOで貢献を受け付け） | 2026-11-20 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
