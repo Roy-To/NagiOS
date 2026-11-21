@@ -119,6 +119,27 @@ the maintainer. See [the scope review](docs/oss/mpl-2.0-scope-review.md) for
 remaining glyph, asset, dependency and rights checks. A license grant for Nagi
 source is not clearance of a complete release image.
 
+## Developer Certificate of Origin (DCO)
+
+Contributions are accepted under the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/)
+([DEC-120](docs/product-decisions/DEC-120-development-codename-and-dco.md)).
+Add a sign-off line to every commit:
+
+```text
+Signed-off-by: Your Name <your-email@example.com>
+```
+
+`git commit -s` adds this line automatically. The sign-off certifies that you
+have the right to submit the change under the project's licenses; it does not
+assign copyright. Copyright stays with each contributor. The name and email in
+the sign-off become public, so use an address you are comfortable publishing
+(a GitHub noreply address is fine).
+
+For commits produced with AI assistance, the human who submits the commit
+signs off and takes responsibility for the certification. The sign-off applies
+to new contributions; earlier commits are not re-signed.
+
 ## Security reports
 
 Do not place credentials, private keys, tokens, personal data, document
