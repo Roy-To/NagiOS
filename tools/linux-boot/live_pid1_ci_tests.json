@@ -9,6 +9,9 @@
   "linux_init::linux_init_c3_system_service_owner::tests::dropped_owner_keeps_unique_slot_until_exact_child_reaps",
   "linux_init::linux_init_c3_system_service_owner::tests::exact_slot_owner_issues_proof_replaces_revokes_and_reaps_real_clone3_children",
   "linux_init::linux_init_c3_system_service_owner::tests::explicit_shutdown_retires_current_child_before_return",
+  "linux_init::linux_init_c3_system_service_owner::tests::identity_listener_handoff_binds_exact_spawn_retains_and_retires_after_normal_exit",
+  "linux_init::linux_init_c3_system_service_owner::tests::identity_listener_handoff_restarts_same_owner_after_normal_exit",
+  "linux_init::linux_init_c3_system_service_owner::tests::identity_listener_handoff_retires_once_after_sigill_and_rejects_old_proof_reuse",
   "linux_init::linux_init_c3_system_service_owner::tests::owner_state_poison_reaps_exact_child_and_reacquires_with_fresh_generation",
   "linux_init::linux_init_c3_system_service_owner::tests::owner_state_poison_shutdown_retries_exact_cleanup_without_clearing_poison",
   "linux_init::linux_init_c3_system_service_owner::tests::wrong_endpoint_is_rejected_and_revokes_the_exact_current_child",
@@ -18,5 +21,6 @@
   "linux_init::linux_process_resource_tests::endpoint_service_child_cannot_open_pid1_root_files_after_namespace_setup",
   "linux_init::linux_process_resource_tests::exec_failure_reaps_child_and_closes_unhanded_pidfd_and_endpoint",
   "linux_init::linux_process_resource_tests::shared_reaper_races_lifecycle_and_idle_wait_with_mixed_out_of_order_children",
+  "linux_init::linux_task24_c3_data_journal::tests::exact_existing_c3_marker_is_synced_before_bootstrap_consumption",
   "linux_init::linux_x86_64_process::inline_pidfd_retention_tests::maintained_prepare_registry_owns_pidfd_after_owner_drop_until_exact_reap"
 ]
