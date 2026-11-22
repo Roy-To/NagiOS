@@ -73,6 +73,14 @@ mod linux_init_c3_system_service_owner;
 #[path = "linux_init_c3_slot_journal.rs"]
 mod linux_init_c3_slot_journal;
 
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "linux_task24_c3_data_journal.rs"]
+mod linux_task24_c3_data_journal;
+
 // The standalone lifecycle candidate intentionally binds its own error/status types.
 #[cfg_attr(test, allow(clippy::duplicate_mod))]
 #[path = "pid1_owned_launch_lease.rs"]
@@ -659,6 +667,65 @@ fn run_pid1_lifecycle<B: InitBackend>(backend: &mut B, mut wait_for_os_event: im
     wait_in_pid1(&mut wait_for_os_event)
 }
 
+#[cfg(any(test, linux_task24_notes_consumer))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotesConsoleExit {
+    ClosedByUser,
+    RequiredIdentityExited,
+    StateUnknown,
+}
+
+#[cfg(any(test, linux_task24_notes_consumer))]
+impl NotesConsoleExit {
+    fn allows_normal_login_reconciliation(
+        notes_exit: Option<Self>,
+        login_child_exited_cleanly: bool,
+    ) -> bool {
+        login_child_exited_cleanly && matches!(notes_exit, None | Some(Self::ClosedByUser))
+    }
+}
+
+/// Read a keyboard slice, then observe the required service before accepting
+/// either the input or a keyboard error. The caller owns the existing reaper.
+#[cfg(any(test, linux_task24_initial_login_runtime))]
+enum Task24InputPoll<Input> {
+    Pending,
+    Input(Input),
+    RequiredServiceExited,
+}
+
+#[cfg(any(test, linux_task24_initial_login_runtime))]
+fn poll_task24_input<Input>(
+    wait_for_input: impl FnOnce() -> std::io::Result<Option<Input>>,
+    poll_required_service: impl FnOnce() -> std::io::Result<bool>,
+) -> std::io::Result<Task24InputPoll<Input>> {
+    let input = wait_for_input();
+    if poll_required_service()? {
+        return Ok(Task24InputPoll::RequiredServiceExited);
+    }
+    Ok(match input? {
+        Some(input) => Task24InputPoll::Input(input),
+        None => Task24InputPoll::Pending,
+    })
+}
+
+#[cfg(any(test, linux_task24_initial_login_runtime))]
+fn wait_for_task24_input<Input>(
+    mut wait_for_input: impl FnMut(std::time::Duration) -> std::io::Result<Option<Input>>,
+    mut poll_required_service: impl FnMut() -> std::io::Result<bool>,
+) -> std::io::Result<Option<Input>> {
+    loop {
+        match poll_task24_input(
+            || wait_for_input(std::time::Duration::from_millis(100)),
+            &mut poll_required_service,
+        )? {
+            Task24InputPoll::Pending => {}
+            Task24InputPoll::RequiredServiceExited => return Ok(None),
+            Task24InputPoll::Input(input) => return Ok(Some(input)),
+        }
+    }
+}
+
 /// Lifecycle core after the production PID 1 guard. Unit tests exercise only
 /// this orchestration contract with a fake backend; they do not start processes.
 ///
@@ -667,6 +734,13 @@ fn run_pid1_lifecycle<B: InitBackend>(backend: &mut B, mut wait_for_os_event: im
 /// starting a process; it must deliver the explicit authenticated Ready
 /// event after all required handshakes have completed.
 pub(crate) fn run_lifecycle<B: InitBackend>(backend: &mut B) -> ExitCode {
+    run_lifecycle_with_ready_publisher(backend, publish_lifecycle_ready)
+}
+
+fn run_lifecycle_with_ready_publisher<B: InitBackend>(
+    backend: &mut B,
+    mut publish_ready: impl FnMut(&mut bool) -> Result<(), BackendError>,
+) -> ExitCode {
     let mut session = match backend.initialize() {
         Ok(session) => session,
         Err(error) => {
@@ -691,13 +765,13 @@ pub(crate) fn run_lifecycle<B: InitBackend>(backend: &mut B) -> ExitCode {
 
         match event {
             LifecycleEvent::Ready => {
-                if let Err(error) = publish_lifecycle_ready(&mut ready) {
-                    return stop_after_failure(
-                        backend,
-                        &mut session,
-                        ShutdownCause::ProtocolViolation,
-                        error,
-                    );
+                if let Err(error) = publish_ready(&mut ready) {
+                    let cause = if error == BackendError::ProtocolViolation {
+                        ShutdownCause::ProtocolViolation
+                    } else {
+                        ShutdownCause::BackendFailure
+                    };
+                    return stop_after_failure(backend, &mut session, cause, error);
                 }
             }
             LifecycleEvent::ServiceExited {
@@ -742,11 +816,33 @@ pub(crate) fn run_lifecycle<B: InitBackend>(backend: &mut B) -> ExitCode {
 }
 
 fn publish_lifecycle_ready(ready: &mut bool) -> Result<(), BackendError> {
+    use std::os::fd::AsFd as _;
+
+    publish_lifecycle_ready_fd(ready, std::io::stderr().lock().as_fd())
+}
+
+fn publish_lifecycle_ready_fd(
+    ready: &mut bool,
+    fd: std::os::fd::BorrowedFd<'_>,
+) -> Result<(), BackendError> {
+    // Write through an owned duplicate of the same descriptor. The standard
+    // stderr writer can suppress an OS bad-descriptor error.
+    publish_lifecycle_ready_to(ready, || fd.try_clone_to_owned().map(std::fs::File::from))
+}
+
+fn publish_lifecycle_ready_to<W: std::io::Write>(
+    ready: &mut bool,
+    open_writer: impl FnOnce() -> std::io::Result<W>,
+) -> Result<(), BackendError> {
     if *ready {
         return Err(BackendError::ProtocolViolation);
     }
+    let mut writer = open_writer().map_err(|_| BackendError::TransportFailure)?;
+    writer
+        .write_all(b"nagi-init: state=ready\n")
+        .and_then(|()| writer.flush())
+        .map_err(|_| BackendError::TransportFailure)?;
     *ready = true;
-    pid1_log!("nagi-init: state=ready");
     Ok(())
 }
 
@@ -8811,11 +8907,33 @@ impl InitBackend for UnconnectedBackend {
                         not(any(linux_dev_preview_smoke, nagi_release_build))
                     ))]
                     let activating_identity = identity_listener.is_some();
+                    #[cfg(not(nagi_release_build))]
+                    let task24_data_root = if catalog.descriptor().package_id()
+                        == linux_c3_boot_launch::TASK24_IDENTITY_PACKAGE_ID
+                    {
+                        let data = self.identity_data.as_ref().ok_or_else(|| {
+                            pid1_log!(
+                                "NAGI_DEV_TASK24_C3_DATA_JOURNAL_UNAVAILABLE reason=data_owner_missing"
+                            );
+                            BackendError::Unavailable
+                        })?;
+                        Some(data.input.selected_data_root().map_err(|error| {
+                            pid1_log!(
+                                "NAGI_DEV_TASK24_C3_DATA_JOURNAL_UNAVAILABLE reason=data_root_rejected ({error})"
+                            );
+                            BackendError::Unavailable
+                        })?)
+                    } else {
+                        None
+                    };
+                    #[cfg(nagi_release_build)]
+                    let task24_data_root = None;
                     let authenticated = linux_c3_boot_launch::authenticate_boot_service(
                         &package_store,
                         catalog,
                         &report,
                         package,
+                        task24_data_root.as_ref(),
                         #[cfg(feature = "system-service-readiness")]
                         identity_listener,
                     )
@@ -12043,6 +12161,239 @@ mod tests {
 
         assert_eq!(status, ExitCode::from(EX_PROTOCOL));
         assert_eq!(backend.shutdown_causes, [ShutdownCause::ProtocolViolation]);
+    }
+
+    #[test]
+    fn ready_partial_write_failure_stays_unpublished_and_cleans_up() {
+        struct BrokenReadyWriter(Vec<u8>);
+
+        impl std::io::Write for BrokenReadyWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if !self.0.is_empty() {
+                    return Err(std::io::ErrorKind::BrokenPipe.into());
+                }
+                let count = bytes.len().min(6);
+                self.0.extend_from_slice(&bytes[..count]);
+                Ok(count)
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut backend = FakeBackend::new(Ok(()), vec![LifecycleEvent::Ready], Ok(()));
+        let mut writer = BrokenReadyWriter(Vec::new());
+        let status = run_lifecycle_with_ready_publisher(&mut backend, |ready| {
+            let result = publish_lifecycle_ready_to(ready, || Ok(&mut writer));
+            assert!(!*ready);
+            result
+        });
+
+        assert_eq!(status, ExitCode::from(EX_IOERR));
+        assert_eq!(writer.0, b"nagi-i");
+        assert_eq!(backend.shutdown_causes, [ShutdownCause::BackendFailure]);
+    }
+
+    #[test]
+    fn ready_flush_failure_stays_unpublished() {
+        struct BufferWithFailedFlush(Vec<u8>);
+
+        impl std::io::Write for BufferWithFailedFlush {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+        }
+
+        let mut ready = false;
+        let mut writer = BufferWithFailedFlush(Vec::new());
+        assert_eq!(
+            publish_lifecycle_ready_to(&mut ready, || Ok(&mut writer)),
+            Err(BackendError::TransportFailure)
+        );
+        assert!(!ready);
+        assert_eq!(writer.0, b"nagi-init: state=ready\n");
+    }
+
+    #[test]
+    fn ready_writer_open_failure_stays_unpublished() {
+        let mut ready = false;
+        let result = publish_lifecycle_ready_to(&mut ready, || {
+            Err::<std::io::Sink, _>(std::io::ErrorKind::PermissionDenied.into())
+        });
+
+        assert_eq!(result, Err(BackendError::TransportFailure));
+        assert!(!ready);
+    }
+
+    #[test]
+    fn ready_fd_reports_os_write_failure() {
+        use std::os::fd::AsFd as _;
+
+        let read_only = std::fs::File::open("/dev/null").unwrap();
+        let mut ready = false;
+
+        assert_eq!(
+            publish_lifecycle_ready_fd(&mut ready, read_only.as_fd()),
+            Err(BackendError::TransportFailure)
+        );
+        assert!(!ready);
+    }
+
+    #[test]
+    fn ready_fd_delivers_one_complete_notification() {
+        use std::io::Read as _;
+        use std::os::fd::AsFd as _;
+        use std::os::unix::net::UnixStream;
+
+        let (tx, mut rx) = UnixStream::pair().unwrap();
+        rx.set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut ready = false;
+
+        assert_eq!(publish_lifecycle_ready_fd(&mut ready, tx.as_fd()), Ok(()));
+        assert!(ready);
+        assert_eq!(
+            publish_lifecycle_ready_fd(&mut ready, tx.as_fd()),
+            Err(BackendError::ProtocolViolation)
+        );
+
+        drop(tx);
+        let mut received = Vec::new();
+        rx.read_to_end(&mut received).unwrap();
+        assert_eq!(received, b"nagi-init: state=ready\n");
+    }
+
+    #[test]
+    fn ready_notification_is_written_once() {
+        let mut backend = FakeBackend::new(
+            Ok(()),
+            vec![LifecycleEvent::Ready, LifecycleEvent::Ready],
+            Ok(()),
+        );
+        let mut writer = Vec::new();
+        let status = run_lifecycle_with_ready_publisher(&mut backend, |ready| {
+            publish_lifecycle_ready_to(ready, || Ok(&mut writer))
+        });
+
+        assert_eq!(status, ExitCode::from(EX_PROTOCOL));
+        assert_eq!(writer, b"nagi-init: state=ready\n");
+        assert_eq!(backend.shutdown_causes, [ShutdownCause::ProtocolViolation]);
+    }
+
+    #[test]
+    fn notes_exit_reason_controls_normal_login_reconciliation() {
+        use NotesConsoleExit::{ClosedByUser, RequiredIdentityExited};
+
+        assert!(NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(ClosedByUser),
+            true,
+        ));
+        assert!(!NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(RequiredIdentityExited),
+            true,
+        ));
+        assert!(!NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(ClosedByUser),
+            false,
+        ));
+        assert!(NotesConsoleExit::allows_normal_login_reconciliation(
+            None, true,
+        ));
+    }
+
+    #[test]
+    fn notes_unknown_exit_blocks_normal_login_reconciliation() {
+        assert!(!NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(NotesConsoleExit::StateUnknown),
+            true,
+        ));
+    }
+
+    #[test]
+    fn notes_input_wait_polls_required_service_while_idle_and_on_input() {
+        let mut input_polls = 0;
+        let mut service_polls = 0;
+        let input = wait_for_task24_input(
+            |timeout| {
+                assert_eq!(timeout, std::time::Duration::from_millis(100));
+                input_polls += 1;
+                Ok((input_polls == 4).then_some(42))
+            },
+            || {
+                service_polls += 1;
+                Ok(false)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(input, Some(42));
+        assert_eq!(input_polls, 4);
+        assert_eq!(service_polls, 4);
+    }
+
+    #[test]
+    fn notes_input_wait_prioritizes_required_exit_over_input() {
+        let mut input_polls = 0;
+        let mut service_polls = 0;
+        let input = wait_for_task24_input(
+            |_| {
+                input_polls += 1;
+                Ok((input_polls == 3).then_some(42))
+            },
+            || {
+                service_polls += 1;
+                Ok(service_polls == 3)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(input, None);
+        assert_eq!(input_polls, 3);
+        assert_eq!(service_polls, 3);
+    }
+
+    #[test]
+    fn notes_input_wait_propagates_required_service_poll_error() {
+        let error = wait_for_task24_input(
+            |_| Ok(Some(42)),
+            || Err(std::io::ErrorKind::BrokenPipe.into()),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn task24_prelogin_monitor_has_priority_over_escape_enter_and_keyboard_error() {
+        use std::io::ErrorKind;
+
+        for key in [libnagi::INPUT_KEY_ESCAPE, libnagi::INPUT_KEY_ENTER] {
+            assert!(matches!(
+                poll_task24_input(|| Ok(Some(key)), || Ok(true)),
+                Ok(Task24InputPoll::RequiredServiceExited)
+            ));
+            assert!(matches!(
+                poll_task24_input(|| Ok(Some(key)), || Err(ErrorKind::BrokenPipe.into())),
+                Err(error) if error.kind() == ErrorKind::BrokenPipe
+            ));
+            assert!(matches!(
+                poll_task24_input(|| Ok(Some(key)), || Ok(false)),
+                Ok(Task24InputPoll::Input(received)) if received == key
+            ));
+        }
+        assert!(matches!(
+            poll_task24_input::<()>(
+                || Err(ErrorKind::InvalidData.into()),
+                || Err(ErrorKind::BrokenPipe.into())
+            ),
+            Err(error) if error.kind() == ErrorKind::BrokenPipe
+        ));
     }
 
     #[test]

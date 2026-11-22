@@ -18,6 +18,7 @@ use nagi_init_package_provider::package_trust::{
 };
 use nagi_init_spawn_contract::{SpawnedProcessIdentity, SpawnedProcessPidfd};
 use nagi_model::{AppSessionId, NodeId};
+use nagi_system_principal_contract::SystemServiceLaunchRecord;
 use nagi_system_service_launch::VerifiedServicePackageBinding;
 use std::io;
 use std::num::NonZeroU64;
@@ -183,6 +184,7 @@ impl C3PendingIdentityListener for PendingIdentityListener {
             .as_ref()
             .ok_or_else(|| denied("Identity plan unavailable"))?;
         if !identity.same_instance(binding.process_identity())
+            || !c3_launch_record_matches_binding(binding, binding.launch_record())
             || plan.system_service_slot()
                 != Some((binding.service_id(), binding.catalog_generation()))
         {
@@ -222,6 +224,7 @@ impl C3PendingIdentityListener for PendingIdentityListener {
             lease: Arc::clone(&self.lease),
             identity,
             record,
+            c3_launch_record: binding.launch_record().clone(),
             binding_digest: *binding.scope_binding_digest(),
             launch_generation: binding.c3_launch_generation(),
         }))
@@ -234,6 +237,7 @@ struct IdentityLaunchLease {
     lease: Arc<Mutex<Option<LoginLease>>>,
     identity: SpawnedProcessIdentity,
     record: LaunchRecord,
+    c3_launch_record: SystemServiceLaunchRecord,
     binding_digest: [u8; 32],
     launch_generation: NonZeroU64,
 }
@@ -243,7 +247,27 @@ impl IdentityLaunchLease {
         self.identity.same_instance(binding.process_identity())
             && self.binding_digest == *binding.scope_binding_digest()
             && self.launch_generation == binding.c3_launch_generation()
+            && self
+                .c3_launch_record
+                .process_identity()
+                .same_instance(&self.identity)
+            && c3_launch_record_matches_binding(binding, &self.c3_launch_record)
     }
+}
+
+fn c3_launch_record_matches_binding(
+    binding: &C3IdentityLaunchBinding,
+    record: &SystemServiceLaunchRecord,
+) -> bool {
+    let Some(slot) = record.system_service_slot_identity() else {
+        return false;
+    };
+    record.generation() == binding.c3_launch_generation()
+        && record
+            .process_identity()
+            .same_instance(binding.process_identity())
+        && slot.service_id() == binding.service_id()
+        && slot.catalog_generation() == binding.catalog_generation()
 }
 
 impl C3IdentityListenerLaunchLease for IdentityLaunchLease {

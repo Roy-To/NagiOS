@@ -1,11 +1,16 @@
 //! Start the signed Identity package through the maintained C3 owner.
 
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+use super::linux_init_c3_slot_journal::C3DurableNormalExitReceipt;
+#[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+use super::linux_task24_c3_data_journal::Task24C3DataJournalDirectory;
 use super::{
     linux_boot_package_inputs::LinuxBootArtifactPreflight,
     linux_init_c3_slot_journal::C3DurableSlotReceipt,
     linux_init_c3_system_service_owner::LinuxC3SystemServiceSlotOwner,
     linux_initial_login_owner::LinuxInitialLoginOwner,
 };
+use crate::profile_volume_notes_owner::SelectedDataRoot;
 use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceSessionOwner,
 };
@@ -43,6 +48,12 @@ const RELEASE_BUDGET: Duration = Duration::from_secs(2);
 const RETIREMENT_BUDGET: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+fn package_store_journal_path(package_store: &File) -> PathBuf {
+    let mut journal = PathBuf::from(format!("/proc/self/fd/{}", package_store.as_raw_fd()));
+    journal.push("system-service-slot.v1");
+    journal
+}
+
 #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
 #[path = "linux_c1_boot_recovery.rs"]
 pub(super) mod linux_c1_boot_recovery;
@@ -52,11 +63,19 @@ pub(super) struct LinuxBootServiceOwner {
     c3: LinuxC3SystemServiceSlotOwner,
     metadata: SystemServiceLaunchMetadata,
     reservation_attempted: bool,
+    #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+    _task24_data_journal: Option<Task24C3DataJournalDirectory>,
+    // Capture the prior boot's proof while the journal still describes that
+    // boot. The current reservation may make the latest-row API unavailable.
+    #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+    previous_normal_exit: Option<C3DurableNormalExitReceipt>,
 }
 
 pub(super) struct LinuxBootServiceLifecycle {
     slot: SystemServiceRuntimeSlotBinding,
     process: Option<SpawnedProcessIdentity>,
+    #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+    previous_normal_exit: Option<C3DurableNormalExitReceipt>,
 }
 
 type RecoveredLaunch<'owner, C3, I, Attached, AttachError> = Result<
@@ -78,19 +97,57 @@ impl SystemServiceLaunchLifecycle for LinuxBootServiceLifecycle {
 }
 
 impl LinuxBootServiceOwner {
-    pub(super) fn new(package_store: &File, catalog: &VerifiedBootCatalog) -> io::Result<Self> {
-        // PID 1 has mounted procfs. The journal belongs to the retained store.
-        let mut journal = PathBuf::from(format!("/proc/self/fd/{}", package_store.as_raw_fd()));
-        journal.push("system-service-slot.v1");
+    pub(super) fn new(
+        package_store: &File,
+        catalog: &VerifiedBootCatalog,
+        task24_data_root: Option<&SelectedDataRoot>,
+    ) -> io::Result<Self> {
         let metadata = catalog.descriptor().launch_metadata();
+        #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+        let task24_data_journal = if catalog.descriptor().package_id() == TASK24_IDENTITY_PACKAGE_ID
+        {
+            let data_root = task24_data_root.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "Task24 C3 journal requires the selected development Data owner",
+                )
+            })?;
+            Some(Task24C3DataJournalDirectory::open(
+                data_root,
+                metadata.service_id().as_str(),
+            )?)
+        } else {
+            None
+        };
+        #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+        let journal = task24_data_journal
+            .as_ref()
+            .map(|directory| directory.journal_path().to_path_buf())
+            .unwrap_or_else(|| package_store_journal_path(package_store));
+        #[cfg(any(linux_dev_preview_smoke, nagi_release_build))]
+        let journal = package_store_journal_path(package_store);
         let c3 = LinuxC3SystemServiceSlotOwner::new_with_journal(
             metadata.service_id().as_str(),
             journal,
+        )?;
+        #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+        let previous_normal_exit = c3.latest_durable_normal_exit_scope_snapshot()?;
+        #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+        validate_previous_launch_catalog(
+            previous_normal_exit
+                .as_ref()
+                .map(|receipt| (receipt.service_id(), receipt.catalog_generation())),
+            metadata.service_id().as_str(),
+            metadata.generation(),
         )?;
         Ok(Self {
             c3,
             metadata,
             reservation_attempted: false,
+            #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+            _task24_data_journal: task24_data_journal,
+            #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+            previous_normal_exit,
         })
     }
 
@@ -237,11 +294,20 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
                 ReservationError::Unavailable
             }
         })?;
+        #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+        let previous_normal_exit = {
+            let previous = self.previous_normal_exit.take();
+            validate_previous_launch_generation(previous.as_ref(), generation)
+                .map_err(|_| ReservationError::Unavailable)?;
+            previous
+        };
         Ok(LinuxBootServiceLifecycle {
             slot: SystemServiceRuntimeSlotBinding::for_c3_reservation(
                 metadata, package, generation,
             ),
             process: None,
+            #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+            previous_normal_exit,
         })
     }
 
@@ -296,6 +362,98 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
         self.c3
             .with_durable_reconciliation_gate(admission.scope(), claim, reconcile)
             .map_err(|_| LaunchPortError::OutcomeUnknown)
+    }
+}
+
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+fn validate_previous_launch_catalog(
+    previous: Option<(&str, std::num::NonZeroU64)>,
+    expected_service_id: &str,
+    expected_catalog_generation: std::num::NonZeroU64,
+) -> io::Result<()> {
+    if let Some((service_id, catalog_generation)) = previous {
+        if service_id != expected_service_id || catalog_generation != expected_catalog_generation {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "C3 previous normal-exit receipt differs from the boot catalog",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+fn validate_previous_launch_generation(
+    previous: Option<&C3DurableNormalExitReceipt>,
+    current_generation: std::num::NonZeroU64,
+) -> io::Result<()> {
+    // The C3 API returns None only for a fully validated genesis-only
+    // journal, whose first launch must use generation one.
+    let previous_generation = previous.map(|receipt| receipt.c3_launch_generation().get());
+    if validate_previous_generation_number(previous_generation, current_generation.get()) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "C3 previous normal-exit evidence is not bound to this launch generation",
+        ))
+    }
+}
+
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+fn validate_previous_generation_number(previous_generation: Option<u64>, current: u64) -> bool {
+    let expected_current = previous_generation
+        .map(|generation| generation.checked_add(1))
+        .unwrap_or(Some(1));
+    expected_current == Some(current)
+}
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    target_arch = "x86_64",
+    linux_boot_identity_runtime
+))]
+mod previous_launch_generation_tests {
+    use super::{validate_previous_generation_number, validate_previous_launch_catalog};
+    use std::num::NonZeroU64;
+
+    #[test]
+    fn genesis_and_normal_exit_bind_to_the_immediate_next_generation() {
+        assert!(validate_previous_generation_number(None, 1));
+        assert!(!validate_previous_generation_number(None, 2));
+        assert!(validate_previous_generation_number(Some(1), 2));
+        assert!(!validate_previous_generation_number(Some(1), 3));
+        assert!(!validate_previous_generation_number(Some(u64::MAX), 1));
+    }
+
+    #[test]
+    fn catalog_mismatch_is_rejected_before_reservation() {
+        let catalog_generation = NonZeroU64::new(9).unwrap();
+        assert!(validate_previous_launch_catalog(
+            None,
+            "service:fixture.identity",
+            catalog_generation,
+        )
+        .is_ok());
+        assert!(validate_previous_launch_catalog(
+            Some(("service:fixture.identity", catalog_generation)),
+            "service:fixture.identity",
+            catalog_generation,
+        )
+        .is_ok());
+        assert!(validate_previous_launch_catalog(
+            Some(("service:fixture.other", catalog_generation)),
+            "service:fixture.identity",
+            catalog_generation,
+        )
+        .is_err());
+        assert!(validate_previous_launch_catalog(
+            Some(("service:fixture.identity", NonZeroU64::new(8).unwrap())),
+            "service:fixture.identity",
+            catalog_generation,
+        )
+        .is_err());
     }
 }
 
@@ -393,12 +551,22 @@ pub(super) fn authenticate_boot_service<'package>(
     catalog: &VerifiedBootCatalog,
     report: &ArtifactPreflightReport,
     package: VerifiedServicePackageBinding<'package>,
+    task24_data_root: Option<&SelectedDataRoot>,
     #[cfg(feature = "system-service-readiness")] identity_listener: Option<
         IdentityListenerHandoff<'_>,
     >,
 ) -> io::Result<AuthenticatedBootService<'package>> {
-    let mut owner = LinuxBootServiceOwner::new(package_store, catalog)?;
-    super::log_pid1_stderr(format_args!("nagi-init: C3 boot slot journal opened"));
+    let mut owner = LinuxBootServiceOwner::new(package_store, catalog, task24_data_root)?;
+    super::log_pid1_stderr(format_args!(
+        "nagi-init: C3 boot slot journal opened backing={}",
+        if catalog.descriptor().package_id() == TASK24_IDENTITY_PACKAGE_ID
+            && task24_data_root.is_some()
+        {
+            "selected-data"
+        } else {
+            "package-store"
+        }
+    ));
     #[cfg(feature = "system-service-readiness")]
     let has_identity_listener = identity_listener.is_some();
     #[cfg(not(feature = "system-service-readiness"))]

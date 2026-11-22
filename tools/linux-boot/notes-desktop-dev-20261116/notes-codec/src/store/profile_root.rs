@@ -4,6 +4,8 @@
 //! `UserStorageRootAdapter::with_live_root_effect` callback. Its object I/O
 //! delegates to the borrowed `ProfileRootEffect` and never reacquires C1.
 
+#[cfg(target_os = "linux")]
+use super::linux_profile_backend::LinuxProfileStorageRoot;
 use super::{
     same_candidate, summary, validate_candidate, NoteStore, StoreError, MAX_STORED_NOTE_BYTES,
 };
@@ -167,6 +169,12 @@ impl std::error::Error for ProfileRootNotesInputError {}
 pub trait ProfileRootNotesObjectIo {
     fn read_object(&mut self, object_id: ObjectId) -> Result<Vec<u8>, StoreError>;
     fn write_object(&mut self, object_id: ObjectId, bytes: &[u8]) -> Result<(), StoreError>;
+
+    /// Cross the backend's durability boundary for a matching revision.
+    /// The default applies to backends whose readable writes are already durable.
+    fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
+        Ok(())
+    }
 }
 
 /// Executes one complete Notes storage effect inside one C1 profile-root
@@ -174,10 +182,7 @@ pub trait ProfileRootNotesObjectIo {
 /// the lease and must expose root I/O that does not acquire another lease.
 /// Production backends must keep every synchronous I/O within an owner-defined
 /// deadline, must not spawn or join work or re-enter C1 from the callback, and
-/// must reconcile writes that can commit before returning an error. This C1
-/// adapter reads the same object after a write error and accepts only an exact
-/// byte match; the backend must make that read reflect its authoritative
-/// committed state.
+/// must distinguish committed writes from writes still awaiting durability.
 pub trait ProfileRootNotesEffectProvider {
     fn with_live_root_effect<R>(
         &mut self,
@@ -198,9 +203,8 @@ pub trait ProfileRootNotesContext: ProfileRootNotesEffectProvider + Send {
 /// obtain their own C1 lease and must not be used inside an effect. A does not
 /// copy the C1 implementation. Production backends must keep each synchronous
 /// object operation within their deadline and must not wait for a worker or
-/// re-enter C1 from this callback. If a write result is ambiguous, the adapter
-/// reads the same object under the current lease and accepts it only when its
-/// bytes exactly match the intended Notes index.
+/// re-enter C1 from this callback. The canonical Linux backend confirms an
+/// existing revision only after syncing the object directory.
 pub struct C1ProfileRootNotesInput<B, C, A, E = nagi_identity_session::NoopStorageRootEventSink>
 where
     B: ProfileStorageBackend,
@@ -216,7 +220,13 @@ where
     authorizer: A,
     binding: ProfileRootNotesBinding,
     #[cfg(target_os = "linux")]
-    profile_volume_bundle: Option<ProfileVolumeNotesBundle>,
+    linux_attachment: Option<LinuxNotesAttachment>,
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxNotesAttachment {
+    bundle: ProfileVolumeNotesBundle,
+    root: std::sync::Arc<LinuxProfileStorageRoot>,
 }
 
 impl<B, C, A> C1ProfileRootNotesInput<B, C, A>
@@ -253,7 +263,7 @@ where
             authorizer,
             binding,
             #[cfg(target_os = "linux")]
-            profile_volume_bundle: None,
+            linux_attachment: None,
         })
     }
 
@@ -278,8 +288,8 @@ where
                 .map_err(map_root_failure)
         };
         #[cfg(target_os = "linux")]
-        if let Some(bundle) = self.profile_volume_bundle.as_ref() {
-            return match bundle.with_active(operation) {
+        if let Some(attachment) = self.linux_attachment.as_ref() {
+            return match attachment.bundle.with_active(operation) {
                 Ok(result) => result,
                 Err(error) => Err(map_bundle_store_failure(error)),
             };
@@ -308,8 +318,8 @@ where
                 .map_err(map_root_failure)
         };
         #[cfg(target_os = "linux")]
-        if let Some(bundle) = self.profile_volume_bundle.as_ref() {
-            return match bundle.with_active(operation) {
+        if let Some(attachment) = self.linux_attachment.as_ref() {
+            return match attachment.bundle.with_active(operation) {
                 Ok(result) => result,
                 Err(error) => Err(map_bundle_store_failure(error)),
             };
@@ -355,7 +365,7 @@ where
         )
         .map_err(ProfileRootNotesInputError::Binding)?;
 
-        let mut input = bundle
+        let (mut input, linux_root) = bundle
             .with_duplicated_object_directory(|object_directory| {
                 use super::linux_profile_backend::{
                     initialize_notes_index, LinuxProfileStorageBackend,
@@ -373,6 +383,7 @@ where
                     io_budget,
                 )
                 .map_err(ProfileRootNotesInputError::Root)?;
+                let linux_root = backend.root_for_durability();
                 let mut input = Self::open(
                     UserStorageRootAdapter::new(backend),
                     identity,
@@ -403,10 +414,13 @@ where
                     .map_err(|_| {
                         ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
                     })?;
-                Ok(input)
+                Ok((input, linux_root))
             })
             .map_err(ProfileRootNotesInputError::Bundle)??;
-        input.profile_volume_bundle = Some(bundle);
+        input.linux_attachment = Some(LinuxNotesAttachment {
+            bundle,
+            root: linux_root,
+        });
         Ok(input)
     }
 }
@@ -431,15 +445,22 @@ where
                     &self.profile_id,
                     &mut self.authorizer,
                     |root_effect| {
-                        let mut io = C1ProfileRootNotesObjectIo { root_effect };
+                        let mut io = C1ProfileRootNotesObjectIo {
+                            root_effect,
+                            #[cfg(target_os = "linux")]
+                            linux_root: self
+                                .linux_attachment
+                                .as_ref()
+                                .map(|attachment| &*attachment.root),
+                        };
                         Ok(effect(&mut io))
                     },
                 )
                 .map_err(map_root_failure)?
         };
         #[cfg(target_os = "linux")]
-        if let Some(bundle) = self.profile_volume_bundle.as_ref() {
-            return match bundle.with_active(operation) {
+        if let Some(attachment) = self.linux_attachment.as_ref() {
+            return match attachment.bundle.with_active(operation) {
                 Ok(result) => result,
                 Err(error) => Err(map_bundle_store_failure(error)),
             };
@@ -450,6 +471,8 @@ where
 
 struct C1ProfileRootNotesObjectIo<'effect, 'backend, B: ProfileStorageBackend> {
     root_effect: &'effect mut ProfileRootEffect<'backend, B>,
+    #[cfg(target_os = "linux")]
+    linux_root: Option<&'effect LinuxProfileStorageRoot>,
 }
 
 impl<B: ProfileStorageBackend> ProfileRootNotesObjectIo for C1ProfileRootNotesObjectIo<'_, '_, B> {
@@ -461,24 +484,44 @@ impl<B: ProfileStorageBackend> ProfileRootNotesObjectIo for C1ProfileRootNotesOb
 
     fn write_object(&mut self, object_id: ObjectId, bytes: &[u8]) -> Result<(), StoreError> {
         let c1_object_id = ObjectId(object_id.0);
-        match self.root_effect.write_object(c1_object_id, bytes) {
-            Ok(()) => Ok(()),
-            Err(write_error) => {
-                let observed = self.root_effect.read_object(c1_object_id);
-                reconcile_write_failure(write_error, observed, bytes).map_err(map_root_failure)
-            }
+        #[cfg(target_os = "linux")]
+        let requires_directory_sync = self.linux_root.is_some();
+        #[cfg(not(target_os = "linux"))]
+        let requires_directory_sync = false;
+        let result = self.root_effect.write_object(c1_object_id, bytes);
+        finish_root_write(result, requires_directory_sync, bytes, || {
+            self.root_effect.read_object(c1_object_id)
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
+        if let Some(root) = self.linux_root {
+            root.confirm_directory_sync()
+                .map_err(map_durable_write_failure)?;
         }
+        Ok(())
     }
 }
 
-pub(super) fn reconcile_write_failure(
-    write_error: StorageRootFailure,
-    observed: Result<Vec<u8>, StorageRootFailure>,
+pub(super) fn finish_root_write(
+    result: Result<(), StorageRootFailure>,
+    requires_directory_sync: bool,
     expected: &[u8],
-) -> Result<(), StorageRootFailure> {
-    match observed {
-        Ok(observed) if observed == expected => Ok(()),
-        _ => Err(write_error),
+    readback: impl FnOnce() -> Result<Vec<u8>, StorageRootFailure>,
+) -> Result<(), StoreError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if requires_directory_sync => Err(map_durable_write_failure(error)),
+        Err(_) if readback().is_ok_and(|observed| observed == expected) => Ok(()),
+        Err(error) => Err(map_root_failure(error)),
+    }
+}
+
+pub(super) fn map_durable_write_failure(error: StorageRootFailure) -> StoreError {
+    match error {
+        StorageRootFailure::Unavailable => StoreError::ProfileRootWriteUnconfirmed,
+        error => map_root_failure(error),
     }
 }
 
@@ -779,6 +822,7 @@ impl<I: ProfileRootNotesContext> NoteStore for ProfileRootNotesStore<I> {
                         .last()
                         .is_some_and(|current| same_candidate(current, note))
                 {
+                    io.confirm_existing_object()?;
                     return Ok(history.last().expect("checked above").clone());
                 }
                 return Err(StoreError::RevisionConflict {
@@ -829,7 +873,7 @@ fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, StoreError> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::domain::{Block, BlockKind, Timestamp};
     use nagi_identity_session::{CallerContextId, PrincipalId, SessionId};
@@ -878,6 +922,178 @@ mod tests {
             &ProfileId::new(requested_profile).unwrap(),
             notes_object_id,
         )
+    }
+
+    pub(in crate::store) const RETRY_INDEX_ID: ObjectId = ObjectId(0xfeed_0001);
+
+    fn retry_binding() -> ProfileRootNotesBinding {
+        binding(
+            "principal_notes_a",
+            "caller_notes_a",
+            "profile_notes_a",
+            "principal_notes_a",
+            "caller_notes_a",
+            "profile_notes_a",
+            RETRY_INDEX_ID,
+        )
+        .unwrap()
+    }
+
+    pub(in crate::store) fn check_durable_retry(
+        io: impl ProfileRootNotesObjectIo + Send + 'static,
+        fail_next_sync: impl Fn(),
+        write_count: &AtomicUsize,
+    ) {
+        use crate::{
+            ActivityError, ActivityEvent, ActivityKind, ActivitySink, NotesApp, SaveStatus,
+            SystemClock,
+        };
+        use std::time::Duration;
+
+        // Supply only the admitted effect; the tests provide its object I/O.
+        struct Input<I> {
+            binding: ProfileRootNotesBinding,
+            io: I,
+        }
+        impl<I: ProfileRootNotesObjectIo + Send> ProfileRootNotesContext for Input<I> {
+            fn binding(&self) -> &ProfileRootNotesBinding {
+                &self.binding
+            }
+        }
+        impl<I: ProfileRootNotesObjectIo> ProfileRootNotesEffectProvider for Input<I> {
+            fn with_live_root_effect<R>(
+                &mut self,
+                effect: impl FnOnce(&mut dyn ProfileRootNotesObjectIo) -> Result<R, StoreError>,
+            ) -> Result<R, StoreError> {
+                effect(&mut self.io)
+            }
+        }
+
+        #[derive(Default)]
+        struct SavedEvents(Mutex<Vec<(ObjectId, u64)>>);
+        impl ActivitySink for SavedEvents {
+            fn record(&self, event: ActivityEvent) -> Result<(), ActivityError> {
+                if event.kind == ActivityKind::Saved {
+                    self.0
+                        .lock()
+                        .unwrap()
+                        .push((event.object_id, event.revision));
+                }
+                Ok(())
+            }
+        }
+
+        let store = Arc::new(ProfileRootNotesStore::new(Input {
+            binding: retry_binding(),
+            io,
+        }));
+        let id = ObjectId(0x1234);
+        let initial = store
+            .commit(&NoteDocument::new(id, "Parent sync", Timestamp(1)), 0)
+            .unwrap();
+        let activity = Arc::new(SavedEvents::default());
+        let app = NotesApp::with_providers(
+            store.clone(),
+            Arc::new(HostObjectIdSource::new()),
+            Arc::new(SystemClock),
+            activity.clone(),
+            Duration::from_secs(3600),
+        );
+        let session = app.open_note(id).unwrap();
+        session
+            .append_block(Block::new(
+                ObjectId(0x5678),
+                BlockKind::Paragraph("retain this draft".to_owned()),
+            ))
+            .unwrap();
+
+        fail_next_sync();
+        assert!(session.flush().is_err());
+        let published = store.load(id).unwrap().unwrap();
+        assert_eq!(published.id, id);
+        assert_eq!(published.revision, initial.revision + 1);
+        assert_eq!(published.search_text(), "retain this draft");
+        assert!(session.is_dirty());
+        assert!(matches!(session.status(), SaveStatus::Failed(ref error)
+            if error.source == StoreError::ProfileRootWriteUnconfirmed));
+        assert!(app.close_note(id).is_err());
+        let draft = session.note();
+        assert_eq!(draft.id, id);
+        assert_eq!(draft.revision, initial.revision);
+        assert_eq!(draft.search_text(), published.search_text());
+        assert!(activity.0.lock().unwrap().is_empty());
+
+        fail_next_sync();
+        assert!(session.retry().is_err());
+        assert!(session.is_dirty());
+        assert_eq!(session.note(), draft);
+        assert!(activity.0.lock().unwrap().is_empty());
+        assert_eq!(
+            write_count.load(Ordering::SeqCst),
+            2,
+            "seed and original publish"
+        );
+
+        let saved = session.retry().unwrap();
+        assert_eq!(saved, published);
+        assert!(!session.is_dirty());
+        assert_eq!(session.status(), SaveStatus::Saved);
+        assert_eq!(app.close_note(id).unwrap(), saved);
+        assert_eq!(app.open_note(id).unwrap().note(), saved);
+        assert_eq!(*activity.0.lock().unwrap(), [(id, saved.revision)]);
+        assert_eq!(write_count.load(Ordering::SeqCst), 2);
+        assert_eq!(store.load_revision(id, saved.revision + 1).unwrap(), None);
+    }
+
+    // Portable check of the Notes state machine. Linux additionally runs the
+    // same assertions with the real object directory and fsync syscall.
+    #[test]
+    fn profile_root_save_waits_for_durable_retry() {
+        use std::sync::atomic::AtomicBool;
+
+        struct MemoryDurabilityIo {
+            bytes: Vec<u8>,
+            fail_next_sync: Arc<AtomicBool>,
+            writes: Arc<AtomicUsize>,
+        }
+        impl MemoryDurabilityIo {
+            fn sync_directory(&self) -> Result<(), StorageRootFailure> {
+                if self.fail_next_sync.swap(false, Ordering::SeqCst) {
+                    Err(StorageRootFailure::Unavailable)
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        impl ProfileRootNotesObjectIo for MemoryDurabilityIo {
+            fn read_object(&mut self, _: ObjectId) -> Result<Vec<u8>, StoreError> {
+                Ok(self.bytes.clone())
+            }
+
+            fn write_object(&mut self, _: ObjectId, bytes: &[u8]) -> Result<(), StoreError> {
+                self.writes.fetch_add(1, Ordering::SeqCst);
+                self.bytes = bytes.to_vec();
+                finish_root_write(self.sync_directory(), true, bytes, || {
+                    Ok(self.bytes.clone())
+                })
+            }
+
+            fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
+                self.sync_directory().map_err(map_durable_write_failure)
+            }
+        }
+
+        let fail_next_sync = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(AtomicUsize::new(0));
+        check_durable_retry(
+            MemoryDurabilityIo {
+                bytes: empty_profile_root_notes_object(),
+                fail_next_sync: fail_next_sync.clone(),
+                writes: writes.clone(),
+            },
+            || fail_next_sync.store(true, Ordering::SeqCst),
+            &writes,
+        );
     }
 
     struct MemoryInput {
@@ -1084,31 +1300,24 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_notes_write_is_accepted_only_after_exact_readback() {
+    fn durable_write_failure_cannot_be_cleared_by_matching_readback() {
         let intended = b"canonical Notes index bytes";
+        let failure = Err(StorageRootFailure::Unavailable);
         assert_eq!(
-            reconcile_write_failure(
-                StorageRootFailure::Unavailable,
-                Ok(intended.to_vec()),
-                intended,
-            ),
+            finish_root_write(failure, true, intended, || panic!(
+                "a read cannot confirm fsync"
+            )),
+            Err(StoreError::ProfileRootWriteUnconfirmed)
+        );
+        assert_eq!(
+            finish_root_write(failure, false, intended, || Ok(intended.to_vec())),
             Ok(())
         );
         assert_eq!(
-            reconcile_write_failure(
-                StorageRootFailure::Unavailable,
-                Ok(b"previous index bytes".to_vec()),
-                intended,
-            ),
-            Err(StorageRootFailure::Unavailable)
-        );
-        assert_eq!(
-            reconcile_write_failure(
-                StorageRootFailure::Unavailable,
-                Err(StorageRootFailure::Unavailable),
-                intended,
-            ),
-            Err(StorageRootFailure::Unavailable)
+            finish_root_write(failure, false, intended, || Ok(
+                b"previous index bytes".to_vec()
+            )),
+            Err(StoreError::Unavailable)
         );
     }
 

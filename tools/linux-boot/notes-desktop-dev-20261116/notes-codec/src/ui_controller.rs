@@ -92,20 +92,26 @@ impl<'scope> ScopedNotesUiController<'scope> {
     }
 
     pub fn save_active(&self) -> Result<Option<NoteDocument>, AppError> {
-        self.active
-            .as_ref()
-            .map(|session| session.flush().map_err(AppError::from))
-            .transpose()
+        let Some(session) = self.active.as_ref() else {
+            return Ok(None);
+        };
+        if !session.is_dirty() {
+            return Ok(None);
+        }
+        session.flush().map(Some).map_err(AppError::from)
     }
 
     /// Explicitly retry persistence for the active session after the caller
     /// has re-established its input and chosen to retry. This targets the
     /// existing session and store; it does not create a replacement session.
     pub fn retry_active(&self) -> Result<Option<NoteDocument>, AppError> {
-        self.active
-            .as_ref()
-            .map(|session| session.retry().map_err(AppError::from))
-            .transpose()
+        let Some(session) = self.active.as_ref() else {
+            return Ok(None);
+        };
+        if !session.is_dirty() {
+            return Ok(None);
+        }
+        session.retry().map(Some).map_err(AppError::from)
     }
 
     pub fn current_note(&self) -> Option<NoteDocument> {
@@ -119,5 +125,47 @@ impl<'scope> ScopedNotesUiController<'scope> {
         let saved = self.app.close_note(id)?;
         self.active.take();
         Ok(Some(saved))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{InMemoryNoteStore, NoteStore};
+
+    #[test]
+    fn save_active_does_not_report_a_clean_session_as_saved() {
+        let store = Arc::new(InMemoryNoteStore::new());
+        let mut controller = NotesUiController::new(store.clone());
+        let note_id = controller.create_note("Task24 save marker").unwrap();
+        let initial = controller
+            .save_active()
+            .unwrap()
+            .expect("new note is persisted");
+        assert_eq!(initial.revision, 1);
+
+        let persisted_before = store.load(note_id).unwrap().expect("saved note is present");
+        assert!(controller.save_active().unwrap().is_none());
+        let persisted_after = store
+            .load(note_id)
+            .unwrap()
+            .expect("saved note remains present");
+        assert_eq!(persisted_after.revision, persisted_before.revision);
+
+        controller.close_active().unwrap();
+    }
+
+    #[test]
+    fn retry_active_does_not_report_a_clean_session_as_saved() {
+        let store = Arc::new(InMemoryNoteStore::new());
+        let mut controller = NotesUiController::new(store);
+        controller.create_note("Task24 save marker").unwrap();
+        controller
+            .save_active()
+            .unwrap()
+            .expect("new note is persisted");
+
+        assert!(controller.retry_active().unwrap().is_none());
+        controller.close_active().unwrap();
     }
 }

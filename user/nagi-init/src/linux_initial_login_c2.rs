@@ -54,14 +54,37 @@ where
         expires_at: Option<UnixMillis>,
     ) -> Result<Self, IdentityError> {
         identity.validate_system_service_runtime_handoff(&handoff)?;
+        let failures = verifier.load_login_failures();
         Ok(Self {
-            owner: Mutex::new(transaction::InitialLoginState::new(identity)),
+            owner: Mutex::new(transaction::InitialLoginState::new(identity, failures)),
             handoff,
             boot_admission,
             verifier,
             request_key,
             expires_at,
         })
+    }
+
+    pub(super) fn login_failures(&self) -> std::io::Result<u32> {
+        self.owner
+            .try_lock()
+            .map(|owner| owner.login_failures.current())
+            .map_err(|_| std::io::Error::other("login throttle owner unavailable"))
+    }
+
+    pub(super) fn reset_login_failures(&self) -> std::io::Result<()> {
+        self.owner
+            .try_lock()
+            .map_err(|_| std::io::Error::other("login throttle owner unavailable"))?
+            .login_failures
+            .persist(0, |count| self.verifier.store_login_failures(count))
+    }
+
+    pub(super) fn require_unattached(&self) -> Result<(), PeerDenial> {
+        self.owner
+            .try_lock()
+            .map_err(|_| PeerDenial::Unavailable)?
+            .require_unattached()
     }
 
     fn validate_runtime(&self) -> Result<(), PeerDenial> {

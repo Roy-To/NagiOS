@@ -6,7 +6,7 @@ use super::linux_boot_package_inputs::BootCatalogInputs;
 use super::linux_c3_boot_launch::{AuthenticatedBootService, TASK24_IDENTITY_PACKAGE_ID};
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_task24_identity_ready::{
-    readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+    BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE, readiness_challenge,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
@@ -21,8 +21,8 @@ use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
 };
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
-use nagi_sdk::app_contract::OrderingMetadata;
 use nagi_sdk::AppId;
+use nagi_sdk::app_contract::OrderingMetadata;
 use nagi_service_contract::{
     CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
 };
@@ -595,6 +595,8 @@ pub(super) fn run_owner_login(
     use super::linux_owner_registration_console::task24_input::RequestRoute;
     use std::io::Read;
 
+    #[cfg(feature = "system-service-readiness")]
+    let mut lifecycle_ready = false;
     let mut execute = || -> Result<(), BackendError> {
         if runtime
             .owner_registration_required()
@@ -631,7 +633,6 @@ pub(super) fn run_owner_login(
             destination: route.destination,
             request,
         };
-        let deadline = Instant::now() + Duration::from_secs(300);
         let placement = LaunchPlacement {
             app_session_id: nagi_model::AppSessionId(1),
             node_id: nagi_model::NodeId(1),
@@ -660,12 +661,36 @@ pub(super) fn run_owner_login(
                 &owners,
                 request_key,
                 None,
-                |channel| console.submit_unlock(&mut unlock, channel, input, deadline),
-                deadline,
+                console,
+                &mut unlock,
+                input,
             )
             .map_err(|_| BackendError::Unavailable)?;
+        let reconcile_after_identity_exit = || match runtime.poll_task24_required_identity_exit() {
+            Ok(false) => runtime.reconcile_after_normal_exit(package.owner),
+            Ok(true) => Err(std::io::Error::other(
+                "required Identity exited before reconciliation",
+            )),
+            Err(error) => Err(error),
+        };
+        let reconcile_normal_exit = || {
+            match reconcile_after_identity_exit() {
+                Ok(receipt) => {
+                    super::linux_c3_boot_launch::linux_c1_boot_recovery::log_task24_c3_normal_exit_receipt(
+                        "NAGI_DEV_TASK24_IDENTITY_TERMINAL_CONSUMED",
+                        &receipt,
+                    )
+                }
+                Err(error) => {
+                    super::log_pid1_stderr(format_args!(
+                        "NAGI_DEV_TASK24_IDENTITY_TERMINAL_UNAVAILABLE ({error})"
+                    ));
+                    super::wait_in_pid1(super::wait_for_pid1_os_event);
+                }
+            }
+        };
         match attached {
-            Ok(session) => {
+            Ok(LoginCompletion::Attached(session)) => {
                 super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_SESSION_ATTACHED"));
                 let notes_allowed = if run.identity_ready.is_some() {
                     #[cfg(feature = "system-service-readiness")]
@@ -680,6 +705,7 @@ pub(super) fn run_owner_login(
                                     lease,
                                     &handshakes,
                                     deadline,
+                                    &mut lifecycle_ready,
                                 )
                             })
                         });
@@ -694,6 +720,8 @@ pub(super) fn run_owner_login(
                 } else {
                     true
                 };
+                #[cfg(linux_task24_notes_consumer)]
+                let mut notes_exit = None;
                 if notes_allowed {
                     let mut notes_owner = runtime.notes_owner().map_err(|_| {
                         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
@@ -708,10 +736,19 @@ pub(super) fn run_owner_login(
                                 "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
                             ));
                             #[cfg(linux_task24_notes_consumer)]
-                            if notes_console::run(console, inputs).is_err() {
-                                super::log_pid1_stderr(format_args!(
-                                    "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE"
-                                ));
+                            {
+                                let exit = match notes_console::run(console, inputs, || {
+                                    runtime.poll_task24_required_identity_exit()
+                                }) {
+                                    Ok(exit) => exit,
+                                    Err(error) => {
+                                        super::log_pid1_stderr(format_args!(
+                                            "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE ({error})"
+                                        ));
+                                        super::NotesConsoleExit::StateUnknown
+                                    }
+                                };
+                                notes_exit = Some(exit);
                             }
                             #[cfg(not(linux_task24_notes_consumer))]
                             let _ = inputs;
@@ -723,32 +760,28 @@ pub(super) fn run_owner_login(
                         }
                     };
                 }
-                // EOF lets the signed sender exit normally. Keep the control
-                // socket and the attached issuer until C3 finishes exact reap.
-                if let Err(error) = session.control.shutdown(std::net::Shutdown::Write) {
-                    super::log_pid1_stderr(format_args!(
-                        "NAGI_DEV_TASK24_CONTROL_EOF_UNAVAILABLE ({})",
-                        error.kind()
-                    ));
-                }
-                let normal_exit = wait_for_login_cleanup(&mut lifecycle, &owners);
-                drop(session);
+                let normal_exit = close_attached_login(session, &mut lifecycle, &owners);
+                // Abnormal or unknown Notes exit leaves durable state for recovery.
+                #[cfg(linux_task24_notes_consumer)]
+                let normal_exit = super::NotesConsoleExit::allows_normal_login_reconciliation(
+                    notes_exit,
+                    normal_exit,
+                );
                 if normal_exit {
-                    match runtime.reconcile_after_normal_exit(package.owner) {
-                        Ok(()) => super::log_pid1_stderr(format_args!(
-                            "NAGI_DEV_TASK24_IDENTITY_TERMINAL_CONSUMED"
-                        )),
-                        Err(error) => {
-                            super::log_pid1_stderr(format_args!(
-                                "NAGI_DEV_TASK24_IDENTITY_TERMINAL_UNAVAILABLE ({error})"
-                            ));
-                            // The operation may have reached either durable
-                            // owner. Keep the runtime and scope for recovery.
-                            super::wait_in_pid1(super::wait_for_pid1_os_event);
-                        }
-                    }
+                    reconcile_normal_exit();
                 }
-                drop(runtime);
+            }
+            Ok(LoginCompletion::ThrottleResetFailed(session)) => {
+                super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED stage=reset"
+                ));
+                if close_attached_login(session, &mut lifecycle, &owners) {
+                    reconcile_normal_exit();
+                }
+            }
+            Ok(LoginCompletion::Cancelled(_)) => {
+                super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_CANCELLED_NORMALLY"));
+                reconcile_normal_exit();
             }
             Err(error) => {
                 super::log_pid1_stderr(format_args!(
@@ -771,6 +804,65 @@ pub(super) fn run_owner_login(
 pub(super) struct AttachedLogin {
     lease: SessionLease,
     control: std::os::unix::net::UnixStream,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) enum LoginCompletion {
+    Attached(AttachedLogin),
+    ThrottleResetFailed(AttachedLogin),
+    Cancelled(VerifiedLoginCancellation),
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) struct VerifiedLoginCancellation(());
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl VerifiedLoginCancellation {
+    pub(super) fn from_input_close(
+        lifecycle: &LoginLifecycle,
+        owners: &EndpointOwners<'_>,
+        issuer: &BootLoginIssuer<'_>,
+    ) -> Result<Self, PeerDenial> {
+        // Credential entry precedes child startup. A prior attempt may return
+        // here only after exact reap and lease retirement.
+        Self::verify(
+            issuer.require_unattached(),
+            lifecycle.active_len(),
+            owners.run.instances.has_unresolved_cleanup(),
+        )
+    }
+
+    fn verify(
+        unattached: Result<(), PeerDenial>,
+        active_children: usize,
+        unresolved_cleanup: Result<bool, PeerDenial>,
+    ) -> Result<Self, PeerDenial> {
+        unattached?;
+        if active_children != 0 || unresolved_cleanup? {
+            return Err(PeerDenial::UnresolvedSpawnCleanup);
+        }
+        Ok(Self(()))
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn close_attached_login(
+    session: AttachedLogin,
+    lifecycle: &mut LoginLifecycle,
+    owners: &EndpointOwners<'_>,
+) -> bool {
+    // Keep the control socket until the exact signed child is reaped and retired.
+    let eof_sent = match session.control.shutdown(std::net::Shutdown::Write) {
+        Ok(()) => true,
+        Err(error) => {
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_TASK24_CONTROL_EOF_UNAVAILABLE ({})",
+                error.kind()
+            ));
+            false
+        }
+    };
+    wait_for_login_cleanup(lifecycle, owners) && eof_sent
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -798,17 +890,54 @@ fn wait_for_login_cleanup(lifecycle: &mut LoginLifecycle, owners: &EndpointOwner
     normal_exit
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
+#[derive(Debug)]
+enum LoginStartError {
+    DeadlineExpired,
+    Backend(BackendError),
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl LoginStartError {
+    fn from_spawn(error: BackendError, deadline_cancelled_spawn: bool) -> Self {
+        if error == BackendError::Cancelled && deadline_cancelled_spawn {
+            Self::DeadlineExpired
+        } else {
+            Self::Backend(error)
+        }
+    }
+
+    fn into_denial(self) -> PeerDenial {
+        match self {
+            Self::DeadlineExpired => PeerDenial::RequestDeadlineExpired,
+            Self::Backend(BackendError::Revoked) => PeerDenial::NotLive,
+            Self::Backend(BackendError::ConsentDenied) => PeerDenial::ConsentDenied,
+            Self::Backend(_) => PeerDenial::Unavailable,
+        }
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl From<BackendError> for LoginStartError {
+    fn from(error: BackendError) -> Self {
+        Self::Backend(error)
+    }
+}
+
 /// Start and check out the exact child while the caller retains the recovered
 /// C1 issuer, signed package, and C3 process lifecycle.
 #[cfg(linux_task24_initial_login_runtime)]
 pub(super) fn start_verified_login(
     lifecycle: &mut LoginLifecycle,
-    selection: LoginChildLaunch,
+    selection: &LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    route: BootInitialLoginRoute,
+    route: &BootInitialLoginRoute,
     owners: &EndpointOwners<'_>,
     issuer: &BootLoginIssuer<'_>,
-    submit: impl FnOnce(&mut std::os::unix::net::UnixStream) -> std::io::Result<()>,
+    submit: impl FnOnce(
+        &mut std::os::unix::net::UnixStream,
+    )
+        -> Result<(), super::linux_owner_registration_console::UnlockSubmissionError>,
     deadline: Instant,
 ) -> Result<AttachedLogin, PeerDenial> {
     let mut input_channel = None;
@@ -823,16 +952,15 @@ pub(super) fn start_verified_login(
                 owners,
                 |channel| {
                     let stream = input_channel.insert(channel);
-                    submit(stream).map_err(|_| BackendError::Unavailable)
+                    use super::linux_owner_registration_console::UnlockSubmissionError;
+                    submit(stream).map_err(|error| match error {
+                        UnlockSubmissionError::DeadlineExpired => LoginStartError::DeadlineExpired,
+                        UnlockSubmissionError::Unavailable => BackendError::Unavailable.into(),
+                    })
                 },
                 deadline,
             )
-            .map_err(|error| match error {
-                BackendError::Revoked => PeerDenial::NotLive,
-                BackendError::ConsentDenied => PeerDenial::ConsentDenied,
-                _ if Instant::now() >= deadline => PeerDenial::RequestDeadlineExpired,
-                _ => PeerDenial::Unavailable,
-            })
+            .map_err(LoginStartError::into_denial)
         }),
         consent: owners.consent,
         process_instances: &owners.run.instances,
@@ -849,38 +977,133 @@ pub(super) fn start_verified_login(
         Err(error) => {
             // Preserve the admission failure even if bounded cleanup has
             // an independently unresolved outcome.
-            super::log_pid1_stderr(format_args!(
-                "NAGI_DEV_TASK24_INITIAL_ADMISSION_FAILED ({error:?})"
-            ));
-            lifecycle
-                .shutdown_with_launch_lease(revoke_login_record, |lease, _status| {
-                    owners.retire(lease)
-                })
-                .map_err(|_| PeerDenial::RequestOutcomeUnknown)?;
+            if !matches!(error, PeerDenial::AccountRejected) {
+                super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_TASK24_INITIAL_ADMISSION_FAILED ({error:?})"
+                ));
+            }
+            let cleanup = lifecycle
+                .shutdown_with_launch_lease(revoke_login_record, |lease, _| owners.retire(lease));
+            let cleanup_confirmed = cleanup.is_ok()
+                && !owners
+                    .run
+                    .instances
+                    .has_unresolved_cleanup()
+                    .unwrap_or(true);
+            let error = login_attempt_denial_after_cleanup(error, cleanup_confirmed);
             Err(error)
         }
     }
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
+fn login_attempt_denial_after_cleanup(error: PeerDenial, cleanup_confirmed: bool) -> PeerDenial {
+    if cleanup_confirmed {
+        return error;
+    }
+    match error {
+        PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired => {
+            PeerDenial::UnresolvedSpawnCleanup
+        }
+        _ => PeerDenial::RequestOutcomeUnknown,
+    }
+}
+
+#[cfg(all(test, linux_task24_initial_login_runtime))]
+mod login_attempt_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_close_requires_no_session_or_unretired_child() {
+        use PeerDenial::*;
+        assert!(VerifiedLoginCancellation::verify(Ok(()), 0, Ok(false)).is_ok());
+        assert!(matches!(
+            VerifiedLoginCancellation::verify(Ok(()), 1, Ok(false)),
+            Err(UnresolvedSpawnCleanup)
+        ));
+        assert!(matches!(
+            VerifiedLoginCancellation::verify(Ok(()), 0, Ok(true)),
+            Err(UnresolvedSpawnCleanup)
+        ));
+        assert!(matches!(
+            VerifiedLoginCancellation::verify(Ok(()), 0, Err(Unavailable)),
+            Err(Unavailable)
+        ));
+        assert!(matches!(
+            VerifiedLoginCancellation::verify(Err(RequestOutcomeUnknown), 0, Ok(false)),
+            Err(RequestOutcomeUnknown)
+        ));
+    }
+
+    #[test]
+    fn only_an_explicit_attempt_deadline_is_retryable() {
+        use PeerDenial::*;
+        assert!(matches!(
+            LoginStartError::from_spawn(BackendError::Cancelled, true).into_denial(),
+            RequestDeadlineExpired
+        ));
+        assert!(matches!(
+            LoginStartError::from_spawn(BackendError::Cancelled, false).into_denial(),
+            Unavailable
+        ));
+        for error in [
+            BackendError::IdentityRejected,
+            BackendError::TransportFailure,
+            BackendError::ProtocolViolation,
+            BackendError::Unavailable,
+        ] {
+            assert!(matches!(
+                LoginStartError::from_spawn(error, true).into_denial(),
+                Unavailable
+            ));
+        }
+        assert!(matches!(
+            LoginStartError::from_spawn(BackendError::Revoked, true).into_denial(),
+            NotLive
+        ));
+        assert!(matches!(
+            LoginStartError::from_spawn(BackendError::ConsentDenied, true).into_denial(),
+            ConsentDenied
+        ));
+    }
+
+    #[test]
+    fn expired_attempt_returns_to_input_only_after_exact_cleanup() {
+        use PeerDenial::*;
+        assert!(matches!(
+            login_attempt_denial_after_cleanup(RequestDeadlineExpired, true),
+            RequestDeadlineExpired
+        ));
+        assert!(matches!(
+            login_attempt_denial_after_cleanup(RequestDeadlineExpired, false),
+            UnresolvedSpawnCleanup
+        ));
+        assert!(matches!(
+            login_attempt_denial_after_cleanup(RequestOutcomeUnknown, true),
+            RequestOutcomeUnknown
+        ));
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
 fn start_and_borrow<'slot>(
     lifecycle: &'slot mut LoginLifecycle,
-    selection: LoginChildLaunch,
+    selection: &LoginChildLaunch,
     package: &VerifiedLoginChild<'_>,
-    route: BootInitialLoginRoute,
+    route: &BootInitialLoginRoute,
     owners: &EndpointOwners<'_>,
-    receive_control: impl FnOnce(std::os::unix::net::UnixStream) -> Result<(), BackendError>,
+    receive_control: impl FnOnce(std::os::unix::net::UnixStream) -> Result<(), LoginStartError>,
     deadline: Instant,
-) -> Result<&'slot LoginLease, BackendError> {
+) -> Result<&'slot LoginLease, LoginStartError> {
     let release_wait_budget = deadline.saturating_duration_since(Instant::now());
     if release_wait_budget.is_zero() {
-        return Err(BackendError::Unavailable);
+        return Err(LoginStartError::DeadlineExpired);
     }
     let app_id = package.generation.snapshot().app_id();
     let readiness = owners.run.run_owner.readiness_boundary();
     if package.manifest.app_id() != app_id {
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LAUNCH_PACKAGE_ID_MISMATCH"));
-        return Err(BackendError::IdentityRejected);
+        return Err(BackendError::IdentityRejected.into());
     }
     crate::supervisor::register_or_match_manifest(package.manifest).map_err(|error| {
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LAUNCH_MANIFEST ({error:?})"));
@@ -901,7 +1124,7 @@ fn start_and_borrow<'slot>(
     prepare_task24_endpoint_directory()?;
     let pending = PendingSpawnOwnedEndpoint::bind_for_spawn(
         owners.run.run_owner.run(),
-        route.route,
+        route.route.clone(),
         selection.credentials.uid,
         selection.credentials.gid,
     )
@@ -911,7 +1134,7 @@ fn start_and_borrow<'slot>(
         .map_err(|_| BackendError::ProtocolViolation)?;
     let arguments: Vec<&str> = argv.iter().map(String::as_str).collect();
     let launch = ProcessLaunch {
-        service: selection.service,
+        service: selection.service.clone(),
         executable: ExecutablePayload::from_package_executable(&package.executable)
             .map_err(|_| BackendError::ProtocolViolation)?,
         arguments: &arguments,
@@ -926,10 +1149,14 @@ fn start_and_borrow<'slot>(
     let mut record = None;
     let retire =
         |saved: &mut BoundLaunchLease<LoginLease, LaunchRecord>, _status| owners.retire(saved);
+    let mut deadline_cancelled_spawn = false;
     let pid = lifecycle
         .spawn_authorized_with_prepared_and_launch_lease(
             launch,
-            || Instant::now() >= deadline,
+            || {
+                deadline_cancelled_spawn = Instant::now() >= deadline;
+                deadline_cancelled_spawn
+            },
             |pid, _, _| {
                 crate::supervisor::record_launch(pid, app_id, selection.placement).map_err(
                     |error| {
@@ -961,31 +1188,33 @@ fn start_and_borrow<'slot>(
             super::log_pid1_stderr(format_args!(
                 "NAGI_DEV_TASK24_CHILD_START_FAILED ({error:?})"
             ));
-            error
+            LoginStartError::from_spawn(error, deadline_cancelled_spawn)
         })?;
     super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CHILD_EXEC_ACK"));
     let proof = boot_proof.ok_or(BackendError::ProtocolViolation)?;
     let record = record.ok_or(BackendError::ProtocolViolation)?;
     let activation = if Instant::now() >= deadline {
-        Err(BackendError::Unavailable)
+        Err(LoginStartError::DeadlineExpired)
     } else {
-        lifecycle.activate_current_launch_lease(&proof, record, |lease, attestation| {
-            gate::activate_task41_endpoint_after_exec_ack(
-                lease,
-                &proof,
-                record,
-                attestation,
-                owners.run.run_owner.run(),
-                &owners.run.instances,
-                &owners.run.registry,
-                &owners.run.directory,
-                &requirements,
-                package,
-                owners.consent,
-                &BootLoginSupervisor,
-                readiness,
-            )
-        })
+        lifecycle
+            .activate_current_launch_lease(&proof, record, |lease, attestation| {
+                gate::activate_task41_endpoint_after_exec_ack(
+                    lease,
+                    &proof,
+                    record,
+                    attestation,
+                    owners.run.run_owner.run(),
+                    &owners.run.instances,
+                    &owners.run.registry,
+                    &owners.run.directory,
+                    &requirements,
+                    package,
+                    owners.consent,
+                    &BootLoginSupervisor,
+                    readiness,
+                )
+            })
+            .map_err(LoginStartError::from)
     };
     if let Err(error) = activation {
         super::log_pid1_stderr(format_args!(
@@ -1004,19 +1233,32 @@ fn start_and_borrow<'slot>(
     use std::io::Read;
     let mut channel: std::os::unix::net::UnixStream = owner_channel.endpoint.into();
     let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(LoginStartError::DeadlineExpired);
+    }
+    let ack_limit = Duration::from_secs(2);
     channel
-        .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
+        .set_read_timeout(Some(remaining.min(ack_limit)))
         .map_err(|_| BackendError::Unavailable)?;
     let mut ready = [0u8; 1];
-    channel
-        .read_exact(&mut ready)
-        .map_err(|_| BackendError::Unavailable)?;
+    channel.read_exact(&mut ready).map_err(|error| {
+        use std::io::ErrorKind;
+        let window_expired = error.kind() == ErrorKind::TimedOut
+            || (error.kind() == ErrorKind::WouldBlock && Instant::now() >= deadline);
+        if remaining <= ack_limit && window_expired {
+            LoginStartError::DeadlineExpired
+        } else {
+            BackendError::Unavailable.into()
+        }
+    })?;
     if ready != [super::linux_owner_registration_console::task24_input::CONNECTED] {
-        return Err(BackendError::ProtocolViolation);
+        return Err(BackendError::ProtocolViolation.into());
     }
     super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CHILD_BROKER_CONNECTED"));
     receive_control(channel)?;
-    lifecycle.borrow_current_launch_lease(&proof, record)
+    lifecycle
+        .borrow_current_launch_lease(&proof, record)
+        .map_err(LoginStartError::from)
 }
 
 #[cfg(linux_task24_initial_login_runtime)]

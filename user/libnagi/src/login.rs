@@ -191,6 +191,17 @@ impl LanguagePicker {
 
 /// Failed unlock attempts allowed back to back before a wait (ADR 0064).
 pub const FREE_ATTEMPTS: u32 = 3;
+
+pub fn encode_login_failures(failures: u32) -> [u8; 8] {
+    let mut bytes = *b"NLT1\0\0\0\0";
+    bytes[4..].copy_from_slice(&failures.to_le_bytes());
+    bytes
+}
+
+pub fn decode_login_failures(bytes: &[u8]) -> Option<u32> {
+    let count = bytes.strip_prefix(b"NLT1")?.try_into().ok()?;
+    Some(u32::from_le_bytes(count))
+}
 const FIRST_WAIT_MS: u64 = 5_000;
 const MAX_WAIT_MS: u64 = 60_000;
 
@@ -846,6 +857,51 @@ mod tests {
             PickerAction::Chosen(1)
         );
         assert_eq!(LanguagePicker::new(2, 9).focus(), 0);
+    }
+
+    #[test]
+    fn wrong_unlock_input_clears_and_only_the_next_valid_input_issues_a_session() {
+        use crate::credential::{Credential, MIN_ITERATIONS, SALT_BYTES};
+        use crate::security::{AccountStore, LoginError, Role};
+
+        let mut accounts = AccountStore::new();
+        let credential = Credential::derive(b"aaaa", [7; SALT_BYTES], MIN_ITERATIONS).unwrap();
+        accounts
+            .add_account_with_credential(b"fixture", Role::Owner, credential)
+            .unwrap();
+        let mut form = LoginForm::unlock();
+        let mut throttle = LoginThrottle::resume(0, 0);
+        for _ in 0..4 {
+            form.handle_key(48, true);
+        }
+        assert!(matches!(
+            accounts.authenticate(b"fixture", form.password()),
+            Err(LoginError::WrongPassword)
+        ));
+        form.reject();
+        throttle.record_failure(0);
+        assert!(form.password().is_empty());
+        assert!(throttle.allows(0));
+        for _ in 0..4 {
+            form.handle_key(30, true);
+        }
+        let session = accounts.authenticate(b"fixture", form.password()).unwrap();
+        assert_eq!(session.role(), Role::Owner);
+        form.clear_secrets();
+        throttle.record_success();
+        assert!(form.password().is_empty());
+        assert_eq!(throttle.failures(), 0);
+    }
+
+    #[test]
+    fn login_failure_record_preserves_count_and_rejects_damaged_data() {
+        for failures in [0, 3, u32::MAX] {
+            let bytes = encode_login_failures(failures);
+            assert_eq!(decode_login_failures(&bytes), Some(failures));
+            assert_eq!(decode_login_failures(&bytes[..7]), None);
+        }
+        assert_eq!(decode_login_failures(b"bad!\0\0\0\0"), None);
+        assert_eq!(decode_login_failures(b"NLT1\0\0\0\0\0"), None);
     }
 
     #[test]

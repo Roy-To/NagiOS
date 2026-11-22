@@ -2,12 +2,18 @@
 //!
 //! The input is selected by both QEMU's virtio-blk serial and the ext4 UUID
 //! provisioned on the host. This module never formats, repairs, or initializes
-//! a device. The explicit development provisioning boot may create the two
-//! private identity directories on a copy of an existing development disk.
+//! a device. The explicit development provisioning boot may create private
+//! identity and Task24 journal directories on a fresh development disk.
 //! It retains the mounted directory FD and does not authenticate a Profile
 //! or issue a Verified Notes attachment.
 
 use crate::profile_volume_notes_owner::{BootVolumeInput, DevelopmentBootVolumeIdentity};
+use crate::task24_c3_journal_bootstrap_contract::identity_paths_avoid_data_journal;
+#[cfg(linux_dev_preview_smoke)]
+use crate::task24_c3_journal_bootstrap_contract::{
+    DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME, DATA_JOURNAL_DIRECTORY,
+    is_fresh_development_data_root,
+};
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -73,6 +79,7 @@ enum DataMountError {
     MountRejected,
     MountVerificationFailed,
     PersistenceMismatch,
+    IdentityPathConflict,
     OwnerEndFailed,
 }
 
@@ -91,6 +98,7 @@ impl DataMountError {
             Self::MountRejected => "mount_rejected",
             Self::MountVerificationFailed => "mount_verification_failed",
             Self::PersistenceMismatch => "persistence_mismatch",
+            Self::IdentityPathConflict => "identity_path_conflict",
             Self::OwnerEndFailed => "owner_end_failed",
         }
     }
@@ -232,6 +240,16 @@ impl DevelopmentDataMountOwner {
 
     fn verify_marker(&self) -> Result<(), DataMountError> {
         let mut file = self.open_marker(false)?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| DataMountError::PersistenceMismatch)?;
+        if !metadata.file_type().is_file()
+            || metadata.uid() != 0
+            || metadata.mode() & 0o777 != 0o600
+            || metadata.nlink() != 1
+        {
+            return Err(DataMountError::PersistenceMismatch);
+        }
         let mut content = Vec::new();
         file.read_to_end(&mut content)
             .map_err(|_| DataMountError::PersistenceMismatch)?;
@@ -246,6 +264,7 @@ impl DevelopmentDataMountOwner {
     fn provision_identity_directories(&self) -> io::Result<()> {
         self.verify_marker()
             .map_err(|error| io::Error::other(error.label()))?;
+        self.require_fresh_identity_root()?;
         let input = self
             .boot_volume_input()
             .map_err(|error| io::Error::other(error.label()))?;
@@ -254,19 +273,80 @@ impl DevelopmentDataMountOwner {
             .root
             .as_ref()
             .ok_or_else(|| io::Error::other("Data owner ended"))?;
-        for name in ["accounts", "snapshots"] {
-            match rustix::fs::mkdirat(root, name, rustix::fs::Mode::RWXU) {
-                Ok(()) | Err(rustix::io::Errno::EXIST) => {}
-                Err(error) => return Err(error.into()),
-            }
-            // Require private ownership for both directories and open them
+        for name in ["accounts", "snapshots", DATA_JOURNAL_DIRECTORY] {
+            rustix::fs::mkdirat(root, name, rustix::fs::Mode::RWXU)?;
+            // Require private ownership for each directory and open them
             // below the retained root without crossing mounts or symlinks.
             selected
                 .retain_identity_snapshot_directory(Path::new(name))?
                 .sync_all()?;
         }
         input.identity_inputs(Path::new("accounts"), Path::new("snapshots"))?;
+        let journal_directory =
+            selected.retain_identity_snapshot_directory(Path::new(DATA_JOURNAL_DIRECTORY))?;
+        let marker_name = CString::new(DATA_BOOTSTRAP_MARKER_NAME)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid marker name"))?;
+        let raw_marker = unsafe {
+            syscalls::openat(
+                journal_directory.as_raw_fd(),
+                marker_name.as_ptr(),
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                0o600 as std::os::raw::c_int,
+            )
+        };
+        if raw_marker < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut marker = unsafe { File::from_raw_fd(raw_marker) };
+        let marker_metadata = marker.metadata()?;
+        if !marker_metadata.file_type().is_file()
+            || marker_metadata.uid() != 0
+            || marker_metadata.mode() & 0o777 != 0o600
+            || marker_metadata.nlink() != 1
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Task24 C3 bootstrap marker is not a private regular file",
+            ));
+        }
+        marker.write_all(DATA_BOOTSTRAP_MARKER_BYTES)?;
+        marker.sync_all()?;
+        journal_directory.sync_all()?;
         root.sync_all()
+    }
+
+    #[cfg(linux_dev_preview_smoke)]
+    fn require_fresh_identity_root(&self) -> io::Result<()> {
+        let root = self
+            .root
+            .as_ref()
+            .ok_or_else(|| io::Error::other("Data owner ended"))?;
+        let entries = read_directory_entries(root)?;
+        if !is_fresh_development_data_root(&entries) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "identity provisioning requires an unregistered fresh Data root",
+            ));
+        }
+        let input = self
+            .boot_volume_input()
+            .map_err(|error| io::Error::other(error.label()))?;
+        let selected = input.selected_data_root()?;
+        let lost_found = selected.retain_identity_snapshot_directory(Path::new("lost+found"))?;
+        let metadata = lost_found.metadata()?;
+        if metadata.uid() != 0 || metadata.mode() & 0o777 != 0o700 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "fresh Data lost+found directory does not have its expected owner and mode",
+            ));
+        }
+        if !read_directory_entries(&lost_found)?.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "fresh Data lost+found directory is not empty",
+            ));
+        }
+        Ok(())
     }
 
     fn open_marker(&self, write: bool) -> Result<File, DataMountError> {
@@ -274,7 +354,7 @@ impl DevelopmentDataMountOwner {
         let flags = if write {
             O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW
         } else {
-            O_RDONLY | O_CLOEXEC | O_NOFOLLOW
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | libc::O_NONBLOCK
         };
         let raw_fd = unsafe {
             syscalls::openat(
@@ -322,6 +402,14 @@ impl DevelopmentDataMountOwner {
     }
 }
 
+#[cfg(linux_dev_preview_smoke)]
+fn read_directory_entries(directory: &File) -> io::Result<Vec<std::ffi::OsString>> {
+    let path = format!("/proc/self/fd/{}", directory.as_raw_fd());
+    fs::read_dir(path)?
+        .map(|entry| entry.map(|entry| entry.file_name()))
+        .collect()
+}
+
 /// Owns the retained boot input and releases it before ending the mount.
 #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
 pub(in crate::linux_init) struct DevelopmentIdentityData {
@@ -333,8 +421,8 @@ pub(in crate::linux_init) struct DevelopmentIdentityData {
 
 /// Opt in to the same verified development mount while running normal PID 1.
 #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
-pub(in crate::linux_init) fn mount_identity_data(
-) -> Result<Option<DevelopmentIdentityData>, &'static str> {
+pub(in crate::linux_init) fn mount_identity_data()
+-> Result<Option<DevelopmentIdentityData>, &'static str> {
     let command_line = fs::read_to_string("/proc/cmdline")
         .map_err(|_| DataMountError::SelectionMalformed.label())?;
     let selected = || {
@@ -378,6 +466,9 @@ pub(in crate::linux_init) fn mount_identity_data(
     };
     let accounts = directories(accounts)?;
     let snapshots = directories(snapshots)?;
+    if !identity_paths_avoid_data_journal(&accounts, &snapshots) {
+        return Err(DataMountError::IdentityPathConflict.label());
+    }
     let mount = DevelopmentDataMountOwner::mount(serial, uuid).map_err(DataMountError::label)?;
     let input = mount.boot_volume_input().map_err(DataMountError::label)?;
     Ok(Some(DevelopmentIdentityData {
@@ -704,7 +795,7 @@ fn run_smoke(request: SmokeRequest) -> ! {
             })();
             match result {
                 Ok(()) => super::super::log_pid1_stderr(format_args!(
-                    "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED accounts=accounts snapshots=snapshots owner_ended=true"
+                    "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED accounts=accounts snapshots=snapshots c3_journal=system-service-journal first_provision=true owner_ended=true"
                 )),
                 Err(error) => super::super::log_pid1_stderr(format_args!(
                     "NAGI_DEV_IDENTITY_DIRECTORIES_PROVISION_FAILED ({error})"

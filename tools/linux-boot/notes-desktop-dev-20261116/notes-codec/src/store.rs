@@ -41,6 +41,8 @@ pub enum StoreError {
     InvalidDocument(&'static str),
     SandboxViolation(String),
     SessionGateRejected,
+    /// A profile-root write may be visible before its directory is durable.
+    ProfileRootWriteUnconfirmed,
     Unavailable,
 }
 
@@ -57,6 +59,9 @@ impl fmt::Display for StoreError {
             Self::SandboxViolation(message) => write!(f, "host sandbox rejected path: {message}"),
             Self::SessionGateRejected => {
                 f.write_str("Notes operation requires a live canonical Session")
+            }
+            Self::ProfileRootWriteUnconfirmed => {
+                f.write_str("profile-root Notes save durability could not be confirmed")
             }
             Self::Unavailable => f.write_str("profile-root Notes storage is unavailable"),
         }

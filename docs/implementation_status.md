@@ -11314,3 +11314,353 @@ Both boots recorded account authentication, C1 session commit, the Identity hand
 Real System read-only integration (the test observed writable Data); WS-10 restriction, revocation, logout and crash acceptance on the integrated image; fixed 8 GiB/4-vCPU performance acceptance. Physical-device validation is a separate DEC-102 follow-up, not a PR #163 acceptance condition.
 
 A later signed development run with E `0f6980ac72` observed the volume warning only before authentication. The authenticated path then completed profile attachment, Notes save, and same-Data readback after cold reboot. This scope does not establish general production permission acceptance.
+## C1 previous-launch recovery candidate (2026-11-21)
+
+Status: `PARTIAL`; no product milestone is promoted. The C1 receipt adapter now
+has a separate old-launch terminal reconciliation boundary while retaining
+exact current-boot scope checks for new intents. The boundary carries both the
+current scope and old operation correlation and requires A/C3 to verify its
+official previous `SystemServiceLaunchRecord`. Synthetic regressions cover a
+pre-Session login rejection, an unattached initial Session, and preservation of
+quarantine for an unknown result.
+
+The host generation-predicate test passed and the complete Linux-only C1 test
+binary compiled for `x86_64-unknown-linux-musl`; those Linux fixtures were not
+executed. C3's official record path and A's production caller remain
+unintegrated, and no guest or login-wait acceptance is claimed. See
+`docs/superpowers/specs/2026-11-21-c1-prior-boot-recovery-design.md` and the
+fixed C1 commit for detailed source and test records.
+
+C1 follow-up commits `9b285da0644bd0972cf483ed3d5d7807095e6733` and
+`5566f23b6309b2566d7fa74e6d6bf3da472aee38` are now present in the A
+candidate's `crates/nagi-identity-session/src/service.rs` copy. The
+previous-launch gate returns a typed durable C3 receipt; C1 keeps its journal
+pending until the exact C1 operation, old scope digest, service/catalog/C3
+generation, and `ClearedAndAbsent` state are read back. The second commit also
+keeps the live issuer fenced after terminal confirmation and maps a final
+write failure after issuer closure to `OutcomeUnknown`; its regression does an
+exact reopen readback, rechecks C3, and only then starts a new intent. C1 reports
+the original review findings and two later P2s addressed in code, but the
+independent rereview of `5566f23b6309` is still pending. C1 reports two host
+scope regressions passing and a musl test-binary compile (SHA-256
+`188b7cd5619e588934982db286c826ef731daf5241b9423639810f2b7380421d`); the
+Linux durable fixtures were not executed, and A has not built this integrated
+copy.
+
+C1 also extended `crates/nagi-c1-session-runtime/tests/durable_auth.rs` in
+`f755f5ba15b8795db22591fe4e34ca1531e552a5`: wrong password and unknown account
+both reject before Session creation, then dropping/reopening the same C1
+runtime store preserves the User/Profile and permits a later valid login and
+logout. C1 reports this test compiled into a pinned musl ELF
+(SHA-256 `bb95c6f3f8b149d02e510db572e64b057260166340e21c1c837a486eb61c9968`),
+but it was not executed. This runtime fixture does not exercise C3's prior
+launch receipt or production boot recovery; A has not compiled the imported
+test.
+
+The C3 v5 journal now supplies the prior full recovery scope, stable launch
+instance ID, PID, exact C1 operation correlation, and read-back-confirmed
+normal-exit terminal. It does not serialize the old process identity nonce or
+reconstruct the old in-memory `SystemServiceLaunchRecord`. A adopts C3 source
+`85b05d406eb24d19b2e65c2a812957aabe1df6d0` (owner blob
+`d3d3b72b79d257f7d410b171b50af50ae82f7089`, journal blob
+`f4d1952717cd188ab7f57195bbfd512eb9f0f8cf`); the A owner file differs only by
+its adapter implementation for `C3DurableRecoverySlotReceipt`.
+
+The previous-launch path captures that receipt before reserving the current
+C3 generation and rechecks the exact old row under the C3 owner gate. A's
+current-boot terminal path now reuses the exact durable normal-exit receipt
+through `durable_normal_exit_gate`. It no longer appends a generic
+`ClearedAndAbsent` transition that would hide the normal-exit evidence from
+the next cold boot. C1's existing reconciliation code permits an exact
+already-`Reconciled` outcome only when the outcome digest matches; the durable
+store treats that same exact outcome idempotently. Unknown or mismatched state
+remains quarantined. After C1 receipt consumption, A drops the IdentityService
+and store, reopens the same selected Data, and starts a new intent only after
+the reopen.
+
+Service/catalog mismatch is now checked in `LinuxBootServiceOwner::new`, before
+`reserve_launch_generation` can persist a reservation. The post-reservation
+check remains limited to immediate generation adjacency and genesis generation
+1. A added a focused catalog mismatch fixture alongside the generation
+predicate fixture.
+
+Pinned-nightly `x86_64-unknown-linux-musl` `cargo test --no-run --offline
+--locked` with Task24 cfg/features compiled the A adapter, current C3 owner and
+journal, and test binary successfully. ELF SHA-256 is
+`2fa6fff5d2746c2f9810432f02a296ea91e987d89d7e142c95530b501026dde4` in
+`out/evidence/task24-a-p1-p2-repair-20261122/`; the C1/C3 test bodies were not
+run. The recovery serial validator self-check, `rustfmt --check`, and
+`git diff --check` passed. The normal PID 1 image/CPIO will be rebuilt from the
+fixed source before it is used for any Task24 preflight. No guest run, QEMU,
+repro Data, or previous Data was used.
+
+An A-side read-only review initially found a P2 in that synthetic fixture; the
+identity and exit-code checks were added in signed commit `70f2ca3d1`. A second
+read-only review of the fix found no P1/P2. A follow-up review after the full
+journal-scope snapshot cases were added in `1de5bf078` found no new P1/P2.
+These reviews were source-only; they did not compile or execute the A fixture.
+
+The Task24 development Notes controller now returns a save result only for a
+dirty session, so clean Enter cannot emit `NAGI_DEV_NOTES_SAVED` as if a new
+commit occurred. The focused controller regression passed 1/1 on the
+`x86_64-apple-darwin` target from the arm64 host. The Notes helper workspace's
+stale lockfile prevented a locked test run; the offline test regenerated that
+lockfile temporarily, and the generated lock diff was restored. This host
+controller test does not establish the authenticated Profile Data path or
+Task24 guest persistence.
+
+The A normal-logout path now requests planned EOF on the exact authenticated
+C3 Identity control endpoint only after verifying the live scope, launch and
+process. It waits for the existing C3 reaper and validates the read-back v5
+normal-exit receipt against that same scope, PID and C1 operation before
+passing the receipt to C1 reconciliation. Missing, abnormal, mismatched, or
+timed-out evidence remains an error and does not consume the C1 terminal
+receipt. The Task24 serial validator now requires the exit-request, C3 normal
+reap, and C1 terminal markers in order, with synthetic rejection cases for
+missing, duplicate, and reordered markers.
+
+Verification: the validator self-check passed; the A `nagi-init` test binary
+compiled with the Task24 cfg/features for pinned nightly
+`x86_64-unknown-linux-musl` (`nagi_init-99e4690c44416340`, SHA-256
+`e7daaec485d2ed52ad1c71be30d74f961591800e0a25fb3b72b37c6eca218969`). This
+was compile-only with direct Homebrew LLD 19.1.7; Linux test bodies and guest
+execution were not run. No QEMU, raw Data, or previous Data was used. This
+source-level repair does not yet establish same-Data Task24 acceptance.
+
+### Task24 recovery and save/read preflight follow-up (2026-11-22)
+
+Status: `PARTIAL`. A captures one absolute deadline immediately before the
+planned EOF request to the exact live Identity process. It passes that same
+deadline through C3 reap, the current durable normal-exit snapshot, and the
+owner-gated historical journal reread. C3 checks the deadline after exact row
+validation and immediately before the C1 callback; expiration stays
+`OutcomeUnknown` and does not consume the C1 receipt. A's non-secret terminal
+serial fields identify service/catalog/C3 generation, launch instance, PID,
+C1 operation, and terminal revision/operation. The previous-row marker is
+emitted only after C1 consumes that receipt.
+
+The Task24 save/read serial validator now requires the full emitted identity
+tuple to match within each boot and requires the prior-boot receipt consumed by
+the read boot to equal the normal-exit row recorded by the save boot. It also
+checks that the saved Notes ObjectId/revision equals the reopened ObjectId and
+revision, without logging Notes body or recovery digests. Corruptions of the
+save terminal sequence are checked by the save validator; read-side cases
+cover missing, duplicate, late, and mismatched previous receipts. Its
+synthetic self-check passes. The Task24 CPIO builder now includes C3's adjacent
+private empty flock file when given a seeded journal; an isolated synthetic
+archive check confirms the journal and lock entry modes and contents.
+
+The fixed Task24 cfg/features `cargo test --no-run --offline --locked` build
+completed for pinned nightly `2025-08-01` and `x86_64-unknown-linux-musl`
+using direct Homebrew LLD 19.1.7. Test ELF:
+`nagi-init-linux-tests` build output,
+SHA-256 `dfc5d789f586ca48db719f8753d46cc6bdba4e7bd3ccc9e4ca2b157532c1de75`.
+This is compile-only; no Rust test body or guest was run. Rust formatting and
+`git diff --check` pass. The CPIO check used only a temporary synthetic fixture
+(`nagi-a-task24-cpio-selfcheck-20261122-*`, 567 bytes released); no Data image
+or QEMU was opened.
+
+C3 fixed-source handoff `31105d1a83edc841d7a3f2be634ae82b331cd85e` and its
+SDK ELF remain historical C3-only evidence; they are not byte identity or
+guest evidence for the current A source.
+
+### Current A worktree follow-up (2026-11-22; runtime source commit `8ae598a052`)
+
+The Task24 development path now opens C3's `system-service-slot.v1` below a
+private `system-service-journal` sibling on the already selected Data root.
+The directory FD is retained by `LinuxBootServiceOwner`. Fresh provisioning
+is explicit; normal startup only opens the existing journal/lock pair, and
+missing, malformed, partial, or mismatched state remains unavailable. C1
+accounts and snapshots cannot overlap this journal directory. Other services
+and release builds retain their existing package-store journal path. The
+first-provision C3 marker is now file-synced, atomically published by a
+no-replace rename, read back on its write-capable descriptor, file-synced, and
+directory-synced before the generic bootstrap marker is removed. The exact
+existing-marker reuse path follows the same file/directory sync order. A
+leftover staging marker and incomplete C3 journal/lock state remain
+fail-closed; no automatic cleanup or recreation is added. The Linux-only
+existing-marker regression compiles in a targeted musl `--no-run` harness but
+its body was not run.
+
+The current A candidate now opens and retains the selected C3 journal parent
+directory FD, then addresses journal, lock, and bootstrap-marker entries
+through that descriptor. A path-replacement regression checks that a live
+journal stays bound to the selected directory object. The owner reserves its
+service slot in the PID-1 registry before marker inspection; a marker is
+considered only for a fresh registration, while an existing registration is
+open-only. The C3 journal adopts the reviewed parent-FD anchoring and
+pre-write-versus-unknown reservation boundary from C3 `bbd9130d74`; A's C1
+receipt adapter and absolute-deadline API remain in place. Same-Data cold-boot
+acceptance still requires the integrated guest run and is not established by
+these source or compile results.
+
+Independent source review of `7e629cf38a` found an additional C3-owned
+first-provision recovery gap: a crash after the genesis journal/lock pair is
+durably created and validated but before C3 removes and syncs away its
+`.first-provision` marker left a complete pair that the next marked creation
+path rejected. The A candidate now resumes only an exact validated genesis
+pair while the exact service marker remains, under the journal lock. It scans
+and syncs the same validated journal FD before marker consumption, then syncs
+the parent before removal and again afterward. The marker opens with
+`O_NOFOLLOW | O_NONBLOCK`; its opened FD is checked for regular-file type,
+owner, mode, and link count before reading. It does not rewrite journal rows.
+One-sided, malformed, mismatched, legacy, pending, or non-genesis state
+remains Unknown, with no deletion or automatic recreation. A proven
+pre-write rejection may release a fresh registry reservation; missing or
+unknown state and any result after writing starts remain quarantined.
+Regressions
+`c3_slot_journal_dev_first_provision_resumes_exact_genesis_after_interruption`
+and `c3_slot_journal_dev_first_provision_keeps_non_genesis_state_unknown`
+compile in the Linux-only `nagi-init` test binary. The focused command used
+`user/nagi-init-linux-tests/Cargo.toml`, `nightly-2025-08-01`,
+`x86_64-unknown-linux-musl`, offline locked resolution, and Homebrew `ld.lld`
+19.1.7. The Linux test manifest now declares the exact `libc = 0.2.189`
+dependency used by the shared PID1 source, and root `Cargo.lock` records that
+dependency edge without changing package versions or checksums. The expanded
+Linux test binary SHA-256 is
+`730bc6ad999b6134d3dac18f70b437b63b2d002ce2861441e3b9769aba3722d4`.
+Additional compiled selectors are
+`c3_slot_journal_keeps_proc_fd_parent_identity_after_path_replacement`,
+`c3_first_provision_marker_opens_nonblocking_and_checks_fifo_before_read`,
+`c3_registered_slot_never_processes_first_provision_marker`, and
+`c3_first_provision_fifo_marker_rejects_without_blocking_or_writing`.
+Compilation used the canonical `user/nagi-init-linux-tests` workspace member
+and repository root lockfile with pinned nightly `2025-08-01`, target
+`x86_64-unknown-linux-musl`, `--offline --locked --no-run`, and Homebrew LLD
+19.1.7. This was compile-only on macOS; no Linux test body or QEMU ran. The
+positive test also checks that a marker-free genesis journal is rejected
+without changing journal/lock bytes. The earlier product-manifest attempt
+still cannot resolve the preserved missing Servo checkout, and the legacy
+PID-only importer lease was not touched. Same-Data acceptance remains held.
+The final marker-unlink-to-parent-sync interval remains fail-closed but not
+resumable: if a crash leaves the marker absent with only genesis present,
+ordinary open rejects that unmarked genesis and explicit recovery is needed.
+
+The Task24 serial validator requires one well-formed Notes marker per phase,
+matching ObjectId/revision, the save boot's C3 terminal receipt to equal its
+C1-consumed receipt, and the read boot to consume that same previous receipt
+before login/READY. It logs neither Notes body nor recovery digests. The A
+Notes console still selects the first listed note; on a fresh test Data volume
+the save boot must begin with no existing Notes. The current A producer and
+validator do not compare body bytes across boots. E's `body_match=1` Desktop
+fixture is a separate development path and was not copied or treated as A
+evidence. A's normal read path presents the document returned by the
+authenticated Notes bridge, but body continuity across save/read remains a
+visible-content check for the later integrated run.
+
+The existing `run_data_owner_persistence.py` passes the same `data.raw` path
+to its development-only write and read marker boots. It verifies Data-owner
+mount persistence, not Task24 C1/C3 recovery or Notes. There is no integrated
+Task24 save/read launch runner in this worktree. Added
+`tools/linux-boot/task24_run_preflight.py` as a deliberately preflight-only
+manifest entry: it hashes the fixed kernel/initramfs/System inputs, requires
+both phases to name the exact same candidate and run-local `data.raw` file and
+Data UUID, checks System and Data are distinct regular backing files, requires
+separate unused phase serial paths and bounded per-phase deadlines, and rejects
+QMP, monitor, writable System, or any start authorization. It performs no
+image creation and has no QEMU invocation path. The manifest's
+`fresh-ext4`/run-ID declaration is not proof of image provenance, and no
+integrated Task24 runner consumes this manifest yet; actual launch binding and
+same-Data guest acceptance remain open. Synthetic host regressions cover the
+valid pair and drift/rejection cases without using real candidate or Data
+images. The entry is invoked explicitly as
+`python3 -B tools/linux-boot/task24_run_preflight.py --manifest <run>/preflight.json --preflight-only`;
+it cannot continue into a boot.
+
+After the C3 owner-boundary repair, the Task24 host suites were rerun with
+`python3 -B -m unittest discover -s tools/linux-boot/tests -p
+'test_task24_*preflight.py' -v`: 25 tests passed. The serial validator's
+additional `python3 -B tools/linux-boot/task24_recovery_serials.py
+--self-check` also passed, including save-side receipt/order corruptions and
+read-side exact previous-receipt/Notes identity checks. These use synthetic
+inputs and temporary host files only; they do not create a real Data image,
+bind a future runner to the preflight manifest, or establish guest acceptance.
+
+Review follow-up: save/read serial parents are now checked as real directories
+on the run filesystem with distinct device/inode identities. Candidate kernel,
+initramfs and System artifacts stay open read-only during validation; the tool
+hashes and rechecks descriptor/path identity before PASS. Synthetic host tests
+reject a reused/replaced serial-parent identity, a non-directory parent,
+late serial creation, a parent replacement during the unused-path check,
+mutation during hashing, pathname replacement and mutation at the PASS
+boundary. After the final artifact rehash, both serial parent identities and
+both output paths are checked again. The future runner must still reserve
+those outputs exclusively immediately before launch; preflight does not lock
+them. Because no launch consumes the open descriptors yet, actual launch
+binding remains a separate unresolved step.
+
+The Task24 serial parser's exact Notes marker formats now have a focused
+privacy regression: save/read markers with a body or any extra field are
+rejected. This keeps serial acceptance limited to the fixed ObjectId and
+revision fields; visible content comparison remains a manual later-run check.
+
+The normal A startup mounts the selected Data owner before entering the PID 1
+lifecycle, but this source tree has no call to `observe_existing_roots` and no
+`nagi.dev_system_data.probe` token handling. The System RO observation must be
+connected after the verified System and Data owners retain their mount FDs and
+before READY; the existing preview poweroff route is not a substitute. The
+static insertion boundary is after Data-owner setup in `linux_init.rs::run`
+and before `run_pid1_lifecycle`; failure there must keep READY unpublishable.
+The current A source has no System owner or probe call, so no observation was
+run.
+
+The current FIFO regression and host recovery checks pass: focused direct A
+adapter/bootstrap-source harness 6/6, Python Task24 preflight 6/6, and the
+recovery serial self-check. The Python preflight rejects a mismatched reopened
+Notes ObjectId or revision. The focused harness compiled offline with
+`rustix 1.1.4` and `libc 0.2.189`, using a stub only for the unused selected
+root constructor; it is not an integrated `nagi-init` build.
+The harness directory `out/tmp/task24-c3-marker-host-harness-20261122` was
+removed after the run (12 KiB released); the lane's fixed SSD Cargo target was
+retained for reuse. The follow-up compile harness
+`out/tmp/task24-c3-marker-reopen-harness-20261122` was also removed after its
+host and musl checks (12 KiB released).
+The FIFO test runs its blocking marker open in a child with bounded kill and
+`try_wait` reaping. `rustfmt --check` and `git diff --check` passed for the
+relevant source at the last fixed commit. No current full `nagi-init` build
+has completed: the canonical Servo importer validated its supplier and tree,
+then exited 4 at lease acquisition before installing source because a legacy
+PID-only lease/staging directory already exists. The importer preserves that
+state without takeover; it was not modified or retried. QEMU, Data images,
+and the incident `data-working.raw` were not opened.
+
+Focused C1 terminal-receipt recovery fixture for the wrong-password/reopen
+path compiled with pinned nightly `2025-08-01`, Linux musl target, and the
+`system-service-recovery-contract,linux-interactive-account` features. The
+macOS default linker failed on GNU musl flags; retry with the lane's explicit
+direct LLD completed `cargo test --no-run --offline --locked`. ELF:
+`nagi-init-linux-tests` build output, SHA-256
+`28bacca1b4818637b1633171f3b6a4ab03d0e89eb233b50912794b2084cee507`;
+the exact selector is present. This was compile-only. The current host is
+`aarch64-apple-darwin`, while this fixture requires Linux x86_64 runtime APIs,
+so its test body was not run. No QEMU or Data image was used. The lane's fixed
+Cargo target remains 1.8 GiB, below its 30 GiB limit.
+
+### Task24 first-provision reservation boundary (2026-11-22)
+
+After the exact C3 genesis journal pair exists, the remaining first-provision
+marker validation, sync, and consumption result is now normalized as
+post-write. A late `RejectedBeforeWrite` therefore cannot release the fresh
+PID-1 slot reservation; `Unknown` remains unknown. The focused regression is
+`linux_init::linux_init_c3_slot_journal::tests::c3_first_provision_marker_consumption_is_post_write`.
+
+The canonical `user/nagi-init-linux-tests` workspace member compiled with
+`cargo +nightly-2025-08-01 test --offline --locked --manifest-path
+user/nagi-init-linux-tests/Cargo.toml --target x86_64-unknown-linux-musl
+--no-run`, `CARGO_INCREMENTAL=0`, and the lane's direct LLD 19.1.7 linker.
+ELF `nagi_init-cb8a78fbefadae67` has SHA-256
+`17f0f1bcd152932842d3b3801c2d2244543f420773320012ee26a563722ccb683`.
+The selector is present in the ELF; this is compile-only and its Linux test
+body was not run on the aarch64 macOS host. No QEMU or Data image was used.
+
+Same-PID-1 owner reattachment and journal-FD release review follow-ups are
+deferred as local issue candidates: the required Task24 comparison uses a
+cold boot with a fresh PID 1, so those same-process transitions do not directly
+affect the save-boot/read-boot acceptance path. The existing Data journal and
+cross-boot receipt path remain in place.
+
+The formal image build remains blocked before source installation by the
+preserved legacy PID-only Servo import lease. The available output is exit 4
+with phase `lease-acquisition` and the redacted generic failure line; the
+underlying low-level error text was not saved. No lease/staging recovery or
+retry was performed.

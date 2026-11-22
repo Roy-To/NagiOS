@@ -101,6 +101,7 @@ struct SessionState {
 
 #[derive(Clone)]
 struct PendingCommit {
+    requires_explicit_retry: bool,
     snapshot: NoteDocument,
     generation: u64,
     was_new: bool,
@@ -492,6 +493,15 @@ impl<'scope> ScopedNoteSession<'scope> {
         state.note.updated_at = self.inner.clock.now();
         state.generation = state.generation.wrapping_add(1);
         state.dirty = true;
+        // Retain new edits without implicitly retrying the unconfirmed snapshot.
+        if matches!(state.status, SaveStatus::Failed(_))
+            && state
+                .pending_commit
+                .as_ref()
+                .is_some_and(|pending| pending.requires_explicit_retry)
+        {
+            return Ok(());
+        }
         state.deadline = Some(Instant::now() + self.inner.debounce);
         if !state.in_flight {
             state.status = SaveStatus::Dirty;
@@ -694,18 +704,21 @@ fn autosave_worker(inner: Arc<Inner<'_>>) {
                 state = lock(&inner.state);
             }
             Err(source) => {
-                if error_may_have_committed(&source) {
-                    if !retrying_pending_commit {
-                        state.pending_commit = Some(PendingCommit {
-                            snapshot,
-                            generation,
-                            was_new,
-                            old_title,
-                            origin,
-                        });
+                let requires_explicit_retry = source == StoreError::ProfileRootWriteUnconfirmed;
+                if let Some(pending) = state.pending_commit.as_mut() {
+                    pending.requires_explicit_retry |= requires_explicit_retry;
+                    if !pending.requires_explicit_retry && !error_may_have_committed(&source) {
+                        state.pending_commit = None;
                     }
-                } else {
-                    state.pending_commit = None;
+                } else if error_may_have_committed(&source) {
+                    state.pending_commit = Some(PendingCommit {
+                        requires_explicit_retry,
+                        snapshot,
+                        generation,
+                        was_new,
+                        old_title,
+                        origin,
+                    });
                 }
                 state.dirty = true;
                 state.deadline = None;
@@ -719,7 +732,9 @@ fn autosave_worker(inner: Arc<Inner<'_>>) {
 fn error_may_have_committed(error: &StoreError) -> bool {
     matches!(
         error,
-        StoreError::Io(_) | StoreError::RevisionConflict { .. }
+        StoreError::Io(_)
+            | StoreError::RevisionConflict { .. }
+            | StoreError::ProfileRootWriteUnconfirmed
     )
 }
 

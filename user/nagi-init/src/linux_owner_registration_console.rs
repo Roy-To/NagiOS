@@ -25,8 +25,18 @@ const FBIOGET_VSCREENINFO: u64 = 0x4600;
 const FBIOGET_FSCREENINFO: u64 = 0x4602;
 const EVIOCGRAB: u64 = 0x40044590;
 
+#[cfg(linux_task24_owner_co_location)]
+#[repr(C)]
+struct PollFd {
+    fd: i32,
+    events: i16,
+    returned: i16,
+}
+
 unsafe extern "C" {
     fn ioctl(fd: i32, request: u64, ...) -> i32;
+    #[cfg(linux_task24_owner_co_location)]
+    fn poll(fds: *mut PollFd, len: usize, timeout: i32) -> i32;
 }
 
 #[repr(C)]
@@ -196,6 +206,68 @@ pub(super) enum RegistrationConsoleError<E> {
     Save(E),
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) enum UnlockInputOutcome {
+    Submitted(UnlockInput),
+    Closed,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) struct UnlockInput {
+    account: Vec<u8>,
+    password: zeroize::Zeroizing<Vec<u8>>,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(super) enum UnlockSubmissionError {
+    DeadlineExpired,
+    Unavailable,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl UnlockInput {
+    pub(super) fn submit(
+        self,
+        control: &mut UnixStream,
+        route: task24_input::RequestRoute,
+        deadline: Instant,
+    ) -> Result<(), UnlockSubmissionError> {
+        let mut failure = UnlockSubmissionError::Unavailable;
+        let sent = task24_input::send(
+            |bytes| {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    failure = UnlockSubmissionError::DeadlineExpired;
+                    return false;
+                }
+                if control.set_write_timeout(Some(remaining)).is_err() {
+                    return false;
+                }
+                match control.write_all(bytes) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        if error.kind() == io::ErrorKind::TimedOut
+                            || (error.kind() == io::ErrorKind::WouldBlock
+                                && Instant::now() >= deadline)
+                        {
+                            failure = UnlockSubmissionError::DeadlineExpired;
+                        }
+                        false
+                    }
+                }
+            },
+            route,
+            &self.account,
+            &self.password,
+        );
+        if sent {
+            Ok(())
+        } else {
+            Err(failure)
+        }
+    }
+}
+
 pub(super) struct BootOwnerConsole {
     keyboard: File,
     framebuffer: Framebuffer,
@@ -263,9 +335,42 @@ impl BootOwnerConsole {
         }
     }
 
+    #[cfg(all(linux_task24_owner_co_location, linux_task24_initial_login_runtime))]
+    pub(super) fn next_key_timeout(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> io::Result<Option<InputEvent>> {
+        const POLLIN: i16 = 0x001;
+        let mut descriptor = PollFd {
+            fd: self.keyboard.as_raw_fd(),
+            events: POLLIN,
+            returned: 0,
+        };
+        let milliseconds = timeout.as_millis().min(i32::MAX as u128) as i32;
+        // SAFETY: the retained evdev descriptor is live and poll receives one
+        // writable pollfd. This console is the only keyboard reader here.
+        let result = unsafe { poll(&mut descriptor, 1, milliseconds) };
+        if result < 0 {
+            let error = io::Error::last_os_error();
+            return if error.kind() == io::ErrorKind::Interrupted {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        }
+        if result == 0 {
+            return Ok(None);
+        }
+        if descriptor.returned != POLLIN {
+            return Err(io::Error::other("keyboard poll returned an invalid event"));
+        }
+        self.read_key_event()
+    }
+
     pub(super) fn run_registration<SaveAccount, E>(
         &mut self,
         mut screen: LinuxOwnerRegistration<SaveAccount>,
+        mut next_key: impl FnMut(&mut Self) -> io::Result<InputEvent>,
     ) -> Result<(), RegistrationConsoleError<E>>
     where
         SaveAccount: FnOnce(AccountRecord) -> Result<(), E>,
@@ -283,7 +388,7 @@ impl BootOwnerConsole {
             "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
         ));
         loop {
-            let event = self.next_key().map_err(Io)?;
+            let event = next_key(self).map_err(Io)?;
             if event.value == 0 {
                 continue;
             }
@@ -312,68 +417,56 @@ impl BootOwnerConsole {
         self.present(|painter| screen.render(painter))
     }
 
-    #[cfg(linux_task24_initial_login_runtime)]
-    pub(super) fn submit_unlock(
+    #[cfg(all(linux_task24_owner_co_location, linux_task24_initial_login_runtime))]
+    pub(super) fn read_unlock(
         &mut self,
         screen: &mut crate::login_screen::LinuxOwnerUnlock<'_>,
-        control: &mut UnixStream,
-        route: task24_input::RequestRoute,
-        deadline: Instant,
-    ) -> io::Result<()> {
+        mut poll_required_identity_exit: impl FnMut() -> io::Result<bool>,
+    ) -> io::Result<UnlockInputOutcome> {
+        use super::{poll_task24_input, Task24InputPoll};
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_UNLOCK_WAITING_FOR_INPUT"));
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(io::ErrorKind::TimedOut.into());
+            if screen.tick() {
+                super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_RETRY_ALLOWED"));
+                self.present_unlock(screen)?;
             }
-            let mut fd = libc::pollfd {
-                fd: self.keyboard.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
+            let wait = screen.remaining_wait();
+            let interval = std::time::Duration::from_millis(100);
+            let slice = if wait.is_zero() {
+                interval
+            } else {
+                interval.min(wait)
             };
-            let ready = unsafe {
-                libc::poll(
-                    &mut fd,
-                    1,
-                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
-                )
-            };
-            if ready < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::Interrupted {
-                    continue;
+            let event = match poll_task24_input(
+                || self.next_key_timeout(slice),
+                &mut poll_required_identity_exit,
+            )? {
+                Task24InputPoll::Pending => continue,
+                Task24InputPoll::Input(event) => event,
+                Task24InputPoll::RequiredServiceExited => {
+                    return Err(io::Error::other("required Identity exited during unlock"));
                 }
-                return Err(error);
-            }
-            if ready == 0 {
-                continue;
-            }
-            if fd.revents & libc::POLLIN == 0 {
-                return Err(io::Error::other("trusted boot keyboard unavailable"));
-            }
-            let Some(event) = self.read_key_event()? else {
-                continue;
             };
+            if event.code == libnagi::INPUT_KEY_ESCAPE && event.value == 1 {
+                screen.clear_secrets();
+                self.present_unlock(screen)?;
+                return Ok(UnlockInputOutcome::Closed);
+            }
+            let mut input = None;
             match screen.handle_event(event, |account, password| {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    return Err(io::ErrorKind::TimedOut.into());
-                }
-                control.set_write_timeout(Some(remaining))?;
-                if !task24_input::send(
-                    |bytes| control.write_all(bytes).is_ok(),
-                    route,
-                    account,
-                    password,
-                ) {
-                    return Err(io::Error::other("Task24 UI submission unavailable"));
-                }
-                Ok(())
+                input = Some(UnlockInput {
+                    account: account.to_vec(),
+                    password: zeroize::Zeroizing::new(password.to_vec()),
+                });
+                Ok::<(), io::Error>(())
             }) {
                 LinuxRegistrationOutcome::Redraw => self.present_unlock(screen)?,
                 LinuxRegistrationOutcome::Submitted(result) => {
                     self.present_unlock(screen)?;
-                    return result;
+                    result?;
+                    return input
+                        .map(UnlockInputOutcome::Submitted)
+                        .ok_or_else(|| io::Error::other("Task24 unlock input missing"));
                 }
                 _ => {}
             }
@@ -444,15 +537,6 @@ impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection {
     fn connected(&self) -> Result<bool, super::pid1_live_peer_supplier::PeerDenial> {
         use super::pid1_live_peer_supplier::PeerDenial;
 
-        #[repr(C)]
-        struct PollFd {
-            fd: i32,
-            events: i16,
-            returned: i16,
-        }
-        unsafe extern "C" {
-            fn poll(fds: *mut PollFd, len: usize, timeout: i32) -> i32;
-        }
         let mut fds = [
             PollFd {
                 fd: self.keyboard.as_raw_fd(),

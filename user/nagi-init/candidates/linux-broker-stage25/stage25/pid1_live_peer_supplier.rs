@@ -2624,6 +2624,8 @@ impl<'a> TrustedServiceRequirements<'a> {
 pub enum PeerDenial {
     InvalidProcess,
     Unavailable,
+    /// The owner checked the credentials and declined them before issuing a Session.
+    AccountRejected,
     InventoryUnavailable,
     PackageSnapshot(Arc<nagi_dev_service_catalog_consumer::SnapshotError>),
     NotInstalled,

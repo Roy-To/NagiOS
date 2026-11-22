@@ -186,6 +186,12 @@ impl C1PendingInitialInteractiveSession {
             caller,
             session_id,
             issuer: self.issuer.clone(),
+            #[cfg(all(
+                feature = "system-service-recovery-contract",
+                target_os = "linux",
+                target_arch = "x86_64"
+            ))]
+            runtime_operation_identity: None,
         });
         Ok(self.committed.as_ref().expect("committed above"))
     }
@@ -246,14 +252,17 @@ impl C1PendingInitialInteractiveSession {
             caller,
             session_id,
             issuer: self.issuer.clone(),
+            runtime_operation_identity: Some(admission.operation_identity()),
         });
         Ok(self.committed.as_ref().expect("committed above"))
     }
 
-    /// Roll back a Session already committed by C1 if C2 rejects it before
-    /// final attachment. Before commit this just discards pending state.
-    /// Errors leave the committed record available for retry/reconciliation;
-    /// the C2 abort path must keep admission closed if rollback fails.
+    /// Roll back a Session committed outside RuntimeActive if C2 rejects it
+    /// before final attachment. Before commit this just discards pending state.
+    /// Under RuntimeActive, use
+    /// `abort_before_c2_attachment_with_runtime_admission`; this ordinary
+    /// lifecycle entry deliberately fails closed on the recovery journal.
+    /// Errors leave the committed record available for retry/reconciliation.
     pub fn abort_before_c2_attachment<S, I, C, A, G, E>(
         &mut self,
         identity: &mut IdentityService<S, I, C, A, G, E>,
@@ -274,6 +283,50 @@ impl C1PendingInitialInteractiveSession {
         }
         if let Some(issued) = self.committed.as_ref() {
             issued.abort_before_c2_attachment(identity)?;
+            self.committed = None;
+        }
+        self.finished = true;
+        Ok(())
+    }
+
+    /// Cancel an initial Session committed under the live C1 RuntimeActive
+    /// admission when C2 cannot attach it. Ordinary lifecycle entry points
+    /// intentionally reject a RuntimeActive journal, so this transaction must
+    /// supply the exact admission that committed the Session. A failed durable
+    /// cancellation leaves the transaction armed for retry/reconciliation; a
+    /// successful cancellation ends only this Session and revokes its lease.
+    /// The persisted User/Profile and the external account credential are not
+    /// removed.
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    #[allow(private_bounds)]
+    pub fn abort_before_c2_attachment_with_runtime_admission<S, I, C, A, G, E>(
+        &mut self,
+        identity: &mut IdentityService<S, I, C, A, G, E>,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<(), C1InitialInteractiveSessionError>
+    where
+        S: crate::C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        if self.finished {
+            return Err(C1InitialInteractiveSessionError::InvalidTransactionState);
+        }
+        if !identity.owns_issuer_binding(&self.issuer) {
+            return Err(C1InitialInteractiveSessionError::IdentityIssuerMismatch);
+        }
+        identity
+            .validate_system_service_runtime_admission(admission)
+            .map_err(C1InitialInteractiveSessionError::Identity)?;
+        if let Some(issued) = self.committed.as_ref() {
+            issued.abort_before_c2_attachment_with_runtime_admission(identity, admission)?;
             self.committed = None;
         }
         self.finished = true;
@@ -304,6 +357,12 @@ pub struct C1IssuedInteractiveSession {
     caller: C1AuthenticatedInteractiveCaller,
     session_id: SessionId,
     issuer: crate::service::IdentityIssuerBinding,
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    runtime_operation_identity: Option<crate::C1RecoveryOperationIdentity>,
 }
 
 impl C1IssuedInteractiveSession {
@@ -315,11 +374,11 @@ impl C1IssuedInteractiveSession {
         &self.session_id
     }
 
-    /// Revoke a newly committed Session if C2 rejects it before final
-    /// attachment. The C2 abort closure must call this with the exact C1
-    /// issuer. If this returns an error, the caller must keep the containing
-    /// admission closed and reconcile the durable identity state before
-    /// retrying; it must not publish the lease.
+    /// Revoke a Session committed outside RuntimeActive if C2 rejects it
+    /// before final attachment. Under RuntimeActive, use the owning pending
+    /// transaction's `abort_before_c2_attachment_with_runtime_admission`.
+    /// If this returns an error, keep admission closed and reconcile before
+    /// retrying.
     pub fn abort_before_c2_attachment<S, I, C, A, G, E>(
         &self,
         identity: &mut IdentityService<S, I, C, A, G, E>,
@@ -338,6 +397,79 @@ impl C1IssuedInteractiveSession {
         identity
             .end_session(&self.caller, &self.session_id)
             .map(|_| ())
+            .map_err(C1InitialInteractiveSessionError::Identity)
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    fn abort_before_c2_attachment_with_runtime_admission<S, I, C, A, G, E>(
+        &self,
+        identity: &mut IdentityService<S, I, C, A, G, E>,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<(), C1InitialInteractiveSessionError>
+    where
+        S: crate::C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        if !identity.owns_issuer_binding(&self.issuer) {
+            return Err(C1InitialInteractiveSessionError::IdentityIssuerMismatch);
+        }
+        let operation_identity =
+            self.runtime_operation_identity
+                .ok_or(C1InitialInteractiveSessionError::Identity(
+                    IdentityError::StoreUnavailable,
+                ))?;
+        identity
+            .rollback_pending_initial_session_with_runtime_admission(
+                &self.caller,
+                &self.session_id,
+                operation_identity,
+                admission,
+            )
+            .map(|_| ())
+            .map_err(C1InitialInteractiveSessionError::Identity)
+    }
+
+    /// End this exact issued Session while the matching C1 RuntimeActive
+    /// admission remains held by the boot owner. This is the normal runtime
+    /// logout entry; it is deliberately unavailable without the original
+    /// issued-session value, its owning IdentityService, and the exact live
+    /// C1 admission. Invoke it after leaving C1 effect callbacks and C2 owner
+    /// gates. A concurrent admitted effect returns `SessionLeaseBusy` without
+    /// committing logout, so the owner may retry with this same admission
+    /// after that effect exits. Existing `SessionLeaseRevalidationHandle`s
+    /// then reject protected effects against the ended durable row.
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    #[allow(private_bounds)]
+    pub fn end_session_with_runtime_admission<S, I, C, A, G, E>(
+        &self,
+        identity: &mut IdentityService<S, I, C, A, G, E>,
+        admission: &crate::C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<crate::EndSessionResult, C1InitialInteractiveSessionError>
+    where
+        S: crate::C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        if !identity.owns_issuer_binding(&self.issuer) {
+            return Err(C1InitialInteractiveSessionError::IdentityIssuerMismatch);
+        }
+        identity
+            .end_session_with_runtime_admission(&self.caller, &self.session_id, admission)
             .map_err(C1InitialInteractiveSessionError::Identity)
     }
 

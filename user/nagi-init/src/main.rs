@@ -1751,6 +1751,9 @@ pub(crate) use linux_init::pid1_live_peer_supplier as supplier_root;
 #[allow(dead_code)]
 mod profile_volume_notes_owner;
 
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+mod task24_c3_journal_bootstrap_contract;
+
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     linux_init::run()

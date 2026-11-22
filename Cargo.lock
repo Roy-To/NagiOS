@@ -452,6 +452,7 @@ version = "0.1.0"
 name = "nagi-init"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "libnagi",
  "nagi-action-ipc",
  "nagi-audio",

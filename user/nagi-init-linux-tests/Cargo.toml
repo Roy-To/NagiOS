@@ -43,6 +43,7 @@ nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optiona
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.189"
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
 nagi-linux-account-verifier = { path = "../nagi-linux-account-verifier" }
 nagi-profile-volume-notes-owner = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/profile-volume-notes-owner" }
