@@ -142,10 +142,10 @@ jobs:
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: |
-          # Only these exact lifecycle cases require a disposable guest; the
-          # next required step runs the very same list with real clone3.
+          # These exact cases require real clone3 or root-owned markers.
+          # The next required step runs every listed case in a diskless guest.
           mapfile -t guest_only < <(python3 -c 'import json; from pathlib import Path; print(*json.loads(Path("tools/linux-boot/live_pid1_ci_tests.json").read_text()), sep=chr(10))')
-          test "${#guest_only[@]}" -eq 20
+          test "${#guest_only[@]}" -eq 24
           host_args=(--exact)
           for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
           cargo test --workspace --exclude nagi-kernel --locked -- "${host_args[@]}"
