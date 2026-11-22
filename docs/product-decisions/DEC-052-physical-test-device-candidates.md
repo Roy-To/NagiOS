@@ -43,8 +43,13 @@ PCという区分は今回のテスト用途の分類であり、Raspberry Piの
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーの意思決定によりPC＝Raspberry Pi（型番未指定）、タブレット＝PineTab2、スマートフォン／モバイル＝未選定を記録。CONFIRMEDは選定方針のみとし、旧展望の機種選定を限定置換。 |
+| 2026-11-20 | DEC-116により、性能基準用の最初の実機としてx86-64ノートPC（ThinkPad X13 Yoga Gen1クラス）を追加。既存候補は変更しない。 |
 
 
 ## Foundation #33後続方針（2026-11-16）
 
 [DEC-102](DEC-102-hardware-support-staged-multidevice-linux-drivers.md)で、Linux Driverを活用しPC／ARM64／Tablet等へ段階的に広げ、機種別の検証で正式対応を判断するB方式をCONFIRMED。**本DECの候補（Raspberry Pi＝型番未定、PineTab2、Phone未選定）は変更しない。** 候補・QEMU／Reference Target・Linux実機起動・正式製品対応を区別し、対応Version・Driver／Firmware Matrix・Linux target受入をPROVISIONALに保つ。Desktop first／既存Release Gateも変更しない。
+
+## 性能基準用のx86ノートPC（2026-11-20、DEC-116）
+
+[DEC-116](DEC-116-performance-targets-and-minimum-requirements.md)で、性能の仮目標値を測る最初の実機基準を**x86-64のノートPC（ThinkPad X13 Yoga Gen1クラス：第10世代Core i5、RAM 8GB、2in1）**とすることがCONFIRMEDとなった。0.2実装仕様の「最初の実機参照機はx86-64 UEFI PC」という方針と整合する。上記のRaspberry Pi・PineTab2・スマートフォン未選定の候補は変更しない。購入・調達時期は未確定であり、候補の記録は購入決定ではない。
