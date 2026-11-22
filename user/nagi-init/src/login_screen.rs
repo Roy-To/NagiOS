@@ -11,8 +11,9 @@ use libnagi::credential::{
     SALT_BYTES,
 };
 use libnagi::login::{
-    ChangeAction, ChangeField, ChangeProblem, LanguagePicker, LoginAction, LoginField, LoginForm,
-    LoginMode, LoginProblem, LoginThrottle, PasswordChangeForm, PickerAction, FREE_ATTEMPTS,
+    decode_login_failures, encode_login_failures, ChangeAction, ChangeField, ChangeProblem,
+    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, LoginThrottle,
+    PasswordChangeForm, PickerAction, FREE_ATTEMPTS,
 };
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
@@ -30,7 +31,6 @@ const ACCOUNT_PATH: &[u8] = b"owner-account";
 const ACCOUNT_NEXT_PATH: &[u8] = b"owner-account-next";
 /// Consecutive failed unlocks, kept across restarts (ADR 0064).
 const THROTTLE_PATH: &[u8] = b"login-throttle";
-const THROTTLE_MAGIC: &[u8; 4] = b"NLT1";
 
 /// Monotonic milliseconds since boot (10 ms timer ticks).
 fn now_ms() -> u64 {
@@ -455,6 +455,7 @@ pub(crate) struct LinuxOwnerUnlock<'a> {
     screen: LoginScreen,
     account_name: &'a [u8],
     locale: Locale,
+    started_at: std::time::Instant,
 }
 
 #[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
@@ -466,6 +467,7 @@ impl<'a> LinuxOwnerUnlock<'a> {
             screen,
             account_name,
             locale,
+            started_at: std::time::Instant::now(),
         }
     }
 
@@ -474,14 +476,64 @@ impl<'a> LinuxOwnerUnlock<'a> {
             .render_with_account_name(painter, self.locale, Some(self.account_name));
     }
 
+    fn monotonic_ms(&self) -> u64 {
+        self.started_at.elapsed().as_millis() as u64
+    }
+
+    pub(crate) fn resume_throttle(&mut self, failures: u32) {
+        self.screen.throttle = LoginThrottle::resume(failures, self.monotonic_ms());
+        self.screen.retry_announced = self.screen.throttle.allows(self.monotonic_ms());
+    }
+
+    pub(crate) fn rejected(&mut self, failures: u32) {
+        self.screen.form.reject();
+        self.resume_throttle(failures);
+    }
+
+    pub(crate) fn succeeded(&mut self) {
+        self.screen.form.clear_secrets();
+        self.screen.throttle.record_success();
+        self.screen.retry_announced = true;
+    }
+
+    pub(crate) fn clear_secrets(&mut self) {
+        self.screen.form.clear_secrets();
+    }
+
+    pub(crate) fn remaining_wait(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.screen.throttle.remaining_ms(self.monotonic_ms()))
+    }
+
+    pub(crate) fn tick(&mut self) -> bool {
+        if self.screen.retry_announced || !self.remaining_wait().is_zero() {
+            return false;
+        }
+        self.screen.retry_announced = true;
+        self.screen.form.clear_throttle_notice();
+        true
+    }
+
     pub(crate) fn handle_event<E>(
         &mut self,
         event: InputEvent,
         submit: impl FnOnce(&[u8], &[u8]) -> Result<(), E>,
     ) -> LinuxRegistrationOutcome<E> {
+        self.handle_event_at(event, self.monotonic_ms(), submit)
+    }
+
+    fn handle_event_at<E>(
+        &mut self,
+        event: InputEvent,
+        now_ms: u64,
+        submit: impl FnOnce(&[u8], &[u8]) -> Result<(), E>,
+    ) -> LinuxRegistrationOutcome<E> {
         match self.screen.handle_screen_event(event) {
             ScreenAction::Changed => LinuxRegistrationOutcome::Redraw,
             ScreenAction::Unlock => {
+                if !self.screen.throttle.allows(now_ms) {
+                    self.screen.form.throttled();
+                    return LinuxRegistrationOutcome::Redraw;
+                }
                 let result = submit(self.account_name, self.screen.form.password());
                 self.screen.form.clear_secrets();
                 LinuxRegistrationOutcome::Submitted(result)
@@ -495,6 +547,95 @@ impl<'a> LinuxOwnerUnlock<'a> {
 impl Drop for LinuxOwnerUnlock<'_> {
     fn drop(&mut self) {
         self.screen.form.clear_secrets();
+    }
+}
+
+#[cfg(all(test, target_os = "linux", linux_task24_initial_login_runtime))]
+mod task24_unlock_tests {
+    use super::*;
+    use libnagi::credential::MIN_ITERATIONS;
+
+    #[test]
+    fn task24_wrong_input_clears_form_and_next_input_issues_one_fixture_session() {
+        let mut unlock = LinuxOwnerUnlock::new(b"fixture", Locale::EnUs);
+        let mut accounts = AccountStore::new();
+        let credential = Credential::derive(b"aaaa", [7; SALT_BYTES], MIN_ITERATIONS).unwrap();
+        accounts
+            .add_account_with_credential(b"fixture", Role::Owner, credential)
+            .unwrap();
+        let key = |code| InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        };
+        let mut issued = 0;
+        for (code, accepted) in [(48, false), (30, true)] {
+            for _ in 0..4 {
+                assert!(matches!(
+                    unlock.handle_event_at(key(code), 0, |_, _| unreachable!()),
+                    LinuxRegistrationOutcome::<()>::Redraw
+                ));
+            }
+            let outcome =
+                unlock.handle_event_at(key(libnagi::INPUT_KEY_ENTER), 0, |name, secret| {
+                    accounts.authenticate(name, secret).map(|_| issued += 1)
+                });
+            assert_eq!(
+                matches!(outcome, LinuxRegistrationOutcome::Submitted(Ok(()))),
+                accepted
+            );
+            assert_eq!(unlock.screen.form.length(LoginField::Password), 0);
+            if accepted {
+                unlock.succeeded();
+                assert_eq!(unlock.screen.throttle.failures(), 0);
+            } else {
+                assert!(matches!(
+                    outcome,
+                    LinuxRegistrationOutcome::Submitted(Err(_))
+                ));
+                assert_eq!(issued, 0);
+                unlock.rejected(1);
+                assert_eq!(unlock.screen.throttle.failures(), 1);
+                assert!(matches!(
+                    unlock.screen.form.problem(),
+                    Some(LoginProblem::WrongPassword)
+                ));
+            }
+        }
+        assert_eq!(issued, 1);
+    }
+
+    #[test]
+    fn task24_restored_wait_refuses_input_before_submit() {
+        let mut unlock = LinuxOwnerUnlock::new(b"fixture", Locale::EnUs);
+        unlock.screen.throttle = LoginThrottle::resume(FREE_ATTEMPTS, 0);
+        let key = |code| InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        };
+        assert!(matches!(
+            unlock.handle_event_at(key(30), 4_999, |_, _| unreachable!()),
+            LinuxRegistrationOutcome::<()>::Redraw
+        ));
+        assert!(matches!(
+            unlock.handle_event_at(key(libnagi::INPUT_KEY_ENTER), 4_999, |_, _| unreachable!()),
+            LinuxRegistrationOutcome::<()>::Redraw
+        ));
+        assert_eq!(unlock.screen.form.length(LoginField::Password), 0);
+        assert!(matches!(
+            unlock.screen.form.problem(),
+            Some(LoginProblem::TooManyAttempts)
+        ));
+        let _ = unlock.handle_event_at(key(30), 5_000, |_, _| Ok::<(), ()>(()));
+        assert!(matches!(
+            unlock.handle_event_at(
+                key(libnagi::INPUT_KEY_ENTER),
+                5_000,
+                |_, _| Ok::<(), ()>(())
+            ),
+            LinuxRegistrationOutcome::Submitted(Ok(()))
+        ));
     }
 }
 
@@ -683,9 +824,7 @@ fn load_failures(volume: &mut UserDataVolume) -> u32 {
     };
     let mut bytes = [0; MAX_SMALL_FILE_SIZE];
     match volume.read(handle, &mut bytes) {
-        Ok(8) if bytes[..4] == *THROTTLE_MAGIC => {
-            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])
-        }
+        Ok(8) => decode_login_failures(&bytes[..8]).unwrap_or(FREE_ATTEMPTS),
         _ => FREE_ATTEMPTS,
     }
 }
@@ -699,9 +838,7 @@ fn store_failures(volume: &mut UserDataVolume, failures: u32) -> bool {
         },
         Err(_) => return false,
     };
-    let mut bytes = [0u8; 8];
-    bytes[..4].copy_from_slice(THROTTLE_MAGIC);
-    bytes[4..].copy_from_slice(&failures.to_le_bytes());
+    let bytes = encode_login_failures(failures);
     volume
         .write(handle, &bytes)
         .and_then(|()| volume.flush())

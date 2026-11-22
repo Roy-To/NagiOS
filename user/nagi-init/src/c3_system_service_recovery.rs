@@ -94,6 +94,72 @@ impl RecoveryScopeSnapshot {
     }
 }
 
+impl SystemServiceRecoveryAdmissionScope for RecoveryScopeSnapshot {
+    fn service_id(&self) -> &str {
+        &self.service_id
+    }
+
+    fn principal_id(&self) -> &str {
+        &self.principal_id
+    }
+
+    fn caller_context_id(&self) -> &str {
+        &self.caller_context_id
+    }
+
+    fn mapping_generation(&self) -> NonZeroU64 {
+        self.mapping_generation
+    }
+
+    fn role(&self) -> &str {
+        &self.role
+    }
+
+    fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
+
+    fn transition(&self) -> RecoveryLifecycleTransition {
+        self.transition
+    }
+
+    fn package_id(&self) -> &str {
+        &self.package_id
+    }
+
+    fn package_app_id(&self) -> u64 {
+        self.package_app_id
+    }
+
+    fn canonical_entry(&self) -> &str {
+        &self.canonical_entry
+    }
+
+    fn signed_package_sha256(&self) -> &[u8; 32] {
+        &self.signed_package_sha256
+    }
+
+    fn executable_sha256(&self) -> &[u8; 32] {
+        &self.executable_sha256
+    }
+
+    fn package_generation(&self) -> u64 {
+        self.package_generation
+    }
+
+    fn c3_launch_generation(&self) -> NonZeroU64 {
+        self.c3_launch_generation
+    }
+
+    fn credentials(&self) -> (u32, u32) {
+        (self.uid, self.gid)
+    }
+
+    fn binding_digest(&self) -> &[u8; 32] {
+        &self.binding_digest
+    }
+}
+
 impl<'scope, 'proof> C3ProofRecoveryGate<'scope, 'proof> {
     pub fn new(
         scope: &'scope dyn SystemServiceRecoveryAdmissionScope,

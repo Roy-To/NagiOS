@@ -275,7 +275,7 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
     let caller = TestInteractiveCaller::new();
     let account = test_account();
     let (user_id, profile_id) = prepare_persistent_user(&directory, &service_caller, &caller);
-    let mut runtime = runtime(
+    let mut initial_runtime = runtime(
         &directory,
         &service_caller,
         &caller,
@@ -285,7 +285,7 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
     );
 
     assert_eq!(
-        runtime.authenticate_and_login(
+        initial_runtime.authenticate_and_login(
             &caller,
             b"owner",
             b"incorrect credential",
@@ -294,10 +294,10 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
         ),
         Err(RuntimeError::AuthenticationFailed)
     );
-    assert!(runtime.snapshot().sessions.is_empty());
-    assert!(runtime.interactive_session(&caller).is_err());
+    assert!(initial_runtime.snapshot().sessions.is_empty());
+    assert!(initial_runtime.interactive_session(&caller).is_err());
     assert_eq!(
-        runtime.authenticate_and_login(
+        initial_runtime.authenticate_and_login(
             &caller,
             b"unknown-account",
             b"test",
@@ -306,7 +306,24 @@ fn actual_account_record_authenticates_a_durable_c1_session_and_logout_revokes_i
         ),
         Err(RuntimeError::AuthenticationFailed)
     );
+    assert!(initial_runtime.snapshot().sessions.is_empty());
+
+    // Reopening after definitive authentication rejection must return to the
+    // ordinary login path. Password verification happens before C1 stages a
+    // Session, so the same durable User/Profile remains available without a
+    // stale Session or a C1 journal quarantine.
+    drop(initial_runtime);
+    let mut runtime = runtime(
+        &directory,
+        &service_caller,
+        &caller,
+        test_account(),
+        user_id,
+        profile_id.clone(),
+    );
     assert!(runtime.snapshot().sessions.is_empty());
+    assert_eq!(runtime.snapshot().users[0].user_id, user_id);
+    assert_eq!(runtime.snapshot().profiles[0].profile_id, profile_id);
 
     let session_id = login(&mut runtime, &caller);
     let context = runtime.interactive_session(&caller).unwrap();

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check development Data persistence or prepare identity directories on a new copy."""
+"""Check development Data persistence or provision a fresh Data image copy."""
 
 from __future__ import annotations
 
@@ -25,6 +25,23 @@ FAILURE_MARKERS = (
     "Kernel panic",
     "Attempted to kill init",
 )
+PROVISIONED_MARKER = re.compile(
+    r"NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED "
+    r"accounts=accounts snapshots=snapshots "
+    r"c3_journal=system-service-journal first_provision=true "
+    r"owner_ended=true"
+)
+
+
+def provisioned_marker_line(log: str) -> str | None:
+    lines = [
+        line
+        for line in log.splitlines()
+        if line.startswith("NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED")
+    ]
+    if len(lines) != 1 or PROVISIONED_MARKER.fullmatch(lines[0]) is None:
+        return None
+    return lines[0]
 
 
 def run_phase(
@@ -46,11 +63,7 @@ def run_phase(
         re.MULTILINE,
     )
     if phase == PROVISION_PHASE:
-        expected = re.compile(
-            r"^NAGI_DEV_IDENTITY_DIRECTORIES_PROVISIONED "
-            r"accounts=accounts snapshots=snapshots owner_ended=true$",
-            re.MULTILINE,
-        )
+        expected = PROVISIONED_MARKER
     command = [
         sys.executable, "-B", str(RUNNER), "--timeout-seconds", "60",
         "--qmp-socket", str(socket), "--qemu-log", str(phase_dir / "qemu.log"),
@@ -87,16 +100,21 @@ def run_phase(
     lines = stdout.splitlines()
     result = json.loads(lines[-1]) if lines else {}
     log = log_path.read_text(errors="replace") if log_path.exists() else ""
+    if phase == PROVISION_PHASE:
+        marker = provisioned_marker_line(log)
+    else:
+        marker_match = expected.search(log)
+        marker = marker_match.group() if marker_match is not None else None
     if (
         process.returncode != 0
         or result.get("qemu_exit") != 0
         or result.get("timed_out") is not False
         or result.get("cancelled") is not False
         or any(marker in log for marker in FAILURE_MARKERS)
-        or not (match := expected.search(log))
+        or marker is None
     ):
         raise SystemExit(f"{phase} boot failed: {log_path}")
-    print(match.group(), flush=True)
+    print(marker, flush=True)
 
 
 def copy_development_disk(source: Path, destination: Path) -> str:
@@ -130,7 +148,7 @@ def main() -> None:
     parser.add_argument("--mkfs", default="mkfs.ext4")
     parser.add_argument(
         "--provision-identity-from", type=Path, metavar="DEV_DATA_IMAGE",
-        help="copy a stopped development Data image and prepare its private identity directories",
+        help="copy a stopped fresh/unregistered development Data image and provision its private identity directories",
     )
     args = parser.parse_args()
     args.kernel = args.kernel.resolve(strict=True)

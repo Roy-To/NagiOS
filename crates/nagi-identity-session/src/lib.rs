@@ -41,10 +41,10 @@ mod contract;
 
 // Keep consumer integration coverage in the C1 crate's test build so fixture
 // proofs can reach the crate-private seal without exposing a production token.
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "../../../crates/nagi-c1-session-runtime/src/lib.rs"]
 mod runtime_source;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub use runtime_source::*;
 #[cfg(test)]
 #[path = "../../../crates/nagi-c1-session-end-adapter/src/lib.rs"]
@@ -52,7 +52,7 @@ mod end_adapter_source;
 #[cfg(test)]
 pub use end_adapter_source::*;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "../../../crates/nagi-c1-session-runtime/tests/durable_auth.rs"]
 mod runtime_durable_auth_tests;
 #[cfg(test)]
@@ -126,8 +126,9 @@ pub use service::{
     target_arch = "x86_64"
 ))]
 pub use service::{
-    C1SystemServicePrincipalIssueError, C1SystemServiceRuntimeAdmission,
-    C1SystemServiceRuntimeHandoff, C1VerifiedBootSystemServicePrincipal,
+    C1PreviousLaunchTerminalGate, C1SystemServicePrincipalIssueError,
+    C1SystemServiceRuntimeAdmission, C1SystemServiceRuntimeHandoff,
+    C1VerifiedBootSystemServicePrincipal,
 };
 #[cfg(feature = "system-service-recovery-contract")]
 pub use service::{

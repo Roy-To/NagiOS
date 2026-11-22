@@ -1,6 +1,6 @@
 //! Development boot's interactive Notes surface after a real Task24 Session.
 
-use super::super::linux_owner_registration_console::BootOwnerConsole;
+use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
 use crate::profile_volume_notes_owner::AuthorizedNotesAttachment;
 use e_profile_root_canonical_consumer::construct_notes_bridge_scoped;
 use libnagi::{INPUT_KEY_ENTER, INPUT_KEY_ESCAPE};
@@ -15,7 +15,8 @@ pub(super) fn run(
         ResolvedIdentity,
         Arc<C1IssuedInteractiveSession>,
     ),
-) -> io::Result<()> {
+    mut poll_required_identity_exit: impl FnMut() -> io::Result<bool>,
+) -> io::Result<NotesConsoleExit> {
     std::thread::scope(|scope| {
         let mut bridge = construct_notes_bridge_scoped(
             scope,
@@ -45,8 +46,33 @@ pub(super) fn run(
         )?;
         super::super::log_pid1_stderr(format_args!("NAGI_DEV_NOTES_INPUT_READY"));
         loop {
-            let event = console.next_key()?;
-            let result = bridge.handle_event(event).map_err(io::Error::other)?;
+            let Some(event) = super::super::wait_for_task24_input(
+                |timeout| console.next_key_timeout(timeout),
+                &mut poll_required_identity_exit,
+            )?
+            else {
+                super::super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_NOTES_STOPPED_REQUIRED_IDENTITY_EXIT"
+                ));
+                return Ok(NotesConsoleExit::RequiredIdentityExited);
+            };
+            // An explicit save can retry the same draft after persistence failed.
+            let result = if event.code == INPUT_KEY_ENTER && event.value == 1 {
+                bridge.retry_active()
+            } else {
+                bridge.handle_event(event)
+            };
+            let result = match result {
+                Ok(result) => result,
+                Err(error) if matches!(event.code, INPUT_KEY_ENTER | INPUT_KEY_ESCAPE) => {
+                    super::super::log_pid1_stderr(format_args!(
+                        "NAGI_DEV_NOTES_SAVE_FAILED event={} error={error}",
+                        event.code
+                    ));
+                    continue;
+                }
+                Err(error) => return Err(io::Error::other(error)),
+            };
             if let Some(note) = result {
                 present(console, &note)?;
                 if event.code == INPUT_KEY_ENTER {
@@ -56,7 +82,7 @@ pub(super) fn run(
                     ));
                 } else if event.code == INPUT_KEY_ESCAPE {
                     super::super::log_pid1_stderr(format_args!("NAGI_DEV_NOTES_CLOSED"));
-                    return Ok(());
+                    return Ok(NotesConsoleExit::ClosedByUser);
                 }
             }
         }

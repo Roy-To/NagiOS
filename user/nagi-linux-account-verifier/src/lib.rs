@@ -5,8 +5,9 @@
 #![cfg(target_os = "linux")]
 
 use libnagi::credential::{AccountRecord, ACCOUNT_RECORD_BYTES};
+use libnagi::login::{decode_login_failures, encode_login_failures, FREE_ATTEMPTS};
 use nagi_capability::PrincipalId;
-use rustix::fs::{linkat, openat, statat, AtFlags, Mode, OFlags};
+use rustix::fs::{linkat, openat, renameat, statat, unlinkat, AtFlags, Mode, OFlags};
 use rustix::net::sockopt::socket_cookie;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -17,6 +18,7 @@ use std::os::unix::net::UnixStream;
 
 const ACCOUNT_FILE: &str = "owner-account-identity.v1";
 const MAX_RECORD_BYTES: usize = 2048;
+const LOGIN_THROTTLE_FILE: &str = "login-throttle";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountAuthenticationError {
@@ -174,6 +176,64 @@ impl LinuxAccountVerifier {
     pub fn owner_login_name(&self) -> Result<Vec<u8>, AccountAuthenticationError> {
         let (_, account) = read_account(&self.directory, self.owner_uid)?;
         Ok(account.name().to_vec())
+    }
+
+    /// Restore ADR 0064 from the same protected Data directory as the account.
+    pub fn load_login_failures(&self) -> u32 {
+        if validate_directory(&self.directory, self.owner_uid).is_err() {
+            return FREE_ATTEMPTS;
+        }
+        let file = match openat(
+            &self.directory,
+            LOGIN_THROTTLE_FILE,
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+            Mode::empty(),
+        ) {
+            Ok(fd) => File::from(fd),
+            Err(rustix::io::Errno::NOENT) => return 0,
+            Err(_) => return FREE_ATTEMPTS,
+        };
+        if !file.metadata().is_ok_and(|metadata| {
+            metadata.is_file() && metadata.uid() == self.owner_uid && metadata.mode() & 0o077 == 0
+        }) {
+            return FREE_ATTEMPTS;
+        }
+        let mut bytes = Vec::with_capacity(9);
+        if file.take(9).read_to_end(&mut bytes).is_err() {
+            return FREE_ATTEMPTS;
+        }
+        decode_login_failures(&bytes).unwrap_or(FREE_ATTEMPTS)
+    }
+
+    /// Publish a whole count before another attempt can begin. An interrupted
+    /// write leaves the previous count in place.
+    pub fn store_login_failures(&self, failures: u32) -> io::Result<()> {
+        validate_directory(&self.directory, self.owner_uid)
+            .map_err(|_| io::Error::other("login throttle directory unavailable"))?;
+        let mut nonce = [0; 8];
+        File::open("/dev/urandom")?.read_exact(&mut nonce)?;
+        let temporary = format!(".login-throttle-{:016x}", u64::from_ne_bytes(nonce));
+        let mut file = File::from(openat(
+            &self.directory,
+            temporary.as_str(),
+            OFlags::WRONLY | OFlags::CLOEXEC | OFlags::CREATE | OFlags::EXCL,
+            Mode::RUSR | Mode::WUSR,
+        )?);
+        let result = (|| {
+            file.write_all(&encode_login_failures(failures))?;
+            file.sync_all()?;
+            renameat(
+                &self.directory,
+                temporary.as_str(),
+                &self.directory,
+                LOGIN_THROTTLE_FILE,
+            )?;
+            self.directory.sync_all()
+        })();
+        if result.is_err() {
+            let _ = unlinkat(&self.directory, temporary.as_str(), AtFlags::empty());
+        }
+        result
     }
 
     /// Verify the provisioned credential while borrowing the exact accepted
@@ -373,8 +433,23 @@ mod tests {
             LinuxAccountVerifier::from_owner_directory(directory, owner_uid)
         }
         .unwrap();
+        assert!(matches!(
+            verifier.authenticate(&accepted, name, b"wrong-fixture-input"),
+            Err(AccountAuthenticationError::Rejected)
+        ));
+        assert_eq!(verifier.load_login_failures(), 0);
+        verifier.store_login_failures(FREE_ATTEMPTS).unwrap();
+        let reopened =
+            LinuxAccountVerifier::from_owner_directory(File::open(&path).unwrap(), owner_uid)
+                .unwrap();
+        assert_eq!(reopened.load_login_failures(), FREE_ATTEMPTS);
         let evidence = verifier.authenticate(&accepted, name, password).unwrap();
         let account = verifier.consume_on_connection(evidence, &accepted).unwrap();
+        verifier.store_login_failures(0).unwrap();
+        assert_eq!(reopened.load_login_failures(), 0);
+        fs::write(path.join(LOGIN_THROTTLE_FILE), b"corrupt").unwrap();
+        assert_eq!(reopened.load_login_failures(), FREE_ATTEMPTS);
+        fs::remove_file(path.join(LOGIN_THROTTLE_FILE)).unwrap();
         fs::remove_file(path.join(ACCOUNT_FILE)).unwrap();
         fs::remove_file(socket_path).unwrap();
         fs::remove_dir(path).unwrap();

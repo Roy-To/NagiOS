@@ -31,6 +31,56 @@ pub struct LinuxProfileStorageRoot {
     profile_id: ProfileId,
     directory: OwnedFd,
     operation_gate: Mutex<()>,
+    io_budget: Duration,
+    #[cfg(test)]
+    fail_next_directory_sync: std::sync::atomic::AtomicBool,
+}
+
+impl LinuxProfileStorageRoot {
+    fn lock(&self, deadline: Instant) -> Result<MutexGuard<'_, ()>, StorageRootFailure> {
+        check_deadline(deadline)?;
+        let guard = match self.operation_gate.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock | TryLockError::Poisoned(_)) => {
+                return Err(StorageRootFailure::Unavailable);
+            }
+        };
+        check_deadline(deadline)?;
+        Ok(guard)
+    }
+
+    fn sync_directory(&self, deadline: Instant) -> Result<(), StorageRootFailure> {
+        check_deadline(deadline)?;
+        #[cfg(test)]
+        let path_only = if self.fail_next_directory_sync.swap(false, Ordering::SeqCst) {
+            // O_PATH identifies the same directory but fsync on it returns EBADF.
+            Some(
+                openat(
+                    &self.directory,
+                    ".",
+                    OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )
+                .expect("open the same directory with O_PATH"),
+            )
+        } else {
+            None
+        };
+        #[cfg(test)]
+        let directory = path_only.as_ref().unwrap_or(&self.directory);
+        #[cfg(not(test))]
+        let directory = &self.directory;
+        fsync(directory).map_err(|_| StorageRootFailure::Unavailable)?;
+        check_deadline(deadline)
+    }
+
+    /// Confirm an already-published object after Notes matched the candidate,
+    /// inside the same authorized C1 effect as the read.
+    pub(super) fn confirm_directory_sync(&self) -> Result<(), StorageRootFailure> {
+        let deadline = make_deadline(self.io_budget)?;
+        let _guard = self.lock(deadline)?;
+        self.sync_directory(deadline)
+    }
 }
 
 /// A concrete Linux C1 profile-storage backend for one root supplied by the
@@ -48,9 +98,6 @@ pub struct LinuxProfileStorageBackend {
     profile_id: ProfileId,
     root: Arc<LinuxProfileStorageRoot>,
     root_opened: bool,
-    io_budget: Duration,
-    #[cfg(test)]
-    fail_after_next_rename: std::sync::atomic::AtomicBool,
 }
 
 impl LinuxProfileStorageBackend {
@@ -122,15 +169,15 @@ impl LinuxProfileStorageBackend {
             profile_id: profile_id.clone(),
             directory,
             operation_gate: Mutex::new(()),
+            io_budget,
+            #[cfg(test)]
+            fail_next_directory_sync: std::sync::atomic::AtomicBool::new(false),
         });
         Ok(Self {
             user_id,
             profile_id,
             root,
             root_opened: false,
-            io_budget,
-            #[cfg(test)]
-            fail_after_next_rename: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -144,20 +191,8 @@ impl LinuxProfileStorageBackend {
         Ok(())
     }
 
-    fn lock_root<'a>(
-        &self,
-        root: &'a Arc<LinuxProfileStorageRoot>,
-        deadline: Instant,
-    ) -> Result<MutexGuard<'a, ()>, StorageRootFailure> {
-        check_deadline(deadline)?;
-        let guard = match root.operation_gate.try_lock() {
-            Ok(guard) => guard,
-            Err(TryLockError::WouldBlock | TryLockError::Poisoned(_)) => {
-                return Err(StorageRootFailure::Unavailable);
-            }
-        };
-        check_deadline(deadline)?;
-        Ok(guard)
+    pub(super) fn root_for_durability(&self) -> Arc<LinuxProfileStorageRoot> {
+        Arc::clone(&self.root)
     }
 
     fn read_object_inner(
@@ -265,14 +300,7 @@ impl LinuxProfileStorageBackend {
             .map_err(map_errno)?;
             renamed = true;
 
-            #[cfg(test)]
-            if self.fail_after_next_rename.swap(false, Ordering::SeqCst) {
-                return Err(StorageRootFailure::Unavailable);
-            }
-
-            check_deadline(deadline)?;
-            fsync(&root.directory).map_err(|_| StorageRootFailure::Unavailable)?;
-            check_deadline(deadline)
+            root.sync_directory(deadline)
         })();
 
         if result.is_err() && !renamed {
@@ -306,8 +334,8 @@ impl ProfileStorageBackend for LinuxProfileStorageBackend {
         object_id: ObjectId,
     ) -> Result<Vec<u8>, StorageRootFailure> {
         self.check_root(root)?;
-        let deadline = make_deadline(self.io_budget)?;
-        let _guard = self.lock_root(root, deadline)?;
+        let deadline = make_deadline(root.io_budget)?;
+        let _guard = root.lock(deadline)?;
         self.read_object_inner(root, object_id, deadline)
     }
 
@@ -318,8 +346,8 @@ impl ProfileStorageBackend for LinuxProfileStorageBackend {
         data: &[u8],
     ) -> Result<(), StorageRootFailure> {
         self.check_root(root)?;
-        let deadline = make_deadline(self.io_budget)?;
-        let _guard = self.lock_root(root, deadline)?;
+        let deadline = make_deadline(root.io_budget)?;
+        let _guard = root.lock(deadline)?;
         self.write_object_inner(root, object_id, data, deadline)
     }
 }
@@ -561,29 +589,85 @@ mod tests {
     }
 
     #[test]
-    fn object_io_stays_in_the_authorized_directory_and_reconciles_rename_error() {
+    fn linux_profile_root_save_waits_for_real_directory_sync() {
+        use super::super::profile_root::{
+            empty_profile_root_notes_object, finish_root_write, map_durable_write_failure,
+            tests::{check_durable_retry, RETRY_INDEX_ID},
+            ProfileRootNotesObjectIo,
+        };
+        use super::super::StoreError;
+        use std::sync::atomic::AtomicUsize;
+
+        // This fixture supplies the already-admitted root effect. Object I/O,
+        // write outcome handling and directory sync are the production paths.
+        struct BackendIo {
+            backend: LinuxProfileStorageBackend,
+            root: Arc<LinuxProfileStorageRoot>,
+            writes: Arc<AtomicUsize>,
+        }
+        impl ProfileRootNotesObjectIo for BackendIo {
+            fn read_object(&mut self, object: ObjectId) -> Result<Vec<u8>, StoreError> {
+                self.backend
+                    .read_object(&self.root, object)
+                    .map_err(|_| StoreError::Unavailable)
+            }
+
+            fn write_object(&mut self, object: ObjectId, bytes: &[u8]) -> Result<(), StoreError> {
+                self.writes.fetch_add(1, Ordering::SeqCst);
+                let result = self.backend.write_object(&self.root, object, bytes);
+                finish_root_write(result, true, bytes, || {
+                    self.backend.read_object(&self.root, object)
+                })
+            }
+
+            fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
+                self.root
+                    .confirm_directory_sync()
+                    .map_err(map_durable_write_failure)
+            }
+        }
+
+        let directory = TempRoot::new();
+        let (mut backend, user_id, profile_id) = make_backend(&directory, Duration::from_secs(1));
+        let root = backend
+            .open_profile_root(Some(user_id), &profile_id)
+            .unwrap();
+        backend
+            .write_object(&root, RETRY_INDEX_ID, &empty_profile_root_notes_object())
+            .unwrap();
+        let writes = Arc::new(AtomicUsize::new(0));
+        check_durable_retry(
+            BackendIo {
+                backend,
+                root: root.clone(),
+                writes: writes.clone(),
+            },
+            || root.fail_next_directory_sync.store(true, Ordering::SeqCst),
+            &writes,
+        );
+    }
+
+    #[test]
+    fn parent_sync_failure_leaves_published_object_visible() {
         let directory = TempRoot::new();
         let (mut backend, user_id, profile_id) = make_backend(&directory, Duration::from_secs(1));
         let root = backend
             .open_profile_root(Some(user_id), &profile_id)
             .unwrap();
         let object_id = ObjectId(0xfeed_0001);
-        let expected = b"committed index bytes";
+        let expected = b"published index bytes";
 
-        backend.fail_after_next_rename.store(true, Ordering::SeqCst);
-        let write_error = backend
-            .write_object(&root, object_id, expected)
-            .unwrap_err();
-        assert_eq!(write_error, StorageRootFailure::Unavailable);
-        let readback = backend.read_object(&root, object_id);
+        root.fail_next_directory_sync.store(true, Ordering::SeqCst);
         assert_eq!(
-            super::super::profile_root::reconcile_write_failure(write_error, readback, expected,),
-            Ok(())
+            backend.write_object(&root, object_id, expected),
+            Err(StorageRootFailure::Unavailable)
         );
+        assert_eq!(backend.read_object(&root, object_id).unwrap(), expected);
         assert_eq!(
             fs::read(directory.object_path(object_id)).unwrap(),
             expected
         );
+        assert_eq!(root.confirm_directory_sync(), Ok(()));
     }
 
     #[test]

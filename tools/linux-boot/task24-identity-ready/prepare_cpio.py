@@ -55,6 +55,10 @@ def assemble(base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path 
         if not payload:
             raise ValueError("empty C3 slot journal")
         replacements[f"{PACKAGE_STORE}/system-service-slot.v1"] = (0o600, payload)
+        # C3 opens an adjacent private flock file before scanning the journal.
+        # The initramfs starts a fresh owner, so its lock file must be present
+        # but contain no prior lock state.
+        replacements[f"{PACKAGE_STORE}/system-service-slot.v1.lock"] = (0o600, b"")
 
     _, records = _parse_newc_records(base)
     names = {name for name, _, _ in records}

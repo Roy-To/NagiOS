@@ -11,7 +11,7 @@ use nagi_identity_session::{
     IdentitySnapshotStore, LiveStatus, SessionLeaseRevalidationHandle, TrustedCallerContext,
     UnixMillis,
 };
-use nagi_linux_account_verifier::LinuxAccountVerifier;
+use nagi_linux_account_verifier::{AccountAuthenticationError, LinuxAccountVerifier};
 use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
 use std::num::NonZeroU64;
 use std::os::unix::net::UnixStream;
@@ -28,10 +28,37 @@ pub enum InitialSessionOutcome {
     OutcomeUnknown,
 }
 
+pub(super) struct LoginFailureCount(u32);
+
+impl LoginFailureCount {
+    pub(super) fn restored(failures: u32) -> Self {
+        Self(failures)
+    }
+
+    pub(super) fn current(&self) -> u32 {
+        self.0
+    }
+
+    pub(super) fn persist(
+        &mut self,
+        failures: u32,
+        store: impl FnOnce(u32) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        store(failures)?;
+        self.0 = failures;
+        Ok(())
+    }
+
+    fn rejected(&mut self, store: impl FnOnce(u32) -> std::io::Result<()>) -> std::io::Result<()> {
+        self.persist(self.0.saturating_add(1), store)
+    }
+}
+
 pub(super) struct InitialLoginState<S: IdentitySnapshotStore, I, C, A, G, E> {
     identity: IdentityService<S, I, C, A, G, E>,
     outcome: InitialSessionOutcome,
     lease: Option<SessionLease>,
+    pub(super) login_failures: LoginFailureCount,
 }
 
 impl<S: IdentitySnapshotStore, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E> {
@@ -43,24 +70,38 @@ impl<S: IdentitySnapshotStore, I, C, A, G, E> InitialLoginState<S, I, C, A, G, E
         &mut self.identity
     }
 
-    pub(super) fn new(identity: IdentityService<S, I, C, A, G, E>) -> Self {
+    pub(super) fn new(identity: IdentityService<S, I, C, A, G, E>, failures: u32) -> Self {
         Self {
             identity,
             outcome: InitialSessionOutcome::Unattached,
             lease: None,
+            login_failures: LoginFailureCount::restored(failures),
+        }
+    }
+
+    pub(super) fn require_unattached(&self) -> Result<(), PeerDenial> {
+        match self.outcome {
+            InitialSessionOutcome::Unattached if self.lease.is_none() => Ok(()),
+            InitialSessionOutcome::RollbackRequired(_) | InitialSessionOutcome::OutcomeUnknown => {
+                Err(PeerDenial::RequestOutcomeUnknown)
+            }
+            _ => Err(PeerDenial::SessionMismatch),
         }
     }
 
     /// Retain the opaque lease returned by this owner's one-shot C2 accept.
     /// The C2 callback has already attached the corresponding C1 Session.
     pub(super) fn retain_accepted_lease(&mut self, lease: SessionLease) -> Result<(), PeerDenial> {
-        let InitialSessionOutcome::Attached {
-            revalidation,
-            selectors: (app_id, app_session_id),
-            ..
-        } = &self.outcome
-        else {
-            return Err(PeerDenial::Unavailable);
+        let (revalidation, app_id, app_session_id) = match &self.outcome {
+            InitialSessionOutcome::Attached {
+                revalidation,
+                selectors: (app_id, app_session_id),
+                ..
+            } => (revalidation, app_id, app_session_id),
+            InitialSessionOutcome::Unattached => return Err(PeerDenial::Unavailable),
+            InitialSessionOutcome::RollbackRequired(_) | InitialSessionOutcome::OutcomeUnknown => {
+                return Err(PeerDenial::RequestOutcomeUnknown);
+            }
         };
         if self.lease.is_some() {
             return Err(PeerDenial::Unavailable);
@@ -220,7 +261,10 @@ where
     fn abort(mut self: Box<Self>) -> Result<(), PeerDenial> {
         if let Err(error) = self
             .pending
-            .abort_before_c2_attachment(&mut self.owner.identity)
+            .abort_before_c2_attachment_with_runtime_admission(
+                &mut self.owner.identity,
+                &self.admission,
+            )
         {
             deny_initial_session("rollback", error);
             self.owner.outcome = InitialSessionOutcome::RollbackRequired(self.pending);
@@ -249,7 +293,7 @@ where
 /// through commit, rollback, or attachment. Only C2's accepted request can
 /// supply credentials to this transaction.
 pub(super) fn complete_initial_session<'peer, S, I, C, A, G, E>(
-    owner: MutexGuard<'peer, InitialLoginState<S, I, C, A, G, E>>,
+    mut owner: MutexGuard<'peer, InitialLoginState<S, I, C, A, G, E>>,
     admission: C1SystemServiceRuntimeAdmission<'peer>,
     verifier: &LinuxAccountVerifier,
     request: &'peer AcceptedInitialLoginRequest<'peer>,
@@ -269,9 +313,7 @@ where
     G: GuestProfileCleaner + 'peer,
     E: IdentityEventSink + 'peer,
 {
-    if !matches!(owner.outcome, InitialSessionOutcome::Unattached) {
-        return Err(PeerDenial::Unavailable);
-    }
+    owner.require_unattached()?;
     peer.require_same_connection(stream)
         .map_err(|_| PeerDenial::StalePeer)?;
     if !proof.matches_kernel_peer(peer) {
@@ -283,11 +325,23 @@ where
             request.account_name().as_bytes(),
             request.secret().as_bytes(),
         )
-        .map_err(|_| {
+        .map_err(|error| {
             super::super::log_pid1_stderr(format_args!(
-                "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED"
+                "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED ({error:?})"
             ));
-            PeerDenial::Unavailable
+            let denial = account_denial(error);
+            if matches!(denial, PeerDenial::AccountRejected)
+                && owner
+                    .login_failures
+                    .rejected(|count| verifier.store_login_failures(count))
+                    .is_err()
+            {
+                super::super::log_pid1_stderr(format_args!(
+                    "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED"
+                ));
+                return PeerDenial::Unavailable;
+            }
+            denial
         })?;
     super::super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATED"));
     let pending = stage_initial_interactive_session_from_c2_owner_checked_peer(
@@ -316,6 +370,50 @@ where
         proof,
         transaction,
     )?)
+}
+
+fn account_denial(error: AccountAuthenticationError) -> PeerDenial {
+    match error {
+        AccountAuthenticationError::Rejected => PeerDenial::AccountRejected,
+        AccountAuthenticationError::Unavailable
+        | AccountAuthenticationError::InvalidRecord
+        | AccountAuthenticationError::WrongVerifierOrConnection => PeerDenial::Unavailable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_failures_change_only_after_the_owner_persists_them() {
+        let unavailable = |_| Err(std::io::Error::other("fixture store unavailable"));
+        let mut failures = LoginFailureCount::restored(6);
+        assert!(failures.rejected(unavailable).is_err());
+        assert_eq!(failures.current(), 6);
+        failures
+            .rejected(|count| {
+                assert_eq!(count, 7);
+                Ok(())
+            })
+            .unwrap();
+        assert!(failures.persist(0, unavailable).is_err());
+        assert_eq!(failures.current(), 7);
+        failures.persist(0, |_| Ok(())).unwrap();
+        assert_eq!(failures.current(), 0);
+    }
+
+    #[test]
+    fn task24_only_confirmed_account_rejection_is_retryable() {
+        use AccountAuthenticationError::*;
+        assert!(matches!(
+            account_denial(Rejected),
+            PeerDenial::AccountRejected
+        ));
+        for error in [Unavailable, InvalidRecord, WrongVerifierOrConnection] {
+            assert!(matches!(account_denial(error), PeerDenial::Unavailable));
+        }
+    }
 }
 
 fn deny_initial_session(stage: &str, error: C1InitialInteractiveSessionError) -> PeerDenial {
