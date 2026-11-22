@@ -695,7 +695,6 @@ impl C3SlotJournal {
             scope_binding_digest,
             state,
             None,
-            &Instant::now,
             effect,
         )
     }
@@ -717,7 +716,6 @@ impl C3SlotJournal {
             scope_binding_digest,
             state,
             Some(deadline),
-            &Instant::now,
             effect,
         )
     }
@@ -729,12 +727,11 @@ impl C3SlotJournal {
         scope_binding_digest: [u8; 32],
         state: C3SlotState,
         cleanup_deadline: Option<Instant>,
-        now: &dyn Fn() -> Instant,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
-        ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
+        ensure_cleanup_deadline_not_expired(cleanup_deadline)?;
         let scan_result = scan_journal(&self.path, &self.service_id, None);
-        ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
+        ensure_cleanup_deadline_not_expired(cleanup_deadline)?;
         let mut scan = scan_result.map_err(|_| C3SlotJournalError::Unknown)?;
         let operation_id = scan
             .highest_operation_id
@@ -749,7 +746,13 @@ impl C3SlotJournal {
             operation_id,
             state,
         )?;
-        self.transition_scanned_with_deadline(&mut scan, transition, cleanup_deadline, now, effect)
+        self.transition_scanned_with_deadline(
+            &mut scan,
+            transition,
+            cleanup_deadline,
+            &Instant::now,
+            effect,
+        )
     }
 
     /// Commit normal-exit evidence only for the exact previously committed
@@ -757,21 +760,13 @@ impl C3SlotJournal {
     /// after the intent has been synced and must recheck its post-reap state.
     pub(super) fn record_normal_exit_after_reap(
         &self,
-        catalog_generation: NonZeroU64,
-        c3_launch_generation: NonZeroU64,
-        scope_binding_digest: [u8; 32],
-        launch_operation_id: NonZeroU64,
-        process_id: u32,
+        launch: C3ReapedLaunchKey,
         correlation: C1RecoveryOperationCorrelation,
         cleanup_deadline: Option<Instant>,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
         self.record_normal_exit_after_reap_with_clock(
-            catalog_generation,
-            c3_launch_generation,
-            scope_binding_digest,
-            launch_operation_id,
-            process_id,
+            launch,
             correlation,
             cleanup_deadline,
             &Instant::now,
@@ -781,17 +776,20 @@ impl C3SlotJournal {
 
     fn record_normal_exit_after_reap_with_clock(
         &self,
-        catalog_generation: NonZeroU64,
-        c3_launch_generation: NonZeroU64,
-        scope_binding_digest: [u8; 32],
-        launch_operation_id: NonZeroU64,
-        process_id: u32,
+        launch: C3ReapedLaunchKey,
         correlation: C1RecoveryOperationCorrelation,
         cleanup_deadline: Option<Instant>,
         now: &dyn Fn() -> Instant,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
         ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
+        let C3ReapedLaunchKey {
+            catalog_generation,
+            c3_launch_generation,
+            scope_binding_digest,
+            launch_operation_id,
+            process_id,
+        } = launch;
         let valid_input = process_id != 0 && correlation.binding_digest() == &scope_binding_digest;
         if !valid_input {
             ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
@@ -1253,7 +1251,6 @@ impl C3SlotJournal {
             Ok(Ok(process_id)) => process_id,
             Ok(Err(_)) | Err(_) => return Err(C3SlotJournalError::Unknown),
         };
-        drop(stage_launch_identity);
         ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
 
         let completed_row = scan
@@ -1338,7 +1335,7 @@ impl C3SlotJournal {
             return C3SlotJournalReadback::Unknown;
         }
         match scan.current {
-            Some(record) => C3SlotJournalReadback::Committed(C3DurableSlotRowReadback {
+            Some(record) => C3SlotJournalReadback::Committed(Box::new(C3DurableSlotRowReadback {
                 service_id: record.row.service_id,
                 catalog_generation: record.row.catalog_generation,
                 c3_launch_generation: record.row.c3_launch_generation,
@@ -1352,7 +1349,7 @@ impl C3SlotJournal {
                 highest_catalog_generation: scan.highest_catalog_generation,
                 highest_c3_launch_generation: scan.highest_c3_launch_generation,
                 highest_operation_id: scan.highest_operation_id,
-            }),
+            })),
             None => C3SlotJournalReadback::Empty,
         }
     }
@@ -1658,9 +1655,17 @@ fn scan_is_exact_genesis(scan: &JournalScan, service_id: &str) -> bool {
         && scan.last_record.as_ref() == Some(&genesis_record(service_id))
 }
 
+pub(super) struct C3ReapedLaunchKey {
+    pub(super) catalog_generation: NonZeroU64,
+    pub(super) c3_launch_generation: NonZeroU64,
+    pub(super) scope_binding_digest: [u8; 32],
+    pub(super) launch_operation_id: NonZeroU64,
+    pub(super) process_id: u32,
+}
+
 pub(super) enum C3SlotJournalReadback {
     Empty,
-    Committed(C3DurableSlotRowReadback),
+    Committed(Box<C3DurableSlotRowReadback>),
     Unknown,
 }
 
@@ -2793,9 +2798,9 @@ fn validate_private_file_after_write(file: &File) -> Result<(), C3SlotJournalErr
 #[cfg(test)]
 mod tests {
     use super::{
-        C3DurableSlotReceipt, C3SlotJournal, C3SlotJournalError, C3SlotJournalReadback,
-        C3SlotState, C3SlotTransition, DurableLaunchEvidence, LaunchEvidenceState,
-        RecoveryScopeSnapshot,
+        C3DurableSlotReceipt, C3ReapedLaunchKey, C3SlotJournal, C3SlotJournalError,
+        C3SlotJournalReadback, C3SlotState, C3SlotTransition, DurableLaunchEvidence,
+        LaunchEvidenceState, RecoveryScopeSnapshot,
     };
     use nagi_system_service_recovery_contract::{
         C1RecoveryOperationCorrelation, RecoveryLifecycleTransition,
@@ -3170,11 +3175,13 @@ mod tests {
             .unwrap();
         let written_receipt = journal
             .record_normal_exit_after_reap(
-                scope.catalog_generation,
-                scope.c3_launch_generation,
-                scope.binding_digest,
-                live.operation_id(),
-                4107,
+                C3ReapedLaunchKey {
+                    catalog_generation: scope.catalog_generation,
+                    c3_launch_generation: scope.c3_launch_generation,
+                    scope_binding_digest: scope.binding_digest,
+                    launch_operation_id: live.operation_id(),
+                    process_id: 4107,
+                },
                 correlation,
                 Some(cleanup_deadline),
                 || Ok(()),
@@ -3283,11 +3290,13 @@ mod tests {
         let normal_exit_now = || before_deadline;
         let terminal_receipt = journal
             .record_normal_exit_after_reap_with_clock(
-                scope.catalog_generation,
-                scope.c3_launch_generation,
-                scope.binding_digest,
-                live.operation_id(),
-                4107,
+                C3ReapedLaunchKey {
+                    catalog_generation: scope.catalog_generation,
+                    c3_launch_generation: scope.c3_launch_generation,
+                    scope_binding_digest: scope.binding_digest,
+                    launch_operation_id: live.operation_id(),
+                    process_id: 4107,
+                },
                 correlation,
                 Some(deadline),
                 &normal_exit_now,
@@ -3362,11 +3371,13 @@ mod tests {
             .unwrap();
         journal
             .record_normal_exit_after_reap(
-                first_scope.catalog_generation,
-                first_scope.c3_launch_generation,
-                first_scope.binding_digest,
-                first_live.operation_id(),
-                4107,
+                C3ReapedLaunchKey {
+                    catalog_generation: first_scope.catalog_generation,
+                    c3_launch_generation: first_scope.c3_launch_generation,
+                    scope_binding_digest: first_scope.binding_digest,
+                    launch_operation_id: first_live.operation_id(),
+                    process_id: 4107,
+                },
                 first_correlation,
                 None,
                 || Ok(()),
@@ -3783,11 +3794,13 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap(
-                scope.catalog_generation,
-                scope.c3_launch_generation,
-                scope.binding_digest,
-                live.operation_id(),
-                4107,
+                C3ReapedLaunchKey {
+                    catalog_generation: scope.catalog_generation,
+                    c3_launch_generation: scope.c3_launch_generation,
+                    scope_binding_digest: scope.binding_digest,
+                    launch_operation_id: live.operation_id(),
+                    process_id: 4107,
+                },
                 correlation,
                 Some(cleanup_deadline),
                 || {
@@ -3839,11 +3852,13 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap(
-                scope.catalog_generation,
-                scope.c3_launch_generation,
-                scope.binding_digest,
-                live.operation_id(),
-                4108,
+                C3ReapedLaunchKey {
+                    catalog_generation: scope.catalog_generation,
+                    c3_launch_generation: scope.c3_launch_generation,
+                    scope_binding_digest: scope.binding_digest,
+                    launch_operation_id: live.operation_id(),
+                    process_id: 4108,
+                },
                 correlation,
                 Some(expired_deadline),
                 || {
@@ -3905,11 +3920,13 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap_with_clock(
-                scope.catalog_generation,
-                scope.c3_launch_generation,
-                scope.binding_digest,
-                live.operation_id(),
-                4107,
+                C3ReapedLaunchKey {
+                    catalog_generation: scope.catalog_generation,
+                    c3_launch_generation: scope.c3_launch_generation,
+                    scope_binding_digest: scope.binding_digest,
+                    launch_operation_id: live.operation_id(),
+                    process_id: 4107,
+                },
                 correlation,
                 Some(cleanup_deadline),
                 &now,
@@ -4143,11 +4160,13 @@ mod tests {
             )
             .unwrap();
         let _ = journal.record_normal_exit_after_reap(
-            scope.catalog_generation,
-            scope.c3_launch_generation,
-            scope.binding_digest,
-            live.operation_id(),
-            5107,
+            C3ReapedLaunchKey {
+                catalog_generation: scope.catalog_generation,
+                c3_launch_generation: scope.c3_launch_generation,
+                scope_binding_digest: scope.binding_digest,
+                launch_operation_id: live.operation_id(),
+                process_id: 5107,
+            },
             correlation,
             None,
             || {

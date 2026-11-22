@@ -13,6 +13,7 @@ pub(crate) const C3_FIRST_PROVISION_MARKER_MAGIC: &[u8] = b"NAGI-C3-SLOT-FIRST-P
 /// A new ext4 development Data image contains only its normal empty
 /// `lost+found` directory and the Data-owner persistence marker before the
 /// explicit identity-directory provisioning step.
+#[cfg(any(test, linux_dev_preview_smoke))]
 pub(crate) fn is_fresh_development_data_root(entries: &[OsString]) -> bool {
     entries.len() == 2
         && entries.iter().any(|name| name == OsStr::new("lost+found"))

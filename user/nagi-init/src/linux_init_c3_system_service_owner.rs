@@ -7,8 +7,8 @@
 //! trusted catalog/package owner. No safe production callsite exists yet.
 
 use super::linux_init_c3_slot_journal::{
-    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3SlotJournal, C3SlotJournalError,
-    C3SlotJournalReadback, C3SlotReservation, C3SlotState,
+    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3ReapedLaunchKey, C3SlotJournal,
+    C3SlotJournalError, C3SlotJournalReadback, C3SlotReservation, C3SlotState,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::{
@@ -32,6 +32,15 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy)]
+pub(super) struct C3LaunchPolicy {
+    pub(super) required: bool,
+    pub(super) release_wait_budget: Duration,
+    pub(super) cancel_check_interval: Duration,
+    pub(super) retirement_wait_budget: Duration,
+    pub(super) reaper_poll_interval: Duration,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LaunchToken(NonZeroU64);
@@ -746,10 +755,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 .checked_add(1)
                 .and_then(NonZeroU64::new)
                 .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::Other,
-                        "C3 system-service launch generation is exhausted",
-                    )
+                    io::Error::other("C3 system-service launch generation is exhausted")
                 })?;
             (next, None)
         };
@@ -779,27 +785,10 @@ impl LinuxC3SystemServiceSlotOwner {
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        required: bool,
-        release_wait_budget: Duration,
-        cancel_check_interval: Duration,
-        retirement_wait_budget: Duration,
-        reaper_poll_interval: Duration,
+        policy: C3LaunchPolicy,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
-        unsafe {
-            self.launch_admitted_inner(
-                scope,
-                executable,
-                arguments,
-                required,
-                release_wait_budget,
-                cancel_check_interval,
-                retirement_wait_budget,
-                reaper_poll_interval,
-                None,
-                cancelled,
-            )
-        }
+        unsafe { self.launch_admitted_inner(scope, executable, arguments, policy, None, cancelled) }
     }
 
     /// C3-owned standalone Identity path. C2 lends its current pending
@@ -820,11 +809,7 @@ impl LinuxC3SystemServiceSlotOwner {
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        required: bool,
-        release_wait_budget: Duration,
-        cancel_check_interval: Duration,
-        retirement_wait_budget: Duration,
-        reaper_poll_interval: Duration,
+        policy: C3LaunchPolicy,
         pending_listener: &mut dyn C3PendingIdentityListener,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
@@ -833,11 +818,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 scope,
                 executable,
                 arguments,
-                required,
-                release_wait_budget,
-                cancel_check_interval,
-                retirement_wait_budget,
-                reaper_poll_interval,
+                policy,
                 Some(pending_listener),
                 cancelled,
             )
@@ -849,14 +830,17 @@ impl LinuxC3SystemServiceSlotOwner {
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        required: bool,
-        release_wait_budget: Duration,
-        cancel_check_interval: Duration,
-        retirement_wait_budget: Duration,
-        reaper_poll_interval: Duration,
+        policy: C3LaunchPolicy,
         mut identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
         mut cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
+        let C3LaunchPolicy {
+            required,
+            release_wait_budget,
+            cancel_check_interval,
+            retirement_wait_budget,
+            reaper_poll_interval,
+        } = policy;
         if release_wait_budget.is_zero()
             || cancel_check_interval.is_zero()
             || retirement_wait_budget.is_zero()
@@ -963,18 +947,20 @@ impl LinuxC3SystemServiceSlotOwner {
                         let mut highest_catalog_generation =
                             highest_catalog_generation.borrow_mut();
                         register_prepared_launch(
-                            &mut **launches,
-                            &mut **current,
+                            &mut launches,
+                            &mut current,
                             os,
                             prepared,
-                            process_id,
-                            token,
-                            &self.service_id,
-                            scope_snapshot.clone(),
-                            launch_instance_id,
-                            scope_data_address,
-                            previous_token,
-                            &mut **highest_catalog_generation,
+                            PreparedLaunchRegistration {
+                                process_id,
+                                token,
+                                service_id: &self.service_id,
+                                scope: scope_snapshot.clone(),
+                                launch_instance_id,
+                                scope_data_address,
+                                previous_token,
+                            },
+                            &mut highest_catalog_generation,
                             &mut replacement_committed,
                         )
                     },
@@ -993,7 +979,7 @@ impl LinuxC3SystemServiceSlotOwner {
                             &self.service_id,
                         )
                         .map_err(|_| BackendError::Revoked)?;
-                        if let Some(registration) = identity_listener_registration.as_deref_mut() {
+                        if let Some(registration) = identity_listener_registration.as_mut() {
                             let prepared_entry = find_launch(&launches, token)
                                 .filter(|entry| entry.process_id == process_id)
                                 .ok_or(BackendError::ProtocolViolation)?;
@@ -1053,8 +1039,8 @@ impl LinuxC3SystemServiceSlotOwner {
                         let mut launches = launches.borrow_mut();
                         let mut current = current.borrow_mut();
                         revoke_and_retire_identity_listener(
-                            &mut **launches,
-                            &mut **current,
+                            &mut launches,
+                            &mut current,
                             process_id,
                             *registered,
                         )
@@ -1209,12 +1195,9 @@ impl LinuxC3SystemServiceSlotOwner {
                         )?;
                     }
                     if let Some(effect_error) = effect_error {
-                        Err(io::Error::new(
-                            io::ErrorKind::Other,
-                            format!(
-                                "C3 slot journal outcome is unknown after effect failure: {effect_error}"
-                            ),
-                        ))
+                        Err(io::Error::other(format!(
+                            "C3 slot journal outcome is unknown after effect failure: {effect_error}"
+                        )))
                     } else {
                         Err(c3_journal_io_error(error))
                     }
@@ -1245,25 +1228,11 @@ impl LinuxC3SystemServiceSlotOwner {
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        required: bool,
-        release_wait_budget: Duration,
-        cancel_check_interval: Duration,
-        retirement_wait_budget: Duration,
-        reaper_poll_interval: Duration,
+        policy: C3LaunchPolicy,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<SystemServiceEndpointOwnerProof> {
         unsafe {
-            self.launch_admitted(
-                scope,
-                executable,
-                arguments,
-                required,
-                release_wait_budget,
-                cancel_check_interval,
-                retirement_wait_budget,
-                reaper_poll_interval,
-                cancelled,
-            )?;
+            self.launch_admitted(scope, executable, arguments, policy, cancelled)?;
         }
         let endpoint = self.take_current_service_endpoint(scope)?;
         self.issue_current_service_endpoint(scope, endpoint)
@@ -1284,11 +1253,7 @@ impl LinuxC3SystemServiceSlotOwner {
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        required: bool,
-        release_wait_budget: Duration,
-        cancel_check_interval: Duration,
-        retirement_wait_budget: Duration,
-        reaper_poll_interval: Duration,
+        policy: C3LaunchPolicy,
         pending_listener: &mut dyn C3PendingIdentityListener,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<SystemServiceEndpointOwnerProof> {
@@ -1297,11 +1262,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 scope,
                 executable,
                 arguments,
-                required,
-                release_wait_budget,
-                cancel_check_interval,
-                retirement_wait_budget,
-                reaper_poll_interval,
+                policy,
                 pending_listener,
                 cancelled,
             )?;
@@ -1311,8 +1272,8 @@ impl LinuxC3SystemServiceSlotOwner {
         self.activate_current_identity_listener_after_exec_ack(
             scope,
             &proof,
-            retirement_wait_budget,
-            reaper_poll_interval,
+            policy.retirement_wait_budget,
+            policy.reaper_poll_interval,
         )?;
         Ok(proof)
     }
@@ -1511,8 +1472,8 @@ impl LinuxC3SystemServiceSlotOwner {
     ) {
         let mut state = self.lock_state_for_cleanup();
         if state.current != Some(token)
-            || !find_launch(&state.launches, token)
-                .is_some_and(|entry| entry.process_id == process_id)
+            || find_launch(&state.launches, token)
+                .is_none_or(|entry| entry.process_id != process_id)
         {
             return;
         }
@@ -1949,9 +1910,7 @@ impl LinuxC3SystemServiceSlotOwner {
         let resources = match state.lifecycle.take_live_endpoint(process_id, token) {
             Ok(resources) => resources,
             Err(error) => {
-                if let Err(reconciliation_error) = poll_and_record_absence(&mut state) {
-                    return Err(reconciliation_error);
-                }
+                poll_and_record_absence(&mut state)?;
                 return Err(error);
             }
         };
@@ -1989,9 +1948,7 @@ impl LinuxC3SystemServiceSlotOwner {
         let pidfd = match state.lifecycle.duplicate_live_pidfd(process_id, token) {
             Ok(pidfd) => pidfd,
             Err(error) => {
-                if let Err(reconciliation_error) = poll_and_record_absence(&mut state) {
-                    return Err(reconciliation_error);
-                }
+                poll_and_record_absence(&mut state)?;
                 return Err(error);
             }
         };
@@ -2005,13 +1962,11 @@ impl LinuxC3SystemServiceSlotOwner {
             Ok(proof) => Ok(proof),
             Err(error) => {
                 if state.durable_journal.is_some() {
-                    if let Err(retirement_error) = retire_owner_state_once(
+                    retire_owner_state_once(
                         &mut state,
                         DEFAULT_RETIREMENT_WAIT_BUDGET,
                         DEFAULT_REAPER_POLL_INTERVAL,
-                    ) {
-                        return Err(retirement_error);
-                    }
+                    )?;
                     return Err(error);
                 }
                 if let Ok(Some((process_id, token))) = revoke_current_record(&mut state) {
@@ -3142,21 +3097,34 @@ fn current_launch(state: &OwnerState) -> io::Result<Option<&OwnedLaunch>> {
     }
 }
 
+struct PreparedLaunchRegistration<'a> {
+    process_id: u32,
+    token: LaunchToken,
+    service_id: &'a str,
+    scope: RecoveryScopeSnapshot,
+    launch_instance_id: Option<NonZeroU64>,
+    scope_data_address: usize,
+    previous_token: Option<LaunchToken>,
+}
+
 fn register_prepared_launch<Os: ProcessOs>(
     launches: &mut Vec<OwnedLaunch>,
     current: &mut Option<LaunchToken>,
     os: &mut Os,
     prepared: &ProcessHandle<Prepared, Os::Raw>,
-    process_id: u32,
-    token: LaunchToken,
-    service_id: &str,
-    scope: RecoveryScopeSnapshot,
-    launch_instance_id: Option<NonZeroU64>,
-    scope_data_address: usize,
-    previous_token: Option<LaunchToken>,
+    registration: PreparedLaunchRegistration<'_>,
     highest_catalog_generation: &mut Option<NonZeroU64>,
     replacement_committed: &mut bool,
 ) -> Result<LaunchToken, BackendError> {
+    let PreparedLaunchRegistration {
+        process_id,
+        token,
+        service_id,
+        scope,
+        launch_instance_id,
+        scope_data_address,
+        previous_token,
+    } = registration;
     if token.0 != scope.c3_launch_generation
         || scope.service_id != service_id
         || launches.iter().any(|entry| entry.token == token)
@@ -3691,11 +3659,15 @@ fn record_current_absent_after_reap(
                             scope_binding_digest,
                         );
                         let transition = journal.record_normal_exit_after_reap(
-                            catalog_generation,
-                            c3_launch_generation,
-                            scope_binding_digest,
-                            observed_launch.launch_instance_id.ok_or_else(unknown)?,
-                            observed_launch.process_id,
+                            C3ReapedLaunchKey {
+                                catalog_generation,
+                                c3_launch_generation,
+                                scope_binding_digest,
+                                launch_operation_id: observed_launch
+                                    .launch_instance_id
+                                    .ok_or_else(unknown)?,
+                                process_id: observed_launch.process_id,
+                            },
                             correlation,
                             deadline,
                             || {
@@ -3849,8 +3821,9 @@ fn permission_denied(message: &'static str) -> io::Error {
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 mod tests {
     use super::{
-        C3IdentityLaunchBinding, C3IdentityListenerLaunchLease, C3PendingIdentityListener,
-        LinuxC3SystemServiceSlotOwner, SystemServiceRecoveryAdmissionScope,
+        C3IdentityLaunchBinding, C3IdentityListenerLaunchLease, C3LaunchPolicy,
+        C3PendingIdentityListener, LinuxC3SystemServiceSlotOwner,
+        SystemServiceRecoveryAdmissionScope,
     };
     use crate::linux_init::linux_init_c3_slot_journal::{
         C3SlotJournal, C3SlotJournalReadback, C3SlotState,
@@ -4342,6 +4315,14 @@ mod tests {
         }
     }
 
+    const TEST_LAUNCH_POLICY: C3LaunchPolicy = C3LaunchPolicy {
+        required: true,
+        release_wait_budget: Duration::from_secs(10),
+        cancel_check_interval: Duration::from_millis(20),
+        retirement_wait_budget: Duration::from_secs(2),
+        reaper_poll_interval: Duration::from_millis(10),
+    };
+
     fn launch(owner: &LinuxC3SystemServiceSlotOwner, scope: &FixtureScope) {
         let image = namespace_root_probe_elf();
         launch_image(owner, scope, &image).unwrap();
@@ -4352,19 +4333,7 @@ mod tests {
         scope: &FixtureScope,
         image: &[u8],
     ) -> std::io::Result<()> {
-        unsafe {
-            owner.launch_admitted(
-                scope,
-                image,
-                &[],
-                true,
-                Duration::from_secs(10),
-                Duration::from_millis(20),
-                Duration::from_secs(2),
-                Duration::from_millis(10),
-                || false,
-            )
-        }
+        unsafe { owner.launch_admitted(scope, image, &[], TEST_LAUNCH_POLICY, || false) }
     }
 
     fn retained_owner_state(service_id: &str) -> Arc<Mutex<super::OwnerState>> {
@@ -4410,17 +4379,7 @@ mod tests {
         let image = namespace_root_probe_elf();
         unsafe {
             owner
-                .launch_and_authenticate_admitted(
-                    scope,
-                    &image,
-                    &[],
-                    true,
-                    Duration::from_secs(10),
-                    Duration::from_millis(20),
-                    Duration::from_secs(2),
-                    Duration::from_millis(10),
-                    || false,
-                )
+                .launch_and_authenticate_admitted(scope, &image, &[], TEST_LAUNCH_POLICY, || false)
                 .unwrap()
         }
     }
@@ -4536,11 +4495,14 @@ mod tests {
         service_id: &str,
         proof: &SystemServiceEndpointOwnerProof,
         launch_token: super::LaunchToken,
-        events: &Arc<Mutex<Vec<IdentityListenerEvent>>>,
-        retained_state: &Arc<Mutex<super::OwnerState>>,
+        listener_state: (
+            &Mutex<Vec<IdentityListenerEvent>>,
+            &Mutex<super::OwnerState>,
+        ),
         launch_record: &SystemServiceLaunchRecord,
         expected_marker: &[u8; 8],
     ) {
+        let (events, retained_state) = listener_state;
         let process_id = proof.process_identity().process_id();
         allow_generation_probe_to_exit(proof, expected_marker);
 
@@ -4749,11 +4711,7 @@ mod tests {
                 &scope,
                 &image,
                 &[],
-                true,
-                Duration::from_secs(10),
-                Duration::from_millis(20),
-                Duration::from_secs(2),
-                Duration::from_millis(10),
+                TEST_LAUNCH_POLICY,
                 &mut pending_listener,
                 || false,
             )
@@ -4955,11 +4913,7 @@ mod tests {
                 &first_scope,
                 &first_image,
                 &[],
-                true,
-                Duration::from_secs(10),
-                Duration::from_millis(20),
-                Duration::from_secs(2),
-                Duration::from_millis(10),
+                TEST_LAUNCH_POLICY,
                 &mut first_listener,
                 || false,
             )
@@ -5040,8 +4994,7 @@ mod tests {
             service_id,
             &first_proof,
             first_launch_token,
-            &first_events,
-            &retained_state,
+            (&first_events, &retained_state),
             &first_launch_record,
             &first_generation_marker,
         );
@@ -5161,11 +5114,7 @@ mod tests {
                 &second_scope,
                 &second_image,
                 &[],
-                true,
-                Duration::from_secs(10),
-                Duration::from_millis(20),
-                Duration::from_secs(2),
-                Duration::from_millis(10),
+                TEST_LAUNCH_POLICY,
                 &mut second_listener,
                 || false,
             )
@@ -5293,8 +5242,7 @@ mod tests {
             service_id,
             &second_proof,
             second_launch_token,
-            &second_events,
-            &retained_state,
+            (&second_events, &retained_state),
             &second_launch_record,
             &second_generation_marker,
         );
@@ -5339,11 +5287,7 @@ mod tests {
                 &scope,
                 &image,
                 &[],
-                true,
-                Duration::from_secs(10),
-                Duration::from_millis(20),
-                Duration::from_secs(2),
-                Duration::from_millis(10),
+                TEST_LAUNCH_POLICY,
                 &mut pending_listener,
                 || false,
             )

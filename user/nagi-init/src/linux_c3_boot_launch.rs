@@ -7,7 +7,7 @@ use super::linux_task24_c3_data_journal::Task24C3DataJournalDirectory;
 use super::{
     linux_boot_package_inputs::LinuxBootArtifactPreflight,
     linux_init_c3_slot_journal::C3DurableSlotReceipt,
-    linux_init_c3_system_service_owner::LinuxC3SystemServiceSlotOwner,
+    linux_init_c3_system_service_owner::{C3LaunchPolicy, LinuxC3SystemServiceSlotOwner},
     linux_initial_login_owner::LinuxInitialLoginOwner,
 };
 use crate::profile_volume_notes_owner::SelectedDataRoot;
@@ -47,6 +47,13 @@ pub(super) struct IdentityListenerHandoff<'a> {
 const RELEASE_BUDGET: Duration = Duration::from_secs(2);
 const RETIREMENT_BUDGET: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
+const BOOT_LAUNCH_POLICY: C3LaunchPolicy = C3LaunchPolicy {
+    required: true,
+    release_wait_budget: RELEASE_BUDGET,
+    cancel_check_interval: POLL_INTERVAL,
+    retirement_wait_budget: RETIREMENT_BUDGET,
+    reaper_poll_interval: POLL_INTERVAL,
+};
 
 fn package_store_journal_path(package_store: &File) -> PathBuf {
     let mut journal = PathBuf::from(format!("/proc/self/fd/{}", package_store.as_raw_fd()));
@@ -205,11 +212,7 @@ impl LinuxBootServiceOwner {
                         admission.scope(),
                         package.executable_bytes(),
                         listener.arguments,
-                        true,
-                        RELEASE_BUDGET,
-                        POLL_INTERVAL,
-                        RETIREMENT_BUDGET,
-                        POLL_INTERVAL,
+                        BOOT_LAUNCH_POLICY,
                         listener.pending,
                         || false,
                     )
@@ -259,11 +262,7 @@ impl LinuxBootServiceOwner {
                 admission.scope(),
                 package.executable_bytes(),
                 &[],
-                true,
-                RELEASE_BUDGET,
-                POLL_INTERVAL,
-                RETIREMENT_BUDGET,
-                POLL_INTERVAL,
+                BOOT_LAUNCH_POLICY,
                 || false,
             )
         }
