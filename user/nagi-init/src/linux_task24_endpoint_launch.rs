@@ -6,7 +6,7 @@ use super::linux_boot_package_inputs::BootCatalogInputs;
 use super::linux_c3_boot_launch::{AuthenticatedBootService, TASK24_IDENTITY_PACKAGE_ID};
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_task24_identity_ready::{
-    BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE, readiness_challenge,
+    readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
@@ -21,8 +21,8 @@ use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
 };
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
-use nagi_sdk::AppId;
 use nagi_sdk::app_contract::OrderingMetadata;
+use nagi_sdk::AppId;
 use nagi_service_contract::{
     CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
 };

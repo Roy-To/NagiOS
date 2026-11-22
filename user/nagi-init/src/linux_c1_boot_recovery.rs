@@ -9,12 +9,12 @@ use super::super::{
 use super::AuthenticatedBootService;
 use crate::profile_volume_notes_owner::BootVolumeInput;
 use nagi_identity_session::{
-    C1LinuxBootIdentityService, C1PreviousLaunchTerminalGate, C1RecoveryOperationIdentity,
-    C1SystemServiceRecoveryEffectGate, C1SystemServiceRecoveryReceiptAdapter,
-    C1SystemServiceRuntimeHandoff, C1VerifiedBootSystemServicePrincipal, Clock,
-    GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityIdSource,
-    IdentityService, LinuxIdentitySnapshotStore, RecoveryEffectGateError,
-    c1_linux_boot_identity_service_from_store,
+    c1_linux_boot_identity_service_from_store, C1LinuxBootIdentityService,
+    C1PreviousLaunchTerminalGate, C1RecoveryOperationIdentity, C1SystemServiceRecoveryEffectGate,
+    C1SystemServiceRecoveryReceiptAdapter, C1SystemServiceRuntimeHandoff,
+    C1VerifiedBootSystemServicePrincipal, Clock, GuestProfileCleaner, IdentityAuthorizer,
+    IdentityError, IdentityEventSink, IdentityIdSource, IdentityService,
+    LinuxIdentitySnapshotStore, RecoveryEffectGateError,
 };
 #[cfg(linux_task24_initial_login_runtime)]
 use nagi_identity_session::{IdempotencyKey, UnixMillis};
@@ -325,9 +325,9 @@ mod task24 {
     use crate::linux_init::{
         linux_owner_registration_console::UnlockInputOutcome,
         linux_task24_endpoint_launch::{
-            BootInitialLoginRoute, BootLoginRun, BootLoginSupervisor, EndpointOwners,
-            LoginChildLaunch, LoginCompletion, LoginLifecycle, VerifiedLoginCancellation,
-            VerifiedLoginChild, start_verified_login,
+            start_verified_login, BootInitialLoginRoute, BootLoginRun, BootLoginSupervisor,
+            EndpointOwners, LoginChildLaunch, LoginCompletion, LoginLifecycle,
+            VerifiedLoginCancellation, VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
         publish_lifecycle_ready,
@@ -635,7 +635,7 @@ where
         package_owner: &nagi_init_package_provider::package_trust::PackageServiceSessionOwner<'_>,
     ) -> io::Result<C3DurableNormalExitReceipt> {
         use nagi_system_service_recovery_contract::{
-            C1RecoveryReceiptClient, validate_recovery_receipts,
+            validate_recovery_receipts, C1RecoveryReceiptClient,
         };
 
         if package_owner.is_quarantined() {
