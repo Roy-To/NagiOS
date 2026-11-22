@@ -28,7 +28,7 @@ use std::cell::RefCell;
 use std::io;
 use std::num::NonZeroU64;
 use std::os::fd::OwnedFd;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -3875,7 +3875,7 @@ mod tests {
         DirBuilderExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt,
     };
     use std::os::unix::net::UnixStream;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::process::{Child, Command};
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
@@ -4925,12 +4925,10 @@ mod tests {
         )
         .unwrap();
         let _shutdown = OwnerShutdownGuard(&owner);
-        assert!(
-            owner
-                .latest_durable_normal_exit_scope_snapshot()
-                .unwrap()
-                .is_none()
-        );
+        assert!(owner
+            .latest_durable_normal_exit_scope_snapshot()
+            .unwrap()
+            .is_none());
         let retained_state = retained_owner_state(service_id);
 
         let first_generation = owner.reserve_launch_generation().unwrap();
@@ -5003,12 +5001,10 @@ mod tests {
             );
             assert_eq!(binding.binding.c3_launch_generation, first_generation);
             assert_eq!(binding.binding.scope_binding_digest, first_scope.binding);
-            assert!(
-                binding
-                    .binding
-                    .process_identity
-                    .same_instance(&first_identity)
-            );
+            assert!(binding
+                .binding
+                .process_identity
+                .same_instance(&first_identity));
             assert_eq!(entry.launch_record.process_identity(), first_identity);
             assert_eq!(entry.launch_record.generation(), first_generation);
             assert!(entry.launch_record.is_live());
@@ -5027,11 +5023,9 @@ mod tests {
             .expect("C2 captured the official first C3 launch record from its binding");
         assert!(first_launch_record.is_live());
         assert_eq!(first_launch_record.generation(), first_generation);
-        assert!(
-            first_launch_record
-                .process_identity()
-                .same_instance(&first_identity)
-        );
+        assert!(first_launch_record
+            .process_identity()
+            .same_instance(&first_identity));
         let first_record_slot = first_launch_record
             .system_service_slot_identity()
             .expect("first C3 record remains a system-service slot record");
@@ -5214,12 +5208,10 @@ mod tests {
             );
             assert_eq!(binding.binding.c3_launch_generation, second_generation);
             assert_eq!(binding.binding.scope_binding_digest, second_scope.binding);
-            assert!(
-                binding
-                    .binding
-                    .process_identity
-                    .same_instance(&second_identity)
-            );
+            assert!(binding
+                .binding
+                .process_identity
+                .same_instance(&second_identity));
             assert_eq!(entry.launch_record.process_identity(), second_identity);
             assert_eq!(entry.launch_record.generation(), second_generation);
             let slot = entry
@@ -5238,11 +5230,9 @@ mod tests {
             .expect("C2 captured the official second C3 launch record from its binding");
         assert!(second_launch_record.is_live());
         assert_eq!(second_launch_record.generation(), second_generation);
-        assert!(
-            second_launch_record
-                .process_identity()
-                .same_instance(&second_identity)
-        );
+        assert!(second_launch_record
+            .process_identity()
+            .same_instance(&second_identity));
         let second_record_slot = second_launch_record
             .system_service_slot_identity()
             .expect("second C3 record remains a system-service slot record");
@@ -5652,7 +5642,10 @@ mod tests {
         // before the C3 owner consumes the one-time marker.
         let interrupted = C3SlotJournal::create(&journal_path, service_id).unwrap();
         assert!(marker_path.exists());
-        assert!(matches!(interrupted.readback(), C3SlotJournalReadback::Empty));
+        assert!(matches!(
+            interrupted.readback(),
+            C3SlotJournalReadback::Empty
+        ));
         drop(interrupted);
 
         let owner = LinuxC3SystemServiceSlotOwner::new_with_journal(service_id, &journal_path)
@@ -5673,7 +5666,9 @@ mod tests {
         let journal_before = std::fs::read(&journal_path).unwrap();
         let lock_path = directory.0.join("slot.journal.lock");
         let lock_before = std::fs::read(&lock_path).unwrap();
-        assert!(LinuxC3SystemServiceSlotOwner::new_with_journal(service_id, &journal_path).is_err());
+        assert!(
+            LinuxC3SystemServiceSlotOwner::new_with_journal(service_id, &journal_path).is_err()
+        );
         assert_eq!(std::fs::read(&journal_path).unwrap(), journal_before);
         assert_eq!(std::fs::read(&lock_path).unwrap(), lock_before);
         assert!(!marker_path.exists());

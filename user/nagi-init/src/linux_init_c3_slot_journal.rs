@@ -17,7 +17,7 @@ use std::io::{self, Read, Write};
 use std::num::NonZeroU64;
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -3130,12 +3130,10 @@ mod tests {
         let directory = TestDirectory::new();
         let journal = C3SlotJournal::create(directory.journal_path(), SERVICE_ID).unwrap();
 
-        assert!(
-            journal
-                .latest_normal_exit_scope_snapshot()
-                .unwrap()
-                .is_none()
-        );
+        assert!(journal
+            .latest_normal_exit_scope_snapshot()
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -3956,16 +3954,14 @@ mod tests {
             }
         };
 
-        assert!(
-            journal
-                .append_and_readback_with_deadline(
-                    &super::genesis_record(SERVICE_ID),
-                    None,
-                    Some(cleanup_deadline),
-                    &now,
-                )
-                .is_err()
-        );
+        assert!(journal
+            .append_and_readback_with_deadline(
+                &super::genesis_record(SERVICE_ID),
+                None,
+                Some(cleanup_deadline),
+                &now,
+            )
+            .is_err());
         assert_eq!(clock_reads.load(Ordering::SeqCst), 3);
         assert_eq!(fs::metadata(&journal.path).unwrap().len(), initial_len);
     }

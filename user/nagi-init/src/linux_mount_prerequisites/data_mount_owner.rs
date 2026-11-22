@@ -11,8 +11,8 @@ use crate::profile_volume_notes_owner::{BootVolumeInput, DevelopmentBootVolumeId
 use crate::task24_c3_journal_bootstrap_contract::identity_paths_avoid_data_journal;
 #[cfg(linux_dev_preview_smoke)]
 use crate::task24_c3_journal_bootstrap_contract::{
-    DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME, DATA_JOURNAL_DIRECTORY,
-    is_fresh_development_data_root,
+    is_fresh_development_data_root, DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME,
+    DATA_JOURNAL_DIRECTORY,
 };
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
@@ -421,8 +421,8 @@ pub(in crate::linux_init) struct DevelopmentIdentityData {
 
 /// Opt in to the same verified development mount while running normal PID 1.
 #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
-pub(in crate::linux_init) fn mount_identity_data()
--> Result<Option<DevelopmentIdentityData>, &'static str> {
+pub(in crate::linux_init) fn mount_identity_data(
+) -> Result<Option<DevelopmentIdentityData>, &'static str> {
     let command_line = fs::read_to_string("/proc/cmdline")
         .map_err(|_| DataMountError::SelectionMalformed.label())?;
     let selected = || {
