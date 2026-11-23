@@ -5,5 +5,5 @@ edition = "2021"
 publish = false
 
 [dependencies]
-nagi-model = { path = "../../../../crates/nagi-model" }
+nagi-model = { path = "../nagi-model" }
 rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }
