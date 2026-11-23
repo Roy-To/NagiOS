@@ -9120,6 +9120,19 @@ impl InitBackend for UnconnectedBackend {
 #[path = "linux_init_process_owner_candidate.rs"]
 mod linux_init_process_owner_candidate;
 
+#[cfg(any(
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        linux_task24_owner_co_location,
+        feature = "desktop-login",
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ),
+    all(test, target_os = "macos")
+))]
+#[path = "task24_login_cancellation.rs"]
+mod task24_login_cancellation;
+
 #[cfg(test)]
 mod process_lifecycle_tests {
     use super::*;

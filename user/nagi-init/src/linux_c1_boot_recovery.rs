@@ -263,10 +263,19 @@ impl SelectedBootIdentityRuntime<'_, '_> {
                 console.next_key()
             })
             .map_err(|error| {
-                use super::super::linux_owner_registration_console::RegistrationConsoleError;
+                use super::super::linux_owner_registration_console::{
+                    registration_console_message, RegistrationConsoleError,
+                };
                 use crate::login_screen::LinuxRegistrationError;
                 let stage = match error {
-                    RegistrationConsoleError::Io(_) => "console",
+                    RegistrationConsoleError::Io { operation, source } => {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=console operation={operation} kind={:?} message={:?}",
+                            source.kind(),
+                            registration_console_message(&source)
+                        ));
+                        return io::Error::other("owner registration failed");
+                    }
                     RegistrationConsoleError::CredentialUnavailable => "derive",
                     RegistrationConsoleError::Save(LinuxRegistrationError::Identity(_)) => {
                         "identity"
@@ -322,12 +331,12 @@ mod task24 {
     use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
     };
+    use crate::linux_init::task24_login_cancellation::VerifiedLoginCancellation;
     use crate::linux_init::{
         linux_owner_registration_console::UnlockInputOutcome,
         linux_task24_endpoint_launch::{
             start_verified_login, BootInitialLoginRoute, BootLoginRun, BootLoginSupervisor,
-            EndpointOwners, LoginChildLaunch, LoginCompletion, LoginLifecycle,
-            VerifiedLoginCancellation, VerifiedLoginChild,
+            EndpointOwners, LoginChildLaunch, LoginCompletion, LoginLifecycle, VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
         publish_lifecycle_ready,
@@ -556,9 +565,10 @@ mod task24 {
                     UnlockInputOutcome::Submitted(submission) => submission,
                     UnlockInputOutcome::Closed => {
                         let closed = VerifiedLoginCancellation::from_input_close(
-                            lifecycle,
-                            owners,
-                            &runtime.identity,
+                            || runtime.identity.require_unattached(),
+                            || lifecycle.active_len(),
+                            || owners.run.instances.has_unresolved_cleanup(),
+                            PeerDenial::UnresolvedSpawnCleanup,
                         )
                         .map(LoginCompletion::Cancelled);
                         return Ok((runtime, closed));

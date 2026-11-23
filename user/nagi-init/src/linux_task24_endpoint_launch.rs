@@ -11,6 +11,10 @@ use super::linux_task24_identity_ready::{
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
 use super::pid1_owned_launch_lease::{BoundLaunchLease, ExactChildLaunchLease};
+use super::task24_login_cancellation::{
+    classify_login_denial_after_cleanup, wait_for_login_cleanup_until, LoginCleanupPoll,
+    LoginCleanupWait, VerifiedLoginCancellation,
+};
 use super::{BackendError, GateCommit, ProcessOs};
 use super::{
     ExecutablePayload, LinuxExecutionIdentity, ProcessEndpointPolicy, ProcessLaunch,
@@ -814,35 +818,36 @@ pub(super) enum LoginCompletion {
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
-pub(super) struct VerifiedLoginCancellation(());
-
-#[cfg(linux_task24_initial_login_runtime)]
-impl VerifiedLoginCancellation {
-    pub(super) fn from_input_close(
-        lifecycle: &LoginLifecycle,
-        owners: &EndpointOwners<'_>,
-        issuer: &BootLoginIssuer<'_>,
-    ) -> Result<Self, PeerDenial> {
-        // Credential entry precedes child startup. A prior attempt may return
-        // here only after exact reap and lease retirement.
-        Self::verify(
-            issuer.require_unattached(),
-            lifecycle.active_len(),
-            owners.run.instances.has_unresolved_cleanup(),
-        )
-    }
-
-    fn verify(
-        unattached: Result<(), PeerDenial>,
-        active_children: usize,
-        unresolved_cleanup: Result<bool, PeerDenial>,
-    ) -> Result<Self, PeerDenial> {
-        unattached?;
-        if active_children != 0 || unresolved_cleanup? {
-            return Err(PeerDenial::UnresolvedSpawnCleanup);
-        }
-        Ok(Self(()))
-    }
+fn wait_for_rejected_login_cleanup(
+    lifecycle: &mut LoginLifecycle,
+    owners: &EndpointOwners<'_>,
+    deadline: Instant,
+) -> LoginCleanupWait {
+    wait_for_login_cleanup_until(
+        deadline,
+        || {
+            if lifecycle.active_len() != 0 {
+                // Keep using this lifecycle's one reaper and the exact C2
+                // record/endpoint retirement callbacks. Errors remain pending
+                // only while the same child stays owned here.
+                let _ = lifecycle.poll_with_launch_lease(revoke_login_record, |lease, _status| {
+                    owners.retire(lease)
+                });
+            }
+            if lifecycle.active_len() != 0 {
+                return LoginCleanupPoll::Pending;
+            }
+            match owners.run.instances.has_unresolved_cleanup() {
+                Ok(false) => LoginCleanupPoll::Complete,
+                Ok(true) | Err(_) => LoginCleanupPoll::Unknown,
+            }
+        },
+        |remaining| {
+            // Re-poll the same owned child at a short bounded cadence so this
+            // wait cannot overshoot the login attempt's absolute deadline.
+            std::thread::park_timeout(remaining.min(std::time::Duration::from_millis(10)));
+        },
+    )
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -984,12 +989,25 @@ pub(super) fn start_verified_login(
             }
             let cleanup = lifecycle
                 .shutdown_with_launch_lease(revoke_login_record, |lease, _| owners.retire(lease));
-            let cleanup_confirmed = cleanup.is_ok()
+            let mut cleanup_confirmed = cleanup.is_ok()
                 && !owners
                     .run
                     .instances
                     .has_unresolved_cleanup()
                     .unwrap_or(true);
+            let may_retry_after_cleanup = matches!(
+                &error,
+                PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired
+            );
+            if !cleanup_confirmed && may_retry_after_cleanup {
+                cleanup_confirmed = matches!(
+                    wait_for_rejected_login_cleanup(lifecycle, owners, deadline),
+                    LoginCleanupWait::Complete
+                );
+                if !cleanup_confirmed {
+                    super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_CLEANUP_PENDING"));
+                }
+            }
             let error = login_attempt_denial_after_cleanup(error, cleanup_confirmed);
             Err(error)
         }
@@ -998,42 +1016,23 @@ pub(super) fn start_verified_login(
 
 #[cfg(linux_task24_initial_login_runtime)]
 fn login_attempt_denial_after_cleanup(error: PeerDenial, cleanup_confirmed: bool) -> PeerDenial {
-    if cleanup_confirmed {
-        return error;
-    }
-    match error {
-        PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired => {
-            PeerDenial::UnresolvedSpawnCleanup
-        }
-        _ => PeerDenial::RequestOutcomeUnknown,
-    }
+    classify_login_denial_after_cleanup(
+        error,
+        cleanup_confirmed,
+        |error| {
+            matches!(
+                error,
+                PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired
+            )
+        },
+        PeerDenial::UnresolvedSpawnCleanup,
+        PeerDenial::RequestOutcomeUnknown,
+    )
 }
 
 #[cfg(all(test, linux_task24_initial_login_runtime))]
 mod login_attempt_cleanup_tests {
     use super::*;
-
-    #[test]
-    fn explicit_close_requires_no_session_or_unretired_child() {
-        use PeerDenial::*;
-        assert!(VerifiedLoginCancellation::verify(Ok(()), 0, Ok(false)).is_ok());
-        assert!(matches!(
-            VerifiedLoginCancellation::verify(Ok(()), 1, Ok(false)),
-            Err(UnresolvedSpawnCleanup)
-        ));
-        assert!(matches!(
-            VerifiedLoginCancellation::verify(Ok(()), 0, Ok(true)),
-            Err(UnresolvedSpawnCleanup)
-        ));
-        assert!(matches!(
-            VerifiedLoginCancellation::verify(Ok(()), 0, Err(Unavailable)),
-            Err(Unavailable)
-        ));
-        assert!(matches!(
-            VerifiedLoginCancellation::verify(Err(RequestOutcomeUnknown), 0, Ok(false)),
-            Err(RequestOutcomeUnknown)
-        ));
-    }
 
     #[test]
     fn only_an_explicit_attempt_deadline_is_retryable() {
