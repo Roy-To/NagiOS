@@ -5977,16 +5977,17 @@ mod tests {
         let _shutdown = OwnerShutdownGuard(&owner);
         let journal = owner_journal(&owner);
         let generation = owner.reserve_launch_generation().unwrap();
-        let scope = FixtureScope::new(
+        let image = namespace_root_sigill_probe_elf();
+        let scope = FixtureScope::new_with_image(
             service_id,
             1,
             RecoveryLifecycleTransition::Initial,
             generation,
+            &image,
         );
         let events = Arc::new(Mutex::new(Vec::new()));
         let retained_state = retained_owner_state(service_id);
         let mut pending_listener = RecordingPendingIdentityListener::new(Arc::clone(&events));
-        let image = namespace_root_sigill_probe_elf();
         let proof = unsafe {
             owner.launch_and_authenticate_admitted_with_identity_listener(
                 &scope,
