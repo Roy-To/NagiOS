@@ -24,6 +24,7 @@ impl ShellConsole for BootOwnerConsole {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ShellExit {
     Logout,
+    ClosedWithoutSaveAfterSessionEnded,
     RequiredIdentityExited,
     StateUnknown,
 }
@@ -79,8 +80,14 @@ pub(super) fn run<C: ShellConsole>(
                         if poll_identity()? {
                             return Ok(ShellExit::RequiredIdentityExited);
                         }
-                        if check_session().is_err() {
-                            return Ok(ShellExit::StateUnknown);
+                        match check_session() {
+                            Ok(()) => {}
+                            Err(ResolutionError::Ended | ResolutionError::Expired)
+                                if matches!(exit, NotesConsoleExit::ClosedWithoutSave) =>
+                            {
+                                return Ok(ShellExit::ClosedWithoutSaveAfterSessionEnded);
+                            }
+                            Err(_) => return Ok(ShellExit::StateUnknown),
                         }
                         console.present(|painter| model.render(painter))?;
                         let reason = match exit {
@@ -157,6 +164,36 @@ mod tests {
         assert_eq!(exit, ShellExit::Logout);
         assert_eq!(frames_at_launch, [1, 2]);
         assert_eq!(console.frames, 4);
+    }
+
+    #[test]
+    fn permits_existing_cleanup_after_unsaved_close_of_ended_session() {
+        use std::cell::Cell;
+
+        let ended = Cell::new(false);
+        let mut console = FakeConsole {
+            keys: [INPUT_KEY_ENTER].into(),
+            ..Default::default()
+        };
+        let exit = run(
+            &mut console,
+            || Ok(false),
+            || {
+                if ended.get() {
+                    Err(ResolutionError::Ended)
+                } else {
+                    Ok(())
+                }
+            },
+            |_| {
+                ended.set(true);
+                Ok((NotesConsoleExit::ClosedWithoutSave, None))
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(exit, ShellExit::ClosedWithoutSaveAfterSessionEnded);
+        assert_eq!(console.frames, 1);
     }
 
     #[test]

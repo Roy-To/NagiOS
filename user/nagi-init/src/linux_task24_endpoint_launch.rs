@@ -839,6 +839,7 @@ pub(super) fn run_owner_login(
                                     .map(|exit| {
                                         let notes_exit = match exit {
                                             ShellExit::Logout => NotesConsoleExit::ClosedByUser,
+                                            ShellExit::ClosedWithoutSaveAfterSessionEnded => NotesConsoleExit::ClosedWithoutSave,
                                             ShellExit::RequiredIdentityExited => NotesConsoleExit::RequiredIdentityExited,
                                             ShellExit::StateUnknown => NotesConsoleExit::StateUnknown,
                                         };

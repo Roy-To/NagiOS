@@ -19,25 +19,26 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
---desktop-launcher enables the L7 development shell.
+Development builds include the L7 desktop shell by default.
+--desktop-launcher is accepted for existing development invocations.
 USAGE
 }
 
 profile=debug
 offline=true
-desktop_launcher=false
+desktop_launcher_requested=false
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
         --online) offline=false ;;
-        --desktop-launcher) desktop_launcher=true ;;
+        --desktop-launcher) desktop_launcher_requested=true ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
     esac
     shift
 done
-if (($# != 1)) || { [[ "$profile" == release ]] && "$desktop_launcher"; }; then
+if (($# != 1)) || { [[ "$profile" == release ]] && "$desktop_launcher_requested"; }; then
     usage >&2
     exit 2
 fi
@@ -62,7 +63,7 @@ cfgs=(
     linux_task24_notes_consumer linux_dev_ws10 linux_dev_notes_performance
     linux_dev_system_mount
 )
-if "$desktop_launcher"; then
+if [[ "$profile" == debug ]]; then
     cfgs+=(linux_task24_desktop_shell)
 fi
 rustc_args=()
