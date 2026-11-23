@@ -239,6 +239,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
 | DEC-111 | [50項目のImplementation Readiness棚卸しと条件付き判断](DEC-111-implementation-readiness-triage.md) | CONFIRMED（実装を妨げる未決判断だけ必要時に先行する運用）／REVIEW NOTE・PROVISIONAL（23／5／8／14の一次分類・順序） | 2026-11-17 |
 | DEC-112 | [Linux開発イメージのIdentityサービスとREADY](DEC-112-development-identity-service-readiness.md) | CONFIRMED（Task24開発イメージで独立必須Identityと実READY、Data／NotesはPID 1内、独立Dataは別レーンで並行）／PROVISIONAL（製品全体の構成・接続仕様の詳細） | 2026-11-19 |
+| DEC-121 | [無操作時の自動ロックとセッションの有効期間](DEC-121-idle-lock-and-session-lifetime.md) | CONFIRMED（無操作15分で自動ロック・設定は1〜60分または「しない」、ロック中もセッション維持・承認操作は受け付けない、絶対期限なし）／PROVISIONAL（ゲスト・端末別初期値・ロック画面の通知・版） | 2026-11-22 |
 
 
 端末間連携の接続方針（2026-11-16追加）:

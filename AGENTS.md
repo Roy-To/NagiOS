@@ -2,6 +2,8 @@
 
 # AGENTS.md — Nagi OS
 
+> **Read first (token budget):** start with [`docs/CODEMAP.md`](docs/CODEMAP.md). Do **not** read `docs/implementation_status.md` (~700 KB) or `docs/product-decisions/README.md` (~116 KB) in full; open only the entries and `DEC-*.md` files your task needs (use `grep -n`).
+
 ## Linux kernel direction (2026-11-12 to 2026-11-14)
 
 Nagi now targets the **Linux kernel plus a Nagi-owned userland** ([DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md), [DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)); an existing distribution is not the product OS base. The statements below that Nagi is "not Linux-based", that Linux is a development host only, and that milestones must start strictly in M0→M30 order are the historical 0.1 baseline and must not block Linux migration work.
@@ -37,7 +39,7 @@ Do not silently change an architecture decision. If a deviation is required, doc
 
 Since 2026-11-15 ([DEC-050](docs/product-decisions/DEC-050-public-specification-repository.md)) the user-approved product decisions, roadmaps and vision live **in this repository** under `docs/product-decisions/`. The former private ledger `Roy-To/NagiOS-internal` is retired; do not read new decisions from it or write to it.
 
-- Before designing or changing user-facing behavior, AI/Memory/Learning policy, Files/Albert behavior, cross-app Actions or future features, read `docs/product-decisions/README.md`, `OPERATING_RULES.md` and the relevant `DEC-*.md`. Do not substitute chat memory for them.
+- Before designing or changing user-facing behavior, AI/Memory/Learning policy, Files/Albert behavior, cross-app Actions or future features, read `OPERATING_RULES.md` and the relevant `DEC-*.md` (find them with `ls docs/product-decisions/` or `grep -n` in `docs/product-decisions/README.md`; do not read the whole README). Do not substitute chat memory for them.
 - Distinguish `CONFIRMED`, `PROVISIONAL`, `REVIEW NOTE` and `SUPERSEDED`. Never turn a suggestion into a user decision.
 - **When the user approves a product or specification decision in a Codex or ChatGPT session, record it here**: update or add the `DEC-*.md`, update the index in `docs/product-decisions/README.md`, commit, and report the commit. If it cannot be written, report it as unsaved with a draft. See `docs/product-decisions/OPERATING_RULES.md`.
 - Never write credentials, personal information, local paths containing a user name, or chat/conversation identifiers into these files.
@@ -50,7 +52,7 @@ Since 2026-11-15 ([DEC-050](docs/product-decisions/DEC-050-public-specification-
 Before making changes:
 
 1. Read the relevant section of `docs/Nagi_OS_0.1_Codex_Implementation_Spec.md`.
-2. Read `docs/implementation_status.md`.
+2. Check `docs/implementation_status.md` for your task: read the first ~60 lines and `grep -n` for your lane, task or crate. Do not read the whole file.
 3. Inspect the actual repository state.
 4. Run `git status`.
 5. Inspect relevant `git diff`.
