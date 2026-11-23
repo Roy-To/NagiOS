@@ -1,0 +1,12 @@
+[package]
+name = "nagi-files-pixel-preview"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-abi = { path = "../../../../crates/nagi-abi" }
+nagi-files = { path = "../.." }
+nagi-ui = { path = "../../../../user/nagi-ui" }
+
+[workspace]

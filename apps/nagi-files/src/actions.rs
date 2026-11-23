@@ -22,6 +22,7 @@ const READ: &[CapabilityRight] = &[CapabilityRight::Read];
 const ENUMERATE: &[CapabilityRight] = &[CapabilityRight::Enumerate];
 const SEARCH: &[CapabilityRight] = &[CapabilityRight::Enumerate, CapabilityRight::Read];
 const CREATE: &[CapabilityRight] = &[CapabilityRight::Create];
+const WRITE: &[CapabilityRight] = &[CapabilityRight::Write];
 const COPY: &[CapabilityRight] = &[CapabilityRight::Read, CapabilityRight::Create];
 const MOVE: &[CapabilityRight] = &[CapabilityRight::Move, CapabilityRight::Create];
 const RENAME: &[CapabilityRight] = &[CapabilityRight::Rename];
@@ -60,6 +61,14 @@ pub const FILES_ACTIONS: &[ActionDescriptor] = &[
         ActionRisk::Read,
         true,
         READ,
+    ),
+    descriptor(
+        "files.write",
+        "files.write.v1",
+        "files.resource.v1",
+        ActionRisk::Modify,
+        true,
+        WRITE,
     ),
     descriptor(
         "files.create_folder",

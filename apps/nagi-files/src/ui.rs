@@ -113,6 +113,10 @@ impl FilesViewState {
         self.focused = None;
     }
 
+    pub fn toggle_inspector(&mut self) {
+        self.inspector_visible = !self.inspector_visible;
+    }
+
     pub fn navigate_to(&mut self, location: Location) {
         self.location = location;
         self.breadcrumbs = breadcrumbs(&self.location);

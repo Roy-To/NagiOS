@@ -26,6 +26,14 @@ pub trait FilesystemProvider {
     /// Read at most `max_bytes`; providers must detect one byte beyond the
     /// limit and return `FileTooLarge` without buffering the complete file.
     fn read_file(&self, location: &Location, max_bytes: usize) -> Result<Vec<u8>, FilesError>;
+    fn write_file(
+        &mut self,
+        location: &Location,
+        contents: &[u8],
+    ) -> Result<FileEntry, FilesError> {
+        let _ = contents;
+        Err(FilesError::new(crate::FilesErrorKind::ProviderUnavailable).at(location.clone()))
+    }
     fn set_tags(&mut self, location: &Location, tags: &[String]) -> Result<FileEntry, FilesError> {
         let _ = tags;
         Err(FilesError::new(crate::FilesErrorKind::ProviderUnavailable).at(location.clone()))

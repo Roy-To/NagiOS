@@ -1,0 +1,365 @@
+//! Files consumer that binds each service operation to a live C1 Session.
+//!
+//! The caller supplies the existing Files provider and capability authorizer.
+//! This adapter never creates a capability grant. The C1 lease is an
+//! admission boundary only; `FilesService` still asks the supplied
+//! `CapabilityAuthorizer` for each Files right inside the admitted effect.
+//! The supplied `Actor` is forwarded for Files operation records only; it
+//! never creates or strengthens a capability.
+
+use std::marker::PhantomData;
+
+use nagi_files::localization::Locale;
+use nagi_files::{
+    Actor, CancellationToken, CapabilityAuthorizer, FileEntry, FileName, FilesCanvas,
+    FilesCanvasRect, FilesComponent, FilesError, FilesService, FilesViewState, FilesystemProvider,
+    Location, OperationResult, SandboxProvider, TrashEntry,
+};
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+use nagi_identity_session::{
+    C1InitialInteractiveSessionError, C1IssuedInteractiveSession, Clock, GuestProfileCleaner,
+    IdentityAuthorizer, IdentityEventSink, IdentityIdSource, IdentityService,
+    IdentitySnapshotStore, InteractiveSessionError,
+};
+use nagi_identity_session::{ResolutionError, SessionLeaseRevalidationHandle};
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+use std::fs::File;
+
+/// Failure from either the canonical C1 live-Session gate or FilesService.
+#[derive(Debug)]
+pub enum FilesSessionEffectError {
+    Session(ResolutionError),
+    Files(FilesError),
+}
+
+/// Failure while resolving a real C1 issued caller into this Files consumer.
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+#[derive(Debug)]
+pub enum FilesSessionConsumerBuildError {
+    Provider(FilesError),
+    IssuedSession(C1InitialInteractiveSessionError),
+    Revalidation(InteractiveSessionError),
+}
+
+/// A narrow Files consumer that retains its provider, capability policy, and
+/// C1 revalidation handle and exposes only effects admitted by C1.
+///
+/// On Linux, construct this through [`Self::from_issued_session`] with the
+/// actual C1-issued caller and its matching `IdentityService`. The consumer's
+/// lifetime borrows that issued caller, while the opaque revalidation handle
+/// is produced internally from its checked context. The caller must still bind
+/// this consumer to the authenticated connection that supplied the C1
+/// context; C1 identifiers alone do not authenticate a transport peer.
+///
+/// `authorizer` remains the sole Files capability decision source; Session
+/// liveness does not grant Read, Enumerate, Create, or Move rights. Its
+/// synchronous policy callback runs inside C1 admission and must not re-enter
+/// C1 lifecycle or recovery APIs.
+pub struct C1FilesSessionConsumer<'issued, P, A> {
+    session: SessionLeaseRevalidationHandle,
+    files: FilesService<P, A>,
+    _issued_session: PhantomData<&'issued ()>,
+}
+
+impl<'issued, P, A> C1FilesSessionConsumer<'issued, P, A>
+where
+    P: FilesystemProvider,
+    A: CapabilityAuthorizer,
+{
+    /// Resolve the actual C1-issued caller through its matching identity
+    /// service, then retain the resulting live-session handle with the
+    /// caller-supplied Files provider and capability authorizer.
+    ///
+    /// The factory accepts no public IDs or prebuilt handle. The shared borrow
+    /// keeps `issued_session` alive for this consumer's lifetime; each effect
+    /// still revalidates through C1. Build on Linux with this crate's
+    /// `c1-issued-session` feature; it enables the canonical C1
+    /// `linux-interactive-account` feature through Cargo.
+    #[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+    pub fn from_issued_session<S, I, C, IA, G, E>(
+        provider: P,
+        authorizer: A,
+        issued_session: &'issued C1IssuedInteractiveSession,
+        identity: &mut IdentityService<S, I, C, IA, G, E>,
+    ) -> Result<Self, FilesSessionConsumerBuildError>
+    where
+        S: IdentitySnapshotStore,
+        I: IdentityIdSource,
+        C: Clock,
+        IA: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        let context = issued_session
+            .checked_context(identity)
+            .map_err(FilesSessionConsumerBuildError::IssuedSession)?;
+        let session = context
+            .revalidation_handle()
+            .map_err(FilesSessionConsumerBuildError::Revalidation)?;
+        Ok(Self {
+            session,
+            files: FilesService::new(provider, authorizer),
+            _issued_session: PhantomData,
+        })
+    }
+
+    /// Enumerates a location after entering the C1 live-Session effect gate.
+    pub fn list(&mut self, location: &Location) -> Result<Vec<FileEntry>, FilesSessionEffectError> {
+        self.with_live_files_effect(|files| files.list(location))
+    }
+
+    /// Reads a selected file through the recorded Files open operation after
+    /// entering the C1 live-Session effect gate.
+    pub fn read(
+        &mut self,
+        source: &FileEntry,
+        actor: Actor,
+    ) -> Result<(Vec<u8>, OperationResult), FilesSessionEffectError> {
+        self.with_live_files_effect(|files| files.open_file(source, actor))
+    }
+
+    /// Renames a selected resource through the existing FilesService policy
+    /// and operation record while the C1 live-Session gate is held.
+    pub fn rename(
+        &mut self,
+        source: &FileEntry,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_files_effect(|files| files.rename(source, name, actor))
+    }
+
+    /// Saves edited contents through the existing FilesService Write policy
+    /// and operation record while the C1 live-Session gate is held.
+    pub fn save(
+        &mut self,
+        source: &FileEntry,
+        contents: &[u8],
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_files_effect(|files| files.write_file(source, contents, actor))
+    }
+
+    /// Copies through the existing FilesService and caller cancellation token
+    /// while the C1 live-Session effect gate remains held.
+    pub fn copy(
+        &mut self,
+        source: &FileEntry,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+        cancellation: &CancellationToken,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_files_effect(|files| {
+            files.copy(source, destination, name, actor, cancellation)
+        })
+    }
+
+    /// Moves through the existing FilesService while the C1 live-Session
+    /// effect gate remains held.
+    pub fn move_item(
+        &mut self,
+        source: &FileEntry,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_files_effect(|files| files.move_item(source, destination, name, actor))
+    }
+
+    /// Transfers this already-issued consumer into the existing stateful Files
+    /// component so UI selection, rename, save, trash, restore, reopen, and
+    /// drawing all use the same provider, authorizer, and service instance.
+    pub fn into_screen(self, initial_location: Location) -> C1FilesScreenConsumer<'issued, P, A> {
+        C1FilesScreenConsumer {
+            session: self.session,
+            component: FilesComponent::new(self.files, initial_location),
+            _issued_session: PhantomData,
+        }
+    }
+
+    fn with_live_files_effect<R>(
+        &mut self,
+        effect: impl FnOnce(&mut FilesService<P, A>) -> Result<R, FilesError>,
+    ) -> Result<R, FilesSessionEffectError> {
+        let session = &self.session;
+        let files = &mut self.files;
+        session
+            .with_live_session_effect(|| effect(files))
+            .map_err(FilesSessionEffectError::Session)?
+            .map_err(FilesSessionEffectError::Files)
+    }
+}
+
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+impl<'issued, A> C1FilesScreenConsumer<'issued, SandboxProvider, A>
+where
+    A: CapabilityAuthorizer,
+{
+    /// Builds the normal Files screen from a Data-issued Files-root FD and the
+    /// matching live C1 caller. The caller supplies the FD and the per-operation
+    /// Files authorizer; this adapter does not select a Profile, issue a Session,
+    /// or create grants. Every Files effect still passes both C1 revalidation
+    /// and the supplied `CapabilityAuthorizer`.
+    pub fn from_issued_root_fd<S, I, C, IA, G, E>(
+        files_root: File,
+        authorizer: A,
+        issued_session: &'issued C1IssuedInteractiveSession,
+        identity: &mut IdentityService<S, I, C, IA, G, E>,
+        initial_location: Location,
+    ) -> Result<Self, FilesSessionConsumerBuildError>
+    where
+        S: IdentitySnapshotStore,
+        I: IdentityIdSource,
+        C: Clock,
+        IA: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        let provider = SandboxProvider::from_authorized_root(files_root)
+            .map_err(FilesSessionConsumerBuildError::Provider)?;
+        let session = C1FilesSessionConsumer::from_issued_session(
+            provider,
+            authorizer,
+            issued_session,
+            identity,
+        )?;
+        Ok(session.into_screen(initial_location))
+    }
+}
+
+/// C1-gated adapter for the existing stateful Files screen component.
+///
+/// Filesystem operations that update or consume the view model are admitted
+/// through the same live-Session handle. Selection and painting only touch
+/// in-memory view state and remain direct calls to [`FilesComponent`].
+pub struct C1FilesScreenConsumer<'issued, P, A> {
+    session: SessionLeaseRevalidationHandle,
+    component: FilesComponent<P, A>,
+    _issued_session: PhantomData<&'issued ()>,
+}
+
+impl<'issued, P, A> C1FilesScreenConsumer<'issued, P, A>
+where
+    P: FilesystemProvider,
+    A: CapabilityAuthorizer,
+{
+    /// Returns the same view model used for selection and drawing.
+    pub fn state(&self) -> &FilesViewState {
+        self.component.state()
+    }
+
+    /// Loads the visible listing inside the C1 live-Session effect gate.
+    pub fn refresh(&mut self) -> Result<(), FilesSessionEffectError> {
+        self.with_live_component_effect(FilesComponent::refresh)
+    }
+
+    /// Changes location and loads it inside the C1 live-Session effect gate.
+    pub fn navigate(&mut self, location: Location) -> Result<(), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.navigate(location))
+    }
+
+    /// Creates a folder through the normal Files component inside the C1
+    /// effect gate. The component refreshes the visible listing on success.
+    pub fn create_folder(
+        &mut self,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.create_folder(name, actor))
+    }
+
+    /// Selection is an in-memory UI change and does not perform a Files effect.
+    pub fn select(&mut self, id: nagi_files::ResourceId, additive: bool) -> Result<(), FilesError> {
+        self.component.select(id, additive)
+    }
+
+    /// Routes the screen's focused rename through its existing selection and
+    /// state-update logic, under the C1 live-Session gate.
+    pub fn rename_selected(
+        &mut self,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.rename_selected(name, actor))
+    }
+
+    /// Routes the editor's selected-file save through the existing FilesService
+    /// authorizer and view-state update, under the C1 live-Session gate.
+    pub fn save_selected(
+        &mut self,
+        contents: &[u8],
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.save_selected(contents, actor))
+    }
+
+    /// Moves the screen's focused selection through FilesService inside the
+    /// C1 live-Session gate, preserving the component's normal view-state update.
+    pub fn move_selected(
+        &mut self,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| {
+            component.move_selected(destination, name, actor)
+        })
+    }
+
+    /// Reopens the focused screen selection through FilesService inside C1's
+    /// live-Session gate.
+    pub fn open_selected(
+        &mut self,
+        actor: Actor,
+    ) -> Result<Option<(Vec<u8>, OperationResult)>, FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.open_selected(actor))
+    }
+
+    /// Moves the focused screen selection to trash under the live-Session gate.
+    pub fn trash_selected(
+        &mut self,
+        actor: Actor,
+    ) -> Result<(TrashEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.trash_selected(actor))
+    }
+
+    /// Lists restorable items through FilesService authorization inside the
+    /// live-Session gate.
+    pub fn list_trash(&mut self) -> Result<Vec<TrashEntry>, FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.list_trash())
+    }
+
+    /// Restores one trash-list item under the live-Session gate, refreshing
+    /// and selecting it in the visible screen when it returns to this folder.
+    pub fn restore_trash_item(
+        &mut self,
+        trash_id: nagi_files::ResourceId,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| component.restore_trash_item(trash_id, actor))
+    }
+
+    /// Paints the existing view model without performing a filesystem effect.
+    pub fn draw(
+        &self,
+        canvas: &mut impl FilesCanvas,
+        bounds: FilesCanvasRect,
+        empty_message: &str,
+        locale: Locale,
+    ) {
+        self.component.draw(canvas, bounds, empty_message, locale);
+    }
+
+    fn with_live_component_effect<R>(
+        &mut self,
+        effect: impl FnOnce(&mut FilesComponent<P, A>) -> Result<R, FilesError>,
+    ) -> Result<R, FilesSessionEffectError> {
+        let session = &self.session;
+        let component = &mut self.component;
+        session
+            .with_live_session_effect(|| effect(component))
+            .map_err(FilesSessionEffectError::Session)?
+            .map_err(FilesSessionEffectError::Files)
+    }
+}

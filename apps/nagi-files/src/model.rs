@@ -231,6 +231,7 @@ pub enum EntryAvailability {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OperationKind {
     CreateFolder,
+    Write,
     Rename,
     Copy,
     Move,
@@ -248,6 +249,7 @@ impl OperationKind {
     pub fn action_id(self) -> &'static str {
         match self {
             Self::CreateFolder => "files.create_folder",
+            Self::Write => "files.write",
             Self::Rename => "files.rename",
             Self::Copy => "files.copy",
             Self::Move => "files.move",
@@ -265,6 +267,7 @@ impl OperationKind {
     pub fn reversibility(self) -> Reversibility {
         match self {
             Self::CreateFolder
+            | Self::Write
             | Self::Rename
             | Self::Copy
             | Self::Move
