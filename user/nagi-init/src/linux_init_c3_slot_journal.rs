@@ -3164,11 +3164,27 @@ mod tests {
         ));
         assert_eq!(effects.load(Ordering::SeqCst), 1);
 
-        let next = reserved_live_launch(&reopened, 2, || {
-            effects.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        })
-        .unwrap();
+        // This earlier row is still Live, so it cannot authorize a same-
+        // catalog restart. Use a strictly newer catalog to exercise the
+        // independent high-water/reopen path in this test.
+        let mut next_scope = scope_snapshot(2);
+        next_scope.catalog_generation = nonzero(2);
+        next_scope.binding_digest = next_scope.canonical_digest();
+        let next_reservation = reopened.reserve_next_generation().unwrap();
+        assert_eq!(next_reservation.launch_generation(), nonzero(2));
+        let next = reopened
+            .transition_reserved_launch(
+                next_reservation,
+                next_scope.catalog_generation,
+                next_scope.binding_digest,
+                next_scope,
+                |stage| {
+                    stage(4107)?;
+                    effects.fetch_add(1, Ordering::SeqCst);
+                    Ok(4107)
+                },
+            )
+            .unwrap();
         assert_eq!(next.durable_revision(), nonzero(9));
         assert_eq!(next.c3_launch_generation(), nonzero(2));
         assert_eq!(next.operation_id(), nonzero(2));
