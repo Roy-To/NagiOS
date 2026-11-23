@@ -579,7 +579,7 @@ def _phase_success(serial_text: str, phase: str) -> dict[str, int]:
     except ValueError as error:
         raise RunnerError(str(error)) from None
     return {
-        "input_ready_count": 1,
+        "input_ready_count": serial_text.splitlines().count(recovery.INPUT),
         "identity_ready_count": 1,
         "pid1_ready_count": 1,
         "notes_pass_count": 1,

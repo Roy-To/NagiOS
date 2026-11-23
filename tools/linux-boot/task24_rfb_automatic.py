@@ -309,6 +309,7 @@ class AutomaticRfbInput:
         self.rejection_closed = False
         self.owner_password_sent = False
         self.read_closed = False
+        self.desktop_progress = 0
 
     def _connect(self, pid: int, deadline: float) -> None:
         if self.keyboard is not None:
@@ -343,6 +344,36 @@ class AutomaticRfbInput:
         except RfbError as error:
             raise AutomationError(f"local RFB fixture text failed ({error.__class__.__name__})") from None
 
+    def _handle_desktop(self, lines: list[str], pid: int) -> None:
+        try:
+            progress = recovery.desktop_notes_progress(lines, self.phase)
+        except ValueError as error:
+            raise AutomationError(str(error)) from None
+        if progress < self.desktop_progress:
+            raise AutomationError("desktop serial prefix regressed")
+        expected = recovery.DESKTOP_NOTES_FLOW[self.phase]
+        # Only send keys when this observation ends at their corresponding gate.
+        for index in range(self.desktop_progress, progress):
+            marker = expected[index]
+            remaining = expected[index + 1:]
+            if marker == recovery.DESKTOP_READY:
+                keys = (0xFF0D,)
+            elif marker == recovery.DESKTOP_CLOSED:
+                keys = (0xFF0D,) if recovery.DESKTOP_LAUNCH in remaining else (0xFF09, 0xFF0D)
+            elif marker == recovery.INPUT and recovery.SAVED in remaining:
+                keys = (0xFF0D,)
+            elif marker in (recovery.SAVED, recovery.INPUT):
+                keys = (0xFF1B,)
+            else:
+                continue
+            if progress != index + 1:
+                raise AutomationError(f"desktop serial advanced before input at {marker}")
+            if marker == recovery.INPUT and recovery.SAVED in remaining:
+                self._type(pid, self.fixture.note_text)
+            for key in keys:
+                self._tap(pid, key)
+        self.desktop_progress = progress
+
     def handle(self, serial_text: str, supervisor_log: Path, deadline: float) -> None:
         lines = _complete_lines(serial_text)
         line_set = set(lines)
@@ -367,6 +398,11 @@ class AutomaticRfbInput:
                 self._type(pid, self.fixture.owner_password)
                 self._tap(pid, 0xFF0D)
                 self.save_login_sent = True
+            if self.desktop_progress or recovery.uses_desktop(lines):
+                if not self.save_login_sent:
+                    raise AutomationError("desktop appeared before fixture owner authentication")
+                self._handle_desktop(lines, pid)
+                return
             if NOTES_INPUT_READY in line_set and not self.note_input_sent:
                 if not self.registration_sent or not self.save_login_sent:
                     raise AutomationError("Notes input appeared before fixture owner authentication")
@@ -397,6 +433,11 @@ class AutomaticRfbInput:
                 self._type(pid, self.fixture.owner_password)
                 self._tap(pid, 0xFF0D)
                 self.owner_password_sent = True
+            if self.desktop_progress or recovery.uses_desktop(lines):
+                if not self.owner_password_sent:
+                    raise AutomationError("desktop appeared before fixture owner authentication")
+                self._handle_desktop(lines, pid)
+                return
             if NOTES_INPUT_READY in line_set and not self.read_closed:
                 if not any(line.startswith(NOTES_REOPENED_PREFIX) for line in lines):
                     raise AutomationError("read boot reached Notes input without reopening the saved note")
@@ -414,6 +455,8 @@ class AutomaticRfbInput:
             "reject-close": self.wrong_password_sent and self.rejection_closed,
             "read": self.owner_password_sent and self.read_closed,
         }[self.phase]
+        if self.desktop_progress:
+            complete = self.desktop_progress == len(recovery.DESKTOP_NOTES_FLOW[self.phase])
         if not complete:
             raise AutomationError(f"{self.phase} did not complete its gated fixture input sequence")
 

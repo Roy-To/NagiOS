@@ -25,6 +25,7 @@ STAGES = [
     ("session_attached", "NAGI_DEV_TASK24_SESSION_ATTACHED"),
     ("identity_handshake", "NAGI_DEV_TASK24_IDENTITY_HANDSHAKE_COMPLETED"),
     ("ready", "nagi-init: state=ready"),
+    ("desktop_ready", "NAGI_DEV_DESKTOP_READY"),
     ("notes_input_ready", "NAGI_DEV_NOTES_INPUT_READY"),
     ("notes_saved", "NAGI_DEV_NOTES_SAVED"),
     ("notes_reopened", "NAGI_DEV_NOTES_REOPENED"),

@@ -99,6 +99,51 @@ class AutomaticRfbTests(unittest.TestCase):
         ])
         driver.verify_complete()
 
+    def test_desktop_save_relaunches_before_logout(self):
+        driver, keyboard, _ = self.make_driver("save")
+        markers = [automatic.REGISTRATION_WAIT, recovery.LOGIN_WAIT]
+        self.feed(driver, *markers)
+        keyboard.reset_mock()
+        for marker in recovery.DESKTOP_NOTES_FLOW["save"]:
+            if marker in (recovery.SAVED, recovery.REOPENED):
+                marker += " object=0000000000000001 revision=1"
+            markers.append(marker)
+            self.feed(driver, *markers)
+            self.feed(driver, *markers)
+        driver.verify_complete()
+        self.assertEqual(keyboard.mock_calls, [
+            call.tap(0xFF0D),  # First launch
+            call.type_fixture_text(self.fixture.note_text),
+            call.tap(0xFF0D),  # Save
+            call.tap(0xFF1B),
+            call.tap(0xFF0D),  # Relaunch
+            call.tap(0xFF1B),
+            call.tap(0xFF09),
+            call.tap(0xFF0D),  # Logout
+        ])
+
+    def test_desktop_read_requires_reopen_before_accepting_input(self):
+        driver, keyboard, _ = self.make_driver("read")
+        markers = [recovery.LOGIN_WAIT]
+        self.feed(driver, *markers)
+        keyboard.reset_mock()
+        markers.append(recovery.DESKTOP_READY)
+        self.feed(driver, *markers)
+        markers.append(recovery.DESKTOP_LAUNCH)
+        self.feed(driver, *markers)
+        with self.assertRaisesRegex(automatic.AutomationError, "out-of-order desktop marker"):
+            self.feed(driver, *markers, recovery.INPUT)
+        self.assertEqual(keyboard.mock_calls, [call.tap(0xFF0D)])
+        for marker in recovery.DESKTOP_NOTES_FLOW["read"][2:]:
+            if marker == recovery.REOPENED:
+                marker += " object=0000000000000001 revision=1"
+            markers.append(marker)
+            self.feed(driver, *markers)
+        driver.verify_complete()
+        self.assertEqual(keyboard.mock_calls, [
+            call.tap(0xFF0D), call.tap(0xFF1B), call.tap(0xFF09), call.tap(0xFF0D),
+        ])
+
     def test_reject_sends_one_wrong_password_and_waits_for_return_to_login(self):
         driver, keyboard, _ = self.make_driver("reject-close")
         self.feed(driver, recovery.LOGIN_WAIT, recovery.LOGIN_REJECTED)
