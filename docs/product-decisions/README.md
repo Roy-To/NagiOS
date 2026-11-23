@@ -197,7 +197,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
 | DEC-066 | [同一LANから始める共通Device Connectivity／Trust／Transport](DEC-066-device-connectivity-lan-first.md) | CONFIRMED（初期LAN・共通抽象・将来遠隔拡張・安全境界）／PROVISIONAL（具体方式・運用・時期・性能） | 2026-11-16 |
-| DEC-067 | [Nagi PowerとOS全体の決定論的な電力・熱・資源管理](DEC-067-nagi-power-deterministic-resource-management.md) | CONFIRMED（自動管理・安全／前景優先・簡易の省電力／バランス／高性能モード選択）／PROVISIONAL（名称・数値・端末・効果・実装版・Gate） | 2026-11-16 |
+| DEC-067 | [Nagi PowerとOS全体の決定論的な電力・熱・資源管理](DEC-067-nagi-power-deterministic-resource-management.md) | CONFIRMED（自動管理・安全／通常時の前景優先・簡易モード選択、Automation Mode構想のAI資源集中という意図・端末別実行戦略の許容）／PROVISIONAL（Automation Mode正式採用・起動条件／制御・端末・効果・実装版・Gate） | 2026-11-23 |
 | DEC-068 | [Nagi Sleep（仮称）— スリープ・休止状態・復帰の管理](DEC-068-nagi-sleep-resume-recovery.md) | CONFIRMED（非LLM管理・状態保存と再検証・通常復帰と障害復旧の区別・段階的Hibernate）／PROVISIONAL（名称・方式・端末・時期・Gate） | 2026-11-16 |
 | DEC-069 | [35項目のFoundation Checklist管理](DEC-069-foundation-checklist-management.md) | CONFIRMED（台帳管理）／PROVISIONAL（推奨優先度・検討順序） | 2026-11-16 |
 | DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作／PX-13後期優先・Cloud橋渡しとの整合](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（許可されたMemoryに基づく個人向け制作／改善の方向、Cloud利用は別承認）／PROVISIONAL（Memory許可・UI・Bridge技術・動的適応・提供版） | 2026-11-17 |
@@ -306,6 +306,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-23 | [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)にAutomation Mode構想の意図を補足。PCの無人時にAI Taskへ資源を集中する目的は省電力ではなく処理能力の最大活用であり、PC／タブレット／モバイルで実行戦略が異なることを許容。モバイルでは復帰速度と電池を優先し短時間・断続処理を検討候補とする。具体制御・正式採用・版・実機対応はPROVISIONAL。DEC-020／029／067／082／094および既存Gateは維持。 |
 | 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)の後続決定で、Councilをセキュリティ審査のための必要時起動を主眼とする方針に明確化。普段の回答深掘りには常時合議せず、外部Cloud LLMはDEC-002の事前許可を条件とする選択肢。具体的なCouncil招集条件・Cloudルーティング・性能・版はPROVISIONAL。[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)に整合。 |
 | 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)を新設し、[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)へ連携。Councilを追加レビュー層とし、端末Resource適応・OS認可独立をCONFIRMED、低スペックの直列3回推論／省略・全会一致等はPROVISIONAL。Release Gate・既存の実装優先順位は不変。 |
 | 2026-11-17 | DEC-020に8GB RAM級の前景操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する決定を追記。実施詳細は未確定とし、既存Gate・測定証拠の区別を維持。 |
