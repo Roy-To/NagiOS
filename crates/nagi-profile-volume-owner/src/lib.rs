@@ -12,6 +12,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(target_os = "linux")]
 mod linux_data;
 
+/// The storage namespace selected by the profile-volume owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppStorageKind {
+    Notes,
+    Settings,
+    Calendar,
+}
+
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileVolumeNotesOwnerStatus {
@@ -48,6 +56,7 @@ impl fmt::Display for ProfileVolumeNotesOwnerError {
 impl std::error::Error for ProfileVolumeNotesOwnerError {}
 
 struct VerifiedProfileVolumeAttachment {
+    kind: AppStorageKind,
     principal_id: String,
     profile_id: String,
     object_directory: OwnedFd,
@@ -71,12 +80,14 @@ enum AttachmentStatus {
 impl VerifiedProfileVolumeAttachment {
     #[cfg(any(test, target_os = "linux"))]
     fn new(
+        kind: AppStorageKind,
         principal_id: impl Into<String>,
         profile_id: impl Into<String>,
         object_directory: OwnedFd,
         notes_object_id: ObjectId,
     ) -> Self {
         Self {
+            kind,
             principal_id: principal_id.into(),
             profile_id: profile_id.into(),
             object_directory,
@@ -116,16 +127,28 @@ enum OwnerState {
 /// This owner instance is also the storage namespace key: do not merge
 /// attachments by PrincipalId/ProfileId alone. Reopening the same logical root
 /// must reuse this owner, while another trust domain gets a separate owner.
-pub struct ProfileVolumeNotesOwner {
+pub struct ProfileVolumeAppOwner {
+    kind: AppStorageKind,
     state: OwnerState,
 }
 
-impl ProfileVolumeNotesOwner {
+pub type ProfileVolumeNotesOwner = ProfileVolumeAppOwner;
+
+impl ProfileVolumeAppOwner {
     /// Start fail closed until the selected-profile-volume source is wired.
     pub const fn pending() -> Self {
+        Self::pending_for(AppStorageKind::Notes)
+    }
+
+    pub const fn pending_for(kind: AppStorageKind) -> Self {
         Self {
+            kind,
             state: OwnerState::Pending,
         }
+    }
+
+    pub const fn kind(&self) -> AppStorageKind {
+        self.kind
     }
 
     /// Volume Manager entry point for the boot-selected Linux Data mount.
@@ -148,10 +171,10 @@ impl ProfileVolumeNotesOwner {
             OwnerState::Ended => return Err(Ended),
         }
         let (directory, object, allow_initial_index) =
-            linux_data::reserve(data_root, mount_id, user, profile, principal)
+            linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
                 .map_err(|_| Unavailable)?;
         let mut attachment =
-            VerifiedProfileVolumeAttachment::new(principal, profile, directory, object);
+            VerifiedProfileVolumeAttachment::new(self.kind, principal, profile, directory, object);
         attachment.allow_initial_index = allow_initial_index;
         self.state = OwnerState::Verified(Arc::new(attachment));
         Ok(())
@@ -266,8 +289,27 @@ impl ProfileVolumeNotesOwner {
         object_directory: OwnedFd,
         notes_object_id: ObjectId,
     ) -> Self {
+        Self::verified_fixture_for(
+            AppStorageKind::Notes,
+            principal_id,
+            profile_id,
+            object_directory,
+            notes_object_id,
+        )
+    }
+
+    #[cfg(test)]
+    fn verified_fixture_for(
+        kind: AppStorageKind,
+        principal_id: impl Into<String>,
+        profile_id: impl Into<String>,
+        object_directory: OwnedFd,
+        notes_object_id: ObjectId,
+    ) -> Self {
         Self {
+            kind,
             state: OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
+                kind,
                 principal_id,
                 profile_id,
                 object_directory,
@@ -277,7 +319,7 @@ impl ProfileVolumeNotesOwner {
     }
 }
 
-impl Drop for ProfileVolumeNotesOwner {
+impl Drop for ProfileVolumeAppOwner {
     fn drop(&mut self) {
         let old = std::mem::replace(&mut self.state, OwnerState::Ended);
         if let OwnerState::Verified(attachment) = old {
@@ -297,6 +339,20 @@ pub struct ProfileVolumeNotesBundle {
 }
 
 impl ProfileVolumeNotesBundle {
+    pub fn kind(&self) -> AppStorageKind {
+        self.attachment.kind
+    }
+
+    pub fn validate_kind(
+        &self,
+        expected: AppStorageKind,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        if self.kind() != expected {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        Ok(())
+    }
+
     pub fn principal_id(&self) -> &str {
         &self.attachment.principal_id
     }
@@ -306,6 +362,10 @@ impl ProfileVolumeNotesBundle {
     }
 
     pub fn notes_object_id(&self) -> ObjectId {
+        self.object_id()
+    }
+
+    pub fn object_id(&self) -> ObjectId {
         self.attachment.notes_object_id
     }
 
@@ -464,6 +524,26 @@ mod tests {
             bundle.validate_scope("principal_notes_owner_test", "profile_notes_other"),
             Err(ProfileVolumeNotesOwnerError::ProfileMismatch)
         ));
+    }
+
+    #[test]
+    fn bundle_rejects_a_different_storage_kind() {
+        let (directory, _peer) = UnixStream::pair().unwrap();
+        let owner = ProfileVolumeAppOwner::verified_fixture_for(
+            AppStorageKind::Calendar,
+            "principal_notes_owner_test",
+            "profile_notes_owner_test",
+            directory.into(),
+            ObjectId(0x4e4f_5445),
+        );
+        let bundle = issue_fixture(&owner, "profile_notes_owner_test").unwrap();
+        assert_eq!(bundle.kind(), AppStorageKind::Calendar);
+        assert_eq!(bundle.object_id(), ObjectId(0x4e4f_5445));
+        assert_eq!(bundle.validate_kind(AppStorageKind::Calendar), Ok(()));
+        assert_eq!(
+            bundle.validate_kind(AppStorageKind::Notes),
+            Err(ProfileVolumeNotesOwnerError::ForeignAttachment)
+        );
     }
 
     #[test]

@@ -20,7 +20,9 @@ use nagi_identity_session::{
 };
 use nagi_model::ObjectId;
 #[cfg(target_os = "linux")]
-use nagi_profile_volume_notes_owner::{ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError};
+use nagi_profile_volume_notes_owner::{
+    AppStorageKind, ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError,
+};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
@@ -347,6 +349,9 @@ where
         authorizer: A,
         io_budget: std::time::Duration,
     ) -> Result<Self, ProfileRootNotesInputError> {
+        bundle
+            .validate_kind(AppStorageKind::Notes)
+            .map_err(ProfileRootNotesInputError::Bundle)?;
         bundle
             .validate_scope(
                 identity.principal_id().as_str(),

@@ -1,5 +1,6 @@
 //! Volume Manager storage for the boot-selected development Data mount.
 
+use super::AppStorageKind;
 use nagi_model::{ObjectId, UserId};
 use rustix::fs::{
     flock, linkat, mkdirat, openat2, statx, AtFlags, Dir, FileType, FlockOperation, Mode, OFlags,
@@ -11,11 +12,41 @@ use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 
-const PROFILE_DIRECTORY: &str = "profile-notes-v1";
 const OBJECT_DIRECTORY: &str = "objects";
 const RESERVATION: &str = "reservation.v1";
 const MAX_ID_BYTES: usize = 128;
 const MAX_RECORD_BYTES: u64 = 512;
+
+fn storage_layout(kind: AppStorageKind) -> (&'static str, &'static str) {
+    match kind {
+        AppStorageKind::Notes => ("profile-notes-v1", "NAGI-NOTES-PROFILE-2"),
+        AppStorageKind::Settings => ("profile-settings-v1", "NAGI-SETTINGS-PROFILE-1"),
+        AppStorageKind::Calendar => ("profile-calendar-v1", "NAGI-CALENDAR-PROFILE-1"),
+    }
+}
+
+fn parse_reservation(
+    kind: AppStorageKind,
+    scope: &str,
+    record: &str,
+) -> io::Result<(ObjectId, bool)> {
+    let (_, heading) = storage_layout(kind);
+    let (observed_heading, record) = record.split_once('\n').ok_or(io::ErrorKind::InvalidData)?;
+    let allow_initial_index = match observed_heading {
+        found if found == heading => true,
+        "NAGI-NOTES-PROFILE-1" if kind == AppStorageKind::Notes => false,
+        _ => return Err(io::ErrorKind::InvalidData.into()),
+    };
+    let hex = record
+        .strip_prefix(scope)
+        .and_then(|suffix| suffix.strip_suffix('\n'))
+        .ok_or(io::ErrorKind::InvalidData)?;
+    let object = u64::from_str_radix(hex, 16).map_err(|_| io::ErrorKind::InvalidData)?;
+    if object == 0 || hex != format!("{object:016x}") {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    Ok((ObjectId(object), allow_initial_index))
+}
 
 pub(super) fn reserve(
     data: &impl AsFd,
@@ -23,6 +54,7 @@ pub(super) fn reserve(
     user: UserId,
     profile: &str,
     principal: &str,
+    kind: AppStorageKind,
 ) -> io::Result<(OwnedFd, ObjectId, bool)> {
     if user.0 == 0
         || !valid_label(profile.strip_prefix("profile_").unwrap_or(""), false)
@@ -36,7 +68,8 @@ pub(super) fn reserve(
         return Err(io::ErrorKind::PermissionDenied.into());
     }
 
-    let profiles = private_directory(data, PROFILE_DIRECTORY)?;
+    let (profile_directory, heading) = storage_layout(kind);
+    let profiles = private_directory(data, profile_directory)?;
     let profile_root = private_directory(&profiles, profile)?;
     flock(&profile_root, FlockOperation::NonBlockingLockExclusive)?;
     let objects = private_directory(&profile_root, OBJECT_DIRECTORY)?;
@@ -60,27 +93,9 @@ pub(super) fn reserve(
             (&file)
                 .take(MAX_RECORD_BYTES + 1)
                 .read_to_string(&mut record)?;
-            let (record, allow_initial_index) =
-                if let Some(rest) = record.strip_prefix("NAGI-NOTES-PROFILE-2\n") {
-                    (rest, true)
-                } else {
-                    (
-                        record
-                            .strip_prefix("NAGI-NOTES-PROFILE-1\n")
-                            .ok_or(io::ErrorKind::InvalidData)?,
-                        false,
-                    )
-                };
-            let hex = record
-                .strip_prefix(&scope)
-                .and_then(|suffix| suffix.strip_suffix('\n'))
-                .ok_or(io::ErrorKind::InvalidData)?;
-            let object = u64::from_str_radix(hex, 16).map_err(|_| io::ErrorKind::InvalidData)?;
-            if object == 0 || hex != format!("{object:016x}") {
-                return Err(io::ErrorKind::InvalidData.into());
-            }
+            let reservation = parse_reservation(kind, &scope, &record)?;
             file.sync_all()?;
-            (ObjectId(object), allow_initial_index)
+            reservation
         }
         Err(Errno::NOENT) => {
             // A profile with existing objects needs its original reservation.
@@ -102,7 +117,7 @@ pub(super) fn reserve(
                 OFlags::TMPFILE | OFlags::WRONLY | OFlags::CLOEXEC,
                 Mode::RUSR | Mode::WUSR,
             )?);
-            writeln!(pending, "NAGI-NOTES-PROFILE-2\n{scope}{object:016x}")?;
+            writeln!(pending, "{heading}\n{scope}{object:016x}")?;
             pending.sync_all()?;
             // Atomic publication without replacing an existing reservation.
             linkat(
@@ -167,4 +182,43 @@ fn valid_label(label: &str, principal: bool) -> bool {
                 || matches!(c, b'_' | b'-')
                 || (principal && matches!(c, b':' | b'.'))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kind_namespaces_accept_only_their_own_reservations() {
+        use AppStorageKind::*;
+        let scope = "0000000000000001\nprofile_fixture\nprincipal\n";
+        let layouts = [
+            (Notes, "profile-notes-v1", "NAGI-NOTES-PROFILE-2"),
+            (Settings, "profile-settings-v1", "NAGI-SETTINGS-PROFILE-1"),
+            (Calendar, "profile-calendar-v1", "NAGI-CALENDAR-PROFILE-1"),
+        ];
+        for (kind, directory, heading) in layouts {
+            assert_eq!(storage_layout(kind), (directory, heading));
+            let record = format!("{heading}\n{scope}0000000000000002\n");
+            for (candidate, _, _) in layouts {
+                let result = parse_reservation(candidate, scope, &record);
+                if candidate == kind {
+                    assert_eq!(result.unwrap(), (ObjectId(2), true));
+                } else {
+                    assert_eq!(result.unwrap_err().kind(), io::ErrorKind::InvalidData);
+                }
+            }
+        }
+        let legacy = format!("NAGI-NOTES-PROFILE-1\n{scope}0000000000000002\n");
+        assert_eq!(
+            parse_reservation(Notes, scope, &legacy).unwrap(),
+            (ObjectId(2), false)
+        );
+        for kind in [Settings, Calendar] {
+            assert_eq!(
+                parse_reservation(kind, scope, &legacy).unwrap_err().kind(),
+                io::ErrorKind::InvalidData
+            );
+        }
+    }
 }
