@@ -404,7 +404,7 @@ impl HostPreviewStore {
         let bytes = fs::read(path).map_err(|error| StoreError::Io(error.to_string()))?;
         let input = std::str::from_utf8(&bytes)
             .map_err(|error| StoreError::Corrupt(format!("note is not valid UTF-8: {error}")))?;
-        let parsed = decode_stored(&input, self.ids.as_ref())
+        let parsed = decode_stored(input, self.ids.as_ref())
             .map_err(|error| StoreError::Corrupt(error.to_string()))?;
         if parsed.id != id || parsed.revision != revision {
             return Err(StoreError::Corrupt(

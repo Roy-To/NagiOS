@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(stream.buffered_bytes(), 7);
 
         let reader = stream.into_inner();
-        let mut restarted = EvdevStream::new(reader, LinuxEvdevTarget::X86_64);
+        let restarted = EvdevStream::new(reader, LinuxEvdevTarget::X86_64);
         assert_eq!(restarted.buffered_bytes(), 0);
     }
 }

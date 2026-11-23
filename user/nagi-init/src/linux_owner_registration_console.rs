@@ -201,27 +201,9 @@ impl Framebuffer {
 
 #[derive(Debug)]
 pub(super) enum RegistrationConsoleError<E> {
-    Io {
-        operation: &'static str,
-        source: io::Error,
-    },
+    Io(io::Error),
     CredentialUnavailable,
     Save(E),
-}
-
-/// PID 1 renders only OS errors and fixed messages from the console input path.
-pub(super) fn registration_console_message(error: &io::Error) -> String {
-    if let Some(errno) = error.raw_os_error() {
-        return io::Error::from_raw_os_error(errno).to_string();
-    }
-    let message = error.to_string();
-    match message.as_str() {
-        "keyboard events were lost"
-        | "keyboard poll returned an invalid event"
-        | "required Identity exited during registration"
-        | "unexpected C3 event while monitoring Identity" => message,
-        _ => io::Error::from(error.kind()).to_string(),
-    }
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -286,7 +268,25 @@ impl UnlockInput {
     }
 }
 
+pub(super) struct ConsoleKey {
+    pub(super) event: InputEvent,
+    #[cfg(all(
+        linux_task24_owner_co_location,
+        linux_task24_initial_login_runtime,
+        linux_task24_notes_consumer,
+        linux_dev_notes_performance
+    ))]
+    pub(super) monotonic_ns: Option<u64>,
+}
+
 pub(super) struct BootOwnerConsole {
+    #[cfg(all(
+        linux_task24_owner_co_location,
+        linux_task24_initial_login_runtime,
+        linux_task24_notes_consumer,
+        linux_dev_notes_performance
+    ))]
+    keyboard_clock_ready_ns: Option<u64>,
     keyboard: File,
     framebuffer: Framebuffer,
     pixels: Vec<u32>,
@@ -301,7 +301,30 @@ impl BootOwnerConsole {
         if unsafe { ioctl(keyboard.as_raw_fd(), EVIOCGRAB, 1i32) } < 0 {
             return Err(io::Error::last_os_error());
         }
+        #[cfg(all(
+            linux_task24_owner_co_location,
+            linux_task24_initial_login_runtime,
+            linux_task24_notes_consumer,
+            linux_dev_notes_performance
+        ))]
+        let keyboard_clock_ready_ns =
+            crate::task24_notes_performance::monotonic_ns().and_then(|before| {
+                // Linux x86-64 EVIOCSCLOCKID takes a pointer to a clockid_t.
+                const EVIOCSCLOCKID: u64 = 0x4004_45a0;
+                // SAFETY: the retained evdev FD is live and ioctl reads one clockid_t.
+                let result =
+                    unsafe { ioctl(keyboard.as_raw_fd(), EVIOCSCLOCKID, &libc::CLOCK_MONOTONIC) };
+                (result == 0)
+                    .then(|| crate::task24_notes_performance::monotonic_ns().unwrap_or(before))
+            });
         Ok(Self {
+            #[cfg(all(
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                linux_task24_notes_consumer,
+                linux_dev_notes_performance
+            ))]
+            keyboard_clock_ready_ns,
             keyboard,
             framebuffer: Framebuffer::open()?,
             pixels: vec![0; (SURFACE_WIDTH * SURFACE_HEIGHT) as usize],
@@ -320,7 +343,7 @@ impl BootOwnerConsole {
         Ok(())
     }
 
-    fn read_key_event(&mut self) -> io::Result<Option<InputEvent>> {
+    fn read_key_event(&mut self) -> io::Result<Option<ConsoleKey>> {
         // x86-64 input_event ends in u16 type, u16 code, and i32 value.
         let mut data = [0u8; 24];
         if let Err(error) = self.keyboard.read_exact(&mut data) {
@@ -331,24 +354,53 @@ impl BootOwnerConsole {
         let code = u16::from_le_bytes([data[18], data[19]]);
         let value = i32::from_le_bytes([data[20], data[21], data[22], data[23]]);
         if event_type == 0 && code == 3 {
+            #[cfg(all(
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                linux_task24_notes_consumer,
+                linux_dev_notes_performance
+            ))]
+            // Clock setup can flush a pending startup packet and enqueue
+            // SYN_DROPPED. No input state has been consumed at that point.
+            if crate::task24_notes_performance::clock_setup_dropped(
+                self.keyboard_clock_ready_ns,
+                &data,
+            ) {
+                return Ok(None);
+            }
             self.frame_presented.store(false, Ordering::Release);
             return Err(io::Error::other("keyboard events were lost"));
         }
         Ok(
-            (event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1)).then_some(
-                InputEvent {
-                    event_type,
-                    code,
-                    value,
-                },
-            ),
+            (event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1)).then(|| {
+                ConsoleKey {
+                    event: InputEvent {
+                        event_type,
+                        code,
+                        value,
+                    },
+                    #[cfg(all(
+                        linux_task24_owner_co_location,
+                        linux_task24_initial_login_runtime,
+                        linux_task24_notes_consumer,
+                        linux_dev_notes_performance
+                    ))]
+                    monotonic_ns: self
+                        .keyboard_clock_ready_ns
+                        .filter(|_| value == 1)
+                        .and_then(|ready_ns| {
+                            crate::task24_notes_performance::evdev_monotonic_ns(&data)
+                                .filter(|received_ns| *received_ns >= ready_ns)
+                        }),
+                }
+            }),
         )
     }
 
     pub(super) fn next_key(&mut self) -> io::Result<InputEvent> {
         loop {
             if let Some(event) = self.read_key_event()? {
-                return Ok(event);
+                return Ok(event.event);
             }
         }
     }
@@ -358,6 +410,15 @@ impl BootOwnerConsole {
         &mut self,
         timeout: std::time::Duration,
     ) -> io::Result<Option<InputEvent>> {
+        self.next_console_key_timeout(timeout)
+            .map(|key| key.map(|key| key.event))
+    }
+
+    #[cfg(all(linux_task24_owner_co_location, linux_task24_initial_login_runtime))]
+    pub(super) fn next_console_key_timeout(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> io::Result<Option<ConsoleKey>> {
         const POLLIN: i16 = 0x001;
         let mut descriptor = PollFd {
             fd: self.keyboard.as_raw_fd(),
@@ -394,11 +455,7 @@ impl BootOwnerConsole {
         SaveAccount: FnOnce(AccountRecord) -> Result<(), E>,
     {
         use RegistrationConsoleError::*;
-        self.present(|painter| screen.render(painter))
-            .map_err(|source| Io {
-                operation: "initial-present",
-                source,
-            })?;
+        self.present(|painter| screen.render(painter)).map_err(Io)?;
         #[cfg(linux_task24_owner_co_location)]
         if let Ok(connection) = self.consent_connection() {
             use super::pid1_live_peer_supplier::ConsentSource;
@@ -410,36 +467,21 @@ impl BootOwnerConsole {
             "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
         ));
         loop {
-            let event = next_key(self).map_err(|source| Io {
-                operation: "read-event",
-                source,
-            })?;
+            let event = next_key(self).map_err(Io)?;
             if event.value == 0 {
                 continue;
             }
             match screen.handle_event(event) {
                 LinuxRegistrationOutcome::Ignored => {}
                 LinuxRegistrationOutcome::Redraw => {
-                    self.present(|painter| screen.render(painter))
-                        .map_err(|source| Io {
-                            operation: "redraw",
-                            source,
-                        })?;
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
                 }
                 LinuxRegistrationOutcome::CredentialUnavailable => {
-                    self.present(|painter| screen.render(painter))
-                        .map_err(|source| Io {
-                            operation: "derive-error-present",
-                            source,
-                        })?;
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
                     return Err(CredentialUnavailable);
                 }
                 LinuxRegistrationOutcome::Submitted(result) => {
-                    self.present(|painter| screen.render(painter))
-                        .map_err(|source| Io {
-                            operation: "submit-present",
-                            source,
-                        })?;
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
                     return result.map_err(Save);
                 }
             }

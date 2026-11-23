@@ -171,6 +171,7 @@ pub enum SessionKind {
 #[serde(rename_all = "snake_case")]
 pub enum SessionEndReason {
     UserLogout,
+    Revoked,
     Expired,
     SystemRestart,
     Recovery,

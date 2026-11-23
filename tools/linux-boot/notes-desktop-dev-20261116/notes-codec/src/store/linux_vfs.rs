@@ -600,7 +600,7 @@ fn validate_device_capacity(device: &LinuxBlockDevice) -> Result<(), StoreError>
             MIN_VFS_BYTES
         )));
     }
-    if device.capacity_bytes() % SECTOR_SIZE as u64 != 0 {
+    if !device.capacity_bytes().is_multiple_of(SECTOR_SIZE as u64) {
         return Err(StoreError::Io(
             "Nagi VFS development disk has a non-sector-aligned capacity".to_owned(),
         ));

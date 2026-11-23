@@ -126,7 +126,7 @@ pub use service::{
     target_arch = "x86_64"
 ))]
 pub use service::{
-    C1PreviousLaunchTerminalGate, C1SystemServicePrincipalIssueError,
+    C1PreviousBootTerminalGate, C1PreviousLaunchTerminalGate, C1SystemServicePrincipalIssueError,
     C1SystemServiceRuntimeAdmission, C1SystemServiceRuntimeHandoff,
     C1VerifiedBootSystemServicePrincipal,
 };

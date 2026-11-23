@@ -34,10 +34,21 @@ pub(in crate::linux_init) fn pin_boot_package_key(key: &[u8; 32]) -> io::Result<
 
 pub(in crate::linux_init) struct PendingIdentityListener {
     pending: Option<PendingSpawnOwnedEndpoint>,
-    lease: Arc<Mutex<Option<LoginLease>>>,
+    lease: Arc<Mutex<IdentityListenerLeaseState>>,
     run: Arc<BootLoginRun>,
     inventory: IdentityInventory,
     placement: LaunchPlacement,
+}
+
+#[derive(Default)]
+struct IdentityListenerLeaseState {
+    lease: Option<LoginLease>,
+    ready_spawn: Option<IdentityReadySpawnBinding>,
+}
+
+struct IdentityReadySpawnBinding {
+    proof: SpawnedProcessPidfd,
+    record: LaunchRecord,
 }
 
 struct IdentityInventory {
@@ -141,7 +152,7 @@ impl PendingIdentityListener {
         })?;
         Ok(Self {
             pending: Some(pending),
-            lease: Arc::new(Mutex::new(None)),
+            lease: Arc::new(Mutex::new(IdentityListenerLeaseState::default())),
             run,
             inventory: IdentityInventory {
                 owner,
@@ -160,14 +171,22 @@ impl PendingIdentityListener {
             .map_err(|_| denied("Identity listener locator rejected"))
     }
 
-    /// Lend the lease retained by this launch. C2 checks the exact C3 proof
-    /// before it uses the registration and again before publishing READY.
-    pub(in crate::linux_init) fn with_lease<T>(
+    /// Lend the exact C2 spawn binding retained by this launch. READY
+    /// publication must pass both values back through the C2 owner gate.
+    pub(in crate::linux_init) fn with_ready_owner<T>(
         &self,
-        use_lease: impl FnOnce(&LoginLease) -> Result<T, PeerDenial>,
+        use_owner: impl FnOnce(&LoginLease, &SpawnedProcessPidfd, LaunchRecord) -> Result<T, PeerDenial>,
     ) -> Result<T, PeerDenial> {
-        let lease = self.lease.try_lock().map_err(|_| PeerDenial::Unavailable)?;
-        use_lease(lease.as_ref().ok_or(PeerDenial::RequiredServiceMissing)?)
+        let state = self.lease.try_lock().map_err(|_| PeerDenial::Unavailable)?;
+        let lease = state
+            .lease
+            .as_ref()
+            .ok_or(PeerDenial::RequiredServiceMissing)?;
+        let spawn = state
+            .ready_spawn
+            .as_ref()
+            .ok_or(PeerDenial::RequiredServiceMissing)?;
+        use_owner(lease, &spawn.proof, spawn.record)
     }
 }
 
@@ -194,9 +213,14 @@ impl C3PendingIdentityListener for PendingIdentityListener {
             .lease
             .try_lock()
             .map_err(|_| denied("Identity lease busy"))?;
-        if self.pending.is_none() || lease_slot.is_some() {
+        if self.pending.is_none() || lease_slot.lease.is_some() || lease_slot.ready_spawn.is_some()
+        {
             return Err(denied("Identity listener already transferred"));
         }
+        // Keep an identity-only pidfd duplicate for the later C2 READY gate.
+        // The C2 lease below retains the separate spawn proof it owns for
+        // activation and retirement; this duplicate does not gain reap power.
+        let ready_proof = child.duplicate_for_authority()?;
         let record = supervisor::try_with_registry(|registry| {
             registry.record_launch(
                 identity.process_id(),
@@ -207,13 +231,17 @@ impl C3PendingIdentityListener for PendingIdentityListener {
         .ok_or_else(|| denied("Identity Supervisor busy"))?
         .map_err(|_| denied("Identity live record rejected"))?;
         let pending = self.pending.take().expect("pending listener checked above");
-        *lease_slot = Some(LoginLease::retain_pending_before_exec_gate(
+        lease_slot.lease = Some(LoginLease::retain_pending_before_exec_gate(
             pending,
             child,
             record,
             self.run.run_owner.run(),
             &self.run.instances,
         ));
+        lease_slot.ready_spawn = Some(IdentityReadySpawnBinding {
+            proof: ready_proof,
+            record,
+        });
         Ok(Box::new(IdentityLaunchLease {
             run: Arc::clone(&self.run),
             inventory: IdentityInventory {
@@ -234,7 +262,7 @@ impl C3PendingIdentityListener for PendingIdentityListener {
 struct IdentityLaunchLease {
     run: Arc<BootLoginRun>,
     inventory: IdentityInventory,
-    lease: Arc<Mutex<Option<LoginLease>>>,
+    lease: Arc<Mutex<IdentityListenerLeaseState>>,
     identity: SpawnedProcessIdentity,
     record: LaunchRecord,
     c3_launch_record: SystemServiceLaunchRecord,
@@ -297,6 +325,7 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
         self.lease
             .try_lock()
             .map_err(|_| denied("Identity lease busy"))?
+            .lease
             .as_mut()
             .ok_or_else(|| denied("Identity lease unavailable"))?
             .activate_after_c3_identity_exec_ack(
@@ -325,6 +354,7 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
             .try_lock()
             .map_err(|_| denied("Identity lease busy"))?;
         let lease = lease_slot
+            .lease
             .as_mut()
             .ok_or_else(|| denied("Identity lease unavailable"))?;
         if !lease.matches_spawn(binding.process_identity(), &self.record) {
@@ -351,7 +381,7 @@ impl C3IdentityListenerLaunchLease for IdentityLaunchLease {
             .map_err(peer_error)?
             .then_some(())
             .ok_or_else(|| io::Error::other("Identity lease retirement outcome unknown"))?;
-        *lease_slot = None;
+        *lease_slot = IdentityListenerLeaseState::default();
         Ok(())
     }
 }

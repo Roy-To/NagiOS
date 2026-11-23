@@ -141,6 +141,21 @@ where
         reconcile(owner.identity_mut())
     }
 
+    #[cfg(linux_task24_notes_consumer)]
+    pub(super) fn check_notes_session(
+        &self,
+        lease: SessionLease,
+    ) -> Result<(), nagi_identity_session::ResolutionError> {
+        use nagi_identity_session::ResolutionError;
+        let revalidation = self
+            .owner
+            .try_lock()
+            .map_err(|_| ResolutionError::Unavailable)?
+            .retained_revalidation(lease)
+            .map_err(|_| ResolutionError::Unavailable)?;
+        revalidation.check_live()
+    }
+
     /// Hold C1's exact attached Session across the final Ready consumer.
     /// Release the issuer mutex before entering the live guard so the C2
     /// callback can still perform its independent zero-wait observations.

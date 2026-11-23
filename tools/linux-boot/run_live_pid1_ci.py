@@ -2,12 +2,12 @@
 """Run a fixed live-test manifest in an isolated TCG guest, fail closed.
 
 Inputs are supplied artifacts, never generated substitutes. --manifest is a JSON
-array of exactly 24 unique Rust test names. The prebuilt PID1 supervisor reads
+array of exactly 25 unique Rust test names. The prebuilt PID1 supervisor reads
 /tests.txt and runs /testbin --exact --test-threads=1 NAME, issuing:
   LIVE_PID1_CI BEGIN NAME
   [Rust output: exact qualified NAME and test result: ok. 1 passed; ...]
   LIVE_PID1_CI PASS NAME
-After all children exit successfully it prints LIVE_PID1_CI COMPLETE 24 and
+After all children exit successfully it prints LIVE_PID1_CI COMPLETE 25 and
 powers off. The supervisor must mount proc/dev/sys and retain PID1 until then.
 Markers are a test protocol, not authentication or production READY evidence.
 """
@@ -31,7 +31,7 @@ from build_dev_service_cpio import _entry
 from replace_initramfs_init import RepackError, _validate_static_pie
 
 
-COUNT = 24
+COUNT = 25
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)+")
 SUMMARY = re.compile(
     r"test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; "

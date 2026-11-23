@@ -39,6 +39,27 @@ pub(super) enum LoginCleanupWait {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum LoginInputAction {
+    RetryRejected,
+    RetryExpired,
+    Return,
+}
+
+pub(super) fn login_input_action<E>(
+    error: &E,
+    is_confirmed_rejection: impl FnOnce(&E) -> bool,
+    is_explicit_deadline: impl FnOnce(&E) -> bool,
+) -> LoginInputAction {
+    if is_confirmed_rejection(error) {
+        LoginInputAction::RetryRejected
+    } else if is_explicit_deadline(error) {
+        LoginInputAction::RetryExpired
+    } else {
+        LoginInputAction::Return
+    }
+}
+
 pub(super) fn classify_login_denial_after_cleanup<E>(
     error: E,
     cleanup_confirmed: bool,
@@ -83,8 +104,8 @@ pub(super) fn wait_for_login_cleanup_until(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_login_denial_after_cleanup, wait_for_login_cleanup_until, LoginCleanupPoll,
-        LoginCleanupWait, VerifiedLoginCancellation,
+        classify_login_denial_after_cleanup, login_input_action, wait_for_login_cleanup_until,
+        LoginCleanupPoll, LoginCleanupWait, LoginInputAction, VerifiedLoginCancellation,
     };
     use std::io::BufRead;
     use std::process::{Command, Stdio};
@@ -94,6 +115,7 @@ mod tests {
     enum TestDenial {
         AccountRejected,
         UnresolvedSpawnCleanup,
+        RequestDeadlineExpired,
         RequestOutcomeUnknown,
         Unavailable,
     }
@@ -159,6 +181,15 @@ mod tests {
             ),
             TestDenial::RequestOutcomeUnknown
         );
+        let expired = TestDenial::RequestDeadlineExpired;
+        assert_eq!(
+            login_input_action(
+                &expired,
+                |denial| matches!(denial, TestDenial::AccountRejected),
+                |denial| matches!(denial, TestDenial::RequestDeadlineExpired),
+            ),
+            LoginInputAction::RetryExpired
+        );
     }
 
     #[test]
@@ -172,6 +203,7 @@ mod tests {
             .expect("spawn delayed cleanup child");
         let child_stdin = child.stdin.take().expect("child stdin");
         let mut child_stdout = std::io::BufReader::new(child.stdout.take().expect("child stdout"));
+        let mut child_reaped = false;
         let mut ready = String::new();
         child_stdout
             .read_line(&mut ready)
@@ -190,10 +222,18 @@ mod tests {
         );
         assert_eq!(denial_before_cleanup, TestDenial::UnresolvedSpawnCleanup);
         assert_eq!(
+            login_input_action(
+                &denial_before_cleanup,
+                |denial| matches!(denial, TestDenial::AccountRejected),
+                |denial| matches!(denial, TestDenial::RequestDeadlineExpired),
+            ),
+            LoginInputAction::Return
+        );
+        assert_eq!(
             VerifiedLoginCancellation::from_input_close(
                 || Ok(()),
-                || 1,
-                || Ok(false),
+                || usize::from(!child_reaped),
+                || Ok(!child_reaped),
                 TestDenial::UnresolvedSpawnCleanup,
             )
             .unwrap_err(),
@@ -208,7 +248,10 @@ mod tests {
         let cleanup = wait_for_login_cleanup_until(
             Instant::now() + Duration::from_secs(1),
             || match child.try_wait() {
-                Ok(Some(_)) => LoginCleanupPoll::Complete,
+                Ok(Some(_)) => {
+                    child_reaped = true;
+                    LoginCleanupPoll::Complete
+                }
                 Ok(None) => {
                     pending_polls += 1;
                     LoginCleanupPoll::Pending
@@ -222,23 +265,33 @@ mod tests {
             pending_polls > 0,
             "cleanup must observe the delayed child alive"
         );
-        assert_eq!(
-            classify_login_denial_after_cleanup(
-                TestDenial::AccountRejected,
-                true,
-                |denial| matches!(denial, TestDenial::AccountRejected),
-                TestDenial::UnresolvedSpawnCleanup,
-                TestDenial::RequestOutcomeUnknown,
-            ),
-            TestDenial::AccountRejected
+        let retry_denial = classify_login_denial_after_cleanup(
+            TestDenial::AccountRejected,
+            true,
+            |denial| matches!(denial, TestDenial::AccountRejected),
+            TestDenial::UnresolvedSpawnCleanup,
+            TestDenial::RequestOutcomeUnknown,
         );
+        assert_eq!(retry_denial, TestDenial::AccountRejected);
+        let retry_action = login_input_action(
+            &retry_denial,
+            |denial| matches!(denial, TestDenial::AccountRejected),
+            |denial| matches!(denial, TestDenial::RequestDeadlineExpired),
+        );
+        assert_eq!(
+            retry_action,
+            LoginInputAction::RetryRejected,
+            "confirmed rejection must return to a second input wait"
+        );
+        let input_waits = 1 + usize::from(retry_action == LoginInputAction::RetryRejected);
+        assert_eq!(input_waits, 2);
 
-        // Once the exact child is reaped and no cleanup is unresolved, Escape
-        // follows the ordinary cancellation path.
+        // The retry enters another input wait. Escape then follows the ordinary
+        // cancellation path once exact child cleanup is confirmed.
         let cancelled = VerifiedLoginCancellation::from_input_close(
             || Ok(()),
-            || 0,
-            || Ok(false),
+            || usize::from(!child_reaped),
+            || Ok(!child_reaped),
             TestDenial::UnresolvedSpawnCleanup,
         );
         assert!(cancelled.is_ok());

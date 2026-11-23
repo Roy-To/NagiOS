@@ -1,27 +1,29 @@
 use super::super::linux_init_c3_slot_journal::{
-    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3SlotState,
+    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3SlotState, PriorBootClear,
+    PriorBootClearedReceipt,
 };
+use super::super::linux_init_c3_system_service_owner::C3DurableNormalExitTerminalReceipt;
 #[cfg(linux_task24_initial_login_runtime)]
 use super::super::{
     linux_initial_login_c2::C1InitialLoginAuthority,
     linux_initial_login_owner::LinuxInitialLoginOwner,
 };
-use super::AuthenticatedBootService;
+use super::{AuthenticatedBootService, PreviousIdentityTerminal};
 use crate::profile_volume_notes_owner::BootVolumeInput;
 use nagi_identity_session::{
     c1_linux_boot_identity_service_from_store, C1LinuxBootIdentityService,
-    C1PreviousLaunchTerminalGate, C1RecoveryOperationIdentity, C1SystemServiceRecoveryEffectGate,
-    C1SystemServiceRecoveryReceiptAdapter, C1SystemServiceRuntimeHandoff,
-    C1VerifiedBootSystemServicePrincipal, Clock, GuestProfileCleaner, IdentityAuthorizer,
-    IdentityError, IdentityEventSink, IdentityIdSource, IdentityService,
-    LinuxIdentitySnapshotStore, RecoveryEffectGateError,
+    C1PreviousBootTerminalGate, C1PreviousLaunchTerminalGate, C1RecoveryOperationIdentity,
+    C1SystemServiceRecoveryEffectGate, C1SystemServiceRecoveryReceiptAdapter,
+    C1SystemServiceRuntimeHandoff, C1VerifiedBootSystemServicePrincipal, Clock,
+    GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityIdSource,
+    IdentityService, LinuxIdentitySnapshotStore, RecoveryEffectGateError,
 };
 #[cfg(linux_task24_initial_login_runtime)]
 use nagi_identity_session::{IdempotencyKey, UnixMillis};
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_system_service_recovery_contract::{
     C1RecoveryOperationCorrelation, C1RecoveryReceiptClient, C3RecoverySlotGate,
-    SystemServiceRecoveryAdmissionScope, VerifiedRecoveryBootCatalog,
+    RecoveryClientError, SystemServiceRecoveryAdmissionScope, VerifiedRecoveryBootCatalog,
 };
 use std::io;
 use std::os::fd::AsRawFd;
@@ -82,12 +84,11 @@ impl<'package> AuthenticatedBootService<'package> {
             .map_err(BootIdentityRecoveryError::Data)?;
         let (mut identity, mut event_reader) =
             c1_linux_boot_identity_service_from_store(store, &principal);
-        if let Some(previous) = latest_previous_launch_normal_exit(self)? {
+        if let Some(previous) = previous_identity_terminal(self)? {
             // C1's terminal write may report OutcomeUnknown after a durable
             // rename. Preserve this exact C3 receipt across one same-Data
             // reopen so C1 can read back and C3 can revalidate before retry.
-            match reconcile_previous_launch_with_receipt(self, &principal, &mut identity, &previous)
-            {
+            match reconcile_previous_identity_terminal(self, &principal, &mut identity, &previous) {
                 Ok(()) => {}
                 Err(PreviousLaunchReconcileAttempt::RetryAfterReopen) => {
                     drop(identity);
@@ -100,7 +101,7 @@ impl<'package> AuthenticatedBootService<'package> {
                         c1_linux_boot_identity_service_from_store(retry_store, &principal);
                     identity = retry_identity;
                     event_reader = retry_event_reader;
-                    reconcile_previous_launch_with_receipt(
+                    reconcile_previous_identity_terminal(
                         self,
                         &principal,
                         &mut identity,
@@ -263,19 +264,10 @@ impl SelectedBootIdentityRuntime<'_, '_> {
                 console.next_key()
             })
             .map_err(|error| {
-                use super::super::linux_owner_registration_console::{
-                    registration_console_message, RegistrationConsoleError,
-                };
+                use super::super::linux_owner_registration_console::RegistrationConsoleError;
                 use crate::login_screen::LinuxRegistrationError;
                 let stage = match error {
-                    RegistrationConsoleError::Io { operation, source } => {
-                        super::super::log_pid1_stderr(format_args!(
-                            "NAGI_DEV_OWNER_REGISTRATION_DENIED stage=console operation={operation} kind={:?} message={:?}",
-                            source.kind(),
-                            registration_console_message(&source)
-                        ));
-                        return io::Error::other("owner registration failed");
-                    }
+                    RegistrationConsoleError::Io(_) => "console",
                     RegistrationConsoleError::CredentialUnavailable => "derive",
                     RegistrationConsoleError::Save(LinuxRegistrationError::Identity(_)) => {
                         "identity"
@@ -331,7 +323,9 @@ mod task24 {
     use crate::linux_init::pid1_live_peer_supplier::pidfd_process_instance::{
         LinuxPidfdKernel, PidfdProcessInstanceAuthority,
     };
-    use crate::linux_init::task24_login_cancellation::VerifiedLoginCancellation;
+    use crate::linux_init::task24_login_cancellation::{
+        login_input_action, LoginInputAction, VerifiedLoginCancellation,
+    };
     use crate::linux_init::{
         linux_owner_registration_console::UnlockInputOutcome,
         linux_task24_endpoint_launch::{
@@ -339,13 +333,16 @@ mod task24 {
             EndpointOwners, LoginChildLaunch, LoginCompletion, LoginLifecycle, VerifiedLoginChild,
         },
         pid1_live_peer_supplier::{PeerDenial, Pid1ReadinessAtomicBoundary, SessionLease},
-        publish_lifecycle_ready,
     };
     #[cfg(feature = "system-service-readiness")]
     use crate::linux_init::{
         linux_task24_endpoint_launch::{IdentityReadyProtocol, LoginLease},
         pid1_live_peer_supplier::Pid1CompletedServiceHandshakeOwner,
     };
+    #[cfg(feature = "system-service-readiness")]
+    use libnagi::launch::LaunchRecord;
+    #[cfg(feature = "system-service-readiness")]
+    use nagi_init_spawn_contract::SpawnedProcessPidfd;
     use std::time::Instant;
 
     type Runtime<'boot, 'package> = RecoveredBootIdentity<
@@ -428,12 +425,14 @@ mod task24 {
             attached: SessionLease,
             run: &BootLoginRun,
             launch_lease: &LoginLease,
+            spawn_proof: &SpawnedProcessPidfd,
+            supervisor_record: LaunchRecord,
             handshakes: &Pid1CompletedServiceHandshakeOwner<
                 '_,
                 PidfdProcessInstanceAuthority<LinuxPidfdKernel>,
             >,
             deadline: Instant,
-            ready: &mut bool,
+            publish_ready: impl FnOnce() -> Result<(), PeerDenial>,
         ) -> Result<(), PeerDenial> {
             let plan = run.identity_ready.as_ref().ok_or(PeerDenial::Unavailable)?;
             let proof = &self.boot.proof;
@@ -465,14 +464,42 @@ mod task24 {
                 "NAGI_DEV_TASK24_IDENTITY_HANDSHAKE_COMPLETED"
             ));
             self.with_current_identity_session(attached, || {
-                event.with_current(|_| {
-                    publish_lifecycle_ready(ready).map_err(|_| PeerDenial::Unavailable)
-                })?
+                launch_lease.with_current_system_service_ready_owner(
+                    spawn_proof,
+                    supervisor_record,
+                    &event,
+                    |_registration, _endpoint| publish_ready(),
+                )
             })
         }
     }
 
     impl<'boot, 'package> SelectedBootIdentityRuntime<'boot, 'package> {
+        #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+        pub(in crate::linux_init) fn ws10_check_previous_logout(&self) -> io::Result<()> {
+            use nagi_identity_session::{SessionEndReason, SessionLifecycle};
+            let [session] = self.identity.snapshot().sessions.as_slice() else {
+                return Err(io::Error::other(
+                    "WS-10 expected one previous fixture Session",
+                ));
+            };
+            if !matches!(
+                session.lifecycle,
+                SessionLifecycle::Ended {
+                    reason: SessionEndReason::UserLogout,
+                    ..
+                }
+            ) {
+                return Err(io::Error::other(
+                    "WS-10 previous UserLogout was not preserved",
+                ));
+            }
+            crate::linux_init::log_pid1_stderr(format_args!(
+                "NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED reason=UserLogout"
+            ));
+            Ok(())
+        }
+
         pub(in crate::linux_init) fn prepare_task24_route(
             &self,
             run: &BootLoginRun,
@@ -585,8 +612,19 @@ mod task24 {
                     |channel| submission.submit(channel, input, deadline),
                     deadline,
                 );
-                match result {
-                    Err(PeerDenial::AccountRejected) => {
+                let input_action = result
+                    .as_ref()
+                    .err()
+                    .map(|error| {
+                        login_input_action(
+                            error,
+                            |error| matches!(error, PeerDenial::AccountRejected),
+                            |error| matches!(error, PeerDenial::RequestDeadlineExpired),
+                        )
+                    })
+                    .unwrap_or(LoginInputAction::Return);
+                match input_action {
+                    LoginInputAction::RetryRejected => {
                         let failures = runtime
                             .identity
                             .login_failures()
@@ -596,7 +634,7 @@ mod task24 {
                             .present_unlock(unlock)
                             .map_err(BootIdentityRecoveryError::LiveEffect)?;
                     }
-                    Err(PeerDenial::RequestDeadlineExpired) => {
+                    LoginInputAction::RetryExpired => {
                         if let Err(error) = runtime.identity.require_unattached() {
                             break Err(error);
                         }
@@ -604,7 +642,7 @@ mod task24 {
                             "NAGI_DEV_TASK24_LOGIN_ATTEMPT_EXPIRED"
                         ));
                     }
-                    result => break result,
+                    LoginInputAction::Return => break result,
                 }
             };
             let attached = attached.map(|session| {
@@ -684,6 +722,117 @@ where
                 .map_err(|error| io::Error::other(format!("C1 terminal readback: {error:?}")))?;
             Ok(slot)
         })
+    }
+
+    #[cfg(linux_task24_notes_consumer)]
+    pub(in crate::linux_init) fn check_notes_session(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+    ) -> Result<(), nagi_identity_session::ResolutionError> {
+        self.identity.check_notes_session(lease)
+    }
+
+    #[cfg(linux_task24_notes_consumer)]
+    pub(in crate::linux_init) fn end_notes_session(
+        &self,
+        issued: &nagi_identity_session::C1IssuedInteractiveSession,
+    ) -> io::Result<nagi_identity_session::SessionEndReason> {
+        self.finish_notes_session(issued, |identity, admission| {
+            issued.end_session_with_runtime_admission(identity, admission)
+        })
+    }
+
+    #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+    pub(in crate::linux_init) fn ws10_revoke_notes_session(
+        &self,
+        issued: &nagi_identity_session::C1IssuedInteractiveSession,
+    ) -> io::Result<nagi_identity_session::SessionEndReason> {
+        let reason = self.finish_notes_session(issued, |identity, admission| {
+            issued.revoke_session_with_runtime_admission(identity, admission)
+        })?;
+        if reason != nagi_identity_session::SessionEndReason::Revoked {
+            return Err(io::Error::other(
+                "WS-10 Session revocation was not confirmed",
+            ));
+        }
+        Ok(reason)
+    }
+
+    #[cfg(linux_task24_notes_consumer)]
+    fn finish_notes_session(
+        &self,
+        issued: &nagi_identity_session::C1IssuedInteractiveSession,
+        mut finish: impl FnMut(
+            &mut IdentityService<LinuxIdentitySnapshotStore, I, C, A, G, E>,
+            &nagi_identity_session::C1SystemServiceRuntimeAdmission<'_>,
+        ) -> Result<
+            nagi_identity_session::EndSessionResult,
+            nagi_identity_session::C1InitialInteractiveSessionError,
+        >,
+    ) -> io::Result<nagi_identity_session::SessionEndReason> {
+        use nagi_identity_session::{
+            C1InitialInteractiveSessionError, EndSessionResult, SessionLifecycle,
+        };
+        use std::time::{Duration, Instant};
+
+        let admission = self
+            .identity
+            .enter_runtime_admission(self.boot.recovery_scope())
+            .map_err(|error| io::Error::other(format!("{error:?}")))?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            // Release the identity mutex between attempts and keep the exact
+            // RuntimeActive admission throughout the retry window.
+            let reason = self.identity.with_identity_for_terminal(|identity| {
+                match finish(identity, &admission) {
+                    Ok(EndSessionResult::Ended | EndSessionResult::AlreadyEnded) => identity
+                        .snapshot()
+                        .sessions
+                        .iter()
+                        .find_map(|session| match &session.lifecycle {
+                            SessionLifecycle::Ended { reason, .. }
+                                if &session.session_id == issued.session_id() =>
+                            {
+                                Some(*reason)
+                            }
+                            _ => None,
+                        })
+                        .map(Some)
+                        .ok_or_else(|| io::Error::other("C1 Notes Session end reason unavailable")),
+                    Err(C1InitialInteractiveSessionError::Identity(
+                        IdentityError::SessionLeaseBusy,
+                    )) => Ok(None),
+                    _ => Err(io::Error::other("C1 Notes Session end not confirmed")),
+                }
+            })?;
+            if let Some(reason) = reason {
+                return Ok(reason);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "C1 Notes Session effects remained busy",
+                ));
+            }
+            std::thread::sleep(remaining.min(super::POLL_INTERVAL));
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "C1 Notes Session effects remained busy",
+                ));
+            }
+        }
+    }
+
+    #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+    pub(in crate::linux_init) fn ws10_stop_identity(&self) -> io::Result<()> {
+        self.boot.owner.c3.ws10_kill_and_reap(
+            self.boot.recovery_scope(),
+            &self.boot.proof.process_identity(),
+            super::RETIREMENT_BUDGET,
+            super::POLL_INTERVAL,
+        )
     }
 
     fn request_and_reap_normal_identity_exit(
@@ -871,8 +1020,8 @@ where
     let (store, mut verifier) = open_boot_identity(data, snapshot_path, account_path)
         .map_err(BootIdentityRecoveryError::Data)?;
     let mut identity = create_identity(store);
-    if let Some(previous) = latest_previous_launch_normal_exit(boot)? {
-        match reconcile_previous_launch_with_receipt(boot, &caller, &mut identity, &previous) {
+    if let Some(previous) = previous_identity_terminal(boot)? {
+        match reconcile_previous_identity_terminal(boot, &caller, &mut identity, &previous) {
             Ok(()) => {}
             Err(PreviousLaunchReconcileAttempt::RetryAfterReopen) => {
                 drop(identity);
@@ -881,7 +1030,7 @@ where
                         .map_err(BootIdentityRecoveryError::Data)?;
                 verifier = retry_verifier;
                 identity = create_identity(retry_store);
-                reconcile_previous_launch_with_receipt(boot, &caller, &mut identity, &previous)
+                reconcile_previous_identity_terminal(boot, &caller, &mut identity, &previous)
                     .map_err(|_| {
                         BootIdentityRecoveryError::Recovery(IdentityError::StoreUnavailable)
                     })?;
@@ -965,23 +1114,29 @@ impl nagi_system_service_recovery_contract::C3RecoverySlotGate for BootTerminalG
 struct BootPreviousLaunchTerminalGate<'boot, 'receipt, 'package> {
     boot: &'boot AuthenticatedBootService<'package>,
     expected: &'receipt C3DurableNormalExitReceipt,
+    // Bounds C3's gated journal reread and scope-validation callback. C1's
+    // durable reconciliation write begins only after that gate returns.
+    deadline: std::time::Instant,
     used: bool,
 }
 
 impl C1PreviousLaunchTerminalGate for BootPreviousLaunchTerminalGate<'_, '_, '_> {
-    type TerminalReceipt = C3DurableNormalExitReceipt;
+    type TerminalReceipt = C3DurableNormalExitTerminalReceipt;
 
-    fn with_previous_launch_reconciliation_gate(
+    fn with_previous_launch_reconciliation_gate<R>(
         &mut self,
         current_scope: &dyn SystemServiceRecoveryAdmissionScope,
-        previous_scope: &dyn SystemServiceRecoveryAdmissionScope,
         claim: C1RecoveryOperationCorrelation,
-        revalidate_scopes: impl FnOnce() -> Result<
-            (),
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<
+            R,
             nagi_system_service_recovery_contract::RecoveryClientError,
         >,
-    ) -> Result<Self::TerminalReceipt, nagi_system_service_recovery_contract::RecoveryClientError>
-    {
+    ) -> Result<
+        (R, Self::TerminalReceipt),
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    > {
         use nagi_system_service_recovery_contract::RecoveryClientError;
 
         if self.used
@@ -991,17 +1146,53 @@ impl C1PreviousLaunchTerminalGate for BootPreviousLaunchTerminalGate<'_, '_, '_>
             return Err(RecoveryClientError::Rejected);
         }
         self.used = true;
-        let mut gate = self.boot.owner.c3.durable_normal_exit_gate(self.expected);
-        let revalidated =
-            gate.with_reconciliation_gate(previous_scope, claim, revalidate_scopes)?;
-        revalidated?;
-        Ok(self.expected.clone())
+        let mut gate = self
+            .boot
+            .owner
+            .c3
+            .durable_normal_exit_gate_until(self.expected, self.deadline);
+        gate.with_journal_bound_previous_scope(claim, validate_previous_scope)
     }
 }
 
-fn latest_previous_launch_normal_exit(
+struct BootPreviousBootTerminalGate<'boot, 'receipt, 'package> {
+    boot: &'boot AuthenticatedBootService<'package>,
+    expected: &'receipt PriorBootClear,
+    deadline: std::time::Instant,
+    used: bool,
+}
+
+impl C1PreviousBootTerminalGate for BootPreviousBootTerminalGate<'_, '_, '_> {
+    type TerminalReceipt = PriorBootClearedReceipt;
+
+    fn with_previous_boot_reconciliation_gate<R>(
+        &mut self,
+        current_scope: &dyn SystemServiceRecoveryAdmissionScope,
+        claim: C1RecoveryOperationCorrelation,
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<R, RecoveryClientError>,
+    ) -> Result<(R, Self::TerminalReceipt), RecoveryClientError> {
+        if self.used || !std::ptr::addr_eq(current_scope, self.boot.recovery_scope()) {
+            return Err(RecoveryClientError::Rejected);
+        }
+        self.used = true;
+        self.boot
+            .owner
+            .c3
+            .with_durable_prior_boot_cleared_gate_until(
+                self.expected,
+                current_scope,
+                claim,
+                self.deadline,
+                validate_previous_scope,
+            )
+    }
+}
+
+fn previous_identity_terminal(
     boot: &AuthenticatedBootService<'_>,
-) -> Result<Option<C3DurableNormalExitReceipt>, BootIdentityRecoveryError> {
+) -> Result<Option<PreviousIdentityTerminal>, BootIdentityRecoveryError> {
     let current_scope = boot.recovery_scope();
     let current_generation = current_scope.c3_launch_generation();
     if boot.lifecycle.slot.c3_launch_generation() != current_scope.c3_launch_generation() {
@@ -1011,23 +1202,26 @@ fn latest_previous_launch_normal_exit(
         )));
     }
 
-    let previous = boot.lifecycle.previous_normal_exit.as_ref();
-    match previous {
-        Some(receipt)
-            if receipt.service_id() == current_scope.service_id()
-                && receipt.catalog_generation() == current_scope.catalog_generation()
-                && receipt.c3_launch_generation().get().checked_add(1)
-                    == Some(current_generation.get()) => {}
-        None if current_generation.get() == 1 => {}
-        _ => {
-            return Err(BootIdentityRecoveryError::LiveEffect(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "pre-reservation C3 evidence is not bound to this boot generation",
-            )));
-        }
-    }
-
-    Ok(previous.cloned())
+    let previous = boot.lifecycle.previous_identity_terminal.as_ref();
+    let catalog = previous.map(PreviousIdentityTerminal::service_and_catalog);
+    super::validate_previous_launch_catalog(
+        catalog,
+        current_scope.service_id(),
+        current_scope.catalog_generation(),
+    )
+    .map_err(BootIdentityRecoveryError::LiveEffect)?;
+    super::validate_previous_launch_generation(previous, current_generation)
+        .map_err(BootIdentityRecoveryError::LiveEffect)?;
+    // A previous boot can leave only a slot reservation or an uncorrelated
+    // child. The clearance validates C3's next generation, but only a
+    // correlated record can enter C1's previous-operation receipt gate.
+    // The ordinary new-intent path still rejects an unresolved C1 journal.
+    Ok(previous
+        .filter(|terminal| match terminal {
+            PreviousIdentityTerminal::NormalExit(_) => true,
+            PreviousIdentityTerminal::PriorBootCleared(clear) => clear.has_c1_claim(),
+        })
+        .cloned())
 }
 
 fn ensure_normal_exit_deadline(deadline: std::time::Instant) -> io::Result<()> {
@@ -1062,11 +1256,11 @@ enum PreviousLaunchReconcileAttempt {
     Failed,
 }
 
-fn reconcile_previous_launch_with_receipt<I, C, A, G, E>(
+fn reconcile_previous_identity_terminal<I, C, A, G, E>(
     boot: &AuthenticatedBootService<'_>,
     caller: &C1VerifiedBootSystemServicePrincipal,
     identity: &mut IdentityService<LinuxIdentitySnapshotStore, I, C, A, G, E>,
-    previous: &C3DurableNormalExitReceipt,
+    previous: &PreviousIdentityTerminal,
 ) -> Result<(), PreviousLaunchReconcileAttempt>
 where
     I: IdentityIdSource,
@@ -1076,19 +1270,34 @@ where
     E: IdentityEventSink,
 {
     let current_scope = boot.recovery_scope();
-    let previous_scope = previous.scope_snapshot();
-    let mut gate = BootPreviousLaunchTerminalGate {
-        boot,
-        expected: previous,
-        used: false,
-    };
+    // Start one absolute budget before C1 admission reaches the C3 gate. If
+    // C1 preflight consumes it, C3 fails closed before invoking its callback.
+    let deadline = std::time::Instant::now()
+        .checked_add(super::RETIREMENT_BUDGET)
+        .ok_or(PreviousLaunchReconcileAttempt::Failed)?;
     let mut adapter =
         C1SystemServiceRecoveryReceiptAdapter::new_for_verified_boot_principal(identity, caller);
-    let terminal = match adapter.reconcile_previous_launch_terminal(
-        current_scope,
-        previous_scope,
-        &mut gate,
-    ) {
+    let reconciliation = match previous {
+        PreviousIdentityTerminal::NormalExit(expected) => {
+            let mut gate = BootPreviousLaunchTerminalGate {
+                boot,
+                expected,
+                deadline,
+                used: false,
+            };
+            adapter.reconcile_previous_launch_terminal(current_scope, &mut gate)
+        }
+        PreviousIdentityTerminal::PriorBootCleared(expected) => {
+            let mut gate = BootPreviousBootTerminalGate {
+                boot,
+                expected,
+                deadline,
+                used: false,
+            };
+            adapter.reconcile_previous_boot_terminal(current_scope, &mut gate)
+        }
+    };
+    let terminal = match reconciliation {
         Ok(terminal) => terminal,
         Err(nagi_system_service_recovery_contract::RecoveryClientError::OutcomeUnknown) => {
             return Err(PreviousLaunchReconcileAttempt::RetryAfterReopen);
@@ -1096,13 +1305,18 @@ where
         Err(_) => return Err(PreviousLaunchReconcileAttempt::Failed),
     };
     adapter
-        .consume_terminal_receipt(previous_scope, terminal)
+        .consume_previous_launch_terminal_receipt(terminal)
         .map_err(|_| PreviousLaunchReconcileAttempt::RetryAfterReopen)?;
     #[cfg(linux_task24_initial_login_runtime)]
-    log_task24_c3_normal_exit_receipt(
-        "NAGI_DEV_TASK24_PREVIOUS_IDENTITY_TERMINAL_CONSUMED",
-        previous,
-    );
+    match previous {
+        PreviousIdentityTerminal::NormalExit(receipt) => log_task24_c3_normal_exit_receipt(
+            "NAGI_DEV_TASK24_PREVIOUS_IDENTITY_TERMINAL_CONSUMED",
+            receipt,
+        ),
+        PreviousIdentityTerminal::PriorBootCleared(_) => super::super::log_pid1_stderr(
+            format_args!("NAGI_DEV_WS10_PRIOR_ABNORMAL_RECOVERY_CONFIRMED"),
+        ),
+    }
     Ok(())
 }
 

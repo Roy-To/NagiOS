@@ -286,6 +286,7 @@ pub fn canonical_recovery_binding_digest_from_scope(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum C3RecoverySlotState {
     ClearedAndAbsent,
+    PriorBootCleared,
     Live,
     Quarantined,
     Unknown,
@@ -301,6 +302,16 @@ pub trait C3DurableRecoverySlotReceipt {
     fn c3_launch_generation(&self) -> u64;
     fn scope_binding_digest(&self) -> &[u8; 32];
     fn state(&self) -> C3RecoverySlotState;
+}
+
+/// Journal-bound evidence for a prior launch that cannot have survived a
+/// Linux boot change. The inherited receipt fields describe the old scope
+/// and old C1 operation. Boot identity is separate from the canonical digest.
+pub trait C3DurablePriorBootClearedReceipt: C3DurableRecoverySlotReceipt {
+    fn previous_scope(&self) -> &dyn SystemServiceRecoveryAdmissionScope;
+    fn previous_boot_id(&self) -> &[u8; 16];
+    fn current_boot_id(&self) -> &[u8; 16];
+    fn previous_c3_launch_instance_id(&self) -> NonZeroU64;
 }
 
 /// Implemented for C1's private-constructor receipt by the C1 integration
