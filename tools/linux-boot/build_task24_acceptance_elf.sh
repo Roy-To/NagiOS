@@ -23,11 +23,11 @@ USAGE
 }
 
 profile=debug
-cargo_network=(--offline)
+offline=true
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
-        --online) cargo_network=() ;;
+        --online) offline=false ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
@@ -63,9 +63,12 @@ rustc_args=()
 for cfg in "${cfgs[@]}"; do
     rustc_args+=(--cfg "$cfg")
 done
-cargo_profile=()
+cargo_options=(--locked)
+if "$offline"; then
+    cargo_options+=(--offline)
+fi
 if [[ "$profile" == release ]]; then
-    cargo_profile=(--release)
+    cargo_options+=(--release)
 else
     : "${NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY:?set the acceptance catalog public key path}"
     : "${NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256:?set the signed development login package SHA-256}"
@@ -79,8 +82,8 @@ host=$("$RUSTC" -vV | sed -n 's/^host: //p')
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="${CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER:-$sysroot/lib/rustlib/$host/bin/rust-lld}"
 
 mkdir -- "$output_dir"
-"$cargo_bin" rustc --manifest-path "$manifest" --locked "${cargo_network[@]}" \
-    "${cargo_profile[@]}" --target "$target" --no-default-features --features "$features" \
+"$cargo_bin" rustc --manifest-path "$manifest" "${cargo_options[@]}" \
+    --target "$target" --no-default-features --features "$features" \
     --bin nagi-init --message-format=json-render-diagnostics -- "${rustc_args[@]}" \
     > "$output_dir/cargo-artifacts.jsonl"
 
@@ -95,7 +98,8 @@ from pathlib import Path
 
 path, script, head, toolchain, target, profile, features, *cfgs = sys.argv[1:]
 output = Path(path)
-with (output / "cargo-artifacts.jsonl").open() as stream:
+artifact_log = output / "cargo-artifacts.jsonl"
+with artifact_log.open() as stream:
     reports = [json.loads(line) for line in stream]
 executables = [
     Path(report["executable"])
@@ -144,6 +148,7 @@ receipt = {
     "features": features.split(","),
     "cfgs": cfgs,
     "cargo_lock_sha256": sha256(Path("user/nagi-init/Cargo.lock").read_bytes()),
+    "sources_lock_sha256": sha256(Path("third_party/sources.lock").read_bytes()),
     "catalog_public_key_sha256": sha256(key) if key else None,
     "login_package_sha256": login_pin,
     "elf": {"path": "nagi-init", "size_bytes": len(data), "sha256": sha256(data)},
@@ -153,5 +158,6 @@ elf = output / "nagi-init"
 elf.write_bytes(data)
 elf.chmod(0o755)
 (output / "build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+artifact_log.unlink()
 print(f"Task24 ELF SHA-256: {receipt['elf']['sha256']}")
 PY
