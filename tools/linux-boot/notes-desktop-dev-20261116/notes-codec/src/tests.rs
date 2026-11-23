@@ -202,6 +202,9 @@ fn files_preview_limit_is_inclusive_at_one_mib_and_rejects_one_byte_more() {
     );
 }
 
+// These integration cases exercise HostPreviewStore's Unix directory-sync
+// contract. The codec and pre-write size rejection still run on Windows.
+#[cfg(unix)]
 #[test]
 fn notes_host_store_accepts_its_existing_sixteen_mib_range_that_files_cannot_open() {
     let note = note_with_body(0x3456, "x".repeat(MAX_PREVIEW_BYTES + 4096));
@@ -222,6 +225,7 @@ fn notes_host_store_accepts_its_existing_sixteen_mib_range_that_files_cannot_ope
     std::fs::remove_dir_all(root).expect("remove candidate-only test data");
 }
 
+#[cfg(unix)]
 #[test]
 fn host_store_keeps_actual_revision_and_immutable_revision_read_semantics() {
     let root = test_root("revision-roundtrip");
