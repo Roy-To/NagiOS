@@ -16,6 +16,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(linux_task24_owner_co_location)");
     println!("cargo:rustc-check-cfg=cfg(linux_task24_notes_consumer)");
     println!("cargo:rustc-check-cfg=cfg(nagi_release_build)");
+    // Cargo reports custom profiles that inherit dev as "debug" here.
     if env::var("PROFILE").expect("Cargo PROFILE").as_str() != "debug" {
         println!("cargo:rustc-cfg=nagi_release_build");
     }

@@ -274,7 +274,8 @@ pub(super) struct ConsoleKey {
         linux_task24_owner_co_location,
         linux_task24_initial_login_runtime,
         linux_task24_notes_consumer,
-        linux_dev_notes_performance
+        linux_dev_notes_performance,
+        not(nagi_release_build)
     ))]
     pub(super) monotonic_ns: Option<u64>,
 }
@@ -284,7 +285,8 @@ pub(super) struct BootOwnerConsole {
         linux_task24_owner_co_location,
         linux_task24_initial_login_runtime,
         linux_task24_notes_consumer,
-        linux_dev_notes_performance
+        linux_dev_notes_performance,
+        not(nagi_release_build)
     ))]
     keyboard_clock_ready_ns: Option<u64>,
     keyboard: File,
@@ -305,7 +307,8 @@ impl BootOwnerConsole {
             linux_task24_owner_co_location,
             linux_task24_initial_login_runtime,
             linux_task24_notes_consumer,
-            linux_dev_notes_performance
+            linux_dev_notes_performance,
+            not(nagi_release_build)
         ))]
         let keyboard_clock_ready_ns =
             crate::task24_notes_performance::monotonic_ns().and_then(|before| {
@@ -322,7 +325,8 @@ impl BootOwnerConsole {
                 linux_task24_owner_co_location,
                 linux_task24_initial_login_runtime,
                 linux_task24_notes_consumer,
-                linux_dev_notes_performance
+                linux_dev_notes_performance,
+                not(nagi_release_build)
             ))]
             keyboard_clock_ready_ns,
             keyboard,
@@ -358,7 +362,8 @@ impl BootOwnerConsole {
                 linux_task24_owner_co_location,
                 linux_task24_initial_login_runtime,
                 linux_task24_notes_consumer,
-                linux_dev_notes_performance
+                linux_dev_notes_performance,
+                not(nagi_release_build)
             ))]
             // Clock setup can flush a pending startup packet and enqueue
             // SYN_DROPPED. No input state has been consumed at that point.
@@ -383,7 +388,8 @@ impl BootOwnerConsole {
                         linux_task24_owner_co_location,
                         linux_task24_initial_login_runtime,
                         linux_task24_notes_consumer,
-                        linux_dev_notes_performance
+                        linux_dev_notes_performance,
+                        not(nagi_release_build)
                     ))]
                     monotonic_ns: self
                         .keyboard_clock_ready_ns
