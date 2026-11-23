@@ -197,6 +197,15 @@ fn settings_neighbor(current: Option<SettingsFocus>, forward: bool) -> SettingsF
     SETTINGS_ORDER[index]
 }
 
+#[cfg(all(target_os = "linux", feature = "linux-dev-desktop-launcher", not(nagi_release_build)))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum LinuxLauncherAction {
+    None,
+    Redraw,
+    OpenNotes,
+    SignOut,
+}
+
 pub struct Desktop {
     windows: [Rect; APP_COUNT],
     focused: [bool; APP_COUNT],
@@ -936,6 +945,29 @@ impl Desktop {
                 nagi_localization::text(self.locale, "desktop.settings.option.selected").as_bytes(),
                 TEXT,
             );
+        }
+    }
+
+    /// Route the existing launcher focus order without granting access to a
+    /// legacy desktop volume. L7 can launch Notes from an attached Session.
+    #[cfg(all(target_os = "linux", feature = "linux-dev-desktop-launcher", not(nagi_release_build)))]
+    pub(crate) fn handle_linux_launcher_key(&mut self, event: InputEvent) -> LinuxLauncherAction {
+        use libnagi::{INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_SPACE, INPUT_KEY_TAB};
+        if event.event_type != INPUT_EVENT_KEY || event.value != 1 {
+            return LinuxLauncherAction::None;
+        }
+        match event.code {
+            INPUT_KEY_TAB => {
+                self.focus_next_desktop_control();
+                LinuxLauncherAction::Redraw
+            }
+            INPUT_KEY_ENTER | INPUT_KEY_SPACE
+                if self.desktop_focus == Some(DesktopFocus::Application(1)) =>
+            {
+                LinuxLauncherAction::OpenNotes
+            }
+            INPUT_KEY_ESCAPE => LinuxLauncherAction::SignOut,
+            _ => LinuxLauncherAction::None,
         }
     }
 
@@ -2038,5 +2070,38 @@ mod settings_model_row_render_tests {
                 }
             }
         }
+    }
+}
+
+
+#[cfg(all(test, target_os = "linux", feature = "linux-dev-desktop-launcher", not(nagi_release_build)))]
+mod linux_launcher_tests {
+    use super::*;
+    use libnagi::{INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_ESCAPE, INPUT_KEY_TAB};
+
+    #[test]
+    fn launcher_requires_notes_focus_and_a_distinct_press() {
+        use LinuxLauncherAction::{None, OpenNotes, Redraw, SignOut};
+        let mut desktop = Desktop::new(nagi_localization::Locale::EnUs);
+        let mut key = |code, value| {
+            desktop.handle_linux_launcher_key(InputEvent {
+                event_type: INPUT_EVENT_KEY,
+                code,
+                value,
+            })
+        };
+
+        assert_eq!(key(INPUT_KEY_ENTER, 1), None);
+        for _ in 0..2 {
+            assert_eq!(key(INPUT_KEY_TAB, 1), Redraw);
+            assert_eq!(key(INPUT_KEY_ENTER, 1), None);
+        }
+        assert_eq!(key(INPUT_KEY_TAB, 1), Redraw);
+        assert_eq!(key(INPUT_KEY_ENTER, 0), None);
+        assert_eq!(key(INPUT_KEY_ENTER, 2), None);
+        assert_eq!(key(INPUT_KEY_ENTER, 1), OpenNotes);
+        assert_eq!(key(INPUT_KEY_TAB, 1), Redraw);
+        assert_eq!(key(INPUT_KEY_ENTER, 1), None);
+        assert_eq!(key(INPUT_KEY_ESCAPE, 1), SignOut);
     }
 }

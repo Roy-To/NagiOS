@@ -31,6 +31,15 @@ pub(super) fn run(
         Option<NotesConsoleExit>,
     >,
 ) -> io::Result<(NotesConsoleExit, Option<NoteDocument>)> {
+    #[cfg(all(feature = "linux-dev-desktop-launcher", not(nagi_release_build)))]
+    if let Some(exit) = run_desktop_launcher(
+        console,
+        &mut poll_required_identity_exit,
+        &mut check_session,
+    )? {
+        return Ok((exit, None));
+    }
+
     std::thread::scope(|scope| {
         let input = C1ProfileRootNotesInput::open_linux(
             attachment.bundle,
@@ -184,6 +193,43 @@ pub(super) fn run(
             }
         }
     })
+}
+
+#[cfg(all(feature = "linux-dev-desktop-launcher", not(nagi_release_build)))]
+fn run_desktop_launcher(
+    console: &mut BootOwnerConsole,
+    mut poll_identity_exit: impl FnMut() -> io::Result<bool>,
+    mut check_session: impl FnMut() -> Result<(), ResolutionError>,
+) -> io::Result<Option<NotesConsoleExit>> {
+    use crate::desktop::{Desktop, LinuxLauncherAction};
+
+    if poll_identity_exit()? {
+        return Ok(Some(NotesConsoleExit::RequiredIdentityExited));
+    }
+    check_session().map_err(|_| io::Error::other("desktop Session is unavailable"))?;
+    let mut desktop = Desktop::new(nagi_localization::Locale::EnUs);
+    console.present_surface(|surface| desktop.render(surface))?;
+    super::super::log_pid1_stderr(format_args!("NAGI_DEV_L7_DESKTOP_PRESENTED"));
+    loop {
+        let Some(key) = super::super::wait_for_task24_input(
+            |timeout| console.next_console_key_timeout(timeout),
+            &mut poll_identity_exit,
+        )? else {
+            return Ok(Some(NotesConsoleExit::RequiredIdentityExited));
+        };
+        check_session().map_err(|_| io::Error::other("desktop Session is unavailable"))?;
+        match desktop.handle_linux_launcher_key(key.event) {
+            LinuxLauncherAction::None => {}
+            LinuxLauncherAction::Redraw => {
+                console.present_surface(|surface| desktop.render(surface))?;
+            }
+            LinuxLauncherAction::OpenNotes => {
+                super::super::log_pid1_stderr(format_args!("NAGI_DEV_L7_NOTES_SELECTED"));
+                return Ok(None);
+            }
+            LinuxLauncherAction::SignOut => return Ok(Some(NotesConsoleExit::ClosedByUser)),
+        }
+    }
 }
 
 fn close_unsaved(

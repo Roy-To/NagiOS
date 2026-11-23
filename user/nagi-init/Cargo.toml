@@ -16,6 +16,7 @@ linux-service-action-bridge = [
 m8-shell = []
 m9-window = []
 m10-desktop = []
+linux-dev-desktop-launcher = ["m10-desktop"]
 m11-security = []
 m12-network = []
 m13-posix = ["m12-network"]
