@@ -54,13 +54,10 @@ rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"
 serde_json = "1"
 sha2 = { version = "=0.10.9", default-features = false }
 
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
-
 # The same-source host test module is enabled by main.rs for macOS tests.
 # Keep its bridge/store dependencies in this test-only manifest, not the
 # product dependency graph.
-[dev-dependencies]
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
 notes-event-bridge-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-event-bridge" }
 notes-files-codec-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-codec" }
