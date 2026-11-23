@@ -1,7 +1,7 @@
 # DEC-119 — テレメトリーなしでの不具合報告の届け方
 
-**状態:** CONFIRMED（Q1〜Q4の高水準方針）／PROVISIONAL（報告の形式・画面・伏せ字の方式・適用版）／REVIEW NOTE（関連DECとの整合）  
-**最終合意日:** 2026-11-20  
+**状態:** CONFIRMED（Q1〜Q4の高水準報告方針、ローカルLLMの簡易調査・報告準備補助）／PROVISIONAL（報告形式・画面・伏せ字・AIによる整理方式・適用版）／REVIEW NOTE（関連DECとの整合）  
+**最終合意日:** 2026-11-24  
 **適用候補:** Nagi OS全体の不具合報告（Albertの動かないサイトの報告を含む）。適用版は未確定  
 **関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)、[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)、[DEC-115](DEC-115-web-compatibility-engine-drm-and-codecs.md)、[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)、[DEC-118](DEC-118-support-period-and-vulnerability-response.md)、[SECURITY.md](../../SECURITY.md)
 
@@ -30,6 +30,18 @@ Nagiは、テレメトリー（利用状況や障害情報の自動送信）に�
 ### Q4 — 自動のクラッシュ報告
 
 1. **Nagi 1.0までは、自動でクラッシュ情報を送る機能（オプトイン方式を含む）は入れない。**
+
+## 2026-11-24 — ローカルAIによる報告準備の支援
+
+### CONFIRMED — 製品方向の具体化
+
+- **ローカルLLMは簡単な診断情報の整理と不具合報告作成を補助する。** OSが実際に収集・確認した情報と、ユーザーが申告する症状を分かりやすくまとめ、Issue下書きや手動書き出しの準備を円滑にする方向を採用する（[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)）。
+- **正確な根本原因特定は前提としない。** ローカルLLMが示した原因候補や推奨は推測と区別し、裏付けのない断定はしない。AIが使えなくてもQ1〜Q4の報告手順は利用できる。
+- **既存の本人主導・Privacy方針を変えない。** テレメトリーなし、標準情報の最小化、全項目のプレビュー・除外、本人による送信、脆弱性の非公開窓口、1.0まで自動クラッシュ報告なしの境界をそのまま維持する。AI要約・整形は追加のログ読取権限や自動送信の許可ではない。
+
+### PROVISIONAL／OPEN
+
+- ローカルLLMが出す要約・原因候補の範囲、報告画面とのUI接続、情報の事前伏せ字・確認・誤要約訂正方式、対象App／Crash条件、性能・実装時期・版。
 
 ## 例外・禁止・安全境界
 
@@ -65,4 +77,5 @@ Nagiは、テレメトリー（利用状況や障害情報の自動送信）に�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-24 | ユーザーがローカルLLMの用途を簡易調査・バグ報告支援中心に具体化。AIは推測と事実を分離し、高精度な原因特定を標準要件にしない。Q1〜Q4の本人送信・プレビュー・標準除外・非公開脆弱性窓口・自動報告なしは維持。詳細・版はPROVISIONAL。 |
 | 2026-11-20 | 初版。ユーザーがQ1（AlbertでGitHub Issueの下書きを開きユーザーが送信、ファイル書き出しも残す、専用サーバーなし）、Q2（OS版・ハードウェア・伏せ字済みログのみ標準で含め、Memory・Profile・ファイル内容・AI会話・閲覧履歴は含めない、送信前に全文プレビューと項目ごとの除外）、Q3（セキュリティ関連は非公開の報告窓口へ案内）、Q4（1.0までは自動クラッシュ報告を入れない）を確定。 |
