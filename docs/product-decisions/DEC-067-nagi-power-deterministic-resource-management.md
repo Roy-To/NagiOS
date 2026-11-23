@@ -1,7 +1,7 @@
 # DEC-067 — Nagi PowerとOS全体の決定論的な電力・熱・資源管理
 
 **状態:** CONFIRMED（採用・決定論的な自動電力管理・安全と前景優先・簡易モード選択）／PROVISIONAL（正式名称・各モードの具体制御・実装版・Gate）\
-**最終合意日:** 2026-11-16  
+**最終合意日:** 2026-11-23（Automation Mode構想のAI資源集中と端末別実行戦略の許容を追記）  
 **適用候補:** Linuxカーネル + Nagi専用ユーザーランド。対応端末・実装版・時期は未確定  
 **関連:** [DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-022](DEC-022-builder-interrupted-task-recovery.md)、[DEC-042](DEC-042-linux-kernel-transition.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-052](DEC-052-physical-test-device-candidates.md)、[純正ソフトウェア実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[roadmaps](roadmaps/README.md)
 
@@ -23,6 +23,24 @@ DEC-020の前景応答性優先・AI資源配分を、OS全体の管理の中へ
 6. **自動調整でTaskとActionの意味を変えない。** 承認済みActionを重複実行せず、ユーザーが明示Pause／Cancel／StopしたTaskを自動再開しない。資源待機からの継続はDEC-020に従い、現行の承認・Scope・期限・Permission／Policy・Resource Revision・Budget・取消状態を再検証する。クラッシュ／再起動後の復旧や実行結果不明のActionは資源回復だけで再実行せず、DEC-022等の既存規則に従う。
 7. **必要な低レイヤー基盤を今後広く整備する。** これは製品方向の合意であり、具体的な全サブシステムの採用、担当割当て、実装着手、版割当て、Release／Activation Gateの変更を一括で確定するものではない。
 8. **自動管理に加え、簡単な電力モードをユーザーが選べるようにする。** 決定論的な自動調整を標準として維持しつつ、利用者が省電力・バランス・高性能に相当する少数のモードから運用方針を選択できる製品体験を採用する（Foundation #23の方式B）。各モードの正式名称、具体的なCPU／GPU・AIの配分値、制御アルゴリズム、利用可能な端末・UI詳細は未確定とする。ユーザーが選択した高性能モードやTask優先設定でも、過熱防止・システム安全・OS機能維持・前景応答性・現行Permission／Policyを無効にしない。
+
+## Automation Mode構想と端末別実行の考え方（2026-11-23）
+
+**CONFIRMED（ユーザーが明確化し、当面の方向として了承した高水準の意図）**
+
+- **省電力ではなくAIへの資源集中。** 操作者がPCを使わない間には、通常時の前景応答性のために温存する計算資源を、許可済みAI Taskへ可能な限り配分して高負荷で実行するという構想である。「省エネ」との表現は意図を表さない。高い消費電力自体は否定しない。
+- **デバイスによって実行戦略が異なることを許容する。** NagiがPC／タブレット／モバイルで一貫したTask体験を提供する目標を維持したうえで、各端末のバッテリー／スリープ／復帰速度／熱／性能に適応し、同一Taskでも実行時機や資源配分が異なってよい。人間の操作がないPCでAI資源集中を目指す一方、モバイルでは即時復帰を重視する。
+- **既存の安全境界は維持。** OSの機能維持、熱・ハードウェア保護、ユーザーのPause／Cancel、Permission／Policy、Actionごとの認可、結果不明の副作用Actionの無断再実行禁止を変えない。ユーザーが操作する通常時の前景応答性優先を恒久的に撤廃する決定ではない。電力管理・Resource Manager・Job Scheduler・Model Runtimeの責務を重複させない。
+
+**PROVISIONAL／OPEN（未決定の設計案）**
+
+- 「Automation Mode」の正式な製品機能としての採用・名称・手動／自動切替条件、ユーザーが操作を再開した際の資源復帰・Taskの待機手順。
+- PCでGUI／Displayを停止・Headless化するか、具体的な資源配分・並列数・性能／電力の測定方法、対応Hardware・提供Version。
+- モバイルでスリープ中もCPUを常時起こすことは前提とせず、利用可能な短い実行機会にTaskを小単位で進める、Checkpointを残す、充電時に実行する等は検討候補。断続実行の具体方式と機器別の保証は未決定。タブレットの制御も未決定。
+- PC／タブレット／モバイルで共通のNagi OS中核・API・Task契約を維持する既存方針と整合するが、全端末で同一Binary／起動Image／Driver／UIを使うという追加保証ではない。
+- Councilを通常の品質審査へ拡張するか、Memoryから無人Taskの範囲を新たに判断するか等を本追記から採用確定しない。予定／イベントによる無人実行にはDEC-029の事前許可を要する。
+
+この追記は高水準の方向の記録であり、実装開始、Release／Activation／Acceptance Gate、具体的端末対応を新たに承認・変更しない。
 
 ## 既存仕様との役割分担（REVIEW NOTE）
 
