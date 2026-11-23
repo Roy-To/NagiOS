@@ -50,3 +50,7 @@ Nagi固有のFile／Resource／Workspaceとアプリ横断の参照・権限管�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #12「Storage / Filesystem」に対しB案を明確に承認。Linux標準Filesystemを用途別に活用し、Nagi独自Storage／Files APIと論理Resource IDを維持、FS snapshot・Wayback・Backup・Workspace復元を区別する。具体FS・暗号・耐障害方式・Linux受入・適用版は未決定。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-117](DEC-117-user-data-encryption-and-lost-device.md) — ユーザーデータの暗号化は既定で有効にし、MemoryとProfileは常時暗号化する。具体的な暗号方式とFilesystemとの連携は未決定。
