@@ -32,3 +32,7 @@ guest-rendered first web pixel are not yet accepted. The pinned checkout's publi
 `SoftwareRenderingContext` currently depends on its Surfman/OpenGL software
 adapter, so the Nagi path requires an explicit adapter/Softpipe integration
 before the guest acceptance can pass.
+
+## Related decision (2026-11-21)
+
+- [DEC-115](../product-decisions/DEC-115-web-compatibility-engine-drm-and-codecs.md) — For the Linux edition, measure representative sites on Servo first and use the results to decide whether to add a fallback engine. This decision records the Servo pin and Nagi adapter boundary for Nagi 0.1.

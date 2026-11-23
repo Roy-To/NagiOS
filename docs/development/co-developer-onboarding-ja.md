@@ -77,3 +77,7 @@ path競合、権限不足、想定外の差分、CI失敗、gate不明、認証�
 - [製品決定の索引](../product-decisions/README.md)と[運用規則](../product-decisions/OPERATING_RULES.md)
 - [共同開発者の役割](../product-decisions/DEC-046-co-developer-governance.md)と[仕様正本の決定](../product-decisions/DEC-050-public-specification-repository.md)
 - [貢献ガイド](../../CONTRIBUTING.md)と[開発者向け資料](README.md)
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-120](../product-decisions/DEC-120-development-codename-and-dco.md) — 貢献する各コミットに `git commit -s` で `Signed-off-by:` を付けてください。AIが作成したコミットも、提出する人が自分の名前と公開できるメールアドレスで署名します。
