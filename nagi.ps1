@@ -78,7 +78,7 @@ try {
         }
     }
     $ErrorActionPreference = 'Continue'
-    if ($Arguments.Count -gt 0 -and $Arguments[0] -eq 'legal') {
+    if ($Arguments.Count -gt 0 -and ($Arguments[0] -eq 'legal' -or $Arguments[0] -eq 'run')) {
         & $cargoPath run --quiet --locked --manifest-path $manifestPath -p $packageName -- @Arguments
         $childExitCode = $LASTEXITCODE
     } else {
