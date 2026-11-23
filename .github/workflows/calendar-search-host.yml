@@ -9,9 +9,12 @@ on:
       - Cargo.lock
       - crates/nagi-model/**
       - crates/nagi-calendar-core/**
+      - crates/nagi-calendar-canvas-adapter/**
+      - crates/nagi-calendar-input-adapter/**
       - crates/nagi-calendar-search-adapter/**
       - crates/nagi-search-core/**
       - tests/search-core/**
+      - user/nagi-ui/**
       - user/nagi-search/**
   push:
     branches: [main]
@@ -21,9 +24,12 @@ on:
       - Cargo.lock
       - crates/nagi-model/**
       - crates/nagi-calendar-core/**
+      - crates/nagi-calendar-canvas-adapter/**
+      - crates/nagi-calendar-input-adapter/**
       - crates/nagi-calendar-search-adapter/**
       - crates/nagi-search-core/**
       - tests/search-core/**
+      - user/nagi-ui/**
       - user/nagi-search/**
   workflow_dispatch:
 
@@ -56,6 +62,16 @@ jobs:
             manifest: crates/nagi-calendar-search-adapter/Cargo.toml
             package: nagi-calendar-search-adapter
             assert_local_graph: true
+            assert_pinned_graph: false
+          - name: Calendar Canvas adapter
+            manifest: crates/nagi-calendar-canvas-adapter/Cargo.toml
+            package: nagi-calendar-canvas-adapter
+            assert_local_graph: false
+            assert_pinned_graph: false
+          - name: Calendar Input adapter
+            manifest: crates/nagi-calendar-input-adapter/Cargo.toml
+            package: nagi-calendar-input-adapter
+            assert_local_graph: false
             assert_pinned_graph: false
           - name: Pinned SearchCore graph
             manifest: crates/nagi-search-core/Cargo.toml

@@ -1,10 +1,12 @@
 //! Host-only Calendar contracts and deterministic reference algorithms.
 //! No provider delivery, authentication, notification dispatch or guest persistence.
 pub mod adapter;
+pub mod agenda;
 pub mod availability;
 pub mod model;
 pub mod recurrence;
 pub mod snapshot;
+mod snapshot_codec;
 pub mod store;
 pub mod time;
 

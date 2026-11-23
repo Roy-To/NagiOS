@@ -29,6 +29,40 @@ fn reject_unchanged(snapshot: StoreSnapshot, expected: Error) {
 }
 
 #[test]
+fn ncs1_roundtrip_preserves_deleted_ids_for_the_restarted_allocator() {
+    let mut source = populated();
+    let event = source.snapshot().events[0].clone();
+    source.delete(&event.id, event.revision).unwrap();
+    let calendar = source.snapshot().calendars[0].clone();
+    source.delete_calendar(&calendar.id).unwrap();
+
+    let snapshot = source.snapshot();
+    let mut encoded = snapshot.to_bytes().unwrap();
+    assert_eq!(&encoded[..4], b"NCS1");
+    assert_eq!(StoreSnapshot::from_bytes(&encoded), Ok(snapshot.clone()));
+
+    let mut restarted = InMemoryStore::new(
+        FixedClock(1_000_000),
+        SequentialIds::after_snapshot(&snapshot),
+        20,
+    )
+    .unwrap();
+    restarted.restore_snapshot(snapshot).unwrap();
+    let next_calendar = restarted.create_calendar("new", None).unwrap();
+    assert_ne!(next_calendar.id, calendar.id);
+    let next_event = restarted
+        .create(EventDraft::new(next_calendar.id, "new", schedule()))
+        .unwrap();
+    assert_ne!(next_event.id, event.id);
+
+    *encoded.last_mut().unwrap() ^= 1;
+    assert_eq!(
+        StoreSnapshot::from_bytes(&encoded),
+        Err(Error::InvalidSnapshot)
+    );
+}
+
+#[test]
 fn rejects_unknown_versions_without_mutation() {
     for version in [0, SNAPSHOT_VERSION + 1, u32::MAX] {
         let mut snapshot = populated().snapshot();

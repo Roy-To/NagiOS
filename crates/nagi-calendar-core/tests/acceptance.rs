@@ -137,6 +137,26 @@ fn cal_h01_ids_stable_across_crud_and_calendars() {
     s.delete(&a.id, updated.revision).unwrap();
     assert_eq!(s.get(&a.id), Err(Error::NotFound));
 }
+
+#[test]
+fn local_adapter_event_survives_snapshot_reload_and_listing() {
+    let source = store();
+    let calendar = source.list_calendars(10).unwrap().remove(0);
+    let mut source = LocalAdapter { store: source };
+    let event = source.create_event(draft(instant_schedule())).unwrap();
+    assert_eq!(source.list(&calendar.id, 10).unwrap(), vec![event.clone()]);
+
+    // StoreSnapshot is a typed in-memory fixture, not a durable byte format.
+    let saved = source.store.snapshot();
+    let mut reloaded =
+        InMemoryStore::new(FixedClock(1_000_000), SequentialIds::new(), 100).unwrap();
+    reloaded.restore_snapshot(saved).unwrap();
+    let reloaded = LocalAdapter { store: reloaded };
+
+    assert_eq!(reloaded.get_event(&event.id).unwrap(), event);
+    assert_eq!(reloaded.list(&calendar.id, 10).unwrap(), vec![event]);
+}
+
 #[test]
 fn ids_validate_namespaces_and_empty_values() {
     for v in ["", "cal_", "../cal_x", "event_x", "cal_日本", "cal_X"] {

@@ -1,4 +1,5 @@
-//! Typed in-memory snapshots, not a byte format or durable guest storage.
+//! Typed in-memory snapshots. `snapshot_codec` provides a bounded byte format;
+//! neither form is an authenticated or durable guest storage contract.
 //! Version 1 is the first schema. Unknown versions require an explicit future
 //! migration; they are never interpreted as version 1.
 use crate::model::{validate_text, Calendar, CalendarId, Event, EventId};

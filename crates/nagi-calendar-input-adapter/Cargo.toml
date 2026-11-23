@@ -1,0 +1,15 @@
+[package]
+name = "nagi-calendar-input-adapter"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+nagi-calendar-core = { path = "../nagi-calendar-core" }
+nagi-ui = { path = "../../user/nagi-ui" }
+
+[lints.rust]
+unsafe_code = "forbid"
