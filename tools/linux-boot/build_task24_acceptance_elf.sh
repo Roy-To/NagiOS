@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher] <new-output-dir>
+Usage: build_task24_acceptance_elf.sh [--online] [--release] <new-output-dir>
 
 Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
 NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
@@ -19,25 +19,22 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
---desktop-launcher enables the development L7 launcher before Notes.
 USAGE
 }
 
 profile=debug
 offline=true
-desktop_launcher=false
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
         --online) offline=false ;;
-        --desktop-launcher) desktop_launcher=true ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
     esac
     shift
 done
-if (($# != 1)) || { [[ "$profile" == release ]] && "$desktop_launcher"; }; then
+if (($# != 1)); then
     usage >&2
     exit 2
 fi
@@ -56,9 +53,6 @@ toolchain=nightly-2025-08-01
 target=x86_64-unknown-linux-musl
 manifest=user/nagi-init/Cargo.toml
 features=linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session
-if "$desktop_launcher"; then
-    features+=,linux-dev-desktop-launcher
-fi
 cfgs=(
     linux_boot_identity_runtime linux_boot_owner_registration
     linux_task24_owner_co_location linux_task24_initial_login_runtime
@@ -134,15 +128,6 @@ if profile == "release" and any(counts.values()):
     sys.exit("release ELF retained a Task24 development marker")
 if profile == "debug" and not all(counts.values()):
     sys.exit("acceptance ELF is missing a Task24 development marker")
-
-launcher_markers = ("NAGI_DEV_L7_DESKTOP_PRESENTED", "NAGI_DEV_L7_NOTES_SELECTED")
-launcher_enabled = "linux-dev-desktop-launcher" in features.split(",")
-for marker in launcher_markers:
-    count = data.count(marker.encode("ascii"))
-    if bool(count) != launcher_enabled:
-        sys.exit(f"unexpected L7 marker count: {marker}={count}")
-    if launcher_enabled:
-        counts[marker] = count
 
 public_key = os.environ.get("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
 key = Path(public_key).read_bytes() if public_key else b""

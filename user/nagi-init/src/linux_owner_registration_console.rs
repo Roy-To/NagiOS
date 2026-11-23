@@ -340,15 +340,8 @@ impl BootOwnerConsole {
         &mut self,
         render: impl FnOnce(&mut crate::ui::Painter<'_>),
     ) -> io::Result<()> {
-        self.present_surface(|surface| render(&mut crate::ui::Painter::new(surface)))
-    }
-
-    pub(super) fn present_surface(
-        &mut self,
-        render: impl FnOnce(&mut [u32]),
-    ) -> io::Result<()> {
         self.frame_presented.store(false, Ordering::Release);
-        render(&mut self.pixels);
+        render(&mut crate::ui::Painter::new(&mut self.pixels));
         self.framebuffer.present(&self.pixels)?;
         self.frame_presented.store(true, Ordering::Release);
         Ok(())
