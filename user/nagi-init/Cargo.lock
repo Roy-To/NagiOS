@@ -3660,6 +3660,7 @@ dependencies = [
  "nagi-system-service-recovery-contract",
  "nagi-task37-receipt-supplier",
  "nagi-ui",
+ "notes-event-bridge-candidate",
  "notes-files-codec-candidate",
  "relibc",
  "rustix",

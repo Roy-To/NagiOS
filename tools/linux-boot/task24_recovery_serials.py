@@ -44,6 +44,10 @@ RECEIPT_VALUES = r" service=([A-Za-z0-9._-]+)" + "".join(
     rf" {field}=([1-9][0-9]*)" for field in RECEIPT_FIELDS[1:]
 )
 LOGIN_WAIT = "NAGI_DEV_TASK24_UNLOCK_WAITING_FOR_INPUT"
+LOGIN_CONNECTED = "NAGI_DEV_TASK24_CHILD_BROKER_CONNECTED"
+LOGIN_DENIED = "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED"
+LOGIN_REJECTED = f"{LOGIN_DENIED} (Rejected)"
+LOGIN_CANCELLED = "NAGI_DEV_TASK24_LOGIN_CANCELLED_NORMALLY"
 FAILURES = (
     "NAGI_C1_BOOT_RECOVERY_UNAVAILABLE",
     "C1_BOOT_RECOVERY_UNAVAILABLE",
@@ -191,16 +195,16 @@ def _validate_phase(
     return note_id, revision, c3_receipt
 
 
-def validate_save_read(save_serial: str, read_serial: str) -> dict[str, int | str]:
-    """Require prior terminal consumption before login, then exact note identity."""
-    saved_id, saved_revision, saved_receipt = _validate_phase(save_serial, "save", SAVED)
+def _validate_read_link(
+    read_serial: str, expected_receipt: tuple[str | int, ...]
+) -> tuple[str, int]:
     read_lines = _complete_lines(read_serial, "read")
     mount = _unique_index(read_lines, MOUNT, "read")
     previous_terminal_identity = _receipt_identity(read_lines, PREVIOUS_TERMINAL, "read")
     assert previous_terminal_identity is not None
     previous_receipt, previous_terminal = previous_terminal_identity
-    if previous_receipt != saved_receipt:
-        raise ValueError("read boot consumed a different C3 terminal receipt than save boot")
+    if previous_receipt != expected_receipt:
+        raise ValueError("read boot consumed a different C3 terminal receipt than the preceding boot")
     login_wait = _unique_index(read_lines, LOGIN_WAIT, "read")
     session = _unique_index(read_lines, SESSION, "read")
     handshake = _unique_index(read_lines, HANDSHAKE, "read")
@@ -213,9 +217,65 @@ def validate_save_read(save_serial: str, read_serial: str) -> dict[str, int | st
         raise ValueError("read reopen/input order is invalid")
 
     reopened_id, reopened_revision, _ = _validate_phase(read_serial, "read", REOPENED)
+    return reopened_id, reopened_revision
+
+
+def validate_save_read(save_serial: str, read_serial: str) -> dict[str, int | str]:
+    """Require prior terminal consumption before login, then exact note identity."""
+    saved_id, saved_revision, saved_receipt = _validate_phase(save_serial, "save", SAVED)
+    reopened_id, reopened_revision = _validate_read_link(read_serial, saved_receipt)
     if (saved_id, saved_revision) != (reopened_id, reopened_revision):
         raise ValueError("saved and reopened Notes ObjectId/revision differ")
     return {"object": saved_id, "revision": saved_revision, "ready_count": 1}
+
+
+def validate_reject_close(
+    serial: str, expected_receipt: tuple[str | int, ...],
+) -> tuple[str | int, ...]:
+    phase = "reject-close"
+    lines = _complete_lines(serial, phase)
+    forbidden = (
+        "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATED", "NAGI_DEV_TASK24_C1_SESSION_COMMITTED",
+        "NAGI_DEV_TASK24_LOGIN_ATTEMPT_EXPIRED", "NAGI_DEV_TASK24_INITIAL_ADMISSION_FAILED",
+        "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED",
+        "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT", "NAGI_DEV_NOTES_",
+        SESSION, HANDSHAKE, READY,
+    )
+    if any(line.startswith(forbidden) for line in lines):
+        raise ValueError("reject-close boot entered a forbidden state")
+    waits = [i for i, line in enumerate(lines) if line == LOGIN_WAIT]
+    denials = [(i, line) for i, line in enumerate(lines) if line.startswith(LOGIN_DENIED)]
+    if len(waits) != 2 or len(denials) != 1 or denials[0][1] != LOGIN_REJECTED:
+        raise ValueError("reject-close requires one confirmed rejection and two login waits")
+    mount = _unique_index(lines, MOUNT, phase)
+    connected = _unique_index(lines, LOGIN_CONNECTED, phase)
+    cancelled = _unique_index(lines, LOGIN_CANCELLED, phase)
+    exit_requested = _unique_index(lines, IDENTITY_EXIT_REQUESTED, phase)
+    previous = _receipt_identity(lines, PREVIOUS_TERMINAL, phase)
+    normal_exit = _receipt_identity(lines, C3_IDENTITY_NORMAL_EXIT_REAPED, phase)
+    terminal = _receipt_identity(lines, CURRENT_TERMINAL, phase)
+    assert previous is not None and normal_exit is not None and terminal is not None
+    if previous[0] != expected_receipt:
+        raise ValueError("reject-close boot consumed a different C3 terminal receipt than save boot")
+    if normal_exit[0] != terminal[0] or terminal[0] == previous[0]:
+        raise ValueError("reject-close did not consume its own matching C3 terminal receipt")
+    if not (
+        mount < previous[1] < waits[0] < connected < denials[0][0] < waits[1]
+        < cancelled < exit_requested < normal_exit[1] < terminal[1]
+    ):
+        raise ValueError("reject-close login, retry, cancellation or receipt order is invalid")
+    return terminal[0]
+
+
+def validate_save_reject_read(
+    save_serial: str, reject_serial: str, read_serial: str
+) -> dict[str, int | str]:
+    saved_id, saved_revision, saved_receipt = _validate_phase(save_serial, "save", SAVED)
+    rejected_receipt = validate_reject_close(reject_serial, saved_receipt)
+    reopened_id, reopened_revision = _validate_read_link(read_serial, rejected_receipt)
+    if (saved_id, saved_revision) != (reopened_id, reopened_revision):
+        raise ValueError("saved and reopened Notes ObjectId/revision differ")
+    return {"object": saved_id, "revision": saved_revision, "ready_count": 1, "reject_ready_count": 0}
 
 
 def _serial(lines: list[str]) -> str:

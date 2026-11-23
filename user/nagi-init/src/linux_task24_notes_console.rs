@@ -2,10 +2,13 @@
 
 use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
 use crate::profile_volume_notes_owner::AuthorizedNotesAttachment;
-use e_profile_root_canonical_consumer::construct_notes_bridge_scoped;
-use libnagi::{INPUT_KEY_ENTER, INPUT_KEY_ESCAPE};
+use libnagi::INPUT_KEY_ESCAPE;
 use nagi_identity_session::{C1IssuedInteractiveSession, ResolvedIdentity};
-use notes_files_codec_candidate::{BlockKind, NoteDocument};
+use notes_event_bridge_candidate::ScopedNotesEventBridge;
+use notes_files_codec_candidate::{
+    BlockKind, C1ProfileRootNotesInput, NoteDocument, ProfileRootNotesStore,
+    ScopedNotesUiController,
+};
 use std::{io, sync::Arc, time::Duration};
 
 pub(super) fn run(
@@ -18,8 +21,7 @@ pub(super) fn run(
     mut poll_required_identity_exit: impl FnMut() -> io::Result<bool>,
 ) -> io::Result<NotesConsoleExit> {
     std::thread::scope(|scope| {
-        let mut bridge = construct_notes_bridge_scoped(
-            scope,
+        let input = C1ProfileRootNotesInput::open_linux(
             attachment.bundle,
             identity,
             issued.caller(),
@@ -27,6 +29,9 @@ pub(super) fn run(
             Duration::from_secs(5),
         )
         .map_err(io::Error::other)?;
+        let store = Arc::new(ProfileRootNotesStore::new(input));
+        let controller = ScopedNotesUiController::new_scoped(Arc::clone(&store), scope);
+        let mut bridge = ScopedNotesEventBridge::from_controller(controller);
         let locale = nagi_localization::Locale::EnUs;
         let label = nagi_localization::text(locale, "desktop.notes.title");
         if let Some(note) = bridge.list_notes().map_err(io::Error::other)?.first() {
@@ -45,6 +50,7 @@ pub(super) fn run(
                 .ok_or_else(|| io::Error::other("Notes document unavailable"))?,
         )?;
         super::super::log_pid1_stderr(format_args!("NAGI_DEV_NOTES_INPUT_READY"));
+        let mut has_unconfirmed_user_edit = false;
         loop {
             let Some(event) = super::super::wait_for_task24_input(
                 |timeout| console.next_key_timeout(timeout),
@@ -56,15 +62,18 @@ pub(super) fn run(
                 ));
                 return Ok(NotesConsoleExit::RequiredIdentityExited);
             };
-            // An explicit save can retry the same draft after persistence failed.
-            let result = if event.code == INPUT_KEY_ENTER && event.value == 1 {
-                bridge.retry_active()
-            } else {
-                bridge.handle_event(event)
-            };
+            let result = crate::task24_notes_input::handle_event(
+                &mut bridge,
+                store.as_ref(),
+                event,
+                &mut has_unconfirmed_user_edit,
+            );
             let result = match result {
                 Ok(result) => result,
-                Err(error) if matches!(event.code, INPUT_KEY_ENTER | INPUT_KEY_ESCAPE) => {
+                Err(error)
+                    if crate::task24_notes_input::is_enter_code(event.code)
+                        || event.code == INPUT_KEY_ESCAPE =>
+                {
                     super::super::log_pid1_stderr(format_args!(
                         "NAGI_DEV_NOTES_SAVE_FAILED event={} error={error}",
                         event.code
@@ -75,7 +84,7 @@ pub(super) fn run(
             };
             if let Some(note) = result {
                 present(console, &note)?;
-                if event.code == INPUT_KEY_ENTER {
+                if crate::task24_notes_input::is_enter_code(event.code) {
                     super::super::log_pid1_stderr(format_args!(
                         "NAGI_DEV_NOTES_SAVED object={:016x} revision={}",
                         note.id.0, note.revision

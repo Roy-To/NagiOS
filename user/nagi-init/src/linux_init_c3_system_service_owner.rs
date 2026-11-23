@@ -761,12 +761,12 @@ impl LinuxC3SystemServiceSlotOwner {
         };
         state.highest_generation = next.get();
         state.reserved_generation = Some(next);
-        state.reserved_operation = reservation;
-        if let Some(reservation) = reservation {
+        if let Some(reservation) = reservation.as_ref() {
             state.highest_operation_id = state
                 .highest_operation_id
                 .max(reservation.operation_id().get());
         }
+        state.reserved_operation = reservation;
         Ok(next)
     }
 
@@ -871,8 +871,10 @@ impl LinuxC3SystemServiceSlotOwner {
         let reserved = state.reserved_generation.ok_or_else(|| {
             permission_denied("system-service launch has no C3 generation reservation")
         })?;
-        let reserved_operation = state.reserved_operation;
-        let launch_instance_id = reserved_operation.map(|reservation| reservation.operation_id());
+        let reserved_operation = state.reserved_operation.clone();
+        let launch_instance_id = reserved_operation
+            .as_ref()
+            .map(C3SlotReservation::operation_id);
         if state.durable_journal.is_some() && reserved_operation.is_none() {
             return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
         }
@@ -883,7 +885,15 @@ impl LinuxC3SystemServiceSlotOwner {
         }
         let (previous_token, previous_process_id) = {
             let previous = current_launch(&state)?;
-            validate_transition(&scope_snapshot, previous, state.highest_catalog_generation)?;
+            validate_transition(
+                &scope_snapshot,
+                previous,
+                state.highest_catalog_generation,
+                state.current.is_none()
+                    && state.launches.is_empty()
+                    && state.lifecycle.active_len() == 0,
+                reserved_operation.as_ref(),
+            )?;
             previous
                 .map(|entry| (Some(entry.token), Some(entry.process_id)))
                 .unwrap_or((None, None))
@@ -1715,6 +1725,7 @@ impl LinuxC3SystemServiceSlotOwner {
             }
             let reservation = state
                 .reserved_operation
+                .clone()
                 .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
             let receipt = journal
                 .transition_reserved_quarantine(
@@ -3022,11 +3033,22 @@ fn validate_transition(
     next: &RecoveryScopeSnapshot,
     previous: Option<&OwnedLaunch>,
     highest_catalog_generation: Option<NonZeroU64>,
+    slot_is_quiescent: bool,
+    reservation: Option<&C3SlotReservation>,
 ) -> io::Result<()> {
-    if highest_catalog_generation.is_some_and(|highest| next.catalog_generation <= highest) {
-        return Err(permission_denied(
-            "A system-service catalog generation does not advance the slot high-water mark",
-        ));
+    if let Some(highest) = highest_catalog_generation {
+        let exact_normal_restart = slot_is_quiescent
+            && previous.is_none()
+            && reservation.is_some_and(|reservation| {
+                reservation.permits_same_catalog_normal_restart(next, highest.get())
+            });
+        if next.catalog_generation < highest
+            || (next.catalog_generation == highest && !exact_normal_restart)
+        {
+            return Err(permission_denied(
+                "A system-service catalog generation rolls back or lacks an exact normal-restart receipt",
+            ));
+        }
     }
     match (previous, next.transition) {
         (None, RecoveryLifecycleTransition::Initial) => Ok(()),
@@ -4412,27 +4434,22 @@ mod tests {
         stream.write_all(b"Q").unwrap();
     }
 
-    fn allow_generation_probe_to_exit(
+    fn allow_normal_probe_to_exit(
         proof: &SystemServiceEndpointOwnerProof,
-        expected_generation_marker: &[u8; 8],
+        expected_image_marker: &[u8; 8],
     ) {
-        assert_eq!(
-            proof.launch_generation().get().to_be_bytes(),
-            *expected_generation_marker,
-            "the expected fixture marker encodes the proof's C3 launch generation"
-        );
         let endpoint = proof.endpoint().unwrap().try_clone_to_owned().unwrap();
         let mut stream = UnixStream::from(endpoint);
         let mut launch_marker = [0u8; 8];
         stream.read_exact(&mut launch_marker).unwrap();
-        assert_eq!(&launch_marker, expected_generation_marker);
+        assert_eq!(&launch_marker, expected_image_marker);
         stream.write_all(b"Q").unwrap();
 
         let mut normal_exit_marker = [0u8; 8];
         stream.read_exact(&mut normal_exit_marker).unwrap();
         assert_eq!(
-            &normal_exit_marker, expected_generation_marker,
-            "normal exit marker must match the current launch generation"
+            &normal_exit_marker, expected_image_marker,
+            "normal exit marker must match the executable used for this launch"
         );
     }
 
@@ -4504,7 +4521,7 @@ mod tests {
     ) {
         let (events, retained_state) = listener_state;
         let process_id = proof.process_identity().process_id();
-        allow_generation_probe_to_exit(proof, expected_marker);
+        allow_normal_probe_to_exit(proof, expected_marker);
 
         let reap_deadline = Instant::now() + Duration::from_secs(5);
         let mut service_exit_count = 0;
@@ -4894,7 +4911,7 @@ mod tests {
         let first_image = namespace_root_probe_elf_with_generation_marker(first_generation_marker);
         let first_scope = FixtureScope::new_with_image(
             service_id,
-            1,
+            2,
             RecoveryLifecycleTransition::Initial,
             first_generation,
             &first_image,
@@ -5088,18 +5105,41 @@ mod tests {
         );
 
         let second_generation = owner.reserve_launch_generation().unwrap();
-        assert!(second_generation > first_generation);
-        let second_generation_marker = second_generation.get().to_be_bytes();
-        assert_ne!(first_generation_marker, second_generation_marker);
-        let second_image =
-            namespace_root_probe_elf_with_generation_marker(second_generation_marker);
-        let second_scope = FixtureScope::new_with_image(
+        assert_eq!(second_generation.get(), first_generation.get() + 1);
+
+        let changed_image = namespace_root_probe_elf_with_generation_marker(*b"changed!");
+        let changed_scope = FixtureScope::new_with_image(
             service_id,
-            2,
+            first_scope.catalog_generation.get(),
             RecoveryLifecycleTransition::Initial,
             second_generation,
-            &second_image,
+            &changed_image,
         );
+        let error = launch_image(&owner, &changed_scope, &changed_image)
+            .expect_err("a changed executable must not restart under the same catalog");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+
+        let lower_catalog_scope = FixtureScope::new_with_image(
+            service_id,
+            1,
+            RecoveryLifecycleTransition::Initial,
+            second_generation,
+            &first_image,
+        );
+        let error = launch_image(&owner, &lower_catalog_scope, &first_image)
+            .expect_err("an exact normal-exit receipt must not authorize catalog rollback");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(owner.active_child_count().unwrap(), 0);
+
+        let second_image = &first_image;
+        let second_scope = FixtureScope::new_with_image(
+            service_id,
+            first_scope.catalog_generation.get(),
+            RecoveryLifecycleTransition::Initial,
+            second_generation,
+            second_image,
+        );
+        assert_ne!(second_scope.binding, first_scope.binding);
         let second_events = Arc::new(Mutex::new(Vec::new()));
         let second_launch_record_probe = Arc::new(Mutex::new(None));
         let second_owner_lock_available = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -5112,7 +5152,7 @@ mod tests {
         let second_proof = unsafe {
             owner.launch_and_authenticate_admitted_with_identity_listener(
                 &second_scope,
-                &second_image,
+                second_image,
                 &[],
                 TEST_LAUNCH_POLICY,
                 &mut second_listener,
@@ -5244,7 +5284,7 @@ mod tests {
             second_launch_token,
             (&second_events, &retained_state),
             &second_launch_record,
-            &second_generation_marker,
+            &first_generation_marker,
         );
         drop(second_proof);
 

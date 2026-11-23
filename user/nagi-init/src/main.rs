@@ -1754,6 +1754,12 @@ mod profile_volume_notes_owner;
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 mod task24_c3_journal_bootstrap_contract;
 
+#[cfg(any(
+    all(target_os = "linux", linux_task24_notes_consumer),
+    all(test, target_os = "macos")
+))]
+mod task24_notes_input;
+
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     linux_init::run()

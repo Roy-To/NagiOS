@@ -201,9 +201,27 @@ impl Framebuffer {
 
 #[derive(Debug)]
 pub(super) enum RegistrationConsoleError<E> {
-    Io(io::Error),
+    Io {
+        operation: &'static str,
+        source: io::Error,
+    },
     CredentialUnavailable,
     Save(E),
+}
+
+/// PID 1 renders only OS errors and fixed messages from the console input path.
+pub(super) fn registration_console_message(error: &io::Error) -> String {
+    if let Some(errno) = error.raw_os_error() {
+        return io::Error::from_raw_os_error(errno).to_string();
+    }
+    let message = error.to_string();
+    match message.as_str() {
+        "keyboard events were lost"
+        | "keyboard poll returned an invalid event"
+        | "required Identity exited during registration"
+        | "unexpected C3 event while monitoring Identity" => message,
+        _ => io::Error::from(error.kind()).to_string(),
+    }
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -376,7 +394,11 @@ impl BootOwnerConsole {
         SaveAccount: FnOnce(AccountRecord) -> Result<(), E>,
     {
         use RegistrationConsoleError::*;
-        self.present(|painter| screen.render(painter)).map_err(Io)?;
+        self.present(|painter| screen.render(painter))
+            .map_err(|source| Io {
+                operation: "initial-present",
+                source,
+            })?;
         #[cfg(linux_task24_owner_co_location)]
         if let Ok(connection) = self.consent_connection() {
             use super::pid1_live_peer_supplier::ConsentSource;
@@ -388,21 +410,36 @@ impl BootOwnerConsole {
             "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
         ));
         loop {
-            let event = next_key(self).map_err(Io)?;
+            let event = next_key(self).map_err(|source| Io {
+                operation: "read-event",
+                source,
+            })?;
             if event.value == 0 {
                 continue;
             }
             match screen.handle_event(event) {
                 LinuxRegistrationOutcome::Ignored => {}
                 LinuxRegistrationOutcome::Redraw => {
-                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    self.present(|painter| screen.render(painter))
+                        .map_err(|source| Io {
+                            operation: "redraw",
+                            source,
+                        })?;
                 }
                 LinuxRegistrationOutcome::CredentialUnavailable => {
-                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    self.present(|painter| screen.render(painter))
+                        .map_err(|source| Io {
+                            operation: "derive-error-present",
+                            source,
+                        })?;
                     return Err(CredentialUnavailable);
                 }
                 LinuxRegistrationOutcome::Submitted(result) => {
-                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    self.present(|painter| screen.render(painter))
+                        .map_err(|source| Io {
+                            operation: "submit-present",
+                            source,
+                        })?;
                     return result.map_err(Save);
                 }
             }

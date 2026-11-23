@@ -329,10 +329,14 @@ pub(super) struct C3SlotJournal {
     service_id: String,
 }
 
-#[derive(Clone, Copy)]
+/// Opaque in-process generation reservation. When the current row is a
+/// complete normal-exit terminal, retain that exact base receipt and recheck
+/// it under the journal lock before allowing a same-catalog next launch.
+#[derive(Clone)]
 pub(super) struct C3SlotReservation {
     launch_generation: NonZeroU64,
     operation_id: NonZeroU64,
+    prior_normal_exit: Option<C3DurableNormalExitReceipt>,
 }
 
 impl C3SlotReservation {
@@ -342,6 +346,46 @@ impl C3SlotReservation {
 
     pub(super) fn operation_id(&self) -> NonZeroU64 {
         self.operation_id
+    }
+
+    pub(super) fn prior_normal_exit(&self) -> Option<&C3DurableNormalExitReceipt> {
+        self.prior_normal_exit.as_ref()
+    }
+
+    pub(super) fn permits_same_catalog_normal_restart(
+        &self,
+        next: &RecoveryScopeSnapshot,
+        highest_catalog_generation: u64,
+    ) -> bool {
+        let Some(receipt) = self.prior_normal_exit.as_ref() else {
+            return false;
+        };
+        let previous = receipt.scope_snapshot();
+        if receipt.service_id() != next.service_id
+            || receipt.catalog_generation().get() != highest_catalog_generation
+            || receipt.catalog_generation() != next.catalog_generation
+            || previous.service_id != receipt.service_id()
+            || previous.catalog_generation != receipt.catalog_generation()
+            || previous.c3_launch_generation != receipt.c3_launch_generation()
+            || previous.binding_digest != *receipt.scope_binding_digest()
+            || previous.canonical_digest() != *receipt.scope_binding_digest()
+            || next.canonical_digest() != next.binding_digest
+            || previous.transition != RecoveryLifecycleTransition::Initial
+            || next.transition != RecoveryLifecycleTransition::Initial
+            || next.c3_launch_generation != self.launch_generation
+            || receipt.c3_launch_generation().get().checked_add(1)
+                != Some(next.c3_launch_generation.get())
+        {
+            return false;
+        }
+
+        // The canonical digest includes the launch generation. Recompute it
+        // after changing only that per-launch selector, then compare the full
+        // scope so every other package and identity selector must stay equal.
+        let mut expected_next = previous.clone();
+        expected_next.c3_launch_generation = next.c3_launch_generation;
+        expected_next.binding_digest = expected_next.canonical_digest();
+        expected_next == *next
     }
 }
 
@@ -549,6 +593,18 @@ impl C3SlotJournal {
             return Err(C3SlotJournalError::Rejected);
         }
 
+        let prior_normal_exit = match scan.current.as_ref() {
+            Some(current)
+                if current
+                    .row
+                    .launch_evidence
+                    .is_some_and(|evidence| evidence.state == LaunchEvidenceState::NormalExit) =>
+            {
+                Some(C3DurableNormalExitReceipt::from_committed_record(current)?)
+            }
+            _ => None,
+        };
+
         let launch_generation = scan
             .highest_c3_launch_generation
             .checked_add(1)
@@ -588,6 +644,7 @@ impl C3SlotJournal {
         Ok(C3SlotReservation {
             launch_generation,
             operation_id,
+            prior_normal_exit,
         })
     }
 
@@ -604,6 +661,22 @@ impl C3SlotJournal {
         let _lock = self.lock_exclusive()?;
         let mut scan = scan_journal(&self.path, &self.service_id, Some(reservation.operation_id))
             .map_err(|_| C3SlotJournalError::Unknown)?;
+        if catalog_generation.get() == scan.highest_catalog_generation {
+            if !reservation.permits_same_catalog_normal_restart(
+                &scope_snapshot,
+                scan.highest_catalog_generation,
+            ) {
+                return Err(C3SlotJournalError::Rejected);
+            }
+            let expected = reservation
+                .prior_normal_exit()
+                .ok_or(C3SlotJournalError::Rejected)?;
+            let current = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+            let actual = C3DurableNormalExitReceipt::from_committed_record(current)?;
+            if &actual != expected {
+                return Err(C3SlotJournalError::Unknown);
+            }
+        }
         let transition = C3SlotTransition {
             service_id: self.service_id.clone(),
             catalog_generation,
@@ -3254,6 +3327,44 @@ mod tests {
             ),
             Err(C3SlotJournalError::Rejected | C3SlotJournalError::Unknown)
         ));
+        // A cold owner must preserve the signed identity and advance only the
+        // launch selector. A validation error must not consume the reservation.
+        let reservation = reopened.reserve_next_generation().unwrap();
+        let mut next = scope.clone();
+        next.c3_launch_generation = reservation.launch_generation();
+        next.binding_digest = next.canonical_digest();
+        assert_eq!(
+            next.c3_launch_generation.get(),
+            scope.c3_launch_generation.get() + 1
+        );
+        let mut changed_identity = next.clone();
+        changed_identity.signed_package_sha256[0] ^= 1;
+        changed_identity.binding_digest = changed_identity.canonical_digest();
+        assert!(matches!(
+            reopened.transition_reserved_launch(
+                reservation.clone(),
+                changed_identity.catalog_generation,
+                changed_identity.binding_digest,
+                changed_identity,
+                |_| panic!("changed signed package cannot launch at the same catalog generation"),
+            ),
+            Err(C3SlotJournalError::Rejected)
+        ));
+        let restarted = reopened
+            .transition_reserved_launch(
+                reservation,
+                next.catalog_generation,
+                next.binding_digest,
+                next.clone(),
+                |stage| {
+                    stage(4108)?;
+                    Ok(4108)
+                },
+            )
+            .unwrap();
+        assert_eq!(restarted.catalog_generation(), scope.catalog_generation);
+        assert_eq!(restarted.c3_launch_generation(), next.c3_launch_generation);
+        assert_eq!(restarted.state(), C3SlotState::Live);
     }
 
     #[test]
@@ -3517,6 +3628,27 @@ mod tests {
                     reopened.latest_normal_exit_scope_snapshot(),
                     Err(C3SlotJournalError::Unknown)
                 ));
+
+                let reservation = reopened.reserve_next_generation().unwrap();
+                let same_catalog_scope = scope_snapshot(reservation.launch_generation().get());
+                let effect_ran = AtomicBool::new(false);
+                assert!(matches!(
+                    reopened.transition_reserved_launch(
+                        reservation,
+                        same_catalog_scope.catalog_generation,
+                        same_catalog_scope.binding_digest,
+                        same_catalog_scope,
+                        |_| {
+                            effect_ran.store(true, Ordering::SeqCst);
+                            Ok(4107)
+                        },
+                    ),
+                    Err(C3SlotJournalError::Rejected)
+                ));
+                assert!(
+                    !effect_ran.load(Ordering::SeqCst),
+                    "v{version} legacy rows cannot authorize same-catalog restart"
+                );
             }
         }
     }
