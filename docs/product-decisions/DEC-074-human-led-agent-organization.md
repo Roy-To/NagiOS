@@ -2,10 +2,10 @@
 
 **状態:** CONFIRMED（当面のAI組み込み体験優先・階層型Agent組織は非優先の長期ビジョン、PX-15の実用1.0 B＋将来の総合OS Cとの高水準整合）／PROVISIONAL（組織構造・技術・版割当・実装順序、1.0の具体的試験・公開範囲）
 
-**最終合意日:** 2026-11-17（PX-15との整合追記。階層型組織の後順位は不変）  
+**最終合意日:** 2026-11-22（DEC-122のCouncil高水準方向を追記。階層型組織の後順位は不変）  
 **適用候補:** Nagi OSの製品優先順位と長期構想。特定Releaseへの割当ては未決定。
 
-**関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
+**関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[DEC-122](DEC-122-adaptive-supervisor-council-security.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[VISION-001](VISION-001-human-adaptive-os.md)、[0.4+ Multi-Agent Organization Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的とユーザー体験
 
@@ -21,6 +21,12 @@
 - **Nagiを一貫したユーザー窓口とする既存方針を維持する。** NagiがSupervisorの一員か、別個の調整役かは本決定では定めない。
 - Supervisor、Worker、Roleという組織上の責任は、独立したProcess、Agent identity、Session、Model、端末、同時並列実行を必須としない。これらの構成方法は未確定である。
 - これは長期的な製品方向であり、0.1〜1.0の既存Release Gate、Acceptance、Workstream、実装仕様を変更しない。
+
+## Supervisor Councilとの接続（2026-11-22）
+
+[DEC-122](DEC-122-adaptive-supervisor-council-security.md)に、ローカルLLMネイティブなCouncilを将来のSupervisor相互レビュー、とりわけ重要Actionや不審な指示への**セキュリティ審査を主目的**として用い、日常的な深掘りのための常時合議を基本としない方針、および端末Resourceに応じてSupervisor数や運用を柔軟に変える**CONFIRMEDの高水準方向**を追加した。OS本来の認証・Permission／Policy・Action認可はCouncilとは独立し、合議結果はユーザーの本人承認・権限を代替しない。
+
+低スペック端末でSupervisorが1体のときCouncilを省略するか重大案件を直列3回推論させるか、重大／致命的変更の合議・全会一致の具体条件、モデル／審査の独立性、実装・提供版は**PROVISIONAL**。階層型組織の後順位と初期0.4の単一Nagi `builder` Role、既存Gateは不変。
 
 ## 当面実証したいAI組み込みOS体験（REVIEW NOTE）
 
@@ -70,6 +76,8 @@
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-22 | DEC-122に、Councilの将来採用方向、独立したOSセキュリティ、端末Resource適応を記録。低スペック時のCouncil省略／直列3回推論および票数・リスク分類・導入時期はPROVISIONAL。 |
+| 2026-11-22 | Councilの主用途をセキュリティ審査に絞り、通常の多角的な回答の深掘りのためには常時合議しないことをDEC-122と整合。高度推論のCloud利用はDEC-002の事前許可・Offline-first内での選択肢とする。 |
 | 2026-11-16 | ユーザーが、人間を唯一のManager、複数可能な統括AIをSupervisor、その下の専門AgentをWorkerとする長期構想、および端末能力に応じて組織規模・階層を拡張する方向を確認。具体的構造・実装・版割当は未決定として記録。 |
 | 2026-11-16 | 後続確認：当面はAIがOS標準機能として自然に働くAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。既存0.3／0.4 Gate・builder Roleは維持し、具体的な提供版・階層数・実装順序は未確定。 |
 | 2026-11-17 | PX-15の1.0実用OS Bと将来総合OS Cという高水準完成方針へ整合。AIがOS標準体験として自然に働く当面の優先順位と階層型Agent Organization後順位を維持。代表体験・アプリ・端末・性能・Release判定・組織の版はPROVISIONALで、既存Gateを変更しない。 |
