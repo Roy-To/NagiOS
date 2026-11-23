@@ -5,10 +5,10 @@ usage() {
     cat <<'USAGE'
 Usage: build_task24_acceptance_elf.sh [--online] [--release] <new-output-dir>
 
-Build the standalone Linux x86_64-musl Task24 PID 1. The development
-build requires NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes)
-and NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256 (lowercase SHA-256). Use the
-same public key and signed login package digest as the acceptance image.
+Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
+NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
+NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256 (lowercase SHA-256). For development
+acceptance, use the catalog public key and the signed login package digest.
 
 Install nightly-2025-08-01 with the x86_64-unknown-linux-musl target.
 Materialize the pinned source inputs before building:
@@ -69,10 +69,9 @@ if "$offline"; then
 fi
 if [[ "$profile" == release ]]; then
     cargo_options+=(--release)
-else
-    : "${NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY:?set the acceptance catalog public key path}"
-    : "${NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256:?set the signed development login package SHA-256}"
 fi
+: "${NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY:?set the catalog public key path}"
+: "${NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256:?set the development login package SHA-256}"
 
 cargo_bin=$(rustup which --toolchain "$toolchain" cargo)
 export RUSTC
@@ -133,8 +132,8 @@ if profile == "debug" and not all(counts.values()):
 public_key = os.environ.get("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
 key = Path(public_key).read_bytes() if public_key else b""
 login_pin = os.environ.get("NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256") or None
-if profile == "debug" and (len(key) != 32 or not re.fullmatch(r"[0-9a-f]{64}", login_pin or "")):
-    sys.exit("acceptance public key or signed login package SHA-256 is invalid")
+if len(key) != 32 or not re.fullmatch(r"[0-9a-f]{64}", login_pin or ""):
+    sys.exit("catalog public key or login package SHA-256 is invalid")
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
