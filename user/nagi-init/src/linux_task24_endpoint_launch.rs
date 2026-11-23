@@ -63,6 +63,15 @@ use pid1_live_peer_supplier::SessionLease;
 mod notes_console;
 
 #[cfg(all(
+    linux_task24_notes_consumer,
+    linux_task24_initial_login_runtime,
+    linux_task24_desktop_shell,
+    not(nagi_release_build)
+))]
+#[path = "linux_task24_desktop_shell.rs"]
+mod desktop_shell;
+
+#[cfg(all(
     linux_task24_initial_login_runtime,
     feature = "system-service-readiness"
 ))]
