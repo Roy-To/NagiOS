@@ -148,6 +148,8 @@ jobs:
           test "${#guest_only[@]}" -eq 25
           host_args=(--exact)
           for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
+          CODEC_CANDIDATE_TMP=$(mktemp -d "$RUNNER_TEMP/nagi-notes-codec.XXXXXX")
+          export CODEC_CANDIDATE_TMP
           cargo test --workspace --exclude nagi-kernel --locked -- "${host_args[@]}"
       - name: Required Linux PID1 lifecycle tests in diskless QEMU
         run: |
@@ -255,6 +257,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:CODEC_CANDIDATE_TMP = Join-Path $env:RUNNER_TEMP ('nagi-notes-codec-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $env:CODEC_CANDIDATE_TMP | Out-Null
           cargo test --workspace --exclude nagi-kernel --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone installer format, lint, and tests (Windows)
