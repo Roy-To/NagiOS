@@ -34,7 +34,10 @@ pub use localization::{Locale, Localizer};
 pub use markdown::{export_markdown, import_markdown, MarkdownError, StoredNoteError};
 pub use search::{NotesSearchProvider, SearchError, SearchHit, SearchProvider, SearchRecord};
 pub use session::{Clock, NoteSession, SaveError, SaveStatus, SessionError, SystemClock};
-pub use store::{HostPreviewStore, InMemoryNoteStore, NoteStore, SandboxError, StoreError};
+pub use store::{
+    HostPreviewStore, InMemoryNoteStore, NoteSessionEffectGate, NoteStore, SandboxError,
+    SessionGateError, SessionGatedNoteStore, StoreError,
+};
 
 pub use nagi_model::{AppId, ObjectId, WorkspaceId as NagiWorkspaceId};
 

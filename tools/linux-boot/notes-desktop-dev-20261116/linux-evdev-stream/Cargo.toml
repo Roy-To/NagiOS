@@ -1,0 +1,9 @@
+[package]
+name = "linux-evdev-stream"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+linux-evdev-decoder = { path = "../linux-evdev-decoder" }
+nagi-abi = { path = "../../../../crates/nagi-abi" }

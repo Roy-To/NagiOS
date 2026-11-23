@@ -118,6 +118,15 @@ impl FakeModelBackend {
             last_options: None,
         }
     }
+
+    fn record_unload(&mut self) -> Result<(), RuntimeError> {
+        self.unload_count += 1;
+        if let Some(error) = self.unload_error {
+            return Err(error);
+        }
+        self.active_sessions = self.active_sessions.saturating_sub(1);
+        Ok(())
+    }
 }
 
 impl ModelBackend for FakeModelBackend {
@@ -227,12 +236,11 @@ impl ModelBackend for FakeModelBackend {
     }
 
     fn unload(&mut self, _: Self::Session) -> Result<(), RuntimeError> {
-        self.unload_count += 1;
-        if let Some(error) = self.unload_error {
-            return Err(error);
-        }
-        self.active_sessions = self.active_sessions.saturating_sub(1);
-        Ok(())
+        self.record_unload()
+    }
+
+    fn unload_resident(&mut self, _: &mut Self::Session) -> Result<(), RuntimeError> {
+        self.record_unload()
     }
 }
 

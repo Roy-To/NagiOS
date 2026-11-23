@@ -1,0 +1,25 @@
+# Host-only test manifest for the browser state/input source in ../nagi-albert.
+# The product manifest keeps its target_os=nagi Servo dependencies.
+[package]
+name = "nagi-albert-linux-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "nagi_albert"
+path = "../nagi-albert/src/lib.rs"
+
+[features]
+m18-acceptance = []
+
+[dependencies]
+nagi-ai = { path = "../../services/nagi-ai" }
+nagi-clipboard = { path = "../nagi-clipboard" }
+nagi-ime = { path = "../nagi-ime" }
+nagi-localization = { path = "../nagi-localization" }
+nagi-model = { path = "../../crates/nagi-model" }
+url = "2.5"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }

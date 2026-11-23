@@ -1,0 +1,16 @@
+[package]
+name = "linux-peer-credentials-supplier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+linux-runtime-fixture = []
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-sdk = { path = "../../../../../../sdk/rust" }
+libc = "=0.2.189"

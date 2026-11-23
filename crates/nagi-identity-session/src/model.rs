@@ -25,6 +25,21 @@ impl UnixMillis {
 /// leases can enforce session deadlines outside the service call path.
 pub trait Clock: Clone + Send + Sync + 'static {
     fn now(&self) -> UnixMillis;
+
+    /// Try to read the same authoritative clock without waiting on a lock or
+    /// other potentially blocking source. Implementations that cannot provide
+    /// that guarantee leave this unsupported; callers must not fall back to
+    /// `now()` from a nonblocking path.
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        Err(TryClockError::Unsupported)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TryClockError {
+    Unsupported,
+    Busy,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -156,6 +171,7 @@ pub enum SessionKind {
 #[serde(rename_all = "snake_case")]
 pub enum SessionEndReason {
     UserLogout,
+    Revoked,
     Expired,
     SystemRestart,
     Recovery,

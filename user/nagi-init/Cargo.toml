@@ -6,6 +6,13 @@ build = "build.rs"
 publish = false
 
 [features]
+system-service-readiness = []
+production-session = []
+linux-service-action-bridge = [
+    "dep:nagi-action-ipc",
+    "dep:nagi-init-service-call",
+    "dep:nagi-service-contract",
+]
 m8-shell = []
 m9-window = []
 m10-desktop = []
@@ -90,7 +97,7 @@ m26-gemma-artifact-acceptance = ["m20-model-store-acceptance"]
 [[bin]]
 name = "nagi-init"
 path = "src/main.rs"
-test = false
+test = true
 bench = false
 
 [dependencies]
@@ -104,6 +111,7 @@ nagi-clipboard = { path = "../nagi-clipboard", optional = true }
 nagi-model-manager = { path = "../nagi-model-manager", optional = true }
 nagi-localization = { path = "../nagi-localization" }
 nagi-package = { path = "../nagi-package" }
+nagi-init-package-provider = { path = "../nagi-init-package-provider" }
 nagi-sdk = { path = "../../sdk/rust" }
 nagi-ui = { path = "../nagi-ui" }
 nagi-net = { path = "../nagi-net" }
@@ -112,11 +120,60 @@ nagi-posix = { path = "../nagi-posix" }
 nagi-search = { path = "../nagi-search", optional = true }
 nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
+nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
+nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "nagi")'.dependencies]
 nagi-albert = { path = "../nagi-albert", optional = true }
 nagi-ai = { path = "../../services/nagi-ai", optional = true }
 relibc = { path = "../../third_party/relibc", default-features = false }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.189"
+linux-peer-credentials-supplier = { path = "candidates/linux-broker-stage25/stage25/task39-contract-overlay" }
+nagi-dev-service-catalog-consumer = { path = "candidates/linux-broker-stage25/stage25/task25-contract-overlay" }
+nagi-task37-receipt-supplier = { path = "candidates/linux-broker-stage25/stage25/task37-contract-overlay" }
+nagi-nipc-v1-stream-candidate = { package = "nagi-nipc-v1-stream", path = "../../crates/nagi-nipc-v1-stream" }
+zeroize = { version = "=1.9.0", features = ["alloc"] }
+e-profile-root-canonical-consumer = { path = "../../tools/auth-notes-profile-root-consumer-20261118" }
+notes-event-bridge-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-event-bridge" }
+notes-files-codec-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-codec" }
+nagi-identity-session = { path = "../../crates/nagi-identity-session", features = ["linux-interactive-account", "system-service-recovery-contract"] }
+nagi-peer-authenticated-connection = { path = "../../crates/nagi-peer-authenticated-connection" }
+nagi-c2-accepted-connection-proof-contract = { path = "../../crates/nagi-c2-accepted-connection-proof-contract", features = ["c2-issuer"] }
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
+nagi-linux-account-verifier = { path = "../nagi-linux-account-verifier" }
+nagi-profile-volume-notes-owner = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/profile-volume-notes-owner" }
+nagi-system-principal-contract = { path = "../../crates/nagi-system-principal-contract" }
+nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
+nagi-system-service-launch = { path = "../../crates/nagi-system-service-launch" }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"] }
+serde_json = "1"
+sha2 = { version = "=0.10.9", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
+
+[dev-dependencies]
+notes-event-bridge-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-event-bridge" }
+notes-files-codec-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-codec" }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))'] }
+
+[workspace]
+exclude = ["candidates/linux-broker-stage25"]
+resolver = "2"
+
+[patch.crates-io]
+cc = { path = "../../third_party/cc-nagi" }
+libc = { path = "../../third_party/libc-servo" }
+freetype-sys = { path = "../../third_party/freetype-sys" }
+hyper-util = { path = "../../third_party/hyper-util-servo" }
+inventory = { path = "../../third_party/inventory-nagi" }
+mio = { path = "../../third_party/mio-servo" }
+socket2 = { path = "../../third_party/socket2-servo" }
+tempfile = { path = "../../third_party/tempfile-nagi" }
+mozjs_sys = { path = "../../third_party/mozjs-sys-nagi" }
+tokio = { path = "../../third_party/tokio-servo" }
+surfman = { path = "../../third_party/surfman" }

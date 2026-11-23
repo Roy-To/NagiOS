@@ -95,6 +95,11 @@ impl ModelBackend for ProbeBackend {
         self.unloads.set(self.unloads.get() + 1);
         self.fake.unload(session)
     }
+
+    fn unload_resident(&mut self, session: &mut Self::Session) -> Result<(), RuntimeError> {
+        self.unloads.set(self.unloads.get() + 1);
+        self.fake.unload_resident(session)
+    }
 }
 
 impl CancellationToken for Cell<bool> {

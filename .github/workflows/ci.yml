@@ -121,6 +121,12 @@ jobs:
           rustfmt --check user/nagi-albert/src/lib.rs
       - name: Regression tests for CI diagnostic parsers
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Linux development image acceptance helper tests (host-only)
+        run: |
+          python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_persistence_kernel_preflight.py' -v
+          python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_persistence_acceptance_runner.py' -v
+          python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_qmp_socket_path.py' -v
+          python3 -m unittest discover -s tools/linux-boot -p 'test_run_qemu_child.py' -v
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
@@ -135,7 +141,33 @@ jobs:
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
-        run: cargo test --workspace --exclude nagi-kernel --locked
+        run: |
+          # These exact cases require real clone3 or root-owned markers.
+          # The next required step runs every listed case in a diskless guest.
+          mapfile -t guest_only < <(python3 -c 'import json; from pathlib import Path; print(*json.loads(Path("tools/linux-boot/live_pid1_ci_tests.json").read_text()), sep=chr(10))')
+          test "${#guest_only[@]}" -eq 25
+          host_args=(--exact)
+          for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
+          CODEC_CANDIDATE_TMP=$(mktemp -d "$RUNNER_TEMP/nagi-notes-codec.XXXXXX")
+          export CODEC_CANDIDATE_TMP
+          cargo test --workspace --exclude nagi-kernel --locked -- "${host_args[@]}"
+      - name: Required Linux PID1 lifecycle tests in diskless QEMU
+        run: |
+          mkdir -p out/logs/linux-pid1-inputs
+          inputs=out/logs/linux-pid1-inputs
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
+          sysroot=$(rustc +nightly-2025-08-01 --print sysroot)
+          rust_lld="$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
+          test -x "$rust_lld"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="$rust_lld"
+          cargo +nightly-2025-08-01 test -p nagi-init --locked --target x86_64-unknown-linux-musl --no-run --message-format=json > "$inputs/test-build.jsonl"
+          test_elf=$(python3 -c 'import json,sys; xs=[r["executable"] for r in map(json.loads,sys.stdin) if r.get("reason")=="compiler-artifact" and r.get("executable") and r.get("target",{}).get("name")=="nagi-init" and r.get("profile",{}).get("test") is True]; assert len(xs)==1; print(xs[0])' < "$inputs/test-build.jsonl")
+          rustc +nightly-2025-08-01 --edition 2021 --target x86_64-unknown-linux-musl -C linker="$rust_lld" -o "$inputs/init" tools/linux-boot/live_pid1_ci_init.rs
+          # Read the preinstalled runner kernel, but never run the Rust
+          # tests with sudo or change runner namespace/security settings.
+          runner_kernel="/boot/vmlinuz-$(uname -r)"
+          sudo cat "$runner_kernel" > "$inputs/kernel"
+          python3 -B tools/linux-boot/run_live_pid1_ci.py --kernel "$inputs/kernel" --test-elf "$test_elf" --init-elf "$inputs/init" --manifest tools/linux-boot/live_pid1_ci_tests.json --output-dir out/logs/linux-pid1-live --timeout-seconds 240
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
@@ -161,6 +193,10 @@ jobs:
           path: |
             out/test-results/
             out/logs/acceptance/
+            out/logs/linux-pid1-live/serial.log
+            out/logs/linux-pid1-live/supervisor.log
+            out/logs/linux-pid1-live/result.json
+            out/logs/linux-pid1-live/failure.json
           if-no-files-found: ignore
       - name: Verify development workstream state
         run: ./nagi dev verify
@@ -175,11 +211,40 @@ jobs:
       - name: Test block I/O user page permissions
         run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Test Albert browser state and input adapters
-        run: cargo test --manifest-path user/nagi-albert/Cargo.toml --locked
+        run: cargo test --locked -p nagi-albert-linux-tests
       - name: M0 doctor acceptance
         run: ./tests/acceptance/m0_doctor.sh
       - name: M0 launcher acceptance
         run: ./tests/acceptance/m0_launcher.sh
+  task24-release-dev-entry-gate:
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Rust toolchain and Linux musl target
+        run: |
+          rustup toolchain install nightly-2025-08-01 --profile minimal
+          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
+      - name: Bootstrap pinned source dependencies
+        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Verify release ELF excludes all Task24 development entry markers
+        run: |
+          mkdir -p out/logs
+          NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY=$(mktemp "$RUNNER_TEMP/task24-catalog.XXXXXX")
+          # RFC 8032 test vector public key. The gate needs populated trust
+          # inputs, and the test digest does not authorize any real package.
+          python3 -c 'import sys; from pathlib import Path; Path(sys.argv[1]).write_bytes(bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))' "$NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY"
+          read -r NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256 _ < <(printf %s 'Task24 build-only fixture' | sha256sum)
+          export NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256
+          tools/linux-boot/build_task24_acceptance_elf.sh --online --release out/logs/task24-release-elf
+      - name: Upload release gate receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: task24-release-elf-receipt-${{ github.run_attempt }}
+          path: out/logs/task24-release-elf/build-receipt.json
+          if-no-files-found: error
   windows-launcher:
     needs: change-scope
     if: needs.change-scope.outputs.docs_only != 'true'
@@ -221,6 +286,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:CODEC_CANDIDATE_TMP = Join-Path $env:RUNNER_TEMP ('nagi-notes-codec-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $env:CODEC_CANDIDATE_TMP | Out-Null
           cargo test --workspace --exclude nagi-kernel --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone installer format, lint, and tests (Windows)
@@ -333,7 +400,7 @@ jobs:
               - 'user/nagi-init/src/m20_granite.rs'
               - 'user/nagi-model-manager/**'
   nagi-target:
-    needs: [change-scope, ubuntu-host, windows-launcher, target_classification]
+    needs: [change-scope, ubuntu-host, target_classification]
     if: ${{ (needs.change-scope.outputs.docs_only != 'true' && needs.target_classification.outputs.target_sensitive == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_target) }}
     concurrency:
       group: nagi-ci-target-${{ github.ref }}
@@ -385,9 +452,34 @@ jobs:
             echo "::error title=M17 Servo bootstrap diagnostic::$first_error"
           fi
           exit "$bootstrap_status"
+      - name: Check product init Cargo.lock against the Nagi target graph
+        run: |
+          mkdir -p out/logs
+          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.before
+          set +e
+          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
+            --target targets/x86_64-unknown-nagi-user.json --all-features \
+            --edges normal --prefix none --format '{p} [{f}]' \
+            >/dev/null 2>out/logs/m17-product-lock.resolve.stderr
+          resolve_status=$?
+          set -e
+          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.after
+          diff_status=0
+          diff -u out/logs/m17-product-lock.before out/logs/m17-product-lock.after \
+            >out/logs/m17-product-lock.diff || diff_status=$?
+          if [ "$diff_status" -gt 1 ]; then
+            exit "$diff_status"
+          fi
+          if [ "$resolve_status" -ne 0 ]; then
+            exit "$resolve_status"
+          fi
+          if [ "$diff_status" -ne 0 ]; then
+            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m17-product-lock.diff and commit the lock update.'
+            exit 1
+          fi
       - name: Verify M17 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
@@ -403,7 +495,7 @@ jobs:
           fi
       - name: Verify M18 target dependency feature boundary
         run: |
-          graph=$(cargo +nightly-2025-08-01 tree --locked --package nagi-init --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
+          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
           printf '%s\n' "$graph"
           if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
             echo 'M18 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
@@ -447,7 +539,7 @@ jobs:
           set -o pipefail
           mkdir -p out/logs
           set +e
-          cargo +nightly-2025-08-01 build -p nagi-init --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
+          cargo +nightly-2025-08-01 build --manifest-path user/nagi-init/Cargo.toml --target-dir target --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
           cargo_status=${PIPESTATUS[0]}
           set -e
           if [ "$cargo_status" -ne 0 ]; then
@@ -567,6 +659,7 @@ jobs:
             out/test-results/
             out/logs/acceptance/
             out/logs/m17-runner-resources.log
+            out/logs/m17-product-lock.*
             out/logs/m17-bootstrap.log
             out/logs/m17-nagi-user-init.log
             out/logs/m17-undefined-symbols.txt
@@ -577,7 +670,7 @@ jobs:
           if-no-files-found: ignore
 
   nagi-m20-inference:
-    needs: [ubuntu-host, windows-launcher, target_classification]
+    needs: [ubuntu-host, target_classification]
     if: ${{ needs.target_classification.outputs.m20_inference == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_m20) }}
     concurrency:
       group: nagi-ci-m20-inference-${{ github.ref }}
@@ -600,8 +693,35 @@ jobs:
           cargo install cbindgen --version 0.28.0 --locked
       - name: Bootstrap pinned Servo source dependencies
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
+      - name: Check product init Cargo.lock against the Nagi target graph
+        run: |
+          mkdir -p out/logs
+          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.before
+          set +e
+          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
+            --target targets/x86_64-unknown-nagi-user.json --all-features \
+            --edges normal --prefix none --format '{p} [{f}]' \
+            >/dev/null 2>out/logs/m20-product-lock.resolve.stderr
+          resolve_status=$?
+          set -e
+          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.after
+          diff_status=0
+          diff -u out/logs/m20-product-lock.before out/logs/m20-product-lock.after \
+            >out/logs/m20-product-lock.diff || diff_status=$?
+          if [ "$diff_status" -gt 1 ]; then
+            exit "$diff_status"
+          fi
+          if [ "$resolve_status" -ne 0 ]; then
+            exit "$resolve_status"
+          fi
+          if [ "$diff_status" -ne 0 ]; then
+            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m20-product-lock.diff and commit the lock update.'
+            exit 1
+          fi
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
+      - name: Fetch locked product init dependencies
+        run: cargo fetch --manifest-path user/nagi-init/Cargo.toml --locked
       - name: Download and verify pinned Granite artifact
         run: |
           mkdir -p out/cache/models
@@ -623,6 +743,7 @@ jobs:
           path: |
             out/evidence/m20-granite-inference-*/
             out/evidence/m20-granite-inference-target-*/
+            out/logs/m20-product-lock.*
             out/artifacts/nagi-0.1-m20-granite-inference-*.qcow2
           if-no-files-found: ignore
           compression-level: 0

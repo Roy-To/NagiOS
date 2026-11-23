@@ -31,11 +31,11 @@
       "cargo test --locked -p nagi-i18n",
       "cargo clippy --locked -p nagi-i18n --all-targets -- -D warnings",
       "cargo run --locked -p nagi-i18n --bin localization-check",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "cargo fmt --manifest-path user/nagi-posix/Cargo.toml -- --check",
       "cargo test --manifest-path user/nagi-posix/Cargo.toml --locked --target x86_64-apple-darwin",
       "cargo clippy --manifest-path user/nagi-posix/Cargo.toml --all-targets --locked --target x86_64-apple-darwin -- -D warnings",
-      "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+      "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
       "git diff --check",
       "cargo test -p nagi-cli --locked --offline",
       "cargo fmt --all -- --check",
@@ -118,7 +118,7 @@
       "gh run view 36237832887 --job 108392749643 --log-failed",
       "git show --stat --oneline 71fd5c3",
       "git show --format= --no-ext-diff 4d79bbe -- tools/nagi-cli/src/mesa.rs",
-      "git -C /Users/tozawa/.codex/worktrees/m17-allocator-diagnosis/NagiOS status --short --branch",
+      "git -C ${HOME}/.codex/worktrees/m17-allocator-diagnosis/NagiOS status --short --branch",
       "cargo test -p nagi-cli --locked --offline --config 'build.target=\"aarch64-apple-darwin\"' status_keeps_active_ci_runs_visible_ahead_of_newer_completed_runs",
       "gh run view 36239110612 --json status,conclusion,jobs,url",
       "gh run view 36240025711 --json status,conclusion,jobs,url",
@@ -244,7 +244,7 @@
       },
       {
         "name": "Localization target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-i18n --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The library compiles for the Nagi x86_64 user target; no runtime or QEMU result is claimed."
@@ -272,7 +272,7 @@
       },
       {
         "name": "Model Runtime Nagi user-target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-model-manager --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The no_std model manager library compiles for Nagi x86_64 user target; no inference or M20 acceptance is claimed."
@@ -314,7 +314,7 @@
       },
       {
         "name": "M17 POSIX Nagi user-target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "Nagi target compile succeeded. It emitted five pre-existing interface/dead-code warnings outside the changed alignment path."
@@ -608,7 +608,7 @@
       },
       {
         "name": "M17 pthread diagnostic Nagi user-target compile",
-        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=/Users/tozawa/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
+        "command": "__CARGO_TESTS_ONLY_SRC_ROOT=${HOME}/Developer/NagiOS/out/rust-src/library cargo check -p nagi-posix --target targets/x86_64-unknown-nagi-user.json --lib --locked --offline -Zbuild-std=std,panic_abort",
         "outcome": "PASS",
         "exit_code": 0,
         "evidence": "The nagi-posix library compiles for x86_64-unknown-nagi-user; Cargo reports five existing visibility/dead-code warnings in abi.rs and runtime.rs."

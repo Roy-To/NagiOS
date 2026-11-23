@@ -1,0 +1,12 @@
+[package]
+name = "nagi-linux-account-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libnagi = { path = "../libnagi" }
+nagi-capability = { path = "../../crates/nagi-capability" }
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

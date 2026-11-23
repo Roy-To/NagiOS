@@ -11,8 +11,9 @@ use libnagi::credential::{
     SALT_BYTES,
 };
 use libnagi::login::{
-    ChangeAction, ChangeField, ChangeProblem, LanguagePicker, LoginAction, LoginField, LoginForm,
-    LoginMode, LoginProblem, LoginThrottle, PasswordChangeForm, PickerAction, FREE_ATTEMPTS,
+    decode_login_failures, encode_login_failures, ChangeAction, ChangeField, ChangeProblem,
+    LanguagePicker, LoginAction, LoginField, LoginForm, LoginMode, LoginProblem, LoginThrottle,
+    PasswordChangeForm, PickerAction, FREE_ATTEMPTS,
 };
 use libnagi::security::{AccountStore, Role, Session};
 use libnagi::storage::{StorageError, SyscallBlockDevice, Vfs, MAX_SMALL_FILE_SIZE};
@@ -30,7 +31,6 @@ const ACCOUNT_PATH: &[u8] = b"owner-account";
 const ACCOUNT_NEXT_PATH: &[u8] = b"owner-account-next";
 /// Consecutive failed unlocks, kept across restarts (ADR 0064).
 const THROTTLE_PATH: &[u8] = b"login-throttle";
-const THROTTLE_MAGIC: &[u8; 4] = b"NLT1";
 
 /// Monotonic milliseconds since boot (10 ms timer ticks).
 fn now_ms() -> u64 {
@@ -55,6 +55,14 @@ pub enum LoginOutcome {
     /// First run: the user chose the system language (M29 onboarding).
     LanguageChosen(Locale),
     SignedIn(Session),
+}
+
+enum ScreenAction {
+    Ignored,
+    Changed,
+    LanguageChosen(Locale),
+    Create,
+    Unlock,
 }
 
 /// Languages offered on first run, in display order.
@@ -152,6 +160,19 @@ impl LoginScreen {
     }
 
     pub fn render(&self, painter: &mut Painter<'_>, locale: Locale) {
+        self.render_with_account_name(
+            painter,
+            locale,
+            self.account.as_ref().map(AccountRecord::name),
+        );
+    }
+
+    fn render_with_account_name(
+        &self,
+        painter: &mut Painter<'_>,
+        locale: Locale,
+        account_name: Option<&[u8]>,
+    ) {
         if let Some(picker) = &self.language {
             self.render_language(painter, locale, picker);
             return;
@@ -188,8 +209,8 @@ impl LoginScreen {
             ],
             LoginMode::Unlock => &[(LoginField::Password, "login.password")],
         };
-        if let (LoginMode::Unlock, Some(account)) = (self.form.mode(), &self.account) {
-            painter.text(PANEL.x + 20, y, account.name(), text);
+        if let (LoginMode::Unlock, Some(account_name)) = (self.form.mode(), account_name) {
+            painter.text(PANEL.x + 20, y, account_name, text);
             y += 14;
         }
         for (field, label) in fields {
@@ -289,39 +310,49 @@ impl LoginScreen {
     }
 
     pub fn handle_event(&mut self, event: InputEvent, volume: &mut UserDataVolume) -> LoginOutcome {
+        match self.handle_screen_event(event) {
+            ScreenAction::Ignored => LoginOutcome::Ignored,
+            ScreenAction::Changed => LoginOutcome::Changed,
+            ScreenAction::LanguageChosen(locale) => LoginOutcome::LanguageChosen(locale),
+            ScreenAction::Create => self.create(volume),
+            ScreenAction::Unlock => self.unlock(volume),
+        }
+    }
+
+    fn handle_screen_event(&mut self, event: InputEvent) -> ScreenAction {
         if event.event_type != libnagi::INPUT_EVENT_KEY || self.unavailable {
-            return LoginOutcome::Ignored;
+            return ScreenAction::Ignored;
         }
         if let Some(picker) = &mut self.language {
             return match picker.handle_key(event.code, event.value != 0) {
-                PickerAction::Ignored => LoginOutcome::Ignored,
-                PickerAction::Changed => LoginOutcome::Changed,
+                PickerAction::Ignored => ScreenAction::Ignored,
+                PickerAction::Changed => ScreenAction::Changed,
                 PickerAction::Chosen(index) => {
                     self.language = None;
-                    LoginOutcome::LanguageChosen(LANGUAGES[index.min(LANGUAGES.len() - 1)])
+                    ScreenAction::LanguageChosen(LANGUAGES[index.min(LANGUAGES.len() - 1)])
                 }
             };
         }
         match self.form.handle_key(event.code, event.value != 0) {
-            LoginAction::Ignored => LoginOutcome::Ignored,
-            LoginAction::Changed => LoginOutcome::Changed,
-            LoginAction::Create => self.create(volume),
-            LoginAction::Unlock => self.unlock(volume),
+            LoginAction::Ignored => ScreenAction::Ignored,
+            LoginAction::Changed => ScreenAction::Changed,
+            LoginAction::Create => ScreenAction::Create,
+            LoginAction::Unlock => ScreenAction::Unlock,
         }
     }
 
-    fn create(&mut self, volume: &mut UserDataVolume) -> LoginOutcome {
+    fn derive_account_record(&self) -> Option<AccountRecord> {
         let mut salt = [0; SALT_BYTES];
-        let derived = libnagi::random_fill(&mut salt)
+        let credential = fill_password_salt(&mut salt)
             .then(|| Credential::derive(self.form.password(), salt, DEFAULT_ITERATIONS))
-            .flatten();
-        let Some(credential) = derived else {
+            .flatten()?;
+        AccountRecord::new(self.form.name(), credential).ok()
+    }
+
+    fn create(&mut self, volume: &mut UserDataVolume) -> LoginOutcome {
+        let Some(record) = self.derive_account_record() else {
             self.form.clear_secrets();
             libnagi::console_write(b"Nagi login owner creation FAIL credential\r\n");
-            return LoginOutcome::Changed;
-        };
-        let Ok(record) = AccountRecord::new(self.form.name(), credential) else {
-            self.form.clear_secrets();
             return LoginOutcome::Changed;
         };
         if !persist(volume, &record) {
@@ -402,6 +433,369 @@ impl LoginScreen {
     }
 }
 
+#[cfg(target_os = "nagi")]
+fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
+    libnagi::random_fill(salt)
+}
+
+#[cfg(target_os = "linux")]
+fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
+    unsafe extern "C" {
+        fn getentropy(buffer: *mut std::ffi::c_void, length: usize) -> std::ffi::c_int;
+    }
+    // getentropy waits for the kernel entropy source and fills the entire buffer.
+    unsafe { getentropy(salt.as_mut_ptr().cast(), salt.len()) == 0 }
+}
+
+/// The Linux first-run display uses the same language picker, form and
+/// rendering as the desktop screen. The normal boot owner supplies the
+/// persistence callback, which receives only the derived account record.
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+pub(crate) struct LinuxOwnerUnlock<'a> {
+    screen: LoginScreen,
+    account_name: &'a [u8],
+    locale: Locale,
+    started_at: std::time::Instant,
+}
+
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+impl<'a> LinuxOwnerUnlock<'a> {
+    pub(crate) fn new(account_name: &'a [u8], locale: Locale) -> Self {
+        let mut screen = LoginScreen::new(LoginStart::Unavailable);
+        screen.unavailable = false;
+        Self {
+            screen,
+            account_name,
+            locale,
+            started_at: std::time::Instant::now(),
+        }
+    }
+
+    pub(crate) fn render(&self, painter: &mut Painter<'_>) {
+        self.screen
+            .render_with_account_name(painter, self.locale, Some(self.account_name));
+    }
+
+    fn monotonic_ms(&self) -> u64 {
+        self.started_at.elapsed().as_millis() as u64
+    }
+
+    pub(crate) fn resume_throttle(&mut self, failures: u32) {
+        self.screen.throttle = LoginThrottle::resume(failures, self.monotonic_ms());
+        self.screen.retry_announced = self.screen.throttle.allows(self.monotonic_ms());
+    }
+
+    pub(crate) fn rejected(&mut self, failures: u32) {
+        self.screen.form.reject();
+        self.resume_throttle(failures);
+    }
+
+    pub(crate) fn succeeded(&mut self) {
+        self.screen.form.clear_secrets();
+        self.screen.throttle.record_success();
+        self.screen.retry_announced = true;
+    }
+
+    pub(crate) fn clear_secrets(&mut self) {
+        self.screen.form.clear_secrets();
+    }
+
+    pub(crate) fn remaining_wait(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.screen.throttle.remaining_ms(self.monotonic_ms()))
+    }
+
+    pub(crate) fn tick(&mut self) -> bool {
+        if self.screen.retry_announced || !self.remaining_wait().is_zero() {
+            return false;
+        }
+        self.screen.retry_announced = true;
+        self.screen.form.clear_throttle_notice();
+        true
+    }
+
+    pub(crate) fn handle_event<E>(
+        &mut self,
+        event: InputEvent,
+        submit: impl FnOnce(&[u8], &[u8]) -> Result<(), E>,
+    ) -> LinuxRegistrationOutcome<E> {
+        self.handle_event_at(event, self.monotonic_ms(), submit)
+    }
+
+    fn handle_event_at<E>(
+        &mut self,
+        event: InputEvent,
+        now_ms: u64,
+        submit: impl FnOnce(&[u8], &[u8]) -> Result<(), E>,
+    ) -> LinuxRegistrationOutcome<E> {
+        match self.screen.handle_screen_event(event) {
+            ScreenAction::Changed => LinuxRegistrationOutcome::Redraw,
+            ScreenAction::Unlock => {
+                if !self.screen.throttle.allows(now_ms) {
+                    self.screen.form.throttled();
+                    return LinuxRegistrationOutcome::Redraw;
+                }
+                let result = submit(self.account_name, self.screen.form.password());
+                self.screen.form.clear_secrets();
+                LinuxRegistrationOutcome::Submitted(result)
+            }
+            _ => LinuxRegistrationOutcome::Ignored,
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
+impl Drop for LinuxOwnerUnlock<'_> {
+    fn drop(&mut self) {
+        self.screen.form.clear_secrets();
+    }
+}
+
+#[cfg(all(test, target_os = "linux", linux_task24_initial_login_runtime))]
+mod task24_unlock_tests {
+    use super::*;
+    use libnagi::credential::MIN_ITERATIONS;
+
+    #[test]
+    fn task24_wrong_input_clears_form_and_next_input_issues_one_fixture_session() {
+        let mut unlock = LinuxOwnerUnlock::new(b"fixture", Locale::EnUs);
+        let mut accounts = AccountStore::new();
+        let credential = Credential::derive(b"aaaa", [7; SALT_BYTES], MIN_ITERATIONS).unwrap();
+        accounts
+            .add_account_with_credential(b"fixture", Role::Owner, credential)
+            .unwrap();
+        let key = |code| InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        };
+        let mut issued = 0;
+        for (code, accepted) in [(48, false), (30, true)] {
+            for _ in 0..4 {
+                assert!(matches!(
+                    unlock.handle_event_at(key(code), 0, |_, _| unreachable!()),
+                    LinuxRegistrationOutcome::<()>::Redraw
+                ));
+            }
+            let outcome =
+                unlock.handle_event_at(key(libnagi::INPUT_KEY_ENTER), 0, |name, secret| {
+                    accounts.authenticate(name, secret).map(|_| issued += 1)
+                });
+            assert_eq!(
+                matches!(outcome, LinuxRegistrationOutcome::Submitted(Ok(()))),
+                accepted
+            );
+            assert_eq!(unlock.screen.form.length(LoginField::Password), 0);
+            if accepted {
+                unlock.succeeded();
+                assert_eq!(unlock.screen.throttle.failures(), 0);
+            } else {
+                assert!(matches!(
+                    outcome,
+                    LinuxRegistrationOutcome::Submitted(Err(_))
+                ));
+                assert_eq!(issued, 0);
+                unlock.rejected(1);
+                assert_eq!(unlock.screen.throttle.failures(), 1);
+                assert!(matches!(
+                    unlock.screen.form.problem(),
+                    Some(LoginProblem::WrongPassword)
+                ));
+            }
+        }
+        assert_eq!(issued, 1);
+    }
+
+    #[test]
+    fn task24_restored_wait_refuses_input_before_submit() {
+        let mut unlock = LinuxOwnerUnlock::new(b"fixture", Locale::EnUs);
+        unlock.screen.throttle = LoginThrottle::resume(FREE_ATTEMPTS, 0);
+        let key = |code| InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        };
+        assert!(matches!(
+            unlock.handle_event_at(key(30), 4_999, |_, _| unreachable!()),
+            LinuxRegistrationOutcome::<()>::Redraw
+        ));
+        assert!(matches!(
+            unlock.handle_event_at(key(libnagi::INPUT_KEY_ENTER), 4_999, |_, _| unreachable!()),
+            LinuxRegistrationOutcome::<()>::Redraw
+        ));
+        assert_eq!(unlock.screen.form.length(LoginField::Password), 0);
+        assert!(matches!(
+            unlock.screen.form.problem(),
+            Some(LoginProblem::TooManyAttempts)
+        ));
+        let _ = unlock.handle_event_at(key(30), 5_000, |_, _| Ok::<(), ()>(()));
+        assert!(matches!(
+            unlock.handle_event_at(
+                key(libnagi::INPUT_KEY_ENTER),
+                5_000,
+                |_, _| Ok::<(), ()>(())
+            ),
+            LinuxRegistrationOutcome::Submitted(Ok(()))
+        ));
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) struct LinuxOwnerRegistration<Save> {
+    screen: LoginScreen,
+    save: Option<Save>,
+    locale: Locale,
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) enum LinuxRegistrationOutcome<E> {
+    Ignored,
+    Redraw,
+    CredentialUnavailable,
+    Submitted(Result<(), E>),
+}
+
+#[cfg(all(target_os = "linux", not(nagi_release_build)))]
+#[derive(Debug)]
+pub(crate) enum LinuxRegistrationError<E> {
+    Identity(E),
+    Save(nagi_linux_account_verifier::OwnerAccountSaveError),
+}
+
+/// Use the account verifier retained by PID 1 from the selected Data volume.
+/// The C1 owner receives only the name and issues the canonical binding after
+/// the user submits the form.
+#[cfg(all(target_os = "linux", not(nagi_release_build)))]
+pub(crate) fn selected_data_owner_registration<'owner, E>(
+    verifier: &'owner nagi_linux_account_verifier::LinuxAccountVerifier,
+    locale: Locale,
+    provision: impl FnOnce(&[u8]) -> Result<nagi_linux_account_verifier::OwnerAccountBinding, E>
+        + 'owner,
+) -> Result<
+    LinuxOwnerRegistration<
+        impl FnOnce(AccountRecord) -> Result<(), LinuxRegistrationError<E>> + 'owner,
+    >,
+    LinuxRegistrationError<E>,
+> {
+    verifier
+        .require_unprovisioned_private_directory()
+        .map_err(LinuxRegistrationError::Save)?;
+    Ok(LinuxOwnerRegistration::new(locale, move |record| {
+        verifier
+            .require_unprovisioned_private_directory()
+            .map_err(LinuxRegistrationError::Save)?;
+        let binding = provision(record.name()).map_err(LinuxRegistrationError::Identity)?;
+        verifier
+            .publish_first_owner(binding, record)
+            .map_err(LinuxRegistrationError::Save)
+    }))
+}
+
+#[cfg(target_os = "linux")]
+impl<Save, E> LinuxOwnerRegistration<Save>
+where
+    Save: FnOnce(AccountRecord) -> Result<(), E>,
+{
+    pub(crate) fn new(locale: Locale, save: Save) -> Self {
+        let mut screen = LoginScreen::new(LoginStart::Create);
+        screen.focus_language(locale);
+        Self {
+            screen,
+            save: Some(save),
+            locale,
+        }
+    }
+
+    pub(crate) fn render(&self, painter: &mut Painter<'_>) {
+        self.screen.render(painter, self.locale);
+    }
+
+    pub(crate) fn handle_event(&mut self, event: InputEvent) -> LinuxRegistrationOutcome<E> {
+        if self.save.is_none() {
+            return LinuxRegistrationOutcome::Ignored;
+        }
+        match self.screen.handle_screen_event(event) {
+            ScreenAction::Ignored | ScreenAction::Unlock => LinuxRegistrationOutcome::Ignored,
+            ScreenAction::Changed => LinuxRegistrationOutcome::Redraw,
+            ScreenAction::LanguageChosen(locale) => {
+                self.locale = locale;
+                LinuxRegistrationOutcome::Redraw
+            }
+            ScreenAction::Create => {
+                let record = self.screen.derive_account_record();
+                self.screen.form.clear_secrets();
+                let Some(record) = record else {
+                    return LinuxRegistrationOutcome::CredentialUnavailable;
+                };
+                // Persistence may have reached storage before an error was
+                // returned. Never resubmit from the same screen.
+                let save = self
+                    .save
+                    .take()
+                    .expect("the input path requires a save owner");
+                LinuxRegistrationOutcome::Submitted(save(record))
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl<Save> Drop for LinuxOwnerRegistration<Save> {
+    fn drop(&mut self) {
+        self.screen.form.clear_secrets();
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_registration_tests {
+    use super::*;
+
+    #[test]
+    fn submits_a_derived_record_once_and_clears_password_fields() {
+        let mut screen = LinuxOwnerRegistration::new(Locale::EnUs, |record: AccountRecord| {
+            assert_eq!(record.name(), b"a");
+            assert!(record.credential.verify(b"aaaa"));
+            Err(())
+        });
+        let key = |code| InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code,
+            value: 1,
+        };
+        assert!(matches!(
+            screen.handle_event(key(libnagi::INPUT_KEY_ENTER)),
+            LinuxRegistrationOutcome::Redraw
+        ));
+        for code in [
+            30, // account name
+            libnagi::INPUT_KEY_TAB,
+            30,
+            30,
+            30,
+            30, // password
+            libnagi::INPUT_KEY_TAB,
+            30,
+            30,
+            30,
+            30, // confirmation
+        ] {
+            assert!(matches!(
+                screen.handle_event(key(code)),
+                LinuxRegistrationOutcome::Redraw
+            ));
+        }
+        assert!(matches!(
+            screen.handle_event(key(libnagi::INPUT_KEY_ENTER)),
+            LinuxRegistrationOutcome::Submitted(Err(()))
+        ));
+        assert_eq!(screen.screen.form.length(LoginField::Password), 0);
+        assert_eq!(screen.screen.form.length(LoginField::Confirm), 0);
+        assert!(matches!(
+            screen.handle_event(key(libnagi::INPUT_KEY_ENTER)),
+            LinuxRegistrationOutcome::Ignored
+        ));
+    }
+}
+
 fn say_number(prefix: &[u8], value: u64) {
     let mut digits = [0u8; 20];
     let mut length = 0;
@@ -430,9 +824,7 @@ fn load_failures(volume: &mut UserDataVolume) -> u32 {
     };
     let mut bytes = [0; MAX_SMALL_FILE_SIZE];
     match volume.read(handle, &mut bytes) {
-        Ok(8) if bytes[..4] == *THROTTLE_MAGIC => {
-            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])
-        }
+        Ok(8) => decode_login_failures(&bytes[..8]).unwrap_or(FREE_ATTEMPTS),
         _ => FREE_ATTEMPTS,
     }
 }
@@ -446,9 +838,7 @@ fn store_failures(volume: &mut UserDataVolume, failures: u32) -> bool {
         },
         Err(_) => return false,
     };
-    let mut bytes = [0u8; 8];
-    bytes[..4].copy_from_slice(THROTTLE_MAGIC);
-    bytes[4..].copy_from_slice(&failures.to_le_bytes());
+    let bytes = encode_login_failures(failures);
     volume
         .write(handle, &bytes)
         .and_then(|()| volume.flush())
@@ -656,7 +1046,7 @@ impl PasswordChangeScreen {
             libnagi::console_write(b"Nagi login throttle persistence FAIL\r\n");
         }
         let mut salt = [0; SALT_BYTES];
-        let record = libnagi::random_fill(&mut salt)
+        let record = fill_password_salt(&mut salt)
             .then(|| Credential::derive(self.form.new_password(), salt, DEFAULT_ITERATIONS))
             .flatten()
             .and_then(|credential| AccountRecord::new(self.account.name(), credential).ok());

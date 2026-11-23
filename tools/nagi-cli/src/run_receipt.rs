@@ -238,6 +238,15 @@ impl RunReceiptConfig {
     }
 
     fn begin(&self, source: SourceIdentity) -> Result<StartedRun, String> {
+        self.begin_with_operations(source, |path| fs::symlink_metadata(path), atomic_create_new)
+    }
+
+    fn begin_with_operations(
+        &self,
+        source: SourceIdentity,
+        inspect_terminal: impl FnOnce(&Path) -> io::Result<fs::Metadata>,
+        publish_started: impl FnOnce(&Path, &str) -> Result<(), ReceiptWriteError>,
+    ) -> Result<StartedRun, String> {
         let record = StartedRecord {
             run_id: self.run_id.clone(),
             source,
@@ -251,8 +260,13 @@ impl RunReceiptConfig {
                 self.directory.display()
             )
         })?;
+        let terminal_path = self.directory.join("terminal.json");
+        // This preflight does not close the race with a concurrent writer.
+        // The hard-link publication in finish remains create-only.
+        reject_existing_terminal(&terminal_path, inspect_terminal)?;
+
         let started_path = self.directory.join("started.json");
-        atomic_create_new(&started_path, &record.to_json()).map_err(|error| error.to_string())?;
+        publish_started(&started_path, &record.to_json()).map_err(|error| error.to_string())?;
         Ok(StartedRun {
             directory: self.directory.clone(),
             record,
@@ -437,6 +451,23 @@ fn unix_nanos() -> u128 {
         .as_nanos()
 }
 
+fn reject_existing_terminal(
+    path: &Path,
+    inspect: impl FnOnce(&Path) -> io::Result<fs::Metadata>,
+) -> Result<(), String> {
+    match inspect(path) {
+        Ok(_) => Err(format!(
+            "run receipt terminal already exists at {}",
+            path.display()
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "cannot inspect run receipt terminal at {}: {error}",
+            path.display()
+        )),
+    }
+}
+
 fn atomic_create_new(path: &Path, contents: &str) -> Result<(), ReceiptWriteError> {
     atomic_create_new_with_sync(path, contents, sync_parent_directory)
 }
@@ -444,6 +475,22 @@ fn atomic_create_new(path: &Path, contents: &str) -> Result<(), ReceiptWriteErro
 fn atomic_create_new_with_sync(
     path: &Path,
     contents: &str,
+    sync_parent: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), ReceiptWriteError> {
+    atomic_create_new_with_operations(
+        path,
+        contents,
+        |source, destination| fs::hard_link(source, destination),
+        |temporary| fs::remove_file(temporary),
+        sync_parent,
+    )
+}
+
+fn atomic_create_new_with_operations(
+    path: &Path,
+    contents: &str,
+    create_hard_link: impl FnOnce(&Path, &Path) -> io::Result<()>,
+    mut remove_temporary: impl FnMut(&Path) -> io::Result<()>,
     sync_parent: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(), ReceiptWriteError> {
     let parent = path
@@ -470,17 +517,34 @@ fn atomic_create_new_with_sync(
         .and_then(|()| file.sync_all())
     {
         drop(file);
-        let _ = fs::remove_file(&temporary);
+        let _ = remove_temporary(&temporary);
         return Err(not_published(path, error));
     }
     drop(file);
 
-    if let Err(error) = fs::hard_link(&temporary, path) {
-        let _ = fs::remove_file(&temporary);
+    if let Err(error) = create_hard_link(&temporary, path) {
+        let _ = remove_temporary(&temporary);
         return Err(not_published(path, error));
     }
-    fs::remove_file(&temporary).map_err(|error| published_durability_unknown(path, error))?;
-    sync_parent(parent).map_err(|error| published_durability_unknown(path, error))
+    let cleanup_result = remove_temporary(&temporary);
+    let sync_result = sync_parent(parent);
+    match (cleanup_result, sync_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (cleanup_result, sync_result) => {
+            let cleanup_status = match cleanup_result {
+                Ok(()) => "temporary receipt cleanup succeeded".to_owned(),
+                Err(error) => format!("temporary receipt cleanup failed: {error}"),
+            };
+            let sync_status = match sync_result {
+                Ok(()) => "parent directory sync succeeded".to_owned(),
+                Err(error) => format!("parent directory sync failed: {error}"),
+            };
+            Err(published_durability_unknown(
+                path,
+                format!("{cleanup_status}; {sync_status}"),
+            ))
+        }
+    }
 }
 
 fn not_published(path: &Path, reason: impl fmt::Display) -> ReceiptWriteError {
@@ -926,6 +990,113 @@ mod tests {
     }
 
     #[test]
+    fn terminal_only_receipt_prevents_started_record_creation() {
+        let directory = TestDirectory::new();
+        let terminal_path = directory.0.join("terminal.json");
+        let original = b"existing terminal record\n";
+        fs::write(&terminal_path, original).expect("write pre-existing terminal receipt");
+
+        let error = test_config(&directory.0)
+            .begin(test_source())
+            .expect_err("pre-existing terminal receipt must reject start");
+
+        assert!(error.contains("terminal already exists"), "{error}");
+        assert_eq!(
+            fs::read(&terminal_path).expect("reread terminal receipt"),
+            original
+        );
+        assert!(!directory.0.join("started.json").exists());
+    }
+
+    #[test]
+    fn terminal_receipt_inspection_failure_fails_closed() {
+        let directory = TestDirectory::new();
+        let publisher_called = std::cell::Cell::new(false);
+        let error = test_config(&directory.0)
+            .begin_with_operations(
+                test_source(),
+                |_| {
+                    Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "injected metadata failure",
+                    ))
+                },
+                |_, _| {
+                    publisher_called.set(true);
+                    Ok(())
+                },
+            )
+            .expect_err("metadata errors other than NotFound must reject start");
+
+        assert!(
+            error.contains("cannot inspect run receipt terminal"),
+            "{error}"
+        );
+        assert!(
+            !publisher_called.get(),
+            "started record publisher was called"
+        );
+        assert!(!directory.0.join("started.json").exists());
+    }
+
+    #[test]
+    fn begin_keeps_published_start_error_as_string_and_residue_inconclusive() {
+        let directory = TestDirectory::new();
+        let error = test_config(&directory.0)
+            .begin_with_operations(
+                test_source(),
+                |path| fs::symlink_metadata(path),
+                |path, contents| {
+                    atomic_create_new_with_operations(
+                        path,
+                        contents,
+                        |source, destination| fs::hard_link(source, destination),
+                        |_| Err(io::Error::other("injected started cleanup failure")),
+                        |_| Ok(()),
+                    )
+                },
+            )
+            .expect_err("published start with cleanup failure must abort begin");
+
+        assert!(error.contains("receipt published at"), "{error}");
+        assert!(error.contains("started cleanup failure"), "{error}");
+        assert!(!directory.0.join("terminal.json").exists());
+        let started_text = fs::read_to_string(directory.0.join("started.json"))
+            .expect("published started record remains visible");
+        let started = StartedRecord::parse(&started_text).expect("parse started record");
+        assert_eq!(started.run_id, "run-17");
+        assert_eq!(
+            inspect_reconnection(&directory.0, &test_expected()),
+            ReconnectionState::Inconclusive {
+                reason: InconclusiveReason::ProcessStateUnknown
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_symlink_is_rejected_without_following_its_target() {
+        let directory = TestDirectory::new();
+        let target = directory.0.join("terminal-target.json");
+        let original = b"target must remain unchanged\n";
+        fs::write(&target, original).expect("write symlink target");
+        let terminal_path = directory.0.join("terminal.json");
+        std::os::unix::fs::symlink(&target, &terminal_path).expect("create terminal symlink");
+
+        let error = test_config(&directory.0)
+            .begin(test_source())
+            .expect_err("terminal symlink must reject start");
+
+        assert!(error.contains("terminal already exists"), "{error}");
+        assert!(fs::symlink_metadata(&terminal_path)
+            .expect("inspect terminal link")
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(&target).expect("read symlink target"), original);
+        assert!(!directory.0.join("started.json").exists());
+    }
+
+    #[test]
     fn failure_before_publish_is_reported_without_overwriting_existing_receipt() {
         let directory = TestDirectory::new();
         let path = directory.0.join("terminal.json");
@@ -935,6 +1106,110 @@ mod tests {
         assert_eq!(
             fs::read_to_string(path).expect("read original"),
             "existing\n"
+        );
+    }
+
+    #[test]
+    fn temporary_cleanup_failure_still_attempts_parent_sync() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("terminal.json");
+        let sync_attempts = std::cell::Cell::new(0usize);
+        let error = atomic_create_new_with_operations(
+            &path,
+            "complete receipt\n",
+            |source, destination| fs::hard_link(source, destination),
+            |_| Err(io::Error::other("injected temporary cleanup failure")),
+            |_| {
+                sync_attempts.set(sync_attempts.get() + 1);
+                Ok(())
+            },
+        )
+        .expect_err("cleanup failure after link must be reported");
+
+        let reason = match error {
+            ReceiptWriteError::PublishedDurabilityUnknown { reason, .. } => reason,
+            other => panic!("expected published durability error, got {other:?}"),
+        };
+        assert_eq!(sync_attempts.get(), 1, "parent sync must be attempted once");
+        assert!(
+            reason.contains("injected temporary cleanup failure"),
+            "{reason}"
+        );
+        assert!(
+            reason.contains("parent directory sync succeeded"),
+            "{reason}"
+        );
+        assert_eq!(
+            fs::read_to_string(&path).expect("published receipt remains visible"),
+            "complete receipt\n"
+        );
+    }
+
+    #[test]
+    fn cleanup_and_parent_sync_failures_are_both_reported_after_publish() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("terminal.json");
+        let sync_attempts = std::cell::Cell::new(0usize);
+        let error = atomic_create_new_with_operations(
+            &path,
+            "complete receipt\n",
+            |source, destination| fs::hard_link(source, destination),
+            |_| Err(io::Error::other("injected cleanup failure")),
+            |_| {
+                sync_attempts.set(sync_attempts.get() + 1);
+                Err(io::Error::other("injected parent sync failure"))
+            },
+        )
+        .expect_err("both post-publication failures must be surfaced");
+
+        let reason = match error {
+            ReceiptWriteError::PublishedDurabilityUnknown { reason, .. } => reason,
+            other => panic!("expected published durability error, got {other:?}"),
+        };
+        assert_eq!(sync_attempts.get(), 1, "parent sync must be attempted once");
+        assert!(reason.contains("injected cleanup failure"), "{reason}");
+        assert!(reason.contains("injected parent sync failure"), "{reason}");
+        assert_eq!(
+            fs::read_to_string(&path).expect("published receipt remains visible"),
+            "complete receipt\n"
+        );
+    }
+
+    #[test]
+    fn unsupported_hard_link_is_not_published_and_cleans_temporary() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("terminal.json");
+        let cleanup_attempted = std::cell::Cell::new(false);
+        let sync_attempted = std::cell::Cell::new(false);
+        let error = atomic_create_new_with_operations(
+            &path,
+            "complete receipt\n",
+            |_, _| {
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "injected unsupported hard link",
+                ))
+            },
+            |temporary| {
+                cleanup_attempted.set(true);
+                fs::remove_file(temporary)
+            },
+            |_| {
+                sync_attempted.set(true);
+                Ok(())
+            },
+        )
+        .expect_err("unsupported hard link must fail before publication");
+
+        assert!(matches!(error, ReceiptWriteError::NotPublished { .. }));
+        assert!(cleanup_attempted.get());
+        assert!(!sync_attempted.get());
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read_dir(&directory.0)
+                .expect("list receipt directory")
+                .count(),
+            0
         );
     }
 

@@ -4,16 +4,30 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nagi-capability = { path = "../../crates/nagi-capability" }
+nagi-model = { path = "../../crates/nagi-model" }
+nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
+nagi-peer-authenticated-connection = { path = "../../crates/nagi-peer-authenticated-connection", optional = true }
+nagi-c2-accepted-connection-proof-contract = { path = "../../crates/nagi-c2-accepted-connection-proof-contract", optional = true }
+nagi-linux-account-verifier = { path = "../../user/nagi-linux-account-verifier", optional = true }
+sha2 = { version = "0.10", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+getrandom = "=0.4.3"
+
+[features]
+default = []
+system-service-recovery-contract = ["dep:sha2"]
+c2-accepted-peer = ["dep:nagi-peer-authenticated-connection", "dep:nagi-c2-accepted-connection-proof-contract"]
+linux-interactive-account = ["c2-accepted-peer", "dep:nagi-linux-account-verifier"]
+
+[dev-dependencies]
+libnagi = { path = "../../user/libnagi" }
+
 [workspace]
 members = ["."]
 resolver = "2"
-
-[dependencies]
-nagi-capability = { path = "../nagi-capability" }
-nagi-model = { path = "../nagi-model" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-[[test]]
-name = "identity-session-contract"
-path = "../../tests/identity-session/contract.rs"

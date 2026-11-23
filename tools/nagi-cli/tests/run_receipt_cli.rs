@@ -314,6 +314,39 @@ fn receipt_settings_do_not_leak_to_cli_children_and_explicit_ids_stay_separate()
 }
 
 #[test]
+fn terminal_only_receipt_aborts_cli_before_command() {
+    let scratch = Scratch::new("terminal-only");
+    let receipts = scratch.0.join("receipts");
+    fs::create_dir(&receipts).expect("create receipt directory");
+    let terminal_path = receipts.join("terminal.json");
+    let original = b"existing terminal record\n";
+    fs::write(&terminal_path, original).expect("write pre-existing terminal receipt");
+
+    let output = run(nagi_with_receipt(
+        &[UNKNOWN_COMMAND],
+        &receipts,
+        "terminal-only-new-run",
+        "receipt-cli-terminal-only",
+    ));
+
+    assert_eq!(output.status.code(), Some(EXIT_CONFIG_ERROR));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("FAIL run receipt start"),
+        "CLI did not report receipt-start rejection: {:?}",
+        output.stderr
+    );
+    assert!(!receipts.join("started.json").exists());
+    assert_eq!(
+        fs::read(&terminal_path).expect("reread terminal receipt"),
+        original
+    );
+    assert_eq!(
+        directory_entries(&receipts),
+        [OsString::from("terminal.json")]
+    );
+}
+
+#[test]
 fn mismatched_partial_or_mixed_receipts_are_never_terminal() {
     let scratch = Scratch::new("mismatch");
     let source = current_source();
@@ -672,11 +705,11 @@ fn rust_std_runtime_diagnostics_survive_closed_pipes_without_changing_result() {
         String::from_utf8_lossy(&baseline.stderr),
     );
     let baseline_stdout = String::from_utf8_lossy(&baseline.stdout);
-    let baseline_stderr = String::from_utf8_lossy(&baseline.stderr);
     assert!(
         baseline_stdout.contains("user init: cargo failed"),
         "missing original command failure: {baseline_stdout}"
     );
+    let baseline_stderr = String::from_utf8_lossy(&baseline.stderr);
     assert!(
         baseline_stderr.contains("phase=discover-toolchain")
             && baseline_stderr.contains("phase=lock")

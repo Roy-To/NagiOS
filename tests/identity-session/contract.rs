@@ -3,30 +3,41 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[cfg(target_os = "linux")]
+use std::fs::{self, File};
+#[cfg(target_os = "linux")]
+use std::os::unix::fs::DirBuilderExt;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
+
 use nagi_identity_session::{
-    decode_snapshot_with_migration, resolve_capability_principal, AuthorizationFailure,
+    decode_snapshot_with_migration, resolve_capability_principal, AuthenticatedInteractiveCaller,
+    AuthenticatedProvisioningCaller, AuthenticatedSystemServicePrincipal, AuthorizationFailure,
     AuthorizationRequest, CallerContextId, CapabilityPrincipalAdapter, Clock,
     CurrentIdentityResolver, DenyCapabilityPrincipalAdapter, EndSessionResult, GuestCleanupFailure,
     GuestProfileCleaner, IdSourceFailure, IdentityAccessContext, IdentityAction,
     IdentityAuthorizer, IdentityError, IdentityIdSource, IdentityProvider, IdentityService,
     IdentitySnapshot, IdentitySnapshotMigrator, IdentitySnapshotStore, InMemorySnapshotStore,
-    LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator, NoopIdentityEventSink,
-    PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata, ProfileRootAuthorizer,
-    ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef, RecoverySource,
-    ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError, SnapshotStoreState,
-    SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext, UnixMillis, UserId,
-    UserStorageRootAdapter,
+    LiveStatus, LocalUserMetadata, MigrationFailure, NoIdentitySnapshotMigrator,
+    NoopIdentityEventSink, PrincipalId, PrincipalMappingFailure, ProfileId, ProfileMetadata,
+    ProfileRootAuthorizer, ProfileStorageBackend, ProviderLookupFailure, ProviderSubjectRef,
+    RecoverySource, ResolutionError, ResolvedIdentity, SessionId, SnapshotStoreError,
+    SnapshotStoreState, SnapshotVersion, StorageRootFailure, StoredSnapshot, TrustedCallerContext,
+    TryClockError, TryLiveError, UnixMillis, UserId, UserStorageRootAdapter,
 };
 use nagi_model::{AppSessionId, ExecutionInstanceId, ObjectId, SurfaceId};
 
+#[cfg(target_os = "linux")]
+use nagi_identity_session::LinuxIdentitySnapshotStore;
+
 #[derive(Clone)]
-struct TestCaller {
+pub(crate) struct TestCaller {
     principal: PrincipalId,
     context: CallerContextId,
 }
 
 impl TestCaller {
-    fn new(context: &str) -> Self {
+    pub(crate) fn new(context: &str) -> Self {
         Self::with_principal(context, "system.identity-test")
     }
 
@@ -47,6 +58,40 @@ impl TrustedCallerContext for TestCaller {
         &self.context
     }
 }
+
+impl AuthenticatedInteractiveCaller for TestCaller {}
+impl AuthenticatedProvisioningCaller for TestCaller {}
+impl AuthenticatedSystemServicePrincipal for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::Interactive for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::SystemService for TestCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for TestCaller {}
+
+struct ProvisioningOnlyCaller {
+    principal: PrincipalId,
+    context: CallerContextId,
+}
+
+impl ProvisioningOnlyCaller {
+    fn new() -> Self {
+        Self {
+            principal: PrincipalId::new("system.identity-provisioner-test").unwrap(),
+            context: CallerContextId::new("caller_provisioner_test").unwrap(),
+        }
+    }
+}
+
+impl TrustedCallerContext for ProvisioningOnlyCaller {
+    fn principal_id(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    fn context_id(&self) -> &CallerContextId {
+        &self.context
+    }
+}
+
+impl AuthenticatedProvisioningCaller for ProvisioningOnlyCaller {}
+impl nagi_identity_session::caller_proof_seal::Provisioning for ProvisioningOnlyCaller {}
 
 #[derive(Clone, Default)]
 struct SharedStore(Arc<Mutex<StoreState>>);
@@ -149,6 +194,17 @@ impl IdentitySnapshotStore for SharedStore {
         Ok(self.0.lock().unwrap().last_good.clone())
     }
 
+    // This contract fake intentionally has no recovery journal. It reports
+    // its explicit test state as empty; production stores retain the trait's
+    // fail-closed default unless they implement the durable journal contract.
+    fn recovery_quarantined(&self) -> Result<bool, SnapshotStoreError> {
+        Ok(false)
+    }
+
+    fn recovery_operation_active(&self) -> Result<bool, SnapshotStoreError> {
+        Ok(false)
+    }
+
     fn commit_atomic(
         &mut self,
         expected_version: Option<SnapshotVersion>,
@@ -185,9 +241,13 @@ impl IdentitySnapshotStore for SharedStore {
 }
 
 #[derive(Clone)]
-struct TestClock(Arc<AtomicU64>);
+pub(crate) struct TestClock(Arc<AtomicU64>);
 
 impl TestClock {
+    pub(crate) fn at(now: u64) -> Self {
+        Self(Arc::new(AtomicU64::new(now)))
+    }
+
     fn set(&self, now: u64) {
         self.0.store(now, Ordering::SeqCst);
     }
@@ -197,10 +257,48 @@ impl Clock for TestClock {
     fn now(&self) -> UnixMillis {
         UnixMillis::new(self.0.load(Ordering::SeqCst))
     }
+
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        Ok(self.now())
+    }
+}
+
+#[derive(Clone)]
+struct TryClock {
+    now: Arc<AtomicU64>,
+    failure: Arc<AtomicU64>,
+}
+
+impl TryClock {
+    fn set_failure(&self, failure: Option<TryClockError>) {
+        let value = match failure {
+            None => 0,
+            Some(TryClockError::Busy) => 1,
+            Some(TryClockError::Unavailable) => 2,
+            Some(TryClockError::Unsupported) => 3,
+        };
+        self.failure.store(value, Ordering::SeqCst);
+    }
+}
+
+impl Clock for TryClock {
+    fn now(&self) -> UnixMillis {
+        UnixMillis::new(self.now.load(Ordering::SeqCst))
+    }
+
+    fn try_now(&self) -> Result<UnixMillis, TryClockError> {
+        match self.failure.load(Ordering::SeqCst) {
+            1 => return Err(TryClockError::Busy),
+            2 => return Err(TryClockError::Unavailable),
+            3 => return Err(TryClockError::Unsupported),
+            _ => {}
+        }
+        Ok(self.now())
+    }
 }
 
 #[derive(Default)]
-struct TestIds {
+pub(crate) struct TestIds {
     user: u64,
     profile: u64,
     session: u64,
@@ -236,13 +334,24 @@ impl IdentityIdSource for TestIds {
 }
 
 #[derive(Default)]
-struct TestAuthorizer {
+pub(crate) struct TestAuthorizer {
     denied: Option<IdentityAction>,
     unavailable: Option<IdentityAction>,
+    deny_once: Option<IdentityAction>,
+    fail_commit_on_denial: Option<(IdentityAction, SharedStore)>,
 }
 
 impl IdentityAuthorizer for TestAuthorizer {
     fn authorize(&mut self, request: &AuthorizationRequest) -> Result<(), AuthorizationFailure> {
+        if self.deny_once == Some(request.action) {
+            self.deny_once = None;
+            if let Some((action, store)) = self.fail_commit_on_denial.take() {
+                if action == request.action {
+                    store.fail_next_commit();
+                }
+            }
+            return Err(AuthorizationFailure::Denied);
+        }
         if self.unavailable == Some(request.action) {
             return Err(AuthorizationFailure::Unavailable);
         }
@@ -254,7 +363,7 @@ impl IdentityAuthorizer for TestAuthorizer {
 }
 
 #[derive(Clone, Default)]
-struct TestCleaner {
+pub(crate) struct TestCleaner {
     cleaned: Arc<Mutex<Vec<ProfileId>>>,
     fail: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -316,6 +425,35 @@ fn new_service_with_ids(
     (service, clock)
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) struct DurableTestDirectory(PathBuf);
+
+#[cfg(target_os = "linux")]
+impl DurableTestDirectory {
+    pub(crate) fn new() -> Self {
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(1);
+        let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "nagi-c1-contract-store-{}-{sequence}",
+            std::process::id()
+        ));
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700).create(&path).unwrap();
+        Self(path)
+    }
+
+    pub(crate) fn open(&self) -> File {
+        File::open(&self.0).unwrap()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for DurableTestDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn metadata(name: &str) -> (LocalUserMetadata, ProfileMetadata) {
     (
         LocalUserMetadata::new(name).unwrap(),
@@ -325,6 +463,26 @@ fn metadata(name: &str) -> (LocalUserMetadata, ProfileMetadata) {
 
 fn recover(service: &mut TestService, caller: &TestCaller) {
     service.recover(caller).unwrap();
+}
+
+#[test]
+fn provisioning_proof_creates_users_and_profiles_without_an_interactive_session() {
+    let mut service = new_service(SharedStore::default(), TestCleaner::default()).0;
+    let recovery_caller = TestCaller::new("provisioning-proof-recovery");
+    recover(&mut service, &recovery_caller);
+    let provisioner = ProvisioningOnlyCaller::new();
+    let (user, first_profile) = service
+        .create_local_user(&provisioner, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let second_profile = service
+        .create_profile(
+            &provisioner,
+            user,
+            ProfileMetadata::new("Work", Some("en-US".to_owned())).unwrap(),
+        )
+        .unwrap();
+    assert_ne!(first_profile, second_profile);
+    assert!(service.snapshot().sessions.is_empty());
 }
 
 struct AllowProfileRoot;
@@ -1422,6 +1580,217 @@ fn issued_identity_and_profile_handle_expire_without_a_fresh_resolve() {
 }
 
 #[test]
+fn try_live_snapshot_marks_exact_expiry_logout_and_new_generation() {
+    let (mut service, clock) = new_service(SharedStore::default(), TestCleaner::default());
+    let caller = TestCaller::new("nonblocking-live");
+    recover(&mut service, &caller);
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let first_session = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("nonblocking-first").unwrap(),
+        )
+        .unwrap();
+    let first = service.interactive_session(&caller).unwrap();
+    let first_handle = first.revalidation_handle().unwrap();
+    let first_live = first_handle.try_live_snapshot().unwrap();
+    assert_eq!(first_live.status(), LiveStatus::Live);
+    first_handle.check_live().unwrap();
+
+    clock.set(200);
+    assert_eq!(
+        first_handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Expired
+    );
+    assert!(first_handle.check_live().is_err());
+
+    let second_session = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("nonblocking-second").unwrap(),
+        )
+        .unwrap();
+    assert_ne!(first_session, second_session);
+    let second = service.resolve_current_identity(&caller).unwrap();
+    let second_live = second.try_live_snapshot().unwrap();
+    assert_eq!(second_live.status(), LiveStatus::Live);
+    assert_ne!(first_live.generation(), second_live.generation());
+    assert_eq!(
+        first_handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+
+    service.end_session(&caller, &second_session).unwrap();
+    assert_eq!(
+        second.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+}
+
+#[test]
+fn try_live_snapshot_fails_closed_when_the_nonblocking_clock_is_busy_or_unavailable() {
+    let clock = TryClock {
+        now: Arc::new(AtomicU64::new(100)),
+        failure: Arc::new(AtomicU64::new(0)),
+    };
+    let caller = TestCaller::new("nonblocking-clock-error");
+    let mut service = IdentityService::new(
+        SharedStore::default(),
+        TestIds::default(),
+        clock.clone(),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    service.recover(&caller).unwrap();
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("nonblocking-clock").unwrap(),
+        )
+        .unwrap();
+    let identity = service.resolve_current_identity(&caller).unwrap();
+
+    clock.set_failure(Some(TryClockError::Busy));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Busy))
+    );
+    clock.set_failure(Some(TryClockError::Unavailable));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Unavailable))
+    );
+    clock.set_failure(Some(TryClockError::Unsupported));
+    assert_eq!(
+        identity.try_live_snapshot(),
+        Err(TryLiveError::Clock(TryClockError::Unsupported))
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn durable_expiry_stays_revoked_after_restart() {
+    let directory = DurableTestDirectory::new();
+    let caller = TestCaller::new("durable-expiry-restart");
+    let clock = TestClock(Arc::new(AtomicU64::new(100)));
+    let mut service = IdentityService::new(
+        LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+        TestIds::default(),
+        clock.clone(),
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    service.recover(&caller).unwrap();
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("Durable expiry").0, metadata("Home").1)
+        .unwrap();
+    let session_id = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            Some(UnixMillis::new(200)),
+            nagi_identity_session::IdempotencyKey::new("durable-expiry").unwrap(),
+        )
+        .unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let handle = context.revalidation_handle().unwrap();
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
+
+    let mut effect_committed_after_deadline = false;
+    assert_eq!(
+        handle.with_live_session_effect(|| {
+            clock.set(200);
+            effect_committed_after_deadline = true;
+        }),
+        Ok(()),
+        "expiry is checked at effect admission, not again at callback commit"
+    );
+    assert!(effect_committed_after_deadline);
+
+    clock.set(200);
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Expired
+    );
+    assert_eq!(
+        service.resolve_current_identity(&caller).unwrap_err(),
+        ResolutionError::Expired
+    );
+    assert!(handle.check_live().is_err());
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+    let persisted = service
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .unwrap();
+    assert!(matches!(
+        &persisted.lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended {
+            reason: nagi_identity_session::SessionEndReason::Expired,
+            ..
+        }
+    ));
+    drop(service);
+
+    // Restart before the deadline so recovery itself cannot turn an Active
+    // row into an expiry result. The terminal Expired row must already be
+    // durable before this boot begins.
+    clock.set(150);
+    let mut restarted = IdentityService::new(
+        LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+        TestIds::default(),
+        clock,
+        TestAuthorizer::default(),
+        TestCleaner::default(),
+        NoopIdentityEventSink,
+    );
+    restarted.recover(&caller).unwrap();
+    let recovered = restarted
+        .snapshot()
+        .sessions
+        .iter()
+        .find(|session| session.session_id == session_id)
+        .expect("expired Session is present in the recovered durable record");
+    assert!(matches!(
+        &recovered.lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended {
+            reason: nagi_identity_session::SessionEndReason::Expired,
+            ..
+        }
+    ));
+    assert!(handle.check_live().is_err());
+    assert_eq!(
+        handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
+    assert!(restarted.resolve_current_identity(&caller).is_err());
+}
+
+#[test]
 fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
     let (mut service, _) = new_service(SharedStore::default(), TestCleaner::default());
     let caller = TestCaller::new("same-service-recovery");
@@ -1438,14 +1807,20 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
             nagi_identity_session::IdempotencyKey::new("recovery-login").unwrap(),
         )
         .unwrap();
-    let identity = service.resolve_current_identity(&caller).unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let revalidation = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
+    assert_eq!(
+        identity.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
     let backend = MemoryProfileStorage::default();
     let opens = backend.opens.clone();
     let mut roots = UserStorageRootAdapter::new(backend);
     let mut root_auth = AllowProfileRoot;
     let handle = roots
         .resolve_root(
-            &IdentityAccessContext::new(&identity, &caller),
+            &IdentityAccessContext::new(identity, &caller),
             &profile_id,
             &mut root_auth,
         )
@@ -1453,14 +1828,23 @@ fn same_service_recovery_revokes_issued_identity_and_storage_leases() {
 
     let report = service.recover(&caller).unwrap();
     assert_eq!(report.interrupted_sessions_ended, 1);
+    assert!(revalidation.check_live().is_err());
+    assert_eq!(
+        revalidation.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert!(!identity.is_live());
+    assert_eq!(
+        identity.try_live_snapshot().unwrap().status(),
+        LiveStatus::Revoked
+    );
     assert_eq!(
         service.resolve_current_identity(&caller).unwrap_err(),
         ResolutionError::Ended
     );
     assert_eq!(
         roots.read_object(
-            &IdentityAccessContext::new(&identity, &caller),
+            &IdentityAccessContext::new(identity, &caller),
             &handle,
             &profile_id,
             ObjectId(3),
@@ -2028,7 +2412,9 @@ fn entropy_failure_and_cross_user_profile_use_fail_closed() {
         Err(IdentityError::ProfileOwnershipMismatch)
     );
 
-    let (store, _ids, _clock, mut policy, cleaner, events) = service.into_parts();
+    let (store, _ids, _clock, mut policy, cleaner, events) = service
+        .into_parts()
+        .unwrap_or_else(|_| panic!("inactive issuer should yield its store parts"));
     let mut service = IdentityService::new(
         store,
         FailingIds,
@@ -2150,6 +2536,7 @@ fn login_authorization_denial_publishes_no_session() {
         TestAuthorizer {
             denied: Some(IdentityAction::LoginLocalUser),
             unavailable: None,
+            ..TestAuthorizer::default()
         },
     );
     service.recover(&caller).unwrap();
@@ -2164,6 +2551,171 @@ fn login_authorization_denial_publishes_no_session() {
         Err(IdentityError::AuthorizationDenied)
     );
     assert!(service.snapshot().sessions.is_empty());
+}
+
+#[test]
+fn failed_post_commit_session_rollback_is_exposed_and_owner_can_retry_cancellation() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("post-commit-rollback-failure");
+    let (mut setup, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut setup, &caller);
+    let (user_id, profile_id) = setup
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+
+    let authorizer = TestAuthorizer {
+        deny_once: Some(IdentityAction::ResolveCurrentIdentity),
+        fail_commit_on_denial: Some((IdentityAction::ResolveCurrentIdentity, store.clone())),
+        ..TestAuthorizer::default()
+    };
+    let (mut service, _) =
+        new_service_with_authorizer(store.clone(), TestCleaner::default(), authorizer);
+    service.recover(&caller).unwrap();
+    let first_login = service.login_local(
+        &caller,
+        user_id,
+        profile_id.clone(),
+        None,
+        nagi_identity_session::IdempotencyKey::new("rollback-fails").unwrap(),
+    );
+    assert_eq!(first_login, Err(IdentityError::StoreUnavailable));
+
+    let session_id = service.snapshot().sessions[0].session_id.clone();
+    assert!(matches!(
+        service.snapshot().sessions[0].lifecycle,
+        nagi_identity_session::SessionLifecycle::Active
+    ));
+    assert!(
+        matches!(
+            service.resolve_current_identity(&caller),
+            Err(ResolutionError::NoSession)
+        ),
+        "a durable Active record without the published lease is not authority"
+    );
+    assert_eq!(
+        service.login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("retry-before-cancel").unwrap(),
+        ),
+        Err(IdentityError::ProfileAlreadyActive)
+    );
+
+    assert_eq!(
+        service.end_session(&caller, &session_id),
+        Ok(EndSessionResult::Ended),
+        "the recorded owner can retry cancellation without an active caller map or lease"
+    );
+    assert!(matches!(
+        service.resolve_current_identity(&caller),
+        Err(ResolutionError::Ended)
+    ));
+    assert!(matches!(
+        IdentitySnapshot::from_json(&store.current().unwrap())
+            .unwrap()
+            .sessions[0]
+            .lifecycle,
+        nagi_identity_session::SessionLifecycle::Ended { .. }
+    ));
+    let next = service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id,
+            None,
+            nagi_identity_session::IdempotencyKey::new("login-after-cancel").unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        service
+            .resolve_current_identity(&caller)
+            .unwrap()
+            .session_id(),
+        &next
+    );
+}
+
+#[test]
+fn cancelling_orphaned_session_preserves_another_current_session_for_the_caller() {
+    let store = SharedStore::default();
+    let caller = TestCaller::new("orphan-cancel-preserves-current");
+    let (mut setup, _) = new_service(store.clone(), TestCleaner::default());
+    recover(&mut setup, &caller);
+    let (user_id, orphan_profile) = setup
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    let current_profile = setup
+        .create_profile(
+            &caller,
+            user_id,
+            ProfileMetadata::new("Work", Some("en-US".to_owned())).unwrap(),
+        )
+        .unwrap();
+
+    let authorizer = TestAuthorizer {
+        deny_once: Some(IdentityAction::ResolveCurrentIdentity),
+        fail_commit_on_denial: Some((IdentityAction::ResolveCurrentIdentity, store.clone())),
+        ..TestAuthorizer::default()
+    };
+    let (mut service, _) = new_service_with_authorizer(store, TestCleaner::default(), authorizer);
+    service.recover(&caller).unwrap();
+    assert_eq!(
+        service.login_local(
+            &caller,
+            user_id,
+            orphan_profile,
+            None,
+            nagi_identity_session::IdempotencyKey::new("orphan-before-current").unwrap(),
+        ),
+        Err(IdentityError::StoreUnavailable)
+    );
+    let orphan_session = service.snapshot().sessions[0].session_id.clone();
+    assert!(matches!(
+        service.resolve_current_identity(&caller),
+        Err(ResolutionError::NoSession)
+    ));
+
+    let current_session = service
+        .login_local(
+            &caller,
+            user_id,
+            current_profile,
+            None,
+            nagi_identity_session::IdempotencyKey::new("current-after-orphan").unwrap(),
+        )
+        .unwrap();
+    let current = service.interactive_session(&caller).unwrap();
+    let current_handle = current.revalidation_handle().unwrap();
+    assert_eq!(
+        current_handle.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live
+    );
+
+    assert_eq!(
+        service.end_session(&caller, &orphan_session),
+        Ok(EndSessionResult::Ended)
+    );
+    assert_eq!(
+        service
+            .resolve_current_identity(&caller)
+            .unwrap()
+            .session_id(),
+        &current_session,
+        "ending an older orphan must not replace the caller's current Session"
+    );
+    assert!(current_handle.check_live().is_ok());
+    assert!(matches!(
+        service
+            .snapshot()
+            .sessions
+            .iter()
+            .find(|session| session.session_id == current_session)
+            .unwrap()
+            .lifecycle,
+        nagi_identity_session::SessionLifecycle::Active
+    ));
 }
 
 #[test]
@@ -2368,8 +2920,10 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
         nagi_identity_session::IdempotencyKey::new("cross-instance").unwrap(),
     )
     .unwrap();
-    let identity = a.resolve_current_identity(&caller).unwrap();
-    let access = IdentityAccessContext::new(&identity, &caller);
+    let context = a.interactive_session(&caller).unwrap();
+    let revalidation = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
+    let access = IdentityAccessContext::new(identity, &caller);
     let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
     let mut auth = AllowProfileRoot;
     let handle = roots.resolve_root(&access, &profile, &mut auth).unwrap();
@@ -2385,6 +2939,12 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
         .unwrap();
     let (mut b, _) = new_service(store.clone(), TestCleaner::default());
     assert_eq!(b.recover(&caller).unwrap().interrupted_sessions_ended, 1);
+    assert_eq!(
+        revalidation.try_live_snapshot().unwrap().status(),
+        LiveStatus::Live,
+        "a zero-wait lease snapshot does not read another issuer's durable recovery"
+    );
+    assert!(revalidation.check_live().is_err());
     let saved = IdentitySnapshot::from_json(&store.current().unwrap()).unwrap();
     assert!(matches!(
         saved.sessions[0].lifecycle,
@@ -2393,7 +2953,7 @@ fn recovery_by_b_must_revoke_a_before_backend_access() {
     let read = roots.read_object(&access, &handle, &profile, ObjectId(1), &mut auth);
     let write = roots.write_object(&access, &handle, &profile, ObjectId(1), b"after", &mut auth);
     let calls = Arc::new(AtomicUsize::new(0));
-    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity);
+    let mapping = resolve_capability_principal(&CountingPrincipal(calls.clone()), identity);
     let current_mapping =
         a.capability_principal_for_current(&caller, &CountingPrincipal(calls.clone()));
     let backend = roots.into_backend();
@@ -2463,14 +3023,26 @@ fn store_read_failure_must_deny_existing_identity_before_backend() {
             calls.load(Ordering::SeqCst)
         ),
         (
-            Err(StorageRootFailure::StaleSession),
-            Err(StorageRootFailure::StaleSession),
-            Err(PrincipalMappingFailure::StaleSession),
+            Err(StorageRootFailure::Unavailable),
+            Err(StorageRootFailure::Unavailable),
+            Err(PrincipalMappingFailure::Unavailable),
             0,
             0,
             0
         )
     );
+
+    store.0.lock().unwrap().fail_reads = false;
+    assert_eq!(identity.check_live(), Ok(()));
+    let mut recovered_roots = UserStorageRootAdapter::new(CountingBackend::default());
+    recovered_roots
+        .resolve_root(&access, &profile, &mut auth)
+        .expect("a temporary current-store read failure must not revoke the Session");
+    assert_eq!(
+        resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity),
+        Ok(PrincipalId::new("system.probe").unwrap())
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 struct CallbackRootAuthorizer<F: FnMut()>(F);
@@ -2597,15 +3169,43 @@ fn current_store_corruption_cannot_use_last_known_good_for_authority() {
             nagi_identity_session::IdempotencyKey::new("live-corruption").unwrap(),
         )
         .unwrap();
-    let identity = service.resolve_current_identity(&caller).unwrap();
+    let context = service.interactive_session(&caller).unwrap();
+    let handle = context.revalidation_handle().unwrap();
+    let identity = context.identity().unwrap();
     store.corrupt_current(b"not-a-snapshot".to_vec());
+    assert_eq!(handle.check_live(), Err(ResolutionError::CorruptState));
     assert!(!identity.is_live());
     let calls = Arc::new(AtomicUsize::new(0));
     assert_eq!(
-        resolve_capability_principal(&CountingPrincipal(calls.clone()), &identity),
-        Err(PrincipalMappingFailure::StaleSession)
+        resolve_capability_principal(&CountingPrincipal(calls.clone()), identity),
+        Err(PrincipalMappingFailure::CorruptState)
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    let access = IdentityAccessContext::new(identity, &caller);
+    let mut roots = UserStorageRootAdapter::new(CountingBackend::default());
+    let mut auth = AllowProfileRoot;
+    assert_eq!(
+        roots
+            .resolve_root(&access, identity.profile_id(), &mut auth)
+            .map(|_| ()),
+        Err(StorageRootFailure::CorruptState),
+        "corrupt current state must not authorize from its last-known-good copy"
+    );
+
+    let report = service.recover(&caller).unwrap();
+    assert_eq!(
+        report.source,
+        nagi_identity_session::RecoverySource::LastKnownGood
+    );
+    assert_eq!(handle.check_live(), Err(ResolutionError::Ended));
+    assert_eq!(
+        roots
+            .resolve_root(&access, identity.profile_id(), &mut auth)
+            .map(|_| ()),
+        Err(StorageRootFailure::StaleSession),
+        "only after explicit recovery replaces authority does the old handle become stale"
+    );
 }
 
 #[test]
@@ -2816,6 +3416,14 @@ fn missing_reader_defaults_to_unavailable_without_cached_authority() {
             bytes: &[u8],
         ) -> Result<SnapshotVersion, SnapshotStoreError> {
             self.0.commit_atomic(version, bytes)
+        }
+
+        fn recovery_quarantined(&self) -> Result<bool, SnapshotStoreError> {
+            self.0.recovery_quarantined()
+        }
+
+        fn recovery_operation_active(&self) -> Result<bool, SnapshotStoreError> {
+            self.0.recovery_operation_active()
         }
     }
     let mut service = IdentityService::new(
