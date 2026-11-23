@@ -227,6 +227,72 @@ impl SyntheticRecoveryScopeSnapshot {
     }
 }
 
+impl SystemServiceRecoveryAdmissionScope for SyntheticRecoveryScopeSnapshot {
+    fn service_id(&self) -> &str {
+        &self.service_id
+    }
+
+    fn principal_id(&self) -> &str {
+        &self.principal_id
+    }
+
+    fn caller_context_id(&self) -> &str {
+        &self.caller_context_id
+    }
+
+    fn mapping_generation(&self) -> NonZeroU64 {
+        self.mapping_generation
+    }
+
+    fn role(&self) -> &str {
+        &self.role
+    }
+
+    fn catalog_generation(&self) -> NonZeroU64 {
+        self.catalog_generation
+    }
+
+    fn transition(&self) -> RecoveryLifecycleTransition {
+        self.transition
+    }
+
+    fn package_id(&self) -> &str {
+        &self.package_id
+    }
+
+    fn package_app_id(&self) -> u64 {
+        self.package_app_id
+    }
+
+    fn canonical_entry(&self) -> &str {
+        &self.canonical_entry
+    }
+
+    fn signed_package_sha256(&self) -> &[u8; 32] {
+        &self.signed_package_sha256
+    }
+
+    fn executable_sha256(&self) -> &[u8; 32] {
+        &self.executable_sha256
+    }
+
+    fn package_generation(&self) -> u64 {
+        self.package_generation
+    }
+
+    fn c3_launch_generation(&self) -> NonZeroU64 {
+        self.c3_launch_generation
+    }
+
+    fn credentials(&self) -> (u32, u32) {
+        self.credentials
+    }
+
+    fn binding_digest(&self) -> &[u8; 32] {
+        &self.binding_digest
+    }
+}
+
 #[derive(Clone, Copy)]
 enum SyntheticChildOutcome {
     Exited { code: i32 },
@@ -314,24 +380,29 @@ fn exact_evidence_matches(
 impl C1PreviousLaunchTerminalGate for SyntheticC3PriorLaunchGate {
     type TerminalReceipt = SyntheticTerminalReceipt;
 
-    fn with_previous_launch_reconciliation_gate(
+    fn with_previous_launch_reconciliation_gate<R>(
         &mut self,
         current_scope: &dyn SystemServiceRecoveryAdmissionScope,
-        previous_scope: &dyn SystemServiceRecoveryAdmissionScope,
         claim: C1RecoveryOperationCorrelation,
-        revalidate_scopes: impl FnOnce() -> Result<(), RecoveryClientError>,
-    ) -> Result<Self::TerminalReceipt, RecoveryClientError> {
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<R, RecoveryClientError>,
+    ) -> Result<(R, Self::TerminalReceipt), RecoveryClientError> {
+        let Some(previous_scope) = self.evidence.journal_scope.as_ref() else {
+            return Err(RecoveryClientError::OutcomeUnknown);
+        };
         if !exact_evidence_matches(current_scope, previous_scope, claim, &self.evidence) {
             return Err(RecoveryClientError::OutcomeUnknown);
         }
         self.callbacks += 1;
-        revalidate_scopes()?;
-        Ok(self
+        let validated_scope = validate_previous_scope(previous_scope)?;
+        let receipt = self
             .evidence
             .receipt
             .as_ref()
             .expect("exact evidence includes a terminal receipt")
-            .clone())
+            .clone();
+        Ok((validated_scope, receipt))
     }
 }
 
@@ -348,7 +419,6 @@ fn evidence_for(scope: &Scope, operation_id: NonZeroU64) -> SyntheticPriorLaunch
 
 fn assert_unknown_without_callback(
     current: &dyn SystemServiceRecoveryAdmissionScope,
-    previous: &dyn SystemServiceRecoveryAdmissionScope,
     claim: C1RecoveryOperationCorrelation,
     evidence: SyntheticPriorLaunchEvidence,
 ) {
@@ -357,7 +427,7 @@ fn assert_unknown_without_callback(
         callbacks: 0,
     };
     let mut callback_ran = false;
-    let result = gate.with_previous_launch_reconciliation_gate(current, previous, claim, || {
+    let result = gate.with_previous_launch_reconciliation_gate(current, claim, |_| {
         callback_ran = true;
         Ok(())
     });
@@ -379,9 +449,14 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         callbacks: 0,
     };
     let mut callback_ran = false;
-    let result = gate
-        .with_previous_launch_reconciliation_gate(&current, &previous, claim, || {
+    let (_, result) = gate
+        .with_previous_launch_reconciliation_gate(&current, claim, |owner_scope| {
             callback_ran = true;
+            assert_eq!(
+                owner_scope.c3_launch_generation(),
+                previous.c3_launch_generation
+            );
+            assert_eq!(owner_scope.binding_digest(), &previous.binding_digest);
             Ok(())
         })
         .unwrap();
@@ -402,19 +477,19 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
 
     let mut wrong_operation = complete.clone();
     wrong_operation.receipt.as_mut().unwrap().c1_operation_id = Some(NonZeroU64::new(74).unwrap());
-    assert_unknown_without_callback(&current, &previous, claim, wrong_operation);
+    assert_unknown_without_callback(&current, claim, wrong_operation);
 
     let mut wrong_digest = complete.clone();
     wrong_digest.receipt.as_mut().unwrap().binding_digest = [0x99; 32];
-    assert_unknown_without_callback(&current, &previous, claim, wrong_digest);
+    assert_unknown_without_callback(&current, claim, wrong_digest);
 
     let mut wrong_service = complete.clone();
     wrong_service.receipt.as_mut().unwrap().service_id = "service:other";
-    assert_unknown_without_callback(&current, &previous, claim, wrong_service);
+    assert_unknown_without_callback(&current, claim, wrong_service);
 
     let mut wrong_catalog = complete.clone();
     wrong_catalog.receipt.as_mut().unwrap().catalog_generation = 10;
-    assert_unknown_without_callback(&current, &previous, claim, wrong_catalog);
+    assert_unknown_without_callback(&current, claim, wrong_catalog);
 
     let mut wrong_generation = complete.clone();
     wrong_generation
@@ -422,19 +497,19 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         .as_mut()
         .unwrap()
         .c3_launch_generation = 22;
-    assert_unknown_without_callback(&current, &previous, claim, wrong_generation);
+    assert_unknown_without_callback(&current, claim, wrong_generation);
 
     let mut nonterminal = complete.clone();
     nonterminal.receipt.as_mut().unwrap().state = C3RecoverySlotState::Live;
-    assert_unknown_without_callback(&current, &previous, claim, nonterminal);
+    assert_unknown_without_callback(&current, claim, nonterminal);
 
     let mut no_record = complete.clone();
     no_record.record = None;
-    assert_unknown_without_callback(&current, &previous, claim, no_record);
+    assert_unknown_without_callback(&current, claim, no_record);
 
     let mut no_journal_scope = complete.clone();
     no_journal_scope.journal_scope = None;
-    assert_unknown_without_callback(&current, &previous, claim, no_journal_scope);
+    assert_unknown_without_callback(&current, claim, no_journal_scope);
 
     let mut mismatched_journal_scope = complete.clone();
     mismatched_journal_scope
@@ -442,31 +517,26 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         .as_mut()
         .unwrap()
         .c3_launch_generation = NonZeroU64::new(20).unwrap();
-    assert_unknown_without_callback(&current, &previous, claim, mismatched_journal_scope);
+    assert_unknown_without_callback(&current, claim, mismatched_journal_scope);
 
     let mut untrusted_record = complete.clone();
     untrusted_record.record.as_mut().unwrap().owner_issued = false;
-    assert_unknown_without_callback(&current, &previous, claim, untrusted_record);
+    assert_unknown_without_callback(&current, claim, untrusted_record);
 
     let mut missing_journal_process_identity = complete.clone();
     missing_journal_process_identity.journal_process_identity = None;
-    assert_unknown_without_callback(&current, &previous, claim, missing_journal_process_identity);
+    assert_unknown_without_callback(&current, claim, missing_journal_process_identity);
 
     let mut mismatched_journal_process_identity = complete.clone();
     let record_process_identity = &complete.record.as_ref().unwrap().process_identity;
     mismatched_journal_process_identity.journal_process_identity = Some(
         nagi_init_spawn_contract::test_identity(record_process_identity.process_id()),
     );
-    assert_unknown_without_callback(
-        &current,
-        &previous,
-        claim,
-        mismatched_journal_process_identity,
-    );
+    assert_unknown_without_callback(&current, claim, mismatched_journal_process_identity);
 
     let mut wrong_record_service = complete.clone();
     wrong_record_service.record.as_mut().unwrap().service_id = "service:other";
-    assert_unknown_without_callback(&current, &previous, claim, wrong_record_service);
+    assert_unknown_without_callback(&current, claim, wrong_record_service);
 
     let mut wrong_record_catalog = complete.clone();
     wrong_record_catalog
@@ -474,7 +544,7 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         .as_mut()
         .unwrap()
         .catalog_generation = NonZeroU64::new(10).unwrap();
-    assert_unknown_without_callback(&current, &previous, claim, wrong_record_catalog);
+    assert_unknown_without_callback(&current, claim, wrong_record_catalog);
 
     let mut wrong_record_generation = complete.clone();
     wrong_record_generation
@@ -482,30 +552,29 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         .as_mut()
         .unwrap()
         .c3_launch_generation = NonZeroU64::new(20).unwrap();
-    assert_unknown_without_callback(&current, &previous, claim, wrong_record_generation);
+    assert_unknown_without_callback(&current, claim, wrong_record_generation);
 
     let mut no_receipt = complete.clone();
     no_receipt.receipt = None;
-    assert_unknown_without_callback(&current, &previous, claim, no_receipt);
+    assert_unknown_without_callback(&current, claim, no_receipt);
 
     let mut unknown_exit = complete.clone();
     unknown_exit.child_outcome = SyntheticChildOutcome::Unknown;
-    assert_unknown_without_callback(&current, &previous, claim, unknown_exit);
+    assert_unknown_without_callback(&current, claim, unknown_exit);
 
     let mut unsuccessful_exit = complete.clone();
     unsuccessful_exit.child_outcome = SyntheticChildOutcome::Exited { code: 1 };
-    assert_unknown_without_callback(&current, &previous, claim, unsuccessful_exit);
+    assert_unknown_without_callback(&current, claim, unsuccessful_exit);
 
     let mut signaled_exit = complete.clone();
     signaled_exit.child_outcome = SyntheticChildOutcome::Signaled;
-    assert_unknown_without_callback(&current, &previous, claim, signaled_exit);
+    assert_unknown_without_callback(&current, claim, signaled_exit);
 
     let same_generation = Scope::new(22);
     let same_generation_claim =
         C1RecoveryOperationCorrelation::new(operation_id, same_generation.binding_digest);
     assert_unknown_without_callback(
         &current,
-        &same_generation,
         same_generation_claim,
         evidence_for(&same_generation, operation_id),
     );
@@ -517,7 +586,6 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         C1RecoveryOperationCorrelation::new(operation_id, wrong_principal.binding_digest);
     assert_unknown_without_callback(
         &current,
-        &wrong_principal,
         wrong_principal_claim,
         evidence_for(&wrong_principal, operation_id),
     );
@@ -529,7 +597,6 @@ fn previous_launch_adapter_requires_complete_exact_terminal_evidence() {
         C1RecoveryOperationCorrelation::new(operation_id, wrong_mapping.binding_digest);
     assert_unknown_without_callback(
         &current,
-        &wrong_mapping,
         wrong_mapping_claim,
         evidence_for(&wrong_mapping, operation_id),
     );

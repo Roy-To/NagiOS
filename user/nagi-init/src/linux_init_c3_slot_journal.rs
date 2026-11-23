@@ -8,7 +8,8 @@
 
 use crate::c3_system_service_recovery::RecoveryScopeSnapshot;
 use nagi_system_service_recovery_contract::{
-    C1RecoveryOperationCorrelation, RecoveryLifecycleTransition,
+    C1RecoveryOperationCorrelation, C3DurablePriorBootClearedReceipt, C3DurableRecoverySlotReceipt,
+    C3RecoverySlotState, RecoveryLifecycleTransition, SystemServiceRecoveryAdmissionScope,
 };
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
@@ -23,6 +24,50 @@ use std::time::{Duration, Instant};
 
 const JOURNAL_MAGIC: &[u8; 8] = b"NGIC3SL1";
 const JOURNAL_VERSION: u8 = 5;
+const BOOT_JOURNAL_VERSION: u8 = 6;
+type BootId = [u8; 16];
+
+fn valid_boot_tag(kind: RecordKind, state: C3SlotState, version: u8, id: Option<BootId>) -> bool {
+    if version == BOOT_JOURNAL_VERSION {
+        id.is_some_and(|id| id != [0; 16])
+            && (matches!(
+                kind,
+                RecordKind::Reservation
+                    | RecordKind::PriorBootCleared
+                    | RecordKind::PriorBootClearedWithClaim
+            ) || (matches!(kind, RecordKind::Intent | RecordKind::Committed)
+                && state != C3SlotState::Reserved))
+    } else {
+        id.is_none()
+    }
+}
+
+fn parse_boot_id(value: &str) -> Option<BootId> {
+    let value = value.trim_end_matches('\n').as_bytes();
+    if value.len() != 36 {
+        return None;
+    }
+    let mut id = [0; 16];
+    let mut digit = 0;
+    for (index, &byte) in value.iter().enumerate() {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            if byte != b'-' {
+                return None;
+            }
+            continue;
+        }
+        let nibble = (byte as char).to_digit(16)? as u8;
+        id[digit / 2] |= nibble << if digit % 2 == 0 { 4 } else { 0 };
+        digit += 1;
+    }
+    (id != [0; 16]).then_some(id)
+}
+
+fn linux_boot_id() -> Result<BootId, C3SlotJournalError> {
+    let value = std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map_err(|_| C3SlotJournalError::Unknown)?;
+    parse_boot_id(&value).ok_or(C3SlotJournalError::Unknown)
+}
 const LEGACY_JOURNAL_VERSION_V3: u8 = 3;
 const LEGACY_JOURNAL_VERSION_V4: u8 = 4;
 const FIRST_PROVISION_MARKER_MAGIC: &[u8] = b"NAGI-C3-SLOT-FIRST-PROVISION-V1\n";
@@ -239,7 +284,7 @@ impl C3DurableNormalExitReceipt {
             .launch_evidence
             .filter(|evidence| evidence.state == LaunchEvidenceState::NormalExit)
             .ok_or(C3SlotJournalError::Unknown)?;
-        if record.format_version != JOURNAL_VERSION
+        if record.format_version < JOURNAL_VERSION
             || record.kind != RecordKind::Committed
             || record.row.state != C3SlotState::ClearedAndAbsent
             || !evidence.is_valid_for(&record.row)
@@ -329,14 +374,15 @@ pub(super) struct C3SlotJournal {
     service_id: String,
 }
 
-/// Opaque in-process generation reservation. When the current row is a
-/// complete normal-exit terminal, retain that exact base receipt and recheck
-/// it under the journal lock before allowing a same-catalog next launch.
+/// Opaque in-process generation reservation. If the current row is a fully
+/// committed normal-exit terminal, retain that exact receipt and recheck it
+/// under the journal lock before allowing a same-catalog next launch.
 #[derive(Clone)]
 pub(super) struct C3SlotReservation {
     launch_generation: NonZeroU64,
     operation_id: NonZeroU64,
     prior_normal_exit: Option<C3DurableNormalExitReceipt>,
+    prior_boot_clear: Option<PriorBootClear>,
 }
 
 impl C3SlotReservation {
@@ -350,6 +396,28 @@ impl C3SlotReservation {
 
     pub(super) fn prior_normal_exit(&self) -> Option<&C3DurableNormalExitReceipt> {
         self.prior_normal_exit.as_ref()
+    }
+
+    pub(super) fn permits_same_catalog_prior_boot_restart(
+        &self,
+        next: &RecoveryScopeSnapshot,
+        highest_catalog_generation: u64,
+    ) -> bool {
+        self.prior_boot_clear.as_ref().is_some_and(|clear| {
+            next.service_id == clear.record.row.service_id
+                && next.catalog_generation.get() == highest_catalog_generation
+                && next.catalog_generation.get() == clear.record.row.catalog_generation
+                && next.c3_launch_generation == self.launch_generation
+                && next.transition == RecoveryLifecycleTransition::Initial
+                && next.canonical_digest() == next.binding_digest
+                && clear.scope.as_ref().is_some_and(|scope| {
+                    let mut expected = scope.clone();
+                    expected.c3_launch_generation = self.launch_generation;
+                    expected.transition = RecoveryLifecycleTransition::Initial;
+                    expected.binding_digest = expected.canonical_digest();
+                    expected == *next
+                })
+        })
     }
 
     pub(super) fn permits_same_catalog_normal_restart(
@@ -372,16 +440,20 @@ impl C3SlotReservation {
             || next.canonical_digest() != next.binding_digest
             || previous.transition != RecoveryLifecycleTransition::Initial
             || next.transition != RecoveryLifecycleTransition::Initial
+            || receipt
+                .c3_launch_generation()
+                .get()
+                .checked_add(1)
+                .and_then(NonZeroU64::new)
+                != Some(self.launch_generation)
             || next.c3_launch_generation != self.launch_generation
-            || receipt.c3_launch_generation().get().checked_add(1)
-                != Some(next.c3_launch_generation.get())
         {
             return false;
         }
 
-        // The canonical digest includes the launch generation. Recompute it
-        // after changing only that per-launch selector, then compare the full
-        // scope so every other package and identity selector must stay equal.
+        // The canonical digest includes the C3 launch generation. Recompute
+        // it after changing only that per-launch selector; all package,
+        // catalog, identity, mapping, and credential fields must stay equal.
         let mut expected_next = previous.clone();
         expected_next.c3_launch_generation = next.c3_launch_generation;
         expected_next.binding_digest = expected_next.canonical_digest();
@@ -615,8 +687,14 @@ impl C3SlotJournal {
             .checked_add(1)
             .and_then(NonZeroU64::new)
             .ok_or(C3SlotJournalError::Unknown)?;
+        let prior_boot_clear = scan
+            .prior_boot_clear
+            .as_ref()
+            .filter(|clear| scan.current.as_ref() == Some(&clear.record))
+            .cloned();
         let record = JournalRecord {
-            format_version: JOURNAL_VERSION,
+            boot_id: Some(linux_boot_id()?),
+            format_version: BOOT_JOURNAL_VERSION,
             kind: RecordKind::Reservation,
             revision: scan
                 .last_revision
@@ -645,6 +723,7 @@ impl C3SlotJournal {
             launch_generation,
             operation_id,
             prior_normal_exit,
+            prior_boot_clear,
         })
     }
 
@@ -662,19 +741,28 @@ impl C3SlotJournal {
         let mut scan = scan_journal(&self.path, &self.service_id, Some(reservation.operation_id))
             .map_err(|_| C3SlotJournalError::Unknown)?;
         if catalog_generation.get() == scan.highest_catalog_generation {
-            if !reservation.permits_same_catalog_normal_restart(
+            if reservation.permits_same_catalog_prior_boot_restart(
                 &scope_snapshot,
                 scan.highest_catalog_generation,
             ) {
-                return Err(C3SlotJournalError::Rejected);
-            }
-            let expected = reservation
-                .prior_normal_exit()
-                .ok_or(C3SlotJournalError::Rejected)?;
-            let current = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
-            let actual = C3DurableNormalExitReceipt::from_committed_record(current)?;
-            if &actual != expected {
-                return Err(C3SlotJournalError::Unknown);
+                if scan.prior_boot_clear != reservation.prior_boot_clear {
+                    return Err(C3SlotJournalError::Unknown);
+                }
+            } else {
+                if !reservation.permits_same_catalog_normal_restart(
+                    &scope_snapshot,
+                    scan.highest_catalog_generation,
+                ) {
+                    return Err(C3SlotJournalError::Rejected);
+                }
+                let expected = reservation
+                    .prior_normal_exit()
+                    .ok_or(C3SlotJournalError::Rejected)?;
+                let current = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+                let actual = C3DurableNormalExitReceipt::from_committed_record(current)?;
+                if &actual != expected {
+                    return Err(C3SlotJournalError::Unknown);
+                }
             }
         }
         let transition = C3SlotTransition {
@@ -697,21 +785,21 @@ impl C3SlotJournal {
     pub(super) fn transition_reserved_quarantine(
         &self,
         reservation: C3SlotReservation,
-        catalog_generation: NonZeroU64,
-        scope_binding_digest: [u8; 32],
+        scope_snapshot: RecoveryScopeSnapshot,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
         let _lock = self.lock_exclusive()?;
         let mut scan = scan_journal(&self.path, &self.service_id, Some(reservation.operation_id))
             .map_err(|_| C3SlotJournalError::Unknown)?;
-        let transition = C3SlotTransition::new(
+        let mut transition = C3SlotTransition::new(
             &self.service_id,
-            catalog_generation,
+            scope_snapshot.catalog_generation,
             reservation.launch_generation,
-            scope_binding_digest,
+            scope_snapshot.binding_digest,
             reservation.operation_id,
             C3SlotState::Quarantined,
         )?;
+        transition.scope_snapshot = Some(scope_snapshot);
         self.transition_scanned(&mut scan, transition, effect)
     }
 
@@ -768,6 +856,7 @@ impl C3SlotJournal {
             scope_binding_digest,
             state,
             None,
+            &Instant::now,
             effect,
         )
     }
@@ -789,10 +878,15 @@ impl C3SlotJournal {
             scope_binding_digest,
             state,
             Some(deadline),
+            &Instant::now,
             effect,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep the exact transition evidence explicit"
+    )]
     fn transition_next_locked(
         &self,
         catalog_generation: NonZeroU64,
@@ -800,11 +894,12 @@ impl C3SlotJournal {
         scope_binding_digest: [u8; 32],
         state: C3SlotState,
         cleanup_deadline: Option<Instant>,
+        now: &dyn Fn() -> Instant,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
-        ensure_cleanup_deadline_not_expired(cleanup_deadline)?;
+        ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
         let scan_result = scan_journal(&self.path, &self.service_id, None);
-        ensure_cleanup_deadline_not_expired(cleanup_deadline)?;
+        ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
         let mut scan = scan_result.map_err(|_| C3SlotJournalError::Unknown)?;
         let operation_id = scan
             .highest_operation_id
@@ -819,27 +914,33 @@ impl C3SlotJournal {
             operation_id,
             state,
         )?;
-        self.transition_scanned_with_deadline(
-            &mut scan,
-            transition,
-            cleanup_deadline,
-            &Instant::now,
-            effect,
-        )
+        self.transition_scanned_with_deadline(&mut scan, transition, cleanup_deadline, now, effect)
     }
 
     /// Commit normal-exit evidence only for the exact previously committed
     /// live launch key and C1 operation correlation. The caller's effect runs
     /// after the intent has been synced and must recheck its post-reap state.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep the exact transition evidence explicit"
+    )]
     pub(super) fn record_normal_exit_after_reap(
         &self,
-        launch: C3ReapedLaunchKey,
+        catalog_generation: NonZeroU64,
+        c3_launch_generation: NonZeroU64,
+        scope_binding_digest: [u8; 32],
+        launch_operation_id: NonZeroU64,
+        process_id: u32,
         correlation: C1RecoveryOperationCorrelation,
         cleanup_deadline: Option<Instant>,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
         self.record_normal_exit_after_reap_with_clock(
-            launch,
+            catalog_generation,
+            c3_launch_generation,
+            scope_binding_digest,
+            launch_operation_id,
+            process_id,
             correlation,
             cleanup_deadline,
             &Instant::now,
@@ -847,22 +948,23 @@ impl C3SlotJournal {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep the exact transition evidence explicit"
+    )]
     fn record_normal_exit_after_reap_with_clock(
         &self,
-        launch: C3ReapedLaunchKey,
+        catalog_generation: NonZeroU64,
+        c3_launch_generation: NonZeroU64,
+        scope_binding_digest: [u8; 32],
+        launch_operation_id: NonZeroU64,
+        process_id: u32,
         correlation: C1RecoveryOperationCorrelation,
         cleanup_deadline: Option<Instant>,
         now: &dyn Fn() -> Instant,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
         ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
-        let C3ReapedLaunchKey {
-            catalog_generation,
-            c3_launch_generation,
-            scope_binding_digest,
-            launch_operation_id,
-            process_id,
-        } = launch;
         let valid_input = process_id != 0 && correlation.binding_digest() == &scope_binding_digest;
         if !valid_input {
             ensure_cleanup_deadline_not_expired_at(cleanup_deadline, now)?;
@@ -1007,6 +1109,149 @@ impl C3SlotJournal {
         Ok(receipt)
     }
 
+    /// Read the distinct clearance before reserving another launch. This
+    /// records slot absence only; it cannot complete a C1 recovery operation.
+    pub(super) fn latest_prior_boot_clear(
+        &self,
+    ) -> Result<Option<PriorBootClear>, C3SlotJournalError> {
+        let _lock = self.lock_exclusive()?;
+        let scan = scan_journal(&self.path, &self.service_id, None)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        if scan.pending.is_some() || scan.reservation.is_some() {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        Ok(scan
+            .prior_boot_clear
+            .filter(|clear| scan.current.as_ref() == Some(&clear.record)))
+    }
+
+    pub(super) fn read_prior_boot_cleared_receipt_until(
+        &self,
+        expected: &PriorBootClear,
+        current: &RecoveryScopeSnapshot,
+        current_instance: NonZeroU64,
+        current_pid: u32,
+        claim: C1RecoveryOperationCorrelation,
+        deadline: Instant,
+    ) -> Result<PriorBootClearedReceipt, C3SlotJournalError> {
+        ensure_cleanup_deadline_not_expired(Some(deadline))?;
+        self.read_prior_boot_cleared_receipt_for_boot(
+            current,
+            current_instance,
+            current_pid,
+            claim,
+            linux_boot_id()?,
+            Some((expected, deadline)),
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn read_prior_boot_cleared_receipt(
+        &self,
+        current: &RecoveryScopeSnapshot,
+        current_instance: NonZeroU64,
+        current_pid: u32,
+        claim: C1RecoveryOperationCorrelation,
+    ) -> Result<PriorBootClearedReceipt, C3SlotJournalError> {
+        self.read_prior_boot_cleared_receipt_with(
+            current,
+            current_instance,
+            current_pid,
+            claim,
+            linux_boot_id()?,
+        )
+    }
+
+    #[cfg(test)]
+    fn read_prior_boot_cleared_receipt_with(
+        &self,
+        current: &RecoveryScopeSnapshot,
+        current_instance: NonZeroU64,
+        current_pid: u32,
+        claim: C1RecoveryOperationCorrelation,
+        current_boot: BootId,
+    ) -> Result<PriorBootClearedReceipt, C3SlotJournalError> {
+        self.read_prior_boot_cleared_receipt_for_boot(
+            current,
+            current_instance,
+            current_pid,
+            claim,
+            current_boot,
+            None,
+        )
+    }
+
+    fn read_prior_boot_cleared_receipt_for_boot(
+        &self,
+        current: &RecoveryScopeSnapshot,
+        current_instance: NonZeroU64,
+        current_pid: u32,
+        claim: C1RecoveryOperationCorrelation,
+        current_boot: BootId,
+        expected: Option<(&PriorBootClear, Instant)>,
+    ) -> Result<PriorBootClearedReceipt, C3SlotJournalError> {
+        let _lock = match expected {
+            Some((_, deadline)) => self.lock_exclusive_until(deadline),
+            None => self.lock_exclusive(),
+        }?;
+        let deadline = expected.map(|(_, deadline)| deadline);
+        ensure_cleanup_deadline_not_expired(deadline)?;
+        let scan = scan_journal(&self.path, &self.service_id, None)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        if scan.pending.is_some() || scan.reservation.is_some() {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let clear = scan
+            .prior_boot_clear
+            .as_ref()
+            .ok_or(C3SlotJournalError::Unknown)?;
+        ensure_cleanup_deadline_not_expired(deadline)?;
+        if expected.is_some_and(|(expected, _)| expected != clear) {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let successor = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+        let prior = clear
+            .correlated_live
+            .as_ref()
+            .ok_or(C3SlotJournalError::Unknown)?;
+        let old_scope = prior
+            .row
+            .scope_snapshot
+            .as_ref()
+            .ok_or(C3SlotJournalError::Unknown)?;
+        let old_boot = prior.boot_id.ok_or(C3SlotJournalError::Unknown)?;
+        let old_launch_instance = prior
+            .row
+            .launch_evidence
+            .ok_or(C3SlotJournalError::Unknown)?
+            .launch_operation_id();
+        if !clear.matches_successor(successor)
+            || clear.record.boot_id != Some(current_boot)
+            || old_boot == current_boot
+            || successor.row.scope_snapshot.as_ref() != Some(current)
+            || successor
+                .row
+                .launch_evidence
+                .map(|evidence| (evidence.launch_operation_id(), evidence.process_id()))
+                != Some((current_instance, current_pid))
+        {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        if claim.operation_id().get() != clear.record.row.c1_operation_id
+            || claim.binding_digest() != &clear.record.row.scope_binding_digest
+            || claim.binding_digest() != &old_scope.binding_digest
+        {
+            return Err(C3SlotJournalError::Rejected);
+        }
+        Ok(PriorBootClearedReceipt {
+            old_scope: old_scope.clone(),
+            old_operation: claim.operation_id(),
+            old_launch_instance,
+            old_boot,
+            current_boot,
+        })
+    }
+
     /// Re-read and select one exact old terminal receipt from the complete
     /// journal. No current-boot process record participates in this lookup.
     pub(super) fn read_normal_exit_receipt(
@@ -1083,6 +1328,14 @@ impl C3SlotJournal {
         });
         let record = matches.next().ok_or(C3SlotJournalError::Unknown)?;
         if matches.next().is_some() {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        // C1 reconciliation runs after the next same-catalog C3 launch has
+        // committed. Keep this old receipt usable only while it is still the
+        // current terminal or the exact adjacent launch it authorized.
+        if !scan.current.as_ref().is_some_and(|current| {
+            current == record || is_exact_next_normal_restart_successor(record, current)
+        }) {
             return Err(C3SlotJournalError::Unknown);
         }
         let receipt = C3DurableNormalExitReceipt::from_committed_record(record)?;
@@ -1197,7 +1450,7 @@ impl C3SlotJournal {
                 && matches!(row.state, C3SlotState::Live | C3SlotState::Quarantined)
                 && row.c1_operation_id == 0
                 && row.launch_evidence.is_none()
-                && row.scope_snapshot.is_none()
+                && (row.state == C3SlotState::Quarantined || row.scope_snapshot.is_none())
                 && row.catalog_generation >= scan.highest_catalog_generation
                 && scan
                     .current
@@ -1219,7 +1472,7 @@ impl C3SlotJournal {
                 )
         };
         if !is_valid
-            || row.launch_evidence.is_some() != row.scope_snapshot.is_some()
+            || !valid_evidence_scope_pair(&row)
             || row
                 .scope_snapshot
                 .as_ref()
@@ -1234,8 +1487,25 @@ impl C3SlotJournal {
             .checked_add(1)
             .filter(|revision| *revision != 0)
             .ok_or(C3SlotJournalError::Unknown)?;
+        let current_boot = linux_boot_id()?;
+        let departure = if reserved_transition {
+            scan.reservation.as_ref()
+        } else {
+            scan.current.as_ref().filter(|record| {
+                matches!(
+                    record.row.state,
+                    C3SlotState::Live | C3SlotState::Quarantined
+                )
+            })
+        };
+        if departure.is_some_and(|record| record.boot_id != Some(current_boot)) {
+            return Err(C3SlotJournalError::Unknown);
+        }
+        let boot_id = Some(current_boot);
+        let format_version = BOOT_JOURNAL_VERSION;
         let intent = JournalRecord {
-            format_version: JOURNAL_VERSION,
+            boot_id,
+            format_version,
             kind: RecordKind::Intent,
             revision: intent_revision,
             row,
@@ -1288,7 +1558,8 @@ impl C3SlotJournal {
                 ));
             }
             let staged = JournalRecord {
-                format_version: JOURNAL_VERSION,
+                boot_id,
+                format_version,
                 kind: RecordKind::Intent,
                 revision: pending
                     .revision
@@ -1344,7 +1615,8 @@ impl C3SlotJournal {
             return Err(C3SlotJournalError::Unknown);
         }
         let completed = JournalRecord {
-            format_version: JOURNAL_VERSION,
+            boot_id,
+            format_version,
             kind: RecordKind::Committed,
             revision: scan
                 .last_revision
@@ -1371,6 +1643,39 @@ impl C3SlotJournal {
             cleanup_deadline,
             now,
         )
+    }
+
+    pub(super) fn readback_for_fresh_owner(
+        &self,
+    ) -> Result<C3SlotJournalReadback, C3SlotJournalError> {
+        self.readback_for_fresh_owner_with(linux_boot_id)
+    }
+
+    fn readback_for_fresh_owner_with(
+        &self,
+        boot_id: impl FnOnce() -> Result<BootId, C3SlotJournalError>,
+    ) -> Result<C3SlotJournalReadback, C3SlotJournalError> {
+        let _lock = self.lock_exclusive()?;
+        let mut scan = scan_journal(&self.path, &self.service_id, None)
+            .map_err(|_| C3SlotJournalError::Unknown)?;
+        if scan.pending.is_some() || scan.reservation.is_some() || scan.occupied_record().is_some()
+        {
+            let clear = scan
+                .prior_boot_clear_record(&self.service_id, boot_id()?)
+                .ok_or(C3SlotJournalError::Unknown)?;
+            scan = self
+                .append_and_readback(&clear.record, None)
+                .map_err(|_| C3SlotJournalError::Unknown)?;
+        } else if scan.prior_boot_clear.is_some() {
+            // A prior process may have returned a sync error after writing the frame.
+            let file = open_existing_private_file(&self.path, true)
+                .map_err(|_| C3SlotJournalError::Unknown)?;
+            validate_private_file(&file).map_err(|_| C3SlotJournalError::Unknown)?;
+            file.sync_all().map_err(|_| C3SlotJournalError::Unknown)?;
+            scan = scan_journal(&self.path, &self.service_id, None)
+                .map_err(|_| C3SlotJournalError::Unknown)?;
+        }
+        Ok(self.readback_from_scan(scan))
     }
 
     pub(super) fn readback(&self) -> C3SlotJournalReadback {
@@ -1408,21 +1713,27 @@ impl C3SlotJournal {
             return C3SlotJournalReadback::Unknown;
         }
         match scan.current {
-            Some(record) => C3SlotJournalReadback::Committed(Box::new(C3DurableSlotRowReadback {
-                service_id: record.row.service_id,
-                catalog_generation: record.row.catalog_generation,
-                c3_launch_generation: record.row.c3_launch_generation,
-                scope_binding_digest: record.row.scope_binding_digest,
-                durable_revision: record.revision,
-                operation_id: record.row.operation_id,
-                c1_operation_id: record.row.c1_operation_id,
-                state: record.row.state,
-                launch_evidence: record.row.launch_evidence,
-                scope_snapshot: record.row.scope_snapshot,
-                highest_catalog_generation: scan.highest_catalog_generation,
-                highest_c3_launch_generation: scan.highest_c3_launch_generation,
-                highest_operation_id: scan.highest_operation_id,
-            })),
+            Some(mut record) => {
+                if record.kind == RecordKind::PriorBootClearedWithClaim {
+                    record.row.c1_operation_id = 0;
+                    record.row.scope_binding_digest = [0; 32];
+                }
+                C3SlotJournalReadback::Committed(C3DurableSlotRowReadback {
+                    service_id: record.row.service_id,
+                    catalog_generation: record.row.catalog_generation,
+                    c3_launch_generation: record.row.c3_launch_generation,
+                    scope_binding_digest: record.row.scope_binding_digest,
+                    durable_revision: record.revision,
+                    operation_id: record.row.operation_id,
+                    c1_operation_id: record.row.c1_operation_id,
+                    state: record.row.state,
+                    launch_evidence: record.row.launch_evidence,
+                    scope_snapshot: record.row.scope_snapshot,
+                    highest_catalog_generation: scan.highest_catalog_generation,
+                    highest_c3_launch_generation: scan.highest_c3_launch_generation,
+                    highest_operation_id: scan.highest_operation_id,
+                })
+            }
             None => C3SlotJournalReadback::Empty,
         }
     }
@@ -1449,6 +1760,9 @@ impl C3SlotJournal {
             return Err(C3SlotJournalError::Unknown);
         }
         let before = scan.current.as_ref().ok_or(C3SlotJournalError::Unknown)?;
+        if before.kind == RecordKind::PriorBootClearedWithClaim {
+            return Err(C3SlotJournalError::Unknown);
+        }
         if before.kind != RecordKind::Committed
             || before.row.service_id != self.service_id
             || before.row.catalog_generation != catalog_generation.get()
@@ -1689,6 +2003,8 @@ impl C3SlotJournal {
             RecordKind::Reservation if scan.reservation.as_ref() == Some(record) => Ok(scan),
             RecordKind::Intent if scan.pending.as_ref() == Some(record) => Ok(scan),
             RecordKind::Committed
+            | RecordKind::PriorBootCleared
+            | RecordKind::PriorBootClearedWithClaim
                 if scan.pending.is_none() && scan.current.as_ref() == Some(record) =>
             {
                 Ok(scan)
@@ -1728,17 +2044,13 @@ fn scan_is_exact_genesis(scan: &JournalScan, service_id: &str) -> bool {
         && scan.last_record.as_ref() == Some(&genesis_record(service_id))
 }
 
-pub(super) struct C3ReapedLaunchKey {
-    pub(super) catalog_generation: NonZeroU64,
-    pub(super) c3_launch_generation: NonZeroU64,
-    pub(super) scope_binding_digest: [u8; 32],
-    pub(super) launch_operation_id: NonZeroU64,
-    pub(super) process_id: u32,
-}
-
+#[expect(
+    clippy::large_enum_variant,
+    reason = "keep durable journal readback allocation-free"
+)]
 pub(super) enum C3SlotJournalReadback {
     Empty,
-    Committed(Box<C3DurableSlotRowReadback>),
+    Committed(C3DurableSlotRowReadback),
     Unknown,
 }
 
@@ -1926,6 +2238,8 @@ impl Drop for ExclusiveFileLock {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RecordKind {
     Genesis,
+    PriorBootCleared,
+    PriorBootClearedWithClaim,
     Intent,
     Committed,
     Reservation,
@@ -1946,10 +2260,107 @@ struct JournalRow {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct JournalRecord {
+    boot_id: Option<BootId>,
     format_version: u8,
     kind: RecordKind,
     revision: u64,
     row: JournalRow,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct PriorBootClear {
+    record: JournalRecord,
+    scope: Option<RecoveryScopeSnapshot>,
+    correlated_live: Option<JournalRecord>,
+}
+
+impl PriorBootClear {
+    pub(super) fn service_id(&self) -> &str {
+        &self.record.row.service_id
+    }
+
+    pub(super) fn has_c1_claim(&self) -> bool {
+        self.correlated_live.is_some()
+    }
+
+    pub(super) fn cleared_generation(&self) -> u64 {
+        self.record.row.c3_launch_generation
+    }
+
+    pub(super) fn catalog_generation(&self) -> u64 {
+        self.record.row.catalog_generation
+    }
+
+    fn matches_successor(&self, successor: &JournalRecord) -> bool {
+        let Some(mut expected) = self.scope.clone() else {
+            return false;
+        };
+        let Some(generation) = self
+            .cleared_generation()
+            .checked_add(1)
+            .and_then(NonZeroU64::new)
+        else {
+            return false;
+        };
+        expected.c3_launch_generation = generation;
+        expected.transition = RecoveryLifecycleTransition::Initial;
+        expected.binding_digest = expected.canonical_digest();
+        self.correlated_live.is_some()
+            && successor.kind == RecordKind::Committed
+            && successor.boot_id == self.record.boot_id
+            && successor.row.state == C3SlotState::Live
+            && successor.row.scope_snapshot.as_ref() == Some(&expected)
+            && successor.row.launch_evidence.is_some_and(|evidence| {
+                evidence.state == LaunchEvidenceState::Running
+                    && self.record.row.operation_id.checked_add(1)
+                        == Some(evidence.launch_operation_id)
+            })
+    }
+}
+
+/// Constructed only after the complete journal and current successor agree.
+pub(super) struct PriorBootClearedReceipt {
+    old_scope: RecoveryScopeSnapshot,
+    old_operation: NonZeroU64,
+    old_launch_instance: NonZeroU64,
+    old_boot: BootId,
+    current_boot: BootId,
+}
+
+impl C3DurableRecoverySlotReceipt for PriorBootClearedReceipt {
+    fn c1_operation_id(&self) -> Option<NonZeroU64> {
+        Some(self.old_operation)
+    }
+    fn service_id(&self) -> &str {
+        &self.old_scope.service_id
+    }
+    fn catalog_generation(&self) -> u64 {
+        self.old_scope.catalog_generation.get()
+    }
+    fn c3_launch_generation(&self) -> u64 {
+        self.old_scope.c3_launch_generation.get()
+    }
+    fn scope_binding_digest(&self) -> &[u8; 32] {
+        &self.old_scope.binding_digest
+    }
+    fn state(&self) -> C3RecoverySlotState {
+        C3RecoverySlotState::PriorBootCleared
+    }
+}
+
+impl C3DurablePriorBootClearedReceipt for PriorBootClearedReceipt {
+    fn previous_scope(&self) -> &dyn SystemServiceRecoveryAdmissionScope {
+        &self.old_scope
+    }
+    fn previous_boot_id(&self) -> &[u8; 16] {
+        &self.old_boot
+    }
+    fn current_boot_id(&self) -> &[u8; 16] {
+        &self.current_boot
+    }
+    fn previous_c3_launch_instance_id(&self) -> NonZeroU64 {
+        self.old_launch_instance
+    }
 }
 
 #[derive(Default)]
@@ -1966,6 +2377,108 @@ struct JournalScan {
     requested_operation_seen: bool,
     pending_reserved_launch: bool,
     normal_exit_records: Vec<JournalRecord>,
+    prior_boot_clear: Option<PriorBootClear>,
+    quarantined_scope: Option<RecoveryScopeSnapshot>,
+    quarantined_live: Option<JournalRecord>,
+}
+
+impl JournalScan {
+    fn occupied_record(&self) -> Option<&JournalRecord> {
+        self.current.as_ref().filter(|record| {
+            matches!(
+                record.row.state,
+                C3SlotState::Live | C3SlotState::Quarantined
+            )
+        })
+    }
+
+    fn prior_boot_clear_record(
+        &self,
+        service_id: &str,
+        current_boot: BootId,
+    ) -> Option<PriorBootClear> {
+        let occupied = self.occupied_record();
+        let newest = self
+            .pending
+            .as_ref()
+            .or(self.reservation.as_ref())
+            .or(occupied)?;
+        let prior_boot = newest.boot_id?;
+        if prior_boot == current_boot
+            || self
+                .pending
+                .iter()
+                .chain(self.reservation.iter())
+                .chain(occupied)
+                .any(|record| record.boot_id != Some(prior_boot))
+        {
+            return None;
+        }
+        let scope = newest.row.scope_snapshot.clone().or_else(|| {
+            self.current
+                .as_ref()
+                .filter(|record| record.row.catalog_generation == self.highest_catalog_generation)
+                .and_then(|record| record.row.scope_snapshot.clone())
+                .or_else(|| {
+                    self.quarantined_scope.clone().or_else(|| {
+                        self.prior_boot_clear
+                            .as_ref()
+                            .and_then(|clear| clear.scope.clone())
+                    })
+                })
+        });
+        // Only an already committed Live binding can attest which C1
+        // operation belonged to the launched child. Pending effects cannot
+        // introduce evidence. Quarantine may carry its exact prior Live.
+        let correlated_live = occupied
+            .and_then(|record| {
+                if record.row.state == C3SlotState::Quarantined {
+                    self.quarantined_live.as_ref()
+                } else {
+                    Some(record)
+                }
+            })
+            .filter(|live| {
+                self.reservation.is_none()
+                    && same_slot_binding(&live.row, &newest.row)
+                    && live.boot_id == Some(prior_boot)
+                    && live.row.c1_operation_id != 0
+                    && live.row.scope_snapshot.is_some()
+                    && live
+                        .row
+                        .launch_evidence
+                        .is_some_and(|evidence| evidence.state == LaunchEvidenceState::Running)
+            })
+            .cloned();
+        let correlation = correlated_live
+            .as_ref()
+            .map(|live| (live.row.c1_operation_id, live.row.scope_binding_digest));
+        Some(PriorBootClear {
+            record: JournalRecord {
+                boot_id: Some(current_boot),
+                format_version: BOOT_JOURNAL_VERSION,
+                kind: if correlation.is_some() {
+                    RecordKind::PriorBootClearedWithClaim
+                } else {
+                    RecordKind::PriorBootCleared
+                },
+                revision: self.last_revision.checked_add(1)?,
+                row: JournalRow {
+                    service_id: service_id.to_owned(),
+                    catalog_generation: self.highest_catalog_generation,
+                    c3_launch_generation: self.highest_c3_launch_generation.checked_add(1)?,
+                    scope_binding_digest: correlation.map_or([0; 32], |(_, digest)| digest),
+                    operation_id: self.highest_operation_id.checked_add(1)?,
+                    c1_operation_id: correlation.map_or(0, |(operation, _)| operation),
+                    state: C3SlotState::ClearedAndAbsent,
+                    launch_evidence: None,
+                    scope_snapshot: None,
+                },
+            },
+            scope,
+            correlated_live,
+        })
+    }
 }
 
 /// A reserved Live intent may be durably enriched exactly once after C3 has
@@ -2015,6 +2528,11 @@ fn canonical_service_id(value: &str) -> bool {
         })
 }
 
+fn valid_evidence_scope_pair(row: &JournalRow) -> bool {
+    row.launch_evidence.is_some() == row.scope_snapshot.is_some()
+        || (row.state == C3SlotState::Quarantined && row.launch_evidence.is_none())
+}
+
 fn valid_transition(
     current: Option<&JournalRow>,
     highest_catalog_generation: u64,
@@ -2035,7 +2553,7 @@ fn valid_transition(
         || next
             .launch_evidence
             .is_some_and(|evidence| !evidence.is_valid_for(next))
-        || next.launch_evidence.is_some() != next.scope_snapshot.is_some()
+        || !valid_evidence_scope_pair(next)
         || next
             .scope_snapshot
             .as_ref()
@@ -2114,6 +2632,7 @@ fn scope_snapshot_matches_row(scope: &RecoveryScopeSnapshot, row: &JournalRow) -
 
 fn genesis_record(service_id: &str) -> JournalRecord {
     JournalRecord {
+        boot_id: None,
         format_version: JOURNAL_VERSION,
         kind: RecordKind::Genesis,
         revision: 1,
@@ -2191,6 +2710,30 @@ fn scan_journal_file(
 
         match record.kind {
             RecordKind::Genesis => return Err(()),
+            RecordKind::PriorBootCleared | RecordKind::PriorBootClearedWithClaim => {
+                let mut expected = scan
+                    .prior_boot_clear_record(service_id, record.boot_id.ok_or(())?)
+                    .ok_or(())?;
+                if record.kind == RecordKind::PriorBootCleared {
+                    // Older absence-only records never gain a C1 claim on replay.
+                    expected.record.kind = RecordKind::PriorBootCleared;
+                    expected.record.row.c1_operation_id = 0;
+                    expected.record.row.scope_binding_digest = [0; 32];
+                    expected.correlated_live = None;
+                }
+                if expected.record != record {
+                    return Err(());
+                }
+                scan.pending = None;
+                scan.reservation = None;
+                scan.pending_reserved_launch = false;
+                scan.highest_operation_id = record.row.operation_id;
+                scan.highest_c3_launch_generation = record.row.c3_launch_generation;
+                scan.current = Some(record.clone());
+                scan.prior_boot_clear = Some(expected);
+                scan.quarantined_scope = None;
+                scan.quarantined_live = None;
+            }
             RecordKind::Reservation => {
                 if scan.pending.is_some()
                     || scan.reservation.is_some()
@@ -2213,10 +2756,14 @@ fn scan_journal_file(
             RecordKind::Intent => {
                 let reserved_launch_identity_update = scan.pending_reserved_launch
                     && scan.pending.as_ref().is_some_and(|pending| {
-                        reserved_launch_identity_update_matches(&pending.row, &record.row)
+                        pending.boot_id == record.boot_id
+                            && reserved_launch_identity_update_matches(&pending.row, &record.row)
                     });
                 let reserved_transition = scan.reservation.as_ref().is_some_and(|reservation| {
                     reservation.row.operation_id == record.row.operation_id
+                        && (record.boot_id.is_none()
+                            && record.row.state == C3SlotState::Quarantined
+                            || reservation.boot_id == record.boot_id)
                         && reservation.row.c3_launch_generation == record.row.c3_launch_generation
                         && matches!(
                             record.row.state,
@@ -2224,13 +2771,25 @@ fn scan_journal_file(
                         )
                         && record.row.c1_operation_id == 0
                         && record.row.launch_evidence.is_none()
-                        && record.row.scope_snapshot.is_none()
+                        && (record.row.state == C3SlotState::Quarantined
+                            || record.row.scope_snapshot.is_none())
                         && record.row.catalog_generation >= scan.highest_catalog_generation
                         && scan
                             .current
                             .as_ref()
                             .is_none_or(|current| current.row.state != C3SlotState::Quarantined)
                 });
+                if !reserved_transition && !reserved_launch_identity_update {
+                    if let Some(previous) = scan.occupied_record() {
+                        if (record.boot_id.is_some()
+                            || (record.row.state == C3SlotState::Live
+                                && record.row.c1_operation_id != 0))
+                            && previous.boot_id != record.boot_id
+                        {
+                            return Err(());
+                        }
+                    }
+                }
                 let operation_id_is_valid =
                     if reserved_transition || reserved_launch_identity_update {
                         true
@@ -2269,7 +2828,7 @@ fn scan_journal_file(
                 }
                 if !reserved_launch_identity_update {
                     scan.pending_reserved_launch = reserved_transition
-                        && record.format_version == JOURNAL_VERSION
+                        && record.format_version >= JOURNAL_VERSION
                         && record.row.state == C3SlotState::Live
                         && record.row.launch_evidence.is_none()
                         && record.row.scope_snapshot.is_none();
@@ -2279,6 +2838,7 @@ fn scan_journal_file(
             RecordKind::Committed => {
                 let pending = scan.pending.take().ok_or(())?;
                 if record.format_version != pending.format_version
+                    || record.boot_id != pending.boot_id
                     || record.revision
                         != pending
                             .revision
@@ -2302,6 +2862,31 @@ fn scan_journal_file(
                 {
                     scan.normal_exit_records.push(record.clone());
                 }
+                scan.quarantined_scope = if record.row.state == C3SlotState::Quarantined {
+                    scan.current
+                        .as_ref()
+                        .filter(|before| same_slot_binding(&before.row, &record.row))
+                        .and_then(|before| before.row.scope_snapshot.clone())
+                } else {
+                    None
+                };
+                scan.quarantined_live = scan
+                    .current
+                    .as_ref()
+                    .filter(|before| {
+                        record.row.state == C3SlotState::Quarantined
+                            && before.row.state == C3SlotState::Live
+                            && before.boot_id == record.boot_id
+                            && same_slot_binding(&before.row, &record.row)
+                    })
+                    .cloned();
+                if !scan
+                    .prior_boot_clear
+                    .as_ref()
+                    .is_some_and(|clear| clear.matches_successor(&record))
+                {
+                    scan.prior_boot_clear = None;
+                }
                 scan.current = Some(record.clone());
             }
         }
@@ -2318,6 +2903,62 @@ fn committed_row_matches_intent(intent: &JournalRow, committed: &JournalRow) -> 
     intent == committed
 }
 
+fn is_exact_next_normal_restart_successor(
+    previous_terminal: &JournalRecord,
+    current: &JournalRecord,
+) -> bool {
+    if previous_terminal.format_version < JOURNAL_VERSION
+        || previous_terminal.kind != RecordKind::Committed
+        || previous_terminal.row.state != C3SlotState::ClearedAndAbsent
+        || !previous_terminal
+            .row
+            .launch_evidence
+            .is_some_and(|evidence| evidence.state == LaunchEvidenceState::NormalExit)
+    {
+        return false;
+    }
+    let (Some(previous_scope), Some(current_scope), Some(evidence)) = (
+        previous_terminal.row.scope_snapshot.as_ref(),
+        current.row.scope_snapshot.as_ref(),
+        current.row.launch_evidence,
+    ) else {
+        return false;
+    };
+    let Some(next_launch_generation) = previous_terminal
+        .row
+        .c3_launch_generation
+        .checked_add(1)
+        .and_then(NonZeroU64::new)
+    else {
+        return false;
+    };
+    let Some(next_launch_operation_id) = previous_terminal.row.operation_id.checked_add(1) else {
+        return false;
+    };
+
+    let mut expected_scope = previous_scope.clone();
+    expected_scope.c3_launch_generation = next_launch_generation;
+    expected_scope.binding_digest = expected_scope.canonical_digest();
+    let expected_state = match current.row.state {
+        C3SlotState::Live => evidence.state == LaunchEvidenceState::Running,
+        C3SlotState::ClearedAndAbsent => evidence.state == LaunchEvidenceState::NormalExit,
+        C3SlotState::Reserved | C3SlotState::Quarantined => false,
+    };
+
+    current.format_version >= JOURNAL_VERSION
+        && current.kind == RecordKind::Committed
+        && current.revision > previous_terminal.revision
+        && current.row.service_id == previous_terminal.row.service_id
+        && current.row.catalog_generation == previous_terminal.row.catalog_generation
+        && current.row.c3_launch_generation == next_launch_generation.get()
+        && current.row.operation_id >= next_launch_operation_id
+        && current.row.scope_binding_digest == expected_scope.binding_digest
+        && current_scope == &expected_scope
+        && evidence.launch_operation_id == next_launch_operation_id
+        && evidence.is_valid_for(&current.row)
+        && expected_state
+}
+
 fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
     let mut header = [0u8; HEADER_LEN];
     match reader.read(&mut header[..1]) {
@@ -2332,7 +2973,10 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
     if &header[..JOURNAL_MAGIC.len()] != JOURNAL_MAGIC
         || !matches!(
             version,
-            LEGACY_JOURNAL_VERSION_V3 | LEGACY_JOURNAL_VERSION_V4 | JOURNAL_VERSION
+            LEGACY_JOURNAL_VERSION_V3
+                | LEGACY_JOURNAL_VERSION_V4
+                | JOURNAL_VERSION
+                | BOOT_JOURNAL_VERSION
         )
     {
         return Err(());
@@ -2343,6 +2987,8 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
         2 => RecordKind::Committed,
         3 => RecordKind::Reservation,
         4 => RecordKind::Genesis,
+        5 if version == BOOT_JOURNAL_VERSION => RecordKind::PriorBootCleared,
+        6 if version == BOOT_JOURNAL_VERSION => RecordKind::PriorBootClearedWithClaim,
         _ => return Err(()),
     };
     let state = match header[10] {
@@ -2371,7 +3017,7 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
     let mut extension_bytes = Vec::new();
     let mut launch_evidence = None;
     let mut scope_snapshot_bytes = None;
-    if version == JOURNAL_VERSION {
+    if version >= JOURNAL_VERSION {
         let mut launch_header = [0u8; V5_EXTENSION_HEADER_LEN];
         reader.read_exact(&mut launch_header).map_err(|_| ())?;
         extension_bytes.extend_from_slice(&launch_header);
@@ -2387,7 +3033,10 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
             return Err(());
         }
         match launch_state {
-            0 if launch_operation_id == 0 && process_id == 0 && scope_len == 0 => {}
+            0 if launch_operation_id == 0
+                && process_id == 0
+                && (scope_len == 0
+                    || (version == BOOT_JOURNAL_VERSION && state == C3SlotState::Quarantined)) => {}
             1 if launch_operation_id != 0
                 && process_id != 0
                 && process_id <= u64::from(u32::MAX)
@@ -2418,6 +3067,17 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
             extension_bytes.extend_from_slice(&bytes);
             scope_snapshot_bytes = Some(bytes);
         }
+    }
+    let boot_id = if version == BOOT_JOURNAL_VERSION {
+        let mut id = [0; 16];
+        reader.read_exact(&mut id).map_err(|_| ())?;
+        extension_bytes.extend_from_slice(&id);
+        Some(id)
+    } else {
+        None
+    };
+    if !valid_boot_tag(kind, state, version, boot_id) {
+        return Err(());
     }
     let mut supplied_checksum = [0u8; CHECKSUM_LEN];
     reader.read_exact(&mut supplied_checksum).map_err(|_| ())?;
@@ -2462,6 +3122,22 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
                 && c3_launch_generation != 0
                 && catalog_generation == 0
                 && scope_binding_digest == [0; 32] => {}
+        RecordKind::PriorBootCleared
+            if state == C3SlotState::ClearedAndAbsent
+                && operation_id != 0
+                && c1_operation_id == 0
+                && c3_launch_generation != 0
+                && scope_binding_digest == [0; 32]
+                && launch_evidence.is_none()
+                && scope_snapshot.is_none() => {}
+        RecordKind::PriorBootClearedWithClaim
+            if state == C3SlotState::ClearedAndAbsent
+                && operation_id != 0
+                && c1_operation_id != 0
+                && c3_launch_generation != 0
+                && catalog_generation != 0
+                && launch_evidence.is_none()
+                && scope_snapshot.is_none() => {}
         RecordKind::Intent | RecordKind::Committed
             if state != C3SlotState::Reserved
                 && operation_id != 0
@@ -2484,7 +3160,7 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
         launch_evidence,
         scope_snapshot,
     };
-    if row.launch_evidence.is_some() != row.scope_snapshot.is_some()
+    if !valid_evidence_scope_pair(&row)
         || row
             .launch_evidence
             .is_some_and(|evidence| !evidence.is_valid_for(&row))
@@ -2492,13 +3168,14 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
             .scope_snapshot
             .as_ref()
             .is_some_and(|scope| !scope_snapshot_matches_row(scope, &row))
-        || (version != JOURNAL_VERSION
+        || (version < JOURNAL_VERSION
             && (row.launch_evidence.is_some() || row.scope_snapshot.is_some()))
     {
         return Err(());
     }
 
     Ok(Some(JournalRecord {
+        boot_id,
         format_version: version,
         kind,
         revision,
@@ -2508,12 +3185,22 @@ fn read_record(reader: &mut impl Read) -> Result<Option<JournalRecord>, ()> {
 
 fn encode_record(record: &JournalRecord) -> Result<Vec<u8>, ()> {
     let service_id = record.row.service_id.as_bytes();
-    if record.format_version != JOURNAL_VERSION
-        || service_id.is_empty()
+    if !matches!(
+        record.format_version,
+        JOURNAL_VERSION | BOOT_JOURNAL_VERSION
+    ) || !valid_boot_tag(
+        record.kind,
+        record.row.state,
+        record.format_version,
+        record.boot_id,
+    ) || service_id.is_empty()
         || service_id.len() > MAX_SERVICE_ID_LEN
         || !canonical_service_id(&record.row.service_id)
         || record.revision == 0
-        || record.row.launch_evidence.is_some() != record.row.scope_snapshot.is_some()
+        || !valid_evidence_scope_pair(&record.row)
+        || (record.format_version < BOOT_JOURNAL_VERSION
+            && record.row.state == C3SlotState::Quarantined
+            && record.row.scope_snapshot.is_some())
         || record
             .row
             .launch_evidence
@@ -2542,6 +3229,21 @@ fn encode_record(record: &JournalRecord) -> Result<Vec<u8>, ()> {
                 && record.row.c3_launch_generation != 0
                 && record.row.catalog_generation == 0
                 && record.row.scope_binding_digest == [0; 32] => {}
+        RecordKind::PriorBootCleared
+            if record.row.state == C3SlotState::ClearedAndAbsent
+                && record.row.operation_id != 0
+                && record.row.c1_operation_id == 0
+                && record.row.c3_launch_generation != 0
+                && record.row.scope_binding_digest == [0; 32]
+                && record.row.launch_evidence.is_none() => {}
+        RecordKind::PriorBootClearedWithClaim
+            if record.row.state == C3SlotState::ClearedAndAbsent
+                && record.row.operation_id != 0
+                && record.row.c1_operation_id != 0
+                && record.row.c3_launch_generation != 0
+                && record.row.catalog_generation != 0
+                && record.row.launch_evidence.is_none()
+                && record.row.scope_snapshot.is_none() => {}
         RecordKind::Intent | RecordKind::Committed
             if record.row.state != C3SlotState::Reserved
                 && record.row.operation_id != 0
@@ -2571,6 +3273,8 @@ fn encode_record(record: &JournalRecord) -> Result<Vec<u8>, ()> {
         RecordKind::Committed => 2,
         RecordKind::Reservation => 3,
         RecordKind::Genesis => 4,
+        RecordKind::PriorBootCleared => 5,
+        RecordKind::PriorBootClearedWithClaim => 6,
     });
     bytes.push(match record.row.state {
         C3SlotState::Reserved => 0,
@@ -2605,6 +3309,9 @@ fn encode_record(record: &JournalRecord) -> Result<Vec<u8>, ()> {
     }
     bytes.extend_from_slice(&(scope_bytes.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&scope_bytes);
+    if let Some(boot_id) = record.boot_id {
+        bytes.extend_from_slice(&boot_id);
+    }
     let checksum: [u8; 32] = Sha256::digest(&bytes).into();
     bytes.extend_from_slice(&checksum);
     Ok(bytes)
@@ -2871,9 +3578,9 @@ fn validate_private_file_after_write(file: &File) -> Result<(), C3SlotJournalErr
 #[cfg(test)]
 mod tests {
     use super::{
-        C3DurableSlotReceipt, C3ReapedLaunchKey, C3SlotJournal, C3SlotJournalError,
-        C3SlotJournalReadback, C3SlotState, C3SlotTransition, DurableLaunchEvidence,
-        LaunchEvidenceState, RecoveryScopeSnapshot,
+        C3DurableSlotReceipt, C3SlotJournal, C3SlotJournalError, C3SlotJournalReadback,
+        C3SlotState, C3SlotTransition, DurableLaunchEvidence, LaunchEvidenceState,
+        RecoveryScopeSnapshot,
     };
     use nagi_system_service_recovery_contract::{
         C1RecoveryOperationCorrelation, RecoveryLifecycleTransition,
@@ -2984,7 +3691,18 @@ mod tests {
         launch_generation: u64,
         effect: impl FnOnce() -> io::Result<()>,
     ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
-        let scope = scope_snapshot(launch_generation);
+        reserved_live_launch_with_catalog(journal, launch_generation, 1, effect)
+    }
+
+    fn reserved_live_launch_with_catalog(
+        journal: &C3SlotJournal,
+        launch_generation: u64,
+        catalog_generation: u64,
+        effect: impl FnOnce() -> io::Result<()>,
+    ) -> Result<C3DurableSlotReceipt, C3SlotJournalError> {
+        let mut scope = scope_snapshot(launch_generation);
+        scope.catalog_generation = nonzero(catalog_generation);
+        scope.binding_digest = scope.canonical_digest();
         let reservation = journal.reserve_next_generation().unwrap();
         assert_eq!(reservation.launch_generation(), nonzero(launch_generation));
         journal.transition_reserved_launch(
@@ -3164,28 +3882,13 @@ mod tests {
         ));
         assert_eq!(effects.load(Ordering::SeqCst), 1);
 
-        // This earlier row is still Live, so it cannot authorize a same-
-        // catalog restart. Use a strictly newer catalog to exercise the
-        // independent high-water/reopen path in this test.
-        let mut next_scope = scope_snapshot(2);
-        next_scope.catalog_generation = nonzero(2);
-        next_scope.binding_digest = next_scope.canonical_digest();
-        let next_reservation = reopened.reserve_next_generation().unwrap();
-        assert_eq!(next_reservation.launch_generation(), nonzero(2));
-        let next = reopened
-            .transition_reserved_launch(
-                next_reservation,
-                next_scope.catalog_generation,
-                next_scope.binding_digest,
-                next_scope,
-                |stage| {
-                    stage(4107)?;
-                    effects.fetch_add(1, Ordering::SeqCst);
-                    Ok(4107)
-                },
-            )
-            .unwrap();
+        let next = reserved_live_launch_with_catalog(&reopened, 2, 2, || {
+            effects.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(next.durable_revision(), nonzero(9));
+        assert_eq!(next.catalog_generation(), nonzero(2));
         assert_eq!(next.c3_launch_generation(), nonzero(2));
         assert_eq!(next.operation_id(), nonzero(2));
         assert_eq!(effects.load(Ordering::SeqCst), 2);
@@ -3264,13 +3967,11 @@ mod tests {
             .unwrap();
         let written_receipt = journal
             .record_normal_exit_after_reap(
-                C3ReapedLaunchKey {
-                    catalog_generation: scope.catalog_generation,
-                    c3_launch_generation: scope.c3_launch_generation,
-                    scope_binding_digest: scope.binding_digest,
-                    launch_operation_id: live.operation_id(),
-                    process_id: 4107,
-                },
+                scope.catalog_generation,
+                scope.c3_launch_generation,
+                scope.binding_digest,
+                live.operation_id(),
+                4107,
                 correlation,
                 Some(cleanup_deadline),
                 || Ok(()),
@@ -3343,44 +4044,6 @@ mod tests {
             ),
             Err(C3SlotJournalError::Rejected | C3SlotJournalError::Unknown)
         ));
-        // A cold owner must preserve the signed identity and advance only the
-        // launch selector. A validation error must not consume the reservation.
-        let reservation = reopened.reserve_next_generation().unwrap();
-        let mut next = scope.clone();
-        next.c3_launch_generation = reservation.launch_generation();
-        next.binding_digest = next.canonical_digest();
-        assert_eq!(
-            next.c3_launch_generation.get(),
-            scope.c3_launch_generation.get() + 1
-        );
-        let mut changed_identity = next.clone();
-        changed_identity.signed_package_sha256[0] ^= 1;
-        changed_identity.binding_digest = changed_identity.canonical_digest();
-        assert!(matches!(
-            reopened.transition_reserved_launch(
-                reservation.clone(),
-                changed_identity.catalog_generation,
-                changed_identity.binding_digest,
-                changed_identity,
-                |_| panic!("changed signed package cannot launch at the same catalog generation"),
-            ),
-            Err(C3SlotJournalError::Rejected)
-        ));
-        let restarted = reopened
-            .transition_reserved_launch(
-                reservation,
-                next.catalog_generation,
-                next.binding_digest,
-                next.clone(),
-                |stage| {
-                    stage(4108)?;
-                    Ok(4108)
-                },
-            )
-            .unwrap();
-        assert_eq!(restarted.catalog_generation(), scope.catalog_generation);
-        assert_eq!(restarted.c3_launch_generation(), next.c3_launch_generation);
-        assert_eq!(restarted.state(), C3SlotState::Live);
     }
 
     #[test]
@@ -3417,13 +4080,11 @@ mod tests {
         let normal_exit_now = || before_deadline;
         let terminal_receipt = journal
             .record_normal_exit_after_reap_with_clock(
-                C3ReapedLaunchKey {
-                    catalog_generation: scope.catalog_generation,
-                    c3_launch_generation: scope.c3_launch_generation,
-                    scope_binding_digest: scope.binding_digest,
-                    launch_operation_id: live.operation_id(),
-                    process_id: 4107,
-                },
+                scope.catalog_generation,
+                scope.c3_launch_generation,
+                scope.binding_digest,
+                live.operation_id(),
+                4107,
                 correlation,
                 Some(deadline),
                 &normal_exit_now,
@@ -3498,13 +4159,11 @@ mod tests {
             .unwrap();
         journal
             .record_normal_exit_after_reap(
-                C3ReapedLaunchKey {
-                    catalog_generation: first_scope.catalog_generation,
-                    c3_launch_generation: first_scope.c3_launch_generation,
-                    scope_binding_digest: first_scope.binding_digest,
-                    launch_operation_id: first_live.operation_id(),
-                    process_id: 4107,
-                },
+                first_scope.catalog_generation,
+                first_scope.c3_launch_generation,
+                first_scope.binding_digest,
+                first_live.operation_id(),
+                4107,
                 first_correlation,
                 None,
                 || Ok(()),
@@ -3533,7 +4192,16 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(second_live.operation_id() > first_live.operation_id());
+        assert_eq!(
+            second_live.operation_id(),
+            first_terminal_receipt
+                .terminal_operation_id()
+                .get()
+                .checked_add(1)
+                .and_then(NonZeroU64::new)
+                .expect("the next launch operation ID must remain nonzero"),
+            "the next launch uses the exact operation ID adjacent to the prior terminal",
+        );
         assert!(
             journal
                 .read_normal_exit_receipt(
@@ -3546,26 +4214,543 @@ mod tests {
                 == first_terminal_receipt,
             "the completed previous-generation receipt stays exact across the next reservation, staged intent, and commit",
         );
+        let successor_scan = super::scan_journal(&journal.path, SERVICE_ID, None).unwrap();
+        let first_terminal_record = successor_scan
+            .normal_exit_records
+            .iter()
+            .find(|record| record.row.scope_snapshot.as_ref() == Some(&first_scope))
+            .unwrap();
+        let second_live_record = successor_scan.current.as_ref().unwrap();
+        assert!(super::is_exact_next_normal_restart_successor(
+            first_terminal_record,
+            second_live_record
+        ));
+
+        let mut changed_executable_successor = second_live_record.clone();
+        let mut changed_scope = changed_executable_successor
+            .row
+            .scope_snapshot
+            .clone()
+            .unwrap();
+        changed_scope.executable_sha256[0] ^= 1;
+        changed_scope.binding_digest = changed_scope.canonical_digest();
+        changed_executable_successor.row.scope_binding_digest = changed_scope.binding_digest;
+        changed_executable_successor.row.scope_snapshot = Some(changed_scope);
+        assert!(!super::is_exact_next_normal_restart_successor(
+            first_terminal_record,
+            &changed_executable_successor
+        ));
+
+        let mut wrong_operation_successor = second_live_record.clone();
+        let mut wrong_operation_evidence = wrong_operation_successor.row.launch_evidence.unwrap();
+        wrong_operation_evidence.launch_operation_id += 1;
+        wrong_operation_successor.row.launch_evidence = Some(wrong_operation_evidence);
+        assert!(!super::is_exact_next_normal_restart_successor(
+            first_terminal_record,
+            &wrong_operation_successor
+        ));
+
+        let second_correlation =
+            C1RecoveryOperationCorrelation::new(nonzero(80), second_scope.binding_digest);
+        journal
+            .with_c1_correlated_live_receipt(
+                second_scope.catalog_generation,
+                second_scope.c3_launch_generation,
+                &second_scope.binding_digest,
+                second_correlation,
+                || Ok(()),
+            )
+            .unwrap();
+        journal
+            .record_normal_exit_after_reap(
+                second_scope.catalog_generation,
+                second_scope.c3_launch_generation,
+                second_scope.binding_digest,
+                second_live.operation_id(),
+                4108,
+                second_correlation,
+                None,
+                || Ok(()),
+            )
+            .unwrap();
+        let second_terminal_receipt = journal
+            .read_normal_exit_receipt(
+                &second_scope,
+                second_live.operation_id(),
+                4108,
+                second_correlation,
+            )
+            .unwrap();
+        assert!(
+            journal
+                .read_normal_exit_receipt(
+                    &first_scope,
+                    first_live.operation_id(),
+                    4107,
+                    first_correlation,
+                )
+                .unwrap()
+                == first_terminal_receipt,
+            "the exact next generation remains an eligible successor after its own normal exit",
+        );
+
+        let third_scope = scope_snapshot(3);
+        let third_reservation = journal.reserve_next_generation().unwrap();
+        let third_live = journal
+            .transition_reserved_launch(
+                third_reservation,
+                third_scope.catalog_generation,
+                third_scope.binding_digest,
+                third_scope.clone(),
+                |stage| {
+                    stage(4109)?;
+                    Ok(4109)
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            third_live.operation_id(),
+            second_terminal_receipt
+                .terminal_operation_id()
+                .get()
+                .checked_add(1)
+                .and_then(NonZeroU64::new)
+                .expect("the next launch operation ID must remain nonzero"),
+            "the next launch uses the exact operation ID adjacent to the prior terminal",
+        );
+        assert!(matches!(
+            journal.read_normal_exit_receipt(
+                &first_scope,
+                first_live.operation_id(),
+                4107,
+                first_correlation,
+            ),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        assert!(
+            journal
+                .read_normal_exit_receipt(
+                    &second_scope,
+                    second_live.operation_id(),
+                    4108,
+                    second_correlation,
+                )
+                .unwrap()
+                == second_terminal_receipt,
+            "only the exact adjacent previous terminal remains eligible after a new Live row",
+        );
         match journal.readback() {
             C3SlotJournalReadback::Committed(row) => {
                 assert_eq!(row.state(), C3SlotState::Live);
                 assert_eq!(
                     row.c3_launch_generation(),
-                    second_scope.c3_launch_generation.get()
+                    third_scope.c3_launch_generation.get()
                 );
-                assert_eq!(row.scope_binding_digest(), &second_scope.binding_digest);
-                assert_eq!(row.scope_snapshot(), Some(&second_scope));
+                assert_eq!(row.scope_binding_digest(), &third_scope.binding_digest);
+                assert_eq!(row.scope_snapshot(), Some(&third_scope));
                 let evidence = row
                     .launch_evidence()
-                    .expect("new live generation has its own durable process identity");
+                    .expect("third live generation has its own durable process identity");
                 assert!(!evidence.is_normal_exit());
-                assert_eq!(evidence.launch_operation_id(), second_live.operation_id());
-                assert_eq!(evidence.process_id(), 4108);
+                assert_eq!(evidence.launch_operation_id(), third_live.operation_id());
+                assert_eq!(evidence.process_id(), 4109);
             }
             C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
                 panic!("second-generation live row did not read back")
             }
         }
+    }
+
+    #[test]
+    fn c3_prior_boot_recovery_replays_live_and_reserved_without_normal_exit_proof() {
+        for live in [false, true] {
+            let directory = TestDirectory::new();
+            let path = directory.journal_path();
+            let journal = C3SlotJournal::create(&path, SERVICE_ID).unwrap();
+            if live {
+                let reservation = journal.reserve_next_generation().unwrap();
+                let mut scope = scope_snapshot(1);
+                scope.catalog_generation = nonzero(2);
+                scope.binding_digest = scope.canonical_digest();
+                journal
+                    .transition_reserved_launch(
+                        reservation,
+                        scope.catalog_generation,
+                        scope.binding_digest,
+                        scope,
+                        |stage| {
+                            stage(4107)?;
+                            Ok(4107)
+                        },
+                    )
+                    .unwrap();
+            } else {
+                journal.reserve_next_generation().unwrap();
+            }
+            let boot = super::linux_boot_id().unwrap();
+            let mut other_boot = boot;
+            other_boot[0] ^= 1;
+            if other_boot == [0; 16] {
+                other_boot[1] = 1;
+            }
+            let before = super::scan_journal(&journal.path, SERVICE_ID, None).unwrap();
+            assert!(matches!(
+                journal.readback_for_fresh_owner_with(|| Err(C3SlotJournalError::Unknown)),
+                Err(C3SlotJournalError::Unknown)
+            ));
+            assert!(matches!(
+                journal.readback_for_fresh_owner_with(|| Ok(boot)),
+                Err(C3SlotJournalError::Unknown)
+            ));
+            let C3SlotJournalReadback::Committed(cleared) = journal
+                .readback_for_fresh_owner_with(|| Ok(other_boot))
+                .unwrap()
+            else {
+                panic!("prior Linux boot must leave a durable cleared row");
+            };
+            assert_eq!(cleared.state(), C3SlotState::ClearedAndAbsent);
+            assert_eq!(cleared.operation_id(), before.highest_operation_id + 1);
+            assert_eq!(
+                cleared.c3_launch_generation(),
+                before.highest_c3_launch_generation + 1
+            );
+            assert_eq!(cleared.durable_revision(), before.last_revision + 1);
+            drop(journal);
+
+            let journal = C3SlotJournal::open(&path, SERVICE_ID).unwrap();
+            assert!(matches!(
+                journal.latest_normal_exit_scope_snapshot(),
+                Err(C3SlotJournalError::Unknown)
+            ));
+            let clear = journal.latest_prior_boot_clear().unwrap().unwrap();
+            assert_eq!(clear.cleared_generation(), cleared.c3_launch_generation());
+            assert_eq!(clear.catalog_generation(), cleared.catalog_generation());
+            let next = journal.reserve_next_generation().unwrap();
+            let mut scope = scope_snapshot(next.launch_generation().get());
+            if live {
+                assert!(matches!(
+                    journal.transition_reserved_launch(
+                        next.clone(),
+                        scope.catalog_generation,
+                        scope.binding_digest,
+                        scope.clone(),
+                        |_| panic!("catalog rollback must be rejected before launch"),
+                    ),
+                    Err(C3SlotJournalError::Rejected)
+                ));
+                scope.catalog_generation = nonzero(2);
+                scope.binding_digest = scope.canonical_digest();
+                assert!(next.permits_same_catalog_prior_boot_restart(&scope, 2));
+            }
+            let next = journal
+                .transition_reserved_launch(
+                    next,
+                    scope.catalog_generation,
+                    scope.binding_digest,
+                    scope,
+                    |stage| {
+                        stage(4108)?;
+                        Ok(4108)
+                    },
+                )
+                .unwrap();
+            assert_eq!(next.state(), C3SlotState::Live);
+        }
+    }
+
+    #[test]
+    fn c3_prior_boot_cleared_receipt_matches_only_the_old_claim_and_exact_successor() {
+        for quarantined_after_reap in [false, true] {
+            assert_prior_boot_receipt_preserves_exact_claim(quarantined_after_reap);
+        }
+    }
+
+    fn assert_prior_boot_receipt_preserves_exact_claim(quarantined_after_reap: bool) {
+        use nagi_system_service_recovery_contract::{
+            C3DurablePriorBootClearedReceipt, C3DurableRecoverySlotReceipt, C3RecoverySlotState,
+        };
+
+        let directory = TestDirectory::new();
+        let path = directory.journal_path();
+        let journal = C3SlotJournal::create(&path, SERVICE_ID).unwrap();
+        let old_scope = scope_snapshot(1);
+        let old_live = reserved_live_launch(&journal, 1, || Ok(())).unwrap();
+        let old_claim = C1RecoveryOperationCorrelation::new(nonzero(77), old_scope.binding_digest);
+        journal
+            .with_c1_correlated_live_receipt(
+                old_scope.catalog_generation,
+                old_scope.c3_launch_generation,
+                &old_scope.binding_digest,
+                old_claim,
+                || Ok(()),
+            )
+            .unwrap();
+        if quarantined_after_reap {
+            let terminal = journal
+                .transition_next(
+                    old_scope.catalog_generation,
+                    old_scope.c3_launch_generation,
+                    old_scope.binding_digest,
+                    C3SlotState::Quarantined,
+                    || Ok(()),
+                )
+                .unwrap();
+            assert_eq!(terminal.state(), C3SlotState::Quarantined);
+        }
+        drop(journal);
+
+        // Rewrite only this test's checksummed input frames to model a
+        // prior boot. The reopen and successor both use the kernel ID.
+        let current_boot = super::linux_boot_id().unwrap();
+        let old_boot = if current_boot == [1; 16] {
+            [2; 16]
+        } else {
+            [1; 16]
+        };
+        let mut file = fs::File::open(&path).unwrap();
+        let mut fixture = Vec::new();
+        while let Some(mut row) = super::read_record(&mut file).unwrap() {
+            if row.boot_id.is_some() {
+                row.boot_id = Some(old_boot);
+            }
+            fixture.extend_from_slice(&super::encode_record(&row).unwrap());
+        }
+        drop(file);
+        fs::write(&path, fixture).unwrap();
+        let journal = C3SlotJournal::open(&path, SERVICE_ID).unwrap();
+        assert!(matches!(
+            journal.readback_for_fresh_owner_with(|| Ok(old_boot)),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        assert!(matches!(
+            journal.readback_for_fresh_owner().unwrap(),
+            C3SlotJournalReadback::Committed(ref row)
+                if row.state() == C3SlotState::ClearedAndAbsent && row.c1_operation_id().is_none()
+        ));
+        assert!(matches!(
+            journal.latest_normal_exit_scope_snapshot(),
+            Err(C3SlotJournalError::Unknown)
+        ));
+
+        let retained_clear = journal.latest_prior_boot_clear().unwrap().unwrap();
+        assert!(retained_clear.has_c1_claim());
+        let reservation = journal.reserve_next_generation().unwrap();
+        let successor = scope_snapshot(reservation.launch_generation().get());
+        let instance = reservation.operation_id();
+        journal
+            .transition_reserved_launch(
+                reservation,
+                successor.catalog_generation,
+                successor.binding_digest,
+                successor.clone(),
+                |stage| {
+                    stage(4108)?;
+                    Ok(4108)
+                },
+            )
+            .unwrap();
+        drop(journal);
+
+        let journal = C3SlotJournal::open(&path, SERVICE_ID).unwrap();
+        assert!(matches!(
+            journal.read_prior_boot_cleared_receipt_until(
+                &retained_clear,
+                &successor,
+                instance,
+                4108,
+                old_claim,
+                Instant::now(),
+            ),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut different_clear = retained_clear.clone();
+        different_clear.record.revision += 1;
+        assert!(matches!(
+            journal.read_prior_boot_cleared_receipt_until(
+                &different_clear,
+                &successor,
+                instance,
+                4108,
+                old_claim,
+                deadline,
+            ),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        let receipt = journal
+            .read_prior_boot_cleared_receipt_until(
+                &retained_clear,
+                &successor,
+                instance,
+                4108,
+                old_claim,
+                deadline,
+            )
+            .unwrap();
+        assert_eq!(receipt.state(), C3RecoverySlotState::PriorBootCleared);
+        assert_eq!(receipt.c1_operation_id(), Some(nonzero(77)));
+        assert_eq!(receipt.scope_binding_digest(), &old_scope.binding_digest);
+        assert_eq!(
+            receipt.previous_scope().c3_launch_generation(),
+            old_scope.c3_launch_generation
+        );
+        assert_eq!(
+            receipt.previous_c3_launch_instance_id(),
+            old_live.operation_id()
+        );
+        assert_eq!(receipt.previous_boot_id(), &old_boot);
+        assert_eq!(receipt.current_boot_id(), &current_boot);
+
+        assert!(matches!(
+            journal.read_prior_boot_cleared_receipt_with(
+                &successor, instance, 4108, old_claim, old_boot
+            ),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        assert!(matches!(
+            journal.read_prior_boot_cleared_receipt(
+                &successor,
+                instance,
+                4108,
+                C1RecoveryOperationCorrelation::new(nonzero(78), old_scope.binding_digest),
+            ),
+            Err(C3SlotJournalError::Rejected)
+        ));
+        assert!(matches!(
+            journal.read_prior_boot_cleared_receipt(
+                &successor,
+                nonzero(instance.get() + 1),
+                4108,
+                old_claim,
+            ),
+            Err(C3SlotJournalError::Unknown)
+        ));
+    }
+
+    #[test]
+    fn c3_prior_boot_recovers_quarantined_slot_and_resumes_same_catalog() {
+        assert_prior_boot_recovers_blocked_slot(false, false);
+        assert_prior_boot_recovers_blocked_slot(false, true);
+    }
+
+    #[test]
+    fn c3_prior_boot_recovers_pending_normal_exit_and_resumes_same_catalog() {
+        assert_prior_boot_recovers_blocked_slot(true, false);
+    }
+
+    fn assert_prior_boot_recovers_blocked_slot(
+        interrupt_normal_exit: bool,
+        quarantine_reservation: bool,
+    ) {
+        let directory = TestDirectory::new();
+        let path = directory.journal_path();
+        let journal = C3SlotJournal::create(&path, SERVICE_ID).unwrap();
+        let scope = scope_snapshot(1);
+        let live = if quarantine_reservation {
+            let reservation = journal.reserve_next_generation().unwrap();
+            journal
+                .transition_reserved_quarantine(reservation, scope.clone(), || Ok(()))
+                .unwrap();
+            None
+        } else {
+            Some(reserved_live_launch(&journal, 1, || Ok(())).unwrap())
+        };
+        let boot = super::linux_boot_id().unwrap();
+        if interrupt_normal_exit {
+            let correlation =
+                C1RecoveryOperationCorrelation::new(nonzero(77), scope.binding_digest);
+            journal
+                .with_c1_correlated_live_receipt(
+                    scope.catalog_generation,
+                    scope.c3_launch_generation,
+                    &scope.binding_digest,
+                    correlation,
+                    || Ok(()),
+                )
+                .unwrap();
+            let invoked = AtomicBool::new(false);
+            assert!(matches!(
+                journal.record_normal_exit_after_reap(
+                    scope.catalog_generation,
+                    scope.c3_launch_generation,
+                    scope.binding_digest,
+                    live.unwrap().operation_id(),
+                    4107,
+                    correlation,
+                    None,
+                    || {
+                        invoked.store(true, Ordering::SeqCst);
+                        Err(std::io::Error::other("interrupted after intent sync"))
+                    },
+                ),
+                Err(C3SlotJournalError::Unknown)
+            ));
+            assert!(invoked.load(Ordering::SeqCst));
+        } else if !quarantine_reservation {
+            journal
+                .transition_next(
+                    scope.catalog_generation,
+                    scope.c3_launch_generation,
+                    scope.binding_digest,
+                    C3SlotState::Quarantined,
+                    || Ok(()),
+                )
+                .unwrap();
+        }
+        drop(journal);
+
+        let journal = C3SlotJournal::open(&path, SERVICE_ID).unwrap();
+        let before = super::scan_journal(&journal.path, SERVICE_ID, None).unwrap();
+        if interrupt_normal_exit {
+            let pending = before.pending.as_ref().unwrap();
+            assert_eq!(pending.row.state, C3SlotState::ClearedAndAbsent);
+            assert_eq!(pending.boot_id, Some(boot));
+        } else {
+            let quarantined = before.current.as_ref().unwrap();
+            assert_eq!(quarantined.row.state, C3SlotState::Quarantined);
+            assert_eq!(quarantined.boot_id, Some(boot));
+        }
+        assert!(matches!(
+            journal.readback_for_fresh_owner_with(|| Ok(boot)),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        let mut next_boot = [1; 16];
+        if next_boot == boot {
+            next_boot = [2; 16];
+        }
+        let C3SlotJournalReadback::Committed(cleared) = journal
+            .readback_for_fresh_owner_with(|| Ok(next_boot))
+            .unwrap()
+        else {
+            panic!("different boot must clear the occupied slot");
+        };
+        assert_eq!(cleared.state(), C3SlotState::ClearedAndAbsent);
+        assert_eq!(cleared.durable_revision(), before.last_revision + 1);
+        assert_eq!(cleared.operation_id(), before.highest_operation_id + 1);
+        assert_eq!(
+            cleared.c3_launch_generation(),
+            before.highest_c3_launch_generation + 1
+        );
+        assert!(matches!(
+            journal.latest_normal_exit_scope_snapshot(),
+            Err(C3SlotJournalError::Unknown)
+        ));
+        let reservation = journal.reserve_next_generation().unwrap();
+        let next_scope = scope_snapshot(reservation.launch_generation().get());
+        assert!(reservation.permits_same_catalog_prior_boot_restart(&next_scope, 1));
+        let live = journal
+            .transition_reserved_launch(
+                reservation,
+                next_scope.catalog_generation,
+                next_scope.binding_digest,
+                next_scope,
+                |stage| {
+                    stage(4108)?;
+                    Ok(4108)
+                },
+            )
+            .unwrap();
+        assert_eq!(live.state(), C3SlotState::Live);
     }
 
     #[test]
@@ -3644,27 +4829,30 @@ mod tests {
                     reopened.latest_normal_exit_scope_snapshot(),
                     Err(C3SlotJournalError::Unknown)
                 ));
-
-                let reservation = reopened.reserve_next_generation().unwrap();
-                let same_catalog_scope = scope_snapshot(reservation.launch_generation().get());
-                let effect_ran = AtomicBool::new(false);
-                assert!(matches!(
-                    reopened.transition_reserved_launch(
-                        reservation,
-                        same_catalog_scope.catalog_generation,
-                        same_catalog_scope.binding_digest,
-                        same_catalog_scope,
-                        |_| {
-                            effect_ran.store(true, Ordering::SeqCst);
-                            Ok(4107)
-                        },
-                    ),
-                    Err(C3SlotJournalError::Rejected)
-                ));
-                assert!(
-                    !effect_ran.load(Ordering::SeqCst),
-                    "v{version} legacy rows cannot authorize same-catalog restart"
-                );
+                if has_legacy_terminal {
+                    let reservation = reopened.reserve_next_generation().unwrap();
+                    assert_eq!(reservation.launch_generation(), nonzero(2));
+                    let scope = scope_snapshot(2);
+                    let effects = std::sync::atomic::AtomicUsize::new(0);
+                    assert!(matches!(
+                        reopened.transition_reserved_launch(
+                            reservation,
+                            scope.catalog_generation,
+                            scope.binding_digest,
+                            scope,
+                            |_| {
+                                effects.fetch_add(1, Ordering::SeqCst);
+                                Ok(4107)
+                            }
+                        ),
+                        Err(C3SlotJournalError::Rejected)
+                    ));
+                    assert_eq!(
+                        effects.load(Ordering::SeqCst),
+                        0,
+                        "legacy v{version} terminal history cannot authorize a same-catalog launch effect"
+                    );
+                }
             }
         }
     }
@@ -3695,6 +4883,7 @@ mod tests {
         evidence_row.scope_snapshot = Some(scope);
         let records = [
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Reservation,
                 revision: 2,
@@ -3711,12 +4900,14 @@ mod tests {
                 },
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Intent,
                 revision: 3,
                 row: live_identity_row,
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Committed,
                 revision: 4,
@@ -3751,6 +4942,7 @@ mod tests {
         };
         let records = [
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Reservation,
                 revision: 2,
@@ -3767,12 +4959,14 @@ mod tests {
                 },
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Intent,
                 revision: 3,
                 row: live_row.clone(),
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Committed,
                 revision: 4,
@@ -3810,18 +5004,21 @@ mod tests {
         let mut records = vec![
             super::genesis_record(SERVICE_ID),
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Reservation,
                 revision: 2,
                 row: row(0, 1, C3SlotState::Reserved),
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Intent,
                 revision: 3,
                 row: row(1, 1, C3SlotState::Live),
             },
             super::JournalRecord {
+                boot_id: None,
                 format_version: super::JOURNAL_VERSION,
                 kind: super::RecordKind::Committed,
                 revision: 4,
@@ -3831,12 +5028,14 @@ mod tests {
         if has_terminal {
             records.extend([
                 super::JournalRecord {
+                    boot_id: None,
                     format_version: super::JOURNAL_VERSION,
                     kind: super::RecordKind::Intent,
                     revision: 5,
                     row: row(1, 2, C3SlotState::ClearedAndAbsent),
                 },
                 super::JournalRecord {
+                    boot_id: None,
                     format_version: super::JOURNAL_VERSION,
                     kind: super::RecordKind::Committed,
                     revision: 6,
@@ -3942,13 +5141,11 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap(
-                C3ReapedLaunchKey {
-                    catalog_generation: scope.catalog_generation,
-                    c3_launch_generation: scope.c3_launch_generation,
-                    scope_binding_digest: scope.binding_digest,
-                    launch_operation_id: live.operation_id(),
-                    process_id: 4107,
-                },
+                scope.catalog_generation,
+                scope.c3_launch_generation,
+                scope.binding_digest,
+                live.operation_id(),
+                4107,
                 correlation,
                 Some(cleanup_deadline),
                 || {
@@ -4000,13 +5197,11 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap(
-                C3ReapedLaunchKey {
-                    catalog_generation: scope.catalog_generation,
-                    c3_launch_generation: scope.c3_launch_generation,
-                    scope_binding_digest: scope.binding_digest,
-                    launch_operation_id: live.operation_id(),
-                    process_id: 4108,
-                },
+                scope.catalog_generation,
+                scope.c3_launch_generation,
+                scope.binding_digest,
+                live.operation_id(),
+                4108,
                 correlation,
                 Some(expired_deadline),
                 || {
@@ -4068,13 +5263,11 @@ mod tests {
 
         assert!(matches!(
             journal.record_normal_exit_after_reap_with_clock(
-                C3ReapedLaunchKey {
-                    catalog_generation: scope.catalog_generation,
-                    c3_launch_generation: scope.c3_launch_generation,
-                    scope_binding_digest: scope.binding_digest,
-                    launch_operation_id: live.operation_id(),
-                    process_id: 4107,
-                },
+                scope.catalog_generation,
+                scope.c3_launch_generation,
+                scope.binding_digest,
+                live.operation_id(),
+                4107,
                 correlation,
                 Some(cleanup_deadline),
                 &now,
@@ -4308,13 +5501,11 @@ mod tests {
             )
             .unwrap();
         let _ = journal.record_normal_exit_after_reap(
-            C3ReapedLaunchKey {
-                catalog_generation: scope.catalog_generation,
-                c3_launch_generation: scope.c3_launch_generation,
-                scope_binding_digest: scope.binding_digest,
-                launch_operation_id: live.operation_id(),
-                process_id: 5107,
-            },
+            scope.catalog_generation,
+            scope.c3_launch_generation,
+            scope.binding_digest,
+            live.operation_id(),
+            5107,
             correlation,
             None,
             || {

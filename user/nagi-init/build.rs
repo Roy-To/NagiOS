@@ -5,6 +5,9 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(linux_dev_preview_smoke)");
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_system_mount)");
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_ws10)");
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_notes_performance)");
     println!("cargo:rustc-check-cfg=cfg(linux_desktop_dev_smoke)");
     println!("cargo:rustc-check-cfg=cfg(linux_pid1_safety_smoke)");
     println!("cargo:rustc-check-cfg=cfg(linux_boot_identity_runtime)");

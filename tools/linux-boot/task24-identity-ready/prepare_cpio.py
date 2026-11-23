@@ -16,11 +16,15 @@ from build_dev_service_cpio import _entry
 
 IDENTITY = "system/task24-identity-ready.elf"
 PACKAGE_STORE = "package-store"
+SYSTEM_RO_DEV_TARGET = "run/nagi/dev-system"
 INDEX = ".package-store.lock", "package-digest-index.v1"
 BLOB = re.compile(r"package-([0-9a-f]{64})\.xapp")
 
 
-def assemble(base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path | None) -> bytes:
+def assemble(
+    base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path | None,
+    *, system_ro_dev_mount: bool = False,
+) -> bytes:
     catalog = (inputs / "catalog.bin").read_bytes()
     descriptor = json.loads(json.loads(catalog[:-64])["descriptor_json"])
     identity = (inputs / IDENTITY).read_bytes()
@@ -64,6 +68,20 @@ def assemble(base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path 
     names = {name for name, _, _ in records}
     if not {"init", "nagi-init", "catalog.bin", PACKAGE_STORE, "system/fixture.elf"} <= names:
         raise ValueError("unsupported Task24 base image")
+    mount_directories = {}
+    if system_ro_dev_mount:
+        if any(name == SYSTEM_RO_DEV_TARGET or name.startswith(SYSTEM_RO_DEV_TARGET + "/")
+               for name in names):
+            raise ValueError("development System mount target already exists in base image")
+        base_fields = {name: fields for name, fields, _ in records}
+        for name, mode in (("run", 0o755), ("run/nagi", 0o700)):
+            fields = base_fields.get(name)
+            if fields is None:
+                mount_directories[name] = mode
+            elif not stat.S_ISDIR(fields[1]) or fields[2:4] != [0, 0] or fields[1] & 0o022:
+                raise ValueError(f"unsafe development System mount parent {name}")
+        mount_directories[SYSTEM_RO_DEV_TARGET] = 0o700
+
     output = bytearray()
     offset = 0
     inode = 1 + max(fields[0] for _, fields, _ in records)
@@ -80,6 +98,10 @@ def assemble(base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path 
             output.extend(base[offset:end])
         offset = end
 
+    for name, mode in mount_directories.items():
+        _entry(output, name, inode=inode, mode=stat.S_IFDIR | mode, nlink=2)
+        inode += 1
+
     for name, (mode, payload) in replacements.items():
         _entry(output, name, inode=inode, mode=stat.S_IFREG | mode, nlink=1, payload=payload)
         inode += 1
@@ -91,6 +113,10 @@ def assemble(base: bytes, inputs: Path, shim: bytes, init: bytes, journal: Path 
         fields, actual = staged[name]
         if fields[1:4] != [stat.S_IFREG | mode, 0, 0] or actual != payload:
             raise ValueError(f"incorrect archive metadata or content for {name}")
+    for name, mode in mount_directories.items():
+        fields, payload = staged[name]
+        if fields[1:4] != [stat.S_IFDIR | mode, 0, 0] or payload:
+            raise ValueError(f"incorrect development System mount directory {name}")
     if staged[PACKAGE_STORE][0][1:4] != [stat.S_IFDIR | 0o700, 0, 0]:
         raise ValueError("archive package store is not root-owned/private")
     return archive
@@ -101,10 +127,14 @@ def main():
     for name in ("base", "inputs", "shim", "init", "output"):
         parser.add_argument(name, type=Path)
     parser.add_argument("--c3-journal", type=Path, help="C3-provisioned slot journal for normal boot")
+    parser.add_argument(
+        "--system-ro-dev-mount", action="store_true",
+        help="add the empty mount directory for the development System RO owner",
+    )
     args = parser.parse_args()
     archive = assemble(
         args.base.read_bytes(), args.inputs, args.shim.read_bytes(), args.init.read_bytes(),
-        args.c3_journal,
+        args.c3_journal, system_ro_dev_mount=args.system_ro_dev_mount,
     )
     with args.output.open("xb") as output:
         output.write(archive)

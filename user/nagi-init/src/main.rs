@@ -1760,6 +1760,39 @@ mod task24_c3_journal_bootstrap_contract;
 ))]
 mod task24_notes_input;
 
+#[cfg(any(
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "desktop-login",
+        linux_task24_owner_co_location,
+        linux_task24_initial_login_runtime,
+        linux_task24_notes_consumer,
+        linux_dev_notes_performance,
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ),
+    all(test, target_os = "macos")
+))]
+mod task24_notes_performance;
+
+#[cfg(any(
+    all(target_os = "linux", linux_dev_system_mount, not(nagi_release_build)),
+    all(test, target_os = "macos")
+))]
+mod task24_system_data_probe_config;
+
+#[cfg(any(
+    all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        linux_dev_system_mount,
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ),
+    all(test, target_os = "macos")
+))]
+#[path = "linux_mount_prerequisites/system_mount_identity.rs"]
+mod task24_system_mount_identity;
+
 #[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     linux_init::run()

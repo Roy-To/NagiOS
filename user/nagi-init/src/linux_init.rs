@@ -524,6 +524,58 @@ pub(crate) fn run() -> ExitCode {
         }
     }
 
+    #[cfg(all(
+        linux_dev_system_mount,
+        target_os = "linux",
+        target_arch = "x86_64",
+        not(any(linux_dev_preview_smoke, nagi_release_build))
+    ))]
+    match linux_mount_prerequisites::data_mount_owner::requested_system_data_probe() {
+        Ok(Some(probe)) => match backend.identity_data.as_mut() {
+            Some(data) => match probe.run(
+                |token| data.observe_system_data(token),
+                |line| log_pid1_stderr(format_args!("{line}")),
+                || {
+                    // The observer has synced the Data file and directory.
+                    // A successful poweroff never returns to PID 1.
+                    let result = unsafe { libc::reboot(libc::RB_POWER_OFF) };
+                    if result == -1 {
+                        let error = std::io::Error::last_os_error();
+                        log_pid1_stderr(format_args!(
+                            "SYSTEM_DATA_MOUNT_GUEST_FAIL stage=poweroff error={error}"
+                        ));
+                    } else {
+                        log_pid1_stderr(format_args!(
+                            "SYSTEM_DATA_MOUNT_GUEST_FAIL stage=poweroff reason=returned"
+                        ));
+                    }
+                    wait_in_pid1(wait_for_pid1_os_event);
+                },
+            ) {
+                Ok(()) => {}
+                Err(error) => {
+                    log_pid1_stderr(format_args!(
+                        "SYSTEM_DATA_MOUNT_GUEST_FAIL stage=probe error={error}"
+                    ));
+                    wait_in_pid1(wait_for_pid1_os_event);
+                }
+            },
+            None => {
+                log_pid1_stderr(format_args!(
+                    "SYSTEM_DATA_MOUNT_GUEST_FAIL stage=data_owner reason=unavailable"
+                ));
+                wait_in_pid1(wait_for_pid1_os_event);
+            }
+        },
+        Ok(None) => {}
+        Err(reason) => {
+            log_pid1_stderr(format_args!(
+                "SYSTEM_DATA_MOUNT_GUEST_FAIL stage=probe_token reason={reason}"
+            ));
+            wait_in_pid1(wait_for_pid1_os_event);
+        }
+    }
+
     // This branch is compiled only in the non-release development preview and
     // requires an explicit guest command-line token. It never authenticates a
     // Profile or promotes the ordinary Pending Notes owner.
@@ -671,6 +723,7 @@ fn run_pid1_lifecycle<B: InitBackend>(backend: &mut B, mut wait_for_os_event: im
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NotesConsoleExit {
     ClosedByUser,
+    ClosedWithoutSave,
     RequiredIdentityExited,
     StateUnknown,
 }
@@ -681,7 +734,11 @@ impl NotesConsoleExit {
         notes_exit: Option<Self>,
         login_child_exited_cleanly: bool,
     ) -> bool {
-        login_child_exited_cleanly && matches!(notes_exit, None | Some(Self::ClosedByUser))
+        login_child_exited_cleanly
+            && matches!(
+                notes_exit,
+                None | Some(Self::ClosedByUser | Self::ClosedWithoutSave)
+            )
     }
 }
 
@@ -12301,7 +12358,15 @@ mod tests {
 
     #[test]
     fn notes_exit_reason_controls_normal_login_reconciliation() {
-        use NotesConsoleExit::{ClosedByUser, RequiredIdentityExited};
+        use NotesConsoleExit::{ClosedByUser, ClosedWithoutSave, RequiredIdentityExited};
+        assert!(NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(ClosedWithoutSave),
+            true
+        ));
+        assert!(!NotesConsoleExit::allows_normal_login_reconciliation(
+            Some(ClosedWithoutSave),
+            false
+        ));
 
         assert!(NotesConsoleExit::allows_normal_login_reconciliation(
             Some(ClosedByUser),

@@ -473,6 +473,35 @@ impl C1IssuedInteractiveSession {
             .map_err(C1InitialInteractiveSessionError::Identity)
     }
 
+    /// Revoke this exact Session using the same admitted owner and caller
+    /// checks as logout. Its durable reason is Revoked, not UserLogout.
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    #[allow(private_bounds)]
+    pub fn revoke_session_with_runtime_admission<S, I, C, A, G, E>(
+        &self,
+        identity: &mut IdentityService<S, I, C, A, G, E>,
+        admission: &crate::C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<crate::EndSessionResult, C1InitialInteractiveSessionError>
+    where
+        S: crate::C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        if !identity.owns_issuer_binding(&self.issuer) {
+            return Err(C1InitialInteractiveSessionError::IdentityIssuerMismatch);
+        }
+        identity
+            .revoke_session_with_runtime_admission(&self.caller, &self.session_id, admission)
+            .map_err(C1InitialInteractiveSessionError::Identity)
+    }
+
     pub fn checked_context<'caller, S, I, C, A, G, E>(
         &'caller self,
         identity: &mut IdentityService<S, I, C, A, G, E>,

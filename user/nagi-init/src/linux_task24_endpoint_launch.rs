@@ -601,7 +601,21 @@ pub(super) fn run_owner_login(
 
     #[cfg(feature = "system-service-readiness")]
     let mut lifecycle_ready = false;
+    #[cfg(linux_task24_notes_consumer)]
+    let mut retained_notes_draft = None;
     let mut execute = || -> Result<(), BackendError> {
+        #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+        let ws10 = ws10_mode().map_err(|_| BackendError::ProtocolViolation)?;
+        #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+        if ws10 == Some(Ws10Mode::StopIdentity) && run.identity_ready.is_none() {
+            return Err(BackendError::Unavailable);
+        }
+        #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+        if ws10 == Some(Ws10Mode::CheckPreviousLogout) {
+            runtime
+                .ws10_check_previous_logout()
+                .map_err(|_| BackendError::Unavailable)?;
+        }
         if runtime
             .owner_registration_required()
             .map_err(|_| BackendError::Unavailable)?
@@ -702,14 +716,19 @@ pub(super) fn run_owner_login(
                         .ok_or(PeerDenial::RequiredServiceMissing)
                         .and_then(|identity| {
                             let deadline = Instant::now() + Duration::from_secs(5);
-                            identity.with_lease(|lease| {
+                            identity.with_ready_owner(|lease, spawn_proof, supervisor_record| {
                                 runtime.complete_and_publish_task24_ready(
                                     session.lease,
                                     run,
                                     lease,
+                                    spawn_proof,
+                                    supervisor_record,
                                     &handshakes,
                                     deadline,
-                                    &mut lifecycle_ready,
+                                    || {
+                                        super::publish_lifecycle_ready(&mut lifecycle_ready)
+                                            .map_err(|_| PeerDenial::Unavailable)
+                                    },
                                 )
                             })
                         });
@@ -741,17 +760,65 @@ pub(super) fn run_owner_login(
                             ));
                             #[cfg(linux_task24_notes_consumer)]
                             {
-                                let exit = match notes_console::run(console, inputs, || {
-                                    runtime.poll_task24_required_identity_exit()
-                                }) {
+                                let issued = std::sync::Arc::clone(&inputs.2);
+                                #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
+                                let mut revoked = false;
+                                let (exit, draft) = match notes_console::run(
+                                    console,
+                                    inputs,
+                                    || runtime.poll_task24_required_identity_exit(),
+                                    || runtime.check_notes_session(session.lease),
+                                    #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
+                                    || match ws10 {
+                                        Some(Ws10Mode::StopIdentity) => {
+                                            runtime.ws10_stop_identity()?;
+                                            super::log_pid1_stderr(format_args!(
+                                                "NAGI_DEV_WS10_IDENTITY_REAPED signal=SIGKILL"
+                                            ));
+                                            Ok(Some(
+                                                super::NotesConsoleExit::RequiredIdentityExited,
+                                            ))
+                                        }
+                                        Some(Ws10Mode::RevokeSession) if !revoked => {
+                                            let reason =
+                                                runtime.ws10_revoke_notes_session(&issued)?;
+                                            revoked = true;
+                                            super::log_pid1_stderr(format_args!(
+                                                "NAGI_DEV_WS10_SESSION_REVOKED reason={reason:?}"
+                                            ));
+                                            Ok(None)
+                                        }
+                                        _ => Ok(None),
+                                    },
+                                ) {
                                     Ok(exit) => exit,
                                     Err(error) => {
                                         super::log_pid1_stderr(format_args!(
                                             "NAGI_DEV_NOTES_CONSOLE_UNAVAILABLE ({error})"
                                         ));
-                                        super::NotesConsoleExit::StateUnknown
+                                        (super::NotesConsoleExit::StateUnknown, None)
                                     }
                                 };
+                                retained_notes_draft = draft;
+                                if matches!(
+                                    exit,
+                                    super::NotesConsoleExit::ClosedByUser
+                                        | super::NotesConsoleExit::ClosedWithoutSave
+                                ) {
+                                    match runtime.end_notes_session(&issued) {
+                                        Ok(reason) => super::log_pid1_stderr(format_args!(
+                                            "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
+                                        )),
+                                        Err(_) => {
+                                            super::log_pid1_stderr(format_args!(
+                                                "NAGI_DEV_NOTES_SESSION_END_UNCONFIRMED"
+                                            ));
+                                            // Keep the login control FD alive. EOF must only follow
+                                            // confirmed C1 termination on this close path.
+                                            super::wait_in_pid1(super::wait_for_pid1_os_event);
+                                        }
+                                    }
+                                }
                                 notes_exit = Some(exit);
                             }
                             #[cfg(not(linux_task24_notes_consumer))]
@@ -801,7 +868,11 @@ pub(super) fn run_owner_login(
     if execute().is_err() {
         super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_LOGIN_STOPPED"));
     }
-    super::wait_in_pid1(super::wait_for_pid1_os_event)
+    super::wait_in_pid1(move || {
+        #[cfg(linux_task24_notes_consumer)]
+        let _retained_draft = &retained_notes_draft;
+        super::wait_for_pid1_os_event();
+    })
 }
 
 #[cfg(linux_task24_initial_login_runtime)]
@@ -1286,4 +1357,33 @@ fn prepare_task24_endpoint_directory() -> Result<(), BackendError> {
         Err(_) => Err(BackendError::Unavailable),
     }
     // C2 independently validates the IPC directory before binding.
+}
+
+#[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Ws10Mode {
+    StopIdentity,
+    RevokeSession,
+    CheckPreviousLogout,
+}
+
+#[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
+fn ws10_mode() -> std::io::Result<Option<Ws10Mode>> {
+    let command_line = std::fs::read_to_string("/proc/cmdline")?;
+    let mut selected = None;
+    for value in command_line
+        .split_ascii_whitespace()
+        .filter_map(|argument| argument.strip_prefix("nagi.dev_ws10="))
+    {
+        let mode = match value {
+            "stop-identity" => Ws10Mode::StopIdentity,
+            "revoke-session" => Ws10Mode::RevokeSession,
+            "check-previous-logout" => Ws10Mode::CheckPreviousLogout,
+            _ => return Err(std::io::Error::other("unknown WS-10 development mode")),
+        };
+        if selected.replace(mode).is_some() {
+            return Err(std::io::Error::other("duplicate WS-10 development mode"));
+        }
+    }
+    Ok(selected)
 }

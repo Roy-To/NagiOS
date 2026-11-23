@@ -51,13 +51,42 @@ pub(crate) fn handle_event(
         .handle_event(event)
         .map_err(|error| error.to_string())?;
     if event.event_type == INPUT_EVENT_KEY
-        && matches!(event.value, 1 | 2)
+        && event.value == 1
         && event.code != INPUT_KEY_ESCAPE
         && result.is_some()
     {
         *has_unconfirmed_user_edit = true;
     }
     Ok(result)
+}
+
+pub(crate) fn is_escape_press(event: InputEvent) -> bool {
+    event.event_type == INPUT_EVENT_KEY && event.code == INPUT_KEY_ESCAPE && event.value == 1
+}
+
+/// Only a second distinct Esc press confirms an unpersisted close.
+/// Key releases leave the confirmation pending; another key cancels it.
+#[derive(Default)]
+pub(crate) struct UnsavedCloseConfirmation {
+    pending: bool,
+}
+
+impl UnsavedCloseConfirmation {
+    pub(crate) fn pending(&self) -> bool {
+        self.pending
+    }
+
+    pub(crate) fn on_input(&mut self, event: InputEvent) -> bool {
+        if event.event_type != INPUT_EVENT_KEY || event.value != 1 {
+            return false;
+        }
+        std::mem::take(&mut self.pending) && is_escape_press(event)
+    }
+
+    pub(crate) fn after_failed_escape(&mut self, permanently_denied: bool) -> bool {
+        self.pending = !permanently_denied;
+        permanently_denied
+    }
 }
 
 #[cfg(test)]
@@ -98,11 +127,12 @@ mod tests {
     ) -> NoteDocument {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            let persisted = store.load(note_id).expect("read current durable note");
-            if let Some(persisted) = persisted.filter(|note| {
-                note.revision >= revision && bridge.current_note().as_ref() == Some(note)
-            }) {
-                return persisted;
+            if let Some(persisted) = store.load(note_id).expect("read current durable note") {
+                if persisted.revision >= revision
+                    && bridge.current_note().as_ref() == Some(&persisted)
+                {
+                    return persisted;
+                }
             }
             assert!(Instant::now() < deadline, "Notes autosave did not complete");
             // The production Notes debounce is 700 ms; waiting here exercises
@@ -150,8 +180,8 @@ mod tests {
         assert_eq!(store.load(note_id).unwrap().unwrap().revision, 2);
 
         assert!(
-            handle_event(&mut bridge, store.as_ref(), key(48, 2), &mut pending)
-                .expect("a repeated text key creates another draft")
+            handle_event(&mut bridge, store.as_ref(), key(48, 1), &mut pending)
+                .expect("type another character")
                 .is_some()
         );
         let keypad_saved = handle_event(
@@ -226,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_dirty_save_never_returns_a_save_result() {
+    fn transient_save_failure_requires_a_second_escape() {
         let inner = Arc::new(InMemoryNoteStore::new());
         let note_id = notes_files_codec_candidate::ObjectId(0x5441_534b_3234_0003);
         let initial = NoteDocument::new(note_id, "Task24 explicit save", Timestamp(1));
@@ -251,6 +281,33 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(pending, "the unsaved draft remains eligible for retry");
+        let escape = key(INPUT_KEY_ESCAPE, 1);
+        assert!(handle_event(&mut bridge, store.as_ref(), escape, &mut pending).is_err());
+        let mut confirmation = UnsavedCloseConfirmation::default();
+        assert!(!confirmation.on_input(escape));
+        assert!(!confirmation.after_failed_escape(false));
+        assert!(confirmation.pending());
+        assert!(!confirmation.on_input(key(INPUT_KEY_ESCAPE, 0)));
+        assert!(!confirmation.on_input(key(INPUT_KEY_ESCAPE, 2)));
+        assert!(confirmation.on_input(escape));
+        assert!(!confirmation.pending());
+        let draft = bridge.current_note().unwrap();
+        assert_eq!(draft.id, initial.id);
+        assert_ne!(draft.blocks, initial.blocks);
+        drop(bridge);
+
         assert_eq!(inner.load(note_id).unwrap().unwrap(), initial);
+    }
+
+    #[test]
+    fn edit_cancels_confirmation_and_permanent_denial_skips_it() {
+        let escape = key(INPUT_KEY_ESCAPE, 1);
+        let mut confirmation = UnsavedCloseConfirmation::default();
+        assert!(!confirmation.after_failed_escape(false));
+        assert!(!confirmation.on_input(key(30, 1)));
+        assert!(!confirmation.on_input(escape));
+
+        assert!(confirmation.after_failed_escape(true));
+        assert!(!confirmation.pending());
     }
 }

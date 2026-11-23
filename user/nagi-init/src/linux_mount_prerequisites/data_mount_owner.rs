@@ -14,16 +14,29 @@ use crate::task24_c3_journal_bootstrap_contract::{
     is_fresh_development_data_root, DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME,
     DATA_JOURNAL_DIRECTORY,
 };
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::mem::MaybeUninit;
+#[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+use std::os::fd::BorrowedFd;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::syscalls;
+
+#[cfg(all(
+    linux_dev_system_mount,
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "system_mount_owner.rs"]
+pub(in crate::linux_init) mod system_mount_owner;
+
+#[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+#[path = "system_data_observation.rs"]
+pub(super) mod system_data_observation;
 
 const EXT4_SUPER_MAGIC: u64 = 0xef53;
 const EXT4_SUPERBLOCK_OFFSET: u64 = 1024;
@@ -107,6 +120,31 @@ impl DataMountError {
 struct SelectedBlockDevice {
     name: String,
     path: CString,
+    device_number: u64,
+}
+
+impl SelectedBlockDevice {
+    fn mount_ext4(
+        &self,
+        target: &CStr,
+        flags: std::os::raw::c_ulong,
+        options: Option<&CStr>,
+    ) -> Result<(), DataMountError> {
+        let options = options.map_or(std::ptr::null(), |value| value.as_ptr().cast());
+        if unsafe {
+            syscalls::mount(
+                self.path.as_ptr(),
+                target.as_ptr(),
+                c"ext4".as_ptr(),
+                flags,
+                options,
+            )
+        } != 0
+        {
+            return Err(DataMountError::MountRejected);
+        }
+        Ok(())
+    }
 }
 
 /// Owns one verified development ext4 mount and its retained root directory FD.
@@ -165,22 +203,11 @@ impl DevelopmentDataMountOwner {
             return Err(DataMountError::MountRejected);
         }
 
-        let mount_result = unsafe {
-            syscalls::mount(
-                device.path.as_ptr(),
-                c"/run/nagi/dev-data".as_ptr(),
-                c"ext4".as_ptr(),
-                MOUNT_FLAGS,
-                std::ptr::null(),
-            )
+        device.mount_ext4(c"/run/nagi/dev-data", MOUNT_FLAGS, None)?;
+        let mut rollback = MountRollback {
+            target: c"/run/nagi/dev-data",
+            active: true,
         };
-        if mount_result != 0 {
-            return Err(DataMountError::MountRejected);
-        }
-        let mut rollback = MountRollback { active: true };
-
-        fs::set_permissions(EXPECTED_MOUNT_PATH, fs::Permissions::from_mode(0o700))
-            .map_err(|_| DataMountError::MountVerificationFailed)?;
         let root = open_directory(c"/run/nagi/dev-data")
             .map_err(|_| DataMountError::MountVerificationFailed)?;
         verify_ext4_mount(root.as_raw_fd())?;
@@ -189,14 +216,16 @@ impl DevelopmentDataMountOwner {
             return Err(DataMountError::MountVerificationFailed);
         }
 
-        // Recheck the exact selected device after the mount operation. The
-        // development guest has no hotplug actor; this catches selection or
-        // source changes without treating /dev name order as identity.
-        if find_device_by_serial(device_serial)?.name != device.name
-            || read_ext4_uuid(&device)? != filesystem_uuid
-        {
-            return Err(DataMountError::DeviceChanged);
-        }
+        // Verify the mounted root's actual device and recheck its selected
+        // serial/UUID before changing permissions through the retained FD.
+        secure_mounted_data_root(&root, device.device_number, || {
+            if find_device_by_serial(device_serial)?.name != device.name
+                || read_ext4_uuid(&device)? != filesystem_uuid
+            {
+                return Err(DataMountError::DeviceChanged);
+            }
+            Ok(())
+        })?;
 
         rollback.active = false;
         Ok(Self {
@@ -416,6 +445,8 @@ pub(in crate::linux_init) struct DevelopmentIdentityData {
     pub(in crate::linux_init) input: BootVolumeInput,
     pub(in crate::linux_init) accounts: PathBuf,
     pub(in crate::linux_init) snapshots: PathBuf,
+    #[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+    system_mount: Option<system_mount_owner::DevelopmentSystemMountOwner>,
     _mount: DevelopmentDataMountOwner,
 }
 
@@ -475,8 +506,63 @@ pub(in crate::linux_init) fn mount_identity_data(
         input,
         accounts,
         snapshots,
+        #[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+        system_mount: None,
         _mount: mount,
     }))
+}
+
+#[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+pub(in crate::linux_init) fn requested_system_data_probe(
+) -> Result<Option<crate::task24_system_data_probe_config::ProbeRequest>, &'static str> {
+    system_data_observation::requested_probe()
+}
+
+/// Observe roots borrowed from the live System and Data mount owners.
+///
+/// The caller keeps both owners alive for the duration of this call. This
+/// adapter does not mount, unmount, close, or retain either descriptor.
+#[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
+pub(in crate::linux_init) fn observe_borrowed_owner_roots(
+    system_root: BorrowedFd<'_>,
+    data_root: BorrowedFd<'_>,
+    system_fstype: &str,
+    data_fstype: &str,
+    token: &str,
+) -> Result<String, String> {
+    system_data_observation::observe_existing_roots(
+        system_root,
+        data_root,
+        system_fstype,
+        data_fstype,
+        token,
+    )
+}
+
+#[cfg(all(
+    linux_dev_system_mount,
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+impl DevelopmentIdentityData {
+    pub(in crate::linux_init) fn observe_system_data(
+        &mut self,
+        token: &str,
+    ) -> Result<String, String> {
+        if self.system_mount.is_none() {
+            self.system_mount = Some(
+                system_mount_owner::DevelopmentSystemMountOwner::mount(&self._mount)
+                    .map_err(str::to_owned)?,
+            );
+        }
+        let system = self
+            .system_mount
+            .as_ref()
+            .ok_or_else(|| "system_mount_owner_unavailable".to_owned())?;
+        let (system_root, data_root) = system
+            .observation_roots(&self._mount)
+            .map_err(str::to_owned)?;
+        observe_borrowed_owner_roots(system_root, data_root, "ext4", "ext4", token)
+    }
 }
 
 impl Drop for DevelopmentDataMountOwner {
@@ -486,6 +572,7 @@ impl Drop for DevelopmentDataMountOwner {
 }
 
 struct MountRollback {
+    target: &'static CStr,
     active: bool,
 }
 
@@ -493,7 +580,7 @@ impl Drop for MountRollback {
     fn drop(&mut self) {
         if self.active {
             unsafe {
-                let _ = syscalls::umount2(c"/run/nagi/dev-data".as_ptr(), UMOUNT_NOFOLLOW);
+                let _ = syscalls::umount2(self.target.as_ptr(), UMOUNT_NOFOLLOW);
             }
         }
     }
@@ -611,15 +698,34 @@ fn find_device_by_serial(expected_serial: &str) -> Result<SelectedBlockDevice, D
     drop(opened);
     let path = CString::new(device.to_string_lossy().as_bytes())
         .map_err(|_| DataMountError::DeviceChanged)?;
-    Ok(SelectedBlockDevice { name, path })
+    Ok(SelectedBlockDevice {
+        name,
+        path,
+        device_number: actual_dev,
+    })
 }
 
 fn read_ext4_uuid(device: &SelectedBlockDevice) -> Result<String, DataMountError> {
+    let superblock = read_ext4_superblock(device)?;
+    Ok(format_uuid(
+        &superblock[EXT4_UUID_OFFSET..EXT4_UUID_OFFSET + 16],
+    ))
+}
+
+fn read_ext4_superblock(
+    device: &SelectedBlockDevice,
+) -> Result<[u8; EXT4_SUPERBLOCK_BYTES], DataMountError> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(O_CLOEXEC | O_NOFOLLOW)
         .open(PathBuf::from(device.path.to_string_lossy().as_ref()))
         .map_err(|_| DataMountError::DeviceNotFound)?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| DataMountError::DeviceNotFound)?;
+    if !metadata.file_type().is_block_device() || metadata.rdev() != device.device_number {
+        return Err(DataMountError::DeviceChanged);
+    }
     let mut superblock = [0u8; EXT4_SUPERBLOCK_BYTES];
     let mut offset = EXT4_SUPERBLOCK_OFFSET;
     let mut read = 0;
@@ -637,9 +743,7 @@ fn read_ext4_uuid(device: &SelectedBlockDevice) -> Result<String, DataMountError
     if superblock[EXT4_MAGIC_OFFSET..EXT4_MAGIC_OFFSET + 2] != [0x53, 0xef] {
         return Err(DataMountError::NotExt4);
     }
-    Ok(format_uuid(
-        &superblock[EXT4_UUID_OFFSET..EXT4_UUID_OFFSET + 16],
-    ))
+    Ok(superblock)
 }
 
 fn format_uuid(bytes: &[u8]) -> String {
@@ -741,16 +845,41 @@ fn mount_id(fd: std::os::raw::c_int) -> Result<u64, DataMountError> {
 }
 
 fn verify_ext4_mount(fd: std::os::raw::c_int) -> Result<(), DataMountError> {
+    if ext4_mount_flags(fd)? & 1 != 0 {
+        return Err(DataMountError::MountVerificationFailed);
+    }
+    Ok(())
+}
+
+fn secure_mounted_data_root(
+    root: &File,
+    selected_device: u64,
+    verify_selection: impl FnOnce() -> Result<(), DataMountError>,
+) -> Result<(), DataMountError> {
+    if root
+        .metadata()
+        .map_err(|_| DataMountError::MountVerificationFailed)?
+        .dev()
+        != selected_device
+    {
+        return Err(DataMountError::DeviceChanged);
+    }
+    verify_selection()?;
+    root.set_permissions(fs::Permissions::from_mode(0o700))
+        .map_err(|_| DataMountError::MountVerificationFailed)
+}
+
+fn ext4_mount_flags(fd: std::os::raw::c_int) -> Result<u64, DataMountError> {
     let mut stat = MaybeUninit::<syscalls::StatFs>::zeroed();
     let result = unsafe { syscalls::fstatfs(fd, stat.as_mut_ptr()) };
     if result != 0 {
         return Err(DataMountError::MountVerificationFailed);
     }
     let stat = unsafe { stat.assume_init() };
-    if stat.f_type as u64 != EXT4_SUPER_MAGIC || (stat.f_flags as u64 & 1) != 0 {
+    if stat.f_type as u64 != EXT4_SUPER_MAGIC {
         return Err(DataMountError::MountVerificationFailed);
     }
-    Ok(())
+    Ok(stat.f_flags as u64)
 }
 
 fn hold_pid1() -> ! {
@@ -909,5 +1038,69 @@ const fn smoke_mode_name(mode: SmokeMode) -> &'static str {
         SmokeMode::Reject => "reject",
         #[cfg(linux_dev_preview_smoke)]
         SmokeMode::ProvisionIdentityDirectories => "provision-identity-directories",
+    }
+}
+
+#[cfg(test)]
+mod selected_mount_tests {
+    use super::{secure_mounted_data_root, DataMountError};
+    use std::fs::{self, File, OpenOptions};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TestFile(PathBuf);
+
+    impl TestFile {
+        fn create() -> (Self, File) {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("test clock")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "nagi-selected-data-root-{}-{nonce}",
+                std::process::id()
+            ));
+            let file = OpenOptions::new()
+                .create_new(true)
+                .read(true)
+                .write(true)
+                .mode(0o600)
+                .open(&path)
+                .expect("create private test root");
+            (Self(path), file)
+        }
+    }
+
+    impl Drop for TestFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn mismatched_mount_does_not_change_permissions() {
+        let (_path, root) = TestFile::create();
+        let selected_device = root.metadata().expect("test file metadata").dev();
+
+        assert_eq!(
+            secure_mounted_data_root(&root, selected_device.wrapping_add(1), || Ok(())),
+            Err(DataMountError::DeviceChanged)
+        );
+        assert_eq!(root.metadata().unwrap().mode() & 0o777, 0o600);
+
+        assert_eq!(
+            secure_mounted_data_root(&root, selected_device, || {
+                Err(DataMountError::DeviceChanged)
+            }),
+            Err(DataMountError::DeviceChanged)
+        );
+        assert_eq!(root.metadata().unwrap().mode() & 0o777, 0o600);
+
+        assert_eq!(
+            secure_mounted_data_root(&root, selected_device, || Ok(())),
+            Ok(())
+        );
+        assert_eq!(root.metadata().unwrap().mode() & 0o777, 0o700);
     }
 }

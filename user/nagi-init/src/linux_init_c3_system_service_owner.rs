@@ -7,8 +7,8 @@
 //! trusted catalog/package owner. No safe production callsite exists yet.
 
 use super::linux_init_c3_slot_journal::{
-    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3ReapedLaunchKey, C3SlotJournal,
-    C3SlotJournalError, C3SlotJournalReadback, C3SlotReservation, C3SlotState,
+    C3DurableNormalExitReceipt, C3DurableSlotReceipt, C3SlotJournal, C3SlotJournalError,
+    C3SlotJournalReadback, C3SlotReservation, C3SlotState, PriorBootClear, PriorBootClearedReceipt,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::{
@@ -32,15 +32,6 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Copy)]
-pub(super) struct C3LaunchPolicy {
-    pub(super) required: bool,
-    pub(super) release_wait_budget: Duration,
-    pub(super) cancel_check_interval: Duration,
-    pub(super) retirement_wait_budget: Duration,
-    pub(super) reaper_poll_interval: Duration,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LaunchToken(NonZeroU64);
@@ -240,6 +231,7 @@ struct OwnerState {
     reserved_operation: Option<C3SlotReservation>,
     highest_operation_id: u64,
     durable_journal: Option<Arc<C3SlotJournal>>,
+    retained_normal_exit_receipt: Option<C3DurableNormalExitReceipt>,
     #[cfg(test)]
     fail_retirement_after_revoke_once: bool,
 }
@@ -309,6 +301,39 @@ impl C3DurableRecoverySlotReceipt for C3DurableNormalExitReceipt {
 
     fn scope_binding_digest(&self) -> &[u8; 32] {
         C3DurableNormalExitReceipt::scope_binding_digest(self)
+    }
+
+    fn state(&self) -> C3RecoverySlotState {
+        C3RecoverySlotState::ClearedAndAbsent
+    }
+}
+
+/// Typed C3 terminal evidence returned only after the old normal-exit row
+/// has been re-read under the owner gate and its journal-bound scope callback
+/// has accepted that exact scope. The pre-gate snapshot is not this receipt.
+pub(super) struct C3DurableNormalExitTerminalReceipt {
+    receipt: C3DurableNormalExitReceipt,
+}
+
+impl C3DurableRecoverySlotReceipt for C3DurableNormalExitTerminalReceipt {
+    fn c1_operation_id(&self) -> Option<NonZeroU64> {
+        Some(C3DurableNormalExitReceipt::c1_operation_id(&self.receipt))
+    }
+
+    fn service_id(&self) -> &str {
+        C3DurableNormalExitReceipt::service_id(&self.receipt)
+    }
+
+    fn catalog_generation(&self) -> u64 {
+        C3DurableNormalExitReceipt::catalog_generation(&self.receipt).get()
+    }
+
+    fn c3_launch_generation(&self) -> u64 {
+        C3DurableNormalExitReceipt::c3_launch_generation(&self.receipt).get()
+    }
+
+    fn scope_binding_digest(&self) -> &[u8; 32] {
+        C3DurableNormalExitReceipt::scope_binding_digest(&self.receipt)
     }
 
     fn state(&self) -> C3RecoverySlotState {
@@ -520,7 +545,13 @@ impl LinuxC3SystemServiceSlotOwner {
         fresh_registration: bool,
     ) -> io::Result<Self> {
         let (highest_catalog_generation, highest_c3_launch_generation, highest_operation_id) =
-            match journal.readback() {
+            match if fresh_registration {
+                journal
+                    .readback_for_fresh_owner()
+                    .map_err(c3_journal_io_error)?
+            } else {
+                journal.readback()
+            } {
                 C3SlotJournalReadback::Empty if allow_genesis_only => (0, 0, 0),
                 C3SlotJournalReadback::Empty => {
                     return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
@@ -540,11 +571,17 @@ impl LinuxC3SystemServiceSlotOwner {
                 }
             };
 
+        // A validated maintenance row can remain openable without a normal
+        // proof, but only an exact v5 NormalExit receipt may authorize equal
+        // catalog generation on the next launch.
+        let normal_exit_receipt = journal.latest_normal_exit_scope_snapshot().ok().flatten();
+
         let mut state_guard = state.lock().map_err(|_| {
             io::Error::other("reserved C3 owner state is poisoned; journal open is unknown")
         })?;
         let state_matches_registration = if fresh_registration {
             state_guard.durable_journal.is_none()
+                && state_guard.retained_normal_exit_receipt.is_none()
                 && state_guard.highest_generation == 0
                 && state_guard.highest_catalog_generation.is_none()
                 && state_guard.highest_operation_id == 0
@@ -565,6 +602,14 @@ impl LinuxC3SystemServiceSlotOwner {
                     == highest_catalog_generation
                 && state_guard.highest_operation_id == highest_operation_id
                 && state_guard.reserved_operation.is_none()
+                && match (
+                    state_guard.retained_normal_exit_receipt.as_ref(),
+                    normal_exit_receipt.as_ref(),
+                ) {
+                    (Some(retained), Some(reopened)) => retained == reopened,
+                    (None, None) => true,
+                    _ => false,
+                }
                 && validate_quiescent_retired_state(&state_guard).is_ok()
         };
         if !state_matches_registration {
@@ -591,6 +636,7 @@ impl LinuxC3SystemServiceSlotOwner {
             state_guard.highest_operation_id = highest_operation_id;
         }
         state_guard.durable_journal = Some(journal);
+        state_guard.retained_normal_exit_receipt = normal_exit_receipt;
         entry.claimed = true;
         entry.maintenance = false;
         drop(registry);
@@ -761,12 +807,12 @@ impl LinuxC3SystemServiceSlotOwner {
         };
         state.highest_generation = next.get();
         state.reserved_generation = Some(next);
-        if let Some(reservation) = reservation.as_ref() {
+        state.reserved_operation = reservation.clone();
+        if let Some(reservation) = reservation {
             state.highest_operation_id = state
                 .highest_operation_id
                 .max(reservation.operation_id().get());
         }
-        state.reserved_operation = reservation;
         Ok(next)
     }
 
@@ -780,15 +826,36 @@ impl LinuxC3SystemServiceSlotOwner {
     /// reservation. `executable` must be the exact executable slice covered by
     /// that admission. The admission reference must remain the same object
     /// through endpoint issuance and any later C1/C3 reconciliation.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep launch and admission inputs explicit"
+    )]
     pub(super) unsafe fn launch_admitted(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        policy: C3LaunchPolicy,
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
-        unsafe { self.launch_admitted_inner(scope, executable, arguments, policy, None, cancelled) }
+        unsafe {
+            self.launch_admitted_inner(
+                scope,
+                executable,
+                arguments,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
+                None,
+                cancelled,
+            )
+        }
     }
 
     /// C3-owned standalone Identity path. C2 lends its current pending
@@ -804,12 +871,20 @@ impl LinuxC3SystemServiceSlotOwner {
     /// `launch_admitted`. The listener adapter must represent the current C2
     /// registration for this exact service launch and obey the phase contract
     /// on `C3PendingIdentityListener` and `C3IdentityListenerLaunchLease`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep launch and admission inputs explicit"
+    )]
     pub(super) unsafe fn launch_admitted_with_identity_listener(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        policy: C3LaunchPolicy,
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
         pending_listener: &mut dyn C3PendingIdentityListener,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
@@ -818,29 +893,34 @@ impl LinuxC3SystemServiceSlotOwner {
                 scope,
                 executable,
                 arguments,
-                policy,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
                 Some(pending_listener),
                 cancelled,
             )
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep launch and admission inputs explicit"
+    )]
     unsafe fn launch_admitted_inner(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        policy: C3LaunchPolicy,
-        mut identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
+        identity_listener_registration: Option<&mut dyn C3PendingIdentityListener>,
         mut cancelled: impl FnMut() -> bool,
     ) -> io::Result<()> {
-        let C3LaunchPolicy {
-            required,
-            release_wait_budget,
-            cancel_check_interval,
-            retirement_wait_budget,
-            reaper_poll_interval,
-        } = policy;
         if release_wait_budget.is_zero()
             || cancel_check_interval.is_zero()
             || retirement_wait_budget.is_zero()
@@ -874,7 +954,7 @@ impl LinuxC3SystemServiceSlotOwner {
         let reserved_operation = state.reserved_operation.clone();
         let launch_instance_id = reserved_operation
             .as_ref()
-            .map(C3SlotReservation::operation_id);
+            .map(|reservation| reservation.operation_id());
         if state.durable_journal.is_some() && reserved_operation.is_none() {
             return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
         }
@@ -892,6 +972,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 state.current.is_none()
                     && state.launches.is_empty()
                     && state.lifecycle.active_len() == 0,
+                state.retained_normal_exit_receipt.as_ref(),
                 reserved_operation.as_ref(),
             )?;
             previous
@@ -917,6 +998,9 @@ impl LinuxC3SystemServiceSlotOwner {
         let run_launch = |state: &mut OwnerState,
                           stage_launch_identity: &mut dyn FnMut(u32) -> io::Result<()>|
          -> io::Result<()> {
+            // The exact prior normal-exit row has now been consumed by the
+            // synced launch intent. It cannot authorize another transition.
+            state.retained_normal_exit_receipt = None;
             state.reserved_generation = None;
             state.reserved_operation = None;
 
@@ -961,15 +1045,13 @@ impl LinuxC3SystemServiceSlotOwner {
                             &mut current,
                             os,
                             prepared,
-                            PreparedLaunchRegistration {
-                                process_id,
-                                token,
-                                service_id: &self.service_id,
-                                scope: scope_snapshot.clone(),
-                                launch_instance_id,
-                                scope_data_address,
-                                previous_token,
-                            },
+                            process_id,
+                            token,
+                            &self.service_id,
+                            scope_snapshot.clone(),
+                            launch_instance_id,
+                            scope_data_address,
+                            previous_token,
                             &mut highest_catalog_generation,
                             &mut replacement_committed,
                         )
@@ -989,7 +1071,7 @@ impl LinuxC3SystemServiceSlotOwner {
                             &self.service_id,
                         )
                         .map_err(|_| BackendError::Revoked)?;
-                        if let Some(registration) = identity_listener_registration.as_mut() {
+                        if let Some(registration) = identity_listener_registration {
                             let prepared_entry = find_launch(&launches, token)
                                 .filter(|entry| entry.process_id == process_id)
                                 .ok_or(BackendError::ProtocolViolation)?;
@@ -1233,16 +1315,34 @@ impl LinuxC3SystemServiceSlotOwner {
     /// executable bytes from the verified package bound into that scope. The
     /// caller must keep that same admission object alive through all later C1
     /// and C3 reconciliation.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep launch and admission inputs explicit"
+    )]
     pub(super) unsafe fn launch_and_authenticate_admitted(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        policy: C3LaunchPolicy,
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<SystemServiceEndpointOwnerProof> {
         unsafe {
-            self.launch_admitted(scope, executable, arguments, policy, cancelled)?;
+            self.launch_admitted(
+                scope,
+                executable,
+                arguments,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
+                cancelled,
+            )?;
         }
         let endpoint = self.take_current_service_endpoint(scope)?;
         self.issue_current_service_endpoint(scope, endpoint)
@@ -1258,12 +1358,20 @@ impl LinuxC3SystemServiceSlotOwner {
     /// The scope, executable, and admission-lifetime requirements are the same
     /// as `launch_and_authenticate_admitted`. `pending_listener` must borrow
     /// the current C2 pending registration for this exact Identity launch.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "keep launch and admission inputs explicit"
+    )]
     pub(super) unsafe fn launch_and_authenticate_admitted_with_identity_listener(
         &self,
         scope: &dyn SystemServiceRecoveryAdmissionScope,
         executable: &[u8],
         arguments: &[&str],
-        policy: C3LaunchPolicy,
+        required: bool,
+        release_wait_budget: Duration,
+        cancel_check_interval: Duration,
+        retirement_wait_budget: Duration,
+        reaper_poll_interval: Duration,
         pending_listener: &mut dyn C3PendingIdentityListener,
         cancelled: impl FnMut() -> bool,
     ) -> io::Result<SystemServiceEndpointOwnerProof> {
@@ -1272,7 +1380,11 @@ impl LinuxC3SystemServiceSlotOwner {
                 scope,
                 executable,
                 arguments,
-                policy,
+                required,
+                release_wait_budget,
+                cancel_check_interval,
+                retirement_wait_budget,
+                reaper_poll_interval,
                 pending_listener,
                 cancelled,
             )?;
@@ -1282,8 +1394,8 @@ impl LinuxC3SystemServiceSlotOwner {
         self.activate_current_identity_listener_after_exec_ack(
             scope,
             &proof,
-            policy.retirement_wait_budget,
-            policy.reaper_poll_interval,
+            retirement_wait_budget,
+            reaper_poll_interval,
         )?;
         Ok(proof)
     }
@@ -1495,6 +1607,82 @@ impl LinuxC3SystemServiceSlotOwner {
                 retirement_wait_budget,
                 reaper_poll_interval,
             );
+        }
+    }
+
+    /// Inject a real failure into the exact running test launch, then use
+    /// the regular PID 1 poll/reap path. Do not revoke the record up front
+    /// or turn a signalled exit into a NormalExit receipt.
+    #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
+    pub(super) fn ws10_kill_and_reap(
+        &self,
+        scope: &dyn SystemServiceRecoveryAdmissionScope,
+        expected: &nagi_init_spawn_contract::SpawnedProcessIdentity,
+        budget: Duration,
+        interval: Duration,
+    ) -> io::Result<()> {
+        validate_reaper_wait(budget, interval)?;
+        let deadline = Instant::now()
+            .checked_add(budget)
+            .ok_or_else(|| io::Error::other("WS-10 reaper deadline overflow"))?;
+        let snapshot = capture_scope(scope)?;
+        {
+            let mut state = self.lock_state()?;
+            let entry = current_launch(&state)?
+                .ok_or_else(|| permission_denied("WS-10 has no running Identity child"))?;
+            validate_entry_scope(
+                entry,
+                scope,
+                &snapshot,
+                scope_data_address(scope),
+                &self.service_id,
+            )?;
+            if !entry
+                .launch_record
+                .process_identity()
+                .same_instance(expected)
+            {
+                return Err(permission_denied("WS-10 Identity launch changed"));
+            }
+            let (process_id, token) = (entry.process_id, entry.token);
+            let pidfd = state.lifecycle.duplicate_live_pidfd(process_id, token)?;
+            retirement_budget_remaining(deadline)?;
+            let fd = pidfd.as_raw_fd()?;
+            // SAFETY: the owned pidfd was duplicated from the exact live
+            // lifecycle record under the C3 owner lock and stays open here.
+            let result = unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    fd,
+                    libc::SIGKILL,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0u32,
+                )
+            };
+            if result != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        loop {
+            let event = {
+                let mut state = self.lock_state()?;
+                retirement_budget_remaining(deadline)?;
+                poll_and_record_absence_until(&mut state, Some(deadline))?
+            };
+            match event {
+                Some(super::LifecycleEvent::ServiceExited {
+                    service,
+                    status,
+                    required: true,
+                }) if service == snapshot.service_id
+                    && status.signal == Some(libc::SIGKILL)
+                    && status.exit_code.is_none() =>
+                {
+                    return Ok(())
+                }
+                Some(_) => return Err(io::Error::other("WS-10 expected an exact SIGKILL exit")),
+                None => std::thread::sleep(retirement_budget_remaining(deadline)?.min(interval)),
+            }
         }
     }
 
@@ -1728,20 +1916,15 @@ impl LinuxC3SystemServiceSlotOwner {
                 .clone()
                 .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
             let receipt = journal
-                .transition_reserved_quarantine(
-                    reservation,
-                    scope_snapshot.catalog_generation,
-                    scope_snapshot.binding_digest,
-                    || {
-                        if state.current.is_none() && state.lifecycle.active_len() == 0 {
-                            Ok(())
-                        } else {
-                            Err(io::Error::other(
-                                "C3 owner changed while persisting reserved quarantine",
-                            ))
-                        }
-                    },
-                )
+                .transition_reserved_quarantine(reservation, scope_snapshot.clone(), || {
+                    if state.current.is_none() && state.lifecycle.active_len() == 0 {
+                        Ok(())
+                    } else {
+                        Err(io::Error::other(
+                            "C3 owner changed while persisting reserved quarantine",
+                        ))
+                    }
+                })
                 .map_err(c3_journal_io_error)?;
             if !exact_durable_receipt(
                 &receipt,
@@ -2351,6 +2534,98 @@ impl LinuxC3SystemServiceSlotOwner {
         Ok((result, receipt))
     }
 
+    /// Slot absence from a boot change is separate from a normal-exit receipt.
+    pub(super) fn latest_durable_prior_boot_clear(&self) -> io::Result<Option<PriorBootClear>> {
+        let state = self.lock_state()?;
+        state
+            .durable_journal
+            .as_ref()
+            .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?
+            .latest_prior_boot_clear()
+            .map_err(c3_journal_io_error)
+    }
+
+    /// Revalidate a previous boot's exact C1 operation while the exact
+    /// current successor remains live under the maintained owner gate.
+    pub(super) fn with_durable_prior_boot_cleared_gate_until<R>(
+        &self,
+        expected: &PriorBootClear,
+        current_scope: &dyn SystemServiceRecoveryAdmissionScope,
+        claim: C1RecoveryOperationCorrelation,
+        deadline: Instant,
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<R, RecoveryClientError>,
+    ) -> Result<(R, PriorBootClearedReceipt), RecoveryClientError> {
+        let check_deadline =
+            || ensure_normal_exit_deadline(Some(deadline)).map_err(c3_recovery_client_error);
+        check_deadline()?;
+        let current = capture_scope(current_scope).map_err(|_| RecoveryClientError::Rejected)?;
+        let state = self
+            .lock_state()
+            .map_err(|_| RecoveryClientError::OutcomeUnknown)?;
+        check_deadline()?;
+        let launch = current_launch(&state)
+            .map_err(|_| RecoveryClientError::OutcomeUnknown)?
+            .ok_or(RecoveryClientError::OutcomeUnknown)?;
+        validate_entry_scope(
+            launch,
+            current_scope,
+            &current,
+            scope_data_address(current_scope),
+            &self.service_id,
+        )
+        .map_err(|_| RecoveryClientError::Rejected)?;
+        let token = state.current.ok_or(RecoveryClientError::OutcomeUnknown)?;
+        let is_live = || {
+            Ok::<bool, RecoveryClientError>(
+                launch.state == LaunchState::Running
+                    && token.0 == current.c3_launch_generation
+                    && launch.launch_record.is_live()
+                    && state.lifecycle.live_record(launch.process_id) == Some(&token)
+                    && state
+                        .lifecycle
+                        .is_live_record(launch.process_id, token)
+                        .map_err(|_| RecoveryClientError::OutcomeUnknown)?,
+            )
+        };
+        if !is_live()? {
+            return Err(RecoveryClientError::OutcomeUnknown);
+        }
+        let instance = launch
+            .launch_instance_id
+            .ok_or(RecoveryClientError::OutcomeUnknown)?;
+        let journal = state
+            .durable_journal
+            .as_ref()
+            .ok_or(RecoveryClientError::OutcomeUnknown)?;
+        let receipt = journal
+            .read_prior_boot_cleared_receipt_until(
+                expected,
+                &current,
+                instance,
+                launch.process_id,
+                claim,
+                deadline,
+            )
+            .map_err(|error| match error {
+                C3SlotJournalError::Rejected => RecoveryClientError::Rejected,
+                _ => RecoveryClientError::OutcomeUnknown,
+            })?;
+        // Scope validation must neither re-enter C3 nor mutate either journal.
+        check_deadline()?;
+        let verified = validate_previous_scope(
+            nagi_system_service_recovery_contract::C3DurablePriorBootClearedReceipt::previous_scope(
+                &receipt,
+            ),
+        )?;
+        if !is_live()? {
+            return Err(RecoveryClientError::OutcomeUnknown);
+        }
+        check_deadline()?;
+        Ok((verified, receipt))
+    }
+
     /// Read the latest full previous-scope snapshot attached to a durable C3
     /// normal-exit terminal record. `Ok(None)` is reserved for a validated
     /// genesis-only journal; any existing row without exact proof remains
@@ -2434,8 +2709,10 @@ impl LinuxC3SystemServiceSlotOwner {
         expected: &C3DurableNormalExitReceipt,
         claim: C1RecoveryOperationCorrelation,
         deadline: Option<Instant>,
-        reconcile: impl FnOnce() -> R,
-    ) -> io::Result<R> {
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<R, RecoveryClientError>,
+    ) -> Result<(R, C3DurableNormalExitTerminalReceipt), RecoveryClientError> {
         let scope = expected.scope_snapshot();
         if expected.service_id() != self.service_id
             || scope.service_id != self.service_id
@@ -2446,19 +2723,17 @@ impl LinuxC3SystemServiceSlotOwner {
             || claim.operation_id() != expected.c1_operation_id()
             || claim.binding_digest() != expected.scope_binding_digest()
         {
-            return Err(permission_denied(
-                "C1 correlation does not select the exact C3 historical normal-exit row",
-            ));
+            return Err(RecoveryClientError::Rejected);
         }
-        ensure_normal_exit_deadline(deadline)?;
+        ensure_normal_exit_deadline(deadline).map_err(c3_recovery_client_error)?;
         let process_id = u32::try_from(expected.process_id().get())
-            .map_err(|_| c3_journal_io_error(C3SlotJournalError::Unknown))?;
-        let state = self.lock_state()?;
-        ensure_normal_exit_deadline(deadline)?;
+            .map_err(|_| RecoveryClientError::OutcomeUnknown)?;
+        let state = self.lock_state().map_err(c3_recovery_client_error)?;
+        ensure_normal_exit_deadline(deadline).map_err(c3_recovery_client_error)?;
         let journal = state
             .durable_journal
             .as_ref()
-            .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
+            .ok_or(RecoveryClientError::OutcomeUnknown)?;
         let readback = match deadline {
             Some(deadline) => journal.read_normal_exit_receipt_until(
                 scope,
@@ -2474,15 +2749,21 @@ impl LinuxC3SystemServiceSlotOwner {
                 claim,
             ),
         }
-        .map_err(c3_journal_io_error)?;
+        .map_err(c3_journal_io_error)
+        .map_err(c3_recovery_client_error)?;
         if &readback != expected {
-            return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
+            return Err(RecoveryClientError::OutcomeUnknown);
         }
         // This is the final deadline check after exact historical row and
         // claim validation, immediately before C1's reconciliation callback.
-        ensure_normal_exit_deadline(deadline)?;
-        // The callback is inside the owner gate. It must not re-enter C3.
-        Ok(reconcile())
+        ensure_normal_exit_deadline(deadline).map_err(c3_recovery_client_error)?;
+        // The callback receives the scope from the exact row just read back.
+        // It must not re-enter C3 or write the C1 journal.
+        let result = validate_previous_scope(readback.scope_snapshot())?;
+        Ok((
+            result,
+            C3DurableNormalExitTerminalReceipt { receipt: readback },
+        ))
     }
 
     /// Revoke the exact current launch before terminating its pidfd-owned
@@ -2718,6 +2999,7 @@ fn empty_owner_state() -> OwnerState {
         reserved_operation: None,
         highest_operation_id: 0,
         durable_journal: None,
+        retained_normal_exit_receipt: None,
         #[cfg(test)]
         fail_retirement_after_revoke_once: false,
     }
@@ -3034,21 +3316,35 @@ fn validate_transition(
     previous: Option<&OwnedLaunch>,
     highest_catalog_generation: Option<NonZeroU64>,
     slot_is_quiescent: bool,
+    prior_normal_exit: Option<&C3DurableNormalExitReceipt>,
     reservation: Option<&C3SlotReservation>,
 ) -> io::Result<()> {
-    if let Some(highest) = highest_catalog_generation {
-        let exact_normal_restart = slot_is_quiescent
-            && previous.is_none()
-            && reservation.is_some_and(|reservation| {
-                reservation.permits_same_catalog_normal_restart(next, highest.get())
-            });
-        if next.catalog_generation < highest
-            || (next.catalog_generation == highest && !exact_normal_restart)
-        {
-            return Err(permission_denied(
-                "A system-service catalog generation rolls back or lacks an exact normal-restart receipt",
-            ));
-        }
+    let exact_normal_restart = slot_is_quiescent
+        && previous.is_none()
+        && prior_normal_exit.is_some_and(|receipt| {
+            reservation.is_some_and(|reservation| {
+                reservation.prior_normal_exit() == Some(receipt)
+                    && highest_catalog_generation.is_some_and(|highest| {
+                        reservation.permits_same_catalog_normal_restart(next, highest.get())
+                    })
+            })
+        });
+    let exact_prior_boot_restart = slot_is_quiescent
+        && previous.is_none()
+        && reservation.is_some_and(|reservation| {
+            highest_catalog_generation.is_some_and(|highest| {
+                reservation.permits_same_catalog_prior_boot_restart(next, highest.get())
+            })
+        });
+    if highest_catalog_generation.is_some_and(|highest| {
+        next.catalog_generation < highest
+            || (next.catalog_generation == highest
+                && !exact_normal_restart
+                && !exact_prior_boot_restart)
+    }) {
+        return Err(permission_denied(
+            "A system-service catalog generation rolls back or lacks exact restart evidence",
+        ));
     }
     match (previous, next.transition) {
         (None, RecoveryLifecycleTransition::Initial) => Ok(()),
@@ -3119,34 +3415,25 @@ fn current_launch(state: &OwnerState) -> io::Result<Option<&OwnedLaunch>> {
     }
 }
 
-struct PreparedLaunchRegistration<'a> {
-    process_id: u32,
-    token: LaunchToken,
-    service_id: &'a str,
-    scope: RecoveryScopeSnapshot,
-    launch_instance_id: Option<NonZeroU64>,
-    scope_data_address: usize,
-    previous_token: Option<LaunchToken>,
-}
-
+#[expect(
+    clippy::too_many_arguments,
+    reason = "keep launch and admission inputs explicit"
+)]
 fn register_prepared_launch<Os: ProcessOs>(
     launches: &mut Vec<OwnedLaunch>,
     current: &mut Option<LaunchToken>,
     os: &mut Os,
     prepared: &ProcessHandle<Prepared, Os::Raw>,
-    registration: PreparedLaunchRegistration<'_>,
+    process_id: u32,
+    token: LaunchToken,
+    service_id: &str,
+    scope: RecoveryScopeSnapshot,
+    launch_instance_id: Option<NonZeroU64>,
+    scope_data_address: usize,
+    previous_token: Option<LaunchToken>,
     highest_catalog_generation: &mut Option<NonZeroU64>,
     replacement_committed: &mut bool,
 ) -> Result<LaunchToken, BackendError> {
-    let PreparedLaunchRegistration {
-        process_id,
-        token,
-        service_id,
-        scope,
-        launch_instance_id,
-        scope_data_address,
-        previous_token,
-    } = registration;
     if token.0 != scope.c3_launch_generation
         || scope.service_id != service_id
         || launches.iter().any(|entry| entry.token == token)
@@ -3516,14 +3803,45 @@ impl C3RecoverySlotGate for C3DurableNormalExitGate<'_, '_> {
         if &scope_snapshot != self.expected.scope_snapshot() {
             return Err(RecoveryClientError::Rejected);
         }
-        self.owner
-            .with_durable_normal_exit_gate(self.expected, claim, self.deadline, reconcile)
-            .map_err(|error| match error.kind() {
-                io::ErrorKind::PermissionDenied | io::ErrorKind::InvalidInput => {
-                    RecoveryClientError::Rejected
-                }
-                _ => RecoveryClientError::OutcomeUnknown,
-            })
+        let (result, _) = self.owner.with_durable_normal_exit_gate(
+            self.expected,
+            claim,
+            self.deadline,
+            |_| Ok(reconcile()),
+        )?;
+        Ok(result)
+    }
+}
+
+impl C3DurableNormalExitGate<'_, '_> {
+    /// Pass C1 only the full prior scope from the exact journal row reread
+    /// under the C3 owner gate, and return a distinct terminal proof type.
+    pub(super) fn with_journal_bound_previous_scope<R>(
+        &mut self,
+        claim: C1RecoveryOperationCorrelation,
+        validate_previous_scope: impl FnOnce(
+            &dyn SystemServiceRecoveryAdmissionScope,
+        ) -> Result<R, RecoveryClientError>,
+    ) -> Result<(R, C3DurableNormalExitTerminalReceipt), RecoveryClientError> {
+        if self.used {
+            return Err(RecoveryClientError::Rejected);
+        }
+        self.used = true;
+        self.owner.with_durable_normal_exit_gate(
+            self.expected,
+            claim,
+            self.deadline,
+            validate_previous_scope,
+        )
+    }
+}
+
+fn c3_recovery_client_error(error: io::Error) -> RecoveryClientError {
+    match error.kind() {
+        io::ErrorKind::PermissionDenied | io::ErrorKind::InvalidInput => {
+            RecoveryClientError::Rejected
+        }
+        _ => RecoveryClientError::OutcomeUnknown,
     }
 }
 
@@ -3566,16 +3884,18 @@ fn poll_and_record_absence_until(
     let result = poll_state(state).map_err(backend_error);
     prune_retired_launches(state);
     if had_current && state.current.is_none() {
-        let normal_exit = matches!(
-            &result,
-            Ok(Some(super::LifecycleEvent::ServiceExited { service, status, .. }))
-                if observed_launch.as_ref().is_some_and(|launch| {
-                    service == &launch.scope.service_id
-                        && status.exit_code == Some(0)
-                        && status.signal.is_none()
-                })
-        );
-        record_current_absent_after_reap(state, deadline, observed_launch.as_ref(), normal_exit)?;
+        let exact_exit = match &result {
+            Ok(Some(super::LifecycleEvent::ServiceExited {
+                service, status, ..
+            })) if observed_launch
+                .as_ref()
+                .is_some_and(|launch| service == &launch.scope.service_id) =>
+            {
+                Some(status)
+            }
+            _ => None,
+        };
+        record_current_absent_after_reap(state, deadline, observed_launch.as_ref(), exact_exit)?;
     }
     result
 }
@@ -3628,7 +3948,7 @@ fn record_current_absent_after_reap(
     state: &mut OwnerState,
     deadline: Option<Instant>,
     observed_launch: Option<&ReapedLaunchObservation>,
-    normal_exit: bool,
+    exact_exit: Option<&super::ServiceExitStatus>,
 ) -> io::Result<()> {
     if state.current.is_some() || !state.launches.is_empty() || state.lifecycle.active_len() != 0 {
         return Err(io::Error::other(
@@ -3659,6 +3979,7 @@ fn record_current_absent_after_reap(
             let c3_launch_generation = NonZeroU64::new(row.c3_launch_generation())
                 .ok_or_else(|| c3_journal_io_error(C3SlotJournalError::Unknown))?;
             let scope_binding_digest = *row.scope_binding_digest();
+            let mut terminal_state = C3SlotState::ClearedAndAbsent;
             let launch_evidence = row.launch_evidence();
             if let Some(evidence) = launch_evidence {
                 let Some(observed_launch) = observed_launch else {
@@ -3674,22 +3995,22 @@ fn record_current_absent_after_reap(
                 {
                     return Err(unknown());
                 }
+                let normal_exit = exact_exit
+                    .is_some_and(|status| status.exit_code == Some(0) && status.signal.is_none());
                 if normal_exit {
                     if !evidence.is_normal_exit() && row.c1_operation_id().is_some() {
                         let correlation = C1RecoveryOperationCorrelation::new(
                             row.c1_operation_id().expect("checked C1 operation ID"),
                             scope_binding_digest,
                         );
+                        let launch_operation_id =
+                            observed_launch.launch_instance_id.ok_or_else(unknown)?;
                         let transition = journal.record_normal_exit_after_reap(
-                            C3ReapedLaunchKey {
-                                catalog_generation,
-                                c3_launch_generation,
-                                scope_binding_digest,
-                                launch_operation_id: observed_launch
-                                    .launch_instance_id
-                                    .ok_or_else(unknown)?,
-                                process_id: observed_launch.process_id,
-                            },
+                            catalog_generation,
+                            c3_launch_generation,
+                            scope_binding_digest,
+                            launch_operation_id,
+                            observed_launch.process_id,
                             correlation,
                             deadline,
                             || {
@@ -3725,13 +4046,52 @@ fn record_current_absent_after_reap(
                         {
                             return Err(unknown());
                         }
+                        let normal_exit_receipt = match deadline {
+                            Some(deadline) => journal.read_normal_exit_receipt_until(
+                                &observed_launch.scope,
+                                launch_operation_id,
+                                observed_launch.process_id,
+                                correlation,
+                                deadline,
+                            ),
+                            None => journal.read_normal_exit_receipt(
+                                &observed_launch.scope,
+                                launch_operation_id,
+                                observed_launch.process_id,
+                                correlation,
+                            ),
+                        }
+                        .map_err(c3_journal_io_error)?;
+                        if deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                            || normal_exit_receipt.service_id() != service_id
+                            || normal_exit_receipt.catalog_generation() != catalog_generation
+                            || normal_exit_receipt.c3_launch_generation() != c3_launch_generation
+                            || normal_exit_receipt.scope_binding_digest() != &scope_binding_digest
+                            || normal_exit_receipt.c1_operation_id() != correlation.operation_id()
+                            || normal_exit_receipt.terminal_revision() != receipt.durable_revision()
+                            || normal_exit_receipt.terminal_operation_id() != receipt.operation_id()
+                        {
+                            return Err(unknown());
+                        }
                         state.highest_operation_id =
                             state.highest_operation_id.max(receipt.operation_id().get());
+                        state.retained_normal_exit_receipt = Some(normal_exit_receipt);
                         return Ok(());
                     }
                     if evidence.is_normal_exit() {
                         return Ok(());
                     }
+                } else if row.c1_operation_id().is_some() {
+                    // Keep the exact old Live correlation for a later boot.
+                    // A signal or nonzero exit is never a NormalExit receipt.
+                    if evidence.is_normal_exit()
+                        || exact_exit.is_none_or(|status| {
+                            status.signal.is_none() && status.exit_code.is_none()
+                        })
+                    {
+                        return Err(unknown());
+                    }
+                    terminal_state = C3SlotState::Quarantined;
                 }
             }
             let effect = || {
@@ -3756,7 +4116,7 @@ fn record_current_absent_after_reap(
                     catalog_generation,
                     c3_launch_generation,
                     scope_binding_digest,
-                    C3SlotState::ClearedAndAbsent,
+                    terminal_state,
                     deadline,
                     effect,
                 ),
@@ -3764,7 +4124,7 @@ fn record_current_absent_after_reap(
                     catalog_generation,
                     c3_launch_generation,
                     scope_binding_digest,
-                    C3SlotState::ClearedAndAbsent,
+                    terminal_state,
                     effect,
                 ),
             };
@@ -3778,7 +4138,7 @@ fn record_current_absent_after_reap(
                 catalog_generation,
                 c3_launch_generation,
                 &scope_binding_digest,
-                C3SlotState::ClearedAndAbsent,
+                terminal_state,
             ) {
                 return Err(c3_journal_io_error(C3SlotJournalError::Unknown));
             }
@@ -3843,21 +4203,25 @@ fn permission_denied(message: &'static str) -> io::Error {
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 mod tests {
     use super::{
-        C3IdentityLaunchBinding, C3IdentityListenerLaunchLease, C3LaunchPolicy,
-        C3PendingIdentityListener, LinuxC3SystemServiceSlotOwner,
-        SystemServiceRecoveryAdmissionScope,
+        C3IdentityLaunchBinding, C3IdentityListenerLaunchLease, C3PendingIdentityListener,
+        LinuxC3SystemServiceSlotOwner, SystemServiceRecoveryAdmissionScope,
     };
     use crate::linux_init::linux_init_c3_slot_journal::{
         C3SlotJournal, C3SlotJournalReadback, C3SlotState,
     };
     use crate::linux_init::linux_process_resource_tests::namespace_root_probe_elf;
+    use crate::linux_init::linux_task24_c3_data_journal::Task24C3DataJournalDirectory;
     use crate::linux_init::{LifecycleEvent, ServiceExitStatus};
+    use crate::profile_volume_notes_owner::SelectedDataRoot;
+    use crate::task24_c3_journal_bootstrap_contract::{
+        DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME, DATA_JOURNAL_DIRECTORY,
+    };
     use nagi_system_principal_contract::{
         SystemServiceEndpointOwnerProof, SystemServiceLaunchRecord,
     };
     use nagi_system_service_recovery_contract::{
         canonical_recovery_binding_digest, C1RecoveryOperationCorrelation,
-        C3DurableRecoverySlotReceipt, C3RecoverySlotGate, C3RecoverySlotState, RecoveryClientError,
+        C3DurableRecoverySlotReceipt, C3RecoverySlotState, RecoveryClientError,
         RecoveryLifecycleTransition, SystemServiceRecoveryScopeInput,
     };
     use sha2::{Digest, Sha256};
@@ -3906,6 +4270,46 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    fn provision_task24_data_journal_root(directory: &JournalDirectory) {
+        let journal_directory = directory.0.join(DATA_JOURNAL_DIRECTORY);
+        std::fs::create_dir(&journal_directory).expect("create selected Data journal sibling");
+        std::fs::set_permissions(&journal_directory, std::fs::Permissions::from_mode(0o700))
+            .expect("make selected Data journal sibling private");
+        let mut marker = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(journal_directory.join(DATA_BOOTSTRAP_MARKER_NAME))
+            .expect("create new Data journal bootstrap marker");
+        marker
+            .write_all(DATA_BOOTSTRAP_MARKER_BYTES)
+            .expect("write exact Data journal bootstrap marker");
+        marker
+            .sync_all()
+            .expect("sync Data journal bootstrap marker");
+        std::fs::File::open(&journal_directory)
+            .expect("open selected Data journal sibling")
+            .sync_all()
+            .expect("sync selected Data journal sibling");
+        std::fs::File::open(&directory.0)
+            .expect("open selected Data root")
+            .sync_all()
+            .expect("sync selected Data root");
+    }
+
+    fn open_task24_data_journal(
+        directory: &JournalDirectory,
+        service_id: &str,
+    ) -> (SelectedDataRoot, Task24C3DataJournalDirectory) {
+        let root = SelectedDataRoot::from_selected_volume(
+            std::fs::File::open(&directory.0).expect("open selected Data root"),
+        )
+        .expect("validate selected Data root");
+        let journal = Task24C3DataJournalDirectory::open(&root, service_id)
+            .expect("open selected Data journal sibling");
+        (root, journal)
     }
 
     struct JournalLockHolder {
@@ -3983,6 +4387,69 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success(), "owner-reopen child failed: {status}");
+        std::fs::read_to_string(result_path).unwrap()
+    }
+
+    fn observe_task24_data_receipt_reopen_in_fresh_process(
+        directory: &JournalDirectory,
+        expected: &super::C3DurableNormalExitReceipt,
+    ) -> String {
+        const DATA_ROOT_ENV: &str = "NAGI_TASK24_C3_REOPEN_DATA_ROOT";
+        const SERVICE_ENV: &str = "NAGI_TASK24_C3_REOPEN_SERVICE";
+        const EXPECTED_ENV: &str = "NAGI_TASK24_C3_REOPEN_RECEIPT";
+        const RESULT_ENV: &str = "NAGI_TASK24_C3_REOPEN_RESULT";
+
+        let expected_record = [
+            expected.catalog_generation().get(),
+            expected.c3_launch_generation().get(),
+            expected.launch_operation_id().get(),
+            expected.process_id().get(),
+            expected.c1_operation_id().get(),
+            expected.terminal_revision().get(),
+            expected.terminal_operation_id().get(),
+        ]
+        .map(|value| value.to_string())
+        .join(":");
+        let result_path = directory.0.join("task24-c3-fresh-process.result");
+        let test_executable = std::env::args_os().next().expect("test binary argv[0]");
+        let mut child = Command::new(test_executable)
+            .arg(
+                "linux_init::linux_init_c3_system_service_owner::tests::c3_slot_journal_child_task24_data_receipt_reopen",
+            )
+            .arg("--exact")
+            .env(DATA_ROOT_ENV, &directory.0)
+            .env(SERVICE_ENV, expected.service_id())
+            .env(EXPECTED_ENV, expected_record)
+            .env(RESULT_ENV, &result_path)
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let reap_deadline = Instant::now() + Duration::from_secs(1);
+                loop {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        panic!(
+                            "selected-Data receipt child exceeded its deadline and was terminated ({status})"
+                        );
+                    }
+                    assert!(
+                        Instant::now() < reap_deadline,
+                        "selected-Data receipt child was not reaped after termination"
+                    );
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        };
+        assert!(
+            status.success(),
+            "selected-Data receipt child failed: {status}"
+        );
         std::fs::read_to_string(result_path).unwrap()
     }
 
@@ -4337,14 +4804,6 @@ mod tests {
         }
     }
 
-    const TEST_LAUNCH_POLICY: C3LaunchPolicy = C3LaunchPolicy {
-        required: true,
-        release_wait_budget: Duration::from_secs(10),
-        cancel_check_interval: Duration::from_millis(20),
-        retirement_wait_budget: Duration::from_secs(2),
-        reaper_poll_interval: Duration::from_millis(10),
-    };
-
     fn launch(owner: &LinuxC3SystemServiceSlotOwner, scope: &FixtureScope) {
         let image = namespace_root_probe_elf();
         launch_image(owner, scope, &image).unwrap();
@@ -4355,7 +4814,19 @@ mod tests {
         scope: &FixtureScope,
         image: &[u8],
     ) -> std::io::Result<()> {
-        unsafe { owner.launch_admitted(scope, image, &[], TEST_LAUNCH_POLICY, || false) }
+        unsafe {
+            owner.launch_admitted(
+                scope,
+                image,
+                &[],
+                true,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
+                || false,
+            )
+        }
     }
 
     fn retained_owner_state(service_id: &str) -> Arc<Mutex<super::OwnerState>> {
@@ -4401,7 +4872,17 @@ mod tests {
         let image = namespace_root_probe_elf();
         unsafe {
             owner
-                .launch_and_authenticate_admitted(scope, &image, &[], TEST_LAUNCH_POLICY, || false)
+                .launch_and_authenticate_admitted(
+                    scope,
+                    &image,
+                    &[],
+                    true,
+                    Duration::from_secs(10),
+                    Duration::from_millis(20),
+                    Duration::from_secs(2),
+                    Duration::from_millis(10),
+                    || false,
+                )
                 .unwrap()
         }
     }
@@ -4434,22 +4915,22 @@ mod tests {
         stream.write_all(b"Q").unwrap();
     }
 
-    fn allow_normal_probe_to_exit(
+    fn allow_probe_to_exit_with_exit_marker(
         proof: &SystemServiceEndpointOwnerProof,
-        expected_image_marker: &[u8; 8],
+        expected_generation_marker: &[u8; 8],
     ) {
         let endpoint = proof.endpoint().unwrap().try_clone_to_owned().unwrap();
         let mut stream = UnixStream::from(endpoint);
         let mut launch_marker = [0u8; 8];
         stream.read_exact(&mut launch_marker).unwrap();
-        assert_eq!(&launch_marker, expected_image_marker);
+        assert_eq!(&launch_marker, expected_generation_marker);
         stream.write_all(b"Q").unwrap();
 
         let mut normal_exit_marker = [0u8; 8];
         stream.read_exact(&mut normal_exit_marker).unwrap();
         assert_eq!(
-            &normal_exit_marker, expected_image_marker,
-            "normal exit marker must match the executable used for this launch"
+            &normal_exit_marker, expected_generation_marker,
+            "normal exit marker must match the current launch generation"
         );
     }
 
@@ -4507,21 +4988,22 @@ mod tests {
         image
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the fixture spells out the lifecycle evidence"
+    )]
     fn finish_normal_identity_listener_lifecycle(
         owner: &LinuxC3SystemServiceSlotOwner,
         service_id: &str,
         proof: &SystemServiceEndpointOwnerProof,
         launch_token: super::LaunchToken,
-        listener_state: (
-            &Mutex<Vec<IdentityListenerEvent>>,
-            &Mutex<super::OwnerState>,
-        ),
+        events: &Arc<Mutex<Vec<IdentityListenerEvent>>>,
+        retained_state: &Arc<Mutex<super::OwnerState>>,
         launch_record: &SystemServiceLaunchRecord,
         expected_marker: &[u8; 8],
     ) {
-        let (events, retained_state) = listener_state;
         let process_id = proof.process_identity().process_id();
-        allow_normal_probe_to_exit(proof, expected_marker);
+        allow_probe_to_exit_with_exit_marker(proof, expected_marker);
 
         let reap_deadline = Instant::now() + Duration::from_secs(5);
         let mut service_exit_count = 0;
@@ -4728,7 +5210,11 @@ mod tests {
                 &scope,
                 &image,
                 &[],
-                TEST_LAUNCH_POLICY,
+                true,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
                 &mut pending_listener,
                 || false,
             )
@@ -4894,9 +5380,26 @@ mod tests {
     fn identity_listener_handoff_restarts_same_owner_after_normal_exit() {
         let service_id = "system.fixture.identity-listener-normal-restart";
         let journal_directory = JournalDirectory::new();
-        let owner = LinuxC3SystemServiceSlotOwner::create_with_journal(
+        provision_task24_data_journal_root(&journal_directory);
+        let (selected_data_root, task24_data_journal) =
+            open_task24_data_journal(&journal_directory, service_id);
+        let expected_directory =
+            std::fs::metadata(journal_directory.0.join(DATA_JOURNAL_DIRECTORY)).unwrap();
+        let retained_directory = task24_data_journal.journal_path().parent().unwrap();
+        let assert_retained_directory = || {
+            let actual = std::fs::metadata(retained_directory)
+                .expect("the journal directory FD remains live");
+            assert_eq!(
+                (actual.dev(), actual.ino()),
+                (expected_directory.dev(), expected_directory.ino()),
+                "the journal FD must refer to the selected Data directory",
+            );
+        };
+        drop(selected_data_root);
+        assert_retained_directory();
+        let owner = LinuxC3SystemServiceSlotOwner::new_with_journal(
             service_id,
-            journal_directory.journal_path(),
+            task24_data_journal.journal_path(),
         )
         .unwrap();
         let _shutdown = OwnerShutdownGuard(&owner);
@@ -4930,7 +5433,11 @@ mod tests {
                 &first_scope,
                 &first_image,
                 &[],
-                TEST_LAUNCH_POLICY,
+                true,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
                 &mut first_listener,
                 || false,
             )
@@ -5011,7 +5518,8 @@ mod tests {
             service_id,
             &first_proof,
             first_launch_token,
-            (&first_events, &retained_state),
+            &first_events,
+            &retained_state,
             &first_launch_record,
             &first_generation_marker,
         );
@@ -5073,10 +5581,18 @@ mod tests {
         let mut expired_terminal_gate =
             owner.durable_normal_exit_gate_until(&normal_exit_receipt, Instant::now());
         assert!(matches!(
-            expired_terminal_gate.with_reconciliation_gate(old_scope, first_c1_claim, || {
-                expired_callback_count.fetch_add(1, Ordering::SeqCst);
-                0
-            }),
+            expired_terminal_gate.with_journal_bound_previous_scope(
+                first_c1_claim,
+                |journal_scope| {
+                    assert_eq!(
+                        super::capture_scope(journal_scope).unwrap(),
+                        *old_scope,
+                        "the callback scope comes from C3's exact journal readback"
+                    );
+                    expired_callback_count.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, RecoveryClientError>(0)
+                }
+            ),
             Err(RecoveryClientError::OutcomeUnknown)
         ));
         assert_eq!(expired_callback_count.load(Ordering::SeqCst), 0);
@@ -5085,11 +5601,96 @@ mod tests {
             &normal_exit_receipt,
             Instant::now() + Duration::from_secs(5),
         );
+        let (validated_scope, terminal_receipt) = terminal_gate
+            .with_journal_bound_previous_scope(first_c1_claim, |journal_scope| {
+                assert_eq!(
+                    super::capture_scope(journal_scope).unwrap(),
+                    *old_scope,
+                    "C3 supplies the previous scope from its exact durable row"
+                );
+                Ok::<_, RecoveryClientError>(71)
+            })
+            .unwrap();
+        assert_eq!(validated_scope, 71);
         assert_eq!(
-            terminal_gate
-                .with_reconciliation_gate(old_scope, first_c1_claim, || 71)
-                .unwrap(),
-            71
+            C3DurableRecoverySlotReceipt::c1_operation_id(&terminal_receipt),
+            Some(first_c1_operation_id)
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&terminal_receipt),
+            C3RecoverySlotState::ClearedAndAbsent
+        );
+
+        let expected_normal_exit_receipt = normal_exit_receipt.clone();
+        let expected_next_launch_operation_id = NonZeroU64::new(
+            expected_normal_exit_receipt
+                .terminal_operation_id()
+                .get()
+                .checked_add(1)
+                .expect("the next launch operation ID must not overflow"),
+        )
+        .expect("the next launch operation ID must remain nonzero");
+        assert_retained_directory();
+        drop(_shutdown);
+        drop(owner);
+        drop(task24_data_journal);
+
+        // The PID 1 owner registry deliberately retains quiescent C3 state,
+        // including its journal and parent-directory FD, after the owner
+        // handle is dropped. This child has a fresh process registry and
+        // checks path-based receipt reopen; it does not prove teardown of all
+        // parent-process descriptors or an OS cold reboot.
+        assert_eq!(
+            observe_task24_data_receipt_reopen_in_fresh_process(
+                &journal_directory,
+                &expected_normal_exit_receipt,
+            ),
+            format!(
+                "exact-normal-exit-receipt:{}:{}",
+                expected_normal_exit_receipt.terminal_operation_id().get(),
+                expected_next_launch_operation_id.get(),
+            ),
+            "a fresh process must read the exact terminal and report its exact adjacent launch ID",
+        );
+
+        let (_selected_data_root, task24_data_journal) =
+            open_task24_data_journal(&journal_directory, service_id);
+        let owner = LinuxC3SystemServiceSlotOwner::new_with_journal(
+            service_id,
+            task24_data_journal.journal_path(),
+        )
+        .expect("reopen the existing C3 journal through the same selected Data root");
+        let _shutdown = OwnerShutdownGuard(&owner);
+        let reopened_receipt = owner
+            .latest_durable_normal_exit_scope_snapshot()
+            .expect("reopened C3 journal readback succeeds")
+            .expect("reopened C3 journal retains the exact normal terminal receipt");
+        assert!(
+            reopened_receipt == expected_normal_exit_receipt,
+            "same-Data owner reopen must return every field of the saved terminal receipt"
+        );
+        let mut reopened_terminal_gate = owner.durable_normal_exit_gate_until(
+            &expected_normal_exit_receipt,
+            Instant::now() + Duration::from_secs(5),
+        );
+        let (reopened_scope, reopened_terminal_receipt) = reopened_terminal_gate
+            .with_journal_bound_previous_scope(first_c1_claim, |journal_scope| {
+                assert_eq!(
+                    super::capture_scope(journal_scope).unwrap(),
+                    *old_scope,
+                    "reopened Data owner gate supplies the prior scope from its exact row"
+                );
+                Ok::<_, RecoveryClientError>(83)
+            })
+            .unwrap();
+        assert_eq!(reopened_scope, 83);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c1_operation_id(&reopened_terminal_receipt),
+            Some(first_c1_operation_id)
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&reopened_terminal_receipt),
+            C3RecoverySlotState::ClearedAndAbsent
         );
 
         assert!(!first_launch_record.is_live());
@@ -5105,41 +5706,56 @@ mod tests {
         );
 
         let second_generation = owner.reserve_launch_generation().unwrap();
-        assert_eq!(second_generation.get(), first_generation.get() + 1);
+        assert!(second_generation > first_generation);
+        assert!(
+            owner
+                .latest_durable_normal_exit_scope_snapshot()
+                .is_err(),
+            "the latest-only API must not report the prior terminal after reserving the next generation"
+        );
+        // Same-catalog restart must retain the exact executable. The C3
+        // generation is asserted through the admission/proof below rather
+        // than encoded by rebuilding the executable with different bytes.
+        let second_generation_marker = first_generation_marker;
+        let second_image = first_image.clone();
+        assert_eq!(first_image, second_image);
 
-        let changed_image = namespace_root_probe_elf_with_generation_marker(*b"changed!");
-        let changed_scope = FixtureScope::new_with_image(
+        let changed_executable = namespace_root_probe_elf_with_generation_marker([0xa5; 8]);
+        let changed_executable_scope = FixtureScope::new_with_image(
             service_id,
-            first_scope.catalog_generation.get(),
+            2,
             RecoveryLifecycleTransition::Initial,
             second_generation,
-            &changed_image,
+            &changed_executable,
         );
-        let error = launch_image(&owner, &changed_scope, &changed_image)
-            .expect_err("a changed executable must not restart under the same catalog");
-        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        let changed_error = launch_image(&owner, &changed_executable_scope, &changed_executable)
+            .expect_err("same-catalog restart must reject a changed executable binding");
+        assert_eq!(changed_error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert_eq!(owner.active_child_count().unwrap(), 0);
 
-        let lower_catalog_scope = FixtureScope::new_with_image(
+        let catalog_rollback = FixtureScope::new_with_image(
             service_id,
             1,
             RecoveryLifecycleTransition::Initial,
             second_generation,
-            &first_image,
+            &second_image,
         );
-        let error = launch_image(&owner, &lower_catalog_scope, &first_image)
-            .expect_err("an exact normal-exit receipt must not authorize catalog rollback");
-        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        let rollback_error = launch_image(&owner, &catalog_rollback, &second_image)
+            .expect_err("same-catalog restart proof must not permit catalog rollback");
+        assert_eq!(rollback_error.kind(), std::io::ErrorKind::PermissionDenied);
         assert_eq!(owner.active_child_count().unwrap(), 0);
-
-        let second_image = &first_image;
+        {
+            let state = retained_state.lock().unwrap();
+            assert!(state.reserved_operation.is_some());
+            assert!(state.retained_normal_exit_receipt.is_some());
+        }
         let second_scope = FixtureScope::new_with_image(
             service_id,
-            first_scope.catalog_generation.get(),
+            2,
             RecoveryLifecycleTransition::Initial,
             second_generation,
-            second_image,
+            &second_image,
         );
-        assert_ne!(second_scope.binding, first_scope.binding);
         let second_events = Arc::new(Mutex::new(Vec::new()));
         let second_launch_record_probe = Arc::new(Mutex::new(None));
         let second_owner_lock_available = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -5152,9 +5768,13 @@ mod tests {
         let second_proof = unsafe {
             owner.launch_and_authenticate_admitted_with_identity_listener(
                 &second_scope,
-                second_image,
+                &second_image,
                 &[],
-                TEST_LAUNCH_POLICY,
+                true,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
                 &mut second_listener,
                 || false,
             )
@@ -5165,6 +5785,34 @@ mod tests {
         assert!(!second_listener.pending);
         assert!(second_owner_lock_available.load(Ordering::SeqCst));
         assert_eq!(second_proof.launch_generation(), second_generation);
+        {
+            let state = retained_state.lock().unwrap();
+            assert!(state.retained_normal_exit_receipt.is_none());
+            assert!(state.reserved_operation.is_none());
+        }
+        let mut prior_terminal_gate = owner.durable_normal_exit_gate_until(
+            &expected_normal_exit_receipt,
+            Instant::now() + Duration::from_secs(5),
+        );
+        let (prior_scope_checked, prior_terminal) = prior_terminal_gate
+            .with_journal_bound_previous_scope(first_c1_claim, |journal_scope| {
+                assert_eq!(
+                    super::capture_scope(journal_scope).unwrap(),
+                    *old_scope,
+                    "the old exact terminal remains re-readable after the next Live row"
+                );
+                Ok::<_, RecoveryClientError>(97)
+            })
+            .unwrap();
+        assert_eq!(prior_scope_checked, 97);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c1_operation_id(&prior_terminal),
+            Some(first_c1_operation_id)
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&prior_terminal),
+            C3RecoverySlotState::ClearedAndAbsent
+        );
         assert!(
             !first_identity.same_instance(&second_identity),
             "the restarted generation has an independent process identity"
@@ -5178,6 +5826,11 @@ mod tests {
             assert_eq!(state.launches.len(), 1);
             let entry = super::find_launch(&state.launches, token)
                 .expect("second generation has a C3 launch entry");
+            assert_eq!(
+                entry.launch_instance_id,
+                Some(expected_next_launch_operation_id),
+                "the parent launch must use the operation ID reported as adjacent by the fresh-process readback",
+            );
             let binding = entry
                 .identity_listener
                 .as_ref()
@@ -5282,9 +5935,10 @@ mod tests {
             service_id,
             &second_proof,
             second_launch_token,
-            (&second_events, &retained_state),
+            &second_events,
+            &retained_state,
             &second_launch_record,
-            &first_generation_marker,
+            &second_generation_marker,
         );
         drop(second_proof);
 
@@ -5304,7 +5958,18 @@ mod tests {
 
     #[test]
     fn identity_listener_handoff_retires_once_after_sigill_and_rejects_old_proof_reuse() {
-        let service_id = "system.fixture.identity-listener-sigill-exit";
+        assert_sigill_listener_retirement("system.fixture.identity-listener-sigill-exit", false);
+    }
+
+    #[test]
+    fn correlated_sigill_reap_preserves_quarantine_without_normal_exit_receipt() {
+        assert_sigill_listener_retirement(
+            "system.fixture.identity-listener-correlated-sigill",
+            true,
+        );
+    }
+
+    fn assert_sigill_listener_retirement(service_id: &str, correlated: bool) {
         let journal_directory = JournalDirectory::new();
         let journal_path = journal_directory.journal_path();
         let owner =
@@ -5312,23 +5977,26 @@ mod tests {
         let _shutdown = OwnerShutdownGuard(&owner);
         let journal = owner_journal(&owner);
         let generation = owner.reserve_launch_generation().unwrap();
-        let image = namespace_root_sigill_probe_elf();
-        let scope = FixtureScope::new_with_image(
+        let scope = FixtureScope::new(
             service_id,
             1,
             RecoveryLifecycleTransition::Initial,
             generation,
-            &image,
         );
         let events = Arc::new(Mutex::new(Vec::new()));
         let retained_state = retained_owner_state(service_id);
         let mut pending_listener = RecordingPendingIdentityListener::new(Arc::clone(&events));
+        let image = namespace_root_sigill_probe_elf();
         let proof = unsafe {
             owner.launch_and_authenticate_admitted_with_identity_listener(
                 &scope,
                 &image,
                 &[],
-                TEST_LAUNCH_POLICY,
+                true,
+                Duration::from_secs(10),
+                Duration::from_millis(20),
+                Duration::from_secs(2),
+                Duration::from_millis(10),
                 &mut pending_listener,
                 || false,
             )
@@ -5358,6 +6026,13 @@ mod tests {
             token
         };
 
+        if correlated {
+            let claim =
+                C1RecoveryOperationCorrelation::new(NonZeroU64::new(77).unwrap(), scope.binding);
+            owner
+                .with_durable_live_effect_gate(&scope, &proof, claim, || ())
+                .unwrap();
+        }
         allow_probe_to_exit(&proof);
         let reap_deadline = Instant::now() + Duration::from_secs(5);
         let event = loop {
@@ -5419,17 +6094,22 @@ mod tests {
             assert!(super::find_launch(&state.launches, launch_token).is_none());
         }
 
-        let cleared_receipt = match journal.readback() {
+        let terminal_state = if correlated {
+            C3SlotState::Quarantined
+        } else {
+            C3SlotState::ClearedAndAbsent
+        };
+        let terminal_receipt = match journal.readback() {
             C3SlotJournalReadback::Committed(row) => {
                 assert_eq!(row.service_id(), service_id);
                 assert_eq!(row.catalog_generation(), 1);
                 assert_eq!(row.c3_launch_generation(), generation.get());
                 assert_eq!(row.scope_binding_digest(), &scope.binding);
-                assert_eq!(row.state(), C3SlotState::ClearedAndAbsent);
+                assert_eq!(row.state(), terminal_state);
                 (row.durable_revision(), row.operation_id())
             }
             C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
-                panic!("exact SIGILL reap did not read back its C3 cleared receipt")
+                panic!("exact SIGILL reap did not read back its C3 terminal state")
             }
         };
 
@@ -5437,16 +6117,28 @@ mod tests {
         assert_eq!(*events.lock().unwrap(), events_after_reap);
         match journal.readback() {
             C3SlotJournalReadback::Committed(row) => {
-                assert_eq!(row.state(), C3SlotState::ClearedAndAbsent);
+                assert_eq!(row.state(), terminal_state);
                 assert_eq!(
                     (row.durable_revision(), row.operation_id()),
-                    cleared_receipt,
+                    terminal_receipt,
                     "a repeated poll must not append a duplicate terminal receipt"
                 );
             }
             C3SlotJournalReadback::Empty | C3SlotJournalReadback::Unknown => {
                 panic!("SIGILL terminal receipt disappeared after a second poll")
             }
+        }
+
+        if correlated {
+            assert!(owner.latest_durable_normal_exit_scope_snapshot().is_err());
+            assert!(
+                matches!(
+                    journal.readback_for_fresh_owner(),
+                    Err(super::C3SlotJournalError::Unknown)
+                ),
+                "same-boot quarantine cannot be cleared as prior boot"
+            );
+            return;
         }
 
         let next_generation = owner.reserve_launch_generation().unwrap();
@@ -6300,6 +6992,139 @@ mod tests {
                 Err(error) => format!("rejected:{:?}", error.kind()),
             };
         std::fs::write(result_path, result).unwrap();
+    }
+
+    #[test]
+    fn c3_slot_journal_child_task24_data_receipt_reopen() {
+        const DATA_ROOT_ENV: &str = "NAGI_TASK24_C3_REOPEN_DATA_ROOT";
+        const SERVICE_ENV: &str = "NAGI_TASK24_C3_REOPEN_SERVICE";
+        const EXPECTED_ENV: &str = "NAGI_TASK24_C3_REOPEN_RECEIPT";
+        const RESULT_ENV: &str = "NAGI_TASK24_C3_REOPEN_RESULT";
+        let (Ok(data_root_path), Ok(service_id), Ok(expected_record), Ok(result_path)) = (
+            std::env::var(DATA_ROOT_ENV),
+            std::env::var(SERVICE_ENV),
+            std::env::var(EXPECTED_ENV),
+            std::env::var(RESULT_ENV),
+        ) else {
+            return;
+        };
+        let expected_values = expected_record
+            .split(':')
+            .map(str::parse::<u64>)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let expected_values: [u64; 7] = expected_values
+            .try_into()
+            .unwrap_or_else(|_| panic!("expected seven receipt identity fields"));
+        let [expected_catalog_generation, expected_c3_generation, expected_launch_operation_id, expected_process_id, expected_c1_operation_id, expected_terminal_revision, expected_terminal_operation_id] =
+            expected_values;
+
+        let selected_data_root = SelectedDataRoot::from_selected_volume(
+            std::fs::File::open(&data_root_path).expect("open the same selected Data root"),
+        )
+        .expect("validate the reopened selected Data root");
+        let task24_data_journal =
+            Task24C3DataJournalDirectory::open(&selected_data_root, &service_id)
+                .expect("reopen the existing Task24 C3 journal directory");
+        let owner = LinuxC3SystemServiceSlotOwner::new_with_journal(
+            &service_id,
+            task24_data_journal.journal_path(),
+        )
+        .expect("fresh C3 process must reopen the same selected Data journal");
+        let _shutdown = OwnerShutdownGuard(&owner);
+        let receipt = owner
+            .latest_durable_normal_exit_scope_snapshot()
+            .expect("fresh C3 process must read the terminal receipt")
+            .expect("the selected Data journal must retain the prior NormalExit");
+        assert_eq!(receipt.service_id(), service_id);
+        assert_eq!(
+            receipt.catalog_generation().get(),
+            expected_catalog_generation
+        );
+        assert_eq!(receipt.c3_launch_generation().get(), expected_c3_generation);
+        assert_eq!(
+            receipt.launch_operation_id().get(),
+            expected_launch_operation_id
+        );
+        assert_eq!(receipt.process_id().get(), expected_process_id);
+        assert_eq!(receipt.c1_operation_id().get(), expected_c1_operation_id);
+        assert_eq!(
+            receipt.terminal_revision().get(),
+            expected_terminal_revision
+        );
+        assert_eq!(
+            receipt.terminal_operation_id().get(),
+            expected_terminal_operation_id
+        );
+
+        let generation = NonZeroU64::new(expected_c3_generation).unwrap();
+        let image = namespace_root_probe_elf_with_generation_marker(generation.get().to_be_bytes());
+        let old_scope = FixtureScope::new_with_image(
+            &service_id,
+            expected_catalog_generation,
+            RecoveryLifecycleTransition::Initial,
+            generation,
+            &image,
+        );
+        let expected_scope = super::capture_scope(&old_scope).unwrap();
+        assert_eq!(receipt.scope_snapshot(), &expected_scope);
+        assert_eq!(
+            receipt.scope_binding_digest(),
+            expected_scope.binding_digest()
+        );
+
+        let correlation = C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(expected_c1_operation_id).unwrap(),
+            *receipt.scope_binding_digest(),
+        );
+        let callback_count = AtomicUsize::new(0);
+        let mut gate =
+            owner.durable_normal_exit_gate_until(&receipt, Instant::now() + Duration::from_secs(5));
+        let ((), terminal_receipt) = gate
+            .with_journal_bound_previous_scope(correlation, |journal_scope| {
+                assert_eq!(super::capture_scope(journal_scope).unwrap(), expected_scope);
+                callback_count.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, RecoveryClientError>(())
+            })
+            .expect("fresh process gate must revalidate the exact same terminal row");
+        assert_eq!(callback_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c1_operation_id(&terminal_receipt),
+            Some(correlation.operation_id())
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::service_id(&terminal_receipt),
+            service_id
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::catalog_generation(&terminal_receipt),
+            expected_catalog_generation
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::c3_launch_generation(&terminal_receipt),
+            expected_c3_generation
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::scope_binding_digest(&terminal_receipt),
+            receipt.scope_binding_digest()
+        );
+        assert_eq!(
+            C3DurableRecoverySlotReceipt::state(&terminal_receipt),
+            C3RecoverySlotState::ClearedAndAbsent
+        );
+        let next_launch_operation_id = receipt
+            .terminal_operation_id()
+            .get()
+            .checked_add(1)
+            .expect("the next launch operation ID must not overflow");
+        std::fs::write(
+            result_path,
+            format!(
+                "exact-normal-exit-receipt:{}:{next_launch_operation_id}",
+                receipt.terminal_operation_id().get(),
+            ),
+        )
+        .unwrap();
     }
 
     fn owner_journal(owner: &LinuxC3SystemServiceSlotOwner) -> Arc<super::C3SlotJournal> {

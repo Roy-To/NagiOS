@@ -1,13 +1,13 @@
 //! Start the signed Identity package through the maintained C3 owner.
 
 #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-use super::linux_init_c3_slot_journal::C3DurableNormalExitReceipt;
+use super::linux_init_c3_slot_journal::{C3DurableNormalExitReceipt, PriorBootClear};
 #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
 use super::linux_task24_c3_data_journal::Task24C3DataJournalDirectory;
 use super::{
     linux_boot_package_inputs::LinuxBootArtifactPreflight,
     linux_init_c3_slot_journal::C3DurableSlotReceipt,
-    linux_init_c3_system_service_owner::{C3LaunchPolicy, LinuxC3SystemServiceSlotOwner},
+    linux_init_c3_system_service_owner::LinuxC3SystemServiceSlotOwner,
     linux_initial_login_owner::LinuxInitialLoginOwner,
 };
 use crate::profile_volume_notes_owner::SelectedDataRoot;
@@ -47,13 +47,6 @@ pub(super) struct IdentityListenerHandoff<'a> {
 const RELEASE_BUDGET: Duration = Duration::from_secs(2);
 const RETIREMENT_BUDGET: Duration = Duration::from_secs(2);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const BOOT_LAUNCH_POLICY: C3LaunchPolicy = C3LaunchPolicy {
-    required: true,
-    release_wait_budget: RELEASE_BUDGET,
-    cancel_check_interval: POLL_INTERVAL,
-    retirement_wait_budget: RETIREMENT_BUDGET,
-    reaper_poll_interval: POLL_INTERVAL,
-};
 
 fn package_store_journal_path(package_store: &File) -> PathBuf {
     let mut journal = PathBuf::from(format!("/proc/self/fd/{}", package_store.as_raw_fd()));
@@ -75,14 +68,41 @@ pub(super) struct LinuxBootServiceOwner {
     // Capture the prior boot's proof while the journal still describes that
     // boot. The current reservation may make the latest-row API unavailable.
     #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-    previous_normal_exit: Option<C3DurableNormalExitReceipt>,
+    previous_identity_terminal: Option<PreviousIdentityTerminal>,
 }
 
 pub(super) struct LinuxBootServiceLifecycle {
     slot: SystemServiceRuntimeSlotBinding,
     process: Option<SpawnedProcessIdentity>,
     #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-    previous_normal_exit: Option<C3DurableNormalExitReceipt>,
+    previous_identity_terminal: Option<PreviousIdentityTerminal>,
+}
+
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+#[derive(Clone)]
+enum PreviousIdentityTerminal {
+    NormalExit(C3DurableNormalExitReceipt),
+    PriorBootCleared(PriorBootClear),
+}
+
+#[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
+impl PreviousIdentityTerminal {
+    fn service_and_catalog(&self) -> (&str, Option<std::num::NonZeroU64>) {
+        match self {
+            Self::NormalExit(receipt) => (receipt.service_id(), Some(receipt.catalog_generation())),
+            Self::PriorBootCleared(clear) => (
+                clear.service_id(),
+                std::num::NonZeroU64::new(clear.catalog_generation()),
+            ),
+        }
+    }
+
+    fn generation(&self) -> u64 {
+        match self {
+            Self::NormalExit(receipt) => receipt.c3_launch_generation().get(),
+            Self::PriorBootCleared(clear) => clear.cleared_generation(),
+        }
+    }
 }
 
 type RecoveredLaunch<'owner, C3, I, Attached, AttachError> = Result<
@@ -138,12 +158,17 @@ impl LinuxBootServiceOwner {
             journal,
         )?;
         #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-        let previous_normal_exit = c3.latest_durable_normal_exit_scope_snapshot()?;
+        let previous_identity_terminal = match c3.latest_durable_prior_boot_clear()? {
+            Some(clear) => Some(PreviousIdentityTerminal::PriorBootCleared(clear)),
+            None => c3
+                .latest_durable_normal_exit_scope_snapshot()?
+                .map(PreviousIdentityTerminal::NormalExit),
+        };
         #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
         validate_previous_launch_catalog(
-            previous_normal_exit
+            previous_identity_terminal
                 .as_ref()
-                .map(|receipt| (receipt.service_id(), receipt.catalog_generation())),
+                .map(PreviousIdentityTerminal::service_and_catalog),
             metadata.service_id().as_str(),
             metadata.generation(),
         )?;
@@ -154,7 +179,7 @@ impl LinuxBootServiceOwner {
             #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
             _task24_data_journal: task24_data_journal,
             #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-            previous_normal_exit,
+            previous_identity_terminal,
         })
     }
 
@@ -212,7 +237,11 @@ impl LinuxBootServiceOwner {
                         admission.scope(),
                         package.executable_bytes(),
                         listener.arguments,
-                        BOOT_LAUNCH_POLICY,
+                        true,
+                        RELEASE_BUDGET,
+                        POLL_INTERVAL,
+                        RETIREMENT_BUDGET,
+                        POLL_INTERVAL,
                         listener.pending,
                         || false,
                     )
@@ -262,7 +291,11 @@ impl LinuxBootServiceOwner {
                 admission.scope(),
                 package.executable_bytes(),
                 &[],
-                BOOT_LAUNCH_POLICY,
+                true,
+                RELEASE_BUDGET,
+                POLL_INTERVAL,
+                RETIREMENT_BUDGET,
+                POLL_INTERVAL,
                 || false,
             )
         }
@@ -294,8 +327,8 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
             }
         })?;
         #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-        let previous_normal_exit = {
-            let previous = self.previous_normal_exit.take();
+        let previous_identity_terminal = {
+            let previous = self.previous_identity_terminal.take();
             validate_previous_launch_generation(previous.as_ref(), generation)
                 .map_err(|_| ReservationError::Unavailable)?;
             previous
@@ -306,7 +339,7 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
             ),
             process: None,
             #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
-            previous_normal_exit,
+            previous_identity_terminal,
         })
     }
 
@@ -366,15 +399,17 @@ impl SystemServiceLaunchOwner for LinuxBootServiceOwner {
 
 #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
 fn validate_previous_launch_catalog(
-    previous: Option<(&str, std::num::NonZeroU64)>,
+    previous: Option<(&str, Option<std::num::NonZeroU64>)>,
     expected_service_id: &str,
     expected_catalog_generation: std::num::NonZeroU64,
 ) -> io::Result<()> {
     if let Some((service_id, catalog_generation)) = previous {
-        if service_id != expected_service_id || catalog_generation != expected_catalog_generation {
+        if service_id != expected_service_id
+            || catalog_generation.is_some_and(|catalog| catalog != expected_catalog_generation)
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "C3 previous normal-exit receipt differs from the boot catalog",
+                "C3 previous terminal differs from the boot catalog",
             ));
         }
     }
@@ -383,18 +418,18 @@ fn validate_previous_launch_catalog(
 
 #[cfg(all(linux_boot_identity_runtime, not(nagi_release_build)))]
 fn validate_previous_launch_generation(
-    previous: Option<&C3DurableNormalExitReceipt>,
+    previous: Option<&PreviousIdentityTerminal>,
     current_generation: std::num::NonZeroU64,
 ) -> io::Result<()> {
     // The C3 API returns None only for a fully validated genesis-only
     // journal, whose first launch must use generation one.
-    let previous_generation = previous.map(|receipt| receipt.c3_launch_generation().get());
+    let previous_generation = previous.map(PreviousIdentityTerminal::generation);
     if validate_previous_generation_number(previous_generation, current_generation.get()) {
         Ok(())
     } else {
         Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "C3 previous normal-exit evidence is not bound to this launch generation",
+            "C3 previous terminal is not bound to this launch generation",
         ))
     }
 }
@@ -435,20 +470,27 @@ mod previous_launch_generation_tests {
             catalog_generation,
         )
         .is_ok());
+        // A boot-tagged reservation may precede the first admitted catalog.
         assert!(validate_previous_launch_catalog(
-            Some(("service:fixture.identity", catalog_generation)),
+            Some(("service:fixture.identity", None)),
             "service:fixture.identity",
             catalog_generation,
         )
         .is_ok());
         assert!(validate_previous_launch_catalog(
-            Some(("service:fixture.other", catalog_generation)),
+            Some(("service:fixture.identity", Some(catalog_generation))),
+            "service:fixture.identity",
+            catalog_generation,
+        )
+        .is_ok());
+        assert!(validate_previous_launch_catalog(
+            Some(("service:fixture.other", Some(catalog_generation))),
             "service:fixture.identity",
             catalog_generation,
         )
         .is_err());
         assert!(validate_previous_launch_catalog(
-            Some(("service:fixture.identity", NonZeroU64::new(8).unwrap())),
+            Some(("service:fixture.identity", NonZeroU64::new(8))),
             "service:fixture.identity",
             catalog_generation,
         )

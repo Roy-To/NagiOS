@@ -133,6 +133,7 @@ pub struct ScopedNoteSession<'scope> {
 }
 
 impl<'scope> ScopedNoteSession<'scope> {
+    #[expect(clippy::too_many_arguments, reason = "keep worker and session dependencies explicit")]
     pub(crate) fn start(
         note: NoteDocument,
         store: Arc<dyn NoteStore + 'scope>,

@@ -444,21 +444,22 @@ pub trait C1SystemServiceRecoveryEffectGate {
 /// A's bridge for terminal reconciliation of an operation recorded by a
 /// previous C3 launch.
 ///
-/// Unlike [`nagi_system_service_recovery_contract::C3RecoverySlotGate`], this
-/// boundary receives both the currently verified boot scope and the older
-/// operation scope. Production implementations must hold the C3 owner gate
-/// and return a durable, read-back `C3DurableRecoverySlotReceipt` for `claim`.
-/// The callback only revalidates both scope snapshots; it must not commit the
-/// C1 journal. C1 publishes its pending journal row as reconciled only after
-/// validating the typed receipt's prior service/catalog/launch, C1 operation
-/// ID, binding digest, and `ClearedAndAbsent` state. That shared receipt
-/// attests to the durable C3 slot state; it does not expose the previous
-/// `SystemServiceLaunchRecord`, process identity, or normal exit status. If a
-/// caller requires those facts and cannot obtain them after a cold reboot, it
-/// must return `OutcomeUnknown`; C1 never infers them from an absent owner
-/// object. An unknown result leaves the pending row untouched, including when
-/// C3 reports uncertainty after the callback. This trait provides no C1
-/// authority by itself.
+/// Production implementations must hold the C3 owner gate, obtain the older
+/// scope from its durable journal row, and return a durable, read-back
+/// `C3DurableRecoverySlotReceipt` for `claim`. The C1 callback receives that
+/// owner-supplied previous scope and validates it against C1's exact durable
+/// operation before C3 may commit terminal state. Callers must not synthesize
+/// the old scope from the current boot or from C1's digest-only journal row.
+/// The callback must not commit the C1 journal. C1 publishes its pending row
+/// as reconciled only after validating the typed receipt's prior
+/// service/catalog/launch, C1 operation ID, binding digest, and
+/// `ClearedAndAbsent` state. That shared receipt attests to durable C3 slot
+/// state; it does not expose the previous `SystemServiceLaunchRecord`,
+/// process identity, or normal exit status. If a caller requires those facts
+/// and cannot obtain them after a cold reboot, it must return `OutcomeUnknown`;
+/// C1 never infers them from an absent owner object. An unknown result leaves
+/// the pending row untouched, including when C3 reports uncertainty after the
+/// callback. This trait provides no C1 authority by itself.
 #[cfg(all(
     feature = "system-service-recovery-contract",
     target_os = "linux",
@@ -467,17 +468,58 @@ pub trait C1SystemServiceRecoveryEffectGate {
 pub trait C1PreviousLaunchTerminalGate {
     type TerminalReceipt: nagi_system_service_recovery_contract::C3DurableRecoverySlotReceipt;
 
-    fn with_previous_launch_reconciliation_gate(
+    fn with_previous_launch_reconciliation_gate<R>(
         &mut self,
         current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
-        previous_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
         claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
-        revalidate_scopes: impl FnOnce() -> Result<
-            (),
+        validate_previous_scope: impl FnOnce(
+            &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+        ) -> Result<
+            R,
             nagi_system_service_recovery_contract::RecoveryClientError,
         >,
-    ) -> Result<Self::TerminalReceipt, nagi_system_service_recovery_contract::RecoveryClientError>;
+    ) -> Result<
+        (R, Self::TerminalReceipt),
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    >;
 }
+
+/// C3 owner gate for durable evidence that a prior boot was cleared.
+#[cfg(all(
+    feature = "system-service-recovery-contract",
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+pub trait C1PreviousBootTerminalGate {
+    type TerminalReceipt: nagi_system_service_recovery_contract::C3DurablePriorBootClearedReceipt;
+
+    fn with_previous_boot_reconciliation_gate<R>(
+        &mut self,
+        current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+        claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+        validate_previous_scope: impl FnOnce(
+            &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+        ) -> Result<
+            R,
+            nagi_system_service_recovery_contract::RecoveryClientError,
+        >,
+    ) -> Result<
+        (R, Self::TerminalReceipt),
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    >;
+}
+
+#[cfg(all(
+    feature = "system-service-recovery-contract",
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+type PreviousScopeValidator<'a> = dyn FnMut(
+        &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+    ) -> Result<
+        OwnedRecoveryScopeSnapshot,
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    > + 'a;
 
 #[cfg(feature = "system-service-recovery-contract")]
 trait C1TerminalReconciliationGate {
@@ -2448,27 +2490,25 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
 
     /// Reconcile an exact C1 operation from a prior C3 launch during a new
     /// boot. `current_scope` must match this adapter's current verified boot
-    /// principal exactly. `previous_scope` must carry the same service,
-    /// principal, caller context, mapping, and catalog identities at a
-    /// strictly older C3 launch generation, and its canonical digest must
-    /// match C1's durable operation row.
+    /// principal exactly. The C3 owner gate supplies the previous scope from
+    /// its durable row inside the gate callback; callers cannot synthesize it
+    /// from the current boot or C1's digest-only journal.
     ///
     /// C1 supplies the exact durable operation correlation to `gate`. The
     /// dedicated C3 owner gate must return a durable terminal slot receipt
     /// whose C1 operation ID, complete prior binding digest, service, catalog
-    /// and launch generations, and cleared/absent state all match. Scope
-    /// metadata alone never clears the journal. The shared C3 receipt does not
-    /// carry the old process identity or normal exit status; if the caller's
-    /// terminal policy requires those facts and C3 cannot prove them after a
-    /// cold reboot, the gate must return `OutcomeUnknown`. In that case C1
-    /// leaves the journal and quarantine in place. This entry point is
-    /// terminal reconciliation only; new recovery intents continue to require
-    /// the exact current scope.
+    /// and launch generations, and cleared/absent state all match the
+    /// owner-supplied previous scope. Scope metadata alone never clears the
+    /// journal. The shared C3 receipt does not carry the old process identity
+    /// or normal exit status; if the caller's terminal policy requires those
+    /// facts and C3 cannot prove them after a cold reboot, the gate must return
+    /// `OutcomeUnknown`. In that case C1 leaves the journal and quarantine in
+    /// place. This entry point is terminal reconciliation only; new recovery
+    /// intents continue to require the exact current scope.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     pub fn reconcile_previous_launch_terminal<Gate>(
         &mut self,
         current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
-        previous_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
         gate: &mut Gate,
     ) -> Result<
         C1SystemServiceRecoveryTerminalReceipt,
@@ -2483,15 +2523,85 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
         E: IdentityEventSink,
         Gate: C1PreviousLaunchTerminalGate,
     {
+        self.reconcile_previous_launch_terminal_inner(current_scope, false, |claim, validate| {
+            let (scope, receipt) =
+                gate.with_previous_launch_reconciliation_gate(current_scope, claim, |scope| {
+                    validate(scope)
+                })?;
+            if previous_launch_terminal_receipt_matches(&receipt, &scope, claim) {
+                Ok(())
+            } else {
+                Err(nagi_system_service_recovery_contract::RecoveryClientError::Rejected)
+            }
+        })
+    }
+
+    /// Close the exact C1 operation that was active in a different boot after
+    /// C3 durably records `PriorBootCleared` for its old launch. This path
+    /// accepts only a prior `RuntimeActive` journal row and an owner receipt
+    /// whose previous/current boot IDs are both valid and different. It does
+    /// not resume the old Session; the caller must consume the exact terminal
+    /// receipt, drop this issuer, reopen the same store, and only then create
+    /// the next runtime intent.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn reconcile_previous_boot_terminal<Gate>(
+        &mut self,
+        current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+        gate: &mut Gate,
+    ) -> Result<
+        C1SystemServiceRecoveryTerminalReceipt,
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    >
+    where
+        S: C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+        Gate: C1PreviousBootTerminalGate,
+    {
+        self.reconcile_previous_launch_terminal_inner(current_scope, true, |claim, validate| {
+            let (scope, receipt) =
+                gate.with_previous_boot_reconciliation_gate(current_scope, claim, |scope| {
+                    validate(scope)
+                })?;
+            if previous_boot_terminal_receipt_matches(&receipt, &scope, claim) {
+                Ok(())
+            } else {
+                Err(nagi_system_service_recovery_contract::RecoveryClientError::Rejected)
+            }
+        })
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn reconcile_previous_launch_terminal_inner(
+        &mut self,
+        current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+        prior_boot: bool,
+        confirm: impl FnOnce(
+            nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+            &mut PreviousScopeValidator<'_>,
+        )
+            -> Result<(), nagi_system_service_recovery_contract::RecoveryClientError>,
+    ) -> Result<
+        C1SystemServiceRecoveryTerminalReceipt,
+        nagi_system_service_recovery_contract::RecoveryClientError,
+    >
+    where
+        S: C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
         use nagi_system_service_recovery_contract::RecoveryClientError;
 
         let caller = self.boot_binding.ok_or(RecoveryClientError::Rejected)?;
         let current_snapshot = OwnedRecoveryScopeSnapshot::capture(current_scope);
-        let previous_snapshot = OwnedRecoveryScopeSnapshot::capture(previous_scope);
         if !current_snapshot.matches_boot_principal(caller)
             || current_snapshot.canonical_binding_digest() != current_snapshot.binding_digest
-            || !previous_snapshot.matches_previous_launch_principal(caller)
-            || previous_snapshot.canonical_binding_digest() != previous_snapshot.binding_digest
         {
             return Err(RecoveryClientError::Rejected);
         }
@@ -2501,30 +2611,59 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
         current_snapshot
             .validate_caller(&caller_principal, &caller_context)
             .map_err(|_| RecoveryClientError::Rejected)?;
-        previous_snapshot
-            .validate_caller(&caller_principal, &caller_context)
-            .map_err(|_| RecoveryClientError::Rejected)?;
         self.identity
             .authorize_recovery_with_captured_caller(caller_principal, caller_context)
             .map_err(recovery_client_error)?;
 
         self.reconcile_previous_launch_after_scope_preflight(
-            previous_scope,
-            previous_snapshot,
             current_scope,
             current_snapshot,
-            gate,
+            caller,
+            prior_boot,
+            confirm,
         )
     }
 
+    /// Consume a previous-launch terminal receipt by exact durable C1
+    /// readback. The receipt was created only after the C3 owner gate matched
+    /// the old scope to C1's operation row; no caller-supplied old scope is
+    /// needed to consume the C1 receipt. This verifies the existing terminal
+    /// row and does not start a recovery intent.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn reconcile_previous_launch_after_scope_preflight<Gate>(
+    pub fn consume_previous_launch_terminal_receipt(
         &mut self,
-        operation_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
-        operation_snapshot: OwnedRecoveryScopeSnapshot,
+        receipt: C1SystemServiceRecoveryTerminalReceipt,
+    ) -> Result<(), nagi_system_service_recovery_contract::RecoveryClientError>
+    where
+        S: C1SystemServiceRecoveryJournal,
+        I: IdentityIdSource,
+        C: Clock,
+        A: IdentityAuthorizer,
+        G: GuestProfileCleaner,
+        E: IdentityEventSink,
+    {
+        use nagi_system_service_recovery_contract::RecoveryClientError;
+
+        if self.boot_binding.is_none() {
+            return Err(RecoveryClientError::Rejected);
+        }
+        self.identity
+            .consume_reconciliation_receipt(receipt)
+            .map_err(recovery_client_error)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn reconcile_previous_launch_after_scope_preflight(
+        &mut self,
         current_boot_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
         current_boot_snapshot: OwnedRecoveryScopeSnapshot,
-        gate: &mut Gate,
+        caller: &C1VerifiedBootSystemServicePrincipal,
+        prior_boot: bool,
+        confirm: impl FnOnce(
+            nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+            &mut PreviousScopeValidator<'_>,
+        )
+            -> Result<(), nagi_system_service_recovery_contract::RecoveryClientError>,
     ) -> Result<
         C1SystemServiceRecoveryTerminalReceipt,
         nagi_system_service_recovery_contract::RecoveryClientError,
@@ -2536,7 +2675,6 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
         A: IdentityAuthorizer,
         G: GuestProfileCleaner,
         E: IdentityEventSink,
-        Gate: C1PreviousLaunchTerminalGate,
     {
         use nagi_system_service_recovery_contract::RecoveryClientError;
 
@@ -2547,17 +2685,38 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
             .map_err(map_recovery_journal_error)
             .map_err(recovery_client_error)?
             .ok_or(RecoveryClientError::Rejected)?;
-        operation_snapshot
-            .validate_operation_identity(record.operation_id, &record.binding)
-            .map_err(|_| RecoveryClientError::Rejected)?;
-
-        let outcome_digest = match &record.phase {
-            RecoveryJournalPhase::Reconciled { outcome_digest } => *outcome_digest,
-            RecoveryJournalPhase::Intent
-            | RecoveryJournalPhase::EffectStarted
-            | RecoveryJournalPhase::OutcomeUnknown
-            | RecoveryJournalPhase::RuntimeActive => {
-                system_service_terminal_outcome_digest(record.operation_id, &record.binding)
+        let outcome_digest = match prior_boot {
+            false => match &record.phase {
+                RecoveryJournalPhase::Reconciled { outcome_digest } => {
+                    if *outcome_digest
+                        == system_service_prior_boot_outcome_digest(
+                            record.operation_id,
+                            &record.binding,
+                        )
+                    {
+                        return Err(RecoveryClientError::Rejected);
+                    }
+                    *outcome_digest
+                }
+                RecoveryJournalPhase::Intent
+                | RecoveryJournalPhase::EffectStarted
+                | RecoveryJournalPhase::OutcomeUnknown
+                | RecoveryJournalPhase::RuntimeActive => {
+                    system_service_terminal_outcome_digest(record.operation_id, &record.binding)
+                }
+            },
+            true => {
+                let reboot_digest =
+                    system_service_prior_boot_outcome_digest(record.operation_id, &record.binding);
+                match &record.phase {
+                    RecoveryJournalPhase::RuntimeActive => reboot_digest,
+                    RecoveryJournalPhase::Reconciled { outcome_digest }
+                        if *outcome_digest == reboot_digest =>
+                    {
+                        reboot_digest
+                    }
+                    _ => return Err(RecoveryClientError::Rejected),
+                }
             }
         };
         let reconciliation = RecoveryReconciliation::from_journal_record(&record, outcome_digest);
@@ -2571,38 +2730,43 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
             .prepare_recovery_reconciliation(reconciliation.clone())
             .map_err(recovery_client_error)?;
 
-        let mut callback_invoked = false;
+        let caller_principal = self.caller.principal_id().clone();
+        let caller_context = self.caller.context_id().clone();
         let mut callback_error = None;
-        let gate_result = gate.with_previous_launch_reconciliation_gate(
-            current_boot_scope,
-            operation_scope,
-            claim,
-            || {
-                callback_invoked = true;
-                if previous_launch_scope_snapshots_match(
+        let mut callback_validated = false;
+        let gate_result = confirm(claim, &mut |operation_scope| {
+            let operation_snapshot = OwnedRecoveryScopeSnapshot::capture(operation_scope);
+            let scope_valid = current_boot_snapshot.matches_boot_principal(caller)
+                && operation_snapshot.matches_previous_launch_principal(caller)
+                && operation_snapshot.canonical_binding_digest()
+                    == operation_snapshot.binding_digest
+                && operation_snapshot
+                    .validate_caller(&caller_principal, &caller_context)
+                    .is_ok()
+                && operation_snapshot
+                    .validate_operation_identity(record.operation_id, &record.binding)
+                    .is_ok()
+                && previous_launch_scope_snapshots_match(
                     current_boot_scope,
                     operation_scope,
                     &current_boot_snapshot,
                     &operation_snapshot,
-                ) {
-                    Ok(())
-                } else {
-                    callback_error = Some(RecoveryClientError::Rejected);
-                    Err(RecoveryClientError::Rejected)
-                }
-            },
-        );
+                );
+            if scope_valid {
+                callback_validated = true;
+                Ok(operation_snapshot)
+            } else {
+                callback_error = Some(RecoveryClientError::Rejected);
+                Err(RecoveryClientError::Rejected)
+            }
+        });
 
-        // Always re-read both views after the C3 owner gate. Pointer aliasing
-        // does not prove that a stateful scope returned the same values for
-        // its current and previous observations.
-        let scopes_match = previous_launch_scope_snapshots_match(
-            current_boot_scope,
-            operation_scope,
-            &current_boot_snapshot,
-            &operation_snapshot,
-        );
-        if !scopes_match {
+        // The C3 receipt below is the durable re-read of the owner-supplied
+        // previous scope. Re-read the current boot view independently after
+        // the gate; a previous scope never comes from the current view.
+        let current_scope_matches =
+            OwnedRecoveryScopeSnapshot::capture(current_boot_scope) == current_boot_snapshot;
+        if !current_scope_matches {
             return if matches!(&gate_result, Err(RecoveryClientError::OutcomeUnknown))
                 || admission.is_permanently_closed()
             {
@@ -2611,21 +2775,14 @@ impl<'issuer, 'caller, S: IdentitySnapshotStore, I, C, A, G, E>
                 Err(RecoveryClientError::Rejected)
             };
         }
-        let terminal_receipt = match gate_result {
-            Ok(terminal_receipt) => terminal_receipt,
-            Err(_error) if admission.is_permanently_closed() => {
-                return Err(RecoveryClientError::OutcomeUnknown)
+        match gate_result {
+            Ok(()) => {}
+            Err(_) if admission.is_permanently_closed() => {
+                return Err(RecoveryClientError::OutcomeUnknown);
             }
             Err(error) => return Err(error),
-        };
-        if let Some(error) = callback_error {
-            return Err(error);
         }
-        if !callback_invoked {
-            return Err(RecoveryClientError::Rejected);
-        }
-        if !previous_launch_terminal_receipt_matches(&terminal_receipt, &operation_snapshot, claim)
-        {
+        if !callback_validated || callback_error.is_some() {
             return Err(RecoveryClientError::Rejected);
         }
 
@@ -3078,10 +3235,22 @@ fn previous_launch_scope_snapshots_match(
 
 #[cfg(all(
     feature = "system-service-recovery-contract",
-    target_os = "linux",
-    target_arch = "x86_64"
+    any(test, all(target_os = "linux", target_arch = "x86_64"))
 ))]
 fn previous_launch_terminal_receipt_matches(
+    receipt: &impl nagi_system_service_recovery_contract::C3DurableRecoverySlotReceipt,
+    previous_scope: &OwnedRecoveryScopeSnapshot,
+    claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+) -> bool {
+    receipt.state() == nagi_system_service_recovery_contract::C3RecoverySlotState::ClearedAndAbsent
+        && previous_terminal_receipt_correlation_matches(receipt, previous_scope, claim)
+}
+
+#[cfg(all(
+    feature = "system-service-recovery-contract",
+    any(test, all(target_os = "linux", target_arch = "x86_64"))
+))]
+fn previous_terminal_receipt_correlation_matches(
     receipt: &impl nagi_system_service_recovery_contract::C3DurableRecoverySlotReceipt,
     previous_scope: &OwnedRecoveryScopeSnapshot,
     claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
@@ -3091,14 +3260,31 @@ fn previous_launch_terminal_receipt_matches(
         && receipt.catalog_generation() == previous_scope.catalog_generation.get()
         && receipt.c3_launch_generation() == previous_scope.c3_launch_generation.get()
         && receipt.scope_binding_digest() == &previous_scope.binding_digest
-        && receipt.state()
-            == nagi_system_service_recovery_contract::C3RecoverySlotState::ClearedAndAbsent
+        && receipt.scope_binding_digest() == claim.binding_digest()
+}
+
+#[cfg(all(
+    feature = "system-service-recovery-contract",
+    any(test, all(target_os = "linux", target_arch = "x86_64"))
+))]
+fn previous_boot_terminal_receipt_matches(
+    receipt: &impl nagi_system_service_recovery_contract::C3DurablePriorBootClearedReceipt,
+    previous_scope: &OwnedRecoveryScopeSnapshot,
+    claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+) -> bool {
+    receipt.state() == nagi_system_service_recovery_contract::C3RecoverySlotState::PriorBootCleared
+        && previous_terminal_receipt_correlation_matches(receipt, previous_scope, claim)
+        && OwnedRecoveryScopeSnapshot::capture(receipt.previous_scope()) == *previous_scope
+        && receipt.previous_boot_id() != &[0; 16]
+        && receipt.current_boot_id() != &[0; 16]
+        && receipt.previous_boot_id() != receipt.current_boot_id()
 }
 
 #[cfg(all(test, feature = "system-service-recovery-contract"))]
 mod recovery_boot_scope_identity_tests {
     use super::{
-        previous_launch_scope_snapshots_match, OwnedRecoveryScopeSnapshot,
+        previous_boot_terminal_receipt_matches, previous_launch_scope_snapshots_match,
+        previous_launch_terminal_receipt_matches, OwnedRecoveryScopeSnapshot,
         RecoveryBootScopeIdentity,
     };
     use nagi_system_service_recovery_contract::{
@@ -3140,6 +3326,7 @@ mod recovery_boot_scope_identity_tests {
         assert!(!different_service.is_prior_launch_of(&current));
     }
 
+    #[derive(Clone)]
     struct ScopeFixture {
         generation: NonZeroU64,
         binding_digest: [u8; 32],
@@ -3239,6 +3426,267 @@ mod recovery_boot_scope_identity_tests {
 
         fn binding_digest(&self) -> &[u8; 32] {
             &self.binding_digest
+        }
+    }
+
+    #[derive(Clone)]
+    struct TerminalReceiptFixture {
+        previous_scope: ScopeFixture,
+        c1_operation_id: Option<NonZeroU64>,
+        service_id: String,
+        catalog_generation: u64,
+        c3_launch_generation: u64,
+        scope_binding_digest: [u8; 32],
+        state: nagi_system_service_recovery_contract::C3RecoverySlotState,
+        boot_ids: ([u8; 16], [u8; 16]),
+    }
+
+    impl nagi_system_service_recovery_contract::C3DurableRecoverySlotReceipt
+        for TerminalReceiptFixture
+    {
+        fn c1_operation_id(&self) -> Option<NonZeroU64> {
+            self.c1_operation_id
+        }
+
+        fn service_id(&self) -> &str {
+            &self.service_id
+        }
+
+        fn catalog_generation(&self) -> u64 {
+            self.catalog_generation
+        }
+
+        fn c3_launch_generation(&self) -> u64 {
+            self.c3_launch_generation
+        }
+
+        fn scope_binding_digest(&self) -> &[u8; 32] {
+            &self.scope_binding_digest
+        }
+
+        fn state(&self) -> nagi_system_service_recovery_contract::C3RecoverySlotState {
+            self.state
+        }
+    }
+
+    impl nagi_system_service_recovery_contract::C3DurablePriorBootClearedReceipt
+        for TerminalReceiptFixture
+    {
+        fn previous_scope(
+            &self,
+        ) -> &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope
+        {
+            &self.previous_scope
+        }
+        fn previous_boot_id(&self) -> &[u8; 16] {
+            &self.boot_ids.0
+        }
+        fn current_boot_id(&self) -> &[u8; 16] {
+            &self.boot_ids.1
+        }
+        fn previous_c3_launch_instance_id(&self) -> NonZeroU64 {
+            NonZeroU64::MIN
+        }
+    }
+
+    #[test]
+    fn same_catalog_successor_recomputes_scope_digest_and_keeps_old_terminal_claim() {
+        use nagi_system_service_recovery_contract::{
+            C1RecoveryOperationCorrelation, C3RecoverySlotState,
+        };
+
+        let previous = ScopeFixture::new(17);
+        let current = ScopeFixture::new(18);
+        let previous_snapshot = OwnedRecoveryScopeSnapshot::capture(&previous);
+        let current_snapshot = OwnedRecoveryScopeSnapshot::capture(&current);
+
+        assert_eq!(previous.package_id(), current.package_id());
+        assert_eq!(
+            previous.signed_package_sha256(),
+            current.signed_package_sha256()
+        );
+        assert_eq!(previous.executable_sha256(), current.executable_sha256());
+        assert!(RecoveryBootScopeIdentity::from(&previous_snapshot)
+            .is_prior_launch_of(&RecoveryBootScopeIdentity::from(&current_snapshot)));
+        assert!(previous_launch_scope_snapshots_match(
+            &current,
+            &previous,
+            &current_snapshot,
+            &previous_snapshot,
+        ));
+        assert_eq!(
+            nagi_system_service_recovery_contract::canonical_recovery_binding_digest_from_scope(
+                &previous,
+            ),
+            previous.binding_digest
+        );
+        assert_eq!(
+            nagi_system_service_recovery_contract::canonical_recovery_binding_digest_from_scope(
+                &current,
+            ),
+            current.binding_digest
+        );
+        assert_ne!(
+            previous.binding_digest, current.binding_digest,
+            "the next C3 generation changes the full scope digest even with identical package and executable bindings"
+        );
+
+        let previous_claim = C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(41).unwrap(),
+            previous.binding_digest,
+        );
+        let current_claim = C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(42).unwrap(),
+            current.binding_digest,
+        );
+        let previous_receipt = TerminalReceiptFixture {
+            c1_operation_id: Some(NonZeroU64::new(41).unwrap()),
+            service_id: previous.service_id().to_owned(),
+            catalog_generation: previous.catalog_generation().get(),
+            c3_launch_generation: previous.c3_launch_generation().get(),
+            scope_binding_digest: previous.binding_digest,
+            state: C3RecoverySlotState::ClearedAndAbsent,
+            previous_scope: previous.clone(),
+            boot_ids: ([0; 16], [0; 16]),
+        };
+
+        assert!(previous_launch_terminal_receipt_matches(
+            &previous_receipt,
+            &previous_snapshot,
+            previous_claim,
+        ));
+        assert!(
+            !previous_launch_terminal_receipt_matches(
+                &previous_receipt,
+                &current_snapshot,
+                current_claim,
+            ),
+            "a terminal row for the old C1 operation and C3 generation cannot confirm the next C1 operation"
+        );
+    }
+
+    #[test]
+    fn previous_launch_terminal_receipt_requires_exact_operation_and_scope() {
+        use nagi_system_service_recovery_contract::{
+            C1RecoveryOperationCorrelation, C3RecoverySlotState,
+        };
+
+        let previous = ScopeFixture::new(17);
+        let snapshot = OwnedRecoveryScopeSnapshot::capture(&previous);
+        let claim = C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(41).unwrap(),
+            previous.binding_digest,
+        );
+        let exact = TerminalReceiptFixture {
+            c1_operation_id: Some(NonZeroU64::new(41).unwrap()),
+            service_id: "service:fixture.identity".to_owned(),
+            catalog_generation: 9,
+            c3_launch_generation: 17,
+            scope_binding_digest: previous.binding_digest,
+            state: C3RecoverySlotState::ClearedAndAbsent,
+            previous_scope: previous.clone(),
+            boot_ids: ([0; 16], [0; 16]),
+        };
+
+        assert!(previous_launch_terminal_receipt_matches(
+            &exact, &snapshot, claim,
+        ));
+        let wrong_binding_claim =
+            C1RecoveryOperationCorrelation::new(NonZeroU64::new(41).unwrap(), [0x77; 32]);
+        assert!(
+            !previous_launch_terminal_receipt_matches(&exact, &snapshot, wrong_binding_claim,),
+            "the receipt must match the binding digest in C1's exact claim"
+        );
+
+        let mut wrong_operation = exact.clone();
+        wrong_operation.c1_operation_id = Some(NonZeroU64::new(42).unwrap());
+        let mut missing_operation = exact.clone();
+        missing_operation.c1_operation_id = None;
+        let mut wrong_service = exact.clone();
+        wrong_service.service_id = "service:other".to_owned();
+        let mut wrong_catalog = exact.clone();
+        wrong_catalog.catalog_generation += 1;
+        let mut wrong_launch = exact.clone();
+        wrong_launch.c3_launch_generation += 1;
+        let mut wrong_digest = exact.clone();
+        wrong_digest.scope_binding_digest[0] ^= 0x80;
+        let mut live = exact.clone();
+        live.state = C3RecoverySlotState::Live;
+        let mut quarantined = exact.clone();
+        quarantined.state = C3RecoverySlotState::Quarantined;
+        let mut unknown = exact;
+        unknown.state = C3RecoverySlotState::Unknown;
+
+        for mismatch in [
+            wrong_operation,
+            missing_operation,
+            wrong_service,
+            wrong_catalog,
+            wrong_launch,
+            wrong_digest,
+            live,
+            quarantined,
+            unknown,
+        ] {
+            assert!(
+                !previous_launch_terminal_receipt_matches(&mismatch, &snapshot, claim),
+                "C1 must reject any C3 receipt that does not exactly confirm this prior operation and scope"
+            );
+        }
+    }
+
+    #[test]
+    fn prior_boot_terminal_receipt_requires_exact_claim_and_distinct_boot_ids() {
+        use nagi_system_service_recovery_contract::{
+            C1RecoveryOperationCorrelation, C3RecoverySlotState,
+        };
+
+        let previous = ScopeFixture::new(17);
+        let snapshot = OwnedRecoveryScopeSnapshot::capture(&previous);
+        let claim = C1RecoveryOperationCorrelation::new(
+            NonZeroU64::new(41).unwrap(),
+            previous.binding_digest,
+        );
+        let exact = TerminalReceiptFixture {
+            c1_operation_id: Some(NonZeroU64::new(41).unwrap()),
+            service_id: "service:fixture.identity".to_owned(),
+            catalog_generation: 9,
+            c3_launch_generation: 17,
+            scope_binding_digest: previous.binding_digest,
+            state: C3RecoverySlotState::PriorBootCleared,
+            previous_scope: previous.clone(),
+            boot_ids: ([0x11; 16], [0x22; 16]),
+        };
+
+        assert!(previous_boot_terminal_receipt_matches(
+            &exact, &snapshot, claim,
+        ));
+
+        let mut wrong_operation = exact.clone();
+        wrong_operation.c1_operation_id = Some(NonZeroU64::new(42).unwrap());
+        let mut same_boot = exact.clone();
+        same_boot.boot_ids.1 = same_boot.boot_ids.0;
+        let mut zero_old_boot = exact.clone();
+        zero_old_boot.boot_ids.0 = [0; 16];
+        let mut normal_exit = exact.clone();
+        normal_exit.state = C3RecoverySlotState::ClearedAndAbsent;
+        let mut wrong_scope = exact.clone();
+        wrong_scope.previous_scope = ScopeFixture::new(16);
+        let mut live = exact;
+        live.state = C3RecoverySlotState::Live;
+
+        for mismatch in [
+            wrong_operation,
+            same_boot,
+            zero_old_boot,
+            normal_exit,
+            wrong_scope,
+            live,
+        ] {
+            assert!(
+                !previous_boot_terminal_receipt_matches(&mismatch, &snapshot, claim),
+                "C1 must reject a non-exact claim or any receipt that does not prove a distinct prior boot"
+            );
         }
     }
 
@@ -3427,6 +3875,20 @@ fn system_service_terminal_outcome_digest(
 
     let mut digest = sha2::Sha256::new();
     digest.update(b"NAGI-C1-SYSTEM-SERVICE-RECOVERY-TERMINAL\0\x01");
+    digest.update(operation_id.get().to_be_bytes());
+    digest.update(binding.digest_bytes());
+    digest.finalize().into()
+}
+
+#[cfg(feature = "system-service-recovery-contract")]
+fn system_service_prior_boot_outcome_digest(
+    operation_id: crate::store::RecoveryOperationId,
+    binding: &RecoveryBinding,
+) -> [u8; 32] {
+    use sha2::Digest;
+
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"NAGI-C1-SYSTEM-SERVICE-RECOVERY-PRIOR-BOOT-TERMINAL\0\x01");
     digest.update(operation_id.get().to_be_bytes());
     digest.update(binding.digest_bytes());
     digest.finalize().into()
@@ -5675,7 +6137,7 @@ where
         session_id: &SessionId,
     ) -> Result<EndSessionResult, IdentityError> {
         self.ensure_recovered()?;
-        self.end_session_after_admission(caller, session_id)
+        self.end_session_after_admission(caller, session_id, SessionEndReason::UserLogout)
     }
 
     /// End one issued interactive Session while its exact system-service
@@ -5702,7 +6164,7 @@ where
         S: C1SystemServiceRecoveryJournal,
     {
         self.validate_system_service_runtime_admission(admission)?;
-        self.end_session_after_admission(caller, session_id)
+        self.end_session_after_admission(caller, session_id, SessionEndReason::UserLogout)
     }
 
     /// Roll back the exact first-login Session owned by C1's still-pending
@@ -5731,13 +6193,33 @@ where
         if admission.operation_identity() != operation_identity {
             return Err(IdentityError::StoreUnavailable);
         }
-        self.end_session_after_admission(caller, session_id)
+        self.end_session_after_admission(caller, session_id, SessionEndReason::UserLogout)
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        feature = "linux-interactive-account",
+        target_os = "linux",
+        target_arch = "x86_64"
+    ))]
+    pub(crate) fn revoke_session_with_runtime_admission(
+        &mut self,
+        caller: &(impl AuthenticatedInteractiveCaller + ?Sized),
+        session_id: &SessionId,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<EndSessionResult, IdentityError>
+    where
+        S: C1SystemServiceRecoveryJournal,
+    {
+        self.validate_system_service_runtime_admission(admission)?;
+        self.end_session_after_admission(caller, session_id, SessionEndReason::Revoked)
     }
 
     fn end_session_after_admission(
         &mut self,
         caller: &(impl AuthenticatedInteractiveCaller + ?Sized),
         session_id: &SessionId,
+        reason: SessionEndReason,
     ) -> Result<EndSessionResult, IdentityError> {
         let session = self
             .snapshot
@@ -5768,7 +6250,7 @@ where
                 // published in active_by_caller or receives a live lease.
                 // The owner may retry durable cancellation, but the lease-less
                 // record is never accepted as current authority.
-                return self.end_record(&caller_key, session_id, SessionEndReason::UserLogout);
+                return self.end_record(&caller_key, session_id, reason);
             }
             if let Some(profile_id) = self
                 .snapshot
@@ -5785,7 +6267,7 @@ where
             }
             return Ok(EndSessionResult::AlreadyEnded);
         }
-        self.end_record(&caller_key, session_id, SessionEndReason::UserLogout)
+        self.end_record(&caller_key, session_id, reason)
     }
 
     /// End one durable Session and then synchronously release only its root
@@ -6960,21 +7442,25 @@ mod durable_store_failure_tests {
         callbacks: usize,
         observed_claim:
             Option<nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation>,
+        boot_ids: ([u8; 16], [u8; 16]),
     }
 
     #[cfg(feature = "system-service-recovery-contract")]
-    struct SyntheticC3PriorLaunchTerminalReceipt {
+    struct SyntheticC3PriorLaunchTerminalReceipt<'scope> {
+        previous_scope:
+            &'scope dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
         c1_operation_id: Option<NonZeroU64>,
         service_id: String,
         catalog_generation: u64,
         c3_launch_generation: u64,
         scope_binding_digest: [u8; 32],
         state: nagi_system_service_recovery_contract::C3RecoverySlotState,
+        boot_ids: ([u8; 16], [u8; 16]),
     }
 
     #[cfg(feature = "system-service-recovery-contract")]
     impl nagi_system_service_recovery_contract::C3DurableRecoverySlotReceipt
-        for SyntheticC3PriorLaunchTerminalReceipt
+        for SyntheticC3PriorLaunchTerminalReceipt<'_>
     {
         fn c1_operation_id(&self) -> Option<NonZeroU64> {
             self.c1_operation_id
@@ -7002,6 +7488,27 @@ mod durable_store_failure_tests {
     }
 
     #[cfg(feature = "system-service-recovery-contract")]
+    impl nagi_system_service_recovery_contract::C3DurablePriorBootClearedReceipt
+        for SyntheticC3PriorLaunchTerminalReceipt<'_>
+    {
+        fn previous_scope(
+            &self,
+        ) -> &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope
+        {
+            self.previous_scope
+        }
+        fn previous_boot_id(&self) -> &[u8; 16] {
+            &self.boot_ids.0
+        }
+        fn current_boot_id(&self) -> &[u8; 16] {
+            &self.boot_ids.1
+        }
+        fn previous_c3_launch_instance_id(&self) -> NonZeroU64 {
+            NonZeroU64::MIN
+        }
+    }
+
+    #[cfg(feature = "system-service-recovery-contract")]
     impl<'scope> ConfirmedPriorLaunchC3GateFixture<'scope> {
         fn new(
             current_scope: &'scope dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
@@ -7013,33 +7520,46 @@ mod durable_store_failure_tests {
                 invocations: 0,
                 callbacks: 0,
                 observed_claim: None,
+                boot_ids: ([0; 16], [0; 16]),
             }
+        }
+
+        fn prior_boot_clear(
+            current_scope: &'scope dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            previous_scope: &'scope dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            previous_boot_id: [u8; 16],
+            current_boot_id: [u8; 16],
+        ) -> Self {
+            let mut gate = Self::new(current_scope, previous_scope);
+            gate.boot_ids = (previous_boot_id, current_boot_id);
+            gate
         }
     }
 
     #[cfg(feature = "system-service-recovery-contract")]
-    impl C1PreviousLaunchTerminalGate for ConfirmedPriorLaunchC3GateFixture<'_> {
-        type TerminalReceipt = SyntheticC3PriorLaunchTerminalReceipt;
+    impl<'scope> C1PreviousLaunchTerminalGate for ConfirmedPriorLaunchC3GateFixture<'scope> {
+        type TerminalReceipt = SyntheticC3PriorLaunchTerminalReceipt<'scope>;
 
-        fn with_previous_launch_reconciliation_gate(
+        fn with_previous_launch_reconciliation_gate<R>(
             &mut self,
             current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
-            previous_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
             claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
-            revalidate_scopes: impl FnOnce() -> Result<
-                (),
+            validate_previous_scope: impl FnOnce(
+                &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            ) -> Result<
+                R,
                 nagi_system_service_recovery_contract::RecoveryClientError,
             >,
-        ) -> Result<Self::TerminalReceipt, nagi_system_service_recovery_contract::RecoveryClientError>
-        {
+        ) -> Result<
+            (R, Self::TerminalReceipt),
+            nagi_system_service_recovery_contract::RecoveryClientError,
+        > {
             use nagi_system_service_recovery_contract::RecoveryClientError;
-            if !std::ptr::eq(current_scope, self.current_scope)
-                || !std::ptr::eq(previous_scope, self.previous_scope)
-            {
+            if !std::ptr::eq(current_scope, self.current_scope) {
                 return Err(RecoveryClientError::Rejected);
             }
             let current = OwnedRecoveryScopeSnapshot::capture(current_scope);
-            let previous = OwnedRecoveryScopeSnapshot::capture(previous_scope);
+            let previous = OwnedRecoveryScopeSnapshot::capture(self.previous_scope);
             if current.c3_launch_generation <= previous.c3_launch_generation {
                 return Err(RecoveryClientError::Rejected);
             }
@@ -7049,16 +7569,48 @@ mod durable_store_failure_tests {
             // invoking the callback and returning the typed slot receipt.
             self.invocations += 1;
             self.observed_claim = Some(claim);
-            revalidate_scopes()?;
+            let validated_scope = validate_previous_scope(self.previous_scope)?;
             self.callbacks += 1;
-            Ok(SyntheticC3PriorLaunchTerminalReceipt {
+            let receipt = SyntheticC3PriorLaunchTerminalReceipt {
                 c1_operation_id: Some(claim.operation_id()),
-                service_id: previous_scope.service_id().to_owned(),
-                catalog_generation: previous_scope.catalog_generation().get(),
-                c3_launch_generation: previous_scope.c3_launch_generation().get(),
-                scope_binding_digest: *previous_scope.binding_digest(),
+                service_id: self.previous_scope.service_id().to_owned(),
+                catalog_generation: self.previous_scope.catalog_generation().get(),
+                c3_launch_generation: self.previous_scope.c3_launch_generation().get(),
+                scope_binding_digest: *self.previous_scope.binding_digest(),
                 state: nagi_system_service_recovery_contract::C3RecoverySlotState::ClearedAndAbsent,
-            })
+                previous_scope: self.previous_scope,
+                boot_ids: self.boot_ids,
+            };
+            Ok((validated_scope, receipt))
+        }
+    }
+
+    #[cfg(feature = "system-service-recovery-contract")]
+    impl<'scope> C1PreviousBootTerminalGate for ConfirmedPriorLaunchC3GateFixture<'scope> {
+        type TerminalReceipt = SyntheticC3PriorLaunchTerminalReceipt<'scope>;
+
+        fn with_previous_boot_reconciliation_gate<R>(
+            &mut self,
+            current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
+            validate_previous_scope: impl FnOnce(
+                &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            ) -> Result<
+                R,
+                nagi_system_service_recovery_contract::RecoveryClientError,
+            >,
+        ) -> Result<
+            (R, Self::TerminalReceipt),
+            nagi_system_service_recovery_contract::RecoveryClientError,
+        > {
+            let (validated, mut receipt) = self.with_previous_launch_reconciliation_gate(
+                current_scope,
+                claim,
+                validate_previous_scope,
+            )?;
+            receipt.state =
+                nagi_system_service_recovery_contract::C3RecoverySlotState::PriorBootCleared;
+            Ok((validated, receipt))
         }
     }
 
@@ -7088,31 +7640,32 @@ mod durable_store_failure_tests {
     }
 
     #[cfg(feature = "system-service-recovery-contract")]
-    impl C1PreviousLaunchTerminalGate for UnknownPriorLaunchC3GateFixture<'_> {
-        type TerminalReceipt = SyntheticC3PriorLaunchTerminalReceipt;
+    impl<'scope> C1PreviousBootTerminalGate for UnknownPriorLaunchC3GateFixture<'scope> {
+        type TerminalReceipt = SyntheticC3PriorLaunchTerminalReceipt<'scope>;
 
-        fn with_previous_launch_reconciliation_gate(
+        fn with_previous_boot_reconciliation_gate<R>(
             &mut self,
             current_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
-            previous_scope: &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
             _claim: nagi_system_service_recovery_contract::C1RecoveryOperationCorrelation,
-            revalidate_scopes: impl FnOnce() -> Result<
-                (),
+            validate_previous_scope: impl FnOnce(
+                &dyn nagi_system_service_recovery_contract::SystemServiceRecoveryAdmissionScope,
+            ) -> Result<
+                R,
                 nagi_system_service_recovery_contract::RecoveryClientError,
             >,
-        ) -> Result<Self::TerminalReceipt, nagi_system_service_recovery_contract::RecoveryClientError>
-        {
+        ) -> Result<
+            (R, Self::TerminalReceipt),
+            nagi_system_service_recovery_contract::RecoveryClientError,
+        > {
             use nagi_system_service_recovery_contract::RecoveryClientError;
-            if !std::ptr::eq(current_scope, self.current_scope)
-                || !std::ptr::eq(previous_scope, self.previous_scope)
-            {
+            if !std::ptr::eq(current_scope, self.current_scope) {
                 return Err(RecoveryClientError::Rejected);
             }
             self.invocations += 1;
             // Exercise the post-callback uncertain C3 receipt/readback order.
             // This callback may only validate scopes; C1 storage publication
             // happens after a typed confirmation is returned.
-            revalidate_scopes()?;
+            let _validated_scope = validate_previous_scope(self.previous_scope)?;
             self.callbacks += 1;
             Err(RecoveryClientError::OutcomeUnknown)
         }
@@ -9848,6 +10401,25 @@ mod durable_store_failure_tests {
     ))]
     #[test]
     fn runtime_admission_persists_first_owner_and_initial_session() {
+        runtime_admission_session_fixture(false);
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        feature = "linux-interactive-account",
+        target_arch = "x86_64"
+    ))]
+    #[test]
+    fn runtime_revocation_stays_revoked_after_logout_retry_and_reopen() {
+        runtime_admission_session_fixture(true);
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        feature = "linux-interactive-account",
+        target_arch = "x86_64"
+    ))]
+    fn runtime_admission_session_fixture(revoke: bool) {
         use std::os::unix::net::UnixStream;
 
         let directory = DurableTestDirectory::new();
@@ -9957,6 +10529,22 @@ mod durable_store_failure_tests {
                 && matches!(session.lifecycle, SessionLifecycle::Active)
         }));
 
+        if revoke {
+            let lease = attached
+                .checked_context_with_runtime_admission(&mut identity, &admission)
+                .unwrap()
+                .revalidation_handle()
+                .unwrap();
+            assert_eq!(
+                attached.revoke_session_with_runtime_admission(&mut identity, &admission),
+                Ok(EndSessionResult::Ended)
+            );
+            assert!(lease.check_live().is_err());
+            assert_eq!(
+                attached.end_session_with_runtime_admission(&mut identity, &admission),
+                Ok(EndSessionResult::AlreadyEnded)
+            );
+        }
         drop(admission);
         drop(identity);
         let reopened_store = LinuxIdentitySnapshotStore::open(directory.open()).unwrap();
@@ -9972,10 +10560,20 @@ mod durable_store_failure_tests {
         assert_eq!(snapshot.profiles[0].owner_user_id, Some(user_id));
         assert_eq!(snapshot.profiles[0].metadata.display_name, "fixture-owner");
         assert_eq!(snapshot.sessions[0].session_id, session_id);
-        assert!(matches!(
-            snapshot.sessions[0].lifecycle,
-            SessionLifecycle::Active
-        ));
+        if revoke {
+            assert!(matches!(
+                snapshot.sessions[0].lifecycle,
+                SessionLifecycle::Ended {
+                    reason: SessionEndReason::Revoked,
+                    ..
+                }
+            ));
+        } else {
+            assert!(matches!(
+                snapshot.sessions[0].lifecycle,
+                SessionLifecycle::Active
+            ));
+        }
     }
 
     #[cfg(all(
@@ -14196,8 +14794,6 @@ mod durable_store_failure_tests {
     ))]
     #[test]
     fn previous_launch_terminal_receipt_recovers_pre_session_login_rejection() {
-        use nagi_system_service_recovery_contract::C1RecoveryReceiptClient as _;
-
         let directory = DurableTestDirectory::new();
         let old_principal = verified_test_principal(17);
         let previous_scope = TestRecoveryScope::new(17, &old_principal);
@@ -14263,11 +14859,7 @@ mod durable_store_failure_tests {
                     &current_principal,
                 );
             adapter
-                .reconcile_previous_launch_terminal(
-                    current_scope_ref,
-                    previous_scope_ref,
-                    &mut c3_gate,
-                )
+                .reconcile_previous_launch_terminal(current_scope_ref, &mut c3_gate)
                 .unwrap()
         };
         assert_eq!(c3_gate.invocations, 1);
@@ -14300,7 +14892,7 @@ mod durable_store_failure_tests {
                     &current_principal,
                 );
             adapter
-                .consume_terminal_receipt(previous_scope_ref, receipt)
+                .consume_previous_launch_terminal_receipt(receipt)
                 .unwrap();
         }
         drop(current_identity);
@@ -14366,9 +14958,7 @@ mod durable_store_failure_tests {
     #[test]
     fn previous_launch_terminal_store_write_failure_returns_unknown_and_exact_reopen_readback_recovers(
     ) {
-        use nagi_system_service_recovery_contract::{
-            C1RecoveryReceiptClient as _, RecoveryClientError,
-        };
+        use nagi_system_service_recovery_contract::RecoveryClientError;
 
         let directory = DurableTestDirectory::new();
         let old_principal = verified_test_principal(47);
@@ -14419,11 +15009,7 @@ mod durable_store_failure_tests {
                     &mut current_identity,
                     &current_principal,
                 );
-            adapter.reconcile_previous_launch_terminal(
-                current_scope_ref,
-                previous_scope_ref,
-                &mut first_c3_gate,
-            )
+            adapter.reconcile_previous_launch_terminal(current_scope_ref, &mut first_c3_gate)
         };
         assert_eq!(first_result, Err(RecoveryClientError::OutcomeUnknown));
         assert_eq!(first_c3_gate.invocations, 1);
@@ -14478,11 +15064,7 @@ mod durable_store_failure_tests {
                     &current_principal,
                 );
             adapter
-                .reconcile_previous_launch_terminal(
-                    current_scope_ref,
-                    previous_scope_ref,
-                    &mut retry_c3_gate,
-                )
+                .reconcile_previous_launch_terminal(current_scope_ref, &mut retry_c3_gate)
                 .unwrap()
         };
         assert_eq!(retry_c3_gate.invocations, 1);
@@ -14494,7 +15076,7 @@ mod durable_store_failure_tests {
                     &current_principal,
                 );
             adapter
-                .consume_terminal_receipt(previous_scope_ref, receipt)
+                .consume_previous_launch_terminal_receipt(receipt)
                 .unwrap();
         }
         assert!(reopened_identity.store.recovery_quarantined().unwrap());
@@ -14539,8 +15121,26 @@ mod durable_store_failure_tests {
         target_arch = "x86_64"
     ))]
     #[test]
+    fn prior_boot_clear_ends_initial_session_and_recovers_after_power_loss() {
+        interrupted_initial_session_ends_on_boot(true);
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        feature = "linux-interactive-account",
+        target_arch = "x86_64"
+    ))]
+    #[test]
     fn previous_launch_terminal_receipt_ends_unattached_initial_session_on_boot() {
-        use nagi_system_service_recovery_contract::C1RecoveryReceiptClient as _;
+        interrupted_initial_session_ends_on_boot(false);
+    }
+
+    #[cfg(all(
+        feature = "system-service-recovery-contract",
+        feature = "linux-interactive-account",
+        target_arch = "x86_64"
+    ))]
+    fn interrupted_initial_session_ends_on_boot(prior_boot: bool) {
         use std::os::unix::net::UnixStream;
 
         let directory = DurableTestDirectory::new();
@@ -14601,6 +15201,12 @@ mod durable_store_failure_tests {
             session.session_id == session_id
                 && matches!(session.lifecycle, SessionLifecycle::Active)
         }));
+        let old_record = old_identity
+            .store
+            .recovery_journal_record()
+            .unwrap()
+            .unwrap();
+        assert_eq!(old_record.phase, RecoveryJournalPhase::RuntimeActive);
         drop(pending);
         drop(admission);
         drop(old_identity);
@@ -14614,23 +15220,30 @@ mod durable_store_failure_tests {
         let current_store = LinuxIdentitySnapshotStore::open(directory.open()).unwrap();
         let (mut current_identity, _current_events) =
             crate::c1_linux_boot_identity_service_from_store(current_store, &current_principal);
-        let mut c3_gate =
-            ConfirmedPriorLaunchC3GateFixture::new(current_scope_ref, previous_scope_ref);
+        let mut c3_gate = ConfirmedPriorLaunchC3GateFixture::prior_boot_clear(
+            current_scope_ref,
+            previous_scope_ref,
+            [0x11; 16],
+            [0x22; 16],
+        );
         let receipt = {
             let mut adapter =
                 C1SystemServiceRecoveryReceiptAdapter::new_for_verified_boot_principal(
                     &mut current_identity,
                     &current_principal,
                 );
-            adapter
-                .reconcile_previous_launch_terminal(
-                    current_scope_ref,
-                    previous_scope_ref,
-                    &mut c3_gate,
-                )
-                .unwrap()
+            if prior_boot {
+                adapter.reconcile_previous_boot_terminal(current_scope_ref, &mut c3_gate)
+            } else {
+                adapter.reconcile_previous_launch_terminal(current_scope_ref, &mut c3_gate)
+            }
+            .unwrap()
         };
         assert_eq!(c3_gate.callbacks, 1);
+        assert_eq!(
+            c3_gate.observed_claim.unwrap().operation_id(),
+            NonZeroU64::new(old_record.operation_id.get()).unwrap()
+        );
         assert!(
             current_identity.store.recovery_quarantined().unwrap(),
             "the current issuer stays quarantined after C3 confirmation until it is dropped"
@@ -14642,12 +15255,32 @@ mod durable_store_failure_tests {
                     &current_principal,
                 );
             adapter
-                .consume_terminal_receipt(previous_scope_ref, receipt)
+                .consume_previous_launch_terminal_receipt(receipt)
                 .unwrap();
         }
         drop(current_identity);
 
         let reopened_store = LinuxIdentitySnapshotStore::open(directory.open()).unwrap();
+        let reopened_record = reopened_store.recovery_journal_record().unwrap().unwrap();
+        assert_eq!(reopened_record.operation_id, old_record.operation_id);
+        assert_eq!(reopened_record.binding, old_record.binding);
+        assert_eq!(
+            reopened_record.phase,
+            RecoveryJournalPhase::Reconciled {
+                outcome_digest: if prior_boot {
+                    system_service_prior_boot_outcome_digest(
+                        old_record.operation_id,
+                        &old_record.binding,
+                    )
+                } else {
+                    system_service_terminal_outcome_digest(
+                        old_record.operation_id,
+                        &old_record.binding,
+                    )
+                }
+            },
+            "the durable outcome digest distinguishes the terminal evidence"
+        );
         assert!(
             !reopened_store.recovery_quarantined().unwrap(),
             "the exact terminal row is unquarantined only in the reopened store"
@@ -14671,6 +15304,13 @@ mod durable_store_failure_tests {
             current_handoff.recovery_report().interrupted_sessions_ended,
             1
         );
+        let next_record = reopened_identity
+            .store
+            .recovery_journal_record()
+            .unwrap()
+            .unwrap();
+        assert_eq!(next_record.phase, RecoveryJournalPhase::RuntimeActive);
+        assert_ne!(next_record.operation_id, old_record.operation_id);
         assert_eq!(reopened_identity.snapshot().users.len(), 1);
         assert_eq!(reopened_identity.snapshot().users[0].user_id, user_id);
         assert_eq!(reopened_identity.snapshot().profiles.len(), 1);
@@ -14699,7 +15339,7 @@ mod durable_store_failure_tests {
 
     #[cfg(all(feature = "system-service-recovery-contract", target_arch = "x86_64"))]
     #[test]
-    fn unknown_previous_launch_terminal_result_preserves_c1_quarantine() {
+    fn unknown_previous_boot_terminal_result_preserves_c1_quarantine() {
         use nagi_system_service_recovery_contract::RecoveryClientError;
 
         let directory = DurableTestDirectory::new();
@@ -14745,11 +15385,7 @@ mod durable_store_failure_tests {
                     &mut current_identity,
                     &current_principal,
                 );
-            adapter.reconcile_previous_launch_terminal(
-                current_scope_ref,
-                previous_scope_ref,
-                &mut c3_gate,
-            )
+            adapter.reconcile_previous_boot_terminal(current_scope_ref, &mut c3_gate)
         };
         assert_eq!(result, Err(RecoveryClientError::OutcomeUnknown));
         assert_eq!(c3_gate.invocations, 1);

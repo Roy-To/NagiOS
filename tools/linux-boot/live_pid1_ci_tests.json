@@ -6,6 +6,7 @@
   "linux_init::linux_init_c3_system_service_owner::tests::c3_slot_journal_reopen_rejects_missing_empty_and_fresh_replacement",
   "linux_init::linux_init_c3_system_service_owner::tests::callback_panic_stays_unknown_then_revokes_and_reaps_the_exact_child",
   "linux_init::linux_init_c3_system_service_owner::tests::catalog_generation_high_water_survives_revoke_and_natural_exit",
+  "linux_init::linux_init_c3_system_service_owner::tests::correlated_sigill_reap_preserves_quarantine_without_normal_exit_receipt",
   "linux_init::linux_init_c3_system_service_owner::tests::dropped_owner_keeps_unique_slot_until_exact_child_reaps",
   "linux_init::linux_init_c3_system_service_owner::tests::exact_slot_owner_issues_proof_replaces_revokes_and_reaps_real_clone3_children",
   "linux_init::linux_init_c3_system_service_owner::tests::explicit_shutdown_retires_current_child_before_return",
