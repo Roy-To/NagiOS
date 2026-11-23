@@ -3,7 +3,11 @@
 use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
 use crate::profile_volume_notes_owner::AuthorizedNotesAttachment;
 use crate::task24_notes_input::{is_escape_press, UnsavedCloseConfirmation};
-#[cfg(all(linux_task24_owner_co_location, linux_dev_notes_performance))]
+#[cfg(all(
+    linux_task24_owner_co_location,
+    linux_dev_notes_performance,
+    not(nagi_release_build)
+))]
 use crate::task24_notes_performance::{self, MemorySampler};
 use libnagi::INPUT_KEY_ESCAPE;
 use nagi_identity_session::{C1IssuedInteractiveSession, ResolutionError, ResolvedIdentity};
@@ -57,7 +61,11 @@ pub(super) fn run(
                 .ok_or_else(|| io::Error::other("Notes document unavailable"))?,
             false,
         )?;
-        #[cfg(all(linux_task24_owner_co_location, linux_dev_notes_performance))]
+        #[cfg(all(
+            linux_task24_owner_co_location,
+            linux_dev_notes_performance,
+            not(nagi_release_build)
+        ))]
         let mut memory = MemorySampler::default();
         super::super::log_pid1_stderr(format_args!("NAGI_DEV_NOTES_INPUT_READY"));
         let mut has_unconfirmed_user_edit = false;
@@ -65,7 +73,11 @@ pub(super) fn run(
         loop {
             let Some(key) = super::super::wait_for_task24_input(
                 |timeout| {
-                    #[cfg(all(linux_task24_owner_co_location, linux_dev_notes_performance))]
+                    #[cfg(all(
+                        linux_task24_owner_co_location,
+                        linux_dev_notes_performance,
+                        not(nagi_release_build)
+                    ))]
                     if let Some(line) = memory.sample_if_due() {
                         super::super::log_pid1_stderr(format_args!("{line}"));
                     }
@@ -139,7 +151,11 @@ pub(super) fn run(
             };
             if let Some(note) = result {
                 present(console, &note, false)?;
-                #[cfg(all(linux_task24_owner_co_location, linux_dev_notes_performance))]
+                #[cfg(all(
+                    linux_task24_owner_co_location,
+                    linux_dev_notes_performance,
+                    not(nagi_release_build)
+                ))]
                 let presented_at = key
                     .monotonic_ns
                     .and_then(|_| task24_notes_performance::monotonic_ns());
@@ -153,7 +169,11 @@ pub(super) fn run(
                     return Ok((NotesConsoleExit::ClosedByUser, None));
                 } else {
                     // For text input, Some means the bridge changed the document.
-                    #[cfg(all(linux_task24_owner_co_location, linux_dev_notes_performance))]
+                    #[cfg(all(
+                        linux_task24_owner_co_location,
+                        linux_dev_notes_performance,
+                        not(nagi_release_build)
+                    ))]
                     if let Some(line) = task24_notes_performance::presentation_record(
                         key.monotonic_ns,
                         presented_at,
