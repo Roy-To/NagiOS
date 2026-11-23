@@ -4,9 +4,9 @@
 
 [English](README.md) · [日本語](README.ja.md)
 
-> **実験的な Developer Preview です。** Nagi は独立した OS として開発中
-> です。0.1 の対象は QEMU x86-64 参照マシンであり、完成した汎用 OS や
-> 物理 PC 対応を示すものではありません。
+> **実験的な Developer Preview です。** Nagi は Linux カーネル上で動く
+> Nagi 独自のユーザーランドとして開発中です。0.1 の対象は QEMU x86-64
+> 参照マシンであり、完成した汎用 OS や物理 PC 対応を示すものではありません。
 
 所有者が権利を持つ Nagi 独自 OS ソースのうち、明示された範囲を
 **MPL-2.0** で提供します。既存パッケージ・外部ソフトウェア・モデルの
@@ -15,15 +15,14 @@
 
 ## プロジェクト概要
 
-現在の Nagi OS 0.1 実装は、独自カーネルとユーザー空間を持つゼロベースの
-OS で、公式ターゲットは QEMU x86-64 です。製品決定
-[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md) と
-[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)
-により、今後の製品方針は **Linux カーネル + Nagi 専用ユーザーランド**
-に確定しています。これは 0.1 の実装や受け入れ証拠が移行済みであることを
-意味しません。既存の Linux ディストリビューションを製品 OS の基盤として
-採用することはありません。0.1 ラインでは Linux・Windows・macOS を
-開発ホストとして使います。
+Nagi OS は、Linux カーネルの上で動く Nagi 独自のユーザーランドです。
+既存の Linux ディストリビューションは土台にしません。PID 1、システム
+サービス、デスクトップ、標準アプリは Nagi のものです。0.1 Developer
+Preview の対象は QEMU x86-64 参照マシンです。
+
+Nagi は独自カーネルから始まりましたが、その開発は終了しました
+（[DEC-123](docs/product-decisions/DEC-123-kernel-unification-and-linux-0.1.md)）。
+M0〜M30 の記録は履歴として残し、Linux 版の受け入れ証拠には使いません。
 
 通常の GUI・キーボード・ポインター操作を大切にしながら、利用者の意図に
 沿った作業を AI が支援するローカルファーストのデスクトップを探求します。
@@ -31,9 +30,7 @@ AI はユーザー空間で動く信頼されない provider として扱いま�
 する提案は、決定的な検証、ポリシー、Capability、Executor の境界を通す
 設計ですが、エンドツーエンドの統合は開発中です。
 
-この概要は source commit bcb92dc（2026-10-12）を基準に確認しました。
-受け入れ結果と制限の正本は
-[実装状況](docs/implementation_status.md)です。
+受け入れ結果と制限の正本は[実装状況](docs/implementation_status.md)です。
 
 ## ビジョン
 
@@ -60,9 +57,9 @@ Agent 構想では、ユーザー所有の Profile やモデル非依存の Memo
 
 ## なぜ Nagi OS か
 
-- **OS を OS として作る:** 現在の 0.1 実装は、独自カーネル、ABI、
-  サービス、ネイティブデスクトップを持ちます。確定した製品方針は、
-  Linux 上に Nagi 専用ユーザーランドを構築することです。
+- **OS を OS として作る:** Nagi 独自の PID 1、サービス管理、Identity、
+  ストレージの境界、デスクトップとアプリが、汎用ディストリビューション
+  なしで Linux カーネル上に直接載ります。
 - **利用者が権限を保つ:** ソフトウェアの操作権限を Capability と明示的な
   許可で決め、確率的な AI 出力に権限を与えません。
 - **ローカルデータを基本にする:** ユーザーオブジェクト、履歴、将来の AI
@@ -74,68 +71,54 @@ Agent 構想では、ユーザー所有の Profile やモデル非依存の Memo
 
 ## 主な特徴
 
-| 領域 | 現在の証拠 | 範囲と制限 |
+| 分野 | 現在の証拠 | 範囲と制限 |
 | --- | --- | --- |
-| 独立 OS とカーネル | M0–M18 は、それぞれの受け入れ範囲で PASS と記録されています。QEMU 参照マシンで Nagi のカーネルとユーザー空間が起動します。 | マイルストーン PASS は 0.1 全体の完成を意味しません。物理ハードウェアは 0.1 の対象外です。 |
-| ネイティブデスクトップ | M10 の実 QEMU 受け入れは PASS。保存済み画像には Calculator、Notes、Files、Terminal のパネルがあります。 | 範囲を限定したデスクトップ受け入れ画面です。完成したアプリ群やインストーラーではありません。 |
-| Albert ブラウザー | M18 の target CI は PASS: [run 37601664873](https://github.com/Roy-To/NagiOS/actions/runs/37601664873)。HTTPS ページ 3 件、サイト権限、Clipboard、かな IME、Upload、ユーザー操作による Download を確認しました。 | 本番認証、通知表示、Servo StorageManager の永続化は未完了です。漢字変換は延期されています。 |
-| Capability-based security | カーネルの Handle、IPC、Capability 検査に受け入れ済みの基盤があります。 | 本番セキュリティを保証するものではありません。アプリや AI 操作に対する認可統合は作業中です。 |
-| Local-first とローカル AI | 実 QEMU で Granite 4.2 3B を Nagi 内で動かし、日本語の schema 制約付き応答を生成した記録があります。 | M20 は PARTIAL。モデルのインストールや通常の遅延起動サービスとの統合は未完了で、完成した AI チャットや Agent ではありません。 |
-| Wayback と Activity Ledger | M15 のゲスト受け入れでは、永続履歴、バージョン、復元、Undo を確認しました。M22 には範囲を限定した History / Activity Ledger の証拠があります。 | 本番 Activity Ledger や AI 操作との一般的な統合は部分実装です。 |
-| 英語と日本語 | M10 デスクトップに日本語テキスト経路があり、M29 QEMU 受け入れでは日本語 Settings の選択と再起動後の復元を確認しました。 | プロセス間の言語伝播、全体の翻訳、アクセシビリティ受け入れは未完了です。 |
-| Personal Agent | Nagi 0.3 の設計資料では、Profile、モデル非依存 Memory、Learning、Capability を考慮した Agent 実行を構想しています。 | 将来ロードマップであり、0.1 の実装としては扱いません。 |
+| Linux 上の Nagi PID 1 | [PR #163](https://github.com/Roy-To/NagiOS/pull/163) で、QEMU の開発イメージの受け入れに合格。署名付きの起動入力、サービスのライフサイクルと異常終了後の復旧、集約 READY。 | 開発イメージのみ。製品ビルドの PID 1 には、まだログイン・Data・Notes の経路がありません。起動の連鎖の検証もまだありません。 |
+| Identity とセッション | 所有者の登録、誤ったパスワードの拒否を含むログイン、ログアウト、所有者経路での失効、Identity サービス強制終了後の復旧が、同じイメージで合格。 | 別の権限主体による失効は未実装です。 |
+| Notes と永続 Data | 書き込み可能な Data ディスクに Notes を保存し、再起動後に開き直して内容がバイト単位で一致。System ディスクへの書き込みは拒否。 | Linux イメージの標準アプリは、今のところ Notes だけです。 |
+| 応答性 | 8 GiB / 4 vCPU の TCG ゲストで、キー入力から表示までの中央値は約 41〜43 ms（目標 50 ms、DEC-116）。 | debug ビルドの PID 1 での測定です。 |
+| 英語と日本語 | どちらも第一級のユーザー言語です。 | Linux のデスクトップ、Settings、全体の翻訳は今後の 0.1 マイルストーンです。 |
+| Personal Agent | Nagi 0.3 のアーキテクチャで、Profile、モデル非依存の Memory、学習、Capability を考慮した Agent 実行を記述しています。 | 将来のロードマップであり、0.1 の実装ではありません。 |
 
 ## アーキテクチャ
 
 ~~~text
-UEFI / OVMF
+Linux カーネル
     ↓
-Nagi Loader
+Nagi PID 1（nagi-init）— 署名付き boot catalog、サービス管理、復旧
     ↓
-Nagi Kernel — 実行・メモリー・IPC・権限
+Nagi システムサービス — Identity、ストレージの所有、IPC
     ↓
-nagi-init / Supervisor
-    ↓
-ユーザー空間サービス · Nagi ABI · SDK / PAL / relibc
-    ↓
-ネイティブアプリ · Albert ブラウザー (Servo)
+Nagi デスクトップと標準アプリ
 ~~~
 
-現在の 0.1 のカーネルは Nagi 独自です。Linux カーネルを使う製品方針は
-DEC-042/043 で別途確定していますが、この実装はまだ移行していません。
-ファイルシステム、ネットワーク、デスクトップ、オーディオ、パッケージ、
-AI ポリシーはユーザー空間に置く設計です。Albert のブラウザーエンジンには
-Servo を使います。Preview の一部サービスはまだ init 内で動くため、この図は
-目標とする境界を示しており、本番レベルのサービス分離を意味しません。
+PID 1 は署名付きの boot catalog とサービスのパッケージを検証し、システム
+サービスを専用の名前空間と seccomp フィルターの下で起動します。各サービスの
+ライフサイクルを記録し、異常終了したときは次の起動で復旧します。アプリが
+利用者のデータに触れられるのは、ログイン中のプロファイルに与えられた保存先
+だけです。一部は開発イメージでの動作です。PR #163 の範囲の注記を参照して
+ください。
 
-詳細は
-[0.1 実装仕様](docs/Nagi_OS_0.1_Codex_Implementation_Spec.md)と
-[アーキテクチャ概要](docs/architecture/README.md)を参照してください。
+設計の契約は[アーキテクチャ概要](docs/architecture/README.md)と
+[製品決定](docs/product-decisions/README.md)を参照してください。
 
 ## 現在の開発状況
 
-source commit bcb92dc（2026-10-12）時点の概要:
+Linux 版は最初の統合を終えました（[PR #163](https://github.com/Roy-To/NagiOS/pull/163)）。
+L0〜L6 は QEMU の開発イメージで受け入れに合格しています。0.1 の残りは
+[ROADMAP.md](ROADMAP.md) の L7〜L12（デスクトップの基本、Files、Settings、
+Calendar、製品ビルドの固め、配布物）です。
 
-| マイルストーン | 状態 | 概要 |
-| --- | --- | --- |
-| M0–M18 | PASS | カーネル・デスクトップ基盤と M18 Albert のゲストシナリオを含む、定義済みの受け入れを通過しています。範囲は各記録を確認してください。 |
-| M19 | PARTIAL — 現在のマイルストーン | 範囲を限定したゲスト Search、Browser History 永続化、Files Search の証拠があります。本番アプリ向け Search grant、Files の Trash/Restore 統合、通常の Browser History producer 更新は未完了です。 |
-| M20 | PARTIAL | ローカル Granite のゲスト推論は成功しています。[ホスト CI run 37702418216](https://github.com/Roy-To/NagiOS/actions/runs/37702418216) は推論前の User Data 書き込み timeout で停止しました。モデルのインストールと通常サービスへの統合は未完了です。 |
-| M21–M26 | PARTIAL | Validator、provider 境界、範囲を限定したゲスト実験があります。本番の一般的な Agent 操作、Semantic Search 統合、ページ要約、マイクから操作までの音声体験は受け入れ未完了です。Qwen 推論と Gemma 利用も受け入れられていません。 |
-| M27–M30 | PARTIAL | 範囲を限定した Recovery、統合、日本語 Settings、Release bundle の確認記録があります。統合受け入れ、認証済み更新、再配布レビューは未完了です。M30 は PASS ではありません。 |
+以前の独自カーネル版のマイルストーン M0〜M30 は履歴の記録です。結果は
+[docs/implementation_status.md](docs/implementation_status.md) に残しており、
+Linux 版の状態を示すものではありません。
 
-記録済みの M30 Release Manifest では
-<code>m30_acceptance=NOT_EVALUATED</code> のままです。個別 QEMU シナリオや成果物の
-checksum 検証だけで 0.1 リリース準備完了とはなりません。実行 ID、source
-revision、制限事項は
-[docs/implementation_status.md](docs/implementation_status.md) と各
-workstream の記録を参照してください。
-
-本番セキュリティの保証はありません。[SECURITY.md](SECURITY.md)を参照してください。
+Nagi は製品としてのセキュリティを保証しません。[SECURITY.md](SECURITY.md)
+を参照してください。
 
 ## スクリーンショット
 
-以下は QEMU ゲスト受け入れ時の既存画像で、モックや動画の切り出しでは
+以下は以前の独自カーネル版（M10、M18、M29）の画像で、Linux 版のものでは
 ありません。各画像が示すのは、キャプションに記したチェックポイントです。
 
 | M10 — ネイティブデスクトップ | M18 — Albert / Servo |
@@ -156,74 +139,41 @@ workstream の記録を参照してください。
 
 ## ロードマップ
 
-- **Nagi OS 0.1 — Developer Preview:** 独立 OS の起動、最初のネイティブ
-  デスクトップ、ブラウザー、ストレージ、セキュリティ、ローカル AI の
-  基盤を作ります。0.1 は開発中で、M19–M30 は PARTIAL です。
-- **Nagi OS 0.2 — Platform Foundation:** Identity、Permissions、IPC、
-  Settings、Model Runtime、Update、アプリ契約、Search、Activity/Wayback
-  などを安定させる計画です。仕様上、0.1 M30 PASS と明示的な開始判断が
-  前提です。ホスト基盤だけではゲスト実行時の受け入れになりません。
+- **Nagi OS 0.1 — Developer Preview（Linux 版）:** Linux カーネル上で、
+  範囲を絞った最初のリリースです。起動、ログイン、デスクトップの基本、
+  Notes・Files・Settings・Calendar、検証済みの配布物。L0〜L6 は合格し、
+  L7〜L12 が残っています。
+- **Nagi OS 0.2 — Platform Foundation:** ブラウザー、ローカル AI、音声、
+  意味検索、A/B 起動と復旧などです。開始の条件は Linux 版 0.1 Developer
+  Preview の公開です（DEC-123）。
 - **Nagi OS 0.3 — Agentic System:** ユーザー所有の Profile / Memory、
   モデル移行性、Capability を考慮した操作、Wayback による Undo を備える
-  Personal Agent の将来アーキテクチャです。0.1 の機能ではありません。
+  Personal Agent の将来アーキテクチャです。
 - **Nagi OS 1.0:** 正式な公開 OSS リリースの長期目標です。日程は未定です。
 
-[ROADMAP.md](ROADMAP.md)、
-[0.2 実装仕様](docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、
-[0.3 Architecture Roadmap](docs/Nagi_OS_0.3_Architecture_Roadmap.md)も
+[ROADMAP.md](ROADMAP.md) と、改訂済みの 0.3・0.4+・0.5–1.0 ロードマップ
+および長期ビジョンをまとめた[製品決定](docs/product-decisions/README.md)を
 参照してください。
-
-確定した製品方針は Linux カーネル + Nagi 専用ユーザーランドです
-（[DEC-042](docs/product-decisions/DEC-042-linux-kernel-transition.md)、
-[DEC-043](docs/product-decisions/DEC-043-nagi-userland-independent-os.md)）。
-現在の 0.1 実装は引き続き独自カーネルを使っており、その受け入れ証拠は
-Linux ターゲットでの受け入れを示すものではありません。
-ユーザーが承認した製品決定、改訂済みの 0.3・0.4+・0.5–1.0 ロードマップ、
-長期ビジョンは [docs/product-decisions](docs/product-decisions/README.md)
-にまとめています。
 
 ## はじめ方
 
-Nagi 0.1 の対象は QEMU x86-64、UEFI/OVMF、q35、仮想 CPU 4 基、RAM 8 GiB
-です。pinned Rust toolchain とリポジトリに記載されたホスト依存関係を
-使ってください。物理 PC 対応は 0.1 の完了要件ではありません。
+Nagi 0.1 の対象は QEMU x86-64、仮想 CPU 4 基、RAM 8 GiB です。pinned Rust
+toolchain とリポジトリに記載されたホスト依存関係を使ってください。物理 PC
+対応は 0.1 の完了要件ではありません。
 
-POSIX 開発ホストでは、チェックアウトのルートから次を実行します。
+`./nagi` コマンドは Linux 版に合わせて更新中です。以前の独自カーネルを
+ビルド・起動していたコマンドは削除し、`./nagi run` は Linux の開発イメージを
+起動するようになります。その変更が入るまでは、ホスト上の確認は次で行えます。
 
 ~~~sh
 ./nagi doctor
 ./nagi fetch
-./nagi build
-./nagi test
-./nagi image
-./nagi run
+./nagi test --acceptance --host-only
 ~~~
 
-Windows PowerShell:
-
-~~~powershell
-.\nagi.ps1 fetch
-.\nagi.ps1 doctor
-.\nagi.ps1 build
-.\nagi.ps1 test
-.\nagi.ps1 image
-.\nagi.ps1 run
-~~~
-
-PowerShell の実行ポリシーによりスクリプトが拒否される場合、受け入れ手順では
-次を使用します。
-
-~~~powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\nagi.ps1 doctor
-~~~
-
-fetch は pinned third-party source の取得にネットワーク接続と大きな
-ディスク容量を要する場合があります。すべての任意モデルを取得するわけ
-ではありません。build と test はホスト互換パッケージを対象とし、QEMU
-マイルストーン受け入れの代わりにはなりません。Windows PowerShell の手順、
-ホスト準備、トラブルシュートは
-[Developer Preview ガイド](docs/developer-preview/README.md)を参照して
-ください。現在のコマンドは <code>./nagi --help</code> で確認できます。
+Linux の開発イメージは [tools/linux-boot](tools/linux-boot) のスクリプトで
+ビルド・起動します。最新の手順は[Developer Preview ガイド](docs/developer-preview/README.md)
+と <code>./nagi --help</code> で確認してください。
 
 公開リポジトリであること自体は、明示された適用範囲を超える権利を
 付与しません。利用・再配布は [LICENSE_SCOPE.md](LICENSE_SCOPE.md) と
