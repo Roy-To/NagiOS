@@ -1271,11 +1271,17 @@ mod tests {
         assert_eq!(pending, 0);
     }
 
+    fn release_fixture_store(store: LinuxIdentitySnapshotStore) {
+        // A parallel test's fork can retain a close-on-exec descriptor until
+        // exec. Explicitly release the fixture writer before handing off.
+        store.lock.unlock().unwrap();
+    }
+
     fn committed_directory() -> TestDirectory {
         let directory = TestDirectory::new_under_worktree_target();
         let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
         store.commit_atomic(None, &snapshot(0)).unwrap();
-        drop(store);
+        release_fixture_store(store);
         directory
     }
 
@@ -1296,7 +1302,7 @@ mod tests {
                 Err(SnapshotStoreError::Unavailable),
                 "an uncertain write poisons the current store instance"
             );
-            drop(store);
+            release_fixture_store(store);
 
             let mut reopened =
                 LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
