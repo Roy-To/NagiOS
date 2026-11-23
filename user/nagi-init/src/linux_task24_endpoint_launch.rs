@@ -610,8 +610,10 @@ pub(super) fn run_owner_login(
 
     #[cfg(feature = "system-service-readiness")]
     let mut lifecycle_ready = false;
-    #[cfg(linux_task24_notes_consumer)]
+    #[cfg(all(linux_task24_notes_consumer, not(all(linux_task24_desktop_shell, not(nagi_release_build)))))]
     let mut retained_notes_draft = None;
+    #[cfg(all(linux_task24_notes_consumer, linux_task24_desktop_shell, not(nagi_release_build)))]
+    let mut retained_notes_draft = Vec::new();
     let mut execute = || -> Result<(), BackendError> {
         #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
         let ws10 = ws10_mode().map_err(|_| BackendError::ProtocolViolation)?;
@@ -772,7 +774,8 @@ pub(super) fn run_owner_login(
                                 let issued = std::sync::Arc::clone(&inputs.2);
                                 #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
                                 let mut revoked = false;
-                                let (exit, draft) = match notes_console::run(
+                                #[allow(unused_mut)]
+                                let mut run_notes = |console: &mut super::linux_owner_registration_console::BootOwnerConsole, inputs| notes_console::run(
                                     console,
                                     inputs,
                                     || runtime.poll_task24_required_identity_exit(),
@@ -799,7 +802,50 @@ pub(super) fn run_owner_login(
                                         }
                                         _ => Ok(None),
                                     },
-                                ) {
+                                );
+                                #[cfg(not(all(linux_task24_desktop_shell, not(nagi_release_build))))]
+                                let result = run_notes(console, inputs);
+
+                                #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
+                                let result = {
+                                    use desktop_shell::ShellExit;
+                                    use super::NotesConsoleExit;
+                                    let mut first = Some(inputs);
+                                    desktop_shell::run(
+                                        console,
+                                        || runtime.poll_task24_required_identity_exit(),
+                                        || runtime.check_notes_session(session.lease),
+                                        |console| {
+                                            let inputs = match first.take() {
+                                                Some(inputs) => inputs,
+                                                None => {
+                                                    let owner = notes_owner.as_mut().map_err(|error| std::io::Error::other(*error))?;
+                                                    let inputs = runtime.request_notes_attachment(session.lease, owner).map_err(|error| {
+                                                        super::log_pid1_stderr(format_args!(
+                                                            "NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUE_FAILED ({error})"
+                                                        ));
+                                                        std::io::Error::other(error)
+                                                    })?;
+                                                    super::log_pid1_stderr(format_args!(
+                                                        "NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUED"
+                                                    ));
+                                                    inputs
+                                                }
+                                            };
+                                            run_notes(console, inputs)
+                                        },
+                                        &mut retained_notes_draft,
+                                    )
+                                    .map(|exit| {
+                                        let notes_exit = match exit {
+                                            ShellExit::Logout => NotesConsoleExit::ClosedByUser,
+                                            ShellExit::RequiredIdentityExited => NotesConsoleExit::RequiredIdentityExited,
+                                            ShellExit::StateUnknown => NotesConsoleExit::StateUnknown,
+                                        };
+                                        (notes_exit, None::<notes_files_codec_candidate::NoteDocument>)
+                                    })
+                                };
+                                let (exit, draft) = match result {
                                     Ok(exit) => exit,
                                     Err(error) => {
                                         super::log_pid1_stderr(format_args!(
@@ -808,7 +854,12 @@ pub(super) fn run_owner_login(
                                         (super::NotesConsoleExit::StateUnknown, None)
                                     }
                                 };
-                                retained_notes_draft = draft;
+                                #[cfg(not(all(linux_task24_desktop_shell, not(nagi_release_build))))]
+                                {
+                                    retained_notes_draft = draft;
+                                }
+                                #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
+                                debug_assert!(draft.is_none(), "the shell retains its own drafts");
                                 if matches!(
                                     exit,
                                     super::NotesConsoleExit::ClosedByUser
