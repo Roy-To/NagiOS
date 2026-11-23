@@ -2,6 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
+> **2026-11-23 後続決定:** [DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)。独自カーネルの開発終了とLinuxカーネルへの一本化、およびLinux版 Nagi OS 0.1 Developer Previewの公開方針を確定した。
+
 **状態:** CONFIRMED（Linuxカーネル採用への方針転換）／PROVISIONAL（構成・互換方式・移行計画）  
 **最終合意日:** 2026-11-12  
 **対象:** Nagi OSの今後のカーネル基盤。適用バージョン・切替時期は未確定  
