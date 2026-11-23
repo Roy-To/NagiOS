@@ -12447,9 +12447,12 @@ mod durable_store_failure_tests {
         let worker_caller = caller.clone();
         let worker_binding = RecoveryBinding::for_test([0x82; 32]);
         let worker_gate_binding = worker_binding.clone();
+        let (start_recovery, effect_started) = mpsc::channel();
         let (attempt_tx, attempt_rx) = mpsc::sync_channel(0);
 
         let worker = thread::spawn(move || {
+            // Exercise recovery against an already-admitted live effect.
+            effect_started.recv().unwrap();
             let mut gate = CountingRecoveryGate::for_binding(worker_gate_binding);
             let result = worker_service
                 .lock()
@@ -12468,6 +12471,7 @@ mod durable_store_failure_tests {
         });
 
         let busy = handle.with_live_session_effect(|| {
+            start_recovery.send(()).unwrap();
             attempt_rx
                 .recv_timeout(Duration::from_secs(3))
                 .expect("recovery must return Busy without waiting for the live effect")
