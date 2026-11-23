@@ -10302,8 +10302,20 @@ mod durable_store_failure_tests {
         TestCleaner,
         NoopIdentityEventSink,
     > {
+        // A parallel test can fork just before the prior store is dropped.
+        // Its close-on-exec descriptor may retain the flock until exec.
+        // Lock-lifetime assertions below use the direct, non-retrying open.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let store = loop {
+            match LinuxIdentitySnapshotStore::open(directory.open()) {
+                Err(crate::store::DurableStoreError::Locked) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(1));
+                }
+                result => break result.unwrap(),
+            }
+        };
         IdentityService::new(
-            LinuxIdentitySnapshotStore::open(directory.open()).unwrap(),
+            store,
             TestIds::default(),
             clock,
             TestAuthorizer::default(),
