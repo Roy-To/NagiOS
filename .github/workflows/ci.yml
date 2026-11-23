@@ -142,6 +142,7 @@ jobs:
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
       - name: Test host-compatible workspace
         run: |
+          cargo test --manifest-path crates/nagi-system-principal-contract/Cargo.toml --locked
           # These exact cases require real clone3 or root-owned markers.
           # The next required step runs every listed case in a diskless guest.
           mapfile -t guest_only < <(python3 -c 'import json; from pathlib import Path; print(*json.loads(Path("tools/linux-boot/live_pid1_ci_tests.json").read_text()), sep=chr(10))')
