@@ -259,11 +259,14 @@ impl ReconciliationFence {
     pub(crate) fn enter_reader(
         self: &Arc<Self>,
     ) -> Result<CurrentSnapshotReadPermit, SnapshotStoreError> {
-        let mut state = self.state.try_lock().map_err(|error| match error {
-            std::sync::TryLockError::WouldBlock | std::sync::TryLockError::Poisoned(_) => {
-                SnapshotStoreError::Unavailable
-            }
-        })?;
+        // The fence mutex guards only bookkeeping and is never held across I/O
+        // or a reader callback, so a short blocking lock is safe. A
+        // non-blocking try_lock turned ordinary reader contention into a
+        // spurious Unavailable for concurrent live Session effects.
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| SnapshotStoreError::Unavailable)?;
         if state.closed || state.writer_reserved {
             return Err(SnapshotStoreError::Unavailable);
         }
@@ -275,11 +278,10 @@ impl ReconciliationFence {
     }
 
     pub(crate) fn is_closed_or_reserved(&self) -> Result<bool, SnapshotStoreError> {
-        let state = self.state.try_lock().map_err(|error| match error {
-            std::sync::TryLockError::WouldBlock | std::sync::TryLockError::Poisoned(_) => {
-                SnapshotStoreError::Unavailable
-            }
-        })?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| SnapshotStoreError::Unavailable)?;
         Ok(state.closed || state.writer_reserved)
     }
 
@@ -907,6 +909,32 @@ mod tests {
 
     type TestService =
         IdentityService<InMemorySnapshotStore, TestIds, TestClock, AllowAuthorization, NoopCleaner>;
+
+    #[test]
+    fn raw_snapshot_reader_waits_for_fence_bookkeeping() {
+        use std::sync::mpsc::{self, RecvTimeoutError};
+        use std::time::Duration;
+
+        let fence = Arc::new(ReconciliationFence::default());
+        std::thread::scope(|scope| {
+            let metadata = fence.state.lock().unwrap();
+            let (starting, started) = mpsc::channel();
+            let (finished, result) = mpsc::channel();
+            let reader_fence = Arc::clone(&fence);
+            scope.spawn(move || {
+                starting.send(()).unwrap();
+                let permit = reader_fence.enter_reader();
+                finished.send(permit.map(drop)).unwrap();
+            });
+
+            started.recv_timeout(Duration::from_secs(2)).unwrap();
+            let while_contended = result.recv_timeout(Duration::from_millis(100));
+            drop(metadata);
+            assert_eq!(while_contended, Err(RecvTimeoutError::Timeout));
+            assert_eq!(result.recv_timeout(Duration::from_secs(2)).unwrap(), Ok(()));
+        });
+        assert_eq!(fence.state_for_test(), (false, false, 0));
+    }
 
     #[test]
     fn mismatched_terminal_identity_keeps_raw_reader_fence_closed() {
