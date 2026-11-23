@@ -180,6 +180,8 @@ mod desktop;
     target_arch = "x86_64"
 ))]
 mod desktop_chrome;
+#[cfg(all(feature = "m10-desktop", target_os = "linux", target_arch = "x86_64"))]
+mod desktop_shell_model;
 #[cfg(all(
     feature = "m10-desktop",
     any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
