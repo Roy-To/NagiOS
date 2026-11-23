@@ -922,10 +922,14 @@ impl ResolvedIdentity {
         &self,
         adapter_identity: &Arc<()>,
     ) -> Result<(), ResolutionError> {
+        // issuer_admission.state is held only for short counter/flag updates
+        // (enter/try_enter/close_if_idle) and never across I/O or callbacks.
+        // A zero-wait try_lock here made a Notes autosave effect fail with a
+        // spurious Unavailable whenever the main thread was briefly in enter().
         let mut state = self
             .issuer_admission
             .state
-            .try_lock()
+            .lock()
             .map_err(|_| ResolutionError::Unavailable)?;
         if state.closed || !self.issuer_alive.load(Ordering::Acquire) {
             return Err(ResolutionError::Unavailable);
@@ -951,10 +955,11 @@ impl ResolvedIdentity {
         &self,
         adapter_identity: &Arc<()>,
     ) -> Result<bool, ResolutionError> {
+        // See bind_storage_adapter: short critical section, never re-entered.
         let state = self
             .issuer_admission
             .state
-            .try_lock()
+            .lock()
             .map_err(|_| ResolutionError::Unavailable)?;
         Ok(state.storage_adapter.as_ref().is_none_or(|owner| {
             Weak::ptr_eq(owner, &Arc::downgrade(adapter_identity)) || owner.upgrade().is_none()
