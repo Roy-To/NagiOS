@@ -46,6 +46,12 @@ Nagi OSを導入するユーザーが、端末・保存先を把握し、取り�
 - 対応端末の実機検証と合格条件、Release／Activation Gate、開発担当・時期・提供Version。
 - CのAI支援Installerは今回の採用対象外。将来別途検討する場合も、危険操作の決定論的な確認・人間の明示承認を前提とする。
 
+## 2026-11-24 — 参考事例の高度なインストール最適化は今回見送り
+
+**CONFIRMED（追加案の扱い）:** Omarchyの事例を参考とする高度なインストール高速化・端末別自動設定の新規提案は、今回のNagi追加開発案としては採用しない。複雑さが大きいため、今回の優先実装・新規要件に含めない。
+
+**既存のCONFIRMEDは維持:** 本決定はDEC-099のLinux機構を利用するNagi専用GUI Installerの基本方針を撤回せず、実機へのOS導入に必要な既存の検証・安全確認を省略しない。Installerの内部実装方式、対応機器、Release割当ては引き続きPROVISIONAL。
+
 ## Roadmapとの関係
 
 Linux＋Nagi独自ユーザーランド、Desktop first、System／User Data分離と既存0.2 Install／Update・Release gateの方向に接続する。方式Bを決めたことは物理ディスクへの導入成功や、Linux targetのOwner初期化、Recovery検証、対応端末・提供版の確定ではない。
@@ -54,6 +60,7 @@ Linux＋Nagi独自ユーザーランド、Desktop first、System／User Data分�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-24 | Omarchy参考の高度なインストール高速化・端末別自動化の追加提案を今回は見送り。既存のNagi専用GUI Installer（DEC-099）の採用済み方向は維持。 |
 | 2026-11-16 | Foundation #30についてユーザーが方式Bを承認。Linuxの低レイヤー＋Nagi専用GUI Installerを標準とし、ローカルLLMで高度なInstaller判断を行う方式Cは採らず、Offline-first／AI非必須での基本セットアップ、危険操作の明示確認を維持。OSS・GUI・暗号化・実機・版は未確定。 |
 
 ## 関連決定の参照注記（2026-11-21）
