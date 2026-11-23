@@ -194,3 +194,8 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)でNagi Power（仮称）を採用。LinuxカーネルとNagi専用システムサービスが、AI／LLM推論を必須とせず、OS全体の電力・熱・負荷・背景処理を決定論的に管理する。AIタスクは通常の資源契約によるthrottle／queue／suspend／必要時model unloadの対象となる。本書の前景優先、安全限界内のユーザー優先指定、明示停止の尊重、資源待機と復旧待ちの区別、Action二重実行防止を維持する。具体方式・閾値・効果・対応端末・実装版・Gateは未確定。
 
 変更履歴: 2026-11-16 — DEC-067への役割分担を追記。既存の承認・権限・版境界は変更しない。
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-113](DEC-113-untrusted-content-and-prompt-injection.md) — Contextの由来を、ユーザーの指示とAIが読む外部由来のデータの区別に用いる。外部由来の内容を含むContextで高リスク操作を行う際は、同決定の追加確認を適用する。
+- [DEC-116](DEC-116-performance-targets-and-minimum-requirements.md) — 8GB級端末の性能試験はQEMUで計測を始め、QEMUと実機の結果を分けて記録する。数値は実測で見直す仮の作業目標として扱う。

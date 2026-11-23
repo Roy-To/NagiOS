@@ -6,6 +6,10 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Supervisor Councilの将来方針（2026-11-22）
+
+[DEC-122 — 端末能力適応型Supervisor Councilと独立したOSセキュリティ](DEC-122-adaptive-supervisor-council-security.md)を追加。CouncilをローカルLLMネイティブな追加審査層として活用し、**重要Action・不審な指示へのセキュリティ審査を主目的**として日常的な回答の深掘りに常時合議しない方針、端末Resourceに応じたSupervisor数・運用の柔軟性、OS中核セキュリティの独立を高水準**CONFIRMED**として記録。高度な調査へのCloud LLM利用は選択肢とし、DEC-002の事前許可・Offline-firstを維持。重大／致命的変更の合議ルール、低スペックのCouncil省略または重大案件のみ直列3回推論、技術・提供版は**PROVISIONAL**。DEC-074の長期・後順位と0.3／初期0.4の既存Gateは維持。
+
 ## Implementation Readiness — 50項目の未決詳細棚卸し（2026-11-17）
 
 [DEC-111：実装準備の未決詳細仕分けと条件付き判断](DEC-111-implementation-readiness-triage.md) により、Foundation 35項目＋PX 15項目の高水準方針の後続として、**実装上の障害になる判断だけを必要な工程で先に扱う**運用をCONFIRMED。一次分類は **E：技術担当が先行23件、V：比較・実測待ち5件、U：機能有効化／公開前の製品判断8件、R：詳細後回し14件**。区分と順序はREVIEW NOTE／PROVISIONALであり、各DECの高水準CONFIRMED、PX進捗、Foundationの推奨優先度、既存Release／Activation／Acceptance Gateや担当・実装着手権限を変えない。
@@ -239,7 +243,16 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
 | DEC-111 | [50項目のImplementation Readiness棚卸しと条件付き判断](DEC-111-implementation-readiness-triage.md) | CONFIRMED（実装を妨げる未決判断だけ必要時に先行する運用）／REVIEW NOTE・PROVISIONAL（23／5／8／14の一次分類・順序） | 2026-11-17 |
 | DEC-112 | [Linux開発イメージのIdentityサービスとREADY](DEC-112-development-identity-service-readiness.md) | CONFIRMED（Task24開発イメージで独立必須Identityと実READY、Data／NotesはPID 1内、独立Dataは別レーンで並行）／PROVISIONAL（製品全体の構成・接続仕様の詳細） | 2026-11-19 |
+| DEC-113 | [外部コンテンツの扱いとプロンプトインジェクション対策](DEC-113-untrusted-content-and-prompt-injection.md) | CONFIRMED（外部由来の内容の扱い、高リスク操作の確認、Memory学習・無人Workflowの制限）／PROVISIONAL（リスク区分の詳細・確認UI・技術・適用版） | 2026-11-20 |
+| DEC-114 | [Web利用・開発者向けLinux環境・アプリ互換の説明](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md) | CONFIRMED（WebはAlbert、開発者モードの隔離Linux環境、`builder`用最低限ツール、アプリ互換の説明方針）／PROVISIONAL（環境の技術・ツール一覧・最終文言・適用版） | 2026-11-20 |
+| DEC-115 | [Web互換性・ブラウザーエンジン・DRM・コーデック](DEC-115-web-compatibility-engine-drm-and-codecs.md) | CONFIRMED（Servoで実測を先行しLinux版の予備エンジン制約を解除、サイト報告・DRM・コーデックの方針）／PROVISIONAL（予備エンジンの採否・評価方法・コーデックの最終判断・適用版） | 2026-11-20 |
+| DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版） | 2026-11-20 |
+| DEC-117 | [ユーザーデータの暗号化と端末紛失時の方針](DEC-117-user-data-encryption-and-lost-device.md) | CONFIRMED（ユーザーデータの既定暗号化、Memory／Profileの常時暗号化、解錠・回復と端末紛失時の方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・UI・適用版） | 2026-11-20 |
+| DEC-118 | [サポート期間と脆弱性対応の目標](DEC-118-support-period-and-vulnerability-response.md) | CONFIRMED（1.0までは最新版のみサポート、種類別の脆弱性修正目標、GitHubの非公開報告機能を利用） | 2026-11-20 |
+| DEC-119 | [テレメトリーなしでの不具合報告の届け方](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人が確認・送信する不具合報告、診断情報の範囲、Nagi 1.0まで自動クラッシュ報告なし）／PROVISIONAL（報告の形式・UI・伏せ字方式・適用版） | 2026-11-20 |
+| DEC-120 | [開発名称「Nagi」とDCOによる貢献の受け付け](DEC-120-development-codename-and-dco.md) | CONFIRMED（「Nagi」を開発名称として使用し、1.0までに製品名の扱いを決定、DCOで貢献を受け付け） | 2026-11-20 |
 | DEC-121 | [無操作時の自動ロックとセッションの有効期間](DEC-121-idle-lock-and-session-lifetime.md) | CONFIRMED（無操作15分で自動ロック・設定は1〜60分または「しない」、ロック中もセッション維持・承認操作は受け付けない、絶対期限なし）／PROVISIONAL（ゲスト・端末別初期値・ロック画面の通知・版） | 2026-11-22 |
+| DEC-122 | [Supervisor Council：端末適応型の安全審査・独立OS認可](DEC-122-adaptive-supervisor-council-security.md) | CONFIRMED（Councilはセキュリティ審査を主目的とし通常の深掘りでは常時合議しない、端末Resource適応、独立OS認可）／PROVISIONAL（Council審査条件・票数・低スペック時の省略／直列推論・Cloud深掘りの具体ルーティング・技術・版） | 2026-11-22 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -293,6 +306,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)の後続決定で、Councilをセキュリティ審査のための必要時起動を主眼とする方針に明確化。普段の回答深掘りには常時合議せず、外部Cloud LLMはDEC-002の事前許可を条件とする選択肢。具体的なCouncil招集条件・Cloudルーティング・性能・版はPROVISIONAL。[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)に整合。 |
+| 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)を新設し、[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)へ連携。Councilを追加レビュー層とし、端末Resource適応・OS認可独立をCONFIRMED、低スペックの直列3回推論／省略・全会一致等はPROVISIONAL。Release Gate・既存の実装優先順位は不変。 |
 | 2026-11-17 | DEC-020に8GB RAM級の前景操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する決定を追記。実施詳細は未確定とし、既存Gate・測定証拠の区別を維持。 |
 | 2026-11-17 | [DEC-009](DEC-009-nagi-first-home-desktop.md)／[DEC-010](DEC-010-intent-first-adaptive-ui.md)にPX-01のB（会話中心の統合Home）＋将来C（Project／Task等に応じる高度適応Home）を高水準でCONFIRMEDとして追記。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ更新。既存のHome標準・Desktop自動切替条件・委任Task中のHome維持・Workspace復元と手動配置保護・AI不在時の通常GUI・Gateを維持。具体レイアウト・導線・カード数・Nagi Bar位置・AI停止時詳細UI・技術・版はPROVISIONAL。 |
 | 2026-11-17 | [DEC-010](DEC-010-intent-first-adaptive-ui.md)／[DEC-008](DEC-008-proactive-behavior.md)にPX-02のB（ユーザー主導で選択・却下・固定できる適応型UI）＋将来C（高度な個人適応UI）の高水準方針をCONFIRMEDとして記録。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。既存Intent-first・新規Workspace自動配置・複数画面／手動配置保護・控えめな通知・AI不在時通常GUIとGateを維持。カード／パネルの詳細UI・表示順序・適応条件・学習技術・性能・提供版はPROVISIONAL。 |

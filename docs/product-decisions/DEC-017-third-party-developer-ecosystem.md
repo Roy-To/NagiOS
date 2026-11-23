@@ -226,3 +226,7 @@ Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／A
 | 2026-11-15 | DEC-071として、Porting Toolkitの既存アプリ移植に加え、初心者がローカルLLMを使い自然言語から小規模な新規Nagi Native Appを作り、試用・導入・共有／配布する純正体験の方向を確定。製品形態・Toolkit連携・技術・版は未確定。 |
 | 2026-11-17 | PX-13でB＋将来Cの共同制作体験は維持しつつ、当面はローカルLLMとCloud開発AI／既存IDE・人間との橋渡し・他OSアプリ移植支援を重視する高水準方向を追加。統合型制作環境の完成は1.0計画最終盤を目安とする低優先長期目標（版未確定）。既存1.0公開開発者環境／配布基盤、Cloud事前許可、Native専用／Level 0〜3を維持。 |
 | 2026-11-17 | PX-14は既存IDE／SDK／PT-01〜06／Cloud開発AIとの橋渡し・Build／Test／Package／Target検証を一連の開発者体験とするBを基本、将来は互換性・更新Package・保守・配布までの継続開発支援Cに拡張する高水準方針をCONFIRMED。Nagi Native／Level 0〜3、Windows／Linux重点、DEC-002送信許可、導入・公開別承認、0.2-M21と1.0開発者環境・配布基盤目標を維持。初期SDK／言語・CLI／Cloud／署名・配布詳細・性能・版はPROVISIONAL。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-114](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md) — 一般向けのアプリ実行・配布はNagi Native Apps専用とし、明示的に有効化した開発者モードの隔離Linux環境を開発用途に限った例外とする。
