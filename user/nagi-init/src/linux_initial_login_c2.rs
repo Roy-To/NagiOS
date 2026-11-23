@@ -99,7 +99,7 @@ where
     pub(super) fn request_notes_attachment(
         &self,
         lease: SessionLease,
-        notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        notes: &mut crate::profile_volume_notes_owner::AppStorageOwners,
     ) -> Result<
         (
             crate::profile_volume_notes_owner::AuthorizedNotesAttachment,

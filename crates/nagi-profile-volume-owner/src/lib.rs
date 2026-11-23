@@ -319,6 +319,51 @@ impl ProfileVolumeAppOwner {
     }
 }
 
+/// Storage attachments owned together for one interactive Session.
+pub struct AppStorageOwners {
+    notes: ProfileVolumeAppOwner,
+    settings: ProfileVolumeAppOwner,
+    calendar: ProfileVolumeAppOwner,
+}
+
+impl AppStorageOwners {
+    pub fn pending() -> Self {
+        Self {
+            notes: ProfileVolumeAppOwner::pending_for(AppStorageKind::Notes),
+            settings: ProfileVolumeAppOwner::pending_for(AppStorageKind::Settings),
+            calendar: ProfileVolumeAppOwner::pending_for(AppStorageKind::Calendar),
+        }
+    }
+
+    pub fn notes(&self) -> &ProfileVolumeAppOwner {
+        &self.notes
+    }
+
+    pub fn owners_mut(&mut self) -> [&mut ProfileVolumeAppOwner; 3] {
+        [&mut self.notes, &mut self.settings, &mut self.calendar]
+    }
+
+    pub fn revoke(&mut self) -> Result<(), ProfileVolumeNotesOwnerError> {
+        self.apply_to_all(ProfileVolumeAppOwner::revoke)
+    }
+
+    pub fn end(&mut self) -> Result<(), ProfileVolumeNotesOwnerError> {
+        self.apply_to_all(ProfileVolumeAppOwner::end)
+    }
+
+    fn apply_to_all(
+        &mut self,
+        transition: fn(&mut ProfileVolumeAppOwner) -> Result<(), ProfileVolumeNotesOwnerError>,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        let mut result = Ok(());
+        for owner in self.owners_mut() {
+            // Attempt every transition even when one owner fails closed.
+            result = result.and(transition(owner));
+        }
+        result
+    }
+}
+
 impl Drop for ProfileVolumeAppOwner {
     fn drop(&mut self) {
         let old = std::mem::replace(&mut self.state, OwnerState::Ended);
@@ -637,6 +682,75 @@ mod tests {
         drop(duplicate);
         drop(owner);
         assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
+
+    fn app_storage_fixture() -> (AppStorageOwners, [ProfileVolumeNotesBundle; 3]) {
+        let mut owners = AppStorageOwners::pending();
+        let bundles = owners.owners_mut().map(|owner| {
+            let (directory, _peer) = UnixStream::pair().unwrap();
+            *owner = ProfileVolumeAppOwner::verified_fixture_for(
+                owner.kind(),
+                "principal",
+                "profile",
+                directory.into(),
+                ObjectId(42),
+            );
+            let bundle = owner.issue_bundle().unwrap();
+            assert_eq!(bundle.with_active(|| 42), Ok(42));
+            bundle
+        });
+        (owners, bundles)
+    }
+
+    #[test]
+    fn failed_logout_still_ends_other_storage_bundles() {
+        let (mut owners, [notes, settings, calendar]) = app_storage_fixture();
+        let poison = std::panic::catch_unwind(|| {
+            notes.with_active(|| panic!("fixture storage effect panicked"))
+        });
+        assert!(poison.is_err());
+
+        assert_eq!(owners.end(), Err(ProfileVolumeNotesOwnerError::Unavailable));
+        assert_eq!(
+            notes.with_active(|| ()),
+            Err(ProfileVolumeNotesOwnerError::Unavailable)
+        );
+        for bundle in [settings, calendar] {
+            assert_eq!(
+                bundle.with_active(|| ()),
+                Err(ProfileVolumeNotesOwnerError::Ended)
+            );
+        }
+    }
+
+    #[test]
+    fn logout_and_revocation_invalidate_every_app_storage_bundle() {
+        for terminal in [
+            ProfileVolumeNotesOwnerError::Ended,
+            ProfileVolumeNotesOwnerError::Revoked,
+        ] {
+            let (mut owners, bundles) = app_storage_fixture();
+            assert_eq!(
+                bundles.each_ref().map(ProfileVolumeNotesBundle::kind),
+                [
+                    AppStorageKind::Notes,
+                    AppStorageKind::Settings,
+                    AppStorageKind::Calendar
+                ]
+            );
+            if terminal == ProfileVolumeNotesOwnerError::Ended {
+                owners.end().unwrap();
+            } else {
+                owners.revoke().unwrap();
+                owners.end().unwrap();
+            }
+            for bundle in bundles {
+                assert_eq!(
+                    bundle.with_active(|| -> () { panic!("terminal storage effect") }),
+                    Err(terminal)
+                );
+            }
+        }
     }
 
     #[test]

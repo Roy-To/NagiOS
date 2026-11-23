@@ -475,8 +475,8 @@ pub(crate) fn run() -> ExitCode {
 
     #[cfg(target_os = "linux")]
     {
-        let notes_owner = crate::profile_volume_notes_owner::pending();
-        match normal_startup_profile_notes_bundle(&notes_owner) {
+        let app_storage_owners = crate::profile_volume_notes_owner::pending();
+        match normal_startup_profile_notes_bundle(&app_storage_owners) {
             Err(error) => log_pid1_stderr(format_args!(
                 "NAGI_NOTES_PROFILE_VOLUME_UNAVAILABLE error={error} fallback=none"
             )),
@@ -591,7 +591,7 @@ pub(crate) fn run() -> ExitCode {
 
 #[cfg(target_os = "linux")]
 fn normal_startup_profile_notes_bundle(
-    owner: &crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+    owner: &crate::profile_volume_notes_owner::AppStorageOwners,
 ) -> Result<
     crate::profile_volume_notes_owner::ProfileVolumeNotesBundle,
     crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,

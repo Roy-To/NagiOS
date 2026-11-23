@@ -764,15 +764,18 @@ pub(super) fn run_owner_login(
                 #[cfg(linux_task24_notes_consumer)]
                 let mut notes_exit = None;
                 if notes_allowed {
-                    let mut notes_owner = runtime.notes_owner().map_err(|_| {
+                    let mut app_owners = runtime.app_storage_owners().map_err(|_| {
                         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable
                     });
-                    match notes_owner
+                    match app_owners
                         .as_mut()
                         .map_err(|error| *error)
-                        .and_then(|owner| runtime.request_notes_attachment(session.lease, owner))
-                    {
-                        Ok(inputs) => {
+                        .and_then(|owners| {
+                            runtime
+                                .request_notes_attachment(session.lease, owners)
+                                .map(|inputs| (inputs, owners))
+                        }) {
+                        Ok((inputs, owners)) => {
                             super::log_pid1_stderr(format_args!(
                                 "NAGI_NOTES_PROFILE_ATTACHMENT_CHECKED"
                             ));
@@ -799,8 +802,12 @@ pub(super) fn run_owner_login(
                                             ))
                                         }
                                         Some(Ws10Mode::RevokeSession) if !revoked => {
-                                            let reason =
-                                                runtime.ws10_revoke_notes_session(&issued)?;
+                                            let reason = match runtime
+                                                .revoke_app_sessions(&issued, owners)
+                                            {
+                                                Ok(reason) => reason,
+                                                Err(_) => wait_for_unconfirmed_notes_session_end(),
+                                            };
                                             revoked = true;
                                             super::log_pid1_stderr(format_args!(
                                                 "NAGI_DEV_WS10_SESSION_REVOKED reason={reason:?}"
@@ -879,24 +886,17 @@ pub(super) fn run_owner_login(
                                     super::NotesConsoleExit::ClosedByUser
                                         | super::NotesConsoleExit::ClosedWithoutSave
                                 ) {
-                                    match runtime.end_notes_session(&issued) {
+                                    match runtime.end_app_sessions(&issued, owners) {
                                         Ok(reason) => super::log_pid1_stderr(format_args!(
                                             "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
                                         )),
-                                        Err(_) => {
-                                            super::log_pid1_stderr(format_args!(
-                                                "NAGI_DEV_NOTES_SESSION_END_UNCONFIRMED"
-                                            ));
-                                            // Keep the login control FD alive. EOF must only follow
-                                            // confirmed C1 termination on this close path.
-                                            super::wait_in_pid1(super::wait_for_pid1_os_event);
-                                        }
+                                        Err(_) => wait_for_unconfirmed_notes_session_end(),
                                     }
                                 }
                                 notes_exit = Some(exit);
                             }
                             #[cfg(not(linux_task24_notes_consumer))]
-                            let _ = inputs;
+                            let _ = (inputs, owners);
                         }
                         Err(error) => {
                             super::log_pid1_stderr(format_args!(
@@ -1460,4 +1460,12 @@ fn ws10_mode() -> std::io::Result<Option<Ws10Mode>> {
         }
     }
     Ok(selected)
+}
+
+#[cfg(linux_task24_notes_consumer)]
+fn wait_for_unconfirmed_notes_session_end() -> ! {
+    super::log_pid1_stderr(format_args!("NAGI_DEV_NOTES_SESSION_END_UNCONFIRMED"));
+    // Keep the login control FD alive until both Session and storage cleanup
+    // are confirmed. An unconfirmed termination must not publish EOF.
+    super::wait_in_pid1(super::wait_for_pid1_os_event);
 }

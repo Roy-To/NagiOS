@@ -216,20 +216,20 @@ impl ProfileRootAuthorizer for NotesProfileRootAuthorizer {
     }
 }
 
-pub(crate) struct ProfileVolumeNotesOwner {
-    inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner,
+pub(crate) struct AppStorageOwners {
+    inner: nagi_profile_volume_notes_owner::AppStorageOwners,
     boot_volume: Option<BootVolumeInput>,
 }
 
-impl ProfileVolumeNotesOwner {
+impl AppStorageOwners {
     pub(crate) fn status(&self) -> ProfileVolumeNotesOwnerStatus {
-        self.inner.status()
+        self.inner.notes().status()
     }
 
     pub(crate) fn issue_bundle(
         &self,
     ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
-        self.inner.issue_bundle()
+        self.inner.notes().issue_bundle()
     }
 
     /// Called under the exact C1 Session effect guard after C2 attachment.
@@ -252,21 +252,24 @@ impl ProfileVolumeNotesOwner {
             return Err(Unavailable);
         }
         let user = identity.user_id().ok_or(Unavailable)?;
-        if self.inner.status() == ProfileVolumeNotesOwnerStatus::Pending {
-            self.inner.attach_linux_profile(
-                &boot_volume.directory,
-                boot_volume.identity.mount_id,
-                user.to_model(),
-                identity.profile_id().as_str(),
+        for owner in self.inner.owners_mut() {
+            if owner.status() == ProfileVolumeNotesOwnerStatus::Pending {
+                owner.attach_linux_profile(
+                    &boot_volume.directory,
+                    boot_volume.identity.mount_id,
+                    user.to_model(),
+                    identity.profile_id().as_str(),
+                    identity.principal_id().as_str(),
+                )?;
+            }
+            let bundle = owner.issue_bundle()?;
+            bundle.validate_scope(
                 identity.principal_id().as_str(),
+                identity.profile_id().as_str(),
             )?;
+            bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
         }
         let bundle = self.issue_bundle()?;
-        bundle.validate_scope(
-            identity.principal_id().as_str(),
-            identity.profile_id().as_str(),
-        )?;
-        bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
         Ok(AuthorizedNotesAttachment {
             bundle,
             authorizer: NotesProfileRootAuthorizer {
@@ -288,14 +291,6 @@ impl ProfileVolumeNotesOwner {
         self.inner.revoke()
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn revoke_bundle(
-        &mut self,
-        bundle: &ProfileVolumeNotesBundle,
-    ) -> Result<(), ProfileVolumeNotesOwnerError> {
-        self.inner.revoke_bundle(bundle)
-    }
-
     pub(crate) fn end(&mut self) -> Result<(), ProfileVolumeNotesOwnerError> {
         let result = self.inner.end();
         self.boot_volume.take();
@@ -303,16 +298,16 @@ impl ProfileVolumeNotesOwner {
     }
 }
 
-pub(crate) fn pending() -> ProfileVolumeNotesOwner {
-    ProfileVolumeNotesOwner {
-        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
+pub(crate) fn pending() -> AppStorageOwners {
+    AppStorageOwners {
+        inner: nagi_profile_volume_notes_owner::AppStorageOwners::pending(),
         boot_volume: None,
     }
 }
 
-pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> ProfileVolumeNotesOwner {
-    ProfileVolumeNotesOwner {
-        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
+pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwners {
+    AppStorageOwners {
+        inner: nagi_profile_volume_notes_owner::AppStorageOwners::pending(),
         boot_volume: Some(input),
     }
 }

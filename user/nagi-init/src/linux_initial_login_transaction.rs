@@ -169,7 +169,7 @@ where
     pub(super) fn request_notes_attachment(
         &mut self,
         lease: SessionLease,
-        notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        notes: &mut crate::profile_volume_notes_owner::AppStorageOwners,
         admission: &C1SystemServiceRuntimeAdmission<'_>,
     ) -> Result<
         (
