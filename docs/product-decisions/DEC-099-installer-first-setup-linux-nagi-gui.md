@@ -55,3 +55,7 @@ Linux＋Nagi独自ユーザーランド、Desktop first、System／User Data分�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | Foundation #30についてユーザーが方式Bを承認。Linuxの低レイヤー＋Nagi専用GUI Installerを標準とし、ローカルLLMで高度なInstaller判断を行う方式Cは採らず、Offline-first／AI非必須での基本セットアップ、危険操作の明示確認を維持。OSS・GUI・暗号化・実機・版は未確定。 |
+
+## 関連決定の参照注記（2026-11-21）
+
+- [DEC-117](DEC-117-user-data-encryption-and-lost-device.md) — 初回セットアップで回復キーを表示して端末外での保管を強く促し、パスワード・PIN・回復キーをすべて失うとデータを復元できないことを伝える。
