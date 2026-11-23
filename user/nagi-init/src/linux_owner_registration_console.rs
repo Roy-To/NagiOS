@@ -280,6 +280,17 @@ pub(super) struct ConsoleKey {
     pub(super) monotonic_ns: Option<u64>,
 }
 
+#[derive(Debug)]
+struct KeyboardEventsLost;
+
+impl std::fmt::Display for KeyboardEventsLost {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("keyboard events were lost")
+    }
+}
+
+impl std::error::Error for KeyboardEventsLost {}
+
 pub(super) struct BootOwnerConsole {
     #[cfg(all(
         linux_task24_owner_co_location,
@@ -290,6 +301,7 @@ pub(super) struct BootOwnerConsole {
     ))]
     keyboard_clock_ready_ns: Option<u64>,
     keyboard: File,
+    discard_until_sync_report: bool,
     framebuffer: Framebuffer,
     pixels: Vec<u32>,
     frame_presented: Arc<AtomicBool>,
@@ -330,6 +342,7 @@ impl BootOwnerConsole {
             ))]
             keyboard_clock_ready_ns,
             keyboard,
+            discard_until_sync_report: false,
             framebuffer: Framebuffer::open()?,
             pixels: vec![0; (SURFACE_WIDTH * SURFACE_HEIGHT) as usize],
             frame_presented: Arc::new(AtomicBool::new(false)),
@@ -357,7 +370,14 @@ impl BootOwnerConsole {
         let event_type = u16::from_le_bytes([data[16], data[17]]);
         let code = u16::from_le_bytes([data[18], data[19]]);
         let value = i32::from_le_bytes([data[20], data[21], data[22], data[23]]);
+        if self.discard_until_sync_report {
+            // evdev requires discarding every record through the next
+            // SYN_REPORT, including keys queued after SYN_DROPPED.
+            self.discard_until_sync_report = (event_type, code) != (0, 0);
+            return Ok(None);
+        }
         if event_type == 0 && code == 3 {
+            self.discard_until_sync_report = true;
             #[cfg(all(
                 linux_task24_owner_co_location,
                 linux_task24_initial_login_runtime,
@@ -374,7 +394,7 @@ impl BootOwnerConsole {
                 return Ok(None);
             }
             self.frame_presented.store(false, Ordering::Release);
-            return Err(io::Error::other("keyboard events were lost"));
+            return Err(io::Error::other(KeyboardEventsLost));
         }
         Ok(
             (event_type == libnagi::INPUT_EVENT_KEY && (value == 0 || value == 1)).then(|| {
@@ -473,7 +493,19 @@ impl BootOwnerConsole {
             "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT"
         ));
         loop {
-            let event = next_key(self).map_err(Io)?;
+            let event = match next_key(self) {
+                Ok(event) => event,
+                Err(error)
+                    if error
+                        .get_ref()
+                        .is_some_and(|cause| cause.is::<KeyboardEventsLost>()) =>
+                {
+                    screen.reset_after_input_loss();
+                    self.present(|painter| screen.render(painter)).map_err(Io)?;
+                    continue;
+                }
+                Err(error) => return Err(Io(error)),
+            };
             if event.value == 0 {
                 continue;
             }
@@ -640,5 +672,95 @@ impl super::pid1_live_peer_supplier::ConsentSource for BootConsentUiConnection {
             return Err(PeerDenial::ConsentUnavailable);
         }
         Ok(self.frame_presented.load(Ordering::Acquire) && fds.iter().all(|fd| fd.returned == 0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn registration_clears_input_after_syn_dropped_and_accepts_fresh_submission() {
+        let (keyboard, mut writer) = UnixStream::pair().unwrap();
+        let mut record = |event_type: u16, code: u16, value: i32| {
+            let mut bytes = [0; 24];
+            bytes[16..18].copy_from_slice(&event_type.to_le_bytes());
+            bytes[18..20].copy_from_slice(&code.to_le_bytes());
+            bytes[20..].copy_from_slice(&value.to_le_bytes());
+            writer.write_all(&bytes).unwrap();
+        };
+        let enter = libnagi::INPUT_KEY_ENTER;
+        let tab = libnagi::INPUT_KEY_TAB;
+        for code in [enter, 30, tab, 30, 30, 30, 30, tab, 30, 30, 30, 30] {
+            record(libnagi::INPUT_EVENT_KEY, code, 1);
+        }
+        record(0, 3, 0); // SYN_DROPPED, with a complete draft pending.
+        record(libnagi::INPUT_EVENT_KEY, 30, 1);
+        record(libnagi::INPUT_EVENT_KEY, enter, 1);
+        record(0, 0, 0); // SYN_REPORT.
+        for code in [48, tab, 48, 48, 48, 48, tab, 48, 48, 48, 48, enter] {
+            record(libnagi::INPUT_EVENT_KEY, code, 1);
+        }
+        drop(writer);
+
+        let width = SURFACE_WIDTH as usize;
+        let height = SURFACE_HEIGHT as usize;
+        let mut console = BootOwnerConsole {
+            #[cfg(all(
+                linux_task24_owner_co_location,
+                linux_task24_initial_login_runtime,
+                linux_task24_notes_consumer,
+                linux_dev_notes_performance
+            ))]
+            keyboard_clock_ready_ns: None,
+            keyboard: File::from(OwnedFd::from(keyboard)),
+            discard_until_sync_report: false,
+            framebuffer: Framebuffer {
+                device: File::options().write(true).open("/dev/null").unwrap(),
+                stride: u64::from(SURFACE_WIDTH) * 4,
+                width,
+                height,
+                swap_red_blue: false,
+            },
+            pixels: vec![0; width * height],
+            frame_presented: Arc::new(AtomicBool::new(false)),
+        };
+        let locale = nagi_localization::Locale::EnUs;
+        let submitted = Cell::new(false);
+        let screen = LinuxOwnerRegistration::new(locale, |record: AccountRecord| {
+            assert!(!submitted.replace(true));
+            assert_eq!(record.name(), b"b");
+            assert!(record.credential.verify(b"bbbb"));
+            Ok::<_, ()>(())
+        });
+        let mut blank = LinuxOwnerRegistration::new(locale, |_| Ok::<_, ()>(()));
+        blank.handle_event(InputEvent {
+            event_type: libnagi::INPUT_EVENT_KEY,
+            code: enter,
+            value: 1,
+        });
+        let mut blank_pixels = vec![0; width * height];
+        blank.render(&mut crate::ui::Painter::new(&mut blank_pixels));
+
+        let mut checked_reset = false;
+        console
+            .run_registration(screen, |console| {
+                // The previous read reported loss. The registration loop must
+                // redraw before reading the boundary and any further keys.
+                if console.discard_until_sync_report {
+                    assert!(!checked_reset);
+                    assert!(!submitted.get());
+                    let notice_row = 158 * width;
+                    assert_eq!(console.pixels[..notice_row], blank_pixels[..notice_row]);
+                    assert_ne!(console.pixels[notice_row..], blank_pixels[notice_row..]);
+                    checked_reset = true;
+                }
+                console.next_key()
+            })
+            .unwrap();
+        assert!(checked_reset && submitted.get());
     }
 }
