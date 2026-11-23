@@ -1,7 +1,7 @@
 # DEC-098 — Diagnostics / Logging：Nagi統合診断Bを基盤に、AI支援診断Cを段階導入する
 
-**状態:** CONFIRMED（Foundation #29：BのNagi統合Diagnostics／Loggingを製品の基本とし、CのAI支援診断を将来の正式な製品目標として段階導入）／PROVISIONAL（Linux収集backend・AI診断モデル／推論方式・ログ保持量・具体解析・提供版・実機受入）
-**最終合意日:** 2026-11-16\
+**状態:** CONFIRMED（Foundation #29のB統合Diagnostics＋将来C分析支援、2026-11-24のローカルAI簡易調査・報告支援中心の具体化）／PROVISIONAL（Linux backend・Model／推論・具体調査／報告UI・性能・提供版・実機受入）  
+**最終合意日:** 2026-11-24（ローカルAIの役割を簡易調査・報告支援中心に具体化）  
 **適用候補:** Nagi OS Foundation #29。特定Releaseへの新規必須割当てと実装開始の承認は行わない\
 **関連:** [Foundation Checklist #29](NAGI_OS_FOUNDATION_CHECKLIST.md#f29)、[DEC-020（AIとOSの決定論的な境界）](DEC-020-ai-os-interaction-path.md)、[DEC-022（中断Taskの復旧）](DEC-022-builder-interrupted-task-recovery.md)、[DEC-026（証拠付き変更・復旧）](DEC-026-ai-change-verification-and-recovery.md)、[DEC-002（Cloud送信許可）](DEC-002-cloud-ai-data-sharing.md)、[DEC-003（情報分類）](DEC-003-memory-classification.md)、[DEC-043（Linux＋Nagiユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[0.2実装仕様 §17／M04](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
@@ -18,6 +18,22 @@ Nagi OS自身とアプリのboot／crash／service health等について、原�
 5. **ログとActivityと権限を混同しない。** Debug／Privileged Diagnostics、ユーザー向けActivity／Task履歴は目的・所有・閲覧権限を分け、ユーザーに意味のある事象のみ明示的なBridgeを通す。ログが存在すること自体はAI／App／Userがその全内容を参照できるPermissionではない。診断情報のアクセス、AIへ渡すContext、Export／共有／Cloud送信、診断から実行するActionは、それぞれ現行Permission／Capability／Policyと必要な承認に従う。
 6. **Privacy・安全・資源境界を維持する。** 診断へのSecret／Credential／秘密入力の無用な記録・複製を防ぎ、Redactionと保持・容量・Rateの上限、障害に耐えるsinkを重視する。ログの常時無制限収集、個人情報の無差別なAI投入、無断の外部診断アップロードは認めない。診断サービス自身の不調で通常のOS機能が不用意に停止する構造を避ける。
 7. **修復は正規のActionと復旧規則に従う。** AIによる原因候補・修復提案を実行権限と同一視しない。設定変更、再起動、サービス更新、データ操作、Task再開等は正規のAPI・現在のScope・Permission・Policy・承認・復旧可能性確認の内側で行う。中断Task／不確かな非冪等Actionを診断結果だけで無断再実行しない（DEC-022／026）。
+
+## 2026-11-24 — ローカルAIの簡易調査とバグ報告支援
+
+### CONFIRMED — 今回の具体化方針
+
+1. **ローカルLLMの主用途は簡易的な問題切分けと報告支援とする。** Nagiの既存Diagnosticsから、許可されたエラー・クラッシュ・サービス状態などを整理し、ユーザーに分かる説明や不具合報告の作成を補助する。高度・正確な根本原因の確定をローカルLLMの主要責務や必須成功条件にしない。
+2. **観測・検査は決定論的基盤を正本とする。** OS／アプリから実際に得た診断情報、取得不能な情報、LLMが挙げた原因候補・解決案を明確に区別する。ローカルLLMによる推測だけで原因特定・修復成功などを確定しない。
+3. **実際の使い勝手の中心はバグ報告を簡単にすること。** [DEC-119](DEC-119-user-initiated-problem-reports.md)のユーザー起動型報告を支援し、伏せ字済みの許可された診断情報とユーザーが報告する症状を整理して、確認・編集できる下書きにつなげる。本人による全文プレビュー、項目ごとの除外、送信操作を維持する。
+4. **ローカルAIは任意の補助層。** LLMが使えない端末でも、既存の診断情報表示とDEC-119の手動報告／書き出し経路が成立する。報告支援を口実に常時高負荷の推論や無断Cloud処理を必須としない。
+5. **既存の上位方針を取り消さない。** 将来のC-1の分析補助・C-2の修復提案の方向は引き続き既存DECの範囲内とし、この具体化はローカルLLMに高精度診断や自動修復能力を保証するものではない。
+
+### PROVISIONAL／OPEN — 未確定の詳細
+
+- 最初の対象障害、収集する診断データの最小セット、簡易調査と従来のDiagnosticsの境界、報告下書きの生成・修正導線。
+- 原因候補を記載する条件・不確実性の表示、LLM出力の事実照合・赤字修正、低RAM環境でのModel／推論負荷・失敗時の動作。
+- 具体的なIssue Template／UI、伏せ字・検閲処理、診断結果と症状・再現方法の構造化、検証・受入条件・実装版。DEC-119の既存CONFIRMEDは維持する。
 
 ## 製品導入段階（方向はCONFIRMED、実装・版はPROVISIONAL）
 
@@ -53,6 +69,7 @@ Nagi OS自身とアプリのboot／crash／service health等について、原�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-24 | ユーザーがローカルLLMによる正確な原因診断を主目的にせず、簡易調査とバグ報告を円滑にする支援を採用。DEC-119のユーザー主導・伏せ字・プレビュー・本人送信を維持。詳細・版・高精度診断の扱いはPROVISIONAL。 |
 | 2026-11-16 | Foundation #29について、ユーザーが「Bを基本に、CのAI支援診断を将来の正式目標として段階的に導入する」方針を承認。Linux情報を用いたNagi統合Diagnosticsを基本とし、証拠に基づくAI分析・修復提案を将来の製品目標とする。個別backend、AI方式、提供時期、自動修復の採用は未確定とする。 |
 
 ## 関連決定の参照注記（2026-11-21）
