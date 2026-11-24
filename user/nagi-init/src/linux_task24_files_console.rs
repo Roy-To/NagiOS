@@ -421,7 +421,7 @@ where
             line(
                 &mut canvas,
                 188,
-                "Esc close  Up/Down select  Enter open  B parent  N new  R rename  Del trash  T trash",
+                "Esc close  Up/Down select  Enter open  Backspace parent  N new  R rename  Del trash  T trash",
             );
         }
     })
