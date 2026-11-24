@@ -1,4 +1,3 @@
-const COMMANDS: &str = include_str!("commands.rs");
 const DESKTOP: &str = include_str!("../../../user/nagi-init/src/desktop.rs");
 const M19_RUNTIME: &str = include_str!("../../../user/nagi-init/src/m19_runtime.rs");
 const LOGIN_SCREEN: &str = include_str!("../../../user/nagi-init/src/login_screen.rs");
@@ -10,7 +9,14 @@ fn compact(source: &str) -> String {
 
 #[test]
 fn login_acceptance_changes_the_password_and_checks_it_after_restart() {
-    let commands = compact(COMMANDS);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let commands = compact(&crate::read_frozen_legacy_file(
+        root,
+        "tools/nagi-cli/src/commands.rs",
+    ));
     let start = commands
         .find("fnrun_login_acceptance(")
         .expect("login acceptance runner");

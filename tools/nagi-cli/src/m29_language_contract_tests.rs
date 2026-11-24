@@ -1,7 +1,6 @@
 const DESKTOP: &str = include_str!("../../../user/nagi-init/src/desktop.rs");
 const FONT: &str = include_str!("../../../user/nagi-init/src/font.rs");
 const INIT: &str = include_str!("../../../user/nagi-init/src/main.rs");
-const COMMANDS: &str = include_str!("commands.rs");
 
 fn compact(source: &str) -> String {
     source.chars().filter(|ch| !ch.is_whitespace()).collect()
@@ -46,7 +45,14 @@ fn system_language_is_committed_to_user_data_before_desktop_selection() {
 
 #[test]
 fn m29_acceptance_reboots_the_same_user_data_volume_and_checks_the_restored_locale() {
-    let commands = compact(COMMANDS);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let commands = compact(&crate::read_frozen_legacy_file(
+        root,
+        "tools/nagi-cli/src/commands.rs",
+    ));
     let m29_start = commands.find("fnexecute_m29(").expect("M29 command");
     let acceptance_start = commands[m29_start..]
         .find("fnexecute_desktop_acceptance(")
@@ -86,7 +92,14 @@ fn m29_language_setting_is_reachable_and_selectable_by_keyboard() {
     assert!(desktop.contains("SettingsFocus::Button"));
     assert!(desktop.contains("SettingsFocus::Japanese"));
 
-    let commands = compact(COMMANDS);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let commands = compact(&crate::read_frozen_legacy_file(
+        root,
+        "tools/nagi-cli/src/commands.rs",
+    ));
     let events_start = commands
         .find("constM29_SETTINGS_EVENTS:")
         .expect("M29 input sequence");
@@ -145,7 +158,14 @@ fn m29_keyboard_focus_reaches_all_desktop_acceptance_panels() {
     assert!(desktop.contains("self.keyboard_app_focus.iter().all(|focused|*focused)"));
     assert!(desktop.contains("NagiM29desktopkeyboardfocusPASS"));
 
-    let commands = compact(COMMANDS);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let commands = compact(&crate::read_frozen_legacy_file(
+        root,
+        "tools/nagi-cli/src/commands.rs",
+    ));
     assert!(commands.contains("constM29_DESKTOP_FOCUS_EVENTS:[&str;11]"));
     assert!(commands.contains("letmutevents=M29_DESKTOP_FOCUS_EVENTS.to_vec();events.extend_from_slice(&M10_DESKTOP_EVENTS);"));
     assert!(commands.contains("\"NagiM29desktopkeyboardfocusPASS\""));
@@ -156,7 +176,14 @@ fn legacy_fat12_m27_healthy_trial_signs_in_before_readiness() {
     // ADR 0063: the legacy FAT12 System A/B images build init with
     // desktop-login, and the healthy System B trial creates the owner through
     // QMP; readiness must be persisted only after that sign-in.
-    let commands = compact(COMMANDS);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("workspace root");
+    let commands = compact(&crate::read_frozen_legacy_file(
+        root,
+        "tools/nagi-cli/src/commands.rs",
+    ));
     let m27_start = commands.find("fnexecute_m27(").expect("M27 command");
     let m27_end = commands[m27_start..]
         .find("fnexecute_m27_gpt_acceptance(")
