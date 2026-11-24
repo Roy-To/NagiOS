@@ -23,10 +23,10 @@ use nagi_ui::{ColorRole, TypeRole};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 
-struct TempSandbox(PathBuf);
+pub(super) struct TempSandbox(PathBuf);
 
 impl TempSandbox {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
@@ -40,7 +40,7 @@ impl TempSandbox {
         Self(path)
     }
 
-    fn path(&self) -> &std::path::Path {
+    pub(super) fn path(&self) -> &std::path::Path {
         &self.0
     }
 }
@@ -4458,6 +4458,34 @@ fn sandbox_reloads_unindexed_trash_and_restores_the_payload() {
     assert!(restored.location.is_root());
     assert_file_bytes(temp.path().join(restored.name.as_str()), b"recover me");
     assert!(reopened.list_trash().unwrap().is_empty());
+}
+
+#[test]
+fn sandbox_hides_dangling_trash_rows_and_rewrites_index_on_next_trash() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("first"), b"first").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    provider.trash(&Location::parse("first").unwrap()).unwrap();
+    drop(provider);
+
+    let storage = temp.path().join(".nagi-files");
+    let index = storage.join("trash-index-v1");
+    let stale_index = fs::read(&index).unwrap();
+    let payload = fs::read_dir(storage.join("trash"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    fs::remove_file(payload.path()).unwrap();
+
+    let mut reopened = SandboxProvider::new(temp.path()).unwrap();
+    assert!(reopened.list_trash().unwrap().is_empty());
+    assert_eq!(fs::read(&index).unwrap(), stale_index);
+    fs::write(temp.path().join("second"), b"second").unwrap();
+    let second = reopened.trash(&Location::parse("second").unwrap()).unwrap();
+    let final_index = fs::read_to_string(index).unwrap();
+    assert_eq!(final_index.lines().count(), 1);
+    assert!(final_index.starts_with(&second.id.to_string()));
 }
 
 #[test]

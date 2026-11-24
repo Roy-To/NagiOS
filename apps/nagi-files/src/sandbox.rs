@@ -1113,18 +1113,68 @@ fn rename_without_replace(
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+mod linux_rename_tests {
+    use super::*;
+    use crate::tests::TempSandbox;
+
+    #[test]
+    fn rename_refuses_a_destination_created_after_the_absence_check() {
+        let temp = TempSandbox::new();
+        fs::write(temp.path().join("source"), b"source").unwrap();
+        let parent = Dir::open_ambient_dir(temp.path(), cap_std::ambient_authority()).unwrap();
+        assert_eq!(
+            parent.symlink_metadata("target").unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        fs::write(temp.path().join("target"), b"created after check").unwrap();
+
+        let error = rename_without_replace(&parent, "source", &parent, "target").unwrap_err();
+        assert_eq!(map_destination_error(error).kind, FilesErrorKind::Conflict);
+        assert_eq!(fs::read(temp.path().join("source")).unwrap(), b"source");
+        assert_eq!(
+            fs::read(temp.path().join("target")).unwrap(),
+            b"created after check"
+        );
+    }
+
+    #[test]
+    fn failed_parent_fsync_reports_partial_failure_at_the_changed_location() {
+        let temp = TempSandbox::new();
+        let parent = Dir::open_ambient_dir(temp.path(), cap_std::ambient_authority()).unwrap();
+        parent.create_dir("new-folder").unwrap();
+        let location = Location::parse("new-folder").unwrap();
+        let error = sync_directory_change_with(&parent, &location, |_| {
+            Err(std::io::Error::other("injected fsync failure"))
+        })
+        .unwrap_err();
+        assert_eq!(error.kind, FilesErrorKind::PartialFailure);
+        assert_eq!(error.location, Some(location));
+        assert!(temp.path().join("new-folder").is_dir());
+    }
+}
+
 fn sync_directory_change(directory: &Dir, location: &Location) -> Result<(), FilesError> {
     #[cfg(target_os = "linux")]
     {
-        open_directory_relative(directory, ".")
-            .and_then(|opened| opened.into_std_file().sync_all().map_err(map_io_error))
-            .map_err(|_| FilesError::new(FilesErrorKind::PartialFailure).at(location.clone()))
+        sync_directory_change_with(directory, location, File::sync_all)
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (directory, location);
         Ok(())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn sync_directory_change_with(
+    directory: &Dir,
+    location: &Location,
+    sync: impl FnOnce(&File) -> std::io::Result<()>,
+) -> Result<(), FilesError> {
+    open_directory_relative(directory, ".")
+        .and_then(|opened| sync(&opened.into_std_file()).map_err(map_io_error))
+        .map_err(|_| FilesError::new(FilesErrorKind::PartialFailure).at(location.clone()))
 }
 
 fn is_internal_component(value: &str) -> bool {
