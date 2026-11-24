@@ -76,7 +76,11 @@ jobs:
             echo "::group::$dir"
             log="$(mktemp)"
             status=0
-            python3 -m unittest discover -s "$dir" -p 'test_*.py' -v >"$log" 2>&1 || status=$?
+            # A package directory (with __init__.py) is imported from its first
+            # non-package ancestor, so sibling packages such as api/common resolve.
+            top="$dir"
+            while [[ -f "$top/__init__.py" ]]; do top="$(dirname "$top")"; done
+            python3 -m unittest discover -s "$dir" -t "$top" -p 'test_*.py' -v >"$log" 2>&1 || status=$?
             cat "$log"
             echo "::endgroup::"
             if [[ "$status" -ne 0 ]]; then
