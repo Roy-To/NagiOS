@@ -1,7 +1,7 @@
 # DEC-010 — Intent-first UIと作業別レイアウト提案
 
-**状態:** CONFIRMED（既存Intent-first／Workspace配置・手動保護、PX-01の統合Home B＋将来の適応Home Cとの整合、PX-02のユーザー主導の適応UI B＋将来の個人適応Cの高水準方向）／PROVISIONAL（カード・パネル・導線・表示順序・適応条件・学習技術・性能・提供版）  
-**最終合意日:** 2026-11-17（PX-01／PX-02を追加。2026-11-15までの合意を維持）  
+**状態:** CONFIRMED（既存Intent-first／Workspace自動配置と手動保護、PX-01／02の方針、Workspace表示モードのユーザー手動切替）／PROVISIONAL（モード・UI・Scope・適用技術・性能・提供版）  
+**最終合意日:** 2026-11-24（Workspace手動表示モード切替の高水準方向を追加）  
 **対象:** Nagiの将来のUI/UX方針。実装バージョン・採用時期は本決定では確定しない  
 **関連:** DEC-001、DEC-004、DEC-006、DEC-008、DEC-009、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ロードマップ](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)
 
@@ -85,6 +85,21 @@ Bのユーザー主導・予測可能性を維持し、現在の許可されたT
 
 **PROVISIONAL／OPEN:** Homeの詳細レイアウトと適応UI、各導線・カード数・Nagi Bar配置、文脈判定・パネルの実装方式、AI停止時の詳細なUI、対応端末・技術・提供版。PX-01は既存Release／Activation／Acceptance Gateや開発開始の許可ではない。
 
+## Workspace表示モードの手動切替（2026-11-24）
+
+### CONFIRMED — 高水準の採用方向
+
+- ユーザーが**Workspaceの表示モードを手動で切り替えられる**方向を採用する。タイル／フローティング等の異なる表示モードを選択する体験を目指す。モードの完全な一覧や初期値は未確定。
+- 既存の新規Workspaceにおける許可済み自動配置と、既存Workspace・固定ウィンドウ・複数画面に関する**ユーザーの手動配置保護**を維持する。ユーザーが明示的に対象Workspaceのモード変更を選択した場合、その指示はAIの配置推定より優先する。
+- 通常GUIから手動操作でき、AIを使わない場合も成立する。モード切替は他Workspaceの無断変更、権限拡大、Task自動実行・復旧待ちTask再開の根拠にならない。
+
+### PROVISIONAL — 未確定の詳細
+
+- タイル／フローティング以外のモード候補、標準モード、Workspace／ディスプレイの適用単位、表示モードの記憶と再起動後の復元。
+- 切替UI・ショートカット・自然言語操作、切替時の位置／サイズ／固定ウィンドウの扱い、Undo／Wayback、複数画面との相互作用。
+- Nagi独自ShellとLinux／OSS描画基盤（[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)）での実装方法、受入・性能・担当・提供時期／版。
+- Omarchyや他Linux Desktopをそのまま製品基盤に採用する判断ではなく、DEC-043／108、DEC-123のLinux版0.1公開条件および既存Gateを維持する。
+
 ## 例外・禁止・安全境界
 
 - AIが提案した表示内容を、許可済みActionや新しいOS権限と同一視しない。データ取得や変更は現行のPermission / Policy、承認済みTaskおよび型付きPublic Action / Service APIの制約に従う（DEC-001）。
@@ -112,6 +127,7 @@ Bのユーザー主導・予測可能性を維持し、現在の許可されたT
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-24 | ユーザーがOmarchyを参考にWorkspaceのタイル／フローティング等の表示モードの手動切替を採用。新規Workspace自動配置・既存手動配置保護・AI不在時GUIを維持。具体モード・UI・技術・版はPROVISIONAL。 |
 | 2026-10-29 | Intent-first UI、作業別の動的カード・パネル、作業内容に応じたレイアウト提案、作業を妨げる勝手な大幅再配置の禁止に合意 |
 | 2026-10-29 | 選択Cを確定。新規Workspaceのみ目的に応じて自動配置し、利用者の繰り返す配置の好みを次回に反映。既存Workspaceは提案のみ、手動操作を尊重し、可能な範囲で元の配置に戻せるようにする |
 | 2026-11-04 | 選択Bを確定。新規Workspaceで複数ディスプレイを自動活用し、固定ウィンドウ・既存Workspace・手動配置は保護する |

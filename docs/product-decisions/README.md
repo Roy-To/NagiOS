@@ -6,6 +6,16 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Omarchy参考の追加選別：ローカルAIの簡易診断・バグ報告支援（2026-11-24）
+
+[DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)と[DEC-119](DEC-119-user-initiated-problem-reports.md)に、**ローカルLLMは簡単な問題切分けとユーザーのバグ報告準備を助ける**高水準方向をCONFIRMEDで追加。高精度な根本原因の特定をローカルLLMの標準要件にしない。決定論的Diagnosticsの事実とAIの推測を区別し、既存の伏せ字・内容プレビュー／除外・本人送信・非公開脆弱性窓口・自動送信なしを維持する。詳細・技術・版はPROVISIONAL。
+
+前回採用済みのWorkspace手動表示モードは[DEC-010](DEC-010-intent-first-adaptive-ui.md)で維持。Webアプリの独立したアプリ風起動は今回**新規採用しない（将来禁止の決定ではない）**。Omarchy参考の高度なインストール高速化は今回は**見送り**、[DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)の既存GUI Installer方針を撤回しない。ワンキーAI呼出しの具体仕様は未決。既存Release／Activation／Acceptance Gateを変更せず、今回の記録は新たな実装着手許可を意味しない。
+
+## Omarchy参考の3件：Nagi System Skills・AI稼働状況・Workspaceモード（2026-11-24）
+
+[DEC-124 — Nagi System Skills](DEC-124-nagi-system-skills.md)、[DEC-125 — AI稼働状況パネル](DEC-125-ai-operations-status-panel.md)、[DEC-010 — Workspace手動表示モード](DEC-010-intent-first-adaptive-ui.md)の3案をユーザーが明示的に採用。高水準の製品方針は**CONFIRMED**、Skill Schema・対象表示項目・モード一覧・実装・版・Acceptanceは**PROVISIONAL**。Omarchyは参考事例であり、既存Distribution／Desktopや自由なシェル実行経路の採用ではない。正規Public Action／Permission、AIなしの通常GUI、DEC-123のLinux版Developer Previewと既存Release／Activation Gateを維持。
+
 ## Supervisor Councilの将来方針（2026-11-22）
 
 [DEC-122 — 端末能力適応型Supervisor Councilと独立したOSセキュリティ](DEC-122-adaptive-supervisor-council-security.md)を追加。CouncilをローカルLLMネイティブな追加審査層として活用し、**重要Action・不審な指示へのセキュリティ審査を主目的**として日常的な回答の深掘りに常時合議しない方針、端末Resourceに応じたSupervisor数・運用の柔軟性、OS中核セキュリティの独立を高水準**CONFIRMED**として記録。高度な調査へのCloud LLM利用は選択肢とし、DEC-002の事前許可・Offline-firstを維持。重大／致命的変更の合議ルール、低スペックのCouncil省略または重大案件のみ直列3回推論、技術・提供版は**PROVISIONAL**。DEC-074の長期・後順位と0.3／初期0.4の既存Gateは維持。
@@ -141,7 +151,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
 | DEC-008 | [控えめな働きかけ／小さな用事の静かな準備・学習・Reminder／PX-02・PX-04・PX-07](DEC-008-proactive-behavior.md) | CONFIRMED（既存の控えめな通常提案・客観的重大警告、PX-02適応UIとの整合、PX-04音声／Text基本B＋将来ハンズフリーC、PX-07文脈提案B＋将来高度管理C、小さな用事の静かな準備・会話からの一時記録・状況／期限型Reminder・確証による完了／重要度の学習と不要な催促抑制）／PROVISIONAL（頻度・UI・Wake Word・録音／Transcript・AI技術・性能・版） | 2026-11-17 |
 | DEC-009 | [Nagi-first操作思想・Nagi Home / Desktop／PX-01統合Home B＋将来適応C](DEC-009-nagi-first-home-desktop.md) | CONFIRMED（既存Home／Desktop遷移・状態保持・AI不在時通常GUI、PX-01 B基本＋将来C方向）／PROVISIONAL（画面配置・導線・カード数・Nagi Bar位置・AI停止時UI・技術・提供版） | 2026-11-17 |
-| DEC-010 | [Intent-first／Workspace配置とPX-01統合Home・PX-02適応型UI](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（従前のIntent-first、新規Workspace配置・既存手動配置保護、PX-01統合Home B＋将来C、PX-02ユーザー主導適応UI B＋将来個人化C）／PROVISIONAL（具体画面・配置／表示・適応条件・学習技術・性能・版） | 2026-11-17 |
+| DEC-010 | [Intent-first／Workspace配置・PX-01／02適応UI・手動モード切替](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（Intent-first／新規Workspace自動配置・既存手動配置保護・PX-01／02とWorkspace表示モードのユーザー手動切替）／PROVISIONAL（詳細モード・UI・技術・性能・提供版） | 2026-11-24 |
 | DEC-011 | [Task承認・進捗・PX-04音声／TextとPX-06統合Taskセンター](DEC-011-task-approval-progress-ui.md) | CONFIRMED（従前の承認・進捗・Role／Stop／復旧、PX-04音声／Text切替・画面訂正、PX-06統合TaskセンターB＋将来高度Task管理C）／PROVISIONAL（具体UI・Queue／Priority／Scheduler・Voice UI・技術・性能・版） | 2026-11-17 |
 | DEC-012 | [Workspaceの自動命名・整理と自然言語検索／PX-03との整合](DEC-012-workspace-naming-organization.md) | CONFIRMED（既存の自動命名・分類・意味検索／ユーザー選択優先とPX-03統合作業ビューの高水準接続）／PROVISIONAL（具体的なProjectとの一覧・検索／再開UI・技術・版） | 2026-11-17 |
 | DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
@@ -228,7 +238,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-095 | [App Lifecycle：Linux基盤＋Nagi App Supervisorと独自Runtimeの並行研究](DEC-095-app-lifecycle-linux-supervisor-runtime-research.md) | CONFIRMED（#26 B基本：Linux Native Process＋Nagi Supervisor、独自Runtimeの比較研究・標準経路保持）／PROVISIONAL（WASM等の採否・性能・対応機器・実装／版） | 2026-11-16 |
 | DEC-096 | [Settings / Notification：Cの状況適応を最終目標に、Bの統合基盤を段階導入](DEC-096-settings-notifications-context-adaptive-staged.md) | CONFIRMED（#27 Cが最終目標、Bの統合Settings／Notificationを段階導入。明示設定・重大警告・Privacy／Permission維持）／PROVISIONAL（状況判定・習慣連携・自動調整詳細・版／受入） | 2026-11-16 |
 | DEC-097 | [通常a11y基盤の先行整備とAI-native操作の長期方向](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md) | CONFIRMED（#28 通常a11y先行、長期方向との両立、GUI・AI不在時操作・認可維持）／PROVISIONAL（具体入力技術・時期・time／locale詳細・受入） | 2026-11-16 |
-| DEC-098 | [Diagnostics / Logging：Nagi統合診断B＋段階的AI支援診断C](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md) | CONFIRMED（#29 Bを製品基本、CのAI原因分析・修復提案を将来の正式目標として段階導入）／PROVISIONAL（Linux backend・AIモデル・個別解析・保持／export・版／受入・自動修復） | 2026-11-16 |
+| DEC-098 | [Diagnostics / Logging：Nagi統合診断・ローカルAI簡易調査と報告支援](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md) | CONFIRMED（B統合診断＋将来C、ローカルAIは簡易調査・バグ報告の支援を中心とする）／PROVISIONAL（backend・モデル・具体解析・UI・性能・版・受入） | 2026-11-24 |
 | DEC-099 | [Installer / First Setup：Linux基盤＋Nagi専用GUI（方式B）](DEC-099-installer-first-setup-linux-nagi-gui.md) | CONFIRMED（#30 Linuxの既存disk等を活用したNagi GUI Installer、AI非依存の安全なOffline-first導入、破壊前確認）／PROVISIONAL（Linux部品・GUI・partition／暗号化・端末・実機受入・適用版） | 2026-11-16 |
 | DEC-100 | [System Update：Linux更新基盤＋Nagi統合Update Service（B）](DEC-100-system-update-linux-nagi-coordinated-ab.md) | CONFIRMED（#31 B：Linuxの更新機構とNagiの署名・互換検証／A/B切替・失敗時復旧・System／App／Model別管理）／PROVISIONAL（Linux採用部品・配信／鍵・更新単位・UI／自動適用・実機／版） | 2026-11-16 |
 | DEC-101 | [Device Connectivity：Linux／OSS基盤＋Nagi独自端末連携Protocol、独自通信技術の並行研究](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（#32 Bを標準、Nagiの意味的端末連携Protocolを設計、必要な低層通信は限定研究）／PROVISIONAL（具体Protocol／Transport・独自通信採否・端末／Release／受入） | 2026-11-16 |
@@ -249,11 +259,13 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版） | 2026-11-20 |
 | DEC-117 | [ユーザーデータの暗号化と端末紛失時の方針](DEC-117-user-data-encryption-and-lost-device.md) | CONFIRMED（ユーザーデータの既定暗号化、Memory／Profileの常時暗号化、解錠・回復と端末紛失時の方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・UI・適用版） | 2026-11-20 |
 | DEC-118 | [サポート期間と脆弱性対応の目標](DEC-118-support-period-and-vulnerability-response.md) | CONFIRMED（1.0までは最新版のみサポート、種類別の脆弱性修正目標、GitHubの非公開報告機能を利用） | 2026-11-20 |
-| DEC-119 | [テレメトリーなしでの不具合報告の届け方](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人が確認・送信する不具合報告、診断情報の範囲、Nagi 1.0まで自動クラッシュ報告なし）／PROVISIONAL（報告の形式・UI・伏せ字方式・適用版） | 2026-11-20 |
+| DEC-119 | [不具合報告：ユーザー送信・伏せ字・ローカルAIによる報告準備支援](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人送信・事前プレビュー／項目除外・自動クラッシュ報告なし、ローカルLLMの簡易調査・報告支援）／PROVISIONAL（報告形式・UI・AI整理・伏せ字・版） | 2026-11-24 |
 | DEC-120 | [開発名称「Nagi」とDCOによる貢献の受け付け](DEC-120-development-codename-and-dco.md) | CONFIRMED（「Nagi」を開発名称として使用し、1.0までに製品名の扱いを決定、DCOで貢献を受け付け） | 2026-11-20 |
 | DEC-121 | [無操作時の自動ロックとセッションの有効期間](DEC-121-idle-lock-and-session-lifetime.md) | CONFIRMED（無操作15分で自動ロック・設定は1〜60分または「しない」、ロック中もセッション維持・承認操作は受け付けない、絶対期限なし）／PROVISIONAL（ゲスト・端末別初期値・ロック画面の通知・版） | 2026-11-22 |
 | DEC-122 | [Supervisor Council：端末適応型の安全審査・独立OS認可](DEC-122-adaptive-supervisor-council-security.md) | CONFIRMED（Councilはセキュリティ審査を主目的とし通常の深掘りでは常時合議しない、端末Resource適応、独立OS認可）／PROVISIONAL（Council審査条件・票数・低スペック時の省略／直列推論・Cloud深掘りの具体ルーティング・技術・版） | 2026-11-22 |
 | DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
+| DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
+| DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -307,6 +319,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-24 | [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)・[DEC-119](DEC-119-user-initiated-problem-reports.md)に、ローカルAIを簡易調査とバグ報告支援中心に置く高水準の製品方針を追加。[DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)ではOmarchy参考の高度なInstaller高速化案を今回は見送り、既存GUI Installerは維持。Workspace手動モード採用を維持し、Webアプリ風起動は未採用／ワンキー操作は未決。実装・UI・版はPROVISIONAL。 |
+| 2026-11-24 | [DEC-124](DEC-124-nagi-system-skills.md)と[DEC-125](DEC-125-ai-operations-status-panel.md)を新設、[DEC-010](DEC-010-intent-first-adaptive-ui.md)へWorkspace表示モード手動切替を追加。3案の高水準方針のみCONFIRMED。実装・UI・技術・提供版はPROVISIONAL、既存Permission／通常GUI／Gateを維持。 |
 | 2026-11-23 | [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)にAutomation Mode構想の意図を補足。PCの無人時にAI Taskへ資源を集中する目的は省電力ではなく処理能力の最大活用であり、PC／タブレット／モバイルで実行戦略が異なることを許容。モバイルでは復帰速度と電池を優先し短時間・断続処理を検討候補とする。具体制御・正式採用・版・実機対応はPROVISIONAL。DEC-020／029／067／082／094および既存Gateは維持。 |
 | 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)の後続決定で、Councilをセキュリティ審査のための必要時起動を主眼とする方針に明確化。普段の回答深掘りには常時合議せず、外部Cloud LLMはDEC-002の事前許可を条件とする選択肢。具体的なCouncil招集条件・Cloudルーティング・性能・版はPROVISIONAL。[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)に整合。 |
 | 2026-11-22 | [DEC-122](DEC-122-adaptive-supervisor-council-security.md)を新設し、[DEC-074](DEC-074-human-led-agent-organization.md)と[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)へ連携。Councilを追加レビュー層とし、端末Resource適応・OS認可独立をCONFIRMED、低スペックの直列3回推論／省略・全会一致等はPROVISIONAL。Release Gate・既存の実装優先順位は不変。 |
