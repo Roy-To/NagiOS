@@ -82,6 +82,16 @@ mod desktop_shell;
 mod calendar_console;
 
 #[cfg(all(
+    linux_task24_notes_consumer,
+    linux_task24_initial_login_runtime,
+    linux_task24_desktop_shell,
+    feature = "linux-files-desktop",
+    not(nagi_release_build)
+))]
+#[path = "linux_task24_files_console.rs"]
+mod files_console;
+
+#[cfg(all(
     linux_task24_initial_login_runtime,
     feature = "system-service-readiness"
 ))]
@@ -896,6 +906,57 @@ pub(super) fn run_owner_login(
                                                     }
                                                 };
                                                 return Ok(desktop_shell::AppExit::Calendar(exit));
+                                            }
+                                            #[cfg(all(
+                                                feature = "linux-files-desktop",
+                                                not(nagi_release_build)
+                                            ))]
+                                            if matches!(app, crate::desktop_shell_model::AppId::Files) {
+                                                use crate::profile_volume_notes_owner::AuthorizedFilesRoot;
+                                                use files_console::FilesExit;
+                                                if runtime.poll_task24_required_identity_exit()? {
+                                                    return Ok(desktop_shell::AppExit::Files(
+                                                        FilesExit::RequiredIdentityExited,
+                                                    ));
+                                                }
+                                                if runtime.check_notes_session(session.lease).is_err() {
+                                                    return Ok(desktop_shell::AppExit::Files(
+                                                        FilesExit::StateUnknown,
+                                                    ));
+                                                }
+                                                let opened = {
+                                                    #[cfg(linux_task24_settings)]
+                                                    {
+                                                        let mut owner = owners.try_borrow_mut()
+                                                            .map_err(|_| std::io::Error::other("storage owner busy"))?;
+                                                        runtime.request_files_root(session.lease, &mut **owner)
+                                                    }
+                                                    #[cfg(not(linux_task24_settings))]
+                                                    {
+                                                        runtime.request_files_root(session.lease, &mut *owners)
+                                                    }
+                                                };
+                                                let root: AuthorizedFilesRoot = match opened {
+                                                    Ok(root) => root,
+                                                    Err(_) => {
+                                                        super::log_pid1_stderr(format_args!(
+                                                            "NAGI_DEV_FILES_ROOT_UNAVAILABLE"
+                                                        ));
+                                                        return Ok(desktop_shell::AppExit::Files(
+                                                            FilesExit::StateUnknown,
+                                                        ));
+                                                    }
+                                                };
+                                                let poll = || runtime.poll_task24_required_identity_exit();
+                                                let check = || runtime.check_notes_session(session.lease);
+                                                let exit = files_console::run(
+                                                    console,
+                                                    &root,
+                                                    locale,
+                                                    poll,
+                                                    check,
+                                                )?;
+                                                return Ok(desktop_shell::AppExit::Files(exit));
                                             }
                                             #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
                                             let _ = app;

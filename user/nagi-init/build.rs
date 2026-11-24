@@ -20,7 +20,11 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(linux_task24_calendar_app)");
     println!("cargo:rustc-check-cfg=cfg(nagi_release_build)");
     // Cargo reports custom profiles that inherit dev as "debug" here.
-    if env::var("PROFILE").expect("Cargo PROFILE").as_str() != "debug" {
+    let profile = env::var("PROFILE").expect("Cargo PROFILE");
+    if env::var_os("CARGO_FEATURE_LINUX_FILES_DESKTOP").is_some() && profile != "debug" {
+        panic!("linux-files-desktop is a development-only feature");
+    }
+    if profile != "debug" {
         println!("cargo:rustc-cfg=nagi_release_build");
     }
     println!("cargo:rerun-if-env-changed=NAGI_M16_PACKAGE");
