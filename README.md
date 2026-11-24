@@ -167,10 +167,7 @@ Nagi 0.1 targets QEMU x86-64 with four virtual CPUs and 8 GiB of RAM. Use the
 pinned Rust toolchain and the host dependencies listed by the repository.
 Physical PC support is not a 0.1 completion requirement.
 
-The `./nagi` command line is being updated for the Linux line. Commands that
-built and booted the earlier custom kernel are being removed, and `./nagi run`
-will start the Linux development image. Until that change lands, the host
-checks still work:
+Run the host checks from the repository root:
 
 ~~~sh
 ./nagi doctor
@@ -178,10 +175,17 @@ checks still work:
 ./nagi test --acceptance --host-only
 ~~~
 
-The Linux development image is built and started with the scripts under
-[tools/linux-boot](tools/linux-boot). For current details, follow the
-[Developer Preview guide](docs/developer-preview/README.md) and run
-<code>./nagi --help</code>.
+To start the Linux development image, first prepare a Task24 run directory
+with its `preflight.json`, then create the bundle in `out/linux-dev/`:
+
+~~~sh
+python3 tools/linux-boot/make_dev_bundle.py path/to/prepared-task24-run
+./nagi run
+~~~
+
+`./nagi run` opens QEMU and reuses the bundle's writable Data image. On Windows,
+use `python` for bundle creation and `.\nagi.ps1 run` to launch. See the
+[Developer Preview guide](docs/developer-preview/README.md) for image preparation.
 
 Public visibility alone does not grant rights beyond the scoped source license.
 Use and redistribution follow [LICENSE_SCOPE.md](LICENSE_SCOPE.md), [LICENSE](LICENSE),

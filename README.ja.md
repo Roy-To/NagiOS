@@ -161,9 +161,7 @@ Nagi 0.1 の対象は QEMU x86-64、仮想 CPU 4 基、RAM 8 GiB です。pinned
 toolchain とリポジトリに記載されたホスト依存関係を使ってください。物理 PC
 対応は 0.1 の完了要件ではありません。
 
-`./nagi` コマンドは Linux 版に合わせて更新中です。以前の独自カーネルを
-ビルド・起動していたコマンドは削除し、`./nagi run` は Linux の開発イメージを
-起動するようになります。その変更が入るまでは、ホスト上の確認は次で行えます。
+ホスト上の確認はリポジトリのルートから行います。
 
 ~~~sh
 ./nagi doctor
@@ -171,9 +169,18 @@ toolchain とリポジトリに記載されたホスト依存関係を使って�
 ./nagi test --acceptance --host-only
 ~~~
 
-Linux の開発イメージは [tools/linux-boot](tools/linux-boot) のスクリプトで
-ビルド・起動します。最新の手順は[Developer Preview ガイド](docs/developer-preview/README.md)
-と <code>./nagi --help</code> で確認してください。
+Linux 開発イメージを起動するには、`preflight.json` を含む準備済みの Task24
+実行ディレクトリから `out/linux-dev/` にバンドルを作ります。
+
+~~~sh
+python3 tools/linux-boot/make_dev_bundle.py path/to/prepared-task24-run
+./nagi run
+~~~
+
+`./nagi run` は QEMU のウィンドウを開き、バンドル内の書き込み可能な Data
+イメージを再利用します。Windows ではバンドル作成に `python`、起動に
+`.\nagi.ps1 run` を使います。イメージの準備手順は
+[Developer Preview ガイド](docs/developer-preview/README.md)を参照してください。
 
 公開リポジトリであること自体は、明示された適用範囲を超える権利を
 付与しません。利用・再配布は [LICENSE_SCOPE.md](LICENSE_SCOPE.md) と

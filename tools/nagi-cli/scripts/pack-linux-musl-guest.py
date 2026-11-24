@@ -75,6 +75,8 @@ SOURCE_PATHS = (
     "samples/hello-nagi/Cargo.toml",
     "tests/acceptance",
     "tests/fixtures",
+    "tools/linux-boot/make_dev_bundle.py",
+    "tools/linux-boot/run_dev_image.py",
     ":(glob)third_party/cc-nagi-patches/*.patch",
     "third_party/fonts.lock",
     ":(glob)third_party/freetype-sys-patches/*.patch",

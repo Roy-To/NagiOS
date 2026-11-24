@@ -59,17 +59,25 @@ Windows PowerShell:
 `build`、`test`、`lint` はホスト互換 Cargo package を対象にします。
 x86-64 ホストでは `nagi-kernel` を除く workspace を確認し、ARM64 など
 非 x86-64 ホストでは x86-64 syscall stub に依存しない明示的な package
-集合を確認します。Nagi ターゲットのカーネル・init・UEFI を含む既定
-イメージは `image` が作り、`run` はそのイメージを QEMU で起動します。
+集合を確認します。
+
+Linux 開発イメージの起動には、署名済み initramfs、カーネル、System、
+実行用 Data コピーを記録した準備済み Task24 の `preflight.json` が必要です。
+バンドルを作成してから、リポジトリのルートで起動します。
 
 ```sh
-./nagi image
+python3 tools/linux-boot/make_dev_bundle.py path/to/prepared-task24-run
 ./nagi run
 ```
 
-公式の参照構成は QEMU x86-64、UEFI/OVMF、q35、4 vCPU、8 GiB RAM、
-VirtIO Block/Network/GPU/Sound/RNG です。物理 PC での起動は 0.1 の
-受け入れ条件ではありません。
+既定の出力先は `out/linux-dev/` です。バンドル作成は準備済みの成果物を
+コピーし、同名バンドルがある場合は失敗します。System は読み取り専用で、
+Data はバンドル内の書き込み可能なコピーを次回も使います。
+`python3 tools/linux-boot/run_dev_image.py --print-command` で起動せずに
+引数を確認できます。Windows では `python` と `.\nagi.ps1 run` を使用します。
+
+開発イメージの起動構成は QEMU x86-64、q35、TCG、4 vCPU、8 GiB RAM
+です。旧独自カーネルの UEFI/OVMF 構成は当時の受け入れ記録に対応します。
 
 ## 対象を絞ったゲスト受け入れ
 
@@ -106,7 +114,7 @@ cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- \
 
 ## 現在の Preview UX と未提供の部分
 
-- 初回起動は QEMU の参照構成を対象とします。`image` で参照イメージを作り、
+- 初回起動は QEMU の参照構成を対象とします。準備済みの Linux 開発イメージを
   `run` で起動できます。現在、利用者向けの初回設定ウィザードや物理 PC 用
   インストーラーの Acceptance はありません。
 - `user/nagi-init/src/desktop.rs` の M10 desktop は Calculator、Notes、Files、

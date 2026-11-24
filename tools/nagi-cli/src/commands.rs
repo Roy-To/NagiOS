@@ -944,7 +944,7 @@ fn execute_smoke(args: &[String], root: &Path, probe: &dyn HostProbe) -> Command
     };
     let mut report = run_verification_report(root, probe, None, read_source_commit(root));
     if options.vm_smoke {
-        let vm_result = execute_run(root, probe);
+        let vm_result = execute_legacy_boot_smoke(root, probe);
         let evidence = vm_result
             .lines
             .iter()
@@ -7880,7 +7880,45 @@ fn execute_shell(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     }
 }
 
-fn execute_run(root: &Path, probe: &dyn HostProbe) -> CommandResult {
+fn execute_run(root: &Path, _probe: &dyn HostProbe) -> CommandResult {
+    // DEC-123: launch a prepared Linux development image.
+    let script = root
+        .join("tools")
+        .join("linux-boot")
+        .join("run_dev_image.py");
+    if !script.is_file() {
+        return failure(
+            EXIT_CONFIG_ERROR,
+            format!("run: {} is missing", script.display()),
+        );
+    }
+
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let status = std::process::Command::new(python)
+        .arg("-B")
+        .arg(&script)
+        .arg(root.join("out").join("linux-dev"))
+        .current_dir(root)
+        .status();
+    match status {
+        Ok(status) if status.success() => CommandResult {
+            exit_code: EXIT_SUCCESS,
+            lines: vec!["run: QEMU exited normally".to_string()],
+        },
+        Ok(status) => failure(
+            EXIT_CONFIG_ERROR,
+            format!("run: development image exited with {status}"),
+        ),
+        Err(error) => failure(
+            EXIT_CONFIG_ERROR,
+            format!("run: cannot start {python}: {error}"),
+        ),
+    }
+}
+
+// Keep the historical M1/M7 acceptance markers behind smoke --vm
+// until the remaining custom-kernel commands are retired.
+fn execute_legacy_boot_smoke(root: &Path, probe: &dyn HostProbe) -> CommandResult {
     let image_result = execute_image(root);
     if image_result.exit_code != EXIT_SUCCESS {
         return image_result;
@@ -11277,6 +11315,17 @@ mod tests {
     };
     use sha2::{Digest, Sha256};
     use std::path::Path;
+
+    #[test]
+    fn run_reports_missing_linux_boot_script() {
+        let root = std::env::temp_dir().join(format!("nagi-run-missing-{}", std::process::id()));
+        let result = super::execute_run(&root, &crate::doctor::SystemProbe::default());
+        assert_eq!(result.exit_code, super::EXIT_CONFIG_ERROR);
+        assert!(result
+            .lines
+            .join("\n")
+            .contains("run_dev_image.py is missing"));
+    }
 
     fn isolated_process_test_rows() -> Vec<String> {
         super::ISOLATED_PROCESS_MARKERS
