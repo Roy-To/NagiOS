@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use nagi_identity_session::SessionLeaseRevalidationHandle;
 use nagi_profile_volume_notes_owner::{
     FilesRootEntryKind, FilesRootMetadata, FilesRootScope, FilesRootView,
 };
@@ -28,32 +29,28 @@ use super::{
 
 const MAX_METADATA_INDEX_BYTES: usize = 1024 * 1024;
 
-/// Root scopes whose Files operations are guaranteed to run inside one C1
-/// live-session effect before owner-root I/O.
+/// Owner scope that carries the actual C1 lease handle bound to that root.
 ///
-/// # Contract
-///
-/// Implementors must ensure every FilesService operation that uses the scope
-/// is covered by exactly one successful C1 live-session effect before the
-/// scope callback can touch owner-root state. The gate may be entered by the
-/// scope itself or by a private enclosing C1 consumer that always gates the
-/// complete operation. A plain `ProfileFilesRoot` is not sufficient. Add this
-/// implementation only beside a scope whose composition has been reviewed.
-pub trait C1LiveSessionScopedFilesRoot: FilesRootScope {}
+/// This is not a marker asserting that another wrapper performs C1 checks.
+/// The provider obtains the handle from the same scope value and calls the
+/// real C1 gate itself before each owner callback.
+pub trait C1SessionBoundFilesRootScope: FilesRootScope {
+    fn c1_session_revalidation_handle(&self) -> &SessionLeaseRevalidationHandle;
+}
 
-/// Borrowed view of a C1-gated scope for storage in the Files provider.
+/// Borrowed view of a single value binding an owner root and its C1 handle.
 #[doc(hidden)]
-pub struct BorrowedC1FilesRootScope<'scope, S: C1LiveSessionScopedFilesRoot + ?Sized> {
+pub struct BorrowedFilesRootScope<'scope, S: C1SessionBoundFilesRootScope + ?Sized> {
     root_scope: &'scope S,
 }
 
-impl<'scope, S: C1LiveSessionScopedFilesRoot + ?Sized> BorrowedC1FilesRootScope<'scope, S> {
+impl<'scope, S: C1SessionBoundFilesRootScope + ?Sized> BorrowedFilesRootScope<'scope, S> {
     pub fn new(root_scope: &'scope S) -> Self {
         Self { root_scope }
     }
 }
 
-impl<S: C1LiveSessionScopedFilesRoot + ?Sized> FilesRootScope for BorrowedC1FilesRootScope<'_, S> {
+impl<S: C1SessionBoundFilesRootScope + ?Sized> FilesRootScope for BorrowedFilesRootScope<'_, S> {
     fn with_files_root<R>(
         &self,
         effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
@@ -62,14 +59,20 @@ impl<S: C1LiveSessionScopedFilesRoot + ?Sized> FilesRootScope for BorrowedC1File
     }
 }
 
-impl<S: C1LiveSessionScopedFilesRoot + ?Sized> C1LiveSessionScopedFilesRoot
-    for BorrowedC1FilesRootScope<'_, S>
+impl<S: C1SessionBoundFilesRootScope + ?Sized> C1SessionBoundFilesRootScope
+    for BorrowedFilesRootScope<'_, S>
 {
+    fn c1_session_revalidation_handle(&self) -> &SessionLeaseRevalidationHandle {
+        self.root_scope.c1_session_revalidation_handle()
+    }
 }
 
 /// A provider bound to an owner-issued root scope. This value contains no
 /// descriptor; every FilesService operation borrows a fresh owner view.
-/// Construction requires an explicit C1 live-session scope marker.
+/// Construction requires one scope value containing both the owner root and
+/// its opaque handle issued from a checked C1 Session. The provider itself
+/// revalidates that Session around every complete FilesService operation
+/// before entering the owner callback.
 ///
 /// ```compile_fail
 /// use nagi_files::OwnerScopedSandboxProvider;
@@ -79,12 +82,12 @@ impl<S: C1LiveSessionScopedFilesRoot + ?Sized> C1LiveSessionScopedFilesRoot
 ///     let _provider = OwnerScopedSandboxProvider::new(root);
 /// }
 /// ```
-pub struct OwnerScopedSandboxProvider<S: C1LiveSessionScopedFilesRoot> {
+pub struct OwnerScopedSandboxProvider<S: C1SessionBoundFilesRootScope> {
     root_scope: S,
     recovery_reported: Cell<bool>,
 }
 
-impl<S: C1LiveSessionScopedFilesRoot> OwnerScopedSandboxProvider<S> {
+impl<S: C1SessionBoundFilesRootScope> OwnerScopedSandboxProvider<S> {
     pub fn new(root_scope: S) -> Self {
         Self {
             root_scope,
@@ -93,7 +96,7 @@ impl<S: C1LiveSessionScopedFilesRoot> OwnerScopedSandboxProvider<S> {
     }
 }
 
-impl<S: C1LiveSessionScopedFilesRoot> FilesystemProvider for OwnerScopedSandboxProvider<S> {
+impl<S: C1SessionBoundFilesRootScope> FilesystemProvider for OwnerScopedSandboxProvider<S> {
     fn with_operation_scope<R>(
         &mut self,
         _token: &FilesOperationScopeToken,
@@ -103,11 +106,16 @@ impl<S: C1LiveSessionScopedFilesRoot> FilesystemProvider for OwnerScopedSandboxP
         Self: Sized,
     {
         let recovery_reported = &self.recovery_reported;
-        self.root_scope
-            .with_files_root(|root| {
-                let mut view = OwnerScopedView::new(root, recovery_reported);
-                operation(&mut view)
+        let root_scope = &self.root_scope;
+        root_scope
+            .c1_session_revalidation_handle()
+            .with_live_session_effect(|| {
+                root_scope.with_files_root(|root| {
+                    let mut view = OwnerScopedView::new(root, recovery_reported);
+                    operation(&mut view)
+                })
             })
+            .map_err(|_| FilesError::new(FilesErrorKind::ProviderUnavailable))?
             .map_err(|_| FilesError::new(FilesErrorKind::ProviderUnavailable))?
     }
 

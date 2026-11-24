@@ -31,7 +31,7 @@ pub use model::*;
 pub use sandbox::SandboxProvider;
 #[cfg(target_os = "linux")]
 pub use sandbox::{
-    BorrowedC1FilesRootScope, C1LiveSessionScopedFilesRoot, OwnerScopedSandboxProvider,
+    BorrowedFilesRootScope, C1SessionBoundFilesRootScope, OwnerScopedSandboxProvider,
 };
 pub use search::{FilesSearchProvider, SearchRecord};
 pub use service::{
