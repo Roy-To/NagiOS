@@ -200,16 +200,6 @@ jobs:
           if-no-files-found: ignore
       - name: Verify development workstream state
         run: ./nagi dev verify
-      - name: Test kernel display scanout geometry
-        run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
-      - name: Test bootstrap scheduler fairness under sustained contention
-        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
-      - name: Test M3 self-test task frame layout
-        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
-      - name: Test block syscall capability and buffer directions
-        run: cargo test --locked -p nagi-kernel --lib syscall::tests::block_syscalls_validate_user_ranges_in_the_transfer_direction
-      - name: Test block I/O user page permissions
-        run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Test Albert browser state and input adapters
         run: cargo test --locked -p nagi-albert-linux-tests
       - name: M0 doctor acceptance
@@ -525,6 +515,17 @@ jobs:
           cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- build-hello out/artifacts/hello-nagi.napp out/artifacts/hello-nagi.xapp
       - name: Build Nagi kernel
         run: cargo +nightly-2025-08-01 build -p nagi-kernel --target targets/x86_64-unknown-nagi.json -Zbuild-std=core,compiler_builtins --release --locked
+      # Moved from ubuntu-host (DEC-123): custom-kernel unit tests run only with the frozen target job.
+      - name: Test kernel display scanout geometry
+        run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
+      - name: Test bootstrap scheduler fairness under sustained contention
+        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
+      - name: Test M3 self-test task frame layout
+        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
+      - name: Test block syscall capability and buffer directions
+        run: cargo test --locked -p nagi-kernel --lib syscall::tests::block_syscalls_validate_user_ranges_in_the_transfer_direction
+      - name: Test block I/O user page permissions
+        run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
       - name: Build Nagi user init
         env:
           NAGI_TARGET_CLANG: clang-19
