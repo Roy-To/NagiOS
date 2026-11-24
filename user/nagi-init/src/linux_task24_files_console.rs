@@ -96,11 +96,13 @@ pub(super) fn run<C: ShellConsole>(
         nagi_localization::Locale::EnUs => FilesLocale::EnUs,
         nagi_localization::Locale::JaJp => FilesLocale::JaJp,
     };
-    // This consumer owns the sole Files operation boundary: it borrows the
-    // already-authorized root scope and runs C1 revalidation per complete
-    // FilesService operation. Do not wrap calls below in another C1 gate.
-    let mut files = C1FilesScreenConsumer::from_authorized_root_scope(
-        owner,
+    // The provider owns the sole Files operation boundary: it revalidates the
+    // exact C1 Session bound to this owner scope before each complete
+    // owner-root operation. The paired root and handle come from one issued
+    // AuthorizedFilesRoot; do not wrap the screen in another C1 gate.
+    let owner_scope = owner.owner_only_scope();
+    let mut files = C1FilesScreenConsumer::from_owner_root_scope(
+        &owner_scope,
         LinuxUserFilesAuthorizer,
         nagi_files::Location::root(),
     );

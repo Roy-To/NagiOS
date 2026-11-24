@@ -266,54 +266,44 @@ pub(crate) struct AuthorizedFilesRoot {
     revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
 }
 
-#[cfg(linux_task24_initial_login_runtime)]
-impl AuthorizedFilesRoot {
-    /// Run one complete Files service action inside the exact live C1 Session
-    /// effect and the owner lifecycle gate. The callback may perform multiple
-    /// root-relative operations through the borrowed view, but neither its
-    /// directory handle nor any opened-file borrow can escape. Files rights
-    /// remain the consumer's per-operation authorization decision; this
-    /// wrapper must not be re-entered from that callback.
-    pub(crate) fn with_filesystem_operation<R>(
-        &self,
-        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
-    ) -> Result<R, ProfileVolumeNotesOwnerError> {
-        <Self as nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(self, effect)
-    }
-
-    /// Compatibility spelling for callers that already use the owner-root
-    /// callback. New Files consumer wiring should prefer
-    /// [`Self::with_filesystem_operation`] so the whole-action scope is clear.
-    pub(crate) fn with_root<R>(
-        &self,
-        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
-    ) -> Result<R, ProfileVolumeNotesOwnerError> {
-        self.with_filesystem_operation(effect)
-    }
+/// Single borrowed scope that couples one attached profile root to the exact
+/// C1 handle used when that root was issued. The provider enters the C1 effect
+/// from this value before invoking its owner-only root callback.
+#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+pub(crate) struct OwnerOnlyFilesRootScope<'root> {
+    owner: &'root AuthorizedFilesRoot,
 }
 
-#[cfg(linux_task24_initial_login_runtime)]
-impl nagi_profile_volume_notes_owner::FilesRootScope for AuthorizedFilesRoot {
+#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+impl nagi_profile_volume_notes_owner::FilesRootScope for OwnerOnlyFilesRootScope<'_> {
     fn with_files_root<R>(
         &self,
         effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
-        self.revalidation
-            .with_live_session_effect(|| {
-                <nagi_profile_volume_notes_owner::ProfileFilesRoot as
-                    nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(
-                    &self.root,
-                    effect,
-                )
-            })
-            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+        <nagi_profile_volume_notes_owner::ProfileFilesRoot as
+            nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(
+            &self.owner.root,
+            effect,
+        )
     }
 }
 
 #[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
-// `with_files_root` encloses the selected `ProfileFilesRoot` operation callback
-// in this exact Session's C1 `with_live_session_effect`.
-impl nagi_files_c1_session_consumer::C1LiveSessionScopedFilesRoot for AuthorizedFilesRoot {}
+impl nagi_files::C1SessionBoundFilesRootScope for OwnerOnlyFilesRootScope<'_> {
+    fn c1_session_revalidation_handle(
+        &self,
+    ) -> &nagi_identity_session::SessionLeaseRevalidationHandle {
+        self.owner.revalidation.as_ref()
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedFilesRoot {
+    #[cfg(feature = "linux-files-desktop")]
+    pub(crate) fn owner_only_scope(&self) -> OwnerOnlyFilesRootScope<'_> {
+        OwnerOnlyFilesRootScope { owner: self }
+    }
+}
 
 pub(crate) struct AppStorageOwners {
     inner: nagi_profile_volume_notes_owner::AppStorageOwners,
