@@ -27,7 +27,6 @@ on:
       - user/nagi-search/**
       - crates/nagi-model/**
       - rust-toolchain.toml
-      - targets/x86_64-unknown-nagi-user.json
   pull_request:
     paths:
       - crates/nagi-embedding-provider/**
@@ -38,7 +37,6 @@ on:
       - user/nagi-search/**
       - crates/nagi-model/**
       - rust-toolchain.toml
-      - targets/x86_64-unknown-nagi-user.json
   workflow_dispatch:
 
 permissions:
@@ -81,16 +79,6 @@ jobs:
         run: cargo "+$TOOLCHAIN" clippy --manifest-path "$M24_MANIFEST" --lib --no-default-features --locked -- -D warnings
       - name: Model-free tests (tokenizer units + contract suite; no model)
         run: cargo "+$TOOLCHAIN" test --manifest-path "$M24_MANIFEST" --locked
-      - name: Nagi target build x86_64-unknown-nagi-user (build-std core,alloc; compile only, not executed)
-        working-directory: crates/nagi-embedding-provider
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/crates/nagi-embedding-provider/target/nagi-user
-        run: |
-          cargo "+$TOOLCHAIN" -Z build-std=core,alloc build --release --locked --no-default-features \
-            --target ../../targets/x86_64-unknown-nagi-user.json
-          ls -l "$CARGO_TARGET_DIR"/x86_64-unknown-nagi-user/release/*.rlib
-          echo "m24: Nagi user-target library build PASS (compile only, not executed; not guest evidence)"
-
   m24-embedding-real-inference:
     name: m24-embedding-real-inference (pinned model, host)
     needs: m24-embedding-provider
@@ -256,7 +244,7 @@ jobs:
               sys.exit("m24 reference: FAIL vectors outside fixed tolerance (cosine >= 0.999999 AND max |diff| <= 1e-5); investigate, do not loosen")
           print("m24 reference: PASS (tokens byte-identical; vectors within fixed tolerance, not byte-identical across architectures)")
           PY
-      - name: run.sh (fetch/verify again, fmt, clippy, model-free tests, real inference 8/8, Nagi target build)
+      - name: run.sh (fetch/verify again, fmt, clippy, model-free tests, real inference 8/8)
         run: |
           set -o pipefail
           tests/m24-embedding/run.sh 2>&1 | tee "$NAGI_M24_EVIDENCE_DIR/run-sh.log"

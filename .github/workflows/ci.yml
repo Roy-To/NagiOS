@@ -8,17 +8,6 @@ on:
     paths-ignore:
       - '.dev/workstreams/**/state.json'
   workflow_dispatch:
-    inputs:
-      run_target:
-        description: Run the target build and M17 acceptance after host CI passes
-        required: false
-        default: false
-        type: boolean
-      run_m20:
-        description: Run the pinned Granite inference acceptance in Nagi/QEMU
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -110,7 +99,6 @@ jobs:
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
-          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
       - name: Bootstrap pinned host fonts and source metadata
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Format
@@ -128,16 +116,14 @@ jobs:
           python3 -m unittest discover -s tools/linux-boot -p 'test_run_qemu_child.py' -v
           python3 -m unittest discover -s tools/linux-boot -p 'test_run_dev_image.py' -v
       - name: Lint host-compatible workspace
-        run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build host-compatible workspace
-        run: cargo build --workspace --exclude nagi-kernel --locked
+        run: cargo build --workspace --locked
       - name: Prepare and verify standalone Legal before offline CLI delegation
         run: |
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
-      - name: Fetch frozen source for legacy contract assertions
-        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         run: |
           cargo test --manifest-path crates/nagi-system-principal-contract/Cargo.toml --locked
@@ -149,7 +135,7 @@ jobs:
           for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
           CODEC_CANDIDATE_TMP=$(mktemp -d "$RUNNER_TEMP/nagi-notes-codec.XXXXXX")
           export CODEC_CANDIDATE_TMP
-          cargo test --workspace --exclude nagi-kernel --locked -- "${host_args[@]}"
+          cargo test --workspace --locked -- "${host_args[@]}"
       - name: Required Linux PID1 lifecycle tests in diskless QEMU
         run: |
           mkdir -p out/logs/linux-pid1-inputs
@@ -256,8 +242,6 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Bootstrap pinned host fonts and source metadata
         shell: pwsh
         run: |
@@ -267,7 +251,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo build --workspace --exclude nagi-kernel --locked
+          cargo build --workspace --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Prepare and verify standalone Legal before offline CLI delegation
         shell: pwsh
@@ -278,15 +262,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Fetch frozen source for legacy contract assertions
-        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $env:CODEC_CANDIDATE_TMP = Join-Path $env:RUNNER_TEMP ('nagi-notes-codec-' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory -Path $env:CODEC_CANDIDATE_TMP | Out-Null
-          cargo test --workspace --exclude nagi-kernel --locked
+          cargo test --workspace --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Standalone installer format, lint, and tests (Windows)
         shell: pwsh
@@ -331,438 +313,3 @@ jobs:
             out/test-results/
             out/logs/acceptance/
           if-no-files-found: ignore
-  target_classification:
-    needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
-    permissions:
-      contents: read
-      pull-requests: read
-    runs-on: ubuntu-24.04
-    outputs:
-      target_sensitive: ${{ steps.filter.outputs.target }}
-      m20_inference: ${{ steps.filter.outputs.m20 }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          fetch-depth: 0
-      - name: Classify target-sensitive changes
-        if: github.event_name == 'push' || github.event_name == 'pull_request'
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
-        id: filter
-        with:
-          base: ${{ github.ref_name }}
-          filters: |
-            target:
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.cargo/**'
-              - 'targets/**'
-              - 'kernel/**'
-              - 'loader/**'
-              - 'user/**'
-              - 'sdk/rust/**'
-              - 'crates/nagi-abi/**'
-              - 'crates/nagi-bootinfo/**'
-              - 'crates/nagi-i18n/**'
-              - 'crates/nagi-action-ipc/**'
-              - 'crates/nagi-search-ipc/**'
-              - 'services/**'
-              - 'crates/nagi-model/**'
-              - 'idl/**'
-              - 'schemas/**'
-              - 'third_party/**'
-              - 'tools/mesa/**'
-              - 'tools/nagi-target-*'
-              - 'tools/nagi-bootstrap/**'
-              - 'tools/nagi-pkg/**'
-              - 'tools/nagi-cli/**'
-              - 'samples/hello-nagi/**'
-              - 'nagi'
-              - 'nagi.ps1'
-              - 'tests/acceptance/registry.tsv'
-              - 'tests/acceptance/**'
-              - 'docs/Nagi_OS_0.1_Codex_Implementation_Spec.md'
-            m20:
-              - 'third_party/models.lock'
-              - 'third_party/sources.lock'
-              - 'third_party/llama-cpp-patches/**'
-              - 'third_party/relibc/**'
-              - 'kernel/src/syscall.rs'
-              - 'kernel/src/virtio.rs'
-              - 'tools/libcxx/**'
-              - 'tools/llama/**'
-              - 'tools/nagi-cli/src/commands.rs'
-              - 'tools/nagi-cli/src/llama_cpp.rs'
-              - 'tools/nagi-cli/src/llvm_libcxx.rs'
-              - 'user/nagi-init/src/m20_granite.rs'
-              - 'user/nagi-model-manager/**'
-  nagi-target:
-    needs: [change-scope, ubuntu-host, target_classification]
-    if: ${{ (needs.change-scope.outputs.docs_only != 'true' && needs.target_classification.outputs.target_sensitive == 'true') || (github.event_name == 'workflow_dispatch' && inputs.run_target) }}
-    concurrency:
-      group: nagi-ci-target-${{ github.ref }}
-      cancel-in-progress: false
-    timeout-minutes: 120
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          # Frozen custom-kernel source, including its legacy CLI.
-          ref: 956a104683cb4163e1e77fc2606607d5c3f033e7
-      - name: Install target build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 qemu-utils ovmf cmake meson ninja-build python3 python3-venv flex bison build-essential
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
-          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
-      - name: Install pinned Rust target toolchain
-        run: |
-          rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
-          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
-      - name: Real QMP compatibility without guest disks
-        env:
-          NAGI_QMP_COMPAT_QEMU: /usr/bin/qemu-system-x86_64
-        run: cargo test --locked -p nagi-cli --lib image::tests::real_qmp_diskless_compatibility -- --ignored --exact --nocapture
-      - name: Prepare patched Nagi Rust std source
-        run: |
-          sysroot=$(rustc +nightly-2025-08-01 --print sysroot)
-          mkdir -p out/rust-src
-          cp -a "$sysroot/lib/rustlib/src/rust/." out/rust-src/
-          git apply --unsafe-paths --whitespace=nowarn --directory=out/rust-src third_party/rust-std/patches/0001-nagi-target-support.patch
-          if ! grep -q '^libc = { path = "../../../third_party/libc" }$' out/rust-src/library/Cargo.toml; then
-            printf '\nlibc = { path = "../../../third_party/libc" }\n' >> out/rust-src/library/Cargo.toml
-          fi
-      - name: Install pinned Mesa generators
-        run: |
-          python3 -m venv out/mesa-venv
-          out/mesa-venv/bin/python -m pip install --requirement tools/mesa/requirements.txt
-          cargo install cbindgen --version 0.28.0 --locked
-      - name: Bootstrap pinned Servo source
-        run: |
-          set -o pipefail
-          mkdir -p out/logs
-          set +e
-          cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch 2>&1 | tee out/logs/m17-bootstrap.log
-          bootstrap_status=${PIPESTATUS[0]}
-          set -e
-          if [ "$bootstrap_status" -ne 0 ]; then
-            first_error=$(grep -m1 -E '(^FAIL |^error:|patch check failed|patch application failed|fingerprint|source hash|cannot |refusing )' out/logs/m17-bootstrap.log || true)
-            if [ -z "$first_error" ]; then
-              first_error=$(tail -n 30 out/logs/m17-bootstrap.log | tr '\n' ' ' | cut -c1-3000)
-            fi
-            first_error=${first_error//$'\r'/'%0D'}
-            first_error=${first_error//$'\n'/'%0A'}
-            echo "::error title=M17 Servo bootstrap diagnostic::$first_error"
-          fi
-          exit "$bootstrap_status"
-      - name: Check product init Cargo.lock against the Nagi target graph
-        run: |
-          mkdir -p out/logs
-          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.before
-          set +e
-          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
-            --target targets/x86_64-unknown-nagi-user.json --all-features \
-            --edges normal --prefix none --format '{p} [{f}]' \
-            >/dev/null 2>out/logs/m17-product-lock.resolve.stderr
-          resolve_status=$?
-          set -e
-          cp user/nagi-init/Cargo.lock out/logs/m17-product-lock.after
-          diff_status=0
-          diff -u out/logs/m17-product-lock.before out/logs/m17-product-lock.after \
-            >out/logs/m17-product-lock.diff || diff_status=$?
-          if [ "$diff_status" -gt 1 ]; then
-            exit "$diff_status"
-          fi
-          if [ "$resolve_status" -ne 0 ]; then
-            exit "$resolve_status"
-          fi
-          if [ "$diff_status" -ne 0 ]; then
-            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m17-product-lock.diff and commit the lock update.'
-            exit 1
-          fi
-      - name: Verify M17 target dependency feature boundary
-        run: |
-          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m17-servo --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
-          printf '%s\n' "$graph"
-          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
-            echo 'M17 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
-            exit 1
-          fi
-          if printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
-            echo 'M17 Nagi target graph must not expose the M18 browser-storage service' >&2
-            exit 1
-          fi
-          if printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
-            echo 'M17 Nagi target graph must retain its 32-slot bootstrap thread pool' >&2
-            exit 1
-          fi
-      - name: Verify M18 target dependency feature boundary
-        run: |
-          graph=$(cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml --locked --features m18-acceptance --target targets/x86_64-unknown-nagi-user.json --edges normal --prefix none --format '{p} [{f}]')
-          printf '%s\n' "$graph"
-          if printf '%s\n' "$graph" | grep -E '^(warp|servo-webdriver-server|libloading|dlib|wayland-sys|rustix) v' >/dev/null; then
-            echo 'M18 Nagi target graph must not include WebDriver server, host display-loader, or Unix rustix dependencies' >&2
-            exit 1
-          fi
-          if ! printf '%s\n' "$graph" | grep -E '^nagi-posix v.*\[.*browser-storage.*\]' >/dev/null; then
-            echo 'M18 Nagi target graph must enable the browser-storage service' >&2
-            exit 1
-          fi
-          if ! printf '%s\n' "$graph" | grep -E '^nagi-abi v.*\[.*m18-browser-threads.*\]' >/dev/null; then
-            echo 'M18 Nagi target graph must enable the bounded browser worker pool' >&2
-            exit 1
-          fi
-      - name: Build pinned Nagi Mesa Softpipe archive
-        run: |
-          source out/mesa-venv/bin/activate
-          bash tools/mesa/build.sh
-      - name: Fetch standalone package and UEFI dependencies
-        run: |
-          cargo fetch --manifest-path tools/nagi-pkg/Cargo.toml --locked
-          cargo fetch --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --locked
-      - name: Build M16 package artifact
-        run: |
-          mkdir -p out/artifacts
-          cargo build --manifest-path samples/hello-nagi/Cargo.toml --offline --locked
-          cargo run --manifest-path samples/hello-nagi/Cargo.toml --bin hello-nagi-package --offline --locked -- out/artifacts/hello-nagi.napp
-          cargo run --manifest-path tools/nagi-pkg/Cargo.toml --offline --locked -- build-hello out/artifacts/hello-nagi.napp out/artifacts/hello-nagi.xapp
-      - name: Build Nagi kernel
-        run: cargo +nightly-2025-08-01 build -p nagi-kernel --target targets/x86_64-unknown-nagi.json -Zbuild-std=core,compiler_builtins --release --locked
-      # Moved from ubuntu-host (DEC-123): custom-kernel unit tests run only with the frozen target job.
-      - name: Test kernel display scanout geometry
-        run: cargo test --locked -p nagi-kernel --lib display::tests::scales_the_logical_surface_to_the_full_scanout_without_stretching
-      - name: Test bootstrap scheduler fairness under sustained contention
-        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::yield_scheduler_keeps_service_skew_bounded_with_every_thread_runnable
-      - name: Test M3 self-test task frame layout
-        run: cargo test --locked -p nagi-kernel --lib scheduler::tests::m3_initial_task_frame_matches_the_timer_stub_and_iretq_layout
-      - name: Test block syscall capability and buffer directions
-        run: cargo test --locked -p nagi-kernel --lib syscall::tests::block_syscalls_validate_user_ranges_in_the_transfer_direction
-      - name: Test block I/O user page permissions
-        run: cargo test --locked -p nagi-kernel --lib user_process::tests::block_io_user_ranges_follow_read_and_write_page_permissions
-      - name: Build Nagi user init
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-          NAGI_M16_PACKAGE: ${{ github.workspace }}/out/artifacts/hello-nagi.xapp
-          NAGI_MESA_BUILD: ${{ github.workspace }}/out/m17-mesa/mesa-build
-          NAGI_FONT_DIR: ${{ github.workspace }}/out/cache/fonts
-          CC_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
-          CXX_x86_64_unknown_nagi_user: ${{ github.workspace }}/tools/nagi-target-cc.sh
-          __CARGO_TESTS_ONLY_SRC_ROOT: ${{ github.workspace }}/out/rust-src/library
-        run: |
-          set -o pipefail
-          mkdir -p out/logs
-          set +e
-          cargo +nightly-2025-08-01 build --manifest-path user/nagi-init/Cargo.toml --target-dir target --features m17-servo --target targets/x86_64-unknown-nagi-user.json -Zbuild-std=std,panic_abort --release --locked 2>&1 | tee out/logs/m17-nagi-user-init.log
-          cargo_status=${PIPESTATUS[0]}
-          set -e
-          if [ "$cargo_status" -ne 0 ]; then
-            first_error=$(grep -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log || true)
-            first_location=""
-            build_detail=""
-            if [ -n "$first_error" ]; then
-              error_line=$(grep -n -m1 -E '(^|[[:space:]])error(\[[A-Z][0-9]+\])?:' out/logs/m17-nagi-user-init.log | cut -d: -f1 || true)
-              if [ -n "$error_line" ]; then
-                error_end=$((error_line + 12))
-                first_location=$(sed -n "${error_line},${error_end}p" out/logs/m17-nagi-user-init.log | grep -m1 -E '^[[:space:]]*-->' || true)
-              fi
-            fi
-            if [[ "$first_error" == *"linking with"* ]]; then
-              python3 tools/nagi-target-link-diagnostics.py \
-                --log out/logs/m17-nagi-user-init.log \
-                --inventory out/logs/m17-undefined-symbols.txt \
-                --summary "$GITHUB_STEP_SUMMARY" \
-                --search-root target/x86_64-unknown-nagi-user/release/build \
-                --search-root target/x86_64-unknown-nagi-user/release/deps \
-                --search-top-level out/m17-mesa \
-                || echo '::warning title=M17 linker inventory::Could not complete symbol/provider diagnostics'
-              symbol_count=0
-              if [ -f out/logs/m17-undefined-symbols.txt ]; then
-                symbol_count=$(wc -l < out/logs/m17-undefined-symbols.txt | tr -d ' ')
-              fi
-              first_error="$first_error [$symbol_count unique undefined symbols; full inventory is in the job summary and build log]"
-            fi
-            if [[ "$first_error" == *"failed to run custom build command"* ]]; then
-              build_detail=$(grep -m5 -E 'nagi-cxx-runtime\.cpp:[0-9]+|fatal error:|clang(\+\+)?[^:]*: error:|rust-lld: error|undefined (symbol|reference)|could not compile' out/logs/m17-nagi-user-init.log | paste -sd '; ' - || true)
-            fi
-            if [ -n "$first_error" ]; then
-              if [ -n "$first_location" ]; then
-                first_error="$first_error ($first_location)"
-              fi
-              if [ -n "$build_detail" ]; then
-                first_error="$first_error [$build_detail]"
-              fi
-              first_error=${first_error//'%'/'%25'}
-              first_error=${first_error//$'\r'/'%0D'}
-              first_error=${first_error//$'\n'/'%0A'}
-              echo "::error title=M17 target first compiler diagnostic::$first_error"
-            else
-              echo '::error title=M17 target build::Build Nagi user init failed without a parsed compiler diagnostic; inspect the cargo output above'
-            fi
-          fi
-          exit "$cargo_status"
-      - name: Build UEFI loader
-        run: cargo +nightly-2025-08-01 build --manifest-path loader/Cargo.toml --target x86_64-unknown-uefi --release --locked
-      - name: M17 first web pixel acceptance
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: |
-          source out/mesa-venv/bin/activate
-          ./nagi test --acceptance --target-only --milestone M17 --ci
-      - name: M18-B Albert chrome acceptance
-        env:
-          NAGI_M18B_REUSE_M17_ACCEPTANCE: "1"
-        run: sh tests/acceptance/m18b_albert_ui_browser_state.sh
-      - name: M18 Albert interactive HTTPS acceptance
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: |
-          source out/mesa-venv/bin/activate
-          ./nagi m18
-      - name: ADR 0043 isolated process identity acceptance
-        run: ./nagi isolated-process
-      - name: M19 live VFS Search acceptance
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: |
-          source out/mesa-venv/bin/activate
-          ./nagi m19
-      - name: M19 signed-in Files lifecycle acceptance
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: |
-          source out/mesa-venv/bin/activate
-          ./nagi login
-      - name: M22 NH16 grouped Undo acceptance
-        run: ./nagi m22
-      - name: M27 broken-slot rollback acceptance
-        run: ./nagi m27
-      - name: M29 Desktop language Settings acceptance
-        run: ./nagi m29
-      - name: M30 reference release disk acceptance
-        run: ./nagi m30
-      - name: Capture target runner resource state
-        if: always()
-        run: |
-          mkdir -p out/logs
-          {
-            date -u
-            uname -a
-            free -h
-            df -h .
-            cat /proc/meminfo
-          } > out/logs/m17-runner-resources.log 2>&1
-      - name: Upload M17 diagnostics
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: m17-diagnostics-${{ github.run_id }}
-          path: out/logs/m17-*
-          if-no-files-found: error
-          retention-days: 30
-      - name: Upload target acceptance reports and logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: acceptance-nagi-target-${{ github.run_attempt }}
-          path: |
-            out/test-results/
-            out/logs/acceptance/
-            out/logs/m17-runner-resources.log
-            out/logs/m17-product-lock.*
-            out/logs/m17-bootstrap.log
-            out/logs/m17-nagi-user-init.log
-            out/logs/m17-undefined-symbols.txt
-            out/logs/m17-servo.log
-            out/evidence/m27-ab-rollback-*/**/*.log
-            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-timeout-*
-            out/evidence/m27-ab-rollback-*/**/*.log.pre-guest-retry-*.txt
-          if-no-files-found: ignore
-
-  nagi-m20-inference:
-    needs: [ubuntu-host, target_classification]
-    if: ${{ needs.target_classification.outputs.m20_inference == 'true' || (github.event_name == 'workflow_dispatch' && inputs.run_m20) }}
-    concurrency:
-      group: nagi-ci-m20-inference-${{ github.ref }}
-      cancel-in-progress: false
-    timeout-minutes: 360
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          # Frozen custom-kernel source, including its legacy CLI.
-          ref: 956a104683cb4163e1e77fc2606607d5c3f033e7
-      - name: Install M20 target and QEMU dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm libc++-19-dev qemu-system-x86 qemu-utils ovmf cmake ninja-build python3 flex bison build-essential
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-19 190
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 190
-          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-19 190
-      - name: Install pinned Rust toolchain and cbindgen
-        run: |
-          rustup toolchain install nightly-2025-08-01 --profile minimal --component rust-src
-          rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
-          cargo install cbindgen --version 0.28.0 --locked
-      - name: Bootstrap pinned Servo source dependencies
-        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
-      - name: Check product init Cargo.lock against the Nagi target graph
-        run: |
-          mkdir -p out/logs
-          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.before
-          set +e
-          cargo +nightly-2025-08-01 tree --manifest-path user/nagi-init/Cargo.toml \
-            --target targets/x86_64-unknown-nagi-user.json --all-features \
-            --edges normal --prefix none --format '{p} [{f}]' \
-            >/dev/null 2>out/logs/m20-product-lock.resolve.stderr
-          resolve_status=$?
-          set -e
-          cp user/nagi-init/Cargo.lock out/logs/m20-product-lock.after
-          diff_status=0
-          diff -u out/logs/m20-product-lock.before out/logs/m20-product-lock.after \
-            >out/logs/m20-product-lock.diff || diff_status=$?
-          if [ "$diff_status" -gt 1 ]; then
-            exit "$diff_status"
-          fi
-          if [ "$resolve_status" -ne 0 ]; then
-            exit "$resolve_status"
-          fi
-          if [ "$diff_status" -ne 0 ]; then
-            echo '::error title=Product init Cargo.lock is stale::Cargo changed the product lock for the Nagi target feature graph; review out/logs/m20-product-lock.diff and commit the lock update.'
-            exit 1
-          fi
-      - name: Fetch locked Rust dependencies
-        run: cargo fetch --locked
-      - name: Fetch locked product init dependencies
-        run: cargo fetch --manifest-path user/nagi-init/Cargo.toml --locked
-      - name: Download and verify pinned Granite artifact
-        run: |
-          mkdir -p out/cache/models
-          model_artifact=out/cache/models/granite-4.2-3b-Q4_K_M.gguf
-          curl --fail --location --retry 5 --retry-all-errors --continue-at - \
-            --output "$model_artifact" \
-            'https://huggingface.co/ibm-granite/granite-4.2-3b-GGUF/resolve/c40945d71cd90f249a56985e8155551a9188dc30/granite-4.2-3b-Q4_K_M.gguf?download=true'
-          echo 'e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5  out/cache/models/granite-4.2-3b-Q4_K_M.gguf' | sha256sum --check
-      - name: M20 real Granite inference in Nagi/QEMU
-        env:
-          NAGI_TARGET_CLANG: clang-19
-          NAGI_CXX_HEADERS: /usr/include/c++/v1
-        run: ./nagi m20-granite-inference out/cache/models/granite-4.2-3b-Q4_K_M.gguf
-      - name: Upload M20 inference evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: m20-granite-inference-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            out/evidence/m20-granite-inference-*/
-            out/evidence/m20-granite-inference-target-*/
-            out/logs/m20-product-lock.*
-            out/artifacts/nagi-0.1-m20-granite-inference-*.qcow2
-          if-no-files-found: ignore
-          compression-level: 0

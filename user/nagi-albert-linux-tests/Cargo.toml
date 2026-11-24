@@ -1,5 +1,4 @@
 # Host-only test manifest for the browser state/input source in ../nagi-albert.
-# The product manifest keeps its target_os=nagi Servo dependencies.
 [package]
 name = "nagi-albert-linux-tests"
 version = "0.1.0"

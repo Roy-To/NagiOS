@@ -14,10 +14,6 @@
 #                    engine, real whisper.cpp lifecycle checks + HOST eval
 #                    (CER/RTF/RSS recorded as evidence; no new thresholds),
 #                    fail-closed negatives
-#   C nagi-target    COMPILE-ONLY: nagi-init cross build/link with
-#                    m25-whisper-inference-acceptance against synthetic
-#                    placeholder fixture inputs. Never run; never an
-#                    acceptance or recognition result.
 #
 # No secrets, no write tokens, no paid services; only public pinned downloads
 # verified by SHA-256 (model: third_party/models.lock; audio:
@@ -263,96 +259,4 @@ jobs:
             out/ci-logs/
             out/m25-whisper-eval/host-eval.json
             out/m25-whisper-eval/eval-set.tsv
-          if-no-files-found: ignore
-
-  nagi-target-compile-only:
-    name: C COMPILE-ONLY Nagi-target nagi-init build (m25-whisper-inference-acceptance, synthetic placeholder fixture, not run)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      NAGI_TARGET_CLANG: clang-19
-      NAGI_CXX_HEADERS: /usr/lib/llvm-19/include/c++/v1
-      NAGI_LLVM_AR: llvm-ar-19
-      NAGI_LLVM_RANLIB: llvm-ranlib-19
-      NAGI_RELIBC_HEADERS: ${{ github.workspace }}/out/m25-relibc/relibc-target/x86_64-unknown-nagi-user/include
-      NAGI_WHISPER_SOURCE: ${{ github.workspace }}/out/cache/whisper-cpp-nagi
-      NAGI_WHISPER_BUILD: ${{ github.workspace }}/out/m25-whisper-target
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          # Frozen custom-kernel source, including its legacy CLI.
-          ref: 956a104683cb4163e1e77fc2606607d5c3f033e7
-      - name: Install target build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y clang clang-19 lld lld-19 llvm llvm-19 libc++-19-dev cmake ninja-build make python3
-          test -f "$NAGI_CXX_HEADERS/cstddef"
-          mkdir -p "$LOGS"
-      - name: Install pinned Rust target toolchain and cbindgen
-        run: |
-          rustup toolchain install "$TOOLCHAIN" --profile minimal --component rustfmt --component clippy --component rust-src
-          cargo install cbindgen --version 0.28.0 --locked
-      - name: Cache cargo registry
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: m25-whisper-cargo-target-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'tools/nagi-bootstrap/Cargo.lock') }}
-      - name: Bootstrap pinned sources (incl. patched whisper.cpp, validated against sources.lock)
-        run: |
-          set -o pipefail
-          cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch 2>&1 | tee "$LOGS/bootstrap.log"
-          test -f "$NAGI_WHISPER_SOURCE/include/whisper.h"
-      - name: Generate relibc target headers
-        run: |
-          set -o pipefail
-          RUST_TARGET_PATH="$PWD/targets" RUSTUP_TOOLCHAIN="$TOOLCHAIN" \
-          CARGO_TARGET_DIR="$PWD/out/m25-relibc/relibc-target" \
-          make -C third_party/relibc TARGET=x86_64-unknown-nagi-user \
-            BUILD="$PWD/out/m25-relibc/relibc-target/x86_64-unknown-nagi-user" \
-            TARGET_HEADERS="$NAGI_RELIBC_HEADERS" headers 2>&1 | tee "$LOGS/relibc-headers.log"
-          test -f "$NAGI_RELIBC_HEADERS/pthread.h"
-      - name: Nagi-target whisper.cpp archives (pinned patched source)
-        run: |
-          set -o pipefail
-          NAGI_BUILD_JOBS=4 bash tools/whisper/build-nagi-target.sh 2>&1 | tee "$LOGS/whisper-target-build.log"
-          sha256sum "$NAGI_WHISPER_BUILD"/src/libwhisper.a "$NAGI_WHISPER_BUILD"/ggml/src/libggml*.a | tee -a "$LOGS/whisper-target-build.log"
-      - name: COMPILE-ONLY stage synthetic placeholder fixture (not the acceptance fixture)
-        run: |
-          mkdir -p out/m25-compile-only
-          # 1 s of digital silence, mono S16LE 16 kHz, and placeholder text:
-          # build.rs requires both inputs whenever the feature is enabled.
-          head -c 32000 /dev/zero > out/m25-compile-only/COMPILE-ONLY-silence.pcm
-          printf 'COMPILE-ONLY placeholder (not an acceptance fixture)' > out/m25-compile-only/COMPILE-ONLY-expected.txt
-          {
-            echo "COMPILE-ONLY: synthetic placeholder inputs; this build is never run and is NOT guest inference acceptance."
-            sha256sum out/m25-compile-only/COMPILE-ONLY-silence.pcm out/m25-compile-only/COMPILE-ONLY-expected.txt
-          } | tee "$LOGS/COMPILE-ONLY-placeholder.txt"
-      - name: COMPILE-ONLY build nagi-init (m25-whisper-inference-acceptance, x86_64-unknown-nagi-user)
-        env:
-          NAGI_M25_WHISPER_PCM_FIXTURE: ${{ github.workspace }}/out/m25-compile-only/COMPILE-ONLY-silence.pcm
-          NAGI_M25_WHISPER_EXPECTED_TEXT_FILE: ${{ github.workspace }}/out/m25-compile-only/COMPILE-ONLY-expected.txt
-        run: |
-          set -o pipefail
-          echo "COMPILE-ONLY: link check with synthetic placeholder inputs; NOT guest inference acceptance." | tee "$LOGS/COMPILE-ONLY-nagi-init-build.log"
-          cargo +"$TOOLCHAIN" build --manifest-path user/nagi-init/Cargo.toml --target-dir target \
-            --features m25-whisper-inference-acceptance \
-            --target targets/x86_64-unknown-nagi-user.json \
-            -Zbuild-std=core,alloc,compiler_builtins --release --locked 2>&1 | tee -a "$LOGS/COMPILE-ONLY-nagi-init-build.log"
-          bin=target/x86_64-unknown-nagi-user/release/nagi-init
-          test -s "$bin"
-          {
-            ls -l "$bin"
-            sha256sum "$bin"
-            echo "COMPILE-ONLY: binary linked with placeholder fixture; not executed, not an acceptance artifact."
-            echo "Guest fixture acceptance (./nagi m25-whisper-inference with the real fixture): NOT_RUN (fixture not available in CI)."
-          } 2>&1 | tee -a "$LOGS/COMPILE-ONLY-nagi-init-build.log"
-      - name: Upload COMPILE-ONLY logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: m25-whisper-nagi-target-COMPILE-ONLY-${{ github.run_attempt }}
-          path: out/ci-logs/
           if-no-files-found: ignore

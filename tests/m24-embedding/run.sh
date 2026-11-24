@@ -8,7 +8,6 @@
 # 3. fmt / clippy -D warnings / model-free contract tests
 # 4. real-inference tests (--ignored; they FAIL if the model is absent),
 #    including deadline/cancel checkpoints on the real 12-layer model
-# 5. Nagi user-target compile of the no_std provider (if rust-src is present)
 #
 # This never runs guest inference. A pass here is host evidence only.
 set -euo pipefail
@@ -45,12 +44,4 @@ cargo test --manifest-path "$crate/Cargo.toml" --locked
 NAGI_EMBEDDING_MODEL="$artifact" cargo test --manifest-path "$crate/Cargo.toml" --locked \
     --test m24-embedding-real-inference -- --ignored --test-threads=1 --nocapture
 
-if rustup component list --installed 2>/dev/null | grep -q '^rust-src'; then
-    (cd "$crate" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$crate/target}/nagi-user" \
-        cargo -Z build-std=core,alloc build --release --locked --no-default-features \
-        --target "$repo/targets/x86_64-unknown-nagi-user.json")
-    echo "m24: Nagi user-target (x86_64-unknown-nagi-user) library build: PASS (compile only, not executed)"
-else
-    echo "m24: rust-src missing; Nagi user-target build NOT RUN"
-fi
 echo "m24: HOST acceptance PASS (guest inference not run; M24 remains PARTIAL). Log: $log"
