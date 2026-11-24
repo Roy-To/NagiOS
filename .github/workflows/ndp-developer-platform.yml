@@ -1,0 +1,81 @@
+name: NDP Developer Platform host checks
+
+# Runs only when Nagi Developer Platform (NDP) code, its tests or the tools its
+# tests read change. Host-only results: no Nagi target acceptance is implied.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/ndp-developer-platform.yml
+      - tools/nagi-developer-platform/**
+      - tests/developer-platform/**
+      - docs/development/developer-platform/**
+      # Stage 1 runs the real Manifest validator; the NDP-08 tool table cites nagi-cli.
+      - tools/nagi-pkg/**
+      - tools/nagi-cli/src/**
+      - sdk/rust/**
+  push:
+    branches: [main, codex/ndp-host-integration-v2]
+    paths:
+      - .github/workflows/ndp-developer-platform.yml
+      - tools/nagi-developer-platform/**
+      - tests/developer-platform/**
+      - docs/development/developer-platform/**
+      - tools/nagi-pkg/**
+      - tools/nagi-cli/src/**
+      - sdk/rust/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ndp-developer-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-checks:
+    name: NDP unittests and repeatable host checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 2
+      PYTHONDONTWRITEBYTECODE: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check host tools (Python 3.10+, clang)
+        run: |
+          python3 - <<'PY'
+          import sys
+          assert sys.version_info >= (3, 10), sys.version
+          print("python", sys.version.split()[0])
+          PY
+          clang --version | head -n 1
+      - name: Install pinned host toolchain
+        run: rustup toolchain install nightly-2025-08-01 --profile minimal
+      - name: Put pinned toolchain on PATH
+        run: echo "$HOME/.rustup/toolchains/nightly-2025-08-01-x86_64-unknown-linux-gnu/bin" >> "$GITHUB_PATH"
+      - name: Build the real Manifest validator (locked)
+        run: |
+          cargo build --locked --manifest-path tools/nagi-pkg/Cargo.toml \
+            --target-dir out/ndp-host/target
+          test -x out/ndp-host/target/debug/nagi-pkg
+      - name: Run every NDP unittest directory
+        run: |
+          set -euo pipefail
+          mapfile -t dirs < <(find tools/nagi-developer-platform tests/developer-platform \
+            -name 'test_*.py' -exec dirname {} \; | sort -u)
+          test "${#dirs[@]}" -gt 0
+          # One discover per directory keeps same-named test modules apart.
+          for dir in "${dirs[@]}"; do
+            echo "::group::$dir"
+            log="$(mktemp)"
+            python3 -m unittest discover -s "$dir" -p 'test_*.py' -v 2>&1 | tee "$log"
+            grep -Eq '^Ran [1-9][0-9]* tests?' "$log" || { echo "::error::no tests ran in $dir"; exit 1; }
+            echo "::endgroup::"
+          done
+      - name: Repeatable host evaluation
+        run: python3 tests/developer-platform/evaluation/run_host_checks.py
