@@ -298,7 +298,7 @@ impl SandboxProvider {
             .flatten();
         let (trash, tags) = match internal_dir.as_ref() {
             Some(internal) => (
-                load_trash_index(internal, trash_dir.as_ref())?,
+                load_trash_index(internal, trash_dir.as_ref(), root_device, root_mount_id)?,
                 load_tags_index(internal)?,
             ),
             None => (Vec::new(), BTreeMap::new()),
@@ -487,7 +487,9 @@ impl SandboxProvider {
                 self.root_mount_id,
             )?;
             let tags = load_tags_index(&internal_dir)?;
-            let trash = load_trash_index(&internal_dir, trash_dir.as_ref())?;
+            let trash = load_trash_index(
+                &internal_dir, trash_dir.as_ref(), self.root_device, self.root_mount_id,
+            )?;
             self.next_trash_id = next_trash_id(&trash);
             self.tags = tags;
             self.trash = trash;
@@ -512,7 +514,9 @@ impl SandboxProvider {
                 self.root_mount_id,
             )?
             .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderUnavailable))?;
-            let trash = load_trash_index(internal_dir, Some(&trash_dir))?;
+            let trash = load_trash_index(
+                internal_dir, Some(&trash_dir), self.root_device, self.root_mount_id,
+            )?;
             self.next_trash_id = next_trash_id(&trash);
             self.trash = trash;
             self.trash_dir = Some(trash_dir);
@@ -558,7 +562,7 @@ impl SandboxProvider {
         internal_dir
             .rename(TEMP_INDEX_FILE, internal_dir, INDEX_FILE)
             .map_err(map_io_error)?;
-        Ok(())
+        sync_directory_change(internal_dir, &Location::root())
     }
 
     fn persist_tags(&self) -> Result<(), FilesError> {
@@ -956,31 +960,19 @@ impl FilesystemProvider for SandboxProvider {
             },
             trash_name: trash_name.clone(),
         };
-        source_parent
-            .rename(
-                &source_name,
-                self.trash_dir
-                    .as_ref()
-                    .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderUnavailable))?,
-                &trash_name,
-            )
-            .map_err(|error| map_io_error(error).at(source.clone()))?;
-        let mut next = self.trash.clone();
-        next.push(stored.clone());
-        if let Err(error) = self.persist_index(&next) {
-            if self
-                .trash_dir
-                .as_ref()
-                .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderUnavailable))?
-                .rename(&trash_name, &source_parent, &source_name)
-                .is_err()
-            {
-                return Err(FilesError::new(FilesErrorKind::PartialFailure).at(source.clone()));
-            }
-            return Err(error.at(source.clone()));
-        }
-        self.trash = next;
-        Ok(stored.entry.clone())
+        let trash_dir = self
+            .trash_dir
+            .as_ref()
+            .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderUnavailable))?;
+        rename_without_replace(&source_parent, &source_name, trash_dir, &trash_name)
+            .map_err(|error| map_destination_error(error).at(source.clone()))?;
+        let entry = stored.entry.clone();
+        self.trash.push(stored);
+        sync_directory_change(trash_dir, source)?;
+        sync_directory_change(&source_parent, source)?;
+        self.persist_index(&self.trash)
+            .map_err(|_| FilesError::new(FilesErrorKind::PartialFailure).at(source.clone()))?;
+        Ok(entry)
     }
 
     fn list_trash(&self) -> Result<Vec<TrashEntry>, FilesError> {
@@ -989,6 +981,28 @@ impl FilesystemProvider for SandboxProvider {
     }
 
     fn restore(&mut self, id: ResourceId) -> Result<FileEntry, FilesError> {
+        let item = self.list_trash()?.into_iter().find(|item| item.id == id)
+            .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
+        let destination = self.restore_destination(&item)?;
+        self.restore_to(id, &destination)
+    }
+
+    fn restore_destination(&self, item: &TrashEntry) -> Result<Location, FilesError> {
+        let original = &item.original_location;
+        let parent = original.parent()
+            .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
+        match self.public_directory(&parent) {
+            Ok(_) => Ok(original.clone()),
+            Err(error) if error.kind == FilesErrorKind::NotFound => {
+                let name = original.file_name()
+                    .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
+                Location::parse(name)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn restore_to(&mut self, id: ResourceId, destination: &Location) -> Result<FileEntry, FilesError> {
         self.verify_trash_storage_if_present()?;
         let index = self
             .trash
@@ -1007,25 +1021,16 @@ impl FilesystemProvider for SandboxProvider {
         if trash_metadata.is_dir() {
             self.validate_tree_mounts(trash_dir, &item.trash_name)?;
         }
-        let (destination_parent, destination_name) =
-            self.checked_restore_destination(&item.entry.original_location)?;
-        trash_dir
-            .rename(&item.trash_name, &destination_parent, &destination_name)
-            .map_err(|error| map_io_error(error).at(item.entry.original_location.clone()))?;
-        let mut next = self.trash.clone();
-        next.remove(index);
-        if let Err(error) = self.persist_index(&next) {
-            if destination_parent
-                .rename(&destination_name, trash_dir, &item.trash_name)
-                .is_err()
-            {
-                return Err(FilesError::new(FilesErrorKind::PartialFailure)
-                    .at(item.entry.original_location));
-            }
-            return Err(error);
-        }
-        self.trash = next;
-        self.metadata(&item.entry.original_location)
+        let (destination_parent, destination_name) = self.checked_restore_destination(destination)?;
+        rename_without_replace(trash_dir, &item.trash_name, &destination_parent, &destination_name)
+            .map_err(|error| map_destination_error(error).at(destination.clone()))?;
+        self.trash.remove(index);
+        sync_directory_change(&destination_parent, destination)?;
+        sync_directory_change(trash_dir, destination)?;
+        self.persist_index(&self.trash).map_err(|_| {
+            FilesError::new(FilesErrorKind::PartialFailure).at(destination.clone())
+        })?;
+        self.metadata(destination)
     }
 
     fn permanently_delete(&mut self, id: ResourceId) -> Result<(), FilesError> {
@@ -1060,7 +1065,7 @@ impl SandboxProvider {
         &self,
         location: &Location,
     ) -> Result<(Dir, String), FilesError> {
-        if location.is_root()
+        if location.is_root() || location.file_name().is_some_and(is_internal_component)
             || location
                 .components()
                 .next()
@@ -1362,13 +1367,58 @@ fn ensure_internal_directory(parent: &Dir, name: &str) -> Result<(), FilesError>
         }
         Ok(_) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            parent.create_dir(name).map_err(map_io_error)
+            parent.create_dir(name).map_err(map_io_error)?;
+            sync_directory_change(parent, &Location::root())
         }
         Err(error) => Err(map_io_error(error)),
     }
 }
 
-fn load_trash_index(internal: &Dir, trash: Option<&Dir>) -> Result<Vec<StoredTrash>, FilesError> {
+fn load_trash_index(
+    internal: &Dir,
+    trash: Option<&Dir>,
+    root_device: Option<u64>,
+    root_mount_id: Option<u64>,
+) -> Result<Vec<StoredTrash>, FilesError> {
+    let mut items = read_trash_index(internal, trash)?;
+    let Some(trash) = trash else { return Ok(items) };
+    let names: BTreeSet<_> = items.iter().map(|item| item.trash_name.clone()).collect();
+    let mut ids: BTreeSet<_> = items.iter().map(|item| item.entry.id).collect();
+    for entry in trash.entries().map_err(map_io_error)? {
+        let entry = entry.map_err(map_io_error)?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str().filter(|name| valid_trash_name(name)) else { continue };
+        if names.contains(name) {
+            continue;
+        }
+        let metadata = trash.symlink_metadata(name).map_err(map_io_error)?;
+        let kind = if metadata.is_dir() {
+            EntryKind::Folder
+        } else if metadata.is_file() {
+            EntryKind::File
+        } else {
+            continue;
+        };
+        ensure_mount_path(root_device, root_mount_id, trash, name, &metadata)?;
+        let id = resource_id(Path::new(name), &metadata);
+        if !ids.insert(id) {
+            return Err(FilesError::new(FilesErrorKind::CorruptMetadata));
+        }
+        items.push(StoredTrash {
+            entry: TrashEntry {
+                id,
+                original_location: Location::parse(name)?,
+                kind,
+                size_bytes: metadata.is_file().then_some(metadata.len()),
+                deleted_at: name.split_once('-').and_then(|(_, time)| time.parse().ok()).unwrap_or(0),
+            },
+            trash_name: name.to_owned(),
+        });
+    }
+    Ok(items)
+}
+
+fn read_trash_index(internal: &Dir, trash: Option<&Dir>) -> Result<Vec<StoredTrash>, FilesError> {
     let index_metadata = match internal.symlink_metadata(INDEX_FILE) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
