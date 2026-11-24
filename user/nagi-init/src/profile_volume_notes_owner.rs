@@ -311,11 +311,9 @@ impl nagi_profile_volume_notes_owner::FilesRootScope for AuthorizedFilesRoot {
 }
 
 #[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
-// SAFETY: each Files root callback is enclosed by this exact Session's C1
-// `with_live_session_effect`; only after that gate succeeds does the callback
-// enter the selected `ProfileFilesRoot` lifecycle scope. The Files consumer
-// invokes this scope once for each complete FilesService operation.
-unsafe impl nagi_files_c1_session_consumer::C1LiveSessionScopedFilesRoot for AuthorizedFilesRoot {}
+// `with_files_root` encloses the selected `ProfileFilesRoot` operation callback
+// in this exact Session's C1 `with_live_session_effect`.
+impl nagi_files_c1_session_consumer::C1LiveSessionScopedFilesRoot for AuthorizedFilesRoot {}
 
 pub(crate) struct AppStorageOwners {
     inner: nagi_profile_volume_notes_owner::AppStorageOwners,
