@@ -752,7 +752,7 @@ mod tests {
         assert!(patch.contains("cfg!(target_os = \"nagi\")"));
         assert!(patch.contains("locked WebPKI roots are the"));
 
-        let lock = crate::read_frozen_legacy_pid1_file(root, "Cargo.lock");
+        let lock = crate::read_frozen_legacy_file(root, "user/nagi-init/Cargo.lock");
         let roots = lock
             .split("[[package]]")
             .find(|package| package.contains("name = \"webpki-roots\""))
@@ -959,7 +959,7 @@ mod tests {
         };
         validate_source_lock(root, &source_spec).expect("pinned inventory source lock");
 
-        let legacy_manifest = crate::read_frozen_legacy_pid1_file(root, "Cargo.toml");
+        let legacy_manifest = crate::read_frozen_legacy_file(root, "user/nagi-init/Cargo.toml");
         assert!(
             legacy_manifest.contains("inventory = { path = \"../../third_party/inventory-nagi\" }")
         );

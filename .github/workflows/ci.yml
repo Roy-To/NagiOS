@@ -403,23 +403,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Commit the frozen legacy PID 1 inputs in CI
-        shell: bash
-        run: |
-          legacy=956a104683cb4163e1e77fc2606607d5c3f033e7
-          inputs=(user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock)
-          status=$(git status --porcelain=v1 --untracked-files=all)
-          test -z "$status"
-          git fetch --no-tags --depth=1 origin "$legacy"
-          git restore --source="$legacy" -- "${inputs[@]}"
-          # M30 binds the image to a clean committed source revision.
-          if ! git diff --quiet HEAD -- "${inputs[@]}"; then
-            git -c user.name='Nagi CI' -c user.email='nagi-ci@users.noreply.github.com' \
-              commit --no-gpg-sign --only -m 'Use frozen legacy PID 1 inputs' -- "${inputs[@]}"
-          fi
-          git diff --exit-code "$legacy" HEAD -- "${inputs[@]}"
-          status=$(git status --porcelain=v1 --untracked-files=all)
-          test -z "$status"
+        with:
+          # Frozen custom-kernel source, including its legacy CLI.
+          ref: 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Install target build dependencies
         run: |
           sudo apt-get update
@@ -701,10 +687,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Use the frozen legacy PID 1 manifest
-        run: |
-          git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
-          git restore --source=956a104683cb4163e1e77fc2606607d5c3f033e7 -- user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock
+        with:
+          # Frozen custom-kernel source, including its legacy CLI.
+          ref: 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Install M20 target and QEMU dependencies
         run: |
           sudo apt-get update

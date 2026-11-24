@@ -12302,10 +12302,16 @@ mod tests {
 
     #[test]
     fn m17_rust_std_random_backend_uses_guest_rng_boundary() {
-        let rust_std_patch =
-            include_str!("../../../third_party/rust-std/patches/0001-nagi-target-support.patch");
-        let libnagi = include_str!("../../../user/libnagi/src/lib.rs");
-        let syscall = include_str!("../../../kernel/src/syscall.rs");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let rust_std_patch = crate::read_frozen_legacy_file(
+            root,
+            "third_party/rust-std/patches/0001-nagi-target-support.patch",
+        );
+        let libnagi = crate::read_frozen_legacy_file(root, "user/libnagi/src/lib.rs");
+        let syscall = crate::read_frozen_legacy_file(root, "kernel/src/syscall.rs");
 
         assert!(rust_std_patch.contains("target_os = \"nagi\""));
         assert!(rust_std_patch.contains("mod nagi;"));
@@ -12363,7 +12369,11 @@ mod tests {
 
     #[test]
     fn m17_guest_rng_scans_the_transitional_entropy_device_id() {
-        let random = include_str!("../../../kernel/src/random.rs");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let random = crate::read_frozen_legacy_file(root, "kernel/src/random.rs");
 
         assert!(random.contains("const VIRTIO_RNG_LEGACY_ID: u16 = 0x1005;"));
         assert!(random.contains("const VIRTIO_RNG_MODERN_ID: u16 = 0x1044;"));

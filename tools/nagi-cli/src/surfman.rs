@@ -535,7 +535,8 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .expect("workspace root");
-        let legacy_manifest = crate::read_frozen_legacy_pid1_file(workspace, "Cargo.toml");
+        let legacy_manifest =
+            crate::read_frozen_legacy_file(workspace, "user/nagi-init/Cargo.toml");
         assert!(
             legacy_manifest.contains("surfman = { path = \"../../third_party/surfman\" }"),
             "the frozen legacy init workspace must bind Servo's Surfman dependency to its pinned patched checkout"
