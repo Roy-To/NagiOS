@@ -18,7 +18,9 @@ use crate::{
 #[cfg(target_os = "linux")]
 mod owner_scoped;
 #[cfg(target_os = "linux")]
-pub use owner_scoped::OwnerScopedSandboxProvider;
+pub use owner_scoped::{
+    BorrowedC1FilesRootScope, C1LiveSessionScopedFilesRoot, OwnerScopedSandboxProvider,
+};
 
 const INTERNAL_DIR: &str = ".nagi-files";
 const TRASH_DIR: &str = "trash";

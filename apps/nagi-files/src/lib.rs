@@ -21,16 +21,18 @@ mod service;
 mod ui;
 
 pub use action_api::{FilesActionApi, FilesActionCall, FilesActionResponse};
-pub use actions::{ActionDescriptor, ActionRisk, FILES_ACTIONS, find_action};
+pub use actions::{find_action, ActionDescriptor, ActionRisk, FILES_ACTIONS};
 pub use backend::{FilesOperationScopeToken, FilesystemProvider, ProviderAvailability};
-pub use canvas::{FilesCanvas, FilesCanvasRect, draw_three_pane};
+pub use canvas::{draw_three_pane, FilesCanvas, FilesCanvasRect};
 pub use capability::{CapabilityAuthorizer, CapabilityGrant, CapabilitySet};
 pub use component::FilesComponent;
 pub use memory::InMemoryProvider;
 pub use model::*;
 pub use sandbox::SandboxProvider;
 #[cfg(target_os = "linux")]
-pub use sandbox::OwnerScopedSandboxProvider;
+pub use sandbox::{
+    BorrowedC1FilesRootScope, C1LiveSessionScopedFilesRoot, OwnerScopedSandboxProvider,
+};
 pub use search::{FilesSearchProvider, SearchRecord};
 pub use service::{
     ActivityEvent, ActivityOutcome, ActivitySink, CheckpointHook, CheckpointSnapshot, FilesService,
@@ -38,8 +40,8 @@ pub use service::{
     WaybackCheckpointRequest, WorkspaceReferenceResult, WorkspaceReferenceSink,
 };
 pub use ui::{
-    ContextPublisher, FilesApp, FilesLayout, FilesViewState, InspectorTab, LocationItem,
-    SidebarItem, ViewLoadState, render_three_pane,
+    render_three_pane, ContextPublisher, FilesApp, FilesLayout, FilesViewState, InspectorTab,
+    LocationItem, SidebarItem, ViewLoadState,
 };
 
 #[cfg(test)]

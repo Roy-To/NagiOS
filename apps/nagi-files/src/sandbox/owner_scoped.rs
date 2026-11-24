@@ -28,17 +28,65 @@ use super::{
 
 const MAX_METADATA_INDEX_BYTES: usize = 1024 * 1024;
 
+/// Root scopes whose Files operations are guaranteed to run inside one C1
+/// live-session effect before owner-root I/O.
+///
+/// # Safety
+///
+/// Implementors must ensure every FilesService operation that uses the scope
+/// is covered by exactly one successful C1 live-session effect before the
+/// scope callback can touch owner-root state. The gate may be entered by the
+/// scope itself or by a private enclosing C1 consumer that always gates the
+/// complete operation. A plain `ProfileFilesRoot` is not sufficient.
+pub unsafe trait C1LiveSessionScopedFilesRoot: FilesRootScope {}
+
+/// Borrowed view of a C1-gated scope for storage in the Files provider.
+#[doc(hidden)]
+pub struct BorrowedC1FilesRootScope<'scope, S: C1LiveSessionScopedFilesRoot + ?Sized> {
+    root_scope: &'scope S,
+}
+
+impl<'scope, S: C1LiveSessionScopedFilesRoot + ?Sized> BorrowedC1FilesRootScope<'scope, S> {
+    pub fn new(root_scope: &'scope S) -> Self {
+        Self { root_scope }
+    }
+}
+
+impl<S: C1LiveSessionScopedFilesRoot + ?Sized> FilesRootScope for BorrowedC1FilesRootScope<'_, S> {
+    fn with_files_root<R>(
+        &self,
+        effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
+    ) -> Result<R, nagi_profile_volume_notes_owner::ProfileVolumeNotesOwnerError> {
+        self.root_scope.with_files_root(effect)
+    }
+}
+
+// SAFETY: this wrapper delegates each callback to the scope whose C1 gate is
+// required by the trait contract.
+unsafe impl<S: C1LiveSessionScopedFilesRoot + ?Sized> C1LiveSessionScopedFilesRoot
+    for BorrowedC1FilesRootScope<'_, S>
+{
+}
+
 /// A provider bound to an owner-issued root scope. This value contains no
 /// descriptor; every FilesService operation borrows a fresh owner view.
-/// Callers must compose it with the C1 live-Session gate, either through the
-/// C1 consumer's issued-session path or an already-authorized root scope.
-pub struct OwnerScopedSandboxProvider<'scope, S: FilesRootScope> {
-    root_scope: &'scope S,
+/// Construction requires an explicit C1 live-session scope marker.
+///
+/// ```compile_fail
+/// use nagi_files::OwnerScopedSandboxProvider;
+/// use nagi_profile_volume_notes_owner::ProfileFilesRoot;
+///
+/// fn owner_scope_alone_is_not_a_c1_gate(root: ProfileFilesRoot) {
+///     let _provider = OwnerScopedSandboxProvider::new(root);
+/// }
+/// ```
+pub struct OwnerScopedSandboxProvider<S: C1LiveSessionScopedFilesRoot> {
+    root_scope: S,
     recovery_reported: Cell<bool>,
 }
 
-impl<'scope, S: FilesRootScope> OwnerScopedSandboxProvider<'scope, S> {
-    pub fn new(root_scope: &'scope S) -> Self {
+impl<S: C1LiveSessionScopedFilesRoot> OwnerScopedSandboxProvider<S> {
+    pub fn new(root_scope: S) -> Self {
         Self {
             root_scope,
             recovery_reported: Cell::new(false),
@@ -46,7 +94,7 @@ impl<'scope, S: FilesRootScope> OwnerScopedSandboxProvider<'scope, S> {
     }
 }
 
-impl<S: FilesRootScope> FilesystemProvider for OwnerScopedSandboxProvider<'_, S> {
+impl<S: C1LiveSessionScopedFilesRoot> FilesystemProvider for OwnerScopedSandboxProvider<S> {
     fn with_operation_scope<R>(
         &mut self,
         _token: &FilesOperationScopeToken,
