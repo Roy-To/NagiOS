@@ -185,20 +185,22 @@ where
         })
     }
 
-    pub(super) fn request_settings_snapshot(
+    pub(super) fn request_profile_snapshot(
         &mut self,
         lease: SessionLease,
         owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+        kind: crate::profile_volume_notes_owner::ProfileSnapshotKind,
         admission: &C1SystemServiceRuntimeAdmission<'_>,
     ) -> Result<
         crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         self.with_attached_profile_session(lease, admission, |issued, identity, revalidation| {
-            owners.issue_settings_snapshot_for_attached_session(
+            owners.issue_snapshot_for_attached_session(
                 issued.caller(),
                 &identity,
                 revalidation,
+                kind,
             )
         })
     }

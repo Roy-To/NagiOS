@@ -348,6 +348,10 @@ impl AppStorageOwners {
         &self.settings
     }
 
+    pub fn calendar(&self) -> &ProfileVolumeAppOwner {
+        &self.calendar
+    }
+
     pub fn owners_mut(&mut self) -> [&mut ProfileVolumeAppOwner; 3] {
         [&mut self.notes, &mut self.settings, &mut self.calendar]
     }
@@ -523,6 +527,13 @@ impl ProfileSnapshotStorage {
         bundle: ProfileVolumeNotesBundle,
     ) -> Result<Self, ProfileVolumeNotesOwnerError> {
         bundle.validate_kind(AppStorageKind::Settings)?;
+        Self::open(bundle)
+    }
+
+    pub fn open_calendar(
+        bundle: ProfileVolumeNotesBundle,
+    ) -> Result<Self, ProfileVolumeNotesOwnerError> {
+        bundle.validate_kind(AppStorageKind::Calendar)?;
         Self::open(bundle)
     }
 
@@ -796,6 +807,78 @@ mod tests {
         drop(reopened);
         drop(settings);
         drop(notes);
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn calendar_and_settings_snapshots_stay_separate_across_reopen_and_logout() {
+        use std::fs::{self, File};
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "nagi-calendar-snapshot-owner-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        let attach = |kind, directory| {
+            let root = path.join(directory);
+            fs::create_dir(&root).unwrap();
+            fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+            ProfileVolumeAppOwner::verified_fixture_for(
+                kind,
+                "principal",
+                "profile",
+                File::open(&root).unwrap().into(),
+                ObjectId(42),
+            )
+        };
+        let mut owners = AppStorageOwners::pending();
+        owners.settings = attach(AppStorageKind::Settings, "settings");
+        owners.calendar = attach(AppStorageKind::Calendar, "calendar");
+        assert!(matches!(
+            ProfileSnapshotStorage::open_calendar(owners.settings().issue_bundle().unwrap()),
+            Err(ProfileVolumeNotesOwnerError::ForeignAttachment)
+        ));
+        let mut settings =
+            ProfileSnapshotStorage::open_settings(owners.settings().issue_bundle().unwrap())
+                .unwrap();
+        let first = |storage: &mut ProfileSnapshotStorage, payload: &[u8]| {
+            let result = storage
+                .with_active_snapshot(|key, provider| {
+                    assert_eq!(provider.read(key), Ok(None));
+                    provider.compare_and_replace(key, None, payload)
+                })
+                .unwrap();
+            assert!(matches!(result, ConditionalWriteOutcome::Applied { .. }));
+        };
+        first(&mut settings, b"settings");
+        let open_calendar = |owners: &AppStorageOwners| {
+            ProfileSnapshotStorage::open_calendar(owners.calendar().issue_bundle().unwrap())
+                .unwrap()
+        };
+        let mut calendar = open_calendar(&owners);
+        first(&mut calendar, b"calendar");
+        drop(calendar);
+        let mut calendar = open_calendar(&owners);
+        for (storage, expected) in [
+            (&mut settings, &b"settings"[..]),
+            (&mut calendar, &b"calendar"[..]),
+        ] {
+            let snapshot = storage
+                .with_active_snapshot(|key, provider| provider.read(key))
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(snapshot.bytes, expected);
+        }
+        owners.end().unwrap();
+        for storage in [&mut settings, &mut calendar] {
+            assert_eq!(
+                storage.with_active_snapshot(|_, _| -> () { panic!("ended provider invoked") }),
+                Err(ProfileVolumeNotesOwnerError::Ended),
+            );
+        }
+        drop((settings, calendar, owners));
         fs::remove_dir_all(path).unwrap();
     }
 

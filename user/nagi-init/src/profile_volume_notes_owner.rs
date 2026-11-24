@@ -224,6 +224,13 @@ pub(crate) use nagi_profile_volume_notes_owner::{
 /// The consumer receives a typed view only while the attached C1 lease and
 /// the matching Data bundle are both active.
 #[cfg(linux_task24_initial_login_runtime)]
+#[derive(Clone, Copy)]
+pub(crate) enum ProfileSnapshotKind {
+    Settings,
+    Calendar,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
 pub(crate) struct AuthorizedProfileSnapshot {
     storage: ProfileSnapshotStorage,
     revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
@@ -283,14 +290,22 @@ impl AppStorageOwners {
     }
 
     #[cfg(linux_task24_initial_login_runtime)]
-    pub(crate) fn issue_settings_snapshot_for_attached_session(
+    pub(crate) fn issue_snapshot_for_attached_session(
         &mut self,
         caller: &C1AuthenticatedInteractiveCaller,
         identity: &ResolvedIdentity,
         revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+        kind: ProfileSnapshotKind,
     ) -> Result<AuthorizedProfileSnapshot, ProfileVolumeNotesOwnerError> {
         self.attach_session_profile(caller, identity)?;
-        let storage = ProfileSnapshotStorage::open_settings(self.inner.settings().issue_bundle()?)?;
+        let storage = match kind {
+            ProfileSnapshotKind::Settings => {
+                ProfileSnapshotStorage::open_settings(self.inner.settings().issue_bundle()?)
+            }
+            ProfileSnapshotKind::Calendar => {
+                ProfileSnapshotStorage::open_calendar(self.inner.calendar().issue_bundle()?)
+            }
+        }?;
         Ok(AuthorizedProfileSnapshot {
             storage,
             revalidation: std::sync::Arc::clone(revalidation),

@@ -968,7 +968,26 @@ where
         crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
-        self.identity.request_settings_snapshot(lease, owners)
+        self.identity.request_profile_snapshot(
+            lease,
+            owners,
+            crate::profile_volume_notes_owner::ProfileSnapshotKind::Settings,
+        )
+    }
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_calendar_snapshot(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_profile_snapshot(
+            lease,
+            owners,
+            crate::profile_volume_notes_owner::ProfileSnapshotKind::Calendar,
+        )
     }
 
     /// Enter C1 issuer activity before C3's exact live gate. The issuer

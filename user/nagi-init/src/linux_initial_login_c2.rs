@@ -118,10 +118,11 @@ where
         owner.request_notes_attachment(lease, notes, &admission)
     }
 
-    pub(super) fn request_settings_snapshot(
+    pub(super) fn request_profile_snapshot(
         &self,
         lease: SessionLease,
         owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+        kind: crate::profile_volume_notes_owner::ProfileSnapshotKind,
     ) -> Result<
         crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
@@ -133,7 +134,7 @@ where
             .identity_mut()
             .enter_system_service_runtime_admission(&self.handoff, self.boot_admission.scope())
             .map_err(|_| Unavailable)?;
-        owner.request_settings_snapshot(lease, owners, &admission)
+        owner.request_profile_snapshot(lease, owners, kind, &admission)
     }
 
     pub(super) fn enter_runtime_admission<'runtime>(
