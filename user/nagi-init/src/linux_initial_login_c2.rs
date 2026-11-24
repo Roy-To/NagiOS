@@ -72,6 +72,96 @@ where
             .map_err(|_| std::io::Error::other("login throttle owner unavailable"))
     }
 
+    #[cfg(linux_task24_settings)]
+    pub(super) fn change_owner_password(
+        &self,
+        lease: SessionLease,
+        current: &[u8],
+        next: &[u8],
+    ) -> crate::settings_store::password::PasswordResult {
+        use crate::linux_login_throttle::LoginAttemptError;
+        use crate::settings_store::password::PasswordResult;
+        use nagi_account_credential::{
+            AccountRecord, Credential, DEFAULT_ITERATIONS, MAX_PASSWORD_BYTES, MIN_PASSWORD_BYTES,
+            SALT_BYTES,
+        };
+        use nagi_linux_account_verifier::CredentialChangeError;
+
+        if current.is_empty()
+            || current.len() > MAX_PASSWORD_BYTES
+            || !(MIN_PASSWORD_BYTES..=MAX_PASSWORD_BYTES).contains(&next.len())
+        {
+            return PasswordResult::Invalid;
+        }
+        let Ok(mut owner) = self.owner.try_lock() else {
+            return PasswordResult::Unavailable;
+        };
+        let Ok(revalidation) = owner.retained_revalidation(lease) else {
+            return PasswordResult::Unavailable;
+        };
+        revalidation
+            .with_live_session_effect(|| {
+                let persist = |count| self.verifier.store_login_failures(count);
+                let result = owner.login_failures.attempt(
+                    Instant::now,
+                    || {
+                        let name = self
+                            .verifier
+                            .owner_login_name()
+                            .map_err(|_| CredentialChangeError::Unavailable)?;
+                        let mut salt = [0; SALT_BYTES];
+                        if !crate::login_screen::fill_password_salt(&mut salt) {
+                            return Err(CredentialChangeError::Unavailable);
+                        }
+                        let credential = Credential::derive(next, salt, DEFAULT_ITERATIONS)
+                            .ok_or(CredentialChangeError::InvalidRecord)?;
+                        let record = AccountRecord::new(&name, credential)
+                            .map_err(|_| CredentialChangeError::InvalidRecord)?;
+                        self.verifier
+                            .replace_owner_credential(&name, current, record)
+                    },
+                    |error| matches!(error, CredentialChangeError::WrongCurrent),
+                    persist,
+                );
+                match result {
+                    Ok(()) => {
+                        if owner.login_failures.persist(0, persist).is_err() {
+                            super::log_pid1_stderr(format_args!(
+                                "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED"
+                            ));
+                        }
+                        super::log_pid1_stderr(format_args!("NAGI_DEV_PASSWORD_CHANGE_PASS"));
+                        PasswordResult::Changed
+                    }
+                    Err(LoginAttemptError::Throttled) => PasswordResult::Wait,
+                    Err(LoginAttemptError::Verification(CredentialChangeError::WrongCurrent)) => {
+                        super::log_pid1_stderr(format_args!("NAGI_DEV_PASSWORD_CHANGE_REJECTED"));
+                        PasswordResult::WrongCurrent
+                    }
+                    Err(LoginAttemptError::Verification(CredentialChangeError::SameAsCurrent)) => {
+                        PasswordResult::Same
+                    }
+                    Err(LoginAttemptError::Verification(
+                        CredentialChangeError::PublicationUnknown(_),
+                    )) => PasswordResult::OutcomeUnknown,
+                    Err(_) => PasswordResult::Unavailable,
+                }
+            })
+            .unwrap_or(PasswordResult::Unavailable)
+    }
+
+    #[cfg(linux_task24_settings)]
+    pub(super) fn mirror_settings_locale(
+        &self,
+        lease: SessionLease,
+        locale: nagi_localization::Locale,
+    ) -> std::io::Result<()> {
+        self.with_ready_session(lease, || {
+            Ok(self.verifier.store_system_locale(locale.code()))
+        })
+        .map_err(|_| std::io::Error::other("Settings session unavailable"))?
+    }
+
     pub(super) fn reset_login_failures(&self) -> std::io::Result<()> {
         self.owner
             .try_lock()

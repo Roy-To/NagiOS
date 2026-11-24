@@ -2626,6 +2626,8 @@ pub enum PeerDenial {
     Unavailable,
     /// The owner checked the credentials and declined them before issuing a Session.
     AccountRejected,
+    /// The owner declined verification during its monotonic waiting period.
+    AccountThrottled,
     InventoryUnavailable,
     PackageSnapshot(Arc<nagi_dev_service_catalog_consumer::SnapshotError>),
     NotInstalled,

@@ -27,6 +27,18 @@ class RfbKeyboardTests(unittest.TestCase):
             keyboard.tap(0xFFFF)
         self.assertEqual(connection.sendall.call_count, 4)
 
+    def test_raw_frame_capture_uses_the_negotiated_display_and_returns_ppm(self):
+        connection = Mock()
+        keyboard = RfbKeyboard(connection)
+        keyboard.display_size = (2, 1)
+        connection.recv.side_effect = [
+            struct.pack(">BBH", 0, 0, 1),
+            struct.pack(">HHHHi", 0, 0, 2, 1, 0),
+            bytes.fromhex("00 ff 00 00 00 00 00 ff"),
+        ]
+        self.assertEqual(keyboard.capture_ppm(), b"P6\n2 1\n255\n" + bytes.fromhex("ff 00 00 00 00 ff"))
+        self.assertTrue(connection.sendall.call_args.args[0].endswith(struct.pack(">BBHHHH", 3, 0, 0, 0, 2, 1)))
+
     def test_unexpected_security_is_rejected_and_connection_closed(self):
         connection = Mock()
         connection.getpeername.return_value = ("127.0.0.1", 5903)

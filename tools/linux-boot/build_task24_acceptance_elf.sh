@@ -19,7 +19,7 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
-Development builds include the L7 desktop shell by default.
+Development builds include the L7 desktop shell and L9 Settings by default.
 --desktop-launcher is accepted for existing development invocations.
 USAGE
 }
@@ -64,7 +64,7 @@ cfgs=(
     linux_dev_system_mount
 )
 if [[ "$profile" == debug ]]; then
-    cfgs+=(linux_task24_desktop_shell)
+    cfgs+=(linux_task24_desktop_shell linux_task24_settings)
 fi
 rustc_args=()
 for cfg in "${cfgs[@]}"; do

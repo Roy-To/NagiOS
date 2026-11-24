@@ -90,3 +90,13 @@ settings.password.current=今の
 settings.password.new=パスワード
 settings.password.error.same=今の一致
 settings.password.error.save=設定不可
+
+settings.theme.light=Light
+settings.theme.dark=Dark
+settings.preferences.reload=設定再確認
+settings.preferences.close=Esc
+settings.preferences.save-failed=設定不可
+settings.preferences.reload-required=設定再確認
+settings.password.confirm=確認
+settings.password.changed=パスワード設定 確定
+settings.password.error.unknown=パスワード再確認

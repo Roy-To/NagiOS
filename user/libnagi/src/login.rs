@@ -189,8 +189,7 @@ impl LanguagePicker {
     }
 }
 
-/// Failed unlock attempts allowed back to back before a wait (ADR 0064).
-pub const FREE_ATTEMPTS: u32 = 3;
+pub use nagi_account_credential::{throttle_wait_ms, FREE_ATTEMPTS};
 
 pub fn encode_login_failures(failures: u32) -> [u8; 8] {
     let mut bytes = *b"NLT1\0\0\0\0";
@@ -201,26 +200,6 @@ pub fn encode_login_failures(failures: u32) -> [u8; 8] {
 pub fn decode_login_failures(bytes: &[u8]) -> Option<u32> {
     let count = bytes.strip_prefix(b"NLT1")?.try_into().ok()?;
     Some(u32::from_le_bytes(count))
-}
-const FIRST_WAIT_MS: u64 = 5_000;
-const MAX_WAIT_MS: u64 = 60_000;
-
-/// The wait after `failures` consecutive failures: none for the first
-/// `FREE_ATTEMPTS`, then 5 s doubling to a 60 s cap.
-pub const fn throttle_wait_ms(failures: u32) -> u64 {
-    if failures < FREE_ATTEMPTS {
-        return 0;
-    }
-    let doublings = failures - FREE_ATTEMPTS;
-    if doublings >= 4 {
-        return MAX_WAIT_MS;
-    }
-    let wait = FIRST_WAIT_MS << doublings;
-    if wait > MAX_WAIT_MS {
-        MAX_WAIT_MS
-    } else {
-        wait
-    }
 }
 
 /// Unlock rate limiting. Times are a monotonic clock in milliseconds

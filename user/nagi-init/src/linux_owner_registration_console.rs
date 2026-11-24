@@ -281,7 +281,7 @@ pub(super) struct ConsoleKey {
 }
 
 #[derive(Debug)]
-struct KeyboardEventsLost;
+pub(super) struct KeyboardEventsLost;
 
 impl std::fmt::Display for KeyboardEventsLost {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

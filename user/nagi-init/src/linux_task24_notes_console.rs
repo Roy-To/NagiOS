@@ -25,6 +25,7 @@ pub(super) fn run(
         ResolvedIdentity,
         Arc<C1IssuedInteractiveSession>,
     ),
+    locale: nagi_localization::Locale,
     mut poll_required_identity_exit: impl FnMut() -> io::Result<bool>,
     mut check_session: impl FnMut() -> Result<(), nagi_identity_session::ResolutionError>,
     #[cfg(all(linux_dev_ws10, not(nagi_release_build)))] mut dev_action: impl FnMut() -> io::Result<
@@ -43,7 +44,6 @@ pub(super) fn run(
         let store = Arc::new(ProfileRootNotesStore::new(input));
         let controller = ScopedNotesUiController::new_scoped(Arc::clone(&store), scope);
         let mut bridge = ScopedNotesEventBridge::from_controller(controller);
-        let locale = nagi_localization::Locale::EnUs;
         let label = nagi_localization::text(locale, "desktop.notes.title");
         if let Some(note) = bridge.list_notes().map_err(io::Error::other)?.first() {
             let readback = bridge.open_note(note.id).map_err(io::Error::other)?;
@@ -60,6 +60,7 @@ pub(super) fn run(
                 .current_note()
                 .ok_or_else(|| io::Error::other("Notes document unavailable"))?,
             false,
+            locale,
         )?;
         #[cfg(all(
             linux_task24_owner_co_location,
@@ -98,7 +99,7 @@ pub(super) fn run(
             }
             if had_confirmation && !confirmation.pending() {
                 if let Some(draft) = bridge.current_note() {
-                    present(console, &draft, false)?;
+                    present(console, &draft, false, locale)?;
                 }
             }
             #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
@@ -137,7 +138,7 @@ pub(super) fn run(
                         // operator could not see it.
                         if !bridge
                             .current_note()
-                            .is_some_and(|draft| present(console, &draft, true).is_ok())
+                            .is_some_and(|draft| present(console, &draft, true, locale).is_ok())
                         {
                             confirmation = UnsavedCloseConfirmation::default();
                             super::super::log_pid1_stderr(format_args!(
@@ -150,7 +151,7 @@ pub(super) fn run(
                 Err(error) => return Err(io::Error::other(error)),
             };
             if let Some(note) = result {
-                present(console, &note, false)?;
+                present(console, &note, false, locale)?;
                 #[cfg(all(
                     linux_task24_owner_co_location,
                     linux_dev_notes_performance,
@@ -197,6 +198,7 @@ fn present(
     console: &mut BootOwnerConsole,
     note: &NoteDocument,
     confirm_unsaved: bool,
+    locale: nagi_localization::Locale,
 ) -> io::Result<()> {
     use crate::ui::{rgba, Rect};
     let ink = rgba(26, 32, 44);
@@ -215,7 +217,6 @@ fn present(
             }
         }
         if confirm_unsaved {
-            let locale = nagi_localization::Locale::EnUs;
             for (y, key) in [
                 (162, "desktop.notes.close_save_failed"),
                 (176, "desktop.notes.close_unsaved_hint"),

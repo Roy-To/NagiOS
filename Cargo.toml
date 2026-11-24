@@ -5,6 +5,7 @@ members = [
     "tools/nagi-idl",
     "crates/nagi-abi",
     "crates/nagi-model",
+    "crates/nagi-account-credential",
     "crates/nagi-i18n",
     "crates/nagi-action-ipc",
     "crates/nagi-search-ipc",

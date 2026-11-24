@@ -628,8 +628,8 @@ version = "0.1.0"
 dependencies = [
  "getrandom",
  "nagi-abi",
+ "nagi-account-credential",
  "nagi-model",
- "sha2",
 ]
 
 [[package]]
@@ -742,6 +742,13 @@ dependencies = [
 [[package]]
 name = "nagi-abi"
 version = "0.1.0"
+
+[[package]]
+name = "nagi-account-credential"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "nagi-audio"

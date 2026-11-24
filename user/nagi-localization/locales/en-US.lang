@@ -90,3 +90,13 @@ settings.password.current=Current
 settings.password.new=New
 settings.password.error.same=Same password
 settings.password.error.save=Storage error
+
+settings.theme.light=Light theme
+settings.theme.dark=Dark theme
+settings.preferences.reload=Reload
+settings.preferences.close=Close
+settings.preferences.save-failed=Could not save settings.
+settings.preferences.reload-required=Reload settings before saving.
+settings.password.confirm=Confirm
+settings.password.changed=Password changed
+settings.password.error.unknown=Password change result unknown

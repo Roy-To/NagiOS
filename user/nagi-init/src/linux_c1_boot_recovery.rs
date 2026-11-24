@@ -150,6 +150,27 @@ impl<'package> AuthenticatedBootService<'package> {
     }
 }
 
+fn pre_login_locale(verifier: &LinuxAccountVerifier) -> nagi_localization::Locale {
+    use nagi_localization::Locale;
+    match verifier.load_system_locale().and_then(Locale::parse) {
+        Some(locale) => {
+            #[cfg(not(nagi_release_build))]
+            super::super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_SYSTEM_LOCALE_RESTORED locale={}",
+                locale.code()
+            ));
+            locale
+        }
+        None => {
+            #[cfg(not(nagi_release_build))]
+            super::super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_SYSTEM_LOCALE_DEFAULTED reason=missing_or_unavailable"
+            ));
+            Locale::EnUs
+        }
+    }
+}
+
 impl SelectedBootIdentityRuntime<'_, '_> {
     pub(in crate::linux_init) fn verify_continuing_admission(
         &mut self,
@@ -178,6 +199,10 @@ impl SelectedBootIdentityRuntime<'_, '_> {
         Ok(())
     }
 
+    pub(in crate::linux_init) fn system_locale(&self) -> nagi_localization::Locale {
+        pre_login_locale(&self.verifier)
+    }
+
     #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
     pub(in crate::linux_init) fn run_owner_registration(
         &mut self,
@@ -194,7 +219,7 @@ impl SelectedBootIdentityRuntime<'_, '_> {
         } = self;
         let screen = crate::login_screen::selected_data_owner_registration(
             verifier,
-            nagi_localization::Locale::EnUs,
+            pre_login_locale(verifier),
             |account_name| {
                 let admission = identity
                     .enter_system_service_runtime_admission(handoff, boot.recovery_scope())
@@ -500,6 +525,36 @@ mod task24 {
             Ok(())
         }
 
+        #[cfg(all(linux_task24_settings, not(nagi_release_build)))]
+        pub(in crate::linux_init) fn l9_check_previous_logout(
+            &self,
+            expected: &nagi_identity_session::SessionId,
+        ) -> io::Result<()> {
+            use nagi_identity_session::{SessionEndReason, SessionKind, SessionLifecycle};
+
+            let snapshot = self.identity.snapshot();
+            let mut matching = snapshot
+                .sessions
+                .iter()
+                .filter(|session| &session.session_id == expected);
+            if !matches!(
+                (matching.next(), matching.next()),
+                (Some(session), None) if session.kind == SessionKind::LocalUser
+                    && matches!(session.lifecycle, SessionLifecycle::Ended {
+                        reason: SessionEndReason::UserLogout, ..
+                    })
+            ) {
+                return Err(io::Error::other(
+                    "L9 previous Session did not end through UserLogout",
+                ));
+            }
+            crate::linux_init::log_pid1_stderr(format_args!(
+                "NAGI_DEV_L9_PREVIOUS_LOGOUT session={}",
+                expected.as_str(),
+            ));
+            Ok(())
+        }
+
         pub(in crate::linux_init) fn prepare_task24_route(
             &self,
             run: &BootLoginRun,
@@ -618,7 +673,12 @@ mod task24 {
                     .map(|error| {
                         login_input_action(
                             error,
-                            |error| matches!(error, PeerDenial::AccountRejected),
+                            |error| {
+                                matches!(
+                                    error,
+                                    PeerDenial::AccountRejected | PeerDenial::AccountThrottled
+                                )
+                            },
                             |error| matches!(error, PeerDenial::RequestDeadlineExpired),
                         )
                     })
@@ -629,7 +689,11 @@ mod task24 {
                             .identity
                             .login_failures()
                             .map_err(BootIdentityRecoveryError::LiveEffect)?;
-                        unlock.rejected(failures);
+                        if matches!(result, Err(PeerDenial::AccountThrottled)) {
+                            unlock.resume_throttle(failures);
+                        } else {
+                            unlock.rejected(failures);
+                        }
                         console
                             .present_unlock(unlock)
                             .map_err(BootIdentityRecoveryError::LiveEffect)?;
@@ -957,6 +1021,25 @@ where
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         self.identity.request_notes_attachment(lease, owner)
+    }
+
+    #[cfg(linux_task24_settings)]
+    pub(in crate::linux_init) fn change_owner_password(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        current: &[u8],
+        next: &[u8],
+    ) -> crate::settings_store::password::PasswordResult {
+        self.identity.change_owner_password(lease, current, next)
+    }
+
+    #[cfg(linux_task24_settings)]
+    pub(in crate::linux_init) fn mirror_settings_locale(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        locale: nagi_localization::Locale,
+    ) -> io::Result<()> {
+        self.identity.mirror_settings_locale(lease, locale)
     }
 
     #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]

@@ -84,6 +84,8 @@ nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optiona
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+nagi-account-credential = { path = "../../crates/nagi-account-credential" }
+nagi-persistence-contract = { path = "../../crates/nagi-persistence-contract" }
 libc = "=0.2.189"
 linux-peer-credentials-supplier = { path = "candidates/linux-broker-stage25/stage25/task39-contract-overlay" }
 nagi-dev-service-catalog-consumer = { path = "candidates/linux-broker-stage25/stage25/task25-contract-overlay" }
@@ -108,6 +110,11 @@ sha2 = { version = "=0.10.9", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", features = ["test-support"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+nagi-account-credential = { path = "../../crates/nagi-account-credential" }
+nagi-persistence-contract = { path = "../../crates/nagi-persistence-contract" }
+serde_json = "1"
 
 [dev-dependencies]
 notes-event-bridge-candidate = { path = "../../tools/linux-boot/notes-desktop-dev-20261116/notes-event-bridge" }
