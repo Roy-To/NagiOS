@@ -4,11 +4,10 @@
 #[cfg(unix)]
 use crate::SandboxProvider;
 use crate::{
-    draw_three_pane,
-    localization::{self, Locale},
     Actor, CancellationToken, CapabilityAuthorizer, EntryKind, FileEntry, FileName, FilesApp,
     FilesCanvas, FilesCanvasRect, FilesError, FilesErrorKind, FilesService, FilesViewState,
-    FilesystemProvider, Location, OperationResult, TrashEntry,
+    FilesystemProvider, Location, OperationResult, TrashEntry, draw_three_pane,
+    localization::{self, Locale},
 };
 use nagi_ui::{ColorRole, TypeRole};
 #[cfg(unix)]
@@ -42,7 +41,7 @@ where
     }
 
     pub fn refresh(&mut self) -> Result<(), FilesError> {
-        match self.app.refresh(&self.service) {
+        match self.app.refresh(&mut self.service) {
             Ok(()) => {
                 self.last_feedback_error = None;
                 Ok(())
@@ -56,12 +55,12 @@ where
 
     pub fn navigate(&mut self, location: Location) -> Result<(), FilesError> {
         self.last_feedback_error = None;
-        self.app.navigate(&self.service, location)
+        self.app.navigate(&mut self.service, location)
     }
 
     pub fn navigate_parent(&mut self) -> Result<bool, FilesError> {
         self.last_feedback_error = None;
-        self.app.navigate_parent(&self.service)
+        self.app.navigate_parent(&mut self.service)
     }
 
     /// Creates a folder through FilesService. If creation succeeds but the
@@ -288,7 +287,7 @@ where
     /// Lists restorable provider trash entries through FilesService's
     /// Enumerate authorization. The screen can use the returned resource IDs
     /// to offer a restore action without exposing permanent deletion here.
-    pub fn list_trash(&self) -> Result<Vec<TrashEntry>, FilesError> {
+    pub fn list_trash(&mut self) -> Result<Vec<TrashEntry>, FilesError> {
         self.service.list_trash()
     }
 

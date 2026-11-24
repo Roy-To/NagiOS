@@ -27,7 +27,7 @@ impl Default for FilesSearchProvider {
 impl FilesSearchProvider {
     pub fn search<P, A>(
         &self,
-        service: &FilesService<P, A>,
+        service: &mut FilesService<P, A>,
         start: &Location,
         query: &str,
         limit: usize,

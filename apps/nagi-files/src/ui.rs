@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    localization::{self, Locale},
     CapabilityAuthorizer, EntryKind, FileEntry, FilesContextSnapshot, FilesError, FilesErrorKind,
     FilesService, FilesystemProvider, Location, ResourceId,
+    localization::{self, Locale},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -158,7 +158,7 @@ impl FilesApp {
         publisher.publish(&self.context_snapshot())
     }
 
-    pub fn refresh<P, A>(&mut self, service: &FilesService<P, A>) -> Result<(), FilesError>
+    pub fn refresh<P, A>(&mut self, service: &mut FilesService<P, A>) -> Result<(), FilesError>
     where
         P: FilesystemProvider,
         A: CapabilityAuthorizer,
@@ -191,7 +191,7 @@ impl FilesApp {
 
     pub fn navigate<P, A>(
         &mut self,
-        service: &FilesService<P, A>,
+        service: &mut FilesService<P, A>,
         location: Location,
     ) -> Result<(), FilesError>
     where
@@ -204,7 +204,7 @@ impl FilesApp {
 
     pub fn navigate_parent<P, A>(
         &mut self,
-        service: &FilesService<P, A>,
+        service: &mut FilesService<P, A>,
     ) -> Result<bool, FilesError>
     where
         P: FilesystemProvider,

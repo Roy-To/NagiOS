@@ -1,8 +1,8 @@
 use crate::{
     Actor, CancellationToken, CapabilityAuthorizer, CapabilityRequest, CapabilityRight,
     ConfirmationChallenge, EntryKind, FileEntry, FileName, FilesError, FilesErrorKind,
-    FilesystemProvider, Location, OperationIntent, OperationKind, PermissionDecision,
-    ProviderAvailability, ResourceId, Reversibility, TransactionId, TrashEntry,
+    FilesOperationScopeToken, FilesystemProvider, Location, OperationIntent, OperationKind,
+    PermissionDecision, ProviderAvailability, ResourceId, Reversibility, TransactionId, TrashEntry,
 };
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -191,19 +191,212 @@ where
         self.provider.availability()
     }
 
-    pub fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
+    fn with_operation<R>(
+        &mut self,
+        operation: impl for<'scope> FnOnce(
+            &mut FilesServiceOperation<'scope, A>,
+        ) -> Result<R, FilesError>,
+    ) -> Result<R, FilesError> {
+        let Self {
+            provider,
+            authorizer,
+            activity,
+            checkpoint,
+            workspace,
+            pending_confirmations,
+            next_confirmation,
+        } = self;
+        provider.with_operation_scope(&FilesOperationScopeToken::new(), |provider| {
+            let mut operation_service = FilesServiceOperation {
+                provider,
+                authorizer,
+                activity,
+                checkpoint,
+                workspace,
+                pending_confirmations,
+                next_confirmation,
+            };
+            operation(&mut operation_service)
+        })
+    }
+
+    pub fn list(&mut self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
+        self.with_operation(|service| service.list(location))
+    }
+
+    pub fn metadata(&mut self, location: &Location) -> Result<FileEntry, FilesError> {
+        self.with_operation(|service| service.metadata(location))
+    }
+
+    pub fn read_file(&mut self, location: &Location) -> Result<Vec<u8>, FilesError> {
+        self.with_operation(|service| service.read_file(location))
+    }
+
+    pub fn write_file(
+        &mut self,
+        source: &FileEntry,
+        contents: &[u8],
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.write_file(source, contents, actor))
+    }
+
+    pub fn open_file(
+        &mut self,
+        source: &FileEntry,
+        actor: Actor,
+    ) -> Result<(Vec<u8>, OperationResult), FilesError> {
+        self.with_operation(|service| service.open_file(source, actor))
+    }
+
+    pub fn add_to_workspace(
+        &mut self,
+        source: &FileEntry,
+        workspace_id: &str,
+        actor: Actor,
+    ) -> Result<WorkspaceReferenceResult, FilesError> {
+        self.with_operation(|service| service.add_to_workspace(source, workspace_id, actor))
+    }
+
+    pub fn remove_from_workspace(
+        &mut self,
+        source: &FileEntry,
+        workspace_id: &str,
+        actor: Actor,
+    ) -> Result<WorkspaceReferenceResult, FilesError> {
+        self.with_operation(|service| service.remove_from_workspace(source, workspace_id, actor))
+    }
+
+    pub fn set_tags(
+        &mut self,
+        source: &FileEntry,
+        tags: &[crate::Tag],
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.set_tags(source, tags, actor))
+    }
+
+    pub fn list_trash(&mut self) -> Result<Vec<TrashEntry>, FilesError> {
+        self.with_operation(|service| service.list_trash())
+    }
+
+    pub fn create_folder(
+        &mut self,
+        parent: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.create_folder(parent, name, actor))
+    }
+
+    pub fn rename(
+        &mut self,
+        source: &FileEntry,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.rename(source, name, actor))
+    }
+
+    pub fn copy(
+        &mut self,
+        source: &FileEntry,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+        cancellation: &CancellationToken,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.copy(source, destination, name, actor, cancellation))
+    }
+
+    pub fn move_item(
+        &mut self,
+        source: &FileEntry,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.move_item(source, destination, name, actor))
+    }
+
+    pub fn duplicate(
+        &mut self,
+        source: &FileEntry,
+        actor: Actor,
+        cancellation: &CancellationToken,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.duplicate(source, actor, cancellation))
+    }
+
+    pub fn trash(
+        &mut self,
+        source: &FileEntry,
+        actor: Actor,
+    ) -> Result<(TrashEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.trash(source, actor))
+    }
+
+    pub fn restore(
+        &mut self,
+        trash_id: ResourceId,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.restore(trash_id, actor))
+    }
+
+    pub fn restore_as(
+        &mut self,
+        trash_id: ResourceId,
+        destination: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.with_operation(|service| service.restore_as(trash_id, destination, name, actor))
+    }
+
+    pub fn request_permanent_delete(
+        &mut self,
+        trash_id: ResourceId,
+    ) -> Result<ConfirmationChallenge, FilesError> {
+        self.with_operation(|service| service.request_permanent_delete(trash_id))
+    }
+
+    pub fn confirm_permanent_delete(
+        &mut self,
+        challenge: ConfirmationChallenge,
+        actor: Actor,
+    ) -> Result<OperationResult, FilesError> {
+        self.with_operation(|service| service.confirm_permanent_delete(challenge, actor))
+    }
+}
+
+struct FilesServiceOperation<'a, A> {
+    provider: &'a mut dyn FilesystemProvider,
+    authorizer: &'a A,
+    activity: &'a mut Option<Box<dyn ActivitySink>>,
+    checkpoint: &'a mut Option<Box<dyn CheckpointHook>>,
+    workspace: &'a mut Option<Box<dyn WorkspaceReferenceSink>>,
+    pending_confirmations: &'a mut HashMap<u64, PendingConfirmation>,
+    next_confirmation: &'a mut u64,
+}
+
+impl<'a, A> FilesServiceOperation<'a, A>
+where
+    A: CapabilityAuthorizer,
+{
+    fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError> {
         self.ensure_available()?;
         self.authorize(CapabilityRight::Enumerate, location)?;
         self.provider.list(location)
     }
 
-    pub fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError> {
+    fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError> {
         self.ensure_available()?;
         self.authorize(CapabilityRight::Read, location)?;
         self.provider.metadata(location)
     }
 
-    pub fn read_file(&self, location: &Location) -> Result<Vec<u8>, FilesError> {
+    fn read_file(&self, location: &Location) -> Result<Vec<u8>, FilesError> {
         self.ensure_available()?;
         self.authorize(CapabilityRight::Read, location)?;
         let contents = self
@@ -212,7 +405,7 @@ where
         bounded_preview(contents, location)
     }
 
-    pub fn write_file(
+    fn write_file(
         &mut self,
         source: &FileEntry,
         contents: &[u8],
@@ -247,7 +440,7 @@ where
         }
     }
 
-    pub fn open_file(
+    fn open_file(
         &mut self,
         source: &FileEntry,
         actor: Actor,
@@ -287,7 +480,7 @@ where
 
     /// Adds a resource reference to a workspace. The provider item stays at its
     /// original path; this API never implements workspace membership as move.
-    pub fn add_to_workspace(
+    fn add_to_workspace(
         &mut self,
         source: &FileEntry,
         workspace_id: &str,
@@ -328,7 +521,7 @@ where
         })
     }
 
-    pub fn remove_from_workspace(
+    fn remove_from_workspace(
         &mut self,
         source: &FileEntry,
         workspace_id: &str,
@@ -369,7 +562,7 @@ where
         })
     }
 
-    pub fn set_tags(
+    fn set_tags(
         &mut self,
         source: &FileEntry,
         tags: &[crate::Tag],
@@ -408,7 +601,7 @@ where
         }
     }
 
-    pub fn list_trash(&self) -> Result<Vec<TrashEntry>, FilesError> {
+    fn list_trash(&self) -> Result<Vec<TrashEntry>, FilesError> {
         self.ensure_available()?;
         let mut visible = Vec::new();
         for item in self.provider.list_trash()? {
@@ -422,7 +615,7 @@ where
         Ok(visible)
     }
 
-    pub fn create_folder(
+    fn create_folder(
         &mut self,
         parent: &Location,
         name: &FileName,
@@ -451,7 +644,7 @@ where
         }
     }
 
-    pub fn rename(
+    fn rename(
         &mut self,
         source: &FileEntry,
         name: &FileName,
@@ -484,7 +677,7 @@ where
         }
     }
 
-    pub fn copy(
+    fn copy(
         &mut self,
         source: &FileEntry,
         destination: &Location,
@@ -542,7 +735,7 @@ where
         }
     }
 
-    pub fn move_item(
+    fn move_item(
         &mut self,
         source: &FileEntry,
         destination: &Location,
@@ -577,7 +770,7 @@ where
         }
     }
 
-    pub fn duplicate(
+    fn duplicate(
         &mut self,
         source: &FileEntry,
         actor: Actor,
@@ -596,7 +789,7 @@ where
         )
     }
 
-    pub fn trash(
+    fn trash(
         &mut self,
         source: &FileEntry,
         actor: Actor,
@@ -631,7 +824,7 @@ where
         }
     }
 
-    pub fn restore(
+    fn restore(
         &mut self,
         trash_id: ResourceId,
         actor: Actor,
@@ -639,7 +832,7 @@ where
         self.restore_with_destination(trash_id, None, actor)
     }
 
-    pub fn restore_as(
+    fn restore_as(
         &mut self,
         trash_id: ResourceId,
         parent: &Location,
@@ -691,7 +884,7 @@ where
         }
     }
 
-    pub fn request_permanent_delete(
+    fn request_permanent_delete(
         &mut self,
         trash_id: ResourceId,
     ) -> Result<ConfirmationChallenge, FilesError> {
@@ -704,8 +897,8 @@ where
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         self.authorize(CapabilityRight::PermanentDelete, &item.original_location)?;
         let transaction_id = TransactionId::new();
-        let nonce = self.next_confirmation;
-        self.next_confirmation = self.next_confirmation.wrapping_add(1).max(1);
+        let nonce = *self.next_confirmation;
+        *self.next_confirmation = self.next_confirmation.wrapping_add(1).max(1);
         self.pending_confirmations.insert(
             nonce,
             PendingConfirmation {
@@ -725,7 +918,7 @@ where
         ))
     }
 
-    pub fn confirm_permanent_delete(
+    fn confirm_permanent_delete(
         &mut self,
         challenge: ConfirmationChallenge,
         actor: Actor,
@@ -926,7 +1119,6 @@ where
         }
     }
 }
-
 fn bounded_preview(contents: Vec<u8>, location: &Location) -> Result<Vec<u8>, FilesError> {
     if contents.len() > crate::MAX_PREVIEW_BYTES {
         return Err(FilesError::new(FilesErrorKind::FileTooLarge).at(location.clone()));

@@ -1,5 +1,19 @@
 use crate::{CancellationToken, FileEntry, FileName, FilesError, Location, ResourceId, TrashEntry};
 
+/// Unforgeable marker proving that a service operation entered the provider
+/// scope through `FilesService`. Scoped providers require it so callers cannot
+/// open an owner callback directly and skip the Files authorizer.
+#[doc(hidden)]
+pub struct FilesOperationScopeToken {
+    _private: (),
+}
+
+impl FilesOperationScopeToken {
+    pub(crate) const fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderAvailability {
     Available,
@@ -9,6 +23,22 @@ pub enum ProviderAvailability {
 /// Public adapter boundary for Nagi storage, a test backend, or a host preview.
 /// Implementations must treat `Location` values as provider-relative names.
 pub trait FilesystemProvider {
+    /// Runs one complete service operation against a provider view.
+    ///
+    /// Ordinary preview providers can use the direct view. Providers backed
+    /// by an owner-issued scope override this method so the callback encloses
+    /// all authorization and provider primitives for the operation.
+    fn with_operation_scope<R>(
+        &mut self,
+        _token: &FilesOperationScopeToken,
+        operation: impl FnOnce(&mut dyn FilesystemProvider) -> Result<R, FilesError>,
+    ) -> Result<R, FilesError>
+    where
+        Self: Sized,
+    {
+        operation(self)
+    }
+
     fn availability(&self) -> ProviderAvailability;
     fn list(&self, location: &Location) -> Result<Vec<FileEntry>, FilesError>;
     fn metadata(&self, location: &Location) -> Result<FileEntry, FilesError>;
