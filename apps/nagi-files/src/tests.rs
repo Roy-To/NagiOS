@@ -23,10 +23,10 @@ use nagi_ui::{ColorRole, TypeRole};
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(1);
 
-struct TempSandbox(PathBuf);
+pub(super) struct TempSandbox(PathBuf);
 
 impl TempSandbox {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
@@ -40,7 +40,7 @@ impl TempSandbox {
         Self(path)
     }
 
-    fn path(&self) -> &std::path::Path {
+    pub(super) fn path(&self) -> &std::path::Path {
         &self.0
     }
 }
@@ -4433,6 +4433,109 @@ fn sandbox_trash_persists_across_process_reopen_and_restores_resource_identity()
             std::thread::sleep(std::time::Duration::from_secs(300));
         }
     }
+}
+
+#[test]
+fn sandbox_reloads_unindexed_trash_and_restores_the_payload() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("recover.txt"), b"recover me").unwrap();
+    let internal = temp.path().join(".nagi-files");
+    fs::create_dir_all(internal.join("trash")).unwrap();
+    let blocked_index = internal.join("trash-index-v1.tmp");
+    fs::create_dir(&blocked_index).unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let error = provider
+        .trash(&Location::parse("recover.txt").unwrap())
+        .unwrap_err();
+    assert_eq!(error.kind, FilesErrorKind::PartialFailure);
+    drop(provider);
+    fs::remove_dir(blocked_index).unwrap();
+    let index = internal.join("trash-index-v1");
+
+    let mut reopened = SandboxProvider::new(temp.path()).unwrap();
+    let entries = reopened.list_trash().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        !index.exists(),
+        "opening the provider must remain read-only"
+    );
+    let restored = reopened.restore(entries[0].id).unwrap();
+    assert!(restored.location.is_root());
+    assert_file_bytes(temp.path().join(restored.name.as_str()), b"recover me");
+    assert!(reopened.list_trash().unwrap().is_empty());
+}
+
+#[test]
+fn sandbox_hides_dangling_trash_rows_and_rewrites_index_on_next_trash() {
+    let temp = TempSandbox::new();
+    fs::write(temp.path().join("first"), b"first").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    provider.trash(&Location::parse("first").unwrap()).unwrap();
+    drop(provider);
+
+    let storage = temp.path().join(".nagi-files");
+    let index = storage.join("trash-index-v1");
+    let stale_index = fs::read(&index).unwrap();
+    let payload = fs::read_dir(storage.join("trash"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    fs::remove_file(payload.path()).unwrap();
+
+    let mut reopened = SandboxProvider::new(temp.path()).unwrap();
+    assert!(reopened.list_trash().unwrap().is_empty());
+    assert_eq!(fs::read(&index).unwrap(), stale_index);
+    fs::write(temp.path().join("second"), b"second").unwrap();
+    let second = reopened.trash(&Location::parse("second").unwrap()).unwrap();
+    let final_index = fs::read_to_string(index).unwrap();
+    assert_eq!(final_index.lines().count(), 1);
+    assert!(final_index.starts_with(&second.id.to_string()));
+}
+
+#[test]
+fn sandbox_root_fallback_requires_restore_permission_at_the_destination() {
+    let temp = TempSandbox::new();
+    fs::create_dir(temp.path().join("gone")).unwrap();
+    fs::write(temp.path().join("gone/item.txt"), b"payload").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let original = Location::parse("gone/item.txt").unwrap();
+    let trashed = provider.trash(&original).unwrap();
+    fs::remove_dir(temp.path().join("gone")).unwrap();
+
+    let mut denied = FilesService::new(
+        provider,
+        CapabilitySet::from_grants([CapabilityGrant::allow(original, CapabilityRight::Restore)]),
+    );
+    assert_eq!(
+        denied.restore(trashed.id, Actor::User).unwrap_err().kind,
+        FilesErrorKind::PermissionDenied,
+    );
+    assert!(!temp.path().join("item.txt").exists());
+    let mut allowed = FilesService::new(
+        SandboxProvider::new(temp.path()).unwrap(),
+        full_capabilities(),
+    );
+    let (entry, _) = allowed.restore(trashed.id, Actor::User).unwrap();
+    assert!(entry.location.is_root());
+    assert_file_bytes(temp.path().join("item.txt"), b"payload");
+}
+
+#[test]
+fn sandbox_restore_as_preserves_an_occupied_original_name() {
+    let temp = TempSandbox::new();
+    let original = Location::parse("item.txt").unwrap();
+    fs::write(temp.path().join("item.txt"), b"trashed").unwrap();
+    let mut provider = SandboxProvider::new(temp.path()).unwrap();
+    let trashed = provider.trash(&original).unwrap();
+    fs::write(temp.path().join("item.txt"), b"current").unwrap();
+    let mut service = FilesService::new(provider, full_capabilities());
+    let alternate = FileName::parse("item (restored).txt").unwrap();
+    service
+        .restore_as(trashed.id, &Location::root(), &alternate, Actor::User)
+        .unwrap();
+    assert_file_bytes(temp.path().join("item.txt"), b"current");
+    assert_file_bytes(temp.path().join(alternate.as_str()), b"trashed");
 }
 
 #[test]

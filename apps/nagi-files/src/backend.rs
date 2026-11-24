@@ -60,5 +60,26 @@ pub trait FilesystemProvider {
     fn trash(&mut self, source: &Location) -> Result<TrashEntry, FilesError>;
     fn list_trash(&self) -> Result<Vec<TrashEntry>, FilesError>;
     fn restore(&mut self, id: ResourceId) -> Result<FileEntry, FilesError>;
+    fn restore_destination(&self, item: &TrashEntry) -> Result<Location, FilesError> {
+        Ok(item.original_location.clone())
+    }
+
+    fn restore_to(
+        &mut self,
+        id: ResourceId,
+        destination: &Location,
+    ) -> Result<FileEntry, FilesError> {
+        let item = self
+            .list_trash()?
+            .into_iter()
+            .find(|item| item.id == id)
+            .ok_or_else(|| FilesError::new(crate::FilesErrorKind::NotFound))?;
+        if &item.original_location != destination {
+            return Err(
+                FilesError::new(crate::FilesErrorKind::InvalidLocation).at(destination.clone())
+            );
+        }
+        self.restore(id)
+    }
     fn permanently_delete(&mut self, id: ResourceId) -> Result<(), FilesError>;
 }

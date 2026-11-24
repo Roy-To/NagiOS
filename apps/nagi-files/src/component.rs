@@ -303,8 +303,27 @@ where
         trash_id: crate::ResourceId,
         actor: Actor,
     ) -> Result<(FileEntry, OperationResult), FilesError> {
+        let result = self.service.restore(trash_id, actor);
+        self.complete_restore(result)
+    }
+
+    pub fn restore_trash_item_as(
+        &mut self,
+        trash_id: crate::ResourceId,
+        parent: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        let result = self.service.restore_as(trash_id, parent, name, actor);
+        self.complete_restore(result)
+    }
+
+    fn complete_restore(
+        &mut self,
+        result: Result<(FileEntry, OperationResult), FilesError>,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
         self.last_feedback_error = None;
-        let (restored, operation) = match self.service.restore(trash_id, actor) {
+        let (restored, operation) = match result {
             Ok(result) => result,
             Err(error) => {
                 self.last_feedback_error = Some(error.kind);

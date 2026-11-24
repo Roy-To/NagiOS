@@ -636,6 +636,25 @@ where
         trash_id: ResourceId,
         actor: Actor,
     ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.restore_with_destination(trash_id, None, actor)
+    }
+
+    pub fn restore_as(
+        &mut self,
+        trash_id: ResourceId,
+        parent: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.restore_with_destination(trash_id, Some(parent.join(name)), actor)
+    }
+
+    fn restore_with_destination(
+        &mut self,
+        trash_id: ResourceId,
+        destination: Option<Location>,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
         self.ensure_available()?;
         let item = self
             .provider
@@ -644,16 +663,23 @@ where
             .find(|entry| entry.id == trash_id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         self.authorize(CapabilityRight::Restore, &item.original_location)?;
+        let destination = match destination {
+            Some(explicit) => explicit,
+            None => self.provider.restore_destination(&item)?,
+        };
+        if destination != item.original_location {
+            self.authorize(CapabilityRight::Restore, &destination)?;
+        }
         let mut intent = OperationIntent::new(OperationKind::Restore, actor);
         intent.source = Some(Location::parse(".nagi-files/trash")?);
-        intent.destination = Some(item.original_location.clone());
+        intent.destination = Some(destination.clone());
         intent.affected.push(trash_id);
         intent
             .preconditions
             .push(crate::OperationPrecondition::DestinationAbsent);
         self.begin_agent_operation(&intent)?;
         let checkpoint = self.checkpoint_before(&intent);
-        match self.provider.restore(trash_id) {
+        match self.provider.restore_to(trash_id, &destination) {
             Ok(entry) => {
                 let result = self.success(&intent, vec![entry.id], checkpoint);
                 Ok((entry, result))

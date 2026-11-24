@@ -340,6 +340,18 @@ where
         self.with_live_component_effect(|component| component.restore_trash_item(trash_id, actor))
     }
 
+    pub fn restore_trash_item_as(
+        &mut self,
+        trash_id: nagi_files::ResourceId,
+        parent: &Location,
+        name: &FileName,
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesSessionEffectError> {
+        self.with_live_component_effect(|component| {
+            component.restore_trash_item_as(trash_id, parent, name, actor)
+        })
+    }
+
     /// Paints the existing view model without performing a filesystem effect.
     pub fn draw(
         &self,
