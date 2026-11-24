@@ -23,6 +23,7 @@ pub enum AppStorageKind {
     Notes,
     Settings,
     Calendar,
+    UserFiles,
 }
 
 /// Current terminal or live state of the startup attachment owner.
@@ -65,7 +66,7 @@ struct VerifiedProfileVolumeAttachment {
     principal_id: String,
     profile_id: String,
     object_directory: OwnedFd,
-    notes_object_id: ObjectId,
+    object_id: Option<ObjectId>,
     #[cfg(target_os = "linux")]
     allow_initial_index: bool,
     lifecycle: Mutex<AttachmentLifecycle>,
@@ -89,14 +90,14 @@ impl VerifiedProfileVolumeAttachment {
         principal_id: impl Into<String>,
         profile_id: impl Into<String>,
         object_directory: OwnedFd,
-        notes_object_id: ObjectId,
+        object_id: Option<ObjectId>,
     ) -> Self {
         Self {
             kind,
             principal_id: principal_id.into(),
             profile_id: profile_id.into(),
             object_directory,
-            notes_object_id,
+            object_id,
             #[cfg(target_os = "linux")]
             allow_initial_index: false,
             lifecycle: Mutex::new(AttachmentLifecycle {
@@ -175,9 +176,17 @@ impl ProfileVolumeAppOwner {
             OwnerState::Revoked => return Err(Revoked),
             OwnerState::Ended => return Err(Ended),
         }
-        let (directory, object, allow_initial_index) =
-            linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
-                .map_err(|_| Unavailable)?;
+        let (directory, object, allow_initial_index) = if self.kind == AppStorageKind::UserFiles {
+            let directory =
+                linux_data::reserve_files_root(data_root, mount_id, user, profile, principal)
+                    .map_err(|_| Unavailable)?;
+            (directory, None, false)
+        } else {
+            let (directory, object, allow_initial_index) =
+                linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
+                    .map_err(|_| Unavailable)?;
+            (directory, Some(object), allow_initial_index)
+        };
         let mut attachment =
             VerifiedProfileVolumeAttachment::new(self.kind, principal, profile, directory, object);
         attachment.allow_initial_index = allow_initial_index;
@@ -200,6 +209,23 @@ impl ProfileVolumeAppOwner {
     /// caller-supplied metadata. The Notes consumer separately binds the
     /// bundle to the live C1 identity and C2-sealed caller.
     pub fn issue_bundle(&self) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
+        if self.kind == AppStorageKind::UserFiles {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        self.issue_active_attachment()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn issue_files_root(&self) -> Result<ProfileFilesRoot, ProfileVolumeNotesOwnerError> {
+        if self.kind != AppStorageKind::UserFiles {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        self.issue_active_attachment().map(ProfileFilesRoot)
+    }
+
+    fn issue_active_attachment(
+        &self,
+    ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
         let attachment = match &self.state {
             OwnerState::Pending => return Err(ProfileVolumeNotesOwnerError::Unavailable),
             OwnerState::Verified(attachment) => attachment,
@@ -318,7 +344,7 @@ impl ProfileVolumeAppOwner {
                 principal_id,
                 profile_id,
                 object_directory,
-                notes_object_id,
+                Some(notes_object_id),
             ))),
         }
     }
@@ -329,6 +355,7 @@ pub struct AppStorageOwners {
     notes: ProfileVolumeAppOwner,
     settings: ProfileVolumeAppOwner,
     calendar: ProfileVolumeAppOwner,
+    user_files: ProfileVolumeAppOwner,
 }
 
 impl AppStorageOwners {
@@ -337,6 +364,7 @@ impl AppStorageOwners {
             notes: ProfileVolumeAppOwner::pending_for(AppStorageKind::Notes),
             settings: ProfileVolumeAppOwner::pending_for(AppStorageKind::Settings),
             calendar: ProfileVolumeAppOwner::pending_for(AppStorageKind::Calendar),
+            user_files: ProfileVolumeAppOwner::pending_for(AppStorageKind::UserFiles),
         }
     }
 
@@ -350,6 +378,10 @@ impl AppStorageOwners {
 
     pub fn calendar(&self) -> &ProfileVolumeAppOwner {
         &self.calendar
+    }
+
+    pub fn user_files(&mut self) -> &mut ProfileVolumeAppOwner {
+        &mut self.user_files
     }
 
     pub fn owners_mut(&mut self) -> [&mut ProfileVolumeAppOwner; 3] {
@@ -373,7 +405,7 @@ impl AppStorageOwners {
             // Attempt every transition even when one owner fails closed.
             result = result.and(transition(owner));
         }
-        result
+        result.and(transition(&mut self.user_files))
     }
 }
 
@@ -424,7 +456,9 @@ impl ProfileVolumeNotesBundle {
     }
 
     pub fn object_id(&self) -> ObjectId {
-        self.attachment.notes_object_id
+        self.attachment
+            .object_id
+            .expect("object bundle has a reserved ObjectId")
     }
 
     /// A new reservation permits the codec to create its initial index.
@@ -513,6 +547,61 @@ impl ProfileVolumeNotesBundle {
     #[cfg(test)]
     fn same_attachment(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.attachment, &other.attachment)
+    }
+}
+
+/// A private User Files directory, with no object reservation.
+#[cfg(target_os = "linux")]
+pub struct ProfileFilesRoot(ProfileVolumeNotesBundle);
+
+#[cfg(target_os = "linux")]
+impl ProfileFilesRoot {
+    pub fn validate_scope(
+        &self,
+        principal: &str,
+        profile: &str,
+        selected_data: impl std::os::fd::AsFd,
+        mount_id: u64,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        self.0.validate_scope(principal, profile)?;
+        self.0.validate_data_mount(selected_data, mount_id)
+    }
+
+    /// The trusted consumer invokes this only inside the matching C1 lease.
+    pub fn with_active_root<R>(
+        &self,
+        effect: impl FnOnce(FilesRootView<'_>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.0.with_active(|| {
+            effect(FilesRootView {
+                directory: &self.0.attachment.object_directory,
+            })
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub struct FilesRootView<'root> {
+    directory: &'root OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+impl FilesRootView<'_> {
+    /// Borrow the private descriptor for the maintained Files consumer.
+    pub fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(self.directory)
+    }
+
+    /// Open a relative path under this root without traversing links or mounts.
+    pub fn with_open_file<R>(
+        &self,
+        relative: &std::path::Path,
+        flags: rustix::fs::OFlags,
+        mode: rustix::fs::Mode,
+        effect: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>,
+    ) -> std::io::Result<R> {
+        let mut file = linux_data::open_files_path(self.directory, relative, flags, mode)?;
+        effect(&mut file)
     }
 }
 
@@ -880,6 +969,85 @@ mod tests {
         }
         drop((settings, calendar, owners));
         fs::remove_dir_all(path).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn user_files_root_stays_private_and_retained_view_stops_after_logout() {
+        use rustix::fs::{Mode, OFlags};
+        use std::fs::{self, File};
+        use std::io::{Read, Write};
+        use std::os::unix::fs::{symlink, DirBuilderExt};
+        use std::path::Path;
+
+        let directory =
+            std::env::temp_dir().join(format!("nagi-files-owner-{}", std::process::id()));
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let root = directory.join("root");
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        fs::write(directory.join("outside"), b"outside").unwrap();
+        symlink("../outside", root.join("escape")).unwrap();
+
+        let mut group = AppStorageOwners::pending();
+        group.user_files.state =
+            OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
+                AppStorageKind::UserFiles,
+                "principal",
+                "profile",
+                File::open(&root).unwrap().into(),
+                None,
+            )));
+        assert!(matches!(
+            group.user_files().issue_bundle(),
+            Err(ProfileVolumeNotesOwnerError::ForeignAttachment)
+        ));
+        let bundle = group.user_files().issue_files_root().unwrap();
+        bundle
+            .with_active_root(|view| {
+                for invalid in ["../outside", "/etc/passwd", "escape"] {
+                    assert!(view
+                        .with_open_file(Path::new(invalid), OFlags::RDONLY, Mode::empty(), |_| Ok(
+                            ()
+                        ))
+                        .is_err());
+                }
+                view.with_open_file(
+                    Path::new("owned"),
+                    OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
+                    Mode::RUSR | Mode::WUSR,
+                    |file| {
+                        file.write_all(b"files payload")?;
+                        file.sync_all()
+                    },
+                )
+                .unwrap();
+                rustix::fs::fsync(view.as_fd()).unwrap();
+            })
+            .unwrap();
+
+        let readback = group.user_files().issue_files_root().unwrap();
+        let bytes = readback
+            .with_active_root(|view| {
+                view.with_open_file(Path::new("owned"), OFlags::RDONLY, Mode::empty(), |file| {
+                    let mut bytes = Vec::new();
+                    file.read_to_end(&mut bytes)?;
+                    Ok(bytes)
+                })
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(bytes, b"files payload");
+        assert_eq!(fs::read(directory.join("outside")).unwrap(), b"outside");
+        group.end().unwrap();
+        assert_eq!(
+            readback.with_active_root(|_| -> () { panic!("ended Files root invoked") }),
+            Err(ProfileVolumeNotesOwnerError::Ended),
+        );
+        drop((group, bundle, readback));
+        fs::remove_dir_all(directory).unwrap();
     }
 
     fn app_storage_fixture() -> (AppStorageOwners, [ProfileVolumeNotesBundle; 3]) {

@@ -205,6 +205,20 @@ where
         })
     }
 
+    pub(super) fn request_files_root(
+        &mut self,
+        lease: SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedFilesRoot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.with_attached_profile_session(lease, admission, |issued, identity, revalidation| {
+            owners.issue_files_root_for_attached_session(issued.caller(), &identity, revalidation)
+        })
+    }
+
     fn with_attached_profile_session<R>(
         &mut self,
         lease: SessionLease,

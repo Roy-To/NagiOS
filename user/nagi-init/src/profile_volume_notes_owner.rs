@@ -251,6 +251,24 @@ impl AuthorizedProfileSnapshot {
     }
 }
 
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct AuthorizedFilesRoot {
+    root: nagi_profile_volume_notes_owner::ProfileFilesRoot,
+    revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedFilesRoot {
+    pub(crate) fn with_root<R>(
+        &self,
+        effect: impl FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'_>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.revalidation
+            .with_live_session_effect(|| self.root.with_active_root(effect))
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+    }
+}
+
 pub(crate) struct AppStorageOwners {
     inner: nagi_profile_volume_notes_owner::AppStorageOwners,
     boot_volume: Option<BootVolumeInput>,
@@ -308,6 +326,40 @@ impl AppStorageOwners {
         }?;
         Ok(AuthorizedProfileSnapshot {
             storage,
+            revalidation: std::sync::Arc::clone(revalidation),
+        })
+    }
+
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn issue_files_root_for_attached_session(
+        &mut self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+        revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+    ) -> Result<AuthorizedFilesRoot, ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::Unavailable;
+
+        let user = self.attach_session_profile(caller, identity)?;
+        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        let owner = self.inner.user_files();
+        if owner.status() == ProfileVolumeNotesOwnerStatus::Pending {
+            owner.attach_linux_profile(
+                &boot_volume.directory,
+                boot_volume.identity.mount_id,
+                user.to_model(),
+                identity.profile_id().as_str(),
+                identity.principal_id().as_str(),
+            )?;
+        }
+        let root = owner.issue_files_root()?;
+        root.validate_scope(
+            identity.principal_id().as_str(),
+            identity.profile_id().as_str(),
+            &boot_volume.directory,
+            boot_volume.identity.mount_id,
+        )?;
+        Ok(AuthorizedFilesRoot {
+            root,
             revalidation: std::sync::Arc::clone(revalidation),
         })
     }

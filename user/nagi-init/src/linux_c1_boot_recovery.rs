@@ -990,6 +990,18 @@ where
         )
     }
 
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_files_root(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedFilesRoot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_files_root(lease, owners)
+    }
+
     /// Enter C1 issuer activity before C3's exact live gate. The issuer
     /// mutex has been released before the effect, while the C1 guard stays
     /// held through the C3 callback and durable receipt validation.
