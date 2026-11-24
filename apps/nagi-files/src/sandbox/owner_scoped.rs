@@ -34,6 +34,10 @@ const MAX_METADATA_INDEX_BYTES: usize = 1024 * 1024;
 /// This is not a marker asserting that another wrapper performs C1 checks.
 /// The provider obtains the handle from the same scope value and calls the
 /// real C1 gate itself before each owner callback.
+///
+/// Implementors must bind the returned handle to the exact root exposed by
+/// this value; a handle from another attachment must not be returned. Product
+/// callers should pass one owner-issued scope value that retains both.
 pub trait C1SessionBoundFilesRootScope: FilesRootScope {
     fn c1_session_revalidation_handle(&self) -> &SessionLeaseRevalidationHandle;
 }
