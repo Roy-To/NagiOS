@@ -191,9 +191,9 @@ jobs:
           owner_lock="$owner_test_dir/Cargo.lock"
           # This standalone owner crate has no committed lockfile; capture its
           # per-run resolution so the focused test uses the same locked graph.
-          cargo +nightly-2025-08-01 -Z unstable-options metadata \
+          CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options metadata \
             --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
-            --lockfile-path "$owner_lock" --offline --format-version 1 >/dev/null
+            --lockfile-path "$owner_lock" --format-version 1 >/dev/null
           CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
             --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
             --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu \
