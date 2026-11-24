@@ -733,19 +733,23 @@ where
     }
 
     #[cfg(linux_task24_notes_consumer)]
-    pub(in crate::linux_init) fn end_notes_session(
+    pub(in crate::linux_init) fn end_app_sessions(
         &self,
         issued: &nagi_identity_session::C1IssuedInteractiveSession,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
     ) -> io::Result<nagi_identity_session::SessionEndReason> {
-        self.finish_notes_session(issued, |identity, admission| {
+        let reason = self.finish_notes_session(issued, |identity, admission| {
             issued.end_session_with_runtime_admission(identity, admission)
-        })
+        })?;
+        owners.end().map_err(io::Error::other)?;
+        Ok(reason)
     }
 
     #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
-    pub(in crate::linux_init) fn ws10_revoke_notes_session(
+    pub(in crate::linux_init) fn revoke_app_sessions(
         &self,
         issued: &nagi_identity_session::C1IssuedInteractiveSession,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
     ) -> io::Result<nagi_identity_session::SessionEndReason> {
         let reason = self.finish_notes_session(issued, |identity, admission| {
             issued.revoke_session_with_runtime_admission(identity, admission)
@@ -755,6 +759,7 @@ where
                 "WS-10 Session revocation was not confirmed",
             ));
         }
+        owners.revoke().map_err(io::Error::other)?;
         Ok(reason)
     }
 
@@ -930,9 +935,9 @@ where
     }
 
     #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
-    pub(in crate::linux_init) fn notes_owner(
+    pub(in crate::linux_init) fn app_storage_owners(
         &self,
-    ) -> io::Result<crate::profile_volume_notes_owner::ProfileVolumeNotesOwner> {
+    ) -> io::Result<crate::profile_volume_notes_owner::AppStorageOwners> {
         self.data
             .try_clone()
             .map(crate::profile_volume_notes_owner::pending_with_boot_volume)
@@ -942,7 +947,7 @@ where
     pub(in crate::linux_init) fn request_notes_attachment(
         &self,
         lease: super::super::pid1_live_peer_supplier::SessionLease,
-        owner: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        owner: &mut crate::profile_volume_notes_owner::AppStorageOwners,
     ) -> Result<
         (
             crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
@@ -952,6 +957,49 @@ where
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
         self.identity.request_notes_attachment(lease, owner)
+    }
+
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_settings_snapshot(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_profile_snapshot(
+            lease,
+            owners,
+            crate::profile_volume_notes_owner::ProfileSnapshotKind::Settings,
+        )
+    }
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_calendar_snapshot(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_profile_snapshot(
+            lease,
+            owners,
+            crate::profile_volume_notes_owner::ProfileSnapshotKind::Calendar,
+        )
+    }
+
+    #[cfg(all(linux_task24_owner_co_location, feature = "desktop-login"))]
+    pub(in crate::linux_init) fn request_files_root(
+        &self,
+        lease: super::super::pid1_live_peer_supplier::SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedFilesRoot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.identity.request_files_root(lease, owners)
     }
 
     /// Enter C1 issuer activity before C3's exact live gate. The issuer

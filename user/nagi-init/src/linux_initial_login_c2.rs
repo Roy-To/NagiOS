@@ -99,7 +99,7 @@ where
     pub(super) fn request_notes_attachment(
         &self,
         lease: SessionLease,
-        notes: &mut crate::profile_volume_notes_owner::ProfileVolumeNotesOwner,
+        notes: &mut crate::profile_volume_notes_owner::AppStorageOwners,
     ) -> Result<
         (
             crate::profile_volume_notes_owner::AuthorizedNotesAttachment,
@@ -116,6 +116,43 @@ where
             .enter_system_service_runtime_admission(&self.handoff, self.boot_admission.scope())
             .map_err(|_| Unavailable)?;
         owner.request_notes_attachment(lease, notes, &admission)
+    }
+
+    pub(super) fn request_profile_snapshot(
+        &self,
+        lease: SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+        kind: crate::profile_volume_notes_owner::ProfileSnapshotKind,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        use crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable;
+
+        let mut owner = self.owner.try_lock().map_err(|_| Unavailable)?;
+        let admission = owner
+            .identity_mut()
+            .enter_system_service_runtime_admission(&self.handoff, self.boot_admission.scope())
+            .map_err(|_| Unavailable)?;
+        owner.request_profile_snapshot(lease, owners, kind, &admission)
+    }
+
+    pub(super) fn request_files_root(
+        &self,
+        lease: SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedFilesRoot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        use crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable;
+
+        let mut owner = self.owner.try_lock().map_err(|_| Unavailable)?;
+        let admission = owner
+            .identity_mut()
+            .enter_system_service_runtime_admission(&self.handoff, self.boot_admission.scope())
+            .map_err(|_| Unavailable)?;
+        owner.request_files_root(lease, owners, &admission)
     }
 
     pub(super) fn enter_runtime_admission<'runtime>(

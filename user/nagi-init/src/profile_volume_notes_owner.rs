@@ -216,20 +216,73 @@ impl ProfileRootAuthorizer for NotesProfileRootAuthorizer {
     }
 }
 
-pub(crate) struct ProfileVolumeNotesOwner {
-    inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner,
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) use nagi_profile_volume_notes_owner::{
+    ProfileSnapshotStorage, SingleObjectSnapshotStorageError, SnapshotStorage, SnapshotStorageError,
+};
+
+/// The consumer receives a typed view only while the attached C1 lease and
+/// the matching Data bundle are both active.
+#[cfg(linux_task24_initial_login_runtime)]
+#[derive(Clone, Copy)]
+pub(crate) enum ProfileSnapshotKind {
+    Settings,
+    Calendar,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct AuthorizedProfileSnapshot {
+    storage: ProfileSnapshotStorage,
+    revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedProfileSnapshot {
+    pub(crate) fn with_storage<R>(
+        &mut self,
+        operation: impl FnOnce(
+            nagi_model::ObjectId,
+            &mut dyn SnapshotStorage<Error = SingleObjectSnapshotStorageError<SnapshotStorageError>>,
+        ) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.revalidation
+            .with_live_session_effect(|| self.storage.with_active_snapshot(operation))
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+pub(crate) struct AuthorizedFilesRoot {
+    root: nagi_profile_volume_notes_owner::ProfileFilesRoot,
+    revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl AuthorizedFilesRoot {
+    pub(crate) fn with_root<R>(
+        &self,
+        effect: impl FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'_>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.revalidation
+            .with_live_session_effect(|| self.root.with_active_root(effect))
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+    }
+}
+
+pub(crate) struct AppStorageOwners {
+    inner: nagi_profile_volume_notes_owner::AppStorageOwners,
     boot_volume: Option<BootVolumeInput>,
 }
 
-impl ProfileVolumeNotesOwner {
+impl AppStorageOwners {
     pub(crate) fn status(&self) -> ProfileVolumeNotesOwnerStatus {
-        self.inner.status()
+        self.inner.notes().status()
     }
 
     pub(crate) fn issue_bundle(
         &self,
     ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
-        self.inner.issue_bundle()
+        self.inner.notes().issue_bundle()
     }
 
     /// Called under the exact C1 Session effect guard after C2 attachment.
@@ -240,33 +293,8 @@ impl ProfileVolumeNotesOwner {
         caller: &C1AuthenticatedInteractiveCaller,
         identity: &ResolvedIdentity,
     ) -> Result<AuthorizedNotesAttachment, ProfileVolumeNotesOwnerError> {
-        use ProfileVolumeNotesOwnerError::{CallerMismatch, Unavailable};
-
-        if caller.principal_id() != identity.principal_id()
-            || caller.context_id() != identity.caller_context_id()
-        {
-            return Err(CallerMismatch);
-        }
-        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
-        if identity.kind() != SessionKind::LocalUser {
-            return Err(Unavailable);
-        }
-        let user = identity.user_id().ok_or(Unavailable)?;
-        if self.inner.status() == ProfileVolumeNotesOwnerStatus::Pending {
-            self.inner.attach_linux_profile(
-                &boot_volume.directory,
-                boot_volume.identity.mount_id,
-                user.to_model(),
-                identity.profile_id().as_str(),
-                identity.principal_id().as_str(),
-            )?;
-        }
+        let user = self.attach_session_profile(caller, identity)?;
         let bundle = self.issue_bundle()?;
-        bundle.validate_scope(
-            identity.principal_id().as_str(),
-            identity.profile_id().as_str(),
-        )?;
-        bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
         Ok(AuthorizedNotesAttachment {
             bundle,
             authorizer: NotesProfileRootAuthorizer {
@@ -279,6 +307,101 @@ impl ProfileVolumeNotesOwner {
         })
     }
 
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn issue_snapshot_for_attached_session(
+        &mut self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+        revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+        kind: ProfileSnapshotKind,
+    ) -> Result<AuthorizedProfileSnapshot, ProfileVolumeNotesOwnerError> {
+        self.attach_session_profile(caller, identity)?;
+        let storage = match kind {
+            ProfileSnapshotKind::Settings => {
+                ProfileSnapshotStorage::open_settings(self.inner.settings().issue_bundle()?)
+            }
+            ProfileSnapshotKind::Calendar => {
+                ProfileSnapshotStorage::open_calendar(self.inner.calendar().issue_bundle()?)
+            }
+        }?;
+        Ok(AuthorizedProfileSnapshot {
+            storage,
+            revalidation: std::sync::Arc::clone(revalidation),
+        })
+    }
+
+    #[cfg(linux_task24_initial_login_runtime)]
+    pub(crate) fn issue_files_root_for_attached_session(
+        &mut self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+        revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
+    ) -> Result<AuthorizedFilesRoot, ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::Unavailable;
+
+        let user = self.attach_session_profile(caller, identity)?;
+        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        let owner = self.inner.user_files();
+        if owner.status() == ProfileVolumeNotesOwnerStatus::Pending {
+            owner.attach_linux_profile(
+                &boot_volume.directory,
+                boot_volume.identity.mount_id,
+                user.to_model(),
+                identity.profile_id().as_str(),
+                identity.principal_id().as_str(),
+            )?;
+        }
+        let root = owner.issue_files_root()?;
+        root.validate_scope(
+            identity.principal_id().as_str(),
+            identity.profile_id().as_str(),
+            &boot_volume.directory,
+            boot_volume.identity.mount_id,
+        )?;
+        Ok(AuthorizedFilesRoot {
+            root,
+            revalidation: std::sync::Arc::clone(revalidation),
+        })
+    }
+
+    #[cfg(linux_task24_initial_login_runtime)]
+    fn attach_session_profile(
+        &mut self,
+        caller: &C1AuthenticatedInteractiveCaller,
+        identity: &ResolvedIdentity,
+    ) -> Result<UserId, ProfileVolumeNotesOwnerError> {
+        use ProfileVolumeNotesOwnerError::{CallerMismatch, Unavailable};
+
+        if caller.principal_id() != identity.principal_id()
+            || caller.context_id() != identity.caller_context_id()
+        {
+            return Err(CallerMismatch);
+        }
+        let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
+        if identity.kind() != SessionKind::LocalUser {
+            return Err(Unavailable);
+        }
+        let user = identity.user_id().ok_or(Unavailable)?;
+        for owner in self.inner.owners_mut() {
+            if owner.status() == ProfileVolumeNotesOwnerStatus::Pending {
+                owner.attach_linux_profile(
+                    &boot_volume.directory,
+                    boot_volume.identity.mount_id,
+                    user.to_model(),
+                    identity.profile_id().as_str(),
+                    identity.principal_id().as_str(),
+                )?;
+            }
+            let bundle = owner.issue_bundle()?;
+            bundle.validate_scope(
+                identity.principal_id().as_str(),
+                identity.profile_id().as_str(),
+            )?;
+            bundle.validate_data_mount(&boot_volume.directory, boot_volume.identity.mount_id)?;
+        }
+        Ok(user)
+    }
+
     pub(crate) fn has_boot_volume_input(&self) -> bool {
         self.boot_volume.is_some()
     }
@@ -288,14 +411,6 @@ impl ProfileVolumeNotesOwner {
         self.inner.revoke()
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn revoke_bundle(
-        &mut self,
-        bundle: &ProfileVolumeNotesBundle,
-    ) -> Result<(), ProfileVolumeNotesOwnerError> {
-        self.inner.revoke_bundle(bundle)
-    }
-
     pub(crate) fn end(&mut self) -> Result<(), ProfileVolumeNotesOwnerError> {
         let result = self.inner.end();
         self.boot_volume.take();
@@ -303,16 +418,16 @@ impl ProfileVolumeNotesOwner {
     }
 }
 
-pub(crate) fn pending() -> ProfileVolumeNotesOwner {
-    ProfileVolumeNotesOwner {
-        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
+pub(crate) fn pending() -> AppStorageOwners {
+    AppStorageOwners {
+        inner: nagi_profile_volume_notes_owner::AppStorageOwners::pending(),
         boot_volume: None,
     }
 }
 
-pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> ProfileVolumeNotesOwner {
-    ProfileVolumeNotesOwner {
-        inner: nagi_profile_volume_notes_owner::ProfileVolumeNotesOwner::pending(),
+pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwners {
+    AppStorageOwners {
+        inner: nagi_profile_volume_notes_owner::AppStorageOwners::pending(),
         boot_volume: Some(input),
     }
 }

@@ -644,6 +644,7 @@ pub(crate) struct LinuxOwnerRegistration<Save> {
     screen: LoginScreen,
     save: Option<Save>,
     locale: Locale,
+    reenter_input: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -702,11 +703,28 @@ where
             screen,
             save: Some(save),
             locale,
+            reenter_input: false,
         }
     }
 
     pub(crate) fn render(&self, painter: &mut Painter<'_>) {
         self.screen.render(painter, self.locale);
+        if self.reenter_input {
+            painter.text(
+                PANEL.x + 20,
+                PANEL.y + PANEL.height - 12,
+                nagi_localization::text(self.locale, "login.error.input_lost").as_bytes(),
+                color(THEME, ColorRole::Danger).to_pixel(),
+            );
+        }
+    }
+
+    #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
+    pub(crate) fn reset_after_input_loss(&mut self) {
+        self.screen.form.clear_secrets();
+        self.screen.form = LoginForm::create();
+        self.screen.focus_language(self.locale);
+        self.reenter_input = true;
     }
 
     pub(crate) fn handle_event(&mut self, event: InputEvent) -> LinuxRegistrationOutcome<E> {
@@ -715,9 +733,13 @@ where
         }
         match self.screen.handle_screen_event(event) {
             ScreenAction::Ignored | ScreenAction::Unlock => LinuxRegistrationOutcome::Ignored,
-            ScreenAction::Changed => LinuxRegistrationOutcome::Redraw,
+            ScreenAction::Changed => {
+                self.reenter_input = false;
+                LinuxRegistrationOutcome::Redraw
+            }
             ScreenAction::LanguageChosen(locale) => {
                 self.locale = locale;
+                self.reenter_input = false;
                 LinuxRegistrationOutcome::Redraw
             }
             ScreenAction::Create => {
