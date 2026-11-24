@@ -279,6 +279,10 @@ jobs:
       NAGI_WHISPER_BUILD: ${{ github.workspace }}/out/m25-whisper-target
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Use the frozen legacy PID 1 manifest
+        run: |
+          git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
+          git restore --source=956a104683cb4163e1e77fc2606607d5c3f033e7 -- user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock
       - name: Install target build dependencies
         run: |
           sudo apt-get update

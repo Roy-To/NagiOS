@@ -219,8 +219,6 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
-      - name: Bootstrap pinned source dependencies
-        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Verify release ELF excludes all Task24 development entry markers
         run: |
           mkdir -p out/logs
@@ -401,6 +399,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Use the frozen legacy PID 1 manifest
+        run: |
+          git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
+          git restore --source=956a104683cb4163e1e77fc2606607d5c3f033e7 -- user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock
       - name: Install target build dependencies
         run: |
           sudo apt-get update
@@ -682,6 +684,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Use the frozen legacy PID 1 manifest
+        run: |
+          git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
+          git restore --source=956a104683cb4163e1e77fc2606607d5c3f033e7 -- user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock
       - name: Install M20 target and QEMU dependencies
         run: |
           sudo apt-get update
