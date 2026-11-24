@@ -124,7 +124,7 @@ class AutomaticRfbTests(unittest.TestCase):
 
     def test_desktop_read_requires_reopen_before_accepting_input(self):
         driver, keyboard, _ = self.make_driver("read")
-        markers = [recovery.LOGIN_WAIT]
+        markers = [recovery.LOGIN_WAIT, "NAGI_DEV_LAUNCHER_LAYOUT calendar=enabled"]
         self.feed(driver, *markers)
         keyboard.reset_mock()
         markers.append(recovery.DESKTOP_READY)
@@ -141,7 +141,7 @@ class AutomaticRfbTests(unittest.TestCase):
             self.feed(driver, *markers)
         driver.verify_complete()
         self.assertEqual(keyboard.mock_calls, [
-            call.tap(0xFF0D), call.tap(0xFF1B), call.tap(0xFF09), call.tap(0xFF0D),
+            call.tap(0xFF0D), call.tap(0xFF1B), call.tap(0xFF09), call.tap(0xFF09), call.tap(0xFF0D),
         ])
 
     def test_reject_sends_one_wrong_password_and_waits_for_return_to_login(self):

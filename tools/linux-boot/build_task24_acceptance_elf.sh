@@ -19,9 +19,10 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
-Development builds include the L7 desktop shell and L9 Settings by default.
+Development builds include the L7 desktop shell, L9 Settings and Calendar by
+default.
 --desktop-launcher is accepted for existing development invocations.
---calendar adds the Calendar launcher tile to the development build.
+--calendar is accepted for existing Calendar development invocations.
 USAGE
 }
 
@@ -67,10 +68,7 @@ cfgs=(
     linux_dev_system_mount
 )
 if [[ "$profile" == debug ]]; then
-    cfgs+=(linux_task24_desktop_shell linux_task24_settings)
-fi
-if "$calendar_requested"; then
-    cfgs+=(linux_task24_calendar_app)
+    cfgs+=(linux_task24_desktop_shell linux_task24_settings linux_task24_calendar_app)
 fi
 rustc_args=()
 for cfg in "${cfgs[@]}"; do

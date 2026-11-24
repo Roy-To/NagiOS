@@ -73,6 +73,8 @@ pub(super) fn run<C: ShellConsole>(
         settings.apply(&mut model);
     }
     console.present(|painter| model.render(painter))?;
+    #[cfg(linux_task24_calendar_app)]
+    log_pid1_stderr(format_args!("NAGI_DEV_LAUNCHER_LAYOUT calendar=enabled"));
     log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_READY"));
 
     loop {
