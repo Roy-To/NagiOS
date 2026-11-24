@@ -12,7 +12,7 @@ ATTACHED = "NAGI_DEV_TASK24_SESSION_ATTACHED"
 NOTES_READY = "NAGI_DEV_NOTES_INPUT_READY"
 CLOSED = "NAGI_DEV_NOTES_CLOSED"
 LOGOUT = "NAGI_DEV_NOTES_SESSION_ENDED reason=UserLogout"
-PREVIOUS_LOGOUT = "NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED reason=UserLogout"
+PREVIOUS_LOGOUT = recovery.PREVIOUS_USER_LOGOUT
 PREVIOUS_TERMINAL = "NAGI_DEV_TASK24_PREVIOUS_IDENTITY_TERMINAL_CONSUMED "
 NORMAL_REAP = "NAGI_DEV_TASK24_C3_IDENTITY_NORMAL_EXIT_REAPED "
 NORMAL_TERMINAL = "NAGI_DEV_TASK24_IDENTITY_TERMINAL_CONSUMED "
@@ -59,9 +59,15 @@ def validate(case, first, reopened=None):
     if reopened is not None and entry != notes_entry(reopened):
         raise ValueError("WS-10 boots used different Notes entry points")
     if case == "logout":
-        desktop_close = (recovery.DESKTOP_CLOSED, recovery.DESKTOP_LOGOUT) if recovery.uses_desktop(first) else ()
-        ordered(first, *entry, CLOSED, *desktop_close, LOGOUT, RETIRED)
-        ordered(reopened, PREVIOUS_LOGOUT, WAITING, *entry)
+        if reopened is None:
+            raise ValueError("logout requires the next boot")
+        if recovery.uses_desktop(first):
+            recovery.validate_desktop_logout_save_read(
+                "\n".join(first) + "\n", "\n".join(reopened) + "\n",
+            )
+        else:
+            ordered(first, *entry, CLOSED, LOGOUT, RETIRED)
+            ordered(reopened, PREVIOUS_LOGOUT, WAITING, *entry)
     elif case == "stop":
         ordered(first, *entry, STOPPED, RETIRED)
         require_absent(first, LOGOUT, recovery.DESKTOP_LOGOUT, NORMAL_REAP, NORMAL_TERMINAL)

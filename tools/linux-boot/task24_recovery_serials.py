@@ -27,6 +27,11 @@ DESKTOP_CLOSED = "NAGI_DEV_DESKTOP_APP_CLOSED app=notes exit=ClosedByUser"
 DESKTOP_REISSUED = "NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUED"
 DESKTOP_LOGOUT = "NAGI_DEV_DESKTOP_LOGOUT_REQUESTED"
 SESSION_LOGOUT = "NAGI_DEV_NOTES_SESSION_ENDED reason=UserLogout"
+PREVIOUS_USER_LOGOUT = "NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED reason=UserLogout"
+DESKTOP_LOGOUT_SAVE_FLOW = (
+    DESKTOP_READY, DESKTOP_LAUNCH, INPUT, SAVED, CLOSED, DESKTOP_CLOSED,
+    DESKTOP_LOGOUT, SESSION_LOGOUT,
+)
 DESKTOP_NOTES_FLOW = {
     "save": (
         DESKTOP_READY, DESKTOP_LAUNCH, INPUT, SAVED, CLOSED, DESKTOP_CLOSED,
@@ -157,7 +162,10 @@ def uses_desktop(lines: list[str]) -> bool:
 
 def desktop_notes_progress(lines: list[str], phase: str) -> int:
     """Check the observed prefix of the same-session launcher and Notes flow."""
-    expected = DESKTOP_NOTES_FLOW[phase]
+    return _desktop_notes_progress(lines, phase, DESKTOP_NOTES_FLOW[phase])
+
+
+def _desktop_notes_progress(lines: list[str], phase: str, expected: tuple[str, ...]) -> int:
     progress = 0
     saved = None
     for line in lines:
@@ -183,7 +191,7 @@ def desktop_notes_progress(lines: list[str], phase: str) -> int:
 
 
 def _validate_phase(
-    serial: str, phase: str, note_marker: str
+    serial: str, phase: str, note_marker: str, *, desktop_flow: tuple[str, ...] | None = None,
 ) -> tuple[str, int, tuple[str | int, ...]]:
     lines = _complete_lines(serial, phase)
     mount = _unique_index(lines, MOUNT, phase)
@@ -193,7 +201,8 @@ def _validate_phase(
     desktop = uses_desktop(lines)
     note_id, revision, note_index = _note_identity(lines, note_marker, phase)
     if desktop:
-        if desktop_notes_progress(lines, phase) != len(DESKTOP_NOTES_FLOW[phase]):
+        expected_flow = DESKTOP_NOTES_FLOW[phase] if desktop_flow is None else desktop_flow
+        if _desktop_notes_progress(lines, phase, expected_flow) != len(expected_flow):
             raise ValueError(f"{phase} desktop Notes flow did not finish")
         first_action = _unique_index(lines, DESKTOP_READY, phase)
         last_action = _unique_index(lines, SESSION_LOGOUT, phase)
@@ -271,6 +280,31 @@ def validate_save_read(save_serial: str, read_serial: str) -> dict[str, int | st
     reopened_id, reopened_revision = _validate_read_link(read_serial, saved_receipt)
     if (saved_id, saved_revision) != (reopened_id, reopened_revision):
         raise ValueError("saved and reopened Notes ObjectId/revision differ")
+    return {"object": saved_id, "revision": saved_revision, "ready_count": 1}
+
+
+def validate_desktop_logout_save_read(save_serial: str, read_serial: str) -> dict[str, int | str]:
+    """Validate a dedicated WS-10 Desktop logout and the following login."""
+    if not all(uses_desktop(serial.splitlines()) for serial in (save_serial, read_serial)):
+        raise ValueError("WS-10 Desktop logout requires Desktop Notes in both boots")
+
+    saved_id, saved_revision, saved_receipt = _validate_phase(
+        save_serial, "save", SAVED, desktop_flow=DESKTOP_LOGOUT_SAVE_FLOW,
+    )
+    reopened_id, reopened_revision = _validate_read_link(read_serial, saved_receipt)
+    if (saved_id, saved_revision) != (reopened_id, reopened_revision):
+        raise ValueError("saved and reopened Notes ObjectId/revision differ")
+
+    read_lines = _complete_lines(read_serial, "read")
+    previous_terminal = _receipt_identity(read_lines, PREVIOUS_TERMINAL, "read")
+    assert previous_terminal is not None
+    logout = _unique_index(read_lines, PREVIOUS_USER_LOGOUT, "read")
+    login = _unique_index(read_lines, LOGIN_WAIT, "read")
+    if not previous_terminal[1] < logout < login:
+        raise ValueError("previous UserLogout must follow prior terminal consumption and precede login")
+    previous_ends = [line for line in read_lines if line.startswith("NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED ")]
+    if previous_ends != [PREVIOUS_USER_LOGOUT]:
+        raise ValueError("read has conflicting previous Session end evidence")
     return {"object": saved_id, "revision": saved_revision, "ready_count": 1}
 
 
