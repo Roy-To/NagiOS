@@ -20,7 +20,30 @@ impl SequentialIds {
             event: 0,
         }
     }
+
+    /// Resume this deterministic fixture allocator after restoring a snapshot.
+    /// The history collections include deleted IDs, so later fixture creates
+    /// do not reuse a live or tombstoned `cal_N` / `event_N` identity.
+    pub fn after_snapshot(snapshot: &StoreSnapshot) -> Self {
+        Self {
+            calendar: largest_id_suffix(
+                snapshot.used_calendar_ids.iter().map(|id| id.as_str()),
+                "cal_",
+            ),
+            event: largest_id_suffix(
+                snapshot.used_event_ids.iter().map(|id| id.as_str()),
+                "event_",
+            ),
+        }
+    }
 }
+
+fn largest_id_suffix<'a>(ids: impl Iterator<Item = &'a str>, prefix: &str) -> u64 {
+    ids.filter_map(|id| id.strip_prefix(prefix)?.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
+}
+
 impl Default for SequentialIds {
     fn default() -> Self {
         Self::new()
