@@ -610,9 +610,16 @@ pub(super) fn run_owner_login(
 
     #[cfg(feature = "system-service-readiness")]
     let mut lifecycle_ready = false;
-    #[cfg(all(linux_task24_notes_consumer, not(all(linux_task24_desktop_shell, not(nagi_release_build)))))]
+    #[cfg(all(
+        linux_task24_notes_consumer,
+        not(all(linux_task24_desktop_shell, not(nagi_release_build)))
+    ))]
     let mut retained_notes_draft = None;
-    #[cfg(all(linux_task24_notes_consumer, linux_task24_desktop_shell, not(nagi_release_build)))]
+    #[cfg(all(
+        linux_task24_notes_consumer,
+        linux_task24_desktop_shell,
+        not(nagi_release_build)
+    ))]
     let mut retained_notes_draft = Vec::new();
     let mut execute = || -> Result<(), BackendError> {
         #[cfg(all(linux_dev_ws10, not(nagi_release_build), linux_task24_notes_consumer))]
@@ -803,13 +810,16 @@ pub(super) fn run_owner_login(
                                         _ => Ok(None),
                                     },
                                 );
-                                #[cfg(not(all(linux_task24_desktop_shell, not(nagi_release_build))))]
+                                #[cfg(not(all(
+                                    linux_task24_desktop_shell,
+                                    not(nagi_release_build)
+                                )))]
                                 let result = run_notes(console, inputs);
 
                                 #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
                                 let result = {
-                                    use desktop_shell::ShellExit;
                                     use super::NotesConsoleExit;
+                                    use desktop_shell::ShellExit;
                                     let mut first = Some(inputs);
                                     desktop_shell::run(
                                         console,
@@ -855,7 +865,10 @@ pub(super) fn run_owner_login(
                                         (super::NotesConsoleExit::StateUnknown, None)
                                     }
                                 };
-                                #[cfg(not(all(linux_task24_desktop_shell, not(nagi_release_build))))]
+                                #[cfg(not(all(
+                                    linux_task24_desktop_shell,
+                                    not(nagi_release_build)
+                                )))]
                                 {
                                     retained_notes_draft = draft;
                                 }
