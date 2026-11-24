@@ -296,10 +296,6 @@ pub fn host_workspace_args_for_arch(command: &str, host_arch: &str) -> Vec<&'sta
         args.push("--all-targets");
     }
 
-    if host_arch == "x86_64" {
-        args.extend(["--exclude", "nagi-kernel"]);
-    }
-
     args.push("--locked");
     if command == "clippy" {
         args.extend(["--", "-D", "warnings"]);

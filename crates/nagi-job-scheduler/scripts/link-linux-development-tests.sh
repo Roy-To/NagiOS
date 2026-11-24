@@ -75,7 +75,6 @@ cp "$crate_dir/Cargo.toml" "$isolated_workspace/Cargo.toml"
 printf '\n[workspace]\n' >> "$isolated_workspace/Cargo.toml"
 cp -R "$crate_dir/src" "$isolated_workspace/src"
 cp -R "$crate_dir/tests" "$isolated_workspace/tests"
-printf '\n[patch.crates-io]\nlibc = { path = "%s" }\n' "$worktree_root/third_party/libc-servo" >> "$isolated_workspace/Cargo.toml"
 cp "$worktree_root/Cargo.lock" "$isolated_workspace/Cargo.lock"
 diff -qr "$crate_dir/src" "$isolated_workspace/src" >/dev/null
 diff -qr "$crate_dir/tests" "$isolated_workspace/tests" >/dev/null

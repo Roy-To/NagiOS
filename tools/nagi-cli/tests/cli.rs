@@ -548,12 +548,10 @@ fn fixture_git_ignores_inherited_repository_environment() {
 }
 
 #[test]
-fn host_workspace_commands_exclude_kernel() {
+fn x86_64_host_commands_use_the_workspace() {
     for command in ["build", "test", "clippy"] {
         let args = nagi_cli::commands::host_workspace_args_for_arch(command, "x86_64");
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["--exclude", "nagi-kernel"]));
+        assert!(args.contains(&"--workspace"));
         assert!(args.contains(&"--locked"));
     }
 }

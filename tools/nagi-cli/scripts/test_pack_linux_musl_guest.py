@@ -764,38 +764,6 @@ class PackerRegressionTests(unittest.TestCase):
         self.assertEqual(integration_state["workstream_id"], "integration-next-phase")
         self.assertEqual(integration_state["status"], "NOT_STARTED")
 
-    def test_pinned_supplemental_source_stages_only_hash_verified_file(self) -> None:
-        relative = "third_party/mozjs-sys-nagi/build.rs"
-        content = b"synthetic pinned build script\n"
-        digest = hashlib.sha256(content).hexdigest()
-        source_root = self.root / "supplemental-source"
-        source = source_root / relative
-        source.parent.mkdir(parents=True)
-        source.write_bytes(content)
-        stage = self.root / "supplemental-stage"
-        with mock.patch.dict(PACKER.PINNED_SUPPLEMENTAL_FILES, {relative: digest}, clear=True):
-            copied = PACKER._copy_pinned_supplemental_files(source_root, stage)
-            self.assertEqual(copied, [relative])
-            self.assertEqual((stage / relative).read_bytes(), content)
-
-            changed_root = self.root / "changed-source"
-            changed = changed_root / relative
-            changed.parent.mkdir(parents=True)
-            changed.write_bytes(b"different source\n")
-            with self.assertRaisesRegex(PACKER.PackError, "hash does not match pinned"):
-                PACKER._copy_pinned_supplemental_files(
-                    changed_root, self.root / "changed-stage"
-                )
-
-            linked_root = self.root / "linked-source"
-            linked = linked_root / relative
-            linked.parent.mkdir(parents=True)
-            linked.symlink_to(source)
-            with self.assertRaisesRegex(PACKER.PackError, "symlink path"):
-                PACKER._copy_pinned_supplemental_files(
-                    linked_root, self.root / "linked-stage"
-                )
-
     def test_fixed_inputs_survive_archive_round_trip_and_missing_inputs_fail(self) -> None:
         self.assertIn("nagi", PACKER.SOURCE_PATHS)
         self.assertIn("nagi", PACKER.REQUIRED_SOURCE_FILES)
@@ -807,9 +775,6 @@ class PackerRegressionTests(unittest.TestCase):
         abi_source = "crates/nagi-abi/src/lib.rs"
         self.assertIn(abi_source, PACKER.SOURCE_PATHS)
         self.assertIn(abi_source, PACKER.REQUIRED_SOURCE_FILES)
-        relative = "third_party/mozjs-sys-nagi/build.rs"
-        content = b"synthetic pinned build script\n"
-        digest = hashlib.sha256(content).hexdigest()
         rootfs = self.root / "fixed-input-root"
         rootfs.mkdir()
         (rootfs / "nagi").write_text("#!/usr/bin/env sh\nexit 0\n", encoding="utf-8")
@@ -822,71 +787,40 @@ class PackerRegressionTests(unittest.TestCase):
         installer_file.parent.mkdir(parents=True, exist_ok=True)
         installer_file.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         PACKER._write_synthetic_workstream_files(rootfs)
-        source_root = self.root / "fixed-input-source"
-        source = source_root / relative
-        source.parent.mkdir(parents=True)
-        source.write_bytes(content)
-        with mock.patch.dict(
-            PACKER.PINNED_SUPPLEMENTAL_FILES, {relative: digest}, clear=True
+        archive = self.root / "fixed-inputs.tar.gz"
+        PACKER._write_archive(rootfs, archive)
+        extracted = self.root / "fixed-input-extracted"
+        PACKER.safe_extract(archive, extracted)
+        PACKER._verify_fixed_guest_inputs(extracted)
+        self.assertEqual(
+            (extracted / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+            "name: test\n",
+        )
+        self.assertEqual(
+            (extracted / "nagi").read_text(encoding="utf-8"),
+            "#!/usr/bin/env sh\nexit 0\n",
+        )
+        self.assertEqual(
+            (extracted / abi_source).read_text(encoding="utf-8"),
+            "pub const SYS_MEMORY_MAP_AT: u64 = 27;\n",
+        )
+
+        (extracted / ".github/workflows/ci.yml").unlink()
+        with self.assertRaisesRegex(
+            PACKER.PackError,
+            "missing required fixed input: .github/workflows/ci.yml",
         ):
-            PACKER._copy_pinned_supplemental_files(source_root, rootfs)
-            archive = self.root / "fixed-inputs.tar.gz"
-            PACKER._write_archive(rootfs, archive)
-            extracted = self.root / "fixed-input-extracted"
-            PACKER.safe_extract(archive, extracted)
             PACKER._verify_fixed_guest_inputs(extracted)
-            self.assertEqual(
-                (extracted / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
-                "name: test\n",
-            )
-            self.assertEqual(
-                (extracted / "nagi").read_text(encoding="utf-8"),
-                "#!/usr/bin/env sh\nexit 0\n",
-            )
-            self.assertEqual(
-                (extracted / abi_source).read_text(encoding="utf-8"),
-                "pub const SYS_MEMORY_MAP_AT: u64 = 27;\n",
-            )
-            self.assertEqual((extracted / relative).read_bytes(), content)
 
-            (extracted / ".github/workflows/ci.yml").unlink()
-            with self.assertRaisesRegex(
-                PACKER.PackError,
-                "missing required fixed input: .github/workflows/ci.yml",
-            ):
-                PACKER._verify_fixed_guest_inputs(extracted)
-
-            (extracted / ".github/workflows/ci.yml").write_text(
-                "name: test\n", encoding="utf-8"
-            )
-            (extracted / abi_source).unlink()
-            with self.assertRaisesRegex(
-                PACKER.PackError,
-                "missing required fixed input: crates/nagi-abi/src/lib.rs",
-            ):
-                PACKER._verify_fixed_guest_inputs(extracted)
-
-    def test_synthetic_git_force_adds_only_the_pinned_build_script(self) -> None:
-        rootfs = self.root / "forced-source-root"
-        rootfs.mkdir()
-        relative = "third_party/mozjs-sys-nagi/build.rs"
-        (rootfs / ".gitignore").write_text(
-            "/third_party/mozjs-sys-nagi/\n", encoding="utf-8"
+        (extracted / ".github/workflows/ci.yml").write_text(
+            "name: test\n", encoding="utf-8"
         )
-        build_script = rootfs / relative
-        build_script.parent.mkdir(parents=True)
-        build_script.write_text("pinned build script\n", encoding="utf-8")
-        workstream_paths = PACKER._write_synthetic_workstream_files(rootfs)
-        required = [".gitignore", *workstream_paths, relative]
-        PACKER._initialize_synthetic_git(
-            rootfs,
-            self.root / "force-add-template",
-            required,
-            force_add=[relative],
-        )
-        tracked = set(PACKER._run_git(rootfs, ["ls-files", "-z"]).decode().split("\0"))
-        self.assertIn(relative, tracked)
-        self.assertNotIn("third_party/mozjs-sys-nagi/Cargo.toml", tracked)
+        (extracted / abi_source).unlink()
+        with self.assertRaisesRegex(
+            PACKER.PackError,
+            "missing required fixed input: crates/nagi-abi/src/lib.rs",
+        ):
+            PACKER._verify_fixed_guest_inputs(extracted)
 
     def test_source_symlink_cannot_escape_checkout(self) -> None:
         source = self.root / "source"

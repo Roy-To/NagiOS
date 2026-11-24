@@ -17,20 +17,3 @@ pub mod paths;
 pub mod run_receipt;
 #[cfg(test)]
 mod third_party_notices;
-
-#[cfg(test)]
-fn read_frozen_legacy_file(root: &std::path::Path, path: &str) -> String {
-    // Keep this revision aligned with the frozen legacy checkout in CI.
-    const REVISION: &str = "956a104683cb4163e1e77fc2606607d5c3f033e7";
-    let output = std::process::Command::new("git")
-        .current_dir(root)
-        .args(["show", &format!("{REVISION}:{path}")])
-        .output()
-        .expect("run Git to read frozen legacy source");
-    assert!(
-        output.status.success(),
-        "cannot read frozen legacy source {path} at {REVISION}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("frozen legacy source file is UTF-8")
-}

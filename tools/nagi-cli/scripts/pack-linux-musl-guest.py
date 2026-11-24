@@ -42,11 +42,6 @@ BUILD_ARTIFACT_LABELS = (
 LIBC_SOURCE = Path(
     "registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.189"
 )
-PINNED_SUPPLEMENTAL_FILES = {
-    "third_party/mozjs-sys-nagi/build.rs": (
-        "0403b1d899aee80181015851c964286898a44a3e7b1ad6cf3ca2366680c35222"
-    ),
-}
 SYNTHETIC_WORKSTREAM_STATE_PATH = ".dev/workstreams/development-foundation/state.json"
 SYNTHETIC_INTEGRATION_STATE_PATH = ".dev/workstreams/integration-next-phase/state.json"
 
@@ -69,50 +64,20 @@ SOURCE_PATHS = (
     "docs/Nagi_OS_0.1_Codex_Implementation_Spec.md",
     "docs/implementation_status.md",
     "docs/testing/diagnostic-report.schema.json",
-    "kernel/src/syscall.rs",
-    "kernel/src/user_process.rs",
-    "loader/Cargo.toml",
     "samples/hello-nagi/Cargo.toml",
     "tests/acceptance",
     "tests/fixtures",
     "tools/linux-boot/make_dev_bundle.py",
     "tools/linux-boot/run_dev_image.py",
-    ":(glob)third_party/cc-nagi-patches/*.patch",
     "third_party/fonts.lock",
-    ":(glob)third_party/freetype-sys-patches/*.patch",
-    ":(glob)third_party/hyper-util-servo-patches/*.patch",
-    ":(glob)third_party/inventory-nagi-patches/*.patch",
-    ":(glob)third_party/libc-servo-patches/*.patch",
-    ":(glob)third_party/llama-cpp-patches/*.patch",
-    ":(glob)third_party/mesa-patches/*.patch",
-    ":(glob)third_party/mio-servo-patches/*.patch",
     "third_party/models.lock",
-    ":(glob)third_party/mozjs-sys-nagi-patches/*.patch",
-    ":(glob)third_party/relibc-patches/*.patch",
-    "third_party/relibc/src/header/pthread/mod.rs",
-    "third_party/relibc/src/header/stdlib/cbindgen.toml",
-    "third_party/relibc/src/nagi.rs",
-    ":(glob)third_party/rust-std/patches/*.patch",
-    ":(glob)third_party/servo-patches/*.patch",
-    ":(glob)third_party/socket2-servo-patches/*.patch",
     "third_party/sources.lock",
-    ":(glob)third_party/surfman-patches/*.patch",
-    ":(glob)third_party/tempfile-nagi-patches/*.patch",
-    ":(glob)third_party/tokio-servo-patches/*.patch",
     ":(glob)third_party/whisper-cpp-patches/*.patch",
-    "tools/llama/build-nagi-target.sh",
-    "tools/mesa/build.sh",
-    "tools/mesa/nagi-cxx-runtime.cpp",
-    "tools/mesa/nagi-headers/sys/mman.h",
-    "tools/mesa/nagi-libcpp-abi.cpp",
-    "tools/mesa/nagi-libcpp-sort.cpp",
     "tools/nagi-cli/Cargo.toml",
     "tools/nagi-cli/scripts/install-alpine-test-deps.sh",
     "tools/nagi-cli/src",
     "tools/nagi-cli/tests",
     "tools/nagi-pkg/Cargo.toml",
-    "tools/nagi-target-cc.sh",
-    "tools/whisper/build-nagi-target.sh",
     "user/libnagi/src/lib.rs",
     "user/libnagi/src/storage.rs",
     "user/nagi-albert/src/lib.rs",
@@ -141,7 +106,6 @@ REQUIRED_SOURCE_FILES = (
     "tools/nagi-cli/tests/run_receipt_cli.rs",
     ".github/workflows/ci.yml",
     "tests/acceptance/registry.tsv",
-    "tests/fixtures/m20_model_store_reader.rs",
     "third_party/sources.lock",
     "third_party/models.lock",
     "third_party/fonts.lock",
@@ -392,9 +356,8 @@ def _sha256_file(path: Path) -> str:
 
 
 def _fingerprint_source_inputs(repo_root: Path, source_paths: list[str]) -> dict[str, str]:
-    paths = sorted(set(source_paths) | set(PINNED_SUPPLEMENTAL_FILES))
     fingerprints: dict[str, str] = {}
-    for relative in paths:
+    for relative in sorted(set(source_paths)):
         source = repo_root / relative
         _assert_no_symlink_components(source, repo_root, f"build source {relative}")
         try:
@@ -403,11 +366,7 @@ def _fingerprint_source_inputs(repo_root: Path, source_paths: list[str]) -> dict
             raise PackError(f"cannot inspect build source {relative}: {error}") from error
         if not stat.S_ISREG(metadata.st_mode):
             raise PackError(f"build source is not a regular file: {relative}")
-        digest = _sha256_file(source)
-        expected = PINNED_SUPPLEMENTAL_FILES.get(relative)
-        if expected is not None and digest != expected:
-            raise PackError(f"pinned build source hash mismatch: {relative}")
-        fingerprints[relative] = digest
+        fingerprints[relative] = _sha256_file(source)
     return fingerprints
 
 
@@ -572,32 +531,6 @@ def _fingerprint_build_support(repo_root: Path) -> dict[str, str]:
     return fingerprints
 
 
-def _copy_pinned_supplemental_files(source_root: Path, stage_root: Path) -> list[str]:
-    copied: list[str] = []
-    for relative, expected_sha256 in sorted(PINNED_SUPPLEMENTAL_FILES.items()):
-        source = source_root / relative
-        _assert_no_symlink_components(
-            source, source_root, f"supplemental guest source {relative}"
-        )
-        try:
-            metadata = source.lstat()
-        except OSError as error:
-            raise PackError(
-                f"cannot inspect supplemental guest source {relative}: {error}"
-            ) from error
-        if not stat.S_ISREG(metadata.st_mode):
-            raise PackError(f"supplemental guest source is not a regular file: {relative}")
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()
-        if digest != expected_sha256:
-            raise PackError(f"supplemental guest source hash does not match pinned input: {relative}")
-        _copy_regular_file(source_root, stage_root, relative)
-        staged = stage_root / relative
-        if hashlib.sha256(staged.read_bytes()).hexdigest() != expected_sha256:
-            raise PackError(f"staged supplemental guest source changed: {relative}")
-        copied.append(relative)
-    return copied
-
-
 def _write_synthetic_workstream_files(rootfs: Path) -> list[str]:
     registry = rootfs / ".dev" / "workstreams.json"
     registry.parent.mkdir(parents=True, exist_ok=True)
@@ -676,17 +609,12 @@ def _verify_fixed_guest_inputs(rootfs: Path) -> None:
         "crates/nagi-abi/src/lib.rs",
         SYNTHETIC_WORKSTREAM_STATE_PATH,
         SYNTHETIC_INTEGRATION_STATE_PATH,
-        *PINNED_SUPPLEMENTAL_FILES.keys(),
     )
     for relative in required:
         path = rootfs / relative
         if path.is_symlink() or not path.is_file():
             raise PackError(f"guest archive is missing required fixed input: {relative}")
     _verify_synthetic_workstream_fixture(rootfs)
-    for relative, expected_sha256 in PINNED_SUPPLEMENTAL_FILES.items():
-        digest = hashlib.sha256((rootfs / relative).read_bytes()).hexdigest()
-        if digest != expected_sha256:
-            raise PackError(f"guest archive supplemental input hash mismatch: {relative}")
 
 
 def _copy_regular_tree(source: Path, destination: Path) -> None:
@@ -1158,14 +1086,7 @@ def _initialize_synthetic_git(
     rootfs: Path,
     template_dir: Path,
     required_tracked: Iterable[str],
-    *,
-    force_add: Iterable[str] = (),
 ) -> None:
-    force_add = tuple(sorted(set(force_add)))
-    if not set(force_add).issubset(set(required_tracked)):
-        raise PackError("synthetic Git force-add inputs must also be required guest inputs")
-    if not set(force_add).issubset(PINNED_SUPPLEMENTAL_FILES):
-        raise PackError("synthetic Git may force-add only hash-pinned supplemental inputs")
     template_dir.mkdir()
     env = _git_env(
         {
@@ -1193,19 +1114,6 @@ def _initialize_synthetic_git(
         if result.returncode:
             detail = result.stderr.decode("utf-8", errors="replace").strip()
             raise PackError(f"synthetic Git {' '.join(command[1:3])} failed: {detail}")
-
-    if force_add:
-        result = subprocess.run(
-            ["git", "add", "-f", "--", *force_add],
-            cwd=rootfs,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if result.returncode:
-            detail = result.stderr.decode("utf-8", errors="replace").strip()
-            raise PackError(f"synthetic Git force-add failed: {detail}")
 
     tracked = {
         item
@@ -1335,7 +1243,6 @@ def _verify_rootfs(
         "third_party/fonts.lock",
         str(cargo_target_dir.relative_to(repo_root) / TARGET / "tmp"),
         str(build_root.relative_to(repo_root) / "cargo-home" / LIBC_SOURCE / "Cargo.toml"),
-        *PINNED_SUPPLEMENTAL_FILES.keys(),
     ]
     for relative in required:
         if not (rootfs / relative).exists():
@@ -1424,13 +1331,11 @@ def pack_bundle(
             _copy_regular_file(repo_root, rootfs, relative)
 
         synthetic_workstream_paths = _write_synthetic_workstream_files(rootfs)
-        supplemental_paths = _copy_pinned_supplemental_files(repo_root, rootfs)
         template_dir = temporary / "empty-git-template"
         _initialize_synthetic_git(
             rootfs,
             template_dir,
-            [*source_paths, *synthetic_workstream_paths, *supplemental_paths],
-            force_add=supplemental_paths,
+            [*source_paths, *synthetic_workstream_paths],
         )
         template_dir.rmdir()
 

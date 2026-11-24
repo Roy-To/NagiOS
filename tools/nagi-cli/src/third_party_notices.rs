@@ -23,7 +23,7 @@ fn third_party_notices_cover_every_pinned_component_and_declared_license() {
     let notices =
         fs::read_to_string(root.join("THIRD_PARTY_NOTICES.md")).expect("third-party notices");
     let notices = notices.to_ascii_lowercase();
-    let mut components_checked = 0usize;
+    let mut components_checked = Vec::new();
 
     for entry in lock.split("[sources.").skip(1) {
         let (_, body) = entry.split_once(']').expect("source entry section header");
@@ -62,13 +62,14 @@ fn third_party_notices_cover_every_pinned_component_and_declared_license() {
                 "THIRD_PARTY_NOTICES.md omits declared license `{license}` for `{component}`"
             );
         }
-        components_checked += 1;
+        components_checked.push(component);
     }
 
-    assert!(
-        components_checked >= 18,
-        "expected the current pinned source set"
-    );
+    for required in ["smoltcp", "whisper.cpp-stt"] {
+        assert!(components_checked
+            .iter()
+            .any(|component| component == required));
+    }
 }
 
 #[test]

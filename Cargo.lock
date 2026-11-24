@@ -475,10 +475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nagi-bootinfo"
-version = "0.1.0"
-
-[[package]]
 name = "nagi-capability"
 version = "0.2.0"
 dependencies = [
@@ -498,13 +494,6 @@ dependencies = [
 [[package]]
 name = "nagi-clipboard"
 version = "0.1.0"
-
-[[package]]
-name = "nagi-fat32"
-version = "0.1.0"
-dependencies = [
- "nagi-model-manager",
-]
 
 [[package]]
 name = "nagi-files"
@@ -631,14 +620,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nagi-kernel"
-version = "0.1.0"
-dependencies = [
- "nagi-abi",
- "nagi-bootinfo",
-]
-
-[[package]]
 name = "nagi-linux-account-verifier"
 version = "0.1.0"
 dependencies = [
@@ -743,14 +724,6 @@ name = "nagi-service-contract"
 version = "0.1.0"
 dependencies = [
  "nagi-capability",
-]
-
-[[package]]
-name = "nagi-servo-adapter"
-version = "0.1.0"
-dependencies = [
- "libnagi",
- "nagi-abi",
 ]
 
 [[package]]
