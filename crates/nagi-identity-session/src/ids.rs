@@ -108,11 +108,51 @@ macro_rules! opaque_string_id {
     };
 }
 
-opaque_string_id!(ProfileId, "profile_", validate_prefixed_id);
+opaque_string_id!(ProfileId, "profile_", validate_profile_id);
 opaque_string_id!(SessionId, "session_", validate_session_id);
 opaque_string_id!(CallerContextId, "caller_", validate_prefixed_id);
 
+impl ProfileId {
+    /// The delimiter was invalid in legacy ProfileIds. Only the issuer
+    /// allocates this namespace, using the next durable store generation.
+    pub(crate) fn in_guest_generation(generation: u64, nonce: &Self) -> Result<Self, IdError> {
+        let prefix = format!("profile_guest.{generation}_");
+        let suffix = nonce
+            .as_str()
+            .strip_prefix("profile_")
+            .ok_or(IdError::InvalidNamespace)?;
+        let available = MAX_ID_BYTES - prefix.len();
+        Self::new(format!(
+            "{prefix}{}",
+            &suffix[..suffix.len().min(available)]
+        ))
+    }
+
+    pub(crate) fn guest_generation(&self) -> Option<u64> {
+        let (generation, _) = self
+            .as_str()
+            .strip_prefix("profile_guest.")?
+            .split_once('_')?;
+        generation.parse().ok()
+    }
+}
+
+fn validate_profile_id(value: &str, prefix: &str) -> Result<(), IdError> {
+    if let Some(suffix) = value.strip_prefix("profile_guest.") {
+        return validate_generation_suffix(value, suffix);
+    }
+    validate_prefixed_id(value, prefix)
+}
+
 impl SessionId {
+    pub(crate) fn store_generation(&self) -> Option<u64> {
+        let (generation, _) = self
+            .as_str()
+            .strip_prefix("session_epoch.")?
+            .split_once('_')?;
+        generation.parse().ok()
+    }
+
     /// Bind a source-provided nonce to the next store CAS generation. The dot
     /// delimiter is reserved for this format and was rejected by legacy
     /// SessionId validation, so IDs from lost legacy generations cannot occupy
@@ -216,27 +256,31 @@ impl ProviderSubjectRef {
 }
 
 fn validate_session_id(value: &str, prefix: &str) -> Result<(), IdError> {
+    if let Some(suffix) = value.strip_prefix("session_epoch.") {
+        return validate_generation_suffix(value, suffix);
+    }
+    validate_prefixed_id(value, prefix)
+}
+
+fn validate_generation_suffix(value: &str, suffix: &str) -> Result<(), IdError> {
     if value.len() > MAX_ID_BYTES {
         return Err(IdError::TooLong);
     }
-    if let Some(generation_suffix) = value.strip_prefix("session_epoch.") {
-        let Some((generation, nonce)) = generation_suffix.split_once('_') else {
-            return Err(IdError::InvalidCharacter);
-        };
-        let parsed_generation = generation
-            .parse::<u64>()
-            .map_err(|_| IdError::InvalidCharacter)?;
-        if parsed_generation.to_string() != generation
-            || nonce.is_empty()
-            || !nonce.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-            })
-        {
-            return Err(IdError::InvalidCharacter);
-        }
-        return Ok(());
+    let Some((generation, nonce)) = suffix.split_once('_') else {
+        return Err(IdError::InvalidCharacter);
+    };
+    let parsed_generation = generation
+        .parse::<u64>()
+        .map_err(|_| IdError::InvalidCharacter)?;
+    if parsed_generation.to_string() != generation
+        || nonce.is_empty()
+        || !nonce.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
+    {
+        return Err(IdError::InvalidCharacter);
     }
-    validate_prefixed_id(value, prefix)
+    Ok(())
 }
 
 fn validate_prefixed_id(value: &str, prefix: &str) -> Result<(), IdError> {

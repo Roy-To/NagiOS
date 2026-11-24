@@ -1,3 +1,4 @@
+use crate::store::MAX_SNAPSHOT_BYTES;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
@@ -210,6 +211,9 @@ impl IdentitySnapshotStore for SharedStore {
         expected_version: Option<SnapshotVersion>,
         bytes: &[u8],
     ) -> Result<SnapshotVersion, SnapshotStoreError> {
+        if bytes.len() > MAX_SNAPSHOT_BYTES {
+            return Err(SnapshotStoreError::Unavailable);
+        }
         IdentitySnapshot::from_json(bytes).map_err(|_| SnapshotStoreError::Unavailable)?;
         let mut state = self.0.lock().unwrap();
         if state.fail_next_commit {
@@ -646,6 +650,63 @@ fn offline_local_user_can_own_multiple_profiles_and_login_logout_is_idempotent()
         service.resolve_current_identity(&caller).unwrap_err(),
         ResolutionError::Ended
     );
+}
+
+#[test]
+fn ten_thousand_logouts_keep_the_snapshot_below_the_linux_limit() {
+    let store = SharedStore::default();
+    let (mut service, clock) = new_service(store.clone(), TestCleaner::default());
+    let caller = TestCaller::new("session-retention");
+    recover(&mut service, &caller);
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("Owner").0, metadata("Home").1)
+        .unwrap();
+    let login = |service: &mut TestService, sequence: usize| {
+        service
+            .login_local(
+                &caller,
+                user_id,
+                profile_id.clone(),
+                None,
+                nagi_identity_session::IdempotencyKey::new(format!("login-{sequence}")).unwrap(),
+            )
+            .unwrap()
+    };
+
+    for sequence in 0..10_000 {
+        let session = login(&mut service, sequence);
+        assert_eq!(
+            service.end_session(&caller, &session),
+            Ok(EndSessionResult::Ended)
+        );
+    }
+
+    assert!(store.current().unwrap().len() < MAX_SNAPSHOT_BYTES);
+    let last = service
+        .snapshot()
+        .sessions
+        .last()
+        .unwrap()
+        .session_id
+        .clone();
+    assert_eq!(login(&mut service, 9_999), last);
+    let fresh = login(&mut service, 10_000);
+    assert_ne!(fresh, last);
+    assert_eq!(
+        service.end_session(&caller, &fresh),
+        Ok(EndSessionResult::Ended)
+    );
+    clock.set(clock.now().get() + 5 * 60 * 1_000);
+    let next = login(&mut service, 9_999);
+    assert_ne!(next, last);
+    assert_eq!(
+        service
+            .resolve_current_identity(&caller)
+            .unwrap()
+            .session_id(),
+        &next
+    );
+    assert!(store.current().unwrap().len() < MAX_SNAPSHOT_BYTES);
 }
 
 #[test]
@@ -1209,8 +1270,8 @@ fn snapshot_rejects_cleaned_guest_profile_id_reuse_by_persistent_owner() {
 
     assert_eq!(
         IdentitySnapshot::from_json(&bytes),
-        Err(nagi_identity_session::SnapshotError::InvalidSession),
-        "a cleaned guest profile ID remains reserved in session history"
+        Err(nagi_identity_session::SnapshotError::InvalidProfileOwner),
+        "the generated guest namespace cannot identify a persistent profile"
     );
 
     let mut duplicate_history = service.snapshot().clone();
@@ -1228,7 +1289,7 @@ fn snapshot_rejects_cleaned_guest_profile_id_reuse_by_persistent_owner() {
 }
 
 #[test]
-fn cleaned_guest_profile_id_cannot_be_reused_by_a_later_guest_session() {
+fn cleaned_guest_ids_stay_unique_after_retry_history_is_compacted() {
     let store = SharedStore::default();
     let cleaner = TestCleaner::default();
     let caller = TestCaller::new("guest-profile-history");
@@ -1259,26 +1320,35 @@ fn cleaned_guest_profile_id_cannot_be_reused_by_a_later_guest_session() {
         .iter()
         .any(|profile| profile.profile_id == old_profile));
 
-    let (mut restarted, _) = new_service_with_ids(
+    let (mut restarted, clock) = new_service_with_ids(
         store.clone(),
         cleaner,
         TestIds {
             user: 0,
             profile: 0,
-            session: 1,
+            session: 0,
             fail: false,
         },
     );
+    clock.set(clock.now().get() + 5 * 60 * 1_000);
     recover(&mut restarted, &caller);
-    let before = restarted.snapshot().clone();
-    let reused = restarted.create_guest_session(
-        &caller,
-        None,
-        nagi_identity_session::IdempotencyKey::new("second-guest").unwrap(),
-    );
-
-    assert_eq!(reused, Err(IdentityError::IdCollision));
-    assert_eq!(restarted.snapshot(), &before);
+    let next = restarted
+        .create_guest_session(
+            &caller,
+            None,
+            nagi_identity_session::IdempotencyKey::new("second-guest").unwrap(),
+        )
+        .unwrap();
+    assert_ne!(next, ended);
+    assert!(!restarted
+        .snapshot()
+        .sessions
+        .iter()
+        .any(|row| row.profile_id == old_profile));
+    assert!(restarted
+        .snapshot()
+        .retired_legacy_guest_profiles
+        .is_empty());
 }
 
 #[test]
@@ -1311,7 +1381,18 @@ fn cleaned_guest_profile_id_cannot_be_reassigned_to_a_persistent_owner() {
         EndSessionResult::Ended
     );
 
-    let (mut restarted, _) = new_service_with_ids(
+    // Build a valid v1 snapshot from before guest IDs used store generations.
+    let legacy_profile = ProfileId::new("profile_p2").unwrap();
+    let mut legacy = first.snapshot().clone();
+    legacy
+        .sessions
+        .iter_mut()
+        .find(|row| row.session_id == guest)
+        .unwrap()
+        .profile_id = legacy_profile.clone();
+    store.corrupt_current(legacy.to_json().unwrap());
+
+    let (mut restarted, clock) = new_service_with_ids(
         store.clone(),
         cleaner,
         TestIds {
@@ -1321,7 +1402,19 @@ fn cleaned_guest_profile_id_cannot_be_reassigned_to_a_persistent_owner() {
             fail: false,
         },
     );
+    clock.set(clock.now().get() + 5 * 60 * 1_000);
     recover(&mut restarted, &caller);
+    // A successful write compacts the expired session and persists its
+    // legacy ID reservation.
+    restarted
+        .login_local(
+            &caller,
+            user_id,
+            first.snapshot().profiles[0].profile_id.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("compact-legacy-guest").unwrap(),
+        )
+        .unwrap();
     let before = restarted.snapshot().clone();
     let reassigned = restarted.create_profile(
         &caller,
@@ -1331,10 +1424,13 @@ fn cleaned_guest_profile_id_cannot_be_reassigned_to_a_persistent_owner() {
 
     assert_eq!(reassigned, Err(IdentityError::IdCollision));
     assert_eq!(restarted.snapshot(), &before);
-    assert!(before.sessions.iter().any(|session| {
-        session.profile_id == old_guest_profile
-            && session.guest_cleanup == nagi_identity_session::GuestCleanupStatus::Complete
-    }));
+    assert!(!before
+        .sessions
+        .iter()
+        .any(|row| row.profile_id == legacy_profile || row.profile_id == old_guest_profile));
+    assert!(before
+        .retired_legacy_guest_profiles
+        .contains(&legacy_profile));
 }
 
 #[test]
@@ -1342,7 +1438,7 @@ fn pending_guest_cleanup_can_retry_after_the_same_caller_starts_another_session(
     let cleaner = TestCleaner::default();
     let cleaned = cleaner.cleaned.clone();
     let cleanup_fails = cleaner.fail.clone();
-    let (mut service, _) = new_service(SharedStore::default(), cleaner);
+    let (mut service, clock) = new_service(SharedStore::default(), cleaner);
     let caller = TestCaller::new("guest-retry-after-next");
     recover(&mut service, &caller);
     let guest_a = service
@@ -1366,6 +1462,7 @@ fn pending_guest_cleanup_can_retry_after_the_same_caller_starts_another_session(
         EndSessionResult::GuestCleanupPending
     );
 
+    clock.set(clock.now().get() + 5 * 60 * 1_000);
     let guest_b = service
         .create_guest_session(
             &caller,

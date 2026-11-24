@@ -4,6 +4,9 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::model::IdentitySnapshot;
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(target_os = "linux", test))]
+pub(crate) const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
+
 #[cfg(target_os = "linux")]
 mod linux;
 
