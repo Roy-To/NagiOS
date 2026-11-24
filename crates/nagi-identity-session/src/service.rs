@@ -2,7 +2,7 @@ use std::any::Any;
 use std::cell::Cell;
 #[cfg(test)]
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
@@ -29,6 +29,52 @@ use crate::store::{
 };
 use crate::{CallerContextId, IdempotencyKey, ProfileId, ProviderSubjectRef, SessionId, UserId};
 use crate::{CapabilityPrincipalAdapter, PrincipalId, PrincipalMappingFailure};
+
+// Retry entries are process-local. Retain completed durable records for the
+// same bounded retry window, while keeping every active or uncleaned Session.
+const ENDED_SESSION_RETRY_MILLIS: u64 = 5 * 60 * 1_000;
+const MAX_RECENT_ENDED_SESSIONS: usize = 128;
+
+fn within_session_retry_window(at: UnixMillis, now: UnixMillis) -> bool {
+    now.get().saturating_sub(at.get()) < ENDED_SESSION_RETRY_MILLIS
+}
+
+fn compact_ended_sessions(candidate: &mut IdentitySnapshot, now: UnixMillis) -> bool {
+    let mut completed = Vec::new();
+    for (index, session) in candidate.sessions.iter().enumerate() {
+        if let SessionLifecycle::Ended { at, .. } = session.lifecycle {
+            if session.guest_cleanup != GuestCleanupStatus::Pending {
+                completed.push((at, index));
+            }
+        }
+    }
+    completed.sort_unstable();
+    let cutoff = completed.len().saturating_sub(MAX_RECENT_ENDED_SESSIONS);
+    let removed: HashSet<_> = completed
+        .into_iter()
+        .enumerate()
+        .filter(|(rank, (at, _))| *rank < cutoff || !within_session_retry_window(*at, now))
+        .map(|(_, (_, index))| index)
+        .collect();
+    if removed.is_empty() {
+        return false;
+    }
+    let mut index = 0;
+    candidate.sessions.retain(|session| {
+        let keep = !removed.contains(&index);
+        index += 1;
+        if !keep
+            && session.kind == SessionKind::Guest
+            && session.profile_id.guest_generation().is_none()
+        {
+            candidate
+                .retired_legacy_guest_profiles
+                .push(session.profile_id.clone());
+        }
+        keep
+    });
+    true
+}
 
 thread_local! {
     /// C1 lease scopes are intentionally non-reentrant. Per-Session reads and
@@ -4393,9 +4439,10 @@ where
 
     fn save_candidate_at_version(
         &mut self,
-        candidate: IdentitySnapshot,
+        mut candidate: IdentitySnapshot,
         expected_version: Option<SnapshotVersion>,
     ) -> Result<(), IdentityError> {
+        let pruned = compact_ended_sessions(&mut candidate, self.clock.now());
         let bytes = candidate.to_json().map_err(map_snapshot_error)?;
         let next_store_version = match self.store.commit_atomic(expected_version, &bytes) {
             Ok(version) => version,
@@ -4414,6 +4461,18 @@ where
                 return Err(map_store_error(error));
             }
         };
+        if pruned {
+            let retained: HashSet<_> = candidate
+                .sessions
+                .iter()
+                .map(|session| &session.session_id)
+                .collect();
+            self.last_by_caller.retain(|_, id| retained.contains(id));
+            self.session_owners.retain(|id, _| retained.contains(id));
+            self.leases.retain(|id, _| retained.contains(id));
+            self.idempotency
+                .retain(|_, entry| retained.contains(&entry.session_id));
+        }
         self.snapshot = candidate;
         self.store_version = Some(next_store_version);
         self.emit(
@@ -4426,6 +4485,33 @@ where
         Ok(())
     }
 
+    fn idempotent_session(
+        &self,
+        scope: &(CallerKey, IdempotencyKey),
+    ) -> Option<&IdempotentSession> {
+        let entry = self.idempotency.get(scope)?;
+        let record = self
+            .snapshot
+            .sessions
+            .iter()
+            .find(|row| row.session_id == entry.session_id)?;
+        match record.lifecycle {
+            SessionLifecycle::Active => Some(entry),
+            SessionLifecycle::Ended { at, .. }
+                if within_session_retry_window(at, self.clock.now()) =>
+            {
+                Some(entry)
+            }
+            SessionLifecycle::Ended { .. } => None,
+        }
+    }
+
+    fn next_store_generation(&self) -> Result<u64, IdentityError> {
+        self.store_version
+            .and_then(|version| version.get().checked_add(1))
+            .ok_or(IdentityError::StoreUnavailable)
+    }
+
     fn next_revision(&self) -> Result<u64, IdentityError> {
         self.snapshot
             .revision
@@ -4434,10 +4520,16 @@ where
     }
 
     fn profile_id_is_reserved(&self, profile_id: &ProfileId) -> bool {
-        self.snapshot
-            .profiles
-            .iter()
-            .any(|profile| &profile.profile_id == profile_id)
+        profile_id.guest_generation().is_some()
+            || self
+                .snapshot
+                .retired_legacy_guest_profiles
+                .contains(profile_id)
+            || self
+                .snapshot
+                .profiles
+                .iter()
+                .any(|profile| &profile.profile_id == profile_id)
             || self
                 .snapshot
                 .sessions
@@ -5900,7 +5992,7 @@ where
         self.authorize(caller, IdentityAction::CreateGuestSession, None, None, None)?;
         let caller_key = CallerKey::from_trusted(caller);
         let idempotency_scope = (caller_key.clone(), idempotency_key.clone());
-        if let Some(existing) = self.idempotency.get(&idempotency_scope) {
+        if let Some(existing) = self.idempotent_session(&idempotency_scope) {
             let same_guest_request = existing.intent.kind == SessionKind::Guest
                 && existing.intent.user_id.is_none()
                 && existing.intent.expires_at == expires_at;
@@ -5910,17 +6002,14 @@ where
             return Err(IdentityError::IdempotencyConflict);
         }
         self.ensure_profile_id_history_complete()?;
-        let profile_id = self
+        let profile_nonce = self
             .ids
             .next_profile_id()
             .map_err(|_| IdentityError::IdSourceUnavailable)?;
-        if self.profile_id_is_reserved(&profile_id) {
-            return Err(IdentityError::IdCollision);
-        }
         let intent = SessionIntent {
             kind: SessionKind::Guest,
             user_id: None,
-            profile_id: profile_id.clone(),
+            profile_id: profile_nonce,
             expires_at,
         };
         self.create_session(
@@ -5935,7 +6024,7 @@ where
     fn create_session<F>(
         &mut self,
         caller: &impl AuthenticatedInteractiveCaller,
-        intent: SessionIntent,
+        mut intent: SessionIntent,
         idempotency_key: IdempotencyKey,
         action: IdentityAction,
         authorize_committed_session: F,
@@ -5954,7 +6043,7 @@ where
 
         let caller_key = CallerKey::from_trusted(caller);
         let idempotency_scope = (caller_key.clone(), idempotency_key.clone());
-        if let Some(existing) = self.idempotency.get(&idempotency_scope) {
+        if let Some(existing) = self.idempotent_session(&idempotency_scope) {
             if existing.intent != intent {
                 return Err(IdentityError::IdempotencyConflict);
             }
@@ -5988,6 +6077,14 @@ where
             } else {
                 return Err(IdentityError::CorruptState);
             }
+        }
+
+        let next_store_generation = self.next_store_generation()?;
+        if intent.kind == SessionKind::Guest {
+            // Ending a previous expired Session can have advanced the store.
+            intent.profile_id =
+                ProfileId::in_guest_generation(next_store_generation, &intent.profile_id)
+                    .map_err(|_| IdentityError::IdSourceUnavailable)?;
         }
 
         match intent.kind {
@@ -6033,10 +6130,6 @@ where
             return Err(IdentityError::ProfileAlreadyActive);
         }
 
-        let next_store_generation = self
-            .store_version
-            .and_then(|version| version.get().checked_add(1))
-            .ok_or(IdentityError::StoreUnavailable)?;
         let session_nonce = self
             .ids
             .next_session_id()
@@ -6417,8 +6510,10 @@ where
             .is_some_and(|current_session| current_session != session_id);
         if !another_session_is_current {
             self.active_by_caller.remove(caller_key);
-            self.last_by_caller
-                .insert(caller_key.clone(), session_id.clone());
+            if self.session_owners.contains_key(session_id) {
+                self.last_by_caller
+                    .insert(caller_key.clone(), session_id.clone());
+            }
         }
         self.emit(
             IdentityEventKind::SessionEnded,

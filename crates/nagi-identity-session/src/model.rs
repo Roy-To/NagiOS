@@ -218,7 +218,8 @@ pub struct IdentitySnapshot {
     /// not be used to namespace session IDs.
     pub revision: u64,
     /// True only when every previously allocated ProfileId is represented by
-    /// current profiles or retained session history. Any selected LKG restore
+    /// current profiles, retained sessions, legacy guest reservations, or the
+    /// durable generation namespace. Any selected LKG restore
     /// sets this false; the flag is persisted so later restarts continue to
     /// reject new profile allocation. Older JSON
     /// without this marker is treated as incomplete because it cannot prove
@@ -228,6 +229,9 @@ pub struct IdentitySnapshot {
     pub users: Vec<LocalUser>,
     pub profiles: Vec<ProfileRecord>,
     pub sessions: Vec<SessionRecord>,
+    /// Retired guest IDs from before guest allocation used store generations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_legacy_guest_profiles: Vec<ProfileId>,
 }
 
 impl IdentitySnapshot {
@@ -239,6 +243,7 @@ impl IdentitySnapshot {
             users: Vec::new(),
             profiles: Vec::new(),
             sessions: Vec::new(),
+            retired_legacy_guest_profiles: Vec::new(),
         }
     }
 
@@ -266,7 +271,9 @@ impl IdentitySnapshot {
                 return Err(SnapshotError::InvalidProfile);
             }
             match (profile.kind, profile.owner_user_id) {
-                (ProfileKind::Persistent, Some(owner)) if users.contains(&owner) => {}
+                (ProfileKind::Persistent, Some(owner))
+                    if users.contains(&owner)
+                        && profile.profile_id.guest_generation().is_none() => {}
                 (ProfileKind::GuestEphemeral, None) => {}
                 _ => return Err(SnapshotError::InvalidProfileOwner),
             }
@@ -274,6 +281,14 @@ impl IdentitySnapshot {
 
         let mut sessions = HashSet::new();
         let mut guest_profile_ids = HashSet::new();
+        for profile_id in &self.retired_legacy_guest_profiles {
+            if profile_id.guest_generation().is_some()
+                || profiles.contains(profile_id)
+                || !guest_profile_ids.insert(profile_id.clone())
+            {
+                return Err(SnapshotError::InvalidProfile);
+            }
+        }
         for session in &self.sessions {
             if session.schema_version != IDENTITY_SCHEMA_VERSION
                 || !sessions.insert(session.session_id.clone())
@@ -302,6 +317,12 @@ impl IdentitySnapshot {
                 (SessionKind::Guest, None) => {
                     if session.guest_cleanup == GuestCleanupStatus::NotApplicable
                         || !guest_profile_ids.insert(session.profile_id.clone())
+                        || session
+                            .profile_id
+                            .guest_generation()
+                            .is_some_and(|generation| {
+                                session.session_id.store_generation() != Some(generation)
+                            })
                     {
                         return Err(SnapshotError::InvalidSession);
                     }
