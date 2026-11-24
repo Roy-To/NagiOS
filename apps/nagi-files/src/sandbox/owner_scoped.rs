@@ -31,14 +31,15 @@ const MAX_METADATA_INDEX_BYTES: usize = 1024 * 1024;
 /// Root scopes whose Files operations are guaranteed to run inside one C1
 /// live-session effect before owner-root I/O.
 ///
-/// # Safety
+/// # Contract
 ///
 /// Implementors must ensure every FilesService operation that uses the scope
 /// is covered by exactly one successful C1 live-session effect before the
 /// scope callback can touch owner-root state. The gate may be entered by the
 /// scope itself or by a private enclosing C1 consumer that always gates the
-/// complete operation. A plain `ProfileFilesRoot` is not sufficient.
-pub unsafe trait C1LiveSessionScopedFilesRoot: FilesRootScope {}
+/// complete operation. A plain `ProfileFilesRoot` is not sufficient. Add this
+/// implementation only beside a scope whose composition has been reviewed.
+pub trait C1LiveSessionScopedFilesRoot: FilesRootScope {}
 
 /// Borrowed view of a C1-gated scope for storage in the Files provider.
 #[doc(hidden)]
@@ -61,9 +62,7 @@ impl<S: C1LiveSessionScopedFilesRoot + ?Sized> FilesRootScope for BorrowedC1File
     }
 }
 
-// SAFETY: this wrapper delegates each callback to the scope whose C1 gate is
-// required by the trait contract.
-unsafe impl<S: C1LiveSessionScopedFilesRoot + ?Sized> C1LiveSessionScopedFilesRoot
+impl<S: C1LiveSessionScopedFilesRoot + ?Sized> C1LiveSessionScopedFilesRoot
     for BorrowedC1FilesRootScope<'_, S>
 {
 }

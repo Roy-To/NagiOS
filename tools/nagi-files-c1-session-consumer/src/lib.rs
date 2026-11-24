@@ -66,11 +66,11 @@ impl FilesRootScope for C1IssuedOwnerRootScope<'_> {
     }
 }
 
-// SAFETY: this type is only constructed by `from_issued_owner_root`, which
-// stores its provider inside a screen that retains and checks the matching C1
+// This type is only constructed by `from_issued_owner_root`, which stores its
+// provider inside a screen that retains and checks the matching C1
 // live-session handle around each complete Files operation.
 #[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-unsafe impl C1LiveSessionScopedFilesRoot for C1IssuedOwnerRootScope<'_> {}
+impl C1LiveSessionScopedFilesRoot for C1IssuedOwnerRootScope<'_> {}
 
 /// A narrow Files consumer that retains its provider, capability policy, and
 /// C1 revalidation handle and exposes only effects admitted by C1.
