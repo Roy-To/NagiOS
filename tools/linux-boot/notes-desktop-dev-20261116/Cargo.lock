@@ -342,11 +342,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-persistence-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
 name = "nagi-profile-volume-notes-owner"
 version = "0.1.0"
 dependencies = [
  "nagi-model",
+ "nagi-persistence-contract",
+ "nagi-service-contract",
  "rustix",
+]
+
+[[package]]
+name = "nagi-service-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-capability",
 ]
 
 [[package]]
