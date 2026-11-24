@@ -295,12 +295,11 @@ pub(super) struct CalendarClock;
 impl RealtimeSource for CalendarClock {
     fn realtime_ns(&self) -> nagi_calendar_core::Result<u64> {
         use nagi_calendar_core::Error::ClockUnavailable;
-        std::time::SystemTime::now()
+        let elapsed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| ClockUnavailable)?
-            .as_nanos()
-            .try_into()
-            .map_err(|_| ClockUnavailable)
+            .map_err(|_| ClockUnavailable)?;
+        // The Calendar store accepts whole Unix microseconds.
+        u64::try_from(elapsed.as_micros() * 1_000).map_err(|_| ClockUnavailable)
     }
 }
 
