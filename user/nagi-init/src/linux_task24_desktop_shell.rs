@@ -1,4 +1,6 @@
 use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+use super::calendar_console::CalendarExit;
 use crate::desktop_shell_model::{AppId, ShellAction, ShellModel};
 use crate::ui::Painter;
 use libnagi::InputEvent;
@@ -35,14 +37,17 @@ pub(super) enum ShellExit {
     StateUnknown,
 }
 
+pub(super) enum AppExit {
+    Notes(NotesConsoleExit, Option<NoteDocument>),
+    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    Calendar(CalendarExit),
+}
+
 pub(super) fn run<C: ShellConsole>(
     console: &mut C,
     mut poll_identity: impl FnMut() -> io::Result<bool>,
     mut check_session: impl FnMut() -> Result<(), ResolutionError>,
-    mut launch: impl FnMut(
-        &mut C,
-        nagi_localization::Locale,
-    ) -> io::Result<(NotesConsoleExit, Option<NoteDocument>)>,
+    mut launch: impl FnMut(AppId, &mut C, nagi_localization::Locale) -> io::Result<AppExit>,
     drafts: &mut Vec<NoteDocument>,
     #[cfg(linux_task24_settings)] settings_runtime: Option<SettingsRuntime<'_>>,
 ) -> io::Result<ShellExit> {
@@ -67,17 +72,16 @@ pub(super) fn run<C: ShellConsole>(
     if let Some(settings) = &settings {
         settings.apply(&mut model);
     }
-
     console.present(|painter| model.render(painter))?;
     log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_READY"));
 
     loop {
-        let input = match poll_task24_input(
+        let input = poll_task24_input(
             || console.next_key_timeout(Duration::from_millis(100)),
             &mut poll_identity,
-        ) {
-            Ok(input) => input,
-            #[cfg(linux_task24_settings)]
+        );
+        #[cfg(linux_task24_settings)]
+        let input = match input {
             Err(error)
                 if error.get_ref().is_some_and(|cause| {
                     cause.is::<super::super::linux_owner_registration_console::KeyboardEventsLost>()
@@ -94,8 +98,10 @@ pub(super) fn run<C: ShellConsole>(
                 log_pid1_stderr(format_args!("NAGI_DEV_PASSWORD_PANEL_INPUT_LOST"));
                 continue;
             }
-            Err(error) => return Err(error),
+            input => input?,
         };
+        #[cfg(not(linux_task24_settings))]
+        let input = input?;
         if matches!(input, Task24InputPoll::RequiredServiceExited) {
             return Ok(ShellExit::RequiredIdentityExited);
         }
@@ -155,9 +161,50 @@ pub(super) fn run<C: ShellConsole>(
                     log_pid1_stderr(format_args!("NAGI_DEV_SETTINGS_OPENED"));
                 }
             }
+            #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+            ShellAction::Launch(AppId::Calendar) => {
+                log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_APP_LAUNCH app=calendar"));
+                match launch(AppId::Calendar, console, model.locale())? {
+                    AppExit::Calendar(CalendarExit::ClosedByUser) => {
+                        if poll_identity()? {
+                            return Ok(ShellExit::RequiredIdentityExited);
+                        }
+                        match check_session() {
+                            Ok(()) => {}
+                            Err(ResolutionError::Ended | ResolutionError::Expired) => {
+                                log_pid1_stderr(format_args!(
+                                    "NAGI_DEV_DESKTOP_APP_CLOSED app=calendar exit=SessionEnded"
+                                ));
+                                return Ok(ShellExit::ClosedWithoutSaveAfterSessionEnded);
+                            }
+                            Err(_) => return Ok(ShellExit::StateUnknown),
+                        }
+                        console.present(|painter| model.render(painter))?;
+                        log_pid1_stderr(format_args!(
+                            "NAGI_DEV_DESKTOP_APP_CLOSED app=calendar exit=ClosedByUser"
+                        ));
+                    }
+                    AppExit::Calendar(CalendarExit::SessionEnded) => {
+                        log_pid1_stderr(format_args!(
+                            "NAGI_DEV_DESKTOP_APP_CLOSED app=calendar exit=SessionEnded"
+                        ));
+                        return Ok(ShellExit::ClosedWithoutSaveAfterSessionEnded);
+                    }
+                    AppExit::Calendar(CalendarExit::RequiredIdentityExited) => {
+                        return Ok(ShellExit::RequiredIdentityExited);
+                    }
+                    AppExit::Calendar(CalendarExit::StateUnknown) | AppExit::Notes(..) => {
+                        return Ok(ShellExit::StateUnknown);
+                    }
+                }
+            }
             ShellAction::Launch(AppId::Notes) => {
                 log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_APP_LAUNCH app=notes"));
-                let (exit, draft) = launch(console, model.locale())?;
+                let (exit, draft) = match launch(AppId::Notes, console, model.locale())? {
+                    AppExit::Notes(exit, draft) => (exit, draft),
+                    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+                    AppExit::Calendar(_) => return Ok(ShellExit::StateUnknown),
+                };
                 if let Some(draft) = draft {
                     drafts.push(draft);
                 }
@@ -230,6 +277,8 @@ mod tests {
                 INPUT_KEY_ENTER,
                 INPUT_KEY_ENTER,
                 INPUT_KEY_TAB,
+                #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+                INPUT_KEY_TAB,
                 INPUT_KEY_ENTER,
             ]
             .into(),
@@ -240,9 +289,10 @@ mod tests {
             &mut console,
             || Ok(false),
             || Ok(()),
-            |console, _| {
+            |app, console, _locale| {
+                assert_eq!(app, AppId::Notes);
                 frames_at_launch.push(console.frames);
-                Ok((NotesConsoleExit::ClosedByUser, None))
+                Ok(AppExit::Notes(NotesConsoleExit::ClosedByUser, None))
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
@@ -251,7 +301,13 @@ mod tests {
         .unwrap();
         assert_eq!(exit, ShellExit::Logout);
         assert_eq!(frames_at_launch, [1, 2]);
-        assert_eq!(console.frames, 4);
+        assert_eq!(
+            console.frames,
+            4 + usize::from(cfg!(all(
+                linux_task24_calendar_app,
+                not(nagi_release_build)
+            )))
+        );
     }
 
     #[test]
@@ -273,9 +329,9 @@ mod tests {
                     Ok(())
                 }
             },
-            |_, _| {
+            |_, _, _locale| {
                 ended.set(true);
-                Ok((NotesConsoleExit::ClosedWithoutSave, None))
+                Ok(AppExit::Notes(NotesConsoleExit::ClosedWithoutSave, None))
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
@@ -293,7 +349,7 @@ mod tests {
             &mut console,
             || Ok(true),
             || Ok(()),
-            |_, _| panic!("no launch"),
+            |_, _, _locale| panic!("no launch"),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
             None,
@@ -307,7 +363,7 @@ mod tests {
             &mut console,
             || Ok(false),
             || Ok(()),
-            |_, _| Ok((NotesConsoleExit::StateUnknown, None)),
+            |_, _, _locale| Ok(AppExit::Notes(NotesConsoleExit::StateUnknown, None)),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
             None,
@@ -315,5 +371,61 @@ mod tests {
         .unwrap();
         assert_eq!(exit, ShellExit::StateUnknown);
         assert_eq!(console.frames, 1);
+    }
+
+    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    #[test]
+    fn calendar_close_returns_to_the_launcher_and_logout_stays_available() {
+        let mut console = FakeConsole {
+            keys: [
+                INPUT_KEY_TAB,
+                INPUT_KEY_ENTER,
+                INPUT_KEY_TAB,
+                INPUT_KEY_ENTER,
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let mut launched = Vec::new();
+        let exit = run(
+            &mut console,
+            || Ok(false),
+            || Ok(()),
+            |app, _, _locale| {
+                launched.push(app);
+                Ok(AppExit::Calendar(CalendarExit::ClosedByUser))
+            },
+            &mut Vec::new(),
+            #[cfg(linux_task24_settings)]
+            None,
+        )
+        .unwrap();
+        assert_eq!(launched, [AppId::Calendar]);
+        assert_eq!(exit, ShellExit::Logout);
+        assert_eq!(console.frames, 4);
+    }
+
+    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    #[test]
+    fn ended_calendar_session_exits_without_resuming_the_launcher() {
+        let mut console = FakeConsole {
+            keys: [INPUT_KEY_TAB, INPUT_KEY_ENTER].into(),
+            ..Default::default()
+        };
+        let exit = run(
+            &mut console,
+            || Ok(false),
+            || Ok(()),
+            |app, _, _locale| {
+                assert_eq!(app, AppId::Calendar);
+                Ok(AppExit::Calendar(CalendarExit::SessionEnded))
+            },
+            &mut Vec::new(),
+            #[cfg(linux_task24_settings)]
+            None,
+        )
+        .unwrap();
+        assert_eq!(exit, ShellExit::ClosedWithoutSaveAfterSessionEnded);
+        assert_eq!(console.frames, 2);
     }
 }

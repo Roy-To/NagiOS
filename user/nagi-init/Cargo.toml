@@ -84,7 +84,10 @@ nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optiona
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+nagi-abi = { path = "../../crates/nagi-abi" }
 nagi-account-credential = { path = "../../crates/nagi-account-credential" }
+nagi-calendar-core = { path = "../../crates/nagi-calendar-core" }
+nagi-calendar-input-adapter = { path = "../../crates/nagi-calendar-input-adapter" }
 nagi-persistence-contract = { path = "../../crates/nagi-persistence-contract" }
 libc = "=0.2.189"
 linux-peer-credentials-supplier = { path = "candidates/linux-broker-stage25/stage25/task39-contract-overlay" }
@@ -113,6 +116,7 @@ nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract", fea
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 nagi-account-credential = { path = "../../crates/nagi-account-credential" }
+nagi-calendar-core = { path = "../../crates/nagi-calendar-core" }
 nagi-persistence-contract = { path = "../../crates/nagi-persistence-contract" }
 serde_json = "1"
 

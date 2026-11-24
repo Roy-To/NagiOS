@@ -238,6 +238,15 @@ pub(crate) struct AuthorizedProfileSnapshot {
 
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedProfileSnapshot {
+    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    pub(crate) fn claim_calendar_initialization(
+        &self,
+    ) -> Result<bool, ProfileVolumeNotesOwnerError> {
+        self.revalidation
+            .with_live_session_effect(|| self.storage.claim_calendar_initialization())
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+    }
+
     pub(crate) fn with_storage<R>(
         &mut self,
         operation: impl FnOnce(

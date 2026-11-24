@@ -626,6 +626,38 @@ impl ProfileSnapshotStorage {
         Self::open(bundle)
     }
 
+    /// Claim the one permitted initialization of the reserved Calendar object.
+    /// A claim survives an uncertain first write, so missing data stays fenced.
+    #[cfg(target_os = "linux")]
+    pub fn claim_calendar_initialization(&self) -> Result<bool, ProfileVolumeNotesOwnerError> {
+        use rustix::fs::{openat, Mode, OFlags};
+        use rustix::io::Errno;
+        use std::fs::File;
+
+        self.bundle.validate_kind(AppStorageKind::Calendar)?;
+        if !self.bundle.allows_initial_index() {
+            return Ok(false);
+        }
+        self.bundle.with_duplicated_object_directory(|directory| {
+            let directory = File::from(directory);
+            let marker = match openat(
+                &directory,
+                ".calendar-initialization-v1",
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::RUSR | Mode::WUSR,
+            ) {
+                Ok(marker) => File::from(marker),
+                Err(Errno::EXIST) => return Ok(false),
+                Err(_) => return Err(ProfileVolumeNotesOwnerError::Unavailable),
+            };
+            marker
+                .sync_all()
+                .and_then(|()| directory.sync_all())
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            Ok(true)
+        })?
+    }
+
     fn open(bundle: ProfileVolumeNotesBundle) -> Result<Self, ProfileVolumeNotesOwnerError> {
         let provider = bundle
             .with_duplicated_object_directory(|directory| {

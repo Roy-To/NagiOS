@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher] <new-output-dir>
+Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher [--calendar]] <new-output-dir>
 
 Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
 NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
@@ -21,24 +21,27 @@ The output directory receives nagi-init and build-receipt.json.
 marker occurrences in the linked ELF.
 Development builds include the L7 desktop shell and L9 Settings by default.
 --desktop-launcher is accepted for existing development invocations.
+--calendar adds the Calendar launcher tile to the development build.
 USAGE
 }
 
 profile=debug
 offline=true
 desktop_launcher_requested=false
+calendar_requested=false
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
         --online) offline=false ;;
         --desktop-launcher) desktop_launcher_requested=true ;;
+        --calendar) calendar_requested=true ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
     esac
     shift
 done
-if (($# != 1)) || { [[ "$profile" == release ]] && "$desktop_launcher_requested"; }; then
+if (($# != 1)) || { [[ "$profile" == release ]] && { "$desktop_launcher_requested" || "$calendar_requested"; }; }; then
     usage >&2
     exit 2
 fi
@@ -65,6 +68,9 @@ cfgs=(
 )
 if [[ "$profile" == debug ]]; then
     cfgs+=(linux_task24_desktop_shell linux_task24_settings)
+fi
+if "$calendar_requested"; then
+    cfgs+=(linux_task24_calendar_app)
 fi
 rustc_args=()
 for cfg in "${cfgs[@]}"; do
