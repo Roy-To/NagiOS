@@ -115,6 +115,8 @@ jobs:
           python3 -m unittest discover -s tools/linux-boot/notes-desktop-dev-20261116 -p 'test_qmp_socket_path.py' -v
           python3 -m unittest discover -s tools/linux-boot -p 'test_run_qemu_child.py' -v
           python3 -m unittest discover -s tools/linux-boot -p 'test_run_dev_image.py' -v
+          python3 -m unittest discover -s tools/linux-boot -p 'test_calendar_l10_acceptance.py' -v
+          python3 -m unittest discover -s tools/linux-boot -p 'test_task24_rfb_automatic.py' -v
       - name: Lint host-compatible workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build host-compatible workspace
@@ -153,6 +155,11 @@ jobs:
           runner_kernel="/boot/vmlinuz-$(uname -r)"
           sudo cat "$runner_kernel" > "$inputs/kernel"
           python3 -B tools/linux-boot/run_live_pid1_ci.py --kernel "$inputs/kernel" --test-elf "$test_elf" --init-elf "$inputs/init" --manifest tools/linux-boot/live_pid1_ci_tests.json --output-dir out/logs/linux-pid1-live --timeout-seconds 240
+      - name: Compile Linux Calendar PID 1 integration and tests
+        run: |
+          export RUSTFLAGS='--cfg linux_boot_identity_runtime --cfg linux_boot_owner_registration --cfg linux_task24_owner_co_location --cfg linux_task24_initial_login_runtime --cfg linux_task24_notes_consumer --cfg linux_dev_ws10 --cfg linux_dev_notes_performance --cfg linux_dev_system_mount --cfg linux_task24_desktop_shell --cfg linux_task24_settings --cfg linux_task24_calendar_app'
+          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init
+          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init --tests
       - name: Files host and Linux session consumer contracts
         run: |
           cargo test --manifest-path apps/nagi-files/Cargo.toml --locked
