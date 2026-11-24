@@ -290,6 +290,7 @@ name = "nagi-files"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "nagi-profile-volume-notes-owner",
  "nagi-ui",
  "rustix",
 ]
