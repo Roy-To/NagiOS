@@ -22,7 +22,8 @@ lists onboarding as open.
 1. **Credentials.** `libnagi::credential` stores only a salted
    PBKDF2-HMAC-SHA256 credential:
    - a 16-byte random salt from `SYS_RANDOM_GET`;
-   - 20,000 iterations, with records accepted only within 10,000–1,000,000;
+   - 20,000 iterations, with records accepted only within 10,000–1,000,000
+     (new credentials use 600,000 since the 2026-11-22 amendment below);
    - a 32-byte output, compared in constant time.
 
    The implementation is checked against the published PBKDF2-SHA256
@@ -166,3 +167,19 @@ step and the Japanese unlock screen.
   and failures are only counted.
 - **Keyboard.** The keyboard map is US-layout ASCII. Japanese input
   methods do not apply to credentials.
+
+## Amendment (2026-11-22): iteration count for new credentials
+
+New owner credentials (first-owner creation and password change) are derived
+with **600,000** PBKDF2-HMAC-SHA256 iterations instead of 20,000. 20,000 is about
+1/30 of OWASP's current minimum for this PRF, and the account record on the
+Data disk is the only barrier against offline guessing until user-data
+encryption (DEC-117) exists.
+
+- The accepted range stays 10,000–1,000,000, so existing 20,000-iteration
+  records keep working. Re-deriving them with the new count after a successful
+  sign-in is a follow-up and needs an atomic replace of the account record.
+- Cost: one derivation per sign-in. QEMU/TCG sign-in time must be measured
+  before release targets are set (DEC-116); if it is unacceptable, the
+  follow-up is Argon2id, not a lower count.
+

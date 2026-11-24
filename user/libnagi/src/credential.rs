@@ -12,9 +12,12 @@ use sha2::{Digest, Sha256};
 
 pub const SALT_BYTES: usize = 16;
 pub const HASH_BYTES: usize = 32;
-/// Iterations for new credentials. Bounded below so a stored record cannot
-/// weaken verification, and above so a corrupt record cannot stall boot.
-pub const DEFAULT_ITERATIONS: u32 = 20_000;
+/// Iterations for new credentials (ADR 0063 amendment 2026-11-22: OWASP's
+/// current minimum for PBKDF2-HMAC-SHA256). Records are accepted within
+/// MIN..=MAX: the lower bound keeps older 20,000-iteration records readable
+/// until they are re-derived, and the upper bound stops a corrupt record from
+/// stalling boot.
+pub const DEFAULT_ITERATIONS: u32 = 600_000;
 pub const MIN_ITERATIONS: u32 = 10_000;
 pub const MAX_ITERATIONS: u32 = 1_000_000;
 pub const MAX_ACCOUNT_NAME_BYTES: usize = 32;
