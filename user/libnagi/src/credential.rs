@@ -171,37 +171,54 @@ pub fn valid_name(name: &[u8]) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
 }
 
-fn hmac_sha256(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
-    let mut block = [0_u8; 64];
-    if key.len() > 64 {
-        let digest: [u8; 32] = Sha256::digest(key).into();
-        block[..32].copy_from_slice(&digest);
-    } else {
-        block[..key.len()].copy_from_slice(key);
+struct HmacSha256 {
+    inner: Sha256,
+    outer: Sha256,
+}
+
+impl HmacSha256 {
+    fn new(key: &[u8]) -> Self {
+        let mut block = [0_u8; 64];
+        if key.len() > block.len() {
+            let digest: [u8; 32] = Sha256::digest(key).into();
+            block[..digest.len()].copy_from_slice(&digest);
+        } else {
+            block[..key.len()].copy_from_slice(key);
+        }
+
+        let mut inner_pad = [0x36_u8; 64];
+        let mut outer_pad = [0x5c_u8; 64];
+        for index in 0..block.len() {
+            inner_pad[index] ^= block[index];
+            outer_pad[index] ^= block[index];
+        }
+
+        let mut inner = Sha256::new();
+        inner.update(inner_pad);
+        let mut outer = Sha256::new();
+        outer.update(outer_pad);
+        Self { inner, outer }
     }
-    let mut inner = Sha256::new();
-    let mut outer = Sha256::new();
-    let mut inner_pad = [0x36_u8; 64];
-    let mut outer_pad = [0x5c_u8; 64];
-    for index in 0..64 {
-        inner_pad[index] ^= block[index];
-        outer_pad[index] ^= block[index];
+
+    fn digest(&self, parts: &[&[u8]]) -> [u8; 32] {
+        let mut inner = self.inner.clone();
+        for part in parts {
+            inner.update(part);
+        }
+        let mut outer = self.outer.clone();
+        outer.update(inner.finalize());
+        outer.finalize().into()
     }
-    inner.update(inner_pad);
-    for part in parts {
-        inner.update(part);
-    }
-    outer.update(outer_pad);
-    outer.update(inner.finalize());
-    outer.finalize().into()
 }
 
 /// PBKDF2-HMAC-SHA256 with a single 32-byte output block (RFC 8018).
 fn pbkdf2_hmac_sha256(password: &[u8], salt: &[u8], iterations: u32) -> [u8; 32] {
-    let mut block = hmac_sha256(password, &[salt, &1_u32.to_be_bytes()]);
+    // Reuse the keyed states for all U values within this derivation.
+    let hmac = HmacSha256::new(password);
+    let mut block = hmac.digest(&[salt, &1_u32.to_be_bytes()]);
     let mut output = block;
     for _ in 1..iterations {
-        block = hmac_sha256(password, &[&block]);
+        block = hmac.digest(&[&block]);
         for (byte, next) in output.iter_mut().zip(block.iter()) {
             *byte ^= next;
         }
@@ -235,6 +252,47 @@ mod tests {
         assert_eq!(
             &hex(&pbkdf2_hmac_sha256(b"password", b"salt", 4096)),
             b"c5e478d59288c841aa530db6845c4c8d962893a001ce4e11a4963873aa98134a"
+        );
+    }
+
+    #[test]
+    fn pbkdf2_hashes_keys_longer_than_the_sha256_block() {
+        let password: [u8; 65] = core::array::from_fn(|index| index as u8);
+        assert_eq!(
+            &hex(&pbkdf2_hmac_sha256(&password, b"salt", 2)),
+            b"7ab0e8cf8cb6173aa06f140ba94b9573ba5f27fc96499f7070acc7783b542b67"
+        );
+    }
+
+    #[test]
+    fn version_one_credential_keeps_its_bytes_and_verification() {
+        // Fixed v1 fixture generated independently with Python hashlib.
+        // This uses a synthetic 64-byte password and the existing 20,000 rounds.
+        let bytes: [u8; ACCOUNT_RECORD_BYTES] = [
+            0x4e, 0x41, 0x47, 0x49, 0x41, 0x43, 0x43, 0x54, 0x01, 0x01, 0x06, 0x00, 0x20, 0x4e,
+            0x00, 0x00, 0x6f, 0x77, 0x6e, 0x65, 0x72, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x48, 0x18, 0xcd, 0xeb, 0x1b, 0x59,
+            0x68, 0x93, 0xd6, 0x17, 0xe2, 0xb4, 0x1e, 0x72, 0x77, 0xbd, 0x70, 0xdc, 0x50, 0x3a,
+            0xca, 0xb3, 0x7f, 0xf8, 0xa8, 0xff, 0x61, 0x75, 0xb8, 0xd1, 0x5f, 0xc2, 0x49, 0xd2,
+            0x7a, 0x0b, 0x8b, 0x07, 0xf2, 0x5e, 0x0d, 0xf1, 0xa3, 0xaf, 0xed, 0x22, 0x8c, 0xc1,
+            0xa9, 0x41, 0xfb, 0x72, 0x1f, 0xe5, 0x4f, 0x28, 0xde, 0xbb, 0x6c, 0xd1, 0x09, 0x09,
+            0x1a, 0xe3,
+        ];
+        let password: [u8; 64] = core::array::from_fn(|index| index as u8);
+        let salt: [u8; SALT_BYTES] = core::array::from_fn(|index| index as u8);
+        let record = AccountRecord::decode(&bytes).expect("existing v1 record");
+        assert_eq!(record.name(), b"owner1");
+        assert!(record.credential.verify(&password));
+        let mut wrong = password;
+        wrong[63] ^= 1;
+        assert!(!record.credential.verify(&wrong));
+        assert_eq!(record.encode(), bytes);
+        let derived = Credential::derive(&password, salt, 20_000).expect("derive");
+        assert_eq!(
+            AccountRecord::new(b"owner1", derived).unwrap().encode(),
+            bytes
         );
     }
 
