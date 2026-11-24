@@ -70,12 +70,26 @@ jobs:
             -name 'test_*.py' -exec dirname {} \; | sort -u)
           test "${#dirs[@]}" -gt 0
           # One discover per directory keeps same-named test modules apart.
+          # Run them all, then report every failing directory together.
+          failed=()
           for dir in "${dirs[@]}"; do
             echo "::group::$dir"
             log="$(mktemp)"
-            python3 -m unittest discover -s "$dir" -p 'test_*.py' -v 2>&1 | tee "$log"
-            grep -Eq '^Ran [1-9][0-9]* tests?' "$log" || { echo "::error::no tests ran in $dir"; exit 1; }
+            status=0
+            python3 -m unittest discover -s "$dir" -p 'test_*.py' -v >"$log" 2>&1 || status=$?
+            cat "$log"
             echo "::endgroup::"
+            if [[ "$status" -ne 0 ]]; then
+              echo "::error::unittest failed in $dir"
+              failed+=("$dir")
+            elif ! grep -Eq '^Ran [1-9][0-9]* tests?' "$log"; then
+              echo "::error::no tests ran in $dir"
+              failed+=("$dir")
+            fi
           done
+          if [[ "${#failed[@]}" -gt 0 ]]; then
+            printf 'failed: %s\n' "${failed[@]}"
+            exit 1
+          fi
       - name: Repeatable host evaluation
         run: python3 tests/developer-platform/evaluation/run_host_checks.py
