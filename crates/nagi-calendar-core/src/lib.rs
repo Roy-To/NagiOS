@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod agenda;
 pub mod availability;
+pub mod day_view;
 pub mod model;
 pub mod recurrence;
 pub mod snapshot;

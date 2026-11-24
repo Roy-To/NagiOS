@@ -403,6 +403,12 @@ def _child_pid(supervisor_log: Path) -> int | None:
     return int(match.group(1))
 
 
+def desktop_logout_keys(lines: list[str]) -> tuple[int, ...]:
+    if "NAGI_DEV_LAUNCHER_LAYOUT calendar=enabled" in lines:
+        return (0xFF09, 0xFF09, 0xFF0D)
+    return (0xFF09, 0xFF0D)
+
+
 class AutomaticRfbInput:
     """Apply fixture keys only at the exact serial gates in the three-boot flow."""
 
@@ -482,7 +488,7 @@ class AutomaticRfbInput:
             if marker == recovery.DESKTOP_READY:
                 keys = (0xFF0D,)
             elif marker == recovery.DESKTOP_CLOSED:
-                keys = (0xFF0D,) if recovery.DESKTOP_LAUNCH in remaining else (0xFF09, 0xFF0D)
+                keys = (0xFF0D,) if recovery.DESKTOP_LAUNCH in remaining else desktop_logout_keys(lines)
             elif marker == recovery.INPUT and recovery.SAVED in remaining:
                 keys = (0xFF0D,)
             elif marker in (recovery.SAVED, recovery.INPUT):

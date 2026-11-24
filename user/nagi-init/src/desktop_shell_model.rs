@@ -10,6 +10,8 @@ use nagi_ui::ThemeMode;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AppId {
     Notes,
+    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    Calendar,
     #[cfg(linux_task24_settings)]
     Settings,
 }
@@ -37,7 +39,18 @@ pub(super) struct ShellModel {
 }
 
 #[cfg(linux_task24_settings)]
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+const SETTINGS_TILE: Rect = Rect::new(216, 24, 96, 70);
+#[cfg(all(
+    linux_task24_settings,
+    not(all(linux_task24_calendar_app, not(nagi_release_build)))
+))]
 const SETTINGS_TILE: Rect = Rect::new(8, 24, 145, 70);
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+const CALENDAR_TILE: Rect = Rect::new(8, 24, 96, 70);
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+const NOTES_TILE: Rect = Rect::new(112, 24, 96, 70);
+#[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
 const NOTES_TILE: Rect = Rect::new(167, 24, 145, 70);
 const LOGOUT_BUTTON: Rect = Rect::new(244, 1, 74, 18);
 
@@ -74,17 +87,13 @@ impl ShellModel {
             INPUT_KEY_TAB | INPUT_KEY_UP | INPUT_KEY_DOWN => {
                 let order = [
                     ShellFocus::App(AppId::Notes),
-                    ShellFocus::Logout,
+                    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+                    ShellFocus::App(AppId::Calendar),
                     #[cfg(linux_task24_settings)]
                     ShellFocus::App(AppId::Settings),
+                    ShellFocus::Logout,
                 ];
-                #[cfg(linux_task24_settings)]
-                let order = if self.settings {
-                    &order[..]
-                } else {
-                    &order[..2]
-                };
-                let index = order
+                let current = order
                     .iter()
                     .position(|focus| *focus == self.focus)
                     .unwrap_or(0);
@@ -93,7 +102,16 @@ impl ShellModel {
                 } else {
                     1
                 };
-                self.focus = order[(index + step) % order.len()];
+                let mut next = current;
+                for _ in 0..order.len() {
+                    next = (next + step) % order.len();
+                    #[cfg(linux_task24_settings)]
+                    if order[next] == ShellFocus::App(AppId::Settings) && !self.settings {
+                        continue;
+                    }
+                    break;
+                }
+                self.focus = order[next];
                 ShellAction::Redraw
             }
             INPUT_KEY_ENTER | INPUT_KEY_SPACE => match self.focus {
@@ -106,6 +124,14 @@ impl ShellModel {
 
     pub(super) fn render(&self, painter: &mut Painter<'_>) {
         draw_top_bar(painter, self.theme);
+        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        draw_window(
+            painter,
+            CALENDAR_TILE,
+            nagi_localization::text(self.locale, "calendar.title").as_bytes(),
+            self.focus == ShellFocus::App(AppId::Calendar),
+            self.theme,
+        );
         draw_window(
             painter,
             NOTES_TILE,
@@ -156,38 +182,23 @@ mod tests {
             ShellAction::Launch(AppId::Notes)
         );
         assert_eq!(model.on_key(key(INPUT_KEY_TAB, 1)), ShellAction::Redraw);
+        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        assert_eq!(
+            model.on_key(key(INPUT_KEY_SPACE, 1)),
+            ShellAction::Launch(AppId::Calendar)
+        );
+        assert_eq!(model.on_key(key(INPUT_KEY_TAB, 1)), ShellAction::Redraw);
         assert_eq!(model.on_key(key(INPUT_KEY_SPACE, 1)), ShellAction::Logout);
         assert_eq!(model.on_key(key(INPUT_KEY_UP, 1)), ShellAction::Redraw);
+        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        assert_eq!(
+            model.on_key(key(INPUT_KEY_ENTER, 1)),
+            ShellAction::Launch(AppId::Calendar)
+        );
+        #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
         assert_eq!(
             model.on_key(key(INPUT_KEY_ENTER, 1)),
             ShellAction::Launch(AppId::Notes)
-        );
-    }
-
-    #[cfg(linux_task24_settings)]
-    #[test]
-    fn settings_extends_the_launcher_and_applies_dark_preferences() {
-        use crate::settings_store::preferences::Preferences;
-        use nagi_ui::{color, ColorRole};
-
-        let mut model = ShellModel::new(Locale::EnUs);
-        model.apply_preferences(Preferences {
-            locale: Locale::JaJp,
-            theme: ThemeMode::Dark,
-        });
-        model.on_key(key(INPUT_KEY_TAB, 1));
-        assert_eq!(model.on_key(key(INPUT_KEY_ENTER, 1)), ShellAction::Logout);
-        model.on_key(key(INPUT_KEY_TAB, 1));
-        assert_eq!(
-            model.on_key(key(INPUT_KEY_ENTER, 1)),
-            ShellAction::Launch(AppId::Settings)
-        );
-        assert_eq!(model.locale(), Locale::JaJp);
-        let mut pixels = vec![0; 320 * 200];
-        model.render(&mut Painter::new(&mut pixels));
-        assert_eq!(
-            pixels[199 * 320],
-            color(ThemeMode::Dark, ColorRole::Canvas).to_pixel()
         );
     }
 
@@ -201,7 +212,18 @@ mod tests {
         assert_ne!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
         model.on_key(key(INPUT_KEY_DOWN, 1));
         model.render(&mut Painter::new(&mut pixels));
-        assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
-        assert_eq!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
+        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        {
+            assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
+            assert_eq!(pixels[corner(CALENDAR_TILE)], FOCUS);
+            model.on_key(key(INPUT_KEY_DOWN, 1));
+            model.render(&mut Painter::new(&mut pixels));
+            assert_eq!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
+        }
+        #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
+        {
+            assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
+            assert_eq!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
+        }
     }
 }

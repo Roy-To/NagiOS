@@ -482,6 +482,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nagi-calendar-core"
+version = "0.2.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
+name = "nagi-calendar-input-adapter"
+version = "0.1.0"
+dependencies = [
+ "nagi-calendar-core",
+ "nagi-ui",
+]
+
+[[package]]
 name = "nagi-capability"
 version = "0.2.0"
 dependencies = [
@@ -553,9 +568,12 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "libnagi",
+ "nagi-abi",
  "nagi-account-credential",
  "nagi-action-ipc",
  "nagi-audio",
+ "nagi-calendar-core",
+ "nagi-calendar-input-adapter",
  "nagi-clipboard",
  "nagi-history",
  "nagi-init-package-provider",

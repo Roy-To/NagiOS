@@ -1,5 +1,9 @@
 use core::arch::asm;
 
+#[cfg(target_os = "linux")]
+#[path = "linux_console_glyphs.rs"]
+mod linux_console_glyphs;
+
 use libnagi::{SURFACE_HEIGHT, SURFACE_WIDTH};
 
 const LATIN_GLYPH_WIDTH: i32 = 6;
@@ -335,6 +339,10 @@ fn glyph(byte: u8) -> [u8; 7] {
             return rows;
         }
         index += 1;
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(rows) = linux_console_glyphs::glyph(byte) {
+        return rows;
     }
     ASCII_REPLACEMENT
 }

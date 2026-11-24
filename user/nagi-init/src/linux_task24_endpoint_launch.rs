@@ -72,6 +72,16 @@ mod notes_console;
 mod desktop_shell;
 
 #[cfg(all(
+    linux_task24_notes_consumer,
+    linux_task24_initial_login_runtime,
+    linux_task24_desktop_shell,
+    linux_task24_calendar_app,
+    not(nagi_release_build)
+))]
+#[path = "linux_task24_calendar_console.rs"]
+mod calendar_console;
+
+#[cfg(all(
     linux_task24_initial_login_runtime,
     feature = "system-service-readiness"
 ))]
@@ -853,7 +863,42 @@ pub(super) fn run_owner_login(
                                         console,
                                         || runtime.poll_task24_required_identity_exit(),
                                         || runtime.check_notes_session(session.lease),
-                                        |console, locale| {
+                                        |app, console, locale| {
+                                            #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+                                            if matches!(app, crate::desktop_shell_model::AppId::Calendar) {
+                                                use calendar_console::{CalendarClock, CalendarExit};
+                                                use crate::calendar_session::CalendarSession;
+                                                #[cfg(linux_task24_settings)]
+                                                let mut owner = owners.try_borrow_mut()
+                                                    .map_err(|_| std::io::Error::other("storage owner busy"))?;
+                                                #[cfg(linux_task24_settings)]
+                                                let owners = &mut **owner;
+                                                #[cfg(not(linux_task24_settings))]
+                                                let owners = &mut *owners;
+                                                let poll = || runtime.poll_task24_required_identity_exit();
+                                                let check = || runtime.check_notes_session(session.lease);
+                                                if poll()? {
+                                                    return Ok(desktop_shell::AppExit::Calendar(CalendarExit::RequiredIdentityExited));
+                                                }
+                                                let opened = runtime.request_calendar_snapshot(session.lease, owners)
+                                                    .map_err(|_| "scope_unavailable")
+                                                    .and_then(|scope| CalendarSession::open(scope, CalendarClock).map_err(|error| match error {
+                                                        crate::calendar_session::LoadRejected::Missing => "missing",
+                                                        crate::calendar_session::LoadRejected::Invalid(_) => "invalid",
+                                                        crate::calendar_session::LoadRejected::UnverifiedInitialization => "initialization_unconfirmed",
+                                                        crate::calendar_session::LoadRejected::Io => "io",
+                                                    }));
+                                                let exit = match opened {
+                                                    Ok(mut calendar) => calendar_console::run(console, &mut calendar, &CalendarClock, poll, check, calendar_console::log_notice)?,
+                                                    Err(reason) => {
+                                                        super::log_pid1_stderr(format_args!("NAGI_DEV_CALENDAR_LOAD_REJECTED reason={reason}"));
+                                                        calendar_console::unavailable(console, poll, check)?
+                                                    }
+                                                };
+                                                return Ok(desktop_shell::AppExit::Calendar(exit));
+                                            }
+                                            #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
+                                            let _ = app;
                                             #[cfg(linux_task24_settings)]
                                             let mut owner = owners.try_borrow_mut()
                                                 .map_err(|_| std::io::Error::other("storage owner busy"))?;
@@ -874,7 +919,9 @@ pub(super) fn run_owner_login(
                                                     inputs
                                                 }
                                             };
-                                            run_notes(console, inputs, locale, owners)
+                                            run_notes(console, inputs, locale, owners).map(|(exit, draft)| {
+                                                desktop_shell::AppExit::Notes(exit, draft)
+                                            })
                                         },
                                         &mut retained_notes_draft,
                                         #[cfg(linux_task24_settings)]

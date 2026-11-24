@@ -91,6 +91,15 @@ Related tools in `tools/linux-boot/`: `run_qemu_child.py` (QEMU + QMP with hard 
 `notes-desktop-dev-20261116/run_persistence_acceptance.py` (dev-only save/readback smoke),
 `task24-login/`, `task24-identity-ready/` (build scripts).
 
+### Linux development Calendar
+
+`tools/linux-boot/build_task24_acceptance_elf.sh` enables Calendar in the
+development Desktop. Tab cycles through Notes, Calendar and Logout.
+`linux_task24_calendar_console.rs` opens a Calendar session using the S5
+snapshot issued for the attached profile. `calendar_l10_acceptance.py`
+validates the two-boot Calendar serial transcript. The release build excludes
+the development launcher.
+
 ## 5. Build and test
 
 - Top level: `./nagi doctor | fetch | build | image | run | test`.

@@ -40,6 +40,8 @@ exclude = [
     # consumed by path from the Linux init integration crates, but must not
     # also be discovered as nested members of the repository workspace.
     "crates/nagi-capability",
+    "crates/nagi-calendar-core",
+    "crates/nagi-calendar-input-adapter",
     "crates/nagi-identity-session",
     "crates/nagi-init-spawn-contract",
     "crates/nagi-system-principal-contract",

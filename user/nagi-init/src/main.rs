@@ -156,6 +156,27 @@ mod action_ipc;
     ))
 ))]
 mod boot;
+#[cfg(all(
+    target_os = "linux",
+    linux_task24_calendar_app,
+    not(nagi_release_build)
+))]
+mod calendar_editor_model;
+#[cfg(all(
+    target_os = "linux",
+    linux_task24_calendar_app,
+    not(nagi_release_build)
+))]
+mod calendar_profile_scope;
+#[cfg(any(
+    all(
+        target_os = "linux",
+        linux_task24_calendar_app,
+        not(nagi_release_build)
+    ),
+    all(test, target_os = "macos")
+))]
+mod calendar_session;
 #[cfg(any(
     all(target_os = "nagi", feature = "consent-dialog"),
     all(
@@ -183,6 +204,12 @@ mod desktop_shell_model;
     any(target_os = "nagi", all(target_os = "linux", target_arch = "x86_64"))
 ))]
 mod font;
+#[cfg(all(
+    target_os = "linux",
+    linux_task24_calendar_app,
+    not(nagi_release_build)
+))]
+mod linux_task24_calendar_keys;
 
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;
