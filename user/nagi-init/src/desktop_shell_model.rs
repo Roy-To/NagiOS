@@ -1,8 +1,8 @@
 use crate::desktop_chrome::{draw_top_bar, draw_window};
 use crate::ui::{Painter, Rect};
 use libnagi::{
-    INPUT_EVENT_KEY, INPUT_KEY_DOWN, INPUT_KEY_ENTER, INPUT_KEY_SPACE, INPUT_KEY_TAB, INPUT_KEY_UP,
-    InputEvent,
+    InputEvent, INPUT_EVENT_KEY, INPUT_KEY_DOWN, INPUT_KEY_ENTER, INPUT_KEY_SPACE, INPUT_KEY_TAB,
+    INPUT_KEY_UP,
 };
 use nagi_localization::Locale;
 

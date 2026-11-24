@@ -1,6 +1,6 @@
 //! Paint-only chrome for the Linux development launcher.
 use crate::ui::{Painter, Rect};
-use nagi_ui::{ColorRole, ThemeMode, color};
+use nagi_ui::{color, ColorRole, ThemeMode};
 
 const THEME: ThemeMode = ThemeMode::Light;
 const BACKGROUND: u32 = color(THEME, ColorRole::Canvas).to_pixel();
