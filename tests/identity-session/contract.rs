@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 
 #[cfg(target_os = "linux")]
@@ -1412,6 +1412,94 @@ fn pending_guest_cleanup_can_retry_after_the_same_caller_starts_another_session(
         EndSessionResult::Ended
     );
     assert_eq!(*cleaned.lock().unwrap(), vec![profile_a, profile_b]);
+}
+
+#[test]
+fn notes_autosave_and_screen_revalidation_share_storage_admission() {
+    const BATCHES: u64 = 100;
+    const OPERATIONS_PER_BATCH: u64 = 100;
+    const ITERATIONS: u64 = BATCHES * OPERATIONS_PER_BATCH;
+    let (mut service, _) = new_service(SharedStore::default(), TestCleaner::default());
+    let caller = TestCaller::new("notes-autosave-admission");
+    recover(&mut service, &caller);
+    let (user_id, profile_id) = service
+        .create_local_user(&caller, metadata("User").0, metadata("Home").1)
+        .unwrap();
+    service
+        .login_local(
+            &caller,
+            user_id,
+            profile_id.clone(),
+            None,
+            nagi_identity_session::IdempotencyKey::new("notes-autosave-admission").unwrap(),
+        )
+        .unwrap();
+    let session = service.interactive_session(&caller).unwrap();
+    let identity = session.identity().unwrap();
+    let screen = session.revalidation_handle().unwrap();
+    let mut storage = UserStorageRootAdapter::new(MemoryProfileStorage::default());
+    let mut authorizer = AllowProfileRoot;
+    let root = storage
+        .resolve_root(
+            &IdentityAccessContext::new(identity, &caller),
+            &profile_id,
+            &mut authorizer,
+        )
+        .unwrap();
+    let note = ObjectId(7);
+    let start = Barrier::new(2);
+
+    let ((save_failures, first_save_error), check_failures) = thread::scope(|scope| {
+        let autosave = scope.spawn(|| {
+            let access = IdentityAccessContext::new(identity, &caller);
+            let mut failures = 0;
+            let mut first_error = None;
+            for batch in 0..BATCHES {
+                start.wait();
+                for offset in 1..=OPERATIONS_PER_BATCH {
+                    let revision = batch * OPERATIONS_PER_BATCH + offset;
+                    if let Err(error) = storage.with_live_root_effect(
+                        &access,
+                        &root,
+                        &profile_id,
+                        &mut authorizer,
+                        |root_io| root_io.write_object(note, &revision.to_le_bytes()),
+                    ) {
+                        failures += 1;
+                        first_error.get_or_insert(error);
+                    }
+                }
+            }
+            (failures, first_error)
+        });
+        let mut failures = 0;
+        for _ in 0..BATCHES {
+            start.wait();
+            for _ in 0..OPERATIONS_PER_BATCH {
+                failures += usize::from(screen.check_live().is_err());
+            }
+        }
+        (autosave.join().unwrap(), failures)
+    });
+
+    assert_eq!(
+        save_failures, 0,
+        "failed Notes autosaves in {ITERATIONS} pairs, first error: {first_save_error:?}"
+    );
+    assert_eq!(
+        check_failures, 0,
+        "failed screen revalidations in {ITERATIONS} pairs"
+    );
+    let saved = storage
+        .read_object(
+            &IdentityAccessContext::new(identity, &caller),
+            &root,
+            &profile_id,
+            note,
+            &mut authorizer,
+        )
+        .unwrap();
+    assert_eq!(saved, ITERATIONS.to_le_bytes());
 }
 
 #[test]
