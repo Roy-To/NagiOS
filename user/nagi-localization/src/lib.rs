@@ -63,7 +63,7 @@ fn lookup_resource<'a>(resource: &'a [u8], key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{EN_US, JA_JP, Locale, lookup_resource, lookup_with_fallback, text};
+    use super::{lookup_resource, lookup_with_fallback, text, Locale, EN_US, JA_JP};
 
     fn catalog_lines(resource: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
         resource
