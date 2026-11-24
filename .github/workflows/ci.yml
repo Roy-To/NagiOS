@@ -158,6 +158,7 @@ jobs:
       - name: Compile Linux Calendar PID 1 integration and tests
         run: |
           export RUSTFLAGS='--cfg linux_boot_identity_runtime --cfg linux_boot_owner_registration --cfg linux_task24_owner_co_location --cfg linux_task24_initial_login_runtime --cfg linux_task24_notes_consumer --cfg linux_dev_ws10 --cfg linux_dev_notes_performance --cfg linux_dev_system_mount --cfg linux_task24_desktop_shell --cfg linux_task24_settings --cfg linux_task24_calendar_app'
+          cargo +nightly-2025-08-01 fetch --manifest-path user/nagi-init/Cargo.toml --locked --target x86_64-unknown-linux-musl
           cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init
           cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init --tests
       - name: Files host and Linux session consumer contracts
