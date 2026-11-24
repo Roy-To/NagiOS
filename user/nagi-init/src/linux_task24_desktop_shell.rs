@@ -1,4 +1,4 @@
-use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
+use super::super::{NotesConsoleExit, linux_owner_registration_console::BootOwnerConsole};
 use crate::desktop_shell_model::{AppId, ShellAction, ShellModel};
 use crate::ui::Painter;
 use libnagi::InputEvent;
@@ -36,7 +36,7 @@ pub(super) fn run<C: ShellConsole>(
     mut launch: impl FnMut(&mut C) -> io::Result<(NotesConsoleExit, Option<NoteDocument>)>,
     drafts: &mut Vec<NoteDocument>,
 ) -> io::Result<ShellExit> {
-    use super::super::{log_pid1_stderr, poll_task24_input, Task24InputPoll};
+    use super::super::{Task24InputPoll, log_pid1_stderr, poll_task24_input};
 
     if poll_identity()? {
         return Ok(ShellExit::RequiredIdentityExited);

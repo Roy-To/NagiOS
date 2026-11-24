@@ -6,14 +6,14 @@ use super::linux_boot_package_inputs::BootCatalogInputs;
 use super::linux_c3_boot_launch::{AuthenticatedBootService, TASK24_IDENTITY_PACKAGE_ID};
 use super::linux_owner_registration_console::BootConsentUiConnection;
 use super::linux_task24_identity_ready::{
-    readiness_challenge, BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE,
+    BROKER_APP, CHALLENGE_BYTES, REQUEST_TYPE, RESPONSE_TYPE, readiness_challenge,
 };
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::pid1_live_peer_supplier;
 use super::pid1_owned_launch_lease::{BoundLaunchLease, ExactChildLaunchLease};
 use super::task24_login_cancellation::{
-    classify_login_denial_after_cleanup, wait_for_login_cleanup_until, LoginCleanupPoll,
-    LoginCleanupWait, VerifiedLoginCancellation,
+    LoginCleanupPoll, LoginCleanupWait, VerifiedLoginCancellation,
+    classify_login_denial_after_cleanup, wait_for_login_cleanup_until,
 };
 use super::{BackendError, GateCommit, ProcessOs};
 use super::{
@@ -25,8 +25,8 @@ use nagi_init_package_provider::package_trust::{
     InstalledPackageBlobStore, PackageServiceGenerationLease, PackageServiceSessionOwner,
 };
 use nagi_init_spawn_contract::SpawnedProcessIdentity;
-use nagi_sdk::app_contract::OrderingMetadata;
 use nagi_sdk::AppId;
+use nagi_sdk::app_contract::OrderingMetadata;
 use nagi_service_contract::{
     CapabilityId, ContractVersion, OperationId, ServiceDescriptor, ServiceId, ServiceOperation,
 };
