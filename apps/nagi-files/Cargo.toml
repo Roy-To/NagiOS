@@ -6,6 +6,10 @@ publish = false
 
 [dependencies]
 cap-std = "=4.0.3"
+nagi-ui = { path = "../../user/nagi-ui" }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "linux_latest"] }
 
 [workspace]
 
@@ -16,6 +20,14 @@ path = "src/lib.rs"
 [[bin]]
 name = "nagi-files-preview"
 path = "src/main.rs"
+
+[[bin]]
+name = "nagi-files-linux-guest-smoke"
+path = "src/bin/linux_guest_smoke.rs"
+required-features = ["linux-guest-smoke"]
+
+[features]
+linux-guest-smoke = []
 
 [lints.rust]
 unsafe_code = "forbid"

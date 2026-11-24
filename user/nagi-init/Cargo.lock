@@ -377,6 +377,8 @@ name = "nagi-files"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "nagi-ui",
+ "rustix",
 ]
 
 [[package]]

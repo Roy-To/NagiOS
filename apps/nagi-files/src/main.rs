@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use nagi_files::localization::{self, Locale};
 use nagi_files::{
-    render_three_pane, Actor, CancellationToken, CapabilityGrant, CapabilityRight, CapabilitySet,
-    FileName, FilesApp, FilesError, FilesErrorKind, FilesSearchProvider, FilesService, Location,
-    SandboxProvider,
+    preview_cli, render_three_pane, Actor, CancellationToken, CapabilityGrant, CapabilityRight,
+    CapabilitySet, FileName, FilesApp, FilesError, FilesErrorKind, FilesSearchProvider,
+    FilesService, Location, SandboxProvider,
 };
 
 fn main() {
@@ -63,7 +63,10 @@ fn run() -> Result<(), String> {
     println!(
         "{} — sandbox: {} (host preview; Nagi target integration: not run)",
         localization::text(locale, "files.title").unwrap_or("Files"),
-        service.provider().sandbox_root().display()
+        service.provider().sandbox_root().map_or_else(
+            || "authorized directory FD".to_owned(),
+            |path| path.display().to_string()
+        )
     );
     println!("Only the explicit --allow rights are granted inside this sandbox.");
     print_help();
@@ -83,6 +86,25 @@ fn run() -> Result<(), String> {
         if line.is_empty() {
             continue;
         }
+        let common_result = preview_cli::dispatch_input_line(
+            line,
+            &mut service,
+            &mut app,
+            report_operation,
+            |contents| println!("{contents}"),
+        );
+        if let Some(result) = common_result {
+            if let Err(error) = result {
+                println!("{}", localized_error(locale, &error));
+            }
+            continue;
+        }
+        if let Some(result) = preview_cli::dispatch_preview_only_line(line, &mut app) {
+            if let Err(error) = result {
+                println!("{}", localized_error(locale, &error));
+            }
+            continue;
+        }
         let (command, rest) = line.split_once(' ').unwrap_or((line, ""));
         let result = match command {
             "quit" | "exit" => break,
@@ -90,20 +112,15 @@ fn run() -> Result<(), String> {
                 print_help();
                 continue;
             }
-            "refresh" | "ls" => app.refresh(&service),
-            "up" => app.navigate_parent(&service).map(|_| ()),
-            "cd" => resolve_location(&app.state.location, rest)
-                .and_then(|path| app.navigate(&service, path)),
-            "select" | "select-add" => select_item(&mut app, rest, command == "select-add"),
             "clear" => {
                 app.state.clear_selection();
                 Ok(())
             }
             "toggle-inspector" => {
-                app.state.inspector_visible = !app.state.inspector_visible;
+                app.state.toggle_inspector();
                 Ok(())
             }
-            "mkdir" => create_folder(&mut service, &mut app, rest),
+            "save" => save_selected(&mut service, &mut app, rest),
             "rename" => rename_item(&mut service, &mut app, rest),
             "copy" => copy_item(&mut service, &mut app, rest),
             "move" => move_item(&mut service, &mut app, rest),
@@ -113,7 +130,6 @@ fn run() -> Result<(), String> {
             "restore" => restore_item(&mut service, &mut app, rest),
             "delete-permanently" => permanently_delete(&mut service, &mut app, rest, locale),
             "tags" => set_tags(&mut service, &mut app, rest),
-            "open" => open_item(&mut service, &mut app, rest),
             "search" => print_search(&search, &service, &app, rest),
             "context" => print_context(&app),
             _ => Err(FilesError::new(FilesErrorKind::InvalidLocation)),
@@ -175,28 +191,45 @@ fn render(app: &FilesApp, locale: Locale) {
 
 fn print_help() {
     println!(
-        "Commands: ls | cd <relative-path> | up | select <n> | select-add <n> | clear | toggle-inspector\n\
-         mkdir <name> | rename <n> <name> | copy <n> <destination> [name]\n\
+        "Commands: ls | cd <relative-path> | up | select <n> | select-add <n> | next | previous | clear | toggle-inspector\n\
+         mkdir <name> | save <text> | rename <n> <name> | copy <n> <destination> [name]\n\
          move <n> <destination> [name] | duplicate <n> | trash <n> | trash-list\n\
          restore <trash-index> | delete-permanently <trash-index> | tags <n> <tag,tag>\n\
-         open <n> | search <text> | context | help | quit"
+         open [<n>] | search <text> | context | help | quit"
     );
 }
 
-fn select_item(app: &mut FilesApp, value: &str, additive: bool) -> Result<(), FilesError> {
-    let index = parse_index(value, app.state.entries.len())?;
-    app.state.select(app.state.entries[index].id, additive)
-}
-
-fn create_folder<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
+fn save_selected<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
     service: &mut FilesService<P, A>,
     app: &mut FilesApp,
-    value: &str,
+    contents: &str,
 ) -> Result<(), FilesError> {
-    let name = FileName::parse(value)?;
-    let (_, result) = service.create_folder(&app.state.location, &name, Actor::User)?;
+    if contents.is_empty() {
+        return Err(FilesError::new(FilesErrorKind::InvalidName));
+    }
+    let selected_id = app
+        .state
+        .focused
+        .filter(|id| app.state.selected.contains(id))
+        .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
+    let source = app
+        .state
+        .entries
+        .iter()
+        .find(|entry| entry.id == selected_id)
+        .cloned()
+        .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
+    let (saved, result) = service.write_file(&source, contents.as_bytes(), Actor::User)?;
     report_operation(&result);
-    app.refresh(service)
+    if let Some(entry) = app
+        .state
+        .entries
+        .iter_mut()
+        .find(|entry| entry.id == saved.id)
+    {
+        *entry = saved;
+    }
+    Ok(())
 }
 
 fn rename_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
@@ -210,7 +243,7 @@ fn rename_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAutho
     let entry = app
         .state
         .entries
-        .get(parse_index(index, app.state.entries.len())?)
+        .get(preview_cli::parse_index(index, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let (_, result) = service.rename(&entry, &FileName::parse(name)?, Actor::User)?;
@@ -225,17 +258,18 @@ fn copy_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthori
 ) -> Result<(), FilesError> {
     let mut parts = value.splitn(3, ' ');
     let index = parts.next().unwrap_or("");
-    let destination = resolve_location(&app.state.location, parts.next().unwrap_or(""))?;
+    let destination =
+        preview_cli::resolve_location(&app.state.location, parts.next().unwrap_or(""))?;
     let name = match parts.next() {
         Some(name) => FileName::parse(name)?,
-        None => app.state.entries[parse_index(index, app.state.entries.len())?]
+        None => app.state.entries[preview_cli::parse_index(index, app.state.entries.len())?]
             .name
             .clone(),
     };
     let entry = app
         .state
         .entries
-        .get(parse_index(index, app.state.entries.len())?)
+        .get(preview_cli::parse_index(index, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let (_, result) = service.copy(
@@ -256,11 +290,12 @@ fn move_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthori
 ) -> Result<(), FilesError> {
     let mut parts = value.splitn(3, ' ');
     let index = parts.next().unwrap_or("");
-    let destination = resolve_location(&app.state.location, parts.next().unwrap_or(""))?;
+    let destination =
+        preview_cli::resolve_location(&app.state.location, parts.next().unwrap_or(""))?;
     let entry = app
         .state
         .entries
-        .get(parse_index(index, app.state.entries.len())?)
+        .get(preview_cli::parse_index(index, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let name = match parts.next() {
@@ -280,7 +315,7 @@ fn duplicate_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAu
     let entry = app
         .state
         .entries
-        .get(parse_index(value, app.state.entries.len())?)
+        .get(preview_cli::parse_index(value, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let (_, result) = service.duplicate(&entry, Actor::User, &CancellationToken::new())?;
@@ -296,7 +331,7 @@ fn trash_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthor
     let entry = app
         .state
         .entries
-        .get(parse_index(value, app.state.entries.len())?)
+        .get(preview_cli::parse_index(value, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let (_, result) = service.trash(&entry, Actor::User)?;
@@ -329,7 +364,7 @@ fn set_tags<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthoriz
     let entry = app
         .state
         .entries
-        .get(parse_index(index, app.state.entries.len())?)
+        .get(preview_cli::parse_index(index, app.state.entries.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?
         .clone();
     let tags = values
@@ -348,7 +383,7 @@ fn restore_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuth
 ) -> Result<(), FilesError> {
     let trash = service.list_trash()?;
     let item = trash
-        .get(parse_index(value, trash.len())?)
+        .get(preview_cli::parse_index(value, trash.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
     let (_, result) = service.restore(item.id, Actor::User)?;
     report_operation(&result);
@@ -363,7 +398,7 @@ fn permanently_delete<P: nagi_files::FilesystemProvider, A: nagi_files::Capabili
 ) -> Result<(), FilesError> {
     let trash = service.list_trash()?;
     let item = trash
-        .get(parse_index(value, trash.len())?)
+        .get(preview_cli::parse_index(value, trash.len())?)
         .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
     let challenge = service.request_permanent_delete(item.id)?;
     print!(
@@ -387,29 +422,6 @@ fn permanently_delete<P: nagi_files::FilesystemProvider, A: nagi_files::Capabili
     let result = service.confirm_permanent_delete(challenge, Actor::User)?;
     report_operation(&result);
     app.refresh(service)
-}
-
-fn open_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
-    service: &mut FilesService<P, A>,
-    app: &mut FilesApp,
-    value: &str,
-) -> Result<(), FilesError> {
-    let entry = app
-        .state
-        .entries
-        .get(parse_index(value, app.state.entries.len())?)
-        .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
-    if entry.kind == nagi_files::EntryKind::Folder {
-        return app.navigate(service, entry.child_location());
-    }
-    let entry = entry.clone();
-    let (contents, result) = service.open_file(&entry, Actor::User)?;
-    report_operation(&result);
-    match std::str::from_utf8(&contents) {
-        Ok(text) => println!("{text}"),
-        Err(_) => println!("Binary file ({} bytes).", contents.len()),
-    }
-    Ok(())
 }
 
 fn print_context(app: &FilesApp) -> Result<(), FilesError> {
@@ -440,31 +452,6 @@ fn print_search<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuth
     Ok(())
 }
 
-fn resolve_location(base: &Location, user_path: &str) -> Result<Location, FilesError> {
-    if user_path.is_empty() || user_path == "." {
-        return Ok(base.clone());
-    }
-    if user_path.starts_with('/') || user_path.contains('\\') {
-        return Err(FilesError::new(FilesErrorKind::InvalidLocation));
-    }
-    let combined = if base.is_root() {
-        user_path.to_owned()
-    } else {
-        format!("{}/{}", base.as_str(), user_path)
-    };
-    Location::parse(&combined)
-}
-
-fn parse_index(value: &str, length: usize) -> Result<usize, FilesError> {
-    let index = value
-        .parse::<usize>()
-        .ok()
-        .and_then(|number| number.checked_sub(1))
-        .filter(|index| *index < length)
-        .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
-    Ok(index)
-}
-
 fn report_operation(result: &nagi_files::OperationResult) {
     println!(
         "{} applied (transaction {}). Activity: {:?}; checkpoint: {:?}; reversible: {:?}",
@@ -477,29 +464,5 @@ fn report_operation(result: &nagi_files::OperationResult) {
 }
 
 fn localized_error(locale: Locale, error: &FilesError) -> String {
-    let key = match error.kind {
-        FilesErrorKind::PermissionDenied | FilesErrorKind::PermissionRequired => {
-            "files.error.permission"
-        }
-        FilesErrorKind::ProviderUnavailable | FilesErrorKind::CapabilityUnavailable => {
-            "files.error.unavailable"
-        }
-        FilesErrorKind::Conflict | FilesErrorKind::AlreadyExists => "files.error.conflict",
-        FilesErrorKind::SandboxEscape => "files.error.sandbox_escape",
-        FilesErrorKind::SymlinkNotAllowed => "files.error.symlink",
-        FilesErrorKind::Cancelled => "files.error.cancelled",
-        FilesErrorKind::ActivityUnavailable | FilesErrorKind::ActivityFailure => {
-            "files.error.activity_unavailable"
-        }
-        FilesErrorKind::WorkspaceUnavailable => "files.error.workspace_unavailable",
-        FilesErrorKind::DestinationInsideSource => "files.error.destination_inside_source",
-        FilesErrorKind::InvalidName => "files.error.invalid_name",
-        FilesErrorKind::NotDirectory => "files.error.not_directory",
-        FilesErrorKind::FileTooLarge => "files.error.preview_too_large",
-        FilesErrorKind::InvalidLocation => "files.error.invalid_location",
-        _ => "files.error.invalid_location",
-    };
-    localization::text(locale, key)
-        .unwrap_or("The operation failed.")
-        .to_owned()
+    localization::error_message(locale, error)
 }

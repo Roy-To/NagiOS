@@ -230,6 +230,25 @@ impl FilesystemProvider for InMemoryProvider {
         Ok(node.bytes.clone())
     }
 
+    fn write_file(
+        &mut self,
+        location: &Location,
+        contents: &[u8],
+    ) -> Result<FileEntry, FilesError> {
+        let name = Self::resolve_name(location)?;
+        let node = self
+            .nodes
+            .get_mut(location)
+            .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound).at(location.clone()))?;
+        if node.kind != EntryKind::File {
+            return Err(FilesError::new(FilesErrorKind::IsDirectory).at(location.clone()));
+        }
+        node.bytes.clear();
+        node.bytes.extend_from_slice(contents);
+        node.modified_at = now();
+        self.to_entry(location, &name)
+    }
+
     fn set_tags(&mut self, location: &Location, tags: &[String]) -> Result<FileEntry, FilesError> {
         let node = self
             .nodes

@@ -1,3 +1,5 @@
+use crate::{FilesError, FilesErrorKind};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Locale {
     EnUs,
@@ -19,6 +21,36 @@ pub fn text(locale: Locale, key: &str) -> Option<&'static str> {
         Locale::JaJp => JA_JP,
     };
     lookup(selected, key).or_else(|| lookup(EN_US, key))
+}
+
+/// Returns the localized user-facing message used by Files surfaces for an
+/// operation error.
+pub fn error_message(locale: Locale, error: &FilesError) -> String {
+    let key = match error.kind {
+        FilesErrorKind::PermissionDenied | FilesErrorKind::PermissionRequired => {
+            "files.error.permission"
+        }
+        FilesErrorKind::ProviderUnavailable | FilesErrorKind::CapabilityUnavailable => {
+            "files.error.unavailable"
+        }
+        FilesErrorKind::Conflict | FilesErrorKind::AlreadyExists => "files.error.conflict",
+        FilesErrorKind::SandboxEscape => "files.error.sandbox_escape",
+        FilesErrorKind::SymlinkNotAllowed => "files.error.symlink",
+        FilesErrorKind::Cancelled => "files.error.cancelled",
+        FilesErrorKind::ActivityUnavailable | FilesErrorKind::ActivityFailure => {
+            "files.error.activity_unavailable"
+        }
+        FilesErrorKind::WorkspaceUnavailable => "files.error.workspace_unavailable",
+        FilesErrorKind::DestinationInsideSource => "files.error.destination_inside_source",
+        FilesErrorKind::InvalidName => "files.error.invalid_name",
+        FilesErrorKind::NotDirectory => "files.error.not_directory",
+        FilesErrorKind::FileTooLarge => "files.error.preview_too_large",
+        FilesErrorKind::InvalidLocation => "files.error.invalid_location",
+        _ => "files.error.invalid_location",
+    };
+    text(locale, key)
+        .unwrap_or("The operation failed.")
+        .to_owned()
 }
 
 pub fn keys(resource: &str) -> Vec<&str> {

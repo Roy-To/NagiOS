@@ -21,6 +21,10 @@ pub enum FilesActionCall {
     Open {
         resource: FileEntry,
     },
+    Write {
+        resource: FileEntry,
+        contents: Vec<u8>,
+    },
     CreateFolder {
         parent: Location,
         name: FileName,
@@ -124,6 +128,14 @@ impl FilesActionApi {
                         operation,
                     })
             }
+            FilesActionCall::Write { resource, contents } => service
+                .write_file(&resource, &contents, actor)
+                .map(
+                    |(resource, operation)| FilesActionResponse::ResourceChanged {
+                        resource,
+                        operation,
+                    },
+                ),
             FilesActionCall::CreateFolder { parent, name } => service
                 .create_folder(&parent, &name, actor)
                 .map(

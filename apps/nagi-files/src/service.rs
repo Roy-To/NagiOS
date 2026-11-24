@@ -212,6 +212,41 @@ where
         bounded_preview(contents, location)
     }
 
+    pub fn write_file(
+        &mut self,
+        source: &FileEntry,
+        contents: &[u8],
+        actor: Actor,
+    ) -> Result<(FileEntry, OperationResult), FilesError> {
+        self.ensure_available()?;
+        if source.kind != EntryKind::File {
+            return Err(
+                FilesError::new(FilesErrorKind::UnsupportedEntry).at(source.child_location())
+            );
+        }
+        let location = source.child_location();
+        self.authorize(CapabilityRight::Write, &location)?;
+        self.provider.verify_resource(source.id, &location)?;
+        let mut intent = OperationIntent::new(OperationKind::Write, actor);
+        intent.source = Some(location.clone());
+        intent.affected.push(source.id);
+        intent
+            .preconditions
+            .push(crate::OperationPrecondition::SourceExists);
+        self.begin_agent_operation(&intent)?;
+        let checkpoint = self.checkpoint_before(&intent);
+        match self.provider.write_file(&location, contents) {
+            Ok(entry) => {
+                let result = self.success(&intent, vec![entry.id], checkpoint);
+                Ok((entry, result))
+            }
+            Err(error) => {
+                self.failure(&intent, &error);
+                Err(error)
+            }
+        }
+    }
+
     pub fn open_file(
         &mut self,
         source: &FileEntry,
