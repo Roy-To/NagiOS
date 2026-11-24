@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: build_task24_acceptance_elf.sh [--online] [--release] <new-output-dir>
+Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher] <new-output-dir>
 
 Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
 NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
@@ -19,22 +19,26 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
+Development builds include the L7 desktop shell by default.
+--desktop-launcher is accepted for existing development invocations.
 USAGE
 }
 
 profile=debug
 offline=true
+desktop_launcher_requested=false
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
         --online) offline=false ;;
+        --desktop-launcher) desktop_launcher_requested=true ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
     esac
     shift
 done
-if (($# != 1)); then
+if (($# != 1)) || { [[ "$profile" == release ]] && "$desktop_launcher_requested"; }; then
     usage >&2
     exit 2
 fi
@@ -59,6 +63,9 @@ cfgs=(
     linux_task24_notes_consumer linux_dev_ws10 linux_dev_notes_performance
     linux_dev_system_mount
 )
+if [[ "$profile" == debug ]]; then
+    cfgs+=(linux_task24_desktop_shell)
+fi
 rustc_args=()
 for cfg in "${cfgs[@]}"; do
     rustc_args+=(--cfg "$cfg")

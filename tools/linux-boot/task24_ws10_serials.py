@@ -4,13 +4,15 @@
 import argparse
 from pathlib import Path
 
+import task24_recovery_serials as recovery
+
 READY = "nagi-init: state=ready"
 WAITING = "NAGI_DEV_TASK24_UNLOCK_WAITING_FOR_INPUT"
 ATTACHED = "NAGI_DEV_TASK24_SESSION_ATTACHED"
 NOTES_READY = "NAGI_DEV_NOTES_INPUT_READY"
 CLOSED = "NAGI_DEV_NOTES_CLOSED"
 LOGOUT = "NAGI_DEV_NOTES_SESSION_ENDED reason=UserLogout"
-PREVIOUS_LOGOUT = "NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED reason=UserLogout"
+PREVIOUS_LOGOUT = recovery.PREVIOUS_USER_LOGOUT
 PREVIOUS_TERMINAL = "NAGI_DEV_TASK24_PREVIOUS_IDENTITY_TERMINAL_CONSUMED "
 NORMAL_REAP = "NAGI_DEV_TASK24_C3_IDENTITY_NORMAL_EXIT_REAPED "
 NORMAL_TERMINAL = "NAGI_DEV_TASK24_IDENTITY_TERMINAL_CONSUMED "
@@ -47,18 +49,33 @@ def require_absent(lines, *markers):
             raise ValueError(f"unexpected marker: {marker.strip()}")
 
 
+def notes_entry(lines):
+    launcher = (recovery.DESKTOP_READY, recovery.DESKTOP_LAUNCH) if recovery.uses_desktop(lines) else ()
+    return (ATTACHED, READY, *launcher, NOTES_READY)
+
+
 def validate(case, first, reopened=None):
+    entry = notes_entry(first)
+    if reopened is not None and entry != notes_entry(reopened):
+        raise ValueError("WS-10 boots used different Notes entry points")
     if case == "logout":
-        ordered(first, ATTACHED, READY, NOTES_READY, CLOSED, LOGOUT, RETIRED)
-        ordered(reopened, PREVIOUS_LOGOUT, WAITING, ATTACHED, READY, NOTES_READY)
+        if reopened is None:
+            raise ValueError("logout requires the next boot")
+        if recovery.uses_desktop(first):
+            recovery.validate_desktop_logout_save_read(
+                "\n".join(first) + "\n", "\n".join(reopened) + "\n",
+            )
+        else:
+            ordered(first, *entry, CLOSED, LOGOUT, RETIRED)
+            ordered(reopened, PREVIOUS_LOGOUT, WAITING, *entry)
     elif case == "stop":
-        ordered(first, ATTACHED, READY, NOTES_READY, STOPPED, RETIRED)
-        require_absent(first, LOGOUT, NORMAL_REAP, NORMAL_TERMINAL)
+        ordered(first, *entry, STOPPED, RETIRED)
+        require_absent(first, LOGOUT, recovery.DESKTOP_LOGOUT, NORMAL_REAP, NORMAL_TERMINAL)
         require_absent(reopened, PREVIOUS_TERMINAL)
-        ordered(reopened, ABNORMAL_RECOVERY, WAITING, ATTACHED, READY, NOTES_READY)
+        ordered(reopened, ABNORMAL_RECOVERY, WAITING, *entry)
     elif case == "revoke":
-        ordered(first, ATTACHED, READY, NOTES_READY, REVOKED, SAVE_FAILED, UNSAVED, ENDED_REVOKED, RETIRED)
-        require_absent(first, CLOSED, LOGOUT)
+        ordered(first, *entry, REVOKED, SAVE_FAILED, UNSAVED, ENDED_REVOKED, RETIRED)
+        require_absent(first, CLOSED, LOGOUT, recovery.DESKTOP_LOGOUT)
         revoked_at, = positions(first, REVOKED)
         require_absent(first[revoked_at:], SAVED)
     else:

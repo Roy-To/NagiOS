@@ -21,6 +21,28 @@ INPUT = "NAGI_DEV_NOTES_INPUT_READY"
 SAVED = "NAGI_DEV_NOTES_SAVED"
 REOPENED = "NAGI_DEV_NOTES_REOPENED"
 CLOSED = "NAGI_DEV_NOTES_CLOSED"
+DESKTOP_READY = "NAGI_DEV_DESKTOP_READY"
+DESKTOP_LAUNCH = "NAGI_DEV_DESKTOP_APP_LAUNCH app=notes"
+DESKTOP_CLOSED = "NAGI_DEV_DESKTOP_APP_CLOSED app=notes exit=ClosedByUser"
+DESKTOP_REISSUED = "NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUED"
+DESKTOP_LOGOUT = "NAGI_DEV_DESKTOP_LOGOUT_REQUESTED"
+SESSION_LOGOUT = "NAGI_DEV_NOTES_SESSION_ENDED reason=UserLogout"
+PREVIOUS_USER_LOGOUT = "NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED reason=UserLogout"
+DESKTOP_LOGOUT_SAVE_FLOW = (
+    DESKTOP_READY, DESKTOP_LAUNCH, INPUT, SAVED, CLOSED, DESKTOP_CLOSED,
+    DESKTOP_LOGOUT, SESSION_LOGOUT,
+)
+DESKTOP_NOTES_FLOW = {
+    "save": (
+        DESKTOP_READY, DESKTOP_LAUNCH, INPUT, SAVED, CLOSED, DESKTOP_CLOSED,
+        DESKTOP_LAUNCH, DESKTOP_REISSUED, REOPENED, INPUT, CLOSED, DESKTOP_CLOSED,
+        DESKTOP_LOGOUT, SESSION_LOGOUT,
+    ),
+    "read": (
+        DESKTOP_READY, DESKTOP_LAUNCH, REOPENED, INPUT, CLOSED, DESKTOP_CLOSED,
+        DESKTOP_LOGOUT, SESSION_LOGOUT,
+    ),
+}
 REAPED = "NAGI_DEV_TASK24_CHILD_REAPED_AND_RETIRED"
 REAPED_NORMAL = (
     "NAGI_DEV_TASK24_CHILD_REAPED_AND_RETIRED "
@@ -134,17 +156,66 @@ def _note_identity(lines: list[str], marker: str, phase: str) -> tuple[str, int,
     return match.group(1), int(match.group(2)), index
 
 
+def uses_desktop(lines: list[str]) -> bool:
+    return any(line.startswith("NAGI_DEV_DESKTOP_") for line in lines)
+
+
+def desktop_notes_progress(lines: list[str], phase: str) -> int:
+    """Check the observed prefix of the same-session launcher and Notes flow."""
+    return _desktop_notes_progress(lines, phase, DESKTOP_NOTES_FLOW[phase])
+
+
+def _desktop_notes_progress(lines: list[str], phase: str, expected: tuple[str, ...]) -> int:
+    progress = 0
+    saved = None
+    for line in lines:
+        marker, _, _ = line.partition(" ")
+        if marker in NOTE_PATTERNS:
+            match = NOTE_PATTERNS[marker].fullmatch(line)
+            if match is None:
+                raise ValueError(f"{phase} has a malformed {marker} line")
+            if marker == SAVED:
+                saved = match.groups()
+            elif phase == "save" and saved != match.groups():
+                raise ValueError("same-session reopen differs from saved Notes ObjectId/revision")
+        elif line in (INPUT, CLOSED, SESSION_LOGOUT):
+            marker = line
+        elif line.startswith("NAGI_DEV_DESKTOP_"):
+            marker = line
+        else:
+            continue
+        if progress == len(expected) or marker != expected[progress]:
+            raise ValueError(f"{phase} has an unexpected or out-of-order desktop marker: {marker}")
+        progress += 1
+    return progress
+
+
 def _validate_phase(
-    serial: str, phase: str, note_marker: str
+    serial: str, phase: str, note_marker: str, *, desktop_flow: tuple[str, ...] | None = None,
 ) -> tuple[str, int, tuple[str | int, ...]]:
     lines = _complete_lines(serial, phase)
     mount = _unique_index(lines, MOUNT, phase)
     session = _unique_index(lines, SESSION, phase)
     handshake = _unique_index(lines, HANDSHAKE, phase)
     ready = _unique_index(lines, READY, phase)
-    input_ready = _unique_index(lines, INPUT, phase)
+    desktop = uses_desktop(lines)
     note_id, revision, note_index = _note_identity(lines, note_marker, phase)
-    closed = _unique_index(lines, CLOSED, phase)
+    if desktop:
+        expected_flow = DESKTOP_NOTES_FLOW[phase] if desktop_flow is None else desktop_flow
+        if _desktop_notes_progress(lines, phase, expected_flow) != len(expected_flow):
+            raise ValueError(f"{phase} desktop Notes flow did not finish")
+        first_action = _unique_index(lines, DESKTOP_READY, phase)
+        last_action = _unique_index(lines, SESSION_LOGOUT, phase)
+    else:
+        input_ready = _unique_index(lines, INPUT, phase)
+        last_action = _unique_index(lines, CLOSED, phase)
+        first_action = input_ready if note_marker == SAVED else note_index
+        if note_marker == SAVED:
+            legacy_order = input_ready < note_index < last_action
+        else:
+            legacy_order = note_index < input_ready < last_action
+        if not legacy_order:
+            raise ValueError(f"{phase} Notes input/save/read/close order is invalid")
     reaped = _unique_normal_reap_index(lines, phase)
     identity_exit_requested = _unique_index(lines, IDENTITY_EXIT_REQUESTED, phase)
     c3_identity = _receipt_identity(lines, C3_IDENTITY_NORMAL_EXIT_REAPED, phase)
@@ -157,41 +228,18 @@ def _validate_phase(
 
     if not mount < session < handshake < ready:
         raise ValueError(f"{phase} mount/session/handshake/READY order is invalid")
+    if not ready < first_action < last_action < reaped < identity_exit_requested < c3_identity_reaped < terminal:
+        raise ValueError(f"{phase} Notes action/reap/Identity/C1 terminal order is invalid")
     if note_marker == SAVED:
         previous_terminal = _receipt_identity(
             lines, PREVIOUS_TERMINAL, phase, required=False
         )
-        if any(line.startswith(f"{REOPENED} ") for line in lines):
+        if not desktop and any(line.startswith(f"{REOPENED} ") for line in lines):
             raise ValueError("save phase must start from a fresh Notes volume")
         if previous_terminal is not None and not mount < previous_terminal[1] < session:
             raise ValueError("save previous-terminal marker is out of order")
-        if not (
-            ready
-            < input_ready
-            < note_index
-            < closed
-            < reaped
-            < identity_exit_requested
-            < c3_identity_reaped
-            < terminal
-        ):
-            raise ValueError(f"{phase} save/close/reap/Identity/C1 terminal order is invalid")
-    else:
-        if any(line.startswith(f"{SAVED} ") for line in lines):
-            raise ValueError("read phase must not emit a saved marker")
-        if not (
-            ready
-            < note_index
-            < input_ready
-            < closed
-            < reaped
-            < identity_exit_requested
-            < c3_identity_reaped
-            < terminal
-        ):
-            raise ValueError(
-                f"{phase} reopen/input/close/reap/Identity/C1 terminal order is invalid"
-            )
+    elif any(line.startswith(f"{SAVED} ") for line in lines):
+        raise ValueError("read phase must not emit a saved marker")
     return note_id, revision, c3_receipt
 
 
@@ -220,12 +268,43 @@ def _validate_read_link(
     return reopened_id, reopened_revision
 
 
+def _require_matching_entrypoints(save_serial: str, read_serial: str) -> None:
+    if uses_desktop(save_serial.splitlines()) != uses_desktop(read_serial.splitlines()):
+        raise ValueError("save and read boots used different Notes entry points")
+
+
 def validate_save_read(save_serial: str, read_serial: str) -> dict[str, int | str]:
     """Require prior terminal consumption before login, then exact note identity."""
+    _require_matching_entrypoints(save_serial, read_serial)
     saved_id, saved_revision, saved_receipt = _validate_phase(save_serial, "save", SAVED)
     reopened_id, reopened_revision = _validate_read_link(read_serial, saved_receipt)
     if (saved_id, saved_revision) != (reopened_id, reopened_revision):
         raise ValueError("saved and reopened Notes ObjectId/revision differ")
+    return {"object": saved_id, "revision": saved_revision, "ready_count": 1}
+
+
+def validate_desktop_logout_save_read(save_serial: str, read_serial: str) -> dict[str, int | str]:
+    """Validate a dedicated WS-10 Desktop logout and the following login."""
+    if not all(uses_desktop(serial.splitlines()) for serial in (save_serial, read_serial)):
+        raise ValueError("WS-10 Desktop logout requires Desktop Notes in both boots")
+
+    saved_id, saved_revision, saved_receipt = _validate_phase(
+        save_serial, "save", SAVED, desktop_flow=DESKTOP_LOGOUT_SAVE_FLOW,
+    )
+    reopened_id, reopened_revision = _validate_read_link(read_serial, saved_receipt)
+    if (saved_id, saved_revision) != (reopened_id, reopened_revision):
+        raise ValueError("saved and reopened Notes ObjectId/revision differ")
+
+    read_lines = _complete_lines(read_serial, "read")
+    previous_terminal = _receipt_identity(read_lines, PREVIOUS_TERMINAL, "read")
+    assert previous_terminal is not None
+    logout = _unique_index(read_lines, PREVIOUS_USER_LOGOUT, "read")
+    login = _unique_index(read_lines, LOGIN_WAIT, "read")
+    if not previous_terminal[1] < logout < login:
+        raise ValueError("previous UserLogout must follow prior terminal consumption and precede login")
+    previous_ends = [line for line in read_lines if line.startswith("NAGI_DEV_WS10_PREVIOUS_SESSION_ENDED ")]
+    if previous_ends != [PREVIOUS_USER_LOGOUT]:
+        raise ValueError("read has conflicting previous Session end evidence")
     return {"object": saved_id, "revision": saved_revision, "ready_count": 1}
 
 
@@ -239,7 +318,7 @@ def validate_reject_close(
         "NAGI_DEV_TASK24_LOGIN_ATTEMPT_EXPIRED", "NAGI_DEV_TASK24_INITIAL_ADMISSION_FAILED",
         "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED",
         "NAGI_LINUX_OWNER_REGISTRATION_WAITING_FOR_INPUT", "NAGI_DEV_NOTES_",
-        SESSION, HANDSHAKE, READY,
+        SESSION, HANDSHAKE, READY, "NAGI_DEV_DESKTOP_",
     )
     if any(line.startswith(forbidden) for line in lines):
         raise ValueError("reject-close boot entered a forbidden state")
@@ -270,6 +349,7 @@ def validate_reject_close(
 def validate_save_reject_read(
     save_serial: str, reject_serial: str, read_serial: str
 ) -> dict[str, int | str]:
+    _require_matching_entrypoints(save_serial, read_serial)
     saved_id, saved_revision, saved_receipt = _validate_phase(save_serial, "save", SAVED)
     rejected_receipt = validate_reject_close(reject_serial, saved_receipt)
     reopened_id, reopened_revision = _validate_read_link(read_serial, rejected_receipt)

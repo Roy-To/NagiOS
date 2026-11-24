@@ -76,8 +76,14 @@ then Notes save stops at `NAGI_DEV_TASK24_FILES_POLICY_UNAVAILABLE` /
 Defined in `tools/linux-boot/task24_recovery_serials.py`. Expected order in the save phase:
 `NAGI_DEV_IDENTITY_DATA_MOUNTED retained_fd=true` → `NAGI_DEV_TASK24_UNLOCK_WAITING_FOR_INPUT`
 → `NAGI_DEV_TASK24_SESSION_ATTACHED` → `NAGI_DEV_TASK24_IDENTITY_HANDSHAKE_COMPLETED`
-→ `nagi-init: state=ready` → `NAGI_DEV_NOTES_INPUT_READY` → `NAGI_DEV_NOTES_SAVED object=… revision=…`
-→ (read phase) `NAGI_DEV_NOTES_REOPENED …`.
+→ `nagi-init: state=ready` → `NAGI_DEV_DESKTOP_READY`
+→ `NAGI_DEV_DESKTOP_APP_LAUNCH app=notes` → `NAGI_DEV_NOTES_INPUT_READY`
+→ `NAGI_DEV_NOTES_SAVED object=… revision=…`.
+After closing Notes, the save phase relaunches it in the same session and requires
+`NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUED` and `NAGI_DEV_NOTES_REOPENED`
+with the saved object and revision. The read phase launches from Desktop and
+requires the same object and revision after reboot. Both phases close Notes and
+request logout from the launcher before C1 session end.
 Quick "how far did it get" summary: `python3 tools/linux-boot/serial_progress.py <serial.log>`.
 
 Related tools in `tools/linux-boot/`: `run_qemu_child.py` (QEMU + QMP with hard timeout),

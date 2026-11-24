@@ -5,6 +5,7 @@ desktop.settings.option.en-US=English
 desktop.settings.option.ja-JP=日本語
 desktop.settings.option.selected=選択中
 desktop.calculator.title=計算
+desktop.shell.logout=ログアウト
 desktop.notes.title=メモ
 desktop.notes.close_save_failed=保存できませんでした
 desktop.notes.close_unsaved_hint=もう一度 Esc で未保存のまま閉じる
