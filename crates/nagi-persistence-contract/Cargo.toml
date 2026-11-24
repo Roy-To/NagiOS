@@ -1,0 +1,15 @@
+[package]
+name = "nagi-persistence-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+nagi-model = { path = "../nagi-model", version = "=0.1.0" }
+
+[workspace]
+members = ["."]
+resolver = "2"
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -12,6 +12,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(target_os = "linux")]
 mod linux_data;
 
+mod snapshot;
+
+pub use nagi_persistence_contract::{ConditionalWriteOutcome, Revision, Snapshot, SnapshotStorage};
+pub use snapshot::{SingleObjectSnapshotStorageError, SnapshotStorageError};
+
 /// The storage namespace selected by the profile-volume owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AppStorageKind {
@@ -339,6 +344,10 @@ impl AppStorageOwners {
         &self.notes
     }
 
+    pub fn settings(&self) -> &ProfileVolumeAppOwner {
+        &self.settings
+    }
+
     pub fn owners_mut(&mut self) -> [&mut ProfileVolumeAppOwner; 3] {
         [&mut self.notes, &mut self.settings, &mut self.calendar]
     }
@@ -500,6 +509,46 @@ impl ProfileVolumeNotesBundle {
     #[cfg(test)]
     fn same_attachment(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.attachment, &other.attachment)
+    }
+}
+
+/// A typed, single-object Data provider kept behind its owner bundle.
+pub struct ProfileSnapshotStorage {
+    bundle: ProfileVolumeNotesBundle,
+    provider: snapshot::DirectoryFdSnapshotStorage,
+}
+
+impl ProfileSnapshotStorage {
+    pub fn open_settings(
+        bundle: ProfileVolumeNotesBundle,
+    ) -> Result<Self, ProfileVolumeNotesOwnerError> {
+        bundle.validate_kind(AppStorageKind::Settings)?;
+        Self::open(bundle)
+    }
+
+    fn open(bundle: ProfileVolumeNotesBundle) -> Result<Self, ProfileVolumeNotesOwnerError> {
+        let provider = bundle
+            .with_duplicated_object_directory(|directory| {
+                snapshot::DirectoryFdSnapshotStorage::new(directory.into())
+            })?
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+        Ok(Self { bundle, provider })
+    }
+
+    /// The composing caller holds its exact live Session throughout this callback.
+    pub fn with_active_snapshot<R>(
+        &mut self,
+        operation: impl FnOnce(
+            ObjectId,
+            &mut dyn SnapshotStorage<Error = SingleObjectSnapshotStorageError<SnapshotStorageError>>,
+        ) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        let object = self.bundle.object_id();
+        self.bundle.with_active(|| {
+            snapshot::with_single_object_snapshot_storage(&mut self.provider, object, |view| {
+                operation(object, view)
+            })
+        })
     }
 }
 
@@ -682,6 +731,72 @@ mod tests {
         drop(duplicate);
         drop(owner);
         assert_eq!(peer.read(&mut byte).unwrap(), 0);
+    }
+
+    #[test]
+    fn settings_snapshot_reopens_and_retained_provider_is_denied_after_revocation() {
+        use std::fs::{self, File};
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!(
+            "nagi-settings-snapshot-owner-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        let object = ObjectId(42);
+        let attach = |kind| {
+            ProfileVolumeAppOwner::verified_fixture_for(
+                kind,
+                "principal",
+                "profile",
+                File::open(&path).unwrap().into(),
+                object,
+            )
+        };
+        let notes = attach(AppStorageKind::Notes);
+        assert!(matches!(
+            ProfileSnapshotStorage::open_settings(notes.issue_bundle().unwrap()),
+            Err(ProfileVolumeNotesOwnerError::ForeignAttachment)
+        ));
+        let mut settings = attach(AppStorageKind::Settings);
+        let open = |owner: &ProfileVolumeAppOwner| {
+            ProfileSnapshotStorage::open_settings(owner.issue_bundle().unwrap()).unwrap()
+        };
+        let mut first = open(&settings);
+        let saved = first
+            .with_active_snapshot(|key, storage| {
+                assert_eq!(key, object);
+                assert_eq!(storage.read(key), Ok(None));
+                assert_eq!(
+                    storage.read(ObjectId(77)),
+                    Err(SingleObjectSnapshotStorageError::ObjectIdMismatch)
+                );
+                storage.compare_and_replace(key, None, b"settings payload")
+            })
+            .unwrap();
+        let ConditionalWriteOutcome::Applied { revision } = saved else {
+            panic!("initial snapshot was not saved");
+        };
+        drop(first);
+
+        let mut reopened = open(&settings);
+        assert_eq!(
+            reopened.with_active_snapshot(|key, storage| storage.read(key)),
+            Ok(Ok(Some(Snapshot::new(
+                revision,
+                b"settings payload".to_vec()
+            ))))
+        );
+        settings.revoke().unwrap();
+        assert_eq!(
+            reopened.with_active_snapshot(|_, _| -> () { panic!("revoked provider invoked") }),
+            Err(ProfileVolumeNotesOwnerError::Revoked)
+        );
+        drop(reopened);
+        drop(settings);
+        drop(notes);
+        fs::remove_dir_all(path).unwrap();
     }
 
     fn app_storage_fixture() -> (AppStorageOwners, [ProfileVolumeNotesBundle; 3]) {

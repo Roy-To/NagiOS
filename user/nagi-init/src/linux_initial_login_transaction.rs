@@ -179,6 +179,43 @@ where
         ),
         crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
     > {
+        self.with_attached_profile_session(lease, admission, |issued, identity, _| {
+            let attachment = notes.issue_for_attached_session(issued.caller(), &identity)?;
+            Ok((attachment, identity, Arc::clone(issued)))
+        })
+    }
+
+    pub(super) fn request_settings_snapshot(
+        &mut self,
+        lease: SessionLease,
+        owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+    ) -> Result<
+        crate::profile_volume_notes_owner::AuthorizedProfileSnapshot,
+        crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+    > {
+        self.with_attached_profile_session(lease, admission, |issued, identity, revalidation| {
+            owners.issue_settings_snapshot_for_attached_session(
+                issued.caller(),
+                &identity,
+                revalidation,
+            )
+        })
+    }
+
+    fn with_attached_profile_session<R>(
+        &mut self,
+        lease: SessionLease,
+        admission: &C1SystemServiceRuntimeAdmission<'_>,
+        effect: impl FnOnce(
+            &Arc<C1IssuedInteractiveSession>,
+            nagi_identity_session::ResolvedIdentity,
+            &Arc<SessionLeaseRevalidationHandle>,
+        ) -> Result<
+            R,
+            crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError,
+        >,
+    ) -> Result<R, crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError> {
         use crate::profile_volume_notes_owner::ProfileVolumeNotesOwnerError::Unavailable;
 
         let revalidation = self.retained_revalidation(lease).map_err(|_| Unavailable)?;
@@ -191,12 +228,9 @@ where
         if identity.session_id() != issued.session_id() {
             return Err(Unavailable);
         }
-        let attachment = revalidation
-            .with_live_session_effect(|| {
-                notes.issue_for_attached_session(issued.caller(), &identity)
-            })
-            .map_err(|_| Unavailable)??;
-        Ok((attachment, identity, Arc::clone(issued)))
+        revalidation
+            .with_live_session_effect(|| effect(issued, identity, &revalidation))
+            .map_err(|_| Unavailable)?
     }
 }
 

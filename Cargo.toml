@@ -47,6 +47,7 @@ exclude = [
     "crates/nagi-nipc-v1-stream",
     "crates/nagi-init-service-call",
     "crates/nagi-profile-volume-owner",
+    "crates/nagi-persistence-contract",
     # This standalone app workspace is a path dependency of the Notes codec.
     "apps/nagi-files",
     # Linux host tests use sibling manifests over the product sources.
