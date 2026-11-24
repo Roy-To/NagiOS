@@ -68,3 +68,21 @@ fn reload_required_blocks_preference_writes() {
         SettingsAction::Save(INITIAL)
     );
 }
+
+#[test]
+fn save_failed_preferences_remain_retryable_until_successful_readback() {
+    let mut panel = SettingsPanel::new(INITIAL);
+    panel.show_save_error(SettingsStatus::SaveFailed);
+    assert_eq!(
+        panel.on_key(press(INPUT_KEY_ENTER)),
+        SettingsAction::Save(INITIAL)
+    );
+
+    let restored = Preferences {
+        locale: Locale::JaJp,
+        theme: ThemeMode::Dark,
+    };
+    panel.show_preferences(restored);
+    assert_eq!(panel.preferences, restored);
+    assert_eq!(panel.status, SettingsStatus::Idle);
+}

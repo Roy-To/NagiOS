@@ -63,7 +63,14 @@ fn lookup_resource<'a>(resource: &'a [u8], key: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{lookup_resource, lookup_with_fallback, text, Locale, EN_US, JA_JP};
+    use super::{EN_US, JA_JP, Locale, lookup_resource, lookup_with_fallback, text};
+
+    fn catalog_lines(resource: &[u8]) -> impl Iterator<Item = &[u8]> + Clone {
+        resource
+            .split(|byte| *byte == b'\n')
+            .map(|line| line.strip_suffix(b"\r").unwrap_or(line))
+            .filter(|line| !line.is_empty())
+    }
 
     #[test]
     fn parses_only_supported_canonical_locale_codes() {
@@ -106,6 +113,14 @@ mod tests {
     }
 
     #[test]
+    fn catalog_audit_ignores_crlf_blank_lines() {
+        let mut lines = catalog_lines(b"common.ok=OK\r\n\r\ncommon.cancel=Cancel\r\n");
+        assert_eq!(lines.next(), Some(&b"common.ok=OK"[..]));
+        assert_eq!(lines.next(), Some(&b"common.cancel=Cancel"[..]));
+        assert_eq!(lines.next(), None);
+    }
+
+    #[test]
     fn english_fallback_is_used_when_a_selected_entry_is_missing() {
         static PARTIAL_JAPANESE: &[u8] = b"common.ok=OK\n";
         static ENGLISH_FIXTURE: &[u8] = b"common.cancel=Cancel\n";
@@ -125,9 +140,7 @@ mod tests {
 
     #[test]
     fn first_party_catalogs_have_unique_matching_keys() {
-        let mut english_lines = EN_US
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty());
+        let mut english_lines = catalog_lines(EN_US);
         while let Some(line) = english_lines.next() {
             let separator = line
                 .iter()
@@ -152,9 +165,7 @@ mod tests {
                 "duplicate English catalog key {key}"
             );
         }
-        let mut japanese_lines = JA_JP
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty());
+        let mut japanese_lines = catalog_lines(JA_JP);
         while let Some(line) = japanese_lines.next() {
             let separator = line
                 .iter()
