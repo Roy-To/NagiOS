@@ -2533,15 +2533,16 @@ mod tests {
 
     #[test]
     fn custom_target_json_reference_is_recorded_as_a_stable_target_name() {
-        let root = repository_root();
-        let target =
-            target_triple_from_reference(&root, "targets/x86_64-unknown-nagi-user.json").unwrap();
-        assert_eq!(target, "x86_64-unknown-nagi-user");
-        let files =
-            configuration_files(&root, Some("targets/x86_64-unknown-nagi-user.json")).unwrap();
-        assert!(files
-            .iter()
-            .any(|file| file.path == "targets/x86_64-unknown-nagi-user.json"));
+        let root = TestDirectory::new("custom-target");
+        let spec = "targets/example-custom-target.json";
+        fs::create_dir(root.path().join("targets")).unwrap();
+        fs::write(root.path().join(spec), "{}").unwrap();
+        assert_eq!(
+            target_triple_from_reference(root.path(), spec).unwrap(),
+            "example-custom-target"
+        );
+        let files = configuration_files(root.path(), Some(spec)).unwrap();
+        assert!(files.iter().any(|file| file.path == spec));
     }
 
     #[test]

@@ -111,13 +111,12 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
-      - name: Bootstrap pinned Servo source dependencies
+      - name: Bootstrap pinned host fonts and source metadata
         run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Format
         run: |
-          cargo fmt --package nagi-cli --package nagi-idl --package nagi-bootinfo --package nagi-abi --package nagi-model --package nagi-i18n --package nagi-ui --package nagi-localization --package nagi-kernel --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-model-manager --package nagi-search --package nagi-ai --package nagi-servo-adapter --package nagi-init --package nagi-package --package nagi-sdk --package nagi-isolated-app --package nagi-search-ipc --package nagi-action-ipc -- --check
+          cargo fmt --package nagi-cli --package nagi-idl --package nagi-abi --package nagi-model --package nagi-i18n --package nagi-ui --package nagi-localization --package libnagi --package nagi-net --package nagi-pal --package nagi-posix --package nagi-audio --package nagi-history --package nagi-model-manager --package nagi-search --package nagi-ai --package nagi-init --package nagi-package --package nagi-sdk --package nagi-isolated-app --package nagi-search-ipc --package nagi-action-ipc -- --check
           cargo fmt --manifest-path tools/nagi-pkg/Cargo.toml -- --check
-          cargo fmt --manifest-path loader/Cargo.toml -- --check
           rustfmt --check user/nagi-albert/src/lib.rs
       - name: Regression tests for CI diagnostic parsers
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
@@ -132,16 +131,12 @@ jobs:
         run: cargo clippy --workspace --all-targets --exclude nagi-kernel --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --exclude nagi-kernel --locked
-      - name: Real QMP compatibility without guest disks
-        env:
-          NAGI_QMP_COMPAT_QEMU: /usr/bin/qemu-system-x86_64
-        run: cargo test --locked -p nagi-cli --lib image::tests::real_qmp_diskless_compatibility -- --ignored --exact --nocapture
       - name: Prepare and verify standalone Legal before offline CLI delegation
         run: |
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
-      - name: Fetch frozen legacy PID 1 inputs for host assertions
+      - name: Fetch frozen source for legacy contract assertions
         run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         run: |
@@ -254,7 +249,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Bootstrap pinned Servo source dependencies
+      - name: Bootstrap pinned host fonts and source metadata
         shell: pwsh
         run: |
           cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
@@ -274,7 +269,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Fetch frozen legacy PID 1 inputs for host assertions
+      - name: Fetch frozen source for legacy contract assertions
         run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         shell: pwsh
@@ -417,6 +412,10 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal --component rustfmt --component clippy --component rust-src
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-uefi
+      - name: Real QMP compatibility without guest disks
+        env:
+          NAGI_QMP_COMPAT_QEMU: /usr/bin/qemu-system-x86_64
+        run: cargo test --locked -p nagi-cli --lib image::tests::real_qmp_diskless_compatibility -- --ignored --exact --nocapture
       - name: Prepare patched Nagi Rust std source
         run: |
           sysroot=$(rustc +nightly-2025-08-01 --print sysroot)

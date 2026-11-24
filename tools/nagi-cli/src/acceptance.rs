@@ -1251,7 +1251,10 @@ mod tests {
                 );
             }
         }
-        assert!(cases.iter().any(|case| case.id == "M17-FIRST-WEB-PIXEL"));
+        assert_eq!(
+            ids,
+            HashSet::from([&"M0-DOCTOR".to_owned(), &"M0-LAUNCHER".to_owned()])
+        );
     }
 
     #[test]

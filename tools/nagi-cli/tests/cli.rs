@@ -150,7 +150,7 @@ fn canned_version(candidate: &str) -> &'static str {
 }
 
 #[test]
-fn parses_the_complete_m0_command_surface() {
+fn parses_the_linux_developer_command_surface() {
     let commands = [
         ("doctor", Command::Doctor),
         ("diagnostics", Command::Diagnostics),
@@ -158,26 +158,7 @@ fn parses_the_complete_m0_command_surface() {
         ("smoke", Command::Smoke),
         ("fetch", Command::Fetch),
         ("build", Command::Build),
-        ("image", Command::Image),
         ("run", Command::Run),
-        ("shell", Command::Shell),
-        ("gui", Command::Gui),
-        ("desktop", Command::Desktop),
-        ("security", Command::Security),
-        ("network", Command::Network),
-        ("posix", Command::Posix),
-        ("std", Command::Std),
-        ("m13", Command::M13),
-        ("m14", Command::M14),
-        ("m15", Command::M15),
-        ("m16", Command::M16),
-        ("m17", Command::M17),
-        ("m18", Command::M18),
-        ("m19", Command::M19),
-        ("m22", Command::M22),
-        ("m25", Command::M25),
-        ("m27", Command::M27),
-        ("m30", Command::M30),
         ("test", Command::Test),
         ("clean", Command::Clean),
         ("fmt", Command::Fmt),
@@ -323,13 +304,16 @@ fn acceptance_list_uses_the_registry_and_rejects_unregistered_milestones() {
         .parent()
         .and_then(Path::parent)
         .expect("workspace root");
-    let args = ["test", "--acceptance", "--list", "--milestone", "M17"].map(str::to_owned);
+    let args = ["test", "--acceptance", "--list", "--milestone", "M0"].map(str::to_owned);
     let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
     assert_eq!(result.exit_code, EXIT_SUCCESS);
-    assert_eq!(result.lines.len(), 1);
-    assert!(result.lines[0].starts_with("M17-FIRST-WEB-PIXEL\tM17\tservo\ttarget\t"));
+    assert_eq!(result.lines.len(), 2);
+    assert!(result
+        .lines
+        .iter()
+        .all(|line| line.contains("\tM0\t") && line.contains("\thost\t")));
 
-    let args = ["test", "--acceptance", "--list", "--milestone", "M18"].map(str::to_owned);
+    let args = ["test", "--acceptance", "--list", "--milestone", "M17"].map(str::to_owned);
     let result = nagi_cli::commands::execute(&args, root, &SystemProbe::default());
     assert_eq!(result.exit_code, EXIT_USAGE);
     assert!(result.lines[0].contains("no registered cases match"));
@@ -584,7 +568,7 @@ fn host_clippy_command_keeps_warning_deny_boundary() {
 #[test]
 fn format_commands_match_ci_source_scope_without_vendored_servo() {
     let commands = nagi_cli::commands::host_format_commands();
-    assert_eq!(commands.len(), 4);
+    assert_eq!(commands.len(), 3);
 
     let (cargo, workspace_args) = &commands[0];
     assert_eq!(*cargo, "cargo");
@@ -593,10 +577,8 @@ fn format_commands_match_ci_source_scope_without_vendored_servo() {
     for package in [
         "nagi-cli",
         "nagi-idl",
-        "nagi-bootinfo",
         "nagi-abi",
         "nagi-model",
-        "nagi-kernel",
         "libnagi",
         "nagi-net",
         "nagi-pal",
@@ -606,7 +588,6 @@ fn format_commands_match_ci_source_scope_without_vendored_servo() {
         "nagi-model-manager",
         "nagi-search",
         "nagi-ai",
-        "nagi-servo-adapter",
         "nagi-init",
         "nagi-package",
         "nagi-sdk",
@@ -632,19 +613,6 @@ fn format_commands_match_ci_source_scope_without_vendored_servo() {
     );
     assert_eq!(
         commands[2],
-        (
-            "cargo",
-            vec![
-                "fmt",
-                "--manifest-path",
-                "loader/Cargo.toml",
-                "--",
-                "--check"
-            ]
-        )
-    );
-    assert_eq!(
-        commands[3],
         ("rustfmt", vec!["--check", "user/nagi-albert/src/lib.rs"])
     );
     assert!(commands
@@ -658,7 +626,6 @@ fn arm64_host_commands_select_only_host_compatible_packages() {
     let host_packages = [
         "nagi-cli",
         "nagi-idl",
-        "nagi-bootinfo",
         "nagi-abi",
         "nagi-model",
         "nagi-audio",
@@ -667,7 +634,6 @@ fn arm64_host_commands_select_only_host_compatible_packages() {
         "nagi-model-manager",
         "nagi-search",
         "nagi-ai",
-        "nagi-servo-adapter",
     ];
 
     for command in ["build", "test", "clippy"] {
@@ -700,30 +666,11 @@ fn rejects_unexpected_arguments_for_every_command() {
         "smoke",
         "fetch",
         "build",
-        "image",
         "run",
-        "shell",
-        "gui",
-        "desktop",
         "test",
         "clean",
         "fmt",
         "lint",
-        "security",
-        "network",
-        "posix",
-        "std",
-        "m13",
-        "m14",
-        "m15",
-        "m16",
-        "m17",
-        "m18",
-        "m19",
-        "m22",
-        "m25",
-        "m27",
-        "m30",
     ] {
         let error = parse_command(&[name.to_owned(), "unexpected".to_owned()]).unwrap_err();
         assert_eq!(error.exit_code(), EXIT_USAGE, "{name}");
@@ -750,7 +697,7 @@ fn diagnostics_commands_validate_modes_and_options() {
     assert_eq!(
         parse_command(&[
             "smoke".into(),
-            "--vm".into(),
+            "--host-only".into(),
             "--format".into(),
             "json".into()
         ])
@@ -1104,25 +1051,10 @@ fn formal_nagi_logo_asset_matches_the_boot_contract() {
 }
 
 #[test]
-fn desktop_command_declares_ordered_boot_markers_before_ready() {
-    let source = include_str!("../src/commands.rs");
-    let markers = [
-        "Nagi boot stage PLATFORM 15",
-        "Nagi boot stage CORE_SERVICES 30",
-        "Nagi boot stage STORAGE 50",
-        "Nagi boot stage GRAPHICS 70",
-        "Nagi boot stage SESSION 90",
-        "Nagi boot lock READY",
-        "Nagi boot collapse COMPLETE",
-        "Nagi boot frame checksum=",
-        "Nagi boot lock checksum=",
-        "Nagi M10 desktop READY",
-    ];
-    let mut offset = 0;
-    for marker in markers {
-        let relative = source[offset..]
-            .find(marker)
-            .unwrap_or_else(|| panic!("missing desktop boot marker: {marker}"));
-        offset += relative + marker.len();
+fn withdrawn_custom_kernel_commands_return_usage_errors() {
+    for name in ["image", "shell", "gui", "desktop", "login", "m17", "m30"] {
+        let error = parse_command(&[name.into()]).unwrap_err();
+        assert_eq!(error.exit_code(), EXIT_USAGE);
+        assert!(error.to_string().contains("unknown command"));
     }
 }
