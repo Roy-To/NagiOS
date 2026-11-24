@@ -172,6 +172,9 @@ jobs:
           cargo test --manifest-path apps/nagi-files/Cargo.toml --locked
           cargo check --manifest-path tools/nagi-files-c1-session-consumer/Cargo.toml --locked \
             --target x86_64-unknown-linux-musl --features c1-issued-session
+          CODEC_CANDIDATE_TMP=$(mktemp -d "$RUNNER_TEMP/nagi-notes-codec.XXXXXX")
+          export CODEC_CANDIDATE_TMP
+          trap 'rm -rf "$CODEC_CANDIDATE_TMP"' EXIT
           cargo test --manifest-path tools/linux-boot/notes-desktop-dev-20261116/notes-codec/Cargo.toml --locked
       - name: Standalone installer format, lint, and tests
         run: |
