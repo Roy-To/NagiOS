@@ -259,9 +259,11 @@ pub(crate) struct AuthorizedFilesRoot {
 
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedFilesRoot {
+    /// Borrow the root only for this live C1 effect. The higher-ranked callback
+    /// prevents its view or opened-file borrow from escaping the session gate.
     pub(crate) fn with_root<R>(
         &self,
-        effect: impl FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'_>) -> R,
+        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.revalidation
             .with_live_session_effect(|| self.root.with_active_root(effect))
