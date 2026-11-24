@@ -4444,7 +4444,9 @@ fn sandbox_reloads_unindexed_trash_and_restores_the_payload() {
     let blocked_index = internal.join("trash-index-v1.tmp");
     fs::create_dir(&blocked_index).unwrap();
     let mut provider = SandboxProvider::new(temp.path()).unwrap();
-    let error = provider.trash(&Location::parse("recover.txt").unwrap()).unwrap_err();
+    let error = provider
+        .trash(&Location::parse("recover.txt").unwrap())
+        .unwrap_err();
     assert_eq!(error.kind, FilesErrorKind::PartialFailure);
     drop(provider);
     fs::remove_dir(blocked_index).unwrap();
@@ -4453,7 +4455,10 @@ fn sandbox_reloads_unindexed_trash_and_restores_the_payload() {
     let mut reopened = SandboxProvider::new(temp.path()).unwrap();
     let entries = reopened.list_trash().unwrap();
     assert_eq!(entries.len(), 1);
-    assert!(!index.exists(), "opening the provider must remain read-only");
+    assert!(
+        !index.exists(),
+        "opening the provider must remain read-only"
+    );
     let restored = reopened.restore(entries[0].id).unwrap();
     assert!(restored.location.is_root());
     assert_file_bytes(temp.path().join(restored.name.as_str()), b"recover me");
@@ -4498,15 +4503,19 @@ fn sandbox_root_fallback_requires_restore_permission_at_the_destination() {
     let trashed = provider.trash(&original).unwrap();
     fs::remove_dir(temp.path().join("gone")).unwrap();
 
-    let mut denied = FilesService::new(provider, CapabilitySet::from_grants([
-        CapabilityGrant::allow(original, CapabilityRight::Restore),
-    ]));
+    let mut denied = FilesService::new(
+        provider,
+        CapabilitySet::from_grants([CapabilityGrant::allow(original, CapabilityRight::Restore)]),
+    );
     assert_eq!(
         denied.restore(trashed.id, Actor::User).unwrap_err().kind,
         FilesErrorKind::PermissionDenied,
     );
     assert!(!temp.path().join("item.txt").exists());
-    let mut allowed = FilesService::new(SandboxProvider::new(temp.path()).unwrap(), full_capabilities());
+    let mut allowed = FilesService::new(
+        SandboxProvider::new(temp.path()).unwrap(),
+        full_capabilities(),
+    );
     let (entry, _) = allowed.restore(trashed.id, Actor::User).unwrap();
     assert!(entry.location.is_root());
     assert_file_bytes(temp.path().join("item.txt"), b"payload");

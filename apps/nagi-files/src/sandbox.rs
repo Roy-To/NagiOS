@@ -488,7 +488,10 @@ impl SandboxProvider {
             )?;
             let tags = load_tags_index(&internal_dir)?;
             let trash = load_trash_index(
-                &internal_dir, trash_dir.as_ref(), self.root_device, self.root_mount_id,
+                &internal_dir,
+                trash_dir.as_ref(),
+                self.root_device,
+                self.root_mount_id,
             )?;
             self.next_trash_id = next_trash_id(&trash);
             self.tags = tags;
@@ -515,7 +518,10 @@ impl SandboxProvider {
             )?
             .ok_or_else(|| FilesError::new(FilesErrorKind::ProviderUnavailable))?;
             let trash = load_trash_index(
-                internal_dir, Some(&trash_dir), self.root_device, self.root_mount_id,
+                internal_dir,
+                Some(&trash_dir),
+                self.root_device,
+                self.root_mount_id,
             )?;
             self.next_trash_id = next_trash_id(&trash);
             self.trash = trash;
@@ -981,7 +987,10 @@ impl FilesystemProvider for SandboxProvider {
     }
 
     fn restore(&mut self, id: ResourceId) -> Result<FileEntry, FilesError> {
-        let item = self.list_trash()?.into_iter().find(|item| item.id == id)
+        let item = self
+            .list_trash()?
+            .into_iter()
+            .find(|item| item.id == id)
             .ok_or_else(|| FilesError::new(FilesErrorKind::NotFound))?;
         let destination = self.restore_destination(&item)?;
         self.restore_to(id, &destination)
@@ -989,12 +998,14 @@ impl FilesystemProvider for SandboxProvider {
 
     fn restore_destination(&self, item: &TrashEntry) -> Result<Location, FilesError> {
         let original = &item.original_location;
-        let parent = original.parent()
+        let parent = original
+            .parent()
             .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
         match self.public_directory(&parent) {
             Ok(_) => Ok(original.clone()),
             Err(error) if error.kind == FilesErrorKind::NotFound => {
-                let name = original.file_name()
+                let name = original
+                    .file_name()
                     .ok_or_else(|| FilesError::new(FilesErrorKind::InvalidLocation))?;
                 Location::parse(name)
             }
@@ -1002,7 +1013,11 @@ impl FilesystemProvider for SandboxProvider {
         }
     }
 
-    fn restore_to(&mut self, id: ResourceId, destination: &Location) -> Result<FileEntry, FilesError> {
+    fn restore_to(
+        &mut self,
+        id: ResourceId,
+        destination: &Location,
+    ) -> Result<FileEntry, FilesError> {
         self.verify_trash_storage_if_present()?;
         let index = self
             .trash
@@ -1021,15 +1036,20 @@ impl FilesystemProvider for SandboxProvider {
         if trash_metadata.is_dir() {
             self.validate_tree_mounts(trash_dir, &item.trash_name)?;
         }
-        let (destination_parent, destination_name) = self.checked_restore_destination(destination)?;
-        rename_without_replace(trash_dir, &item.trash_name, &destination_parent, &destination_name)
-            .map_err(|error| map_destination_error(error).at(destination.clone()))?;
+        let (destination_parent, destination_name) =
+            self.checked_restore_destination(destination)?;
+        rename_without_replace(
+            trash_dir,
+            &item.trash_name,
+            &destination_parent,
+            &destination_name,
+        )
+        .map_err(|error| map_destination_error(error).at(destination.clone()))?;
         self.trash.remove(index);
         sync_directory_change(&destination_parent, destination)?;
         sync_directory_change(trash_dir, destination)?;
-        self.persist_index(&self.trash).map_err(|_| {
-            FilesError::new(FilesErrorKind::PartialFailure).at(destination.clone())
-        })?;
+        self.persist_index(&self.trash)
+            .map_err(|_| FilesError::new(FilesErrorKind::PartialFailure).at(destination.clone()))?;
         self.metadata(destination)
     }
 
@@ -1065,7 +1085,8 @@ impl SandboxProvider {
         &self,
         location: &Location,
     ) -> Result<(Dir, String), FilesError> {
-        if location.is_root() || location.file_name().is_some_and(is_internal_component)
+        if location.is_root()
+            || location.file_name().is_some_and(is_internal_component)
             || location
                 .components()
                 .next()
@@ -1442,7 +1463,9 @@ fn load_trash_index(
     for entry in trash.entries().map_err(map_io_error)? {
         let entry = entry.map_err(map_io_error)?;
         let name = entry.file_name();
-        let Some(name) = name.to_str().filter(|name| valid_trash_name(name)) else { continue };
+        let Some(name) = name.to_str().filter(|name| valid_trash_name(name)) else {
+            continue;
+        };
         if names.contains(name) {
             continue;
         }
@@ -1465,7 +1488,10 @@ fn load_trash_index(
                 original_location: Location::parse(name)?,
                 kind,
                 size_bytes: metadata.is_file().then_some(metadata.len()),
-                deleted_at: name.split_once('-').and_then(|(_, time)| time.parse().ok()).unwrap_or(0),
+                deleted_at: name
+                    .split_once('-')
+                    .and_then(|(_, time)| time.parse().ok())
+                    .unwrap_or(0),
             },
             trash_name: name.to_owned(),
         });
@@ -1478,10 +1504,16 @@ fn report_trash_recovery(recovered: usize, dangling: usize) {
     #[cfg(target_os = "linux")]
     {
         if recovered != 0 {
-            let _ = writeln!(std::io::stderr().lock(), "NAGI_FILES_TRASH_ORPHAN_RECOVERED count={recovered}");
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "NAGI_FILES_TRASH_ORPHAN_RECOVERED count={recovered}"
+            );
         }
         if dangling != 0 {
-            let _ = writeln!(std::io::stderr().lock(), "NAGI_FILES_TRASH_INDEX_DANGLING count={dangling}");
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "NAGI_FILES_TRASH_INDEX_DANGLING count={dangling}"
+            );
         }
     }
     #[cfg(not(target_os = "linux"))]

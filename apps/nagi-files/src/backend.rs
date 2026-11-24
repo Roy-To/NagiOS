@@ -64,11 +64,20 @@ pub trait FilesystemProvider {
         Ok(item.original_location.clone())
     }
 
-    fn restore_to(&mut self, id: ResourceId, destination: &Location) -> Result<FileEntry, FilesError> {
-        let item = self.list_trash()?.into_iter().find(|item| item.id == id)
+    fn restore_to(
+        &mut self,
+        id: ResourceId,
+        destination: &Location,
+    ) -> Result<FileEntry, FilesError> {
+        let item = self
+            .list_trash()?
+            .into_iter()
+            .find(|item| item.id == id)
             .ok_or_else(|| FilesError::new(crate::FilesErrorKind::NotFound))?;
         if &item.original_location != destination {
-            return Err(FilesError::new(crate::FilesErrorKind::InvalidLocation).at(destination.clone()));
+            return Err(
+                FilesError::new(crate::FilesErrorKind::InvalidLocation).at(destination.clone())
+            );
         }
         self.restore(id)
     }
