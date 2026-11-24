@@ -11,6 +11,9 @@ nagi-ui = { path = "../../user/nagi-ui" }
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "=1.1.4", features = ["fs", "linux_latest"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-profile-volume-notes-owner = { path = "../../crates/nagi-profile-volume-owner" }
+
 [workspace]
 
 [lib]

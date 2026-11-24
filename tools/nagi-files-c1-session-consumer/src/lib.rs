@@ -10,10 +10,12 @@
 use std::marker::PhantomData;
 
 use nagi_files::localization::Locale;
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+use nagi_files::OwnerScopedSandboxProvider;
 use nagi_files::{
     Actor, CancellationToken, CapabilityAuthorizer, FileEntry, FileName, FilesCanvas,
     FilesCanvasRect, FilesComponent, FilesError, FilesService, FilesViewState, FilesystemProvider,
-    Location, OperationResult, SandboxProvider, TrashEntry,
+    Location, OperationResult, TrashEntry,
 };
 #[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
 use nagi_identity_session::{
@@ -23,7 +25,7 @@ use nagi_identity_session::{
 };
 use nagi_identity_session::{ResolutionError, SessionLeaseRevalidationHandle};
 #[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-use std::fs::File;
+use nagi_profile_volume_notes_owner::{FilesRootScope, ProfileFilesRoot};
 
 /// Failure from either the canonical C1 live-Session gate or FilesService.
 #[derive(Debug)]
@@ -172,7 +174,7 @@ where
     /// drawing all use the same provider, authorizer, and service instance.
     pub fn into_screen(self, initial_location: Location) -> C1FilesScreenConsumer<'issued, P, A> {
         C1FilesScreenConsumer {
-            session: self.session,
+            session: Some(self.session),
             component: FilesComponent::new(self.files, initial_location),
             _issued_session: PhantomData,
         }
@@ -192,17 +194,18 @@ where
 }
 
 #[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-impl<'issued, A> C1FilesScreenConsumer<'issued, SandboxProvider, A>
+impl<'issued, 'root, A>
+    C1FilesScreenConsumer<'issued, OwnerScopedSandboxProvider<'root, ProfileFilesRoot>, A>
 where
     A: CapabilityAuthorizer,
 {
-    /// Builds the normal Files screen from a Data-issued Files-root FD and the
-    /// matching live C1 caller. The caller supplies the FD and the per-operation
-    /// Files authorizer; this adapter does not select a Profile, issue a Session,
-    /// or create grants. Every Files effect still passes both C1 revalidation
-    /// and the supplied `CapabilityAuthorizer`.
-    pub fn from_issued_root_fd<S, I, C, IA, G, E>(
-        files_root: File,
+    /// Builds the normal Files screen from the owner-issued root capability
+    /// and matching live C1 caller. The provider stores only the owner scope;
+    /// each FilesService operation enters one C1 effect and borrows one
+    /// callback-scoped root view. Files rights remain with the supplied
+    /// `CapabilityAuthorizer`.
+    pub fn from_issued_owner_root<S, I, C, IA, G, E>(
+        files_root: &'root ProfileFilesRoot,
         authorizer: A,
         issued_session: &'issued C1IssuedInteractiveSession,
         identity: &mut IdentityService<S, I, C, IA, G, E>,
@@ -216,8 +219,7 @@ where
         G: GuestProfileCleaner,
         E: IdentityEventSink,
     {
-        let provider = SandboxProvider::from_authorized_root(files_root)
-            .map_err(FilesSessionConsumerBuildError::Provider)?;
+        let provider = OwnerScopedSandboxProvider::new(files_root);
         let session = C1FilesSessionConsumer::from_issued_session(
             provider,
             authorizer,
@@ -228,13 +230,43 @@ where
     }
 }
 
+#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
+impl<'root, S, A> C1FilesScreenConsumer<'root, OwnerScopedSandboxProvider<'root, S>, A>
+where
+    S: FilesRootScope,
+    A: CapabilityAuthorizer,
+{
+    /// Builds the screen around an already-authorized owner root scope.
+    ///
+    /// PID 1 passes its `AuthorizedFilesRoot` here. That scope enters the C1
+    /// live-Session effect and owner lifecycle callback once per complete
+    /// FilesService operation. This constructor deliberately does not acquire
+    /// or re-enter a second C1 gate. Files rights remain with `authorizer`.
+    pub fn from_authorized_root_scope(
+        root_scope: &'root S,
+        authorizer: A,
+        initial_location: Location,
+    ) -> Self {
+        let provider = OwnerScopedSandboxProvider::new(root_scope);
+        Self {
+            session: None,
+            component: FilesComponent::new(
+                FilesService::new(provider, authorizer),
+                initial_location,
+            ),
+            _issued_session: PhantomData,
+        }
+    }
+}
+
 /// C1-gated adapter for the existing stateful Files screen component.
 ///
-/// Filesystem operations that update or consume the view model are admitted
-/// through the same live-Session handle. Selection and painting only touch
-/// in-memory view state and remain direct calls to [`FilesComponent`].
+/// Filesystem operations are admitted either by its live-Session handle or by
+/// the already-authorized owner root scope retained by its provider. Selection
+/// and painting only touch in-memory view state and remain direct calls to
+/// [`FilesComponent`].
 pub struct C1FilesScreenConsumer<'issued, P, A> {
-    session: SessionLeaseRevalidationHandle,
+    session: Option<SessionLeaseRevalidationHandle>,
     component: FilesComponent<P, A>,
     _issued_session: PhantomData<&'issued ()>,
 }
@@ -369,9 +401,12 @@ where
     ) -> Result<R, FilesSessionEffectError> {
         let session = &self.session;
         let component = &mut self.component;
-        session
-            .with_live_session_effect(|| effect(component))
-            .map_err(FilesSessionEffectError::Session)?
-            .map_err(FilesSessionEffectError::Files)
+        match session {
+            Some(session) => session
+                .with_live_session_effect(|| effect(component))
+                .map_err(FilesSessionEffectError::Session)?
+                .map_err(FilesSessionEffectError::Files),
+            None => effect(component).map_err(FilesSessionEffectError::Files),
+        }
     }
 }

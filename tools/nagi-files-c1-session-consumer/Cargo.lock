@@ -282,6 +282,7 @@ name = "nagi-files"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "nagi-profile-volume-notes-owner",
  "nagi-ui",
  "rustix",
 ]
@@ -292,6 +293,7 @@ version = "0.1.0"
 dependencies = [
  "nagi-files",
  "nagi-identity-session",
+ "nagi-profile-volume-notes-owner",
 ]
 
 [[package]]
@@ -342,6 +344,30 @@ name = "nagi-peer-authenticated-connection"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "nagi-persistence-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+]
+
+[[package]]
+name = "nagi-profile-volume-notes-owner"
+version = "0.1.0"
+dependencies = [
+ "nagi-model",
+ "nagi-persistence-contract",
+ "nagi-service-contract",
+ "rustix",
+]
+
+[[package]]
+name = "nagi-service-contract"
+version = "0.1.0"
+dependencies = [
+ "nagi-capability",
 ]
 
 [[package]]

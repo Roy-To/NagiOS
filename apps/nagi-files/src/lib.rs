@@ -29,6 +29,8 @@ pub use component::FilesComponent;
 pub use memory::InMemoryProvider;
 pub use model::*;
 pub use sandbox::SandboxProvider;
+#[cfg(target_os = "linux")]
+pub use sandbox::OwnerScopedSandboxProvider;
 pub use search::{FilesSearchProvider, SearchRecord};
 pub use service::{
     ActivityEvent, ActivityOutcome, ActivitySink, CheckpointHook, CheckpointSnapshot, FilesService,

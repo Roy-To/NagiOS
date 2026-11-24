@@ -15,6 +15,11 @@ use crate::{
     FilesErrorKind, FilesystemProvider, Location, ProviderAvailability, ResourceId, TrashEntry,
 };
 
+#[cfg(target_os = "linux")]
+mod owner_scoped;
+#[cfg(target_os = "linux")]
+pub use owner_scoped::OwnerScopedSandboxProvider;
+
 const INTERNAL_DIR: &str = ".nagi-files";
 const TRASH_DIR: &str = "trash";
 const INDEX_FILE: &str = "trash-index-v1";
