@@ -1237,7 +1237,6 @@ def _verify_rootfs(
         ".github/workflows/ci.yml",
         "crates/nagi-abi/src/lib.rs",
         "tests/acceptance/registry.tsv",
-        "tests/fixtures/m20_model_store_reader.rs",
         "third_party/sources.lock",
         "third_party/models.lock",
         "third_party/fonts.lock",
