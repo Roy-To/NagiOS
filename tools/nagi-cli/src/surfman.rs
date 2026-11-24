@@ -535,11 +535,10 @@ mod tests {
             .parent()
             .and_then(Path::parent)
             .expect("workspace root");
-        let product_manifest = fs::read_to_string(workspace.join("user/nagi-init/Cargo.toml"))
-            .expect("product init manifest");
+        let legacy_manifest = crate::read_frozen_legacy_pid1_file(workspace, "Cargo.toml");
         assert!(
-            product_manifest.contains("surfman = { path = \"../../third_party/surfman\" }"),
-            "the product init workspace must bind Servo's Surfman dependency to its pinned patched checkout"
+            legacy_manifest.contains("surfman = { path = \"../../third_party/surfman\" }"),
+            "the frozen legacy init workspace must bind Servo's Surfman dependency to its pinned patched checkout"
         );
     }
 

@@ -23,44 +23,12 @@ m13-std = []
 m14-audio = ["m13-posix"]
 m15-history = ["m14-audio"]
 m16-package = ["m15-history"]
-m17-servo = ["m16-package", "m13-posix", "m13-std", "dep:nagi-albert"]
-m18-acceptance = [
-    "m17-servo",
-    "dep:nagi-clipboard",
-    "nagi-albert/m18-acceptance",
-    "libnagi/m18-browser-threads",
-    "nagi-posix/browser-storage",
-]
-m19-search = [
-    "m13-posix",
-    "m19-runtime",
-    "dep:nagi-ai",
-    "dep:nagi-model-manager",
-]
 # Persistent, owner-scoped Search runtime used by the ordinary signed-in
 # desktop. The acceptance harness adds its separate fixtures and IPC clients.
 m19-runtime = [
     "dep:nagi-search",
     "dep:nagi-search-ipc",
 ]
-# ADR 0044: serve M19 Search to isolated clients named by
-# NAGI_M19_SEARCH_CLIENT_ELF, authorized by kernel-stamped caller identity.
-m19-search-ipc = ["m19-search", "dep:nagi-search-ipc"]
-# ADR 0067: run the real Browser history through the guest Search producer
-# before exercising authenticated `search@1` clients.
-m19-browser-search-acceptance = ["m19-search-ipc", "m18-acceptance"]
-# ADR 0045: M21/M22 actions requested by isolated clients named by
-# NAGI_ACTION_CLIENT_ELF, authorized by kernel-stamped caller identity.
-m21-action-ipc = ["m19-search-ipc", "dep:nagi-action-ipc"]
-m20-model-store-acceptance = ["m19-search"]
-m20-fixture-acceptance = ["m20-model-store-acceptance"]
-m20-granite-artifact-acceptance = ["m20-model-store-acceptance"]
-m20-llama-link-smoke = ["m13-posix"]
-m20-llama-inference-acceptance = [
-    "m20-model-store-acceptance",
-    "nagi-posix/m20-llama-memory",
-]
-m22-history = ["m19-search"]
 # ADR 0043: spawn the isolated app ELF named by NAGI_ISOLATED_APP_ELF and
 # verify kernel-stamped caller identity and address-space isolation.
 isolated-process-acceptance = []
@@ -85,14 +53,6 @@ desktop-password-change-acceptance = ["desktop-login-acceptance"]
 # it for a trial on the next boot.
 m30-update-install = ["dep:nagi-fat32", "dep:nagi-slot-manifest"]
 m25-voice-acceptance = []
-m25-whisper-artifact-acceptance = ["m20-model-store-acceptance"]
-m25-whisper-inference-acceptance = [
-    "m25-whisper-artifact-acceptance",
-    "m25-voice-acceptance",
-    "nagi-posix/m25-whisper-memory",
-]
-m26-qwen-artifact-acceptance = ["m20-model-store-acceptance"]
-m26-gemma-artifact-acceptance = ["m20-model-store-acceptance"]
 
 [[bin]]
 name = "nagi-init"
@@ -122,11 +82,6 @@ nagi-search-ipc = { path = "../../crates/nagi-search-ipc", optional = true }
 nagi-action-ipc = { path = "../../crates/nagi-action-ipc", optional = true }
 nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optional = true }
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
-
-[target.'cfg(target_os = "nagi")'.dependencies]
-nagi-albert = { path = "../nagi-albert", optional = true }
-nagi-ai = { path = "../../services/nagi-ai", optional = true }
-relibc = { path = "../../third_party/relibc", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.189"
@@ -164,16 +119,3 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("nagi"))
 [workspace]
 exclude = ["candidates/linux-broker-stage25"]
 resolver = "2"
-
-[patch.crates-io]
-cc = { path = "../../third_party/cc-nagi" }
-libc = { path = "../../third_party/libc-servo" }
-freetype-sys = { path = "../../third_party/freetype-sys" }
-hyper-util = { path = "../../third_party/hyper-util-servo" }
-inventory = { path = "../../third_party/inventory-nagi" }
-mio = { path = "../../third_party/mio-servo" }
-socket2 = { path = "../../third_party/socket2-servo" }
-tempfile = { path = "../../third_party/tempfile-nagi" }
-mozjs_sys = { path = "../../third_party/mozjs-sys-nagi" }
-tokio = { path = "../../third_party/tokio-servo" }
-surfman = { path = "../../third_party/surfman" }

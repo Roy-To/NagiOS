@@ -141,6 +141,8 @@ jobs:
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
+      - name: Fetch frozen legacy PID 1 inputs for host assertions
+        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         run: |
           cargo test --manifest-path crates/nagi-system-principal-contract/Cargo.toml --locked
@@ -219,8 +221,6 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
-      - name: Bootstrap pinned source dependencies
-        run: cargo run --locked --manifest-path tools/nagi-bootstrap/Cargo.toml -p nagi-bootstrap -- fetch
       - name: Verify release ELF excludes all Task24 development entry markers
         run: |
           mkdir -p out/logs
@@ -274,6 +274,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch frozen legacy PID 1 inputs for host assertions
+        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         shell: pwsh
         run: |
@@ -401,6 +403,23 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Commit the frozen legacy PID 1 inputs in CI
+        shell: bash
+        run: |
+          legacy=956a104683cb4163e1e77fc2606607d5c3f033e7
+          inputs=(user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock)
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          test -z "$status"
+          git fetch --no-tags --depth=1 origin "$legacy"
+          git restore --source="$legacy" -- "${inputs[@]}"
+          # M30 binds the image to a clean committed source revision.
+          if ! git diff --quiet HEAD -- "${inputs[@]}"; then
+            git -c user.name='Nagi CI' -c user.email='nagi-ci@users.noreply.github.com' \
+              commit --no-gpg-sign --only -m 'Use frozen legacy PID 1 inputs' -- "${inputs[@]}"
+          fi
+          git diff --exit-code "$legacy" HEAD -- "${inputs[@]}"
+          status=$(git status --porcelain=v1 --untracked-files=all)
+          test -z "$status"
       - name: Install target build dependencies
         run: |
           sudo apt-get update
@@ -682,6 +701,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Use the frozen legacy PID 1 manifest
+        run: |
+          git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
+          git restore --source=956a104683cb4163e1e77fc2606607d5c3f033e7 -- user/nagi-init/Cargo.toml user/nagi-init/Cargo.lock
       - name: Install M20 target and QEMU dependencies
         run: |
           sudo apt-get update

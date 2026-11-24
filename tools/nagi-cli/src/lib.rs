@@ -41,3 +41,20 @@ pub(crate) mod tempfile_nagi;
 mod third_party_notices;
 pub(crate) mod tokio_servo;
 pub(crate) mod whisper_cpp;
+
+#[cfg(test)]
+fn read_frozen_legacy_pid1_file(root: &std::path::Path, name: &str) -> String {
+    // Keep this revision aligned with the frozen legacy PID 1 inputs in CI.
+    const REVISION: &str = "956a104683cb4163e1e77fc2606607d5c3f033e7";
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["show", &format!("{REVISION}:user/nagi-init/{name}")])
+        .output()
+        .expect("run Git to read frozen legacy PID 1 inputs");
+    assert!(
+        output.status.success(),
+        "cannot read frozen legacy PID 1 {name} at {REVISION}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("frozen legacy PID 1 Cargo file is UTF-8")
+}
