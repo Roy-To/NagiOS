@@ -159,8 +159,8 @@ jobs:
         run: |
           export RUSTFLAGS='--cfg linux_boot_identity_runtime --cfg linux_boot_owner_registration --cfg linux_task24_owner_co_location --cfg linux_task24_initial_login_runtime --cfg linux_task24_notes_consumer --cfg linux_dev_ws10 --cfg linux_dev_notes_performance --cfg linux_dev_system_mount --cfg linux_task24_desktop_shell --cfg linux_task24_settings --cfg linux_task24_calendar_app'
           cargo +nightly-2025-08-01 fetch --manifest-path user/nagi-init/Cargo.toml --locked --target x86_64-unknown-linux-musl
-          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init
-          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session --bin nagi-init --tests
+          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop --bin nagi-init
+          cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop --bin nagi-init --tests
       - name: Files host and Linux session consumer contracts
         run: |
           cargo test --manifest-path apps/nagi-files/Cargo.toml --locked
@@ -170,6 +170,34 @@ jobs:
           export CODEC_CANDIDATE_TMP
           trap 'rm -rf "$CODEC_CANDIDATE_TMP"' EXIT
           cargo test --manifest-path tools/linux-boot/notes-desktop-dev-20261116/notes-codec/Cargo.toml --locked
+      - name: Linux Files PID 1 and owner scope regressions
+        run: |
+          export RUSTFLAGS='--cfg linux_boot_identity_runtime --cfg linux_boot_owner_registration --cfg linux_task24_owner_co_location --cfg linux_task24_initial_login_runtime --cfg linux_task24_notes_consumer --cfg linux_task24_desktop_shell --cfg linux_task24_settings --cfg linux_task24_calendar_app'
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- files_console::tests
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- linux_task24_files_keys::tests
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- --exact desktop_shell_model::tests::focus_cycles_and_only_key_press_activates
+          owner_test_dir="$RUNNER_TEMP/nagi-profile-volume-owner-test"
+          mkdir -p "$owner_test_dir"
+          trap 'rm -rf "$owner_test_dir"' EXIT
+          owner_lock="$owner_test_dir/Cargo.lock"
+          # This standalone owner crate has no committed lockfile; capture the
+          # per-run resolution before running its focused test locked/offline.
+          cargo +nightly-2025-08-01 -Z unstable-options metadata \
+            --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+            --lockfile-path "$owner_lock" --offline --format-version 1 >/dev/null
+          cargo +nightly-2025-08-01 -Z unstable-options test \
+            --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+            --lockfile-path "$owner_lock" --locked --offline --target x86_64-unknown-linux-gnu \
+            user_files_root_scopes_normal_io_and_stops_after_end_or_revoke
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
