@@ -26,8 +26,6 @@ use nagi_identity_session::{
     IdentitySnapshotStore, InteractiveSessionError,
 };
 use nagi_identity_session::{ResolutionError, SessionLeaseRevalidationHandle};
-#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-use nagi_profile_volume_notes_owner::{FilesRootScope, ProfileFilesRoot};
 
 /// Failure from either the canonical C1 live-Session gate or FilesService.
 #[derive(Debug)]
@@ -43,34 +41,6 @@ pub enum FilesSessionConsumerBuildError {
     Provider(FilesError),
     IssuedSession(C1InitialInteractiveSessionError),
     Revalidation(InteractiveSessionError),
-}
-
-/// Owner-root wrapper used only by the issued-session screen constructor.
-///
-/// The constructed provider retains the matching C1 revalidation handle and
-/// gates each complete FilesService operation before this scope callback.
-#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-#[doc(hidden)]
-pub struct C1IssuedOwnerRootScope<'root> {
-    root: &'root ProfileFilesRoot,
-    revalidation: SessionLeaseRevalidationHandle,
-}
-
-#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-impl FilesRootScope for C1IssuedOwnerRootScope<'_> {
-    fn with_files_root<R>(
-        &self,
-        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
-    ) -> Result<R, nagi_profile_volume_notes_owner::ProfileVolumeNotesOwnerError> {
-        self.root.with_files_root(effect)
-    }
-}
-
-#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-impl C1SessionBoundFilesRootScope for C1IssuedOwnerRootScope<'_> {
-    fn c1_session_revalidation_handle(&self) -> &SessionLeaseRevalidationHandle {
-        &self.revalidation
-    }
 }
 
 /// A narrow Files consumer that retains its provider, capability policy, and
@@ -220,54 +190,6 @@ where
             .with_live_session_effect(|| effect(files))
             .map_err(FilesSessionEffectError::Session)?
             .map_err(FilesSessionEffectError::Files)
-    }
-}
-
-#[cfg(all(feature = "c1-issued-session", target_os = "linux"))]
-impl<'issued, 'root, A>
-    C1FilesScreenConsumer<'issued, OwnerScopedSandboxProvider<C1IssuedOwnerRootScope<'root>>, A>
-where
-    A: CapabilityAuthorizer,
-{
-    /// Builds the normal Files screen from the owner-issued root capability
-    /// and matching live C1 caller. The provider stores only the owner scope
-    /// and an opaque handle produced by that checked caller; it enters one C1
-    /// effect per complete FilesService operation before borrowing one
-    /// callback-scoped root view. Files rights remain with the supplied
-    /// `CapabilityAuthorizer`.
-    pub fn from_issued_owner_root<S, I, C, IA, G, E>(
-        files_root: &'root ProfileFilesRoot,
-        authorizer: A,
-        issued_session: &'issued C1IssuedInteractiveSession,
-        identity: &mut IdentityService<S, I, C, IA, G, E>,
-        initial_location: Location,
-    ) -> Result<Self, FilesSessionConsumerBuildError>
-    where
-        S: IdentitySnapshotStore,
-        I: IdentityIdSource,
-        C: Clock,
-        IA: IdentityAuthorizer,
-        G: GuestProfileCleaner,
-        E: IdentityEventSink,
-    {
-        let context = issued_session
-            .checked_context(identity)
-            .map_err(FilesSessionConsumerBuildError::IssuedSession)?;
-        let revalidation = context
-            .revalidation_handle()
-            .map_err(FilesSessionConsumerBuildError::Revalidation)?;
-        let provider = OwnerScopedSandboxProvider::new(C1IssuedOwnerRootScope {
-            root: files_root,
-            revalidation,
-        });
-        Ok(C1FilesScreenConsumer {
-            session: None,
-            component: FilesComponent::new(
-                FilesService::new(provider, authorizer),
-                initial_location,
-            ),
-            _issued_session: PhantomData,
-        })
     }
 }
 
