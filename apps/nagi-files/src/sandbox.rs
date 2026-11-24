@@ -1380,8 +1380,13 @@ fn load_trash_index(
     root_device: Option<u64>,
     root_mount_id: Option<u64>,
 ) -> Result<Vec<StoredTrash>, FilesError> {
-    let mut items = read_trash_index(internal, trash)?;
-    let Some(trash) = trash else { return Ok(items) };
+    let mut dangling = 0;
+    let mut items = read_trash_index(internal, trash, &mut dangling)?;
+    let live_count = items.len();
+    let Some(trash) = trash else {
+        report_trash_recovery(0, dangling);
+        return Ok(items);
+    };
     let names: BTreeSet<_> = items.iter().map(|item| item.trash_name.clone()).collect();
     let mut ids: BTreeSet<_> = items.iter().map(|item| item.entry.id).collect();
     for entry in trash.entries().map_err(map_io_error)? {
@@ -1415,10 +1420,29 @@ fn load_trash_index(
             trash_name: name.to_owned(),
         });
     }
+    report_trash_recovery(items.len() - live_count, dangling);
     Ok(items)
 }
 
-fn read_trash_index(internal: &Dir, trash: Option<&Dir>) -> Result<Vec<StoredTrash>, FilesError> {
+fn report_trash_recovery(recovered: usize, dangling: usize) {
+    #[cfg(target_os = "linux")]
+    {
+        if recovered != 0 {
+            let _ = writeln!(std::io::stderr().lock(), "NAGI_FILES_TRASH_ORPHAN_RECOVERED count={recovered}");
+        }
+        if dangling != 0 {
+            let _ = writeln!(std::io::stderr().lock(), "NAGI_FILES_TRASH_INDEX_DANGLING count={dangling}");
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (recovered, dangling);
+}
+
+fn read_trash_index(
+    internal: &Dir,
+    trash: Option<&Dir>,
+    dangling: &mut usize,
+) -> Result<Vec<StoredTrash>, FilesError> {
     let index_metadata = match internal.symlink_metadata(INDEX_FILE) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -1478,13 +1502,17 @@ fn read_trash_index(internal: &Dir, trash: Option<&Dir>) -> Result<Vec<StoredTra
             // A missing directory cannot contain a live trashed object. As in
             // the prior eager-empty-directory behavior, stale rows stay out
             // of the in-memory view and the manifest is not rewritten here.
+            *dangling += 1;
             continue;
         };
         let metadata = match trash.symlink_metadata(&trash_name) {
             Ok(metadata) => metadata,
             // A crash after confirmed permanent deletion but before the index
             // update leaves a stale manifest row; omit the missing object.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                *dangling += 1;
+                continue;
+            }
             Err(error) => return Err(map_io_error(error)),
         };
         if metadata.file_type().is_symlink() || !metadata.is_file() && !metadata.is_dir() {
