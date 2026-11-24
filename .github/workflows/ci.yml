@@ -141,6 +141,8 @@ jobs:
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
           cargo clippy --manifest-path tools/legal/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
+      - name: Fetch frozen legacy PID 1 inputs for host assertions
+        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         run: |
           cargo test --manifest-path crates/nagi-system-principal-contract/Cargo.toml --locked
@@ -272,6 +274,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --manifest-path tools/legal/Cargo.toml --locked --offline
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch frozen legacy PID 1 inputs for host assertions
+        run: git fetch --no-tags --depth=1 origin 956a104683cb4163e1e77fc2606607d5c3f033e7
       - name: Test host-compatible workspace
         shell: pwsh
         run: |
