@@ -805,7 +805,8 @@ impl FilesystemProvider for SandboxProvider {
         let (parent_dir, target_location) = self.checked_destination(parent, name)?;
         parent_dir
             .create_dir(name.as_str())
-            .map_err(|error| map_io_error(error).at(target_location))?;
+            .map_err(|error| map_destination_error(error).at(target_location.clone()))?;
+        sync_directory_change(&parent_dir, &target_location)?;
         self.entry_from_directory(parent, &parent_dir, name)
     }
 
@@ -826,9 +827,9 @@ impl FilesystemProvider for SandboxProvider {
         }
         let parent = source.parent().expect("non-root location has parent");
         let (target_parent, target_location) = self.checked_destination(&parent, name)?;
-        source_parent
-            .rename(&source_name, &target_parent, name.as_str())
-            .map_err(|error| map_io_error(error).at(target_location))?;
+        rename_without_replace(&source_parent, &source_name, &target_parent, name.as_str())
+            .map_err(|error| map_destination_error(error).at(target_location.clone()))?;
+        sync_directory_change(&target_parent, &target_location)?;
         self.entry_from_directory(&parent, &target_parent, name)
     }
 
@@ -887,8 +888,13 @@ impl FilesystemProvider for SandboxProvider {
             return Err(FilesError::new(FilesErrorKind::DestinationInsideSource));
         }
         let (target_parent, target_location) = self.checked_destination(destination, name)?;
-        match source_parent.rename(&source_name, &target_parent, name.as_str()) {
-            Ok(()) => self.entry_from_directory(destination, &target_parent, name),
+        match rename_without_replace(&source_parent, &source_name, &target_parent, name.as_str()) {
+            Ok(()) => {
+                sync_directory_change(&target_parent, &target_location)?;
+                sync_directory_change(&source_parent, source)?;
+                self.entry_from_directory(destination, &target_parent, name)
+            }
+            #[cfg(not(target_os = "linux"))]
             Err(error) if is_cross_device(&error) => {
                 match self.copy_tree(
                     &source_parent,
@@ -917,7 +923,7 @@ impl FilesystemProvider for SandboxProvider {
                     }
                 }
             }
-            Err(error) => Err(map_io_error(error).at(target_location)),
+            Err(error) => Err(map_destination_error(error).at(target_location)),
         }
     }
 
@@ -1076,6 +1082,43 @@ impl SandboxProvider {
             }
             Err(error) => Err(map_io_error(error).at(location.clone())),
         }
+    }
+}
+
+fn rename_without_replace(
+    source_parent: &Dir,
+    source_name: &str,
+    destination_parent: &Dir,
+    destination_name: &str,
+) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        rustix::fs::renameat_with(
+            source_parent,
+            source_name,
+            destination_parent,
+            destination_name,
+            rustix::fs::RenameFlags::NOREPLACE,
+        )
+        .map_err(std::io::Error::from)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        source_parent.rename(source_name, destination_parent, destination_name)
+    }
+}
+
+fn sync_directory_change(directory: &Dir, location: &Location) -> Result<(), FilesError> {
+    #[cfg(target_os = "linux")]
+    {
+        open_directory_relative(directory, ".")
+            .and_then(|opened| opened.into_std_file().sync_all().map_err(map_io_error))
+            .map_err(|_| FilesError::new(FilesErrorKind::PartialFailure).at(location.clone()))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (directory, location);
+        Ok(())
     }
 }
 
@@ -1557,6 +1600,18 @@ fn valid_trash_name(value: &str) -> bool {
         && parts.next().is_none()
 }
 
+fn map_destination_error(error: std::io::Error) -> FilesError {
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        return FilesError::new(FilesErrorKind::Conflict);
+    }
+    #[cfg(target_os = "linux")]
+    if error.raw_os_error() == Some(rustix::io::Errno::XDEV.raw_os_error()) {
+        return FilesError::new(FilesErrorKind::SandboxEscape);
+    }
+    map_io_error(error)
+}
+
+#[cfg(not(target_os = "linux"))]
 fn is_cross_device(error: &std::io::Error) -> bool {
     #[cfg(unix)]
     {
