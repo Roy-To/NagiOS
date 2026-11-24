@@ -268,14 +268,44 @@ pub(crate) struct AuthorizedFilesRoot {
 
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedFilesRoot {
-    /// Borrow the root only for this live C1 effect. The higher-ranked callback
-    /// prevents its view or opened-file borrow from escaping the session gate.
+    /// Run one complete Files service action inside the exact live C1 Session
+    /// effect and the owner lifecycle gate. The callback may perform multiple
+    /// root-relative operations through the borrowed view, but neither its
+    /// directory handle nor any opened-file borrow can escape. Files rights
+    /// remain the consumer's per-operation authorization decision; this
+    /// wrapper must not be re-entered from that callback.
+    pub(crate) fn with_filesystem_operation<R>(
+        &self,
+        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        <Self as nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(self, effect)
+    }
+
+    /// Compatibility spelling for callers that already use the owner-root
+    /// callback. New Files consumer wiring should prefer
+    /// [`Self::with_filesystem_operation`] so the whole-action scope is clear.
     pub(crate) fn with_root<R>(
         &self,
         effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.with_filesystem_operation(effect)
+    }
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+impl nagi_profile_volume_notes_owner::FilesRootScope for AuthorizedFilesRoot {
+    fn with_files_root<R>(
+        &self,
+        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.revalidation
-            .with_live_session_effect(|| self.root.with_active_root(effect))
+            .with_live_session_effect(|| {
+                <nagi_profile_volume_notes_owner::ProfileFilesRoot as
+                    nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(
+                    &self.root,
+                    effect,
+                )
+            })
             .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
     }
 }
