@@ -568,9 +568,11 @@ impl ProfileFilesRoot {
     }
 
     /// The trusted consumer invokes this only inside the matching C1 lease.
+    /// The higher-ranked callback keeps the view and any opened file borrows
+    /// from escaping this owner-checked effect.
     pub fn with_active_root<R>(
         &self,
-        effect: impl FnOnce(FilesRootView<'_>) -> R,
+        effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.0.with_active(|| {
             effect(FilesRootView {
@@ -581,27 +583,118 @@ impl ProfileFilesRoot {
 }
 
 #[cfg(target_os = "linux")]
+/// A Files root view that is valid only inside the owner's active callback.
+/// The root descriptor is deliberately not exposed as an `AsFd` capability:
+///
+/// ```compile_fail
+/// use nagi_profile_volume_notes_owner::FilesRootView;
+///
+/// fn keep_root_fd(view: &FilesRootView<'_>) {
+///     let _fd = view.as_fd().try_clone_to_owned().unwrap();
+/// }
+/// ```
+///
+/// Nor can the view itself be returned beyond the owner callback:
+///
+/// ```compile_fail
+/// use nagi_profile_volume_notes_owner::{FilesRootView, ProfileFilesRoot};
+///
+/// fn escape_view(root: &ProfileFilesRoot) -> FilesRootView<'static> {
+///     root.with_active_root(|view| Ok(view)).unwrap()
+/// }
+/// ```
 pub struct FilesRootView<'root> {
     directory: &'root OwnedFd,
 }
 
 #[cfg(target_os = "linux")]
 impl FilesRootView<'_> {
-    /// Borrow the private descriptor for the maintained Files consumer.
-    pub fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
-        std::os::fd::AsFd::as_fd(self.directory)
+    /// Sync the private Files root without exposing its descriptor.
+    pub fn sync_root(&self) -> std::io::Result<()> {
+        rustix::fs::fsync(self.directory).map_err(std::io::Error::from)
     }
 
     /// Open a relative path under this root without traversing links or mounts.
+    /// The callback receives a restricted borrowed handle; it cannot clone or
+    /// retain the underlying `File` beyond this operation.
+    ///
+    /// A consumer cannot duplicate the opened descriptor through the scoped
+    /// wrapper:
+    ///
+    /// ```compile_fail
+    /// use nagi_profile_volume_notes_owner::FilesRootView;
+    /// use rustix::fs::{Mode, OFlags};
+    /// use std::path::Path;
+    ///
+    /// fn keep_file(view: &FilesRootView<'_>) {
+    ///     let _file = view
+    ///         .with_open_file(Path::new("note"), OFlags::RDONLY, Mode::empty(), |file| {
+    ///             file.try_clone()
+    ///         })
+    ///         .unwrap();
+    /// }
+    /// ```
     pub fn with_open_file<R>(
         &self,
         relative: &std::path::Path,
         flags: rustix::fs::OFlags,
         mode: rustix::fs::Mode,
-        effect: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>,
+        effect: impl for<'file> FnOnce(&mut FilesRootFileView<'file>) -> std::io::Result<R>,
     ) -> std::io::Result<R> {
         let mut file = linux_data::open_files_path(self.directory, relative, flags, mode)?;
-        effect(&mut file)
+        effect(&mut FilesRootFileView { file: &mut file })
+    }
+}
+
+/// A borrowed file handle scoped to one [`FilesRootView::with_open_file`]
+/// callback. It intentionally exposes ordinary file operations but not the
+/// underlying descriptor or `std::fs::File`.
+#[cfg(target_os = "linux")]
+pub struct FilesRootFileView<'file> {
+    file: &'file mut std::fs::File,
+}
+
+#[cfg(target_os = "linux")]
+impl FilesRootFileView<'_> {
+    pub fn sync_all(&mut self) -> std::io::Result<()> {
+        self.file.sync_all()
+    }
+
+    pub fn sync_data(&mut self) -> std::io::Result<()> {
+        self.file.sync_data()
+    }
+
+    pub fn metadata(&self) -> std::io::Result<std::fs::Metadata> {
+        self.file.metadata()
+    }
+
+    pub fn set_len(&self, size: u64) -> std::io::Result<()> {
+        self.file.set_len(size)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl std::io::Read for FilesRootFileView<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        std::io::Read::read(self.file, buffer)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl std::io::Write for FilesRootFileView<'_> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        std::io::Write::write(self.file, buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(self.file)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl std::io::Seek for FilesRootFileView<'_> {
+    fn seek(&mut self, position: std::io::SeekFrom) -> std::io::Result<u64> {
+        std::io::Seek::seek(self.file, position)
     }
 }
 
@@ -1005,7 +1098,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn user_files_root_stays_private_and_retained_view_stops_after_logout() {
+    fn user_files_root_scopes_normal_io_and_stops_after_end_or_revoke() {
         use rustix::fs::{Mode, OFlags};
         use std::fs::{self, File};
         use std::io::{Read, Write};
@@ -1056,7 +1149,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-                rustix::fs::fsync(view.as_fd()).unwrap();
+                view.sync_root().unwrap();
             })
             .unwrap();
 
@@ -1078,7 +1171,53 @@ mod tests {
             readback.with_active_root(|_| -> () { panic!("ended Files root invoked") }),
             Err(ProfileVolumeNotesOwnerError::Ended),
         );
+        assert!(matches!(
+            readback.with_active_root(|view| {
+                view.with_open_file(
+                    Path::new("owned"),
+                    OFlags::RDONLY,
+                    Mode::empty(),
+                    |_| Ok(()),
+                )
+            }),
+            Err(ProfileVolumeNotesOwnerError::Ended),
+        ));
         drop((group, bundle, readback));
+
+        let mut revoked_group = AppStorageOwners::pending();
+        revoked_group.user_files.state =
+            OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
+                AppStorageKind::UserFiles,
+                "principal",
+                "profile",
+                File::open(&root).unwrap().into(),
+                None,
+            )));
+        let revoked_root = revoked_group.user_files().issue_files_root().unwrap();
+        let revoked_readback = revoked_root
+            .with_active_root(|view| {
+                view.with_open_file(Path::new("owned"), OFlags::RDONLY, Mode::empty(), |file| {
+                    let mut bytes = Vec::new();
+                    file.read_to_end(&mut bytes)?;
+                    Ok(bytes)
+                })
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(revoked_readback, b"files payload");
+        revoked_group.revoke().unwrap();
+        assert!(matches!(
+            revoked_root.with_active_root(|view| {
+                view.with_open_file(
+                    Path::new("owned"),
+                    OFlags::RDONLY,
+                    Mode::empty(),
+                    |_| Ok(()),
+                )
+            }),
+            Err(ProfileVolumeNotesOwnerError::Revoked),
+        ));
+        drop((revoked_group, revoked_root));
         fs::remove_dir_all(directory).unwrap();
     }
 
