@@ -627,8 +627,11 @@ pub(super) fn replace_files_temp(
 
 fn validate_files_tree_at(root: &impl AsFd, mount_id: u64, relative: &Path) -> io::Result<()> {
     let metadata = files_symlink_metadata_at(root, mount_id, relative)?;
-    if metadata.kind != FilesRootEntryKind::Directory {
-        return Ok(());
+    match metadata.kind {
+        FilesRootEntryKind::RegularFile => return Ok(()),
+        FilesRootEntryKind::Symlink => return Err(io::ErrorKind::PermissionDenied.into()),
+        FilesRootEntryKind::Other => return Err(io::ErrorKind::Unsupported.into()),
+        FilesRootEntryKind::Directory => {}
     }
     let directory = open_files_directory(root, mount_id, relative)?;
     for entry in Dir::read_from(&directory)? {

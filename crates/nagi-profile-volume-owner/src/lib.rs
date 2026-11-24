@@ -1255,6 +1255,25 @@ mod tests {
                 );
                 view.remove_path(Path::new("copied-folder")).unwrap();
                 assert!(view.symlink_metadata(Path::new("copied-folder")).is_err());
+                symlink("../outside", root.join("folder/nested-link")).unwrap();
+                assert_eq!(
+                    view.validate_tree_mounts(Path::new("folder"))
+                        .unwrap_err()
+                        .kind(),
+                    std::io::ErrorKind::PermissionDenied
+                );
+                assert!(view
+                    .rename_without_replacement(Path::new("folder"), Path::new("moved-folder"))
+                    .is_err());
+                assert_eq!(
+                    view.symlink_metadata(Path::new("folder")).unwrap().kind,
+                    FilesRootEntryKind::Directory
+                );
+                assert!(view
+                    .copy_path(Path::new("folder"), Path::new("copied-folder"), || false)
+                    .is_err());
+                assert!(view.symlink_metadata(Path::new("copied-folder")).is_err());
+                view.unlink(Path::new("folder/nested-link")).unwrap();
                 view.validate_tree_mounts(Path::new("folder")).unwrap();
                 let root_entries = view.read_directory(Path::new(".")).unwrap();
                 assert!(root_entries.iter().any(|entry| entry.name == "escape"));
