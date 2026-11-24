@@ -5,10 +5,13 @@ use libnagi::{
     INPUT_KEY_UP,
 };
 use nagi_localization::Locale;
+use nagi_ui::ThemeMode;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum AppId {
     Notes,
+    #[cfg(linux_task24_settings)]
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,8 +31,13 @@ pub(super) enum ShellAction {
 pub(super) struct ShellModel {
     focus: ShellFocus,
     locale: Locale,
+    theme: ThemeMode,
+    #[cfg(linux_task24_settings)]
+    settings: bool,
 }
 
+#[cfg(linux_task24_settings)]
+const SETTINGS_TILE: Rect = Rect::new(8, 24, 145, 70);
 const NOTES_TILE: Rect = Rect::new(167, 24, 145, 70);
 const LOGOUT_BUTTON: Rect = Rect::new(244, 1, 74, 18);
 
@@ -38,7 +46,24 @@ impl ShellModel {
         Self {
             focus: ShellFocus::App(AppId::Notes),
             locale,
+            theme: ThemeMode::Light,
+            #[cfg(linux_task24_settings)]
+            settings: false,
         }
+    }
+
+    pub(super) fn locale(&self) -> Locale {
+        self.locale
+    }
+
+    #[cfg(linux_task24_settings)]
+    pub(super) fn apply_preferences(
+        &mut self,
+        preferences: crate::settings_store::preferences::Preferences,
+    ) {
+        self.locale = preferences.locale;
+        self.theme = preferences.theme;
+        self.settings = true;
     }
 
     pub(super) fn on_key(&mut self, event: InputEvent) -> ShellAction {
@@ -47,10 +72,28 @@ impl ShellModel {
         }
         match event.code {
             INPUT_KEY_TAB | INPUT_KEY_UP | INPUT_KEY_DOWN => {
-                self.focus = match self.focus {
-                    ShellFocus::App(_) => ShellFocus::Logout,
-                    ShellFocus::Logout => ShellFocus::App(AppId::Notes),
+                let order = [
+                    ShellFocus::App(AppId::Notes),
+                    ShellFocus::Logout,
+                    #[cfg(linux_task24_settings)]
+                    ShellFocus::App(AppId::Settings),
+                ];
+                #[cfg(linux_task24_settings)]
+                let order = if self.settings {
+                    &order[..]
+                } else {
+                    &order[..2]
                 };
+                let index = order
+                    .iter()
+                    .position(|focus| *focus == self.focus)
+                    .unwrap_or(0);
+                let step = if event.code == INPUT_KEY_UP {
+                    order.len() - 1
+                } else {
+                    1
+                };
+                self.focus = order[(index + step) % order.len()];
                 ShellAction::Redraw
             }
             INPUT_KEY_ENTER | INPUT_KEY_SPACE => match self.focus {
@@ -62,19 +105,31 @@ impl ShellModel {
     }
 
     pub(super) fn render(&self, painter: &mut Painter<'_>) {
-        draw_top_bar(painter);
+        draw_top_bar(painter, self.theme);
         draw_window(
             painter,
             NOTES_TILE,
             nagi_localization::text(self.locale, "desktop.notes.title").as_bytes(),
             self.focus == ShellFocus::App(AppId::Notes),
+            self.theme,
         );
         draw_window(
             painter,
             LOGOUT_BUTTON,
             nagi_localization::text(self.locale, "desktop.shell.logout").as_bytes(),
             self.focus == ShellFocus::Logout,
+            self.theme,
         );
+        #[cfg(linux_task24_settings)]
+        if self.settings {
+            draw_window(
+                painter,
+                SETTINGS_TILE,
+                nagi_localization::text(self.locale, "desktop.settings.title").as_bytes(),
+                self.focus == ShellFocus::App(AppId::Settings),
+                self.theme,
+            );
+        }
     }
 }
 
@@ -106,6 +161,33 @@ mod tests {
         assert_eq!(
             model.on_key(key(INPUT_KEY_ENTER, 1)),
             ShellAction::Launch(AppId::Notes)
+        );
+    }
+
+    #[cfg(linux_task24_settings)]
+    #[test]
+    fn settings_extends_the_launcher_and_applies_dark_preferences() {
+        use crate::settings_store::preferences::Preferences;
+        use nagi_ui::{color, ColorRole};
+
+        let mut model = ShellModel::new(Locale::EnUs);
+        model.apply_preferences(Preferences {
+            locale: Locale::JaJp,
+            theme: ThemeMode::Dark,
+        });
+        model.on_key(key(INPUT_KEY_TAB, 1));
+        assert_eq!(model.on_key(key(INPUT_KEY_ENTER, 1)), ShellAction::Logout);
+        model.on_key(key(INPUT_KEY_TAB, 1));
+        assert_eq!(
+            model.on_key(key(INPUT_KEY_ENTER, 1)),
+            ShellAction::Launch(AppId::Settings)
+        );
+        assert_eq!(model.locale(), Locale::JaJp);
+        let mut pixels = vec![0; 320 * 200];
+        model.render(&mut Painter::new(&mut pixels));
+        assert_eq!(
+            pixels[199 * 320],
+            color(ThemeMode::Dark, ColorRole::Canvas).to_pixel()
         );
     }
 

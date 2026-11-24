@@ -1755,6 +1755,16 @@ pub(crate) use linux_init::pid1_live_peer_supplier as supplier_root;
 #[allow(dead_code)]
 mod profile_volume_notes_owner;
 
+#[cfg(any(
+    all(target_os = "linux", linux_task24_initial_login_runtime),
+    all(test, target_os = "macos")
+))]
+mod linux_login_throttle;
+
+#[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
+#[cfg_attr(all(not(test), not(linux_task24_settings)), allow(dead_code))]
+mod settings_store;
+
 #[cfg(any(target_os = "linux", all(test, target_os = "macos")))]
 mod task24_c3_journal_bootstrap_contract;
 

@@ -10,6 +10,7 @@ import shutil
 import stat
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,117 @@ NOTES_SAVED_PREFIX = recovery.SAVED + " "
 NOTES_REOPENED_PREFIX = recovery.REOPENED + " "
 LOGIN_WAIT = recovery.LOGIN_WAIT
 LOGIN_REJECTED = recovery.LOGIN_REJECTED
+
+
+ENTER = 0xFF0D
+TAB = 0xFF09
+ESCAPE = 0xFF1B
+SETTINGS_OPENED = "NAGI_DEV_SETTINGS_OPENED"
+SETTINGS_CLOSED = "NAGI_DEV_SETTINGS_CLOSED"
+PASSWORD_OPENED = "NAGI_DEV_PASSWORD_PANEL_OPENED"
+PASSWORD_CLOSED = "NAGI_DEV_PASSWORD_PANEL_CLOSED"
+PASSWORD_CHANGED = "NAGI_DEV_PASSWORD_CHANGE_PASS"
+LOGOUT_REQUESTED = "NAGI_DEV_DESKTOP_LOGOUT_REQUESTED"
+SYSTEM_JAPANESE = "NAGI_DEV_SYSTEM_LOCALE_RESTORED locale=ja-JP"
+SYSTEM_ENGLISH = "NAGI_DEV_SYSTEM_LOCALE_RESTORED locale=en-US"
+RESTORED_JAPANESE_DARK = (
+    "NAGI_DEV_SETTINGS_RESTORED locale=ja-JP theme=dark "
+    "invalid_locale=false invalid_theme=false"
+)
+SAVED_JAPANESE = "NAGI_DEV_SETTINGS_SAVED revision=1 locale=ja-JP theme=light"
+SAVED_DARK = "NAGI_DEV_SETTINGS_SAVED revision=2 locale=ja-JP theme=dark"
+SAVED_ENGLISH = "NAGI_DEV_SETTINGS_SAVED revision=3 locale=en-US theme=dark"
+L9_RFB_FLOW = {
+    "locale-save": (REGISTRATION_WAIT, LOGIN_WAIT, recovery.DESKTOP_READY,
+                    SETTINGS_OPENED, SAVED_JAPANESE, SAVED_DARK, SETTINGS_CLOSED,
+                    LOGOUT_REQUESTED),
+    "locale-read": (SYSTEM_JAPANESE, LOGIN_WAIT, RESTORED_JAPANESE_DARK,
+                    recovery.DESKTOP_READY, SETTINGS_OPENED, SAVED_ENGLISH,
+                    SETTINGS_CLOSED, LOGOUT_REQUESTED),
+    "password-change": (SYSTEM_ENGLISH, LOGIN_WAIT, recovery.DESKTOP_READY, SETTINGS_OPENED,
+                        PASSWORD_OPENED, PASSWORD_CHANGED, PASSWORD_CLOSED,
+                        SETTINGS_CLOSED, LOGOUT_REQUESTED),
+    "password-login": (SYSTEM_ENGLISH, LOGIN_WAIT, LOGIN_REJECTED, LOGIN_WAIT,
+                       recovery.DESKTOP_READY, LOGOUT_REQUESTED),
+}
+_L9_EXACT_GATES = {marker for flow in L9_RFB_FLOW.values() for marker in flow}
+_L9_PREFIX_GATES = (
+    "NAGI_DEV_SETTINGS_SAVED ", "NAGI_DEV_SETTINGS_RESTORED ",
+    "NAGI_DEV_PASSWORD_CHANGE_REJECTED", "NAGI_DEV_PASSWORD_PANEL_INPUT_LOST",
+)
+
+
+def l9_surface_pixels(frame: bytes) -> Callable[[int, int], bytes] | None:
+    """Return an RGB pixel reader for the centered 320×200 guest surface."""
+    try:
+        magic, dimensions, maximum, pixels = frame.split(b"\n", 3)
+        width, height = map(int, dimensions.split())
+    except ValueError:
+        return None
+    if (magic != b"P6" or maximum != b"255" or width < 320 or height < 200
+            or len(pixels) != width * height * 3):
+        return None
+    left, top = (width - 320) // 2, (height - 200) // 2
+
+    def pixel(x: int, y: int) -> bytes:
+        offset = 3 * ((top + y) * width + left + x)
+        return pixels[offset:offset + 3]
+
+    return pixel
+
+
+def is_unlock_screen(frame: bytes) -> bool:
+    pixel = l9_surface_pixels(frame)
+    if pixel is None:
+        return False
+    # Separate title, form body and background at the bottom of the surface.
+    return (
+        pixel(42, 35) == pixel(250, 35) == bytes((8, 119, 110))
+        and pixel(60, 100) == pixel(210, 150) == bytes((255, 255, 255))
+        and pixel(10, 5) == pixel(160, 195) == bytes((243, 247, 247))
+    )
+
+
+def is_dark_launcher(frame: bytes) -> bool:
+    pixel = l9_surface_pixels(frame)
+    if pixel is None:
+        return False
+    return (
+        pixel(42, 35) == pixel(250, 35) == bytes((48, 157, 145))
+        and pixel(80, 60) == pixel(200, 60) == bytes((28, 39, 52))
+        # The blank lower area must have switched completely out of the Light
+        # unlock frame, including the bottom of the centered surface.
+        and all(pixel(x, y) == bytes((17, 25, 36))
+                for y in (100, 120, 150, 175, 195) for x in (16, 160, 280))
+    )
+
+
+def is_dark_settings_panel(frame: bytes) -> bool:
+    pixel = l9_surface_pixels(frame)
+    if pixel is None:
+        return False
+    # The Password/Reload/Close rows span the lower panel, beyond the
+    # launcher's 94px-tall tiles. Check the surface and the gaps between rows.
+    surface = bytes((28, 39, 52))
+    canvas = bytes((17, 25, 36))
+    return all(
+        pixel(x, row) == surface and pixel(x, gap) == canvas
+        for x in (120, 160, 240)
+        for row, gap in ((108, 122), (128, 142), (148, 162))
+    )
+
+
+def l9_flow_markers(lines: list[str], phase: str) -> list[str]:
+    return [
+        marker for marker in lines
+        if marker in _L9_EXACT_GATES or (
+            marker.startswith(_L9_PREFIX_GATES)
+            and not (
+                marker.startswith("NAGI_DEV_SETTINGS_RESTORED ")
+                and phase in ("password-change", "password-login")
+            )
+        )
+    ]
 
 
 class AutomationError(RuntimeError):
@@ -294,11 +406,17 @@ def _child_pid(supervisor_log: Path) -> int | None:
 class AutomaticRfbInput:
     """Apply fixture keys only at the exact serial gates in the three-boot flow."""
 
-    def __init__(self, fixture: DevelopmentFixture, phase: str) -> None:
-        if phase not in ("save", "reject-close", "read"):
+    def __init__(
+        self,
+        fixture: DevelopmentFixture,
+        phase: str,
+        capture: Callable[[str, bytes], None] | None = None,
+    ) -> None:
+        if phase not in ("save", "reject-close", "read") and phase not in L9_RFB_FLOW:
             raise AutomationError("unsupported automatic Task24 phase")
         self.fixture = fixture
         self.phase = phase
+        self.capture = capture
         self.keyboard: RfbKeyboard | None = None
         self.first_key_sent = False
         self.registration_sent = False
@@ -310,6 +428,7 @@ class AutomaticRfbInput:
         self.owner_password_sent = False
         self.read_closed = False
         self.desktop_progress = 0
+        self.l9_progress = 0
 
     def _connect(self, pid: int, deadline: float) -> None:
         if self.keyboard is not None:
@@ -338,9 +457,13 @@ class AutomaticRfbInput:
         except RfbError as error:
             raise AutomationError(f"local RFB key input failed ({error.__class__.__name__})") from None
 
-    def _type(self, pid: int, value: str) -> None:
+    def _type(self, pid: int, value: str, *, delay_seconds: float | None = None) -> None:
         try:
-            self._first_key(pid).type_fixture_text(value)
+            keyboard = self._first_key(pid)
+            if delay_seconds is None:
+                keyboard.type_fixture_text(value)
+            else:
+                keyboard.type_fixture_text(value, delay_seconds=delay_seconds)
         except RfbError as error:
             raise AutomationError(f"local RFB fixture text failed ({error.__class__.__name__})") from None
 
@@ -374,11 +497,100 @@ class AutomaticRfbInput:
                 self._tap(pid, key)
         self.desktop_progress = progress
 
+    def _capture_l9(self, marker: str, pid: int, deadline: float) -> None:
+        if self.capture is None or self.phase != "locale-read":
+            return
+        target = {
+            LOGIN_WAIT: ("japanese-unlock", is_unlock_screen),
+            recovery.DESKTOP_READY: ("japanese-dark-desktop", is_dark_launcher),
+            SETTINGS_OPENED: ("japanese-dark-settings", is_dark_settings_panel),
+        }.get(marker)
+        if target is None:
+            return
+        name, ready = target
+        self._connect(pid, deadline)
+        assert self.keyboard is not None
+        frame_deadline = min(deadline, time.monotonic() + 3.0)
+        try:
+            while True:
+                _require_owned_listener(pid, self.fixture.rfb_port, "before framebuffer capture")
+                frame = self.keyboard.capture_ppm()
+                if ready(frame):
+                    self.capture(name, frame)
+                    return
+                if time.monotonic() >= frame_deadline:
+                    raise AutomationError(f"RFB never presented {name}")
+                time.sleep(0.05)
+        except RfbError as error:
+            raise AutomationError(f"local RFB frame failed ({error.__class__.__name__})") from None
+
+    def _handle_l9(self, lines: list[str], pid: int, deadline: float) -> None:
+        expected = L9_RFB_FLOW[self.phase]
+        observed = l9_flow_markers(lines, self.phase)
+        if tuple(observed) != expected[:len(observed)] or len(observed) < self.l9_progress:
+            raise AutomationError("unexpected or out-of-order L9 serial gate")
+        for index in range(self.l9_progress, len(observed)):
+            marker = observed[index]
+            keys: tuple[int | str, ...] = ()
+            if marker == REGISTRATION_WAIT:
+                keys = (
+                    ENTER, self.fixture.owner_name, TAB, self.fixture.owner_password,
+                    TAB, self.fixture.owner_password, ENTER,
+                )
+            elif marker == LOGIN_WAIT:
+                # The other private fixture value is the replacement credential.
+                # It is only used after the old credential has been rejected.
+                password = (self.fixture.wrong_password
+                            if self.phase == "password-login" and LOGIN_REJECTED in observed[:index]
+                            else self.fixture.owner_password)
+                keys = (password, ENTER)
+            elif marker == recovery.DESKTOP_READY:
+                keys = (TAB, ENTER) if self.phase == "password-login" else (TAB, TAB, ENTER)
+            elif marker == SETTINGS_OPENED:
+                keys = {
+                    "locale-save": (TAB, ENTER),
+                    "locale-read": (ENTER,),
+                    "password-change": (TAB, TAB, TAB, TAB, ENTER),
+                }[self.phase]
+            elif marker == SAVED_JAPANESE:
+                keys = (TAB, TAB, ENTER)
+            elif marker in (SAVED_DARK, SAVED_ENGLISH, PASSWORD_CLOSED):
+                keys = (ESCAPE,)
+            elif marker == PASSWORD_OPENED:
+                keys = (
+                    self.fixture.owner_password, ENTER, self.fixture.wrong_password,
+                    ENTER, self.fixture.wrong_password, ENTER,
+                )
+            elif marker == PASSWORD_CHANGED:
+                keys = (ENTER,)
+            elif marker == SETTINGS_CLOSED:
+                # Moving forward from Settings wraps through Notes to Logout.
+                keys = (TAB, TAB, ENTER)
+            if keys:
+                if index != len(observed) - 1:
+                    raise AutomationError("L9 serial advanced before its gated fixture input")
+                self._capture_l9(marker, pid, deadline)
+                self._connect(pid, deadline)
+                for key in keys:
+                    if isinstance(key, int):
+                        self._tap(pid, key)
+                        if marker == PASSWORD_OPENED:
+                            time.sleep(0.10)
+                    elif marker == PASSWORD_OPENED:
+                        self._type(pid, key, delay_seconds=0.10)
+                    else:
+                        self._type(pid, key)
+        self.l9_progress = len(observed)
+
     def handle(self, serial_text: str, supervisor_log: Path, deadline: float) -> None:
         lines = _complete_lines(serial_text)
         line_set = set(lines)
         pid = _child_pid(supervisor_log)
         if pid is None:
+            return
+
+        if self.phase in L9_RFB_FLOW:
+            self._handle_l9(lines, pid, deadline)
             return
 
         if self.phase == "save":
@@ -445,6 +657,10 @@ class AutomaticRfbInput:
                 self.read_closed = True
 
     def verify_complete(self) -> None:
+        if self.phase in L9_RFB_FLOW:
+            if self.l9_progress != len(L9_RFB_FLOW[self.phase]):
+                raise AutomationError(f"{self.phase} did not complete its gated L9 sequence")
+            return
         complete = {
             "save": (
                 self.registration_sent

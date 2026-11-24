@@ -634,6 +634,14 @@ pub(super) fn run_owner_login(
                 .ws10_check_previous_logout()
                 .map_err(|_| BackendError::Unavailable)?;
         }
+        #[cfg(all(linux_task24_settings, not(nagi_release_build)))]
+        if let Some(previous) =
+            l9_previous_session().map_err(|_| BackendError::ProtocolViolation)?
+        {
+            runtime
+                .l9_check_previous_logout(&previous)
+                .map_err(|_| BackendError::Unavailable)?;
+        }
         if runtime
             .owner_registration_required()
             .map_err(|_| BackendError::Unavailable)?
@@ -646,8 +654,8 @@ pub(super) fn run_owner_login(
         let account = runtime
             .owner_login_name()
             .map_err(|_| BackendError::Unavailable)?;
-        let mut unlock =
-            crate::login_screen::LinuxOwnerUnlock::new(&account, nagi_localization::Locale::EnUs);
+        let system_locale = runtime.system_locale();
+        let mut unlock = crate::login_screen::LinuxOwnerUnlock::new(&account, system_locale);
         console
             .present_unlock(&unlock)
             .map_err(|_| BackendError::Unavailable)?;
@@ -785,9 +793,15 @@ pub(super) fn run_owner_login(
                                 #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
                                 let mut revoked = false;
                                 #[allow(unused_mut)]
-                                let mut run_notes = |console: &mut super::linux_owner_registration_console::BootOwnerConsole, inputs| notes_console::run(
+                                let mut run_notes = |
+                                    console: &mut super::linux_owner_registration_console::BootOwnerConsole,
+                                    inputs,
+                                    locale,
+                                    owners: &mut crate::profile_volume_notes_owner::AppStorageOwners,
+                                | notes_console::run(
                                     console,
                                     inputs,
+                                    locale,
                                     || runtime.poll_task24_required_identity_exit(),
                                     || runtime.check_notes_session(session.lease),
                                     #[cfg(all(linux_dev_ws10, not(nagi_release_build)))]
@@ -821,23 +835,34 @@ pub(super) fn run_owner_login(
                                     linux_task24_desktop_shell,
                                     not(nagi_release_build)
                                 )))]
-                                let result = run_notes(console, inputs);
+                                let result = run_notes(
+                                    console,
+                                    inputs,
+                                    nagi_localization::Locale::EnUs,
+                                    owners,
+                                );
 
                                 #[cfg(all(linux_task24_desktop_shell, not(nagi_release_build)))]
                                 let result = {
                                     use super::NotesConsoleExit;
                                     use desktop_shell::ShellExit;
                                     let mut first = Some(inputs);
+                                    #[cfg(linux_task24_settings)]
+                                    let owners = std::cell::RefCell::new(&mut *owners);
                                     desktop_shell::run(
                                         console,
                                         || runtime.poll_task24_required_identity_exit(),
                                         || runtime.check_notes_session(session.lease),
-                                        |console| {
+                                        |console, locale| {
+                                            #[cfg(linux_task24_settings)]
+                                            let mut owner = owners.try_borrow_mut()
+                                                .map_err(|_| std::io::Error::other("storage owner busy"))?;
+                                            #[cfg(linux_task24_settings)]
+                                            let owners = &mut **owner;
                                             let inputs = match first.take() {
                                                 Some(inputs) => inputs,
                                                 None => {
-                                                    let owner = notes_owner.as_mut().map_err(|error| std::io::Error::other(*error))?;
-                                                    let inputs = runtime.request_notes_attachment(session.lease, owner).map_err(|error| {
+                                                    let inputs = runtime.request_notes_attachment(session.lease, owners).map_err(|error| {
                                                         super::log_pid1_stderr(format_args!(
                                                             "NAGI_DEV_DESKTOP_NOTES_ATTACHMENT_REISSUE_FAILED ({error})"
                                                         ));
@@ -849,9 +874,24 @@ pub(super) fn run_owner_login(
                                                     inputs
                                                 }
                                             };
-                                            run_notes(console, inputs)
+                                            run_notes(console, inputs, locale, owners)
                                         },
                                         &mut retained_notes_draft,
+                                        #[cfg(linux_task24_settings)]
+                                        Some(desktop_shell::SettingsRuntime {
+                                            pre_login_locale: system_locale,
+                                            open: &mut || {
+                                                use crate::settings_store::preferences::{PreferencesError, SettingsStore};
+                                                let mut owner = owners.try_borrow_mut().map_err(|_| PreferencesError::Unavailable)?;
+                                                runtime.request_settings_snapshot(session.lease, &mut **owner)
+                                                    .map(SettingsStore::new)
+                                                    .map_err(|_| PreferencesError::Unavailable)
+                                            },
+                                            mirror: &mut |locale| runtime.mirror_settings_locale(session.lease, locale),
+                                            change_password: &mut |current, next| {
+                                                runtime.change_owner_password(session.lease, current, next)
+                                            },
+                                        }),
                                     )
                                     .map(|exit| {
                                         let notes_exit = match exit {
@@ -887,9 +927,18 @@ pub(super) fn run_owner_login(
                                         | super::NotesConsoleExit::ClosedWithoutSave
                                 ) {
                                     match runtime.end_app_sessions(&issued, owners) {
-                                        Ok(reason) => super::log_pid1_stderr(format_args!(
-                                            "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
-                                        )),
+                                        Ok(reason) => {
+                                            super::log_pid1_stderr(format_args!(
+                                                "NAGI_DEV_NOTES_SESSION_ENDED reason={reason:?}"
+                                            ));
+                                            #[cfg(all(linux_task24_settings, not(nagi_release_build)))]
+                                            if reason == nagi_identity_session::SessionEndReason::UserLogout {
+                                                super::log_pid1_stderr(format_args!(
+                                                    "NAGI_DEV_L9_LOGGED_OUT session={}",
+                                                    issued.session_id().as_str()
+                                                ));
+                                            }
+                                        }
                                         Err(_) => wait_for_unconfirmed_notes_session_end(),
                                     }
                                 }
@@ -1140,10 +1189,7 @@ pub(super) fn start_verified_login(
                     .instances
                     .has_unresolved_cleanup()
                     .unwrap_or(true);
-            let may_retry_after_cleanup = matches!(
-                &error,
-                PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired
-            );
+            let may_retry_after_cleanup = is_retryable_login_denial(&error);
             if !cleanup_confirmed && may_retry_after_cleanup {
                 cleanup_confirmed = matches!(
                     wait_for_rejected_login_cleanup(lifecycle, owners, deadline),
@@ -1164,14 +1210,19 @@ fn login_attempt_denial_after_cleanup(error: PeerDenial, cleanup_confirmed: bool
     classify_login_denial_after_cleanup(
         error,
         cleanup_confirmed,
-        |error| {
-            matches!(
-                error,
-                PeerDenial::AccountRejected | PeerDenial::RequestDeadlineExpired
-            )
-        },
+        is_retryable_login_denial,
         PeerDenial::UnresolvedSpawnCleanup,
         PeerDenial::RequestOutcomeUnknown,
+    )
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn is_retryable_login_denial(error: &PeerDenial) -> bool {
+    matches!(
+        error,
+        PeerDenial::AccountRejected
+            | PeerDenial::AccountThrottled
+            | PeerDenial::RequestDeadlineExpired
     )
 }
 
@@ -1208,6 +1259,19 @@ mod login_attempt_cleanup_tests {
         assert!(matches!(
             LoginStartError::from_spawn(BackendError::ConsentDenied, true).into_denial(),
             ConsentDenied
+        ));
+    }
+
+    #[test]
+    fn throttled_attempt_returns_to_input_only_after_exact_cleanup() {
+        use PeerDenial::*;
+        assert!(matches!(
+            login_attempt_denial_after_cleanup(AccountThrottled, true),
+            AccountThrottled
+        ));
+        assert!(matches!(
+            login_attempt_denial_after_cleanup(AccountThrottled, false),
+            UnresolvedSpawnCleanup
         ));
     }
 
@@ -1460,6 +1524,21 @@ fn ws10_mode() -> std::io::Result<Option<Ws10Mode>> {
         }
     }
     Ok(selected)
+}
+
+#[cfg(all(linux_task24_settings, not(nagi_release_build)))]
+fn l9_previous_session() -> std::io::Result<Option<nagi_identity_session::SessionId>> {
+    let command_line = std::fs::read_to_string("/proc/cmdline")?;
+    let mut sessions = command_line
+        .split_ascii_whitespace()
+        .filter_map(|arg| arg.strip_prefix("nagi.dev_l9_previous_session="));
+    match (sessions.next(), sessions.next()) {
+        (None, None) => Ok(None),
+        (Some(id), None) => nagi_identity_session::SessionId::new(id)
+            .map(Some)
+            .map_err(|_| std::io::Error::other("invalid L9 previous Session ID")),
+        _ => Err(std::io::Error::other("duplicate L9 previous Session ID")),
+    }
 }
 
 #[cfg(linux_task24_notes_consumer)]

@@ -183,6 +183,100 @@ class AutomaticRfbTests(unittest.TestCase):
             self.assertTrue(automatic.owned_loopback_listener(os.getpid(), port))
             self.assertFalse(automatic.owned_loopback_listener(os.getppid(), port))
 
+    def test_l9_drives_each_ordered_gate_once(self):
+        for phase, flow in automatic.L9_RFB_FLOW.items():
+            with self.subTest(phase=phase):
+                driver, keyboard, connect = self.make_driver(phase)
+                for index in range(len(flow)):
+                    self.feed(driver, *flow[:index + 1])
+                driver.verify_complete()
+                calls = list(keyboard.mock_calls)
+                self.feed(driver, *flow)
+                self.assertEqual(keyboard.mock_calls, calls)
+                connect.assert_called_once()
+                if phase == "password-login":
+                    self.assertEqual(
+                        [entry for entry in calls if entry[0] == "type_fixture_text"],
+                        [call.type_fixture_text(self.fixture.owner_password),
+                         call.type_fixture_text(self.fixture.wrong_password)],
+                    )
+
+    @staticmethod
+    def l9_frame(color, samples=()):
+        data = bytearray(bytes(color) * (640 * 480))
+        for x, y, sample in samples:
+            offset = 3 * ((140 + y) * 640 + 160 + x)
+            data[offset:offset + 3] = bytes(sample)
+        return b"P6\n640 480\n255\n" + data
+
+    def test_l9_waits_for_each_complete_screen_before_applying_keys(self):
+        driver, keyboard, _ = self.make_driver("locale-read")
+        sink = Mock()
+        driver.capture = sink
+        canvas, surface = (17, 25, 36), (28, 39, 52)
+        light = (243, 247, 247)
+        unlock = self.l9_frame(light, [
+            (42, 35, (8, 119, 110)), (250, 35, (8, 119, 110)),
+            (60, 100, (255, 255, 255)), (210, 150, (255, 255, 255)),
+        ])
+        tiles = [(42, 35, (48, 157, 145)), (250, 35, (48, 157, 145)),
+                 (80, 60, surface), (200, 60, surface)]
+        launcher = self.l9_frame(canvas, tiles)
+        split = self.l9_frame(canvas, [*tiles, (160, 175, light)])
+        panel = self.l9_frame(canvas, [(x, y, surface)
+                                      for y in (108, 128, 148) for x in (120, 160, 240)])
+        keyboard.capture_ppm.side_effect = [b"boot", unlock, split, launcher, launcher, panel]
+        flow = automatic.L9_RFB_FLOW["locale-read"]
+        with patch.object(automatic.time, "sleep"):
+            for index in range(len(flow)):
+                self.feed(driver, *flow[:index + 1])
+        self.assertEqual(sink.call_args_list, [
+            call("japanese-unlock", unlock),
+            call("japanese-dark-desktop", launcher),
+            call("japanese-dark-settings", panel),
+        ])
+        self.assertEqual(keyboard.mock_calls[:2], [call.capture_ppm(), call.capture_ppm()])
+        self.assertEqual(keyboard.capture_ppm.call_count, 6)
+
+    def test_l9_stale_unlock_capture_cannot_advance_the_fixture(self):
+        driver, keyboard, _ = self.make_driver("locale-read")
+        driver.capture = Mock()
+        keyboard.capture_ppm.return_value = b"stale-boot"
+        flow = automatic.L9_RFB_FLOW["locale-read"]
+        driver.keyboard = keyboard
+        with patch.object(automatic.time, "sleep"), patch.object(
+            automatic.time, "monotonic", side_effect=[0.0, 0.0, 3.0]
+        ):
+            with self.assertRaisesRegex(automatic.AutomationError, "never presented japanese-unlock"):
+                self.feed(driver, *flow[:2])
+        keyboard.tap.assert_not_called()
+        keyboard.type_fixture_text.assert_not_called()
+        driver.capture.assert_not_called()
+
+    def test_l9_paces_password_entry_and_rejects_reported_input_loss(self):
+        driver, keyboard, _ = self.make_driver("password-change")
+        flow = automatic.L9_RFB_FLOW["password-change"]
+        opened = flow.index(automatic.PASSWORD_OPENED)
+        with patch.object(automatic.time, "sleep") as pace:
+            for index in range(opened + 1):
+                self.feed(driver, *flow[:index + 1])
+        self.assertIn(call.type_fixture_text(self.fixture.owner_password, delay_seconds=0.10),
+                      keyboard.mock_calls)
+        self.assertEqual(pace.call_args_list, [call(0.10)] * 3)
+        with self.assertRaisesRegex(automatic.AutomationError, "out-of-order"):
+            self.feed(driver, *flow[:opened + 1], "NAGI_DEV_PASSWORD_PANEL_INPUT_LOST")
+
+    def test_l9_refuses_password_and_locale_actions_outside_the_expected_gate(self):
+        driver, keyboard, _ = self.make_driver("password-login")
+        self.feed(driver, automatic.SYSTEM_ENGLISH, recovery.LOGIN_WAIT)
+        with self.assertRaisesRegex(automatic.AutomationError, "out-of-order"):
+            self.feed(driver, automatic.SYSTEM_ENGLISH, recovery.LOGIN_WAIT, recovery.DESKTOP_READY)
+        self.assertNotIn(call.type_fixture_text(self.fixture.wrong_password), keyboard.mock_calls)
+
+        driver, _, _ = self.make_driver("locale-read")
+        with self.assertRaisesRegex(automatic.AutomationError, "out-of-order"):
+            self.feed(driver, recovery.LOGIN_WAIT)
+
     def make_driver(self, phase):
         keyboard = Mock()
         self.enterContext(patch.object(automatic, "owned_loopback_listener", return_value=True))

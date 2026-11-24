@@ -384,8 +384,8 @@ version = "0.1.0"
 dependencies = [
  "getrandom",
  "nagi-abi",
+ "nagi-account-credential",
  "nagi-model",
- "sha2",
 ]
 
 [[package]]
@@ -436,6 +436,13 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "nagi-abi"
 version = "0.1.0"
+
+[[package]]
+name = "nagi-account-credential"
+version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "nagi-action-ipc"
@@ -546,6 +553,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "libnagi",
+ "nagi-account-credential",
  "nagi-action-ipc",
  "nagi-audio",
  "nagi-clipboard",
@@ -560,6 +568,7 @@ dependencies = [
  "nagi-net",
  "nagi-package",
  "nagi-pal",
+ "nagi-persistence-contract",
  "nagi-posix",
  "nagi-profile-volume-notes-owner",
  "nagi-sdk",
@@ -626,6 +635,7 @@ name = "nagi-linux-account-verifier"
 version = "0.1.0"
 dependencies = [
  "libnagi",
+ "nagi-account-credential",
  "nagi-capability",
  "rustix",
  "serde",

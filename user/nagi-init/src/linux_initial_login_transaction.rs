@@ -2,6 +2,7 @@ use super::broker::{
     AcceptedInitialLoginRequest, PeerDenial, PendingInitialSession,
     PendingInitialSessionTransaction, SessionLease,
 };
+use crate::linux_login_throttle::{LoginAttemptError, LoginFailureCount};
 use nagi_c2_accepted_connection_proof_contract::C2AcceptedConnectionProof;
 use nagi_identity_session::{
     stage_initial_interactive_session_from_c2_owner_checked_peer, C1InitialInteractiveSessionError,
@@ -16,6 +17,7 @@ use nagi_peer_authenticated_connection::KernelAuthenticatedUnixPeer;
 use std::num::NonZeroU64;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, MutexGuard};
+use std::time::Instant;
 
 pub enum InitialSessionOutcome {
     Unattached,
@@ -26,32 +28,6 @@ pub enum InitialSessionOutcome {
     },
     RollbackRequired(C1PendingInitialInteractiveSession),
     OutcomeUnknown,
-}
-
-pub(super) struct LoginFailureCount(u32);
-
-impl LoginFailureCount {
-    pub(super) fn restored(failures: u32) -> Self {
-        Self(failures)
-    }
-
-    pub(super) fn current(&self) -> u32 {
-        self.0
-    }
-
-    pub(super) fn persist(
-        &mut self,
-        failures: u32,
-        store: impl FnOnce(u32) -> std::io::Result<()>,
-    ) -> std::io::Result<()> {
-        store(failures)?;
-        self.0 = failures;
-        Ok(())
-    }
-
-    fn rejected(&mut self, store: impl FnOnce(u32) -> std::io::Result<()>) -> std::io::Result<()> {
-        self.persist(self.0.saturating_add(1), store)
-    }
 }
 
 pub(super) struct InitialLoginState<S: IdentitySnapshotStore, I, C, A, G, E> {
@@ -369,29 +345,35 @@ where
     if !proof.matches_kernel_peer(peer) {
         return Err(PeerDenial::StalePeer);
     }
-    let evidence = verifier
-        .authenticate(
-            stream,
-            request.account_name().as_bytes(),
-            request.secret().as_bytes(),
+    let evidence = owner
+        .login_failures
+        .attempt(
+            Instant::now,
+            || {
+                verifier
+                    .authenticate(
+                        stream,
+                        request.account_name().as_bytes(),
+                        request.secret().as_bytes(),
+                    )
+                    .inspect_err(|error| {
+                        super::super::log_pid1_stderr(format_args!(
+                            "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED ({error:?})"
+                        ));
+                    })
+            },
+            |error| matches!(error, AccountAuthenticationError::Rejected),
+            |count| verifier.store_login_failures(count),
         )
-        .map_err(|error| {
-            super::super::log_pid1_stderr(format_args!(
-                "NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATION_DENIED ({error:?})"
-            ));
-            let denial = account_denial(error);
-            if matches!(denial, PeerDenial::AccountRejected)
-                && owner
-                    .login_failures
-                    .rejected(|count| verifier.store_login_failures(count))
-                    .is_err()
-            {
+        .map_err(|error| match error {
+            LoginAttemptError::Throttled => PeerDenial::AccountThrottled,
+            LoginAttemptError::Verification(error) => account_denial(error),
+            LoginAttemptError::PersistenceUnavailable => {
                 super::super::log_pid1_stderr(format_args!(
                     "NAGI_DEV_TASK24_LOGIN_THROTTLE_PERSISTENCE_FAILED"
                 ));
-                return PeerDenial::Unavailable;
+                PeerDenial::Unavailable
             }
-            denial
         })?;
     super::super::log_pid1_stderr(format_args!("NAGI_DEV_TASK24_ACCOUNT_AUTHENTICATED"));
     let pending = stage_initial_interactive_session_from_c2_owner_checked_peer(
@@ -436,25 +418,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn known_failures_change_only_after_the_owner_persists_them() {
-        let unavailable = |_| Err(std::io::Error::other("fixture store unavailable"));
-        let mut failures = LoginFailureCount::restored(6);
-        assert!(failures.rejected(unavailable).is_err());
-        assert_eq!(failures.current(), 6);
-        failures
-            .rejected(|count| {
-                assert_eq!(count, 7);
-                Ok(())
-            })
-            .unwrap();
-        assert!(failures.persist(0, unavailable).is_err());
-        assert_eq!(failures.current(), 7);
-        failures.persist(0, |_| Ok(())).unwrap();
-        assert_eq!(failures.current(), 0);
-    }
-
-    #[test]
-    fn task24_only_confirmed_account_rejection_is_retryable() {
+    fn task24_verifier_distinguishes_confirmed_rejection_from_unavailability() {
         use AccountAuthenticationError::*;
         assert!(matches!(
             account_denial(Rejected),

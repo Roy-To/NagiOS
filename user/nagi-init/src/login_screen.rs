@@ -439,7 +439,7 @@ fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
+pub(crate) fn fill_password_salt(salt: &mut [u8; SALT_BYTES]) -> bool {
     unsafe extern "C" {
         fn getentropy(buffer: *mut std::ffi::c_void, length: usize) -> std::ffi::c_int;
     }
@@ -554,6 +554,15 @@ impl Drop for LinuxOwnerUnlock<'_> {
 mod task24_unlock_tests {
     use super::*;
     use libnagi::credential::MIN_ITERATIONS;
+
+    #[test]
+    fn linux_unlock_uses_the_selected_locale_when_rendered() {
+        let mut english = vec![0; 320 * 200];
+        let mut japanese = vec![0; 320 * 200];
+        LinuxOwnerUnlock::new(b"fixture", Locale::EnUs).render(&mut Painter::new(&mut english));
+        LinuxOwnerUnlock::new(b"fixture", Locale::JaJp).render(&mut Painter::new(&mut japanese));
+        assert_ne!(english, japanese);
+    }
 
     #[test]
     fn task24_wrong_input_clears_form_and_next_input_issues_one_fixture_session() {

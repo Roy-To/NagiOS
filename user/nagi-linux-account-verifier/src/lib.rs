@@ -4,8 +4,8 @@
 
 #![cfg(target_os = "linux")]
 
-use libnagi::credential::{AccountRecord, ACCOUNT_RECORD_BYTES};
 use libnagi::login::{decode_login_failures, encode_login_failures, FREE_ATTEMPTS};
+use nagi_account_credential::{AccountRecord, ACCOUNT_RECORD_BYTES};
 use nagi_capability::PrincipalId;
 use rustix::fs::{linkat, openat, renameat, statat, unlinkat, AtFlags, Mode, OFlags};
 use rustix::net::sockopt::socket_cookie;
@@ -13,12 +13,52 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU64;
-use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 
 const ACCOUNT_FILE: &str = "owner-account-identity.v1";
 const MAX_RECORD_BYTES: usize = 2048;
 const LOGIN_THROTTLE_FILE: &str = "login-throttle";
+const SYSTEM_LOCALE_FILE: &str = "system-locale.v1";
+
+enum PrivateReplaceError {
+    BeforeRename(io::Error),
+    AfterRename(io::Error),
+}
+
+fn replace_private_file(
+    directory: &File,
+    name: &str,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> Result<(), PrivateReplaceError> {
+    use PrivateReplaceError::{AfterRename, BeforeRename};
+
+    let mut nonce = [0; 8];
+    File::open("/dev/urandom")
+        .and_then(|mut rng| rng.read_exact(&mut nonce))
+        .map_err(BeforeRename)?;
+    let temporary = format!(".{name}.next-{:016x}", u64::from_ne_bytes(nonce));
+    let fd = openat(
+        directory,
+        temporary.as_str(),
+        OFlags::WRONLY | OFlags::CLOEXEC | OFlags::CREATE | OFlags::EXCL,
+        Mode::RUSR | Mode::WUSR,
+    )
+    .map_err(|err| BeforeRename(err.into()))?;
+    let mut file = File::from(fd);
+    let ready = file
+        .set_permissions(std::fs::Permissions::from_mode(0o600))
+        .and_then(|()| write(&mut file))
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            renameat(directory, temporary.as_str(), directory, name).map_err(io::Error::from)
+        });
+    if let Err(error) = ready {
+        let _ = unlinkat(directory, temporary.as_str(), AtFlags::empty());
+        return Err(BeforeRename(error));
+    }
+    directory.sync_all().map_err(AfterRename)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccountAuthenticationError {
@@ -51,6 +91,16 @@ pub struct OwnerAccountBinding {
 pub enum OwnerAccountSaveError {
     InvalidBinding,
     AlreadyExists,
+    BeforePublication(io::Error),
+    PublicationUnknown(io::Error),
+}
+
+#[derive(Debug)]
+pub enum CredentialChangeError {
+    Unavailable,
+    InvalidRecord,
+    WrongCurrent,
+    SameAsCurrent,
     BeforePublication(io::Error),
     PublicationUnknown(io::Error),
 }
@@ -176,6 +226,109 @@ impl LinuxAccountVerifier {
     pub fn owner_login_name(&self) -> Result<Vec<u8>, AccountAuthenticationError> {
         let (_, account) = read_account(&self.directory, self.owner_uid)?;
         Ok(account.name().to_vec())
+    }
+
+    /// Replace the owner's password while retaining the canonical identity.
+    /// The PID 1 caller must serialize this with login and other replacements
+    /// under its account authority lock and hold the live Session lease.
+    pub fn replace_owner_credential(
+        &self,
+        account_name: &[u8],
+        current: &[u8],
+        next: AccountRecord,
+    ) -> Result<(), CredentialChangeError> {
+        self.replace_owner_credential_with(account_name, current, next, |bytes| {
+            replace_private_file(&self.directory, ACCOUNT_FILE, |file| file.write_all(bytes))
+        })
+    }
+
+    fn replace_owner_credential_with(
+        &self,
+        account_name: &[u8],
+        current: &[u8],
+        next: AccountRecord,
+        publish: impl FnOnce(&[u8]) -> Result<(), PrivateReplaceError>,
+    ) -> Result<(), CredentialChangeError> {
+        use CredentialChangeError::*;
+
+        let (mut binding, previous) =
+            read_account(&self.directory, self.owner_uid).map_err(|error| match error {
+                AccountAuthenticationError::InvalidRecord => InvalidRecord,
+                _ => Unavailable,
+            })?;
+        if previous.name() != account_name || !previous.credential.verify(current) {
+            return Err(WrongCurrent);
+        }
+        if next.name() != previous.name() {
+            return Err(InvalidRecord);
+        }
+        if next.credential.verify(current) {
+            return Err(SameAsCurrent);
+        }
+
+        binding.account_record = next.encode().to_vec();
+        let bytes = serde_json::to_vec(&binding).map_err(|_| InvalidRecord)?;
+        if bytes.len() > MAX_RECORD_BYTES {
+            return Err(InvalidRecord);
+        }
+        publish(&bytes).map_err(|error| match error {
+            PrivateReplaceError::BeforeRename(error) => BeforePublication(error),
+            PrivateReplaceError::AfterRename(error) => PublicationUnknown(error),
+        })
+    }
+
+    /// Read the pre-login copy of the last saved Settings locale.
+    pub fn load_system_locale(&self) -> Option<&'static str> {
+        validate_directory(&self.directory, self.owner_uid).ok()?;
+        let file = File::from(
+            openat(
+                &self.directory,
+                SYSTEM_LOCALE_FILE,
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .ok()?,
+        );
+        let metadata = file.metadata().ok()?;
+        if !metadata.is_file()
+            || metadata.uid() != self.owner_uid
+            || metadata.mode() & 0o7777 != 0o600
+        {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        file.take((b"NAGI-SYSLOCALE-1\nen-US\n".len() + 1) as u64)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        match bytes.as_slice() {
+            b"NAGI-SYSLOCALE-1\nen-US\n" => Some("en-US"),
+            b"NAGI-SYSLOCALE-1\nja-JP\n" => Some("ja-JP"),
+            _ => None,
+        }
+    }
+
+    /// Update the pre-login copy after the profile Settings save is confirmed.
+    pub fn store_system_locale(&self, locale: &str) -> io::Result<()> {
+        let bytes: &[u8] = match locale {
+            "en-US" => b"NAGI-SYSLOCALE-1\nen-US\n",
+            "ja-JP" => b"NAGI-SYSLOCALE-1\nja-JP\n",
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "unsupported locale",
+                ))
+            }
+        };
+        validate_directory(&self.directory, self.owner_uid)
+            .map_err(|_| io::Error::other("system locale directory unavailable"))?;
+        replace_private_file(&self.directory, SYSTEM_LOCALE_FILE, |file| {
+            file.write_all(bytes)
+        })
+        .map_err(|error| match error {
+            PrivateReplaceError::BeforeRename(error) | PrivateReplaceError::AfterRename(error) => {
+                error
+            }
+        })
     }
 
     /// Restore ADR 0064 from the same protected Data directory as the account.
@@ -386,11 +539,150 @@ fn read_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libnagi::credential::{Credential, MIN_ITERATIONS, SALT_BYTES};
+    use nagi_account_credential::{Credential, MIN_ITERATIONS, SALT_BYTES};
     use std::fs::{self, OpenOptions};
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     use std::os::unix::net::UnixListener;
+
+    struct TestAccountDirectory(std::path::PathBuf);
+
+    impl TestAccountDirectory {
+        fn new(label: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("nagi-account-{label}-{}", std::process::id()));
+            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+            Self(path)
+        }
+
+        fn verifier(&self) -> LinuxAccountVerifier {
+            let file = File::open(&self.0).unwrap();
+            let owner_uid = file.metadata().unwrap().uid();
+            LinuxAccountVerifier::from_owner_directory(file, owner_uid).unwrap()
+        }
+    }
+
+    impl Drop for TestAccountDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn system_locale_mirror_reopens_and_rejects_unsafe_records() {
+        let dir = TestAccountDirectory::new("system-locale");
+        let verifier = dir.verifier();
+        let record = dir.0.join(SYSTEM_LOCALE_FILE);
+        assert_eq!(verifier.load_system_locale(), None);
+        verifier.store_system_locale("ja-JP").unwrap();
+        assert_eq!(dir.verifier().load_system_locale(), Some("ja-JP"));
+        assert!(verifier.store_system_locale("fr-FR").is_err());
+        assert!(matches!(
+            replace_private_file(&verifier.directory, SYSTEM_LOCALE_FILE, |file| {
+                file.write_all(b"partial update")?;
+                Err(io::Error::other("injected write failure"))
+            }),
+            Err(PrivateReplaceError::BeforeRename(_))
+        ));
+        assert_eq!(dir.verifier().load_system_locale(), Some("ja-JP"));
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+
+        fs::set_permissions(&record, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(verifier.load_system_locale(), None);
+        verifier.store_system_locale("en-US").unwrap();
+        assert_eq!(dir.verifier().load_system_locale(), Some("en-US"));
+        fs::write(&record, b"NAGI-SYSLOCALE-1\nen-US\ntrailing").unwrap();
+        assert_eq!(verifier.load_system_locale(), None);
+        let target = dir.0.join("another-file");
+        fs::rename(&record, &target).unwrap();
+        fs::write(&target, b"NAGI-SYSLOCALE-1\nen-US\n").unwrap();
+        std::os::unix::fs::symlink(&target, &record).unwrap();
+        assert_eq!(verifier.load_system_locale(), None);
+    }
+
+    #[test]
+    fn replaces_only_the_credential_after_verifying_current_password() {
+        let dir = TestAccountDirectory::new("credential-replace");
+        let verifier = dir.verifier();
+        let path = dir.0.join(ACCOUNT_FILE);
+        let name = b"owner";
+        let current = b"old-fixture-password";
+        let new = b"new-fixture-password";
+        let record_for = |password: &[u8], salt| {
+            let credential =
+                Credential::derive(password, [salt; SALT_BYTES], MIN_ITERATIONS).unwrap();
+            AccountRecord::new(name, credential).unwrap()
+        };
+        let initial_record = PersistedAccountProfile {
+            version: 1,
+            account_id: NonZeroU64::new(11).unwrap(),
+            user_id: NonZeroU64::new(29).unwrap(),
+            profile_id: "profile_owner".into(),
+            principal_id: serde_json::from_str(r#""user:canonical-owner""#).unwrap(),
+            account_record: record_for(current, 0x11).encode().to_vec(),
+        };
+        let original = serde_json::to_vec(&initial_record).unwrap();
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap()
+            .write_all(&original)
+            .unwrap();
+        let timestamp = fs::metadata(&path).unwrap().modified().unwrap();
+        let next = record_for(new, 0x22);
+
+        assert!(matches!(
+            verifier.replace_owner_credential(name, b"bad-fixture-password", next),
+            Err(CredentialChangeError::WrongCurrent)
+        ));
+        assert!(matches!(
+            verifier.replace_owner_credential(name, current, record_for(current, 0x33)),
+            Err(CredentialChangeError::SameAsCurrent)
+        ));
+        assert!(matches!(
+            verifier.replace_owner_credential_with(name, current, next, |bytes| {
+                replace_private_file(&verifier.directory, ACCOUNT_FILE, |file| {
+                    file.write_all(&bytes[..1])?;
+                    Err(io::Error::other("injected publication failure"))
+                })
+            }),
+            Err(CredentialChangeError::BeforePublication(_))
+        ));
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), timestamp);
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            verifier.replace_owner_credential(name, current, next),
+            Err(CredentialChangeError::Unavailable)
+        ));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        verifier
+            .replace_owner_credential(name, current, next)
+            .unwrap();
+        let reopened = dir.verifier();
+        let authenticate = |password| {
+            AuthenticatedAccountProfile::authenticate(
+                &reopened.directory,
+                reopened.owner_uid,
+                name,
+                password,
+            )
+        };
+        assert!(matches!(
+            authenticate(current),
+            Err(AccountAuthenticationError::Rejected)
+        ));
+        let identity = authenticate(new).unwrap();
+        assert_eq!(identity.account_id(), initial_record.account_id);
+        assert_eq!(identity.user_id(), initial_record.user_id);
+        assert_eq!(identity.profile_id(), initial_record.profile_id);
+        assert_eq!(identity.principal_id(), &initial_record.principal_id);
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
 
     #[test]
     fn authenticates_the_provisioned_account_and_retains_canonical_ids() {

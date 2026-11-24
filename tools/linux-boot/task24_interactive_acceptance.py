@@ -37,6 +37,8 @@ from task24_rfb_automatic import (
     AutomationError,
     AutomaticRfbInput,
     DevelopmentFixture,
+    L9_RFB_FLOW,
+    l9_flow_markers,
     load_development_fixture,
 )
 
@@ -52,6 +54,10 @@ TASK24_C3_RESTART_RETEST_HEAD = "b49781625b13e3eda50705c058c6206ae6582a51"
 TASK24_C3_RESTART_RETEST_INITRAMFS_SHA256 = "7e8b24f188337302f362095d031c8c895e2590999474620b46e13334639e340a"
 ARTIFACT_NAMES = ("kernel", "initramfs", "system_image")
 PHASES = ("save", "read")
+L9_LOGGED_OUT = "NAGI_DEV_L9_LOGGED_OUT session="
+L9_PREVIOUS_LOGOUT = "NAGI_DEV_L9_PREVIOUS_LOGOUT session="
+L9_SESSION_ID = re.compile(r"session(?:_epoch\.(0|[1-9][0-9]{0,19}))?_[0-9a-f]{32}")
+L9_FRAME_NAMES = ("japanese-unlock", "japanese-dark-desktop", "japanese-dark-settings")
 MANUAL_TRIAL_PHASES = ("save", "reject-close", "read")
 SERIAL_LIMIT_BYTES = 16 * 1024 * 1024
 TERMINAL_MARKER = recovery.CURRENT_TERMINAL
@@ -77,6 +83,7 @@ class PreparedRun:
     data_uuid: str
     phases: dict[str, dict[str, Any]]
     preflight_result: dict[str, Any]
+    l9_pin: tuple[str, str] | None = None
 
 
 def _canonical_existing_file(value: str | Path, name: str, *, executable: bool = False) -> Path:
@@ -213,8 +220,9 @@ def run_official_preflight(script: Path, manifest: Path) -> tuple[dict[str, Any]
 def prepare_run(
     manifest_path: Path, preflight_script: Path, *,
     notes_save_retest: bool = False, c3_restart_retest: bool = False,
+    l9_pin: tuple[str, str] | None = None,
 ) -> PreparedRun:
-    if notes_save_retest and c3_restart_retest:
+    if sum((notes_save_retest, c3_restart_retest, l9_pin is not None)) > 1:
         raise RunnerError("select only one Task24 retest")
     manifest_path = _canonical_existing_file(manifest_path, "manifest")
     preflight_script = _canonical_existing_file(preflight_script, "official preflight script")
@@ -238,7 +246,14 @@ def prepare_run(
         raise RunnerError("manifest must reside directly in run_directory")
     source_commit = manifest["candidate_source_commit"]
     artifact_values = manifest["artifacts"]
-    if notes_save_retest:
+    if l9_pin is not None:
+        head, initramfs = l9_pin
+        if (re.fullmatch(r"[0-9a-f]{40}", head) is None
+                or re.fullmatch(r"[0-9a-f]{64}", initramfs) is None):
+            raise RunnerError("L9 requires a full source and initramfs pin")
+        if (source_commit, artifact_values["initramfs"]["sha256"]) != l9_pin:
+            raise RunnerError("the preflight manifest does not match the fixed L9 candidate")
+    elif notes_save_retest:
         if source_commit != TASK24_NOTES_SAVE_RETEST_HEAD:
             raise RunnerError("manifest candidate source does not match the pinned Notes save retest")
         if artifact_values["initramfs"]["sha256"] != TASK24_NOTES_SAVE_RETEST_INITRAMFS_SHA256:
@@ -284,11 +299,12 @@ def prepare_run(
         data_uuid=data_uuid,
         phases=phases,
         preflight_result=preflight_result,
+        l9_pin=l9_pin,
     )
 
 
-def prepare_three_phase_trial(prepared: PreparedRun) -> dict[str, Any]:
-    """Validate the rejection serial destination against the pinned pair without launching."""
+def prepare_trial_layout(prepared: PreparedRun, phases: tuple[str, ...]) -> dict[str, Any]:
+    """Validate private phase destinations against the pinned Data copy without launching."""
     _verify_fixed_inputs(prepared)
     initial_data = _data_identity(prepared.data_path)
     data_uuid = _read_data_superblock_uuid(prepared.data_path)
@@ -300,7 +316,7 @@ def prepare_three_phase_trial(prepared: PreparedRun) -> dict[str, Any]:
     root_device = root.stat().st_dev
     identities = set()
     serials = {}
-    for phase in MANUAL_TRIAL_PHASES:
+    for phase in phases:
         directory = root / phase
         serial = directory / "serial.log"
         if phase in prepared.phases and prepared.phases[phase]["serial_path"] != serial:
@@ -314,15 +330,18 @@ def prepare_three_phase_trial(prepared: PreparedRun) -> dict[str, Any]:
         ):
             raise RunnerError(f"{phase} must have its own real run directory")
         identities.add(identity)
-        for output in (serial, directory / "qemu.log", directory / "supervisor.log"):
+        outputs = [serial, directory / "qemu.log", directory / "supervisor.log"]
+        if phase == "locale-read":
+            outputs += [directory / f"{name}.ppm" for name in L9_FRAME_NAMES]
+        for output in outputs:
             if output.exists() or output.is_symlink():
                 raise RunnerError(f"{phase} already has a run output")
         serials[phase] = serial.as_posix()
     if _data_identity(prepared.data_path) != initial_data:
         raise RunnerError("Data backing file changed during trial preparation")
     return {
-        "status": "THREE_PHASE_LAYOUT_VERIFIED",
-        "phases": list(MANUAL_TRIAL_PHASES),
+        "status": "THREE_PHASE_LAYOUT_VERIFIED" if phases == MANUAL_TRIAL_PHASES else "L9_LAYOUT_VERIFIED",
+        "phases": list(phases),
         "serial_destinations": serials,
         "data_filesystem_uuid": data_uuid,
         "data_uuid_verified_in_superblock": True,
@@ -333,6 +352,10 @@ def prepare_three_phase_trial(prepared: PreparedRun) -> dict[str, Any]:
         "guest_poweroff": "UNVERIFIED",
         "host_stop_policy": "OWNED_CHILD_AFTER_VALIDATED_TERMINAL",
     }
+
+
+def prepare_three_phase_trial(prepared: PreparedRun) -> dict[str, Any]:
+    return prepare_trial_layout(prepared, MANUAL_TRIAL_PHASES)
 
 
 def prepare_manual_trial(prepared: PreparedRun) -> dict[str, Any]:
@@ -347,9 +370,14 @@ def _require_c3_restart_candidate(prepared: PreparedRun) -> None:
         raise RunnerError("automatic development fixture requires the pinned C3 restart retest initramfs")
 
 
-def prepare_automatic_trial(prepared: PreparedRun, fixture_path: Path) -> dict[str, Any]:
-    """Validate the three-phase layout and private fixture without launching QEMU."""
-    _require_c3_restart_candidate(prepared)
+def prepare_automatic_trial(
+    prepared: PreparedRun, fixture_path: Path, *, l9_trial: bool = False,
+) -> dict[str, Any]:
+    """Validate the phase layout and private fixture without launching QEMU."""
+    if l9_trial != (prepared.l9_pin is not None):
+        raise RunnerError("L9 trial must use its pinned preflight candidate")
+    if not l9_trial:
+        _require_c3_restart_candidate(prepared)
     fixture = load_development_fixture(
         fixture_path,
         run_directory=prepared.run_directory,
@@ -357,8 +385,8 @@ def prepare_automatic_trial(prepared: PreparedRun, fixture_path: Path) -> dict[s
         preflight_manifest_sha256=prepared.manifest_sha256,
     )
     return {
-        **prepare_three_phase_trial(prepared),
-        "mode": "AUTOMATIC_DEVELOPMENT_FIXTURE",
+        **prepare_trial_layout(prepared, tuple(L9_RFB_FLOW) if l9_trial else MANUAL_TRIAL_PHASES),
+        "mode": "AUTOMATIC_L9_FIXTURE" if l9_trial else "AUTOMATIC_DEVELOPMENT_FIXTURE",
         "fixture_manifest_sha256": fixture.sha256,
         "fixture_secrets_recorded": False,
         "rfb_endpoint": f"127.0.0.1:{fixture.rfb_port}",
@@ -441,8 +469,12 @@ def _verify_fixed_inputs(prepared: PreparedRun) -> None:
             raise RunnerError(f"artifacts.{name} changed after official preflight")
 
 
-def validate_start_gate(slot: int | None, board_readback_sha256: str | None) -> None:
-    if slot != 2:
+def validate_start_gate(
+    slot: int | None, board_readback_sha256: str | None, *, l9_trial: bool = False,
+) -> None:
+    if l9_trial and slot not in (1, 2):
+        raise RunnerError("L9 requires a board-reserved slot")
+    if not l9_trial and slot != 2:
         raise RunnerError("Task24 public-head acceptance requires its board-reserved slot 2")
     if not isinstance(board_readback_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", board_readback_sha256) is None:
         raise RunnerError("a fresh board readback SHA-256 is required before interactive start")
@@ -454,8 +486,9 @@ def qemu_argv(
     qemu: Path,
     *,
     rfb_port: int | None = None,
+    previous_l9_session: str | None = None,
 ) -> list[str]:
-    if phase not in MANUAL_TRIAL_PHASES or phase not in prepared.phases:
+    if phase not in (*MANUAL_TRIAL_PHASES, *L9_RFB_FLOW) or phase not in prepared.phases:
         raise RunnerError("unsupported Task24 phase")
     if rfb_port is not None and (
         isinstance(rfb_port, bool) or not isinstance(rfb_port, int) or not 5901 <= rfb_port <= 65535
@@ -482,6 +515,10 @@ def qemu_argv(
         f"nagi.dev_data.fs_uuid={prepared.data_uuid} "
         "nagi.dev_data.accounts=accounts nagi.dev_data.snapshots=snapshots"
     )
+    if previous_l9_session is not None:
+        if phase not in L9_RFB_FLOW or phase == "locale-save" or not valid_l9_session_id(previous_l9_session):
+            raise RunnerError("invalid L9 predecessor for QEMU")
+        kernel_cmdline += f" nagi.dev_l9_previous_session={previous_l9_session}"
     return [
         qemu.as_posix(),
         "-name",
@@ -584,6 +621,75 @@ def _phase_success(serial_text: str, phase: str) -> dict[str, int]:
         "pid1_ready_count": 1,
         "notes_pass_count": 1,
         "terminal_consumed_count": 1,
+    }
+
+
+def valid_l9_session_id(value: str) -> bool:
+    # The Linux issuer uses a random 128-bit nonce. Identity snapshots can
+    # namespace that nonce with the canonical u64 store generation.
+    matched = L9_SESSION_ID.fullmatch(value)
+    if matched is None:
+        return False
+    generation = matched.group(1)
+    return generation is None or int(generation) <= 2**64 - 1
+
+
+def l9_logout_session(lines: list[str], marker: str, phase: str) -> tuple[str, int]:
+    index = recovery._unique_index(lines, marker, phase, prefix=True)
+    session = lines[index][len(marker):]
+    if not valid_l9_session_id(session):
+        raise ValueError(f"{phase} has a malformed L9 logout Session")
+    return session, index
+
+
+def validate_l9_phase(
+    serial: str, phase: str, previous_serial: str | None,
+) -> dict[str, int]:
+    lines = recovery._complete_lines(serial, phase)
+    if tuple(l9_flow_markers(lines, phase)) != L9_RFB_FLOW[phase]:
+        raise ValueError(f"{phase} did not finish the ordered L9 input flow")
+    mount, session, handshake, ready, desktop, logout, ended, identity_exit = (
+        recovery._unique_index(lines, marker, phase)
+        for marker in (
+            recovery.MOUNT, recovery.SESSION, recovery.HANDSHAKE, recovery.READY,
+            recovery.DESKTOP_READY, recovery.DESKTOP_LOGOUT, recovery.SESSION_LOGOUT,
+            recovery.IDENTITY_EXIT_REQUESTED,
+        )
+    )
+    reaped = recovery._unique_normal_reap_index(lines, phase)
+    c3, c3_index = recovery._receipt_identity(lines, recovery.C3_IDENTITY_NORMAL_EXIT_REAPED, phase)
+    terminal, terminal_index = recovery._receipt_identity(lines, recovery.CURRENT_TERMINAL, phase)
+    current_session, current_logout = l9_logout_session(lines, L9_LOGGED_OUT, phase)
+    if c3 != terminal or not (
+        mount < session < handshake < ready < desktop < logout < ended < current_logout < reaped
+        < identity_exit < c3_index < terminal_index
+    ):
+        raise ValueError(f"{phase} Session/READY/logout/terminal evidence differs")
+    if (previous_serial is None) != (phase == "locale-save"):
+        raise ValueError(f"{phase} requires the expected preceding L9 boot")
+    if previous_serial is not None:
+        prior = recovery._complete_lines(previous_serial, "preceding L9 boot")
+        expected, prior_terminal = recovery._receipt_identity(prior, recovery.CURRENT_TERMINAL, phase)
+        expected_session, prior_logout = l9_logout_session(prior, L9_LOGGED_OUT, phase)
+        consumed, consumed_index = recovery._receipt_identity(lines, recovery.PREVIOUS_TERMINAL, phase)
+        prior_session, previous_logout = l9_logout_session(lines, L9_PREVIOUS_LOGOUT, phase)
+        first_unlock = lines.index(recovery.LOGIN_WAIT)
+        if (
+            consumed != expected or prior_session != expected_session or prior_session == current_session
+            or prior_logout >= prior_terminal
+            or not mount < consumed_index < previous_logout < first_unlock < session
+        ):
+            raise ValueError(f"{phase} did not consume the preceding L9 logout before unlock")
+    if phase == "password-login":
+        rejected = recovery._unique_index(lines, recovery.LOGIN_REJECTED, phase)
+        unlocks = [i for i, line in enumerate(lines) if line == recovery.LOGIN_WAIT]
+        if not unlocks[0] < rejected < unlocks[1] < session:
+            raise ValueError("L9 old credential was not rejected before the new credential attached")
+    return {
+        "identity_ready_count": 1,
+        "pid1_ready_count": 1,
+        "terminal_consumed_count": 1,
+        "confirmed_rejection_count": int(phase == "password-login"),
     }
 
 
@@ -799,6 +905,7 @@ def run_phase(
     *,
     trial_validation: Callable[[str], dict[str, int]] | None = None,
     automatic_fixture: DevelopmentFixture | None = None,
+    previous_l9_session: str | None = None,
 ) -> dict[str, Any]:
     _verify_fixed_inputs(prepared)
     data_before = _data_identity(prepared.data_path)
@@ -813,18 +920,35 @@ def run_phase(
             raise RunnerError(f"refusing to reuse {phase} output")
 
     timeout = phase_data["timeout_seconds"]
+    if phase in L9_RFB_FLOW:
+        if prepared.l9_pin is None or automatic_fixture is None:
+            raise RunnerError("L9 phase requires the pinned automatic trial")
+        if phase != "locale-save" and previous_l9_session is None:
+            raise RunnerError("L9 phase requires the preceding boot's logout Session")
     if automatic_fixture is None and confirm_visible is None:
         raise RunnerError("manual Task24 input requires visible-frame confirmation")
-    if automatic_fixture is not None and phase not in MANUAL_TRIAL_PHASES:
-        raise RunnerError("automatic Task24 input requires a three-phase trial")
+    if automatic_fixture is not None and phase not in (*MANUAL_TRIAL_PHASES, *L9_RFB_FLOW):
+        raise RunnerError("automatic Task24 input requires a recognized trial")
+    frames = {}
+    def capture_frame(name: str, frame: bytes) -> None:
+        if phase != "locale-read" or name not in L9_FRAME_NAMES or name in frames:
+            raise RunnerError("unexpected L9 frame evidence")
+        path = prepared.run_directory / phase / f"{name}.ppm"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as output:
+            output.write(frame)
+        frames[name] = {"path": path.as_posix(), "sha256": hashlib.sha256(frame).hexdigest()}
+
     automatic_input = (
-        AutomaticRfbInput(automatic_fixture, phase) if automatic_fixture is not None else None
+        AutomaticRfbInput(automatic_fixture, phase, capture_frame)
+        if automatic_fixture is not None else None
     )
     argv = qemu_argv(
         prepared,
         phase,
         qemu,
         rfb_port=automatic_fixture.rfb_port if automatic_fixture is not None else None,
+        previous_l9_session=previous_l9_session,
     )
     supervisor_argv = [
         sys.executable,
@@ -974,6 +1098,11 @@ def run_phase(
     }
     if automatic_input is not None:
         result["automatic_input"] = automatic_input.summary()
+    if phase == "locale-read":
+        if frames.keys() != set(L9_FRAME_NAMES):
+            raise RunnerError("Japanese/Dark L9 frame evidence is incomplete")
+        result["rfb_frames"] = frames
+        result["post_action_display_content"] = "CAPTURED_REQUIRES_REVIEW"
     return result
 
 
@@ -1016,7 +1145,10 @@ def run_authorized_pair(
     manual_trial: bool = False,
     automatic_trial: bool = False,
     fixture_manifest_path: Path | None = None,
+    l9_trial: bool = False,
 ) -> dict[str, Any]:
+    if l9_trial != (prepared.l9_pin is not None) or (l9_trial and not automatic_trial):
+        raise RunnerError("L9 requires its pinned preflight candidate and automatic fixture")
     if manual_trial and automatic_trial:
         raise RunnerError("manual and automatic Task24 trial modes are mutually exclusive")
     if automatic_trial and confirm_visible is not None:
@@ -1025,7 +1157,7 @@ def run_authorized_pair(
         raise RunnerError("a fixture manifest requires automatic Task24 trial mode")
     if automatic_trial and fixture_manifest_path is None:
         raise RunnerError("automatic Task24 trial requires a fixture manifest")
-    validate_start_gate(slot, board_readback_sha256)
+    validate_start_gate(slot, board_readback_sha256, l9_trial=l9_trial)
     if not automatic_trial and confirm_visible is None:
         raise RunnerError("manual Task24 trial requires visible-frame confirmation")
     try:
@@ -1039,7 +1171,8 @@ def run_authorized_pair(
     trial = manual_trial or automatic_trial
     fixture: DevelopmentFixture | None = None
     if automatic_trial:
-        _require_c3_restart_candidate(prepared)
+        if not l9_trial:
+            _require_c3_restart_candidate(prepared)
         assert fixture_manifest_path is not None
         fixture = load_development_fixture(
             fixture_manifest_path,
@@ -1048,7 +1181,17 @@ def run_authorized_pair(
             preflight_manifest_sha256=prepared.manifest_sha256,
         )
     phases = MANUAL_TRIAL_PHASES if trial else PHASES
-    if trial:
+    if l9_trial:
+        phases = tuple(L9_RFB_FLOW)
+        plan = prepare_trial_layout(prepared, phases)
+        prepared = replace(prepared, phases={
+            phase: {
+                **prepared.phases["read"],
+                "serial_path": Path(plan["serial_destinations"][phase]),
+            }
+            for phase in phases
+        })
+    elif trial:
         plan = prepare_three_phase_trial(prepared)
         rejected = {
             **prepared.phases["read"],
@@ -1101,7 +1244,7 @@ def run_authorized_pair(
     }
     if fixture is not None:
         initial["automatic_trial"] = {
-            "mode": "MANIFEST_BACKED_RFB_FIXTURE",
+            "mode": "AUTOMATIC_L9_FIXTURE" if l9_trial else "MANIFEST_BACKED_RFB_FIXTURE",
             "fixture_manifest_sha256": fixture.sha256,
             "rfb_endpoint": f"127.0.0.1:{fixture.rfb_port}",
             "fixture_secrets_recorded": False,
@@ -1116,8 +1259,27 @@ def run_authorized_pair(
             if _data_identity(prepared.data_path) != initial_data_identity:
                 raise RunnerError("Data backing file changed between the save and read boots")
             if trial:
+                previous_serial = None
+                l9_args = {}
+                if l9_trial and receipt["phases"]:
+                    prior = receipt["phases"][-1]
+                    payload = prepared.phases[prior["phase"]]["serial_path"].read_bytes()
+                    if hashlib.sha256(payload).hexdigest() != prior["serial_sha256"]:
+                        raise RunnerError("preceding L9 serial changed after acceptance")
+                    previous_serial = payload.decode("utf-8", errors="replace")
+                    try:
+                        session, _ = l9_logout_session(
+                            recovery._complete_lines(previous_serial, prior["phase"]),
+                            L9_LOGGED_OUT, prior["phase"],
+                        )
+                    except ValueError as error:
+                        raise RunnerError(str(error)) from None
+                    l9_args["previous_l9_session"] = session
+
                 def validate(serial: str) -> dict[str, int]:
                     try:
+                        if l9_trial:
+                            return validate_l9_phase(serial, phase, previous_serial)
                         if phase == "reject-close":
                             save = _read_serial(prepared.phases["save"]["serial_path"])
                             _, _, saved_receipt = recovery._validate_phase(save, "save", recovery.SAVED)
@@ -1141,6 +1303,7 @@ def run_authorized_pair(
                     confirm_visible,
                     trial_validation=validate,
                     automatic_fixture=fixture if automatic_trial else None,
+                    **l9_args,
                 )
             else:
                 result = run_phase(prepared, phase, qemu, confirm_visible)
@@ -1153,12 +1316,18 @@ def run_authorized_pair(
             receipt["qemu_started"] = True
             receipt["active_phase"] = None
             _write_receipt(receipt_path, receipt, descriptor=descriptor)
-        observed = observe_completed_pair(prepared.run_directory, include_rejection=trial)
+        observed = (
+            {"lifecycle": "L9_SERIAL_VALIDATED", "frame_review": "PENDING"}
+            if l9_trial else observe_completed_pair(prepared.run_directory, include_rejection=trial)
+        )
         if not trial and any(
             value != "GUEST_POWERDOWN_AND_NATURAL_EXIT" for value in observed["shutdown"].values()
         ):
             raise RunnerError("paired guest powerdown and natural exit are unverified")
-        if trial:
+        if l9_trial:
+            receipt["post_action_display_content"] = "CAPTURED_REQUIRES_REVIEW"
+            receipt["acceptance_gates"]["post_action_display_content"] = "CAPTURED_REQUIRES_REVIEW"
+        elif trial:
             receipt["acceptance_gates"]["task24_authentication_rejection_case"] = "SERIAL_VALIDATED"
         receipt["recovery_observation"] = observed
         receipt["status"] = "RUNNER_COMPLETE"
@@ -1199,6 +1368,8 @@ def _parser() -> argparse.ArgumentParser:
         help="read only the existing save/read serial and supervisor logs under this directory",
     )
     parser.add_argument("--include-reject-close", action="store_true")
+    parser.add_argument("--l9-candidate-head", help="the board-fixed L9 source commit")
+    parser.add_argument("--l9-initramfs-sha256", help="the board-fixed L9 signed initramfs SHA-256")
     parser.add_argument("--manual-trial", action="store_true",
                         help="select the three-boot manual trial with --authorize-start")
     parser.add_argument(
@@ -1223,7 +1394,7 @@ def _parser() -> argparse.ArgumentParser:
     retest.add_argument("--c3-restart-retest", action="store_true",
                         help="use the pinned local C3 restart candidate for the manual trial")
     parser.add_argument("--qemu", type=Path, help="required only with --authorize-start")
-    parser.add_argument("--slot", type=int, choices=(2,), help="the board-reserved #163 priority slot")
+    parser.add_argument("--slot", type=int, choices=(1, 2), help="the board-reserved QEMU slot")
     parser.add_argument("--board-readback-sha256", help="full SHA-256 of a fresh official board readback")
     parser.add_argument(
         "--authorize-start",
@@ -1237,6 +1408,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     try:
+        l9_trial = args.l9_candidate_head is not None or args.l9_initramfs_sha256 is not None
+        if l9_trial and (args.l9_candidate_head is None or args.l9_initramfs_sha256 is None
+                         or not (args.automatic_development_trial or args.prepare_automatic_trial)):
+            parser.error("L9 requires both candidate pins and an automatic preparation or trial")
         if args.observe_completed_pair is not None:
             if (args.authorize_start or args.manifest is not None or args.preflight_script is not None
                     or args.qemu is not None or args.slot is not None
@@ -1265,7 +1440,7 @@ def main(argv: list[str] | None = None) -> int:
         automatic_selected = args.automatic_development_trial or args.prepare_automatic_trial
         if automatic_selected != (args.fixture_manifest is not None):
             parser.error("automatic trial preparation or launch requires exactly one --fixture-manifest")
-        if automatic_selected and not args.c3_restart_retest:
+        if automatic_selected and not (args.c3_restart_retest or l9_trial):
             parser.error("automatic development trial requires --c3-restart-retest")
         if args.manifest is None or args.preflight_script is None:
             parser.error("--manifest and --preflight-script are required for preflight")
@@ -1276,6 +1451,7 @@ def main(argv: list[str] | None = None) -> int:
         prepared = prepare_run(
             args.manifest, args.preflight_script,
             notes_save_retest=args.notes_save_retest, c3_restart_retest=args.c3_restart_retest,
+            l9_pin=(args.l9_candidate_head, args.l9_initramfs_sha256) if l9_trial else None,
         )
         if not args.authorize_start:
             print(
@@ -1288,14 +1464,14 @@ def main(argv: list[str] | None = None) -> int:
                         "qemu_started": False,
                         **({"manual_trial": prepare_manual_trial(prepared)}
                            if args.prepare_manual_trial else {}),
-                        **({"automatic_trial": prepare_automatic_trial(prepared, args.fixture_manifest)}
+                        **({"automatic_trial": prepare_automatic_trial(prepared, args.fixture_manifest, l9_trial=l9_trial)}
                            if args.prepare_automatic_trial else {}),
                     },
                     sort_keys=True,
                 )
             )
             return 0
-        validate_start_gate(args.slot, args.board_readback_sha256)
+        validate_start_gate(args.slot, args.board_readback_sha256, l9_trial=l9_trial)
         if args.qemu is None:
             raise RunnerError("--qemu is required with --authorize-start")
         if not args.automatic_development_trial and not sys.stdin.isatty():
@@ -1309,6 +1485,7 @@ def main(argv: list[str] | None = None) -> int:
             manual_trial=args.manual_trial,
             automatic_trial=args.automatic_development_trial,
             fixture_manifest_path=args.fixture_manifest,
+            l9_trial=l9_trial,
         )
         print(json.dumps(receipt, sort_keys=True))
         return 0

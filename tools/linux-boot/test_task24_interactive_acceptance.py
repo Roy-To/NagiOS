@@ -68,6 +68,41 @@ def _reject_serial() -> str:
 
 
 class Task24InteractiveAcceptanceTests(unittest.TestCase):
+    def test_l9_validates_the_previous_logout_and_new_credential_attachment(self):
+        phase = "password-login"
+        first_session = "session_epoch.3_" + "1" * 32
+        second_session = "session_epoch.4_" + "2" * 32
+        previous_logout = runner.L9_PREVIOUS_LOGOUT + first_session
+        lines = [recovery.MOUNT, _receipt(recovery.PREVIOUS_TERMINAL, 1), previous_logout]
+        flow = list(runner.L9_RFB_FLOW[phase])
+        desktop = flow.index(recovery.DESKTOP_READY)
+        lines += flow[:desktop] + [recovery.SESSION, recovery.HANDSHAKE, recovery.READY] + flow[desktop:]
+        lines += [
+            recovery.SESSION_LOGOUT, runner.L9_LOGGED_OUT + second_session,
+            recovery.REAPED_NORMAL, recovery.IDENTITY_EXIT_REQUESTED,
+            _receipt(recovery.C3_IDENTITY_NORMAL_EXIT_REAPED, 2),
+            _receipt(recovery.CURRENT_TERMINAL, 2),
+        ]
+        serial = "\n".join(lines) + "\n"
+        previous = "\n".join((
+            runner.L9_LOGGED_OUT + first_session,
+            _receipt(recovery.CURRENT_TERMINAL, 1),
+        )) + "\n"
+        self.assertEqual(runner.validate_l9_phase(serial, phase, previous)["confirmed_rejection_count"], 1)
+        for invalid, reason in (
+            (serial.replace(recovery.LOGIN_REJECTED + "\n", ""), "ordered L9"),
+            (serial.replace(previous_logout + "\n", ""), "L9_PREVIOUS_LOGOUT"),
+            (serial.replace(previous_logout, runner.L9_PREVIOUS_LOGOUT + second_session),
+             "preceding L9 logout"),
+            (serial.replace(previous_logout, recovery.PREVIOUS_USER_LOGOUT), "L9_PREVIOUS_LOGOUT"),
+            (serial.replace(_receipt(recovery.PREVIOUS_TERMINAL, 1), _receipt(recovery.PREVIOUS_TERMINAL, 3)),
+             "preceding L9 logout"),
+        ):
+            with self.assertRaisesRegex(ValueError, reason):
+                runner.validate_l9_phase(invalid, phase, previous)
+        with self.assertRaisesRegex(ValueError, "expected preceding L9 boot"):
+            runner.validate_l9_phase(serial, phase, None)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="task24-interactive-runner-")
         self.addCleanup(self.temporary.cleanup)
@@ -167,9 +202,60 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
     def write_manifest(self) -> None:
         self.manifest_path.write_text(json.dumps(self.manifest, sort_keys=True), encoding="utf-8")
 
+    def test_l9_non_start_requires_the_pinned_candidate_and_four_private_destinations(self):
+        head = "d" * 40
+        initramfs = self.artifacts["initramfs"]["sha256"]
+        self.manifest["candidate_source_commit"] = head
+        self.write_manifest()
+        for phase in runner.L9_RFB_FLOW:
+            (self.run_directory / phase).mkdir()
+        with patch.object(runner, "TASK24_PREFLIGHT_SHA256", hashlib.sha256(self.preflight_script.read_bytes()).hexdigest()):
+            with self.assertRaisesRegex(runner.RunnerError, "does not match the fixed L9"):
+                runner.prepare_run(self.manifest_path, self.preflight_script, l9_pin=(head, "b" * 64))
+            prepared = runner.prepare_run(self.manifest_path, self.preflight_script, l9_pin=(head, initramfs))
+        fixture_path = self.run_directory / "development-fixture.json"
+        fixture_path.write_text(json.dumps({
+            "schema": "nagi-task24-rfb-auto-fixture/v1",
+            "run_id": self.run_id,
+            "preflight_manifest_sha256": prepared.manifest_sha256,
+            "rfb_port": 5968,
+            "owner_name": "taskfixture",
+            "owner_password": "taskfixturealpha24001",
+            "wrong_password": "taskfixtureomega24002",
+            "note_text": "task fixture note",
+        }), encoding="utf-8")
+        fixture_path.chmod(0o600)
+        prepared_l9 = runner.prepare_automatic_trial(prepared, fixture_path, l9_trial=True)
+        self.assertEqual(prepared_l9["status"], "L9_LAYOUT_VERIFIED")
+        self.assertEqual(prepared_l9["phases"], list(runner.L9_RFB_FLOW))
+        self.assertFalse(prepared_l9["launch_authorized"])
+        (self.run_directory / "locale-read" / "japanese-unlock.ppm").touch()
+        with self.assertRaisesRegex(runner.RunnerError, "already has a run output"):
+            runner.prepare_automatic_trial(prepared, fixture_path, l9_trial=True)
+
     def prepare(self) -> runner.PreparedRun:
         with patch.object(runner, "TASK24_PREFLIGHT_SHA256", self.preflight_digest):
             return runner.prepare_run(self.manifest_path, self.preflight_script)
+
+    def test_l9_logout_id_uses_the_same_canonical_format_in_serial_and_boot_args(self):
+        prepared = self.prepare()
+        prepared = runner.replace(prepared, phases={"locale-read": prepared.phases["read"]})
+        qemu = self.root / "qemu-stub"
+        nonce = "a" * 32
+        for session in ("session_" + nonce, "session_epoch.18446744073709551615_" + nonce):
+            self.assertEqual(runner.l9_logout_session([runner.L9_LOGGED_OUT + session],
+                                                      runner.L9_LOGGED_OUT, "locale-save"), (session, 0))
+            argv = runner.qemu_argv(prepared, "locale-read", qemu, previous_l9_session=session)
+            self.assertIn(f"nagi.dev_l9_previous_session={session}", argv[argv.index("-append") + 1])
+        for session in (
+            "session_epoch.03_" + nonce,
+            "session_epoch.18446744073709551616_" + nonce,
+            "session_epoch.3_" + nonce + " extra",
+        ):
+            with self.assertRaisesRegex(ValueError, "malformed"):
+                runner.l9_logout_session([runner.L9_LOGGED_OUT + session], runner.L9_LOGGED_OUT, "locale-save")
+            with self.assertRaisesRegex(runner.RunnerError, "invalid L9 predecessor"):
+                runner.qemu_argv(prepared, "locale-read", qemu, previous_l9_session=session)
 
     def test_automatic_display_is_loopback_only_and_manual_display_is_unchanged(self) -> None:
         prepared = self.prepare()
