@@ -26,14 +26,18 @@ use crate::store::{
 #[cfg(test)]
 type ReaderPauseAfterFenceCheck = Arc<Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>>;
 
+use super::MAX_SNAPSHOT_BYTES;
+
 const SCHEMA: u32 = 1;
-const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_STORE_BYTES: u64 = 12 * 1024 * 1024;
 const MAX_HIGH_WATER_BYTES: u64 = 1024;
 const NOFOLLOW: i32 = 0x20000; // Linux O_NOFOLLOW.
 const LOCK_FILE: &str = "issuer.lock";
 const STATE_FILE: &str = "issuer.json";
 const HIGH_WATER_FILE: &str = "issuer.highwater";
+const JOURNAL_HIGH_WATER_FILE: &str = "issuer.recovery-highwater";
+const JOURNAL_HIGH_WATER_SCHEMA: u32 = 1;
+const MAX_JOURNAL_HIGH_WATER_BYTES: u64 = 16 * 1024;
 const FRESH_MARKER: &[u8; 8] = b"NAGI-ID0";
 const COMMITTED_MARKER: &[u8; 8] = b"NAGI-ID1";
 const HIGH_WATER_SCHEMA: u32 = 1;
@@ -55,6 +59,8 @@ struct Envelope {
     last_known_good: Option<SavedPayload>,
     #[serde(default)]
     recovery_journal: RecoveryJournal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recovery_journal_revision: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -62,6 +68,47 @@ struct Envelope {
 struct HighWaterRecord {
     schema: u32,
     version: u64,
+}
+
+/// The revision and the complete journal advance in one atomic replace.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JournalHighWater {
+    schema: u32,
+    revision: u64,
+    journal: RecoveryJournal,
+}
+
+impl JournalHighWater {
+    fn check_envelope(&self, envelope: Option<&Envelope>) -> Result<(), DurableStoreError> {
+        if let Some(saved) = envelope.and_then(|envelope| envelope.recovery_journal_revision) {
+            if saved > self.revision
+                || (saved == self.revision
+                    && envelope.is_some_and(|envelope| envelope.recovery_journal != self.journal))
+            {
+                return Err(DurableStoreError::Corrupt);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn journal_at_high_water(
+    anchor: Option<&JournalHighWater>,
+    envelope: Option<&Envelope>,
+) -> Result<RecoveryJournal, DurableStoreError> {
+    match anchor {
+        Some(anchor) => {
+            anchor.check_envelope(envelope)?;
+            Ok(anchor.journal.clone())
+        }
+        None if envelope.is_some_and(|envelope| envelope.recovery_journal_revision.is_some()) => {
+            Err(DurableStoreError::Corrupt)
+        }
+        None => {
+            Ok(envelope.map_or_else(RecoveryJournal::default, |row| row.recovery_journal.clone()))
+        }
+    }
 }
 
 impl Envelope {
@@ -72,11 +119,15 @@ impl Envelope {
             current: None,
             last_known_good: None,
             recovery_journal: RecoveryJournal::default(),
+            recovery_journal_revision: None,
         }
     }
 
     fn validate(&self) -> Result<(), DurableStoreError> {
-        if self.schema != SCHEMA || self.high_water_version == Some(0) {
+        if self.schema != SCHEMA
+            || self.high_water_version == Some(0)
+            || self.recovery_journal_revision == Some(0)
+        {
             return Err(DurableStoreError::Corrupt);
         }
         if !self.recovery_journal.validate() {
@@ -156,7 +207,8 @@ pub enum DurableStoreError {
 /// The adapter requires a private directory, serializes writers with an
 /// exclusive OS file lock, atomically replaces the complete envelope, and
 /// advances the independent `issuer.highwater` revision before replacing that
-/// envelope. Saved payloads are observations only; `IdentityService` recovery
+/// envelope. Recovery journal transitions update their own independent
+/// high-water record. Saved payloads are observations only; `IdentityService` recovery
 /// still ends every saved active Session before it can issue a new one.
 pub struct LinuxIdentitySnapshotStore {
     directory: File,
@@ -165,6 +217,7 @@ pub struct LinuxIdentitySnapshotStore {
     marker_committed: bool,
     state: Envelope,
     disk: Option<Vec<u8>>,
+    journal_high_water: Option<JournalHighWater>,
     poisoned: bool,
     /// Counts raw snapshot readers and reserves/closes terminal publication.
     /// Store-only readers are independent of issuer Session activity, so a
@@ -223,7 +276,8 @@ impl LinuxIdentitySnapshotStore {
         let committed = read_marker(&mut lock)?;
         let durable_high_water = read_high_water(&root, owner_uid)?;
         let disk = read_state_bytes(&root, owner_uid)?;
-        if created && disk.is_some() {
+        let journal_high_water = read_journal_high_water(&root, owner_uid)?;
+        if created && (disk.is_some() || journal_high_water.is_some()) {
             return Err(DurableStoreError::Corrupt);
         }
 
@@ -236,7 +290,7 @@ impl LinuxIdentitySnapshotStore {
                     && state.last_known_good.is_none()
                     && state.recovery_journal.record.is_some()
                 {
-                    ensure_only_lock_and_state_file(&root)?;
+                    ensure_only_uncommitted_files(&root, true, journal_high_water.is_some())?;
                     state
                 } else {
                     return Err(DurableStoreError::Corrupt);
@@ -244,10 +298,12 @@ impl LinuxIdentitySnapshotStore {
             }
             None if committed => return Err(DurableStoreError::Corrupt),
             None => {
-                ensure_only_lock_file(&root)?;
+                ensure_only_uncommitted_files(&root, false, journal_high_water.is_some())?;
                 Envelope::empty()
             }
         };
+        state.recovery_journal = journal_at_high_water(journal_high_water.as_ref(), Some(&state))?;
+        state.recovery_journal_revision = journal_high_water.as_ref().map(|row| row.revision);
         match (committed, durable_high_water) {
             (false, None)
                 if state.high_water_version.is_none()
@@ -294,20 +350,29 @@ impl LinuxIdentitySnapshotStore {
             }
             _ => return Err(DurableStoreError::Corrupt),
         }
-        Ok(Self {
+        let mut store = Self {
             directory,
             lock,
             owner_uid,
             marker_committed: committed,
             state,
             disk,
+            journal_high_water,
             poisoned: false,
             reconciliation_fence: Arc::new(ReconciliationFence::default()),
             #[cfg(test)]
             fault: None,
             #[cfg(test)]
             reader_pause_after_fence_check: Arc::new(Mutex::new(None)),
-        })
+        };
+        if store.journal_high_water.is_none() && store.state.recovery_journal.record.is_some() {
+            // Anchor old journal rows on upgrade, even if the next operation
+            // is a read or remains quarantined indefinitely.
+            store
+                .replace_recovery_journal(store.state.recovery_journal.clone())
+                .map_err(|_| DurableStoreError::Unavailable)?;
+        }
+        Ok(store)
     }
 
     fn root(&self) -> PathBuf {
@@ -343,6 +408,12 @@ impl LinuxIdentitySnapshotStore {
         if read_high_water(&self.root(), self.owner_uid)
             .map_err(|_| SnapshotStoreError::Unavailable)?
             != self.state.high_water_version
+        {
+            return Err(SnapshotStoreError::Conflict);
+        }
+        if read_journal_high_water(&self.root(), self.owner_uid)
+            .map_err(|_| SnapshotStoreError::Unavailable)?
+            != self.journal_high_water
         {
             return Err(SnapshotStoreError::Conflict);
         }
@@ -404,8 +475,46 @@ impl LinuxIdentitySnapshotStore {
         if bytes.len() as u64 > MAX_STORE_BYTES {
             return Err(SnapshotStoreError::Unavailable);
         }
-        let (path, mut pending) =
-            create_pending(&self.root(), next.high_water_version.unwrap_or(0))?;
+        self.write_atomic(STATE_FILE, next.high_water_version.unwrap_or(0), &bytes)?;
+        self.disk = Some(bytes);
+        self.state = next;
+        Ok(())
+    }
+
+    fn replace_recovery_journal(
+        &mut self,
+        journal: RecoveryJournal,
+    ) -> Result<(), SnapshotStoreError> {
+        self.ensure_disk()?;
+        let revision = self
+            .journal_high_water
+            .as_ref()
+            .map_or(0, |row| row.revision)
+            .checked_add(1)
+            .ok_or(SnapshotStoreError::Unavailable)?;
+        let anchor = JournalHighWater {
+            schema: JOURNAL_HIGH_WATER_SCHEMA,
+            revision,
+            journal,
+        };
+        let bytes = serde_json::to_vec(&anchor).map_err(|_| SnapshotStoreError::Unavailable)?;
+        if !anchor.journal.validate() || bytes.len() as u64 > MAX_JOURNAL_HIGH_WATER_BYTES {
+            return Err(SnapshotStoreError::Unavailable);
+        }
+        self.write_atomic(JOURNAL_HIGH_WATER_FILE, revision, &bytes)?;
+        self.state.recovery_journal = anchor.journal.clone();
+        self.state.recovery_journal_revision = Some(revision);
+        self.journal_high_water = Some(anchor);
+        Ok(())
+    }
+
+    fn write_atomic(
+        &mut self,
+        name: &str,
+        generation: u64,
+        bytes: &[u8],
+    ) -> Result<(), SnapshotStoreError> {
+        let (path, mut pending) = create_pending(&self.root(), generation)?;
         #[cfg(test)]
         let fault = self.fault.take();
         let write_result = (|| -> std::io::Result<()> {
@@ -422,13 +531,13 @@ impl LinuxIdentitySnapshotStore {
                 pending.sync_all()?;
                 std::process::exit(86);
             }
-            pending.write_all(&bytes)?;
+            pending.write_all(bytes)?;
             pending.sync_all()?;
             #[cfg(test)]
             if fault == Some(Fault::BeforeRename) {
                 return Err(std::io::Error::other("injected pre-rename failure"));
             }
-            fs::rename(&path, self.root().join(STATE_FILE))?;
+            fs::rename(&path, self.root().join(name))?;
             #[cfg(test)]
             if fault == Some(Fault::AfterRename) {
                 return Err(std::io::Error::other("injected post-rename sync failure"));
@@ -442,8 +551,6 @@ impl LinuxIdentitySnapshotStore {
             return Err(SnapshotStoreError::Unavailable);
         }
 
-        self.disk = Some(bytes);
-        self.state = next;
         Ok(())
     }
 
@@ -588,6 +695,7 @@ impl IdentitySnapshotStore for LinuxIdentitySnapshotStore {
             }),
             last_known_good,
             recovery_journal: self.state.recovery_journal.clone(),
+            recovery_journal_revision: self.state.recovery_journal_revision,
         };
         next.validate()
             .map_err(|_| SnapshotStoreError::Unavailable)?;
@@ -654,14 +762,15 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
             .get()
             .checked_add(1)
             .ok_or(RecoveryJournalError::Unavailable)?;
-        let mut next = self.state.clone();
-        next.recovery_journal.next_operation_id = next_operation_id;
-        next.recovery_journal.record = Some(RecoveryJournalRecord {
+        let mut next = self.state.recovery_journal.clone();
+        next.next_operation_id = next_operation_id;
+        next.record = Some(RecoveryJournalRecord {
             operation_id,
             binding: binding.clone(),
             phase: RecoveryJournalPhase::Intent,
         });
-        self.replace(next).map_err(map_journal_store_error)?;
+        self.replace_recovery_journal(next)
+            .map_err(map_journal_store_error)?;
         Ok(RecoveryOperationPermit {
             operation_id,
             binding,
@@ -691,9 +800,10 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
                 return Err(RecoveryJournalError::NotCurrentOperation)
             }
         }
-        let mut next = self.state.clone();
-        next.recovery_journal.record.as_mut().unwrap().phase = RecoveryJournalPhase::EffectStarted;
-        self.replace(next).map_err(map_journal_store_error)?;
+        let mut next = self.state.recovery_journal.clone();
+        next.record.as_mut().unwrap().phase = RecoveryJournalPhase::EffectStarted;
+        self.replace_recovery_journal(next)
+            .map_err(map_journal_store_error)?;
         Ok(RecoveryEffectClaim {
             operation_id: permit.operation_id,
             binding: permit.binding.clone(),
@@ -717,9 +827,10 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
         if !matches!(&record.phase, RecoveryJournalPhase::EffectStarted) {
             return Err(RecoveryJournalError::AlreadyClaimed);
         }
-        let mut next = self.state.clone();
-        next.recovery_journal.record.as_mut().unwrap().phase = RecoveryJournalPhase::RuntimeActive;
-        self.replace(next).map_err(map_journal_store_error)?;
+        let mut next = self.state.recovery_journal.clone();
+        next.record.as_mut().unwrap().phase = RecoveryJournalPhase::RuntimeActive;
+        self.replace_recovery_journal(next)
+            .map_err(map_journal_store_error)?;
         Ok(())
     }
 
@@ -747,9 +858,10 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
                 return Err(RecoveryJournalError::NotCurrentOperation)
             }
         }
-        let mut next = self.state.clone();
-        next.recovery_journal.record.as_mut().unwrap().phase = RecoveryJournalPhase::OutcomeUnknown;
-        self.replace(next).map_err(map_journal_store_error)
+        let mut next = self.state.recovery_journal.clone();
+        next.record.as_mut().unwrap().phase = RecoveryJournalPhase::OutcomeUnknown;
+        self.replace_recovery_journal(next)
+            .map_err(map_journal_store_error)
     }
 
     fn reconcile_recovery(
@@ -793,12 +905,12 @@ impl RecoveryJournalStore for LinuxIdentitySnapshotStore {
                 return Err(RecoveryJournalError::OutcomeMismatch)
             }
         }
-        let mut next = self.state.clone();
-        next.recovery_journal.record.as_mut().unwrap().phase =
-            RecoveryJournalPhase::Reconciled { outcome_digest };
+        let mut next = self.state.recovery_journal.clone();
+        next.record.as_mut().unwrap().phase = RecoveryJournalPhase::Reconciled { outcome_digest };
         // The store reservation predates permanent issuer closure. The fence
         // is already published; retain it on any uncertain terminal write.
-        self.replace(next).map_err(map_journal_store_error)?;
+        self.replace_recovery_journal(next)
+            .map_err(map_journal_store_error)?;
         Ok(())
     }
 
@@ -977,25 +1089,20 @@ fn current_at_durable_high_water(
     let high_water =
         read_high_water(root, owner_uid).map_err(|_| SnapshotStoreError::Unavailable)?;
     let envelope = read_envelope(root, owner_uid)?;
+    let anchor =
+        read_journal_high_water(root, owner_uid).map_err(|_| SnapshotStoreError::Unavailable)?;
+    let journal = journal_at_high_water(anchor.as_ref(), envelope.as_ref())
+        .map_err(|_| SnapshotStoreError::Unavailable)?;
     if let Some(operation) = runtime_operation {
-        let exact_runtime_active = envelope.as_ref().is_some_and(|envelope| {
-            envelope
-                .recovery_journal
-                .record
-                .as_ref()
-                .is_some_and(|record| {
-                    record.operation_id.get() == operation.operation_id().get()
-                        && record.binding.digest_bytes() == operation.binding_digest()
-                        && matches!(record.phase, RecoveryJournalPhase::RuntimeActive)
-                })
+        let exact_runtime_active = journal.record.as_ref().is_some_and(|record| {
+            record.operation_id.get() == operation.operation_id().get()
+                && record.binding.digest_bytes() == operation.binding_digest()
+                && matches!(record.phase, RecoveryJournalPhase::RuntimeActive)
         });
         if !exact_runtime_active {
             return Err(SnapshotStoreError::Unavailable);
         }
-    } else if envelope
-        .as_ref()
-        .is_some_and(|envelope| envelope.recovery_journal.is_quarantined())
-    {
+    } else if journal.is_quarantined() {
         return Err(SnapshotStoreError::Unavailable);
     }
     match (committed, high_water, envelope) {
@@ -1054,23 +1161,51 @@ fn read_high_water(
     Ok(Some(record.version))
 }
 
-fn ensure_only_lock_file(root: &std::path::Path) -> Result<(), DurableStoreError> {
-    let entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
-    for entry in entries {
-        let entry = entry.map_err(|_| DurableStoreError::Unavailable)?;
-        if entry.file_name() != LOCK_FILE {
-            return Err(DurableStoreError::Corrupt);
-        }
+fn read_journal_high_water(
+    root: &std::path::Path,
+    owner_uid: u32,
+) -> Result<Option<JournalHighWater>, DurableStoreError> {
+    let file = match OpenOptions::new()
+        .read(true)
+        .custom_flags(NOFOLLOW)
+        .open(root.join(JOURNAL_HIGH_WATER_FILE))
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(DurableStoreError::Unavailable),
+    };
+    validate_regular_private_file(&file, owner_uid)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_JOURNAL_HIGH_WATER_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| DurableStoreError::Unavailable)?;
+    if bytes.len() as u64 > MAX_JOURNAL_HIGH_WATER_BYTES {
+        return Err(DurableStoreError::Corrupt);
     }
-    Ok(())
+    let anchor: JournalHighWater =
+        serde_json::from_slice(&bytes).map_err(|_| DurableStoreError::Corrupt)?;
+    if anchor.schema != JOURNAL_HIGH_WATER_SCHEMA
+        || anchor.revision == 0
+        || !anchor.journal.validate()
+        || anchor.journal.record.is_none()
+    {
+        return Err(DurableStoreError::Corrupt);
+    }
+    Ok(Some(anchor))
 }
 
-fn ensure_only_lock_and_state_file(root: &std::path::Path) -> Result<(), DurableStoreError> {
-    let entries = fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)?;
-    for entry in entries {
+fn ensure_only_uncommitted_files(
+    root: &std::path::Path,
+    has_envelope: bool,
+    has_journal: bool,
+) -> Result<(), DurableStoreError> {
+    for entry in fs::read_dir(root).map_err(|_| DurableStoreError::Unavailable)? {
         let entry = entry.map_err(|_| DurableStoreError::Unavailable)?;
-        if !matches!(entry.file_name().to_str(), Some(LOCK_FILE | STATE_FILE)) {
-            return Err(DurableStoreError::Corrupt);
+        match entry.file_name().to_str() {
+            Some(LOCK_FILE) => {}
+            Some(STATE_FILE) if has_envelope => {}
+            Some(JOURNAL_HIGH_WATER_FILE) if has_journal => {}
+            _ => return Err(DurableStoreError::Corrupt),
         }
     }
     Ok(())
@@ -1326,6 +1461,84 @@ mod tests {
         }
     }
 
+    #[test]
+    fn recovery_journal_high_water_controls_reads_and_reopen() {
+        let directory = committed_directory();
+        let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        let snapshot_version = store.load_current_state().unwrap().high_water_version;
+        let reader = store.current_snapshot_reader().unwrap();
+        let initial_envelope = fs::read(directory.0.join(STATE_FILE)).unwrap();
+        assert!(reader().unwrap().is_some());
+        let binding = RecoveryBinding::for_test([0x52; 32]);
+
+        let permit = store.begin_recovery_intent(binding.clone()).unwrap();
+        assert_eq!(store.journal_high_water.as_ref().unwrap().revision, 1);
+        let _claim = store.claim_recovery_effect(&permit).unwrap();
+        assert_eq!(store.journal_high_water.as_ref().unwrap().revision, 2);
+        assert_eq!(
+            store.load_current_state().unwrap().high_water_version,
+            snapshot_version
+        );
+        // The snapshot envelope is intentionally unchanged across journal-only
+        // transitions. Both reader and reopened writer must use the new anchor.
+        assert_eq!(
+            fs::read(directory.0.join(STATE_FILE)).unwrap(),
+            initial_envelope
+        );
+        assert_eq!(reader(), Err(SnapshotStoreError::Unavailable));
+        release_fixture_store(store);
+
+        let mut reopened = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        assert_eq!(reopened.recovery_quarantined(), Ok(true));
+        assert_eq!(
+            reopened.recovery_journal_record().unwrap().unwrap().phase,
+            RecoveryJournalPhase::EffectStarted
+        );
+        assert_eq!(
+            reopened.begin_recovery_intent(binding),
+            Err(RecoveryJournalError::Quarantined)
+        );
+    }
+
+    #[test]
+    fn recovery_journal_high_water_survives_before_the_first_snapshot() {
+        let directory = TestDirectory::new();
+        let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        let _permit = store
+            .begin_recovery_intent(RecoveryBinding::for_test([0x53; 32]))
+            .unwrap();
+        release_fixture_store(store);
+        let reopened = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        assert_eq!(reopened.recovery_quarantined(), Ok(true));
+        assert_eq!(
+            reopened.load_current_state().unwrap().high_water_version,
+            None
+        );
+    }
+
+    #[test]
+    fn open_anchors_a_legacy_quarantined_journal() {
+        let directory = committed_directory();
+        let mut store = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        let mut legacy = store.state.clone();
+        legacy.recovery_journal = RecoveryJournal {
+            next_operation_id: 2,
+            record: Some(RecoveryJournalRecord {
+                operation_id: RecoveryOperationId(1),
+                binding: RecoveryBinding::for_test([0x54; 32]),
+                phase: RecoveryJournalPhase::Intent,
+            }),
+        };
+        store.replace(legacy).unwrap();
+        release_fixture_store(store);
+
+        let reopened = LinuxIdentitySnapshotStore::open(directory.open_directory()).unwrap();
+        assert_eq!(reopened.recovery_quarantined(), Ok(true));
+        let anchor = reopened.journal_high_water.as_ref().unwrap();
+        assert_eq!(anchor.revision, 1);
+        assert_eq!(anchor.journal, reopened.state.recovery_journal);
+    }
+
     fn pending_test_path(directory: &TestDirectory) -> PathBuf {
         directory
             .0
@@ -1579,6 +1792,7 @@ mod tests {
                     bytes: first.clone(),
                 }),
                 recovery_journal: RecoveryJournal::default(),
+                recovery_journal_revision: None,
             })
             .unwrap();
 
