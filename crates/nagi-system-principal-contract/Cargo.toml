@@ -10,6 +10,9 @@ path = "src/lib.rs"
 [dependencies]
 nagi-init-spawn-contract = { path = "../nagi-init-spawn-contract" }
 
+[dev-dependencies]
+nagi-init-spawn-contract = { path = "../nagi-init-spawn-contract", features = ["test-support"] }
+
 [workspace]
 members = ["."]
 resolver = "2"
