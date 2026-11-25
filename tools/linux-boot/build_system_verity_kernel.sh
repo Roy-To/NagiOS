@@ -21,6 +21,9 @@ actual_base_sha=$(shasum -a 256 "$base_config" | awk '{print $1}')
 [[ "$actual_base_sha" == "$expected_base_sha" ]] || { echo "base kernel .config SHA-256 mismatch" >&2; exit 2; }
 version=$(awk -F'= ' '/^(VERSION|PATCHLEVEL|SUBLEVEL) = / { print $2 }' "$source_dir/Makefile" | paste -sd. -)
 [[ "$version" == "6.18.63" ]] || { echo "expected Linux 6.18.63 source, found $version" >&2; exit 2; }
+make_path=$(command -v make)
+make_version=$("$make_path" --version | sed -n '1p')
+[[ "$make_version" == "GNU Make "* ]] || { echo "GNU Make >=4.0 is required, found: $make_version" >&2; exit 2; }
 
 mkdir "$output_dir"
 exec > >(tee "$output_dir/build.log") 2>&1
@@ -118,12 +121,12 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" <<'PY'
+python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 
 repo, source, output, base = map(Path, sys.argv[1:5])
-base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha = sys.argv[5:]
+base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version = sys.argv[5:]
 
 def sha(path):
     digest = hashlib.sha256()
@@ -155,6 +158,11 @@ receipt = {
         "path": "build/arch/x86/boot/bzImage",
         "size_bytes": kernel.stat().st_size,
         "sha256": kernel_sha,
+    },
+    "build_tool": {
+        "path": make_path,
+        "version": make_version,
+        "sha256": sha(Path(make_path)),
     },
     "build_command": ["make", "-C", str(source), f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
     "source_unchanged_checks": {
