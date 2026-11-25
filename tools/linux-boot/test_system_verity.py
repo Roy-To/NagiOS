@@ -223,14 +223,14 @@ class SystemVerityTests(unittest.TestCase):
 
     def test_board_gate_skips_summary_and_reads_current_assignment_event(self):
         summary = "QEMU 枠1：統合予約｜枠2：System RO L11-3（clean/tampered 2起動）"
-        assignment = "01:23 JST Dot QEMU割当：System RO L11-3へ枠2を割当"
+        assignment = "01:23 JST Dot QEMU割当：System RO L11-3へ枠2を割当。試験後に枠2返却後、C3を再評価。"
         self.assertEqual(
             system_verity.current_board_assignment([summary, assignment], 2),
             assignment,
         )
 
     def test_board_gate_rejects_free_or_returned_slot_with_stale_assignment(self):
-        old_assignment = "01:23 JST Dot QEMU割当：System RO L11-3へ枠2を割当"
+        old_assignment = "01:23 JST Dot QEMU割当：System RO L11-3へ枠2を割当。試験後に枠2返却後、C3を再評価。"
         with self.assertRaisesRegex(system_verity.VerityError, "no current L11-3 assignment"):
             system_verity.current_board_assignment(
                 ["QEMU 枠1：統合予約｜枠2：空き", old_assignment], 2
