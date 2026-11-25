@@ -6,6 +6,13 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Linux 0.2 実装仕様の改訂レビュー（2026-11-25）
+
+**REVIEW NOTE / PROVISIONAL** — [改訂 Draft](../Nagi_OS_0.2_Linux_Implementation_Spec_Draft.md)と[旧 §32 受入条件の対応表](../Nagi_OS_0.2_Linux_Acceptance_Crosswalk.md)。
+[DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)による 0.2 有効化の前提置換を整理し、Linux 実装・CI・受入証拠の範囲、8 レーンの依存関係、0.1 公開範囲と 0.3 PX-05／08／09 の判断候補を確認できるようにした。
+
+**変更履歴（2026-11-25）** — [Draft PR #247](https://github.com/Roy-To/NagiOS/pull/247)にレビュー資料と索引を追加。製品判断・実装着手・受入の承認は従来の DEC と担当チェックポイントに従う。
+
 ## Omarchy参考の追加選別：ローカルAIの簡易診断・バグ報告支援（2026-11-24）
 
 [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)と[DEC-119](DEC-119-user-initiated-problem-reports.md)に、**ローカルLLMは簡単な問題切分けとユーザーのバグ報告準備を助ける**高水準方向をCONFIRMEDで追加。高精度な根本原因の特定をローカルLLMの標準要件にしない。決定論的Diagnosticsの事実とAIの推測を区別し、既存の伏せ字・内容プレビュー／除外・本人送信・非公開脆弱性窓口・自動送信なしを維持する。詳細・技術・版はPROVISIONAL。
@@ -273,7 +280,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-120 | [開発名称「Nagi」とDCOによる貢献の受け付け](DEC-120-development-codename-and-dco.md) | CONFIRMED（「Nagi」を開発名称として使用し、1.0までに製品名の扱いを決定、DCOで貢献を受け付け） | 2026-11-20 |
 | DEC-121 | [無操作時の自動ロックとセッションの有効期間](DEC-121-idle-lock-and-session-lifetime.md) | CONFIRMED（無操作15分で自動ロック・設定は1〜60分または「しない」、ロック中もセッション維持・承認操作は受け付けない、絶対期限なし）／PROVISIONAL（ゲスト・端末別初期値・ロック画面の通知・版） | 2026-11-22 |
 | DEC-122 | [Supervisor Council：端末適応型の安全審査・独立OS認可](DEC-122-adaptive-supervisor-council-security.md) | CONFIRMED（Councilはセキュリティ審査を主目的とし通常の深掘りでは常時合議しない、端末Resource適応、独立OS認可）／PROVISIONAL（Council審査条件・票数・低スペック時の省略／直列推論・Cloud深掘りの具体ルーティング・技術・版） | 2026-11-22 |
-| DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
+| DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開範囲B: Desktop／Notes／Files／Settings／Calendar・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（各アプリの機能深度・受入詳細・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-25 |
 | DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
 | DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現、Office互換OSS活用と編集／連携への重点投入、独自アプリ＋OSS選択的活用・Document Framework発展）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
@@ -622,3 +629,7 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)追補: Nagi Voiceの優先評価方針（whisper.cpp／多言語Whisper base、SenseVoiceSmall等との比較、Kokoro-82M、Silero VAD、sherpa-onnx）をCONFIRMED。評価対象の選定であり、個別モデル・依存の正式採用、ライセンス・言語別品質・実機性能・実装／提供版はPROVISIONAL。オフライン・通常操作・音声認可と既存Gate／Ownerを維持。
 
 [DEC-062](DEC-062-first-party-utilities.md)追補: Nagi Media共通API・OSS活用、image／resvg／FFmpegの優先評価、将来の視覚認識への拡張方向をCONFIRMED。個別ライブラリ・形式・codec／ライセンス・OCR／視覚技術・性能・提供版はPROVISIONAL。通常機能のAI非依存・既存Permission／Privacy・正規Public Action・Gate／Ownerを維持。
+
+## 2026-11-25 — Linux版0.1の公開範囲B
+
+[DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)を更新。Linux版0.1の公開範囲はDesktop、Notes、Files、Settings、Calendarを含むB案とCONFIRMED。狭いQEMU previewのA案は不採用で、#247 §6に歴史的候補として保持する。各アプリの機能深度と受入詳細はPROVISIONAL。公開受入・実装完了を意味しない。
