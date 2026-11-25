@@ -260,7 +260,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-100 | [System Update：Linux更新基盤＋Nagi統合Update Service（B）](DEC-100-system-update-linux-nagi-coordinated-ab.md) | CONFIRMED（#31 B：Linuxの更新機構とNagiの署名・互換検証／A/B切替・失敗時復旧・System／App／Model別管理）／PROVISIONAL（Linux採用部品・配信／鍵・更新単位・UI／自動適用・実機／版） | 2026-11-16 |
 | DEC-101 | [Nagi Network・Connectivity／7/12 B案](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（Linux／OSS基盤とNagi独自Service・意味的Protocol、Transport分離、LAN先行、評価の優先方針）／PROVISIONAL（個別OSS採用・API／版・実機性能、端末間AI推論・計算資源共有） | 2026-11-25 |
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
-| DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
+| DEC-103 | [Testing / Release：段階的検証B・将来の自動化／AI支援C](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)／[12/12 リリース・受入基準 B](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25) | CONFIRMED（#34の段階的検証B・将来C、AIは補助、合否は既存Acceptanceと決定論的試験、版ごとの段階公開、Linux版0.1は検証済みQEMU中心、正式公開は人間承認）／PROVISIONAL（試験網・AI支援の詳細・対応環境／受入結果・性能合格値・公開物・版別計画／公開日） | 2026-11-25 |
 | DEC-104 | [Build / Supply Chain：B先行と独立検証・強化自動化Cの正式な将来目標](DEC-104-build-supply-chain-baseline-independent-verification-staged.md) | CONFIRMED（統合供給網管理B先行・C正式目標）／PROVISIONAL（ツール・CI規模・予算・日程・閾値・必須Release・Linux実証） | 2026-11-16 |
 | DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・4機能の分担・自動差分バックアップ・選択式復元・独立Profile移行・保存と復元の安全方針・必要時のC追加）／PROVISIONAL（保存・復元契約・技術・運用・提供版） | 2026-11-25 |
 | DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
@@ -273,7 +273,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-113 | [外部コンテンツの扱いとプロンプトインジェクション対策](DEC-113-untrusted-content-and-prompt-injection.md) | CONFIRMED（外部由来の内容の扱い、高リスク操作の確認、Memory学習・無人Workflowの制限）／PROVISIONAL（リスク区分の詳細・確認UI・技術・適用版） | 2026-11-20 |
 | DEC-114 | [Web利用・開発者向けLinux環境・アプリ互換の説明](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md) | CONFIRMED（WebはAlbert、開発者モードの隔離Linux環境、`builder`用最低限ツール、アプリ互換の説明方針）／PROVISIONAL（環境の技術・ツール一覧・最終文言・適用版） | 2026-11-20 |
 | DEC-115 | [Web互換性・ブラウザーエンジン・DRM・コーデック](DEC-115-web-compatibility-engine-drm-and-codecs.md) | CONFIRMED（Servoで実測を先行しLinux版の予備エンジン制約を解除、サイト報告・DRM・コーデックの方針）／PROVISIONAL（予備エンジンの採否・評価方法・コーデックの最終判断・適用版） | 2026-11-20 |
-| DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版） | 2026-11-20 |
+| DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版、インストールするLLMに応じた推奨スペック案） | 2026-11-25 |
 | DEC-117 | [ユーザーデータの暗号化と端末紛失時の方針](DEC-117-user-data-encryption-and-lost-device.md) | CONFIRMED（解除可能なUser Dataの既定暗号化、解除不可のMemory／Profile常時暗号化、Profile別鍵、解錠・回復と端末紛失時の方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・保護の実効性・UI・適用版） | 2026-11-25 |
 | DEC-118 | [サポート期間と脆弱性対応の目標](DEC-118-support-period-and-vulnerability-response.md) | CONFIRMED（1.0までは最新版のみサポート、種類別の脆弱性修正目標、GitHubの非公開報告機能を利用） | 2026-11-20 |
 | DEC-119 | [不具合報告：ユーザー送信・伏せ字・ローカルAIによる報告準備支援](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人送信・事前プレビュー／項目除外・自動クラッシュ報告なし、ローカルLLMの簡易調査・報告支援）／PROVISIONAL（報告形式・UI・AI整理・伏せ字・版） | 2026-11-24 |
@@ -337,6 +337,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | [DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)に12/12の段階公開B、検証済みQEMU中心のLinux版0.1、再現可能な動作証拠と人間承認、1.0実用OS Bを記録。既存Gate・担当を維持。試験・対応環境・性能合格値・版別重点・日程はPROVISIONAL。[DEC-116](DEC-116-performance-targets-and-minimum-requirements.md)のLLMに応じた推奨スペックも検討案。 |
 | 2026-11-25 | [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)に7/12 Nagi Network・ConnectivityのB案と優先評価方針を記録。Share／Handoffの共通基盤、LAN先行、既存の認可・Gateと実装範囲を維持。個別OSS採用と端末間AI推論・計算資源共有はPROVISIONAL。 |
 | 2026-11-25 | [DEC-020](DEC-020-ai-os-interaction-path.md#512-model-runtime--適応型モデル構成b2026-11-25)に5/12 Model Runtimeの適応型モデル構成Bを記録。Granite標準契約、手動固定、前景優先と独立したOS認可を維持し、Task・端末資源・将来のRoleに応じたモデル選択をCONFIRMED。軽量モデル等の評価候補・実装詳細・提供版はPROVISIONAL。既存Gateと受入条件を維持。 |
 | 2026-11-25 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12の基本体験と、AIを利用しない状態でもOS単体の利便性・純正アプリ統合を高める製品方針をCONFIRMEDとして追記。初期のアプリ連携と優先E2E、出荷範囲・操作UI・ショートカット・API・提供版はPROVISIONAL。 |
