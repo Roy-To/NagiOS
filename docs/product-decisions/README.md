@@ -145,7 +145,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-001 | [AIの自律性とAction／PX-05 B＋将来C承認体験](DEC-001-agent-autonomy-actions.md) | CONFIRMED（既存自律実行・安全境界／PX-05のB基本＋将来C方向）／PROVISIONAL（Risk分類・閾値・未判定時の条件・UI・実装・版） | 2026-11-17 |
 | DEC-002 | [クラウドAI・外部情報共有](DEC-002-cloud-ai-data-sharing.md) | CONFIRMED | 2026-10-25 |
 | DEC-003 | [Memoryの機密分類と所有範囲](DEC-003-memory-classification.md) | CONFIRMED | 2026-10-25 |
-| DEC-004 | [Memory保存・学習・自然忘却／PX-08・PX-09基本方針](DEC-004-memory-learning-forgetting.md) | CONFIRMED（既存Memory lifecycle、PX-08 B、PX-09 B、将来Cの方向）／PROVISIONAL（条件・UI・数値・Cの具体方式／版／時期） | 2026-11-17 |
+| DEC-004 | [Memory保存・学習・自然忘却／PX-08・PX-09基本方針](DEC-004-memory-learning-forgetting.md) | CONFIRMED（既存Memory lifecycle、PX-08 B、PX-09 B、将来Cの方向・Persona別自然忘却・重み付けと長期容量／応答性）／PROVISIONAL（条件・UI・数値・Cの具体方式／版／時期） | 2026-11-25 |
 | DEC-005 | [Files・AlbertとMemoryの連動](DEC-005-files-albert-memory-lifecycle.md) | CONFIRMED（一部パラメータは暫定） | 2026-10-25 |
 | DEC-006 | [日常利用シナリオ](DEC-006-daily-use-scenarios.md) | CONFIRMED | 2026-10-25 |
 | DEC-007 | [ロードマップ・版境界との整合](DEC-007-roadmap-alignment.md) | REVIEW NOTE | 2026-10-25 |
@@ -154,7 +154,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-010 | [Intent-first／Workspace配置・PX-01／02適応UI・手動モード切替](DEC-010-intent-first-adaptive-ui.md) | CONFIRMED（Intent-first／新規Workspace自動配置・既存手動配置保護・PX-01／02とWorkspace表示モードのユーザー手動切替）／PROVISIONAL（詳細モード・UI・技術・性能・提供版） | 2026-11-24 |
 | DEC-011 | [Task承認・進捗・PX-04音声／TextとPX-06統合Taskセンター](DEC-011-task-approval-progress-ui.md) | CONFIRMED（従前の承認・進捗・Role／Stop／復旧、PX-04音声／Text切替・画面訂正、PX-06統合TaskセンターB＋将来高度Task管理C）／PROVISIONAL（具体UI・Queue／Priority／Scheduler・Voice UI・技術・性能・版） | 2026-11-17 |
 | DEC-012 | [Workspaceの自動命名・整理と自然言語検索／PX-03との整合](DEC-012-workspace-naming-organization.md) | CONFIRMED（既存の自動命名・分類・意味検索／ユーザー選択優先とPX-03統合作業ビューの高水準接続）／PROVISIONAL（具体的なProjectとの一覧・検索／再開UI・技術・版） | 2026-11-17 |
-| DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針）／profile・技術選択PROVISIONAL | 2026-11-05 |
+| DEC-013 | [Hardware-Adaptive Memory Engineの先行設計と性能評価](DEC-013-lightweight-memory-engine-benchmark.md) | CONFIRMED（適応方針・評価方針・長期蓄積時の容量と読出し性能）／profile・技術選択PROVISIONAL | 2026-11-25 |
 | DEC-014 | [Workspace自動保存・Checkpoint・履歴・復元／端末移行・同期／PX-03との整合](DEC-014-workspace-state-checkpoints.md) | CONFIRMED（既存Workspace自動保存・履歴・復元本人選択・現行権限／Handoff分離、PX-03の高水準接続）／PROVISIONAL（Projectビューからの一覧・検索／復元導線・技術・性能・版） | 2026-11-17 |
 | DEC-015 | [`builder` Roleの初期Nagi実行・切替・別会話継続・追加依頼分類](DEC-015-builder-role-review.md) | CONFIRMED（Role名／初期実行C／自動切替C／会話継続C／追加・別件依頼C）／PROVISIONAL（Runtime・Queue詳細） | 2026-11-05 |
 | DEC-016 | [`builder`のScope内自律実行・リスク別完了・追加指示の承認境界](DEC-016-builder-autonomy-risk-based-completion.md) | CONFIRMED（自律B／完了判定C／再試行C／追加指示分類Cと承認・Scope制限）／PROVISIONAL（実装詳細） | 2026-11-05 |
@@ -526,3 +526,8 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
 
 既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。
+
+
+## 2026-11-25 — PX-09の重み付け・長期Memoryの容量と応答性
+
+[DEC-004](DEC-004-memory-learning-forgetting.md)に長期習慣・周期性・有用性・Persona別評価、保持と自発利用の分離を追記。[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)に長期蓄積によるストレージ圧迫と読出し／通常操作の性能劣化を避ける設計要件をCONFIRMEDとして記録。容量／検索予算、100万件級追加ベンチ、整理・索引・具体値はPROVISIONAL。保護／忘却・Permission／Persona／Secret、既存Release／Activation Gateを維持。Persona関連PR #249との統合時に整合を確認する。
