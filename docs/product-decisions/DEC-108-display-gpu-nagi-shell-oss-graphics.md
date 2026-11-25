@@ -36,8 +36,13 @@ Nagi Home／Desktop、Workspace、ウィンドウ管理、AIと通常GUIの協�
 
 Foundation #19の方針は、Linuxカーネル＋Nagi専用ユーザーランド（DEC-043）とNagi独自Home／Desktop・Intent-first適応UI（DEC-009／010）を接続する。PC／Desktop firstを維持し、Tablet／Mobileへの製品目標と共通設計を前提にする。ただし対応端末・提供Versionや1.0の必須条件は増やさない。
 
+## 2026-11-25 — Vello採用方針（DEC-127）
+
+[DEC-127](DEC-127-nagi-design-system.md)により、Nagi独自の共通2D描画APIの主要描画基盤としてVelloを採用する方向をCONFIRMEDとする。Velloについては本追補が従前の個別技術未採用の記述に優先する。初期はCPU版を第一候補とし、GPU版は検証に応じた高速化候補。具体版・依存・ライセンス・実装・性能・機器対応・提供版はPROVISIONAL。Wayland／Smithay、Compositor、Mesa／DRM／KMS等の採否は別判断であり、既存Gate／Owner／着手条件を変更しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがAndroidの「独自OS体験の上位層＋ハードウェア寄り技術の再利用」との比較を確認し、Foundation #19の「B改良案：Nagi独自Shell＋OSS描画基盤」を明示採用。PC／タブレット／モバイル共通契約と端末適応を維持。Wayland／Smithay等の具体採用、対応実機・性能・実装版は未決定。 |
+| 2026-11-25 | DEC-127で共通2D描画のVello採用方針を確定。その他の描画・合成基盤の採否と実装・受入は未確定。 |
