@@ -66,6 +66,12 @@
 
 **統合の解釈:** 各PXでCONFIRMEDなのは明示採用された高水準の方向のみ。各DEC内のPROVISIONAL／OPEN、個別の仕様・性能・対象端末／Version、既存Permission／PrivacyとRelease／Activation／Acceptance Gate、Linux／Targetの実装証拠は変更しない。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)へ15件を一覧化した。
 
+## 0.1〜1.0 製品ロードマップ再編（2026-11-25）
+
+[DEC-021の再編決定](DEC-021-roadmap-0.5-1.0.md#2026-11-25-製品ロードマップの再編) — **CONFIRMED**（0.4以降はOS・AI・純正アプリ・統合体験・開発者環境を並行して育て、公開順序と許可済み開発の着手順序を分ける）。**PROVISIONAL**（[版別重点・横断レーン・Host準備候補](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md#版別の重点案)、0.8の有無）。詳細は[ロードマップ索引](roadmaps/README.md)を参照。旧案、既存Gate・Acceptance、Workstream ownerと許可境界を引き継ぐ。
+
+**別件の記録状況** — 純正追加8＋5領域の個別採用と自社運営サーバーに関する制約は、Workへの別依頼に対応する公開記録・PRを確認できていない。既存PX-11と[#254の1.0完成方針](https://github.com/Roy-To/NagiOS/pull/254)はそれぞれの範囲で参照する。
+
 ## Foundation統合とDEC改番（2026-11-16）
 
 PR #133〜#140のFoundation #6〜#35に関する方針を、先行する#1〜#5の決定と共存させる。並行branchで重複したIDは以下のように分離し、内容・索引・関連参照を維持する。DEC-094〜104とFoundationの`f25`〜`f35`は改番しない。
@@ -335,6 +341,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)にPX-08のバランス型B基本方針（許可された情報の自然な学習・推測の区別・重要な内容の確認）をCONFIRMEDとして追記。[Product & Experience Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDに更新。情報の細分類・重要判定・確認UX・数値／実装版はPROVISIONAL、既存Memory保護・忘却・Gateは不変。 |
 | 2026-11-17 | [DEC-004](DEC-004-memory-learning-forgetting.md)でPX-09のB「自然忘却＋ユーザー管理」を基本方針として、将来Cの高度な重複統合・矛盾検出を追加する方向をCONFIRMED。[DEC-059](DEC-059-learning-history-insights.md)と[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)も整合更新。保持条件・管理UI・Cの具体方式・版／時期はPROVISIONAL。Source／Profile／Permission・明示的忘却・既存Gateは維持。 |
 | 2026-11-17 | DEC-057へPX-10のB基本方針と将来Cの高水準な状況適応方向を追記し、Checklistの進捗をPARTIALLY_RECORDEDへ更新。既存のCONFIRMEDとRelease／Activation／Acceptance Gateを維持し、詳細・技術・評価・提供版／時期は未確定。 |
+| 2026-11-25 | [DEC-021](DEC-021-roadmap-0.5-1.0.md#2026-11-25-製品ロードマップの再編)に再編方針を追記し、[Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md#版別の重点案)に暫定の版別重点と横断レーンを追加。既存Gate・担当・許可範囲を維持し、旧版別表を履歴に保持。 |
 | 2026-11-17 | [DEC-021](DEC-021-roadmap-0.5-1.0.md)にPX-11のB（日常の主要作業を完結できる純正アプリ構成・品質優先）＋将来C（総合的な純正ソフトウェア環境）を高水準でCONFIRMEDとして追加。[DEC-061](DEC-061-first-party-pdf-reader-editor.md)・[DEC-062](DEC-062-first-party-utilities.md)との整合を追記、[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。Phase 1〜3、PDF／ユーティリティ採用、AI非依存操作、1.0公開開発者環境と配布基盤の既存目標を維持。個別アプリの1.0必須／任意／後続、機能、形式、性能、技術、搭載／配布形態、提供版はPROVISIONAL。 |
 | 2026-11-17 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12のB（利用可能な貼り付け方式を説明・選択できる体験）＋将来C（高度アプリ横断Workflow）を高水準CONFIRMEDとして追記。[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の共通参照A・更新提案A／承認済みTask限定更新、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)の正規Public Action優先A・限定GUI fallbackを維持。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)をPARTIALLY_RECORDEDへ。初期対象・既定のコピー／参照・詳細UI／Preview・Transfer／fallback技術・性能・版はPROVISIONAL。 |
 | 2026-11-17 | [DEC-071](DEC-071-nagi-native-app-creation-experience.md)にPX-13の対話型共同制作B＋将来の個人適応型共同制作Cを高水準CONFIRMEDとして記録。ただし独立・ローカル完結型の高度な制作環境は1.0計画の最終盤を目安とする長期・低優先に整理し、当面は[DEC-045](DEC-045-nagi-porting-toolkit.md)の他OS移植とローカルLLMによるCloud開発AI／既存IDE・人間との橋渡しを重視。[DEC-017](DEC-017-third-party-developer-ecosystem.md)／[DEC-021](DEC-021-roadmap-0.5-1.0.md)の1.0開発者環境／配布基盤、[DEC-070](DEC-070-memory-informed-native-app-creation.md)のMemory／[DEC-002](DEC-002-cloud-ai-data-sharing.md)のCloud事前許可、試用・正式導入・共有の別承認を維持。[Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)はPARTIALLY_RECORDED。具体的UI・Provider／Schema・モデル・性能・対象・版はPROVISIONAL。 |

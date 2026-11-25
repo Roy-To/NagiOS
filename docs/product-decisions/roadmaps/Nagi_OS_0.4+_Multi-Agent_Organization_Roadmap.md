@@ -89,6 +89,8 @@ Nagiはユーザーに対して一貫した窓口と調整役であり続ける�
 
 **`builder`製アプリのアンインストール・関連データ削除方式C（DEC-041、2026-11-05 CONFIRMED）:** 通常のアンインストールではアプリ本体のみ削除し、ユーザーデータ、設定、保護ソースコード、DEC-040の開発Project／履歴を原則保持する。完全削除時は対象、既知の共有参照、影響、回復可否を示し、ユーザーが対象ごとに明示選択・承認したものだけを正規Permission／Policy／Public Action経由で削除する。他アプリ／Taskの共有データ、作業中成果、復旧用データ、他ユーザー所有・未確認データを巻き込まない。保存Artifact／Manifest、互換性等に依存するため再インストール・再ビルドは保証せず、古いPermissionを自動再付与しない。保持期間・UI・技術実装・版割当てはPROVISIONALであり、DEC-014／019／040および既存Gateを維持し、0.4 Entry Gate／Integration Owner checkpoint／Activation／Workstream開始や初回0.4完了要件を変更しない。正本は[DEC-041](../DEC-041-builder-app-uninstall-and-data-deletion.md)。
 
+**2026-11-25 製品ロードマップ再編** — [版別重点案](Nagi_OS_0.5-1.0_Master_Roadmap.md#版別の重点案)では、初期0.4に単一Nagiの `builder` Roleを維持し、Project・Smart Paste・文書アプリ連携を製品の統合候補に置く。以下のEntry Gate・初期Roleの受入を引き継ぐ。Phase D–Fと階層Agentは版を決めず後順位の候補とする。
+
 ## 2. Entry gate and invariants
 
 ### 2.1 Entry gate

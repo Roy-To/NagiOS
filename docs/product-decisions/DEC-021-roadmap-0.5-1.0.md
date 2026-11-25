@@ -13,6 +13,18 @@
 
 本DECとMaster Roadmapは、実装仕様、Release commitment、Release activation、Workstream開始許可ではない。既存の0.1 / 0.2 / 0.3 / 0.4のGate、Acceptance、Workstream ownerを変更しない。各後続版も、適用される前版のTarget Runtime acceptanceと個別のactivation判断を経る。
 
+## 2026-11-25 製品ロードマップの再編
+
+**CONFIRMED（高水準方針）** — 2026-11-25の明示承認を記録。0.4以降は、OSの基本品質と安全性、Personal AI、純正アプリ、アプリ横断の統合体験、公開SDKと開発者環境を並行して育てる。AIが無効でも通常GUIで日常の作業を進められることを重視する。[DEC-074](DEC-074-human-led-agent-organization.md)のAI組み込み体験と、階層型Agent Organizationを後順位の長期構想とする判断を引き継ぐ。
+
+**CONFIRMED（計画と着手の境界）** — 公開順序と、既に許可された開発作業の開始順序を分ける。後続版の候補でも、既存承認に収まり、担当・作業範囲・依存契約が確認できれば準備を先行できる。[DEC-111](DEC-111-implementation-readiness-triage.md)に従い、着手に必要な判断は該当工程で扱う。新規Workstream、担当割当、実装・統合・有効化・公開の権限は、それぞれ既存の承認手順に従う。
+
+**維持する条件** — [DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)と0.2仕様の公開・M00・Workstream別チェックポイント、0.2のSDK基礎（M12／M21）、0.3 Personal Agentの既存受入とProfile Backup／Restore、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)／[DEC-020](DEC-020-ai-os-interaction-path.md)の先行性能評価、0.4 Entry Gateと初期の単一Nagiによる `builder` Roleを維持する。既存の1.0一般公開品質と公開開発者環境・配布基盤の目標も引き継ぐ。
+
+**PROVISIONAL（版別重点・横断レーン）** — [Master Roadmapの版別重点案](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md#版別の重点案)に0.1〜1.0の名称・重点、横断レーン、独立したHost準備候補を記す。候補の個別採否、提供版、0.8の有無、受入数値・日程は未確定。後掲の暫定表は旧案の履歴で、Phase D–Fの0.5〜0.7への配置や旧0.8の組織・複数端末の想定と今回の重点案が競合する場合は、新しい案を今後の検討に用いる。Phase D–F自体は後順位の候補として保持する。
+
+**REVIEW NOTE（別件の記録状況）** — 純正アプリの追加8＋5領域の個別採用と、自社運営サーバーに関する制約は、別件としてWorkへの反映依頼が言及されている。対応する独立の公開台帳記録・PRは確認できていない。既存のPX-11、[DEC-061](DEC-061-first-party-pdf-reader-editor.md)・[DEC-062](DEC-062-first-party-utilities.md)と、[PX-15 PR #254](https://github.com/Roy-To/NagiOS/pull/254)の1.0で後続に回せる範囲は、それぞれの記載範囲で参照する。個別採用や製品全体のサーバー方針は、別件の記録を照合して扱う。
+
 ## 確認済みの製品方針と境界
 
 ### 2026-11-16 確認：当面のAI組み込みOS体験を優先
@@ -105,6 +117,8 @@
 
 ## 暫定の0.5〜1.0版別案
 
+**履歴（2026-11-25）** — 旧版別案を以下に保存する。現行の検討には[2026-11-25再編](#2026-11-25-製品ロードマップの再編)を用いる。
+
 以下のVersion配置、順序、各版のscopeと0.8の設置は **PROVISIONAL**。改訂0.3 Roadmapがすでに示す「1.0の一般公開可能な品質・安定性・セキュリティ・互換性・開発者体験」という高水準目標を既存のRoadmap基準として保つ。DEC-017で確認済みの公開開発者環境・アプリ配布基盤の目標も維持する。測定可能な品質基準・具体的な実現範囲・Acceptanceは未確定とする。0.4+ Roadmapが示すPhase D–F等を計画上の候補として配置する。
 
 | Version | 暫定案 | 依存・状態 |
@@ -158,6 +172,7 @@
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | 0.4以降のOS・AI・純正アプリ・統合体験・開発者環境の並行成長と、公開順序と許可済み作業の着手順序を分ける方針をCONFIRMED。版別重点と横断レーンはPROVISIONAL。旧Phase D–F案を履歴・後順位候補に残し、既存Gate・受入・担当・承認を維持。 |
 | 2026-11-04 | DEC-017〜020を含む最新のProduct Decisionsと、0.3改訂・0.4+ Roadmapに整合する0.5〜1.0の方向案を記録。DEC-017で明示済みの1.0開発者環境・配布基盤目標を区別し、版別範囲・順序、Multi-user / Multi-device、Organization scope、数値・実装詳細は未確定として記録。 |
 | 2026-11-16 | DEC-074の人間が管理する階層型AI組織を長期方向として追加。既存の0.4方式とユーザー窓口を保持し、組織構造・技術・版割当は未確定のままとした。 |
 | 2026-11-16 | 後続確認：当面のAI組み込み体験型OSを優先し、階層型AI組織は非優先の長期ビジョンと明記。既存Gate・builder Roleと暫定の版別案を維持。 |

@@ -4,6 +4,67 @@
 
 > **2026-11-15 公開移管:** [DEC-050](../DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
+## 2026-11-25 製品ロードマップ再編
+
+[DEC-021の再編決定](../DEC-021-roadmap-0.5-1.0.md#2026-11-25-製品ロードマップの再編)に従い、0.4以降はOS、Personal AI、純正アプリ、統合体験、開発者環境を並行して育てる。公開順序と許可済み作業の着手順序を分ける。これらの高水準方針は **CONFIRMED**。以下の名称・重点・候補の提供版と横断レーンは **PROVISIONAL**。正式な実装仕様・受入・有効化は各版の手順に従う。
+
+### 版別の重点案
+
+| 版 | 仮称・重点 | 引き継ぐ条件・検討候補 |
+|---|---|---|
+| 0.1 | Developer Preview | Linux＋Nagi userlandの範囲を絞った公開を最優先。配布物を作成・検証する。公開範囲・証拠は[DEC-123](../DEC-123-kernel-unification-and-linux-0.1.md)と[公開ロードマップ](../../../ROADMAP.md)に従う。 |
+| 0.2 | Platform Foundation | Albert、ローカルLLM、音声、検索、Wayback、Permission、A/B起動・復旧、SDK・純正アプリ共通基盤。M12のManifest／Package LifecycleとM21のSDK／App Ecosystemを維持する。 |
+| 0.3 | Personal Intelligence | 既存Personal Agentの受入を維持。Memory・学習と忘却、Persona／Secret、Insights、Profile Backup／Restore・移行、権限内のAI Taskを重点候補とする。Memoryの先行性能評価は既存の許可範囲で継続する。 |
+| 0.4 | Connected Workspace | 初期の単一Nagiによる `builder` Roleと[0.4 Entry Gate](Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md#21-entry-gate)を維持。Project、Smart Paste、Writer／Sheets／Slidesを横断する体験を統合候補とする。 |
+| 0.5 | Productivity | Mail、PDF、Input、Canvas、Forms、Database、Translate等の純正環境を拡充する候補。AIなしの基本操作と日常作業の完結性を評価する。 |
+| 0.6 | Efficiency & Reliability | 長期Memoryと前景応答性、Automation Mode／Nagi Powerでの資源管理、Backup・復旧の拡充。Refreshは計測で効果を示し、忘却・保護・権限と応答性を保てる場合の候補。0.3のProfile Backup／Restoreと先行性能評価を後送りしない。 |
+| 0.7 | Open Ecosystem | 0.2のSDKを土台に公開SDKを拡充し、Porting Toolkit、第三者アプリ統合、外部Package配布先を案内するカタログ型Storeを検討する。 |
+| 0.8 | Integrated Experience | 純正アプリ間の統合を深め、Nagi Share／Handoffの拡張を検討する候補。独立した版を設けるかも未決定。端末間連携は既存の認可・対応範囲に従う。 |
+| 0.9 | RC | 統合・セキュリティレビュー、互換性、実機性能、更新／障害復旧を確認する候補。対象と合格基準は別途定める。 |
+| 1.0 | General Release | 宣言した対応範囲で代表的な日常作業を安全・安定に完結できる実用OSと、公開開発者環境・アプリ配布基盤を目指す。必須アプリ、正式対応機器、数値、公開手順・日程は未確定。 |
+
+0.2 runtimeの有効化はLinux版0.1 Developer Previewの公開、明示された0.2 release境界、対象WorkstreamへのIntegration Ownerチェックポイントに従う。0.3正式仕様の検討は[0.3 Roadmap §26](Nagi_OS_0.3_Architecture_Roadmap_Revised.md#26-gate-for-03-implementation-spec)の共通基盤の安定と0.2がおおむね50〜70%安定という既存の目安に従う。0.3 §28／§34.11のTarget Runtime受入、0.4の別途有効化、後続版の適用される受入と公開判断を引き継ぐ。
+
+旧§4では0.5〜0.7をPhase D–Fに割り当て、0.8を複数端末・組織の拡張候補としていた。今後の版別重点の検討には上表を用いる。Phase D（Research／Build／Review）、E（並列実行・異種Model）、F（Team／Organization）、[DEC-074](../DEC-074-human-led-agent-organization.md)の階層Agentは、版を決めず後順位の候補として保持する。
+
+### バージョンをまたぐ計画レーン
+
+[0.2 Linux改訂案 #247](https://github.com/Roy-To/NagiOS/pull/247) §5の8レーンは、0.2のM番号とLinux受入の引き渡しを扱う。A 統合・Release、B System・Security、C Settings・UI、D Install・Recovery、E AI・Audio、F Common Platform、G 純正アプリ、H Developer Platformで構成される。次の8レーンは複数版を通じた計画で、0.2ではA〜Hの依存と受入に接続する。各レーンの担当欄は既存の照合先。実担当・許可済み作業域は[Workstream手順](../../0.2/WORKSTREAMS.md)と[登録台帳](../../../.dev/workstreams.json)、明示されたIntegration Ownerチェックポイントで確認する。
+
+| 横断レーン | 依存・引き渡し | 担当・先行準備の境界 |
+|---|---|---|
+| OS・Security | A/B/C/D。起動、Identity／Session、Capability、IPC、永続化・復旧契約を下流へ渡す。 | Linux移行・Capability各担当。既存の移行範囲と対象チェックポイントを適用。 |
+| AI・Memory | E/F。Provider・Jobs・Public Action、Profile所有とPermission、索引とCanonical Memoryの分離。 | Model Runtime等の登録済み担当。Memoryの比較・性能評価は[DEC-013](../DEC-013-lightweight-memory-engine-benchmark.md)／[DEC-020](../DEC-020-ai-os-interaction-path.md)の許可範囲。0.3の実装は別Gate。 |
+| 純正アプリ | C/G/H。UI・i18n、共通保存、公開SDK、許可されたファイル・検索連携。 | 既存の個別アプリ／統合担当。Host実証は承認済み範囲、Target接続は依存契約の受入後。 |
+| アプリ統合 | F/G/H。Resource／Action ID、データ形式、由来・権限の伝播、Project・Smart Pasteの共通契約。 | Platform APIと各アプリの担当を照合。共通契約・複数アプリ変更はIntegration Ownerと調整。 |
+| SDK・移植 | B/D/F/H。M12 Manifest・PackageとM21 SDK、公開API、移植診断、実際のTarget検証。 | `app-sdk-contract`／開発者基盤の登録・許可を照合。Host診断、署名、導入、外部配布は各承認範囲に従う。 |
+| builder | 0.3 Personal Agent受入、Task・隔離・Public Action・Stop・監査と復旧契約。 | 初期の単一Roleは0.4 Entry Gateに従う。担当・共有契約の変更は明示割当を待つ。 |
+| 性能・復旧 | A/D/E/F。負荷・応答性の基準、Profile移行、バックアップの復元証拠、資源管理。 | 既存の測定・復旧担当を照合。Host比較、Linuxゲスト、実機の結果を区別し、数値とRefreshの採否は検証後に判断。 |
+| 実機・QA | Aと各Targetレーン。バージョン・構成・成果物・受入証拠を対応付ける。 | CI／受入担当とIntegration Ownerが対象と証拠を確認。対応機器・配布範囲は既存の公開判断に従う。 |
+
+### 独立したHost準備候補
+
+合成入力と分離された境界で基本部分を先に検証できる候補。各候補とも、既存作業との競合、担当、ブランチ／作業域、使う契約と明示許可を台帳で先に確認する。下表は新規割当の記録を兼ねない。既存アプリ採用（Archive分野の[DEC-062](../DEC-062-first-party-utilities.md)等）と個別の作業承認は別に扱う。
+
+| 候補 | Hostで準備・比較する対象 | 統合時に確認する契約 |
+|---|---|---|
+| Calculator | 計算・単位変換と丸め | 数値表現、単位、locale |
+| Text | 編集、文字コード、改行の往復 | 文書・保存・ファイル権限 |
+| Clock | 時刻・タイマー・アラームの境界条件 | 時刻源、Jobs、通知・休止復帰 |
+| Database | データモデル、検索、トランザクション | Profile所有、永続化、索引、移行 |
+| Forms | フォーム定義、入力検証、回答形式 | Schema、保存、共有・送信の認可 |
+| Canvas | オブジェクト、配置、保存 | 文書形式、描画、Undo |
+| Dictionary | 辞書形式、ローカル検索 | 言語・辞書ライセンス、索引、配布 |
+| Archive | 圧縮・解凍と安全性の検証 | Files権限、保存先、上限と復旧 |
+
+### 直近の進め方
+
+1. Linux 0.1の公開範囲を決め、配布物と受入証拠を揃える。
+2. #247の0.2改訂案と受入対応表をレビューし、M00・依存契約・担当を照合する。
+3. 0.3のMemory／Persona／Secretを詳細化する。Profile移行、閲覧・学習・出力の分離、先行性能評価を設計入力とする。
+4. 純正アプリの共通UI・保存・検索・印刷・Undo・設定と共通データ形式／連携APIを整理し、登録・許可済みのSDK／アプリ準備を依存が整った順に進める。
+5. 後続版の仕様と受入は、必要になった時点で個別に判断する。
+
 ## Linux基盤への適用注記（2026-11-13）
 
 [DEC-042](../DEC-042-linux-kernel-transition.md)のLinux kernel選択、[DEC-043](../DEC-043-nagi-userland-independent-os.md)のNagi専用userland／既存distribution基盤非採用／個別OSSの選択的再利用はCONFIRMED。[DEC-044](../DEC-044-linux-migration-development-authorization.md)と[移行ADR](../../decisions/2026-11-12-linux-migration-development-scope.md)はPrivateでの対象限定の移行設計・実装・検証を承認済みである。これは製品の恒久構成・正式切替やrelease activationと別の承認であり、具体的な実開始・統合成功は対象refと証拠で確認する。
@@ -104,6 +165,8 @@ These behaviors do not authorize implementation in 0.1, 0.2, 0.3, or 0.4, and th
 6. Keep DEC-013's Hardware-Adaptive Memory Engine work within 0.3's gated scope. Benchmark preparation is not runtime acceptance and does not justify moving formal 0.3 implementation into 0.5.
 7. Prefer deferring a capability over weakening a permission boundary or treating a proposal as a committed release requirement.
 8. Carry forward the revised 0.3 Roadmap's high-level 1.0 target: a Nagi OS with quality, stability, security, compatibility, and developer experience suitable for general release. DEC-017 also sets a public developer-environment and app-distribution foundation goal for 1.0. Improving portability and migration for existing Rust, C, and C++ apps is a product goal, not a promise of unchanged compatibility. Measurable thresholds, detailed scope, release decision/date, support matrix, and Store policy remain open. Organization-scale features, Cloud services, and multi-device operation are not prerequisites unless separately approved.
+
+**2026-11-25追記** — §4は旧暫定案と依存図の履歴。版の重点は[2026-11-25案](#版別の重点案)を参照し、ここで示すPhase D–Fの版割当ては後順位の候補として読む。
 
 ## 4. Provisional version map
 
