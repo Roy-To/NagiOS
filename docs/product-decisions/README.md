@@ -250,7 +250,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-107 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
 | DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用、DEC-127のVello採用方針、Wayland／Smithay条件付き採用・独立した操作体系）／PROVISIONAL（具体protocol・依存・その他基盤・対象機器・版・受入） | 2026-11-25 |
 | DEC-109 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-109-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI・通常入力と独立した意味的操作体系）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-25 |
-| DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応、ALSA／PipeWire採用・交換可能な音声AI）／PROVISIONAL（具体構成・個別モデル・機器・測定値・版・受入） | 2026-11-25 |
+| DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応、ALSA／PipeWire採用・交換可能な音声AI・Nagi Voice優先評価方針）／PROVISIONAL（具体構成・個別モデル・機器・測定値・版・受入） | 2026-11-25 |
 | DEC-111 | [50項目のImplementation Readiness棚卸しと条件付き判断](DEC-111-implementation-readiness-triage.md) | CONFIRMED（実装を妨げる未決判断だけ必要時に先行する運用）／REVIEW NOTE・PROVISIONAL（23／5／8／14の一次分類・順序） | 2026-11-17 |
 | DEC-112 | [Linux開発イメージのIdentityサービスとREADY](DEC-112-development-identity-service-readiness.md) | CONFIRMED（Task24開発イメージで独立必須Identityと実READY、Data／NotesはPID 1内、独立Dataは別レーンで並行）／PROVISIONAL（製品全体の構成・接続仕様の詳細） | 2026-11-19 |
 | DEC-113 | [外部コンテンツの扱いとプロンプトインジェクション対策](DEC-113-untrusted-content-and-prompt-injection.md) | CONFIRMED（外部由来の内容の扱い、高リスク操作の確認、Memory学習・無人Workflowの制限）／PROVISIONAL（リスク区分の詳細・確認UI・技術・適用版） | 2026-11-20 |
@@ -553,3 +553,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)・[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)・[DEC-127](DEC-127-nagi-design-system.md)追補: Wayland・Smithayの条件付き採用と、2D座標・入力型に固定しないNagi独自の意味的操作体系をCONFIRMED。VISION-001／DEC-097の長期ビジョン、DEC-020／027の正規操作・安全境界、通常GUIを維持。新規入力／表示技術・protocol詳細・性能・実装・提供版はPROVISIONAL。既存Gate・Ownerを維持。
 
 [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)追補: ALSA／PipeWire採用とNagi独自Audio Service・交換可能な音声AIの方向をCONFIRMED。個別ASR／TTSモデル・WirePlumber／BlueZ等・具体構成・実機性能・提供版はPROVISIONAL。通常再生／録音・マイク認可・Cloud別許可・将来ハンズフリーの安全境界と既存Gate／Ownerを維持。
+
+[DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)追補: Nagi Voiceの優先評価方針（whisper.cpp／多言語Whisper base、SenseVoiceSmall等との比較、Kokoro-82M、Silero VAD、sherpa-onnx）をCONFIRMED。評価対象の選定であり、個別モデル・依存の正式採用、ライセンス・言語別品質・実機性能・実装／提供版はPROVISIONAL。オフライン・通常操作・音声認可と既存Gate／Ownerを維持。
