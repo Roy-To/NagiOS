@@ -162,7 +162,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
 | DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分／PX-06の整合](DEC-020-ai-os-interaction-path.md) | CONFIRMED（既存Context／Event・前景優先・適応推論・8GB級の実用性目標・モデル切替方針・`builder` Resource待機継続C、PX-06との整合、0.3完成前の8GB級先行性能評価開始）／PROVISIONAL（Queue／Priority／Scheduler・並列度の詳細、実装・性能・適用版） | 2026-11-17 |
-| DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C）／PROVISIONAL（必須アプリ・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-17 |
+| DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C、6領域・純正拡充・後続可能範囲）／PROVISIONAL（個別必須アプリ・優先候補・E2E・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-25 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
@@ -526,3 +526,8 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
 
 既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。
+
+
+## 2026-11-25 — PX-15 1.0製品構成と完成度評価
+
+[DEC-021](DEC-021-roadmap-0.5-1.0.md)に、一般利用者向け実用OSと公開開発者環境、6つの製品領域、純正アプリ拡充と後続に回せる機能の方針をCONFIRMEDとして追記。個別必須／搭載目標候補、E2E評価シナリオ、詳細・性能・対応機器・提供版・日程はPROVISIONAL。DEC-116の仮目標とDEC-123を含む既存Gateを維持。並行する各製品決定PRとの統合時に整合確認する。
