@@ -1,7 +1,7 @@
 # DEC-095 — App Lifecycle：Linux基盤＋Nagi App Supervisorを標準に独自Runtimeを並行研究
 
-**状態:** CONFIRMED（Foundation #26：Bを基本採用し、独自Runtimeの拡張余地を保持して並行研究する方針。Linux標準プロセス・隔離機構＋Nagi独自App Supervisorを製品の基本経路とし、研究成果の製品採用は比較検証後の別判断）／PROVISIONAL（独自Runtimeの形式・用途・実装・採否・定量性能・端末／版・受入）\
-**最終合意日:** 2026-11-16\
+**状態:** CONFIRMED（Foundation #26：Bを基本採用し、独自Runtimeの拡張余地を保持して並行研究する方針。Linux標準プロセス・隔離機構＋Nagi独自App Supervisorを製品の基本経路とし、Androidの設計思想を参考に独自実行Runtimeを長期的に育てる。研究成果の製品採用は比較検証後の別判断）／PROVISIONAL（独自Runtimeの形式・用途・実装・採否・定量性能・端末／版・受入）\
+**最終合意日:** 2026-11-25\
 **適用候補:** Nagi OS Foundation #26。実装開始条件、対象Version、Release割当ては未決定\
 **関連:** [Foundation Checklist #26](NAGI_OS_FOUNDATION_CHECKLIST.md#f26)、[DEC-017（Nagi Native Apps）](DEC-017-third-party-developer-ecosystem.md)、[DEC-043（Linux＋Nagi専用ユーザーランド）](DEC-043-nagi-userland-independent-os.md)、[DEC-020（AIと通常操作）](DEC-020-ai-os-interaction-path.md)、[DEC-075（builder製アプリ試用・正式導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-035（導入済みアプリ更新）](DEC-035-builder-created-app-maintenance-updates.md)、[DEC-041（削除・データ保持）](DEC-041-builder-app-uninstall-and-data-deletion.md)、[DEC-094（Resource Manager／研究方針）](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)、[0.2実装仕様 §13・M12／M13](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
@@ -40,8 +40,27 @@ Nagi Native Appsの統一したアプリ体験、Workspace・公開Action／Cont
 
 本DECは**Bの製品基本方針とCの並行研究を進める方向**をCONFIRMEDとする。研究のための具体的技術採用、実装開始、開発担当、特定releaseでの独自Runtime搭載、Linux target／実機での受入成功や体感高速化を確認したものではない。既存の0.2 M12／M13／M21、0.3、0.4 Entry Gate、Desktop first、Nagi Native Appsの通常操作・認可契約を変更しない。
 
+## 9/12 Nagi App Runtime（2026-11-25）
+
+### 確定した方針（CONFIRMED）
+
+- **Native Runtimeを製品の本線にする。** Linux Native Process＋Nagi App Supervisorを標準として維持し、これを基準にNagi独自実行Runtimeを比較研究しながら長期的に育てる。対応するNagi Native Appsの標準経路を保持し、研究成果の製品採用は実測と隔離の検証を踏まえて別途判断する。
+- **Androidの設計思想を参照する。** ARTの管理型実行と利用状況に基づく最適化、Zygoteのアプリ起動高速化、Binderの統一されたプロセス間サービス呼び出しを参考にする。Androidや各機構の導入、Androidアプリ互換性の採否は今回の決定範囲外とする。[Android公式資料（ART）](https://source.android.com/docs/core/runtime)、[利用状況に基づく最適化](https://source.android.com/docs/core/runtime/jit-compiler)、[Zygote](https://source.android.com/docs/core/runtime/zygote)、[Binder](https://source.android.com/docs/core/architecture/ipc/binder-overview)
+- **実行方式を越えて共通のアプリ契約を守る。** 純正／第三者でPackage、Manifest、AppId、SDK／Public APIを共有する。Nagi Permission／Capability／Policyによる認可とLinuxの実効隔離を組み合わせ、アプリとAIを非特権に保つ。通常GUIの基本操作はLLMを必要としない。サービス呼び出しは既存の型付きService Broker／IDL契約に従い、Caller／Sessionの検証と権限の失効を維持する。[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)、[DEC-085](DEC-085-linux-transport-nagi-service-broker.md)
+- **既存の製品境界を引き継ぐ。** 一般向け汎用互換レイヤーを標準搭載しない方針と、開発用途に限るLinux環境の例外を維持する。Nagi主体のユーザーランドとOSSの選択的活用、標準の資源制御と前景優先、Desktop firstと共通UI基盤の方針に従う。[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-114](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md)、[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)、[DEC-094](DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)、[DEC-127](DEC-127-nagi-design-system.md)
+
+### 研究候補と未確定事項（PROVISIONAL）
+
+- 実行形式・エンジン・インターフェースの候補はWebAssembly（WASM）、Wasmtime、WASI、WIT等。Linux IPCと大容量データ受渡しはUnix Domain Socket（UDS）、memfd、共有メモリ等、IPCのメッセージ符号化はProtocol Buffers（Protobuf）等が候補となる。採否と具体構成は未決定。
+- 独自実行Runtimeの正式名称（議論で例示した「NRT」を含む）、具体的な実行形式とアプリ用途、事前初期化・コード最適化の方式、具体API／ABI、依存ライセンス、性能目標と実測値、Linuxでの隔離実証、対象端末・実装版は未確定。
+
+### 0.2の実装契約との関係
+
+[0.2実装仕様](../Nagi_OS_0.2_Codex_Implementation_Spec.md)の§11／M10（型付きサービスIPC）、§13／M12（Manifest／Package Lifecycle）、§13／M13（App Supervisor／Background Job Runtime）、M21（公開SDK／App Ecosystem）の契約と受入条件を引き継ぐ。Release／Activation／Acceptance Gate、作業の担当と着手権限、各版への割当ては既存の仕様と[ロードマップ](roadmaps/README.md)に従う。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #26で「Bを基本採用して、独自Runtimeの拡張余地を残し、#25と同様に研究を進める」方針を明示承認。Linux基盤＋Nagi App Supervisorを標準とし、独自Runtime／隔離／起動効率等を比較研究する。製品採用・具体Runtime・性能・端末・時期は未確定。 |
+| 2026-11-25 | 9/12 Nagi App Runtimeで、ユーザーが「既存のDEC-095に沿ってNative Runtimeを本線としつつ、AndroidのART・Zygote・Binderなどの設計思想も参考に、独自Runtimeを長期的に育てる」方針を明示承認。具体技術・性能・隔離実証・提供版はPROVISIONAL。 |
