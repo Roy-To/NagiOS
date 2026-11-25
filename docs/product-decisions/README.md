@@ -176,7 +176,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
-| DEC-025 | [アプリ横断の共通参照・更新提案／PX-12との整合](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本A、変更検知／更新提案A、事前承認Taskの限定自動更新、PX-12高水準体験と整合）／PROVISIONAL（詳細Transfer・更新UI・技術・性能・版） | 2026-11-17 |
+| DEC-025 | [アプリ横断の共通参照・更新提案／PX-12・共通データ契約](DEC-025-cross-app-data-reference-and-updates.md) | CONFIRMED（共通参照・分散正本A、変更検知／更新提案A、事前承認Taskの限定自動更新、PX-12高水準体験、内部保存・通信と公開契約の分離、不要な永続JSON複製を前提としない方針）／PROVISIONAL（詳細Transfer・更新UI・技術・性能・版） | 2026-11-25 |
 | DEC-026 | [AIによる変更の検証可能性と復元可能性／PX-05との整合](DEC-026-ai-change-verification-and-recovery.md) | CONFIRMED（既存の思想⑨・選択A／リスク別検証・Wayback事前表示、PX-05 B＋将来C方針との両立）／PROVISIONAL（Risk taxonomy・未判定時の条件・UI・数値・実装・版） | 2026-11-17 |
 | DEC-027 | [正規Public Action優先・限定GUI fallback／PX-12との整合](DEC-027-public-action-and-scoped-gui-fallback.md) | CONFIRMED（Public Action優先A、明示許可・限定ScopeのGUI fallback、PX-12高水準体験と整合）／PROVISIONAL（具体GUI／fallback制御・対象App・性能・適用版） | 2026-11-17 |
 | DEC-028 | [反復Workflowの学習・改善案・承認制改訂](DEC-028-deterministic-workflows-from-habits.md) | CONFIRMED（Workflow化と正式改訂に明示承認・履歴保持）／PROVISIONAL（変換・検証・UI・保持詳細） | 2026-11-05 |
@@ -577,3 +577,7 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 ## 2026-11-25 — 開発参加の裾野と創作の自由
 
 [DEC-071](DEC-071-nagi-native-app-creation-experience.md)に、専門知識のない人も自然言語・AI支援で実際のアプリ開発に参画できる世界の礎となること、部品組換えだけに限定せずPlatformの共通化とソフトウェア開発の自由を両立する製品理念をCONFIRMEDとして追記。ソース編集・共通部品／独自実装の併用・開発UI・具体Framework／API・版はPROVISIONAL。DEC-017の公開SDK／同じ公開契約、PX-13の既存IDE／Cloud AI橋渡し優先、Native・Permission・Package・既存Gateを維持。
+
+## 2026-11-25 — 共通データ契約と保存／転送の分離
+
+[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)に共通公開契約と各Appの内部保存・通信表現の分離、不要な永続JSON複製を前提としない資源効率の方針を追記。JSON Schema・IPC・具体転送／永続化・型・予算等はPROVISIONAL。既存分散正本・認可・Provenance・更新提案・Gateを維持。
