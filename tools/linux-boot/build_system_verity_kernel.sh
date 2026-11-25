@@ -51,6 +51,7 @@ SH
 fi
 if [[ "$(uname -s)" == "Darwin" ]]; then
     sed_bin=$(command -v sed)
+    cp_bin=$(command -v cp)
     compat_dir="$output_dir/host-compat"
     mkdir -p "$compat_dir"
     cat > "$compat_dir/sed" <<'SH'
@@ -67,6 +68,22 @@ SH
     export NAGI_L11_BSD_SED="$sed_bin"
     export PATH="$compat_dir:$PATH"
     printf 'Installed private BSD sed -i compatibility shim: %s\n' "$compat_dir/sed"
+    cat > "$compat_dir/cp" <<'SH'
+#!/usr/bin/env python3
+import os
+import sys
+
+args = sys.argv[1:]
+if "-T" in args:
+    index = args.index("-T")
+    args.pop(index)
+    if index < len(args) and args[index] == "--":
+        args.pop(index)
+os.execv(os.environ["NAGI_L11_BSD_CP"], ["cp", *args])
+SH
+    chmod 0555 "$compat_dir/cp"
+    export NAGI_L11_BSD_CP="$cp_bin"
+    printf 'Installed private BSD cp -T compatibility shim: %s\n' "$compat_dir/cp"
 fi
 build_dir="$output_dir/build"
 mkdir "$build_dir"
