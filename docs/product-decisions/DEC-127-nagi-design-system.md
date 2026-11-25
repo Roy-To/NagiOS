@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用、Vello採用方針）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用、Vello採用方針、OSSフォント優先と将来10言語の対応目標）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -83,6 +83,17 @@
 
 **PROVISIONAL（実装・受入）:** Vello CPU／GPUの具体crate・固定版・feature・対応機能・依存／ライセンス確認・Rust toolchain・x86／ARM64・Linux targetでのbuild／動作・描画品質・資源消費・GPU driverとの適合、GPU導入時期、Vello Researchの評価、tiny-skia等への退避条件は未確定。初期CPU経路とGPU経路は同等の代表画面で実測し、GPU推論との共存、前景応答、描画一致性、RAM／VRAM、電力・熱、障害時の回復を検証する。Vello自体は文字整形・IME・全画像formatの処理を一括提供するToolkitとは扱わず、補助ライブラリ（COSMIC Text、image、resvg、wgpu等）の採否は別途判断する。Wayland／Smithay・Compositor構成の採否も別判断とする。採用方針は依存追加・移植済み・実機受入済み・新規Workstream着手・特定Releaseへの割当てを意味せず、既存Gate／Owner／path ownershipを維持する。
 
+## 2026-11-25 — OSSフォント優先と将来の多言語対応
+
+**CONFIRMED（製品方針）:** 標準フォント・文字処理基盤は適切なOSS／オープンライセンスの技術・フォントを優先し、独自フォント開発や特定の外観を優先する方針とはしない。既存の英語・日本語の同格の初期正式対応を維持し、将来の対応目標として中国語、韓国語、ポルトガル語、スペイン語、フランス語、ドイツ語、アラビア語、ロシア語を追加する（計10言語）。全言語の即時提供を要求するものではなく、後からOS／アプリ全体を大幅に書き換えずに追加できるよう、共通UI／Text／Localization／Input／検索等の設計段階から多言語・異なる文字体系を見据える。既存のADR-0015と[言語設計](../architecture/language-architecture.md)、純正アプリ仕様 §43のUTF-8、英語基準の安定した内部識別子と共通Localization、System Language／Region・Locale／Input Language・Keyboard／AI Conversation Languageの独立性を維持する。
+
+**PROVISIONAL（具体設計・技術候補）:**
+
+- ParleyをVelloと連携する文字レイアウトの第一評価候補、COSMIC Textを比較・代替候補とし、Fontique／HarfRust／Skrifa／ICU4X等は選択した実装とその依存を評価する。個別ライブラリの採用は未確定。Noto Sans／Noto Serif／Notoの各文字体系向けフォント・絵文字・等幅フォント等を候補とし、特定フォント・配布条件・固定版・搭載範囲は未決定。ライセンス・再配布・埋め込み条件、字形・アクセシビリティ、RAM／disk容量を確認する。
+- 中国語の簡体字／繁体字とCJKの言語別字形・IME、韓国語のハングル入力、ポルトガル語等の地域差、長い翻訳文字列・結合文字／書記素、アラビア語のRTL・双方向テキスト・文脈依存字形・UI方向、ロシア語等のキリル文字、Unicode正規化・改行・検索・照合・locale別日付／数値／通貨等を設計・検証候補とする。言語固有の表記を壊さないこと、ファイル／Resource ID・formula等の内部識別子と表示の分離、複数言語が混在する文書・入力・検索、fallback・欠落glyphの扱いを考慮する。縦書き・ルビ・高度な組版、印刷／PDFの一致性も別途検証する。
+- 言語パック・フォント／辞書を必要に応じて追加し、使わない言語のデータを常駐させない方式を候補とする。OS UI翻訳、文字表示／編集、IME／keyboard、検索／地域書式、AI理解／音声・翻訳の対応度は別々に検証し、特定LLMの対応言語をOSの対応保証としない。代表文字体系の早期fixture／擬似locale、RTL・長文・欠落翻訳の試験を候補とする。各言語のlocale、実装範囲、順序、数値、提供Version、翻訳品質・検証条件は未確定。
+- DEC-060／109の通常IMEの非LLM依存、前景応答優先、許可された学習と秘密入力保護、DEC-097のAccessibility、DEC-108／127の軽量性・共通描画契約を維持する。既存0.1の日英範囲・Release／Activation／Acceptance Gate、Owner／path ownershipを変更せず、10言語の実装完了・新規Workstream着手・依存追加・特定Releaseの必須要件を意味しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -95,3 +106,4 @@
 | 2026-11-25 | GUI ToolkitのB案をユーザーが承認。既存nagi-uiを出発点に独自UI契約・標準部品を発展させ、汎用処理は適合OSSを再利用する。個別Toolkit・依存・性能・研究着手・版はPROVISIONAL。 |
 | 2026-11-25 | 共通2D描画APIと既存OSS活用の方針をユーザーが承認。個別OSSの採否・描画方式・性能・着手・提供版はPROVISIONAL。 |
 | 2026-11-25 | ユーザーがVello採用を承認。主要2D描画基盤として選定し、CPU先行・GPU高速化候補・tiny-skia比較／代替を記録。固定版・具体実装・測定・着手・提供版はPROVISIONAL。 |
+| 2026-11-25 | ユーザーがOSSフォント優先と、英語・日本語に加え中国語・韓国語・ポルトガル語・スペイン語・フランス語・ドイツ語・アラビア語・ロシア語への将来対応を早期設計で見据える方向を明示。個別フォント・文字処理技術・言語別範囲・提供版はPROVISIONAL。 |
