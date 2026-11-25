@@ -260,7 +260,7 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
         cpio_payload = _newc_archive([
             ("init", b"synthetic init", stat.S_IFREG | 0o755, 1),
             ("system", b"", stat.S_IFDIR | 0o755, 2),
-            ("system/nagi-init", elf_payload, stat.S_IFREG | 0o755, 1),
+            ("nagi-init", elf_payload, stat.S_IFREG | 0o755, 1),
         ])
         cpio_path = self.root / "fixed" / "task24.cpio"
         cpio_path.write_bytes(cpio_payload)
@@ -848,7 +848,7 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
                 inputs["fixed_receipt_sha256"],
             )
             embedded = candidate["cpio_embedded_pid1"]
-            self.assertEqual(embedded["path"], "system/nagi-init")
+            self.assertEqual(embedded["path"], "nagi-init")
             self.assertEqual(embedded["sha256"], inputs["elf_sha256"])
             self.assertTrue(embedded["matches_fixed_pid1_elf"])
             automatic = result["automatic_trial"]

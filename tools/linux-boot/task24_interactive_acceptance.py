@@ -429,7 +429,7 @@ def f9_candidate_check_receipt(prepared: PreparedRun) -> dict[str, Any]:
     try:
         embedded = boot_acceptance.validate_development_cpio_inputs(
             cpio_payload,
-            {"system/nagi-init": (0o755, elf_payload)},
+            {"nagi-init": (0o755, elf_payload)},
         )
     except boot_acceptance.AcceptanceError as error:
         raise RunnerError(f"F9 CPIO does not contain the pinned PID 1 ELF ({error})") from None
@@ -473,7 +473,7 @@ def f9_candidate_check_receipt(prepared: PreparedRun) -> dict[str, Any]:
             "matches_fixed_pid1_elf": True,
         },
         "cpio_embedded_pid1": {
-            "path": "system/nagi-init",
+            "path": "nagi-init",
             "sha256": entry["sha256"],
             "matches_fixed_pid1_elf": entry["sha256"] == TASK24_F9_8E2A_PID1_ELF_SHA256,
             "validator": "boot_acceptance.validate_development_cpio_inputs",
