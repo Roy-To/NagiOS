@@ -88,7 +88,6 @@ def make_bundle(run_directory: Path, output: Path) -> Path:
         "schema": 1,
         **names,
         "data_uuid": source["data_uuid"],
-        "source_initramfs_sha256": source["initramfs"][1],
         "data_selection_config_sha256": None,
         "sha256": {},
         "source_run": run_directory.name,

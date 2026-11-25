@@ -77,11 +77,23 @@ class DevImageTests(unittest.TestCase):
             "run_dev_image.py", self.bundle, "--qemu", "qemu-test-command", "--print-command"
         )
 
+    def replace_bundle_selection(self, config):
+        initramfs = data_boot_config.add_signed_selection_entry(_synthetic_initramfs(), config)
+        initramfs_path = self.bundle / "initramfs.cpio"
+        initramfs_path.write_bytes(initramfs)
+        manifest_path = self.bundle / "bundle.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sha256"]["initramfs"] = hashlib.sha256(initramfs).hexdigest()
+        manifest["data_selection_config_sha256"] = hashlib.sha256(config).hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
     def test_make_and_print_command_keep_data_copy_and_read_only_system(self):
         for name in ("fixture.json", "receipt.json", "serial.log"):
             (self.source / name).write_text("fixture", encoding="utf-8")
         result = self.make()
         self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((self.bundle / "bundle.json").read_text(encoding="utf-8"))
+        self.assertNotIn("source_initramfs_sha256", manifest)
         self.assertEqual(
             {item.name for item in self.bundle.iterdir()},
             {"bundle.json", "kernel.bzImage", "initramfs.cpio", "system.raw", "data.raw"},
@@ -119,6 +131,51 @@ class DevImageTests(unittest.TestCase):
         self.assertIn("readonly=on", drives[0])
         self.assertIn(str(copied_data), drives[1])
         self.assertNotIn("readonly=", drives[1])
+
+    def test_runner_rejects_signed_smoke_selection_in_normal_dev_bundle(self):
+        self.assertEqual(self.make().returncode, 0)
+        config = data_boot_config.sign_config(DATA_UUID, "smoke-provision-identity-directories")
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("normal dev bundle requires identity Data selection mode", result.stderr)
+
+    def test_runner_rejects_validly_signed_noncanonical_selection(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID)[:-1]
+        config = data_boot_config._sign_config_text(text)
+        self.assertTrue(data_boot_config.verify_config_signature(config))
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Data selection config text is malformed", result.stderr)
+
+    def test_runner_rejects_signed_crlf_selection(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID).replace(b"\n", b"\r\n")
+        config = data_boot_config._sign_config_text(text)
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Data selection config text is malformed", result.stderr)
+
+    def test_runner_accepts_rust_canonical_relative_data_paths(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID)
+        text = text.replace(b"accounts=accounts\n", b"accounts=profile/v1/accounts\n")
+        text = text.replace(b"snapshots=snapshots\n", b"snapshots=profile/v1/snapshots\n")
+        config = data_boot_config._sign_config_text(text)
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_runner_rejects_missing_manifest(self):
         self.bundle.mkdir()

@@ -61,8 +61,12 @@ def config_text(filesystem_uuid: str, mode: str = "identity") -> bytes:
 
 def sign_config(filesystem_uuid: str, mode: str = "identity") -> bytes:
     text = config_text(filesystem_uuid, mode)
-    if len(text) > MAX_CONFIG_TEXT_BYTES:
-        raise DataBootConfigError("Data selection config exceeds its size limit")
+    return _sign_config_text(text)
+
+
+def _sign_config_text(text: bytes) -> bytes:
+    if type(text) is not bytes or not text or len(text) > MAX_CONFIG_TEXT_BYTES:
+        raise DataBootConfigError("Data selection config text is invalid or too large")
     openssl = shutil.which("openssl")
     if openssl is None:
         raise DataBootConfigError("OpenSSL with Ed25519 support is required for dev signing")
@@ -131,22 +135,46 @@ def extract_selection_config(initramfs: bytes) -> bytes:
     return matches[0]
 
 
-def selection_filesystem_uuid(config: bytes) -> str:
+def _valid_relative_path(value: bytes) -> bool:
+    if not value:
+        return False
+    for component in value.split(b"/"):
+        if component in (b"", b".", b".."):
+            return False
+        if not all(
+            0x30 <= byte <= 0x39
+            or 0x41 <= byte <= 0x5A
+            or 0x61 <= byte <= 0x7A
+            or byte in b"._-"
+            for byte in component
+        ):
+            return False
+    return True
+
+
+def selection_mode_and_uuid(config: bytes) -> tuple[str, str]:
     if not verify_config_signature(config):
         raise DataBootConfigError("Data selection config signature is invalid")
-    lines = config[:-SIGNATURE_BYTES].splitlines()
-    try:
-        mode = lines[1][5:].decode("ascii") if len(lines) > 1 and lines[1].startswith(b"mode=") else ""
-    except UnicodeDecodeError:
-        raise DataBootConfigError("Data selection config mode is malformed") from None
+    text = config[:-SIGNATURE_BYTES]
+    if not text.endswith(b"\n") or b"\r" in text:
+        raise DataBootConfigError("Data selection config text is malformed")
+    lines = text[:-1].split(b"\n")
     if (
         len(lines) != 5
         or lines[0] != HEADER
-        or mode not in MODES
+        or not lines[1].startswith(b"mode=")
         or not lines[2].startswith(b"filesystem-uuid=")
-        or lines[3] != b"accounts=accounts"
-        or lines[4] != b"snapshots=snapshots"
+        or not lines[3].startswith(b"accounts=")
+        or not lines[4].startswith(b"snapshots=")
+        or not _valid_relative_path(lines[3][len(b"accounts="):])
+        or not _valid_relative_path(lines[4][len(b"snapshots="):])
     ):
+        raise DataBootConfigError("Data selection config text is malformed")
+    try:
+        mode = lines[1][len(b"mode="):].decode("ascii")
+    except UnicodeDecodeError:
+        raise DataBootConfigError("Data selection config mode is malformed") from None
+    if mode not in MODES:
         raise DataBootConfigError("Data selection config text is malformed")
     value = lines[2][len(b"filesystem-uuid="):]
     try:
@@ -155,7 +183,11 @@ def selection_filesystem_uuid(config: bytes) -> str:
         raise DataBootConfigError("Data selection config UUID is malformed") from None
     if UUID_PATTERN.fullmatch(filesystem_uuid) is None:
         raise DataBootConfigError("Data selection config UUID is malformed")
-    return filesystem_uuid
+    return mode, filesystem_uuid
+
+
+def selection_filesystem_uuid(config: bytes) -> str:
+    return selection_mode_and_uuid(config)[1]
 
 
 def _encode_newc_entry(name: str, fields: list[int], payload: bytes) -> bytes:

@@ -22,8 +22,8 @@ use std::io::{self, Read, Write};
 use std::mem::MaybeUninit;
 #[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
 use std::os::fd::BorrowedFd;
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -47,7 +47,8 @@ const EXT4_MAGIC_OFFSET: usize = 56;
 const EXT4_UUID_OFFSET: usize = 104;
 const EXPECTED_MOUNT_PATH: &str = "/run/nagi/dev-data";
 const SELECTION_CONFIG_PATH: &str = "/nagi-dev-data-selection.signed";
-const DEVICE_SYSFS_ROOT: &str = "/sys/block";
+const DEVICE_SYSFS_ROOT: &str = "/sys/class/block";
+const SYSTEM_DEVICE_SYSFS_ROOT: &str = "/sys/block";
 const DEVICE_NODE_ROOT: &str = "/dev";
 const MARKER_NAME: &std::ffi::CStr = c"nagi-dev-data-persistence.txt";
 const MARKER_CONTENT: &[u8] = b"NAGI_DEV_DATA_PERSISTED_V1\n";
@@ -120,7 +121,7 @@ impl DataMountError {
 }
 
 struct SelectedBlockDevice {
-    name: String,
+    file: File,
     path: CString,
     device_number: u64,
     serial: String,
@@ -218,7 +219,7 @@ impl DevelopmentDataMountOwner {
         // Verify the mounted root's actual device and recheck the signed UUID
         // before changing permissions through the retained FD.
         secure_mounted_data_root(&root, device.device_number, || {
-            if find_device_by_uuid(filesystem_uuid)?.name != device.name
+            if find_device_by_uuid(filesystem_uuid)?.device_number != device.device_number
                 || read_ext4_uuid(&device)? != filesystem_uuid
             {
                 return Err(DataMountError::DeviceChanged);
@@ -622,22 +623,13 @@ fn parse_smoke_request() -> Result<Option<SmokeRequest>, DataMountError> {
 }
 
 fn find_device_by_uuid(expected_uuid: &str) -> Result<SelectedBlockDevice, DataMountError> {
-    let entries = fs::read_dir(DEVICE_SYSFS_ROOT).map_err(|_| DataMountError::DeviceNotFound)?;
+    let sysfs_root = Path::new(DEVICE_SYSFS_ROOT);
+    let names = block_device_names(sysfs_root)?;
     let mut matches = Vec::new();
+    let mut seen_device_numbers = Vec::new();
     let mut found_ext4 = false;
-    for entry in entries {
-        let entry = entry.map_err(|_| DataMountError::DeviceNotFound)?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| DataMountError::DeviceNotFound)?;
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'!' | b'_' | b'-'))
-        {
-            continue;
-        }
+    for name in names {
+        let sysfs_path = sysfs_root.join(&name);
         let device_path = Path::new(DEVICE_NODE_ROOT).join(&name);
         match fs::symlink_metadata(&device_path) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
@@ -649,7 +641,10 @@ fn find_device_by_uuid(expected_uuid: &str) -> Result<SelectedBlockDevice, DataM
             }
             Ok(_) => {}
         }
-        let device = open_block_device(name)?;
+        let device = open_block_device(name, &sysfs_path)?;
+        if !remember_device_number(&mut seen_device_numbers, device.device_number) {
+            continue;
+        }
         match read_ext4_uuid(&device) {
             Ok(observed_uuid) => {
                 found_ext4 = true;
@@ -677,7 +672,8 @@ fn find_device_by_uuid(expected_uuid: &str) -> Result<SelectedBlockDevice, DataM
 // The System fixture has its own fixed serial identity. Data selection never
 // uses this path; it is retained for the separate read-only System owner.
 fn find_device_by_serial(expected_serial: &str) -> Result<SelectedBlockDevice, DataMountError> {
-    let entries = fs::read_dir(DEVICE_SYSFS_ROOT).map_err(|_| DataMountError::DeviceNotFound)?;
+    let sysfs_root = Path::new(SYSTEM_DEVICE_SYSFS_ROOT);
+    let entries = fs::read_dir(sysfs_root).map_err(|_| DataMountError::DeviceNotFound)?;
     let mut matches = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|_| DataMountError::DeviceNotFound)?;
@@ -709,92 +705,99 @@ fn find_device_by_serial(expected_serial: &str) -> Result<SelectedBlockDevice, D
         return Err(DataMountError::DeviceAmbiguous);
     }
     let name = matches.pop().ok_or(DataMountError::DeviceNotFound)?;
-    let device = Path::new(DEVICE_NODE_ROOT).join(&name);
-    let metadata = fs::symlink_metadata(&device).map_err(|_| DataMountError::DeviceNotFound)?;
-    if metadata.file_type().is_symlink() || !metadata.file_type().is_block_device() {
+    let device = open_block_device(name.clone(), &sysfs_root.join(&name))?;
+    if device.serial != expected_serial {
         return Err(DataMountError::DeviceChanged);
     }
-    let opened = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_CLOEXEC | O_NOFOLLOW)
-        .open(&device)
-        .map_err(|_| DataMountError::DeviceNotFound)?;
-    if !opened
-        .metadata()
-        .map_err(|_| DataMountError::DeviceNotFound)?
-        .file_type()
-        .is_block_device()
-    {
-        return Err(DataMountError::DeviceChanged);
-    }
-    let sysfs_dev = fs::read_to_string(Path::new(DEVICE_SYSFS_ROOT).join(&name).join("dev"))
-        .map_err(|_| DataMountError::DeviceNotFound)?;
-    let (expected_major, expected_minor) = parse_major_minor(sysfs_dev.trim())?;
-    let actual_dev = opened
-        .metadata()
-        .map_err(|_| DataMountError::DeviceNotFound)?
-        .rdev();
-    if linux_device_major(actual_dev) != expected_major
-        || linux_device_minor(actual_dev) != expected_minor
-    {
-        return Err(DataMountError::DeviceChanged);
-    }
-    drop(opened);
-    let path = CString::new(device.to_string_lossy().as_bytes())
-        .map_err(|_| DataMountError::DeviceChanged)?;
-    Ok(SelectedBlockDevice {
-        name,
-        path,
-        device_number: actual_dev,
-        serial: expected_serial.to_owned(),
-    })
+    Ok(device)
 }
 
-fn open_block_device(name: String) -> Result<SelectedBlockDevice, DataMountError> {
-    let device = Path::new(DEVICE_NODE_ROOT).join(&name);
-    let metadata = fs::symlink_metadata(&device).map_err(|_| DataMountError::DeviceNotFound)?;
+fn block_device_names(sysfs_root: &Path) -> Result<Vec<String>, DataMountError> {
+    let entries = fs::read_dir(sysfs_root).map_err(|_| DataMountError::DeviceNotFound)?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| DataMountError::DeviceNotFound)?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| DataMountError::DeviceNotFound)?;
+        if valid_block_device_name(&name) {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
+
+fn valid_block_device_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'!' | b'_' | b'-'))
+}
+
+fn remember_device_number(seen: &mut Vec<u64>, device_number: u64) -> bool {
+    if seen.contains(&device_number) {
+        return false;
+    }
+    seen.push(device_number);
+    true
+}
+
+fn open_block_device(
+    name: String,
+    sysfs_path: &Path,
+) -> Result<SelectedBlockDevice, DataMountError> {
+    let device_path = Path::new(DEVICE_NODE_ROOT).join(&name);
+    let metadata =
+        fs::symlink_metadata(&device_path).map_err(|_| DataMountError::DeviceNotFound)?;
     if metadata.file_type().is_symlink() || !metadata.file_type().is_block_device() {
         return Err(DataMountError::DeviceChanged);
     }
     let opened = OpenOptions::new()
         .read(true)
         .custom_flags(O_CLOEXEC | O_NOFOLLOW)
-        .open(&device)
+        .open(&device_path)
         .map_err(|_| DataMountError::DeviceNotFound)?;
-    if !opened
+    let metadata = opened
         .metadata()
-        .map_err(|_| DataMountError::DeviceNotFound)?
-        .file_type()
-        .is_block_device()
-    {
+        .map_err(|_| DataMountError::DeviceNotFound)?;
+    if !metadata.file_type().is_block_device() {
         return Err(DataMountError::DeviceChanged);
     }
-    let sysfs_dev = fs::read_to_string(Path::new(DEVICE_SYSFS_ROOT).join(&name).join("dev"))
-        .map_err(|_| DataMountError::DeviceNotFound)?;
+    let sysfs_dev =
+        fs::read_to_string(sysfs_path.join("dev")).map_err(|_| DataMountError::DeviceNotFound)?;
     let (expected_major, expected_minor) = parse_major_minor(sysfs_dev.trim())?;
-    let actual_dev = opened
-        .metadata()
-        .map_err(|_| DataMountError::DeviceNotFound)?
-        .rdev();
+    let actual_dev = metadata.rdev();
     if linux_device_major(actual_dev) != expected_major
         || linux_device_minor(actual_dev) != expected_minor
     {
         return Err(DataMountError::DeviceChanged);
     }
-    drop(opened);
-    let serial = fs::read_to_string(Path::new(DEVICE_SYSFS_ROOT).join(&name).join("serial"))
-        .map(|value| value.trim().to_owned())
-        .ok()
-        .filter(|value| valid_serial(value))
-        .unwrap_or_else(|| name.clone());
-    let path = CString::new(device.to_string_lossy().as_bytes())
-        .map_err(|_| DataMountError::DeviceChanged)?;
+    let serial = read_device_serial(sysfs_path, &name);
+    let path = fd_source_path(opened.as_raw_fd())?;
     Ok(SelectedBlockDevice {
-        name,
+        file: opened,
         path,
         device_number: actual_dev,
         serial,
     })
+}
+
+fn read_device_serial(sysfs_path: &Path, name: &str) -> String {
+    for serial_path in [sysfs_path.join("serial"), sysfs_path.join("device/serial")] {
+        if let Some(serial) = fs::read_to_string(serial_path)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| valid_serial(value))
+        {
+            return serial;
+        }
+    }
+    name.to_owned()
+}
+
+fn fd_source_path(fd: RawFd) -> Result<CString, DataMountError> {
+    CString::new(format!("/proc/self/fd/{fd}")).map_err(|_| DataMountError::DeviceChanged)
 }
 
 fn read_ext4_uuid(device: &SelectedBlockDevice) -> Result<String, DataMountError> {
@@ -807,12 +810,8 @@ fn read_ext4_uuid(device: &SelectedBlockDevice) -> Result<String, DataMountError
 fn read_ext4_superblock(
     device: &SelectedBlockDevice,
 ) -> Result<[u8; EXT4_SUPERBLOCK_BYTES], DataMountError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_CLOEXEC | O_NOFOLLOW)
-        .open(PathBuf::from(device.path.to_string_lossy().as_ref()))
-        .map_err(|_| DataMountError::DeviceNotFound)?;
-    let metadata = file
+    let metadata = device
+        .file
         .metadata()
         .map_err(|_| DataMountError::DeviceNotFound)?;
     if !metadata.file_type().is_block_device() || metadata.rdev() != device.device_number {
@@ -822,8 +821,8 @@ fn read_ext4_superblock(
     let mut offset = EXT4_SUPERBLOCK_OFFSET;
     let mut read = 0;
     while read < superblock.len() {
-        use std::os::unix::fs::FileExt;
-        let count = file
+        let count = device
+            .file
             .read_at(&mut superblock[read..], offset)
             .map_err(|_| DataMountError::NotExt4)?;
         if count == 0 {
@@ -1126,8 +1125,12 @@ const fn smoke_mode_name(mode: SmokeMode) -> &'static str {
 
 #[cfg(test)]
 mod selected_mount_tests {
-    use super::{secure_mounted_data_root, DataMountError};
+    use super::{
+        block_device_names, fd_source_path, remember_device_number, secure_mounted_data_root,
+        DataMountError,
+    };
     use std::fs::{self, File, OpenOptions};
+    use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1161,6 +1164,29 @@ mod selected_mount_tests {
         }
     }
 
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn create() -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("test clock")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "nagi-data-block-sysfs-{}-{nonce}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create private test directory");
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn mismatched_mount_does_not_change_permissions() {
         let (_path, root) = TestFile::create();
@@ -1185,5 +1211,55 @@ mod selected_mount_tests {
             Ok(())
         );
         assert_eq!(root.metadata().unwrap().mode() & 0o777, 0o700);
+    }
+
+    #[test]
+    fn data_sysfs_enumeration_includes_partition_names() {
+        let root = TestDirectory::create();
+        for name in ["vda", "vda1", "nvme0n1", "nvme0n1p1"] {
+            fs::create_dir(root.0.join(name)).expect("create sysfs block entry");
+        }
+
+        let names = block_device_names(&root.0).expect("enumerate sysfs block entries");
+
+        assert!(names.iter().any(|name| name == "vda1"));
+        assert!(names.iter().any(|name| name == "nvme0n1p1"));
+        assert!(names.iter().any(|name| name == "vda"));
+    }
+
+    #[test]
+    fn sysfs_aliases_are_deduplicated_by_device_number() {
+        let mut seen = Vec::new();
+
+        assert!(remember_device_number(&mut seen, 0x0801));
+        assert!(!remember_device_number(&mut seen, 0x0801));
+        assert!(remember_device_number(&mut seen, 0x0802));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn mount_source_path_stays_pinned_after_device_node_replacement() {
+        let root = TestDirectory::create();
+        let device_path = root.0.join("selected-device");
+        let replacement_path = root.0.join("replacement-device");
+        fs::write(&device_path, b"validated-device").expect("create selected device fixture");
+        fs::write(&replacement_path, b"replacement-device")
+            .expect("create replacement device fixture");
+        let opened = File::open(&device_path).expect("open selected device fixture");
+        let source_path = fd_source_path(opened.as_raw_fd()).expect("derive fd-backed source path");
+
+        fs::rename(&replacement_path, &device_path).expect("replace device path");
+        let mut through_fd = File::open(source_path.to_str().expect("fd path is UTF-8"))
+            .expect("open pinned fd path");
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut through_fd, &mut bytes).expect("read pinned device");
+
+        assert_eq!(bytes, b"validated-device");
+        assert_ne!(
+            through_fd.metadata().expect("pinned metadata").ino(),
+            fs::metadata(&device_path)
+                .expect("replacement metadata")
+                .ino()
+        );
     }
 }

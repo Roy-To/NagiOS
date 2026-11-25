@@ -10,7 +10,6 @@ Bundle layout (all regular files, no symlinks):
   bundle.json   {"schema": 1, "kernel": "...", "initramfs": "...",
                  "system_image": "...", "data_image": "...",
                  "data_uuid": "<canonical ext4 UUID>",
-                 "source_initramfs_sha256": "...",
                  "data_selection_config_sha256": "...",
                  "sha256": {"kernel": "...", "initramfs": "...", "system_image": "..."}}
 Paths in bundle.json are file names relative to the bundle directory.
@@ -93,16 +92,12 @@ def load_bundle(directory: Path) -> dict:
     if not isinstance(data_uuid, str) or not UUID_PATTERN.fullmatch(data_uuid):
         raise BundleError("bundle.json data_uuid must be a canonical lowercase UUID")
     bundle["data_uuid"] = data_uuid
-    source_initramfs_sha256 = manifest.get("source_initramfs_sha256")
-    if not isinstance(source_initramfs_sha256, str) or not SHA256_PATTERN.fullmatch(source_initramfs_sha256):
-        raise BundleError("bundle.json source_initramfs_sha256 must be a lowercase SHA-256")
     data_selection_config_sha256 = manifest.get("data_selection_config_sha256")
     if (
         not isinstance(data_selection_config_sha256, str)
         or not SHA256_PATTERN.fullmatch(data_selection_config_sha256)
     ):
         raise BundleError("bundle.json data_selection_config_sha256 must be a lowercase SHA-256")
-    bundle["source_initramfs_sha256"] = source_initramfs_sha256
     bundle["data_selection_config_sha256"] = data_selection_config_sha256
     expected = manifest.get("sha256")
     if not isinstance(expected, dict):
@@ -117,7 +112,10 @@ def load_bundle(directory: Path) -> dict:
         selection = data_boot_config.extract_selection_config(bundle["initramfs"].read_bytes())
         if hashlib.sha256(selection).hexdigest() != data_selection_config_sha256:
             raise BundleError("Data selection config does not match its recorded SHA-256")
-        if data_boot_config.selection_filesystem_uuid(selection) != data_uuid:
+        selection_mode, selection_uuid = data_boot_config.selection_mode_and_uuid(selection)
+        if selection_mode != "identity":
+            raise BundleError("normal dev bundle requires identity Data selection mode")
+        if selection_uuid != data_uuid:
             raise BundleError("signed Data selection UUID differs from bundle.json data_uuid")
     except (data_boot_config.DataBootConfigError, ValueError) as error:
         raise BundleError(f"initramfs Data selection config is invalid ({error})") from None

@@ -63,6 +63,9 @@ toolchain=nightly-2025-08-01
 target=x86_64-unknown-linux-musl
 manifest=user/nagi-init/Cargo.toml
 features=linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session
+if [[ "$profile" == debug ]]; then
+    features+=,linux-dev-data-selection
+fi
 cfgs=(
     linux_boot_identity_runtime linux_boot_owner_registration
     linux_task24_owner_co_location linux_task24_initial_login_runtime
