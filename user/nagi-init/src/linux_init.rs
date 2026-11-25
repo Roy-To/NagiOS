@@ -3147,6 +3147,10 @@ mod linux_x86_64_process {
     const EINVAL: isize = 22;
     const EOPNOTSUPP: isize = 95;
     const EOVERFLOW: isize = 75;
+    #[cfg(test)]
+    const EBADF: usize = 9;
+    #[cfg(test)]
+    const EMFILE: usize = 24;
     #[cfg(linux_pid1_safety_smoke)]
     const EBUSY: i32 = 16;
     const SIGCHLD: usize = 17;
@@ -3280,7 +3284,13 @@ mod linux_x86_64_process {
     const SERVICE_ENDPOINT_FD: i32 = 3;
     const SERVICE_ROOT_PATH: &[u8] = b"/tmp\0";
     const SERVICE_TMPFS_TYPE: &[u8] = b"tmpfs\0";
-    const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216\0";
+    const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216,nr_inodes=4096\0";
+    #[cfg(test)]
+    pub(super) const SERVICE_TMPFS_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+    #[cfg(test)]
+    pub(super) const SERVICE_TMPFS_MAX_INODES: u64 = 4096;
+    #[cfg(test)]
+    pub(super) const APP_ISOLATION_TEST_FD_CANDIDATES: [i32; 5] = [128, 64, 32, 16, 8];
     const TASK24_ENDPOINT_ARGUMENT_PREFIX: &str = "--nagi-service-endpoint-v1=";
     const TASK24_ENDPOINT_ARGUMENT_FAMILY: &str = "--nagi-service-endpoint";
     const TASK24_ENDPOINT_SOCKET_ROOT: &str = "/run/nagi/ipc/";
@@ -4478,7 +4488,7 @@ mod linux_x86_64_process {
                 | MOUNT_ATTR_NOEXEC
                 | MOUNT_ATTR_NOSYMFOLLOW,
             attr_clr: 0,
-            propagation: 0,
+            propagation: MS_PRIVATE as u64,
             userns_fd: 0,
         };
         let changed = unsafe {
@@ -4496,6 +4506,53 @@ mod linux_x86_64_process {
             syscall_result(changed).map(|_| ()),
         )?;
         process_prepare_stage("app_storage.promote_mount_fd", promote_fd(mount_tree))
+    }
+
+    unsafe fn mount_service_tmpfs_at(target: *const i8) -> Result<(), usize> {
+        let mounted = unsafe {
+            syscall5(
+                NR_MOUNT,
+                0,
+                target as usize,
+                SERVICE_TMPFS_TYPE.as_ptr() as usize,
+                MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                SERVICE_TMPFS_OPTIONS.as_ptr() as usize,
+            )
+        };
+        if mounted < 0 {
+            Err(child_syscall_errno(mounted))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn mount_service_tmpfs_for_test(target: &std::ffi::CStr) -> io::Result<()> {
+        unsafe { mount_service_tmpfs_at(target.as_ptr()) }
+            .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+    }
+
+    #[cfg(test)]
+    pub(super) fn attach_private_app_storage_mount_for_test(
+        directory: std::os::fd::BorrowedFd<'_>,
+        target: &std::ffi::CStr,
+    ) -> io::Result<()> {
+        let mount_tree = prepare_app_storage_mount(directory)?;
+        let attached = unsafe {
+            syscall5(
+                NR_MOVE_MOUNT,
+                mount_tree.raw() as usize,
+                c"".as_ptr() as usize,
+                AT_FDCWD,
+                target.as_ptr() as usize,
+                MOVE_MOUNT_F_EMPTY_PATH,
+            )
+        };
+        if attached < 0 {
+            Err(io::Error::from_raw_os_error((-attached) as i32))
+        } else {
+            Ok(())
+        }
     }
 
     fn open_landlock_executable_path_fd(executable_fd: i32) -> io::Result<Option<OwnedFd>> {
@@ -5728,19 +5785,8 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(private_root).into());
         }
 
-        let private_tmpfs = unsafe {
-            syscall5(
-                NR_MOUNT,
-                0,
-                SERVICE_ROOT_PATH.as_ptr() as usize,
-                SERVICE_TMPFS_TYPE.as_ptr() as usize,
-                MS_NOSUID | MS_NODEV | MS_NOEXEC,
-                SERVICE_TMPFS_OPTIONS.as_ptr() as usize,
-            )
-        };
-        if private_tmpfs < 0 {
-            return Err(child_syscall_errno(private_tmpfs).into());
-        }
+        unsafe { mount_service_tmpfs_at(SERVICE_ROOT_PATH.as_ptr().cast()) }
+            .map_err(ChildSetupFailure::from)?;
 
         if !task24_endpoint_source.is_null() {
             unsafe {
@@ -5775,6 +5821,55 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(chrooted).into());
         }
         Ok(())
+    }
+
+    unsafe fn close_child_fds_except(keep_fds: [i32; 3]) -> Result<(), usize> {
+        let mut keep_fds = keep_fds;
+        keep_fds.sort_unstable();
+        let mut next_fd = 3u64;
+        for fd in keep_fds {
+            if fd < 3 || (fd as u64) < next_fd {
+                continue;
+            }
+            let fd = fd as u32;
+            if next_fd < fd as u64 {
+                let closed =
+                    unsafe { syscall3(NR_CLOSE_RANGE, next_fd as usize, (fd - 1) as usize, 0) };
+                if closed < 0 {
+                    return Err(child_syscall_errno(closed));
+                }
+            }
+            next_fd = fd as u64 + 1;
+        }
+        if next_fd <= u32::MAX as u64 {
+            let closed =
+                unsafe { syscall3(NR_CLOSE_RANGE, next_fd as usize, u32::MAX as usize, 0) };
+            if closed < 0 {
+                return Err(child_syscall_errno(closed));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    unsafe fn install_post_setup_inheritable_test_fd(keep_fds: [i32; 3]) -> Result<(), usize> {
+        for test_fd in APP_ISOLATION_TEST_FD_CANDIDATES {
+            if keep_fds.contains(&test_fd) {
+                continue;
+            }
+            // This deliberately undoes the earlier CLOSE_RANGE_CLOEXEC for a
+            // descriptor created after sandbox setup. The app fixture proves
+            // the final close sweep, rather than relying on exec-time CLOEXEC.
+            let duplicated = unsafe { syscall3(NR_DUP3, 0, test_fd as usize, 0) };
+            if duplicated >= 0 {
+                return Ok(());
+            }
+            let errno = child_syscall_errno(duplicated);
+            if errno != EBADF {
+                return Err(errno);
+            }
+        }
+        Err(EMFILE)
     }
 
     // These are the exact descriptors and argv/envp crossing the post-clone
@@ -5974,10 +6069,38 @@ mod linux_x86_64_process {
                 if let Err(errno) = install_service_fd_delegation_seccomp() {
                     send_child_error(error_write, errno);
                 }
-                if !send_child_fd_delegation_ready(error_write) {
-                    loop {
-                        syscall1(NR_EXIT_GROUP, 126);
-                    }
+            }
+
+            // CLOEXEC was set on inherited descriptors before setup. Close all
+            // remaining unapproved descriptors now as well, including any
+            // opened during setup; the only exec-bound descriptors are the
+            // sealed ELF, the CLOEXEC error pipe, and (for services) fd 3.
+            let delegated_endpoint_fd =
+                if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                    SERVICE_ENDPOINT_FD
+                } else {
+                    -1
+                };
+            #[cfg(test)]
+            if app_filesystem {
+                if let Err(errno) = install_post_setup_inheritable_test_fd([
+                    exec_fd,
+                    error_write,
+                    delegated_endpoint_fd,
+                ]) {
+                    send_child_error(error_write, errno);
+                }
+            }
+            if let Err(errno) =
+                close_child_fds_except([exec_fd, error_write, delegated_endpoint_fd])
+            {
+                send_child_error(error_write, errno);
+            }
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel
+                && !send_child_fd_delegation_ready(error_write)
+            {
+                loop {
+                    syscall1(NR_EXIT_GROUP, 126);
                 }
             }
 
@@ -11714,7 +11837,10 @@ mod linux_process_resource_tests {
         image
     }
 
-    fn app_storage_isolation_probe_elf(foreign_profile_path: &str) -> Vec<u8> {
+    fn app_storage_isolation_probe_elf(
+        foreign_profile_path: &str,
+        inherited_fds_to_close: [i32; 8],
+    ) -> Vec<u8> {
         const IMAGE_BYTES: usize = 1024;
         const OWN_MARKER_OFFSET: usize = 512;
         const FOREIGN_MARKER_OFFSET: usize = 544;
@@ -11750,6 +11876,17 @@ mod linux_process_resource_tests {
             code.extend_from_slice(&[0x0f, 0x05]); // syscall
             code.push(0x3d); // cmp eax, expected app ID
             code.extend_from_slice(&expected_id.to_le_bytes());
+            append_failure_branch(&mut code, 0x85); // jne fail
+        }
+
+        for inherited_fd in inherited_fds_to_close {
+            code.extend_from_slice(&[0xb8, 72, 0x00, 0x00, 0x00]); // mov eax, SYS_fcntl
+            code.push(0xbf); // mov edi, inherited descriptor that must be closed
+            code.extend_from_slice(&inherited_fd.to_le_bytes());
+            code.extend_from_slice(&[0xbe, libc::F_GETFD as u8, 0x00, 0x00, 0x00]); // mov esi, F_GETFD
+            code.extend_from_slice(&[0x0f, 0x05]); // syscall
+            code.push(0x3d); // cmp eax, -EBADF; the descriptor must be closed
+            code.extend_from_slice(&(-(libc::EBADF as i32)).to_le_bytes());
             append_failure_branch(&mut code, 0x85); // jne fail
         }
 
@@ -12149,7 +12286,27 @@ mod linux_process_resource_tests {
     #[test]
     fn app_process_tmpfs_root_exposes_only_its_authorized_profile_storage() {
         use nagi_profile_volume_notes_owner::{AppStorageKind, ProfileVolumeAppOwner};
+        use std::os::fd::AsFd;
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        fn mountinfo_optional_fields(path: &std::path::Path) -> Vec<String> {
+            let path = path.to_str().expect("fixture mountpoint is UTF-8");
+            let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")
+                .expect("read mount propagation state");
+            let line = mountinfo
+                .lines()
+                .find(|line| line.split_whitespace().nth(4) == Some(path))
+                .expect("find exact fixture mountpoint");
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            let separator = fields
+                .iter()
+                .position(|field| *field == "-")
+                .expect("mountinfo separator");
+            fields[6..separator]
+                .iter()
+                .map(|field| (*field).to_owned())
+                .collect()
+        }
 
         struct AppIsolationFixture {
             root: std::path::PathBuf,
@@ -12198,7 +12355,109 @@ mod linux_process_resource_tests {
             io::Error::last_os_error()
         );
         fixture.mounted = true;
+
+        // Exercise the exact production tmpfs options and verify the kernel
+        // reports both configured resource ceilings.
+        let bounded_tmpfs_path = root.join("bounded-tmpfs");
+        std::fs::create_dir(&bounded_tmpfs_path).expect("create bounded tmpfs mountpoint");
+        let bounded_tmpfs_target =
+            std::ffi::CString::new(bounded_tmpfs_path.as_os_str().as_encoded_bytes()).unwrap();
+        linux_x86_64_process::mount_service_tmpfs_for_test(&bounded_tmpfs_target)
+            .expect("mount bounded service tmpfs options");
+        let mut tmpfs_stats = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
+        assert_eq!(
+            unsafe { libc::statvfs(bounded_tmpfs_target.as_ptr(), tmpfs_stats.as_mut_ptr()) },
+            0,
+            "read bounded service tmpfs limits: {}",
+            io::Error::last_os_error()
+        );
+        let tmpfs_stats = unsafe { tmpfs_stats.assume_init() };
+        let block_size = if tmpfs_stats.f_frsize == 0 {
+            tmpfs_stats.f_bsize
+        } else {
+            tmpfs_stats.f_frsize
+        } as u128;
+        assert!(
+            tmpfs_stats.f_blocks as u128 * block_size
+                <= linux_x86_64_process::SERVICE_TMPFS_SIZE_BYTES as u128,
+            "service tmpfs must not exceed its explicit byte ceiling"
+        );
+        assert!(
+            tmpfs_stats.f_files as u64 <= linux_x86_64_process::SERVICE_TMPFS_MAX_INODES,
+            "service tmpfs must not exceed its explicit inode ceiling"
+        );
+        assert_eq!(
+            unsafe { libc::umount2(bounded_tmpfs_target.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount bounded tmpfs: {}",
+            io::Error::last_os_error()
+        );
+        std::fs::remove_dir(&bounded_tmpfs_path).unwrap();
+
+        // Start from a shared synthetic Data mount and prove that the exact
+        // detached app-storage clone is converted to private propagation.
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    std::ptr::null(),
+                    target.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_REC | libc::MS_SHARED,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "make only the fixture source mount shared: {}",
+            io::Error::last_os_error()
+        );
+        assert!(mountinfo_optional_fields(&root)
+            .iter()
+            .any(|field| field.starts_with("shared:")));
+        let propagation_source = root.join("propagation-source");
+        let propagation_target = root.join("propagation-target");
+        std::fs::create_dir(&propagation_source).unwrap();
+        std::fs::create_dir(&propagation_target).unwrap();
+        let propagation_source_fd = std::fs::File::open(&propagation_source).unwrap();
+        let propagation_target_c =
+            std::ffi::CString::new(propagation_target.as_os_str().as_encoded_bytes()).unwrap();
+        linux_x86_64_process::attach_private_app_storage_mount_for_test(
+            propagation_source_fd.as_fd(),
+            &propagation_target_c,
+        )
+        .expect("attach private clone of shared source mount");
+        assert!(!mountinfo_optional_fields(&propagation_target)
+            .iter()
+            .any(|field| {
+                field.starts_with("shared:")
+                    || field.starts_with("master:")
+                    || field.starts_with("propagate_from:")
+            }));
+        assert_eq!(
+            unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount private propagation fixture: {}",
+            io::Error::last_os_error()
+        );
+        drop(propagation_source_fd);
+        std::fs::remove_dir(&propagation_source).unwrap();
+        std::fs::remove_dir(&propagation_target).unwrap();
+
         let data_root = std::fs::File::open(&root).expect("open selected Data root fixture");
+        let data_root_fd = data_root.as_raw_fd();
+        assert!(data_root_fd > 2);
+        let data_root_flags = unsafe { libc::fcntl(data_root_fd, libc::F_GETFD) };
+        assert!(data_root_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    data_root_fd,
+                    libc::F_SETFD,
+                    data_root_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make the PID-1 Data ancestor descriptor intentionally inheritable"
+        );
         let mount_id = rustix::fs::statx(
             &data_root,
             c"",
@@ -12258,6 +12517,20 @@ mod linux_process_resource_tests {
             .with_active_root(|view| view.duplicate_directory())
             .expect("read live owner-issued root")
             .expect("duplicate owner-issued root descriptor");
+        let own_directory_fd = own_directory.as_raw_fd();
+        let own_directory_flags = unsafe { libc::fcntl(own_directory_fd, libc::F_GETFD) };
+        assert!(own_directory_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    own_directory_fd,
+                    libc::F_SETFD,
+                    own_directory_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make owner-issued directory descriptor intentionally inheritable"
+        );
         let own_root = root.join("profile-files-v1/profile_fixture/root");
         let foreign_root = root.join("foreign-app-profile");
         std::fs::create_dir(&foreign_root).expect("create foreign app profile root");
@@ -12271,6 +12544,27 @@ mod linux_process_resource_tests {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
                 .expect("make profile marker owner-only");
         }
+        let pid1_only_path = root.join("pid1-only-inherited-fd.marker");
+        std::fs::write(&pid1_only_path, b"PID1 ONLY").unwrap();
+        let pid1_only_file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&pid1_only_path)
+            .expect("open PID-1-only descriptor sentinel");
+        let pid1_only_fd = pid1_only_file.as_raw_fd();
+        assert!(pid1_only_fd > 2);
+        let pid1_only_flags = unsafe { libc::fcntl(pid1_only_fd, libc::F_GETFD) };
+        assert!(pid1_only_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    pid1_only_fd,
+                    libc::F_SETFD,
+                    pid1_only_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make sentinel descriptor intentionally inheritable"
+        );
 
         let set_fixture_owner = |path: &std::path::Path, identity: LinuxExecutionIdentity| {
             let descriptor = std::fs::File::open(path).expect("open exact fixture inode");
@@ -12294,8 +12588,19 @@ mod linux_process_resource_tests {
             nagi_model::AppId::from_identifier(b"org.nagi.files"),
             own_directory,
         );
-        let executable =
-            app_storage_isolation_probe_elf(foreign_root.join("foreign.marker").to_str().unwrap());
+        let executable = app_storage_isolation_probe_elf(
+            foreign_root.join("foreign.marker").to_str().unwrap(),
+            [
+                own_directory_fd,
+                data_root_fd,
+                pid1_only_fd,
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[0],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[1],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[2],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[3],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[4],
+            ],
+        );
         let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
         let process_id = table
             .spawn(
@@ -12328,6 +12633,13 @@ mod linux_process_resource_tests {
             }
         ));
         assert_eq!(table.active_len(), 0);
+        for inherited_fd in [data_root_fd, pid1_only_fd] {
+            assert!(
+                unsafe { libc::fcntl(inherited_fd, libc::F_GETFD) } >= 0,
+                "closing child descriptors must leave the PID-1 descriptor table intact"
+            );
+        }
+        drop(pid1_only_file);
         let own_root_metadata = std::fs::metadata(&own_root).unwrap();
         let own_marker_metadata = std::fs::metadata(own_root.join("own.marker")).unwrap();
         assert_eq!(

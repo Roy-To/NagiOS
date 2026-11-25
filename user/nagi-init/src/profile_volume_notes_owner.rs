@@ -328,6 +328,8 @@ impl AuthorizedFilesRoot {
             app_id,
             directory,
             owner: Some(self),
+            #[cfg(test)]
+            allow_unbound_session_guard_for_test: false,
         })
     }
 }
@@ -340,12 +342,16 @@ pub(crate) struct AuthorizedAppStorageRoot {
     directory: std::os::fd::OwnedFd,
     #[cfg(linux_task24_initial_login_runtime)]
     owner: Option<AuthorizedFilesRoot>,
+    #[cfg(test)]
+    allow_unbound_session_guard_for_test: bool,
 }
 
 #[derive(Clone)]
 pub(crate) struct AuthorizedAppStorageSessionGuard {
     #[cfg(linux_task24_initial_login_runtime)]
     revalidation: Option<std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>>,
+    #[cfg(test)]
+    allow_unbound_for_test: bool,
 }
 
 impl AuthorizedAppStorageSessionGuard {
@@ -359,7 +365,12 @@ impl AuthorizedAppStorageSessionGuard {
                 .with_live_session_effect(effect)
                 .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable);
         }
-        Ok(effect())
+        #[cfg(test)]
+        if self.allow_unbound_for_test {
+            return Ok(effect());
+        }
+        let _ = effect;
+        Err(ProfileVolumeNotesOwnerError::Unavailable)
     }
 }
 
@@ -387,6 +398,8 @@ impl AuthorizedAppStorageRoot {
         AuthorizedAppStorageSessionGuard {
             #[cfg(linux_task24_initial_login_runtime)]
             revalidation,
+            #[cfg(test)]
+            allow_unbound_for_test: self.allow_unbound_session_guard_for_test,
         }
     }
 
@@ -397,6 +410,8 @@ impl AuthorizedAppStorageRoot {
             directory,
             #[cfg(linux_task24_initial_login_runtime)]
             owner: None,
+            #[cfg(test)]
+            allow_unbound_session_guard_for_test: true,
         }
     }
 }
@@ -568,6 +583,20 @@ pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwne
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn missing_app_session_lease_fails_closed_without_test_fixture_override() {
+        let guard = AuthorizedAppStorageSessionGuard {
+            #[cfg(linux_task24_initial_login_runtime)]
+            revalidation: None,
+            allow_unbound_for_test: false,
+        };
+        let effect_called = std::cell::Cell::new(false);
+        assert!(guard
+            .with_live_session_effect(|| effect_called.set(true))
+            .is_err());
+        assert!(!effect_called.get());
+    }
 
     #[test]
     fn retains_account_and_profile_directories_under_the_same_data_root() {
