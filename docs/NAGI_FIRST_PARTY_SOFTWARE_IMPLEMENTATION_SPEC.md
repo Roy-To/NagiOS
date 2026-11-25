@@ -16,6 +16,8 @@
 
 ---
 
+> **2026-11-25 1.0製品方針:** [DEC-021の純正アプリ最低機能B案](product-decisions/DEC-021-roadmap-0.5-1.0.md#2026-11-25-純正アプリの最低機能-b案1112)を参照する。日常・業務の実用性と純正アプリ間の連携を優先し、個別の1.0優先・最小機能案はPROVISIONALとして扱う。本書のPhase／M-APPと[0.2仕様 §27](Nagi_OS_0.2_Codex_Implementation_Spec.md#27-first-party-software-target-for-02)の対象・受入・着手条件を引き継ぐ。
+
 ## 0. この文書の目的
 
 この文書は、Nagi OS に搭載する純正アプリケーション群と、それらを成立させる Nagi Platform 共通基盤を実装するための最終実装指示書である。
