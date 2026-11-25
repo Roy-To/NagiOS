@@ -27,4 +27,7 @@ def generate_zoffset_header(nm_output: bytes) -> bytes:
 
 
 if __name__ == "__main__":
-    sys.stdout.buffer.write(generate_zoffset_header(sys.stdin.buffer.read()))
+    header = generate_zoffset_header(sys.stdin.buffer.read())
+    if not header:
+        raise SystemExit("Darwin zoffset parser found no Linux x86 offset symbols")
+    sys.stdout.buffer.write(header)

@@ -187,10 +187,11 @@ if len(args) >= 3 and args[0] == "-n" and args[1] == "-e" and "VO_" in args[2] a
     if seen != required:
         raise SystemExit(f"Darwin sed shim found incomplete x86 VOFFSET symbols: {sorted(required - seen)!r}")
     raise SystemExit(0)
-if len(args) >= 3 and args[0] == "-n" and args[1] == "-e" and "ZO_" in args[2] and r"\|" in args[2]:
+if "ZO_" in " ".join(args) and "efi.._stub_entry" in " ".join(args):
     parser = os.environ.get("NAGI_L11_ZOFFSET_PARSER")
     if not parser:
         raise SystemExit("Darwin sed shim is missing NAGI_L11_ZOFFSET_PARSER")
+    sys.stderr.write("Darwin sed shim: generating x86 zoffset symbols from llvm-nm input\n")
     os.execv(sys.executable, [sys.executable, parser])
 if args and args[0] in ("-i", "--in-place"):
     args.insert(1, "")
