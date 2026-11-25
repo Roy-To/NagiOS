@@ -13,7 +13,10 @@ Linux line.
 
 ## 0.1 Developer Preview (Linux)
 
-The milestone boundaries and names below are provisional (DEC-123).
+The [staged release and acceptance decision](docs/product-decisions/DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)
+sets the direction for publishing the Linux preview around verified QEMU
+configurations. Physical hardware support requires evidence for the specific
+configuration. The milestone boundaries and names below are provisional (DEC-123).
 
 | Milestone | Intended outcome | Status |
 | --- | --- | --- |
@@ -38,7 +41,9 @@ does not satisfy guest acceptance. Performance targets follow
 - **0.4 and later:** see the [product decisions](docs/product-decisions/README.md)
   and their roadmaps.
 
-No release date is promised by this roadmap.
+See the [staged release and acceptance decision](docs/product-decisions/DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)
+for the relationship between release order, authorized parallel development,
+and final human release approval. Release dates remain provisional.
 
 ## Related guides
 

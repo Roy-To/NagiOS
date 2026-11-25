@@ -1,5 +1,9 @@
 # NAGI Future Roadmaps
 
+## 段階公開と受入（2026-11-25）
+
+[DEC-103の12/12 B案](../DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)を参照。Linux版0.1は検証済みQEMUを中心に公開し、後続版は既存の範囲・Gate・Ownerに従う。公開順と許可済み独立作業の開発順を分ける。1.0は実用OS Bを維持し、版別の名称・重点と0.8の有無、代表E2Eの最終範囲、公開日はPROVISIONAL。
+
 ## Linux 0.2 実装仕様の改訂レビュー（2026-11-25）
 
 [改訂 Draft](../../Nagi_OS_0.2_Linux_Implementation_Spec_Draft.md)と[受入条件の対応表](../../Nagi_OS_0.2_Linux_Acceptance_Crosswalk.md)を参照。0.1 の公開条件と 0.2 の Release Runtime Activation を別に確認できる。0.3 の準備条件、および PX-05／08／09 の判断候補は Draft §6 に収録。位置付けは REVIEW NOTE／PROVISIONAL。

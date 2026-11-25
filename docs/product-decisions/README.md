@@ -219,7 +219,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針、独自変換エンジンの長期目標）／PROVISIONAL（方式・数値・版） | 2026-11-25 |
 | DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集／PX-11品質優先方針への整合](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（PDF純正採用・基本機能先行・AI非依存／公開API、PX-11高水準方針との整合）／PROVISIONAL（1.0搭載区分・最小機能・高度機能／形式・技術・性能・版） | 2026-11-17 |
-| DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合、Nagi Media共通API・OSS優先評価・将来視覚連携）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・技術・性能・版） | 2026-11-25 |
+| DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合、Nagi Media共通API・OSS優先評価・[6/12 Nagi Vision B案](DEC-062-first-party-utilities.md#2026-11-25--612-nagi-vision-b案)）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・個別モデル／技術・性能・版） | 2026-11-25 |
 | DEC-063 | [電話・連絡先・SMSの端末横断採用](DEC-063-phone-contacts-messaging.md) | CONFIRMED（純正採用・共通モデルと適応UI・能力／認可依存・People統合原則）／PROVISIONAL（アプリ構成・通信／端末間連携・学習・版） | 2026-11-16 |
 | DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
@@ -260,7 +260,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-100 | [System Update：Linux更新基盤＋Nagi統合Update Service（B）](DEC-100-system-update-linux-nagi-coordinated-ab.md) | CONFIRMED（#31 B：Linuxの更新機構とNagiの署名・互換検証／A/B切替・失敗時復旧・System／App／Model別管理）／PROVISIONAL（Linux採用部品・配信／鍵・更新単位・UI／自動適用・実機／版） | 2026-11-16 |
 | DEC-101 | [Nagi Network・Connectivity／7/12 B案](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（Linux／OSS基盤とNagi独自Service・意味的Protocol、Transport分離、LAN先行、評価の優先方針）／PROVISIONAL（個別OSS採用・API／版・実機性能、端末間AI推論・計算資源共有） | 2026-11-25 |
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
-| DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
+| DEC-103 | [Testing / Release：段階的検証B・将来の自動化／AI支援C](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md)／[12/12 リリース・受入基準 B](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25) | CONFIRMED（#34の段階的検証B・将来C、AIは補助、合否は既存Acceptanceと決定論的試験、版ごとの段階公開、Linux版0.1は検証済みQEMU中心、正式公開は人間承認）／PROVISIONAL（試験網・AI支援の詳細・対応環境／受入結果・性能合格値・公開物・版別計画／公開日） | 2026-11-25 |
 | DEC-104 | [Build / Supply Chain：B先行と独立検証・強化自動化Cの正式な将来目標](DEC-104-build-supply-chain-baseline-independent-verification-staged.md) | CONFIRMED（統合供給網管理B先行・C正式目標）／PROVISIONAL（ツール・CI規模・予算・日程・閾値・必須Release・Linux実証） | 2026-11-16 |
 | DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・4機能の分担・自動差分バックアップ・選択式復元・独立Profile移行・保存と復元の安全方針・必要時のC追加）／PROVISIONAL（保存・復元契約・技術・運用・提供版） | 2026-11-25 |
 | DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
@@ -273,7 +273,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-113 | [外部コンテンツの扱いとプロンプトインジェクション対策](DEC-113-untrusted-content-and-prompt-injection.md) | CONFIRMED（外部由来の内容の扱い、高リスク操作の確認、Memory学習・無人Workflowの制限）／PROVISIONAL（リスク区分の詳細・確認UI・技術・適用版） | 2026-11-20 |
 | DEC-114 | [Web利用・開発者向けLinux環境・アプリ互換の説明](DEC-114-web-use-developer-linux-environment-and-app-compat-message.md) | CONFIRMED（WebはAlbert、開発者モードの隔離Linux環境、`builder`用最低限ツール、アプリ互換の説明方針）／PROVISIONAL（環境の技術・ツール一覧・最終文言・適用版） | 2026-11-20 |
 | DEC-115 | [Web互換性・ブラウザーエンジン・DRM・コーデック](DEC-115-web-compatibility-engine-drm-and-codecs.md) | CONFIRMED（Servoで実測を先行しLinux版の予備エンジン制約を解除、サイト報告・DRM・コーデックの方針）／PROVISIONAL（予備エンジンの採否・評価方法・コーデックの最終判断・適用版） | 2026-11-20 |
-| DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版） | 2026-11-20 |
+| DEC-116 | [性能の仮目標値・基準端末・最低動作環境](DEC-116-performance-targets-and-minimum-requirements.md) | CONFIRMED（基準端末と、仮目標値・最低動作環境案を実測で見直す進め方）／PROVISIONAL（数値・測定方法・実機調達・適用版、インストールするLLMに応じた推奨スペック案） | 2026-11-25 |
 | DEC-117 | [ユーザーデータの暗号化と端末紛失時の方針](DEC-117-user-data-encryption-and-lost-device.md) | CONFIRMED（解除可能なUser Dataの既定暗号化、解除不可のMemory／Profile常時暗号化、Profile別鍵、解錠・回復と端末紛失時の方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・保護の実効性・UI・適用版） | 2026-11-25 |
 | DEC-118 | [サポート期間と脆弱性対応の目標](DEC-118-support-period-and-vulnerability-response.md) | CONFIRMED（1.0までは最新版のみサポート、種類別の脆弱性修正目標、GitHubの非公開報告機能を利用） | 2026-11-20 |
 | DEC-119 | [不具合報告：ユーザー送信・伏せ字・ローカルAIによる報告準備支援](DEC-119-user-initiated-problem-reports.md) | CONFIRMED（本人送信・事前プレビュー／項目除外・自動クラッシュ報告なし、ローカルLLMの簡易調査・報告支援）／PROVISIONAL（報告形式・UI・AI整理・伏せ字・版） | 2026-11-24 |
@@ -285,6 +285,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
 | DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現、Office互換OSS活用と編集／連携への重点投入、独自アプリ＋OSS選択的活用・Document Framework発展）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針、OSSフォント優先・将来10言語対応目標、Wayland／Smithay条件付き採用と独立した操作体系）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+| DEC-128 | [Nagi Searchの適応型検索（B案）](DEC-128-nagi-search-adaptive-retrieval.md) | CONFIRMED（Nagi独自のSearch Service／Provider、軽量検索優先、必要時のローカル意味検索、検索前の権限適用と正本分離）／PROVISIONAL（技術・API・精度・性能・閾値・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -295,6 +297,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 技術評価の実行計画: [MEMORY-BENCH-01 — Lightweight Memory Engine比較・性能評価](benchmarks/MEMORY-BENCH-01.md)。限定的なhost-only A/B smoke結果は[こちら](benchmarks/MEMORY-BENCH-01-HOST-SMOKE-2026-11-04.md)（CはNOT_MEASURED、QEMU/target PASSではない）。
 
 追加のhost-only合成評価: [MEMORY-BENCH-01 V3–V5](benchmarks/MEMORY-BENCH-01-V3-V5-HOST-2026-11-04.md) — seed 42で1k/10k/100kを比較。C Hybrid/TokenizerはNOT_MEASURED、採用判断・閾値・runtime acceptanceではない。
+
+**変更履歴（2026-11-25）** — [DEC-128](DEC-128-nagi-search-adaptive-retrieval.md)を追加。Nagi Search B案を承認済み方針として記録し、OCR・Visionへの連携方向、増分索引と前景優先も明記。具体技術・API・性能・実装版は暫定とし、既存Gateに変更はない。
 
 新しいテーマは [TEMPLATE.md](TEMPLATE.md) を複製して追加する。
 
@@ -337,6 +341,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | [DEC-103](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)に12/12の段階公開B、検証済みQEMU中心のLinux版0.1、再現可能な動作証拠と人間承認、1.0実用OS Bを記録。既存Gate・担当を維持。試験・対応環境・性能合格値・版別重点・日程はPROVISIONAL。[DEC-116](DEC-116-performance-targets-and-minimum-requirements.md)のLLMに応じた推奨スペックも検討案。 |
 | 2026-11-25 | [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)に7/12 Nagi Network・ConnectivityのB案と優先評価方針を記録。Share／Handoffの共通基盤、LAN先行、既存の認可・Gateと実装範囲を維持。個別OSS採用と端末間AI推論・計算資源共有はPROVISIONAL。 |
 | 2026-11-25 | [DEC-020](DEC-020-ai-os-interaction-path.md#512-model-runtime--適応型モデル構成b2026-11-25)に5/12 Model Runtimeの適応型モデル構成Bを記録。Granite標準契約、手動固定、前景優先と独立したOS認可を維持し、Task・端末資源・将来のRoleに応じたモデル選択をCONFIRMED。軽量モデル等の評価候補・実装詳細・提供版はPROVISIONAL。既存Gateと受入条件を維持。 |
 | 2026-11-25 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12の基本体験と、AIを利用しない状態でもOS単体の利便性・純正アプリ統合を高める製品方針をCONFIRMEDとして追記。初期のアプリ連携と優先E2E、出荷範囲・操作UI・ショートカット・API・提供版はPROVISIONAL。 |
@@ -642,6 +647,10 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)追補: Nagi Voiceの優先評価方針（whisper.cpp／多言語Whisper base、SenseVoiceSmall等との比較、Kokoro-82M、Silero VAD、sherpa-onnx）をCONFIRMED。評価対象の選定であり、個別モデル・依存の正式採用、ライセンス・言語別品質・実機性能・実装／提供版はPROVISIONAL。オフライン・通常操作・音声認可と既存Gate／Ownerを維持。
 
 [DEC-062](DEC-062-first-party-utilities.md)追補: Nagi Media共通API・OSS活用、image／resvg／FFmpegの優先評価、将来の視覚認識への拡張方向をCONFIRMED。個別ライブラリ・形式・codec／ライセンス・OCR／視覚技術・性能・提供版はPROVISIONAL。通常機能のAI非依存・既存Permission／Privacy・正規Public Action・Gate／Ownerを維持。
+
+## 2026-11-25 — 6/12 Nagi Vision B案
+
+[DEC-062の追補](DEC-062-first-party-utilities.md#2026-11-25--612-nagi-vision-b案)に、Nagi Mediaと連携する必要時起動の共通Vision Service、用途・端末能力に応じた自動選択と手動選択、PC先行、構造化Public API優先、利用目的ごとの認可をCONFIRMEDとして記録。個別モデル・技術・実機性能・実装・提供版・受入はPROVISIONAL。既存GateとOwnerを維持。
 
 ## 2026-11-25 — Linux版0.1の公開範囲B
 
