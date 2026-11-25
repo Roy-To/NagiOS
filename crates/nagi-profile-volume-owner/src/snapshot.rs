@@ -7,10 +7,15 @@
 use nagi_model::ObjectId;
 use nagi_persistence_contract::{ConditionalWriteOutcome, Revision, Snapshot, SnapshotStorage};
 use nagi_service_contract::MAX_SERVICE_PAYLOAD_BYTES;
-use rustix::fs::{flock, fsync, openat, renameat, unlinkat, AtFlags, FlockOperation, Mode, OFlags};
+#[cfg(not(target_os = "linux"))]
+use rustix::fs::openat;
+use rustix::fs::{flock, fsync, renameat, unlinkat, AtFlags, FlockOperation, Mode, OFlags};
+#[cfg(target_os = "linux")]
+use rustix::fs::{openat2, statx, FileType, ResolveFlags, StatxFlags};
 use rustix::io::{fcntl_getfd, fcntl_setfd, Errno, FdFlags};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -43,7 +48,9 @@ pub enum SnapshotStorageError {
 /// FD is marked close-on-exec at the provider entry.
 pub struct DirectoryFdSnapshotStorage {
     root: File,
+    root_identity: RootIdentity,
     lock_file: File,
+    lock_identity: EntryIdentity,
     fenced: bool,
     #[cfg(test)]
     fail_next_publish_before_rename: bool,
@@ -54,21 +61,26 @@ pub struct DirectoryFdSnapshotStorage {
 impl DirectoryFdSnapshotStorage {
     pub fn new(root: File) -> Result<Self, SnapshotStorageError> {
         ensure_close_on_exec(&root)?;
-        validate_root(&root)?;
+        let root_identity = capture_root_identity(&root)?;
         reject_path_only_root(&root)?;
-        let lock_file = openat(
-            &root,
-            LOCK_FILE,
-            OFlags::RDWR | OFlags::CREATE | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
-            Mode::RUSR | Mode::WUSR,
-        )
-        .map_err(|_| SnapshotStorageError::Unavailable)?;
-        let lock_file = File::from(lock_file);
-        validate_private_file(&root, &lock_file)?;
+        let lock_file = File::from(
+            open_beneath(
+                &root,
+                LOCK_FILE,
+                OFlags::RDWR | OFlags::CREATE | OFlags::NONBLOCK,
+                Mode::RUSR | Mode::WUSR,
+            )
+            .map_err(|_| SnapshotStorageError::Unavailable)?,
+        );
+        let lock_identity = validate_private_file(&root_identity, &lock_file)?;
+        require_root_identity(&root, &root_identity)?;
         fsync(&root).map_err(|_| SnapshotStorageError::Unavailable)?;
+        require_root_identity(&root, &root_identity)?;
         Ok(Self {
             root,
+            root_identity,
             lock_file,
+            lock_identity,
             fenced: false,
             #[cfg(test)]
             fail_next_publish_before_rename: false,
@@ -92,7 +104,8 @@ impl SnapshotStorage for DirectoryFdSnapshotStorage {
     type Error = SnapshotStorageError;
 
     fn read(&self, key: ObjectId) -> Result<Option<Snapshot>, Self::Error> {
-        read_snapshot(&self.root, key)
+        self.validate_namespace()?;
+        read_snapshot(&self.root, &self.root_identity, key)
     }
 
     fn compare_and_replace(
@@ -106,12 +119,18 @@ impl SnapshotStorage for DirectoryFdSnapshotStorage {
                 error: SnapshotStorageError::Unavailable,
             };
         }
+        if let Err(error) = self.validate_namespace() {
+            return ConditionalWriteOutcome::NotApplied { error };
+        }
         let _lock = match ExclusiveLock::acquire(&self.lock_file) {
             Ok(lock) => lock,
             Err(error) => return ConditionalWriteOutcome::NotApplied { error },
         };
+        if let Err(error) = self.validate_namespace() {
+            return ConditionalWriteOutcome::NotApplied { error };
+        }
 
-        let current = match read_snapshot(&self.root, key) {
+        let current = match read_snapshot(&self.root, &self.root_identity, key) {
             Ok(current) => current,
             Err(error) => return ConditionalWriteOutcome::NotApplied { error },
         };
@@ -127,16 +146,31 @@ impl SnapshotStorage for DirectoryFdSnapshotStorage {
         #[cfg(test)]
         let write_result = {
             let fail_before_publish = std::mem::take(&mut self.fail_next_publish_before_rename);
-            write_snapshot(&self.root, key, new_revision, bytes, || {
-                if fail_before_publish {
-                    Err(SnapshotStorageError::Unavailable)
-                } else {
-                    Ok(())
-                }
-            })
+            write_snapshot(
+                &self.root,
+                &self.root_identity,
+                key,
+                new_revision,
+                bytes,
+                || {
+                    self.validate_namespace()?;
+                    if fail_before_publish {
+                        Err(SnapshotStorageError::Unavailable)
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
         };
         #[cfg(not(test))]
-        let write_result = write_snapshot(&self.root, key, new_revision, bytes, || Ok(()));
+        let write_result = write_snapshot(
+            &self.root,
+            &self.root_identity,
+            key,
+            new_revision,
+            bytes,
+            || self.validate_namespace(),
+        );
         match write_result {
             Ok(()) => {
                 #[cfg(test)]
@@ -144,7 +178,10 @@ impl SnapshotStorage for DirectoryFdSnapshotStorage {
                     || fsync(&self.root).is_err();
                 #[cfg(not(test))]
                 let sync_failed = fsync(&self.root).is_err();
-                if sync_failed {
+                if sync_failed
+                    || require_root_identity(&self.root, &self.root_identity).is_err()
+                    || self.validate_namespace().is_err()
+                {
                     // rename may already be visible; do not report a definite
                     // failure or permit another write through this instance.
                     self.fenced = true;
@@ -164,6 +201,26 @@ impl SnapshotStorage for DirectoryFdSnapshotStorage {
                 ConditionalWriteOutcome::OutcomeUnknown { error }
             }
         }
+    }
+}
+
+impl DirectoryFdSnapshotStorage {
+    fn validate_namespace(&self) -> Result<(), SnapshotStorageError> {
+        require_root_identity(&self.root, &self.root_identity)?;
+        let lock = File::from(
+            open_beneath(
+                &self.root,
+                LOCK_FILE,
+                OFlags::RDWR | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .map_err(|_| SnapshotStorageError::InvalidRoot)?,
+        );
+        let observed = validate_private_file(&self.root_identity, &lock)?;
+        if observed != self.lock_identity {
+            return Err(SnapshotStorageError::InvalidRoot);
+        }
+        Ok(())
     }
 }
 
@@ -286,13 +343,17 @@ fn next_revision(expected: Option<Revision>) -> Result<Revision, SnapshotStorage
     Revision::new(next).ok_or(SnapshotStorageError::RevisionExhausted)
 }
 
-fn read_snapshot(root: &File, key: ObjectId) -> Result<Option<Snapshot>, SnapshotStorageError> {
-    validate_root(root)?;
+fn read_snapshot(
+    root: &File,
+    root_identity: &RootIdentity,
+    key: ObjectId,
+) -> Result<Option<Snapshot>, SnapshotStorageError> {
+    require_root_identity(root, root_identity)?;
     let name = snapshot_name(key);
-    let fd = match openat(
+    let fd = match open_beneath(
         root,
         name.as_str(),
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        OFlags::RDONLY | OFlags::NONBLOCK,
         Mode::empty(),
     ) {
         Ok(fd) => fd,
@@ -300,7 +361,7 @@ fn read_snapshot(root: &File, key: ObjectId) -> Result<Option<Snapshot>, Snapsho
         Err(_) => return Err(SnapshotStorageError::Unavailable),
     };
     let file = File::from(fd);
-    validate_private_file(root, &file)?;
+    validate_private_file(root_identity, &file)?;
     let total_len = file
         .metadata()
         .map_err(|_| SnapshotStorageError::Unavailable)?
@@ -365,6 +426,7 @@ impl From<SnapshotStorageError> for SnapshotWriteFailure {
 
 fn write_snapshot(
     root: &File,
+    root_identity: &RootIdentity,
     key: ObjectId,
     revision: Revision,
     bytes: &[u8],
@@ -373,21 +435,25 @@ fn write_snapshot(
     if bytes.len() > MAX_SNAPSHOT_BYTES {
         return Err(SnapshotStorageError::SnapshotTooLarge.into());
     }
+    require_root_identity(root, root_identity)?;
     let payload_len = u64::try_from(bytes.len()).map_err(|_| SnapshotStorageError::Unavailable)?;
-    let (temporary_name, mut temporary) = create_temporary_file(root)?;
+    let (temporary_name, mut temporary) = create_temporary_file(root, root_identity)?;
     let cleanup = |root: &File, name: &str| {
         let _ = unlinkat(root, name, AtFlags::empty());
     };
+    let temporary_identity = match validate_private_file(root_identity, &temporary) {
+        Ok(identity) => identity,
+        Err(error) => {
+            cleanup(root, &temporary_name);
+            return Err(error.into());
+        }
+    };
     let write_result = (|| {
-        let owner_uid = root
-            .metadata()
-            .map_err(|_| SnapshotStorageError::Unavailable)?
-            .uid();
         let metadata = temporary
             .metadata()
             .map_err(|_| SnapshotStorageError::Unavailable)?;
         if !metadata.is_file()
-            || metadata.uid() != owner_uid
+            || metadata.uid() != root_identity.owner_uid
             || metadata.mode() & 0o077 != 0
             || metadata.mode() & 0o200 == 0
         {
@@ -416,34 +482,68 @@ fn write_snapshot(
     }
 
     let final_name = snapshot_name(key);
+    if let Err(error) = require_root_identity(root, root_identity) {
+        cleanup(root, &temporary_name);
+        return Err(error.into());
+    }
+    if let Err(error) = validate_publish_target(root, root_identity, &final_name) {
+        cleanup(root, &temporary_name);
+        return Err(error.into());
+    }
     if renameat(root, temporary_name.as_str(), root, final_name.as_str()).is_err() {
         cleanup(root, &temporary_name);
         return Err(SnapshotWriteFailure::OutcomeUnknown(
             SnapshotStorageError::Unavailable,
         ));
     }
+    let published = open_beneath(
+        root,
+        final_name.as_str(),
+        OFlags::RDONLY | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(|_| SnapshotWriteFailure::OutcomeUnknown(SnapshotStorageError::Unavailable))?;
+    let published = File::from(published);
+    let published_identity = validate_private_file(root_identity, &published)
+        .map_err(SnapshotWriteFailure::OutcomeUnknown)?;
+    if published_identity != temporary_identity {
+        return Err(SnapshotWriteFailure::OutcomeUnknown(
+            SnapshotStorageError::Unavailable,
+        ));
+    }
+    require_root_identity(root, root_identity).map_err(SnapshotWriteFailure::OutcomeUnknown)?;
     Ok(())
 }
 
-fn create_temporary_file(root: &File) -> Result<(String, File), SnapshotStorageError> {
+fn create_temporary_file(
+    root: &File,
+    root_identity: &RootIdentity,
+) -> Result<(String, File), SnapshotStorageError> {
+    require_root_identity(root, root_identity)?;
     for _ in 0..TEMP_OPEN_ATTEMPTS {
         let sequence = NEXT_SNAPSHOT_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let name = format!(
             ".nagi-snapshot-{:08x}-{sequence:016x}.tmp",
             std::process::id()
         );
-        match openat(
+        match open_beneath(
             root,
             name.as_str(),
-            OFlags::WRONLY
-                | OFlags::CREATE
-                | OFlags::EXCL
-                | OFlags::CLOEXEC
-                | OFlags::NOFOLLOW
-                | OFlags::NONBLOCK,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NONBLOCK,
             Mode::RUSR | Mode::WUSR,
         ) {
-            Ok(fd) => return Ok((name, File::from(fd))),
+            Ok(fd) => {
+                let file = File::from(fd);
+                if let Err(error) = validate_private_file(root_identity, &file) {
+                    let _ = unlinkat(root, name.as_str(), AtFlags::empty());
+                    return Err(error);
+                }
+                if let Err(error) = require_root_identity(root, root_identity) {
+                    let _ = unlinkat(root, name.as_str(), AtFlags::empty());
+                    return Err(error);
+                }
+                return Ok((name, file));
+            }
             Err(Errno::EXIST) => continue,
             Err(_) => return Err(SnapshotStorageError::Unavailable),
         }
@@ -451,18 +551,97 @@ fn create_temporary_file(root: &File) -> Result<(String, File), SnapshotStorageE
     Err(SnapshotStorageError::Unavailable)
 }
 
+fn validate_publish_target(
+    root: &File,
+    root_identity: &RootIdentity,
+    name: &str,
+) -> Result<(), SnapshotStorageError> {
+    match open_beneath(root, name, OFlags::RDONLY | OFlags::NONBLOCK, Mode::empty()) {
+        Ok(fd) => {
+            validate_private_file(root_identity, &File::from(fd))?;
+            Ok(())
+        }
+        Err(Errno::NOENT) => Ok(()),
+        Err(_) => Err(SnapshotStorageError::InvalidRoot),
+    }
+}
+
 fn snapshot_name(key: ObjectId) -> String {
     format!("snapshot-{:016x}", key.0)
 }
 
-fn validate_root(root: &File) -> Result<(), SnapshotStorageError> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RootIdentity {
+    device: u64,
+    inode: u64,
+    owner_uid: u32,
+    #[cfg(target_os = "linux")]
+    mount_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EntryIdentity {
+    device: u64,
+    inode: u64,
+}
+
+fn capture_root_identity(root: &File) -> Result<RootIdentity, SnapshotStorageError> {
     let metadata = root
         .metadata()
         .map_err(|_| SnapshotStorageError::InvalidRoot)?;
     if !metadata.is_dir() || metadata.mode() & 0o077 != 0 {
         return Err(SnapshotStorageError::InvalidRoot);
     }
-    Ok(())
+    #[cfg(target_os = "linux")]
+    let mount_id = {
+        let requested = StatxFlags::TYPE | StatxFlags::MNT_ID;
+        let stat = statx(root, c"", AtFlags::EMPTY_PATH, requested)
+            .map_err(|_| SnapshotStorageError::InvalidRoot)?;
+        if stat.stx_mask & requested.bits() != requested.bits()
+            || FileType::from_raw_mode(stat.stx_mode.into()) != FileType::Directory
+            || stat.stx_ino != metadata.ino()
+        {
+            return Err(SnapshotStorageError::InvalidRoot);
+        }
+        stat.stx_mnt_id
+    };
+    Ok(RootIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        owner_uid: metadata.uid(),
+        #[cfg(target_os = "linux")]
+        mount_id,
+    })
+}
+
+fn require_root_identity(root: &File, expected: &RootIdentity) -> Result<(), SnapshotStorageError> {
+    if capture_root_identity(root)? == *expected {
+        Ok(())
+    } else {
+        Err(SnapshotStorageError::InvalidRoot)
+    }
+}
+
+fn open_beneath(
+    root: &impl AsFd,
+    name: &str,
+    flags: OFlags,
+    mode: Mode,
+) -> rustix::io::Result<OwnedFd> {
+    #[cfg(target_os = "linux")]
+    {
+        openat2(
+            root,
+            name,
+            flags | OFlags::CLOEXEC,
+            mode,
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
+        )
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        openat(root, name, flags | OFlags::CLOEXEC | OFlags::NOFOLLOW, mode)
+    }
 }
 
 fn ensure_close_on_exec(root: &File) -> Result<(), SnapshotStorageError> {
@@ -488,21 +667,38 @@ fn reject_path_only_root(_root: &File) -> Result<(), SnapshotStorageError> {
     Ok(())
 }
 
-fn validate_private_file(root: &File, file: &File) -> Result<(), SnapshotStorageError> {
-    let root_metadata = root
-        .metadata()
-        .map_err(|_| SnapshotStorageError::InvalidRoot)?;
+fn validate_private_file(
+    root_identity: &RootIdentity,
+    file: &File,
+) -> Result<EntryIdentity, SnapshotStorageError> {
     let metadata = file
         .metadata()
         .map_err(|_| SnapshotStorageError::Unavailable)?;
     if !metadata.is_file()
-        || metadata.uid() != root_metadata.uid()
+        || metadata.dev() != root_identity.device
+        || metadata.uid() != root_identity.owner_uid
         || metadata.mode() & 0o077 != 0
         || metadata.nlink() != 1
     {
         return Err(SnapshotStorageError::InvalidRoot);
     }
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        let requested = StatxFlags::TYPE | StatxFlags::MNT_ID;
+        let stat = statx(file, c"", AtFlags::EMPTY_PATH, requested)
+            .map_err(|_| SnapshotStorageError::InvalidRoot)?;
+        if stat.stx_mask & requested.bits() != requested.bits()
+            || FileType::from_raw_mode(stat.stx_mode.into()) != FileType::RegularFile
+            || stat.stx_mnt_id != root_identity.mount_id
+            || stat.stx_ino != metadata.ino()
+        {
+            return Err(SnapshotStorageError::InvalidRoot);
+        }
+    }
+    Ok(EntryIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    })
 }
 
 struct ExclusiveLock<'a>(&'a File);
