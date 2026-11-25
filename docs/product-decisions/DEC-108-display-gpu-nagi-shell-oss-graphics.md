@@ -1,7 +1,7 @@
 # DEC-108 — Display / GPU：Nagi独自ShellとOSS描画基盤の組合せ
 
-**状態:** CONFIRMED（Foundation #19のB改良案：Nagi独自Shell／画面体験・端末横断の共通契約と、Linux／OSSの描画・GPU基盤の選択的活用）／PROVISIONAL（Wayland・Smithay等の個別採用、Compositor／Renderer詳細、機器対応、性能・版・受入）\
-**最終合意日:** 2026-11-16\
+**状態:** CONFIRMED（Foundation #19のB改良案：Nagi独自Shell／画面体験・端末横断の共通契約と、Linux／OSSの描画・GPU基盤の選択的活用、Wayland・Smithayの条件付き採用、独立した操作体系）／PROVISIONAL（具体protocol・依存・その他基盤の採否、Compositor／Renderer詳細、機器対応、性能・版・受入）\
+**最終合意日:** 2026-11-25\
 **適用候補:** Nagi OS Foundation #19。特定Releaseへの割当ては未決定\
 **関連:** [Foundation Checklist #19](NAGI_OS_FOUNDATION_CHECKLIST.md#f19)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[純正ソフトウェア仕様 §27–30](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Roadmaps](roadmaps/README.md)
 
@@ -40,9 +40,20 @@ Foundation #19の方針は、Linuxカーネル＋Nagi専用ユーザーランド
 
 [DEC-127](DEC-127-nagi-design-system.md)により、Nagi独自の共通2D描画APIの主要描画基盤としてVelloを採用する方向をCONFIRMEDとする。Velloについては本追補が従前の個別技術未採用の記述に優先する。初期はCPU版を第一候補とし、GPU版は検証に応じた高速化候補。具体版・依存・ライセンス・実装・性能・機器対応・提供版はPROVISIONAL。Wayland／Smithay、Compositor、Mesa／DRM／KMS等の採否は別判断であり、既存Gate／Owner／着手条件を変更しない。
 
+## 2026-11-25 — Wayland・Smithayの条件付き採用と独立した操作体系
+
+**CONFIRMED（採用方針・設計原則）:** 現在の2D画面表示・通常入力のためのアプリ／Compositor間の標準通信規約にWaylandを採用し、Nagi独自Compositorの主要開発基盤としてSmithayを活用する。NagiのHome／Desktop／Shell、Workspace・Window管理、端末適応、独自UI、Nagi Input ServiceとAI-nativeな操作体系はNagi主体で設計する。完成済みDesktop環境を製品基盤にするものではない。Velloの共通2D描画基盤としての採用方針を維持する。
+
+採用条件として、Nagiの意図・操作対象の解釈、意味的な作業状態、認可されたPublic Actionの契約を、Wayland／Smithayの入力型・Surface・2D座標に固定しない。入力機器・入力信号・表示backendと、操作対象の識別・意図解釈・実行を分離する。座標を人間の意図と同一視せず、将来の新たな入力方法を必ずマウス座標・クリックへ変換する構造を標準としない。正確なポインティングに依存しない操作体系を目指すVISION-001／DEC-097、DEC-109の通常入力、DEC-020の構造化Context／Event・型付きPublic Action・非特権AI、DEC-027の限定GUI fallbackを維持する。通常GUI・キーボード・マウス・タッチ・IME・アクセシビリティはAIなしでも利用可能とする方向を保持し、AIによる解釈やセンサー入力を認可・承認の根拠にしない。
+
+本追補はWayland／Smithayの採否について従前の「未採用／別判断」記述に優先する。Vello以外の具体的Renderer・Mesa／DRM／KMS等は従前どおり別判断。
+
+**PROVISIONAL（具体設計・受入）:** Wayland protocol／extensionの範囲と固定版、Smithayの版・feature・adapter、Compositor／Input Service／操作解釈層（Intent Engineは仮称）のプロセス／IPC境界、意味的なUI／Object／Resource識別、入力の正規化・振分け、曖昧さの解決・候補提示・訂正、CPU／GPU buffer共有、focus／seat、秘密入力・画面共有・センサーのPermission／Privacy、障害時の復旧、前景応答・資源消費、XWaylandの扱い、対象機器・提供版は未確定。視線・音声・ジェスチャー・空間入力や立体表示等は長期研究例であり、具体採用・機器対応を保証しない。Waylandの2D契約で表現できない将来の表示／入力は、別backendや必要な独自規約を追加し得る設計を検討する。特定の新規規約の開発・採用・搭載時期は未決定。既存Linux 0.1／Release／Activation／Acceptance GateとOwner／path ownershipを変更しない。採用方針は依存追加・既存描画の置換・実装着手・実機検証済みを意味しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがAndroidの「独自OS体験の上位層＋ハードウェア寄り技術の再利用」との比較を確認し、Foundation #19の「B改良案：Nagi独自Shell＋OSS描画基盤」を明示採用。PC／タブレット／モバイル共通契約と端末適応を維持。Wayland／Smithay等の具体採用、対応実機・性能・実装版は未決定。 |
 | 2026-11-25 | DEC-127で共通2D描画のVello採用方針を確定。その他の描画・合成基盤の採否と実装・受入は未確定。 |
+| 2026-11-25 | ユーザーがWayland・Smithayの条件付き採用と、次世代操作を妨げない独立した意味的操作体系を承認。実装・具体規約・センサー・性能・版はPROVISIONAL。 |
