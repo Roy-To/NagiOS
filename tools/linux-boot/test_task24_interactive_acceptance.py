@@ -835,7 +835,7 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
             candidate = result["candidate_check_receipt"]
             self.assertEqual(candidate["schema"], runner.TASK24_F9_CANDIDATE_CHECK_SCHEMA)
             self.assertEqual(candidate["profile"], "F9_8E2A_NO_START_RFB")
-            self.assertEqual(candidate["status"], "PASS")
+            self.assertEqual(candidate["status"], "CANDIDATE_INPUTS_PASS")
             self.assertEqual(candidate["source"]["candidate_source_commit"], runner.TASK24_F9_8E2A_HEAD)
             self.assertEqual(candidate["pid1_elf"]["sha256"], inputs["elf_sha256"])
             self.assertEqual(candidate["initramfs_cpio"]["manifest_sha256"], inputs["cpio_sha256"])
@@ -853,8 +853,12 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
             self.assertTrue(embedded["matches_fixed_pid1_elf"])
             automatic = result["automatic_trial"]
             self.assertEqual(automatic["phases"], list(runner.MANUAL_TRIAL_PHASES))
+            self.assertEqual(automatic["status"], "THREE_PHASE_LAYOUT_ONLY")
+            self.assertEqual(automatic["preflight_validated_phases"], ["save", "read"])
+            self.assertEqual(automatic["reject-close"]["execution_contract"], "NOT_VALIDATED")
             self.assertEqual(automatic["mode"], "AUTOMATIC_F9_8E2A_NO_START_FIXTURE")
             self.assertIn("no WS-10 RFB evidence", automatic["coverage"])
+            self.assertIn("reject-close execution contract not validated", automatic["coverage"])
             self.assertFalse(automatic["launch_authorized"])
             self.assertFalse((self.run_directory / runner.RECEIPT_NAME).exists())
             self.assertEqual(list(reject_close.iterdir()), [])

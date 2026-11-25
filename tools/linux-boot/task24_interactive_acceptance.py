@@ -440,7 +440,7 @@ def f9_candidate_check_receipt(prepared: PreparedRun) -> dict[str, Any]:
     return {
         "schema": TASK24_F9_CANDIDATE_CHECK_SCHEMA,
         "profile": "F9_8E2A_NO_START_RFB",
-        "status": "PASS",
+        "status": "CANDIDATE_INPUTS_PASS",
         "source": {
             "manifest_pin": TASK24_F9_8E2A_HEAD,
             "candidate_source_commit": prepared.candidate_source_commit,
@@ -569,8 +569,11 @@ def prepare_automatic_trial(
         run_id=prepared.run_id,
         preflight_manifest_sha256=prepared.manifest_sha256,
     )
+    phases = tuple(L9_RFB_FLOW) if l9_trial else MANUAL_TRIAL_PHASES
+    layout = prepare_trial_layout(prepared, phases)
     result = {
-        **prepare_trial_layout(prepared, tuple(L9_RFB_FLOW) if l9_trial else MANUAL_TRIAL_PHASES),
+        **layout,
+        "status": "THREE_PHASE_LAYOUT_ONLY" if prepared.f9_rfb_no_start else layout["status"],
         "mode": (
             "AUTOMATIC_L9_FIXTURE" if l9_trial else
             "AUTOMATIC_F9_8E2A_NO_START_FIXTURE" if prepared.f9_rfb_no_start else
@@ -583,7 +586,12 @@ def prepare_automatic_trial(
         "post_action_display_content": "NOT_VERIFIED",
     }
     if prepared.f9_rfb_no_start:
-        result["coverage"] = "Task24 save/reject-close/read fixture preparation only; no WS-10 RFB evidence"
+        result["preflight_validated_phases"] = ["save", "read"]
+        result["reject-close"] = {"execution_contract": "NOT_VALIDATED"}
+        result["coverage"] = (
+            "save/read official preflight plus three-phase directory layout only; "
+            "reject-close execution contract not validated; no WS-10 RFB evidence"
+        )
     return result
 
 
