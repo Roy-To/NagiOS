@@ -38,6 +38,8 @@ host_elfutils_root=
 host_clang_path=
 host_lld_path=
 host_pkg_config_path=
+host_libintl_path=
+host_macos_version=
 host_cflags=
 if [[ "$(uname -s)" == "Darwin" ]]; then
     [[ -n "$host_support_root" ]] || {
@@ -56,11 +58,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     }
     host_clang_path=/opt/homebrew/opt/llvm@19/bin/clang
     host_lld_path=/opt/homebrew/bin/ld.lld
+    host_libintl_path=/opt/homebrew/lib/libintl.dylib
     host_pkg_config_path=$(command -v pkg-config)
-    [[ -x "$host_clang_path" && -x "$host_lld_path" && -x "$host_pkg_config_path" ]] || {
-        echo "pinned Darwin Clang/LLD/pkg-config tools are missing" >&2
+    host_product_version=$(sw_vers -productVersion)
+    host_macos_version=$(awk -F. 'NF >= 2 { print $1 "." $2 }' <<< "$host_product_version")
+    [[ -x "$host_clang_path" && -x "$host_lld_path" && -x "$host_pkg_config_path" && -f "$host_libintl_path" && "$host_macos_version" =~ ^[0-9]+\.[0-9]+$ ]] || {
+        echo "pinned Darwin Clang/LLD/pkg-config/libintl tools or macOS version are unavailable" >&2
         exit 2
     }
+    export MACOSX_DEPLOYMENT_TARGET="$host_macos_version"
     export PKG_CONFIG_PATH="$host_elfutils_root/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
     host_cflags="-Wno-macro-redefined -Wno-deprecated-declarations -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -I$host_compat_root/include -I$host_elfutils_root/include -I$output_dir/build/arch/x86/include/generated/uapi -I$source_dir/arch/x86/include/uapi -I$output_dir/build/include/generated/uapi -idirafter $source_dir/include/uapi"
     export HOSTCC="$host_compat_root/bin/clang-host"
@@ -185,11 +191,11 @@ source_verity_sha_before=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-targe
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest() {
-        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$output_dir/host-compat/clang-host" "$output_dir/host-compat/install" "$1" <<'PY'
+        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$host_libintl_path" "$output_dir/host-compat/clang-host" "$output_dir/host-compat/install" "$1" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 
-root, compat, elfutils, clang, lld, pkg_config, link_shim, install_shim, output = map(Path, sys.argv[1:])
+root, compat, elfutils, clang, lld, pkg_config, libintl, link_shim, install_shim, output = map(Path, sys.argv[1:])
 
 def sha(path):
     digest = hashlib.sha256()
@@ -216,6 +222,7 @@ for key, path in (
     ("llvm_clang", clang),
     ("lld", lld),
     ("pkg_config", pkg_config),
+    ("libintl", libintl),
     ("kernel_link_flag_shim", link_shim),
     ("install_argument_shim", install_shim),
 ):
@@ -333,7 +340,7 @@ receipt = {
         "manifest": json.loads((output / "host-support-before.json").read_text(encoding="utf-8")) if host_root else None,
         "make_environment": {
             key: os.environ.get(key)
-            for key in ("HOSTCC", "HOSTCXX", "HOSTLD", "HOSTCFLAGS", "HOSTLDFLAGS", "HOSTPKG_CONFIG", "PKG_CONFIG_PATH")
+            for key in ("HOSTCC", "HOSTCXX", "HOSTLD", "HOSTCFLAGS", "HOSTLDFLAGS", "HOSTPKG_CONFIG", "PKG_CONFIG_PATH", "MACOSX_DEPLOYMENT_TARGET")
         },
         "make_overrides": host_make_args,
     },
