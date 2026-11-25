@@ -258,7 +258,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-098 | [Diagnostics / Logging：Nagi統合診断・ローカルAI簡易調査と報告支援](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md) | CONFIRMED（B統合診断＋将来C、ローカルAIは簡易調査・バグ報告の支援を中心とする）／PROVISIONAL（backend・モデル・具体解析・UI・性能・版・受入） | 2026-11-24 |
 | DEC-099 | [Installer / First Setup：Linux基盤＋Nagi専用GUI（方式B）](DEC-099-installer-first-setup-linux-nagi-gui.md) | CONFIRMED（#30 Linuxの既存disk等を活用したNagi GUI Installer、AI非依存の安全なOffline-first導入、破壊前確認）／PROVISIONAL（Linux部品・GUI・partition／暗号化・端末・実機受入・適用版） | 2026-11-16 |
 | DEC-100 | [System Update：Linux更新基盤＋Nagi統合Update Service（B）](DEC-100-system-update-linux-nagi-coordinated-ab.md) | CONFIRMED（#31 B：Linuxの更新機構とNagiの署名・互換検証／A/B切替・失敗時復旧・System／App／Model別管理）／PROVISIONAL（Linux採用部品・配信／鍵・更新単位・UI／自動適用・実機／版） | 2026-11-16 |
-| DEC-101 | [Device Connectivity：Linux／OSS基盤＋Nagi独自端末連携Protocol、独自通信技術の並行研究](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（#32 Bを標準、Nagiの意味的端末連携Protocolを設計、必要な低層通信は限定研究）／PROVISIONAL（具体Protocol／Transport・独自通信採否・端末／Release／受入） | 2026-11-16 |
+| DEC-101 | [Nagi Network・Connectivity／7/12 B案](DEC-101-device-connectivity-nagi-protocol-linux-research.md) | CONFIRMED（Linux／OSS基盤とNagi独自Service・意味的Protocol、Transport分離、LAN先行、評価の優先方針）／PROVISIONAL（個別OSS採用・API／版・実機性能、端末間AI推論・計算資源共有） | 2026-11-25 |
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
 | DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
 | DEC-104 | [Build / Supply Chain：B先行と独立検証・強化自動化Cの正式な将来目標](DEC-104-build-supply-chain-baseline-independent-verification-staged.md) | CONFIRMED（統合供給網管理B先行・C正式目標）／PROVISIONAL（ツール・CI規模・予算・日程・閾値・必須Release・Linux実証） | 2026-11-16 |
@@ -337,6 +337,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | [DEC-101](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)に7/12 Nagi Network・ConnectivityのB案と優先評価方針を記録。Share／Handoffの共通基盤、LAN先行、既存の認可・Gateと実装範囲を維持。個別OSS採用と端末間AI推論・計算資源共有はPROVISIONAL。 |
 | 2026-11-25 | [DEC-020](DEC-020-ai-os-interaction-path.md#512-model-runtime--適応型モデル構成b2026-11-25)に5/12 Model Runtimeの適応型モデル構成Bを記録。Granite標準契約、手動固定、前景優先と独立したOS認可を維持し、Task・端末資源・将来のRoleに応じたモデル選択をCONFIRMED。軽量モデル等の評価候補・実装詳細・提供版はPROVISIONAL。既存Gateと受入条件を維持。 |
 | 2026-11-25 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12の基本体験と、AIを利用しない状態でもOS単体の利便性・純正アプリ統合を高める製品方針をCONFIRMEDとして追記。初期のアプリ連携と優先E2E、出荷範囲・操作UI・ショートカット・API・提供版はPROVISIONAL。 |
 | 2026-11-24 | [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)・[DEC-119](DEC-119-user-initiated-problem-reports.md)に、ローカルAIを簡易調査とバグ報告支援中心に置く高水準の製品方針を追加。[DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)ではOmarchy参考の高度なInstaller高速化案を今回は見送り、既存GUI Installerは維持。Workspace手動モード採用を維持し、Webアプリ風起動は未採用／ワンキー操作は未決。実装・UI・版はPROVISIONAL。 |

@@ -41,6 +41,8 @@
 
 変更履歴: 2026-11-16 — DEC-101でFoundation #32のB標準＋Nagi上位Protocol＋必要な独自通信研究を記録。通信実装の採否・版は未決定。
 
+**7/12 Nagi Network・Connectivity B案（2026-11-25）** — [DEC-101](../DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)に優先評価方針を追記。個別OSS採用と端末間AI推論・計算資源共有はPROVISIONAL。既存のLAN先行・認可・Gate・実装範囲と版割当てを維持する。
+
 ## 当面の優先順位（2026-11-16）
 
 [DEC-074](../DEC-074-human-led-agent-organization.md)の後続確認により、当面はAI組み込み体験型OSの確立を優先し、階層型Agent Organizationは非優先の長期ビジョンとする。各Roadmapに日付付き注記を反映した。具体的な提供版・階層数・実装順序は未確定であり、0.3の単一Personal Agent、初期0.4の単一Nagi builder Role、既存Gate・Acceptanceは維持する。
