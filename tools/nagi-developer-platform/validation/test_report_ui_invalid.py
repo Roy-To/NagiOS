@@ -20,9 +20,16 @@ import unittest
 from unittest.mock import patch
 
 import report
+import stage2
+import validate
 
 
 SCRIPT = Path(report.__file__).resolve()
+# JSON of the eight existing fixtures produced by the pre-NDP-A021 report.py (see README.md),
+# with `recorded_at` set to "T" and the validator and clang forced missing.
+BASE_SNAPSHOT = SCRIPT.parent / "report_base_existing_fixtures.json"
+EVALUATION_README = report.REPO / report.EVALUATION / "README.md"
+FIXTURE_COUNT_MARKER = re.compile(r"Migration report fixture count: (\d+)")
 FIXTURE = "ui_invalid"
 UI_FILE = "tests/developer-platform/evaluation/ui_invalid/panel_layout.qml"
 # The fixtures that existed before NDP-A021, in their `--fixture all` order.
@@ -207,6 +214,58 @@ class UiInvalidReportTests(unittest.TestCase):
             code, refused = self.run_main("--fixture", "all")
         self.assertEqual((code, refused), (1, ""))
         self.assertEqual(err.getvalue().strip(), "report_output_limit")
+
+
+@contextlib.contextmanager
+def without_host_tools():
+    with patch.object(validate, "VALIDATOR", Path("/nonexistent/nagi-pkg")), \
+            patch.object(stage2.shutil, "which", return_value=None):
+        yield
+
+
+class ExistingFixturesMatchBaseTests(unittest.TestCase):
+    """The eight existing reports must equal what the pre-NDP-A021 report.py produced."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.snapshot = json.loads(BASE_SNAPSHOT.read_text(encoding="utf-8"))
+
+    def test_snapshot_lists_exactly_the_existing_fixtures(self):
+        self.assertEqual(self.snapshot["fixtures"], list(EXISTING_FIXTURES))
+        self.assertEqual(list(self.snapshot["reports"]), sorted(EXISTING_FIXTURES))
+        self.assertNotIn(FIXTURE, self.snapshot["reports"])
+
+    def test_single_fixture_reports_equal_the_base_snapshot(self):
+        with without_host_tools():
+            for fixture in EXISTING_FIXTURES:
+                with self.subTest(fixture=fixture):
+                    self.assertEqual(strip_time(report.build_report(fixture)),
+                                     self.snapshot["reports"][fixture])
+
+    def test_all_reports_equal_the_base_snapshot_and_keep_their_order(self):
+        out = io.StringIO()
+        with without_host_tools(), contextlib.redirect_stdout(out):
+            code = report.main(["--fixture", "all"])
+        self.assertEqual(code, 1)
+        reports = json.loads(out.getvalue())["reports"]
+        self.assertEqual(list(reports)[:len(EXISTING_FIXTURES)], list(EXISTING_FIXTURES))
+        for fixture in EXISTING_FIXTURES:
+            with self.subTest(fixture=fixture):
+                self.assertEqual(strip_time(reports[fixture]), self.snapshot["reports"][fixture])
+
+
+class EvaluationReadmeFixtureCountTests(unittest.TestCase):
+    def test_readme_states_the_report_fixture_count_once_and_it_matches(self):
+        text = EVALUATION_README.read_text(encoding="utf-8")
+        stated = FIXTURE_COUNT_MARKER.findall(text)
+        self.assertEqual(len(stated), 1, "evaluation README must state the count exactly once")
+        self.assertEqual(int(stated[0]), len(report.FIXTURES))
+
+    def test_readme_lists_every_report_fixture_in_order(self):
+        text = EVALUATION_README.read_text(encoding="utf-8")
+        start = FIXTURE_COUNT_MARKER.search(text).end()
+        listed = re.findall(r"`([a-z_]+)`", text[start:text.index(")", start)])
+        self.assertEqual(listed, list(report.FIXTURES))
 
 
 if __name__ == "__main__":

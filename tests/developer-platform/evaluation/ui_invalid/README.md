@@ -1,6 +1,6 @@
 # ui_invalid — PROVISIONAL fixture (NDP-A021)
 
-One self-made, three-line UI file (`panel_layout.qml`) written as QML-like text, which is
+One self-made, four-line UI file (`panel_layout.qml`) written as QML-like text, which is
 not XML. Provenance: written for this task from scratch; it is not copied from any
 third-party project, is not derived from Qt's QML documentation samples, and contains no
 build script. Permitted use: only as static input of the migration report fixture

@@ -454,7 +454,7 @@ reports, and 2 for invalid arguments.
   `unsupported` for "inputs the toolkit cannot handle" side by side. `report.py` has a new
   fixture name `ui_invalid` (`UI_INVALID_FIXTURE`, one entry in `UI_FIXTURE_PATHS`) that
   routes one self-made file, `tests/developer-platform/evaluation/ui_invalid/panel_layout.qml`
-  (three lines of QML-like text), through the existing analyzer. Pinned result
+  (four lines of QML-like text), through the existing analyzer. Pinned result
   (`test_report_ui_invalid.py`, CLI exit code 1): `ui_analysis` is `failed` (`file_failed`;
   the file entry carries `invalid_xml`), `ui_mapping` is `not_run` (`file_not_run`; the file
   entry carries `ui_analysis_did_not_pass`), and the independent checks continue
@@ -465,6 +465,14 @@ reports, and 2 for invalid arguments.
   fixtures; the report-size cap scales with the count) and now exits 1 because of this
   deliberate failure; existing tests that expected exit 0 or eight fixtures were updated
   (exit 1, nine, and the failed count) and no assertion was removed or weakened.
+  Regression guard: `report_base_existing_fixtures.json` is the JSON of the eight existing
+  fixtures produced by the pre-NDP-A021 revision of `report.py` (the only code file this
+  task changed), with `recorded_at` replaced by `"T"` and the validator and clang forced
+  missing so it does not depend on host tools; `test_report_ui_invalid.py` compares the
+  current single-fixture and `--fixture all` reports against it. Under that condition the
+  build/validator paths themselves are covered by the other tests, not by the snapshot.
+  The fixture total stated in `tests/developer-platform/evaluation/README.md`
+  ("Migration report fixture count") is checked against `report.FIXTURES`.
   Assumptions (PROVISIONAL) and limits: the file is self-made (see its README for
   provenance and permitted use), not taken from any project or Qt sample, and is only a
   stand-in for "text that is not XML"; the name and routing may be replaced. The analyzer
