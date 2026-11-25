@@ -9,3 +9,15 @@
 
 NDP-REVIEW: FIX
 
+## Round 2 — codex review of 25627dbf51a3
+
+P1・P2の指摘はありません。前回の指摘2件は、Markdownリンクとリンク先の実在確認、および一時コピーから fixture 名を削って通常の整合テストの失敗を確認するコードで解消されています。
+
+- **P3** `docs/development/developer-platform/handover.md:116`。`--fixture` の選択肢を `report.FIXTURES` と括弧書きしているため、一覧を読むと `all` も定数に含まれるように見えます。実際は CLI が別途追加する全件指定で、一時コピーの削除テストは `report.FIXTURES` の8件を検査します。最小修正は、8件を `report.FIXTURES` として列挙し、`all` を CLI の全件指定と明記することです。
+
+引継ぎ文書にはコマンド例3件、全 fixture 名、4つの status の意味、host 限定と Stage 3・Nagi target 受入の `not_run`、実 scanner 出力・実 `nagi-pkg` 接続の未検証、PROVISIONAL の扱いが記載されています。相対リンクは正本の該当節を指しています。
+
+`contracts/` と `report.py` に差分はありません。担当外の `reviews/ndp-runner-ndp-a023.md:1` は、履歴上、前回の独立レビューを記録した別コミットです。テストは再実行せず、evaluation 73件の成功は実装側の報告に基づきます。
+
+NDP-REVIEW: PASS
+
