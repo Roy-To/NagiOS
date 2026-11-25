@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -71,6 +71,12 @@
 - 既存 `nagi-ui` を比較の出発点とし、同等の代表画面・機能と明示した測定条件で、描画・入力応答、1／5／10アプリ等の同時起動時RAM／GPUメモリ、アイドル負荷、日本語IME・文字描画、Focus／Accessibility、画面サイズ・DPI・回転・タッチ、LLM推論共存時の前景応答・推論品質、開発者のサンプル実装負担、ライセンス・依存・保守性を評価する。測定数値・合格基準・試験対象は未確定。host-only／QEMU／物理実機の証拠を区別し、性能を保証しない。
 - 独立した比較研究・検証を候補とするが、本決定は新規Workstream登録・着手・依存追加・既存実装の一括置換・特定リリースへの割当てを承認するものではない。既存Owner／path ownership・Release／Activation／Acceptance Gateと開始条件を維持する。Wayland／Smithay等の採否も別判断のまま維持する。
 
+## 2026-11-25 — 共通2D描画APIと既存OSSの活用
+
+**CONFIRMED（製品・開発方針）:** Nagi独自の共通2D描画API（Nagi Graphicsは仮称）を整備する方向を採用し、文字・図形・画像等の汎用描画処理には適合する既存OSSを積極的に活用する。純正アプリ間の重複実装を抑え、Nagi UI Toolkitとの契約、端末適応、軽量性・前景応答性、通常GUIの非LLM依存、独自UIの自由を維持する。GPU・CPUの描画経路を比較・選択できる設計を重視し、特定描画ライブラリのAPIを全アプリへ固定する方針としない。Web描画（Albert／Servo）・PDF解析等の専用エンジンを無理に置換せず、共通化とアプリの隔離・障害耐性を両立する。全アプリを単一の巨大な描画プロセスへ統合する要件ではない。
+
+**PROVISIONAL（具体策・技術候補）:** 差分描画、可視範囲の仮想化、画像／文字キャッシュと予算管理、遅延展開、DPI適応、非表示面の不要な更新抑制、GPU／CPUと推論の資源配分、software fallbackを比較する。tiny-skia、COSMIC Text、Vello CPU／GPU、wgpu等の個別採用、公開API・プロセス構成・依存とライセンス・配布条件・性能目標・提供版は未確定。DEC-020／094／108／116および既存GUI Toolkit方針に従い、前景UI・アクセシビリティ・安全境界を損なわず、host／QEMU／実機の証拠を区別する。既存描画全体の監査・実測は未実施。個別ライブラリ選定・研究着手・実装開始・依存追加は別判断とし、既存Gate／Owner／path ownershipを変更しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -81,3 +87,4 @@
 | 2026-11-25 | ユーザーがLomiriのそのままの採用を否定。既存Desktop環境の製品基盤としての採用ではなく体験の参照に限定し、汎用基盤の採否とは区別する旨を明確化。 |
 | 2026-11-25 | ユーザーが端末横断Shellを初めから設計しDesktop向け表示から実装する方針、共通Nagi Bar・作業状態と表示の分離・通常UIの非LLM依存を承認。具体モード・UI・技術・段階割当てはPROVISIONAL。 |
 | 2026-11-25 | GUI ToolkitのB案をユーザーが承認。既存nagi-uiを出発点に独自UI契約・標準部品を発展させ、汎用処理は適合OSSを再利用する。個別Toolkit・依存・性能・研究着手・版はPROVISIONAL。 |
+| 2026-11-25 | 共通2D描画APIと既存OSS活用の方針をユーザーが承認。個別OSSの採否・描画方式・性能・着手・提供版はPROVISIONAL。 |
