@@ -211,7 +211,9 @@ PT-02〜06の実施順序は上の表を基準案とするが、既存SDKの進�
 
 **将来C:** 許可された成果と変更履歴に基づくSDK／依存の互換性確認、Nagi対応版の継続保守、更新Packageの検証・配布準備を支援する方向。ただしStore唯一化、署名／Update／一般公開の自動許可、移植成功・配布品質保証はしない。0.2 M12／M21正本、Release／Activation／AcceptanceとWorkstream ownerは変更しない。
 
-**PROVISIONAL／OPEN:** 最初の対応言語／Framework・移植元サンプル、具体SDK/API・CLI／IDE連携、Local／CloudのModel／Provider・Bridge Schema、PT間の成果形式、Package／署名／Store等の詳細フロー、測定性能／工数・提供Version／実装順序。非AI診断・現在の権限・host／Target受入の分離は未決事項に戻さない。
+**PROVISIONAL／OPEN:** 初期重点言語ごとの対応範囲／Framework・移植元サンプル、具体SDK/API・CLI／IDE連携、Local／CloudのModel／Provider・Bridge Schema、PT間の成果形式、Package／署名／Store等の詳細フロー、測定性能／工数・提供Version／実装順序。非AI診断・現在の権限・host／Target受入の分離は未決事項に戻さない。
+
+**2026-11-25追記:** [DEC-017の2026-11-25追加合意](DEC-017-third-party-developer-ecosystem.md#2026-11-25-追加合意--公開sdk統合支援外部配布) により、`builder` RoleとPorting Toolkitは、現に利用できる公開APIとアプリの統合状況を照合し、Level 0〜3の任意の段階統合を支援する。初期はRust／C／C++を重視し、具体的な言語別対応、C ABI／wrapper、診断結果の形式はPROVISIONAL。PT-01〜06の既存の役割・承認範囲とHost／Targetの検証区分に従う。
 
 ## 例外・禁止・安全境界
 

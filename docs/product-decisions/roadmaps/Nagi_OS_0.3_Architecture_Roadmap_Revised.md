@@ -40,6 +40,10 @@ Profile／model-independent Canonical Memory、Context/Event、型付きPublic A
 
 本書のMemory／Learning／Permission-filtered Contextと接続するが、潜在的な用事を探す新たな監視・収集や無断の閲覧・保存・外部送信・購入を認めない。具体的データソース、集中／区切りの検知、下書き自動生成条件、保存・保持・削除、学習評価・UI・頻度・モデル・省電力・提供版はPROVISIONAL／OPEN。0.3必須機能への追加割当て、実装開始・受入完了を意味せず、§26／28／34の既存Gate・Acceptanceは変更しない。
 
+## 製品ロードマップ再編との関係（2026-11-25）
+
+[版別重点案](Nagi_OS_0.5-1.0_Master_Roadmap.md#版別の重点案)の「Personal Intelligence」は暫定名称。Personal Agentの§26・§28・§34.11、§19のProfile Backup／Restore、[DEC-013](../DEC-013-lightweight-memory-engine-benchmark.md)／[DEC-020](../DEC-020-ai-os-interaction-path.md)の先行評価は既存の条件に従う。Memory／Persona／SecretとProfile移行を次の詳細設計の入力とする。Personaの追加案とF16はそれぞれ[PR #249](https://github.com/Roy-To/NagiOS/pull/249)・[PR #251](https://github.com/Roy-To/NagiOS/pull/251)の範囲を参照する。
+
 ## 1. Overview
 
 NAGI OS 0.3は、NAGIを「ローカルAIを搭載したOS」から、**ユーザーと継続的に関係を構築し、記憶・学習・行動履歴を保持しながら成長する Personal Agent OS** へ進化させるための世代と位置付ける。

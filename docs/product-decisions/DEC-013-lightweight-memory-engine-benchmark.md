@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（適応方針・評価方針）／PROVISIONAL（profile・技術選択・閾値）  
-**最終合意日:** 2026-11-05  
+**状態:** CONFIRMED（適応・評価方針、長期蓄積要件、SQLite初期実用経路・Rust独自DBの並行研究と条件付き置換）／PROVISIONAL（正式DB・置換時期・版・profile・具体技術・閾値・Refresh構想）\
+**最終合意日:** 2026-11-25\
 **対象:** 0.1中の先行設計・ホスト専用PoC、0.2 Forward Compatibility、0.3での正式Memory Engine実装  
 **関連:** DEC-003、DEC-004、DEC-005、DEC-007、`roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md`、`benchmarks/MEMORY-BENCH-01.md`
 
@@ -86,3 +86,48 @@ Nagi 0.3のMemory Engineは、特定世代の低スペック端末向けに固�
 [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)で、AI非必須のOS全体の電力・熱・負荷・背景資源管理をNagi Power（仮称）として採用した。Memory側は本書の検索経路選択とCanonical Memory保護を維持し、索引整備等もOSの通常資源契約に従う。OS全体の制御とMemory内の適応処理を重複した権限主体にせず接続する方針であり、Memory Resource Governor案のAPI・閾値・技術を確定するものではない。
 
 変更履歴: 2026-11-16 — DEC-067との役割分担を追記。既存Memory方針・0.3実装範囲・Gateは変更しない。
+
+## 2026-11-25 — 長期蓄積に対する容量・読出し性能の設計要件
+
+**CONFIRMED（ユーザー要件）:** 長期利用でMemoryが蓄積することによりストレージを圧迫したり、記憶読出しや通常OS操作が顕著に遅くなったりする設計を避ける。Memoryの容量と検索性能のスケーリングを重要な評価軸とし、前景応答性を維持する。DEC-004の保護・自然忘却・明示的忘却、DEC-003の分類・所有・Permission、DEC-005の原本／閲覧記憶境界、DEC-057のPersona／Secret方針（関連PR #249、統合時に照合）を性能や容量の都合で弱めない。
+
+**PROVISIONAL — 設計・検証候補（数値や方式の採用決定ではない）**
+
+- Canonical Memoryを短い構造化された知識・事実・習慣として管理し、原本や全文ログを無制限に複製しない。参照・重複整理・出典保持・圧縮は安全な所有／分類境界内で検証する。検索用Index、Embedding、Cache、Browsing Archive、監査等の容量を区別し、合計の実ディスク使用量、更新／圧縮時の一時領域、バックアップ等の別管理領域も見える形で測定する。
+- 端末全体の空き容量とProfile等の使用量に応じた容量予算・通知・可視化、派生Index／Cacheの再生成可能な整理、低重要度の未保護データの既存Retentionに基づく整理を検討する。保護データで予算を満たせない場合は、無断削除ではなく新規の任意保存の抑制・ユーザー選択等を検討する。上限の具体値・設定UI・優先順は未確定。
+- 現行PermissionとPersona／Secretの適用境界を検索前に評価し、許可された範囲のmetadata／全文索引等で候補を限定し、必要時のみsemantic検索・reranking・追加取得を行う。通常の依頼で全記憶を読み込む設計や全履歴をLLMへ投入する設計を避ける。検索・Contextの候補数／時間／RAM／Token予算、Active／Archiveの検索経路、更新の差分反映、背景の整理・Index更新を予算化する案を比較する。前景優先、失敗・圧迫時の安全なfallbackは既存方針を維持。
+- MEMORY-BENCH-01の1k／10k／100kを維持し、1M件級の大規模・長期利用相当の合成データ、短文以外の実用的な長さ分布、日本語／英語、Persona／Secret、複数Profile、Archive、削除・更新・再起動・復元・容量逼迫、同時前景負荷を追加する案。データ件数と実バイト、インデックス増分・書込増幅・一時領域、cold/warm p50/p95/p99、Context構築とLLM推論の分離、RAM、正答率、漏えいゼロ、長期間の増加率を測定する。数値合格条件と機器は実測後のImplementation Specで決定する。
+- 2026-11-04のhost-only A/B smokeは100k件でDB 25.68 MiB、B p95検索＋Context 0.1501 msを記録した（同一DB/cache/process、短い合成データ、容易なanchor検索）。物理compaction、C、実用多言語意味検索、LLM推論、実機/QEMUは未測定。製品容量・実機速度・長期スケーリングの保証や採用判断には用いない。
+
+具体的な容量上限、技術、保持／削除条件、性能閾値、提供版はPROVISIONAL。既存の先行検証と正式Runtime実装の境界を維持する。本追記は新たな作業開始許可・受入済み・Gate変更ではない。
+
+変更履歴: 2026-11-25 — 長期記憶蓄積に伴うストレージ圧迫・検索性能劣化の回避を設計要件とし、容量予算・検索予算・大規模検証案をPROVISIONALで追加。
+
+## 2026-11-25 — Nagi Refresh（仮称）：定期的なMemory最適化構想
+
+**PROVISIONAL（ユーザー提案、効果検証を条件とする採用候補）:** 記憶の整理・最適化で検索／Context構築の効率向上が得られる場合、OSの更新に似た定期メンテナンス機能「Refresh」（仮称）を設け、利用者がPCを使用しない時間やシャットダウン前に計算資源を活用してMemoryを整理する構想。既存DEC-067のAutomation Mode（正式採用は未確定）、DEC-082の電源遷移協調、0.3のProfile-scoped JobsおよびMemory Resource Governor案に接続する。電源断後の通常CPU／GPUで実行できるとの前提を置かない。
+
+**REVIEW NOTE／PROVISIONAL（具体設計案）**
+
+- 小規模な差分更新・索引mergeは平常時に低負荷で行い、重い整理は必要性を評価したうえでアイドル時・充電時・利用者が選択した「Refreshしてシャットダウン」等へ回す案。通常終了を無期限に遅延させず、スキップ・取消・時間上限・中断後の安全な再開を検討する。実行頻度、開始条件、AC／電池条件、資源配分、安全限界、既定設定、手動実行UIは未確定。Nagi Powerの熱・電力・OS機能維持、Lifecycle Coordinatorの保存・停止順序を優先し、無制限の資源占有を許さない。
+- 第1段階は決定論的なDB／索引保守、空き領域回収、再生成可能な派生物の整理。第2段階は既存Retentionに沿うArchive、重複・矛盾候補の検出、出典・分類を保った構造化／圧縮や重み再評価など。LLMは必要な作業のみに利用し、AI提案をそのままCanonical Memoryの変更や削除へ結び付けない。Secret・Persona・Profileの境界、保護指定・明示忘却、Source・Permission・外部送信の既存規則をすべて維持する。
+- 作業前の空き容量予算、整合性検証、段階的な更新、取引的または世代単位の安全な切替、電源断／中断時に有効な旧状態または安全なfallbackを維持する案。古い索引／バックアップから失効・忘却済み情報を復活させない。保守を口実に無断の永久削除、外部送信、追加監視、Task権限拡張を行わない。
+- MEMORY-BENCH-01の既存候補に対し、同一データ・同一問い合わせでRefresh前後の容量、cold/warm p95/p99検索時間、Context量、関連性、出典の保持、誤統合、圧縮・再索引所要時間、最大一時ディスク使用量、RAM、電力／熱・前景遅延を比較する案。中断・再起動・容量不足、Persona／Secret分離、忘却状態の再出現防止も評価。安全条件を満たし実測で利益のある最適化だけを採用する。検索改善率・容量・時間・頻度は未確定。2026-11-04のhost smokeは物理compaction未測定であり、Refreshの効果や採用を証明していない。
+
+本記録は条件付き構想と検証案であり、正式採用、実装着手、提供版、既存Release／Activation／Acceptance Gateの変更を意味しない。
+
+変更履歴: 2026-11-25 — 効果を条件とする定期的Memory最適化Refresh構想をPROVISIONALで追加。Automation Mode・電源遷移・既存Jobsとの連携、最適化前後の比較、安全な中断条件を設計候補として整理。
+
+## 2026-11-25 — SQLiteを初期実用経路とし、Rust製Memory専用DBを並行研究
+
+**CONFIRMED（ユーザー明示合意「その方針でいこう」）**
+
+1. **本線:** Memory機能はSQLiteを使う初期実用経路で開発する。SQLiteを比較のbaselineにも使い、独自DBの完成待ちで本線を止めない。
+2. **研究線:** RustでNagi Memory専用の独自DBを並行研究する。0.3の完了を待たず、空きCodex枠で許可済み範囲の独立host-only PoCを先行できるようにする。対象はMemoryに絞り、汎用SQL互換を目標に含めない。独自DBは0.3完了条件にも、Linux版0.1 Developer Previewの公開条件にも加えない。
+3. **評価線:** SQLiteと候補を同一データ・同一ワークロードで比較し、検索品質、認可、忘却を同等に保った条件で性能・容量・耐久性を実測する。十分な性能と信頼性、安全な移行・復元を検証できた段階で、正式審査を経て置換する。性能優位だけで置換を決めず、移行失敗時にSQLiteで安全に継続できる経路を検証する。
+
+**PROVISIONAL:** 正式な物理DB採用、置換時期・提供版、数値閾値、Storage契約の詳細、具体データ構造・索引・永続化形式は未決定。[0.3改訂ロードマップ §26–28](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md#26-gate-for-03-implementation-spec)に従って正式仕様と受入を判断する。
+
+**開始境界:** 合意の対象は研究方向と早期PoCの方針。個別Workstreamの登録、Integration Ownerによる担当・基点・許可パスとhost開始範囲の承認、既存Release／Activation／Acceptance Gateに従う。正式0.3 runtimeは既存の実装許可が必要。研究提案と比較手順は [MEMDB-RD-01（仮）](../workstreams/NagiOS_MEMDB-RD-01_Registration_Proposal.md) を参照。
+
+変更履歴: 2026-11-25 — SQLiteの初期実用経路・比較baseline、Rust製Memory専用DBの並行先行研究、実測・安全性・移行検証を条件とする置換方針をCONFIRMEDとして追記。

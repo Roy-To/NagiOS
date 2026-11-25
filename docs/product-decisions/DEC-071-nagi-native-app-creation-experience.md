@@ -1,7 +1,7 @@
 # DEC-071 — 初心者向けNagi Native App制作体験
 
-**状態:** CONFIRMED（既存の初心者向け自然言語・ローカルLLM制作／試用・導入・共有の将来方向、PX-13の対話型共同制作B＋将来の継続的・個人適応型共同制作C、当面はローカル完結型制作環境よりCloud AIとの橋渡し・移植支援を重視する優先方向）／PROVISIONAL（画面・Preview・修正導線・Memory許可UI、Cloud接続・Provider／データ交換方式・モデル／SDK／技術・性能・具体版・受入）
-**最終合意日:** 2026-11-17（PX-13と優先順位を後続確認。2026-11-15の制作構想は長期方針として維持）
+**状態:** CONFIRMED（既存の初心者向け自然言語・ローカルLLM制作／試用・導入・共有の将来方向、PX-13の対話型共同制作B＋将来の継続的・個人適応型共同制作C、当面はローカル完結型制作環境よりCloud AIとの橋渡し・移植支援を重視する優先方向、初心者を含む開発参加の拡大と共通化・創作自由の両立）／PROVISIONAL（画面・Preview・修正導線・Memory許可UI、Cloud接続・Provider／データ交換方式・モデル／SDK／技術・性能・具体版・受入）
+**最終合意日:** 2026-11-25（開発参加の裾野と創作の自由を追加。2026-11-17のPX-13優先順位と2026-11-15の制作構想を維持）
 **適用候補:** 将来のNagi Native App制作・開発者／配布環境。高度な統合制作体験は低優先の長期目標（1.0計画のごく後期が目安）とし、release確約・実装時期は未確定
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-053（AI Task開始前の復元可能性表示）](DEC-053-ai-task-recovery-preview.md)、[DEC-075（アプリ試用・導入）](DEC-075-builder-app-trial-and-installation.md)、[DEC-036（共有・公開）](DEC-036-builder-app-sharing-and-publication.md)、[DEC-040（開発Project保存）](DEC-040-builder-app-development-project-retention.md)、[DEC-076（Action API連携）](DEC-076-builder-generated-action-api-integration.md)、[DEC-045（Nagi Porting Toolkit）](DEC-045-nagi-porting-toolkit.md)、[DEC-043（独立OS方針）](DEC-043-nagi-userland-independent-os.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -59,6 +59,15 @@
 - Memory参照の選択・許可・取消・レビューの詳細UI、個人向け設計案の生成・表示、開発Project保存／後日再発見のUI、独立した配布／正式更新手順のUI。
 - 具体的な完成時期と対象Version、1.0との関係、担当・Workstream・優先度の実行計画、品質基準・Acceptance、正式リリース判断。
 
+### 2026-11-25 — 開発参加の裾野と創作の自由
+
+**CONFIRMED — 開発者エコシステムの製品理念:** ソフトウェア開発を専門知識を持つプログラマーだけの活動とせず、プログラミング未経験者（Hello, worldを書いたことのない人を含む）も、自然言語やAIの支援を受けて実際のアプリケーション開発に参画できる世界の礎となることを目指す。あらかじめ用意された部品の組み換えだけに制作を閉じ込めず、ソフトウェア開発の喜びと創作の自由を重視する。Platformの共通化による負担軽減と、開発者が独自機能・設計を追求できる自由度を両立させる。
+
+既存のDEC-017（公開SDK・Level 0〜3・純正と第三者の共通公開契約）、DEC-045（既存IDE・移植・手動／AI開発）、DEC-040（開発Projectの保護・長期保持）、DEC-076（Action APIの任意の深い統合）を維持する。AI利用や共通部品の選択を一律に強制しない。自由な制作はNative App契約、現行Permission／Capability／Policy、正規Package検証、試用・正式導入・外部送信・公開の別認可を迂回する自由を意味しない。
+
+**PROVISIONAL — 具体化の候補:** 同一の開発Projectについて自然言語・視覚的な設計確認・通常のソース編集・既存IDE／ツールチェーンを行き来できる体験、利用者が扱えるソースの保存・持ち出し・共同開発、任意の共通UI／編集／描画／データ処理等の部品と独自UI・ロジック・データ構造の組合せ、AIが参照できる公開契約と初心者向けの説明・検証支援。テンプレートや視覚的な操作は入口として利用できるが唯一の制作手段としない方向を検討する。具体的なAPI、Frameworkの構成・名称、言語／ツール対応、ソース管理・Export仕様、UI・Preview・品質指標・提供版は未確定。既存PX-13のCloud AI／既存IDEとの橋渡し・移植支援優先と高度な統合IDE後順位、DEC-017の公開開発者環境目標、0.2 M07／M17／M21／M22の既存契約、既存Release／Activation／Acceptance GateとWorkstream ownerを維持する。実装開始・完成・提供版を約束しない。
+
+
 ## 差別化の候補（REVIEW NOTE／PROVISIONAL）
 
 2026-11-15に確認したGoogle公式情報では、対応するChromebookのLinux環境で開発者がCLI、コードエディタ、IDEを導入してアプリを作れる。Googleはさらに、Googlebook上のAntigravityをアプリのbuild／test／deployに使えるAI開発環境として紹介し、Gemini Canvasによるスケッチからのアプリ生成とPreview、Google AI Studioのfull-stack vibe codingも公表している。したがって「自然言語でコードを作る」「生成結果をPreviewする」だけでは、Nagi独自の価値を説明しにくい。
@@ -108,6 +117,7 @@ DEC-017が定める1.0に向けた公開開発者環境とアプリ配布基盤�
 | 2026-11-15 | ユーザーが、ローカルLLMを使い初心者が自然言語から小規模なNagi Native Appを作成し、試用・正式導入・共有／配布できる純正体験を望む方向を確認。製品形態、実装・配布方式、モデル条件、適用版は暫定として分離した。 |
 | 2026-11-16 | PR #110の旧DEC-052をDEC-071へ改番。mainの実機候補DEC-052との番号競合を解消。決定内容・状態・原合意日を保持。 |
 | 2026-11-17 | PX-13は対話型共同制作Bを基本・将来の個人適応型継続制作Cを高水準CONFIRMED。ただし当面はローカル完結型の制作環境完成を急がず、ローカルLLMをNagi SDK／移植診断とCloud AI／既存IDE・人間との安全な橋渡しに活用する方向を優先。独立した高度な制作環境は1.0計画の最終盤を目安とする低優先長期目標（提供Version・時期はPROVISIONAL）とし、DEC-017の1.0公開開発者環境／配布基盤目標、DEC-002の事前許可、既存試用・導入・更新・共有Gateを維持。 |
+| 2026-11-25 | 専門知識のない人もAI支援で実際のアプリ開発に参加できる世界の礎となる理念、閉じた部品組換えに制限しない共通化と創作自由の両立をCONFIRMED。具体的な開発UI・Framework・API・提供版はPROVISIONAL。既存の安全契約と優先順位は維持。 |
 
 関連する個人化の追加決定は[DEC-070](DEC-070-memory-informed-native-app-creation.md)を参照。初心者向け制作という共通方針を共有し、Memory利用の別決定を置き換えない。
 

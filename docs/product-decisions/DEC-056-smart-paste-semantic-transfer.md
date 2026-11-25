@@ -1,13 +1,13 @@
 # DEC-056 — Smart Paste：意味付きコピー＆ペースト／ドラッグ＆ドロップ
 
-**状態:** CONFIRMED（従来操作・意味付き転送・出典／参照と選択式の既存方針、PX-12の貼り付け方式を案内する統合体験B＋将来の高度なアプリ横断ワークフローCという高水準方針）／PROVISIONAL（初期アプリ組合せ、コピー／参照の既定方式、詳細UI／プレビュー・Clipboard／Transfer契約・Fallback制御の細部・技術・性能・提供版）  
-**決定日:** 2026-11-17（PX-12追加。2026-11-16の既存合意を維持）  
+**状態:** CONFIRMED（通常操作と選択式の意味付き転送、出典・変更検知・更新提案、OS／純正アプリの非AI機能を中心とするPX-12の統合体験B＋将来の高度なアプリ横断ワークフローC）／PROVISIONAL（初期出荷の組合せ、E2E検証の詳細、既定方式、操作UI・ショートカット、Transfer API・性能・提供版）\
+**最終決定日:** 2026-11-25（PX-12の基本体験と非AIの製品方針を補足）\
 **対象:** Nagi OSでのコピー＆ペースト／ドラッグ＆ドロップによる、純正アプリを中心としたアプリ間データ転送。実装開始・対応版を承認するものではない。  
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-023](DEC-023-work-data-centric-os.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-026](DEC-026-ai-change-verification-and-recovery.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Projectフォルダ決定のPR #114](https://github.com/Roy-To/NagiOS/pull/114)、[0.3 Architecture Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
 ## 目的
 
-日常のマウス／キーボードによるコピー＆ペースト、ドラッグ＆ドロップそのものを、Nagi OSのAI組み込み体験の一部とする。ユーザーが毎回AIへ自然言語で指示しなくても、対応する純正アプリ間では、選択した情報の意味や参照関係に応じた貼り付け・利用方法を選べるようにする。通常のGUI操作とアプリ単独利用は維持する。
+日常のマウス／キーボード操作を起点に、対応する純正アプリ間で、選択した情報の意味や参照関係に応じた転送方法を選べるようにする。Smart PasteはOSとアプリが共通のデータ契約を使うことで、AIを無効にした状態でも役立つ統合機能とする。
 
 ## 合意事項（CONFIRMED）
 
@@ -50,6 +50,30 @@ B案のユーザーによる方式選択を保ち、既に許可されたProject
 - Clipboard／Drag-and-DropのTransfer Schema、Object互換性・元参照の寿命、Fallback手段と具体制御・非対応時の変換、第三者SDK、Provider・Context／Permission・Revisionの具体的接続。
 - データ更新と多アプリTaskのPartial／Conflict／Recovery表示、AI推論の適用条件、モデル・技術方式、性能・安全性・正確性のAcceptance基準、実装順序／Workstream／提供Version。既存の明示許可と限定fallbackはPROVISIONALに戻さない。
 
+## PX-12 — Smart Pasteの基本体験と非AIの製品方針（2026-11-25）
+
+### 基本体験（CONFIRMED）
+
+- **通常操作と方式選択。** 従来の Ctrl+V とドラッグ＆ドロップを妨げず、対応するデータと貼り付け先で使える方式を案内する。ユーザーは、元データから独立した通常コピー、編集可能な表などの構造化転送、グラフ化などの変換、元データへの明示的な連動参照から選べる。
+- **出典と変更への対応。** 確認でき、開示を許された出典・参照情報を保持する。連動参照では、許可された元データの変更を検知し、影響する成果物の更新を提案する。反映はユーザーの選択を基本とし、自動更新は[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)の事前承認済みTaskの範囲と実行時の再検証に従う。
+- **OSとアプリが担う機能。** 通常コピー、対応形式の構造化転送、出典・参照管理、変更検知は、AIなしで利用できるOS／アプリ機能として扱う。定型的な変換は通常の処理で行い、グラフやレイアウトの推薦、要約・再構成などで推論が役立つ場合に、許可された範囲で補助的にAIを利用できる。
+- **権限と外部作用。** [Project](DEC-055-project-folder-cross-app-context.md)で参照関係を扱うときも、現在のPermission／Policyと許可された作業範囲を適用する。Persona／Secretの利用境界は、本文だけでなく出典のファイル名・URL・タイトルや候補表示にも適用し、通常の候補へ無断で露出させない。送信・共有・公開、Cloud AIへの送信には既存の認可と確認を適用する。AI支援が外部由来の内容を扱う場合は[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)に従う。
+
+**製品方針。** AIを利用しない状態でも日常作業が快適に進むよう、OS単体の利便性と純正アプリ間の統合を積極的に改善する。Smart Pasteはその具体例とする。[DEC-009](DEC-009-nagi-first-home-desktop.md)の通常GUI、[DEC-020](DEC-020-ai-os-interaction-path.md)の処理分担、[DEC-023](DEC-023-work-data-centric-os.md)の作業・データ中心設計を前提とする。
+
+### 初期候補と優先検証案（PROVISIONAL）
+
+| コピー元 | 貼り付け先 | 検討する転送 |
+|---|---|---|
+| Sheets | Slides／Writer | 編集可能な表、グラフ、連動参照 |
+| Albert | Writer／Notes | 出典付き引用 |
+| Notes | Writer | メモや引用を出典付きで転送 |
+| PDF | Sheets／Writer／Notes | Sheetsへ表抽出、Writer／Notesへページ番号付き引用 |
+| 画像（Files等） | Slides | 画像挿入、レイアウト・キャプション候補 |
+| Calendar | Writer／Notes | 日程・予定表の挿入 |
+
+[純正アプリ実装仕様の§68–69](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md#68-workflow-a-web-research---notes---writer)に沿って、**Web調査（Albert）→ Notes → Writer**と**CSV → Sheets → Slides**を優先E2E候補とする。初期出荷の組合せ、対応形式、通常貼り付け時の既定方式、操作UI・ショートカット、具体API・検証条件・提供版は引き続きPROVISIONAL。個別の新機能の採用、実装開始、Release／Activation／Acceptance Gateの変更には別途決定を要する。
+
 ## 権限・データ保護と既存決定の維持（CONFIRMED）
 
 - コピー・ドラッグの発生、Resource IDの所有、同一Project所属、出典Metadataの取得は、別アプリの全文取得・機密Memory参照・権限拡張・クラウド送信・無断改変を許可しない。コピー元／貼り付け先の現行Permission／Policy、Object／ResourceのRevision、正規Context／Public Action／Provider契約を尊重する。
@@ -72,6 +96,7 @@ B案のユーザーによる方式選択を保ち、既に許可されたProject
 |---|---|
 | 2026-11-16 | ユーザーがSmart Paste構想を採用。純正アプリ間の意味付きコピー／ドラッグ、Sheets→Slidesの表・グラフ／参照、Albert→Writerの出典付き引用、画像→Slidesの候補提示、通常GUI維持、Project連携の方向をCONFIRMED。名称・実装詳細・Photos・適用版はPROVISIONAL。 |
 | 2026-11-17 | PX-12で貼り付け方式を分かりやすく案内する統合Smart Paste体験Bと、将来の高度なアプリ横断ワークフローCを高水準でCONFIRMED。DEC-025／027の既存方式A、DEC-056の既存体験・通常GUI・権限／承認を維持。最初の対応App組合せ、既定のコピー／参照、詳細UI・Transfer契約・fallback制御・技術・性能・提供版はPROVISIONAL。 |
+| 2026-11-25 | PX-12で通常操作と四つの転送方式の選択、出典・変更検知・更新提案、OS／純正アプリの非AI機能を重視する製品方針をCONFIRMED。初期の連携候補と優先E2E案、出荷範囲・操作UI・ショートカット・API・提供版はPROVISIONAL。 |
 
 ## 関連決定の参照注記（2026-11-21）
 
