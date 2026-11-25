@@ -144,10 +144,14 @@ SH
     printf 'Installed private BSD readlink -m compatibility shim: %s\n' "$compat_dir/readlink"
 fi
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    sed_bin=$(command -v sed)
-    cp_bin=$(command -v cp)
-    install_bin=$(command -v install)
     compat_dir="$output_dir/host-compat"
+    native_path="$PATH"
+    case "$native_path" in
+        "$compat_dir":*) native_path=${native_path#"$compat_dir":} ;;
+    esac
+    sed_bin=$(PATH="$native_path" command -v sed)
+    cp_bin=$(PATH="$native_path" command -v cp)
+    install_bin=$(PATH="$native_path" command -v install)
     mkdir -p "$compat_dir"
     for shim in sed cp clang-host install; do
         if [[ -f "$compat_dir/$shim" && ! -L "$compat_dir/$shim" ]]; then
