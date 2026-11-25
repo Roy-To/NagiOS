@@ -1,6 +1,6 @@
 # DEC-126 — Writer／Sheets／Slidesの標準保存形式とOffice互換
 
-**状態:** CONFIRMED（B案：Nagi独自の公開Native形式を標準保存形式とし、Office形式の入出力を提供する方向、共通コンテナによる再利用と内部表現の柔軟性）／PROVISIONAL（拡張子、コンテナ／Schema、互換性の具体範囲、実装順・性能・提供版）
+**状態:** CONFIRMED（B案：Nagi独自の公開Native形式を標準保存形式とし、Office形式の入出力を提供する方向、共通コンテナによる再利用と内部表現の柔軟性、Office互換のOSS活用と編集／アプリ間連携への重点投入）／PROVISIONAL（拡張子、コンテナ／Schema、互換性の具体範囲、実装順・性能・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Writer、Sheets、Slides。個別機能の提供版は未確定。
 **関連:** [DEC-021](DEC-021-roadmap-0.5-1.0.md)、[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-056](DEC-056-smart-paste-semantic-transfer.md)、[DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)、[純正アプリ実装仕様 §40、57–59](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
@@ -42,9 +42,20 @@
 - 現在の文書と文書内のコメント・レビュー情報、OS側のWayback／Activity履歴、再生成可能な検索Index／preview、復旧用一時データを区別し、過去の全版を文書に無制限に蓄積しない設計を検討する。共有・Exportにおける機密メタデータの漏えい防止、現在の権限・分類を維持する。
 - 先行比較候補: 読み書き・Schema検証・version migration・添付／preview・安全な保存／復旧・Office変換。大容量／部分更新、RAM・一時容量・性能、破損／容量不足／中断、不正入力（展開上限、path traversal等）、互換性を検証する。既存DEC-088／090、Release／Activation／Acceptance Gate、Workstream ownerと開始条件を維持する。具体技術の採用・実装開始・提供版の確約ではない。
 
+## 2026-11-25 — Office互換への既存OSS活用と独自開発の重点
+
+**CONFIRMED（開発方針）:** 既存OSSでOffice形式の互換性を確保することを基本とし、Nagi独自の開発リソースは編集機能やアプリ間連携に重点投入する。適合するOSSを評価・再利用し、不足する機能を必要に応じて独自実装で補う。[DEC-081](DEC-081-nagi-owned-userland-selective-oss-components.md)の選択的OSS活用とNagi主体の設計を、Writer／Sheets／SlidesのOffice入出力にも適用する。Native形式を正本とする既存B案、非AIの通常編集、未対応機能の明示、元文書の保護、共通公開契約と現在の権限・分類・外部共有の境界は維持する。完全なOffice互換を保証しない。
+
+**PROVISIONAL（技術・検証候補）:**
+
+- Office変換をアプリ固有の編集・データモデルから分離するadapter、Rust製ライブラリ（docx-rs、calamine、rust_xlsxwriter、umya-spreadsheet等）の比較、共通ZIP／XML処理の再利用、LibreOffice等を開発時の比較・検証に用いる案。個別ライブラリ・バージョン・依存関係・ライセンス適合・配布・標準搭載の採否は未確定であり、ライブラリ説明だけで実装や互換性を証明しない。表計算形式の読書きと数式計算エンジンは別々に検証する。
+- 段階的な互換性マトリクス（基本データ、書式／レイアウト／数式／グラフ、コメント／レビュー等、往復変換・高度機能）、元ファイルの保護・変換不能の警告・外部参照やマクロの非自動実行、破損／不正入力・大容量入力への防御、RAM／速度／一時容量、再現可能なfixtureによる検証。Office互換の具体的対応範囲と合格基準は未確定。
+- 共通変換基盤、DOCX、XLSX、PPTX、互換性試験を独立した先行研究・検証の候補とする。既存のOwner／registry／許可範囲・Release／Activation／Acceptance条件に従う。今回の合意は特定ライブラリの採用、依存追加、Workstream着手、互換性試験成功、版割当ての承認ではない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-25 | B案（Nagi独自の公開Native形式を標準とし、Office形式を入出力）をユーザーが選択。具体拡張子・形式・互換範囲・版はPROVISIONAL。 |
 | 2026-11-25 | 既存技術を活用した共通コンテナと用途別内部表現の方向を追記。ZIP・JSON・バイナリ等の具体採用、保存構造・履歴分担・性能はPROVISIONAL。 |
+| 2026-11-25 | Office互換は既存OSSを活用し、Nagi独自の開発リソースは編集機能とアプリ間連携に重点投入する方針をユーザーが確認。個別ライブラリ・検証基準・実装順はPROVISIONAL。 |
