@@ -24,6 +24,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import task24_interactive_acceptance as runner
+import data_boot_config
 import task24_recovery_serials as recovery
 from task24_rfb_input import RfbKeyboard
 from task24_run_qemu_child import SerialMarkerWatcher
@@ -83,6 +84,24 @@ def _reject_serial() -> str:
     )) + "\n"
 
 
+def _newc_record(name: str, payload: bytes, *, inode: int, mode: int, nlink: int) -> bytes:
+    name_bytes = name.encode("ascii") + b"\0"
+    fields = [inode, mode, 0, 0, nlink, 0, len(payload), 0, 0, 0, 0, len(name_bytes), 0]
+    result = bytearray(b"070701" + b"".join(f"{value:08x}".encode("ascii") for value in fields))
+    result.extend(name_bytes)
+    result.extend(b"\0" * (-len(result) % 4))
+    result.extend(payload)
+    result.extend(b"\0" * (-len(result) % 4))
+    return bytes(result)
+
+
+def _synthetic_initramfs() -> bytes:
+    return (
+        _newc_record("init", b"synthetic init", inode=1, mode=stat.S_IFREG | 0o755, nlink=1)
+        + _newc_record("TRAILER!!!", b"", inode=0, mode=0, nlink=1)
+    )
+
+
 class Task24InteractiveAcceptanceTests(unittest.TestCase):
     def test_l9_validates_the_previous_logout_and_new_credential_attachment(self):
         phase = "password-login"
@@ -132,7 +151,7 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
         self.artifacts = {}
         for name, payload in (
             ("kernel", b"synthetic x86_64 kernel"),
-            ("initramfs", b"synthetic Task24 initramfs"),
+            ("initramfs", _synthetic_initramfs()),
             ("system_image", b"synthetic read-only System"),
         ):
             path = fixed / f"{name}.bin"
@@ -558,11 +577,11 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
             serial = f"NAGI-DATA-{self.data_uuid[:8]}"
             self.assertIn(f"virtio-blk-pci,drive=datadisk,serial={serial}", args)
             command_line = args[args.index("-append") + 1].split()
-            self.assertIn("nagi.dev_data.boot=identity", command_line)
-            self.assertIn(f"nagi.dev_data.serial={serial}", command_line)
-            self.assertIn(f"nagi.dev_data.fs_uuid={self.data_uuid}", command_line)
-            self.assertIn("nagi.dev_data.accounts=accounts", command_line)
-            self.assertIn("nagi.dev_data.snapshots=snapshots", command_line)
+            self.assertEqual(command_line[:2], ["console=ttyS0,115200n8", "rdinit=/init"])
+            self.assertFalse(any(token.startswith("nagi.dev_data.") for token in command_line))
+            configured_initramfs = Path(args[args.index("-initrd") + 1]).read_bytes()
+            selection = data_boot_config.extract_selection_config(configured_initramfs)
+            self.assertEqual(data_boot_config.selection_filesystem_uuid(selection), self.data_uuid)
             self.assertNotIn("-qmp", args)
             drives = [arg for arg in args if arg.startswith("if=none,file=")]
             self.assertEqual(len(drives), 2)

@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Start a prepared Nagi Linux development image in QEMU for interactive use.
 
-This is the developer entry point behind `./nagi run`. It does not build or
-sign anything. It reads a bundle directory prepared by the Linux image build
-(the same kernel, signed initramfs, read-only System image and Data image that
-the Task24 acceptance runner uses) and starts one QEMU guest with a window.
+This is the developer entry point behind `./nagi run`. It reads a bundle
+directory prepared by the Linux image build and starts one QEMU guest with a
+window. The bundle initramfs includes a separately signed development Data
+selection entry; the kernel command line carries no Data selector.
 
 Bundle layout (all regular files, no symlinks):
   bundle.json   {"schema": 1, "kernel": "...", "initramfs": "...",
                  "system_image": "...", "data_image": "...",
                  "data_uuid": "<canonical ext4 UUID>",
+                 "source_initramfs_sha256": "...",
+                 "data_selection_config_sha256": "...",
                  "sha256": {"kernel": "...", "initramfs": "...", "system_image": "..."}}
 Paths in bundle.json are file names relative to the bundle directory.
 
@@ -31,6 +33,8 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+
+import data_boot_config
 
 UUID_PATTERN = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -89,6 +93,17 @@ def load_bundle(directory: Path) -> dict:
     if not isinstance(data_uuid, str) or not UUID_PATTERN.fullmatch(data_uuid):
         raise BundleError("bundle.json data_uuid must be a canonical lowercase UUID")
     bundle["data_uuid"] = data_uuid
+    source_initramfs_sha256 = manifest.get("source_initramfs_sha256")
+    if not isinstance(source_initramfs_sha256, str) or not SHA256_PATTERN.fullmatch(source_initramfs_sha256):
+        raise BundleError("bundle.json source_initramfs_sha256 must be a lowercase SHA-256")
+    data_selection_config_sha256 = manifest.get("data_selection_config_sha256")
+    if (
+        not isinstance(data_selection_config_sha256, str)
+        or not SHA256_PATTERN.fullmatch(data_selection_config_sha256)
+    ):
+        raise BundleError("bundle.json data_selection_config_sha256 must be a lowercase SHA-256")
+    bundle["source_initramfs_sha256"] = source_initramfs_sha256
+    bundle["data_selection_config_sha256"] = data_selection_config_sha256
     expected = manifest.get("sha256")
     if not isinstance(expected, dict):
         raise BundleError("bundle.json sha256 must list kernel, initramfs and system_image")
@@ -98,6 +113,14 @@ def load_bundle(directory: Path) -> dict:
             raise BundleError(f"bundle.json sha256.{key} must be a lowercase SHA-256")
         if _sha256(bundle[key]) != value:
             raise BundleError(f"{key} does not match its recorded SHA-256")
+    try:
+        selection = data_boot_config.extract_selection_config(bundle["initramfs"].read_bytes())
+        if hashlib.sha256(selection).hexdigest() != data_selection_config_sha256:
+            raise BundleError("Data selection config does not match its recorded SHA-256")
+        if data_boot_config.selection_filesystem_uuid(selection) != data_uuid:
+            raise BundleError("signed Data selection UUID differs from bundle.json data_uuid")
+    except (data_boot_config.DataBootConfigError, ValueError) as error:
+        raise BundleError(f"initramfs Data selection config is invalid ({error})") from None
     for key in ("kernel", "initramfs", "system_image", "data_image"):
         if any(character in str(bundle[key]) for character in ",\n\r"):
             raise BundleError("bundle paths cannot contain commas or line breaks")
@@ -110,12 +133,7 @@ def default_display() -> str:
 
 def qemu_argv(qemu: str, bundle: dict, display: str) -> list[str]:
     data_serial = f"NAGI-DATA-{bundle['data_uuid'][:8]}"
-    kernel_cmdline = (
-        "console=ttyS0,115200n8 rdinit=/init "
-        f"nagi.dev_data.boot=identity nagi.dev_data.serial={data_serial} "
-        f"nagi.dev_data.fs_uuid={bundle['data_uuid']} "
-        "nagi.dev_data.accounts=accounts nagi.dev_data.snapshots=snapshots"
-    )
+    kernel_cmdline = "console=ttyS0,115200n8 rdinit=/init"
     return [
         qemu,
         "-name", "nagi-linux-dev",

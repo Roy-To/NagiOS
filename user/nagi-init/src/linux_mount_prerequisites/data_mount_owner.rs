@@ -1,7 +1,8 @@
 //! Development-only ext4 Data mount owner used by the dedicated Linux guest.
 //!
-//! The input is selected by both QEMU's virtio-blk serial and the ext4 UUID
-//! provisioned on the host. This module never formats, repairs, or initializes
+//! The input comes from a signed development selection file in initramfs; the
+//! configured UUID must match the ext4 UUID read from the selected block device.
+//! This module never formats, repairs, or initializes
 //! a device. The explicit development provisioning boot may create private
 //! identity and Task24 journal directories on a fresh development disk.
 //! It retains the mounted directory FD and does not authenticate a Profile
@@ -14,6 +15,7 @@ use crate::task24_c3_journal_bootstrap_contract::{
     is_fresh_development_data_root, DATA_BOOTSTRAP_MARKER_BYTES, DATA_BOOTSTRAP_MARKER_NAME,
     DATA_JOURNAL_DIRECTORY,
 };
+use nagi_data_boot_selection::{DataBootSelection, SelectionError, SelectionMode};
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -44,6 +46,7 @@ const EXT4_SUPERBLOCK_BYTES: usize = 1024;
 const EXT4_MAGIC_OFFSET: usize = 56;
 const EXT4_UUID_OFFSET: usize = 104;
 const EXPECTED_MOUNT_PATH: &str = "/run/nagi/dev-data";
+const SELECTION_CONFIG_PATH: &str = "/nagi-dev-data-selection.signed";
 const DEVICE_SYSFS_ROOT: &str = "/sys/block";
 const DEVICE_NODE_ROOT: &str = "/dev";
 const MARKER_NAME: &std::ffi::CStr = c"nagi-dev-data-persistence.txt";
@@ -74,14 +77,13 @@ enum SmokeMode {
 #[derive(Debug)]
 struct SmokeRequest {
     mode: SmokeMode,
-    device_serial: Option<String>,
-    filesystem_uuid: Option<String>,
+    filesystem_uuid: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DataMountError {
-    SelectionMissing,
     SelectionMalformed,
+    SelectionSignatureInvalid,
     DeviceNotFound,
     DeviceAmbiguous,
     DeviceChanged,
@@ -99,8 +101,8 @@ enum DataMountError {
 impl DataMountError {
     const fn label(self) -> &'static str {
         match self {
-            Self::SelectionMissing => "selection_missing",
             Self::SelectionMalformed => "selection_malformed",
+            Self::SelectionSignatureInvalid => "selection_signature_invalid",
             Self::DeviceNotFound => "device_not_found",
             Self::DeviceAmbiguous => "device_ambiguous",
             Self::DeviceChanged => "device_changed",
@@ -121,6 +123,7 @@ struct SelectedBlockDevice {
     name: String,
     path: CString,
     device_number: u64,
+    serial: String,
 }
 
 impl SelectedBlockDevice {
@@ -151,23 +154,19 @@ impl SelectedBlockDevice {
 pub(super) struct DevelopmentDataMountOwner {
     root: Option<File>,
     identity: DevelopmentBootVolumeIdentity,
+    device_serial: String,
     root_mount_id: u64,
     mount_id: u64,
     mounted: bool,
 }
 
 impl DevelopmentDataMountOwner {
-    fn mount(
-        device_serial: Option<&str>,
-        filesystem_uuid: Option<&str>,
-    ) -> Result<Self, DataMountError> {
-        let device_serial = device_serial.ok_or(DataMountError::SelectionMissing)?;
-        let filesystem_uuid = filesystem_uuid.ok_or(DataMountError::SelectionMissing)?;
-        if !valid_serial(device_serial) || !valid_uuid(filesystem_uuid) {
+    fn mount(filesystem_uuid: &str) -> Result<Self, DataMountError> {
+        if !valid_uuid(filesystem_uuid) {
             return Err(DataMountError::SelectionMalformed);
         }
 
-        let device = find_device_by_serial(device_serial)?;
+        let device = find_device_by_uuid(filesystem_uuid)?;
         let observed_uuid = read_ext4_uuid(&device)?;
         if observed_uuid != filesystem_uuid {
             return Err(DataMountError::FilesystemUuidMismatch);
@@ -216,10 +215,10 @@ impl DevelopmentDataMountOwner {
             return Err(DataMountError::MountVerificationFailed);
         }
 
-        // Verify the mounted root's actual device and recheck its selected
-        // serial/UUID before changing permissions through the retained FD.
+        // Verify the mounted root's actual device and recheck the signed UUID
+        // before changing permissions through the retained FD.
         secure_mounted_data_root(&root, device.device_number, || {
-            if find_device_by_serial(device_serial)?.name != device.name
+            if find_device_by_uuid(filesystem_uuid)?.name != device.name
                 || read_ext4_uuid(&device)? != filesystem_uuid
             {
                 return Err(DataMountError::DeviceChanged);
@@ -231,10 +230,11 @@ impl DevelopmentDataMountOwner {
         Ok(Self {
             root: Some(root),
             identity: DevelopmentBootVolumeIdentity::new(
-                device_serial.to_owned(),
+                device.serial.clone(),
                 filesystem_uuid.to_owned(),
                 mount_id,
             ),
+            device_serial: device.serial,
             root_mount_id,
             mount_id,
             mounted: true,
@@ -454,53 +454,22 @@ pub(in crate::linux_init) struct DevelopmentIdentityData {
 #[cfg(not(any(linux_dev_preview_smoke, nagi_release_build)))]
 pub(in crate::linux_init) fn mount_identity_data(
 ) -> Result<Option<DevelopmentIdentityData>, &'static str> {
-    let command_line = fs::read_to_string("/proc/cmdline")
-        .map_err(|_| DataMountError::SelectionMalformed.label())?;
-    let selected = || {
-        command_line
-            .split_ascii_whitespace()
-            .filter(|token| token.starts_with("nagi.dev_data."))
-    };
-    if !selected().any(|token| token.starts_with("nagi.dev_data.boot=")) {
+    let Some(bytes) = read_signed_selection_config().map_err(DataMountError::label)? else {
         return Ok(None);
-    }
-
-    let mut enabled = false;
-    let mut serial = None;
-    let mut uuid = None;
-    let mut accounts = None;
-    let mut snapshots = None;
-    for token in selected() {
-        match token.split_once('=') {
-            Some(("nagi.dev_data.boot", "identity")) if !enabled => enabled = true,
-            Some(("nagi.dev_data.serial", value)) if serial.is_none() => serial = Some(value),
-            Some(("nagi.dev_data.fs_uuid", value)) if uuid.is_none() => uuid = Some(value),
-            Some(("nagi.dev_data.accounts", value)) if accounts.is_none() => accounts = Some(value),
-            Some(("nagi.dev_data.snapshots", value)) if snapshots.is_none() => {
-                snapshots = Some(value)
-            }
-            _ => return Err(DataMountError::SelectionMalformed.label()),
-        }
-    }
-    let directories = |value: Option<&str>| {
-        let path = value
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .ok_or(DataMountError::SelectionMissing.label())?;
-        if !path
-            .components()
-            .all(|part| matches!(part, std::path::Component::Normal(_)))
-        {
-            return Err(DataMountError::SelectionMalformed.label());
-        }
-        Ok(path)
     };
-    let accounts = directories(accounts)?;
-    let snapshots = directories(snapshots)?;
+    let selection = DataBootSelection::verify(&bytes)
+        .map_err(selection_error)
+        .map_err(DataMountError::label)?;
+    if selection.mode != SelectionMode::Identity {
+        return Err(DataMountError::SelectionMalformed.label());
+    }
+    let accounts = PathBuf::from(selection.accounts);
+    let snapshots = PathBuf::from(selection.snapshots);
     if !identity_paths_avoid_data_journal(&accounts, &snapshots) {
         return Err(DataMountError::IdentityPathConflict.label());
     }
-    let mount = DevelopmentDataMountOwner::mount(serial, uuid).map_err(DataMountError::label)?;
+    let mount = DevelopmentDataMountOwner::mount(selection.filesystem_uuid)
+        .map_err(DataMountError::label)?;
     let input = mount.boot_volume_input().map_err(DataMountError::label)?;
     Ok(Some(DevelopmentIdentityData {
         input,
@@ -510,6 +479,45 @@ pub(in crate::linux_init) fn mount_identity_data(
         system_mount: None,
         _mount: mount,
     }))
+}
+
+fn read_signed_selection_config() -> Result<Option<Vec<u8>>, DataMountError> {
+    let file = match OpenOptions::new()
+        .read(true)
+        .custom_flags(O_CLOEXEC | O_NOFOLLOW)
+        .open(SELECTION_CONFIG_PATH)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(DataMountError::SelectionMalformed),
+    };
+    let metadata = file
+        .metadata()
+        .map_err(|_| DataMountError::SelectionMalformed)?;
+    if !metadata.is_file()
+        || metadata.len() <= nagi_data_boot_selection::SIGNATURE_BYTES as u64
+        || metadata.len() > nagi_data_boot_selection::MAX_CONFIG_BYTES as u64
+    {
+        return Err(DataMountError::SelectionMalformed);
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((nagi_data_boot_selection::MAX_CONFIG_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| DataMountError::SelectionMalformed)?;
+    if bytes.len() > nagi_data_boot_selection::MAX_CONFIG_BYTES {
+        return Err(DataMountError::SelectionMalformed);
+    }
+    Ok(Some(bytes))
+}
+
+fn selection_error(error: SelectionError) -> DataMountError {
+    match error {
+        SelectionError::InvalidLength | SelectionError::Malformed => {
+            DataMountError::SelectionMalformed
+        }
+        SelectionError::Signature => DataMountError::SelectionSignatureInvalid,
+        SelectionError::FilesystemUuidMismatch => DataMountError::FilesystemUuidMismatch,
+    }
 }
 
 #[cfg(all(linux_dev_system_mount, not(nagi_release_build)))]
@@ -587,51 +595,87 @@ impl Drop for MountRollback {
 }
 
 fn parse_smoke_request() -> Result<Option<SmokeRequest>, DataMountError> {
-    let command_line =
-        fs::read_to_string("/proc/cmdline").map_err(|_| DataMountError::SelectionMalformed)?;
-    let selected: Vec<&str> = command_line
-        .split_ascii_whitespace()
-        .filter(|token| token.starts_with("nagi.dev_data."))
-        .collect();
-    if selected.is_empty() {
+    let Some(bytes) = read_signed_selection_config()? else {
         return Ok(None);
-    }
-
-    let mut mode = None;
-    let mut device_serial = None;
-    let mut filesystem_uuid = None;
-    for token in selected {
-        let (key, value) = token
-            .split_once('=')
-            .ok_or(DataMountError::SelectionMalformed)?;
-        match key {
-            "nagi.dev_data.smoke" if mode.is_none() => {
-                mode = Some(match value {
-                    "write" => SmokeMode::Write,
-                    "read" => SmokeMode::Read,
-                    "reject" => SmokeMode::Reject,
-                    #[cfg(linux_dev_preview_smoke)]
-                    "provision-identity-directories" => SmokeMode::ProvisionIdentityDirectories,
-                    _ => return Err(DataMountError::SelectionMalformed),
-                });
+    };
+    let selection = DataBootSelection::verify(&bytes).map_err(selection_error)?;
+    let mode = match selection.mode {
+        SelectionMode::Identity => return Ok(None),
+        SelectionMode::SmokeWrite => SmokeMode::Write,
+        SelectionMode::SmokeRead => SmokeMode::Read,
+        SelectionMode::SmokeReject => SmokeMode::Reject,
+        SelectionMode::SmokeProvisionIdentityDirectories => {
+            #[cfg(linux_dev_preview_smoke)]
+            {
+                SmokeMode::ProvisionIdentityDirectories
             }
-            "nagi.dev_data.serial" if device_serial.is_none() => {
-                device_serial = Some(value.to_owned());
+            #[cfg(not(linux_dev_preview_smoke))]
+            {
+                return Err(DataMountError::SelectionMalformed);
             }
-            "nagi.dev_data.fs_uuid" if filesystem_uuid.is_none() => {
-                filesystem_uuid = Some(value.to_owned());
-            }
-            _ => return Err(DataMountError::SelectionMalformed),
         }
-    }
-    let mode = mode.ok_or(DataMountError::SelectionMissing)?;
+    };
     Ok(Some(SmokeRequest {
         mode,
-        device_serial,
-        filesystem_uuid,
+        filesystem_uuid: selection.filesystem_uuid.to_owned(),
     }))
 }
 
+fn find_device_by_uuid(expected_uuid: &str) -> Result<SelectedBlockDevice, DataMountError> {
+    let entries = fs::read_dir(DEVICE_SYSFS_ROOT).map_err(|_| DataMountError::DeviceNotFound)?;
+    let mut matches = Vec::new();
+    let mut found_ext4 = false;
+    for entry in entries {
+        let entry = entry.map_err(|_| DataMountError::DeviceNotFound)?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| DataMountError::DeviceNotFound)?;
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'!' | b'_' | b'-'))
+        {
+            continue;
+        }
+        let device_path = Path::new(DEVICE_NODE_ROOT).join(&name);
+        match fs::symlink_metadata(&device_path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(_) => return Err(DataMountError::DeviceNotFound),
+            Ok(metadata)
+                if metadata.file_type().is_symlink() || !metadata.file_type().is_block_device() =>
+            {
+                return Err(DataMountError::DeviceChanged)
+            }
+            Ok(_) => {}
+        }
+        let device = open_block_device(name)?;
+        match read_ext4_uuid(&device) {
+            Ok(observed_uuid) => {
+                found_ext4 = true;
+                if observed_uuid == expected_uuid {
+                    matches.push(device);
+                }
+            }
+            Err(DataMountError::NotExt4) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    if matches.is_empty() {
+        return Err(if found_ext4 {
+            DataMountError::FilesystemUuidMismatch
+        } else {
+            DataMountError::DeviceNotFound
+        });
+    }
+    if matches.len() != 1 {
+        return Err(DataMountError::DeviceAmbiguous);
+    }
+    matches.pop().ok_or(DataMountError::DeviceNotFound)
+}
+
+// The System fixture has its own fixed serial identity. Data selection never
+// uses this path; it is retained for the separate read-only System owner.
 fn find_device_by_serial(expected_serial: &str) -> Result<SelectedBlockDevice, DataMountError> {
     let entries = fs::read_dir(DEVICE_SYSFS_ROOT).map_err(|_| DataMountError::DeviceNotFound)?;
     let mut matches = Vec::new();
@@ -702,6 +746,54 @@ fn find_device_by_serial(expected_serial: &str) -> Result<SelectedBlockDevice, D
         name,
         path,
         device_number: actual_dev,
+        serial: expected_serial.to_owned(),
+    })
+}
+
+fn open_block_device(name: String) -> Result<SelectedBlockDevice, DataMountError> {
+    let device = Path::new(DEVICE_NODE_ROOT).join(&name);
+    let metadata = fs::symlink_metadata(&device).map_err(|_| DataMountError::DeviceNotFound)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_block_device() {
+        return Err(DataMountError::DeviceChanged);
+    }
+    let opened = OpenOptions::new()
+        .read(true)
+        .custom_flags(O_CLOEXEC | O_NOFOLLOW)
+        .open(&device)
+        .map_err(|_| DataMountError::DeviceNotFound)?;
+    if !opened
+        .metadata()
+        .map_err(|_| DataMountError::DeviceNotFound)?
+        .file_type()
+        .is_block_device()
+    {
+        return Err(DataMountError::DeviceChanged);
+    }
+    let sysfs_dev = fs::read_to_string(Path::new(DEVICE_SYSFS_ROOT).join(&name).join("dev"))
+        .map_err(|_| DataMountError::DeviceNotFound)?;
+    let (expected_major, expected_minor) = parse_major_minor(sysfs_dev.trim())?;
+    let actual_dev = opened
+        .metadata()
+        .map_err(|_| DataMountError::DeviceNotFound)?
+        .rdev();
+    if linux_device_major(actual_dev) != expected_major
+        || linux_device_minor(actual_dev) != expected_minor
+    {
+        return Err(DataMountError::DeviceChanged);
+    }
+    drop(opened);
+    let serial = fs::read_to_string(Path::new(DEVICE_SYSFS_ROOT).join(&name).join("serial"))
+        .map(|value| value.trim().to_owned())
+        .ok()
+        .filter(|value| valid_serial(value))
+        .unwrap_or_else(|| name.clone());
+    let path = CString::new(device.to_string_lossy().as_bytes())
+        .map_err(|_| DataMountError::DeviceChanged)?;
+    Ok(SelectedBlockDevice {
+        name,
+        path,
+        device_number: actual_dev,
+        serial,
     })
 }
 
@@ -888,7 +980,7 @@ fn hold_pid1() -> ! {
     }
 }
 
-/// Enter only when an explicit development-only kernel command-line mode is present.
+/// Enter only when a signed development-only Data selection file is present.
 pub(super) fn maybe_run_smoke() -> bool {
     let request = match parse_smoke_request() {
         Ok(None) => return false,
@@ -909,11 +1001,8 @@ fn run_smoke(request: SmokeRequest) -> ! {
         #[cfg(linux_dev_preview_smoke)]
         SmokeMode::ProvisionIdentityDirectories => {
             let result = (|| -> io::Result<()> {
-                let mut owner = DevelopmentDataMountOwner::mount(
-                    request.device_serial.as_deref(),
-                    request.filesystem_uuid.as_deref(),
-                )
-                .map_err(|error| io::Error::other(error.label()))?;
+                let mut owner = DevelopmentDataMountOwner::mount(&request.filesystem_uuid)
+                    .map_err(|error| io::Error::other(error.label()))?;
                 owner.provision_identity_directories()?;
                 owner
                     .end()
@@ -933,10 +1022,7 @@ fn run_smoke(request: SmokeRequest) -> ! {
             hold_pid1();
         }
         SmokeMode::Reject => {
-            match DevelopmentDataMountOwner::mount(
-                request.device_serial.as_deref(),
-                request.filesystem_uuid.as_deref(),
-            ) {
+            match DevelopmentDataMountOwner::mount(&request.filesystem_uuid) {
                 Ok(mut owner) => {
                     let _ = owner.end();
                     super::super::log_pid1_stderr(format_args!(
@@ -953,10 +1039,7 @@ fn run_smoke(request: SmokeRequest) -> ! {
             hold_pid1();
         }
         SmokeMode::Write | SmokeMode::Read => {
-            let mut owner = match DevelopmentDataMountOwner::mount(
-                request.device_serial.as_deref(),
-                request.filesystem_uuid.as_deref(),
-            ) {
+            let mut owner = match DevelopmentDataMountOwner::mount(&request.filesystem_uuid) {
                 Ok(owner) => owner,
                 Err(error) => {
                     super::super::log_pid1_stderr(format_args!(
@@ -1022,8 +1105,8 @@ fn run_smoke(request: SmokeRequest) -> ! {
             super::super::log_pid1_stderr(format_args!(
                 "NAGI_DEV_DATA_OWNER_PASS phase={} serial={} uuid={} mount_id={} retained_fd=true same_volume_notes_input=true notes_pending=true owner_ended=true",
                 smoke_mode_name(request.mode),
-                request.device_serial.as_deref().unwrap_or("<missing>"),
-                request.filesystem_uuid.as_deref().unwrap_or("<missing>"),
+                owner.device_serial,
+                request.filesystem_uuid,
                 owner.mount_id
             ));
             hold_pid1();

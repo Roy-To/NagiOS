@@ -22,6 +22,7 @@ import stat
 import sys
 from pathlib import Path
 
+import data_boot_config
 from run_dev_image import BundleError, SHA256_PATTERN, UUID_PATTERN, _sha256
 
 MAX_PREFLIGHT_BYTES = 1 << 20
@@ -87,20 +88,37 @@ def make_bundle(run_directory: Path, output: Path) -> Path:
         "schema": 1,
         **names,
         "data_uuid": source["data_uuid"],
-        "sha256": {key: source[key][1] for key in ("kernel", "initramfs", "system_image")},
+        "source_initramfs_sha256": source["initramfs"][1],
+        "data_selection_config_sha256": None,
+        "sha256": {},
         "source_run": run_directory.name,
     }
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     try:
         for key, name in names.items():
             path = source[key][0] if key != "data_image" else data_image
-            shutil.copyfile(path, output / name)
             if key == "data_image":
+                shutil.copyfile(path, output / name)
                 (output / name).chmod(0o600)
-            elif _sha256(output / name) != source[key][1]:
-                raise BundleError(f"{key} changed while copying the bundle")
+            elif key == "initramfs":
+                if _sha256(path) != source[key][1]:
+                    raise BundleError("initramfs does not match the SHA-256 recorded in preflight.json")
+                initramfs_sha256, config_sha256 = data_boot_config.write_configured_initramfs(
+                    path,
+                    output / name,
+                    source["data_uuid"],
+                )
+                bundle["data_selection_config_sha256"] = config_sha256
+                bundle["sha256"][key] = initramfs_sha256
+            else:
+                shutil.copyfile(path, output / name)
+                if _sha256(output / name) != source[key][1]:
+                    raise BundleError(f"{key} changed while copying the bundle")
+                bundle["sha256"][key] = source[key][1]
+        if not isinstance(bundle["data_selection_config_sha256"], str):
+            raise BundleError("signed Data selection config was not created")
         (output / "bundle.json").write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
-    except (BundleError, OSError):
+    except (BundleError, OSError, data_boot_config.DataBootConfigError):
         shutil.rmtree(output)
         raise
     return output

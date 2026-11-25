@@ -111,6 +111,7 @@ nagi-c2-accepted-connection-proof-contract = { path = "../../crates/nagi-c2-acce
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
 nagi-linux-account-verifier = { path = "../nagi-linux-account-verifier" }
 nagi-profile-volume-notes-owner = { path = "../../crates/nagi-profile-volume-owner" }
+nagi-data-boot-selection = { path = "../../crates/nagi-data-boot-selection" }
 nagi-system-principal-contract = { path = "../../crates/nagi-system-principal-contract" }
 nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
 nagi-system-service-launch = { path = "../../crates/nagi-system-service-launch" }

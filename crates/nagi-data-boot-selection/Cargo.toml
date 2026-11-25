@@ -1,0 +1,11 @@
+[package]
+name = "nagi-data-boot-selection"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ed25519-dalek = { version = "=2.1.1", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"
