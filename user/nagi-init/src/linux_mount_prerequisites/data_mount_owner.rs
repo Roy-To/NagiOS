@@ -38,6 +38,16 @@ pub(in crate::linux_init) mod system_mount_owner;
 #[path = "system_data_observation.rs"]
 pub(super) mod system_data_observation;
 
+#[cfg(all(
+    linux_dev_system_mount,
+    linux_dev_system_verity,
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+#[path = "system_verity.rs"]
+pub(in crate::linux_init) mod system_verity;
+
 const EXT4_SUPER_MAGIC: u64 = 0xef53;
 const EXT4_SUPERBLOCK_OFFSET: u64 = 1024;
 const EXT4_SUPERBLOCK_BYTES: usize = 1024;
