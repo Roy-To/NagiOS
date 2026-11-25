@@ -29,6 +29,12 @@ The 0.1 scope is intentionally narrow. A `PARTIAL` result or a host-only test
 does not satisfy guest acceptance. Performance targets follow
 [DEC-116](docs/product-decisions/DEC-116-performance-targets-and-minimum-requirements.md).
 
+The confirmed public scope is B: the desktop and first-party apps Notes, Files,
+Settings, and Calendar. Automatic idle lock is not implemented in 0.1. The
+[English](docs/releases/linux-0.1-preview.en.md) and
+[Japanese](docs/releases/linux-0.1-preview.ja.md) scope B guides are drafts; they
+do not indicate that L7–L12 acceptance or a release image is complete.
+
 ## Later versions
 
 - **0.2:** Albert browser, local AI runtime, voice, semantic search, A/B boot and

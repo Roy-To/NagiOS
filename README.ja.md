@@ -109,6 +109,11 @@ L0〜L6 は QEMU の開発イメージで受け入れに合格しています。
 [ROADMAP.md](ROADMAP.md) の L7〜L12（デスクトップの基本、Files、Settings、
 Calendar、製品ビルドの固め、配布物）です。
 
+公開範囲BはデスクトップとNotes・Files・Settings・Calendarです。一定時間後の
+自動ロック（idle lock）は未実装です。[日本語の範囲B草案](docs/releases/linux-0.1-preview.ja.md)
+と[英語草案](docs/releases/linux-0.1-preview.en.md)を参照してください。草案は
+リリース受入の完了を示しません。
+
 以前の独自カーネル版のマイルストーン M0〜M30 は履歴の記録です。結果は
 [docs/implementation_status.md](docs/implementation_status.md) に残しており、
 Linux 版の状態を示すものではありません。
@@ -181,6 +186,8 @@ python3 tools/linux-boot/make_dev_bundle.py path/to/prepared-task24-run
 イメージを再利用します。Windows ではバンドル作成に `python`、起動に
 `.\nagi.ps1 run` を使います。イメージの準備手順は
 [Developer Preview ガイド](docs/developer-preview/README.md)を参照してください。
+これらは開発イメージの手順であり、公開範囲Bのリリースqcow2の起動手順では
+ありません。配布物名は未決定です。上記の英日草案を参照してください。
 
 公開リポジトリであること自体は、明示された適用範囲を超える権利を
 付与しません。利用・再配布は [LICENSE_SCOPE.md](LICENSE_SCOPE.md) と

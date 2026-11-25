@@ -115,6 +115,12 @@ development-image acceptance on QEMU. The remaining 0.1 work is listed in
 [ROADMAP.md](ROADMAP.md) (L7–L12: desktop basics, Files, Settings, Calendar,
 release hardening, and release artifacts).
 
+The confirmed public scope is B: the desktop plus Notes, Files, Settings, and
+Calendar. Automatic idle lock is not implemented. See the
+[English scope B preview draft](docs/releases/linux-0.1-preview.en.md) and
+[Japanese draft](docs/releases/linux-0.1-preview.ja.md); release acceptance is
+tracked separately from these drafts.
+
 The earlier custom-kernel milestones M0–M30 are historical records. Their
 results are kept in [docs/implementation_status.md](docs/implementation_status.md)
 and do not describe the Linux line.
@@ -186,6 +192,8 @@ python3 tools/linux-boot/make_dev_bundle.py path/to/prepared-task24-run
 `./nagi run` opens QEMU and reuses the bundle's writable Data image. On Windows,
 use `python` for bundle creation and `.\nagi.ps1 run` to launch. See the
 [Developer Preview guide](docs/developer-preview/README.md) for image preparation.
+These are development-image steps, not instructions for a released scope B
+qcow2. The release artifact name is still undecided; see the draft guides above.
 
 Public visibility alone does not grant rights beyond the scoped source license.
 Use and redistribution follow [LICENSE_SCOPE.md](LICENSE_SCOPE.md), [LICENSE](LICENSE),

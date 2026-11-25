@@ -17,6 +17,10 @@ The inventory uses these inclusion classifications:
 - **D — lockfile/transitive dependency:** identified from `Cargo.lock` but not
   separately represented in `third_party/sources.lock`.
 
+These A–D letters describe source-inventory categories. They are not the
+confirmed Linux 0.1 publication scope “B” in DEC-123, and do not identify what
+is included in a particular image.
+
 The [Apache-2.0 readiness review](docs/oss/apache-2.0-readiness.md), based on
 main `379d19e` and reviewed on 2026-10-11, records proposed Nagi-owned license
 scope, code/data exceptions, and unresolved source/binary release gates.
@@ -202,6 +206,30 @@ re-run the complete dependency and asset notice review, include all required
 license texts and attribution, and resolve the Rust std, Mesa component,
 native-source, and asset follow-ups above.
 
-The license for Nagi OS itself has not been selected. Nothing in this file
-grants a license for Nagi OS or permission to redistribute a third-party
-component beyond its own applicable terms.
+## Linux 0.1 scope B image inventory (draft; not release clearance)
+
+The confirmed publication scope is the desktop plus Notes, Files, Settings, and
+Calendar. This section records the image-specific evidence available in the
+repository snapshot used for the L12 draft. It is not a bill of materials for a
+compiled image. The tracked tree at that base contains no fixed release qcow2
+or `SHA256SUMS`; no release-specific source tag or build manifest is tied to a
+candidate image in the available L12 materials. Image inclusion and
+binary license obligations cannot be finalized from this checkout alone.
+
+| Area | Evidence in this repository | What remains unverified |
+| --- | --- | --- |
+| Linux kernel | [DEC-077](docs/product-decisions/DEC-077-linux-kernel-lts-stable-policy.md) confirms an LTS policy but says the specific revision, patch level, configuration, and source/build management are not fixed. `tools/linux-boot/kernel-minimum.config` is a minimum configuration, not a kernel source pin or the final release configuration. | Exact kernel source revision, patches, configuration, binary hash, license texts, source offer, and inclusion in the qcow2. Record these from the L11/L12 build manifest before distribution; do not infer a version or notice from the host kernel. |
+| UEFI firmware | [`nagi.toml`](nagi.toml) declares a UEFI reference machine, QEMU and OVMF host requirements, and candidate OVMF filename pairs. | The file does not pin firmware source/revision/hash or say whether OVMF is bundled or host-supplied. Confirm the exact firmware bytes and applicable terms from the final image/build manifest before listing firmware as a distributed component. |
+| Application and native dependencies | [`third_party/sources.lock`](third_party/sources.lock) currently pins smoltcp 0.12.0 with declared `0BSD` metadata and whisper.cpp with declared `MIT` metadata. The broader Cargo lockfile inventory above includes development and target-specific packages and is not an image BOM. | Neither source pin proves that the component is linked into the scope B image. Derive the exact target dependency graph and native inputs from the fixed release build, then verify required license and notice files. |
+| Fonts | [`third_party/fonts.lock`](third_party/fonts.lock) describes Noto fonts and OFL-1.1 texts for a Servo-enabled init image. Servo browsing is outside the confirmed 0.1 scope B. | Do not count these fonts as scope B payload unless the final image manifest or extracted image proves their inclusion. If included, preserve the exact font files and OFL texts. |
+| Embedded glyph data | [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md) excludes `user/nagi-init/src/font.rs` from the new Nagi source grant; the existing asset-provenance review records unresolved embedded glyph provenance. | Confirm whether the final B image contains this data and establish its source and applicable terms before redistribution; no license is inferred here. |
+| Host tools | `nagi.toml` lists QEMU and OVMF as host requirements for the reference environment. | A host prerequisite is not evidence that the tool is shipped in the guest qcow2. If a release download bundles host tools or firmware, inventory those bytes separately. |
+
+The existing source-pin and Cargo metadata tables remain useful review inputs,
+but they must not be read as a complete scope B binary notice. Before a release,
+replace the unknowns above with artifact-backed component names, versions or
+revisions, hashes, applicable license texts, and source/attribution locations.
+The MPL-2.0 source grant is defined by [`LICENSE_SCOPE.md`](LICENSE_SCOPE.md);
+it does not relicense Linux, firmware, or other third-party components. This
+notice grants no additional rights and does not certify a complete image for
+redistribution.
