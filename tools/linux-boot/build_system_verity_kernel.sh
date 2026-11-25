@@ -31,6 +31,7 @@ if not match or tuple(map(int, match.groups())) < (4, 0):
     raise SystemExit(f"GNU Make >=4.0 is required, found: {sys.argv[1]}")
 PY
 host_support_root=${NAGI_L11_HOST_TOOLS_ROOT:-}
+host_make_args=()
 host_support_kind=none
 host_compat_root=
 host_elfutils_root=
@@ -68,6 +69,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     export HOSTCFLAGS="$host_cflags"
     export HOSTLDFLAGS=-fuse-ld=lld
     export HOSTPKG_CONFIG="$host_pkg_config_path"
+    host_make_args=("HOSTCC=$host_compat_root/bin/clang-host" "HOSTCXX=$host_compat_root/bin/clang-host"
+        "HOSTLD=$host_compat_root/bin/clang-host" "HOSTCFLAGS=$host_cflags"
+        "HOSTLDFLAGS=-fuse-ld=lld" "HOSTPKG_CONFIG=$host_pkg_config_path")
     export PATH="/opt/homebrew/bin:$PATH"
     host_support_kind=mount-lane-read-only-darwin-compat+elfutils-0.197
 fi
@@ -151,6 +155,9 @@ SH
     export HOSTCC="$compat_dir/clang-host"
     export HOSTCXX="$compat_dir/clang-host"
     export HOSTLD="$compat_dir/clang-host"
+    host_make_args=("HOSTCC=$compat_dir/clang-host" "HOSTCXX=$compat_dir/clang-host"
+        "HOSTLD=$compat_dir/clang-host" "HOSTCFLAGS=$host_cflags"
+        "HOSTLDFLAGS=-fuse-ld=lld" "HOSTPKG_CONFIG=$host_pkg_config_path")
     printf 'Installed private Darwin host-link flag shim: %s\n' "$compat_dir/clang-host"
 fi
 build_dir="$output_dir/build"
@@ -211,7 +218,7 @@ fi
 printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
 bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
     "$build_dir/.config" "$repo_root/tools/linux-boot/system-verity.config"
-make -C "$source_dir" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
+make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
 python3 -B - "$repo_root/tools/linux-boot/system_verity.py" "$build_dir/.config" <<'PY'
 import importlib.util, sys
 script, config = sys.argv[1:]
@@ -222,7 +229,7 @@ spec.loader.exec_module(module)
 module.parse_config(open(config, "rb").read())
 print("DM_INIT, DM_VERITY, SHA-256, virtio-blk and ext4 config: PASS")
 PY
-make -C "$source_dir" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
+make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest "$output_dir/host-support-after.json"
@@ -245,12 +252,16 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" <<'PY'
+python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
 repo, source, output, base = map(Path, sys.argv[1:5])
-base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind = sys.argv[5:]
+base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind = sys.argv[5:15]
+host_make_args_count = int(sys.argv[15])
+host_make_args = sys.argv[16 : 16 + host_make_args_count]
+if len(host_make_args) != host_make_args_count:
+    raise SystemExit("kernel host make argument receipt is truncated")
 
 def sha(path):
     digest = hashlib.sha256()
@@ -298,8 +309,9 @@ receipt = {
             key: os.environ.get(key)
             for key in ("HOSTCC", "HOSTCXX", "HOSTLD", "HOSTCFLAGS", "HOSTLDFLAGS", "HOSTPKG_CONFIG", "PKG_CONFIG_PATH")
         },
+        "make_overrides": host_make_args,
     },
-    "build_command": [make_path, "-C", str(source), f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
+    "build_command": [make_path, "-C", str(source), *host_make_args, f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
     "source_unchanged_checks": {
         "makefile_sha256_before_after": makefile_sha,
         "dm_verity_target_sha256_before_after": verity_sha,
