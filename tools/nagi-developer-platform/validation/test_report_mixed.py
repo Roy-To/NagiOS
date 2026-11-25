@@ -112,7 +112,7 @@ class MixedReportTests(unittest.TestCase):
 
     def test_all_matrix_and_reasons_include_mixed(self):
         code, output = self.run_main("--fixture", "all")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` (NDP-A021) has a failed check
         result = json.loads(output)
         summary = result["summary"]
         self.assertEqual(result["target_acceptance"], "not_run")
@@ -144,7 +144,7 @@ class MixedReportTests(unittest.TestCase):
 
     def test_all_markdown_has_a_mixed_part_with_both_platforms(self):
         code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` (NDP-A021) has a failed check
         part = markdown.split("\n---\n\n")[1:][report.FIXTURES.index("mixed")]
         self.assertIn("Fixture `mixed`", part)
         self.assertEqual(len(gap_section(part)), len(WINDOWS_ROWS) + len(LINUX_ROWS))

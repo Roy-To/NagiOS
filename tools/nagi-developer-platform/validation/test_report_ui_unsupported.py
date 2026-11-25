@@ -118,7 +118,7 @@ class UiUnsupportedReportTests(unittest.TestCase):
             self.assertIn(reason, report.REASON_DESCRIPTIONS)
 
         code, output = self.run_main("--fixture", "all")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` (NDP-A021) has a failed check
         everything = json.loads(output)
         summary = everything["summary"]
         # NDP-A019 appended `ui_unsupported` seventh; NDP-A020 appended `app_linux` after it.

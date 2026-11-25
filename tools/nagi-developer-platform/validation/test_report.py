@@ -228,17 +228,19 @@ class ReportTests(unittest.TestCase):
     def test_all_json_matrix_covers_four_fixtures_and_matches_overviews(self):
         run = self.run_cli("--fixture", "all")
         self.assertEqual(run.stderr, b"")
-        self.assertEqual(run.returncode, 0, run.stdout.decode())
+        # NDP-A021: the `ui_invalid` fixture's `ui_analysis` is `failed`, so `all` exits 1.
+        self.assertEqual(run.returncode, 1, run.stdout.decode())
         self.assertNotIn(os.fsencode(report.REPO), run.stdout)
         result = json.loads(run.stdout)
         summary = result["summary"]
         self.assertEqual(result["fixture"], "all")
         self.assertEqual(result["target_acceptance"], "not_run")
-        # NDP-A017 appended the PROVISIONAL `mixed` fixture, NDP-A018 `app_windows` and
-        # NDP-A019 `ui_unsupported` and NDP-A020 `app_linux`; the first four keep their order.
+        # NDP-A017 appended the PROVISIONAL `mixed` fixture, NDP-A018 `app_windows`,
+        # NDP-A019 `ui_unsupported`, NDP-A020 `app_linux` and NDP-A021 `ui_invalid`; the
+        # first four keep their order.
         self.assertEqual(summary["fixtures"],
                          ["portable", "windows", "linux", "ui", "mixed", "app_windows",
-                          "ui_unsupported", "app_linux"])
+                          "ui_unsupported", "app_linux", "ui_invalid"])
         self.assertEqual(list(result["reports"]), summary["fixtures"])
         self.assertEqual(summary["total"], len(summary["fixtures"]) * len(summary["checks"]))
         for fixture, individual in result["reports"].items():
@@ -262,7 +264,7 @@ class ReportTests(unittest.TestCase):
 
     def test_all_markdown_starts_with_matrix_and_keeps_individual_output(self):
         code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` has a failed check (NDP-A021)
         head = markdown.split("# Migration evaluation\n")[0]
         self.assertTrue(markdown.startswith("# Migration evaluation: all fixtures"))
         self.assertIn("## Fixture x check matrix", head)
@@ -297,13 +299,20 @@ class ReportTests(unittest.TestCase):
             code, output = self.run_main("--fixture", "all")
         self.assertEqual(code, 1)
         summary = json.loads(output)["summary"]
-        self.assertEqual(summary["counts"]["failed"], 1)
+        # The injected linux failure plus the real `ui_invalid` ui_analysis failure (NDP-A021).
+        self.assertEqual(summary["counts"]["failed"], 2)
         self.assertEqual(summary["matrix"]["linux"]["stage_3"]["status"], "failed")
         self.assertIn({"fixture": "linux", "name": "stage_3", "status": "failed",
                        "reason": "tool_exit_nonzero"}, summary["not_passed"])
+        self.assertEqual(
+            [(item["fixture"], item["name"]) for item in summary["not_passed"]
+             if item["status"] == "failed"],
+            [("linux", "stage_3"), ("ui_invalid", "ui_analysis")])
         with patch.object(report, "build_report", real):
-            code, _ = self.run_main("--fixture", "all")
-        self.assertEqual(code, 0)
+            code, output = self.run_main("--fixture", "all")
+        # Without the injected failure, only the real `ui_invalid` failure remains.
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(output)["summary"]["counts"]["failed"], 1)
 
     def test_all_not_run_is_never_counted_as_passed(self):
         with patch.object(report, "host_build",
@@ -312,7 +321,10 @@ class ReportTests(unittest.TestCase):
                              side_effect=lambda root: {"status": "unavailable", "reason": "x"}):
             code, output = self.run_main("--fixture", "all")
         summary = json.loads(output)["summary"]
-        self.assertEqual(code, 0)
+        # The only failed check is the real `ui_invalid` ui_analysis (NDP-A021); the patched
+        # not_run checks do not add a failure.
+        self.assertEqual(code, 1)
+        self.assertEqual(summary["counts"]["failed"], 1)
         self.assertEqual(summary["matrix"]["portable"]["stage_2"],
                          {"status": "not_run", "reason": "clang_unavailable"})
         self.assertEqual(summary["counts"]["passed"], sum(
@@ -699,7 +711,7 @@ class ReportTests(unittest.TestCase):
 
     def test_api_gaps_appear_in_each_fixture_part_of_all_markdown(self):
         code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` has a failed check (NDP-A021)
         parts = {fixture: part for fixture, part in zip(
             report.FIXTURES, markdown.split("\n---\n\n")[1:])}
         self.assertIn("- windows_diagnosis line 4 · `CreateFileW` · unsupported", parts["windows"])
@@ -710,6 +722,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn("API gaps", parts["mixed"])
         self.assertIn("API gaps", parts["app_windows"])
         self.assertIn("API gaps", parts["app_linux"])
+        self.assertNotIn("API gaps", parts["ui_invalid"])
         # windows, linux, mixed, app_windows, app_linux
         self.assertEqual(markdown.count("## API gaps"), 5)
         self.assertLessEqual(len(markdown.encode()), report.MAX_REPORT_BYTES * len(report.FIXTURES))
