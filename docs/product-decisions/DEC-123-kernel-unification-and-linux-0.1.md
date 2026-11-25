@@ -50,6 +50,8 @@ DEC-042／043により、製品方針は「Linuxカーネル＋Nagi専用ユー�
 
 ## Roadmapとの関連
 
+公開環境、公開成果物の受入と保有すべき証拠、最終公開判断は[12/12 リリース・受入基準 B案](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)を参照。
+
 - 0.1: Linux版Developer Preview（公開範囲B: Desktop、Notes、Files、Settings、Calendar）。旧M0〜M30は記録として保持。
 - 0.2: 有効化条件をLinux版0.1の公開に置き換える。0.2の内容は変えない。
 - 0.3／0.4+: 変更なし。
