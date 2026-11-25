@@ -9,6 +9,7 @@ import json
 import os
 import signal
 import socket
+import stat
 import struct
 import sys
 import tempfile
@@ -16,7 +17,7 @@ import textwrap
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing, redirect_stdout
+from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -33,6 +34,21 @@ def _receipt(marker: str, launch: int) -> str:
         marker, generation=launch, launch=launch, pid=10,
         c1=20, revision=30, terminal=40,
     )
+
+
+def _newc_archive(entries: list[tuple[str, bytes, int, int]]) -> bytes:
+    result = bytearray()
+    for inode, (name, payload, mode, links) in enumerate(
+        entries + [("TRAILER!!!", b"", 0, 1)], 1,
+    ):
+        encoded_name = name.encode("ascii") + b"\0"
+        fields = [inode, mode, 0, 0, links, 0, len(payload), 0, 0, 0, 0, len(encoded_name), 0]
+        result.extend(b"070701" + b"".join(f"{field:08x}".encode("ascii") for field in fields))
+        result.extend(encoded_name)
+        result.extend(bytes(-len(result) % 4))
+        result.extend(payload)
+        result.extend(bytes(-len(result) % 4))
+    return bytes(result)
 
 
 
@@ -236,6 +252,58 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
     def prepare(self) -> runner.PreparedRun:
         with patch.object(runner, "TASK24_PREFLIGHT_SHA256", self.preflight_digest):
             return runner.prepare_run(self.manifest_path, self.preflight_script)
+
+    def _f9_profile_inputs(self) -> dict[str, Path | str]:
+        elf_payload = b"synthetic pinned PID 1 ELF"
+        elf_path = self.root / "fixed" / "nagi-init"
+        elf_path.write_bytes(elf_payload)
+        cpio_payload = _newc_archive([
+            ("init", b"synthetic init", stat.S_IFREG | 0o755, 1),
+            ("system", b"", stat.S_IFDIR | 0o755, 2),
+            ("system/nagi-init", elf_payload, stat.S_IFREG | 0o755, 1),
+        ])
+        cpio_path = self.root / "fixed" / "task24.cpio"
+        cpio_path.write_bytes(cpio_payload)
+        elf_sha256 = hashlib.sha256(elf_payload).hexdigest()
+        cpio_sha256 = hashlib.sha256(cpio_payload).hexdigest()
+        self.manifest["candidate_source_commit"] = runner.TASK24_F9_8E2A_HEAD
+        self.artifacts["initramfs"] = {"path": cpio_path.as_posix(), "sha256": cpio_sha256}
+        self.manifest["artifacts"] = self.artifacts
+        for phase in self.manifest["phases"].values():
+            phase["initramfs"] = dict(self.artifacts["initramfs"])
+        self.write_manifest()
+
+        fixed_receipt_path = self.root / "fixed" / "fixed-input-receipt.json"
+        fixed_receipt_path.write_text('{"fixture":"fixed candidate binding"}\n', encoding="utf-8")
+        validation_receipt_path = self.root / "fixed" / "development-cpio-validation.json"
+        validation_receipt_path.write_text(json.dumps({
+            "development_inputs": [{
+                "path": "nagi-init",
+                "sha256": elf_sha256,
+                "size_bytes": len(elf_payload),
+            }],
+        }, sort_keys=True), encoding="utf-8")
+        return {
+            "elf_path": elf_path,
+            "elf_sha256": elf_sha256,
+            "cpio_path": cpio_path,
+            "cpio_sha256": cpio_sha256,
+            "fixed_receipt_path": fixed_receipt_path,
+            "fixed_receipt_sha256": hashlib.sha256(fixed_receipt_path.read_bytes()).hexdigest(),
+            "validation_receipt_path": validation_receipt_path,
+            "validation_receipt_sha256": hashlib.sha256(validation_receipt_path.read_bytes()).hexdigest(),
+        }
+
+    def _f9_profile_pins(self, inputs: dict[str, Path | str]):
+        return patch.multiple(
+            runner,
+            TASK24_PREFLIGHT_SHA256=self.preflight_digest,
+            TASK24_F9_8E2A_PID1_ELF_SHA256=inputs["elf_sha256"],
+            TASK24_F9_8E2A_CPIO_SHA256=inputs["cpio_sha256"],
+            TASK24_F9_FIXED_INPUT_RECEIPT_SHA256=inputs["fixed_receipt_sha256"],
+            TASK24_F9_CPIO_VALIDATION_RECEIPT_SHA256=inputs["validation_receipt_sha256"],
+            TASK24_F9_CPIO_VALIDATION_ELF_SIZE=Path(inputs["elf_path"]).stat().st_size,
+        )
 
     def test_l9_logout_id_uses_the_same_canonical_format_in_serial_and_boot_args(self):
         prepared = self.prepare()
@@ -681,6 +749,118 @@ class Task24InteractiveAcceptanceTests(unittest.TestCase):
                     self.manifest_path, self.preflight_script, c3_restart_retest=True,
                 )
         self.assertEqual(prepared.candidate_source_commit, runner.TASK24_C3_RESTART_RETEST_HEAD)
+
+    def test_f9_8e2a_profile_rejects_candidate_source_elf_and_cpio_mismatches(self) -> None:
+        inputs = self._f9_profile_inputs()
+        self.assertEqual(
+            runner.TASK24_F9_8E2A_HEAD,
+            "8e2a5ff11034e0fdbd47cf81b3cdbfa8c281efa9",
+        )
+        self.assertEqual(
+            runner.TASK24_F9_8E2A_PID1_ELF_SHA256,
+            "4493bfec50a272f858a72261308eaddfbba5d7cbeaabee1da22abc7616aa0148",
+        )
+        self.assertEqual(
+            runner.TASK24_F9_8E2A_CPIO_SHA256,
+            "e0f8f0b960290ac064420ff81318077cacb45617c877c2047de5124afd0cedcb",
+        )
+        common = {
+            "f9_rfb_no_start": True,
+            "f9_pid1_elf_path": inputs["elf_path"],
+            "f9_fixed_input_receipt_path": inputs["fixed_receipt_path"],
+            "f9_cpio_validation_receipt_path": inputs["validation_receipt_path"],
+        }
+        with patch.object(runner, "TASK24_PREFLIGHT_SHA256", self.preflight_digest):
+            self.manifest["candidate_source_commit"] = "a" * 40
+            self.write_manifest()
+            with self.assertRaisesRegex(runner.RunnerError, "candidate source does not match"):
+                runner.prepare_run(self.manifest_path, self.preflight_script, **common)
+
+            self.manifest["candidate_source_commit"] = runner.TASK24_F9_8E2A_HEAD
+            self.write_manifest()
+            with self.assertRaisesRegex(runner.RunnerError, "CPIO does not match"):
+                runner.prepare_run(self.manifest_path, self.preflight_script, **common)
+
+            with patch.object(runner, "TASK24_F9_8E2A_CPIO_SHA256", inputs["cpio_sha256"]):
+                with self.assertRaisesRegex(runner.RunnerError, "PID 1 ELF does not match"):
+                    runner.prepare_run(self.manifest_path, self.preflight_script, **common)
+
+    def test_f9_8e2a_profile_emits_no_start_candidate_receipt_and_three_phase_layout(self) -> None:
+        inputs = self._f9_profile_inputs()
+        reject_close = self.run_directory / "reject-close"
+        reject_close.mkdir()
+        fixture_path = self.run_directory / "development-fixture.json"
+        fixture_path.write_text(json.dumps({
+            "schema": "nagi-task24-rfb-auto-fixture/v1",
+            "run_id": self.run_id,
+            "preflight_manifest_sha256": hashlib.sha256(self.manifest_path.read_bytes()).hexdigest(),
+            "rfb_port": 5968,
+            "owner_name": "taskfixture",
+            "owner_password": "taskfixturealpha24001",
+            "wrong_password": "taskfixtureomega24002",
+            "note_text": "task fixture note",
+        }), encoding="utf-8")
+        fixture_path.chmod(0o600)
+        args = [
+            "--manifest", str(self.manifest_path),
+            "--preflight-script", str(self.preflight_script),
+            "--prepare-automatic-trial",
+            "--fixture-manifest", str(fixture_path),
+            "--f9-8e2a-rfb-no-start",
+            "--pid1-elf", str(inputs["elf_path"]),
+            "--f9-fixed-input-receipt", str(inputs["fixed_receipt_path"]),
+            "--f9-cpio-validation-receipt", str(inputs["validation_receipt_path"]),
+        ]
+        with self._f9_profile_pins(inputs):
+            prepared = runner.prepare_run(
+                self.manifest_path,
+                self.preflight_script,
+                f9_rfb_no_start=True,
+                f9_pid1_elf_path=inputs["elf_path"],
+                f9_fixed_input_receipt_path=inputs["fixed_receipt_path"],
+                f9_cpio_validation_receipt_path=inputs["validation_receipt_path"],
+            )
+            with self.assertRaisesRegex(runner.RunnerError, "no-start only"):
+                runner.run_authorized_pair(
+                    prepared, slot=2, board_readback_sha256="d" * 64,
+                    qemu=self.root / "missing-qemu",
+                )
+            output = io.StringIO()
+            with redirect_stdout(output), patch.object(runner, "run_authorized_pair") as launch:
+                self.assertEqual(runner.main(args), 0)
+            launch.assert_not_called()
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["runner"], "PREPARED_NO_START")
+            self.assertFalse(result["qemu_started"])
+            candidate = result["candidate_check_receipt"]
+            self.assertEqual(candidate["schema"], runner.TASK24_F9_CANDIDATE_CHECK_SCHEMA)
+            self.assertEqual(candidate["profile"], "F9_8E2A_NO_START_RFB")
+            self.assertEqual(candidate["status"], "PASS")
+            self.assertEqual(candidate["source"]["candidate_source_commit"], runner.TASK24_F9_8E2A_HEAD)
+            self.assertEqual(candidate["pid1_elf"]["sha256"], inputs["elf_sha256"])
+            self.assertEqual(candidate["initramfs_cpio"]["manifest_sha256"], inputs["cpio_sha256"])
+            self.assertEqual(
+                candidate["cpio_validation_receipt"]["sha256"],
+                inputs["validation_receipt_sha256"],
+            )
+            self.assertEqual(
+                candidate["fixed_input_receipt"]["sha256"],
+                inputs["fixed_receipt_sha256"],
+            )
+            embedded = candidate["cpio_embedded_pid1"]
+            self.assertEqual(embedded["path"], "system/nagi-init")
+            self.assertEqual(embedded["sha256"], inputs["elf_sha256"])
+            self.assertTrue(embedded["matches_fixed_pid1_elf"])
+            automatic = result["automatic_trial"]
+            self.assertEqual(automatic["phases"], list(runner.MANUAL_TRIAL_PHASES))
+            self.assertEqual(automatic["mode"], "AUTOMATIC_F9_8E2A_NO_START_FIXTURE")
+            self.assertIn("no WS-10 RFB evidence", automatic["coverage"])
+            self.assertFalse(automatic["launch_authorized"])
+            self.assertFalse((self.run_directory / runner.RECEIPT_NAME).exists())
+            self.assertEqual(list(reject_close.iterdir()), [])
+
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                runner.main(args + ["--authorize-start"])
 
     def test_different_public_source_head_is_rejected_before_preflight(self) -> None:
         self.manifest["candidate_source_commit"] = "a" * 40
