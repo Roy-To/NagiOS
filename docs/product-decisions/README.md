@@ -140,6 +140,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 ## ファイル一覧
 
+**PX-12追記（2026-11-25）** — [DEC-056 — Smart Pasteの基本体験と非AIの製品方針](DEC-056-smart-paste-semantic-transfer.md#px-12--smart-pasteの基本体験と非aiの製品方針2026-11-25)。通常操作と選択式の転送、出典・更新提案、AIなしで使えるOS／純正アプリ統合はCONFIRMED。初期の連携・優先E2E候補、出荷範囲・UI・ショートカット・API・提供版はPROVISIONAL。
+
 | ID | テーマ | 状態 | 最終決定 |
 |---|---|---|---|
 | DEC-001 | [AIの自律性とAction／PX-05 B＋将来C承認体験](DEC-001-agent-autonomy-actions.md) | CONFIRMED（既存自律実行・安全境界／PX-05のB基本＋将来C方向）／PROVISIONAL（Risk分類・閾値・未判定時の条件・UI・実装・版） | 2026-11-17 |
@@ -319,6 +321,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | [DEC-056](DEC-056-smart-paste-semantic-transfer.md)にPX-12の基本体験と、AIを利用しない状態でもOS単体の利便性・純正アプリ統合を高める製品方針をCONFIRMEDとして追記。初期のアプリ連携と優先E2E、出荷範囲・操作UI・ショートカット・API・提供版はPROVISIONAL。 |
 | 2026-11-24 | [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)・[DEC-119](DEC-119-user-initiated-problem-reports.md)に、ローカルAIを簡易調査とバグ報告支援中心に置く高水準の製品方針を追加。[DEC-099](DEC-099-installer-first-setup-linux-nagi-gui.md)ではOmarchy参考の高度なInstaller高速化案を今回は見送り、既存GUI Installerは維持。Workspace手動モード採用を維持し、Webアプリ風起動は未採用／ワンキー操作は未決。実装・UI・版はPROVISIONAL。 |
 | 2026-11-24 | [DEC-124](DEC-124-nagi-system-skills.md)と[DEC-125](DEC-125-ai-operations-status-panel.md)を新設、[DEC-010](DEC-010-intent-first-adaptive-ui.md)へWorkspace表示モード手動切替を追加。3案の高水準方針のみCONFIRMED。実装・UI・技術・提供版はPROVISIONAL、既存Permission／通常GUI／Gateを維持。 |
 | 2026-11-23 | [DEC-067](DEC-067-nagi-power-deterministic-resource-management.md)にAutomation Mode構想の意図を補足。PCの無人時にAI Taskへ資源を集中する目的は省電力ではなく処理能力の最大活用であり、PC／タブレット／モバイルで実行戦略が異なることを許容。モバイルでは復帰速度と電池を優先し短時間・断続処理を検討候補とする。具体制御・正式採用・版・実機対応はPROVISIONAL。DEC-020／029／067／082／094および既存Gateは維持。 |
