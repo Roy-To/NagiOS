@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -59,6 +59,18 @@
 - Window Manager／Workspace Manager／Surface Manager／Shell UI／Compositorなどの責務分割は設計候補であり、プロセス構成・API／IPC・Wayland／Smithay等の採否は未確定。LLMは非特権、現行Permission／Capability／Policyと構造化Context・Public Actionを維持する。外部画面・共有時の秘密情報保護、端末間移行はDEC-014／065／066等の既存境界に従う。
 - 段階案: (1) 軽量Desktop・基本ウィンドウ管理、(2) 共通Surface／Workspace／Nagi Bar、(3) ローカルLLM連携・目的別配置、(4) Touch／Tablet／Compact、(5) 外部ディスプレイ・端末横断実機検証。共通契約・device-neutral Coreは最初から考慮する。段階は提供順の案であり、独立した許可済み準備・試験を禁止しない。既存Release／Activation／Acceptance Gate、Workstream owner・開始条件、0.1／0.2等の既定範囲は変更しない。具体提供版、対応機器、測定値、実装の成功は未確定・未実証。
 
+## 2026-11-25 — GUI ToolkitのB案：Nagi独自UI基盤と既存OSSの選択的活用
+
+**CONFIRMED（開発方向）:** Nagi独自のGUI Toolkitを育てる方針を採用し、既存の `user/nagi-ui` のbackend-neutralなUI tokens・決定論的な操作／表示契約を出発点とする。共通UIの公開契約・標準部品・Nagiのデザイン・端末適応・拡張性はNagi主体で設計し、GPU／CPU描画、フォント・文字処理、画像・ベクター描画等の汎用処理には適合するOSSの選択的再利用を優先する。特定の外部ToolkitのAPIをNagiの公開契約として固定することや、汎用技術の全面自作を標準方針としない。純正／第三者の共通公開契約、独自UIの自由、Rust SDK・必要なC ABI、通常GUIの非LLM依存、日英Localization・IME・Accessibility、端末横断設計・Desktop first、軽量性と前景優先を維持する。既存の完成済みDesktop環境を基盤にするものではない（DEC-017／081／097／108および0.2 M07）。
+
+**REVIEW NOTE（確認した現状）:** 2026-11-25にmainの `user/nagi-ui/Cargo.toml` と `user/nagi-ui/src/lib.rs` を確認。現状は `no_std`・unsafe禁止・backend-neutralの表示語彙と局所的操作状態のcrateであり、解決済みテキスト・テーマ・文字レイアウト・入力・描画adapterを外部から受け取る設計。Accessibility、Command Palette、Dialog、Focus、Interaction、Layout、Text、Tokensのmoduleを公開している。ただし完成した描画Toolkit・公開SDK・実機性能を証明するものではない。
+
+**PROVISIONAL（技術選定・比較検証候補）:**
+
+- Iced、egui、Slint等の既存Toolkitや、その汎用構成部品（GPU／software描画、文字整形等）を比較する。必要な機能を既存のNagi契約と接続するadapter、GPU／CPU fallback、描画backendの交換可能性、共通UI部品の範囲・独自部品の拡張APIを検討する。特定Toolkitや依存の採用・版・ライセンス適合・再配布・標準搭載は未確定。
+- 既存 `nagi-ui` を比較の出発点とし、同等の代表画面・機能と明示した測定条件で、描画・入力応答、1／5／10アプリ等の同時起動時RAM／GPUメモリ、アイドル負荷、日本語IME・文字描画、Focus／Accessibility、画面サイズ・DPI・回転・タッチ、LLM推論共存時の前景応答・推論品質、開発者のサンプル実装負担、ライセンス・依存・保守性を評価する。測定数値・合格基準・試験対象は未確定。host-only／QEMU／物理実機の証拠を区別し、性能を保証しない。
+- 独立した比較研究・検証を候補とするが、本決定は新規Workstream登録・着手・依存追加・既存実装の一括置換・特定リリースへの割当てを承認するものではない。既存Owner／path ownership・Release／Activation／Acceptance Gateと開始条件を維持する。Wayland／Smithay等の採否も別判断のまま維持する。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -68,3 +80,4 @@
 | 2026-11-25 | PC／Tablet／Phoneのシームレスな体験と統合OSの中核としてDesktopを重視する方向をユーザーが明示。DeX／Pixel Desktop mode／Lomiriは体験の参照例、具体技術・切替仕様・端末・版はPROVISIONAL。 |
 | 2026-11-25 | ユーザーがLomiriのそのままの採用を否定。既存Desktop環境の製品基盤としての採用ではなく体験の参照に限定し、汎用基盤の採否とは区別する旨を明確化。 |
 | 2026-11-25 | ユーザーが端末横断Shellを初めから設計しDesktop向け表示から実装する方針、共通Nagi Bar・作業状態と表示の分離・通常UIの非LLM依存を承認。具体モード・UI・技術・段階割当てはPROVISIONAL。 |
+| 2026-11-25 | GUI ToolkitのB案をユーザーが承認。既存nagi-uiを出発点に独自UI契約・標準部品を発展させ、汎用処理は適合OSSを再利用する。個別Toolkit・依存・性能・研究着手・版はPROVISIONAL。 |
