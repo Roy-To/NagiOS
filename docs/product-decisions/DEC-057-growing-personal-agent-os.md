@@ -1,7 +1,7 @@
 # DEC-057 — 学習・適応・継続によって成長するPersonal Agent OS
 
-**状態:** CONFIRMED（Nagi OS全体の製品コンセプト、利用を通じた個人適応、モデル非依存の継続性、ユーザー主導の訂正・忘却と安全境界、PX-10のB基本方針と将来Cへの高水準拡張方向）／PROVISIONAL（学習品質の評価、対話・状況適応の具体方式・UI・条件、モデル／アルゴリズム、評価方法、実装詳細・提供版・時期）  
-**決定日:** 2026-11-16（PX-10追加合意: 2026-11-17）  
+**状態:** CONFIRMED（Nagi OS全体の製品コンセプト、利用を通じた個人適応、モデル非依存の継続性、ユーザー主導の訂正・忘却と安全境界、PX-10のB基本方針と将来Cへの高水準拡張方向、通常Personaの切替・Secretの学習と利用の境界）／PROVISIONAL（学習品質の評価、対話・状況適応の具体方式・UI・条件、モデル／アルゴリズム、評価方法、実装詳細・提供版・時期）\
+**決定日:** 2026-11-16（PX-10追加合意: 2026-11-17、Persona／Secretおよび4/12 B案の追加合意: 2026-11-25）\
 **対象:** Nagi OSの中長期的な製品アイデンティティと、0.3 Personal Agent以降のユーザー体験。既存のRelease／Activation Gateおよび実装仕様を変更しない。  
 **関連:** [DEC-003（分類と所有）](DEC-003-memory-classification.md)、[DEC-004（記憶・学習・忘却）](DEC-004-memory-learning-forgetting.md)、[DEC-005（Files／AlbertとMemory）](DEC-005-files-albert-memory-lifecycle.md)、[DEC-008（控えめな先回り）](DEC-008-proactive-behavior.md)、[DEC-009（Nagi-firstと通常GUI）](DEC-009-nagi-first-home-desktop.md)、[DEC-013（Hardware-Adaptive Memory）](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-020（AI／OS連携）](DEC-020-ai-os-interaction-path.md)、[DEC-023（作業・データ中心）](DEC-023-work-data-centric-os.md)、[DEC-028（反復Workflow学習）](DEC-028-deterministic-workflows-from-habits.md)、[DEC-055（Project文脈）](DEC-055-project-folder-cross-app-context.md)、[DEC-058（習慣学習の主経路）](DEC-058-habit-first-learning-and-optional-teach-mode.md)、[DEC-059（学習履歴）](DEC-059-learning-history-insights.md)、[PX Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)、[VISION-001（人間に合わせるOS）](VISION-001-human-adaptive-os.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.5–1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -70,7 +70,7 @@ Nagiの長期的な価値は、利用開始時点のLLMの一般性能だけで�
 ### PROVISIONAL — 設計候補（未承認の詳細）
 
 - Businessの下に事務作業／プレゼン／会議等、Privateの下に日常生活／外出等を置く階層的Persona、任意追加／編集、共通Memoryと文脈別Memoryの論理的な適用範囲。階層数・名称・既定値・所属・共有条件は未確定。ユーザーからPersona内をさらに分割する案が提示されている。
-- 判定と実効制限を分離する案：LLMは最小限の許可された入力や構造化Eventから候補を推定し、OS側の決定論的なContext／Permission境界が実際に参照・表示・送信できる情報を制御する。低確信、矛盾、未分類、文脈切替時は共通の安全な情報に限定し、必要に応じ確認する。手動固定・解除、Task／Workspace／出力先単位の適用、画面共有／プレゼン時の抑制、既存会話・Context cache・保留通知への反映、学習履歴の可視化は詳細設計候補。
+- 判定と実効制限を分離する案：LLMは最小限の許可された入力や構造化Eventから候補を推定し、OS側の決定論的なContext／Permission境界が実際に参照・表示・送信できる情報を制御する。文脈判定が曖昧な場合の既定動作は下記4/12 B案に従う。手動固定・解除、Task／Workspace／出力先単位の適用、画面共有／プレゼン時の抑制、既存会話・Context cache・保留通知への反映、学習履歴の可視化は詳細設計候補。
 - 閲覧Archiveの明示検索時のみ参照する既定、閲覧由来の提案利用の個別Opt-in等は別途確定する。DEC-005の既存保存方針を本追記だけで変更しない。
 - 具体的な記憶の分類、入力信号、分類方式、切替条件・閾値、表示、音声、生成途中の出力制御、データ構造、性能、評価、適用版・時期はPROVISIONAL。0.3 Personal Agentの設計と整合させるが、実装開始・必須Acceptance追加・Release／Activation Gate変更を意味しない。
 
@@ -89,10 +89,25 @@ Nagiの長期的な価値は、利用開始時点のLLMの一般性能だけで�
 
 ### PROVISIONAL — 詳細設計候補
 
-- Secretへの切替は本人の明示操作で行い、LLMの推測だけでSecretを自動有効化しない案。本人確認の強度、手動固定・解除、離席・画面共有時の扱い、他Persona／他Taskとの切替・保留通知の扱いは未確定。
-- Secret由来の情報を通常のContext候補・提案・検索候補から除外するOS側の決定論的な取得境界と出力先検証、派生要約やキャッシュの由来保持、Nagi Insightsで本人にのみ閲覧・訂正・削除を提供する案。暗号化、物理／論理隔離、分類方法、監査・バックアップ・同期・削除の具体方式は別途決定する。
-- Secret内での学習・保持の既定、保存しない一時利用との切分け、明示的な記憶の移動・共有操作、画面表示・音声・通知・入力補完の詳細、評価指標・実装順・提供版は未決定。Secretは履歴が一切残らないことや他者に対する完全な秘匿を保証するものではなく、実効境界と限界を検証する必要がある。
+- 本人確認の強度、手動固定・解除、離席・画面共有時の扱い、他Persona／他Taskとの切替・保留通知の扱いは未確定。
+- Secret由来の情報を通常のContext候補・提案・検索候補から除外するOS側の決定論的な取得境界と出力先検証、派生要約やキャッシュの由来保持、Nagi Insightsで本人にのみ閲覧・訂正・削除を提供する案。暗号化の方式、物理／論理隔離、分類方法、監査・バックアップ・同期・削除の具体方式は別途決定する。
+- Secret内の保持方式、保存しない一時利用との切分け、記憶の移動・共有の操作手順、画面表示・音声・通知・入力補完の詳細、評価指標・実装順・提供版は未決定。Secretは履歴が一切残らないことや他者に対する完全な秘匿を保証するものではなく、実効境界と限界を検証する必要がある。
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-25 | 全Personaへの本人専用Secretモードを必須とし、予期せぬサジェストをOS体験の信用に関わる重要問題として扱うことをCONFIRMED。通常Personaの一律の厳格化は採用せず、Secretの実装詳細・版はPROVISIONAL。 |
+
+## 2026-11-25 — 4/12 Memory学習の詳細 B案：PersonaとSecret
+
+### CONFIRMED — 学習と利用の境界
+
+- **通常Personaの切替:** 本人の手動切替とAIによる文脈に応じた切替を認める。文脈判定が曖昧な場合は、現在のPermissionで許可された安全な共通Memoryに利用を限定する。
+- **Secretの有効化:** 本人による明示操作に限る。AIの判断で有効化しない。
+- **Secret内の学習:** [DEC-004](DEC-004-memory-learning-forgetting.md)の通常の学習条件を適用し、学習した内容の保持・利用はSecret内に限定する。通常PersonaからSecretを参照できず、Secretに由来する通知・提案・検索候補も通常Personaに露出させない。
+- **通常Memoryへの移動:** 本人の明示操作を必須とする。既存のPermission、所有範囲、機密分類、外部共有・送信の別承認を適用する。認証情報はMemory学習の対象外であり、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)のSecrets Serviceの別境界に従う。MemoryとProfileの常時暗号化は[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)に従う。
+
+**PROVISIONAL:** 画面・文言、具体的な共通Memoryの判定・切替条件や閾値、DBの物理構造・状態Schema・隔離の実装方式、本人認証の強度、保持期間・確認タイミングの詳細、評価・受入条件・実装／提供版。既存のWorkstream、Release／Activation／Acceptance Gateを維持する。
+
+| 日付 | 内容 |
+|---|---|
+| 2026-11-25 | 4/12 B案を承認。通常Personaの手動／AI切替、曖昧時の共通Memoryへの限定、Secretの本人操作による有効化・学習範囲・通常Personaへの露出防止・通常Memoryへの移動条件を記録。 |
