@@ -118,18 +118,30 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     cat > "$compat_dir/sed" <<'SH'
 #!/usr/bin/env python3
 import os
+import re
 import sys
 
 args = sys.argv[1:]
 if len(args) >= 3 and args[0] == "-i" and args[1] == r"s/\x00\+$/\x00/g":
-    import re
-
     for path in args[2:]:
         with open(path, "rb") as stream:
             data = stream.read()
         data = re.sub(rb"\x00+(?=\n|$)", b"\x00", data, flags=re.MULTILINE)
         with open(path, "wb") as stream:
             stream.write(data)
+    raise SystemExit(0)
+if len(args) >= 3 and args[0] == "-n" and args[1] == "-e" and "VO_" in args[2] and r"\|" in args[2]:
+    pattern = re.compile(rb"([0-9a-fA-F]+) [ABbCDGRSTtVW] (_text|__start_rodata|_sinittext|__inittext_end|__bss_start|_end)")
+    required = {b"_text", b"__start_rodata", b"_sinittext", b"__inittext_end", b"__bss_start", b"_end"}
+    seen = set()
+    for line in sys.stdin.buffer:
+        match = pattern.fullmatch(line.rstrip(b"\n"))
+        if match:
+            address, symbol = match.groups()
+            sys.stdout.buffer.write(b"#define VO_" + symbol + b" _AC(0x" + address + b",UL)\n")
+            seen.add(symbol)
+    if seen != required:
+        raise SystemExit(f"Darwin sed shim found incomplete x86 VOFFSET symbols: {sorted(required - seen)!r}")
     raise SystemExit(0)
 if args and args[0] in ("-i", "--in-place"):
     args.insert(1, "")
@@ -201,11 +213,11 @@ source_verity_sha_before=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-targe
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest() {
-        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$host_libintl_path" "$output_dir/host-compat/clang-host" "$output_dir/host-compat/install" "$1" <<'PY'
+        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$host_libintl_path" "$output_dir/host-compat/clang-host" "$output_dir/host-compat/install" "$output_dir/host-compat/sed" "$1" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 
-root, compat, elfutils, clang, lld, pkg_config, libintl, link_shim, install_shim, output = map(Path, sys.argv[1:])
+root, compat, elfutils, clang, lld, pkg_config, libintl, link_shim, install_shim, sed_shim, output = map(Path, sys.argv[1:])
 
 def sha(path):
     digest = hashlib.sha256()
@@ -235,6 +247,7 @@ for key, path in (
     ("libintl", libintl),
     ("kernel_link_flag_shim", link_shim),
     ("install_argument_shim", install_shim),
+    ("sed_compat_shim", sed_shim),
 ):
     files[key] = {
         "path": str(path),
