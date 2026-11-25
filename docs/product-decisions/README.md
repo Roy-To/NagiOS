@@ -6,6 +6,13 @@
 **管理場所:** `docs/product-decisions/`  
 **対象:** 0.2以降の製品判断（実装前の要求を含む）
 
+## Linux 0.2 実装仕様の改訂レビュー（2026-11-25）
+
+**REVIEW NOTE / PROVISIONAL** — [改訂 Draft](../Nagi_OS_0.2_Linux_Implementation_Spec_Draft.md)と[旧 §32 受入条件の対応表](../Nagi_OS_0.2_Linux_Acceptance_Crosswalk.md)。
+[DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)による 0.2 有効化の前提置換を整理し、Linux 実装・CI・受入証拠の範囲、8 レーンの依存関係、0.1 公開範囲と 0.3 PX-05／08／09 の判断候補を確認できるようにした。
+
+**変更履歴（2026-11-25）** — [Draft PR #247](https://github.com/Roy-To/NagiOS/pull/247)にレビュー資料と索引を追加。製品判断・実装着手・受入の承認は従来の DEC と担当チェックポイントに従う。
+
 ## Omarchy参考の追加選別：ローカルAIの簡易診断・バグ報告支援（2026-11-24）
 
 [DEC-098](DEC-098-diagnostics-linux-nagi-ai-assisted-staged.md)と[DEC-119](DEC-119-user-initiated-problem-reports.md)に、**ローカルLLMは簡単な問題切分けとユーザーのバグ報告準備を助ける**高水準方向をCONFIRMEDで追加。高精度な根本原因の特定をローカルLLMの標準要件にしない。決定論的Diagnosticsの事実とAIの推測を区別し、既存の伏せ字・内容プレビュー／除外・本人送信・非公開脆弱性窓口・自動送信なしを維持する。詳細・技術・版はPROVISIONAL。

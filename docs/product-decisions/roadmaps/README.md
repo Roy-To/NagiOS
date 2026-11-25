@@ -1,5 +1,11 @@
 # NAGI Future Roadmaps
 
+## Linux 0.2 実装仕様の改訂レビュー（2026-11-25）
+
+[改訂 Draft](../../Nagi_OS_0.2_Linux_Implementation_Spec_Draft.md)と[受入条件の対応表](../../Nagi_OS_0.2_Linux_Acceptance_Crosswalk.md)を参照。0.1 の公開条件と 0.2 の Release Runtime Activation を別に確認できる。0.3 の準備条件、および PX-05／08／09 の判断候補は Draft §6 に収録。位置付けは REVIEW NOTE／PROVISIONAL。
+
+**変更履歴（2026-11-25）** — [Draft PR #247](https://github.com/Roy-To/NagiOS/pull/247)のレビュー資料への参照を追加。
+
 ## 小さな用事への静かな準備（2026-11-16）
 
 [DEC-008](../DEC-008-proactive-behavior.md)にB（静かな準備と控えめな提案）を小さな雑務・連絡・一時的な用事へ具体化し、設定調整と許可履歴による個人適応を追記した。明示設定・拒否・停止・忘却、既存の閲覧・保存・送信等の権限を維持する。0.3 Revisedと0.5–1.0へ参照を追加したが、具体的な生成・学習・保持・通知・実装版は未確定であり、既存版割当て・Gate・Acceptanceを変更しない。
