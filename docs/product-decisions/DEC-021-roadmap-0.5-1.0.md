@@ -33,7 +33,9 @@
 
 **既存CONFIRMEDを維持:** Nagi Native Apps専用、Rust SDK中心・必要境界の安定C ABI、Level 0〜3、Windows／Linux重点・将来Android／Apple系後順位、PT-01〜06の非AI検証とCloud AI／Local LLMの任意選択。PX-13で高度統合型の初心者向け専用制作環境を後順位とした方針に矛盾させず、**1.0までの公開開発者環境・アプリ配布基盤という独立した高水準目標は維持**する。HostとTargetの合否を別にし、Cloud送信とPackage署名・導入・公開の別許可を緩めない。
 
-**PROVISIONAL／OPEN:** 対応する初期言語・Framework・GUI部品／SDK ABI・CLI、Cloud Provider・Bridge実装、Package／署名／審査／Store等の配布具体方式、実測性能・品質・Acceptance・特定Version／納期。0.5〜1.0 Master Roadmapの版別計画はPROVISIONALのままで、0.2 M12／M21と0.3／0.4 Gate・Workstream開始条件を変更しない。
+**PROVISIONAL／OPEN:** 初期重点言語ごとの対応範囲・Framework・GUI部品／SDK ABI・CLI、Cloud Provider・Bridge実装、Package／署名／審査／Store等の配布具体方式、実測性能・品質・Acceptance・特定Version／納期。0.5〜1.0 Master Roadmapの版別計画はPROVISIONALのままで、0.2 M12／M21と0.3／0.4 Gate・Workstream開始条件を変更しない。
+
+**2026-11-25追記:** [DEC-017の2026-11-25追加合意](DEC-017-third-party-developer-ecosystem.md#2026-11-25-追加合意--公開sdk統合支援外部配布) で初期Rust／C／C++重点、開発者向け資料と統合支援、専用配布サーバーを前提にしない正規Package配布・初期カタログ型Storeの方向を確定。1.0の公開開発者環境・配布基盤という目標を維持し、個別機能の必須範囲・提供版・判定基準は引き続きPROVISIONAL。
 
 ### 2026-11-05 確定：初期`builder`実行方式C
 
@@ -60,7 +62,7 @@
 ### Memory、開発者環境、AIとOSの境界
 
 - **Hardware-Adaptive Memory Engine（DEC-013）:** 正式runtime実装は既存の0.3 Implementation Specificationとactivation gate内に置く。0.1 host-only benchmark準備や0.2 Forward CompatibilityはTarget Runtime acceptanceではない。ユーザー所有のmodel-independent Canonical Memoryを維持し、hardware依存の検索index、cache、Context adapter等の派生物だけを再生成できるようにする。端末間の移行でMemoryの再学習を要求しない。profile名、方式、切替条件、閾値、実測性能は未確定であり、0.3実装を0.5へ移さない。
-- **開発者環境・配布（DEC-017）:** 0.1 host-side準備、0.2の既存Platform Foundation、0.3のPublic Action統合という各既存仕様・Gateを維持し、公開開発者環境とアプリ配布基盤を1.0の製品目標とする。AI codingに適した開発体験は方針として確認済み。portableなRust / C / C++アプリの移植可能性を理解し、再利用しやすくすることも製品目標だが、個々のアプリが変更なく動く保証ではない。機械可読catalog、CLI、sandbox、verification、toolchain、署名、Storeの役割、公開範囲、Acceptanceは未確定。Storeは唯一の配布経路ではない。
+- **開発者環境・配布（DEC-017）:** 0.1 host-side準備、0.2の既存Platform Foundation、0.3のPublic Action統合という各既存仕様・Gateを維持し、公開開発者環境とアプリ配布基盤を1.0の製品目標とする。AI codingに適した開発体験は方針として確認済み。portableなRust / C / C++アプリの移植可能性を理解し、再利用しやすくすることも製品目標だが、個々のアプリが変更なく動く保証ではない。機械可読API定義の具体形式、CLI、sandbox、verification、toolchain、署名、Storeカタログの運用、公開範囲、Acceptanceは未確定。Storeは唯一の配布経路ではない。
 - **AIとOSの操作経路（DEC-020）:** 標準では小さく構造化された初期Contextから始め、必要に応じてResource参照を通じて詳細を段階取得する。取得のたびにPermission / Policy、情報分類・由来、owner、scope、Resource / revisionを再検証し、不明・競合・不一致なら取得しない。参照やLLMからの追加要求は権限を広げない。全ファイル・全ログ・raw screen dump・全Memoryの一括投入を標準にしない一方、DEC-002の許可済みCloud共有（非機密Memoryを含む）と、Scope内で広いContextを必要とする明示承認済みTaskを維持する。契約上公開されたEventを受け、状態変更には型付きPublic Action / Service APIと既存IPC / Providerを用いる。Event-drivenを既定とし、決定論的な仕事は通常Serviceで扱い、LLMは推論が必要な箇所で使う。Event検出だけでLLM推論、通知・画面割込み、Action実行を許可しない。人間向けGUIを維持し、スクリーンショット認識と座標クリックをNagi native操作の基本経路にしない。資源効率は測定する設計目標であり、削減効果や性能は実証・保証されていない。Context / Event schema、budget、取得条件、購読・集約、scheduler、legacy-app fallback、数値評価、Release割当ては未確定。
 
 これらの製品方針は将来Versionを自動的に割り当てず、別のAction権限やRelease gateを与えない。
@@ -114,7 +116,7 @@
 | **0.7** | Phase F候補。まずlocal single-userのTeam / Organization内で所有、Membership、共有、Retention、Export、Deletion、Audit、OffboardingのPolicyを定義する。DEC-014のWorkspace履歴、横断metadata検索、復元preview、直近保護状態と複数世代、ユーザー選択を実装候補として扱う。Multi-user / Multi-deviceはlocal single-user invariantsがPASSした後に別Gateで判断する。 | 版割当はPROVISIONAL。保管・保持・検索・UIの詳細とMulti-user activationは未確定。 |
 | **0.8** | 必要性とユーザー承認があればMulti-user / Multi-device拡張の独立Gateを設ける。承認されない場合はlocal single-userの信頼性を強化する。 | 任意の候補。版の有無、scope、data sharing / syncはOPEN。 |
 | **0.9** | 承認済み範囲を統合し、Security、Reliability、Migration、Compatibility、Target Runtime evidenceを整える。重大な新機能を追加するより、受入可能な品質証拠を揃える候補とする。 | 版割当・exit criteria・対応範囲はPROVISIONAL / OPEN。 |
-| **1.0** | Security、Stability、Compatibility、Data Integrity、Diagnosability、Developer Experienceの品質基準を定め、公開開発者環境とアプリ配布基盤を目指す。AI-coding向け体験とportable Rust / C / C++アプリの移行支援を製品目標として引き継ぐ。 | 改訂0.3 Roadmapがすでに示す一般公開可能な品質等の高水準目標をRoadmap基準として保ち、DEC-017でCONFIRMEDの公開開発者環境・アプリ配布基盤の目標を引き継ぐ。測定可能な品質基準、具体的な対応対象、API / CLI / catalog / sandbox / verification、公開範囲、Acceptance、日程、Storeの役割はPROVISIONAL / OPEN。Organization規模・Multi-deviceを必須とはしない。 |
+| **1.0** | Security、Stability、Compatibility、Data Integrity、Diagnosability、Developer Experienceの品質基準を定め、公開開発者環境とアプリ配布基盤を目指す。AI-coding向け体験とportable Rust / C / C++アプリの移行支援を製品目標として引き継ぐ。 | 改訂0.3 Roadmapがすでに示す一般公開可能な品質等の高水準目標をRoadmap基準として保ち、DEC-017でCONFIRMEDの公開開発者環境・アプリ配布基盤の目標を引き継ぐ。測定可能な品質基準、具体的な対応対象、API / CLI / catalog / sandbox / verification、公開範囲、Acceptance、日程、Storeカタログの運用・1.0での提供範囲はPROVISIONAL / OPEN。Organization規模・Multi-deviceを必須とはしない。 |
 
 版別計画は実装証拠とユーザーの個別判断で変更する。先行Gateや安全境界が未達の場合は、機能を延期・分割し、承認やPermissionを弱めて帳尻を合わせない。
 
@@ -133,7 +135,7 @@
 - DEC-074の組織構造：Supervisor数・役割・階層、各階層のAgent identity / Session、Nagiの位置付け、Manager向けの指示・監督UI、および性能に応じた構成変更の条件。
 - Task Log、Activity、Memory、ArtifactのRetention / Redaction / Promotion、API / schema versioning、migration guarantee、互換性support期間。
 - Rust / C / C++ migration優先対象、toolchain、diagnostic、公開API mapping、アプリごとの互換性。
-- 1.0のpublic launch日程、developer / distributionの詳細、Storeの役割、公開範囲、Acceptance、support policy。
+- 1.0のpublic launch日程、developer / distributionの詳細、Storeカタログの運用・1.0での提供範囲、公開範囲、Acceptance、support policy。
 
 ## 例外・禁止・安全境界
 

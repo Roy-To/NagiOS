@@ -39,7 +39,9 @@
 
 **位置付け:** PX-13で後順位としたローカル完結型の高度な初心者向け制作IDEの早期完成を、PX-14により復活させない。既存の**1.0公開開発者環境・アプリ配布基盤という高水準製品目標**を維持し、PX-14の全Toolkit機能／Cloud Connector／Storeや特定アプリの1.0完成を確約しない。§4の版別マップは引き続きPROVISIONAL。
 
-**Permission・証拠・未決:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の外部送信の事前許可、ソースとResource／ProfileのScope、Host診断／Host Build／Nagi Target動作Acceptanceの分離、Package署名・導入・出力／共有／一般公開の別認可を保持。実際のSDK/API・CLI／UI、初期対象言語・Framework、Cloud Provider／技術、Package／署名／配布方式、性能・品質・提供版・担当／受入はPROVISIONAL。既存0.1〜0.4 Release／Activation／Acceptance Gate・Workstream／実装開始許可を変更しない。
+**Permission・証拠・未決:** [DEC-002](../DEC-002-cloud-ai-data-sharing.md)の外部送信の事前許可、ソースとResource／ProfileのScope、Host診断／Host Build／Nagi Target動作Acceptanceの分離、Package署名・導入・出力／共有／一般公開の別認可を保持。実際のSDK/API・CLI／UI、初期重点言語ごとの対応範囲・Framework、Cloud Provider／技術、Package／署名／配布方式、性能・品質・提供版・担当／受入はPROVISIONAL。既存0.1〜0.4 Release／Activation／Acceptance Gate・Workstream／実装開始許可を変更しない。
+
+**2026-11-25追記:** [DEC-017の追加合意](../DEC-017-third-party-developer-ecosystem.md#2026-11-25-追加合意--公開sdk統合支援外部配布)でRust／C／C++重点、公開APIへの適合支援・開発者向け文書、外部正規Package配布と初期カタログ型Storeの方向を確定。具体的な1.0必須範囲・提供版は§4と同じくPROVISIONAL。
 
 ## Quiet preparation for small errands — update (2026-11-16)
 

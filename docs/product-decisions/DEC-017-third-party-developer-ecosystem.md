@@ -8,8 +8,8 @@
 > **2026-11-12 方針変更:** 本書の「独自カーネルの強みを活かす」というカーネル選択の前提のみ、[DEC-042](DEC-042-linux-kernel-transition.md)によりSUPERSEDED。Linuxカーネルへの方針転換はCONFIRMED。AI coding優先・段階的公開API統合・開発者／配布目標は維持し、Linuxアプリの無変更互換性、ユーザーランド、移行時期は承認されていない。 旧本文は履歴として保持し、本注記がカーネル選択について優先する。既存実装仕様・ADR・Release / Activation Gateは変更しない。
 
 
-**状態:** CONFIRMED（既存のNagi Native Apps専用・公開SDK／段階的統合・移植支援・1.0開発者／配布基盤目標、PX-13のLocal LLMとCloud AI橋渡し優先・高度統合IDE後順位、PX-14の一貫した移植／検証B＋将来の継続保守／配布C、PX-15の実用1.0 B＋将来の総合OS Cとの高水準整合）／PROVISIONAL（初期SDK／言語・Cloud接続・実装／署名・配布・性能／Acceptance・版／時期）  
-**最終合意日:** 2026-11-17（PX-13／PX-14／PX-15を統合。従前の開発者仕様を維持）  
+**状態:** CONFIRMED（既存のNagi Native Apps専用・公開SDK／段階的統合・移植支援・1.0開発者／配布基盤目標、PX-13のLocal LLMとCloud AI橋渡し優先・高度統合IDE後順位、PX-14の一貫した移植／検証B＋将来の継続保守／配布C、Rust／C／C++重点・統合診断・AIが参照しやすい公開契約・外部Package配布と初期カタログ型Store、PX-15の実用1.0 B＋将来の総合OS Cとの高水準整合）／PROVISIONAL（ABI／wrapper・言語別対応範囲・Cloud接続・Package／署名／信頼・カタログ運用・1.0必須範囲・性能／Acceptance・版／時期）\
+**最終合意日:** 2026-11-25（PX-14のSDK・統合支援・配布方針を具体化）\
 **対象:** 0.1の先行準備、0.2 Platform Foundation、0.3 Personal Agent、および1.0に向けた開発者・配布環境  
 **関連:** DEC-001、DEC-007、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[DEC-036（builder製アプリ共有・公開）](DEC-036-builder-app-sharing-and-publication.md), [DEC-041（アンインストール）](DEC-041-builder-app-uninstall-and-data-deletion.md), [DEC-071（初心者向けApp制作）](DEC-071-nagi-native-app-creation-experience.md)
 
@@ -75,7 +75,7 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 ### パッケージと配布
 
 - アプリのパッケージを検証し、インストール・起動できる開発および受け渡しの流れを目指す。
-- Storeは将来の配布先候補とするが、Storeだけを唯一のインストール・配布経路にしない。
+- 初期Storeは外部の配布先を案内するカタログ型を目指し、正規Packageの外部配布・導入を可能にする。詳細は下記の2026-11-25 PX-14追加合意を参照。
 
 ### `builder`製アプリの保守・更新（DEC-035）
 
@@ -121,7 +121,7 @@ Nagiの純正アプリを充実させながら、個人・第三者の開発者�
 
 ローカルLLMには、**現に存在するNagi SDK／API・対応不足・Porting Toolkit診断結果と、ユーザーが選んだCloud開発AI・IDE・人間の間を安全に橋渡しする補助**を期待する。決定論的な診断・Manifest／SDK検証・手動開発・通常アプリの開発はLocal／Cloud AIなしでも成立させる。**SDK・CLI・Porting Toolkitを単一の専用IDEへ統合すること自体は要件としない**。公開SDKにない機能や未実施のTest／Package署名を「使える／検証済み」と表示しない。
 
-これは**開発者体験の高水準方針**であり、最初の具体的な言語、Framework、SDK API面、CLI操作名、Cloud Provider、Package署名・配布経路、1.0に搭載する個別Toolkit機能を新たに確定するものではない。
+11月17日に採用したのは開発者体験の高水準方針。初期の重点言語と配布方針は、下記の11月25日追加合意で具体化した。
 
 ### CONFIRMED — 将来C案へ発展する方向
 
@@ -141,10 +141,31 @@ Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／A
 
 ### PX-14で未確定の範囲（PROVISIONAL／OPEN）
 
-- 初期の対象言語・Framework・GUI部品・移植元サンプル、SDK／Public API機能・IDL／ABI・binding範囲、サポートVersion・互換性保証範囲・対応Deviceの具体的な構成。
+- 初期重点言語ごとの具体的な対応範囲、Framework・GUI部品・移植元サンプル、SDK／Public API機能・IDL／ABI・binding範囲、サポートVersion・互換性保証範囲・対応Deviceの具体的な構成。
 - CLI／開発者UI・エラー／証拠・Tool呼出契約、IDE接続、ローカルLLM・Cloud AIのProvider／Connector・情報受渡しSchema・許可UI・Offline／Fallback詳細。
 - 移植分析・修正案・Package／署名／審査／side-load・更新・Store等の具体的な分担・データ形式と公開／配布フロー。既存の承認必須境界はPROVISIONALには戻さない。
 - 品質・性能・セキュリティ／Accessibilityの定量基準、API互換テスト・評価サンプル・開発／移植工数、host／Target試験の詳細Acceptance、実装技術、担当／Workstream、提供Version／順序・時期。
+
+### 2026-11-25 追加合意 — 公開SDK・統合支援・外部配布
+
+ユーザーの明示合意「それでいこう」により、11月17日のB＋将来Cに以下の製品方針を追加する。
+
+**CONFIRMED**
+
+- **SDKと言語:** Rustを公式SDKの中心とし、必要な公開境界に安定したC ABIを設ける。初期はRust／C／C++に重点を置く。Cは公開C ABIを利用し、C++はC ABIやwrapper等を通じて段階的に開発・移植を支援する。Python／JavaScript／TypeScriptは後続の公式対応候補とし、第三者による言語bindingを妨げない。一般的なIDEと既存の開発ホストから開発できる方針を維持する。
+- **公開APIと統合レベル:** 0.2仕様のLevel 0〜3を用い、第三者は通常GUIのLevel 0から参加し、用途に応じて任意に統合を深められる。純正アプリは原則Level 3を目指し、第三者も同じ公開SDK／APIで到達できる。アプリのPermission／Capability／Policyと、OS管理用System Capabilityの既存境界を維持する。
+- **`builder` Role／Porting Toolkit:** 現に提供される公開APIとアプリの統合状況を照合し、利用できるAPIや必要な変更を案内する。例えば検索連携や意味付きデータ転送への対応を提案できる。診断・提案に続き、許可されたHostでの静的検査／Build／Testと、Nagi Targetでの起動・動作・権限等の実受入をそれぞれ確認する。[DEC-045](DEC-045-nagi-porting-toolkit.md)の決定論的な診断・検証と、[DEC-076](DEC-076-builder-generated-action-api-integration.md)の承認済みScopeでのAction提案・実装支援に従う。
+- **開発者向け資料:** 人とAIコーディング支援が公開契約を正確に参照できるよう、機械可読なAPI定義と、AIが読み取りやすいMarkdown等の開発者向けドキュメントを重視する。
+- **配布と初期Store:** Nagi運営の専用配布サーバーを前提にせず、GitHub Releasesや開発者サイト等から正規のNagi App Packageを配布できる方向とする。初期のNagi Storeは外部の配布先を案内するカタログ型を目指す。Store経由は任意とし、専用運営サーバーを初期の前提としない[DEC-066](DEC-066-device-connectivity-lan-first.md)の考え方とも整合させる。
+- **配布経路に共通する検証:** 導入時は正規経路でPackageの実際の署名・完全性、署名者・配布先の信頼、互換性、要求Permissionと現行Policyを検証する。カタログ掲載や外部ホストは検証・認可を代替しない。[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)に従い、製品用と開発用の鍵・信頼範囲を分け、鍵の更新・失効を扱う。未署名アプリは、Ownerが明示的に有効化したDeveloper Modeで警告と必要な認証／認可を経る既存の限定例外に従う。外部送信、正式インストール、一般公開はそれぞれ独立した認可を要する。
+
+**PROVISIONAL／OPEN**
+
+- C ABIの範囲・安定性保証期間、C++ wrapper、言語別の対応範囲・ツールチェーン・binding、Framework／GUI部品、API定義・ドキュメントの形式／生成方式、診断UI／CLIの具体設計。
+- Package形式・署名方式、鍵の保管・更新・失効手順、Trust Anchor／配布先の信頼判定、カタログのGitHub上での管理の採否、掲載審査・脆弱性対応・掲載情報／Packageの更新方式。
+- 開発者向け機能ごとの1.0必須範囲、具体的な品質・性能数値、個別の受入条件・提供版。1.0の公開開発者環境・配布基盤という既存目標に沿って詳細を決める。
+
+一般向けのNagi Native Apps専用、Windows／Linuxからの移植重点、高度な統合IDEの後順位を維持する。0.2 M12／M21の既存契約・受入とRelease／Activation／Acceptance GateおよびWorkstreamの着手条件を適用する。今回確定したのは製品方向の範囲であり、個別機能の着手・全機能の1.0完成・既存アプリのバイナリ互換を承認するものではない。
 
 ## PX-15 — 1.0完成基準との整合（2026-11-17）
 
@@ -152,7 +173,7 @@ Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／A
 
 **本DECの既存CONFIRMEDを維持:** 公開SDK／開発者環境・アプリ配布基盤を1.0までに整える高水準目標、Nagi Native Apps専用、一般的なIDEでの開発・段階的なLevel 0〜3連携、移植負担を抑える開発者支援、Public API／Permission／Policy、正規Package検証・導入／公開の別承認を変更しない。1.0は正式対応する開発／配布経路とTarget上の再現可能な結果を重視するが、Storeアプリを唯一の配布手段としたり、全Porting Toolkit／全Framework／高度な初心者向けIDEを一括必須としたり、HostだけのPASSをTarget実受入と認めたりしない。
 
-**PROVISIONAL／OPEN:** 初期SDK・言語／Framework、具体的な対応Package／署名・配布経路、Developer onboarding・Compatibility／Support matrix、Target Acceptance・品質／性能の数値・正式な1.0 Release判定手順と時期。PX-15の高水準完成方針は0.1〜0.4の既存Gate・Workstream条件の変更、1.0実装／Release PASSの宣言ではない。
+**PROVISIONAL／OPEN:** SDK・言語／Frameworkの具体的な対応範囲、対応Package／署名・配布の実装詳細、Developer onboarding・Compatibility／Support matrix、Target Acceptance・品質／性能の数値・正式な1.0 Release判定手順と時期。PX-15の高水準完成方針は0.1〜0.4の既存Gate・Workstream条件の変更、1.0実装／Release PASSの宣言ではない。
 
 ## 例外・禁止・安全境界
 
@@ -201,7 +222,7 @@ Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／A
 - **0.1:** 既存GateとWorkstream規則の範囲で、ホスト側SDK・契約・テンプレート・サンプル等の先行準備を行える。target app runtimeの完了を意味しない。
 - **0.2:** 0.2-M21等の既存定義に従い、Rust SDKを含むPublic App contract、package検証、out-of-tree sample、およびNagi target上のアプリ実行基盤を進める。既存の実装順序・Acceptanceを変更しない。
 - **0.3:** Personal Agentが第三者を含むアプリの公開Actionと正規に連携できることを目標とする。権限・安全境界はDEC-001および各Public contractに従う。
-- **1.0:** 公開開発者環境と配布基盤を製品目標とする。具体的な公開範囲、Storeの役割、日程、Acceptanceは別途定める。
+- **1.0:** 公開開発者環境と配布基盤を製品目標とする。具体的な公開範囲、カタログの運用、日程、Acceptanceは別途定める。
 
 ## PDF Reader / Editorとの整合（2026-11-16）
 
@@ -222,10 +243,10 @@ Bの公開SDK・ユーザー主導・検証の境界を保ちながら、SDK／A
 | 2026-11-13 | 移植支援対象の優先順位を整理：PCはWindows／Linuxを重点化。将来のモバイルはAndroidを優先検討、macOS／iOSは当面後順位。Nagi Native Apps専用とDesktop-firstは維持し、直接実行互換・成果／時期は保証しない。 |
 | 2026-11-16 | DEC-061の純正PDF Reader / Editor方針への参照を追加。既存の公開API・AI非必須・権限境界と整合させ、実装版・既存Gateは変更しない。 |
 | 2026-11-17 | PX-15の1.0実用OS B＋将来総合OS Cの高水準完成方針と、既存1.0公開開発者環境・アプリ配布基盤目標を整合。Nagi Native／段階的Public API・既存IDE・移植支援、HostとTargetの試験区別、正規Package／署名・導入・公開の別承認は維持。対応SDK・開発者経路・数値・個別提供版はPROVISIONAL。 |
-
 | 2026-11-15 | DEC-071として、Porting Toolkitの既存アプリ移植に加え、初心者がローカルLLMを使い自然言語から小規模な新規Nagi Native Appを作り、試用・導入・共有／配布する純正体験の方向を確定。製品形態・Toolkit連携・技術・版は未確定。 |
 | 2026-11-17 | PX-13でB＋将来Cの共同制作体験は維持しつつ、当面はローカルLLMとCloud開発AI／既存IDE・人間との橋渡し・他OSアプリ移植支援を重視する高水準方向を追加。統合型制作環境の完成は1.0計画最終盤を目安とする低優先長期目標（版未確定）。既存1.0公開開発者環境／配布基盤、Cloud事前許可、Native専用／Level 0〜3を維持。 |
 | 2026-11-17 | PX-14は既存IDE／SDK／PT-01〜06／Cloud開発AIとの橋渡し・Build／Test／Package／Target検証を一連の開発者体験とするBを基本、将来は互換性・更新Package・保守・配布までの継続開発支援Cに拡張する高水準方針をCONFIRMED。Nagi Native／Level 0〜3、Windows／Linux重点、DEC-002送信許可、導入・公開別承認、0.2-M21と1.0開発者環境・配布基盤目標を維持。初期SDK／言語・CLI／Cloud／署名・配布詳細・性能・版はPROVISIONAL。 |
+| 2026-11-25 | ユーザーの明示合意によりPX-14を具体化。Rust中心／安定C ABIとRust／C／C++重点、統合診断・機械可読APIと開発者資料、専用配布サーバーを前提にしない正規Package配布・初期カタログ型StoreをCONFIRMED。署名・信頼・Permission／Policy・個別認可・Host／Targetの既存境界を維持。具体方式、1.0必須範囲・数値・版はPROVISIONAL。 |
 
 ## 関連決定の参照注記（2026-11-21）
 
