@@ -97,3 +97,40 @@ PR番号の振られていない分の詳細は `git show` で確認する。
 接続: PT-01の正規入力、SDK配送方式、UI対応表、CLI/Package呼出し。未接続点は第3・第4節
 次: 実nagi-pkg構築済み環境でskipされる実validator依存テストを実行。Python 3.10+ hostで再確認。ownerの回答に応じたdata/adapter差し替え
 ```
+
+## 6. 一通しの移植レポート（NDP-09r、NDP-A008〜A022）
+
+入力projectから「API差分・UI対応表・雛形生成・Stage 1/2までを1つで見る」入口が
+`tools/nagi-developer-platform/validation/report.py`。第1節の表には載っていないので、次の引継ぎ先はここを見落とさないこと。
+正本は [validation README の Migration report 節](../../../tools/nagi-developer-platform/validation/README.md#migration-report-provisional-ndp-09r)
+で、この節は要約とリンクだけを置く。出力形式・各reason・上限値の詳細はREADMEを読む（ここへ二重に書かない）。
+
+**実行コマンド例**（checkout root、host上）:
+
+```sh
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture all
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture all --format markdown
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture mixed --format markdown
+```
+
+対象は自作のrepository fixtureだけ。`--fixture` に選べる名前（`report.FIXTURES`）は
+`portable`、`windows`、`linux`、`ui`、`mixed`、`app_windows`、`ui_unsupported`、`app_linux` と、全件を並べる `all`。
+fixtureを追加したら、この節にも名前を足す（`tests/developer-platform/evaluation/test_handover_report.py` が記録漏れを検知する）。
+
+**statusの意味**:
+
+| status | 意味 |
+|---|---|
+| `passed` | そのcheckが範囲内で完了した。API・UIのcheckはgapを報告しつつ `passed` になり得る |
+| `failed` | 選んだcheckが入力・tool・検証のエラーを報告した |
+| `not_run` | toolや入力の前提、またはstageの接続が無く実行されなかった。`reason` を見る |
+| `unsupported` | 選んだfixtureまたはUI形式がそのcheckの範囲外 |
+
+Stage 3 とNagi target受入（`target_acceptance`）は**常に `not_run`**。結果はhost限定で、Nagi target受入ではない。
+hostの `clang` もNagiのtoolchainを代表しない。`not_run` や `unsupported` を合格として読まない。
+
+**未検証**: 実scannerの出力、実 `nagi-pkg` との接続は未検証。API診断は手書きfixture（PT-01 report v1の仮接続）で、
+Stage 1の実validatorは構築済みの環境でだけ使われ、無い場合は `not_run`（第3節）。
+
+**PROVISIONAL**: 形式（JSON version 1、Markdown、overview、fixture routing）はPROVISIONALで、承認されていない。
+変更は `validation/` 内に閉じ、`contracts/` には触れない。契約ではない。
