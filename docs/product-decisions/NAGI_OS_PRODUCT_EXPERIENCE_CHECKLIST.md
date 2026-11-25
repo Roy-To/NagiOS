@@ -36,7 +36,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 
 | ID | 検討テーマ | 追加で決めること | 既存方針の参照 |
 |---|---|---|---|
-| PX-08 | **Memoryの自動学習範囲** | **B基本方針CONFIRMED:** 許可された情報を自然に学ぶ／推測は推測として扱う／重要な内容は確認。細分類・確認条件・除外の追加詳細はPROVISIONAL | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-058-habit-first-learning-and-optional-teach-mode.md) |
+| PX-08 | **Memoryの自動学習範囲** | **B案CONFIRMED:** 許可されたユーザー由来情報の自然学習、本人確認、推定と確定の区別、未回答時の扱い、Insightsでの訂正。具体設計・版・受入はPROVISIONAL | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-058-habit-first-learning-and-optional-teach-mode.md) |
 | PX-09 | **Memoryの保持・忘却・管理体験** | **B基本方針CONFIRMED:** 自然忘却＋ユーザー管理。将来Cの高度な重複統合・矛盾検出を追加する方向もCONFIRMED。条件・UI・Cの具体方式／版／時期はPROVISIONAL | [関連DEC 1](DEC-004-memory-learning-forgetting.md)・[関連DEC 2](DEC-059-learning-history-insights.md) |
 | PX-10 | **Nagiの個人化・対話スタイル** | **B基本方針CONFIRMED:** 利用に応じて口調・説明量・説明方法などが安定的に自然適応。**将来Cの高水準方向CONFIRMED:** Project／Task／作業状況に応じる状況適応へ拡張。UI・モデル／アルゴリズム・判定・評価・提供版／時期はPROVISIONAL | [DEC-057](DEC-057-growing-personal-agent-os.md)・[DEC-003](DEC-003-memory-classification.md)・[DEC-004](DEC-004-memory-learning-forgetting.md) |
 
@@ -103,11 +103,12 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 - **PROVISIONAL／OPEN:** 頻度・提示タイミング・作業中の抑制条件、保留・却下／再提示の具体制御、候補重要度・便益の評価、通知／UI、技術・提供版。
 - **進捗:** PARTIALLY_RECORDED（基本方針のみDEC反映）。DEC-008の控えめな先回りと重大警告の別扱い、DEC-073の根拠・不確かさ・Memory／Privacy／Permission、Workflow／Actionの個別承認を維持。他PXの並行PRは今回のbranchで上書きせず、統合時に照合する。
 
-### PX-08検討結果（2026-11-17）
+### PX-08検討結果（2026-11-17、2026-11-25追記）
 
 - **CONFIRMED（採用済み）:** バランス型B案。許可された情報を普段の利用から自然に学び、観測・事実・推測を混同せず、重要な内容はユーザーに確認する。正本は[DEC-004](DEC-004-memory-learning-forgetting.md)のPX-08節。
-- **PROVISIONAL（未決）:** 具体的な記憶対象分類、重要度判定、どの段階で確認するか、除外の追加詳細、状態／確信度、保持・実装・適用版。既存のMemory保護・忘却、Permission／Source・Profile境界、Workflow承認は変更しない。
-- **進捗:** PARTIALLY_RECORDED。基本方針をDECに記録するが、追加詳細や実装の完了を意味しない。
+- **2026-11-25 追加合意（CONFIRMED）:** 4/12 B案の学習対象、重要な意思決定と重要な個人情報の本人確認、観測・推定・確認待ち・確認済みの区別、未回答を承認としない扱いを[DEC-004](DEC-004-memory-learning-forgetting.md)に記録。Persona／Secretの学習・利用境界は[DEC-057](DEC-057-growing-personal-agent-os.md)を参照。
+- **PROVISIONAL（未決）:** 重要度や学習対象の詳細判定、確認タイミング・UI・状態Schema・閾値・保持期間・実装・提供版・受入。Memory保護・忘却、Permission／Source・Profile境界、Workflow承認を維持する。
+- **進捗:** PARTIALLY_RECORDED。B案の基本方針と4/12の承認事項を記録済み。具体設計・実装・受入は未確定。
 
 ### PX-09検討結果（2026-11-17）
 
@@ -192,6 +193,7 @@ Foundationの35項目はLinux基盤の起動・保存・保護・デバイス・
 | 2026-11-17 | PX-06の統合TaskセンターBと将来の高度オーケストレーションCを高水準方針として採用。既存の前景優先・待機と停止／復旧の区別・Scope／Permission・Gateを維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、Queue・Priority・表示・依存関係・Scheduler・並列度・実装・版はPROVISIONAL |
 | 2026-11-17 | PX-07のB（文脈・好みに応じ自然に提案）と将来C（候補の整理・根拠／期待効果の比較・Feedback活用）を高水準方針として決定。DEC-008／073の既存CONFIRMEDを維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、頻度・提示条件・抑制・却下／再提示・重要度判定・UI・技術・版はPROVISIONAL |
 | 2026-11-17 | PX-08でバランス型B基本方針を採用。許可された情報の自然な学習／推測の明示的な区別／重要な内容の本人確認をDEC-004に反映。既存Memory／Privacy／忘却・Gateを維持 | PARTIALLY_RECORDED：B基本方針CONFIRMED、細部PROVISIONAL |
+| 2026-11-25 | PX-08の4/12 B案として、学習対象・本人確認・学習状態・未回答の扱いをDEC-004、Persona／Secret境界をDEC-057に記録。既存Gateを維持。 | PARTIALLY_RECORDED：今回の承認事項はCONFIRMED、具体設計・版・受入はPROVISIONAL |
 | 2026-11-17 | PX-09でB「自然忘却＋ユーザー管理」と将来C「高度な重複統合・矛盾検出」の方向をCONFIRMEDとしてDEC-004／059に反映。閾値・UI・Cの具体方式／版／時期はPROVISIONAL、既存のSource／Profile／Permission・忘却・Gateを維持 | PARTIALLY_RECORDED：基本方針／将来方向CONFIRMED、詳細PROVISIONAL |
 | 2026-11-17 | PX-10のB基本方針と将来Cの高水準な状況適応方向をDEC-057へ記録 | PARTIALLY_RECORDED。具体的なUI・技術・判定・評価・提供版／時期はPROVISIONAL |
 | 2026-11-17 | PX-11で日常の主要作業を純正アプリで実用的に完結できる品質優先Bと将来の総合的な純正環境Cを高水準方針として採用。Phase 1〜3・PDF／ユーティリティ採用・AI非依存・1.0開発者／配布目標を維持。 | PARTIALLY_RECORDED：高水準CONFIRMED、個別1.0必須／任意／後続・最小機能・形式・性能・技術・搭載／配布形態・版はPROVISIONAL |
