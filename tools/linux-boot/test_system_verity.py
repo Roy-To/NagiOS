@@ -113,10 +113,20 @@ class SystemVerityTests(unittest.TestCase):
         with self.assertRaisesRegex(system_verity.VerityError, "CONFIG_DM_INIT=y"):
             system_verity.parse_config(config.replace(b"CONFIG_DM_INIT=y", b"# CONFIG_DM_INIT is not set"))
 
-    def test_result_parser_requires_kernel_verity_corruption_and_no_ready(self):
+    def test_result_parser_allows_clean_verity_start_and_rejects_real_corruption(self):
         root = "a" * 64
-        clean = f"NAGI_SYSTEM_VERITY_ACCEPTED root={root} filesystem=ext4 readonly=true fixture=true\n"
+        clean = (
+            "device-mapper: verity: sha256 using sha256-lib\n"
+            f"NAGI_SYSTEM_VERITY_ACCEPTED root={root} filesystem=ext4 readonly=true fixture=true\n"
+            "nagi-init: state=ready\n"
+        )
         self.assertEqual(system_verity.parse_probe_log(clean, "accepted", root)["expected"], "accepted")
+        with self.assertRaisesRegex(system_verity.VerityError, "verity corruption"):
+            system_verity.parse_probe_log(
+                clean + "device-mapper: verity: 253:0: vda: data block 0 is corrupted\n",
+                "accepted",
+                root,
+            )
         tampered = (
             "device-mapper: verity: 253:0: vda: data block 0 is corrupted\n"
             "NAGI_SYSTEM_VERITY_REJECTED stage=critical_block_read errno=5\n"
@@ -128,6 +138,46 @@ class SystemVerityTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(system_verity.VerityError, "READY"):
             system_verity.parse_probe_log(tampered + "nagi-init: state=ready\n", "rejected", root)
+
+    def test_tampered_resume_refuses_changed_prior_clean_serial(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp) / "qemu-run"
+            run_dir.mkdir()
+            serial = run_dir / "verified.serial"
+            serial.write_text(
+                "NAGI_SYSTEM_VERITY_ACCEPTED root=" + "a" * 64
+                + " filesystem=ext4 readonly=true fixture=true\n",
+                encoding="utf-8",
+            )
+            prior = {
+                "result": "FAIL",
+                "slot": 2,
+                "board_assignment": "active slot 2 assignment",
+                "kernel_sha256": "kernel",
+                "config_sha256": "config",
+                "initramfs_sha256": "initramfs",
+                "root_digest": "a" * 64,
+                "runs": [{
+                    "case": "verified",
+                    "expected": "accepted",
+                    "exit_code": 0,
+                    "timed_out": False,
+                    "guest_error": "clean System log unexpectedly reports verity corruption",
+                    "serial_sha256": "0" * 64,
+                }],
+            }
+            (run_dir / "receipt.json").write_text(json.dumps(prior), encoding="utf-8")
+            bundle = {
+                "kernel": {"sha256": "kernel"},
+                "config": {"sha256": "config"},
+                "initramfs": {"sha256": "initramfs"},
+                "image": {"verity": {"root_digest": "a" * 64}},
+            }
+            with self.assertRaisesRegex(system_verity.VerityError, "serial hash differs"):
+                system_verity.resume_tampered_after_clean(
+                    bundle, {}, run_dir, "active slot 2 assignment", 2, "unused-qemu", 180
+                )
+            self.assertFalse((run_dir / "tampered-resume").exists())
 
     def test_newc_initramfs_binds_compiled_verity_identity(self):
         with tempfile.TemporaryDirectory() as temp:

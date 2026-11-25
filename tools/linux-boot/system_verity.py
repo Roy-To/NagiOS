@@ -285,9 +285,9 @@ def parse_probe_log(serial: str, expected: str, root_digest: str) -> dict:
         )
         if not all(field in marker for field in required):
             raise VerityError("clean System accepted marker is missing verified fields")
-        if "NAGI_SYSTEM_VERITY_REJECTED" in serial or "state=ready" in serial.lower():
-            raise VerityError("clean System log contains a rejection or READY marker")
-        if "device-mapper: verity:" in serial:
+        if "NAGI_SYSTEM_VERITY_REJECTED" in serial:
+            raise VerityError("clean System log contains a rejection marker")
+        if re.search(r"device-mapper: verity:.*data block \d+ is corrupted", serial):
             raise VerityError("clean System log unexpectedly reports verity corruption")
     elif expected == "rejected":
         if not marker.startswith("NAGI_SYSTEM_VERITY_REJECTED "):
@@ -466,7 +466,124 @@ def current_board_assignment(lines: list[str], slot: int) -> str:
     return assignment
 
 
-def run_pair(bundle_dir: Path, board: Path, slot: int, qemu_name: str, timeout_seconds: int) -> dict:
+def resume_tampered_after_clean(
+    bundle: dict,
+    paths: dict[str, Path],
+    run_dir: Path,
+    board_assignment: str,
+    slot: int,
+    qemu: str,
+    timeout_seconds: int,
+) -> dict:
+    prior_receipt_path = run_dir / "receipt.json"
+    _regular_file(prior_receipt_path, "prior QEMU receipt")
+    prior_receipt_bytes = prior_receipt_path.read_bytes()
+    try:
+        prior = json.loads(prior_receipt_bytes)
+    except json.JSONDecodeError as error:
+        raise VerityError("prior QEMU receipt is malformed") from error
+    if prior.get("result") != "FAIL" or prior.get("slot") != slot:
+        raise VerityError("prior receipt is not the failed clean-only run for this slot")
+    if prior.get("board_assignment") != board_assignment:
+        raise VerityError("prior QEMU receipt has a different board assignment")
+    for field, expected in (
+        ("kernel_sha256", bundle["kernel"]["sha256"]),
+        ("config_sha256", bundle["config"]["sha256"]),
+        ("initramfs_sha256", bundle["initramfs"]["sha256"]),
+        ("root_digest", bundle["image"]["verity"]["root_digest"]),
+    ):
+        if prior.get(field) != expected:
+            raise VerityError(f"prior QEMU receipt {field} differs from the fixed bundle")
+    runs = prior.get("runs")
+    if not isinstance(runs, list) or len(runs) != 1:
+        raise VerityError("prior QEMU receipt must contain exactly one clean run")
+    clean_run = runs[0]
+    if (clean_run.get("case") != "verified" or clean_run.get("expected") != "accepted"
+            or clean_run.get("exit_code") != 0 or clean_run.get("timed_out") is not False
+            or clean_run.get("guest_error") != "clean System log unexpectedly reports verity corruption"):
+        raise VerityError("prior clean run is not the known parser false negative")
+    clean_serial_path = run_dir / "verified.serial"
+    _regular_file(clean_serial_path, "prior clean serial log")
+    clean_serial = clean_serial_path.read_text(encoding="utf-8", errors="replace")
+    clean_serial_sha256 = hashlib.sha256(clean_serial.encode()).hexdigest()
+    if clean_run.get("serial_sha256") != clean_serial_sha256:
+        raise VerityError("prior clean serial hash differs from the run receipt")
+    clean_guest = parse_probe_log(clean_serial, "accepted", bundle["image"]["verity"]["root_digest"])
+
+    resume_dir = run_dir / "tampered-resume"
+    try:
+        resume_dir.mkdir(mode=0o700)
+    except FileExistsError:
+        raise VerityError("tampered-resume already exists; refusing to reuse a run") from None
+    serial_path = resume_dir / "tampered.serial"
+    stderr_path = resume_dir / "tampered.stderr"
+    argv = qemu_argv(qemu, paths["kernel"], paths["initramfs"], paths["tampered"], serial_path,
+                     bundle["image"])
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_seconds,
+                                   check=False, start_new_session=True)
+        timed_out = False
+        exit_code = completed.returncode
+        stderr_path.write_text(completed.stderr, encoding="utf-8")
+    except subprocess.TimeoutExpired as error:
+        timed_out = True
+        exit_code = None
+        stderr_path.write_text((error.stderr or b"").decode("utf-8", "replace")
+                               if isinstance(error.stderr, bytes) else (error.stderr or ""),
+                               encoding="utf-8")
+    serial = serial_path.read_text(encoding="utf-8", errors="replace") if serial_path.exists() else ""
+    row = {
+        "case": "tampered",
+        "expected": "rejected",
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "duration_seconds": round(time.monotonic() - started, 3),
+        "serial_sha256": hashlib.sha256(serial.encode()).hexdigest(),
+        "serial_path": serial_path.name,
+        "stderr_path": stderr_path.name,
+        "argv": argv,
+    }
+    report = {
+        "schema": 1,
+        "result": "FAIL",
+        "continuation": "tampered-only after revalidated clean run",
+        "board_assignment": board_assignment,
+        "slot": slot,
+        "kernel_sha256": bundle["kernel"]["sha256"],
+        "config_sha256": bundle["config"]["sha256"],
+        "initramfs_sha256": bundle["initramfs"]["sha256"],
+        "root_digest": bundle["image"]["verity"]["root_digest"],
+        "prior_receipt_sha256": hashlib.sha256(prior_receipt_bytes).hexdigest(),
+        "clean_serial_sha256": clean_serial_sha256,
+        "clean_guest": clean_guest,
+        "runs": [row],
+    }
+    if timed_out or exit_code != 0:
+        row["result"] = "FAIL"
+    else:
+        try:
+            row["guest"] = parse_probe_log(serial, "rejected", bundle["image"]["verity"]["root_digest"])
+            row["result"] = "PASS"
+            report["result"] = "PASS"
+        except VerityError as error:
+            row["result"] = "FAIL"
+            row["guest_error"] = str(error)
+    receipt_path = resume_dir / "receipt.json"
+    receipt_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    receipt_path.chmod(0o444)
+    return report
+
+
+def run_pair(
+    bundle_dir: Path,
+    board: Path,
+    slot: int,
+    qemu_name: str,
+    timeout_seconds: int,
+    *,
+    resume_tampered: bool = False,
+) -> dict:
     bundle, paths = load_run_bundle(bundle_dir)
     board_info = _regular_file(board, "internal board")
     if board_info.st_mode & 0o222 == 0:
@@ -477,6 +594,10 @@ def run_pair(bundle_dir: Path, board: Path, slot: int, qemu_name: str, timeout_s
     if qemu is None:
         raise VerityError(f"QEMU executable not found: {qemu_name}")
     run_dir = bundle_dir / "qemu-run"
+    if resume_tampered:
+        if not run_dir.is_dir() or run_dir.is_symlink():
+            raise VerityError("tampered-only continuation requires the preserved partial qemu-run")
+        return resume_tampered_after_clean(bundle, paths, run_dir, assignment, slot, qemu, timeout_seconds)
     try:
         run_dir.mkdir(mode=0o700)
     except FileExistsError:
@@ -657,6 +778,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--qemu", default="qemu-system-x86_64")
     run.add_argument("--timeout-seconds", type=int, default=180)
     run.add_argument("--start", action="store_true", help="start QEMU; omission is non-start preflight only")
+    run.add_argument("--resume-tampered", action="store_true",
+                     help="run only tampered after validating a preserved clean run")
     args = parser.parse_args(argv)
     try:
         if args.command == "prepare-images":
@@ -678,6 +801,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             bundle, _ = load_run_bundle(args.bundle)
             if not args.start:
+                if args.resume_tampered:
+                    raise VerityError("--resume-tampered requires --start")
                 print(json.dumps({"result": "PREPARED_NO_START", "slot": args.slot,
                                   "kernel_sha256": bundle["kernel"]["sha256"],
                                   "initramfs_sha256": bundle["initramfs"]["sha256"],
@@ -685,7 +810,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.timeout_seconds < 1 or args.timeout_seconds > 900:
                 raise VerityError("QEMU timeout must be between 1 and 900 seconds")
-            report = run_pair(args.bundle, args.board, args.slot, args.qemu, args.timeout_seconds)
+            report = run_pair(args.bundle, args.board, args.slot, args.qemu, args.timeout_seconds,
+                              resume_tampered=args.resume_tampered)
             print(json.dumps(report, sort_keys=True))
             return 0 if report.get("result") == "PASS" else 1
     except (OSError, VerityError, KeyError, TypeError, json.JSONDecodeError) as error:
