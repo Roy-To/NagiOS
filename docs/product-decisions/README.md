@@ -266,6 +266,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
 | DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
+| DEC-128 | [Nagi Searchの適応型検索（B案）](DEC-128-nagi-search-adaptive-retrieval.md) | CONFIRMED（Nagi独自のSearch Service／Provider、軽量検索優先、必要時のローカル意味検索、検索前の権限適用と正本分離）／PROVISIONAL（技術・API・精度・性能・閾値・版） | 2026-11-25 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -277,6 +278,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 技術評価の実行計画: [MEMORY-BENCH-01 — Lightweight Memory Engine比較・性能評価](benchmarks/MEMORY-BENCH-01.md)。限定的なhost-only A/B smoke結果は[こちら](benchmarks/MEMORY-BENCH-01-HOST-SMOKE-2026-11-04.md)（CはNOT_MEASURED、QEMU/target PASSではない）。
 
 追加のhost-only合成評価: [MEMORY-BENCH-01 V3–V5](benchmarks/MEMORY-BENCH-01-V3-V5-HOST-2026-11-04.md) — seed 42で1k/10k/100kを比較。C Hybrid/TokenizerはNOT_MEASURED、採用判断・閾値・runtime acceptanceではない。
+
+**変更履歴（2026-11-25）** — [DEC-128](DEC-128-nagi-search-adaptive-retrieval.md)を追加。Nagi Search B案を承認済み方針として記録し、OCR・Visionへの連携方向、増分索引と前景優先も明記。具体技術・API・性能・実装版は暫定とし、既存Gateに変更はない。
 
 新しいテーマは [TEMPLATE.md](TEMPLATE.md) を複製して追加する。
 
