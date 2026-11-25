@@ -37,6 +37,28 @@ The architecture must permit future language packs such as `ko-KR`, `zh-CN`,
 `zh-TW`, `de-DE`, `fr-FR`, and `es-ES` without a broad rewrite of OS code.
 Those languages are not Nagi 0.1 support commitments.
 
+## Future language coverage direction (2026-11-25)
+
+[DEC-127](../product-decisions/DEC-127-nagi-design-system.md) confirms an
+open-source/open-license font preference and the future product goal of
+English, Japanese, Chinese, Korean, Portuguese, Spanish, French, German,
+Arabic, and Russian. English and Japanese remain equal first-class initial
+languages. The additional eight are future targets, not new 0.1 or 1.0
+release requirements.
+
+Design shared UI, text/layout, localization, input and search boundaries
+early for extension across scripts and locales. Keep the existing independent
+language/region/input/AI settings and canonical English identifiers. Candidate
+validation includes CJK language-sensitive glyphs and input, bidirectional
+text and RTL layout, contextual shaping, Unicode text segmentation, long
+translations, regional formats, and mixed-language documents. Selective
+language packs and fonts are candidates for keeping the default footprint
+small. Specific locale variants, fonts, text engines, input engines,
+coverage, implementation order, releases and acceptance remain provisional.
+OS language support is distinct from the capabilities of any AI model.
+This note does not change ADR-0015's initial scope, existing implementation
+status, release/activation gates or workstream authorization.
+
 ## Localization resources and keys
 
 User-facing strings are externalized into shared localization resources.
