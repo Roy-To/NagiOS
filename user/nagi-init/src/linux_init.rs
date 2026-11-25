@@ -4468,19 +4468,41 @@ mod linux_x86_64_process {
         file.write_all(text.as_bytes())
     }
 
+    #[cfg_attr(not(test), inline(always))]
+    fn process_prepare_stage<T>(stage: &'static str, result: io::Result<T>) -> io::Result<T> {
+        #[cfg(test)]
+        if let Err(error) = &result {
+            eprintln!(
+                "C3_PROCESS_PREPARE_STAGE_FAILED: stage={stage} kind={:?} errno={:?} error={error}",
+                error.kind(),
+                error.raw_os_error()
+            );
+        }
+        #[cfg(not(test))]
+        let _ = stage;
+        result
+    }
+
     /// Create a short-lived user namespace for the idmapped app-data mount.
     /// Its cleanup-only reap ticket keeps the helper under PID-1's sole wait
     /// owner; the namespace FD, not the helper process, pins the mapping.
     fn create_app_mount_user_namespace(uid: u32, gid: u32) -> io::Result<OwnedFd> {
         if uid == 0 || gid == 0 || uid == u32::MAX || gid == u32::MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "app mount idmapping requires non-root app credentials",
-            ));
+            return process_prepare_stage(
+                "app_storage.validate_non_root_ids",
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "app mount idmapping requires non-root app credentials",
+                )),
+            );
         }
 
         let mut pipe = [-1i32; 2];
-        syscall_result(unsafe { syscall2(NR_PIPE2, pipe.as_mut_ptr() as usize, O_CLOEXEC) })?;
+        process_prepare_stage(
+            "userns.pipe2",
+            syscall_result(unsafe { syscall2(NR_PIPE2, pipe.as_mut_ptr() as usize, O_CLOEXEC) })
+                .map(|_| ()),
+        )?;
         let mut release_read = OwnedFd(pipe[0]);
         let mut release_write = OwnedFd(pipe[1]);
         let mut raw_pidfd = -1i32;
@@ -4498,10 +4520,14 @@ mod linux_x86_64_process {
             cgroup: 0,
         };
 
-        let mut reaper = child_reaper()
-            .lock()
-            .map_err(|_| io::Error::other("PID-1 child reaper lock is poisoned"))?;
-        let reservation = reaper.reserve_ticket()?;
+        let mut reaper = process_prepare_stage(
+            "userns.reaper_lock",
+            child_reaper()
+                .lock()
+                .map_err(|_| io::Error::other("PID-1 child reaper lock is poisoned")),
+        )?;
+        let reservation =
+            process_prepare_stage("userns.reserve_reaper_ticket", reaper.reserve_ticket())?;
         let cloned = unsafe {
             syscall2(
                 NR_CLONE3,
@@ -4531,13 +4557,19 @@ mod linux_x86_64_process {
             }
         }
         if cloned < 0 {
-            return Err(io::Error::from_raw_os_error((-cloned) as i32));
+            return process_prepare_stage(
+                "userns.clone3",
+                Err(io::Error::from_raw_os_error((-cloned) as i32)),
+            );
         }
 
         let process_id = cloned as u32;
         let ticket = reservation.bind_unverified(process_id);
         let helper_pidfd = (raw_pidfd >= 0).then_some(OwnedFd(raw_pidfd));
-        if let Err(error) = reaper.register(ticket.clone()) {
+        if let Err(error) = process_prepare_stage(
+            "userns.register_reaper_ticket",
+            reaper.register(ticket.clone()),
+        ) {
             reaper.retain_failed_ticket(ticket);
             drop(reaper);
             let _ = release_read.close_now();
@@ -4551,14 +4583,26 @@ mod linux_x86_64_process {
             )));
         }
         drop(reaper);
-        release_read.close_now()?;
+        process_prepare_stage("userns.close_parent_read_pipe", release_read.close_now())?;
 
         let namespace_result = (|| {
             let proc = format!("/proc/{process_id}");
-            write_proc_text(&format!("{proc}/setgroups"), "deny\n")?;
-            write_proc_text(&format!("{proc}/uid_map"), &format!("0 {uid} 1\n"))?;
-            write_proc_text(&format!("{proc}/gid_map"), &format!("0 {gid} 1\n"))?;
-            let namespace = std::fs::File::open(format!("{proc}/ns/user"))?;
+            process_prepare_stage(
+                "userns.write_setgroups",
+                write_proc_text(&format!("{proc}/setgroups"), "deny\n"),
+            )?;
+            process_prepare_stage(
+                "userns.write_uid_map",
+                write_proc_text(&format!("{proc}/uid_map"), &format!("0 {uid} 1\n")),
+            )?;
+            process_prepare_stage(
+                "userns.write_gid_map",
+                write_proc_text(&format!("{proc}/gid_map"), &format!("0 {gid} 1\n")),
+            )?;
+            let namespace = process_prepare_stage(
+                "userns.open_namespace_fd",
+                std::fs::File::open(format!("{proc}/ns/user")),
+            )?;
             Ok::<_, io::Error>(OwnedFd(namespace.into_raw_fd()))
         })();
 
@@ -4572,23 +4616,28 @@ mod linux_x86_64_process {
             )
         };
         let close_result = release_write.close_now();
-        let exit_status = wait_for_reap_ticket(&ticket)?;
+        let exit_status =
+            process_prepare_stage("userns.reap_helper", wait_for_reap_ticket(&ticket))?;
         let namespace = namespace_result?;
         if released != 1 {
-            return Err(if released < 0 {
+            let error = if released < 0 {
                 io::Error::from_raw_os_error((-released) as i32)
             } else {
                 io::Error::new(
                     io::ErrorKind::WriteZero,
                     "app mount user-namespace helper release was short",
                 )
-            });
+            };
+            return process_prepare_stage("userns.release_helper", Err(error));
         }
-        close_result?;
+        process_prepare_stage("userns.close_release_pipe", close_result)?;
         if exit_status.exit_code != Some(0) || exit_status.signal.is_some() {
-            return Err(io::Error::other(
-                "app mount user-namespace helper did not exit normally",
-            ));
+            return process_prepare_stage(
+                "userns.helper_exit",
+                Err(io::Error::other(
+                    "app mount user-namespace helper did not exit normally",
+                )),
+            );
         }
         drop(helper_pidfd);
         Ok(namespace)
@@ -4600,14 +4649,17 @@ mod linux_x86_64_process {
         gid: u32,
     ) -> io::Result<OwnedFd> {
         let user_namespace = create_app_mount_user_namespace(uid, gid)?;
-        let mount_tree = OwnedFd::from_result(unsafe {
-            syscall3(
-                NR_OPEN_TREE,
-                directory.as_raw_fd() as usize,
-                c"".as_ptr() as usize,
-                OPEN_TREE_CLONE | O_CLOEXEC | AT_EMPTY_PATH,
-            )
-        })?;
+        let mount_tree = process_prepare_stage(
+            "open_tree.clone_app_storage_mount",
+            OwnedFd::from_result(unsafe {
+                syscall3(
+                    NR_OPEN_TREE,
+                    directory.as_raw_fd() as usize,
+                    c"".as_ptr() as usize,
+                    OPEN_TREE_CLONE | O_CLOEXEC | AT_EMPTY_PATH,
+                )
+            }),
+        )?;
         let attributes = LinuxMountAttr {
             attr_set: MOUNT_ATTR_IDMAP
                 | MOUNT_ATTR_NOSUID
@@ -4628,8 +4680,11 @@ mod linux_x86_64_process {
                 core::mem::size_of::<LinuxMountAttr>(),
             )
         };
-        syscall_result(changed)?;
-        promote_fd(mount_tree)
+        process_prepare_stage(
+            "mount_setattr.idmap_and_flags",
+            syscall_result(changed).map(|_| ()),
+        )?;
+        process_prepare_stage("promote_app_storage_mount_fd", promote_fd(mount_tree))
     }
 
     fn open_landlock_executable_path_fd(executable_fd: i32) -> io::Result<Option<OwnedFd>> {
@@ -6266,6 +6321,7 @@ mod linux_x86_64_process {
                     4 => "credential/capability/seccomp hardening",
                     5 => "signal mask reset",
                     6 => "test security negative probe",
+                    7 => "app storage mount",
                     _ => "unknown child setup stage",
                 };
                 eprintln!("C3_CLONE3_CHILD_SETUP_FAILED: stage={stage_name} errno={errno}");
@@ -7164,17 +7220,24 @@ mod linux_x86_64_process {
             filesystem_policy: ProcessFilesystemPolicy,
         ) -> io::Result<ProcessHandle<Prepared, Self::Raw>> {
             if execution_identity.uid == 0 || execution_identity.gid == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Linux process identity must not retain root credentials",
-                ));
+                return process_prepare_stage(
+                    "process.validate_non_root_identity",
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Linux process identity must not retain root credentials",
+                    )),
+                );
             }
             // Copy the exact PackageView executable slice into a private memfd and
             // seal it before creating the gated child. No pathname is resolved.
-            let executable_fd =
-                create_sealed_executable(&mut LinuxSealedExecutableOps, executable.bytes())?;
-            let task24_endpoint_mount =
-                task24_endpoint_mount_paths(arguments, endpoint_policy, execution_identity)?;
+            let executable_fd = process_prepare_stage(
+                "process.create_sealed_executable",
+                create_sealed_executable(&mut LinuxSealedExecutableOps, executable.bytes()),
+            )?;
+            let task24_endpoint_mount = process_prepare_stage(
+                "process.prepare_endpoint_mount_paths",
+                task24_endpoint_mount_paths(arguments, endpoint_policy, execution_identity),
+            )?;
             let task24_endpoint_source = task24_endpoint_mount
                 .as_ref()
                 .map_or(ptr::null(), |paths| paths.source.as_ptr());
@@ -7187,13 +7250,19 @@ mod linux_x86_64_process {
                 !matches!(&filesystem_policy, ProcessFilesystemPolicy::Inherited);
             let app_storage_mount = match &filesystem_policy {
                 ProcessFilesystemPolicy::Application(storage) => {
-                    storage.session_is_live().map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            "app storage Session is no longer live",
-                        )
-                    })?;
-                    let stat = rustix::fs::fstat(storage.directory()).map_err(io::Error::from)?;
+                    process_prepare_stage(
+                        "app_storage.validate_live_session",
+                        storage.session_is_live().map_err(|_| {
+                            io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage Session is no longer live",
+                            )
+                        }),
+                    )?;
+                    let stat = process_prepare_stage(
+                        "app_storage.fstat_directory",
+                        rustix::fs::fstat(storage.directory()).map_err(io::Error::from),
+                    )?;
                     let file_type = stat.st_mode & 0o170000;
                     if file_type != 0o040000
                         || stat.st_uid != 0
@@ -7201,18 +7270,24 @@ mod linux_x86_64_process {
                         || stat.st_mode & 0o777 != 0o700
                         || storage.app_id() == nagi_model::AppId(0)
                     {
-                        return Err(io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            "app storage mount is not the exact private owner-issued directory",
-                        ));
+                        return process_prepare_stage(
+                            "app_storage.validate_private_owner_directory",
+                            Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage mount is not the exact private owner-issued directory",
+                            )),
+                        );
                     }
                     if LinuxExecutionIdentity::for_application(storage.app_id())
                         != Some(execution_identity)
                     {
-                        return Err(io::Error::new(
-                            io::ErrorKind::PermissionDenied,
-                            "app storage token does not match the assigned application UID",
-                        ));
+                        return process_prepare_stage(
+                            "app_storage.validate_application_uid",
+                            Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage token does not match the assigned application UID",
+                            )),
+                        );
                     }
                     Some(prepare_idmapped_app_storage_mount(
                         storage.directory(),
@@ -7224,10 +7299,13 @@ mod linux_x86_64_process {
             };
             if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel && private_filesystem
             {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "system-service endpoint and app filesystem policies cannot be combined",
-                ));
+                return process_prepare_stage(
+                    "app_storage.validate_endpoint_policy",
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "system-service endpoint and app filesystem policies cannot be combined",
+                    )),
+                );
             }
             let landlock_executable_path_fd = if app_filesystem {
                 open_landlock_executable_path_fd(executable_fd.raw())?
