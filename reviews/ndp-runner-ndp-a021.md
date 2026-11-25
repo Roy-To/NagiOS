@@ -10,3 +10,11 @@
 
 NDP-REVIEW: FIX
 
+## Round 2 — codex review of d59b74bbaf9d
+
+**P2 — 出力上限が fixture 件数に追従することを回帰テストで確認できません。** テストは9件に固定して `MAX_REPORT_BYTES` だけを変えるため、実装を `MAX_REPORT_BYTES * 9` に置き換えても通ります。その状態で fixture を追加すると、`--fixture all` の出力上限が増えません。最小修正は、同じレポート出力に対して `FIXTURES` の件数を変え、同じバイト上限の設定で出力の許可と拒否が切り替わることを確認することです。[test_report_ui_invalid.py:199](tools/nagi-developer-platform/validation/test_report_ui_invalid.py:199)
+
+前回の3件は差分上で解消を確認しました。新規テストは実 CLI で `invalid_xml`、終了コード1、マッピングのスキップ、独立チェックの継続、Markdown の理由説明を検証しています。担当パス外の変更は前回レビュー記録を追加した別コミットの1ファイルです。テストは再実行しておらず、提示された成功結果は host 検証です。
+
+NDP-REVIEW: FIX
+
