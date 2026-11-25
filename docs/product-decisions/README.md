@@ -266,7 +266,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
 | DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
-| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -537,3 +537,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)追補: PC／Tablet／Phone間のシームレスな体験と統合OSの中核としてのDesktopを重視する方向をCONFIRMED。DeX／Pixel Desktop mode／Lomiriは参照例。具体Surface・外部画面／切替・技術・機器・版はPROVISIONAL。既存Handoff・Desktop first・Gateを維持。
 
 [DEC-127](DEC-127-nagi-design-system.md)明確化: Lomiri／DeX／Pixel Desktop modeは体験の参照に限定。Lomiri等の完成済みDesktop環境をNagiの製品基盤に採用・改造流用せず、Nagi独自Shellを設計する。Wayland／Smithay等の汎用基盤の採否は引き続きPROVISIONAL。
+
+[DEC-127](DEC-127-nagi-design-system.md)追補: 端末横断のNagi独自Shellを初めから設計しDesktop向け表示から実装する方向、共通Nagi Bar、Workspaceの作業状態と表示の分離、通常UIの非LLM依存をCONFIRMED。具体モード・UI・描画基盤・実装順／提供版はPROVISIONAL。既存Gate・Ownerを維持。
