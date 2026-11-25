@@ -121,6 +121,16 @@ import os
 import sys
 
 args = sys.argv[1:]
+if len(args) >= 3 and args[0] == "-i" and args[1] == r"s/\x00\+$/\x00/g":
+    import re
+
+    for path in args[2:]:
+        with open(path, "rb") as stream:
+            data = stream.read()
+        data = re.sub(rb"\x00+(?=\n|$)", b"\x00", data, flags=re.MULTILINE)
+        with open(path, "wb") as stream:
+            stream.write(data)
+    raise SystemExit(0)
 if args and args[0] in ("-i", "--in-place"):
     args.insert(1, "")
 os.execv(os.environ["NAGI_L11_BSD_SED"], ["sed", *args])
