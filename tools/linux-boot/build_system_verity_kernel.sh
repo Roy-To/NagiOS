@@ -72,7 +72,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     host_make_args=("HOSTCC=$host_compat_root/bin/clang-host" "HOSTCXX=$host_compat_root/bin/clang-host"
         "HOSTLD=$host_compat_root/bin/clang-host" "HOSTCFLAGS=$host_cflags"
         "HOSTLDFLAGS=-fuse-ld=lld" "HOSTPKG_CONFIG=$host_pkg_config_path")
-    export PATH="/opt/homebrew/bin:$PATH"
+    export PATH="/opt/homebrew/opt/llvm@19/bin:/opt/homebrew/bin:$PATH"
     host_support_kind=mount-lane-read-only-darwin-compat+elfutils-0.197
 fi
 
@@ -220,6 +220,14 @@ for key, path in (
     ("install_argument_shim", install_shim),
 ):
     files[key] = {
+        "path": str(path),
+        "resolved_path": str(path.resolve(strict=True)),
+        "size_bytes": path.stat().st_size,
+        "sha256": sha(path),
+    }
+for name in ("llvm-ar", "llvm-nm", "llvm-objcopy", "llvm-objdump", "llvm-readelf", "llvm-strip"):
+    path = clang.parent / name
+    files[name.replace("-", "_")] = {
         "path": str(path),
         "resolved_path": str(path.resolve(strict=True)),
         "size_bytes": path.stat().st_size,
