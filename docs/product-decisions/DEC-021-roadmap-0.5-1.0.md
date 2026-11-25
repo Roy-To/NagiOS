@@ -3,7 +3,7 @@
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 **状態:** CONFIRMED（既存の1.0一般公開品質・開発者／配布基盤目標、DEC-074のAI組み込みOS優先／階層Agent後順位、PX-11品質重視の純正アプリB＋将来C、PX-13のCloud AI橋渡し優先／高度IDE後順位、PX-14の移植・検証体験B＋将来保守／配布C、PX-15の正式対応範囲で日常作業を安全・安定に完結する実用OS B＋将来総合OS Cという高水準方向）／PROVISIONAL（アプリ別1.0必須／任意／後続、対応端末・代表作業、具体的SDK／Provider／Package／配布、品質・性能数値・Release判定手順／日程・版別詳細）  
-**最終確認日:** 2026-11-25（PX-15の製品構成・優先候補と評価方向を追加）／従前 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）  
+**最終確認日:** 2026-11-25（PX-15の製品構成・優先候補と評価方向を追加）／従前 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
