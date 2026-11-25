@@ -4,8 +4,8 @@
 
 
 **状態:** CONFIRMED（設計原則・既定方式）／PROVISIONAL（実装詳細・性能値・適用バージョン）  
-**最終合意日:** 2026-11-17（PX-06および0.3完成前の8GB先行性能評価を追加。既存設計・Gateを維持）  
-**対象:** Nagi OSとAIの情報受け渡し・OS操作経路。実装バージョンと採用時期は確定しない  
+**最終合意日:** 2026-11-25（5/12 Model Runtimeの適応型モデル構成Bを追加）\
+**対象:** Nagi OSとAIの情報受け渡し・OS操作経路・推論資源管理。実装バージョンと採用時期は確定しない\
 **関連:** [DEC-001](DEC-001-agent-autonomy-actions.md)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-008](DEC-008-proactive-behavior.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.2 Platform Foundation仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正ソフトウェア実装仕様](https://github.com/Roy-To/NagiOS/blob/main/docs/NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[Decision / Generative AI architecture](../architecture/decision-and-generative-ai-architecture.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)
 
 > **2026-11-16 Linux上のPermission強制方針の後続決定:** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)で、Nagi Permission／Capabilityの認可判断とLinux保護機構による実効隔離を併用し、Linux syscall／device／filesystem等の直接経路からの権限迂回も防ぐB案をCONFIRMED。本文の「Linux上の強制機構は未確定」は個別技術・適用境界・実機受入の未決定を示す。型付きPublic Action、GUI fallbackの限定条件、AI非特権の方針は変更しない。
@@ -111,6 +111,23 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 - **モデルとユーザーデータの分離:** Modelの選択や切替が、Nagi Profile、Canonical Memory、Preferences、Habits、Task metadata等の正本を変更・破壊したり、モデルの権限を拡張したりしてはならない。Model固有の一時Cacheは既存のModel Runtime／Context Adapter契約に従って扱う。
 - **効果の検証:** 必要十分な推論経路を選ぶことで、使用RAM、CPU／GPU負荷、消費電力、推論Token、待機時間を減らすことを目標とするが、各Taskの品質・失敗率も併せて実測する。適応型方式の優位性や具体的な削減値は未検証であり保証しない。
 
+### 5/12 Model Runtime — 適応型モデル構成B（2026-11-25）
+
+#### CONFIRMED — モデル選択と実行境界
+
+- **既存のStandard契約と交換可能性:** 既存のIBM Granite 4.2 3B標準契約を維持する。Standard／Lite／専門モデルは、必要な能力を満たす許可済みのProviderやモデルに交換できる構成とする。ユーザーによる選択・手動固定・自動切替の可否を尊重し、許可範囲内でTaskの内容、必要な能力、端末資源や現在の負荷に応じた自動選択を目指す。
+- **処理経路と品質:** 定型操作はLLMを使わない決定論的Fast Pathを優先し、限定判断には型付き`DecisionProvider`、生成・推論には既存のGenerative経路を用いる（[DEC-024](DEC-024-external-jev-reference-and-builder-label-correction.md)、[ADR-0018](../decisions/0018-decision-and-generative-model-architecture.md)）。前景のOS／アプリ操作を優先し、ロードや初回応答など切替のコストも考慮する。候補が品質・資源条件を満たさない場合は、許可済みで条件を満たす経路を選ぶか、Taskの待機・縮小・分割・ユーザー確認など安全な既存経路へ退避する。ユーザーの固定指定と停止状態を守り、外部Cloudへの送信は[DEC-002](DEC-002-cloud-ai-data-sharing.md)に従う。
+- **保存・常駐・継続性:** モデルストアへのインストールとRAM／VRAMへの常駐は個別に管理し、必要に応じてロード／アンロードする。[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)のOS本体との論理分離を維持する。Profile、Canonical Memory、嗜好・習慣、Taskの正本はモデルに依存せず、モデル交換後も Nagi の継続性を保つ。[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)のMemory設計を維持する。
+- **将来の階層型Agent組織:** 役割とTaskの両方をモデル選択に使い、Agentとモデルの対応を可変とする。Supervisorは計画・レビュー・判断の品質が高いモデルを優先する。WorkerはTaskごとに必要十分なLite／Standard／専門モデル等を選ぶ。同じモデルを複数のAgentが使う場合、対応環境では不変の重みを共有できる。推論Session、Context、KV Cache、Task状態、Budget、Cancel、Permissionは各実行の境界に沿って分離する。組織の規模と物理的な同時推論数は別々に扱い、端末資源に応じた逐次実行も可能とする。
+- **組織の優先順位と認可:** [0.3](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)の単一Personal Agentと[初期0.4](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)の単一Nagi `builder` Roleを維持し、階層型組織は[DEC-074](DEC-074-human-led-agent-organization.md)の長期・後順位に置く。[DEC-122](DEC-122-adaptive-supervisor-council-security.md)のCouncilは重要Actionや疑わしい指示のセキュリティ審査を主目的とする。モデルの選択・切替、役割、審査結果による権限昇格を禁止し、OSの独立した認証・認可、決定論的検証、型付きPublic Action、必要な本人承認を維持する。
+
+#### PROVISIONAL — 評価候補と実装詳細
+
+- 軽量モデルの第一評価候補はQwen3 0.6Bとし、Qwen3 1.7B等も比較できる。Granite 4.2 3Bでは`Q4_K_M`を優先評価する。適応型構成のローカル生成・推論の主要経路候補は`llama.cpp`／GGUFとし、既存の0.1 Generative経路はADR-0018に従う。ELYZA等は追加評価候補とする。個別モデル、推論backend、量子化、同梱／追加配布構成の採否は、ライセンス・再配布条件、実機性能、Task品質の確認後に決める。
+- 具体的なルーティング、負荷制御、切替点・閾値、常駐数・並列数、モデル管理UI、役割ごとの手動設定の詳細、対象版・実装は未確定。[DEC-125](DEC-125-ai-operations-status-panel.md)の稼働状況の可視化方針を適用し、同パネルにモデル管理操作を含めるかは別途決める。
+
+[ADR-0004](../decisions/ADR-0004-granite-default.md)の既存モデル契約、[0.2実装仕様§20](../Nagi_OS_0.2_Codex_Implementation_Spec.md#20-model-runtime-and-model-store)／[M16](../Nagi_OS_0.2_Codex_Implementation_Spec.md#02-m16--model-runtime--model-store-integration)の成果物・受入条件と、既存のRelease／Activation／Acceptance Gateを維持する。
+
 ### 人間の操作応答性を優先するAI資源配分
 
 - **標準優先順位:** Nagiの資源配分では、ユーザーが直接操作している前景UI／アプリの応答性を標準で優先する。AIの推論・検索・索引構築・承認済みバックグラウンドTaskは、前景の操作を不必要に遅延させない範囲で利用可能なCPU／GPU／NPU、RAM、ストレージI/O、電力等の資源を適応的に利用する。「余剰資源」は厳密な固定量ではなく、現在の負荷と前景作業の要求を踏まえた利用可能な予算を指す。
@@ -173,6 +190,7 @@ Nagiの設計上の問題意識は、PC内部の状態やアプリの操作を�
 
 | 日付 | 内容 |
 |---|---|
+| 2026-11-25 | 5/12 Model RuntimeのB案をCONFIRMED。標準契約と手動固定を維持し、Task・端末資源と将来のAgent Roleに応じた適応選択、重み共有時の実行分離を記録。追加モデル・backend・量子化・配布・ルーティング・UI・版はPROVISIONAL。 |
 | 2026-11-17 | 8GBでの通常操作＋ローカルAI連携の性能試験を0.3完成前に先行開始する方針をCONFIRMED。前景応答と推論速度・Task品質を比較。端末・モデル・日程・閾値・担当はPROVISIONAL。既存Gateとhost／target／実機の証拠区別を維持。 |
 | 2026-11-17 | PX-06で統合TaskセンターB＋将来C高度オーケストレーションの高水準方向をDEC-011に記録。本DECの前景優先・明示優先度変更・Resource待機の条件付き継続、停止／障害復旧の安全境界は維持。Queue・Priority・状態表示の詳細／Scheduler・並列度・技術・版はPROVISIONAL。 |
 | 2026-11-16 | 複数の利用許可済み量子化モデルをストレージにインストールし、必要時だけRAMへロードする方針を具体化。資源圧迫時の軽量モデルへの自動切替を目指し、難しい段階では手動切替を確保。ユーザーの固定指定、Task品質・権限、Memory継続、安全な切替境界を優先し、シームレス性・閾値・適用版は未確定。 |
