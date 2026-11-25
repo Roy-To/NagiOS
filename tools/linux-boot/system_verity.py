@@ -274,17 +274,38 @@ def parse_probe_log(serial: str, expected: str, root_digest: str) -> dict:
     if len(markers) != 1:
         raise VerityError(f"expected exactly one System verity result marker, found {len(markers)}")
     marker = markers[0]
+
+    def parse_fields(name: str, expected_keys: set[str]) -> dict[str, str]:
+        tokens = marker.split()
+        if not tokens or tokens[0] != name:
+            raise VerityError(f"expected {name} marker")
+        fields: dict[str, str] = {}
+        for token in tokens[1:]:
+            key, separator, value = token.partition("=")
+            if not separator or not key or not value:
+                raise VerityError("System verity marker contains a malformed field")
+            if key in fields:
+                raise VerityError(f"System verity marker contains duplicate field {key}")
+            fields[key] = value
+        if fields.keys() != expected_keys:
+            raise VerityError("System verity marker fields do not match the exact schema")
+        return fields
+
     if expected == "accepted":
         if not marker.startswith("NAGI_SYSTEM_VERITY_ACCEPTED "):
             raise VerityError("clean System did not emit the accepted marker")
-        required = (
-            f"root={root_digest}",
-            "filesystem=ext4",
-            "readonly=true",
-            "fixture=true",
+        fields = parse_fields(
+            "NAGI_SYSTEM_VERITY_ACCEPTED",
+            {"root", "filesystem", "readonly", "fixture", "mount_id"},
         )
-        if not all(field in marker for field in required):
-            raise VerityError("clean System accepted marker is missing verified fields")
+        if (
+            fields["root"] != root_digest
+            or fields["filesystem"] != "ext4"
+            or fields["readonly"] != "true"
+            or fields["fixture"] != "true"
+            or not re.fullmatch(r"[1-9][0-9]*", fields["mount_id"])
+        ):
+            raise VerityError("clean System accepted marker contains incorrect verified fields")
         if "NAGI_SYSTEM_VERITY_REJECTED" in serial:
             raise VerityError("clean System log contains a rejection marker")
         if re.search(r"device-mapper: verity:.*data block \d+ is corrupted", serial):
@@ -292,7 +313,8 @@ def parse_probe_log(serial: str, expected: str, root_digest: str) -> dict:
     elif expected == "rejected":
         if not marker.startswith("NAGI_SYSTEM_VERITY_REJECTED "):
             raise VerityError("tampered System did not emit the rejected marker")
-        if "stage=critical_block_read" not in marker or "errno=5" not in marker:
+        fields = parse_fields("NAGI_SYSTEM_VERITY_REJECTED", {"stage", "errno"})
+        if fields["stage"] != "critical_block_read" or fields["errno"] != "5":
             raise VerityError("tampered System rejection was not the expected verified-block EIO")
         if not re.search(r"device-mapper: verity:.*data block 0 is corrupted", serial):
             raise VerityError("tampered System log lacks the kernel dm-verity corruption report")

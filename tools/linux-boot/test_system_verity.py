@@ -117,10 +117,18 @@ class SystemVerityTests(unittest.TestCase):
         root = "a" * 64
         clean = (
             "device-mapper: verity: sha256 using sha256-lib\n"
-            f"NAGI_SYSTEM_VERITY_ACCEPTED root={root} filesystem=ext4 readonly=true fixture=true\n"
+            f"NAGI_SYSTEM_VERITY_ACCEPTED root={root} filesystem=ext4 readonly=true fixture=true mount_id=23\n"
             "nagi-init: state=ready\n"
         )
         self.assertEqual(system_verity.parse_probe_log(clean, "accepted", root)["expected"], "accepted")
+        with self.assertRaisesRegex(system_verity.VerityError, "exact schema"):
+            system_verity.parse_probe_log(
+                clean.replace("filesystem=ext4", "xfilesystem=ext4"), "accepted", root
+            )
+        with self.assertRaisesRegex(system_verity.VerityError, "duplicate field"):
+            system_verity.parse_probe_log(
+                clean.replace("filesystem=ext4", "filesystem=ext4 filesystem=ext4"), "accepted", root
+            )
         with self.assertRaisesRegex(system_verity.VerityError, "verity corruption"):
             system_verity.parse_probe_log(
                 clean + "device-mapper: verity: 253:0: vda: data block 0 is corrupted\n",
@@ -132,6 +140,12 @@ class SystemVerityTests(unittest.TestCase):
             "NAGI_SYSTEM_VERITY_REJECTED stage=critical_block_read errno=5\n"
         )
         self.assertEqual(system_verity.parse_probe_log(tampered, "rejected", root)["expected"], "rejected")
+        with self.assertRaisesRegex(system_verity.VerityError, "exact schema"):
+            system_verity.parse_probe_log(
+                tampered.replace("stage=critical_block_read", "xstage=critical_block_read"),
+                "rejected",
+                root,
+            )
         with self.assertRaisesRegex(system_verity.VerityError, "corruption report"):
             system_verity.parse_probe_log(
                 "NAGI_SYSTEM_VERITY_REJECTED stage=critical_block_read errno=5\n", "rejected", root
@@ -146,7 +160,7 @@ class SystemVerityTests(unittest.TestCase):
             serial = run_dir / "verified.serial"
             serial.write_text(
                 "NAGI_SYSTEM_VERITY_ACCEPTED root=" + "a" * 64
-                + " filesystem=ext4 readonly=true fixture=true\n",
+                + " filesystem=ext4 readonly=true fixture=true mount_id=23\n",
                 encoding="utf-8",
             )
             prior = {
