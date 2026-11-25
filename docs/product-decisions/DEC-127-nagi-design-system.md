@@ -42,7 +42,11 @@
 
 **CONFIRMED（製品方向）:** PC・Tablet・Phone間で可能な限りシームレスな一つのNagi体験を提供し、Desktop／Shellの設計を統合OSの中核として重視する。Samsung DeX・PixelのDesktop mode・Lomiriは利用者が示した体験の参考例であり、同等の機能・互換性・特定Shellやコードの採用決定ではない。DEC-009／010／108／109の共通Home／Desktop・Workspace・入力／表示の端末適応、DEC-065の意味的Handoffを継承する。PC画面の単純縮小や端末ごとに分断された体験ではなく、画面・入力・接続機器・端末能力に合わせて操作UIを適応させる方向とする。ミニマル・フラットな外観と軽量性、AIなしの通常GUI、前景応答優先を維持する。
 
-**PROVISIONAL（体験・設計候補）:** 同一端末の小画面／Tablet／Desktop向けSurfaceと、外部モニター・キーボード・マウス接続時のDesktop相当体験、手動切替・接続時の案内・必要な状態保持、切断時の可視画面への退避、独立表示／拡張／ミラーリング等を比較する。アプリの共通データモデル・Public Action／Continuity契約と表示レイアウトを分離し、画面変更で編集内容・作業の意味的状態を可能な範囲で保持する。別端末への継続（Handoff）と同一端末の表示モード変更を区別する。DEC-014／065／066に従い、現行権限・Revision・Profile・Privacyを再検証し、無断同期・転送・競合上書き・Task再実行は認めない。Home／Desktop遷移、Workspace手動配置保護、既存の新規Workspace自動配置・画面切断時の例外を維持する。具体的なSurface分類・外部表示・UI・切替条件、Compositor／Wayland／Smithay／Lomiri等の採否、対応機器・性能・実装版は未確定。Desktop first、DEC-102の段階的な機種別実機検証、既存Release／Activation／Acceptance Gate・Owner・着手条件を変更しない。
+**PROVISIONAL（体験・設計候補）:** 同一端末の小画面／Tablet／Desktop向けSurfaceと、外部モニター・キーボード・マウス接続時のDesktop相当体験、手動切替・接続時の案内・必要な状態保持、切断時の可視画面への退避、独立表示／拡張／ミラーリング等を比較する。アプリの共通データモデル・Public Action／Continuity契約と表示レイアウトを分離し、画面変更で編集内容・作業の意味的状態を可能な範囲で保持する。別端末への継続（Handoff）と同一端末の表示モード変更を区別する。DEC-014／065／066に従い、現行権限・Revision・Profile・Privacyを再検証し、無断同期・転送・競合上書き・Task再実行は認めない。Home／Desktop遷移、Workspace手動配置保護、既存の新規Workspace自動配置・画面切断時の例外を維持する。具体的なSurface分類・外部表示・UI・切替条件、Compositor／Wayland／Smithay等の汎用基盤の採否、対応機器・性能・実装版は未確定。Desktop first、DEC-102の段階的な機種別実機検証、既存Release／Activation／Acceptance Gate・Owner・着手条件を変更しない。
+
+## 2026-11-25 — 既存Desktop環境を製品基盤として採用しない（明確化）
+
+**CONFIRMED:** Lomiriを完成済みDesktop環境／Shellとしてそのまま採用したり、それをNagiの製品基盤として改造・流用したりする方針ではない。Samsung DeX／Pixel Desktop mode／Lomiriは端末横断の操作体験・設計思想の参考例に限定する。NagiのShell／Home／Desktop／Workspace／ウィンドウ管理・操作体系はNagi主体で独自設計する。これはDEC-043／108の既存方針の再確認である。Wayland／Smithay等の汎用基盤の選択的再利用は別の技術判断であり、採用は引き続きPROVISIONAL。既存Gate・着手条件は変更しない。
 
 ## 決定履歴
 
@@ -51,3 +55,4 @@
 | 2026-11-25 | 共通UIと独自デザインの自由を両立する提案をユーザーが了承し、ヘルシーな印象、ミニマルでフラットな外観を明示。具体配色・画面・技術・提供版はPROVISIONAL。 |
 | 2026-11-25 | Desktopを可能な限り軽量にする優先方針をユーザーが明示。具体的な描画効果・backend・性能予算はPROVISIONAL。 |
 | 2026-11-25 | PC／Tablet／Phoneのシームレスな体験と統合OSの中核としてDesktopを重視する方向をユーザーが明示。DeX／Pixel Desktop mode／Lomiriは体験の参照例、具体技術・切替仕様・端末・版はPROVISIONAL。 |
+| 2026-11-25 | ユーザーがLomiriのそのままの採用を否定。既存Desktop環境の製品基盤としての採用ではなく体験の参照に限定し、汎用基盤の採否とは区別する旨を明確化。 |
