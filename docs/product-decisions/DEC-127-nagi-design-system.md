@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用、Vello採用方針）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -77,6 +77,12 @@
 
 **PROVISIONAL（具体策・技術候補）:** 差分描画、可視範囲の仮想化、画像／文字キャッシュと予算管理、遅延展開、DPI適応、非表示面の不要な更新抑制、GPU／CPUと推論の資源配分、software fallbackを比較する。tiny-skia、COSMIC Text、Vello CPU／GPU、wgpu等の個別採用、公開API・プロセス構成・依存とライセンス・配布条件・性能目標・提供版は未確定。DEC-020／094／108／116および既存GUI Toolkit方針に従い、前景UI・アクセシビリティ・安全境界を損なわず、host／QEMU／実機の証拠を区別する。既存描画全体の監査・実測は未実施。個別ライブラリ選定・研究着手・実装開始・依存追加は別判断とし、既存Gate／Owner／path ownershipを変更しない。
 
+## 2026-11-25 — Velloの採用方針
+
+**CONFIRMED（技術選定の方向）:** [Vello](https://github.com/linebender/vello) をNagi Graphicsの主要2D描画基盤として採用する方針を確定する。Vello CPUを初期実装の第一候補、Vello GPUを対応端末での高速化候補とし、tiny-skiaを比較・代替候補として残す。Velloの外部APIをNagi Native Appsの必須公開APIとして固定せず、Nagi主体の共通描画契約・adapter境界を維持する。Velloの採用方向については直前の「個別採用未確定」の記述より本追補を優先する。CPU／GPU間の差、端末適応、軽量性、前景優先、AI非依存の通常GUI、アプリ分離と専用エンジンの維持は従前どおり。
+
+**PROVISIONAL（実装・受入）:** Vello CPU／GPUの具体crate・固定版・feature・対応機能・依存／ライセンス確認・Rust toolchain・x86／ARM64・Linux targetでのbuild／動作・描画品質・資源消費・GPU driverとの適合、GPU導入時期、Vello Researchの評価、tiny-skia等への退避条件は未確定。初期CPU経路とGPU経路は同等の代表画面で実測し、GPU推論との共存、前景応答、描画一致性、RAM／VRAM、電力・熱、障害時の回復を検証する。Vello自体は文字整形・IME・全画像formatの処理を一括提供するToolkitとは扱わず、補助ライブラリ（COSMIC Text、image、resvg、wgpu等）の採否は別途判断する。Wayland／Smithay・Compositor構成の採否も別判断とする。採用方針は依存追加・移植済み・実機受入済み・新規Workstream着手・特定Releaseへの割当てを意味せず、既存Gate／Owner／path ownershipを維持する。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -88,3 +94,4 @@
 | 2026-11-25 | ユーザーが端末横断Shellを初めから設計しDesktop向け表示から実装する方針、共通Nagi Bar・作業状態と表示の分離・通常UIの非LLM依存を承認。具体モード・UI・技術・段階割当てはPROVISIONAL。 |
 | 2026-11-25 | GUI ToolkitのB案をユーザーが承認。既存nagi-uiを出発点に独自UI契約・標準部品を発展させ、汎用処理は適合OSSを再利用する。個別Toolkit・依存・性能・研究着手・版はPROVISIONAL。 |
 | 2026-11-25 | 共通2D描画APIと既存OSS活用の方針をユーザーが承認。個別OSSの採否・描画方式・性能・着手・提供版はPROVISIONAL。 |
+| 2026-11-25 | ユーザーがVello採用を承認。主要2D描画基盤として選定し、CPU先行・GPU高速化候補・tiny-skia比較／代替を記録。固定版・具体実装・測定・着手・提供版はPROVISIONAL。 |
