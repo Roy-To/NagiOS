@@ -49,6 +49,25 @@ SH
     export PATH="$compat_dir:$PATH"
     printf 'Installed private BSD readlink -m compatibility shim: %s\n' "$compat_dir/readlink"
 fi
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    sed_bin=$(command -v sed)
+    compat_dir="$output_dir/host-compat"
+    mkdir -p "$compat_dir"
+    cat > "$compat_dir/sed" <<'SH'
+#!/usr/bin/env python3
+import os
+import sys
+
+args = sys.argv[1:]
+if args and args[0] in ("-i", "--in-place"):
+    args.insert(1, "")
+os.execv(os.environ["NAGI_L11_BSD_SED"], ["sed", *args])
+SH
+    chmod 0555 "$compat_dir/sed"
+    export NAGI_L11_BSD_SED="$sed_bin"
+    export PATH="$compat_dir:$PATH"
+    printf 'Installed private BSD sed -i compatibility shim: %s\n' "$compat_dir/sed"
+fi
 build_dir="$output_dir/build"
 mkdir "$build_dir"
 cp "$base_config" "$build_dir/.config"
