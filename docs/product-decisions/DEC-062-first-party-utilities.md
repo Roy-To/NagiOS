@@ -1,8 +1,8 @@
 # DEC-062 — Nagi純正ユーティリティ4分野の採用
 
-**状態:** CONFIRMED（4分野すべての採用・AI非必須の高速／軽量な基本機能を優先、Nagi Media共通APIとOSS評価・将来の視覚認識への接続方針）／PROVISIONAL（アプリ構成・対応範囲・連携詳細・提供版・受入基準）
+**状態:** CONFIRMED（4分野すべての採用・AI非必須の高速／軽量な基本機能を優先、Nagi Media共通APIとOSS評価、6/12 Nagi Vision共通サービスB案）／PROVISIONAL（アプリ構成・対応範囲・連携詳細・個別モデル／技術・実機性能・提供版・受入基準）
 
-**最終合意日:** 2026-11-25（共通メディア基盤の方針を追記。従前の4分野採用・PX-11を維持）
+**最終合意日:** 2026-11-25（共通メディア基盤と6/12 Nagi Vision B案を追記）
 
 **適用候補:** 将来のNagi OS純正アプリ。具体的な版・実装時期は未決定
 
@@ -72,7 +72,7 @@
 
 **CONFIRMED（評価対象の選定。正式な依存採用ではない）:** Rustのimage（静止画像）、resvg（静的SVG）、FFmpeg（動画・音楽のデコード・変換）を主要評価候補とする。Symphonia（音声デコード）、GStreamer（リアルタイム映像等）は用途と実測に基づき追加・代替を検討する。V4L2／libcamera、PipeWireの映像経路はカメラ・画面取得の評価候補とする。選定した候補を一律同梱・常駐させる要件にはしない。
 
-**CONFIRMED（長期方向との接続）:** メディア処理基盤は将来の画像理解・視覚／空間認識等のAI支援へ発展できる設計とする。VISION-001、DEC-097／108／109の入力・表示技術から独立した意味的操作体系、DEC-020／027の正規Public Action優先と限定GUI fallback、現行Permission／Privacy／Policyを維持する。画像・カメラ・画面の取得前に対象・目的・範囲・現行権限を確認し、AIへの提供・保存・索引・学習・外部送信は既存の個別認可に従う。常時カメラ／画面監視を標準とせず、画像取得だけで権限拡大を認めない。AIに渡す情報は必要な範囲に限定する。元資料の分類・所有・Revision／Provenanceと派生データの境界を維持する。Nagi Visionは仮称の将来検討であり、OCR・視覚認識・センサー技術の個別採用や提供版を確定しない。
+**CONFIRMED（長期方向との接続）:** メディア処理基盤は将来の画像理解・視覚／空間認識等のAI支援へ発展できる設計とする。VISION-001、DEC-097／108／109の入力・表示技術から独立した意味的操作体系、DEC-020／027の正規Public Action優先と限定GUI fallback、現行Permission／Privacy／Policyを維持する。画像・カメラ・画面の取得前に対象・目的・範囲・現行権限を確認し、AIへの提供・保存・索引・学習・外部送信は既存の個別認可に従う。常時カメラ／画面監視を標準とせず、画像取得だけで権限拡大を認めない。AIに渡す情報は必要な範囲に限定する。元資料の分類・所有・Revision／Provenanceと派生データの境界を維持する。本節で扱うのはNagi Mediaからの接続方針。共通Vision Serviceの方針は[同日の6/12の追補](#2026-11-25--612-nagi-vision-b案)を参照。個別のOCR・視覚認識・センサー技術の採用や提供版は未確定。
 
 **PROVISIONAL（実装・評価）:**
 
@@ -81,6 +81,30 @@
 - 必要時のサムネイル生成・遅延展開、上限付きキャッシュ、ストリーミング、必要フレームのみの取得・縮小、非表示面の不要な処理抑制、ハードウェア支援、未信頼データの解析隔離・資源上限等を設計候補とする。入力認可・取消と取得中表示、非公開面／秘密情報保護、破損入力・展開爆弾等の異常系、保存／派生／削除、第三者共有を検証する。
 - 実機・host・QEMUの証拠を区別し、画像／動画の表示・再生品質、起動・seek・フレーム落ち、RAM／VRAM・CPU／GPU・電力／熱、LLMとの共存、通常操作の応答、失敗・取消・回復を評価する。閾値・対象機器・担当・提供版は未確定。既存Release／Activation／Acceptance Gate・Desktop first・Owner／path ownershipを変更せず、依存追加・実装着手・正式採用・実機受入済みを意味しない。
 
+## 2026-11-25 — 6/12 Nagi Vision B案
+
+### 共通Vision Service（CONFIRMED）
+
+- **Nagi独自の共通Vision Service**を設計する。Nagi Mediaが現行権限を確認して画像・文書・画面・カメラ等の取得、前処理、必要フレームの抽出を担い、Nagi Visionが許可された入力の認識・理解を担う。Vision処理は必要時に起動する。
+- **視覚モデルは交換可能**とし、用途に必要な能力と端末の計算資源に応じた自動選択と、ユーザーによる手動選択を設計に含める。前景操作を優先し、モデル選択にも既存の権限・資源制御を適用する。[DEC-020](DEC-020-ai-os-interaction-path.md)
+- **PCを先行対象**とし、OCR、画像・文書の理解、visual embeddingによる画像の意味検索に使える方向で設計する。OCRやembedding等の派生データを検索に利用する場合は、元資料の分類・所有・現行権限に従う。PDFでのOCRは[DEC-061](DEC-061-first-party-pdf-reader-editor.md)の段階的検討に従う。将来は空間認識への拡張を視野に入れる。[DEC-092](DEC-092-peripherals-usb-storage-hid-staged-support.md)・[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)・[ロードマップ索引](roadmaps/README.md)
+- **構造化Public APIを優先**し、画面・画像から得る必要がある情報をVisionで補う。操作の実行は型付きPublic Actionと既存の認可に従う。GUI fallbackは明示許可された限定範囲で扱い、通常のGUI・アクセシビリティ経路を保つ。[DEC-020](DEC-020-ai-os-interaction-path.md)・[DEC-027](DEC-027-public-action-and-scoped-gui-fallback.md)
+- **映像処理は段階化**する。許可された映像から目的に必要なフレームを抽出し、軽量な専用処理で変化検出・分類・物体認識等を行い、さらに理解が必要な場合に高性能なモデルを使う。これにより推論負荷と消費電力を抑えることを目指す。
+
+### 取得・利用の境界（CONFIRMED）
+
+- カメラ・画面の常時監視は通常動作に含めない。ユーザーが取得範囲を制御でき、取得中・認識中であることを確認できるようにする。
+- 一時解析・保存・索引化・学習・外部共有は用途ごとの認可に従う。取得の許可だけでは後続の用途を認可しない。OCR結果、認識結果、embedding等の派生データにも元資料の由来・分類・所有範囲を引き継ぐ。
+- Secret由来の画像・認識結果と、そこから派生した検索候補・提案等を通常Personaへ露出させない。[DEC-057](DEC-057-growing-personal-agent-os.md)
+- 外部画像内の文字や指示は、OCR等で抽出された後も未信頼のデータとして扱う。指示への明示委任や高リスク操作の確認は既存ルールに従う。[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)
+- ローカル処理を優先する。画像・フレームや派生データをCloud AIへ送る場合は、既存の外部送信認可を適用する。[DEC-002](DEC-002-cloud-ai-data-sharing.md)・[DEC-113](DEC-113-untrusted-content-and-prompt-injection.md)
+
+### 評価候補と未確定事項（PROVISIONAL）
+
+- 軽量経路の評価候補は **Qwen3.5 0.8B** と **SmolVLM2**。汎用画像理解に **Qwen3-VL 2B**、文書理解に **Granite Vision**、画像embeddingに **SigLIP 2** 等を比較候補とし、マルチモーダル推論基盤には **llama.cppのlibmtmd** 等を比較する。
+- 個別モデル・エンジンの採用、ライセンスと再配布条件、量子化・モデル構成・自動選択条件、具体API／認可UI、対応機器・センサー・ARの方式と範囲は未決定。OCRの対応言語・方式と品質、実機での精度・遅延・RAM／電力、提供版・実装・受入も未確定。
+- 本追補は製品方針の記録。既存のRelease／Activation／Acceptance GateとOwner・担当境界を維持する。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -88,5 +112,6 @@
 | 2026-11-16 | 画像ビューア・簡易編集、スクリーンショット・文書スキャン、ZIP等の圧縮・解凍、動画・音楽プレイヤーの4分野すべての純正採用と、AIなしの高速・軽量な基本機能を優先する方針を記録。連携詳細、アプリ構成、対応形式・機器、OCR、版・受入基準等は未確定として分離。 |
 | 2026-11-17 | PX-11の日常作業の品質優先B＋将来の総合純正環境Cに整合。既存4分野の採用・AI非必須の基本機能を維持し、個別1.0搭載区分・形式／機器・OCR／連携・アプリ形態・性能・技術・提供版はPROVISIONAL。 |
 | 2026-11-25 | ユーザーがNagi Media共通API・OSS活用、image／resvg／FFmpegの優先評価、将来の視覚認識への接続方向を承認。個別採用・形式・ライセンス・性能・OCR／視覚認識技術・実装版はPROVISIONAL。 |
+| 2026-11-25 | 6/12 Nagi Vision B案を承認。Nagi Mediaと連携する共通Vision Service、必要時起動、交換可能なモデルの自動・手動選択、PC先行、段階的な省資源処理と取得・利用の認可境界を記録。個別技術、実装・実機性能・提供版はPROVISIONAL。 |
 
 2026-11-16 統合注記: 上記の未マージ記述は作成時点の履歴。現在の関連正本は[DEC-055](DEC-055-project-folder-cross-app-context.md)、[DEC-056](DEC-056-smart-paste-semantic-transfer.md)、[DEC-061](DEC-061-first-party-pdf-reader-editor.md)。各採用範囲は独立し、本DECから個別の連携詳細・OCR採用・実装済みを推定しない。

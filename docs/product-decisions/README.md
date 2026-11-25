@@ -219,7 +219,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針、独自変換エンジンの長期目標）／PROVISIONAL（方式・数値・版） | 2026-11-25 |
 | DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集／PX-11品質優先方針への整合](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（PDF純正採用・基本機能先行・AI非依存／公開API、PX-11高水準方針との整合）／PROVISIONAL（1.0搭載区分・最小機能・高度機能／形式・技術・性能・版） | 2026-11-17 |
-| DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合、Nagi Media共通API・OSS優先評価・将来視覚連携）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・技術・性能・版） | 2026-11-25 |
+| DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合、Nagi Media共通API・OSS優先評価・[6/12 Nagi Vision B案](DEC-062-first-party-utilities.md#2026-11-25--612-nagi-vision-b案)）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・個別モデル／技術・性能・版） | 2026-11-25 |
 | DEC-063 | [電話・連絡先・SMSの端末横断採用](DEC-063-phone-contacts-messaging.md) | CONFIRMED（純正採用・共通モデルと適応UI・能力／認可依存・People統合原則）／PROVISIONAL（アプリ構成・通信／端末間連携・学習・版） | 2026-11-16 |
 | DEC-064 | [Nagi Share（仮称）：近距離の端末間ファイル共有](DEC-064-nagi-share-nearby-file-transfer.md) | CONFIRMED（純正OS機能・端末横断・ローカル直接転送・受信許可・暗号化／認証・LLM非必須）／PROVISIONAL（名称・技術・UI詳細・対応版／端末・性能） | 2026-11-16 |
 | DEC-065 | [Nagi Handoff（仮称）：別端末での作業継続](DEC-065-nagi-handoff-work-continuation.md) | CONFIRMED（純正採用・意味的継続・安全境界）／PROVISIONAL（名称・UI・復元範囲・経路・クラウド・性能・適用版） | 2026-11-16 |
@@ -646,6 +646,10 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-110](DEC-110-audio-system-oss-nagi-service-measured-optimization.md)追補: Nagi Voiceの優先評価方針（whisper.cpp／多言語Whisper base、SenseVoiceSmall等との比較、Kokoro-82M、Silero VAD、sherpa-onnx）をCONFIRMED。評価対象の選定であり、個別モデル・依存の正式採用、ライセンス・言語別品質・実機性能・実装／提供版はPROVISIONAL。オフライン・通常操作・音声認可と既存Gate／Ownerを維持。
 
 [DEC-062](DEC-062-first-party-utilities.md)追補: Nagi Media共通API・OSS活用、image／resvg／FFmpegの優先評価、将来の視覚認識への拡張方向をCONFIRMED。個別ライブラリ・形式・codec／ライセンス・OCR／視覚技術・性能・提供版はPROVISIONAL。通常機能のAI非依存・既存Permission／Privacy・正規Public Action・Gate／Ownerを維持。
+
+## 2026-11-25 — 6/12 Nagi Vision B案
+
+[DEC-062の追補](DEC-062-first-party-utilities.md#2026-11-25--612-nagi-vision-b案)に、Nagi Mediaと連携する必要時起動の共通Vision Service、用途・端末能力に応じた自動選択と手動選択、PC先行、構造化Public API優先、利用目的ごとの認可をCONFIRMEDとして記録。個別モデル・技術・実機性能・実装・提供版・受入はPROVISIONAL。既存GateとOwnerを維持。
 
 ## 2026-11-25 — Linux版0.1の公開範囲B
 
