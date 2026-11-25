@@ -1,7 +1,7 @@
 # DEC-117 — ユーザーデータの暗号化と端末紛失時の方針
 
 **状態:** CONFIRMED（Q1〜Q5の高水準方針）／PROVISIONAL（暗号方式・Filesystem連携・鍵階層・UI・適用版）／REVIEW NOTE（関連DECとの整合）  
-**最終合意日:** 2026-11-20  
+**最終合意日:** 2026-11-25（8/12 Storage・Security B案を追加）\
 **適用候補:** Linuxカーネル＋Nagi userlandのUser Data・Profile・Memory。適用版は未確定  
 **関連:** [DEC-003](DEC-003-memory-classification.md)、[DEC-004](DEC-004-memory-learning-forgetting.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)、[DEC-083](DEC-083-nagi-identity-linux-credentials-binding.md)、[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)、[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)、[DEC-088](DEC-088-linux-filesystem-nagi-storage-api.md)、[DEC-105](DEC-105-user-environment-backup-and-wayback.md)、[DEC-116](DEC-116-performance-targets-and-minimum-requirements.md)
 
@@ -55,7 +55,13 @@ Personal AgentのMemoryとProfileは利用者の記憶・習慣を含むため�
 - **性能への影響:** 暗号化によるストレージ性能とCPU負荷の影響を、DEC-116の仮目標値の測定に含める必要がある。
 - **関連DECへの注記:** DEC-088（暗号化が未確定だった点）、DEC-086（Memory・ユーザーデータへの適用）、DEC-099（初回セットアップでの回復キー表示）に、本DECへの日付付き参照注記を追加する必要がある。
 
+## 8/12 Storage・Securityの二層保護（2026-11-25／CONFIRMED）
+
+[DEC-088のB案](DEC-088-linux-filesystem-nagi-storage-api.md#812-storagesecurity-b案2026-11-25)で、既存暗号技術とNagi Secrets Serviceを組み合わせる方針を確定した。Q1／Q5に従い、User Data層は既定で暗号化し利用者が解除できる。Memory／Profile層はその設定から独立して常時暗号化し、解除できない。User／Profile別の鍵分離はMemoryと暗号化されたUser Dataに適用する。解錠・回復はQ2／Q3とDEC-086に従う。
+
 ## 未確定・暫定案（PROVISIONAL）
+
+- 候補の組合せごとに、User Data層を解除した場合も含め、Profile別の鍵分離と常時暗号化が実効的かを検証する。DB本体、WAL／journal、派生索引・キャッシュ、一時領域、Backup／Export等のコピーやメタデータをどこまでどの層で保護するかは未確定。
 
 - 暗号化の方式（ディスク・ボリューム単位、ファイル単位、両者の組み合わせ）と使う暗号アルゴリズム。DEC-088の用途別Filesystemとの連携。
 - 暗号化をオフにする・オンに戻すときの手順、所要時間、途中で電源が切れた場合の扱い。
@@ -77,3 +83,4 @@ Personal AgentのMemoryとProfileは利用者の記憶・習慣を含むため�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-20 | 初版。ユーザーがQ1（ユーザーデータは標準で暗号化オン・オフ可、MemoryとProfileは常に暗号化）、Q2（TPM機は自動解錠＋通常ログイン、非TPM機は起動時パスフレーズ、TPM機でも起動時PINを選択可）、Q3（初回セットアップで回復キーを表示し保管を促す、すべて失うと戻せないと明示）、Q4（1.0ではリモート機能なし、暗号化で守る）、Q5（Profileごとの鍵分離をMemory・ユーザーデータの暗号化にも適用）を確定。方式・UI・数値はPROVISIONAL。 |
+| 2026-11-25 | 8/12 Storage・Security B案の二層保護を追記。Q1〜Q5を継承し、Profile別の保護の実効性とDB周辺・派生データの保護方法はPROVISIONAL。 |
