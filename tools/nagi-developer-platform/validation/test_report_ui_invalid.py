@@ -215,6 +215,30 @@ class UiInvalidReportTests(unittest.TestCase):
         self.assertEqual((code, refused), (1, ""))
         self.assertEqual(err.getvalue().strip(), "report_output_limit")
 
+    def test_all_output_limit_changes_with_the_fixture_count_for_the_same_output(self):
+        # One fixed `all` report and one fixed per-report cap; only the length of FIXTURES
+        # changes. A limit that ignored the fixture count (for example a hard-coded nine)
+        # would not switch between accept and refuse here.
+        fixed = report.build_all_report()
+        size = len((json.dumps(fixed, indent=2) + "\n").encode("utf-8"))
+        for count in (len(report.FIXTURES), len(report.FIXTURES) + 1):
+            cap = math.ceil(size / count)
+            self.assertGreater(size, cap * (count - 1))
+            fewer = tuple("f{}".format(index) for index in range(count - 1))
+            exact = tuple("f{}".format(index) for index in range(count))
+            with self.subTest(count=count), \
+                    patch.object(report, "build_all_report", return_value=fixed), \
+                    patch.object(report, "MAX_REPORT_BYTES", cap):
+                with patch.object(report, "FIXTURES", exact):
+                    code, output = self.run_main("--fixture", "all")
+                self.assertEqual(code, 1)
+                self.assertEqual(len(output.encode("utf-8")), size)
+                err = io.StringIO()
+                with patch.object(report, "FIXTURES", fewer), contextlib.redirect_stderr(err):
+                    code, refused = self.run_main("--fixture", "all")
+                self.assertEqual((code, refused), (1, ""))
+                self.assertEqual(err.getvalue().strip(), "report_output_limit")
+
 
 @contextlib.contextmanager
 def without_host_tools():
