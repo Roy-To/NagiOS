@@ -276,6 +276,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
 | DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
+| DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -581,3 +582,7 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 ## 2026-11-25 — 共通データ契約と保存／転送の分離
 
 [DEC-025](DEC-025-cross-app-data-reference-and-updates.md)に共通公開契約と各Appの内部保存・通信表現の分離、不要な永続JSON複製を前提としない資源効率の方針を追記。JSON Schema・IPC・具体転送／永続化・型・予算等はPROVISIONAL。既存分散正本・認可・Provenance・更新提案・Gateを維持。
+
+## 2026-11-25 — 純正Officeアプリの標準保存形式
+
+[DEC-126](DEC-126-office-native-format-and-interchange.md)を追加。Writer／Sheets／Slidesは公開Native形式を標準とし、DOCX／XLSX／PPTXの入出力に対応する方向BをCONFIRMED。拡張子・物理形式・Schema・互換範囲・提供版はPROVISIONAL。分散正本と既存Gateを維持。
