@@ -285,6 +285,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
 | DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現、Office互換OSS活用と編集／連携への重点投入、独自アプリ＋OSS選択的活用・Document Framework発展）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針、OSSフォント優先・将来10言語対応目標、Wayland／Smithay条件付き採用と独立した操作体系）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+| DEC-128 | [Nagi Searchの適応型検索（B案）](DEC-128-nagi-search-adaptive-retrieval.md) | CONFIRMED（Nagi独自のSearch Service／Provider、軽量検索優先、必要時のローカル意味検索、検索前の権限適用と正本分離）／PROVISIONAL（技術・API・精度・性能・閾値・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -295,6 +297,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 技術評価の実行計画: [MEMORY-BENCH-01 — Lightweight Memory Engine比較・性能評価](benchmarks/MEMORY-BENCH-01.md)。限定的なhost-only A/B smoke結果は[こちら](benchmarks/MEMORY-BENCH-01-HOST-SMOKE-2026-11-04.md)（CはNOT_MEASURED、QEMU/target PASSではない）。
 
 追加のhost-only合成評価: [MEMORY-BENCH-01 V3–V5](benchmarks/MEMORY-BENCH-01-V3-V5-HOST-2026-11-04.md) — seed 42で1k/10k/100kを比較。C Hybrid/TokenizerはNOT_MEASURED、採用判断・閾値・runtime acceptanceではない。
+
+**変更履歴（2026-11-25）** — [DEC-128](DEC-128-nagi-search-adaptive-retrieval.md)を追加。Nagi Search B案を承認済み方針として記録し、OCR・Visionへの連携方向、増分索引と前景優先も明記。具体技術・API・性能・実装版は暫定とし、既存Gateに変更はない。
 
 新しいテーマは [TEMPLATE.md](TEMPLATE.md) を複製して追加する。
 
