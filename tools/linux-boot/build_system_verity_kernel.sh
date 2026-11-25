@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (($# != 4)); then
-    echo "Usage: build_system_verity_kernel.sh <linux-6.18.63-source> <base-.config> <base-config-sha256> <new-output-dir>" >&2
+if (($# != 5)); then
+    echo "Usage: build_system_verity_kernel.sh <linux-6.18.63-source> <pinned-linux-6.18.63.tar.xz> <base-.config> <base-config-sha256> <new-output-dir>" >&2
     exit 2
 fi
 
 repo_root=$(git rev-parse --show-toplevel)
 source_dir=$(cd -- "$1" && pwd -P)
-base_config=$(cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")
-expected_base_sha=$3
-output_parent=$(cd -- "$(dirname -- "$4")" && pwd)
-output_dir="$output_parent/$(basename -- "$4")"
+source_archive=$(cd -- "$(dirname -- "$2")" && pwd -P)/$(basename -- "$2")
+base_config=$(cd -- "$(dirname -- "$3")" && pwd -P)/$(basename -- "$3")
+expected_base_sha=$4
+output_parent=$(cd -- "$(dirname -- "$5")" && pwd -P)
+output_dir="$output_parent/$(basename -- "$5")"
+script_path=$(cd -- "$(dirname -- "$0")" && pwd -P)/$(basename -- "$0")
+source_verifier="$repo_root/tools/linux-boot/verify_linux_source.py"
+build_inputs_helper="$repo_root/tools/linux-boot/system_verity_build_inputs.py"
+config_validator="$repo_root/tools/linux-boot/system_verity.py"
+zoffset_parser="$repo_root/tools/linux-boot/linux_nm_zoffset.py"
+merge_fragment="$repo_root/tools/linux-boot/system-verity.config"
 case "$output_dir" in "$repo_root"/out/*) ;; *) echo "output must be below this worktree's out/" >&2; exit 2 ;; esac
 resume_existing=${NAGI_L11_RESUME_EXISTING:-0}
 [[ "$resume_existing" == 0 || "$resume_existing" == 1 ]] || { echo "NAGI_L11_RESUME_EXISTING must be 0 or 1" >&2; exit 2; }
@@ -24,16 +31,16 @@ if [[ "$resume_existing" == 1 ]]; then
         echo "resume output must have a regular Kconfig and no completed build receipt" >&2
         exit 2
     }
+    [[ -f "$output_dir/resume-inputs.json" && ! -L "$output_dir/resume-inputs.json" ]] || {
+        echo "resume output is missing its immutable input manifest; use a new output directory" >&2
+        exit 2
+    }
     if [[ -n "${NAGI_L11_HOST_TOOLS_ROOT:-}" ]]; then
         [[ -f "$output_dir/host-support-before.json" && ! -L "$output_dir/host-support-before.json" ]] || {
             echo "resume output is missing its initial host-support manifest" >&2
             exit 2
         }
     fi
-    grep -qx 'CONFIG_DM_INIT=y' "$output_dir/build/.config" && grep -qx 'CONFIG_DM_VERITY=y' "$output_dir/build/.config" || {
-        echo "resume output config does not contain the required DM symbols" >&2
-        exit 2
-    }
 else
     [[ ! -e "$output_dir" && ! -L "$output_dir" ]] || { echo "output directory already exists" >&2; exit 2; }
 fi
@@ -44,7 +51,12 @@ actual_base_sha=$(shasum -a 256 "$base_config" | awk '{print $1}')
 [[ "$actual_base_sha" == "$expected_base_sha" ]] || { echo "base kernel .config SHA-256 mismatch" >&2; exit 2; }
 version=$(awk -F'= ' '/^(VERSION|PATCHLEVEL|SUBLEVEL) = / { print $2 }' "$source_dir/Makefile" | paste -sd. -)
 [[ "$version" == "6.18.63" ]] || { echo "expected Linux 6.18.63 source, found $version" >&2; exit 2; }
-make_path=$(command -v make)
+source_identity_json=$(python3 -B "$source_verifier" verify "$source_dir" "$source_archive") || {
+    echo "Linux source tree does not match the pinned source archive" >&2
+    exit 2
+}
+printf 'Pinned Linux source archive and full extracted tree: PASS (%s)\n' "$source_archive"
+make_path=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve(strict=True))' "$(command -v make)")
 make_version=$("$make_path" --version | sed -n '1p')
 python3 - "$make_version" <<'PY'
 import re, sys
@@ -66,6 +78,7 @@ host_macos_version=
 host_cflags=
 host_support_before_path="$output_dir/host-support-before.json"
 host_support_after_path="$output_dir/host-support-after.json"
+initial_host_support_path="$output_dir/host-support-before.json"
 if [[ "$resume_existing" == 1 ]]; then
     host_support_before_path="$output_dir/host-support-resume-before.json"
     host_support_after_path="$output_dir/host-support-resume-after.json"
@@ -315,19 +328,73 @@ for name in ("llvm-ar", "llvm-nm", "llvm-objcopy", "llvm-objdump", "llvm-readelf
         "size_bytes": path.stat().st_size,
         "sha256": sha(path),
     }
-output.write_text(json.dumps({"kind": "mount-lane-read-only-darwin-compat+elfutils-0.197", "files": files}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+payload = json.dumps({"kind": "mount-lane-read-only-darwin-compat+elfutils-0.197", "files": files}, indent=2, sort_keys=True) + "\n"
+if output.exists():
+    if output.is_symlink() or not output.is_file():
+        raise SystemExit("host-support manifest output must be a regular file")
+    output.chmod(0o600)
+output.write_text(payload, encoding="utf-8")
 output.chmod(0o444)
 PY
     }
     write_host_support_manifest "$host_support_before_path"
     printf 'Darwin host support: %s; manifest=%s\n' "$host_support_kind" "$host_support_before_path"
+    if [[ "$resume_existing" == 1 ]] && ! cmp -s "$initial_host_support_path" "$host_support_before_path"; then
+        echo "resume Darwin host-support manifest differs from the original build input" >&2
+        exit 2
+    fi
 fi
 
-printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
-bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
-    "$build_dir/.config" "$repo_root/tools/linux-boot/system-verity.config"
-make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
-python3 -B - "$repo_root/tools/linux-boot/system_verity.py" "$build_dir/.config" <<'PY'
+prepare_resume_inputs() {
+    local mode=$1
+    local host_manifest_arg=""
+    if [[ "$host_support_kind" != none ]]; then
+        host_manifest_arg=$initial_host_support_path
+    fi
+    python3 -B - "$repo_root" "$mode" "$output_dir/resume-inputs.json" \
+        "$build_dir/.config" "$base_config" "$merge_fragment" "$script_path" \
+        "$source_verifier" "$build_inputs_helper" "$config_validator" "$zoffset_parser" "$make_path" \
+        "$source_dir" "$source_archive" "$source_identity_json" "$host_manifest_arg" <<'PY'
+import json, sys
+from pathlib import Path
+
+repo, mode, manifest = sys.argv[1:4]
+sys.path.insert(0, str(Path(repo) / "tools/linux-boot"))
+from system_verity_build_inputs import validate_resume_manifest, write_resume_manifest
+
+config, base, fragment, builder, verifier, helper, validator, zoffset, make = map(Path, sys.argv[4:13])
+source_dir, archive = map(Path, sys.argv[13:15])
+identity = json.loads(sys.argv[15])
+host_support = Path(sys.argv[16]) if sys.argv[16] else None
+paths = {
+    "base_config": base,
+    "final_config": config,
+    "merge_fragment": fragment,
+    "builder_script": builder,
+    "source_verifier": verifier,
+    "build_inputs_helper": helper,
+    "config_validator": validator,
+    "zoffset_parser": zoffset,
+    "make": make,
+}
+if mode == "write":
+    digest = write_resume_manifest(Path(manifest), paths, source_dir, archive, identity, host_support)
+else:
+    digest = validate_resume_manifest(Path(manifest), paths, source_dir, archive, identity, host_support)
+print(digest)
+PY
+}
+
+if [[ "$resume_existing" == 1 ]]; then
+    resume_inputs_sha=$(prepare_resume_inputs validate) || exit 2
+    printf 'Resume inputs match the original build receipt: PASS\n'
+else
+    printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
+    bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
+        "$build_dir/.config" "$merge_fragment"
+    make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
+fi
+python3 -B - "$config_validator" "$build_dir/.config" <<'PY'
 import importlib.util, sys
 script, config = sys.argv[1:]
 spec = importlib.util.spec_from_file_location("system_verity", script)
@@ -337,13 +404,17 @@ spec.loader.exec_module(module)
 module.parse_config(open(config, "rb").read())
 print("DM_INIT, DM_VERITY, SHA-256, virtio-blk and ext4 config: PASS")
 PY
+if [[ "$resume_existing" != 1 ]]; then
+    resume_inputs_sha=$(prepare_resume_inputs write) || exit 2
+    printf 'Immutable resume input manifest: %s (SHA-256 %s)\n' "$output_dir/resume-inputs.json" "$resume_inputs_sha"
+fi
 make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest "$host_support_after_path"
-    if ! cmp -s "$host_support_before_path" "$host_support_after_path"; then
+    if ! cmp -s "$initial_host_support_path" "$host_support_after_path"; then
         echo "Darwin kernel host-support inputs changed during the build" >&2
-        diff -u "$host_support_before_path" "$host_support_after_path" || true
+        diff -u "$initial_host_support_path" "$host_support_after_path" || true
         exit 1
     fi
     printf 'Darwin host-support inputs unchanged during build: PASS\n'
@@ -353,6 +424,13 @@ source_makefile_sha_after=$(shasum -a 256 "$source_dir/Makefile" | awk '{print $
 source_verity_sha_after=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-target.c" | awk '{print $1}')
 [[ "$source_makefile_sha_before" == "$source_makefile_sha_after" ]] || { echo "kernel source Makefile changed during the out-of-tree build" >&2; exit 1; }
 [[ "$source_verity_sha_before" == "$source_verity_sha_after" ]] || { echo "kernel dm-verity source changed during the out-of-tree build" >&2; exit 1; }
+source_identity_after=$(python3 -B "$source_verifier" verify "$source_dir" "$source_archive") || {
+    echo "pinned Linux source tree or archive changed during the build" >&2
+    exit 1
+}
+[[ "$source_identity_json" == "$source_identity_after" ]] || { echo "pinned Linux source identity changed during the build" >&2; exit 1; }
+resume_inputs_sha_after=$(prepare_resume_inputs validate) || exit 1
+[[ "$resume_inputs_sha" == "$resume_inputs_sha_after" ]] || { echo "resume build input receipt changed during the build" >&2; exit 1; }
 kernel="$build_dir/arch/x86/boot/bzImage"
 [[ -f "$kernel" && ! -L "$kernel" ]] || { echo "kernel bzImage output missing" >&2; exit 1; }
 config="$build_dir/.config"
@@ -360,18 +438,20 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "$host_support_before_path" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
+python3 - "$repo_root" "$source_dir" "$source_archive" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$source_identity_json" "$resume_inputs_sha" "$script_path" "$source_verifier" "$build_inputs_helper" "$zoffset_parser" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "$initial_host_support_path" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
-repo, source, output, base = map(Path, sys.argv[1:5])
-base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind, host_manifest_path = sys.argv[5:16]
-host_make_args_count = int(sys.argv[16])
-host_make_args = sys.argv[17 : 17 + host_make_args_count]
+repo, source, source_archive, output, base = map(Path, sys.argv[1:6])
+base_sha, version, makefile_sha, verity_sha, source_identity_json, resume_inputs_sha, builder, verifier, input_helper, zoffset_parser = sys.argv[6:16]
+kernel_sha, config_sha, make_path, make_version, host_root, host_kind, host_manifest_path = sys.argv[16:23]
+host_make_args_count = int(sys.argv[23])
+host_make_args = sys.argv[24 : 24 + host_make_args_count]
 if len(host_make_args) != host_make_args_count:
     raise SystemExit("kernel host make argument receipt is truncated")
 
 def sha(path):
+    path = Path(path)
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -380,7 +460,10 @@ def sha(path):
 
 kernel = output / "build/arch/x86/boot/bzImage"
 config = output / "build/.config"
-if sha(base) != base_sha or sha(kernel) != kernel_sha or sha(config) != config_sha:
+source_identity = json.loads(source_identity_json)
+resume_manifest = output / "resume-inputs.json"
+if (sha(base) != base_sha or sha(kernel) != kernel_sha or sha(config) != config_sha
+        or sha(resume_manifest) != resume_inputs_sha):
     raise SystemExit("build inputs or outputs changed before receipt creation")
 receipt = {
     "schema": 1,
@@ -388,8 +471,19 @@ receipt = {
     "source": {
         "path": str(source),
         "version": version,
+        "archive_path": str(source_archive),
+        "archive_sha256": source_identity["archive_sha256"],
+        "tree_sha256": source_identity["tree_sha256"],
+        "source_verifier": {"path": str(verifier), "sha256": sha(verifier)},
         "makefile_sha256": makefile_sha,
         "dm_verity_target_sha256": verity_sha,
+    },
+    "build_script": {"path": str(builder), "sha256": sha(builder)},
+    "build_input_helper": {"path": str(input_helper), "sha256": sha(input_helper)},
+    "zoffset_parser": {"path": str(zoffset_parser), "sha256": sha(zoffset_parser)},
+    "resume_input_manifest": {
+        "path": str(resume_manifest.relative_to(output)),
+        "sha256": resume_inputs_sha,
     },
     "base_config": {"path": str(base), "sha256": base_sha},
     "merge_fragment": {
@@ -423,6 +517,7 @@ receipt = {
     "source_unchanged_checks": {
         "makefile_sha256_before_after": makefile_sha,
         "dm_verity_target_sha256_before_after": verity_sha,
+        "full_archive_and_tree_verified_before_after": True,
     },
 }
 receipt_path = output / "build-receipt.json"

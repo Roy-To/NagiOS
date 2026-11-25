@@ -19,7 +19,7 @@ class SystemVerityTests(unittest.TestCase):
                 "CONFIG_SERIAL_8250", "CONFIG_SERIAL_8250_CONSOLE", "CONFIG_BLOCK", "CONFIG_PCI",
                 "CONFIG_VIRTIO", "CONFIG_VIRTIO_PCI", "CONFIG_VIRTIO_BLK", "CONFIG_BLK_DEV_DM",
                 "CONFIG_DM_INIT", "CONFIG_DM_VERITY", "CONFIG_CRYPTO_SHA256", "CONFIG_EXT4_FS",
-                "CONFIG_DEVTMPFS", "CONFIG_PROC_FS", "CONFIG_SYSFS",
+                "CONFIG_DEVTMPFS", "CONFIG_DEVTMPFS_MOUNT", "CONFIG_PROC_FS", "CONFIG_SYSFS",
             )
         )
 
@@ -31,12 +31,20 @@ class SystemVerityTests(unittest.TestCase):
             b"0000000000002000 T efi32_pe_entry\n"
             b"0000000000003000 T kernel_info\n"
             b"0000000000004000 T input_data\n"
+            b"0000000000004100 T _data\n"
+            b"0000000000004200 T _edata\n"
+            b"0000000000004300 T _sdata\n"
+            b"0000000000004400 T _esdata\n"
             b"0000000000005000 T unrelated_symbol\n"
         )
         header = generate_zoffset_header(nm_output)
         self.assertIn(b"#define ZO_efi32_stub_entry 0x0000000000001200\n", header)
         self.assertIn(b"#define ZO_efi64_stub_entry 0x0000000000001400\n", header)
         self.assertIn(b"#define ZO_startup_32 0x0000000000001000\n", header)
+        self.assertIn(b"#define ZO__data 0x0000000000004100\n", header)
+        self.assertIn(b"#define ZO__edata 0x0000000000004200\n", header)
+        self.assertIn(b"#define ZO__sdata 0x0000000000004300\n", header)
+        self.assertIn(b"#define ZO__esdata 0x0000000000004400\n", header)
         self.assertNotIn(b"unrelated_symbol", header)
 
     def test_hash_tree_matches_root_first_v1_layout(self):
@@ -82,7 +90,9 @@ class SystemVerityTests(unittest.TestCase):
         image = {
             "verity": {"num_data_blocks": 16, "hash_start_block": 16,
                        "root_digest": "a" * 64, "salt": "b" * 64,
-                       "data_block_size": 4096, "hash_block_size": 4096},
+                       "format_version": 1, "algorithm": "sha256",
+                       "data_block_size": 4096, "hash_block_size": 4096,
+                       "tree_blocks": 1},
         }
         command = system_verity.kernel_cmdline(image)
         words = system_verity.parse_cmdline(command)
@@ -91,6 +101,25 @@ class SystemVerityTests(unittest.TestCase):
         self.assertEqual(table[0], system_verity.dm_mod_create(image))
         self.assertIn("0 128 verity 1 /dev/vda /dev/vda 4096 4096 16 16 sha256", table[0])
         self.assertIn("dm-mod.waitfor=/dev/vda", words)
+
+    def test_dm_table_rejects_malformed_verity_geometry_and_metadata(self):
+        valid = {
+            "format_version": 1, "algorithm": "sha256", "data_block_size": 4096,
+            "hash_block_size": 4096, "num_data_blocks": 16, "hash_start_block": 16,
+            "tree_blocks": 1, "root_digest": "a" * 64, "salt": "b" * 64,
+        }
+        invalid_records = (
+            ({**valid, "hash_start_block": '16" injected'}, "hash_start_block"),
+            ({**valid, "hash_start_block": 15}, "hash_start_block"),
+            ({**valid, "hash_start_block": True}, "hash_start_block"),
+            ({**valid, "tree_blocks": 2}, "tree_blocks"),
+            ({**valid, "format_version": 2}, "format_version"),
+            ({**valid, "algorithm": "sha512"}, "algorithm"),
+        )
+        for verity, message in invalid_records:
+            with self.subTest(message=message, verity=verity):
+                with self.assertRaisesRegex(system_verity.VerityError, message):
+                    system_verity.dm_mod_create({"verity": verity})
 
     def test_cmdline_parser_rejects_unbalanced_quote_and_escape(self):
         with self.assertRaisesRegex(system_verity.VerityError, "unterminated"):
@@ -106,12 +135,16 @@ class SystemVerityTests(unittest.TestCase):
                 "CONFIG_SERIAL_8250", "CONFIG_SERIAL_8250_CONSOLE", "CONFIG_BLOCK", "CONFIG_PCI",
                 "CONFIG_VIRTIO", "CONFIG_VIRTIO_PCI", "CONFIG_VIRTIO_BLK", "CONFIG_BLK_DEV_DM",
                 "CONFIG_DM_INIT", "CONFIG_DM_VERITY", "CONFIG_CRYPTO_SHA256", "CONFIG_EXT4_FS",
-                "CONFIG_DEVTMPFS", "CONFIG_PROC_FS", "CONFIG_SYSFS",
+                "CONFIG_DEVTMPFS", "CONFIG_DEVTMPFS_MOUNT", "CONFIG_PROC_FS", "CONFIG_SYSFS",
             )
         )
         self.assertEqual(system_verity.parse_config(config)["CONFIG_DM_VERITY"], "y")
         with self.assertRaisesRegex(system_verity.VerityError, "CONFIG_DM_INIT=y"):
             system_verity.parse_config(config.replace(b"CONFIG_DM_INIT=y", b"# CONFIG_DM_INIT is not set"))
+        with self.assertRaisesRegex(system_verity.VerityError, "CONFIG_DEVTMPFS_MOUNT=y"):
+            system_verity.parse_config(
+                config.replace(b"CONFIG_DEVTMPFS_MOUNT=y", b"# CONFIG_DEVTMPFS_MOUNT is not set")
+            )
 
     def test_result_parser_allows_clean_verity_start_and_rejects_real_corruption(self):
         root = "a" * 64
@@ -203,8 +236,11 @@ class SystemVerityTests(unittest.TestCase):
                 + b"a" * 64 + b"1" + b"b" * 64
             )
             output = root / "initramfs.cpio"
-            image = {"verity": {"root_digest": "a" * 64, "num_data_blocks": 1,
-                                 "salt": "b" * 64}}
+            image = {"verity": {
+                "format_version": 1, "algorithm": "sha256", "data_block_size": 4096,
+                "hash_block_size": 4096, "num_data_blocks": 1, "hash_start_block": 1,
+                "tree_blocks": 1, "root_digest": "a" * 64, "salt": "b" * 64,
+            }}
             info = system_verity.make_initramfs(elf, output, image)
             self.assertEqual(info["size_bytes"], output.stat().st_size)
             archive = output.read_bytes()
@@ -257,6 +293,33 @@ class SystemVerityTests(unittest.TestCase):
                 stream.seek(4096)
                 stream.write(bytes([byte[0] ^ 1]))
             with self.assertRaisesRegex(system_verity.VerityError, "SHA-256"):
+                system_verity.load_run_bundle(bundle_dir)
+
+    def test_run_bundle_rejects_injected_hash_start_block_before_qemu(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.raw"
+            source.write_bytes(bytes(16 * 4096))
+            source.chmod(0o444)
+            bundle_dir = root / "bundle"
+            system_verity.prepare_images(source, bundle_dir)
+            image = json.loads((bundle_dir / "image.json").read_text())
+            kernel = root / "kernel"
+            kernel.write_bytes(b"kernel")
+            config = root / "kernel.config"
+            config.write_bytes(self.valid_config())
+            initramfs = root / "initramfs.cpio"
+            initramfs.write_bytes(
+                b"CPIO" + image["verity"]["root_digest"].encode()
+                + str(image["verity"]["num_data_blocks"]).encode()
+                + image["verity"]["salt"].encode()
+            )
+            system_verity.create_run_bundle(bundle_dir, kernel, config, initramfs)
+            bundle = json.loads((bundle_dir / "bundle.json").read_text())
+            bundle["image"]["verity"]["hash_start_block"] = '16" dm-mod.create=attacker'
+            (bundle_dir / "bundle.json").chmod(0o644)
+            (bundle_dir / "bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
+            with self.assertRaisesRegex(system_verity.VerityError, "hash_start_block"):
                 system_verity.load_run_bundle(bundle_dir)
 
     def test_runner_does_not_create_qemu_run_without_board_assignment(self):

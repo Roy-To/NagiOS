@@ -9,7 +9,7 @@ import sys
 _NM_LINE = re.compile(rb"^([0-9a-fA-F]+) [a-zA-Z] ([^\s]+)$")
 _ZO_SYMBOL = re.compile(
     rb"(?:startup_32|efi.._stub_entry|efi(?:32)?_pe_entry|input_data|"
-    rb"kernel_info|_end|_ehead|_text|_e?data|_e?sbat|z_.*)"
+    rb"kernel_info|_end|_ehead|_text|_e?s?data|_e?sbat|z_.*)"
 )
 
 

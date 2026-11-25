@@ -115,6 +115,43 @@ def build_hash_tree(data: bytes, salt: bytes) -> tuple[bytes, str]:
     return tree, root
 
 
+def _expected_tree_blocks(num_data_blocks: int) -> int:
+    digest_count = num_data_blocks
+    total = 0
+    while True:
+        blocks = (digest_count + HASHES_PER_BLOCK - 1) // HASHES_PER_BLOCK
+        total += blocks
+        if blocks == 1:
+            return total
+        digest_count = blocks
+
+
+def _validate_verity_record(verity: object) -> dict:
+    if not isinstance(verity, dict):
+        raise VerityError("dm-verity record is malformed")
+    if type(verity.get("format_version")) is not int or verity["format_version"] != 1:
+        raise VerityError("dm-verity format_version must be integer 1")
+    if verity.get("algorithm") != "sha256":
+        raise VerityError("dm-verity algorithm must be sha256")
+    for name, expected in (("data_block_size", DATA_BLOCK_SIZE), ("hash_block_size", HASH_BLOCK_SIZE)):
+        if type(verity.get(name)) is not int or verity[name] != expected:
+            raise VerityError(f"dm-verity {name} must be integer {expected}")
+    blocks = verity.get("num_data_blocks")
+    if type(blocks) is not int or not 1 <= blocks <= MAX_SYSTEM_BYTES // DATA_BLOCK_SIZE:
+        raise VerityError("dm-verity num_data_blocks is malformed")
+    hash_start = verity.get("hash_start_block")
+    if type(hash_start) is not int or hash_start != blocks:
+        raise VerityError("dm-verity hash_start_block must equal num_data_blocks")
+    tree_blocks = verity.get("tree_blocks")
+    if type(tree_blocks) is not int or tree_blocks != _expected_tree_blocks(blocks):
+        raise VerityError("dm-verity tree_blocks does not match num_data_blocks")
+    if not isinstance(verity.get("root_digest"), str) or not SHA256_PATTERN.fullmatch(verity["root_digest"]):
+        raise VerityError("dm-verity root digest is malformed")
+    if not isinstance(verity.get("salt"), str) or not re.fullmatch(r"[0-9a-f]{64}", verity["salt"]):
+        raise VerityError("dm-verity salt is malformed")
+    return verity
+
+
 def deterministic_salt(data_sha256: str) -> bytes:
     if not SHA256_PATTERN.fullmatch(data_sha256):
         raise VerityError("System source SHA-256 is malformed")
@@ -176,7 +213,7 @@ def create_image_pair(source: Path, verified: Path, tampered: Path) -> dict:
 
 
 def dm_mod_create(image: dict) -> str:
-    verity = image["verity"]
+    verity = _validate_verity_record(image.get("verity"))
     sectors = verity["num_data_blocks"] * (DATA_BLOCK_SIZE // 512)
     target = (
         f"0 {sectors} verity 1 /dev/vda /dev/vda "
@@ -256,6 +293,7 @@ def parse_config(data: bytes) -> dict[str, str]:
         "CONFIG_CRYPTO_SHA256": "y",
         "CONFIG_EXT4_FS": "y",
         "CONFIG_DEVTMPFS": "y",
+        "CONFIG_DEVTMPFS_MOUNT": "y",
         "CONFIG_PROC_FS": "y",
         "CONFIG_SYSFS": "y",
     }
@@ -346,18 +384,10 @@ def make_initramfs(init_elf: Path, output: Path, image: dict) -> dict:
     elf = init_elf.read_bytes()
     if len(elf) != info.st_size or elf[:6] != b"\x7fELF\x02\x01" or elf[18:20] != b"\x3e\0":
         raise VerityError("PID 1 input must be a stable little-endian x86_64 ELF")
-    verity = image.get("verity")
-    if not isinstance(verity, dict):
-        raise VerityError("System image receipt has no verity parameters")
-    root_hash = str(verity.get("root_digest", ""))
-    blocks = str(verity.get("num_data_blocks", ""))
-    salt = str(verity.get("salt", ""))
-    if not SHA256_PATTERN.fullmatch(root_hash):
-        raise VerityError("PID 1 build root digest does not match the image receipt")
-    if not blocks.isascii() or not blocks.isdecimal() or int(blocks) <= 0:
-        raise VerityError("PID 1 build data-block count is malformed")
-    if not re.fullmatch(r"[0-9a-f]{64}", salt):
-        raise VerityError("PID 1 build salt is malformed")
+    verity = _validate_verity_record(image.get("verity"))
+    root_hash = verity["root_digest"]
+    blocks = str(verity["num_data_blocks"])
+    salt = verity["salt"]
     if root_hash.encode() not in elf or blocks.encode() not in elf or salt.encode() not in elf:
         raise VerityError("PID 1 ELF does not contain the exact dm-verity parameters")
 
@@ -441,15 +471,11 @@ def load_run_bundle(directory: Path) -> tuple[dict, dict[str, Path]]:
     image = bundle.get("image")
     if not isinstance(image, dict) or image.get("schema") != 1:
         raise VerityError("bundle.json image record is malformed")
-    v = image.get("verity")
-    if not isinstance(v, dict) or not SHA256_PATTERN.fullmatch(str(v.get("root_digest", ""))):
-        raise VerityError("bundle.json verity record is malformed")
-    if not re.fullmatch(r"[0-9a-f]{64}", str(v.get("salt", ""))):
-        raise VerityError("bundle.json verity salt is malformed")
-    if type(v.get("num_data_blocks")) is not int or v["num_data_blocks"] <= 0:
-        raise VerityError("bundle.json data-block count is malformed")
-    if v["data_block_size"] != DATA_BLOCK_SIZE or v["hash_block_size"] != HASH_BLOCK_SIZE:
-        raise VerityError("bundle.json block sizes do not match this runner")
+    v = _validate_verity_record(image.get("verity"))
+    image_source = image.get("source")
+    if (not isinstance(image_source, dict) or type(image_source.get("size_bytes")) is not int
+            or image_source["size_bytes"] != v["num_data_blocks"] * DATA_BLOCK_SIZE):
+        raise VerityError("bundle.json source size does not match dm-verity data-block count")
     if bundle["verified"]["size_bytes"] != bundle["tampered"]["size_bytes"]:
         raise VerityError("paired System images do not have equal lengths")
     if image["source"]["sha256"] != bundle["source"]["sha256"]:
@@ -718,11 +744,10 @@ def create_run_bundle(directory: Path, kernel: Path, config: Path, initramfs: Pa
     image_path = directory / "image.json"
     _regular_file(image_path, "image.json")
     image = json.loads(image_path.read_text(encoding="utf-8"))
-    root_digest = image["verity"]["root_digest"]
-    data_blocks = str(image["verity"]["num_data_blocks"])
-    salt = image["verity"]["salt"]
-    if not SHA256_PATTERN.fullmatch(root_digest) or not re.fullmatch(r"[0-9a-f]{64}", salt):
-        raise VerityError("image.json has malformed dm-verity parameters")
+    verity = _validate_verity_record(image.get("verity"))
+    root_digest = verity["root_digest"]
+    data_blocks = str(verity["num_data_blocks"])
+    salt = verity["salt"]
     _regular_file(initramfs, "initramfs input")
     cpio_data = initramfs.read_bytes()
     if root_digest.encode() not in cpio_data or data_blocks.encode() not in cpio_data or salt.encode() not in cpio_data:
@@ -755,10 +780,12 @@ def create_run_bundle(directory: Path, kernel: Path, config: Path, initramfs: Pa
 def verify_bundle_image_pair(bundle: dict, paths: dict[str, Path]) -> None:
     image = bundle["image"]
     source_info = image["source"]
+    verity = _validate_verity_record(image.get("verity"))
+    if type(source_info.get("size_bytes")) is not int or source_info["size_bytes"] != verity["num_data_blocks"] * DATA_BLOCK_SIZE:
+        raise VerityError("System source size does not match dm-verity num_data_blocks")
     source = paths["source"].read_bytes()
     if len(source) != source_info["size_bytes"] or hashlib.sha256(source).hexdigest() != source_info["sha256"]:
         raise VerityError("private System source does not match image.json")
-    verity = image["verity"]
     salt = bytes.fromhex(verity["salt"])
     tree, root_digest = build_hash_tree(source, salt)
     if root_digest != verity["root_digest"] or len(tree) // HASH_BLOCK_SIZE != verity["tree_blocks"]:
