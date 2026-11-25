@@ -245,7 +245,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-102 | [Hardware Support：Linux Driverを活用した段階的マルチデバイス対応](DEC-102-hardware-support-staged-multidevice-linux-drivers.md) | CONFIRMED（#33 B：PC／ARM64／Tabletへ段階的に拡張、Linux Driver活用・機種別実機検証で正式対応を判断）／PROVISIONAL（対応機種・Driver／Firmware Matrix・具体対応Version・Linux実機受入） | 2026-11-16 |
 | DEC-103 | [Testing / Release：段階的検証Bを先行、自動化・AI支援Cを最終目標](DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md) | CONFIRMED（#34 Host→Linux Image／QEMU→実機の証拠に基づくB先行、Cを将来の正式製品目標に段階導入。AIは原因仮説・合否は決定論的試験と既存Acceptance）／PROVISIONAL（試験網・モデル／生成・ツール／費用・時期／版・Linux受入） | 2026-11-16 |
 | DEC-104 | [Build / Supply Chain：B先行と独立検証・強化自動化Cの正式な将来目標](DEC-104-build-supply-chain-baseline-independent-verification-staged.md) | CONFIRMED（統合供給網管理B先行・C正式目標）／PROVISIONAL（ツール・CI規模・予算・日程・閾値・必須Release・Linux実証） | 2026-11-16 |
-| DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・Wayback連携・必要時のC追加）／PROVISIONAL（詳細・技術・適用版） | 2026-11-16 |
+| DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・4機能の分担・自動差分バックアップ・選択式復元・独立Profile移行・保存と復元の安全方針・必要時のC追加）／PROVISIONAL（保存・復元契約・技術・運用・提供版） | 2026-11-25 |
 | DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
 | DEC-107 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
 | DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-16 |
@@ -494,6 +494,8 @@ DEC-013の詳細設計案: [Memory Resource Governor](MEMORY-RESOURCE-GOVERNOR-D
 ## #16 Backup / Restoreの決定・変更履歴（2026-11-16）
 
 [DEC-105](DEC-105-user-environment-backup-and-wayback.md)でB方式（ユーザー環境全体のバックアップ）を基本とし、Waybackと分担・連携し、必要に応じC方式を追加選択肢とする方向を記録した。Cの内容・対象、保存方式・鍵・保持・復元詳細・提供版は未確定。DEC-014のWorkspace保存／移行、DEC-026の実際の復元可能性、DEC-004の明示的忘却を維持し、台帳#16と関連ロードマップへ参照を追加。仕様記録であり実装・受入済みではない。
+
+**後続決定（2026-11-25／CONFIRMED）:** Wayback・Backup・Profile Export / Import・System Recoveryの分担を明確にし、ユーザー環境の自動差分バックアップ・選択式復元・独立Profile移行、保存対象と保存先、世代管理・容量上限を確定した。復元で忘却済み情報や旧権限を自動復活させず、Secretの制限を維持する。旧世代のバックアップ単体では最新の忘却状態を保証できない。保存・復元契約、暗号と鍵、忘却状態を確認できない場合の安全側の処理、UI・頻度・性能・提供版はPROVISIONAL。既存のRelease／Activation／Acceptance Gateを維持する。
 
 ## Foundation #35：Build / Supply Chain（2026-11-16）
 
