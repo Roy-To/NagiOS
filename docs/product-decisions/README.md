@@ -290,6 +290,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -618,3 +620,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)追補: 端末横断のNagi独自Shellを初めから設計しDesktop向け表示から実装する方向、共通Nagi Bar、Workspaceの作業状態と表示の分離、通常UIの非LLM依存をCONFIRMED。具体モード・UI・描画基盤・実装順／提供版はPROVISIONAL。既存Gate・Ownerを維持。
 
 [DEC-127](DEC-127-nagi-design-system.md)追補: GUI ToolkitのB案（既存nagi-uiを出発点とするNagi独自UI基盤＋汎用OSSの選択的再利用）をCONFIRMED。Iced／egui／Slint等の個別採否・描画backend・ライセンス評価・測定基準・研究着手・提供版はPROVISIONAL。既存Gate・Owner・純正／第三者の公開契約を維持。
+
+[DEC-127](DEC-127-nagi-design-system.md)追補: Nagi共通2D描画API・汎用描画のOSS活用をCONFIRMED。個別ライブラリ・CPU／GPU実装・性能・研究着手・版はPROVISIONAL。既存Gate・Owner・専用エンジン・アプリ分離を維持。
