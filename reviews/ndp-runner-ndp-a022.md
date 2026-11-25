@@ -11,3 +11,15 @@ runner の提示ログでは validation 165件が成功しています。レビ�
 
 NDP-REVIEW: FIX
 
+## Round 2 — codex review of d7bd8fce8d35
+
+前回の P2 2件は解消しています。余裕テストはビルダーをスタブ化せずに `report.main()` の stdout を取得し、各 fixture と `all` の JSON・Markdown 出力を UTF-8 バイト数で測っています。README には実測値と暫定の 50% 基準が PROVISIONAL として追記され、結果はホスト限定と明記されています。
+
+上限超過テストは、単一 fixture と `all` の両形式で終了コード `1`、空の stdout、stderr の `report_output_limit` を検証しています。上限内のテストは `failed` の有無を切り替え、出力と終了コードの両方を検証しています。`report.py` の変更はありません。
+
+- **P3 — 指定差分に担当パス外のレビュー記録が含まれます。** BASE から HEAD までを一括で取り込むと、前回レビューの記録も含まれます。記録は別コミット `10db8ca8` にあり、実装とテストの挙動への影響はありません。担当パス内だけを取り込む場合は、そのコミットを取り込み対象から外すのが最小修正です。[reviews/ndp-runner-ndp-a022.md](reviews/ndp-runner-ndp-a022.md:1)
+
+提示された runner ログでは validation 165件が成功しています。最終修正後については実装報告で `test_report*.py` 79件の成功を確認しました。最終 HEAD に対する validation 全体の成功は未確認で、このレビューでは再実行していません。
+
+NDP-REVIEW: PASS
+
