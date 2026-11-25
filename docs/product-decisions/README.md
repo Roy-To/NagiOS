@@ -258,8 +258,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-105 | [ユーザー環境のバックアップとWaybackの分担・連携](DEC-105-user-environment-backup-and-wayback.md) | CONFIRMED（B基本・4機能の分担・自動差分バックアップ・選択式復元・独立Profile移行・保存と復元の安全方針・必要時のC追加）／PROVISIONAL（保存・復元契約・技術・運用・提供版） | 2026-11-25 |
 | DEC-106 | [Device Manager：内部責務分離と統合UI](DEC-106-device-manager-local-remote-unified-ui.md) | CONFIRMED（方式B：周辺機器・Nagi端末管理の内部責務分離、Settings／Devices UI統合、Linux機器基盤の活用）／PROVISIONAL（stack・機器・実装版） | 2026-11-16 |
 | DEC-107 | [Network Devices：Ethernet／Wi-Fiを基本、Bluetoothを段階対応](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md) | CONFIRMED（方式B：Ethernet・Wi-Fiを基本機能、Bluetooth段階対応）／PROVISIONAL（chipset・無線stack・適用版） | 2026-11-16 |
-| DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用、DEC-127のVello採用方針）／PROVISIONAL（Wayland／Smithay等の採否・対象機器・版・受入） | 2026-11-25 |
-| DEC-109 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-109-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-16 |
+| DEC-108 | [Display／GPU：Nagi独自Shell＋OSS描画基盤](DEC-108-display-gpu-nagi-shell-oss-graphics.md) | CONFIRMED（B改良案：Nagi独自のHome／Desktop・Workspace・端末適応UI、Linux／OSS描画基盤の活用、DEC-127のVello採用方針、Wayland／Smithay条件付き採用・独立した操作体系）／PROVISIONAL（具体protocol・依存・その他基盤・対象機器・版・受入） | 2026-11-25 |
+| DEC-109 | [Input System：Linux入力基盤＋共通Nagi Input Service](DEC-109-input-system-cross-device-linux-foundation.md) | CONFIRMED（方式B：Linux既存入力基盤活用、Keyboard／Mouse／Touchの共通Input Service、端末横断UI・通常入力と独立した意味的操作体系）／PROVISIONAL（stack・IME／focus契約・機器・版・受入） | 2026-11-25 |
 | DEC-110 | [Audio System：OSS音声基盤＋Nagi Audio Serviceと計測に基づく部分最適化](DEC-110-audio-system-oss-nagi-service-measured-optimization.md) | CONFIRMED（条件付きB：Linux／OSS音声基盤再利用、Nagi独自管理、低遅延・省メモリ・省電力の実機測定・不足箇所の個別対応）／PROVISIONAL（stack・機器・測定値・版・受入） | 2026-11-16 |
 | DEC-111 | [50項目のImplementation Readiness棚卸しと条件付き判断](DEC-111-implementation-readiness-triage.md) | CONFIRMED（実装を妨げる未決判断だけ必要時に先行する運用）／REVIEW NOTE・PROVISIONAL（23／5／8／14の一次分類・順序） | 2026-11-17 |
 | DEC-112 | [Linux開発イメージのIdentityサービスとREADY](DEC-112-development-identity-service-readiness.md) | CONFIRMED（Task24開発イメージで独立必須Identityと実READY、Data／NotesはPID 1内、独立Dataは別レーンで並行）／PROVISIONAL（製品全体の構成・接続仕様の詳細） | 2026-11-19 |
@@ -295,6 +295,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針、OSSフォント優先・将来10言語対応目標）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針、OSSフォント優先・将来10言語対応目標、Wayland／Smithay条件付き採用と独立した操作体系）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -632,3 +634,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)追補: OSSフォント優先と英語・日本語・中国語・韓国語・ポルトガル語・スペイン語・フランス語・ドイツ語・アラビア語・ロシア語の将来対応目標を早期設計に反映する方向をCONFIRMED。[言語設計](../architecture/language-architecture.md)にも接続。日英同格の初期範囲を維持し、個別フォント／文字処理技術・locale・提供版・受入はPROVISIONAL。既存Gate・Ownerを維持。
 
 [DEC-060](DEC-060-responsive-ime-ai-learning.md)追補: IMEを独自性の重点領域とし、OSSを基礎に独自変換エンジンの組込みまで目指す長期方向をCONFIRMED。日本語を先行検討、他言語のOSS活用案・個別エンジン・性能・着手・提供版はPROVISIONAL。既存の高速入力・秘密入力保護・学習認可・Gateを維持。
+
+[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)・[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)・[DEC-127](DEC-127-nagi-design-system.md)追補: Wayland・Smithayの条件付き採用と、2D座標・入力型に固定しないNagi独自の意味的操作体系をCONFIRMED。VISION-001／DEC-097の長期ビジョン、DEC-020／027の正規操作・安全境界、通常GUIを維持。新規入力／表示技術・protocol詳細・性能・実装・提供版はPROVISIONAL。既存Gate・Ownerを維持。
