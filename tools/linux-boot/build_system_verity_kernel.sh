@@ -23,7 +23,54 @@ version=$(awk -F'= ' '/^(VERSION|PATCHLEVEL|SUBLEVEL) = / { print $2 }' "$source
 [[ "$version" == "6.18.63" ]] || { echo "expected Linux 6.18.63 source, found $version" >&2; exit 2; }
 make_path=$(command -v make)
 make_version=$("$make_path" --version | sed -n '1p')
-[[ "$make_version" == "GNU Make "* ]] || { echo "GNU Make >=4.0 is required, found: $make_version" >&2; exit 2; }
+python3 - "$make_version" <<'PY'
+import re, sys
+
+match = re.fullmatch(r"GNU Make (\d+)\.(\d+)(?:\.\d+)?", sys.argv[1])
+if not match or tuple(map(int, match.groups())) < (4, 0):
+    raise SystemExit(f"GNU Make >=4.0 is required, found: {sys.argv[1]}")
+PY
+host_support_root=${NAGI_L11_HOST_TOOLS_ROOT:-}
+host_support_kind=none
+host_compat_root=
+host_elfutils_root=
+host_clang_path=
+host_lld_path=
+host_pkg_config_path=
+host_cflags=
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    [[ -n "$host_support_root" ]] || {
+        echo "NAGI_L11_HOST_TOOLS_ROOT must point to the pinned Darwin kernel host tools" >&2
+        exit 2
+    }
+    host_compat_root="$host_support_root/linux-kernel-darwin-compat"
+    host_elfutils_root="$host_support_root/elfutils-0.197/install"
+    [[ -x "$host_compat_root/bin/clang-host" && -f "$host_compat_root/include/darwin-system-preinclude.h" ]] || {
+        echo "Darwin kernel host compatibility inputs are missing" >&2
+        exit 2
+    }
+    [[ -f "$host_elfutils_root/include/libelf.h" && -f "$host_elfutils_root/lib/libelf.a" && -f "$host_elfutils_root/lib/pkgconfig/libelf.pc" ]] || {
+        echo "pinned elfutils 0.197 libelf inputs are missing" >&2
+        exit 2
+    }
+    host_clang_path=/opt/homebrew/opt/llvm@19/bin/clang
+    host_lld_path=/opt/homebrew/bin/ld.lld
+    host_pkg_config_path=$(command -v pkg-config)
+    [[ -x "$host_clang_path" && -x "$host_lld_path" && -x "$host_pkg_config_path" ]] || {
+        echo "pinned Darwin Clang/LLD/pkg-config tools are missing" >&2
+        exit 2
+    }
+    export PKG_CONFIG_PATH="$host_elfutils_root/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    host_cflags="-Wno-macro-redefined -Wno-deprecated-declarations -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -I$host_compat_root/include -I$host_elfutils_root/include"
+    export HOSTCC="$host_compat_root/bin/clang-host"
+    export HOSTCXX="$host_compat_root/bin/clang-host"
+    export HOSTLD="$host_compat_root/bin/clang-host"
+    export HOSTCFLAGS="$host_cflags"
+    export HOSTLDFLAGS=-fuse-ld=lld
+    export HOSTPKG_CONFIG="$host_pkg_config_path"
+    export PATH="/opt/homebrew/bin:$PATH"
+    host_support_kind=mount-lane-read-only-darwin-compat+elfutils-0.197
+fi
 
 mkdir "$output_dir"
 exec > >(tee "$output_dir/build.log") 2>&1
@@ -94,6 +141,54 @@ cp "$base_config" "$build_dir/.config"
 source_makefile_sha_before=$(shasum -a 256 "$source_dir/Makefile" | awk '{print $1}')
 source_verity_sha_before=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-target.c" | awk '{print $1}')
 
+if [[ "$host_support_kind" != none ]]; then
+    write_host_support_manifest() {
+        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$1" <<'PY'
+import hashlib, json, sys
+from pathlib import Path
+
+root, compat, elfutils, clang, lld, pkg_config, output = map(Path, sys.argv[1:])
+
+def sha(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+files = {}
+for key, directory in (("compat/include", compat / "include"), ("elfutils/include", elfutils / "include")):
+    for path in sorted(directory.rglob("*")):
+        if path.is_file():
+            files[f"{key}/{path.relative_to(directory).as_posix()}"] = {
+                "path": str(path),
+                "resolved_path": str(path.resolve(strict=True)),
+                "size_bytes": path.stat().st_size,
+                "sha256": sha(path),
+            }
+for key, path in (
+    ("clang_host", compat / "bin/clang-host"),
+    ("darwin_preinclude", compat / "include/darwin-system-preinclude.h"),
+    ("libelf_archive", elfutils / "lib/libelf.a"),
+    ("libelf_pkgconfig", elfutils / "lib/pkgconfig/libelf.pc"),
+    ("llvm_clang", clang),
+    ("lld", lld),
+    ("pkg_config", pkg_config),
+):
+    files[key] = {
+        "path": str(path),
+        "resolved_path": str(path.resolve(strict=True)),
+        "size_bytes": path.stat().st_size,
+        "sha256": sha(path),
+    }
+output.write_text(json.dumps({"kind": "mount-lane-read-only-darwin-compat+elfutils-0.197", "files": files}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+output.chmod(0o444)
+PY
+    }
+    write_host_support_manifest "$output_dir/host-support-before.json"
+    printf 'Darwin host support: %s; manifest=%s\n' "$host_support_kind" "$output_dir/host-support-before.json"
+fi
+
 printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
 bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
     "$build_dir/.config" "$repo_root/tools/linux-boot/system-verity.config"
@@ -110,6 +205,16 @@ print("DM_INIT, DM_VERITY, SHA-256, virtio-blk and ext4 config: PASS")
 PY
 make -C "$source_dir" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
 
+if [[ "$host_support_kind" != none ]]; then
+    write_host_support_manifest "$output_dir/host-support-after.json"
+    if ! cmp -s "$output_dir/host-support-before.json" "$output_dir/host-support-after.json"; then
+        echo "Darwin kernel host-support inputs changed during the build" >&2
+        diff -u "$output_dir/host-support-before.json" "$output_dir/host-support-after.json" || true
+        exit 1
+    fi
+    printf 'Darwin host-support inputs unchanged during build: PASS\n'
+fi
+
 source_makefile_sha_after=$(shasum -a 256 "$source_dir/Makefile" | awk '{print $1}')
 source_verity_sha_after=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-target.c" | awk '{print $1}')
 [[ "$source_makefile_sha_before" == "$source_makefile_sha_after" ]] || { echo "kernel source Makefile changed during the out-of-tree build" >&2; exit 1; }
@@ -121,12 +226,12 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" <<'PY'
-import hashlib, json, sys
+python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" <<'PY'
+import hashlib, json, os, sys
 from pathlib import Path
 
 repo, source, output, base = map(Path, sys.argv[1:5])
-base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version = sys.argv[5:]
+base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind = sys.argv[5:]
 
 def sha(path):
     digest = hashlib.sha256()
@@ -164,7 +269,18 @@ receipt = {
         "version": make_version,
         "sha256": sha(Path(make_path)),
     },
-    "build_command": ["make", "-C", str(source), f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
+    "host_support": {
+        "kind": host_kind,
+        "root": host_root or None,
+        "manifest_path": "host-support-before.json" if host_root else None,
+        "manifest_sha256": sha(output / "host-support-before.json") if host_root else None,
+        "manifest": json.loads((output / "host-support-before.json").read_text(encoding="utf-8")) if host_root else None,
+        "make_environment": {
+            key: os.environ.get(key)
+            for key in ("HOSTCC", "HOSTCXX", "HOSTLD", "HOSTCFLAGS", "HOSTLDFLAGS", "HOSTPKG_CONFIG", "PKG_CONFIG_PATH")
+        },
+    },
+    "build_command": [make_path, "-C", str(source), f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
     "source_unchanged_checks": {
         "makefile_sha256_before_after": makefile_sha,
         "dm_verity_target_sha256_before_after": verity_sha,
