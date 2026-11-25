@@ -6,6 +6,11 @@ build = "build.rs"
 publish = false
 
 [features]
+linux-files-desktop = [
+    "dep:nagi-files",
+    "dep:nagi-files-c1-session-consumer",
+    "nagi-files-c1-session-consumer/c1-issued-session",
+]
 system-service-readiness = []
 production-session = []
 linux-service-action-bridge = [
@@ -84,6 +89,8 @@ nagi-init-service-call = { path = "../../crates/nagi-init-service-call", optiona
 nagi-service-contract = { path = "../../crates/nagi-service-contract", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+nagi-files = { path = "../../apps/nagi-files", optional = true }
+nagi-files-c1-session-consumer = { path = "../../tools/nagi-files-c1-session-consumer", optional = true }
 nagi-abi = { path = "../../crates/nagi-abi" }
 nagi-account-credential = { path = "../../crates/nagi-account-credential" }
 nagi-calendar-core = { path = "../../crates/nagi-calendar-core" }

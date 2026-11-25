@@ -1,6 +1,8 @@
 use super::super::{linux_owner_registration_console::BootOwnerConsole, NotesConsoleExit};
 #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
 use super::calendar_console::CalendarExit;
+#[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
+use super::files_console::FilesExit;
 use crate::desktop_shell_model::{AppId, ShellAction, ShellModel};
 use crate::ui::Painter;
 use libnagi::InputEvent;
@@ -41,6 +43,8 @@ pub(super) enum AppExit {
     Notes(NotesConsoleExit, Option<NoteDocument>),
     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
     Calendar(CalendarExit),
+    #[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
+    Files(FilesExit),
 }
 
 pub(super) fn run<C: ShellConsole>(
@@ -198,6 +202,48 @@ pub(super) fn run<C: ShellConsole>(
                     AppExit::Calendar(CalendarExit::StateUnknown) | AppExit::Notes(..) => {
                         return Ok(ShellExit::StateUnknown);
                     }
+                    #[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
+                    AppExit::Files(_) => return Ok(ShellExit::StateUnknown),
+                }
+            }
+            #[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
+            ShellAction::Launch(AppId::Files) => {
+                log_pid1_stderr(format_args!("NAGI_DEV_DESKTOP_APP_LAUNCH app=files"));
+                match launch(AppId::Files, console, model.locale())? {
+                    AppExit::Files(FilesExit::Closed) => {
+                        if poll_identity()? {
+                            return Ok(ShellExit::RequiredIdentityExited);
+                        }
+                        match check_session() {
+                            Ok(()) => {}
+                            Err(ResolutionError::Ended | ResolutionError::Expired) => {
+                                log_pid1_stderr(format_args!(
+                                    "NAGI_DEV_DESKTOP_APP_CLOSED app=files exit=SessionEnded"
+                                ));
+                                return Ok(ShellExit::ClosedWithoutSaveAfterSessionEnded);
+                            }
+                            Err(_) => return Ok(ShellExit::StateUnknown),
+                        }
+                        console.present(|painter| model.render(painter))?;
+                        log_pid1_stderr(format_args!(
+                            "NAGI_DEV_DESKTOP_APP_CLOSED app=files exit=ClosedByUser"
+                        ));
+                    }
+                    AppExit::Files(FilesExit::SessionEnded) => {
+                        log_pid1_stderr(format_args!(
+                            "NAGI_DEV_DESKTOP_APP_CLOSED app=files exit=SessionEnded"
+                        ));
+                        return Ok(ShellExit::ClosedWithoutSaveAfterSessionEnded);
+                    }
+                    AppExit::Files(FilesExit::RequiredIdentityExited) => {
+                        return Ok(ShellExit::RequiredIdentityExited);
+                    }
+                    AppExit::Files(FilesExit::StateUnknown) => {
+                        return Ok(ShellExit::StateUnknown);
+                    }
+                    AppExit::Notes(..) => return Ok(ShellExit::StateUnknown),
+                    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+                    AppExit::Calendar(_) => return Ok(ShellExit::StateUnknown),
                 }
             }
             ShellAction::Launch(AppId::Notes) => {
@@ -206,6 +252,8 @@ pub(super) fn run<C: ShellConsole>(
                     AppExit::Notes(exit, draft) => (exit, draft),
                     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
                     AppExit::Calendar(_) => return Ok(ShellExit::StateUnknown),
+                    #[cfg(all(feature = "linux-files-desktop", not(nagi_release_build)))]
+                    AppExit::Files(_) => return Ok(ShellExit::StateUnknown),
                 };
                 if let Some(draft) = draft {
                     drafts.push(draft);

@@ -100,6 +100,14 @@ snapshot issued for the attached profile. `calendar_l10_acceptance.py`
 validates the two-boot Calendar serial transcript. The release build excludes
 the development launcher.
 
+### Linux development Files
+
+`tools/linux-boot/build_task24_acceptance_elf.sh` includes Files in the
+development Desktop by default. Tab cycles through Notes, Calendar, Files and
+Logout. `linux_task24_files_console.rs` opens the selected profile's UserFiles
+root for each launch. Files operations use the live C1 session and Files
+capability policy. The release build excludes the development launcher.
+
 ## 5. Build and test
 
 - Top level: `./nagi doctor | fetch | build | image | run | test`.

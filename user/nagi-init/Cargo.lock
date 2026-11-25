@@ -399,8 +399,19 @@ name = "nagi-files"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "nagi-identity-session",
+ "nagi-profile-volume-notes-owner",
  "nagi-ui",
  "rustix",
+]
+
+[[package]]
+name = "nagi-files-c1-session-consumer"
+version = "0.1.0"
+dependencies = [
+ "nagi-files",
+ "nagi-identity-session",
+ "nagi-profile-volume-notes-owner",
 ]
 
 [[package]]
@@ -445,6 +456,8 @@ dependencies = [
  "nagi-clipboard",
  "nagi-dev-service-catalog-consumer",
  "nagi-fat32",
+ "nagi-files",
+ "nagi-files-c1-session-consumer",
  "nagi-history",
  "nagi-identity-session",
  "nagi-init-package-provider",

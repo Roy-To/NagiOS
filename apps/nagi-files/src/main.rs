@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use nagi_files::localization::{self, Locale};
 use nagi_files::{
-    preview_cli, render_three_pane, Actor, CancellationToken, CapabilityGrant, CapabilityRight,
-    CapabilitySet, FileName, FilesApp, FilesError, FilesErrorKind, FilesSearchProvider,
-    FilesService, Location, SandboxProvider,
+    Actor, CancellationToken, CapabilityGrant, CapabilityRight, CapabilitySet, FileName, FilesApp,
+    FilesError, FilesErrorKind, FilesSearchProvider, FilesService, Location, SandboxProvider,
+    preview_cli, render_three_pane,
 };
 
 fn main() {
@@ -56,7 +56,7 @@ fn run() -> Result<(), String> {
     );
     let mut service = FilesService::new(provider, capabilities);
     let mut app = FilesApp::new(Location::root());
-    app.refresh(&service)
+    app.refresh(&mut service)
         .map_err(|error| localized_error(locale, &error))?;
     let search = FilesSearchProvider::default();
 
@@ -126,11 +126,11 @@ fn run() -> Result<(), String> {
             "move" => move_item(&mut service, &mut app, rest),
             "duplicate" => duplicate_item(&mut service, &mut app, rest),
             "trash" => trash_item(&mut service, &mut app, rest),
-            "trash-list" => print_trash(&service),
+            "trash-list" => print_trash(&mut service),
             "restore" => restore_item(&mut service, &mut app, rest),
             "delete-permanently" => permanently_delete(&mut service, &mut app, rest, locale),
             "tags" => set_tags(&mut service, &mut app, rest),
-            "search" => print_search(&search, &service, &app, rest),
+            "search" => print_search(&search, &mut service, &app, rest),
             "context" => print_context(&app),
             _ => Err(FilesError::new(FilesErrorKind::InvalidLocation)),
         };
@@ -340,7 +340,7 @@ fn trash_item<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthor
 }
 
 fn print_trash<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
-    service: &FilesService<P, A>,
+    service: &mut FilesService<P, A>,
 ) -> Result<(), FilesError> {
     for (index, item) in service.list_trash()?.iter().enumerate() {
         println!(
@@ -434,7 +434,7 @@ fn print_context(app: &FilesApp) -> Result<(), FilesError> {
 
 fn print_search<P: nagi_files::FilesystemProvider, A: nagi_files::CapabilityAuthorizer>(
     search: &FilesSearchProvider,
-    service: &FilesService<P, A>,
+    service: &mut FilesService<P, A>,
     app: &FilesApp,
     query: &str,
 ) -> Result<(), FilesError> {

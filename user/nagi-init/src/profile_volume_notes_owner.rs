@@ -266,15 +266,42 @@ pub(crate) struct AuthorizedFilesRoot {
     revalidation: std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
 }
 
+/// Single borrowed scope that couples one attached profile root to the exact
+/// C1 handle used when that root was issued. The provider enters the C1 effect
+/// from this value before invoking its owner-only root callback.
+#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+pub(crate) struct OwnerOnlyFilesRootScope<'root> {
+    owner: &'root AuthorizedFilesRoot,
+}
+
+#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+impl nagi_profile_volume_notes_owner::FilesRootScope for OwnerOnlyFilesRootScope<'_> {
+    fn with_files_root<R>(
+        &self,
+        effect: impl for<'view> FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'view>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        <nagi_profile_volume_notes_owner::ProfileFilesRoot as
+            nagi_profile_volume_notes_owner::FilesRootScope>::with_files_root(
+            &self.owner.root,
+            effect,
+        )
+    }
+}
+
+#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+impl nagi_files::C1SessionBoundFilesRootScope for OwnerOnlyFilesRootScope<'_> {
+    fn c1_session_revalidation_handle(
+        &self,
+    ) -> &nagi_identity_session::SessionLeaseRevalidationHandle {
+        self.owner.revalidation.as_ref()
+    }
+}
+
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedFilesRoot {
-    pub(crate) fn with_root<R>(
-        &self,
-        effect: impl FnOnce(nagi_profile_volume_notes_owner::FilesRootView<'_>) -> R,
-    ) -> Result<R, ProfileVolumeNotesOwnerError> {
-        self.revalidation
-            .with_live_session_effect(|| self.root.with_active_root(effect))
-            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+    #[cfg(feature = "linux-files-desktop")]
+    pub(crate) fn owner_only_scope(&self) -> OwnerOnlyFilesRootScope<'_> {
+        OwnerOnlyFilesRootScope { owner: self }
     }
 }
 

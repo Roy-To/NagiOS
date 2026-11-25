@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat <<'USAGE'
-Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher [--calendar]] <new-output-dir>
+Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher] [--files] <new-output-dir>
 
 Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
 NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
@@ -19,10 +19,10 @@ to reuse your build target.
 The output directory receives nagi-init and build-receipt.json.
 --release enables all the same cfg flags and requires zero development
 marker occurrences in the linked ELF.
-Development builds include the L7 desktop shell, L9 Settings and Calendar by
-default.
+Development builds include the L7 desktop shell, L9 Settings, Calendar and Files by default.
 --desktop-launcher is accepted for existing development invocations.
 --calendar is accepted for existing Calendar development invocations.
+--files is accepted for existing development invocations.
 USAGE
 }
 
@@ -30,19 +30,21 @@ profile=debug
 offline=true
 desktop_launcher_requested=false
 calendar_requested=false
+files_requested=false
 while (($#)); do
     case "$1" in
         --release) profile=release ;;
         --online) offline=false ;;
         --desktop-launcher) desktop_launcher_requested=true ;;
         --calendar) calendar_requested=true ;;
+        --files) files_requested=true ;;
         -h|--help) usage; exit 0 ;;
         --*) usage >&2; exit 2 ;;
         *) break ;;
     esac
     shift
 done
-if (($# != 1)) || { [[ "$profile" == release ]] && { "$desktop_launcher_requested" || "$calendar_requested"; }; }; then
+if (($# != 1)) || { [[ "$profile" == release ]] && { "$desktop_launcher_requested" || "$calendar_requested" || "$files_requested"; }; }; then
     usage >&2
     exit 2
 fi
@@ -68,7 +70,8 @@ cfgs=(
     linux_dev_system_mount
 )
 if [[ "$profile" == debug ]]; then
-    cfgs+=(linux_task24_desktop_shell linux_task24_settings linux_task24_calendar_app)
+    cfgs+=(linux_task24_desktop_shell linux_task24_settings linux_task24_calendar_app linux_task24_files_console)
+    features+=,linux-files-desktop
 fi
 rustc_args=()
 for cfg in "${cfgs[@]}"; do
