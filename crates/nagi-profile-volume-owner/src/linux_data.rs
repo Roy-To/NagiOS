@@ -37,11 +37,15 @@ fn parse_reservation(
 ) -> io::Result<(ObjectId, bool)> {
     let (_, heading) = storage_layout(kind);
     let (observed_heading, record) = record.split_once('\n').ok_or(io::ErrorKind::InvalidData)?;
-    let allow_initial_index = match observed_heading {
-        found if found == heading => true,
-        "NAGI-NOTES-PROFILE-1" if kind == AppStorageKind::Notes => false,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
-    };
+    if kind == AppStorageKind::Notes && observed_heading == "NAGI-NOTES-PROFILE-1" {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "legacy Notes reservation v1 is unsupported",
+        ));
+    }
+    if observed_heading != heading {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
     let hex = record
         .strip_prefix(scope)
         .and_then(|suffix| suffix.strip_suffix('\n'))
@@ -50,7 +54,7 @@ fn parse_reservation(
     if object == 0 || hex != format!("{object:016x}") {
         return Err(io::ErrorKind::InvalidData.into());
     }
-    Ok((ObjectId(object), allow_initial_index))
+    Ok((ObjectId(object), true))
 }
 
 pub(super) fn reserve(
@@ -938,14 +942,8 @@ mod tests {
         }
         let legacy = format!("NAGI-NOTES-PROFILE-1\n{scope}0000000000000002\n");
         assert_eq!(
-            parse_reservation(Notes, scope, &legacy).unwrap(),
-            (ObjectId(2), false)
+            parse_reservation(Notes, scope, &legacy).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
         );
-        for kind in [Settings, Calendar] {
-            assert_eq!(
-                parse_reservation(kind, scope, &legacy).unwrap_err().kind(),
-                io::ErrorKind::InvalidData
-            );
-        }
     }
 }

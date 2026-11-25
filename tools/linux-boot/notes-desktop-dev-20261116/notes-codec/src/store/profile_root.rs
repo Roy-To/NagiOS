@@ -371,17 +371,21 @@ where
         .map_err(ProfileRootNotesInputError::Binding)?;
 
         let (mut input, linux_root) = bundle
-            .with_duplicated_object_directory(|object_directory| {
+            .with_borrowed_object_directory(|object_directory| {
                 use super::linux_profile_backend::{
                     initialize_notes_index, LinuxProfileStorageBackend,
                 };
 
-                let startup_directory = rustix::io::fcntl_dupfd_cloexec(&object_directory, 0)
+                let startup_directory = rustix::io::fcntl_dupfd_cloexec(object_directory, 0)
+                    .map_err(|_| {
+                        ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
+                    })?;
+                let backend_directory = rustix::io::fcntl_dupfd_cloexec(object_directory, 0)
                     .map_err(|_| {
                         ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
                     })?;
                 let backend = LinuxProfileStorageBackend::from_authenticated_identity_fd(
-                    object_directory,
+                    backend_directory,
                     &identity,
                     &caller,
                     &requested_profile,

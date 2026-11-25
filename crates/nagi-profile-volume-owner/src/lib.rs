@@ -533,14 +533,16 @@ impl ProfileVolumeNotesBundle {
     /// caller must retain this bundle and gate every effect through
     /// `with_active`; the returned descriptor by itself carries no owner state.
     #[doc(hidden)]
-    pub fn duplicate_object_directory(&self) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+    pub(crate) fn duplicate_object_directory(
+        &self,
+    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
         self.with_duplicated_object_directory(|directory| directory)
     }
 
     /// Keep the attachment lifecycle lock held while the Linux consumer opens
     /// its C1 root from a duplicate of the retained descriptor.
     #[doc(hidden)]
-    pub fn with_duplicated_object_directory<R>(
+    pub(crate) fn with_duplicated_object_directory<R>(
         &self,
         operation: impl FnOnce(OwnedFd) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
@@ -551,6 +553,23 @@ impl ProfileVolumeNotesBundle {
         let directory = fcntl_dupfd_cloexec(&self.attachment.object_directory, 0)
             .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
         Ok(operation(directory))
+    }
+
+    /// Borrow the retained object directory only for one synchronous scope.
+    /// This API does not return an owned descriptor. Consumers must keep
+    /// durable effects behind their own authorized, owner-scoped operation.
+    #[cfg(target_os = "linux")]
+    pub fn with_borrowed_object_directory<R>(
+        &self,
+        operation: impl for<'directory> FnOnce(std::os::fd::BorrowedFd<'directory>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        let lifecycle = self.attachment.lifecycle()?;
+        if lifecycle.status != AttachmentStatus::Active {
+            return Err(attachment_status_error(lifecycle.status));
+        }
+        Ok(operation(std::os::fd::AsFd::as_fd(
+            &self.attachment.object_directory,
+        )))
     }
 
     #[cfg(test)]
