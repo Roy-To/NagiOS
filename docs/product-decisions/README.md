@@ -294,6 +294,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験、既存Desktop環境の基盤採用なし、端末横断ShellのDesktop first設計、独自GUI ToolkitとOSS活用、共通2D描画API、Vello採用方針、OSSフォント優先・将来10言語対応目標）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -626,3 +628,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)追補: Nagi共通2D描画API・汎用描画のOSS活用をCONFIRMED。個別ライブラリ・CPU／GPU実装・性能・研究着手・版はPROVISIONAL。既存Gate・Owner・専用エンジン・アプリ分離を維持。
 
 [DEC-127](DEC-127-nagi-design-system.md)・[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)追補: Velloを共通2D描画基盤の主要OSSとして採用する方向をCONFIRMED。CPU先行、GPU高速化候補、tiny-skia比較／代替。具体版・依存／ライセンス・性能・研究着手・提供版はPROVISIONAL。Wayland／Smithay等は別判断、既存Gate・Ownerを維持。
+
+[DEC-127](DEC-127-nagi-design-system.md)追補: OSSフォント優先と英語・日本語・中国語・韓国語・ポルトガル語・スペイン語・フランス語・ドイツ語・アラビア語・ロシア語の将来対応目標を早期設計に反映する方向をCONFIRMED。[言語設計](../architecture/language-architecture.md)にも接続。日英同格の初期範囲を維持し、個別フォント／文字処理技術・locale・提供版・受入はPROVISIONAL。既存Gate・Ownerを維持。
