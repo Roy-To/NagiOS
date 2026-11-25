@@ -266,7 +266,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-123 | [独自カーネルの終了とLinux版 Nagi OS 0.1 Developer Preview](DEC-123-kernel-unification-and-linux-0.1.md) | CONFIRMED（独自カーネル凍結・Linux版0.1公開・旧M0〜M30記録保持・0.2有効化条件の置き換え）／PROVISIONAL（機能範囲・マイルストーン・旧コード整理・CI・公開時期） | 2026-11-23 |
 | DEC-124 | [Nagi System Skills：OS機能のAI向け操作知識](DEC-124-nagi-system-skills.md) | CONFIRMED（OSの機能・設定・Public Actionの知識をAIが利用する方向）／PROVISIONAL（形式・登録・技術・UI・版） | 2026-11-24 |
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
-| DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現の方向）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
+| DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現、Office互換OSS活用と編集／連携への重点投入）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
 
 
 端末間連携の接続方針（2026-11-16追加）:
@@ -533,3 +533,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-126](DEC-126-office-native-format-and-interchange.md)を追加。Writer／Sheets／Slidesは公開Native形式を標準とし、DOCX／XLSX／PPTXの入出力に対応する方向BをCONFIRMED。拡張子・物理形式・Schema・互換範囲・提供版はPROVISIONAL。分散正本と既存Gateを維持。
 
 [DEC-126](DEC-126-office-native-format-and-interchange.md)追補: 共通コンテナによる再利用と用途別内部表現の方向。ZIPを基本候補としJSON・バイナリ等の採用／内部構造／履歴分担はPROVISIONAL。
+
+[DEC-126](DEC-126-office-native-format-and-interchange.md)追補: Office互換は既存OSSを活用し、Nagi独自の開発リソースを編集機能・アプリ間連携へ重点投入する方針をCONFIRMED。個別ライブラリ・採用版・ライセンス／互換性／性能評価・実装順はPROVISIONAL。
