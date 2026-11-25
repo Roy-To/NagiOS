@@ -45,6 +45,7 @@ class Task24ReleaseGateTests(unittest.TestCase):
         executable: str | None = None,
         include_test: bool = True,
         include_fresh: bool = True,
+        filenames: list[str] | None = None,
     ) -> dict[str, object]:
         profile: dict[str, object] = {
             "opt_level": opt_level,
@@ -61,17 +62,43 @@ class Task24ReleaseGateTests(unittest.TestCase):
             report["fresh"] = fresh
         if executable is not None:
             report["executable"] = executable
+        if filenames is not None:
+            report["filenames"] = filenames
         return report
 
     def valid_reports(self, target: Path) -> list[dict[str, object]]:
-        executable = target / "x86_64-unknown-linux-musl" / "release" / "nagi-init"
-        executable.parent.mkdir(parents=True, exist_ok=True)
-        executable.write_bytes(b"test ELF placeholder")
+        target_release = target / "x86_64-unknown-linux-musl" / "release"
+        executable = target_release / "nagi-init"
+        target_library = target_release / "deps" / "libserde.rlib"
+        host_library = target / "release" / "deps" / "libunicode_ident.rlib"
+        proc_macro = target / "release" / "deps" / "libexample_macro.dylib"
+        build_script = target_release / "build" / "build-script-build"
+        for artifact_path in (executable, target_library, host_library, proc_macro, build_script):
+            artifact_path.parent.mkdir(parents=True, exist_ok=True)
+            artifact_path.write_bytes(b"test artifact")
         return [
-            self.artifact("nagi-init", "bin", executable=str(executable)),
-            self.artifact("serde", "lib"),
-            self.artifact("example-macro", "proc-macro", opt_level="0", debug_assertions=True),
-            self.artifact("build-script-build", "custom-build", opt_level="0", debug_assertions=True),
+            self.artifact("nagi-init", "bin", executable=str(executable), filenames=[str(executable)]),
+            self.artifact("serde", "lib", filenames=[str(target_library)]),
+            self.artifact(
+                "unicode_ident",
+                "lib",
+                opt_level="0",
+                filenames=[str(host_library)],
+            ),
+            self.artifact(
+                "example-macro",
+                "proc-macro",
+                opt_level="0",
+                debug_assertions=True,
+                filenames=[str(proc_macro)],
+            ),
+            self.artifact(
+                "build-script-build",
+                "custom-build",
+                opt_level="0",
+                debug_assertions=True,
+                filenames=[str(build_script)],
+            ),
         ]
 
     def test_only_debug_and_release_profiles_are_accepted(self) -> None:
@@ -85,24 +112,25 @@ class Task24ReleaseGateTests(unittest.TestCase):
         target = self.root / "isolated"
         target.mkdir()
         reports = self.valid_reports(target)
-        _, summary, original_path = validate_artifacts(reports, "release", target)
+        _, summary, original_path = validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
         self.assertEqual(summary["linked_artifact_count"], 2)
         self.assertEqual(summary["excluded_build_script_or_proc_macro_count"], 2)
+        self.assertEqual(summary["host_only_artifact_count"], 1)
         self.assertEqual(original_path, "x86_64-unknown-linux-musl/release/nagi-init")
 
         reports[1]["profile"]["opt_level"] = "2"  # type: ignore[index]
         with self.assertRaisesRegex(GateError, "linked release artifact"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
         reports[1]["profile"]["opt_level"] = "3"  # type: ignore[index]
         reports[1]["profile"]["debug_assertions"] = True  # type: ignore[index]
         with self.assertRaisesRegex(GateError, "linked release artifact"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
         reports = self.valid_reports(target)
         reports[0]["profile"]["opt_level"] = "2"  # type: ignore[index]
         with self.assertRaisesRegex(GateError, "linked release artifact"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
     def test_artifact_metadata_fails_closed_for_test_profile_and_fresh(self) -> None:
         target = self.root / "isolated"
@@ -110,22 +138,22 @@ class Task24ReleaseGateTests(unittest.TestCase):
         reports = self.valid_reports(target)
         reports[1]["profile"].pop("test")  # type: ignore[union-attr]
         with self.assertRaisesRegex(GateError, "boolean profile.test"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
         reports = self.valid_reports(target)
         reports[1]["profile"]["test"] = "false"  # type: ignore[index]
         with self.assertRaisesRegex(GateError, "boolean profile.test"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
         reports = self.valid_reports(target)
         reports[1]["fresh"] = True
         with self.assertRaisesRegex(GateError, "reused"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
         reports = self.valid_reports(target)
         reports[1].pop("fresh")
         with self.assertRaisesRegex(GateError, "boolean fresh"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
     def test_pid1_executable_must_reside_under_isolated_target_dir(self) -> None:
         target = self.root / "isolated"
@@ -136,7 +164,7 @@ class Task24ReleaseGateTests(unittest.TestCase):
         reports = self.valid_reports(target)
         reports[0]["executable"] = str(external)
         with self.assertRaisesRegex(GateError, "outside the isolated"):
-            validate_artifacts(reports, "release", target)
+            validate_artifacts(reports, "release", "x86_64-unknown-linux-musl", target)
 
     def test_marker_set_is_exactly_the_five_canonical_names(self) -> None:
         self.assertEqual(len(EXPECTED_MARKERS), EXPECTED_MARKER_COUNT)

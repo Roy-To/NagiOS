@@ -190,10 +190,12 @@ def _compiler_artifacts(reports: Sequence[Mapping[str, Any]]) -> list[Mapping[st
 
 
 def validate_artifacts(
-    reports: Sequence[Mapping[str, Any]], profile: str, isolated_target_dir: Path
+    reports: Sequence[Mapping[str, Any]], profile: str, target_triple: str, isolated_target_dir: Path
 ) -> tuple[Mapping[str, Any], dict[str, Any], str]:
     """Validate all Cargo artifact metadata and return PID 1 plus an aggregate receipt."""
     selected_profile = validate_profile(profile)
+    if not target_triple or Path(target_triple).name != target_triple:
+        raise GateError("Cargo target triple must be a single non-empty path component")
     artifacts = _compiler_artifacts(reports)
     if not artifacts:
         raise GateError("Cargo emitted no compiler-artifact reports")
@@ -201,6 +203,8 @@ def validate_artifacts(
     binary_artifacts: list[Mapping[str, Any]] = []
     checked_linked_profiles: list[dict[str, Any]] = []
     excluded_artifact_count = 0
+    host_only_artifact_count = 0
+    isolated_target = isolated_target_dir.resolve(strict=True)
     for artifact in artifacts:
         target = artifact.get("target")
         profile_data = artifact.get("profile")
@@ -228,6 +232,25 @@ def validate_artifacts(
 
         if NON_LINKED_TARGET_KINDS.intersection(kinds):
             excluded_artifact_count += 1
+            continue
+
+        filenames = artifact.get("filenames")
+        if not isinstance(filenames, list) or not filenames or not all(isinstance(name, str) for name in filenames):
+            raise GateError("linked Cargo compiler-artifact must report its output filenames")
+        relative_filenames: list[Path] = []
+        for filename in filenames:
+            filename_path = Path(filename)
+            if not filename_path.is_absolute():
+                filename_path = Path.cwd() / filename_path
+            try:
+                relative_filenames.append(filename_path.resolve(strict=True).relative_to(isolated_target))
+            except (OSError, ValueError) as error:
+                raise GateError("Cargo compiler-artifact output is missing or outside the isolated target directory") from error
+        target_specific = [relative.parts[0] == target_triple for relative in relative_filenames if relative.parts]
+        if not target_specific or any(target_specific) and not all(target_specific):
+            raise GateError("Cargo compiler-artifact mixes target-specific and host output paths")
+        if not all(target_specific):
+            host_only_artifact_count += 1
             continue
 
         opt_level = profile_data.get("opt_level")
@@ -267,6 +290,7 @@ def validate_artifacts(
             "compiler_artifact_count": len(artifacts),
             "linked_artifact_count": len(checked_linked_profiles),
             "excluded_build_script_or_proc_macro_count": excluded_artifact_count,
+            "host_only_artifact_count": host_only_artifact_count,
             "all_compiler_artifacts_test_false": True,
             "test_profile_artifact_count": 0,
             "all_compiler_artifacts_fresh_false": True,

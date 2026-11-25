@@ -149,7 +149,7 @@ from task24_release_gate import (  # noqa: E402
 validate_profile(profile)
 validate_output_files(output, ["cargo-artifacts.jsonl"])
 binary_artifact, artifact_summary, original_executable_path = validate_artifacts(
-    reports, profile, Path(isolated_target_dir)
+    reports, profile, target, Path(isolated_target_dir)
 )
 artifact_profile = binary_artifact.get("profile") or {}
 test_harness = artifact_profile.get("test")
