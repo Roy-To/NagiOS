@@ -62,7 +62,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         exit 2
     }
     export PKG_CONFIG_PATH="$host_elfutils_root/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-    host_cflags="-Wno-macro-redefined -Wno-deprecated-declarations -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -I$host_compat_root/include -I$host_elfutils_root/include"
+    host_cflags="-Wno-macro-redefined -Wno-deprecated-declarations -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -I$host_compat_root/include -I$host_elfutils_root/include -I$output_dir/build/arch/x86/include/generated/uapi -I$source_dir/arch/x86/include/uapi -I$output_dir/build/include/generated/uapi -idirafter $source_dir/include/uapi"
     export HOSTCC="$host_compat_root/bin/clang-host"
     export HOSTCXX="$host_compat_root/bin/clang-host"
     export HOSTLD="$host_compat_root/bin/clang-host"
