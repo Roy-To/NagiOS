@@ -562,6 +562,22 @@ reports, and 2 for invalid arguments.
   contract; the format may change inside `validation/`.
 - Stage 3 stays `not_run`. Rendering, runtime API behavior, install, launch,
   permissions and data persistence on Nagi require separate target evidence.
+- Report output limit and size headroom (PROVISIONAL, NDP-A022;
+  `test_report_output_limit.py`; `report.py` is unchanged). `main()` writes
+  `report_output_limit` to stderr, nothing to stdout, and returns 1 when the UTF-8
+  output exceeds `MAX_REPORT_BYTES` (one fixture) or
+  `MAX_REPORT_BYTES * len(FIXTURES)` (`--fixture all`), for JSON and Markdown. The
+  test pins that branch (including the exact-limit / one-byte-over boundary) with
+  stubbed `build_report` / `build_all_report` that return real reports built once, and
+  pins that within the limit the exit code is decided only by `failed` checks.
+  Assumption: real output of every fixture (and of `all`) stays below
+  `HEADROOM_RATIO = 0.5` of its limit in both formats; the test measures the real
+  output and fails if a fixture grows past that. The ratio is a PROVISIONAL
+  assumption chosen to leave room for growth, not an approved contract; adjust the
+  constant in the test if the format legitimately grows. The measured byte sizes have
+  not been recorded here yet because the test run was not possible in the authoring
+  session; the test's failure message prints the actual and limit bytes. Host-only,
+  not Nagi target acceptance.
 
 ## Evidence and remaining scope — 2026-11-17
 
