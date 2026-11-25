@@ -2,8 +2,8 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（適応方針・評価方針）／PROVISIONAL（profile・技術選択・閾値）  
-**最終合意日:** 2026-11-05  
+**状態:** CONFIRMED（適応・評価方針、長期蓄積要件、SQLite初期実用経路・Rust独自DBの並行研究と条件付き置換）／PROVISIONAL（正式DB・置換時期・版・profile・具体技術・閾値・Refresh構想）\
+**最終合意日:** 2026-11-25\
 **対象:** 0.1中の先行設計・ホスト専用PoC、0.2 Forward Compatibility、0.3での正式Memory Engine実装  
 **関連:** DEC-003、DEC-004、DEC-005、DEC-007、`roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md`、`benchmarks/MEMORY-BENCH-01.md`
 
@@ -117,3 +117,17 @@ Nagi 0.3のMemory Engineは、特定世代の低スペック端末向けに固�
 本記録は条件付き構想と検証案であり、正式採用、実装着手、提供版、既存Release／Activation／Acceptance Gateの変更を意味しない。
 
 変更履歴: 2026-11-25 — 効果を条件とする定期的Memory最適化Refresh構想をPROVISIONALで追加。Automation Mode・電源遷移・既存Jobsとの連携、最適化前後の比較、安全な中断条件を設計候補として整理。
+
+## 2026-11-25 — SQLiteを初期実用経路とし、Rust製Memory専用DBを並行研究
+
+**CONFIRMED（ユーザー明示合意「その方針でいこう」）**
+
+1. **本線:** Memory機能はSQLiteを使う初期実用経路で開発する。SQLiteを比較のbaselineにも使い、独自DBの完成待ちで本線を止めない。
+2. **研究線:** RustでNagi Memory専用の独自DBを並行研究する。0.3の完了を待たず、空きCodex枠で許可済み範囲の独立host-only PoCを先行できるようにする。対象はMemoryに絞り、汎用SQL互換を目標に含めない。独自DBは0.3完了条件にも、Linux版0.1 Developer Previewの公開条件にも加えない。
+3. **評価線:** SQLiteと候補を同一データ・同一ワークロードで比較し、検索品質、認可、忘却を同等に保った条件で性能・容量・耐久性を実測する。十分な性能と信頼性、安全な移行・復元を検証できた段階で、正式審査を経て置換する。性能優位だけで置換を決めず、移行失敗時にSQLiteで安全に継続できる経路を検証する。
+
+**PROVISIONAL:** 正式な物理DB採用、置換時期・提供版、数値閾値、Storage契約の詳細、具体データ構造・索引・永続化形式は未決定。[0.3改訂ロードマップ §26–28](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md#26-gate-for-03-implementation-spec)に従って正式仕様と受入を判断する。
+
+**開始境界:** 合意の対象は研究方向と早期PoCの方針。個別Workstreamの登録、Integration Ownerによる担当・基点・許可パスとhost開始範囲の承認、既存Release／Activation／Acceptance Gateに従う。正式0.3 runtimeは既存の実装許可が必要。研究提案と比較手順は [MEMDB-RD-01（仮）](../workstreams/NagiOS_MEMDB-RD-01_Registration_Proposal.md) を参照。
+
+変更履歴: 2026-11-25 — SQLiteの初期実用経路・比較baseline、Rust製Memory専用DBの並行先行研究、実測・安全性・移行検証を条件とする置換方針をCONFIRMEDとして追記。
