@@ -247,6 +247,8 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
+      - name: Regression tests for Task24 release gate validation
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/linux-boot -p 'test_task24_release_gate.py' -v
       - name: Build release PID 1 and require zero development-only entries
         run: |
           mkdir -p out/logs
