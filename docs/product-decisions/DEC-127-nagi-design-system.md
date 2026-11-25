@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用、Vello採用方針、OSSフォント優先と将来10言語の対応目標）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験、端末横断ShellのDesktop first設計、独自GUI Toolkitと既存OSSの選択的活用、共通2D描画APIとOSS活用、Vello採用方針、OSSフォント優先と将来10言語の対応目標、Wayland・Smithayの条件付き採用と独立した操作体系）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -94,6 +94,10 @@
 - 言語パック・フォント／辞書を必要に応じて追加し、使わない言語のデータを常駐させない方式を候補とする。OS UI翻訳、文字表示／編集、IME／keyboard、検索／地域書式、AI理解／音声・翻訳の対応度は別々に検証し、特定LLMの対応言語をOSの対応保証としない。代表文字体系の早期fixture／擬似locale、RTL・長文・欠落翻訳の試験を候補とする。各言語のlocale、実装範囲、順序、数値、提供Version、翻訳品質・検証条件は未確定。
 - DEC-060／109の通常IMEの非LLM依存、前景応答優先、許可された学習と秘密入力保護、DEC-097のAccessibility、DEC-108／127の軽量性・共通描画契約を維持する。既存0.1の日英範囲・Release／Activation／Acceptance Gate、Owner／path ownershipを変更せず、10言語の実装完了・新規Workstream着手・依存追加・特定Releaseの必須要件を意味しない。
 
+## 2026-11-25 — Wayland・SmithayとNagi独自の操作体系
+
+[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)／[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)の後続決定により、Waylandを現在の2D画面通信、SmithayをNagi独自Compositorの主要開発基盤として条件付き採用する方向をCONFIRMEDとする。従前の採否未確定の記述については同決定を優先する。Nagi Shell／Workspace／入力管理・意味的な操作体系・Public ActionはWaylandのSurfaceや座標／入力型に固定しない。VISION-001／DEC-097の正確なポインティングに依存しない将来方向、AIなしの通常GUI、Permission／Policyを維持する。操作解釈層の具体構成、将来の入力／表示backend、protocol拡張、機器、版、受入はPROVISIONAL。既存Gate／Owner・着手条件を変更しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
@@ -107,3 +111,4 @@
 | 2026-11-25 | 共通2D描画APIと既存OSS活用の方針をユーザーが承認。個別OSSの採否・描画方式・性能・着手・提供版はPROVISIONAL。 |
 | 2026-11-25 | ユーザーがVello採用を承認。主要2D描画基盤として選定し、CPU先行・GPU高速化候補・tiny-skia比較／代替を記録。固定版・具体実装・測定・着手・提供版はPROVISIONAL。 |
 | 2026-11-25 | ユーザーがOSSフォント優先と、英語・日本語に加え中国語・韓国語・ポルトガル語・スペイン語・フランス語・ドイツ語・アラビア語・ロシア語への将来対応を早期設計で見据える方向を明示。個別フォント・文字処理技術・言語別範囲・提供版はPROVISIONAL。 |
+| 2026-11-25 | DEC-108／109のWayland・Smithay条件付き採用と、Nagi独自操作体系の独立性を反映。具体実装・版はPROVISIONAL。 |
