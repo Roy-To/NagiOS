@@ -584,6 +584,7 @@ dependencies = [
  "nagi-calendar-core",
  "nagi-calendar-input-adapter",
  "nagi-clipboard",
+ "nagi-data-boot-selection",
  "nagi-history",
  "nagi-init-package-provider",
  "nagi-init-service-call",

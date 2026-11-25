@@ -47,6 +47,7 @@ nagi-abi = { path = "../../crates/nagi-abi" }
 nagi-account-credential = { path = "../../crates/nagi-account-credential" }
 nagi-calendar-core = { path = "../../crates/nagi-calendar-core" }
 nagi-calendar-input-adapter = { path = "../../crates/nagi-calendar-input-adapter" }
+nagi-data-boot-selection = { path = "../../crates/nagi-data-boot-selection" }
 nagi-persistence-contract = { path = "../../crates/nagi-persistence-contract" }
 libc = "=0.2.189"
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
