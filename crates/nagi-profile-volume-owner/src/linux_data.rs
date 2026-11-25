@@ -1,11 +1,14 @@
 //! Volume Manager storage for the boot-selected development Data mount.
 
-use super::AppStorageKind;
-use super::{FilesRootEntry, FilesRootEntryKind, FilesRootMetadata};
+use super::{
+    AppStorageKind, FilesRootEntry, FilesRootEntryKind, FilesRootMetadata, USER_FILES_APP_GID,
+    USER_FILES_APP_UID,
+};
 use nagi_model::{ObjectId, UserId};
 use rustix::fs::{
-    flock, linkat, mkdirat, openat2, renameat, renameat_with, statx, unlinkat, AtFlags, Dir,
-    FileType, FlockOperation, Mode, OFlags, RenameFlags, ResolveFlags, StatxFlags,
+    fchown, flock, fsync, linkat, mkdirat, openat2, renameat, renameat_with, statx, unlinkat,
+    AtFlags, Dir, FileType, FlockOperation, Gid, Mode, OFlags, RenameFlags, ResolveFlags,
+    StatxFlags, Uid,
 };
 use rustix::io::Errno;
 use std::fs::File;
@@ -175,16 +178,11 @@ pub(super) fn reserve_files_root(
         OFlags::RDONLY | OFlags::NONBLOCK,
     ) {
         Ok(record) => (
-            open_private_directory(&profile_root, FILES_ROOT)?,
+            open_files_private_directory(&profile_root, FILES_ROOT)?,
             Some(File::from(record)),
         ),
         Err(Errno::NOENT) => {
-            let root = private_directory(&profile_root, FILES_ROOT)?;
-            for entry in Dir::read_from(&root)? {
-                if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
-                    return Err(io::ErrorKind::InvalidData.into());
-                }
-            }
+            let root = provision_empty_files_directory(&profile_root, FILES_ROOT)?;
             (root, None)
         }
         Err(error) => return Err(error.into()),
@@ -842,6 +840,66 @@ fn private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
     Ok(dir)
 }
 
+fn open_files_private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
+    let dir = File::from(open_beneath(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+    )?);
+    let metadata = dir.metadata()?;
+    if metadata.uid() != USER_FILES_APP_UID
+        || metadata.gid() != USER_FILES_APP_GID
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(dir)
+}
+
+/// Provision an empty User Files root for its fixed app identity. Existing
+/// contents are never recursively reassigned; an old or unexpected owner with
+/// data fails closed and requires an explicit migration outside this path.
+fn provision_empty_files_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
+    match mkdirat(parent, name, Mode::RWXU) {
+        Ok(()) | Err(Errno::EXIST) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let dir = File::from(open_beneath(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+    )?);
+    let metadata = dir.metadata()?;
+    if metadata.mode() & 0o777 != 0o700 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    for entry in Dir::read_from(&dir)? {
+        if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+    }
+    if (metadata.uid(), metadata.gid()) != (USER_FILES_APP_UID, USER_FILES_APP_GID) {
+        if (metadata.uid(), metadata.gid()) != (0, 0) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        fchown(
+            &dir,
+            Some(Uid::from_raw(USER_FILES_APP_UID)),
+            Some(Gid::from_raw(USER_FILES_APP_GID)),
+        )?;
+        dir.sync_all()?;
+        fsync(parent)?;
+    }
+    let metadata = dir.metadata()?;
+    if metadata.uid() != USER_FILES_APP_UID
+        || metadata.gid() != USER_FILES_APP_GID
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(dir)
+}
+
 fn open_private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
     let dir = File::from(open_beneath(
         parent,
@@ -898,6 +956,8 @@ mod tests {
         let (user, profile, principal) = (UserId(3), "profile_fixture", "principal_fixture");
         let attach = || reserve_files_root(&data, mount_id, user, profile, principal);
         let root = File::from(attach().unwrap());
+        assert_eq!(root.metadata().unwrap().uid(), USER_FILES_APP_UID);
+        assert_eq!(root.metadata().unwrap().gid(), USER_FILES_APP_GID);
         fs::write(
             path.join("profile-files-v1/profile_fixture/root/file"),
             b"preserved",
@@ -913,9 +973,67 @@ mod tests {
         let displaced = original.with_file_name("old-root");
         fs::rename(&original, &displaced).unwrap();
         DirBuilder::new().mode(0o700).create(&original).unwrap();
+        let replacement = File::open(&original).unwrap();
+        rustix::fs::fchown(
+            &replacement,
+            Some(Uid::from_raw(USER_FILES_APP_UID)),
+            Some(Gid::from_raw(USER_FILES_APP_GID)),
+        )
+        .unwrap();
+        drop(replacement);
         assert_eq!(attach().unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert_eq!(fs::read(displaced.join("file")).unwrap(), b"preserved");
         drop((root, reopened, data));
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn files_root_does_not_reassign_nonempty_legacy_storage() {
+        use std::fs::{self, DirBuilder};
+        use std::os::unix::fs::DirBuilderExt;
+
+        let path =
+            std::env::temp_dir().join(format!("nagi-files-legacy-owner-{}", std::process::id()));
+        DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let data = File::open(&path).unwrap();
+        if data.metadata().unwrap().uid() != 0 {
+            fs::remove_dir(&path).unwrap();
+            return;
+        }
+        let mount_id = statx(&data, c"", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)
+            .unwrap()
+            .stx_mnt_id;
+        let (user, profile, principal) = (UserId(4), "profile_legacy", "principal_legacy");
+        let profile_root = open_profile_root(
+            &data,
+            mount_id,
+            user,
+            profile,
+            principal,
+            AppStorageKind::UserFiles,
+        )
+        .unwrap();
+        let legacy_root = private_directory(&profile_root, FILES_ROOT).unwrap();
+        fs::write(
+            path.join("profile-files-v1/profile_legacy/root/preserved"),
+            b"keep",
+        )
+        .unwrap();
+        drop(legacy_root);
+
+        let error = reserve_files_root(&data, mount_id, user, profile, principal).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let reopened = File::open(path.join("profile-files-v1/profile_legacy/root")).unwrap();
+        assert_eq!(reopened.metadata().unwrap().uid(), 0);
+        assert_eq!(reopened.metadata().unwrap().gid(), 0);
+        assert_eq!(
+            fs::read(path.join("profile-files-v1/profile_legacy/root/preserved")).unwrap(),
+            b"keep"
+        );
+        assert!(!path
+            .join(format!("profile-files-v1/profile_legacy/{RESERVATION}"))
+            .exists());
+        drop((reopened, profile_root, data));
         fs::remove_dir_all(path).unwrap();
     }
 

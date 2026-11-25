@@ -20,6 +20,7 @@ use nagi_identity_session::{
 
 pub(crate) use nagi_profile_volume_notes_owner::{
     ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError, ProfileVolumeNotesOwnerStatus,
+    USER_FILES_APP_GID, USER_FILES_APP_UID,
 };
 
 /// Data root selected by the trusted volume owner. Opening a directory

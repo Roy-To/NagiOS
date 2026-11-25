@@ -35,6 +35,12 @@ pub enum AppStorageKind {
     UserFiles,
 }
 
+/// Linux identity assigned to the only app currently allowed to receive the
+/// User Files root. The process owner and the Data-root provisioner share this
+/// constant so storage ownership is checked without a user namespace.
+pub const USER_FILES_APP_UID: u32 = 65_532;
+pub const USER_FILES_APP_GID: u32 = 65_532;
+
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileVolumeNotesOwnerStatus {

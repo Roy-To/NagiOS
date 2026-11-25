@@ -3065,7 +3065,7 @@ mod linux_x86_64_process {
         clone3_pid1_service_child, Clone3Pid1Child, SpawnedProcessPidfd,
     };
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd as StdOwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd as StdOwnedFd};
     use std::ptr;
 
     const NR_READ: usize = 0;
@@ -3154,7 +3154,6 @@ mod linux_x86_64_process {
     const SIG_BLOCK: usize = 0;
     const SIG_SETMASK: usize = 2;
     const CLONE_NEWPID: usize = 0x2000_0000;
-    const CLONE_PIDFD: usize = 0x0000_1000;
     const WNOHANG: usize = 1;
     const WEXITED: usize = 4;
     const WNOWAIT: usize = 0x0100_0000;
@@ -3235,7 +3234,6 @@ mod linux_x86_64_process {
     const MS_PRIVATE: usize = 1 << 18;
     const OPEN_TREE_CLONE: usize = 1;
     const MOVE_MOUNT_F_EMPTY_PATH: usize = 0x0000_0004;
-    const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
     const MOUNT_ATTR_NOSUID: u64 = 0x2;
     const MOUNT_ATTR_NODEV: u64 = 0x4;
     const MOUNT_ATTR_NOEXEC: u64 = 0x8;
@@ -4383,21 +4381,6 @@ mod linux_x86_64_process {
     }
 
     #[repr(C)]
-    struct LinuxCloneArgs {
-        flags: u64,
-        pidfd: u64,
-        child_tid: u64,
-        parent_tid: u64,
-        exit_signal: u64,
-        stack: u64,
-        stack_size: u64,
-        tls: u64,
-        set_tid: u64,
-        set_tid_size: u64,
-        cgroup: u64,
-    }
-
-    #[repr(C)]
     struct LinuxLandlockRulesetAttr {
         handled_access_fs: u64,
     }
@@ -4462,12 +4445,6 @@ mod linux_x86_64_process {
         rights
     }
 
-    fn write_proc_text(path: &str, text: &str) -> io::Result<()> {
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
-        file.write_all(text.as_bytes())
-    }
-
     #[cfg_attr(not(test), inline(always))]
     fn process_prepare_stage<T>(stage: &'static str, result: io::Result<T>) -> io::Result<T> {
         #[cfg(test)]
@@ -4483,174 +4460,9 @@ mod linux_x86_64_process {
         result
     }
 
-    /// Create a short-lived user namespace for the idmapped app-data mount.
-    /// Its cleanup-only reap ticket keeps the helper under PID-1's sole wait
-    /// owner; the namespace FD, not the helper process, pins the mapping.
-    fn create_app_mount_user_namespace(uid: u32, gid: u32) -> io::Result<OwnedFd> {
-        if uid == 0 || gid == 0 || uid == u32::MAX || gid == u32::MAX {
-            return process_prepare_stage(
-                "app_storage.validate_non_root_ids",
-                Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "app mount idmapping requires non-root app credentials",
-                )),
-            );
-        }
-
-        let mut pipe = [-1i32; 2];
-        process_prepare_stage(
-            "userns.pipe2",
-            syscall_result(unsafe { syscall2(NR_PIPE2, pipe.as_mut_ptr() as usize, O_CLOEXEC) })
-                .map(|_| ()),
-        )?;
-        let mut release_read = OwnedFd(pipe[0]);
-        let mut release_write = OwnedFd(pipe[1]);
-        let mut raw_pidfd = -1i32;
-        let clone_args = LinuxCloneArgs {
-            flags: (CLONE_NEWUSER | CLONE_PIDFD) as u64,
-            pidfd: &mut raw_pidfd as *mut i32 as u64,
-            child_tid: 0,
-            parent_tid: 0,
-            exit_signal: SIGCHLD as u64,
-            stack: 0,
-            stack_size: 0,
-            tls: 0,
-            set_tid: 0,
-            set_tid_size: 0,
-            cgroup: 0,
-        };
-
-        let mut reaper = process_prepare_stage(
-            "userns.reaper_lock",
-            child_reaper()
-                .lock()
-                .map_err(|_| io::Error::other("PID-1 child reaper lock is poisoned")),
-        )?;
-        let reservation =
-            process_prepare_stage("userns.reserve_reaper_ticket", reaper.reserve_ticket())?;
-        let cloned = unsafe {
-            syscall2(
-                NR_CLONE3,
-                &clone_args as *const LinuxCloneArgs as usize,
-                core::mem::size_of::<LinuxCloneArgs>(),
-            )
-        };
-        if cloned == 0 {
-            // The helper performs raw syscalls only. It must not drop the
-            // inherited, parent-locked reaper mutex or run Rust destructors.
-            std::mem::forget(reaper);
-            unsafe {
-                syscall1(NR_CLOSE, release_write.raw() as usize);
-                let mut release = 0u8;
-                loop {
-                    let read = syscall3(
-                        NR_READ,
-                        release_read.raw() as usize,
-                        &mut release as *mut u8 as usize,
-                        1,
-                    );
-                    if read == -(EINTR) {
-                        continue;
-                    }
-                    syscall1(NR_EXIT_GROUP, if read == 1 { 0 } else { 125 });
-                }
-            }
-        }
-        if cloned < 0 {
-            return process_prepare_stage(
-                "userns.clone3",
-                Err(io::Error::from_raw_os_error((-cloned) as i32)),
-            );
-        }
-
-        let process_id = cloned as u32;
-        let ticket = reservation.bind_unverified(process_id);
-        let helper_pidfd = (raw_pidfd >= 0).then_some(OwnedFd(raw_pidfd));
-        if let Err(error) = process_prepare_stage(
-            "userns.register_reaper_ticket",
-            reaper.register(ticket.clone()),
-        ) {
-            reaper.retain_failed_ticket(ticket);
-            drop(reaper);
-            let _ = release_read.close_now();
-            let _ = release_write.close_now();
-            if let Some(pidfd) = helper_pidfd {
-                let _ =
-                    unsafe { syscall4(NR_PIDFD_SEND_SIGNAL, pidfd.raw() as usize, SIGKILL, 0, 0) };
-            }
-            return Err(io::Error::other(format!(
-                "PID-1 could not register app mount user-namespace helper: {error}"
-            )));
-        }
-        drop(reaper);
-        process_prepare_stage("userns.close_parent_read_pipe", release_read.close_now())?;
-
-        let namespace_result = (|| {
-            let proc = format!("/proc/{process_id}");
-            process_prepare_stage(
-                "userns.write_setgroups",
-                write_proc_text(&format!("{proc}/setgroups"), "deny\n"),
-            )?;
-            process_prepare_stage(
-                "userns.write_uid_map",
-                write_proc_text(&format!("{proc}/uid_map"), &format!("0 {uid} 1\n")),
-            )?;
-            process_prepare_stage(
-                "userns.write_gid_map",
-                write_proc_text(&format!("{proc}/gid_map"), &format!("0 {gid} 1\n")),
-            )?;
-            let namespace = process_prepare_stage(
-                "userns.open_namespace_fd",
-                std::fs::File::open(format!("{proc}/ns/user")),
-            )?;
-            Ok::<_, io::Error>(OwnedFd(namespace.into_raw_fd()))
-        })();
-
-        let release_byte = [1u8];
-        let released = unsafe {
-            syscall3(
-                NR_WRITE,
-                release_write.raw() as usize,
-                release_byte.as_ptr() as usize,
-                release_byte.len(),
-            )
-        };
-        let close_result = release_write.close_now();
-        let exit_status =
-            process_prepare_stage("userns.reap_helper", wait_for_reap_ticket(&ticket))?;
-        let namespace = namespace_result?;
-        if released != 1 {
-            let error = if released < 0 {
-                io::Error::from_raw_os_error((-released) as i32)
-            } else {
-                io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "app mount user-namespace helper release was short",
-                )
-            };
-            return process_prepare_stage("userns.release_helper", Err(error));
-        }
-        process_prepare_stage("userns.close_release_pipe", close_result)?;
-        if exit_status.exit_code != Some(0) || exit_status.signal.is_some() {
-            return process_prepare_stage(
-                "userns.helper_exit",
-                Err(io::Error::other(
-                    "app mount user-namespace helper did not exit normally",
-                )),
-            );
-        }
-        drop(helper_pidfd);
-        Ok(namespace)
-    }
-
-    fn prepare_idmapped_app_storage_mount(
-        directory: std::os::fd::BorrowedFd<'_>,
-        uid: u32,
-        gid: u32,
-    ) -> io::Result<OwnedFd> {
-        let user_namespace = create_app_mount_user_namespace(uid, gid)?;
+    fn prepare_app_storage_mount(directory: std::os::fd::BorrowedFd<'_>) -> io::Result<OwnedFd> {
         let mount_tree = process_prepare_stage(
-            "open_tree.clone_app_storage_mount",
+            "app_storage.open_tree",
             OwnedFd::from_result(unsafe {
                 syscall3(
                     NR_OPEN_TREE,
@@ -4661,14 +4473,13 @@ mod linux_x86_64_process {
             }),
         )?;
         let attributes = LinuxMountAttr {
-            attr_set: MOUNT_ATTR_IDMAP
-                | MOUNT_ATTR_NOSUID
+            attr_set: MOUNT_ATTR_NOSUID
                 | MOUNT_ATTR_NODEV
                 | MOUNT_ATTR_NOEXEC
                 | MOUNT_ATTR_NOSYMFOLLOW,
             attr_clr: 0,
             propagation: 0,
-            userns_fd: user_namespace.raw() as u64,
+            userns_fd: 0,
         };
         let changed = unsafe {
             syscall5(
@@ -4681,10 +4492,10 @@ mod linux_x86_64_process {
             )
         };
         process_prepare_stage(
-            "mount_setattr.idmap_and_flags",
+            "app_storage.mount_setattr",
             syscall_result(changed).map(|_| ()),
         )?;
-        process_prepare_stage("promote_app_storage_mount_fd", promote_fd(mount_tree))
+        process_prepare_stage("app_storage.promote_mount_fd", promote_fd(mount_tree))
     }
 
     fn open_landlock_executable_path_fd(executable_fd: i32) -> io::Result<Option<OwnedFd>> {
@@ -5433,7 +5244,7 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(root_fd));
         }
 
-        // The chroot contains only tmpfs plus this app's idmapped data mount.
+        // The chroot contains only tmpfs plus this app-owned data mount.
         // Permit its normal file operations, but reserve EXECUTE for the one
         // already-open sealed package executable.
         let root_rule = LinuxLandlockPathBeneathAttr {
@@ -7265,8 +7076,8 @@ mod linux_x86_64_process {
                     )?;
                     let file_type = stat.st_mode & 0o170000;
                     if file_type != 0o040000
-                        || stat.st_uid != 0
-                        || stat.st_gid != 0
+                        || stat.st_uid != execution_identity.uid
+                        || stat.st_gid != execution_identity.gid
                         || stat.st_mode & 0o777 != 0o700
                         || storage.app_id() == nagi_model::AppId(0)
                     {
@@ -7274,7 +7085,7 @@ mod linux_x86_64_process {
                             "app_storage.validate_private_owner_directory",
                             Err(io::Error::new(
                                 io::ErrorKind::PermissionDenied,
-                                "app storage mount is not the exact private owner-issued directory",
+                                "app storage root is not private and owned by the assigned app UID/GID",
                             )),
                         );
                     }
@@ -7289,11 +7100,7 @@ mod linux_x86_64_process {
                             )),
                         );
                     }
-                    Some(prepare_idmapped_app_storage_mount(
-                        storage.directory(),
-                        execution_identity.uid,
-                        execution_identity.gid,
-                    )?)
+                    Some(prepare_app_storage_mount(storage.directory())?)
                 }
                 ProcessFilesystemPolicy::Inherited | ProcessFilesystemPolicy::PrivateTmpfs => None,
             };
@@ -8242,8 +8049,8 @@ const DEV_SERVICE_UID: u32 = 65_534;
 const DEV_SERVICE_GID: u32 = 65_534;
 const DEV_NOTES_DESKTOP_UID: u32 = 65_533;
 const DEV_NOTES_DESKTOP_GID: u32 = 65_533;
-const APP_FILES_UID: u32 = 65_532;
-const APP_FILES_GID: u32 = 65_532;
+const APP_FILES_UID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_UID;
+const APP_FILES_GID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_GID;
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
 const DEV_INPUT_PATH: &str = "/run/nagi/dev-service.runtime";
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
@@ -11928,6 +11735,24 @@ mod linux_process_resource_tests {
             code.extend_from_slice(&[0; 4]); // patched to the common failure exit
         };
 
+        code.extend_from_slice(&[0xb8, 0x27, 0x00, 0x00, 0x00, 0x0f, 0x05]); // getpid()
+        code.extend_from_slice(&[0x83, 0xf8, 0x01]); // child must be PID 1 in its PID namespace
+        append_failure_branch(&mut code, 0x85); // jne fail
+
+        for (syscall_number, expected_id) in [
+            (102u32, LinuxExecutionIdentity::APP_FILES.uid), // getuid()
+            (107u32, LinuxExecutionIdentity::APP_FILES.uid), // geteuid()
+            (104u32, LinuxExecutionIdentity::APP_FILES.gid), // getgid()
+            (108u32, LinuxExecutionIdentity::APP_FILES.gid), // getegid()
+        ] {
+            code.push(0xb8); // mov eax, syscall number
+            code.extend_from_slice(&syscall_number.to_le_bytes());
+            code.extend_from_slice(&[0x0f, 0x05]); // syscall
+            code.push(0x3d); // cmp eax, expected app ID
+            code.extend_from_slice(&expected_id.to_le_bytes());
+            append_failure_branch(&mut code, 0x85); // jne fail
+        }
+
         append_openat(&mut code, OWN_MARKER_OFFSET);
         code.extend_from_slice(&[0x85, 0xc0]); // test eax, eax
         append_failure_branch(&mut code, 0x88); // js fail
@@ -12323,7 +12148,7 @@ mod linux_process_resource_tests {
 
     #[test]
     fn app_process_tmpfs_root_exposes_only_its_authorized_profile_storage() {
-        use std::os::fd::OwnedFd;
+        use nagi_profile_volume_notes_owner::{AppStorageKind, ProfileVolumeAppOwner};
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
         struct AppIsolationFixture {
@@ -12373,13 +12198,71 @@ mod linux_process_resource_tests {
             io::Error::last_os_error()
         );
         fixture.mounted = true;
-        let own_root = root.join("app-a");
-        let foreign_root = root.join("app-b");
-        for path in [&own_root, &foreign_root] {
-            std::fs::create_dir(path).expect("create private app profile root");
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-                .expect("make profile root private");
-        }
+        let data_root = std::fs::File::open(&root).expect("open selected Data root fixture");
+        let mount_id = rustix::fs::statx(
+            &data_root,
+            c"",
+            rustix::fs::AtFlags::EMPTY_PATH,
+            rustix::fs::StatxFlags::MNT_ID,
+        )
+        .expect("read selected Data mount id")
+        .stx_mnt_id;
+
+        // A pre-existing non-empty root without an owner reservation is not
+        // migrated to the app UID. Preserve it and fail before creating one.
+        let legacy_namespace = root.join("profile-files-v1");
+        std::fs::create_dir(&legacy_namespace).expect("create legacy namespace fixture");
+        std::fs::set_permissions(&legacy_namespace, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy namespace private");
+        let legacy_profile = legacy_namespace.join("profile_legacy");
+        std::fs::create_dir(&legacy_profile).expect("create legacy profile fixture");
+        std::fs::set_permissions(&legacy_profile, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy profile private");
+        let legacy_root = legacy_profile.join("root");
+        std::fs::create_dir(&legacy_root).expect("create legacy User Files root");
+        std::fs::set_permissions(&legacy_root, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy User Files root private");
+        let legacy_marker = legacy_root.join("preserve.marker");
+        std::fs::write(&legacy_marker, b"KEEP").expect("write legacy data marker");
+        std::fs::set_permissions(&legacy_marker, std::fs::Permissions::from_mode(0o600))
+            .expect("make legacy marker owner-only");
+        let mut legacy_owner = ProfileVolumeAppOwner::pending_for(AppStorageKind::UserFiles);
+        assert!(legacy_owner
+            .attach_linux_profile(
+                &data_root,
+                mount_id,
+                nagi_model::UserId(4),
+                "profile_legacy",
+                "principal_legacy",
+            )
+            .is_err());
+        assert_eq!(std::fs::read(&legacy_marker).unwrap(), b"KEEP");
+        assert_eq!(std::fs::metadata(&legacy_root).unwrap().uid(), 0);
+        assert_eq!(std::fs::metadata(&legacy_root).unwrap().gid(), 0);
+        assert!(!legacy_profile.join("reservation.v1").exists());
+
+        let mut files_owner = ProfileVolumeAppOwner::pending_for(AppStorageKind::UserFiles);
+        files_owner
+            .attach_linux_profile(
+                &data_root,
+                mount_id,
+                nagi_model::UserId(3),
+                "profile_fixture",
+                "principal_fixture",
+            )
+            .expect("provision User Files through the profile-volume owner");
+        let files_root = files_owner
+            .issue_files_root()
+            .expect("issue owner-bound User Files root");
+        let own_directory = files_root
+            .with_active_root(|view| view.duplicate_directory())
+            .expect("read live owner-issued root")
+            .expect("duplicate owner-issued root descriptor");
+        let own_root = root.join("profile-files-v1/profile_fixture/root");
+        let foreign_root = root.join("foreign-app-profile");
+        std::fs::create_dir(&foreign_root).expect("create foreign app profile root");
+        std::fs::set_permissions(&foreign_root, std::fs::Permissions::from_mode(0o700))
+            .expect("make foreign profile root private");
         for (path, contents) in [
             (own_root.join("own.marker"), b"OWN".as_slice()),
             (foreign_root.join("foreign.marker"), b"FOREIGN".as_slice()),
@@ -12389,9 +12272,24 @@ mod linux_process_resource_tests {
                 .expect("make profile marker owner-only");
         }
 
-        let own_directory: OwnedFd = std::fs::File::open(&own_root)
-            .expect("open exact app-owned profile root")
-            .into();
+        let set_fixture_owner = |path: &std::path::Path, identity: LinuxExecutionIdentity| {
+            let descriptor = std::fs::File::open(path).expect("open exact fixture inode");
+            rustix::fs::fchown(
+                &descriptor,
+                Some(rustix::fs::Uid::from_raw(identity.uid)),
+                Some(rustix::fs::Gid::from_raw(identity.gid)),
+            )
+            .expect("assign exact app owner to synthetic profile data");
+        };
+        set_fixture_owner(
+            &own_root.join("own.marker"),
+            LinuxExecutionIdentity::APP_FILES,
+        );
+        set_fixture_owner(&foreign_root, LinuxExecutionIdentity::DEV_NOTES_DESKTOP);
+        set_fixture_owner(
+            &foreign_root.join("foreign.marker"),
+            LinuxExecutionIdentity::DEV_NOTES_DESKTOP,
+        );
         let storage = crate::profile_volume_notes_owner::AuthorizedAppStorageRoot::for_test(
             nagi_model::AppId::from_identifier(b"org.nagi.files"),
             own_directory,
@@ -12432,12 +12330,25 @@ mod linux_process_resource_tests {
         assert_eq!(table.active_len(), 0);
         let own_root_metadata = std::fs::metadata(&own_root).unwrap();
         let own_marker_metadata = std::fs::metadata(own_root.join("own.marker")).unwrap();
-        assert_eq!(own_root_metadata.uid(), 0);
-        assert_eq!(own_root_metadata.gid(), 0);
+        assert_eq!(
+            own_root_metadata.uid(),
+            LinuxExecutionIdentity::APP_FILES.uid
+        );
+        assert_eq!(
+            own_root_metadata.gid(),
+            LinuxExecutionIdentity::APP_FILES.gid
+        );
         assert_eq!(own_root_metadata.mode() & 0o777, 0o700);
-        assert_eq!(own_marker_metadata.uid(), 0);
-        assert_eq!(own_marker_metadata.gid(), 0);
+        assert_eq!(
+            own_marker_metadata.uid(),
+            LinuxExecutionIdentity::APP_FILES.uid
+        );
+        assert_eq!(
+            own_marker_metadata.gid(),
+            LinuxExecutionIdentity::APP_FILES.gid
+        );
         assert_eq!(own_marker_metadata.mode() & 0o777, 0o600);
+        drop((files_root, files_owner, data_root));
         let unmounted = unsafe { libc::umount2(target.as_ptr(), libc::MNT_DETACH) };
         assert_eq!(
             unmounted,
