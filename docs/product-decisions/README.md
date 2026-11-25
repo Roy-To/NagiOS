@@ -197,7 +197,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-053 | [AI Task開始前のWayback復元可能性表示](DEC-053-ai-task-recovery-preview.md) | CONFIRMED（Task開始前に復元可能性を表示する高水準の方向）／PROVISIONAL（分類・UI・判定基準・実装・適用版） | 2026-11-15 |
 | DEC-055 | [Projectフォルダ中心の純正アプリ横断AI体験／PX-03 B＋将来C](DEC-055-project-folder-cross-app-context.md) | CONFIRMED（Project指定・Resource参照／横断Task・ProjectとWorkspace分離、PX-03統合作業ビューB＋将来文脈継続Cの高水準方針）／PROVISIONAL（画面／関連付け・一覧・検索／復元導線・技術・性能・版） | 2026-11-17 |
 | DEC-056 | [Smart Paste・意味付き転送／PX-12案内型B＋将来高度Workflow C](DEC-056-smart-paste-semantic-transfer.md) | CONFIRMED（従来の意味付き転送・通常GUI、PX-12の方式案内B＋将来Workflow Cの高水準体験）／PROVISIONAL（初期App組合せ・既定転送方式・UI／Preview・Transfer／fallback技術・性能・提供版） | 2026-11-17 |
-| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（中核コンセプト・個人適応・モデル非依存の継続・ユーザー主導・PX-10 B／将来C方向・Nagi Personaの状況別利用と手動／自動切替）／PROVISIONAL（UI・状況判定・モデル／アルゴリズム・評価・提供版／時期） | 2026-11-25 |
+| DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（中核コンセプト・個人適応・モデル非依存の継続・ユーザー主導・PX-10 B／将来C方向・Nagi Personaの状況別利用と手動／自動切替・全Personaの本人専用Secretモード必須）／PROVISIONAL（UI・状況判定・モデル／アルゴリズム・評価・提供版／時期） | 2026-11-25 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
 | DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
@@ -535,3 +535,8 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 ## 2026-11-25 — Nagi Persona（仮称）
 
 [DEC-057](DEC-057-growing-personal-agent-os.md)に、ブラウジングに限らず学習由来の提案を状況に応じて使い分けること、手動とLLMによるシームレスな文脈切替を目指す高水準方針を追記。既存Profile／Memory／Permission・外部由来の扱い・通知制約を維持。Personaの階層・具体的なContext適用条件、UI・技術・版はPROVISIONAL。既存Gateを変更しない。
+
+
+## 2026-11-25 — Nagi PersonaのSecretモード
+
+[DEC-057](DEC-057-growing-personal-agent-os.md)に、すべてのPersonaに本人専用のSecretモードを必須機能として設け、予期せぬ学習由来のサジェストによる露出を避けることをOS体験の信用に関わる重要要件として追記。通常Personaの一律の厳格化は行わない。切替・保存・取得／出力制御・認証・UI・技術・提供版はPROVISIONAL。既存Gateは変更しない。
