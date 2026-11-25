@@ -278,6 +278,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-125 | [AI稼働状況パネル：Task・Model・Resource可視化](DEC-125-ai-operations-status-panel.md) | CONFIRMED（ローカルAI／Task／資源の統合表示、取得可能なCloud利用枠の確認方向）／PROVISIONAL（指標・Provider接続・UI・技術・版） | 2026-11-24 |
 | DEC-126 | [Writer／Sheets／Slidesの標準保存形式とOffice互換](DEC-126-office-native-format-and-interchange.md) | CONFIRMED（B：公開Native形式を標準、Office形式入出力、共通コンテナと用途別内部表現、Office互換OSS活用と編集／連携への重点投入、独自アプリ＋OSS選択的活用・Document Framework発展）／PROVISIONAL（拡張子・コンテナ・Schema・互換範囲・性能・版） | 2026-11-25 |
 
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -592,3 +594,7 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-126](DEC-126-office-native-format-and-interchange.md)追補: Office互換は既存OSSを活用し、Nagi独自の開発リソースを編集機能・アプリ間連携へ重点投入する方針をCONFIRMED。個別ライブラリ・採用版・ライセンス／互換性／性能評価・実装順はPROVISIONAL。
 
 [DEC-126](DEC-126-office-native-format-and-interchange.md)追補: B案（独自アプリ＋OSS選択的活用、Document Framework発展とアプリ固有モデルの独立性）をCONFIRMED。IronCalc／Typst等は評価候補で正式採用・API・性能・実装版はPROVISIONAL。既存Gate／Owner・通常GUI・認可境界を維持。
+
+## 2026-11-25 — Nagi Design System
+
+[DEC-127](DEC-127-nagi-design-system.md)に、ヘルシーでミニマル・フラットな純正UI方向と共通UI／創作自由の両立を記録。具体デザイン・技術・版はPROVISIONAL。既存M07・安全境界・Gateを維持。
