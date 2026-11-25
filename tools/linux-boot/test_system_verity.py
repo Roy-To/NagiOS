@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import system_verity
+from linux_nm_zoffset import generate_zoffset_header
 
 
 class SystemVerityTests(unittest.TestCase):
@@ -21,6 +22,22 @@ class SystemVerityTests(unittest.TestCase):
                 "CONFIG_DEVTMPFS", "CONFIG_PROC_FS", "CONFIG_SYSFS",
             )
         )
+
+    def test_darwin_zoffset_parser_preserves_mixed_efi_entry_offsets(self):
+        nm_output = (
+            b"0000000000001000 T startup_32\n"
+            b"0000000000001200 T efi32_stub_entry\n"
+            b"0000000000001400 T efi64_stub_entry\n"
+            b"0000000000002000 T efi32_pe_entry\n"
+            b"0000000000003000 T kernel_info\n"
+            b"0000000000004000 T input_data\n"
+            b"0000000000005000 T unrelated_symbol\n"
+        )
+        header = generate_zoffset_header(nm_output)
+        self.assertIn(b"#define ZO_efi32_stub_entry 0x0000000000001200\n", header)
+        self.assertIn(b"#define ZO_efi64_stub_entry 0x0000000000001400\n", header)
+        self.assertIn(b"#define ZO_startup_32 0x0000000000001000\n", header)
+        self.assertNotIn(b"unrelated_symbol", header)
 
     def test_hash_tree_matches_root_first_v1_layout(self):
         salt = bytes(range(32))

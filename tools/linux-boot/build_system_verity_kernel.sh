@@ -152,6 +152,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     sed_bin=$(PATH="$native_path" command -v sed)
     cp_bin=$(PATH="$native_path" command -v cp)
     install_bin=$(PATH="$native_path" command -v install)
+    export NAGI_L11_ZOFFSET_PARSER="$repo_root/tools/linux-boot/linux_nm_zoffset.py"
     mkdir -p "$compat_dir"
     for shim in sed cp clang-host install; do
         if [[ -f "$compat_dir/$shim" && ! -L "$compat_dir/$shim" ]]; then
@@ -186,6 +187,11 @@ if len(args) >= 3 and args[0] == "-n" and args[1] == "-e" and "VO_" in args[2] a
     if seen != required:
         raise SystemExit(f"Darwin sed shim found incomplete x86 VOFFSET symbols: {sorted(required - seen)!r}")
     raise SystemExit(0)
+if len(args) >= 3 and args[0] == "-n" and args[1] == "-e" and "ZO_" in args[2] and r"\|" in args[2]:
+    parser = os.environ.get("NAGI_L11_ZOFFSET_PARSER")
+    if not parser:
+        raise SystemExit("Darwin sed shim is missing NAGI_L11_ZOFFSET_PARSER")
+    os.execv(sys.executable, [sys.executable, parser])
 if args and args[0] in ("-i", "--in-place"):
     args.insert(1, "")
 os.execv(os.environ["NAGI_L11_BSD_SED"], ["sed", *args])
