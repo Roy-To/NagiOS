@@ -2,8 +2,9 @@
 
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
-**状態:** CONFIRMED（既存の1.0一般公開品質・開発者／配布基盤目標、DEC-074のAI組み込みOS優先／階層Agent後順位、PX-11品質重視の純正アプリB＋将来C、PX-13のCloud AI橋渡し優先／高度IDE後順位、PX-14の移植・検証体験B＋将来保守／配布C、PX-15の正式対応範囲で日常作業を安全・安定に完結する実用OS B＋将来総合OS Cという高水準方向）／PROVISIONAL（アプリ別1.0必須／任意／後続、対応端末・代表作業、具体的SDK／Provider／Package／配布、品質・性能数値・Release判定手順／日程・版別詳細）  
-**最終確認日:** 2026-11-25（PX-15の製品構成・優先候補と評価方向を追加）／従前 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）
+**状態:** CONFIRMED（既存の1.0一般公開品質・開発者／配布基盤目標、DEC-074のAI組み込みOS優先／階層Agent後順位、PX-11品質重視の純正アプリB＋将来Cと11/12の1.0実用化方針、PX-13のCloud AI橋渡し優先／高度IDE後順位、PX-14の移植・検証体験B＋将来保守／配布C、PX-15の正式対応範囲で日常作業を安全・安定に完結する実用OS B＋将来総合OS Cという高水準方向）／PROVISIONAL（1.0のアプリ別優先・最小機能候補、必須／任意／後続、対応端末・代表作業、具体的SDK／Provider／Package／配布、品質・性能数値・Release判定手順／日程・版別詳細）
+
+**最終確認日:** 2026-11-25（PX-15の製品構成・評価方向と、11/12の純正アプリ最低機能B案を追加）／従前 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -99,6 +100,96 @@
 - 個別アプリの名称・統合／分離・パッケージ／搭載・配布形態、対応端末・機器・技術・依存OSS／ライセンス、対象Version・スケジュール・実装順序とTarget RuntimeでのAcceptance証拠。
 - 特にMail・Calendar・Automations・Phase 3各機能、PDF高度編集、ユーティリティ詳細を1.0の必須要件へ昇格する判断。これは別途のPX-15・実装仕様とRelease判断で決定する。
 
+### 2026-11-25 純正アプリの最低機能 B案（11/12）
+
+**CONFIRMED（1.0の製品方針）** — ユーザーの明示承認により、PX-11／PX-15の品質優先Bを具体化する。日常・業務に必要な純正アプリを実用化し、正式対応範囲で代表的な作業を安全・安定に完結・継続できることを重視する。追加アプリも可能な限り並行して整備し、幅広い純正環境Cへ段階的に発展させる。追加アプリの遅れだけで1.0の公開を無期限に延期しない。並行作業は既存の着手承認・担当・依存契約の範囲で進める。
+
+**CONFIRMED（基本操作と連携）** — 基本GUIはAIが無効・不在でもキーボードやマウス等で利用でき、ローカル作業はオフラインで続けられる設計を優先する。Web閲覧やメール送受信などの外部サービス操作は、接続・現行の認可と対応Providerに従う。純正と第三者は同じ正規公開Resource／Action APIとPermission／Capability／Policyを使う（[DEC-017](DEC-017-third-party-developer-ecosystem.md)）。機能数よりアプリ間連携、安定性、前景操作の応答性を優先する。
+
+**PROVISIONAL（1.0計画用の優先候補と最小機能案）** — 以下は作業の入口から結果までを検討するための候補。各項目の必須Gate、同梱／任意導入／後続、独立アプリ化、機能深度、対応形式・Provider・機器、技術、性能値、受入、提供版と順序は個別判断に委ねる。既存の採用方針・公開契約と、各候補の1.0への割当てを区別する。
+
+#### OS基本操作の優先候補
+
+| 候補 | 最小機能案（PROVISIONAL） |
+|---|---|
+| Home | アプリ起動、開いている作業・最近の項目への移動、Project／Workspaceへの入口。 |
+| Files | フォルダー移動、ファイル表示・検索・作成・名前変更・コピー・移動・削除、対応するゴミ箱からの復元。 |
+| Search | 権限のあるファイル・アプリ・作業項目を名称や対応する内容から横断検索し、結果を開く。 |
+| Settings | システム・表示・入力・ネットワークの基本設定、アプリ権限とプライバシー設定。 |
+| Terminal | 通常のシェル操作、コマンド実行と入出力、終了状態の確認。 |
+| Activity | 操作・変更の履歴、対象・結果の確認、対応する復元への入口。 |
+| Input | キーボード・ポインター入力、英語・日本語の切替とIMEによる入力・変換。OS共通の入力基盤として検討。 |
+
+#### 日常・業務の優先候補
+
+| 候補 | 最小機能案（PROVISIONAL） |
+|---|---|
+| Albert | Web閲覧、タブ・履歴・ブックマーク、ダウンロード、参照したページの出典付き共有。 |
+| Writer | 文書の作成・編集・保存、基本書式・スタイル・表・画像、印刷とPDF出力。 |
+| Sheets | 表の作成・編集・保存、基本数式・集計、並べ替え・フィルター、グラフと表データの入出力。 |
+| Slides | スライドの作成・編集・保存、基本テーマ・レイアウト、テキスト・画像・表／グラフ、発表とPDF出力。 |
+| Notes | ノートの作成・編集・保存・検索、リンクや出典、Projectに関連するメモの整理。 |
+| Calendar | 日・週・月の表示、予定の作成・編集・削除、繰り返し、通知。 |
+| Mail | 対応アカウントで受信・閲覧・検索、下書き・返信・添付と認可済みの送信。オフライン時は取得済みメールや下書きを扱い、送信状態を表示する。 |
+| PDF | 表示・検索・ページ操作・注釈・印刷・フォーム入力。[DEC-061](DEC-061-first-party-pdf-reader-editor.md)に沿って基本機能を先行する。 |
+
+Writer／Sheets／Slidesの標準保存形式とOffice形式の入出力方針は[DEC-126](DEC-126-office-native-format-and-interchange.md)に従う。既に決めたNative形式を標準とする方針とOffice形式の交換方針を引き継ぎ、個々の形式への1.0での対応深度・忠実度は個別に判断する。
+
+#### Nagi独自の機能・管理画面の優先候補
+
+| 候補 | 最小機能案（PROVISIONAL） |
+|---|---|
+| Project | 関連ファイル・資料・作業をひとまとめにし、元資料への参照をたどる。 |
+| Workspace | 作業状態を保存・検索し、利用者が選んで再開する。 |
+| Wayback | 対応する変更履歴を確認し、復元可能な範囲で状態を戻す。 |
+| Memory | 許可された学習、記憶の検索・訂正・忘却。 |
+| Persona | 利用文脈の確認と切替、Secretの利用。 |
+| Secret | 学習・記録に関する既存のSecret境界に沿った状態表示と切替。 |
+| Insights | Nagiの学習内容や提案の根拠の確認。 |
+| Backup | 差分保存、復元、Profile移行。 |
+| Automations | トリガー・条件・許可済みの操作を設定し、実行結果を確認する。 |
+| Smart Paste | 出典・分類を保持し、文書・表・スライド等の間で意味のあるデータを渡す。 |
+| Models | AIモデルの管理・選択・交換。 |
+| Task Center | AI作業の進捗・承認・停止・結果の確認。 |
+
+HomeやSettingsに統合する形も候補とする。Refreshは[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)に従う条件付き構想として扱う。長期利用時の容量・応答性・品質への効果や安全性の検証を経て採否を判断する。
+
+#### 可能な限り並行して整備する追加候補
+
+| 候補 | 最小機能案（PROVISIONAL） |
+|---|---|
+| Canvas | 図形・テキスト・画像の配置と簡単な図の作成・保存。 |
+| Forms | 入力フォームの作成、回答の収集・一覧化。 |
+| Database | レコードの登録・編集・検索、テーブルや簡単なビュー。 |
+| Translate | テキストの翻訳、入力と結果の確認・コピー。 |
+| Text | プレーンテキストの作成・編集・検索・保存。 |
+| Calculator | 四則演算と計算結果のコピー。 |
+| Clock | 時計・タイマー・アラーム・ストップウォッチ。 |
+| Dictionary | 語句検索と語義の表示。 |
+| Reminders | 項目・期限の登録、通知、完了管理。 |
+| Preview | 対応ファイルを開いて内容を素早く確認する。 |
+| Recorder | 音声の録音・停止、保存・再生。 |
+| Passwords | 認証情報の保護された保存・検索・管理。 |
+| Photos | 画像の閲覧・整理、回転・トリミング等の簡易編集。 |
+| Player | 対応する音声・動画の再生、一時停止・シーク。 |
+| Capture | スクリーンショット、対応機器での文書スキャンと保存。 |
+| Archive | 対応アーカイブの内容確認、圧縮・解凍。 |
+| People | 連絡先の登録・編集・検索、許可されたMail／Calendarとの参照連携。 |
+| Devices | 対応端末の一覧・接続状態・信頼設定の確認と管理。 |
+| Store | アプリの検索・詳細確認と配布元への案内。初期カタログ型と正規Package検証は[DEC-017](DEC-017-third-party-developer-ecosystem.md)に従う。 |
+
+Photos／Player／Capture／Archiveは[DEC-062](DEC-062-first-party-utilities.md)の4分野の採用方針を継承する。Peopleの連絡先は[DEC-063](DEC-063-phone-contacts-messaging.md)の共通モデルに沿って検討する。
+
+#### 後続に回せる領域
+
+PX-15に沿い、電話・SMS、本格的なモバイル対応、自社運営のクラウドストレージ／地図サービス、高度な画像・動画編集、階層型Agent組織、高度なAI統合IDEは後続候補とする。電話・SMS等の既存採用方針とDevice Capability・現行認可はDEC-063に従う。個別の採否、時期、提供範囲は各DECで扱う。
+
+#### アプリ間連携の作業例（PROVISIONAL）
+
+Albertで調べた資料と出典をNotesで整理し、Sheetsで集計・可視化して、Writerの報告書とSlidesの発表資料に参照付きで反映する。Project／Workspaceは資料・出典・変更履歴・作業状態の関連を保ち、後日の再開を支える。元データが変わったときは更新候補を示し、反映は[DEC-025](DEC-025-cross-app-data-reference-and-updates.md)に従って現在のPermission・Revision・既存Task Scopeを確認する。
+
+[純正ソフトウェア実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)のPhase 1〜3と、[0.2仕様 §27](../Nagi_OS_0.2_Codex_Implementation_Spec.md#27-first-party-software-target-for-02)の対象区分を適用する。[DEC-123](DEC-123-kernel-unification-and-linux-0.1.md)を含む既存0.1／0.2／0.3／0.4のRelease／Activation／Acceptance Gate、実装着手・統合の権限、担当・Workstreamの範囲は従来どおりとする。
+
 ### 2026-11-17 — PX-15：日常の主要作業を完結できる実用OS Bと将来の総合OS C
 
 **CONFIRMED — 1.0の高水準到達方針はB案を基本とする。** Nagi OS 1.0は、**正式にサポートすると明示したPC／Target環境および機能の範囲**で、利用者が代表的な日常作業を**OS基本操作・利用可能な純正／第三者アプリ・Nagiの許可されたAI支援と通常GUIを通じて、開始から結果確認まで安全・安定して完了し、後日も継続利用できる実用OS**として、一般公開にふさわしい品質を備えることを目指す。対応すると宣言した作業においてAIが必須でない操作は、Model・Agent・ネットワークが不在／不調でも通常GUI・キーボード等で続けられる。これは**完成判定の製品方向**であって、具体的な個別機能や数値を確定した新Release Gateではない。
@@ -130,7 +221,7 @@
 
 純正アプリを可能な限り1.0までに充実させるが、個別の追加アプリの遅れだけでOS全体の公開を無期限に遅らせない。宣言する対応範囲の実用性、安全性、安定性、復旧・継続と実機での証拠を優先する。
 
-**PROVISIONAL（合意した計画方向を具体化する優先候補。固定Release Gateではない）:**
+**PROVISIONAL（合意した計画方向を具体化する優先候補。固定Release Gateではない）:** アプリ別の優先・最小機能候補は[同日の11/12追記](#2026-11-25-純正アプリの最低機能-b案1112)を参照する。
 
 | 区分 | 候補 |
 |---|---|
@@ -230,3 +321,4 @@
 
 
 - 2026-11-25: PX-15の6領域、1.0の実用性・純正アプリ拡充と公開開発者環境、後続可能範囲を確認。個別の優先候補・代表E2Eシナリオ・版割当て・性能値はPROVISIONAL。既存Gateは維持。
+- 2026-11-25: 11/12純正アプリ最低機能B案を確認。日常・業務の実用性と追加アプリの並行拡充、AI非必須の基本GUI、公開API・Permission・オフライン・連携・安定性・応答性の優先をCONFIRMED。優先・最小機能候補と個別の受入・版はPROVISIONAL。

@@ -179,7 +179,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-018 | [`builder`の隔離編集と条件付き自動反映](DEC-018-builder-isolated-edit-conditional-apply.md) | CONFIRMED（隔離編集C、正式アプリ更新は別承認・DEC-035）／PROVISIONAL（実装詳細） | 2026-11-05 |
 | DEC-019 | [`builder`作業データの状態別整理](DEC-019-builder-work-data-cleanup.md) | CONFIRMED（整理C・初期Nagi Role切替）／PROVISIONAL（保持期間等） | 2026-11-05 |
 | DEC-020 | [AIのOS操作経路・適応型推論と人間優先の資源配分／5/12 Model Runtime B](DEC-020-ai-os-interaction-path.md) | CONFIRMED（Context／Event・前景優先、8GB級の実用性目標と0.3完成前の先行評価、PX-06・`builder` Resource待機継続C、標準契約と手動固定を尊重する適応型モデル選択、将来のRole／Task別選択と実行分離）／PROVISIONAL（追加モデル・backend・配布・ルーティング・UI、Queue／Scheduler・並列度、性能・実装・版） | 2026-11-25 |
-| DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C、6領域・純正拡充・後続可能範囲）／PROVISIONAL（個別必須アプリ・優先候補・E2E・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-25 |
+| DEC-021 | [0.5〜1.0ロードマップ・PX-11／13／14／15の高水準完成方向](DEC-021-roadmap-0.5-1.0.md) | CONFIRMED（既存一般公開品質・開発者／配布目標、PX-11品質重視純正アプリB＋将来C・11/12の1.0実用化方針、PX-13 Cloud橋渡し優先・高度IDE後順位、PX-14開発者／移植B＋将来C、PX-15実用1.0 B＋将来総合OS C、6領域・純正拡充・後続可能範囲）／PROVISIONAL（個別必須アプリ・優先／最小機能候補・E2E・Target／Hardware・数値・具体技術／公開手順・提供版／順序） | 2026-11-25 |
 | DEC-022 | [`builder`の中断・再起動後の作業復旧](DEC-022-builder-interrupted-task-recovery.md) | CONFIRMED（復旧C、資源待機とクラッシュ復旧の区別、初期Nagi Role切替）／PROVISIONAL（技術詳細） | 2026-11-05 |
 | DEC-023 | [作業・データ中心のOS基本思想](DEC-023-work-data-centric-os.md) | CONFIRMED（作業中心・従来操作・Permissionの維持）／PROVISIONAL（連携方式・適用版） | 2026-11-05 |
 | DEC-024 | [TypeSafe AI Jev名称の訂正と`builder` Role・DecisionProvider方針](DEC-024-external-jev-reference-and-builder-label-correction.md) | CONFIRMED（名称訂正、Role切替C、DecisionProvider優先）／PROVISIONAL（将来Agent・専用判断モデル） | 2026-11-05 |
@@ -588,6 +588,10 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 ## 2026-11-25 — PX-15 1.0製品構成と完成度評価
 
 [DEC-021](DEC-021-roadmap-0.5-1.0.md)に、一般利用者向け実用OSと公開開発者環境、6つの製品領域、純正アプリ拡充と後続に回せる機能の方針をCONFIRMEDとして追記。個別必須／搭載目標候補、E2E評価シナリオ、詳細・性能・対応機器・提供版・日程はPROVISIONAL。DEC-116の仮目標とDEC-123を含む既存Gateを維持。並行する各製品決定PRとの統合時に整合確認する。
+
+## 2026-11-25 — 純正アプリの最低機能 B案（11/12）
+
+[DEC-021](DEC-021-roadmap-0.5-1.0.md#2026-11-25-純正アプリの最低機能-b案1112)に、PX-11／PX-15の品質優先Bを具体化し、日常・業務に必要な純正アプリの実用化と、可能な範囲で追加アプリを並行して整備する方向を記録した。基本GUIのAI非依存、正規公開API・Permission、オフラインでの基本操作、アプリ間連携・安定性・応答性を優先する。追加アプリの遅れだけで1.0を無期限に延期しない。優先・最小機能候補、個別の必須Gate・提供形態・精度や深度・受入・版はPROVISIONAL。
 
 ## 2026-11-25 — 開発参加の裾野と創作の自由
 

@@ -236,6 +236,8 @@ Later implementation specifications should turn these themes into measurable cri
 
 **PROVISIONAL／OPEN:** 代表作業シナリオと1.0必須・任意・後続の純正アプリ／機能、対応PC・周辺機器・Hardware profile／Device matrix、互換形式、Locale／アクセシビリティ、Performance・Reliability・SecurityとResource使用量の数値／許容不具合、試験・合否証拠／Support／更新・配布・公開判定手順、具体実装・提供Version・日程。実装済み・Target PASS・一般公開決定を意味しない。
 
+**2026-11-25 純正アプリの最低機能（11/12）** — [DEC-021](../DEC-021-roadmap-0.5-1.0.md#2026-11-25-純正アプリの最低機能-b案1112)のB案を1.0の純正アプリ計画に適用する。日常・業務の実用性を優先し、既存の承認範囲で可能な限り追加アプリも並行して育てる。追加アプリの遅れだけで1.0を無期限に延期しない。優先・最小機能候補と個別の1.0受入・版はPROVISIONALで、既存のGate・担当・着手条件を引き継ぐ。
+
 ## 6. Candidate 1.0 readiness evidence
 
 The 1.0 implementation specification should define supported configurations and objective evidence for:
