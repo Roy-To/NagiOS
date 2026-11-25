@@ -13,8 +13,8 @@ use super::linux_init_c3_slot_journal::{
 use super::linux_x86_64_process::LinuxProcessOs;
 use super::{
     BackendError, ExecutablePayload, FdDelegationRestrictionAttestation, GateCommit,
-    LinuxExecutionIdentity, Prepared, ProcessEndpointPolicy, ProcessHandle, ProcessLaunch,
-    ProcessLifecycle, ProcessOs,
+    LinuxExecutionIdentity, Prepared, ProcessEndpointPolicy, ProcessFilesystemPolicy,
+    ProcessHandle, ProcessLaunch, ProcessLifecycle, ProcessOs,
 };
 use crate::c3_system_service_recovery::{C3ProofRecoveryGate, RecoveryScopeSnapshot};
 use nagi_system_principal_contract::{SystemServiceEndpointOwnerProof, SystemServiceLaunchRecord};
@@ -989,6 +989,7 @@ impl LinuxC3SystemServiceSlotOwner {
                 gid: scope_snapshot.gid,
             },
             endpoint_policy: ProcessEndpointPolicy::InheritedPeerChannel,
+            filesystem_policy: ProcessFilesystemPolicy::Inherited,
             required,
             release_wait_budget,
             cancel_check_interval,

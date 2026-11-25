@@ -604,6 +604,28 @@ impl ProfileFilesRoot {
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.with_files_root(effect)
     }
+
+    /// Duplicate the owner-selected User Files directory for the exact Files
+    /// app process. Generic FilesRootView consumers remain descriptor-free;
+    /// the C3 process owner retains this ProfileFilesRoot until exact child reap.
+    #[doc(hidden)]
+    pub fn duplicate_directory_for_app_process(
+        &self,
+        app_id: &nagi_model::AppId,
+    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+        if app_id != &files_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+
+        self.0.with_duplicated_object_directory(|directory| {
+            let mount_id = linux_data::mount_id(&directory)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            linux_data::require_same_mount(&directory, mount_id)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            Ok(directory)
+        })?
+    }
 }
 
 #[cfg(target_os = "linux")]
