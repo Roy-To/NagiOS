@@ -3,7 +3,7 @@
 > **2026-11-15 公開移管:** [DEC-050](DEC-050-public-specification-repository.md)により、この文書は非公開リポジトリから公開リポジトリ `Roy-To/NagiOS` へ移した。本文中の「Privateに保存する」「Publicへ転載しない」「非公開の開発範囲」などの記述は移管前のもので、DEC-050が優先する。
 
 **状態:** CONFIRMED（既存の1.0一般公開品質・開発者／配布基盤目標、DEC-074のAI組み込みOS優先／階層Agent後順位、PX-11品質重視の純正アプリB＋将来C、PX-13のCloud AI橋渡し優先／高度IDE後順位、PX-14の移植・検証体験B＋将来保守／配布C、PX-15の正式対応範囲で日常作業を安全・安定に完結する実用OS B＋将来総合OS Cという高水準方向）／PROVISIONAL（アプリ別1.0必須／任意／後続、対応端末・代表作業、具体的SDK／Provider／Package／配布、品質・性能数値・Release判定手順／日程・版別詳細）  
-**最終確認日:** 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）  
+**最終確認日:** 2026-11-25（PX-15の製品構成・優先候補と評価方向を追加）／従前 2026-11-17（PX-11／PX-13／PX-14／PX-15を統合。既存1.0目標・Gate・版別案を維持）  
 **適用候補:** Nagi OS 0.5〜1.0  
 **関連:** [DEC-007](DEC-007-roadmap-alignment.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-012](DEC-012-workspace-naming-organization.md)、[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-015](DEC-015-builder-role-review.md)、[DEC-016](DEC-016-builder-autonomy-risk-based-completion.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-018](DEC-018-builder-isolated-edit-conditional-apply.md)、[DEC-019](DEC-019-builder-work-data-cleanup.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-074](DEC-074-human-led-agent-organization.md)、[改訂0.3 Roadmap](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[0.4+ Roadmap](roadmaps/Nagi_OS_0.4+_Multi-Agent_Organization_Roadmap.md)、[0.5〜1.0 Master Roadmap](roadmaps/Nagi_OS_0.5-1.0_Master_Roadmap.md)
 
@@ -103,6 +103,51 @@
 
 **PROVISIONAL／OPEN — 今回確定しない1.0の具体範囲:** 正式対応PC・機器・CPU／RAM等のHardware profile、周辺機器・言語／Locale・ネットワーク・Offlineの対応範囲、代表的な作業シナリオと操作ごとの受入、純正アプリの1.0必須／任意／後続の個別リスト・最小機能・対応形式、対応第三者アプリ／SDK機能、性能・品質・Security・a11yの定量的な測定閾値と許容不具合、試験母集団／実機試験マトリクス、配布・Support policy、公開判定責任／手順・公開日程。これらは測定と別途の1.0 Implementation／Release Decisionで定める。既存Master Roadmapの候補一覧・版別マップやレビュー提案を自動で必須条件へ昇格させない。
 
+### 2026-11-25 — PX-15追加合意：1.0の製品構成と完成度評価
+
+**CONFIRMED（計画方向）:** 1.0は、一般利用者が日常的に使える実用OSと、第三者開発者が参加できる開かれたプラットフォームを目指す。以下の6領域を重視する。
+
+1. OSとしての完成度（導入、起動、通常GUI、更新、安定性、対応周辺機器）
+2. 成長するPersonal AI（Memory、Persona、Secret、AI Task、効果検証を条件とするRefresh構想）
+3. 純正アプリによる日常・業務の実用性
+4. Nagi固有の統合体験（Smart Paste、Project、Workspace等）
+5. 安全性・信頼性（Permission、Wayback、Backup、暗号化、Privacy、復旧）
+6. 開かれた開発者環境（公開SDK、Porting Toolkit、builderによる基本支援、正規アプリ導入・配布）
+
+純正アプリを可能な限り1.0までに充実させるが、個別の追加アプリの遅れだけでOS全体の公開を無期限に遅らせない。宣言する対応範囲の実用性、安全性、安定性、復旧・継続と実機での証拠を優先する。
+
+**PROVISIONAL（合意した計画方向を具体化する優先候補。固定Release Gateではない）:**
+
+| 区分 | 候補 |
+|---|---|
+| OS基本・必須候補 | Files、Search、Settings、Terminal、Activity、Input |
+| 日常・業務・必須候補 | Albert、Writer、Sheets、Slides、Notes、Calendar、Mail、PDF |
+| Nagi独自機能・必須候補 | Project、Workspace、Wayback、Memory、Persona（Secret境界を含む）、Backup、Refresh、Automations、Smart Paste |
+| 1.0搭載目標 | Canvas、Forms、Translate、Text、Database、Calculator、Clock、Dictionary、Reminders、Preview、Recorder、Passwords |
+| メディア・1.0搭載目標 | Photos、Player、Capture、Archive |
+| 開発者環境 | 公開SDK、正規Package導入・配布基盤、Porting Toolkit、builder基本支援 |
+
+名称・独立アプリ化・個別最小機能・互換形式・搭載区分の最終確定は各DECと実装証拠に従う。Refreshは効果測定と安全性を条件とする構想であり、この表で無条件の実装・必須化を確定しない。Persona／Secret、Backup、Smart Paste、Memory／Refresh、PX-14の追加合意については並行する個別DEC更新（PR #249〜253等）と統合時に整合を確認する。
+
+**CONFIRMED（後続に回せる範囲）:** 電話・SMS、スマートフォン／タブレットへの本格展開、自社運営サーバーを必要とするクラウドストレージ／地図サービス、オンラインNagiアカウント・インターネット経由の同期、大規模な階層型Agent、高度統合開発環境、Python・Java等の追加言語への公式対応は1.0の必須条件としない。追加言語の具体的なSDK、runtime、対応時期はPROVISIONAL。DEC-017のRust／C／C++重点と公開API、第三者によるbindingを妨げない方向を維持する。ユーザー管理の機器、LAN、別途許可した外部Providerの既存方針は変更しない。将来の対応を排除するものではない。
+
+**PROVISIONAL（代表E2E評価シナリオ）:**
+
+- Albert・Notes・Writer・Smart PasteによるWeb調査から報告書作成、出典保持。
+- Sheets・Slidesによる集計から資料作成、元データの変更検知・更新提案。
+- 正規Public Actionによる日常Task、承認・取消・失敗／結果不明時の扱い。
+- 長期Memory・Persona・Secret・Refresh候補の評価。長期使用時の容量・応答性、意図しない記憶の露出防止、忘却・保護の維持を確認。
+- Wayback・Activityによる対応範囲の誤操作復元。外部作用は別境界。
+- Backup／Profile移行による復旧、現行Permission・忘却状態・Secret制限の維持。
+- オフラインでの通常アプリ操作と利用可能なローカルAIのfallback。
+- 公開SDKを用いた第三者アプリの開発・検証・Package導入。
+- OS更新失敗時のSystem Recovery。
+
+実機対応の判断はDEC-102／103、性能の仮目標と測定方法の決定はDEC-116に従う。既存のx86-64 UEFI PC・RAM 8GB・ストレージ64GB（推奨RAM 16GB）の案、ThinkPad X13 Yoga Gen1クラスの性能基準端末、QEMU 8GB／4vCPUの先行測定、既存の性能仮目標値を変更しない。Raspberry Pi等の正式対応は機種別実機検証後に判断する。仮目標を性能保証や達成済みの実績としない。
+
+0.1 Linux Developer Preview、0.2 Platform Foundation、0.3 Personal Agent、0.4〜0.8のエコシステム拡充候補、0.9の安定化、1.0一般公開は計画上の概略。個別版の割当て、0.8の有無、最終合格値、対応機器、公開日程は未確定。DEC-123を含む既存Release／Activation／Acceptance Gate、Workstream owner、実装開始権限、Permission／Privacy、署名・検証を変更しない。
+
+
 ## 暫定の0.5〜1.0版別案
 
 以下のVersion配置、順序、各版のscopeと0.8の設置は **PROVISIONAL**。改訂0.3 Roadmapがすでに示す「1.0の一般公開可能な品質・安定性・セキュリティ・互換性・開発者体験」という高水準目標を既存のRoadmap基準として保つ。DEC-017で確認済みの公開開発者環境・アプリ配布基盤の目標も維持する。測定可能な品質基準・具体的な実現範囲・Acceptanceは未確定とする。0.4+ Roadmapが示すPhase D–F等を計画上の候補として配置する。
@@ -165,3 +210,6 @@
 | 2026-11-17 | PX-13のB＋将来C共同制作は長期方向として採用し、ローカル完結型の高度統合制作環境を当面は低優先、1.0計画の最終盤を目安とする製品方向に整理。Cloud AIとローカルLLM／Nagi SDK・Porting Toolkitの安全な橋渡しを先に重視する。ただし1.0の特定版／搭載必須はPROVISIONAL、既存の公開開発者環境・配布基盤の1.0目標とRelease／Activation Gateは維持。 |
 | 2026-11-17 | PX-14の既存IDE／公開SDK・Porting Toolkit／任意Cloud AIをつなぐ開発者体験B＋将来の互換性・更新／配布支援Cを高水準CONFIRMED。1.0公開開発者環境・配布基盤目標、PX-13独立高度IDEの後順位、非AI検証とCloud・署名／導入／共有の別承認、Release Gateを維持。初期言語・SDK／CLI・Provider・Package／署名／配布技術・性能・版はPROVISIONAL。 |
 | 2026-11-17 | PX-15として1.0は正式対応範囲で日常の代表作業を安全・安定して完結し継続利用できる実用OS Bを高水準完成基準とし、将来は幅広い総合OS Cへ発展する方向をCONFIRMED。既存1.0一般公開品質・開発者／配布基盤、AI組み込み体験優先／階層Agent後順位、通常GUI・Permission／Privacy・Target Acceptance／Gateを維持。代表作業・アプリ必須範囲・対応端末・性能／品質の合格値・公開判定手順・日程はPROVISIONAL。 |
+
+
+- 2026-11-25: PX-15の6領域、1.0の実用性・純正アプリ拡充と公開開発者環境、後続可能範囲を確認。個別の優先候補・代表E2Eシナリオ・版割当て・性能値はPROVISIONAL。既存Gateは維持。
