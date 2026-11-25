@@ -24,6 +24,31 @@ version=$(awk -F'= ' '/^(VERSION|PATCHLEVEL|SUBLEVEL) = / { print $2 }' "$source
 
 mkdir "$output_dir"
 exec > >(tee "$output_dir/build.log") 2>&1
+readlink_bin=$(command -v readlink)
+if ! "$readlink_bin" -m -- "$source_dir/Makefile" >/dev/null 2>&1; then
+    compat_dir="$output_dir/host-compat"
+    mkdir "$compat_dir"
+    cat > "$compat_dir/readlink" <<'SH'
+#!/usr/bin/env python3
+import os
+import sys
+
+args = sys.argv[1:]
+if args and args[0] == "-m":
+    args = args[1:]
+    if args and args[0] == "--":
+        args = args[1:]
+    if not args:
+        raise SystemExit(2)
+    for path in args:
+        print(os.path.realpath(path))
+    raise SystemExit(0)
+os.execv("/usr/bin/readlink", ["readlink", *sys.argv[1:]])
+SH
+    chmod 0555 "$compat_dir/readlink"
+    export PATH="$compat_dir:$PATH"
+    printf 'Installed private BSD readlink -m compatibility shim: %s\n' "$compat_dir/readlink"
+fi
 build_dir="$output_dir/build"
 mkdir "$build_dir"
 cp "$base_config" "$build_dir/.config"
