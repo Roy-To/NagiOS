@@ -7,7 +7,8 @@ Within the limit it writes the output and the exit code depends only on `failed`
 
 The branch tests reuse the real reports built once in `setUpClass`; `build_report` and
 `build_all_report` are stubbed to return them, because these tests target the `main()`
-orchestration and not the real subsystem. The headroom test measures the real output.
+orchestration and not the real subsystem. The headroom tests call the real, unstubbed
+`report.main()` and measure the UTF-8 bytes of its captured stdout.
 Host-only; not Nagi target acceptance. The headroom ratio is a PROVISIONAL assumption
 (see README.md), not an approved contract.
 """
@@ -141,30 +142,37 @@ class OutputLimitTests(unittest.TestCase):
                     self.assertEqual(err, "")
 
 
-class OutputHeadroomTests(unittest.TestCase):
-    """Real (unstubbed) report sizes stay well under the limits."""
+def run_real_main(fixture, fmt):
+    """Call the real, unstubbed `report.main()` and capture its stdout/stderr."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = report.main(["--fixture", fixture, "--format", fmt])
+    return code, out.getvalue(), err.getvalue()
 
-    @classmethod
-    def setUpClass(cls):
-        cls.all_report = report.build_all_report()
+
+class OutputHeadroomTests(unittest.TestCase):
+    """Real CLI output (unstubbed `report.main()` stdout) stays well under the limits."""
+
+    def assert_headroom(self, fixture, fmt, limit):
+        code, out, err = run_real_main(fixture, fmt)
+        self.assertNotEqual(err.strip(), "report_output_limit")
+        self.assertIn(code, (0, 1))
+        self.assertTrue(out, "{} {} wrote no output".format(fixture, fmt))
+        actual = size(out)
+        self.assertLess(actual, limit * HEADROOM_RATIO,
+                        "{} {} output is {} of {} bytes".format(fixture, fmt, actual, limit))
 
     def test_single_fixture_sizes_leave_headroom(self):
-        limit = report.MAX_REPORT_BYTES
-        for fixture, result in self.all_report["reports"].items():
+        for fixture in report.FIXTURES:
             for fmt in ("json", "markdown"):
                 with self.subTest(fixture=fixture, format=fmt):
-                    actual = size(render(result, fmt, fixture))
-                    self.assertLess(actual, limit * HEADROOM_RATIO,
-                                    "{} {} output is {} of {} bytes".format(
-                                        fixture, fmt, actual, limit))
+                    self.assert_headroom(fixture, fmt, report.MAX_REPORT_BYTES)
 
     def test_all_fixture_sizes_leave_headroom(self):
         limit = report.MAX_REPORT_BYTES * len(report.FIXTURES)
         for fmt in ("json", "markdown"):
             with self.subTest(format=fmt):
-                actual = size(render(self.all_report, fmt, "all"))
-                self.assertLess(actual, limit * HEADROOM_RATIO,
-                                "all {} output is {} of {} bytes".format(fmt, actual, limit))
+                self.assert_headroom("all", fmt, limit)
 
 
 if __name__ == "__main__":

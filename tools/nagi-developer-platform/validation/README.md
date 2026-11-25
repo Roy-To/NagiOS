@@ -571,13 +571,28 @@ reports, and 2 for invalid arguments.
   stubbed `build_report` / `build_all_report` that return real reports built once, and
   pins that within the limit the exit code is decided only by `failed` checks.
   Assumption: real output of every fixture (and of `all`) stays below
-  `HEADROOM_RATIO = 0.5` of its limit in both formats; the test measures the real
-  output and fails if a fixture grows past that. The ratio is a PROVISIONAL
-  assumption chosen to leave room for growth, not an approved contract; adjust the
-  constant in the test if the format legitimately grows. The measured byte sizes have
-  not been recorded here yet because the test run was not possible in the authoring
-  session; the test's failure message prints the actual and limit bytes. Host-only,
-  not Nagi target acceptance.
+  `HEADROOM_RATIO = 0.5` of its limit in both formats; the headroom tests call the
+  real, unstubbed `report.main()` and measure the UTF-8 bytes of its captured stdout,
+  and fail if a fixture grows past that. The ratio is a PROVISIONAL assumption chosen
+  to leave room for growth, not an approved contract; adjust the constant in the test
+  if the format legitimately grows. Measured on 2026-11-26 (macOS arm64 host,
+  Python 3.9.6; UTF-8 bytes of `main()` stdout; every run exited 0):
+
+  | `--fixture` | limit (bytes) | JSON bytes (% of limit) | Markdown bytes (% of limit) |
+  |---|---:|---:|---:|
+  | `portable` | 131072 | 4841 (3.7%) | 2431 (1.9%) |
+  | `windows` | 131072 | 4542 (3.5%) | 2740 (2.1%) |
+  | `linux` | 131072 | 4802 (3.7%) | 2855 (2.2%) |
+  | `ui` | 131072 | 33471 (25.5%) | 11934 (9.1%) |
+  | `mixed` | 131072 | 5984 (4.6%) | 3414 (2.6%) |
+  | `app_windows` | 131072 | 10876 (8.3%) | 4790 (3.7%) |
+  | `ui_unsupported` | 131072 | 4644 (3.5%) | 2919 (2.2%) |
+  | `app_linux` | 131072 | 9848 (7.5%) | 4910 (3.7%) |
+  | `all` | 1048576 | 108876 (10.4%) | 45046 (4.3%) |
+
+  The largest single output is `ui` JSON at 25.5% of its limit. These numbers are a
+  host-only snapshot, not a contract, and will drift as fixtures change; the test,
+  not this table, is the check. Host-only, not Nagi target acceptance.
 
 ## Evidence and remaining scope — 2026-11-17
 
