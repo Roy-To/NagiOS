@@ -4,8 +4,8 @@
 The tool keeps the input ext4 image unchanged, appends a version-1 SHA-256
 verity tree to a private copy, and creates a second copy with the ext4
 superblock block changed while retaining the original tree. QEMU is never
-started by the default command; --start also requires a current L11-3 slot
-assignment at the top of the internal board.
+started by the default command; --start also requires an active L11-3 slot
+assignment in the internal board.
 """
 
 from __future__ import annotations
@@ -441,17 +441,35 @@ def load_run_bundle(directory: Path) -> tuple[dict, dict[str, Path]]:
     return bundle, paths
 
 
+def current_board_assignment(lines: list[str], slot: int) -> str:
+    slot_label = f"枠{slot}"
+    summary = next((line for line in lines[:30] if line.startswith("QEMU ")), "")
+    summary_slot = next((part for part in summary.split("｜") if slot_label in part), None)
+    if summary_slot is None or "L11-3" not in summary_slot or "空き" in summary_slot:
+        raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
+
+    action = re.compile(r"(?:割当|割り当て|assigned|返却)", re.IGNORECASE)
+    events = [
+        line for line in lines[:30]
+        if "L11-3" in line and slot_label in line and action.search(line)
+    ]
+    if not events:
+        raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
+    assignment = events[0]
+    if any(word in assignment for word in ("返却", "返却済", "空き")):
+        raise VerityError("board's L11-3 slot line is already returned or free")
+    if not re.search(r"(?:割当|割り当て|assigned)", assignment, re.IGNORECASE):
+        raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
+    return assignment
+
+
 def run_pair(bundle_dir: Path, board: Path, slot: int, qemu_name: str, timeout_seconds: int) -> dict:
     bundle, paths = load_run_bundle(bundle_dir)
     board_info = _regular_file(board, "internal board")
     if board_info.st_mode & 0o222 == 0:
         raise VerityError("internal board is unexpectedly read-only")
     lines = board.read_text(encoding="utf-8").splitlines()[:30]
-    assignment = next((line for line in lines if "L11-3" in line and f"枠{slot}" in line), None)
-    if assignment is None or not re.search(r"(?:割当|割り当て|assigned)", assignment, re.IGNORECASE):
-        raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
-    if any(word in assignment for word in ("返却", "返却済", "空き")):
-        raise VerityError("board's L11-3 slot line is already returned or free")
+    assignment = current_board_assignment(lines, slot)
     qemu = shutil_which(qemu_name)
     if qemu is None:
         raise VerityError(f"QEMU executable not found: {qemu_name}")
