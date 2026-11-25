@@ -1,7 +1,7 @@
 # DEC-110 — Audio System：OSS音声基盤とNagi Audio Service、実測に基づく部分最適化
 
-**状態:** CONFIRMED（Foundation #21の条件付きB：Linux／OSS音声基盤の再利用、Nagi独自Audio Service、低遅延・省メモリ・省電力の実機測定と不足箇所の個別最適化方針）／PROVISIONAL（ALSA／PipeWire等の具体採用、実装・対応機器・指標・Release・受入）\
-**最終合意日:** 2026-11-16\
+**状態:** CONFIRMED（Foundation #21の条件付きB：Linux／OSS音声基盤の再利用、Nagi独自Audio Service、低遅延・省メモリ・省電力の実機測定と不足箇所の個別最適化方針、ALSA／PipeWire採用、交換可能な音声AI）／PROVISIONAL（具体構成・個別音声モデル、実装・対応機器・指標・Release・受入）\
+**最終合意日:** 2026-11-25\
 **適用候補:** Nagi OS Foundation #21。適用Release未確定\
 **関連:** [Foundation Checklist #21](NAGI_OS_FOUNDATION_CHECKLIST.md#f21)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.3改訂ロードマップ](roadmaps/Nagi_OS_0.3_Architecture_Roadmap_Revised.md)、[Roadmap索引](roadmaps/README.md)
 
@@ -38,8 +38,20 @@ PC、タブレット、スマートフォンにまたがるNagi OSで、音楽�
 
 Nagi独自のOS体験とLinux／OSS再利用を両立する既存方針（DEC-043）、AIなしで使える通常操作と前景優先（DEC-020）、Nagi Sleep（DEC-068）と整合する。0.3の音声・Personal Agent構想への接続を想定するが、特定版の必須機能・受入条件・リリース時期・新しい実装Gateをここから追加しない。
 
+## 2026-11-25 — ALSA・PipeWireの採用方針と交換可能な音声AI
+
+**CONFIRMED（技術選定・製品方針）:** Linux上の音声デバイス入出力の基盤としてALSA、音声stream／mixing／routingの主要基盤として[PipeWire](https://pipewire.org/)を採用する方向を確定する。Nagi Audio ServiceはNagi独自の公開契約・機器選択・音量・音声優先度・マイクPermission・Voice連携を担い、低レイヤー音声処理は適合OSSを活用する。Audio Serviceと音声認識／合成のVoice Runtimeを分離し、ASR／TTSは交換可能なOSS推論基盤・利用条件に適合するモデルを活用する方向とする。DEC-008／011の明示開始の音声会話、Text切替・訂正・停止、将来の明示有効化によるハンズフリー操作と、DEC-108／109の入力手段から独立した意味的操作体系を継承する。音声取得や認識はAuthority・本人認証・重要操作の最終承認の代替ではない。通常再生／録音の非LLM依存、非特権AI、Permission／Policy、Cloud送信の別許可、控えめな通知、前景UIと音声の優先、実測に基づく部分最適化を維持する。本追補はALSA／PipeWireの採否について従前の未確定記述に優先する。
+
+**PROVISIONAL（具体設計・受入）:**
+
+- ALSA／PipeWireの固定版・feature・依存とライセンス、Rust接続・process／IPC・session管理・権限の実効強制、WirePlumberの採否とNagi Audio Serviceとの責務分担、BlueZ／Bluetooth codec・USB／内蔵audio、必要なplugin／DSP等は別途評価する。画面共有・カメラへのPipeWire活用は別の検討事項であり、今回の音声採用から機能・権限の追加を推定しない。
+- whisper.cpp、sherpa-onnx、Piper、Kokoro等は比較候補に留める。個別ASR／TTS／VAD／keyword検出・モデル・言語・音声品質、学習データ・重み・推論エンジンのライセンスと再配布条件、固定版は未確定。日英先行と将来10言語の目標（DEC-127）を尊重し、OS言語対応と音声モデル対応は分けて評価する。0.3改訂Roadmap §34.6／VOICE-01のoffline経路・fallback・取消を維持する。
+- アプリ別音量、会話時のduckingと終了時の復元、会議中の通常音声通知抑制、音声割込み、echo cancellation、マイク使用表示・取消・収録／文字起こしの保存、Wake Word／常時待受は具体検討事項とする。無断収録・監視・学習・外部送信を認めない。通常の音声提案で自発的に割り込まないDEC-008を変更しない。
+- 実機／QEMU等の条件を分け、低遅延・RAM・CPU・電力／熱・音切れ、機器切替／sleep復帰、AI負荷との共存、認可取消・障害時復旧を比較する。既存 `user/nagi-audio` の旧カーネル経路をLinux向けに統合・移行する具体方法、性能指標・合格値・実装担当・版は未確定。既存Release／Activation／Acceptance GateとOwner／path ownershipを変更せず、依存追加・実装開始・動作確認済みを意味しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #21の「条件付きB」を明示承認。Linux／OSS基盤を基本とし、Nagi Audio Serviceで音声優先度・機器切替・マイク権限・Voice連携を管理。低遅延／省メモリ／省電力を実機で測定し、要求に不足する箇所だけ独自最適化または部分的な置換を検討。ALSA／PipeWire等の個別採用・性能数値・機器・版は未確定。 |
+| 2026-11-25 | ユーザーがALSA＋PipeWire採用、Nagi独自Audio Service、交換可能な音声認識・合成基盤と将来のハンズフリー連携を承認。具体構成・追加OSS・モデル・性能・提供版はPROVISIONAL。 |
