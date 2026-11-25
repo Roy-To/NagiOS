@@ -103,13 +103,13 @@ SBOM; do not infer bundled weights or authoritative terms from fixtures.
 
 ## Imported subcomponent license exceptions
 
-The relibc import contains OpenLibm, whose
-[license inventory](third_party/relibc/openlibm/LICENSE.md) includes MIT,
-BSD, ISC, Sun attribution and LGPL tests. Tracked
-`third_party/relibc/openlibm/test/test-double.c` and `test-float.c` carry
-LGPL-2.1-or-later headers. Confirm the full LGPL license text and source
-redistribution obligations; check actual binary inclusion separately.
-The parent relibc MIT declaration does not replace these terms.
+A prior revision of this notice described an OpenLibm license inventory under
+`third_party/relibc`. That path, including its cited license inventory and test
+files, is absent from this tracked snapshot. Treat the earlier details as
+historical, not as evidence of current source or scope B image inclusion.
+Re-verify the exact upstream source and notice obligations if a later build
+includes it; a parent relibc MIT declaration does not override separate
+third-party terms.
 
 `freetype-sys`'s MIT wrapper declaration does not cover its bundled
 FreeType/libpng source. A hash-verified 0.23.0 archive review found FreeType's
