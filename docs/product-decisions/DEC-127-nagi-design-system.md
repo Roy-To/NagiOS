@@ -1,6 +1,6 @@
 # DEC-127 — Nagi Design System：ミニマルな共通UIと創作の自由
 
-**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
+**状態:** CONFIRMED（ミニマルでフラットなデザイン、共通UIによる開発支援と独自デザインの自由の両立、Desktopの軽量性を重視、統合OSの中核としての端末横断Desktop体験）／PROVISIONAL（具体配色・部品・外観・API・技術・提供版）
 **最終合意日:** 2026-11-25
 **適用候補:** Nagi純正アプリ・公開SDK／共通UI基盤。具体的な提供版は未確定。
 **関連:** [DEC-009](DEC-009-nagi-first-home-desktop.md)、[DEC-010](DEC-010-intent-first-adaptive-ui.md)、[DEC-011](DEC-011-task-approval-progress-ui.md)、[DEC-017](DEC-017-third-party-developer-ecosystem.md)、[DEC-071](DEC-071-nagi-native-app-creation-experience.md)、[DEC-097](DEC-097-accessibility-foundation-and-ai-native-long-term-direction.md)、[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)、[DEC-109](DEC-109-input-system-cross-device-linux-foundation.md)、[0.2仕様 M07](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[純正アプリ実装仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)
@@ -38,9 +38,16 @@
 
 **PROVISIONAL（具体策・測定候補）:** 背景ぼかし／半透明／影／常時アニメーション等の既定を抑える、静止画の壁紙、必要時だけ表示・更新するWidget／AIパネル、差分描画とイベント駆動、非表示Surfaceの更新抑制、必要時のモデルload／unload、端末能力に応じた効果の縮小等を比較する。低負荷時／前景アプリ利用時／ローカルLLM併用時のRAM、CPU／GPU、入力から表示までの遅延、フレーム時間、電力・熱、推論速度・品質を計測し、通常UIを優先する。QEMUと物理実機の結果を区別し、既存DEC-116の仮目標を新たな合格値に置換しない。具体効果の採否・描画backend（Wayland／Smithayを含む）・数値予算・性能保証・提供版は未確定。既存Gate／Owner／作業開始条件を変更しない。
 
+## 2026-11-25 — 統合OSの中核としての端末横断Desktop／Convergence
+
+**CONFIRMED（製品方向）:** PC・Tablet・Phone間で可能な限りシームレスな一つのNagi体験を提供し、Desktop／Shellの設計を統合OSの中核として重視する。Samsung DeX・PixelのDesktop mode・Lomiriは利用者が示した体験の参考例であり、同等の機能・互換性・特定Shellやコードの採用決定ではない。DEC-009／010／108／109の共通Home／Desktop・Workspace・入力／表示の端末適応、DEC-065の意味的Handoffを継承する。PC画面の単純縮小や端末ごとに分断された体験ではなく、画面・入力・接続機器・端末能力に合わせて操作UIを適応させる方向とする。ミニマル・フラットな外観と軽量性、AIなしの通常GUI、前景応答優先を維持する。
+
+**PROVISIONAL（体験・設計候補）:** 同一端末の小画面／Tablet／Desktop向けSurfaceと、外部モニター・キーボード・マウス接続時のDesktop相当体験、手動切替・接続時の案内・必要な状態保持、切断時の可視画面への退避、独立表示／拡張／ミラーリング等を比較する。アプリの共通データモデル・Public Action／Continuity契約と表示レイアウトを分離し、画面変更で編集内容・作業の意味的状態を可能な範囲で保持する。別端末への継続（Handoff）と同一端末の表示モード変更を区別する。DEC-014／065／066に従い、現行権限・Revision・Profile・Privacyを再検証し、無断同期・転送・競合上書き・Task再実行は認めない。Home／Desktop遷移、Workspace手動配置保護、既存の新規Workspace自動配置・画面切断時の例外を維持する。具体的なSurface分類・外部表示・UI・切替条件、Compositor／Wayland／Smithay／Lomiri等の採否、対応機器・性能・実装版は未確定。Desktop first、DEC-102の段階的な機種別実機検証、既存Release／Activation／Acceptance Gate・Owner・着手条件を変更しない。
+
 ## 決定履歴
 
 | 日付 | 内容 |
 |---|---|
 | 2026-11-25 | 共通UIと独自デザインの自由を両立する提案をユーザーが了承し、ヘルシーな印象、ミニマルでフラットな外観を明示。具体配色・画面・技術・提供版はPROVISIONAL。 |
 | 2026-11-25 | Desktopを可能な限り軽量にする優先方針をユーザーが明示。具体的な描画効果・backend・性能予算はPROVISIONAL。 |
+| 2026-11-25 | PC／Tablet／Phoneのシームレスな体験と統合OSの中核としてDesktopを重視する方向をユーザーが明示。DeX／Pixel Desktop mode／Lomiriは体験の参照例、具体技術・切替仕様・端末・版はPROVISIONAL。 |
