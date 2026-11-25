@@ -448,19 +448,21 @@ def current_board_assignment(lines: list[str], slot: int) -> str:
     if summary_slot is None or "L11-3" not in summary_slot or "空き" in summary_slot:
         raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
 
-    action = re.compile(r"(?:割当|割り当て|assigned|返却|空き)", re.IGNORECASE)
-    events = [
-        line for line in lines[:30]
-        if "L11-3" in line and slot_label in line and action.search(line)
-    ]
+    assignment_action = re.compile(r"QEMU(?:\s*枠\d+)?\s*(?:割当|割り当て|assigned)", re.IGNORECASE)
+    return_action = re.compile(r"QEMU(?:\s*枠\d+)?\s*(?:返却|returned|released)", re.IGNORECASE)
+    events = []
+    for line in lines[:30]:
+        if "L11-3" not in line or slot_label not in line:
+            continue
+        if return_action.search(line):
+            events.append((line, "returned"))
+        elif assignment_action.search(line):
+            events.append((line, "assigned"))
     if not events:
         raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
-    assignment = events[0]
-    latest_action = action.search(assignment)
-    if latest_action is not None and latest_action.group() in ("返却", "空き"):
+    assignment, state = events[0]
+    if state == "returned":
         raise VerityError("board's L11-3 slot line is already returned or free")
-    if latest_action is None or latest_action.group() not in ("割当", "割り当て", "assigned"):
-        raise VerityError(f"board has no current L11-3 assignment for QEMU slot {slot}")
     return assignment
 
 
