@@ -376,11 +376,11 @@ where
                     initialize_notes_index, LinuxProfileStorageBackend,
                 };
 
-                let startup_directory = rustix::io::fcntl_dupfd_cloexec(&object_directory, 0)
+                let startup_directory = rustix::io::fcntl_dupfd_cloexec(object_directory, 0)
                     .map_err(|_| {
                         ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
                     })?;
-                let backend_directory = rustix::io::fcntl_dupfd_cloexec(&object_directory, 0)
+                let backend_directory = rustix::io::fcntl_dupfd_cloexec(object_directory, 0)
                     .map_err(|_| {
                         ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
                     })?;
