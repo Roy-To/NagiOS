@@ -134,6 +134,24 @@ SH
     chmod 0555 "$compat_dir/cp"
     export NAGI_L11_BSD_CP="$cp_bin"
     printf 'Installed private BSD cp -T compatibility shim: %s\n' "$compat_dir/cp"
+    cat > "$compat_dir/clang-host" <<'SH'
+#!/usr/bin/env python3
+import os
+import sys
+
+compiler = os.environ["NAGI_L11_HOST_CLANG_BASE"]
+arguments = [
+    argument.replace("-Wl,--fatal-warnings", "-Wl,-fatal_warnings")
+    for argument in sys.argv[1:]
+]
+os.execv(compiler, [compiler, *arguments])
+SH
+    chmod 0555 "$compat_dir/clang-host"
+    export NAGI_L11_HOST_CLANG_BASE="$host_compat_root/bin/clang-host"
+    export HOSTCC="$compat_dir/clang-host"
+    export HOSTCXX="$compat_dir/clang-host"
+    export HOSTLD="$compat_dir/clang-host"
+    printf 'Installed private Darwin host-link flag shim: %s\n' "$compat_dir/clang-host"
 fi
 build_dir="$output_dir/build"
 mkdir "$build_dir"
@@ -143,11 +161,11 @@ source_verity_sha_before=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-targe
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest() {
-        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$1" <<'PY'
+        python3 - "$host_support_root" "$host_compat_root" "$host_elfutils_root" "$host_clang_path" "$host_lld_path" "$host_pkg_config_path" "$output_dir/host-compat/clang-host" "$1" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 
-root, compat, elfutils, clang, lld, pkg_config, output = map(Path, sys.argv[1:])
+root, compat, elfutils, clang, lld, pkg_config, link_shim, output = map(Path, sys.argv[1:])
 
 def sha(path):
     digest = hashlib.sha256()
@@ -174,6 +192,7 @@ for key, path in (
     ("llvm_clang", clang),
     ("lld", lld),
     ("pkg_config", pkg_config),
+    ("kernel_link_flag_shim", link_shim),
 ):
     files[key] = {
         "path": str(path),
