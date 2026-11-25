@@ -211,7 +211,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-068 | [Nagi Sleep（仮称）— スリープ・休止状態・復帰の管理](DEC-068-nagi-sleep-resume-recovery.md) | CONFIRMED（非LLM管理・状態保存と再検証・通常復帰と障害復旧の区別・段階的Hibernate）／PROVISIONAL（名称・方式・端末・時期・Gate） | 2026-11-16 |
 | DEC-069 | [35項目のFoundation Checklist管理](DEC-069-foundation-checklist-management.md) | CONFIRMED（台帳管理）／PROVISIONAL（推奨優先度・検討順序） | 2026-11-16 |
 | DEC-070 | [Memoryを活用した個人最適化Nagiアプリ制作／PX-13後期優先・Cloud橋渡しとの整合](DEC-070-memory-informed-native-app-creation.md) | CONFIRMED（許可されたMemoryに基づく個人向け制作／改善の方向、Cloud利用は別承認）／PROVISIONAL（Memory許可・UI・Bridge技術・動的適応・提供版） | 2026-11-17 |
-| DEC-071 | [初心者向けNagi Native App制作体験／PX-13 B＋将来C・Cloud AI橋渡し・後期優先](DEC-071-nagi-native-app-creation-experience.md) | CONFIRMED（将来の共同制作B＋個人適応C、当面Cloud AI／移植橋渡し優先・高度制作環境は後順位）／PROVISIONAL（画面／Preview・Model・Cloud接続／許可UI・技術・性能・版） | 2026-11-17 |
+| DEC-071 | [初心者向けNagi Native App制作体験／PX-13 B＋将来C・Cloud AI橋渡し・開発参加と創作自由](DEC-071-nagi-native-app-creation-experience.md) | CONFIRMED（将来の共同制作B＋個人適応C、当面Cloud AI／移植橋渡し優先・高度制作環境は後順位、幅広い開発参加と共通化・創作自由の両立）／PROVISIONAL（画面／Preview・Model・Cloud接続／許可UI・技術・性能・版） | 2026-11-25 |
 | DEC-072 | [Follow／Evolution — Memoryからの操作支援とアプリ改善ビジョン](DEC-072-follow-evolution.md) | CONFIRMED（概念区分・改善試作を伴う提案の長期方向）／PROVISIONAL（実装・受容性・版割当て） | 2026-11-15 |
 | DEC-073 | [許可された利用傾向からの根拠付き改善提案／PX-07との整合](DEC-073-proactive-friction-discovery.md) | CONFIRMED（潜在的不便の根拠付き提案・PX-07 B＋将来Cとの整合）／PROVISIONAL（分析・データ・Score・頻度／抑制・却下／再提示・UI・自動適用・技術・版） | 2026-11-17 |
 | DEC-074 | [AI組み込み体験の優先・階層型Agent組織は長期構想／PX-15との整合](DEC-074-human-led-agent-organization.md) | CONFIRMED（当面のAI組み込みOS体験優先、階層Agent非優先の長期ビジョン、PX-15の1.0実用性基準との整合）／PROVISIONAL（組織構造・技術・適用版・1.0の個別受入条件） | 2026-11-17 |
@@ -526,3 +526,8 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-008](DEC-008-proactive-behavior.md)へ、未処理の雑務・着手しづらいメール・忘れやすい一時的な用事について、B（静かに準備し、区切りに控えめに提案）を既定とする範囲限定の補足を追加した。積極性・タイミング等の設定調整と、許可されたMemory／習慣／採用・無視・拒否等からの個人適応をCONFIRMEDとし、明示設定・拒否・停止・忘却を優先する。草案・情報整理・一時メモで着手負担を下げる方針であり、閲覧・保存・送信・購入・監視の新規権限は生じない。一時的Task／Reminderと長期Canonical Memoryを区別可能にすることを考慮し、具体的な保存・学習・通知・自動生成条件・提供版はPROVISIONAL／OPEN。
 
 既存DEC-008を補足するため新番号は採番せず、[DEC-058](DEC-058-habit-first-learning-and-optional-teach-mode.md)と[DEC-073](DEC-073-proactive-friction-discovery.md)、関連ロードマップへ参照を追加した。PR #107〜#129統合とFoundation Checklist（PR #130）の内容・履歴を保持し、既存Gate・35項目の状態を変更しない。仕様の記録であり、実装・受入完了ではない。
+
+
+## 2026-11-25 — 開発参加の裾野と創作の自由
+
+[DEC-071](DEC-071-nagi-native-app-creation-experience.md)に、専門知識のない人も自然言語・AI支援で実際のアプリ開発に参画できる世界の礎となること、部品組換えだけに限定せずPlatformの共通化とソフトウェア開発の自由を両立する製品理念をCONFIRMEDとして追記。ソース編集・共通部品／独自実装の併用・開発UI・具体Framework／API・版はPROVISIONAL。DEC-017の公開SDK／同じ公開契約、PX-13の既存IDE／Cloud AI橋渡し優先、Native・Permission・Package・既存Gateを維持。
