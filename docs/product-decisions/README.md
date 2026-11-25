@@ -210,7 +210,7 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 | DEC-057 | [学習・適応・継続によって成長するPersonal Agent OS](DEC-057-growing-personal-agent-os.md) | CONFIRMED（中核コンセプト・個人適応・モデル非依存の継続・ユーザー主導・PX-10 B／将来C方向・Nagi Personaの状況別利用と手動／自動切替・全Personaの本人専用Secretモード必須）／PROVISIONAL（UI・状況判定・モデル／アルゴリズム・評価・提供版／時期） | 2026-11-25 |
 | DEC-058 | [習慣学習を主軸に、Teach Modeを任意の補助機能とする](DEC-058-habit-first-learning-and-optional-teach-mode.md) | CONFIRMED（Habit-first・Teach補助・既存の保存／実行承認維持）／PROVISIONAL（Teach UI・記録技術・実装版） | 2026-11-16 |
 | DEC-059 | [学習履歴を分かりやすく閲覧するNagi Insights（仮称）](DEC-059-learning-history-insights.md) | CONFIRMED（学習履歴・訂正権とPX-09のB管理方針／将来C方向との整合）／PROVISIONAL（UI・履歴Schema・C処理詳細・評価指標・適用版） | 2026-11-17 |
-| DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針）／PROVISIONAL（方式・数値・版） | 2026-11-16 |
+| DEC-060 | [応答速度を優先するIMEとAIを活用した学習](DEC-060-responsive-ime-ai-learning.md) | CONFIRMED（入力応答優先・許可されたAI学習・秘密入力除外と忘却・Cloud許可・AI不可時の通常IME・モデル非依存の継続性を目指す方針、独自変換エンジンの長期目標）／PROVISIONAL（方式・数値・版） | 2026-11-25 |
 | DEC-061 | [純正PDF Reader兼Editorと段階的な高度編集／PX-11品質優先方針への整合](DEC-061-first-party-pdf-reader-editor.md) | CONFIRMED（PDF純正採用・基本機能先行・AI非依存／公開API、PX-11高水準方針との整合）／PROVISIONAL（1.0搭載区分・最小機能・高度機能／形式・技術・性能・版） | 2026-11-17 |
 | DEC-062 | [純正ユーティリティ4分野採用とPX-11品質優先方針への整合](DEC-062-first-party-utilities.md) | CONFIRMED（4分野すべて採用・AI不要の軽量基本機能優先／PX-11高水準方針との整合）／PROVISIONAL（アプリ分割・1.0搭載区分・最小機能・形式・技術・性能・版） | 2026-11-17 |
 | DEC-063 | [電話・連絡先・SMSの端末横断採用](DEC-063-phone-contacts-messaging.md) | CONFIRMED（純正採用・共通モデルと適応UI・能力／認可依存・People統合原則）／PROVISIONAL（アプリ構成・通信／端末間連携・学習・版） | 2026-11-16 |
@@ -630,3 +630,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)・[DEC-108](DEC-108-display-gpu-nagi-shell-oss-graphics.md)追補: Velloを共通2D描画基盤の主要OSSとして採用する方向をCONFIRMED。CPU先行、GPU高速化候補、tiny-skia比較／代替。具体版・依存／ライセンス・性能・研究着手・提供版はPROVISIONAL。Wayland／Smithay等は別判断、既存Gate・Ownerを維持。
 
 [DEC-127](DEC-127-nagi-design-system.md)追補: OSSフォント優先と英語・日本語・中国語・韓国語・ポルトガル語・スペイン語・フランス語・ドイツ語・アラビア語・ロシア語の将来対応目標を早期設計に反映する方向をCONFIRMED。[言語設計](../architecture/language-architecture.md)にも接続。日英同格の初期範囲を維持し、個別フォント／文字処理技術・locale・提供版・受入はPROVISIONAL。既存Gate・Ownerを維持。
+
+[DEC-060](DEC-060-responsive-ime-ai-learning.md)追補: IMEを独自性の重点領域とし、OSSを基礎に独自変換エンジンの組込みまで目指す長期方向をCONFIRMED。日本語を先行検討、他言語のOSS活用案・個別エンジン・性能・着手・提供版はPROVISIONAL。既存の高速入力・秘密入力保護・学習認可・Gateを維持。
