@@ -282,6 +282,8 @@ ChatGPT・Codexとの会話で仕様が決まったら、`CONFIRMED`か`PROVISIO
 
 | DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
 
+| DEC-127 | [Nagi Design System：ミニマルな共通UIと創作の自由](DEC-127-nagi-design-system.md) | CONFIRMED（ミニマル・フラット、共通UIによる支援と独自デザインの自由、Desktop軽量性重視、統合OSの端末横断Desktop体験）／PROVISIONAL（配色・部品・API・技術・版） | 2026-11-25 |
+
 
 端末間連携の接続方針（2026-11-16追加）:
 
@@ -602,3 +604,5 @@ DEC-050の索引・概要を更新し、[実設定と検証の運用記録](../d
 [DEC-127](DEC-127-nagi-design-system.md)に、ヘルシーでミニマル・フラットな純正UI方向と共通UI／創作自由の両立を記録。具体デザイン・技術・版はPROVISIONAL。既存M07・安全境界・Gateを維持。
 
 [DEC-127](DEC-127-nagi-design-system.md)追補: Desktopを可能な限り軽量にする優先方針をCONFIRMED。装飾・差分描画・負荷適応等の具体策、backend、性能予算・版はPROVISIONAL。既存前景優先・8GB級実用目標・Gateを維持。
+
+[DEC-127](DEC-127-nagi-design-system.md)追補: PC／Tablet／Phone間のシームレスな体験と統合OSの中核としてのDesktopを重視する方向をCONFIRMED。DeX／Pixel Desktop mode／Lomiriは参照例。具体Surface・外部画面／切替・技術・機器・版はPROVISIONAL。既存Handoff・Desktop first・Gateを維持。
