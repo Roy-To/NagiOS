@@ -13,7 +13,30 @@ expected_base_sha=$3
 output_parent=$(cd -- "$(dirname -- "$4")" && pwd)
 output_dir="$output_parent/$(basename -- "$4")"
 case "$output_dir" in "$repo_root"/out/*) ;; *) echo "output must be below this worktree's out/" >&2; exit 2 ;; esac
-[[ ! -e "$output_dir" && ! -L "$output_dir" ]] || { echo "output directory already exists" >&2; exit 2; }
+resume_existing=${NAGI_L11_RESUME_EXISTING:-0}
+[[ "$resume_existing" == 0 || "$resume_existing" == 1 ]] || { echo "NAGI_L11_RESUME_EXISTING must be 0 or 1" >&2; exit 2; }
+if [[ "$resume_existing" == 1 ]]; then
+    [[ -d "$output_dir" && ! -L "$output_dir" && -d "$output_dir/build" && ! -L "$output_dir/build" ]] || {
+        echo "resume output must be an existing directory with a regular build directory" >&2
+        exit 2
+    }
+    [[ -f "$output_dir/build/.config" && ! -L "$output_dir/build/.config" && ! -e "$output_dir/build-receipt.json" && ! -L "$output_dir/build-receipt.json" ]] || {
+        echo "resume output must have a regular Kconfig and no completed build receipt" >&2
+        exit 2
+    }
+    if [[ -n "${NAGI_L11_HOST_TOOLS_ROOT:-}" ]]; then
+        [[ -f "$output_dir/host-support-before.json" && ! -L "$output_dir/host-support-before.json" ]] || {
+            echo "resume output is missing its initial host-support manifest" >&2
+            exit 2
+        }
+    fi
+    grep -qx 'CONFIG_DM_INIT=y' "$output_dir/build/.config" && grep -qx 'CONFIG_DM_VERITY=y' "$output_dir/build/.config" || {
+        echo "resume output config does not contain the required DM symbols" >&2
+        exit 2
+    }
+else
+    [[ ! -e "$output_dir" && ! -L "$output_dir" ]] || { echo "output directory already exists" >&2; exit 2; }
+fi
 [[ -f "$source_dir/Makefile" && ! -L "$source_dir/Makefile" ]] || { echo "kernel source Makefile is missing or a symlink" >&2; exit 2; }
 [[ -f "$base_config" && ! -L "$base_config" ]] || { echo "base kernel .config must be a regular non-symlink file" >&2; exit 2; }
 [[ "$expected_base_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "base config SHA-256 is malformed" >&2; exit 2; }
@@ -41,6 +64,12 @@ host_pkg_config_path=
 host_libintl_path=
 host_macos_version=
 host_cflags=
+host_support_before_path="$output_dir/host-support-before.json"
+host_support_after_path="$output_dir/host-support-after.json"
+if [[ "$resume_existing" == 1 ]]; then
+    host_support_before_path="$output_dir/host-support-resume-before.json"
+    host_support_after_path="$output_dir/host-support-resume-after.json"
+fi
 if [[ "$(uname -s)" == "Darwin" ]]; then
     [[ -n "$host_support_root" ]] || {
         echo "NAGI_L11_HOST_TOOLS_ROOT must point to the pinned Darwin kernel host tools" >&2
@@ -82,12 +111,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     host_support_kind=mount-lane-read-only-darwin-compat+elfutils-0.197
 fi
 
-mkdir "$output_dir"
-exec > >(tee "$output_dir/build.log") 2>&1
+if [[ "$resume_existing" != 1 ]]; then
+    mkdir "$output_dir"
+fi
+exec > >(tee -a "$output_dir/build.log") 2>&1
 readlink_bin=$(command -v readlink)
 if ! "$readlink_bin" -m -- "$source_dir/Makefile" >/dev/null 2>&1; then
     compat_dir="$output_dir/host-compat"
-    mkdir "$compat_dir"
+    mkdir -p "$compat_dir"
+    if [[ -f "$compat_dir/readlink" && ! -L "$compat_dir/readlink" ]]; then
+        chmod u+w "$compat_dir/readlink"
+    fi
     cat > "$compat_dir/readlink" <<'SH'
 #!/usr/bin/env python3
 import os
@@ -115,6 +149,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     install_bin=$(command -v install)
     compat_dir="$output_dir/host-compat"
     mkdir -p "$compat_dir"
+    for shim in sed cp clang-host install; do
+        if [[ -f "$compat_dir/$shim" && ! -L "$compat_dir/$shim" ]]; then
+            chmod u+w "$compat_dir/$shim"
+        fi
+    done
     cat > "$compat_dir/sed" <<'SH'
 #!/usr/bin/env python3
 import os
@@ -206,8 +245,10 @@ SH
     printf 'Installed private Darwin install argument shim: %s\n' "$compat_dir/install"
 fi
 build_dir="$output_dir/build"
-mkdir "$build_dir"
-cp "$base_config" "$build_dir/.config"
+if [[ "$resume_existing" != 1 ]]; then
+    mkdir "$build_dir"
+    cp "$base_config" "$build_dir/.config"
+fi
 source_makefile_sha_before=$(shasum -a 256 "$source_dir/Makefile" | awk '{print $1}')
 source_verity_sha_before=$(shasum -a 256 "$source_dir/drivers/md/dm-verity-target.c" | awk '{print $1}')
 
@@ -267,8 +308,8 @@ output.write_text(json.dumps({"kind": "mount-lane-read-only-darwin-compat+elfuti
 output.chmod(0o444)
 PY
     }
-    write_host_support_manifest "$output_dir/host-support-before.json"
-    printf 'Darwin host support: %s; manifest=%s\n' "$host_support_kind" "$output_dir/host-support-before.json"
+    write_host_support_manifest "$host_support_before_path"
+    printf 'Darwin host support: %s; manifest=%s\n' "$host_support_kind" "$host_support_before_path"
 fi
 
 printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
@@ -288,10 +329,10 @@ PY
 make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
 
 if [[ "$host_support_kind" != none ]]; then
-    write_host_support_manifest "$output_dir/host-support-after.json"
-    if ! cmp -s "$output_dir/host-support-before.json" "$output_dir/host-support-after.json"; then
+    write_host_support_manifest "$host_support_after_path"
+    if ! cmp -s "$host_support_before_path" "$host_support_after_path"; then
         echo "Darwin kernel host-support inputs changed during the build" >&2
-        diff -u "$output_dir/host-support-before.json" "$output_dir/host-support-after.json" || true
+        diff -u "$host_support_before_path" "$host_support_after_path" || true
         exit 1
     fi
     printf 'Darwin host-support inputs unchanged during build: PASS\n'
@@ -308,14 +349,14 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
+python3 - "$repo_root" "$source_dir" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "$host_support_before_path" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
 repo, source, output, base = map(Path, sys.argv[1:5])
-base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind = sys.argv[5:15]
-host_make_args_count = int(sys.argv[15])
-host_make_args = sys.argv[16 : 16 + host_make_args_count]
+base_sha, version, makefile_sha, verity_sha, kernel_sha, config_sha, make_path, make_version, host_root, host_kind, host_manifest_path = sys.argv[5:16]
+host_make_args_count = int(sys.argv[16])
+host_make_args = sys.argv[17 : 17 + host_make_args_count]
 if len(host_make_args) != host_make_args_count:
     raise SystemExit("kernel host make argument receipt is truncated")
 
@@ -358,9 +399,9 @@ receipt = {
     "host_support": {
         "kind": host_kind,
         "root": host_root or None,
-        "manifest_path": "host-support-before.json" if host_root else None,
-        "manifest_sha256": sha(output / "host-support-before.json") if host_root else None,
-        "manifest": json.loads((output / "host-support-before.json").read_text(encoding="utf-8")) if host_root else None,
+        "manifest_path": str(Path(host_manifest_path).relative_to(output)) if host_root else None,
+        "manifest_sha256": sha(Path(host_manifest_path)) if host_root else None,
+        "manifest": json.loads(Path(host_manifest_path).read_text(encoding="utf-8")) if host_root else None,
         "make_environment": {
             key: os.environ.get(key)
             for key in ("HOSTCC", "HOSTCXX", "HOSTLD", "HOSTCFLAGS", "HOSTLDFLAGS", "HOSTPKG_CONFIG", "PKG_CONFIG_PATH", "MACOSX_DEPLOYMENT_TARGET")
