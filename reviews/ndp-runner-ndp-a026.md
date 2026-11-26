@@ -24,3 +24,13 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 3 — codex review of 98ba7438d88d
+
+P1・P2 の指摘はありません。現行の表は `report.FIXTURES` の9件と `all` を網羅し、上限値も一致しています。README のメモリ上のコピーから `ui_invalid` 行を除くと、同期検査が `missing row: ui_invalid` を返すことを確認しました。
+
+- **P3** [test_report_output_limit.py:266](tools/nagi-developer-platform/validation/test_report_output_limit.py:266) — `ui_invalid` 行の外側の `|` を省略すると、同期検査は通りますが、削除テストの `drop_row()` は行を見つけられず失敗します。メモリ上のコピーで再現しました。最小修正は、外側の `|` を補う処理を同期検査と `drop_row()` で共有することです。
+
+`report.py`、`contracts/`、既存の余裕テストの assertion、PROVISIONAL と host 限定の注記は維持されています。担当範囲外の差分は、前ラウンドのレビュー記録だけです。実測バイト数とディスク上の一時コピーを使うテストの成功は、実装報告と runner のログに基づきます。今回の独立確認は読み取り専用で行いました。
+
+NDP-REVIEW: PASS
+
