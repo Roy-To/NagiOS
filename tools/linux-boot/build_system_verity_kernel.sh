@@ -65,6 +65,63 @@ match = re.fullmatch(r"GNU Make (\d+)\.(\d+)(?:\.\d+)?", sys.argv[1])
 if not match or tuple(map(int, match.groups())) < (4, 0):
     raise SystemExit(f"GNU Make >=4.0 is required, found: {sys.argv[1]}")
 PY
+resolve_executable() {
+    local requested=$1 candidate
+    if [[ "$requested" == */* ]]; then
+        candidate=$requested
+    else
+        candidate=$(command -v -- "$requested") || return 1
+    fi
+    python3 - "$candidate" <<'PY'
+import os, stat, sys
+from pathlib import Path
+
+try:
+    path = Path(sys.argv[1]).resolve(strict=True)
+    info = path.stat()
+except OSError as error:
+    raise SystemExit(f"tool path is unavailable: {error}")
+if not stat.S_ISREG(info.st_mode) or not os.access(path, os.X_OK):
+    raise SystemExit("tool path must resolve to a regular executable")
+print(path)
+PY
+}
+if [[ "$resume_existing" == 1 ]]; then
+    rustc_path=$(python3 -B - "$repo_root" "$output_dir/resume-inputs.json" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools/linux-boot"))
+from system_verity_build_inputs import resume_tool_path
+print(resume_tool_path(Path(sys.argv[2]), "rustc"))
+PY
+) || exit 2
+    requested_rustc=${NAGI_L11_RUSTC:-${RUSTC:-}}
+    if [[ -n "$requested_rustc" ]]; then
+        requested_rustc_path=$(resolve_executable "$requested_rustc") || {
+            echo "requested RUSTC is unavailable" >&2
+            exit 2
+        }
+        [[ "$requested_rustc_path" == "$rustc_path" ]] || {
+            echo "requested RUSTC differs from the immutable resume input" >&2
+            exit 2
+        }
+    fi
+else
+    requested_rustc=${NAGI_L11_RUSTC:-${RUSTC:-$(command -v rustc || true)}}
+    [[ -n "$requested_rustc" ]] || { echo "rustc is required to resolve Linux Kconfig version symbols" >&2; exit 2; }
+    rustc_path=$(resolve_executable "$requested_rustc") || {
+        echo "RUSTC must resolve to a regular executable" >&2
+        exit 2
+    }
+fi
+if [[ "$rustc_path" =~ [[:space:]] ]]; then
+    echo "pinned RUSTC path cannot contain whitespace in Linux Kbuild command variables" >&2
+    exit 2
+fi
+rustc_version=$("$rustc_path" --version --verbose) || { echo "pinned RUSTC version query failed" >&2; exit 2; }
+rustc_sha=$(shasum -a 256 "$rustc_path" | awk '{print $1}')
+[[ "$rustc_sha" =~ ^[0-9a-f]{64}$ && -n "$rustc_version" ]] || { echo "pinned RUSTC identity is malformed" >&2; exit 2; }
+printf 'Pinned RUSTC for Kconfig and kernel make: %s (SHA-256 %s)\n' "$rustc_path" "$rustc_sha"
 host_support_root=${NAGI_L11_HOST_TOOLS_ROOT:-}
 host_make_args=()
 host_support_kind=none
@@ -353,8 +410,8 @@ prepare_resume_inputs() {
     fi
     python3 -B - "$repo_root" "$mode" "$output_dir/resume-inputs.json" \
         "$build_dir/.config" "$base_config" "$merge_fragment" "$script_path" \
-        "$source_verifier" "$build_inputs_helper" "$config_validator" "$zoffset_parser" "$make_path" \
-        "$source_dir" "$source_archive" "$source_identity_json" "$host_manifest_arg" <<'PY'
+        "$source_verifier" "$build_inputs_helper" "$config_validator" "$zoffset_parser" "$make_path" "$rustc_path" \
+        "$source_dir" "$source_archive" "$source_identity_json" "$host_manifest_arg" "$rustc_version" <<'PY'
 import json, sys
 from pathlib import Path
 
@@ -362,10 +419,11 @@ repo, mode, manifest = sys.argv[1:4]
 sys.path.insert(0, str(Path(repo) / "tools/linux-boot"))
 from system_verity_build_inputs import validate_resume_manifest, write_resume_manifest
 
-config, base, fragment, builder, verifier, helper, validator, zoffset, make = map(Path, sys.argv[4:13])
-source_dir, archive = map(Path, sys.argv[13:15])
-identity = json.loads(sys.argv[15])
-host_support = Path(sys.argv[16]) if sys.argv[16] else None
+config, base, fragment, builder, verifier, helper, validator, zoffset, make, rustc = map(Path, sys.argv[4:14])
+source_dir, archive = map(Path, sys.argv[14:16])
+identity = json.loads(sys.argv[16])
+host_support = Path(sys.argv[17]) if sys.argv[17] else None
+rustc_version = sys.argv[18]
 paths = {
     "base_config": base,
     "final_config": config,
@@ -376,11 +434,18 @@ paths = {
     "config_validator": validator,
     "zoffset_parser": zoffset,
     "make": make,
+    "rustc": rustc,
 }
 if mode == "write":
-    digest = write_resume_manifest(Path(manifest), paths, source_dir, archive, identity, host_support)
+    digest = write_resume_manifest(
+        Path(manifest), paths, source_dir, archive, identity, host_support,
+        {"rustc": rustc_version},
+    )
 else:
-    digest = validate_resume_manifest(Path(manifest), paths, source_dir, archive, identity, host_support)
+    digest = validate_resume_manifest(
+        Path(manifest), paths, source_dir, archive, identity, host_support,
+        {"rustc": rustc_version},
+    )
 print(digest)
 PY
 }
@@ -392,7 +457,7 @@ else
     printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
     bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
         "$build_dir/.config" "$merge_fragment"
-    make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
+    make -C "$source_dir" "${host_make_args[@]}" "RUSTC=$rustc_path" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
 fi
 python3 -B - "$config_validator" "$build_dir/.config" <<'PY'
 import importlib.util, sys
@@ -408,7 +473,7 @@ if [[ "$resume_existing" != 1 ]]; then
     resume_inputs_sha=$(prepare_resume_inputs write) || exit 2
     printf 'Immutable resume input manifest: %s (SHA-256 %s)\n' "$output_dir/resume-inputs.json" "$resume_inputs_sha"
 fi
-make -C "$source_dir" "${host_make_args[@]}" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
+make -C "$source_dir" "${host_make_args[@]}" "RUSTC=$rustc_path" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest "$host_support_after_path"
@@ -438,15 +503,16 @@ kernel_sha=$(shasum -a 256 "$kernel" | awk '{print $1}')
 config_sha=$(shasum -a 256 "$config" | awk '{print $1}')
 printf 'Linux kernel SHA-256: %s\nFinal config SHA-256: %s\n' "$kernel_sha" "$config_sha"
 
-python3 - "$repo_root" "$source_dir" "$source_archive" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$source_identity_json" "$resume_inputs_sha" "$script_path" "$source_verifier" "$build_inputs_helper" "$zoffset_parser" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "$initial_host_support_path" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
+python3 - "$repo_root" "$source_dir" "$source_archive" "$output_dir" "$base_config" "$expected_base_sha" "$version" "$source_makefile_sha_before" "$source_verity_sha_before" "$source_identity_json" "$resume_inputs_sha" "$script_path" "$source_verifier" "$build_inputs_helper" "$zoffset_parser" "$kernel_sha" "$config_sha" "$make_path" "$make_version" "$host_support_root" "$host_support_kind" "$initial_host_support_path" "$rustc_path" "$rustc_sha" "$rustc_version" "${#host_make_args[@]}" "${host_make_args[@]}" <<'PY'
 import hashlib, json, os, sys
 from pathlib import Path
 
 repo, source, source_archive, output, base = map(Path, sys.argv[1:6])
 base_sha, version, makefile_sha, verity_sha, source_identity_json, resume_inputs_sha, builder, verifier, input_helper, zoffset_parser = sys.argv[6:16]
 kernel_sha, config_sha, make_path, make_version, host_root, host_kind, host_manifest_path = sys.argv[16:23]
-host_make_args_count = int(sys.argv[23])
-host_make_args = sys.argv[24 : 24 + host_make_args_count]
+rustc_path, rustc_sha, rustc_version = sys.argv[23:26]
+host_make_args_count = int(sys.argv[26])
+host_make_args = sys.argv[27 : 27 + host_make_args_count]
 if len(host_make_args) != host_make_args_count:
     raise SystemExit("kernel host make argument receipt is truncated")
 
@@ -466,7 +532,7 @@ if (sha(base) != base_sha or sha(kernel) != kernel_sha or sha(config) != config_
         or sha(resume_manifest) != resume_inputs_sha):
     raise SystemExit("build inputs or outputs changed before receipt creation")
 receipt = {
-    "schema": 1,
+    "schema": 2,
     "purpose": "L11-3 development dm-verity kernel; not a signed product kernel",
     "source": {
         "path": str(source),
@@ -501,6 +567,11 @@ receipt = {
         "version": make_version,
         "sha256": sha(Path(make_path)),
     },
+    "rustc": {
+        "path": rustc_path,
+        "version": rustc_version,
+        "sha256": rustc_sha,
+    },
     "host_support": {
         "kind": host_kind,
         "root": host_root or None,
@@ -513,7 +584,8 @@ receipt = {
         },
         "make_overrides": host_make_args,
     },
-    "build_command": [make_path, "-C", str(source), *host_make_args, f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
+    "config_command": [make_path, "-C", str(source), *host_make_args, f"RUSTC={rustc_path}", f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "olddefconfig"],
+    "build_command": [make_path, "-C", str(source), *host_make_args, f"RUSTC={rustc_path}", f"O={output / 'build'}", "ARCH=x86_64", "LLVM=1", "-j4", "bzImage"],
     "source_unchanged_checks": {
         "makefile_sha256_before_after": makefile_sha,
         "dm_verity_target_sha256_before_after": verity_sha,

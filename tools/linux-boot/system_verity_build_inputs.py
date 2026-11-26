@@ -77,20 +77,69 @@ def _host_support_record(path: Path | None) -> dict[str, str | None]:
     return {"path": _canonical_path(path), "sha256": sha256_file(path)}
 
 
+def resume_tool_path(manifest_path: Path, name: str) -> Path:
+    """Read an immutable tool path before validating the full resume manifest."""
+    try:
+        info = manifest_path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise BuildInputError("resume input manifest must be a non-symlink regular file")
+        receipt = json.loads(manifest_path.read_bytes())
+    except FileNotFoundError:
+        raise BuildInputError("resume input manifest is missing; use a new output directory") from None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise BuildInputError("resume input manifest is malformed; use a new output directory") from None
+    if not isinstance(receipt, dict) or receipt.get("schema") != 2:
+        raise BuildInputError("resume input manifest schema is invalid; use a new output directory")
+    inputs = receipt.get("inputs")
+    record = inputs.get(name) if isinstance(inputs, dict) else None
+    path_value = record.get("path") if isinstance(record, dict) else None
+    digest_value = record.get("sha256") if isinstance(record, dict) else None
+    if not isinstance(path_value, str) or not isinstance(digest_value, str):
+        raise BuildInputError(f"resume input manifest has no pinned {name} path")
+    if len(digest_value) != 64 or any(character not in "0123456789abcdef" for character in digest_value):
+        raise BuildInputError(f"resume input manifest has a malformed {name} hash")
+    path = Path(path_value)
+    if not path.is_absolute():
+        raise BuildInputError(f"resume pinned {name} path is not absolute")
+    try:
+        resolved = path.resolve(strict=True)
+        tool_info = resolved.stat()
+    except OSError as error:
+        raise BuildInputError(f"resume pinned {name} path is unavailable: {error}") from None
+    if str(resolved) != path_value or not stat.S_ISREG(tool_info.st_mode) or not os.access(resolved, os.X_OK):
+        raise BuildInputError(f"resume pinned {name} path is not a canonical executable")
+    if sha256_file(resolved) != digest_value:
+        raise BuildInputError(f"resume pinned {name} executable changed")
+    return resolved
+
+
+def _tool_versions_record(tool_versions: dict[str, str]) -> dict[str, str]:
+    if not isinstance(tool_versions, dict) or not tool_versions:
+        raise BuildInputError("build tool versions are missing")
+    records: dict[str, str] = {}
+    for name, version in tool_versions.items():
+        if not isinstance(name, str) or not name.isidentifier() or not isinstance(version, str) or not version:
+            raise BuildInputError("build tool version record is malformed")
+        records[name] = version
+    return dict(sorted(records.items()))
+
+
 def _manifest(
     input_paths: dict[str, Path],
     source_dir: Path,
     archive_path: Path,
     source_identity: dict[str, str],
     host_support_path: Path | None,
+    tool_versions: dict[str, str],
 ) -> dict:
     if not input_paths or any(not isinstance(name, str) for name in input_paths):
         raise BuildInputError("build input set is malformed")
     return {
-        "schema": 1,
+        "schema": 2,
         "inputs": {name: _record(input_paths[name]) for name in sorted(input_paths)},
         "source": _source_record(source_dir, archive_path, source_identity),
         "host_support": _host_support_record(host_support_path),
+        "tool_versions": _tool_versions_record(tool_versions),
     }
 
 
@@ -101,9 +150,10 @@ def write_resume_manifest(
     archive_path: Path,
     source_identity: dict[str, str],
     host_support_path: Path | None,
+    tool_versions: dict[str, str],
 ) -> str:
     payload = (json.dumps(
-        _manifest(input_paths, source_dir, archive_path, source_identity, host_support_path),
+        _manifest(input_paths, source_dir, archive_path, source_identity, host_support_path, tool_versions),
         indent=2,
         sort_keys=True,
     ) + "\n").encode("utf-8")
@@ -134,6 +184,7 @@ def validate_resume_manifest(
     archive_path: Path,
     source_identity: dict[str, str],
     host_support_path: Path | None,
+    tool_versions: dict[str, str],
 ) -> str:
     try:
         info = manifest_path.lstat()
@@ -145,9 +196,9 @@ def validate_resume_manifest(
         raise BuildInputError("resume input manifest is missing; use a new output directory") from None
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise BuildInputError("resume input manifest is malformed; use a new output directory") from None
-    expected = _manifest(input_paths, source_dir, archive_path, source_identity, host_support_path)
+    expected = _manifest(input_paths, source_dir, archive_path, source_identity, host_support_path, tool_versions)
     if receipt != expected:
-        if not isinstance(receipt, dict) or receipt.get("schema") != 1:
+        if not isinstance(receipt, dict) or receipt.get("schema") != 2:
             raise BuildInputError("resume input manifest schema is invalid; use a new output directory")
         expected_inputs = expected["inputs"]
         actual_inputs = receipt.get("inputs")
@@ -160,5 +211,9 @@ def validate_resume_manifest(
             raise BuildInputError("resume pinned Linux source identity changed; use a new output directory")
         if receipt.get("host_support") != expected["host_support"]:
             raise BuildInputError("resume host-support manifest changed; use a new output directory")
+        actual_versions = receipt.get("tool_versions")
+        for name, expected_version in expected["tool_versions"].items():
+            if not isinstance(actual_versions, dict) or actual_versions.get(name) != expected_version:
+                raise BuildInputError(f"resume build tool version changed: {name}; use a new output directory")
         raise BuildInputError("resume input manifest contains unexpected fields; use a new output directory")
     return hashlib.sha256(data).hexdigest()
