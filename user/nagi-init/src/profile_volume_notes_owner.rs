@@ -319,9 +319,7 @@ impl AuthorizedFilesRoot {
         }
         let directory = self
             .revalidation
-            .with_live_session_effect(|| {
-                self.root.duplicate_directory_for_app_process(&app_id)
-            })
+            .with_live_session_effect(|| self.root.duplicate_directory_for_app_process(&app_id))
             .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
             .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
         Ok(AuthorizedAppStorageRoot {
