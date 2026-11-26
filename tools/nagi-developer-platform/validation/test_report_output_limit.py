@@ -179,7 +179,45 @@ class OutputHeadroomTests(unittest.TestCase):
 
 
 README = pathlib.Path(__file__).with_name("README.md")
-TABLE_ROW = re.compile(r"^\s*\|\s*`(?P<name>[a-z_0-9]+)`\s*\|\s*(?P<limit>\d+)\s*\|")
+SECTION = "Report output limit and size headroom"
+TABLE_HEADER = re.compile(
+    r"^\|\s*`--fixture`\s*\|\s*limit \(bytes\)\s*\|\s*JSON bytes \(% of limit\)\s*\|"
+    r"\s*Markdown bytes \(% of limit\)\s*\|$")
+TABLE_SEPARATOR = re.compile(r"^\|(\s*:?-{3,}:?\s*\|){4}$")
+# Any backquoted name is captured (e.g. `ui-invalid`), so unknown names are reported
+# as unknown rows instead of being skipped. Byte cells must parse but are not pinned.
+SIZE_CELL = r"\s*\d+ \(\d+(?:\.\d+)?%\)\s*"
+TABLE_ROW = re.compile(
+    r"^\|\s*`(?P<name>[^`|]+)`\s*\|\s*(?P<limit>\d+)\s*\|" + SIZE_CELL + r"\|"
+    + SIZE_CELL + r"\|$")
+
+
+def size_table_rows(readme_text):
+    """Return `(rows, problems)` for the README size table.
+
+    `rows` is a list of `(name, limit)` in table order. Every line between the
+    separator row and the end of the table must be a well-formed data row; any other
+    line is reported as `unparsable row`.
+    """
+    start = readme_text.find(SECTION)
+    if start < 0:
+        return [], ["section '{}' not found".format(SECTION)]
+    lines = [line.strip() for line in readme_text[start:].splitlines()]
+    header = next((i for i, line in enumerate(lines) if TABLE_HEADER.match(line)), None)
+    if header is None:
+        return [], ["size table header not found"]
+    if header + 1 >= len(lines) or not TABLE_SEPARATOR.match(lines[header + 1]):
+        return [], ["size table separator row missing"]
+    rows, problems = [], []
+    for line in lines[header + 2:]:
+        if not line.startswith("|"):
+            break  # the table ended
+        match = TABLE_ROW.match(line)
+        if match:
+            rows.append((match.group("name"), int(match.group("limit"))))
+        else:
+            problems.append("unparsable row: " + line)
+    return rows, problems
 
 
 def size_table_problems(readme_text):
@@ -188,20 +226,12 @@ def size_table_problems(readme_text):
     Byte counts are host/environment dependent and are deliberately not checked.
     Returns a list of problem strings; empty means the table is in sync.
     """
-    start = readme_text.find("Report output limit and size headroom")
-    if start < 0:
-        return ["section 'Report output limit and size headroom' not found"]
+    parsed, problems = size_table_rows(readme_text)
     rows = {}
-    problems = []
-    for line in readme_text[start:].splitlines():
-        match = TABLE_ROW.match(line)
-        if match:
-            name = match.group("name")
-            if name in rows:
-                problems.append("duplicate row: " + name)
-            rows[name] = int(match.group("limit"))
-        elif rows and not line.strip().startswith("|"):
-            break  # the table ended
+    for name, limit in parsed:
+        if name in rows:
+            problems.append("duplicate row: " + name)
+        rows[name] = limit
     expected = {name: report.MAX_REPORT_BYTES for name in report.FIXTURES}
     expected["all"] = report.MAX_REPORT_BYTES * len(report.FIXTURES)
     for name in sorted(set(expected) - set(rows)):
@@ -233,7 +263,7 @@ class ReadmeSizeTableSyncTests(unittest.TestCase):
         lines = self.readme.splitlines(keepends=True)
         kept = []
         for line in lines:
-            match = TABLE_ROW.match(line)
+            match = TABLE_ROW.match(line.strip())
             if not (match and match.group("name") == name):
                 kept.append(line)
         self.assertEqual(len(kept), len(lines) - 1, "row {} not found exactly once".format(name))
@@ -262,6 +292,39 @@ class ReadmeSizeTableSyncTests(unittest.TestCase):
         self.assertNotEqual(wrong, self.readme)
         self.assertTrue(any(p.startswith("limit mismatch for all")
                             for p in self.check_copy(wrong)))
+
+    def test_table_with_hyphenated_extra_row_fails(self):
+        # Review P2 (round 1): a name outside [a-z_0-9] must not be skipped silently.
+        extra = self.readme.replace(
+            "  | `all` |",
+            "  | `ui-invalid` | 131072 | 4592 (3.5%) | 2851 (2.2%) |\n  | `all` |", 1)
+        self.assertNotEqual(extra, self.readme)
+        problems = self.check_copy(extra)
+        self.assertIn("unknown row: ui-invalid", problems)
+        self.assertNotEqual(problems, [])
+
+    def test_table_with_unparsable_row_fails(self):
+        for bad in ("  | ui_invalid | 131072 | 4592 (3.5%) | 2851 (2.2%) |",
+                    "  | `ghost` | 131072 |",
+                    "  | `ghost` | many | 1 (0.0%) | 1 (0.0%) |",
+                    "  | `ghost` | 131072 | 1 | 1 (0.0%) |"):
+            with self.subTest(row=bad):
+                text = self.readme.replace("  | `all` |", bad + "\n  | `all` |", 1)
+                self.assertNotEqual(text, self.readme)
+                problems = self.check_copy(text)
+                self.assertIn("unparsable row: " + bad.strip(), problems)
+
+    def test_table_without_header_or_separator_fails(self):
+        header = ("| `--fixture` | limit (bytes) | JSON bytes (% of limit) "
+                  "| Markdown bytes (% of limit) |")
+        self.assertIn(header, self.readme)
+        no_header = self.readme.replace(header, "| fixture | limit | json | md |", 1)
+        self.assertIn("size table header not found", self.check_copy(no_header))
+        no_separator = self.readme.replace("|---|---:|---:|---:|", "", 1)
+        self.assertNotEqual(no_separator, self.readme)
+        problems = self.check_copy(no_separator)
+        self.assertIn("size table separator row missing", problems)
+        self.assertIn("missing row: ui_invalid", problems)
 
 
 if __name__ == "__main__":

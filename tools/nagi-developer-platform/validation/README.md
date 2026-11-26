@@ -610,7 +610,10 @@ reports, and 2 for invalid arguments.
   and fail if a fixture grows past that. The ratio is a PROVISIONAL assumption chosen
   to leave room for growth, not an approved contract; adjust the constant in the test
   if the format legitimately grows. Measured on 2026-11-27 (9 fixtures; macOS arm64 host,
-  Python 3.9.6; UTF-8 bytes of `main()` stdout; every run exited 0):
+  Python 3.9.6; UTF-8 bytes of `main()` stdout). `ui_invalid` and `all` exited 1 and the
+  other eight fixtures exited 0: the exit code only reflects `failed` checks (the
+  `ui_invalid` report contains one, and `all` inherits it), never `report_output_limit`,
+  and the headroom tests accept 0 or 1:
 
   | `--fixture` | limit (bytes) | JSON bytes (% of limit) | Markdown bytes (% of limit) |
   |---|---:|---:|---:|
@@ -630,7 +633,10 @@ reports, and 2 for invalid arguments.
   not this table, is the check. The one thing the test checks about the table is its
   shape (NDP-A026): its fixture rows are exactly `report.FIXTURES` plus `all`, and its
   limit column equals `MAX_REPORT_BYTES` (`all`: times `len(FIXTURES)`); the byte counts
-  are not pinned. Host-only, not Nagi target acceptance.
+  are not pinned. Every line after the header and separator rows, up to the end of the
+  table, must be a well-formed data row: an unknown name (such as `ui-invalid`) is an
+  `unknown row` and a malformed line is an `unparsable row`, never silently skipped.
+  Host-only, not Nagi target acceptance.
 
 ## Evidence and remaining scope — 2026-11-17
 
