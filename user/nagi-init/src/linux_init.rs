@@ -12716,20 +12716,19 @@ mod linux_process_resource_tests {
                         NamespaceIdentity,
                         Option<NamespaceIdentity>,
                     );
-                    let namespaces =
-                        match (|| -> io::Result<NamespaceSnapshot> {
-                            Ok((
-                                namespace_identity(&child_namespace_root.join("pid"))?,
-                                namespace_identity(&child_namespace_root.join("mnt"))?,
-                                optional_namespace_identity(&child_namespace_root.join("user"))?,
-                            ))
-                        })() {
-                            Ok(namespaces) => namespaces,
-                            Err(error) => {
-                                eprintln!("failed to read child namespaces before exec: {error}");
-                                return Err(BackendError::ProtocolViolation);
-                            }
-                        };
+                    let namespaces = match (|| -> io::Result<NamespaceSnapshot> {
+                        Ok((
+                            namespace_identity(&child_namespace_root.join("pid"))?,
+                            namespace_identity(&child_namespace_root.join("mnt"))?,
+                            optional_namespace_identity(&child_namespace_root.join("user"))?,
+                        ))
+                    })() {
+                        Ok(namespaces) => namespaces,
+                        Err(error) => {
+                            eprintln!("failed to read child namespaces before exec: {error}");
+                            return Err(BackendError::ProtocolViolation);
+                        }
+                    };
                     if namespaces.0 == parent_pid_namespace
                         || namespaces.1 == parent_mount_namespace
                         || namespaces.2 != parent_user_namespace
