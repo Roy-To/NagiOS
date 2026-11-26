@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "purpose": "L11-4 Linux 0.1 x86_64 development kernel input",
+  "selection": {
+    "decision": "DEC-077",
+    "selection_date": "2026-11-25",
+    "series_policy": "LTS",
+    "version": "6.18.65",
+    "upstream_release_date": "2026-11-23",
+    "selection_basis": "kernel.org listed 6.18.65 as the current longterm release on the selection date",
+    "series_projected_end_of_support": "2028-12"
+  },
+  "source": {
+    "project": "Linux kernel",
+    "version": "6.18.65",
+    "archive": "linux-6.18.65.tar.xz",
+    "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.65.tar.xz",
+    "size_bytes": 155483608,
+    "sha256": "c92606f956f09dc50b5a0e2af9e86763fce27ada1647de97f8d1ac8cfc95801d",
+    "local_archive_sha256_matches_upstream_list": true,
+    "upstream_checksums_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc",
+    "upstream_checksums_sha256": "1a0155ed6f79651fdb1a55eaeee9cb3d2d4b35b61fc539f6bbdcb4f4de49b190",
+    "detached_signature": {
+      "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.65.tar.sign",
+      "signer": "Greg Kroah-Hartman",
+      "expected_fingerprint": "647F28654894E3BD457199BE38DBBDC86092693E",
+      "verification_command": "xz -cd linux-6.18.65.tar.xz | gpg --verify linux-6.18.65.tar.sign -",
+      "verified_during_generation": false
+    },
+    "downstream_patches": []
+  },
+  "configuration": {
+    "architecture": "x86_64",
+    "kbuild_arch": "x86",
+    "base_defconfig": "arch/x86/configs/x86_64_defconfig",
+    "base_defconfig_sha256": "f157c1c162578abba4d6e9490aef0588e26aaa2331f47023fda03c42e7c66f02",
+    "fragment": "nagi-x86_64.config.fragment",
+    "fragment_sha256": "09bf9a090749fa27564e34d9f9ae5b80a4c6993c214502ac99c70853a1d7f707",
+    "full_config": "x86_64.config",
+    "full_config_sha256": "197864794fa2c650f3e920b59656d3d9c765a37ced889af30c53ee2abf9e56c9",
+    "generation": [
+      "make ARCH=x86 x86_64_defconfig",
+      "scripts/kconfig/merge_config.sh -m .config nagi-x86_64.config.fragment",
+      "make ARCH=x86 olddefconfig",
+      "make ARCH=x86 kernelrelease"
+    ],
+    "required_symbols": {
+      "CONFIG_BLK_DEV_INITRD": "y",
+      "CONFIG_BINFMT_ELF": "y",
+      "CONFIG_VIRTIO_BLK": "y",
+      "CONFIG_EXT4_FS": "y",
+      "CONFIG_DM_VERITY": "y",
+      "CONFIG_SECURITY_LANDLOCK": "y",
+      "CONFIG_LSM": "landlock,lockdown,yama,loadpin,safesetid,selinux,smack,tomoyo,apparmor,ipe,bpf",
+      "CONFIG_NAMESPACES": "y",
+      "CONFIG_TMPFS": "y"
+    },
+    "local_generation_environment": {
+      "host": "Darwin arm64",
+      "gnu_make": "4.4.1",
+      "host_compiler": "Apple clang 21.0.4",
+      "linker_for_kconfig_checks": "LLD 19.1.7"
+    },
+    "config_result": "kernelrelease reported 6.18.65; all 35 fragment entries resolved by olddefconfig"
+  },
+  "acceptance": {
+    "kernel_build_performed": false,
+    "qemu_started": false,
+    "linux_image_acceptance": false
+  }
+}
