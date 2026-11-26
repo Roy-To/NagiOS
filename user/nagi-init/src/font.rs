@@ -1,16 +1,14 @@
+#[cfg(target_arch = "x86_64")]
 use core::arch::asm;
-
-#[cfg(target_os = "linux")]
-#[path = "linux_console_glyphs.rs"]
-mod linux_console_glyphs;
 
 use libnagi::{SURFACE_HEIGHT, SURFACE_WIDTH};
 
 const LATIN_GLYPH_WIDTH: i32 = 6;
-const GLYPH_HEIGHT: i32 = 7;
+#[cfg(target_arch = "x86_64")]
+const GLYPH_HEIGHT: usize = 7;
 const LATIN_CELL_WIDTH: i32 = 7;
-const JAPANESE_GLYPH_WIDTH: i32 = 7;
-const JAPANESE_CELL_WIDTH: i32 = 8;
+const JAPANESE_GLYPH_WIDTH: i32 = 9;
+const JAPANESE_CELL_WIDTH: i32 = 10;
 const GLYPH_COUNT: usize = 63;
 
 #[no_mangle]
@@ -80,244 +78,160 @@ static NAGI_FONT_GLYPHS: [[u8; 8]; GLYPH_COUNT] = [
     [b'*', 0x00, 0x08, 0x2a, 0x1c, 0x2a, 0x08, 0x00],
 ];
 
+#[path = "font_japanese_generated.rs"]
+mod generated;
+
+#[derive(Clone, Copy)]
+enum Glyph {
+    Latin([u8; 7]),
+    Japanese([u16; 9]),
+}
+
 #[inline(never)]
 pub fn draw_utf8(surface: &mut [u32], x: i32, y: i32, text: &[u8], color: u32) -> i32 {
     let mut index = 0;
     let mut cursor = x;
     while index < text.len() {
-        let first = unsafe { *text.as_ptr().add(index) };
-        if first < 0x80 {
-            draw_glyph(surface, cursor, y, glyph(first), LATIN_GLYPH_WIDTH, color);
-            cursor += LATIN_CELL_WIDTH;
-            index += 1;
-        } else if first == 0xe3 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0x81, 0x82] => Some([0x04, 0x3e, 0x04, 0x1c, 0x2a, 0x1a, 0x0e]), // あ
-                [0x82, 0xab] => Some([0x10, 0x7e, 0x12, 0x12, 0x22, 0x22, 0x4c]), // カ
-                [0x82, 0xa6] => Some([0x08, 0x7e, 0x42, 0x02, 0x04, 0x08, 0x30]), // ウ
-                [0x83, 0xb3] => Some([0x40, 0x20, 0x02, 0x02, 0x04, 0x08, 0x70]), // ン
-                [0x83, 0xad] => Some([0x00, 0x7e, 0x42, 0x42, 0x42, 0x7e, 0x00]), // ロ
-                [0x83, 0x83] => Some([0x00, 0x00, 0x2a, 0x2a, 0x02, 0x04, 0x18]), // ッ
-                [0x83, 0x91] => Some([0x05, 0x22, 0x22, 0x22, 0x22, 0x41, 0x41]), // パ
-                [0x83, 0xaf] => Some([0x7e, 0x42, 0x42, 0x02, 0x04, 0x08, 0x30]), // ワ
-                [0x83, 0x89] => Some([0x25, 0x20, 0x20, 0x38, 0x24, 0x20, 0x20]), // ド
-                [0x81, 0xae] => Some([0x1c, 0x2a, 0x4a, 0x4a, 0x52, 0x24, 0x00]), // の
-                [0x81, 0xbf] => Some([0x38, 0x08, 0x12, 0x3f, 0x52, 0x24, 0x08]), // み
-                [0x82, 0xa2] => Some([0x7e, 0x02, 0x14, 0x18, 0x10, 0x10, 0x20]), // ア
-                [0x82, 0xaf] => Some([0x10, 0x3e, 0x22, 0x42, 0x04, 0x08, 0x30]), // ク
-                [0x82, 0xbb] => Some([0x20, 0x20, 0x7e, 0x22, 0x24, 0x20, 0x1e]), // セ
-                [0x83, 0x97] => Some([0x7d, 0x05, 0x02, 0x02, 0x04, 0x08, 0x30]), // プ
-                [0x83, 0xaa] => Some([0x42, 0x42, 0x42, 0x42, 0x02, 0x04, 0x18]), // リ
-                [0x82, 0xa1] => Some([0x08, 0x3e, 0x08, 0x08, 0x04, 0x04, 0x08]), // ァ
-                [0x82, 0xa4] => Some([0x08, 0x10, 0x10, 0x30, 0x10, 0x10, 0x10]), // イ
-                [0x82, 0xb7] => Some([0x20, 0x48, 0x04, 0x08, 0x10, 0x24, 0x42]), // シ
-                [0x82, 0xb9] => Some([0x7e, 0x02, 0x04, 0x08, 0x18, 0x24, 0x42]), // ス
-                [0x83, 0xa1] => Some([0x10, 0x2a, 0x1c, 0x08, 0x14, 0x22, 0x00]), // メ
-                [0x83, 0xa2] => Some([0x7e, 0x08, 0x3e, 0x08, 0x08, 0x08, 0x30]), // モ
-                [0x83, 0x86] => Some([0x7e, 0x08, 0x7c, 0x08, 0x08, 0x08, 0x10]), // テ
-                [0x83, 0x88] => Some([0x08, 0x08, 0x08, 0x3e, 0x08, 0x08, 0x08]), // ト
-                [0x83, 0x8e] => Some([0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3c]), // ノ
-                [0x83, 0x95] => Some([0x7e, 0x02, 0x02, 0x02, 0x04, 0x08, 0x10]), // フ
-                [0x83, 0xa0] => Some([0x08, 0x08, 0x08, 0x14, 0x14, 0x22, 0x42]), // ム
-                [0x83, 0xab] => Some([0x42, 0x42, 0x42, 0x42, 0x42, 0x44, 0x38]), // ル
-                [0x83, 0xbc] => Some([0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00]), // ー
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe4 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0xb8, 0xad] => Some([0x08, 0x08, 0x7f, 0x49, 0x49, 0x7f, 0x08]), // 中
-                [0xbd, 0x9c] => Some([0x14, 0x3f, 0x54, 0x17, 0x14, 0x17, 0x14]), // 作
-                [0xbb, 0xa5] => Some([0x22, 0x22, 0x22, 0x22, 0x2a, 0x34, 0x22]), // 以
-                [0xb8, 0x8a] => Some([0x08, 0x08, 0x0e, 0x08, 0x08, 0x08, 0x7f]), // 上
-                [0xb8, 0x8d] => Some([0x7f, 0x08, 0x18, 0x2c, 0x4a, 0x08, 0x08]), // 不
-                [0xb8, 0x80] => Some([0x00, 0x00, 0x00, 0x7f, 0x00, 0x00, 0x00]), // 一
-                [0xbb, 0x8a] => Some([0x08, 0x14, 0x22, 0x5d, 0x04, 0x08, 0x10]), // 今
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe6 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0x8a, 0x9e] => Some([0x3e, 0x04, 0x7f, 0x24, 0x3e, 0x04, 0x0c]), // 択
-                [0xa9, 0x9f] => Some([0x2a, 0x7d, 0x2a, 0x77, 0x2a, 0x6f, 0x29]), // 機
-                [0x88, 0x90] => Some([0x0a, 0x7f, 0x48, 0x7a, 0x54, 0x5a, 0x11]), // 成
-                [0x96, 0x87] => Some([0x08, 0x7f, 0x22, 0x14, 0x08, 0x14, 0x63]), // 文
-                [0x8b, 0x92] => Some([0x2f, 0x78, 0x2f, 0x29, 0x6f, 0x28, 0x6f]), // 拒
-                [0xa8, 0xa9] => Some([0x24, 0x7e, 0x34, 0x6e, 0x24, 0x2e, 0x24]), // 権
-                [0x97, 0xa5] => Some([0x7e, 0x48, 0x7e, 0x48, 0x7e, 0x48, 0x7e]), // 日
-                [0x9c, 0xac] => Some([0x42, 0x7e, 0x52, 0x7e, 0x52, 0x7e, 0x42]), // 本
-                [0x9c, 0xab] => Some([0x08, 0x08, 0x7f, 0x08, 0x18, 0x28, 0x48]), // 末
-                [0x9e, 0xa1] => Some([0x7e, 0x48, 0x7e, 0x48, 0x7e, 0x48, 0x7e]), // 語
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe5 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0xae, 0x9a] => Some([0x08, 0x3e, 0x08, 0x1c, 0x2a, 0x08, 0x7f]), // 定
-                [0xbe, 0x85] => Some([0x24, 0x4e, 0x24, 0x5f, 0x22, 0x5f, 0x26]), // 待
-                [0x90, 0x8d] => Some([0x10, 0x3e, 0x44, 0x28, 0x7e, 0x22, 0x3e]), // 名
-                [0x89, 0x8d] => Some([0x22, 0x7f, 0x00, 0x75, 0x55, 0x75, 0x57]), // 前
-                [0x86, 0x8d] => Some([0x7f, 0x08, 0x3e, 0x2a, 0x7f, 0x22, 0x26]), // 再
-                [0xad, 0x97] => Some([0x08, 0x7f, 0x41, 0x1e, 0x04, 0x7f, 0x0c]), // 字
-                [0x8f, 0xaf] => Some([0x7f, 0x02, 0x72, 0x52, 0x72, 0x02, 0x06]), // 可
-                [0x90, 0xa6] => Some([0x7f, 0x08, 0x1c, 0x2a, 0x7f, 0x22, 0x3e]), // 否
-                [0x9b, 0x9e] => Some([0x7f, 0x41, 0x5d, 0x55, 0x5d, 0x41, 0x7f]), // 回
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe7 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0xae, 0x97] => Some([0x08, 0x7f, 0x2a, 0x7f, 0x08, 0x3e, 0x08]), // 算
-                [0xa2, 0xba] => Some([0x7a, 0x22, 0x3f, 0x6a, 0x2f, 0x2a, 0x3f]), // 確
-                [0xab, 0xaf] => Some([0x28, 0x7e, 0x28, 0x3e, 0x2a, 0x3e, 0x2a]), // 端
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe8 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0xa8, 0x80] => Some([0x7f, 0x00, 0x3e, 0x00, 0x3e, 0x00, 0x7f]), // 言
-                [0xa7, 0xa3] => Some([0x6f, 0x5a, 0x6f, 0x54, 0x7f, 0x5a, 0x6a]), // 解
-                [0xaa, 0x8d] => Some([0x4e, 0x0a, 0x6b, 0x0a, 0x6d, 0x00, 0x6a]), // 認
-                [0xa9, 0xa6] => Some([0x42, 0x1f, 0x62, 0x1e, 0x6a, 0x0a, 0x6f]), // 試
-                [0xa1, 0x8c] => Some([0x1e, 0x20, 0x5f, 0x12, 0x32, 0x52, 0x16]), // 行
-                [0x87, 0xb4] => Some([0x72, 0x2f, 0x52, 0x7a, 0x26, 0x26, 0x79]), // 致
-                [0xa8, 0x88] => Some([0x48, 0x7e, 0x08, 0x3e, 0x08, 0x08, 0x08]), // 計
-                [0xa8, 0xad] => Some([0x48, 0x7e, 0x12, 0x7e, 0x08, 0x36, 0x49]), // 設
-                [0xa8, 0xb1] => Some([0x48, 0x1e, 0x6a, 0x1f, 0x64, 0x1f, 0x64]), // 許
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else if first == 0xe9 && index + 2 < text.len() {
-            let second = unsafe { *text.as_ptr().add(index + 1) };
-            let third = unsafe { *text.as_ptr().add(index + 2) };
-            let glyph = match [second, third] {
-                [0x81, 0xb8] => Some([0x3e, 0x12, 0x7f, 0x2a, 0x3e, 0x08, 0x1c]), // 選
-                [0x99, 0xa4] => Some([0x64, 0x5a, 0x6e, 0x44, 0x6f, 0x55, 0x65]), // 除
-                [0x99, 0x90] => Some([0x6e, 0x4a, 0x6e, 0x4a, 0x6e, 0x4a, 0x55]), // 限
-                _ => None,
-            };
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                glyph.unwrap_or(JAPANESE_REPLACEMENT),
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 3;
-        } else {
-            draw_glyph(
-                surface,
-                cursor,
-                y,
-                JAPANESE_REPLACEMENT,
-                JAPANESE_GLYPH_WIDTH,
-                color,
-            );
-            cursor += JAPANESE_CELL_WIDTH;
-            index += 1;
+        let (character, length) = decode_utf8(text, index);
+        match glyph_for_char(character) {
+            Some(Glyph::Latin(rows)) => {
+                draw_bitmap(
+                    surface,
+                    cursor,
+                    y,
+                    rows.map(u16::from),
+                    LATIN_GLYPH_WIDTH,
+                    color,
+                );
+                cursor += LATIN_CELL_WIDTH;
+            }
+            Some(Glyph::Japanese(rows)) => {
+                draw_bitmap(surface, cursor, y, rows, JAPANESE_GLYPH_WIDTH, color);
+                cursor += JAPANESE_CELL_WIDTH;
+            }
+            None if character.is_ascii() => {
+                draw_bitmap(
+                    surface,
+                    cursor,
+                    y,
+                    ASCII_REPLACEMENT.map(u16::from),
+                    LATIN_GLYPH_WIDTH,
+                    color,
+                );
+                cursor += LATIN_CELL_WIDTH;
+            }
+            None => {
+                draw_bitmap(
+                    surface,
+                    cursor,
+                    y,
+                    JAPANESE_REPLACEMENT,
+                    JAPANESE_GLYPH_WIDTH,
+                    color,
+                );
+                cursor += JAPANESE_CELL_WIDTH;
+            }
         }
+        index += length;
     }
     cursor
 }
 
-const ASCII_REPLACEMENT: [u8; 7] = [0x3e, 0x22, 0x2a, 0x22, 0x2a, 0x22, 0x3e];
-const JAPANESE_REPLACEMENT: [u8; 7] = [0x7e, 0x42, 0x5a, 0x42, 0x5a, 0x42, 0x7e];
-
-fn draw_glyph(surface: &mut [u32], x: i32, y: i32, rows: [u8; 7], width: i32, color: u32) {
-    let mut row = 0;
-    while row < GLYPH_HEIGHT {
-        let mut column = 0;
-        while column < width {
-            if rows[row as usize] & (1 << (width - 1 - column)) != 0 {
-                let pixel_x = x + column;
-                let pixel_y = y + row;
-                if pixel_x >= 0
-                    && pixel_x < SURFACE_WIDTH as i32
-                    && pixel_y >= 0
-                    && pixel_y < SURFACE_HEIGHT as i32
-                {
-                    let index = pixel_y as usize * SURFACE_WIDTH as usize + pixel_x as usize;
-                    unsafe {
-                        core::ptr::write(surface.as_mut_ptr().add(index), color);
-                    }
-                }
-            }
-            column += 1;
-        }
-        row += 1;
+pub(crate) fn advance_for_char(character: char) -> i32 {
+    if character.is_ascii() {
+        LATIN_CELL_WIDTH
+    } else {
+        JAPANESE_CELL_WIDTH
     }
 }
 
+fn glyph_for_char(character: char) -> Option<Glyph> {
+    if character.is_ascii() {
+        let byte = character as u8;
+        if let Some(rows) = glyph(byte) {
+            return Some(Glyph::Latin(rows));
+        }
+        return generated::ASCII_FALLBACK_GLYPHS
+            .binary_search_by_key(&byte, |(value, _)| *value)
+            .ok()
+            .map(|index| Glyph::Latin(generated::ASCII_FALLBACK_GLYPHS[index].1));
+    }
+
+    let codepoint = character as u32;
+    generated::JAPANESE_GLYPHS
+        .binary_search_by_key(&codepoint, |(value, _)| *value)
+        .ok()
+        .map(|index| Glyph::Japanese(generated::JAPANESE_GLYPHS[index].1))
+}
+
+fn decode_utf8(bytes: &[u8], index: usize) -> (char, usize) {
+    let first = bytes[index];
+    if first < 0x80 {
+        return (first as char, 1);
+    }
+
+    let (length, mut codepoint, minimum) = match first {
+        0xc2..=0xdf => (2, u32::from(first & 0x1f), 0x80),
+        0xe0..=0xef => (3, u32::from(first & 0x0f), 0x800),
+        0xf0..=0xf4 => (4, u32::from(first & 0x07), 0x10000),
+        _ => return (char::REPLACEMENT_CHARACTER, 1),
+    };
+    if index + length > bytes.len() {
+        return (char::REPLACEMENT_CHARACTER, 1);
+    }
+    for offset in 1..length {
+        let continuation = bytes[index + offset];
+        if continuation & 0xc0 != 0x80 {
+            return (char::REPLACEMENT_CHARACTER, 1);
+        }
+        codepoint = (codepoint << 6) | u32::from(continuation & 0x3f);
+    }
+    if codepoint < minimum || (0xd800..=0xdfff).contains(&codepoint) || codepoint > 0x10ffff {
+        return (char::REPLACEMENT_CHARACTER, 1);
+    }
+    (
+        char::from_u32(codepoint).unwrap_or(char::REPLACEMENT_CHARACTER),
+        length,
+    )
+}
+
+const ASCII_REPLACEMENT: [u16; 7] = [0x3e, 0x22, 0x2a, 0x22, 0x2a, 0x22, 0x3e];
+const JAPANESE_REPLACEMENT: [u16; 9] = [
+    0x1ff, 0x101, 0x155, 0x101, 0x155, 0x101, 0x1ff, 0x000, 0x000,
+];
+
+fn draw_bitmap<const HEIGHT: usize>(
+    surface: &mut [u32],
+    x: i32,
+    y: i32,
+    rows: [u16; HEIGHT],
+    width: i32,
+    color: u32,
+) {
+    for (row, bits) in rows.into_iter().enumerate() {
+        for column in 0..width {
+            if bits & (1 << (width - 1 - column)) == 0 {
+                continue;
+            }
+            let pixel_x = x + column;
+            let pixel_y = y + row as i32;
+            if pixel_x >= 0
+                && pixel_x < SURFACE_WIDTH as i32
+                && pixel_y >= 0
+                && pixel_y < SURFACE_HEIGHT as i32
+            {
+                let index = pixel_y as usize * SURFACE_WIDTH as usize + pixel_x as usize;
+                unsafe {
+                    core::ptr::write(surface.as_mut_ptr().add(index), color);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
 #[inline(never)]
-fn glyph(byte: u8) -> [u8; 7] {
+fn glyph(byte: u8) -> Option<[u8; 7]> {
     let base: *const u8;
     unsafe {
         asm!(
@@ -332,17 +246,184 @@ fn glyph(byte: u8) -> [u8; 7] {
         if unsafe { core::ptr::read_volatile(entry) } == byte {
             let mut rows = [0_u8; 7];
             let mut row = 0;
-            while row < 7 {
+            while row < GLYPH_HEIGHT {
                 rows[row] = unsafe { core::ptr::read_volatile(entry.add(row + 1)) };
                 row += 1;
             }
-            return rows;
+            return Some(rows);
         }
         index += 1;
     }
-    #[cfg(target_os = "linux")]
-    if let Some(rows) = linux_console_glyphs::glyph(byte) {
-        return rows;
+    None
+}
+
+// The native bitmap renderer is also compiled directly into its host-only
+// regression harness on the developer's non-x86 macOS host. The production
+// Nagi target remains x86_64 and keeps the original assembly lookup above.
+#[cfg(not(target_arch = "x86_64"))]
+#[inline(never)]
+fn glyph(byte: u8) -> Option<[u8; 7]> {
+    NAGI_FONT_GLYPHS.iter().find_map(|entry| {
+        if entry[0] != byte {
+            return None;
+        }
+        let mut rows = [0; 7];
+        rows.copy_from_slice(&entry[1..]);
+        Some(rows)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{advance_for_char, draw_utf8, glyph_for_char, Glyph};
+    use libnagi::{SURFACE_HEIGHT, SURFACE_WIDTH};
+
+    const MAIN_JA: &str = include_str!("../../nagi-localization/locales/ja-JP.lang");
+    const NOTES_JA: &str = include_str!("../../nagi-notes/locales/ja-JP.properties");
+    const FILES_JA: &str = include_str!("../../../apps/nagi-files/locales/ja-JP.properties");
+    const I18N_JA: &str = include_str!("../../../crates/nagi-i18n/locales/ja-JP.json");
+    const INK: u32 = 0xffff_ffff;
+
+    fn catalog_values(source: &str, output: &mut Vec<String>) {
+        output.extend(source.lines().filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            line.split_once('=')
+                .map(|(_, value)| value.trim().to_owned())
+        }));
     }
-    ASCII_REPLACEMENT
+
+    fn json_message_values(source: &str, output: &mut Vec<String>) {
+        let mut messages_started = false;
+        for line in source.lines() {
+            let line = line.trim();
+            if !messages_started {
+                if line.starts_with("\"messages\"") {
+                    messages_started = true;
+                }
+                continue;
+            }
+            if line == "}" {
+                break;
+            }
+            if let Some((_, value)) = line.split_once(':') {
+                let value = value.trim().trim_end_matches(',').trim();
+                if value.starts_with('"') && value.ends_with('"') {
+                    output.push(value[1..value.len() - 1].to_owned());
+                }
+            }
+        }
+    }
+
+    fn clear_glyph_area(surface: &mut [u32]) {
+        for row in 0..9 {
+            let start = row * SURFACE_WIDTH as usize;
+            surface[start..start + 10].fill(0);
+        }
+    }
+
+    #[test]
+    fn every_japanese_0_1_ui_string_and_calendar_date_renders_without_missing_glyphs() {
+        let mut values = Vec::new();
+        let before_main = values.len();
+        catalog_values(MAIN_JA, &mut values);
+        assert!(
+            values.len() - before_main >= 100,
+            "main ja-JP UI catalog was not loaded"
+        );
+        let before_notes = values.len();
+        catalog_values(NOTES_JA, &mut values);
+        assert!(
+            values.len() - before_notes >= 25,
+            "Notes ja-JP catalog was not loaded"
+        );
+        let before_files = values.len();
+        catalog_values(FILES_JA, &mut values);
+        assert!(
+            values.len() - before_files >= 30,
+            "Files ja-JP catalog was not loaded"
+        );
+        let before_i18n = values.len();
+        json_message_values(I18N_JA, &mut values);
+        assert!(
+            values.len() - before_i18n >= 7,
+            "nagi-i18n ja-JP catalog was not loaded"
+        );
+        values.extend(
+            [
+                "日本語",
+                "設定",
+                "パスワード変更",
+                "カレンダー",
+                "ログアウト",
+                "2026年3月5日",
+                "2026年11月23日",
+                "2026年11月24日",
+                "09:00-10:00 event a",
+                "23:00-01:00+ event c",
+                "-23:00-01:00 event b edited",
+                "< Previous",
+                "Next >",
+                "0123456789v<>-:",
+                "表示できません",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        );
+
+        let mut surface = vec![0; SURFACE_WIDTH as usize * SURFACE_HEIGHT as usize];
+        for text in &values {
+            let mut missing = Vec::new();
+            for character in text.chars() {
+                if glyph_for_char(character).is_none() {
+                    missing.push(format!("U+{:04X} {:?}", character as u32, character));
+                }
+            }
+            assert!(
+                missing.is_empty(),
+                "missing glyphs in {text:?}: {missing:?}"
+            );
+
+            surface.fill(0);
+            let final_x = draw_utf8(&mut surface, 0, 0, text.as_bytes(), INK);
+            let expected_advance: i32 = text.chars().map(advance_for_char).sum();
+            assert_eq!(final_x, expected_advance, "advance for {text:?}");
+            if text.chars().any(|character| !character.is_whitespace()) {
+                assert!(
+                    surface.iter().any(|pixel| *pixel == INK),
+                    "nothing drawn for {text:?}"
+                );
+            }
+            for character in text.chars().filter(|character| !character.is_whitespace()) {
+                clear_glyph_area(&mut surface);
+                let mut bytes = [0; 4];
+                let encoded = character.encode_utf8(&mut bytes).as_bytes();
+                let advance = draw_utf8(&mut surface, 0, 0, encoded, INK);
+                assert_eq!(advance, advance_for_char(character));
+                assert!(
+                    surface.iter().any(|pixel| *pixel == INK),
+                    "empty bitmap for U+{:04X} {:?}",
+                    character as u32,
+                    character
+                );
+            }
+        }
+        assert!(
+            values.len() >= 160,
+            "Japanese catalogs were not fully loaded"
+        );
+    }
+
+    #[test]
+    fn unicode_and_calendar_ascii_advance_by_one_character() {
+        let mut surface = vec![0; SURFACE_WIDTH as usize * SURFACE_HEIGHT as usize];
+        assert_eq!(draw_utf8(&mut surface, 0, 0, "日本語".as_bytes(), INK), 30);
+        assert_eq!(draw_utf8(&mut surface, 0, 0, "5v".as_bytes(), INK), 14);
+        assert_eq!(draw_utf8(&mut surface, 0, 0, "a日".as_bytes(), INK), 17);
+        for character in ['5', '6', '7', '8', '9', 'v'] {
+            assert!(matches!(glyph_for_char(character), Some(Glyph::Latin(_))));
+        }
+    }
 }
