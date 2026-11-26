@@ -189,6 +189,7 @@ class Task24ReleaseGateTests(unittest.TestCase):
     def test_rustflags_environment_overrides_are_rejected(self) -> None:
         for name in (
             "RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
@@ -215,6 +216,39 @@ class Task24ReleaseGateTests(unittest.TestCase):
 
         config.write_text("[build]\ntarget = 'x86_64-unknown-linux-musl'\n", encoding="utf-8")
         self.assertEqual(check_rustflags(self.root, env)["cargo_config_override_count"], 0)
+
+    def test_cargo_config_include_is_rejected(self) -> None:
+        config_dir = self.root / ".cargo"
+        config_dir.mkdir()
+        (config_dir / "injected.toml").write_text(
+            '[build]\nrustflags = ["-C", "opt-level=0"]\n', encoding="utf-8"
+        )
+        (config_dir / "config.toml").write_text(
+            'include = ["injected.toml"]\n[unstable]\nconfig-include = true\n',
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(GateError, "config includes are forbidden"):
+            check_rustflags(self.root, self.cargo_env())
+
+    def test_cargo_legacy_config_takes_precedence_over_config_toml(self) -> None:
+        config_dir = self.root / ".cargo"
+        config_dir.mkdir()
+        (config_dir / "config").write_text(
+            "[build]\ntarget = 'x86_64-unknown-linux-musl'\n", encoding="utf-8"
+        )
+        (config_dir / "config.toml").write_text(
+            '[build]\nrustflags = ["-C", "opt-level=0"]\n', encoding="utf-8"
+        )
+
+        result = check_rustflags(self.root, self.cargo_env())
+        self.assertEqual(result["cargo_config_files_checked"], 1)
+        self.assertEqual(result["cargo_config_override_count"], 0)
+
+        (config_dir / "config").write_text(
+            '[build]\nrustflags = ["-C", "debug-assertions=yes"]\n', encoding="utf-8"
+        )
+        with self.assertRaisesRegex(GateError, "Cargo rustflags configuration"):
+            check_rustflags(self.root, self.cargo_env())
 
     def test_unparseable_cargo_config_is_rejected(self) -> None:
         config_dir = self.root / ".cargo"

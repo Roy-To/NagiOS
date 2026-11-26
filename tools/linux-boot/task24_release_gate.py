@@ -26,7 +26,9 @@ EXPECTED_MARKER_COUNT = 5
 VALID_PROFILES = frozenset({"debug", "release"})
 NON_LINKED_TARGET_KINDS = frozenset({"custom-build", "proc-macro"})
 ISOLATED_TARGET_PREFIX = "task24-release-pid1-"
-RUSTFLAGS_ENV_NAME = re.compile(r"(?:^RUSTFLAGS$|^CARGO_ENCODED_RUSTFLAGS$|^CARGO_TARGET_.+_RUSTFLAGS$)")
+RUSTFLAGS_ENV_NAME = re.compile(
+    r"(?:^RUSTFLAGS$|^CARGO_(?:BUILD|ENCODED)_RUSTFLAGS$|^CARGO_TARGET_.+_RUSTFLAGS$)"
+)
 
 
 class GateError(ValueError):
@@ -47,18 +49,26 @@ def _cargo_config_paths(repo_root: Path, env: Mapping[str, str]) -> list[Path]:
     root = repo_root.resolve()
     candidates: list[Path] = []
     for directory in (root, *root.parents):
-        candidates.extend(
-            (
-                directory / ".cargo" / "config.toml",
-                directory / ".cargo" / "config",
-            )
+        cargo_dir = directory / ".cargo"
+        legacy_config = cargo_dir / "config"
+        toml_config = cargo_dir / "config.toml"
+        selected_config = (
+            legacy_config if legacy_config.exists() or legacy_config.is_symlink() else toml_config
         )
+        candidates.append(selected_config)
 
     cargo_home_text = env.get("CARGO_HOME")
     cargo_home = Path(cargo_home_text).expanduser() if cargo_home_text else Path.home() / ".cargo"
     if not cargo_home.is_absolute():
         cargo_home = root / cargo_home
-    candidates.extend((cargo_home / "config.toml", cargo_home / "config"))
+    legacy_home_config = cargo_home / "config"
+    toml_home_config = cargo_home / "config.toml"
+    selected_home_config = (
+        legacy_home_config
+        if legacy_home_config.exists() or legacy_home_config.is_symlink()
+        else toml_home_config
+    )
+    candidates.append(selected_home_config)
 
     unique: list[Path] = []
     seen: set[Path] = set()
@@ -71,6 +81,9 @@ def _cargo_config_paths(repo_root: Path, env: Mapping[str, str]) -> list[Path]:
 
 
 def _config_has_rustflags(document: Mapping[str, Any]) -> bool:
+    if "include" in document:
+        raise GateError("Cargo config includes are forbidden")
+
     build = document.get("build", {})
     if not isinstance(build, dict):
         raise GateError("Cargo config has a malformed [build] table")
