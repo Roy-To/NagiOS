@@ -116,7 +116,7 @@ pub enum Clone3Pid1Child {
     ParentWithoutPidfd { process_id: u32 },
 }
 
-/// Create a service namespace child with an atomically returned pidfd.
+/// Create a child in a fresh PID namespace with an atomically returned pidfd.
 ///
 /// # Safety
 /// The caller must run only its child-side, raw-syscall setup path after the
@@ -173,6 +173,9 @@ fn clone3_x86_64() -> io::Result<Clone3Pid1Child> {
     // forgets its inherited Arc before entering the raw setup path.
     let nonce = Arc::new(());
     let mut pidfd_raw = -1i32;
+    // PID 1 already has the privilege to create the child PID namespace and
+    // establish the mount sandbox before switching to the assigned real UID/GID.
+    // Deliberately share PID 1's user namespace; do not add CLONE_NEWUSER here.
     let args = CloneArgs {
         flags: CLONE_NEWPID | CLONE_PIDFD | CLONE_CLEAR_SIGHAND,
         pidfd: &mut pidfd_raw as *mut i32 as u64,

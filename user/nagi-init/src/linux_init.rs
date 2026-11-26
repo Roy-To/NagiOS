@@ -3262,6 +3262,9 @@ mod linux_x86_64_process {
     const LANDLOCK_ACCESS_FS_IOCTL_DEV: u64 = 1 << 15;
     const LANDLOCK_ACCESS_FS_RESOLVE_UNIX: u64 = 1 << 16;
     const LANDLOCK_KNOWN_ABI_MAX: u32 = 9;
+    // Deny list for namespace changes after setup. CLONE_NEWUSER appears here
+    // only so the child seccomp filter rejects later user-namespace changes;
+    // the initial child clone deliberately requests CLONE_NEWPID only.
     const CLONE_NAMESPACE_FLAGS: usize = CLONE_NEWNS
         | CLONE_NEWTIME
         | CLONE_NEWCGROUP
@@ -12308,6 +12311,19 @@ mod linux_process_resource_tests {
                 .collect()
         }
 
+        fn namespace_identity(path: &std::path::Path) -> io::Result<(u64, u64)> {
+            let metadata = std::fs::metadata(path)?;
+            Ok((metadata.dev(), metadata.ino()))
+        }
+
+        fn optional_namespace_identity(path: &std::path::Path) -> io::Result<Option<(u64, u64)>> {
+            match namespace_identity(path) {
+                Ok(identity) => Ok(Some(identity)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+
         struct AppIsolationFixture {
             root: std::path::PathBuf,
             mounted: bool,
@@ -12601,9 +12617,17 @@ mod linux_process_resource_tests {
                 linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[4],
             ],
         );
+        let parent_pid_namespace = namespace_identity(std::path::Path::new("/proc/self/ns/pid"))
+            .expect("read parent PID namespace identity");
+        let parent_mount_namespace = namespace_identity(std::path::Path::new("/proc/self/ns/mnt"))
+            .expect("read parent mount namespace identity");
+        let parent_user_namespace =
+            optional_namespace_identity(std::path::Path::new("/proc/self/ns/user"))
+                .expect("read parent user namespace identity when supported");
+        let child_namespace_readback = std::cell::RefCell::new(None);
         let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
         let process_id = table
-            .spawn(
+            .spawn_authorized(
                 ProcessLaunch {
                     service: "app-profile-isolation-test",
                     executable: ExecutablePayload::from_package_executable(&executable).unwrap(),
@@ -12617,9 +12641,45 @@ mod linux_process_resource_tests {
                 },
                 || false,
                 |_| Ok(TEST_RECORD),
+                |child_pid, _record, gate| {
+                    // The child remains behind the authorization gate here,
+                    // after PID/mount isolation and app credential setup but
+                    // before its test ELF can run or exit. Compare namespace
+                    // identities without relying on a post-reap /proc race.
+                    let child_namespace_root =
+                        std::path::PathBuf::from(format!("/proc/{child_pid}/ns"));
+                    let namespaces =
+                        (|| -> io::Result<((u64, u64), (u64, u64), Option<(u64, u64)>)> {
+                            Ok((
+                                namespace_identity(&child_namespace_root.join("pid"))?,
+                                namespace_identity(&child_namespace_root.join("mnt"))?,
+                                optional_namespace_identity(&child_namespace_root.join("user"))?,
+                            ))
+                        })();
+                    *child_namespace_readback.borrow_mut() = Some(namespaces);
+                    gate.commit()
+                },
                 no_revoke,
             )
             .expect("spawn app behind its per-app filesystem root");
+
+        let (child_pid_namespace, child_mount_namespace, child_user_namespace) =
+            child_namespace_readback
+                .into_inner()
+                .expect("authorization gate captured child namespaces")
+                .expect("read child namespace identities before exec");
+        assert_ne!(
+            child_pid_namespace, parent_pid_namespace,
+            "app child must have a separate PID namespace"
+        );
+        assert_ne!(
+            child_mount_namespace, parent_mount_namespace,
+            "app child must have a separate mount namespace"
+        );
+        assert_eq!(
+            child_user_namespace, parent_user_namespace,
+            "app child must use PID 1's user namespace, without CLONE_NEWUSER"
+        );
 
         assert!(matches!(
             wait_for_exit(&mut table, process_id),
