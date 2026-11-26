@@ -78,3 +78,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-19 NDP-A019: `ui_unsupported` fixture を追加し、unsupported_format の通しレポート表示・r（PR #204、runnerテスト成功、codexレビューPASS）
 - 11-20 NDP-A020: 移植レポートに自作fixture app_linux（Linux C + GTK Builder、PROVISIONAL（PR #208、runnerテスト成功、codexレビューPASS）
 - 11-26 NDP-A022: 余裕テストを実 `main()` の stdout 測定に変更し、README PROVISIONAL 節に fixtu（PR #279、runnerテスト成功、codexレビューPASS）
+- 11-26 NDP-A023: handover整合テストをMarkdownリンク検査と一時コピーでの失敗確認に強化し、evaluation 73件成功（PR #280、runnerテスト成功、codexレビューPASS）
