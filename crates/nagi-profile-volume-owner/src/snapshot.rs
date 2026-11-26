@@ -2526,10 +2526,11 @@ mod tests {
         let directory = TestDirectory::new(0o700);
         let mut store = DirectoryFdSnapshotStorage::new(directory.duplicate_root()).unwrap();
         let key = ObjectId(58);
-        assert!(matches!(
-            store.compare_and_replace(key, None, b"observed record"),
-            ConditionalWriteOutcome::Applied { .. }
-        ));
+        let ConditionalWriteOutcome::Applied { revision } =
+            store.compare_and_replace(key, None, b"observed record")
+        else {
+            panic!("initial snapshot did not commit");
+        };
         let name = snapshot_name(key);
         let record = fs::read(directory.path.join(&name)).unwrap();
         let lock = lock_root(
@@ -2548,7 +2549,14 @@ mod tests {
             ))
         ));
         drop(lock);
+        assert!(directory.path.join(TAINT_FILE).is_file());
         assert_eq!(store.read(key), Err(SnapshotStorageError::InvalidRoot));
+        assert!(matches!(
+            store.compare_and_replace(key, Some(revision), b"must not publish"),
+            ConditionalWriteOutcome::NotApplied {
+                error: SnapshotStorageError::InvalidRoot
+            }
+        ));
         assert!(matches!(
             DirectoryFdSnapshotStorage::new(directory.duplicate_root()),
             Err(SnapshotStorageError::InvalidRoot)

@@ -170,7 +170,7 @@ jobs:
           export CODEC_CANDIDATE_TMP
           trap 'rm -rf "$CODEC_CANDIDATE_TMP"' EXIT
           cargo test --manifest-path tools/linux-boot/notes-desktop-dev-20261116/notes-codec/Cargo.toml --locked
-      - name: Linux Files PID 1 and owner scope regressions
+      - name: Linux Files PID 1 and profile storage owner regressions
         run: |
           export RUSTFLAGS='--cfg linux_boot_identity_runtime --cfg linux_boot_owner_registration --cfg linux_task24_owner_co_location --cfg linux_task24_initial_login_runtime --cfg linux_task24_notes_consumer --cfg linux_task24_desktop_shell --cfg linux_task24_settings --cfg linux_task24_calendar_app'
           cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
@@ -197,7 +197,12 @@ jobs:
           CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
             --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
             --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu \
-            user_files_root_scopes_normal_io_and_stops_after_end_or_revoke
+            --lib -- notes_object root_lock_still_serializes \
+            mismatched_publication_fences snapshot_creation_uses_private_modes \
+            parent_directory_sync_failure_after_publish user_files_root_scopes_normal_io_and_stops_after_end_or_revoke
+          CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
+            --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+            --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu --doc
       - name: Standalone installer format, lint, and tests
         run: |
           cargo fmt --manifest-path tools/nagi-installer/Cargo.toml -- --check
