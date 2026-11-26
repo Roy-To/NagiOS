@@ -52,12 +52,30 @@ fi
 output_parent=$(cd -- "$(dirname -- "$1")" && pwd)
 output_dir="$output_parent/$(basename -- "$1")"
 script=tools/linux-boot/build_task24_acceptance_elf.sh
+gate_helper=tools/linux-boot/task24_release_gate.py
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 git diff --quiet HEAD -- || {
     echo 'Task24 build requires a clean tracked source tree' >&2
     exit 1
 }
 source_head=$(git rev-parse HEAD)
+export PYTHONDONTWRITEBYTECODE=1
+python3 "$gate_helper" check-rustflags --repo-root "$PWD"
+target_root=${CARGO_TARGET_DIR:-"$PWD/target"}
+isolated_target_dir=$(python3 "$gate_helper" prepare-build-paths \
+    --output-dir "$output_dir" --target-root "$target_root")
+cleanup_isolated_target() {
+    local status=$?
+    trap - EXIT
+    if ! python3 "$gate_helper" cleanup-target \
+        --target-root "$target_root" --isolated-target-dir "$isolated_target_dir"; then
+        status=1
+    fi
+    exit "$status"
+}
+trap cleanup_isolated_target EXIT
+export CARGO_TARGET_DIR="$isolated_target_dir"
+python3 "$gate_helper" check-output --output-dir "$output_dir"
 
 toolchain=nightly-2025-08-01
 target=x86_64-unknown-linux-musl
@@ -97,14 +115,14 @@ sysroot=$("$RUSTC" --print sysroot)
 host=$("$RUSTC" -vV | sed -n 's/^host: //p')
 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="${CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER:-$sysroot/lib/rustlib/$host/bin/rust-lld}"
 
-mkdir -- "$output_dir"
 "$cargo_bin" rustc --manifest-path "$manifest" "${cargo_options[@]}" \
     --target "$target" --no-default-features --features "$features" \
     --bin nagi-init --message-format=json-render-diagnostics -- "${rustc_args[@]}" \
     > "$output_dir/cargo-artifacts.jsonl"
+python3 "$gate_helper" check-output --output-dir "$output_dir" --expected cargo-artifacts.jsonl
 
 python3 - "$output_dir" "$script" "$source_head" "$toolchain" "$target" "$profile" \
-    "$features" "${cfgs[@]}" <<'PY'
+    "$features" "$isolated_target_dir" "${cfgs[@]}" <<'PY'
 import hashlib
 import json
 import os
@@ -112,68 +130,45 @@ import re
 import sys
 from pathlib import Path
 
-path, script, head, toolchain, target, profile, features, *cfgs = sys.argv[1:]
+path, script, head, toolchain, target, profile, features, isolated_target_dir, *cfgs = sys.argv[1:]
 output = Path(path)
 artifact_log = output / "cargo-artifacts.jsonl"
 with artifact_log.open() as stream:
     reports = [json.loads(line) for line in stream]
-binary_artifacts = [
-    report
-    for report in reports
-    if report.get("reason") == "compiler-artifact"
-    and report.get("executable")
-    and report["target"]["name"] == "nagi-init"
-    and report["target"]["kind"] == ["bin"]
-]
-if len(binary_artifacts) != 1:
-    sys.exit("expected exactly one linked Task24 PID 1 ELF")
-binary_artifact = binary_artifacts[0]
+sys.path.insert(0, str(Path(script).resolve().parent))
+from task24_release_gate import (  # noqa: E402
+    EXPECTED_MARKERS,
+    EXPECTED_MARKER_COUNT,
+    check_rustflags,
+    validate_profile,
+    validate_artifacts,
+    validate_marker_counts,
+    validate_output_files,
+)
+
+validate_profile(profile)
+validate_output_files(output, ["cargo-artifacts.jsonl"])
+binary_artifact, artifact_summary, original_executable_path = validate_artifacts(
+    reports, profile, target, Path(isolated_target_dir)
+)
 artifact_profile = binary_artifact.get("profile") or {}
 test_harness = artifact_profile.get("test")
-if not isinstance(test_harness, bool):
-    sys.exit("Cargo did not report whether the PID 1 artifact is a test harness")
-if test_harness:
-    sys.exit("PID 1 was built with Cargo's test harness enabled")
-if profile == "release":
-    opt_level = artifact_profile.get("opt_level")
-    debug_assertions = artifact_profile.get("debug_assertions")
-    if opt_level in (None, "0") or debug_assertions is not False:
-        sys.exit("PID 1 Cargo artifact does not have release profile settings")
-
-test_profile_artifacts = [
-    report
-    for report in reports
-    if report.get("reason") == "compiler-artifact"
-    and (report.get("profile") or {}).get("test") is True
-]
-if test_profile_artifacts:
-    sys.exit("Cargo emitted one or more test-profile artifacts")
-
-data = Path(binary_artifact["executable"]).read_bytes()
+opt_level = artifact_profile.get("opt_level")
+debug_assertions = artifact_profile.get("debug_assertions")
+data = Path(binary_artifact["executable"]).resolve(strict=True).read_bytes()
 if data[:6] != b"\x7fELF\x02\x01" or data[18:20] != b"\x3e\x00":
     sys.exit("Task24 output is not a little-endian x86_64 ELF")
 
-markers = (
-    "nagi.dev_ws10",
-    "NAGI_DEV_WS10",
-    "NAGI_A_INPUT_TO_PRESENT",
-    "NAGI_A_GUEST_MEM",
-    "SYSTEM_DATA_MOUNT",
-)
-counts = {marker: data.count(marker.encode("ascii")) for marker in markers}
+counts = {marker: data.count(marker.encode("ascii")) for marker in EXPECTED_MARKERS}
 for marker, count in counts.items():
     print(f"{marker}: {count}")
-if profile == "release" and any(counts.values()):
-    sys.exit("release ELF retained a Task24 development marker")
-if profile == "debug" and not all(counts.values()):
-    sys.exit("acceptance ELF is missing a Task24 development marker")
-development_marker_total = sum(counts.values())
+development_marker_total = validate_marker_counts(counts, profile)
 print(f"Development-only entry marker total: {development_marker_total}")
 print(
     "Cargo artifact profile: "
-    f"opt_level={artifact_profile.get('opt_level')} "
-    f"debug_assertions={artifact_profile.get('debug_assertions')} "
-    f"test_harness={test_harness} test_profile_artifacts={len(test_profile_artifacts)}"
+    f"opt_level={opt_level} debug_assertions={debug_assertions} "
+    f"test_harness={test_harness} test_profile_artifacts={artifact_summary['test_profile_artifact_count']} "
+    f"checked_linked_artifacts={artifact_summary['linked_artifact_count']}"
 )
 
 public_key = os.environ.get("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
@@ -185,6 +180,7 @@ if len(key) != 32 or not re.fullmatch(r"[0-9a-f]{64}", login_pin or ""):
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
+rustflags_summary = check_rustflags(Path.cwd())
 receipt = {
     "source_head": head,
     "script": {"path": script, "sha256": sha256(Path(script).read_bytes())},
@@ -192,10 +188,20 @@ receipt = {
     "target": target,
     "profile": profile,
     "cargo_artifact_profile": {
-        "opt_level": artifact_profile.get("opt_level"),
-        "debug_assertions": artifact_profile.get("debug_assertions"),
+        "opt_level": opt_level,
+        "debug_assertions": debug_assertions,
         "test_harness": test_harness,
-        "test_profile_artifact_count": len(test_profile_artifacts),
+        "test_profile_artifact_count": artifact_summary["test_profile_artifact_count"],
+        "fresh": binary_artifact["fresh"],
+        "original_executable_path": original_executable_path,
+        "original_executable_path_is_relative_to": "isolated CARGO_TARGET_DIR",
+    },
+    "cargo_artifact_validation": artifact_summary,
+    "rustflags_validation": rustflags_summary,
+    "build_isolation": {
+        "target_dir_isolated_and_empty_at_start": True,
+        "output_dir_fresh_at_start": True,
+        "output_files": ["nagi-init", "build-receipt.json"],
     },
     "features": features.split(","),
     "cfgs": cfgs,
@@ -205,12 +211,17 @@ receipt = {
     "login_package_sha256": login_pin,
     "elf": {"path": "nagi-init", "size_bytes": len(data), "sha256": sha256(data)},
     "development_marker_counts": counts,
+    "development_marker_names": list(EXPECTED_MARKERS),
+    "development_marker_expected_count": EXPECTED_MARKER_COUNT,
     "development_marker_total": development_marker_total,
 }
 elf = output / "nagi-init"
-elf.write_bytes(data)
+with elf.open("xb") as stream:
+    stream.write(data)
 elf.chmod(0o755)
-(output / "build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+with (output / "build-receipt.json").open("x", encoding="utf-8") as stream:
+    stream.write(json.dumps(receipt, indent=2) + "\n")
 artifact_log.unlink()
+validate_output_files(output, ["nagi-init", "build-receipt.json"])
 print(f"Task24 ELF SHA-256: {receipt['elf']['sha256']}")
 PY
