@@ -6,8 +6,8 @@
 //! verified device read-only before the PID 1 lifecycle can start.
 
 use super::{
-    DataMountError, MOUNT_FLAGS, SelectedBlockDevice, ext4_mount_flags, linux_device_major,
-    linux_device_minor, mount_id, open_directory, parse_major_minor,
+    ext4_mount_flags, linux_device_major, linux_device_minor, mount_id, open_directory,
+    parse_major_minor, DataMountError, SelectedBlockDevice, MOUNT_FLAGS,
 };
 use crate::task24_system_mount_identity as system_identity;
 use std::ffi::{CStr, CString};
