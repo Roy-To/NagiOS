@@ -13,6 +13,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 mod linux_data;
 
 #[cfg(target_os = "linux")]
+mod notes_object;
+#[cfg(target_os = "linux")]
+pub use notes_object::{NotesObject, NotesObjectError};
+
+#[cfg(target_os = "linux")]
 mod files_root;
 
 #[cfg(target_os = "linux")]
@@ -436,9 +441,8 @@ impl Drop for ProfileVolumeAppOwner {
 /// Opaque consumer capability tying one retained FD and reserved Notes
 /// ObjectId to the same verified profile-volume attachment.
 ///
-/// There is intentionally no public constructor or deserializer. The hidden
-/// FD duplication method exists only so the Linux Notes codec can install its
-/// descriptor-backed C1 storage backend while retaining this lifecycle token.
+/// There is intentionally no public constructor or deserializer. The Linux
+/// Notes codec uses the reserved object through an owner-scoped view.
 pub struct ProfileVolumeNotesBundle {
     attachment: Arc<VerifiedProfileVolumeAttachment>,
 }
@@ -535,20 +539,14 @@ impl ProfileVolumeNotesBundle {
         Ok(operation())
     }
 
-    /// Duplicate the owner's retained descriptor for the C1 backend. The
-    /// caller must retain this bundle and gate every effect through
-    /// `with_active`; the returned descriptor by itself carries no owner state.
-    #[doc(hidden)]
-    pub(crate) fn duplicate_object_directory(
-        &self,
-    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+    #[cfg(test)]
+    fn duplicate_object_directory(&self) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
         self.with_duplicated_object_directory(|directory| directory)
     }
 
-    /// Keep the attachment lifecycle lock held while the Linux consumer opens
-    /// its C1 root from a duplicate of the retained descriptor.
-    #[doc(hidden)]
-    pub(crate) fn with_duplicated_object_directory<R>(
+    // Used only by the Files process launch handoff and descriptor tests.
+    #[cfg(any(target_os = "linux", test))]
+    fn with_duplicated_object_directory<R>(
         &self,
         operation: impl FnOnce(OwnedFd) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
@@ -561,21 +559,40 @@ impl ProfileVolumeNotesBundle {
         Ok(operation(directory))
     }
 
-    /// Borrow the retained object directory only for one synchronous scope.
-    /// This API does not return an owned descriptor. Consumers must keep
-    /// durable effects behind their own authorized, owner-scoped operation.
+    /// Run one complete Notes operation on the reserved index while the
+    /// owner attachment is active. The caller holds the matching C1 lease.
+    ///
+    /// ```compile_fail
+    /// use nagi_profile_volume_notes_owner::ProfileVolumeNotesBundle;
+    /// use std::{os::fd::AsFd, time::Duration};
+    /// fn retain_descriptor(bundle: &ProfileVolumeNotesBundle) {
+    ///     bundle.with_notes_object(Duration::from_secs(1), |object| {
+    ///         object.as_fd().try_clone_to_owned().unwrap()
+    ///     }).unwrap();
+    /// }
+    /// ```
+    /// ```compile_fail
+    /// use nagi_profile_volume_notes_owner::{NotesObject, ProfileVolumeNotesBundle};
+    /// use std::time::Duration;
+    /// fn retain_object(bundle: &ProfileVolumeNotesBundle) -> NotesObject<'static> {
+    ///     bundle.with_notes_object(Duration::from_secs(1), |object| object).unwrap()
+    /// }
+    /// ```
     #[cfg(target_os = "linux")]
-    pub fn with_borrowed_object_directory<R>(
+    pub fn with_notes_object<R>(
         &self,
-        operation: impl for<'directory> FnOnce(std::os::fd::BorrowedFd<'directory>) -> R,
+        io_budget: std::time::Duration,
+        operation: impl for<'owner> FnOnce(NotesObject<'owner>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
-        let lifecycle = self.attachment.lifecycle()?;
-        if lifecycle.status != AttachmentStatus::Active {
-            return Err(attachment_status_error(lifecycle.status));
-        }
-        Ok(operation(std::os::fd::AsFd::as_fd(
-            &self.attachment.object_directory,
-        )))
+        self.validate_kind(AppStorageKind::Notes)?;
+        self.with_active(|| {
+            operation(NotesObject::new(
+                &self.attachment.object_directory,
+                self.notes_object_id(),
+                self.attachment.allow_initial_index,
+                io_budget,
+            ))
+        })
     }
 
     #[cfg(test)]
@@ -1465,6 +1482,34 @@ mod tests {
             bundle
         });
         (owners, bundles)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn notes_object_scope_rejects_foreign_kind_and_terminal_attachments() {
+        let budget = std::time::Duration::from_secs(1);
+        for (end, terminal) in [
+            (true, ProfileVolumeNotesOwnerError::Ended),
+            (false, ProfileVolumeNotesOwnerError::Revoked),
+        ] {
+            let (mut owners, [notes, settings, calendar]) = app_storage_fixture();
+            assert_eq!(notes.with_notes_object(budget, |_| 1), Ok(1));
+            for other in [settings, calendar] {
+                assert_eq!(
+                    other.with_notes_object(budget, |_| panic!("foreign Notes operation")),
+                    Err::<(), _>(ProfileVolumeNotesOwnerError::ForeignAttachment),
+                );
+            }
+            if end {
+                owners.end().unwrap();
+            } else {
+                owners.revoke().unwrap();
+            }
+            assert_eq!(
+                notes.with_notes_object(budget, |_| panic!("terminal Notes operation")),
+                Err::<(), _>(terminal),
+            );
+        }
     }
 
     #[test]
