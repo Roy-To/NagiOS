@@ -129,10 +129,10 @@ jobs:
       - name: Test host-compatible workspace
         run: |
           cargo test --manifest-path crates/nagi-system-principal-contract/Cargo.toml --locked
-          # These exact cases require real clone3 or root-owned markers.
+          # These exact cases require real clone3, root-owned markers, or privileged mounts.
           # The next required step runs every listed case in a diskless guest.
           mapfile -t guest_only < <(python3 -c 'import json; from pathlib import Path; print(*json.loads(Path("tools/linux-boot/live_pid1_ci_tests.json").read_text()), sep=chr(10))')
-          test "${#guest_only[@]}" -eq 25
+          test "${#guest_only[@]}" -eq 26
           host_args=(--exact)
           for test_name in "${guest_only[@]}"; do host_args+=(--skip "$test_name"); done
           CODEC_CANDIDATE_TMP=$(mktemp -d "$RUNNER_TEMP/nagi-notes-codec.XXXXXX")
