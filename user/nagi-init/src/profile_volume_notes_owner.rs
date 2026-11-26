@@ -93,8 +93,9 @@ impl SelectedDataRoot {
     }
 }
 
-/// Development device identity from the explicit QEMU serial and ext4 UUID.
-/// This is not a product Nagi Volume ID and grants no access.
+/// Development device identity from the observed block-device serial and the
+/// ext4 UUID accepted by the signed development selection. This is not a
+/// product Nagi Volume ID and grants no access.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DevelopmentBootVolumeIdentity {
     device_serial: String,

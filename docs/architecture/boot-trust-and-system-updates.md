@@ -64,9 +64,12 @@ Before the loader uses any payload byte, it verifies the selected slot's
 - **Signature.** The manifest is followed by an Ed25519 signature over
   `"nagi-slot-manifest-v1\0" || text`. The domain separator keeps slot
   signatures distinct from package signatures.
-- **Signer.** The signature is checked against the pinned Developer
-  Preview signer, the published RFC 8032 test key. Production key
-  provisioning is open.
+- **Signer.** The 0.1 Developer Preview reference uses the published RFC 8032
+  test public key to verify its `SLOT.MAN` signature. That test vector is not a
+  product trust anchor. [DEC-087](../product-decisions/DEC-087-tiered-system-trust-and-signature-verification.md)
+  explicitly excludes the old public test key from product use; the concrete
+  Linux product trust anchor and verification chain remain PROVISIONAL. The
+  Developer Preview Data-selection verifier is likewise development-only.
 - **Rollback.** A trial slot must not lower the confirmed slot's rollback
   index.
 - **Payloads.** The kernel and init are checked against the manifest

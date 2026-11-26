@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import boot_acceptance
+import data_boot_config
 import task24_recovery_serials as recovery
 from task24_rfb_automatic import (
     AutomationError,
@@ -512,7 +513,12 @@ def prepare_trial_layout(prepared: PreparedRun, phases: tuple[str, ...]) -> dict
         ):
             raise RunnerError(f"{phase} must have its own real run directory")
         identities.add(identity)
-        outputs = [serial, directory / "qemu.log", directory / "supervisor.log"]
+        outputs = [
+            serial,
+            directory / "qemu.log",
+            directory / "supervisor.log",
+            directory / "initramfs-data-selection.cpio",
+        ]
         if phase == "locale-read":
             outputs += [directory / f"{name}.ppm" for name in L9_FRAME_NAMES]
         for output in outputs:
@@ -717,6 +723,7 @@ def qemu_argv(
         raise RunnerError("automatic Task24 RFB port is outside the supported range")
     phase_data = prepared.phases[phase]
     serial_path: Path = phase_data["serial_path"]
+    selection_initramfs = serial_path.parent / "initramfs-data-selection.cpio"
     paths = [
         qemu.as_posix(),
         prepared.artifacts["kernel"]["path"].as_posix(),
@@ -724,18 +731,22 @@ def qemu_argv(
         prepared.artifacts["system_image"]["path"].as_posix(),
         prepared.data_path.as_posix(),
         serial_path.as_posix(),
+        selection_initramfs.as_posix(),
     ]
     if any("," in value or "\n" in value or "\r" in value for value in paths):
         raise RunnerError("QEMU paths cannot contain commas or line breaks")
     if re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", prepared.data_uuid) is None:
         raise RunnerError("QEMU Data filesystem UUID must be canonical")
+    try:
+        data_boot_config.write_configured_initramfs(
+            prepared.artifacts["initramfs"]["path"],
+            selection_initramfs,
+            prepared.data_uuid,
+        )
+    except (data_boot_config.DataBootConfigError, OSError) as error:
+        raise RunnerError(f"cannot create signed Data selection initramfs ({error})") from None
     data_serial = f"NAGI-DATA-{prepared.data_uuid[:8]}"
-    kernel_cmdline = (
-        "console=ttyS0,115200n8 rdinit=/init "
-        f"nagi.dev_data.boot=identity nagi.dev_data.serial={data_serial} "
-        f"nagi.dev_data.fs_uuid={prepared.data_uuid} "
-        "nagi.dev_data.accounts=accounts nagi.dev_data.snapshots=snapshots"
-    )
+    kernel_cmdline = "console=ttyS0,115200n8 rdinit=/init"
     if previous_l9_session is not None:
         if phase not in L9_RFB_FLOW or phase == "locale-save" or not valid_l9_session_id(previous_l9_session):
             raise RunnerError("invalid L9 predecessor for QEMU")
@@ -757,7 +768,7 @@ def qemu_argv(
         "-kernel",
         prepared.artifacts["kernel"]["path"].as_posix(),
         "-initrd",
-        prepared.artifacts["initramfs"]["path"].as_posix(),
+        selection_initramfs.as_posix(),
         "-append",
         kernel_cmdline,
         "-drive",
