@@ -17,6 +17,9 @@ import contextlib
 import copy
 import io
 import json
+import pathlib
+import re
+import tempfile
 import unittest
 from unittest import mock
 
@@ -173,6 +176,92 @@ class OutputHeadroomTests(unittest.TestCase):
         for fmt in ("json", "markdown"):
             with self.subTest(format=fmt):
                 self.assert_headroom("all", fmt, limit)
+
+
+README = pathlib.Path(__file__).with_name("README.md")
+TABLE_ROW = re.compile(r"^\s*\|\s*`(?P<name>[a-z_0-9]+)`\s*\|\s*(?P<limit>\d+)\s*\|")
+
+
+def size_table_problems(readme_text):
+    """Compare the README size table with `report.FIXTURES` (rows and limits only).
+
+    Byte counts are host/environment dependent and are deliberately not checked.
+    Returns a list of problem strings; empty means the table is in sync.
+    """
+    start = readme_text.find("Report output limit and size headroom")
+    if start < 0:
+        return ["section 'Report output limit and size headroom' not found"]
+    rows = {}
+    problems = []
+    for line in readme_text[start:].splitlines():
+        match = TABLE_ROW.match(line)
+        if match:
+            name = match.group("name")
+            if name in rows:
+                problems.append("duplicate row: " + name)
+            rows[name] = int(match.group("limit"))
+        elif rows and not line.strip().startswith("|"):
+            break  # the table ended
+    expected = {name: report.MAX_REPORT_BYTES for name in report.FIXTURES}
+    expected["all"] = report.MAX_REPORT_BYTES * len(report.FIXTURES)
+    for name in sorted(set(expected) - set(rows)):
+        problems.append("missing row: " + name)
+    for name in sorted(set(rows) - set(expected)):
+        problems.append("unknown row: " + name)
+    for name in sorted(set(expected) & set(rows)):
+        if rows[name] != expected[name]:
+            problems.append("limit mismatch for {}: {} != {}".format(
+                name, rows[name], expected[name]))
+    return problems
+
+
+class ReadmeSizeTableSyncTests(unittest.TestCase):
+    """The README size table lists every `report.FIXTURES` fixture and `all` (NDP-A026)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.readme = README.read_text(encoding="utf-8")
+
+    def check_copy(self, text):
+        """Run the check against a temporary copy of the README, not the real file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_path = pathlib.Path(tmp) / "README.md"
+            copy_path.write_text(text, encoding="utf-8")
+            return size_table_problems(copy_path.read_text(encoding="utf-8"))
+
+    def drop_row(self, name):
+        lines = self.readme.splitlines(keepends=True)
+        kept = []
+        for line in lines:
+            match = TABLE_ROW.match(line)
+            if not (match and match.group("name") == name):
+                kept.append(line)
+        self.assertEqual(len(kept), len(lines) - 1, "row {} not found exactly once".format(name))
+        return "".join(kept)
+
+    def test_readme_table_matches_fixtures_and_limits(self):
+        self.assertIn("ui_invalid", report.FIXTURES)
+        self.assertEqual(size_table_problems(self.readme), [])
+
+    def test_table_without_ui_invalid_row_fails(self):
+        problems = self.check_copy(self.drop_row("ui_invalid"))
+        self.assertIn("missing row: ui_invalid", problems)
+
+    def test_table_without_any_fixture_row_fails(self):
+        for name in (*report.FIXTURES, "all"):
+            with self.subTest(fixture=name):
+                self.assertIn("missing row: " + name, self.check_copy(self.drop_row(name)))
+
+    def test_table_with_extra_or_wrong_limit_row_fails(self):
+        extra = self.readme.replace(
+            "  | `all` |", "  | `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |\n  | `all` |", 1)
+        self.assertNotEqual(extra, self.readme)
+        self.assertIn("unknown row: ghost", self.check_copy(extra))
+        all_limit = report.MAX_REPORT_BYTES * len(report.FIXTURES)
+        wrong = self.readme.replace("| `all` | {} |".format(all_limit), "| `all` | 1048576 |", 1)
+        self.assertNotEqual(wrong, self.readme)
+        self.assertTrue(any(p.startswith("limit mismatch for all")
+                            for p in self.check_copy(wrong)))
 
 
 if __name__ == "__main__":
