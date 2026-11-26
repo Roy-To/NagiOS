@@ -275,7 +275,10 @@ fn glyph(byte: u8) -> Option<[u8; 7]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{advance_for_char, draw_utf8, glyph_for_char, Glyph};
+    use super::{
+        advance_for_char, draw_utf8, glyph_for_char, Glyph, JAPANESE_CELL_WIDTH,
+        JAPANESE_GLYPH_WIDTH,
+    };
     use libnagi::{SURFACE_HEIGHT, SURFACE_WIDTH};
 
     const MAIN_JA: &str = include_str!("../../nagi-localization/locales/ja-JP.lang");
@@ -414,6 +417,85 @@ mod tests {
             values.len() >= 160,
             "Japanese catalogs were not fully loaded"
         );
+    }
+
+    #[test]
+    fn representative_japanese_glyphs_match_noto_rasters() {
+        let samples: [(char, [u16; 9]); 8] = [
+            (
+                '日',
+                [
+                    0x0fe, 0x082, 0x082, 0x0fe, 0x082, 0x082, 0x0fe, 0x000, 0x000,
+                ],
+            ),
+            (
+                '本',
+                [
+                    0x010, 0x1ff, 0x054, 0x038, 0x038, 0x0fe, 0x010, 0x010, 0x000,
+                ],
+            ),
+            (
+                '語',
+                [
+                    0x0f2, 0x0f2, 0x0de, 0x0ff, 0x0ca, 0x1fe, 0x0de, 0x000, 0x000,
+                ],
+            ),
+            (
+                '設',
+                [
+                    0x0ee, 0x0ec, 0x0da, 0x0fe, 0x0f3, 0x1f5, 0x0dc, 0x000, 0x000,
+                ],
+            ),
+            (
+                '定',
+                [
+                    0x0b0, 0x0d0, 0x05c, 0x010, 0x07e, 0x082, 0x0fe, 0x010, 0x000,
+                ],
+            ),
+            (
+                '選',
+                [
+                    0x0e2, 0x0b6, 0x0fe, 0x1be, 0x036, 0x03e, 0x0be, 0x000, 0x000,
+                ],
+            ),
+            (
+                '択',
+                [
+                    0x062, 0x054, 0x1d4, 0x07e, 0x052, 0x1f2, 0x05e, 0x000, 0x000,
+                ],
+            ),
+            (
+                '中',
+                [
+                    0x010, 0x010, 0x0fe, 0x092, 0x092, 0x0fe, 0x010, 0x010, 0x000,
+                ],
+            ),
+        ];
+
+        for (character, expected) in samples {
+            let mut surface = vec![0; SURFACE_WIDTH as usize * SURFACE_HEIGHT as usize];
+            let mut bytes = [0; 4];
+            let text = character.encode_utf8(&mut bytes).as_bytes();
+            assert_eq!(
+                draw_utf8(&mut surface, 0, 0, text, INK),
+                JAPANESE_CELL_WIDTH
+            );
+
+            let rendered: [u16; 9] = core::array::from_fn(|row| {
+                let mut bits = 0_u16;
+                for column in 0..JAPANESE_GLYPH_WIDTH as usize {
+                    if surface[row * SURFACE_WIDTH as usize + column] == INK {
+                        bits |= 1 << (JAPANESE_GLYPH_WIDTH as usize - 1 - column);
+                    }
+                }
+                bits
+            });
+            assert_eq!(
+                rendered, expected,
+                "glyph raster for U+{:04X}",
+                character as u32
+            );
+        }
     }
 
     #[test]
