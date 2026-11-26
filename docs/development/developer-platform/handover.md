@@ -51,10 +51,24 @@ PR番号の振られていない分の詳細は `git show` で確認する。
 - **標準host要件**: Python 3.9.6で実行しており、標準の3.10+は満たしていない。
   標準host全体の `./nagi doctor` は未実施。
 - **実nagi-pkg**: 11-17には固定nightlyで一度buildし受理を確認した記録がある。
-  ただし作成時点のこのworktreeでは未buildのため、実validatorを使うテストはskip。
-  skip条件を持つテストは `validation/test_validate.py`、`test_generated_check.py`、`generator/test_generate.py` にある
-  （validation READMEは41件中2件skipと記載、generator READMEと09c reviewは実validator依存テストのskipに言及）。skip件数の合計は今回数えていない。
-  skipは合格ではない。実validatorによる雛形のManifest受理は、構築済み環境で別に確認が必要。
+  skip条件を持つテストは `validation/test_validate.py`、`test_generated_check.py`、`generator/test_generate.py` にあり、
+  実validator（`out/ndp-host/target/debug/nagi-pkg`）が無いとskipする（symlink・実行権の扱いはtestごとに異なる）
+  （validation READMEは41件中2件skipと記載、generator READMEと09c reviewは実validator依存テストのskipに言及）。
+  実行ごとの環境とskip件数（host、Python 3.9.6）:
+  - **このworktree、2026-11-26**: 上記pathに11-25 07:32更新の実行可能な通常fileがある（build元のrevisionは未確認）。
+    `generator` 48件OK、`validation/test_validate.py`＋`test_generated_check.py` 18件OK、いずれもskip 0件。
+    実validator依存の `test_generated_manifest_passes_real_validator_when_available`、
+    `test_real_cli_success`、`test_real_validator_accepts_and_rejects_without_source_change`、
+    `test_generated_scaffold_manifest_passes_real_stage_1` はskipされずokで、実validatorで実行された。
+    出力に出る `"reason": "validator_unavailable"` の1行は、`test_missing_validator_is_unavailable_not_passed` が
+    不在のvalidatorをpatchで模した個別のチェック結果で、skipではない。skip件数には数えない。
+  - **同、`validation` の残り（`test_api_snapshot_drift.py`、`test_report*.py`、`test_stage2*.py`）**:
+    `test_[ar]*.py` だけの実行も10分の上限で停止され、件数・skip数は未測定（原因は未調査）。
+    これらにskip条件の有無は確かめていない。`validation` 全体のskip合計は未確認。
+  - **runnerの過去の実行（上表のPR分）**: その環境に実validatorがあったかをログから照合できないため、
+    skip件数との対応は未確認。
+  - **実validatorが無い環境**: 上記4件はskipになる設計だが、その環境での件数は今回測っていない（未検証）。
+  skipは合格ではない。今回の実validatorの受理はhost結果で、Nagi target受入ではない。
 - **生成物**: 雛形のcrate build・実行・署名・install・起動は未実施。
 - **API診断の入力**: NDP-04/05はPT-01の手書きfixtureで検証しており、実scanner出力との接続は未試験
   （PR #91の実装はこのcheckoutに無い）。
@@ -67,9 +81,25 @@ PR番号の振られていない分の詳細は `git show` で確認する。
   追加条件に該当するかの再判断は、各PRについて行っていない。
 - **競合・TOCTOU**: generator、stage2、run_host_checksの一時領域を同時に別processが操作する競合は範囲外。
   generatorは作成物を削除せず残置して報告する設計。
-- **残るP3**（担当pathや軽微さのため未対応と記録されたもの）:
-  `<sub/windows.h>` が `windows.h` に一致し得る点、`stage2.py` の `prior` は呼出側の自己申告であること、
-  Stage 2が診断出力を返さない点、`generate.py` の `0o700` 厳密判定がumaskで誤判定し得る点。
+- **解消済みのP3**（board記録: NDP-A001/A002/A003、各PRはrunnerテスト成功・claudeレビューPASS。いずれもhost結果でありtarget受入ではない）:
+  - NDP-A001（PR #179）: path付きinclude（`<sub/windows.h>` など）が `WIN-HEADER` に一致しなくなった。
+    [api/windows README](../../../tools/nagi-developer-platform/api/windows/README.md)の「path付きheader」節、
+    [test_windows.py](../../../tools/nagi-developer-platform/api/windows/test_windows.py)。
+  - NDP-A002（PR #180）: `generate.py` のdirectory mode判定がumask連動になった（期待mode `0o700 & ~umask`、受入後に `fchmod(0o700)`、
+    読取りbitを奪うumaskは `unsupported_umask`）。
+    [generator README](../../../tools/nagi-developer-platform/generator/README.md)の「directory modeの厳密判定とumask」節、
+    [test_generate.py](../../../tools/nagi-developer-platform/generator/test_generate.py)。
+  - NDP-A003（PR #181）: Stage 2が伏字化・上限付きの診断要約（`diagnostics`）を返す。
+    [validation README](../../../tools/nagi-developer-platform/validation/README.md)の「Diagnostics summary」項、
+    [test_stage2_diagnostics.py](../../../tools/nagi-developer-platform/validation/test_stage2_diagnostics.py)。
+- **いま残る点**:
+  - `stage2.py` の `prior` は呼出側が渡す自己申告で、Stage 1を実際に走らせた証明ではない
+    （[validation README](../../../tools/nagi-developer-platform/validation/README.md)は「`prior` argument / `--stage1-*`」と記載）。
+  - 解消済み3項目は、いずれもREADME上PROVISIONAL（未確認の仮定）を含む。
+    A001は「`sub/windows.h` は別ファイル」という仮定で、実際にSDKのWindows headerを指す場合は偽陰性。
+    A002は、期待modeと一致する同一uidの差し替えはumaskを変えても判別できない。
+    A003の `diagnostics` は追加項目で、形式は未確認。
+    実scanner・実Windows SDK・Nagi targetでの確認はしていない。
 
 ## 4. 他ownerへの接続依頼
 
@@ -97,3 +127,40 @@ PR番号の振られていない分の詳細は `git show` で確認する。
 接続: PT-01の正規入力、SDK配送方式、UI対応表、CLI/Package呼出し。未接続点は第3・第4節
 次: 実nagi-pkg構築済み環境でskipされる実validator依存テストを実行。Python 3.10+ hostで再確認。ownerの回答に応じたdata/adapter差し替え
 ```
+
+## 6. 一通しの移植レポート（NDP-09r、NDP-A008〜A022）
+
+入力projectから「API差分・UI対応表・雛形生成・Stage 1/2までを1つで見る」入口が
+`tools/nagi-developer-platform/validation/report.py`。第1節の表には載っていないので、次の引継ぎ先はここを見落とさないこと。
+正本は [validation README の Migration report 節](../../../tools/nagi-developer-platform/validation/README.md#migration-report-provisional-ndp-09r)
+で、この節は要約とリンクだけを置く。出力形式・各reason・上限値の詳細はREADMEを読む（ここへ二重に書かない）。
+
+**実行コマンド例**（checkout root、host上）:
+
+```sh
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture all
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture all --format markdown
+python3 -B tools/nagi-developer-platform/validation/report.py --fixture mixed --format markdown
+```
+
+対象は自作のrepository fixtureだけ。`--fixture` に選べる名前（`report.FIXTURES`）は
+`portable`、`windows`、`linux`、`ui`、`mixed`、`app_windows`、`ui_unsupported`、`app_linux` と、全件を並べる `all`。
+fixtureを追加したら、この節にも名前を足す（`tests/developer-platform/evaluation/test_handover_report.py` が記録漏れを検知する）。
+
+**statusの意味**:
+
+| status | 意味 |
+|---|---|
+| `passed` | そのcheckが範囲内で完了した。API・UIのcheckはgapを報告しつつ `passed` になり得る |
+| `failed` | 選んだcheckが入力・tool・検証のエラーを報告した |
+| `not_run` | toolや入力の前提、またはstageの接続が無く実行されなかった。`reason` を見る |
+| `unsupported` | 選んだfixtureまたはUI形式がそのcheckの範囲外 |
+
+Stage 3 とNagi target受入（`target_acceptance`）は**常に `not_run`**。結果はhost限定で、Nagi target受入ではない。
+hostの `clang` もNagiのtoolchainを代表しない。`not_run` や `unsupported` を合格として読まない。
+
+**未検証**: 実scannerの出力、実 `nagi-pkg` との接続は未検証。API診断は手書きfixture（PT-01 report v1の仮接続）で、
+Stage 1の実validatorは構築済みの環境でだけ使われ、無い場合は `not_run`（第3節）。
+
+**PROVISIONAL**: 形式（JSON version 1、Markdown、overview、fixture routing）はPROVISIONALで、承認されていない。
+変更は `validation/` 内に閉じ、`contracts/` には触れない。契約ではない。
