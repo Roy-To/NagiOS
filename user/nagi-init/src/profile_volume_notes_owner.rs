@@ -20,6 +20,7 @@ use nagi_identity_session::{
 
 pub(crate) use nagi_profile_volume_notes_owner::{
     ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError, ProfileVolumeNotesOwnerStatus,
+    USER_FILES_APP_GID, USER_FILES_APP_UID,
 };
 
 /// Data root selected by the trusted volume owner. Opening a directory
@@ -304,6 +305,114 @@ impl AuthorizedFilesRoot {
     pub(crate) fn owner_only_scope(&self) -> OwnerOnlyFilesRootScope<'_> {
         OwnerOnlyFilesRootScope { owner: self }
     }
+
+    /// Issue the exact attached User Files root to its matching signed app
+    /// process. The C1 lease and volume owner remain retained until the app
+    /// child is reaped; every PID-1 poll rechecks the lease and revokes a child
+    /// whose Session is no longer live.
+    pub(crate) fn into_process_storage(
+        self,
+        app_id: nagi_model::AppId,
+    ) -> Result<AuthorizedAppStorageRoot, ProfileVolumeNotesOwnerError> {
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+        if app_id != files_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        let directory = self
+            .revalidation
+            .with_live_session_effect(|| self.root.duplicate_directory_for_app_process(&app_id))
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?
+            .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+        Ok(AuthorizedAppStorageRoot {
+            app_id,
+            directory,
+            owner: Some(self),
+            #[cfg(test)]
+            allow_unbound_session_guard_for_test: false,
+        })
+    }
+}
+
+/// Non-forgeable, Session-bound root passed to one exact app launch. Only the
+/// profile-volume owner can construct a production value; LinuxProcessOs keeps
+/// it alive until exact child reap and checks the C1 lease while polling.
+pub(crate) struct AuthorizedAppStorageRoot {
+    app_id: nagi_model::AppId,
+    directory: std::os::fd::OwnedFd,
+    #[cfg(linux_task24_initial_login_runtime)]
+    owner: Option<AuthorizedFilesRoot>,
+    #[cfg(test)]
+    allow_unbound_session_guard_for_test: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct AuthorizedAppStorageSessionGuard {
+    #[cfg(linux_task24_initial_login_runtime)]
+    revalidation: Option<std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>>,
+    #[cfg(test)]
+    allow_unbound_for_test: bool,
+}
+
+impl AuthorizedAppStorageSessionGuard {
+    pub(crate) fn with_live_session_effect<R>(
+        &self,
+        effect: impl FnOnce() -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        #[cfg(linux_task24_initial_login_runtime)]
+        if let Some(revalidation) = self.revalidation.as_ref() {
+            return revalidation
+                .with_live_session_effect(effect)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable);
+        }
+        #[cfg(test)]
+        if self.allow_unbound_for_test {
+            return Ok(effect());
+        }
+        let _ = effect;
+        Err(ProfileVolumeNotesOwnerError::Unavailable)
+    }
+}
+
+impl AuthorizedAppStorageRoot {
+    pub(crate) fn app_id(&self) -> nagi_model::AppId {
+        self.app_id
+    }
+
+    pub(crate) fn directory(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.directory)
+    }
+
+    pub(crate) fn session_is_live(&self) -> Result<(), ProfileVolumeNotesOwnerError> {
+        self.session_guard()
+            .with_live_session_effect(|| ())
+            .map(|_| ())
+    }
+
+    pub(crate) fn session_guard(&self) -> AuthorizedAppStorageSessionGuard {
+        #[cfg(linux_task24_initial_login_runtime)]
+        let revalidation = self
+            .owner
+            .as_ref()
+            .map(|owner| std::sync::Arc::clone(&owner.revalidation));
+        AuthorizedAppStorageSessionGuard {
+            #[cfg(linux_task24_initial_login_runtime)]
+            revalidation,
+            #[cfg(test)]
+            allow_unbound_for_test: self.allow_unbound_session_guard_for_test,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(app_id: nagi_model::AppId, directory: std::os::fd::OwnedFd) -> Self {
+        Self {
+            app_id,
+            directory,
+            #[cfg(linux_task24_initial_login_runtime)]
+            owner: None,
+            #[cfg(test)]
+            allow_unbound_session_guard_for_test: true,
+        }
+    }
 }
 
 pub(crate) struct AppStorageOwners {
@@ -473,6 +582,20 @@ pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwne
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn missing_app_session_lease_fails_closed_without_test_fixture_override() {
+        let guard = AuthorizedAppStorageSessionGuard {
+            #[cfg(linux_task24_initial_login_runtime)]
+            revalidation: None,
+            allow_unbound_for_test: false,
+        };
+        let effect_called = std::cell::Cell::new(false);
+        assert!(guard
+            .with_live_session_effect(|| effect_called.set(true))
+            .is_err());
+        assert!(!effect_called.get());
+    }
 
     #[test]
     fn retains_account_and_profile_directories_under_the_same_data_root() {

@@ -20,6 +20,7 @@
   "linux_init::linux_process_resource_tests::clone3_endpoint_handoff_binds_peer_and_exact_record_once",
   "linux_init::linux_process_resource_tests::disabled_endpoint_policy_does_not_offer_handoff",
   "linux_init::linux_process_resource_tests::endpoint_service_child_cannot_open_pid1_root_files_after_namespace_setup",
+  "linux_init::linux_process_resource_tests::app_process_tmpfs_root_exposes_only_its_authorized_profile_storage",
   "linux_init::linux_process_resource_tests::exec_failure_reaps_child_and_closes_unhanded_pidfd_and_endpoint",
   "linux_init::linux_process_resource_tests::shared_reaper_races_lifecycle_and_idle_wait_with_mixed_out_of_order_children",
   "linux_init::linux_task24_c3_data_journal::tests::exact_existing_c3_marker_is_synced_before_bootstrap_consumption",

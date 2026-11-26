@@ -1513,6 +1513,7 @@ trait ProcessOs {
         arguments: &[&str],
         execution_identity: LinuxExecutionIdentity,
         endpoint_policy: ProcessEndpointPolicy,
+        filesystem_policy: ProcessFilesystemPolicy,
     ) -> std::io::Result<ProcessHandle<Prepared, Self::Raw>>;
 
     #[cfg(target_os = "linux")]
@@ -1732,6 +1733,9 @@ struct ProcessLaunch<'a, ServiceId> {
     execution_identity: LinuxExecutionIdentity,
     /// Endpoint inheritance is opt-in and carries no service role by itself.
     endpoint_policy: ProcessEndpointPolicy,
+    /// Application children use a private tmpfs root and, when authorized,
+    /// exactly one Session-bound app-data root.
+    filesystem_policy: ProcessFilesystemPolicy,
     required: bool,
     /// Caller-selected release deadline. There is intentionally no product default.
     release_wait_budget: std::time::Duration,
@@ -1743,6 +1747,15 @@ struct ProcessLaunch<'a, ServiceId> {
 enum ProcessEndpointPolicy {
     Disabled,
     InheritedPeerChannel,
+}
+
+enum ProcessFilesystemPolicy {
+    /// Preserve the current caller environment for internal process fixtures.
+    Inherited,
+    /// Give a development-only executable a private tmpfs root without Data.
+    PrivateTmpfs,
+    /// Bind only the exact C1-authorized app root into a private tmpfs root.
+    Application(crate::profile_volume_notes_owner::AuthorizedAppStorageRoot),
 }
 
 #[cfg(target_os = "linux")]
@@ -1766,6 +1779,21 @@ impl LinuxExecutionIdentity {
         uid: DEV_NOTES_DESKTOP_UID,
         gid: DEV_NOTES_DESKTOP_GID,
     };
+
+    const APP_FILES: Self = Self {
+        uid: APP_FILES_UID,
+        gid: APP_FILES_GID,
+    };
+
+    fn for_application(app_id: nagi_model::AppId) -> Option<Self> {
+        if app_id == nagi_model::AppId::from_identifier(b"com.nagi.notes") {
+            Some(Self::DEV_NOTES_DESKTOP)
+        } else if app_id == nagi_model::AppId::from_identifier(b"org.nagi.files") {
+            Some(Self::APP_FILES)
+        } else {
+            None
+        }
+    }
 }
 
 fn inherit_child_console_output(execution_identity: LinuxExecutionIdentity) -> bool {
@@ -1982,6 +2010,7 @@ where
                 launch.arguments,
                 launch.execution_identity,
                 launch.endpoint_policy,
+                launch.filesystem_policy,
             )
             .inspect_err(|_error| {
                 #[cfg(test)]
@@ -3101,7 +3130,13 @@ mod linux_x86_64_process {
     const NR_CHDIR: usize = 80;
     const NR_CHROOT: usize = 161;
     const NR_MOUNT: usize = 165;
+    const NR_OPEN_TREE: usize = 428;
+    const NR_MOVE_MOUNT: usize = 429;
     const NR_CLONE3: usize = 435;
+    const NR_MOUNT_SETATTR: usize = 442;
+    const NR_LANDLOCK_CREATE_RULESET: usize = 444;
+    const NR_LANDLOCK_ADD_RULE: usize = 445;
+    const NR_LANDLOCK_RESTRICT_SELF: usize = 446;
     const NR_EXECVEAT: usize = 322;
     const NR_MEMFD_CREATE: usize = 319;
     const NR_EXIT_GROUP: usize = 231;
@@ -3158,7 +3193,12 @@ mod linux_x86_64_process {
     const EPERM: isize = 1;
     const ENOSYS: isize = 38;
     const EINVAL: isize = 22;
+    const EOPNOTSUPP: isize = 95;
     const EOVERFLOW: isize = 75;
+    #[cfg(test)]
+    const EBADF: usize = 9;
+    #[cfg(test)]
+    const EMFILE: usize = 24;
     #[cfg(linux_pid1_safety_smoke)]
     const EBUSY: i32 = 16;
     const SIGCHLD: usize = 17;
@@ -3183,6 +3223,7 @@ mod linux_x86_64_process {
     const O_CREAT: usize = 0x40;
     const O_EXCL: usize = 0x80;
     const O_CLOEXEC: usize = 0x80000;
+    const O_PATH: usize = 0x200000;
     const AT_FDCWD: usize = (-100isize) as usize;
     const F_DUPFD_CLOEXEC: usize = 1030;
     const F_GETFD: usize = 1;
@@ -3241,7 +3282,36 @@ mod linux_x86_64_process {
     const MS_NOEXEC: usize = 8;
     const MS_REC: usize = 0x4000;
     const MS_BIND: usize = 0x1000;
+    const MS_REMOUNT: usize = 32;
     const MS_PRIVATE: usize = 1 << 18;
+    const OPEN_TREE_CLONE: usize = 1;
+    const MOVE_MOUNT_F_EMPTY_PATH: usize = 0x0000_0004;
+    const MOUNT_ATTR_NOSUID: u64 = 0x2;
+    const MOUNT_ATTR_NODEV: u64 = 0x4;
+    const MOUNT_ATTR_NOEXEC: u64 = 0x8;
+    const MOUNT_ATTR_NOSYMFOLLOW: u64 = 0x0020_0000;
+    const LANDLOCK_CREATE_RULESET_VERSION: usize = 1;
+    const LANDLOCK_RULE_PATH_BENEATH: usize = 1;
+    const LANDLOCK_ACCESS_FS_WRITE_FILE: u64 = 1 << 1;
+    const LANDLOCK_ACCESS_FS_READ_FILE: u64 = 1 << 2;
+    const LANDLOCK_ACCESS_FS_READ_DIR: u64 = 1 << 3;
+    const LANDLOCK_ACCESS_FS_REMOVE_DIR: u64 = 1 << 4;
+    const LANDLOCK_ACCESS_FS_REMOVE_FILE: u64 = 1 << 5;
+    const LANDLOCK_ACCESS_FS_MAKE_CHAR: u64 = 1 << 6;
+    const LANDLOCK_ACCESS_FS_MAKE_DIR: u64 = 1 << 7;
+    const LANDLOCK_ACCESS_FS_MAKE_REG: u64 = 1 << 8;
+    const LANDLOCK_ACCESS_FS_MAKE_SOCK: u64 = 1 << 9;
+    const LANDLOCK_ACCESS_FS_MAKE_FIFO: u64 = 1 << 10;
+    const LANDLOCK_ACCESS_FS_MAKE_BLOCK: u64 = 1 << 11;
+    const LANDLOCK_ACCESS_FS_MAKE_SYM: u64 = 1 << 12;
+    const LANDLOCK_ACCESS_FS_REFER: u64 = 1 << 13;
+    const LANDLOCK_ACCESS_FS_TRUNCATE: u64 = 1 << 14;
+    const LANDLOCK_ACCESS_FS_IOCTL_DEV: u64 = 1 << 15;
+    const LANDLOCK_ACCESS_FS_RESOLVE_UNIX: u64 = 1 << 16;
+    const LANDLOCK_KNOWN_ABI_MAX: u32 = 9;
+    // Deny list for namespace changes after setup. CLONE_NEWUSER appears here
+    // only so the child seccomp filter rejects later user-namespace changes;
+    // the initial child clone deliberately requests CLONE_NEWPID only.
     const CLONE_NAMESPACE_FLAGS: usize = CLONE_NEWNS
         | CLONE_NEWTIME
         | CLONE_NEWCGROUP
@@ -3264,7 +3334,13 @@ mod linux_x86_64_process {
     const SERVICE_ENDPOINT_FD: i32 = 3;
     const SERVICE_ROOT_PATH: &[u8] = b"/tmp\0";
     const SERVICE_TMPFS_TYPE: &[u8] = b"tmpfs\0";
-    const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216\0";
+    const SERVICE_TMPFS_OPTIONS: &[u8] = b"mode=0755,size=16777216,nr_inodes=4096\0";
+    #[cfg(test)]
+    pub(super) const SERVICE_TMPFS_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+    #[cfg(test)]
+    pub(super) const SERVICE_TMPFS_MAX_INODES: u64 = 4096;
+    #[cfg(test)]
+    pub(super) const APP_ISOLATION_TEST_FD_CANDIDATES: [i32; 5] = [128, 64, 32, 16, 8];
     const TASK24_ENDPOINT_ARGUMENT_PREFIX: &str = "--nagi-service-endpoint-v1=";
     const TASK24_ENDPOINT_ARGUMENT_FAMILY: &str = "--nagi-service-endpoint";
     const TASK24_ENDPOINT_SOCKET_ROOT: &str = "/run/nagi/ipc/";
@@ -4356,6 +4432,157 @@ mod linux_x86_64_process {
         target: CString,
     }
 
+    #[repr(C)]
+    struct LinuxMountAttr {
+        attr_set: u64,
+        attr_clr: u64,
+        propagation: u64,
+        userns_fd: u64,
+    }
+
+    #[repr(C)]
+    struct LinuxLandlockRulesetAttr {
+        handled_access_fs: u64,
+    }
+
+    #[repr(C)]
+    struct LinuxLandlockPathBeneathAttr {
+        allowed_access: u64,
+        parent_fd: i32,
+        reserved: u32,
+    }
+
+    fn landlock_filesystem_rights(abi: u32) -> u64 {
+        // The app executable is a sealed memfd on Landlock's internal
+        // filesystem, which cannot be granted through a path-beneath rule.
+        // Keep EXECUTE outside this ruleset; app-visible mounts are noexec.
+        let mut rights = LANDLOCK_ACCESS_FS_WRITE_FILE
+            | LANDLOCK_ACCESS_FS_READ_FILE
+            | LANDLOCK_ACCESS_FS_READ_DIR
+            | LANDLOCK_ACCESS_FS_REMOVE_DIR
+            | LANDLOCK_ACCESS_FS_REMOVE_FILE
+            | LANDLOCK_ACCESS_FS_MAKE_CHAR
+            | LANDLOCK_ACCESS_FS_MAKE_DIR
+            | LANDLOCK_ACCESS_FS_MAKE_REG
+            | LANDLOCK_ACCESS_FS_MAKE_SOCK
+            | LANDLOCK_ACCESS_FS_MAKE_FIFO
+            | LANDLOCK_ACCESS_FS_MAKE_BLOCK
+            | LANDLOCK_ACCESS_FS_MAKE_SYM;
+        if abi >= 2 {
+            rights |= LANDLOCK_ACCESS_FS_REFER;
+        }
+        if abi >= 3 {
+            rights |= LANDLOCK_ACCESS_FS_TRUNCATE;
+        }
+        if abi >= 5 {
+            rights |= LANDLOCK_ACCESS_FS_IOCTL_DEV;
+        }
+        if abi >= 9 {
+            rights |= LANDLOCK_ACCESS_FS_RESOLVE_UNIX;
+        }
+        rights
+    }
+
+    #[cfg_attr(not(test), inline(always))]
+    fn process_prepare_stage<T>(stage: &'static str, result: io::Result<T>) -> io::Result<T> {
+        #[cfg(test)]
+        if let Err(error) = &result {
+            eprintln!(
+                "C3_PROCESS_PREPARE_STAGE_FAILED: stage={stage} kind={:?} errno={:?} error={error}",
+                error.kind(),
+                error.raw_os_error()
+            );
+        }
+        #[cfg(not(test))]
+        let _ = stage;
+        result
+    }
+
+    fn prepare_app_storage_mount(directory: std::os::fd::BorrowedFd<'_>) -> io::Result<OwnedFd> {
+        let mount_tree = process_prepare_stage(
+            "app_storage.open_tree",
+            OwnedFd::from_result(unsafe {
+                syscall3(
+                    NR_OPEN_TREE,
+                    directory.as_raw_fd() as usize,
+                    c"".as_ptr() as usize,
+                    OPEN_TREE_CLONE | O_CLOEXEC | AT_EMPTY_PATH,
+                )
+            }),
+        )?;
+        let attributes = LinuxMountAttr {
+            attr_set: MOUNT_ATTR_NOSUID
+                | MOUNT_ATTR_NODEV
+                | MOUNT_ATTR_NOEXEC
+                | MOUNT_ATTR_NOSYMFOLLOW,
+            attr_clr: 0,
+            propagation: MS_PRIVATE as u64,
+            userns_fd: 0,
+        };
+        let changed = unsafe {
+            syscall5(
+                NR_MOUNT_SETATTR,
+                mount_tree.raw() as usize,
+                c"".as_ptr() as usize,
+                AT_EMPTY_PATH,
+                &attributes as *const LinuxMountAttr as usize,
+                core::mem::size_of::<LinuxMountAttr>(),
+            )
+        };
+        process_prepare_stage(
+            "app_storage.mount_setattr",
+            syscall_result(changed).map(|_| ()),
+        )?;
+        process_prepare_stage("app_storage.promote_mount_fd", promote_fd(mount_tree))
+    }
+
+    unsafe fn mount_service_tmpfs_at(target: *const i8) -> Result<(), usize> {
+        let mounted = unsafe {
+            syscall5(
+                NR_MOUNT,
+                0,
+                target as usize,
+                SERVICE_TMPFS_TYPE.as_ptr() as usize,
+                MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                SERVICE_TMPFS_OPTIONS.as_ptr() as usize,
+            )
+        };
+        if mounted < 0 {
+            Err(child_syscall_errno(mounted))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn mount_service_tmpfs_for_test(target: &std::ffi::CStr) -> io::Result<()> {
+        unsafe { mount_service_tmpfs_at(target.as_ptr()) }
+            .map_err(|errno| io::Error::from_raw_os_error(errno as i32))
+    }
+
+    #[cfg(test)]
+    pub(super) fn attach_private_app_storage_mount_for_test(
+        directory: std::os::fd::BorrowedFd<'_>,
+        target: &std::ffi::CStr,
+    ) -> io::Result<()> {
+        let mount_tree = prepare_app_storage_mount(directory)?;
+        let attached = unsafe {
+            syscall5(
+                NR_MOVE_MOUNT,
+                mount_tree.raw() as usize,
+                c"".as_ptr() as usize,
+                AT_FDCWD,
+                target.as_ptr() as usize,
+                MOVE_MOUNT_F_EMPTY_PATH,
+            )
+        };
+        if attached < 0 {
+            Err(io::Error::from_raw_os_error((-attached) as i32))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Validate the exact C2 run/slot locator and prepare a single-file
     /// projection into the service tmpfs. The pathname remains a locator;
     /// C2 still owns listener creation, peer authentication, and readiness.
@@ -4572,6 +4799,22 @@ mod linux_x86_64_process {
         CredentialHardening = 4,
         SignalMaskReset = 5,
         TestSecurityProbe = 6,
+        AppStorageMount = 7,
+    }
+
+    #[derive(Clone, Copy)]
+    struct ChildSetupFailure {
+        stage: ChildSetupFailureStage,
+        errno: usize,
+    }
+
+    impl From<usize> for ChildSetupFailure {
+        fn from(errno: usize) -> Self {
+            Self {
+                stage: ChildSetupFailureStage::NamespaceIsolation,
+                errno,
+            }
+        }
     }
 
     fn send_child_setup_error(error_fd: i32, stage: ChildSetupFailureStage, errno: usize) -> ! {
@@ -5013,6 +5256,88 @@ mod linux_x86_64_process {
         Ok(())
     }
 
+    fn install_app_landlock() -> Result<(), usize> {
+        let version = unsafe {
+            syscall3(
+                NR_LANDLOCK_CREATE_RULESET,
+                0,
+                0,
+                LANDLOCK_CREATE_RULESET_VERSION,
+            )
+        };
+        if version == -(ENOSYS) || version == -(EOPNOTSUPP) {
+            return Ok(());
+        }
+        if version < 0 {
+            return Err(child_syscall_errno(version));
+        }
+        if version == 0 {
+            return Err(EINVAL as usize);
+        }
+
+        let rights = landlock_filesystem_rights((version as u32).min(LANDLOCK_KNOWN_ABI_MAX));
+        let ruleset_attributes = LinuxLandlockRulesetAttr {
+            handled_access_fs: rights,
+        };
+        let ruleset_fd = unsafe {
+            syscall3(
+                NR_LANDLOCK_CREATE_RULESET,
+                &ruleset_attributes as *const LinuxLandlockRulesetAttr as usize,
+                core::mem::size_of::<LinuxLandlockRulesetAttr>(),
+                0,
+            )
+        };
+        if ruleset_fd < 0 {
+            return Err(child_syscall_errno(ruleset_fd));
+        }
+
+        let root_fd = unsafe {
+            syscall4(
+                NR_OPENAT,
+                AT_FDCWD,
+                c"/".as_ptr() as usize,
+                O_PATH | O_CLOEXEC,
+                0,
+            )
+        };
+        if root_fd < 0 {
+            return Err(child_syscall_errno(root_fd));
+        }
+
+        // The chroot contains only noexec tmpfs plus this app-owned noexec
+        // data mount. Landlock limits filesystem access here; execution of
+        // the sealed package memfd uses the exact execveat path.
+        let root_rule = LinuxLandlockPathBeneathAttr {
+            allowed_access: rights,
+            parent_fd: root_fd as i32,
+            reserved: 0,
+        };
+        let root_added = unsafe {
+            syscall4(
+                NR_LANDLOCK_ADD_RULE,
+                ruleset_fd as usize,
+                LANDLOCK_RULE_PATH_BENEATH,
+                &root_rule as *const LinuxLandlockPathBeneathAttr as usize,
+                0,
+            )
+        };
+        if root_added < 0 {
+            return Err(child_syscall_errno(root_added));
+        }
+
+        let restricted = unsafe { syscall2(NR_LANDLOCK_RESTRICT_SELF, ruleset_fd as usize, 0) };
+        if restricted < 0 {
+            return Err(child_syscall_errno(restricted));
+        }
+        for fd in [root_fd as i32, ruleset_fd as i32] {
+            let closed = unsafe { syscall1(NR_CLOSE, fd as usize) };
+            if closed < 0 {
+                return Err(child_syscall_errno(closed));
+            }
+        }
+        Ok(())
+    }
+
     fn install_service_fd_delegation_seccomp() -> Result<(), usize> {
         let mut program = LinuxSockFprog {
             len: SERVICE_FD_DELEGATION_SECCOMP_FILTER.len() as u16,
@@ -5257,7 +5582,11 @@ mod linux_x86_64_process {
     /// Must run only in the child branch of `clone3_pid1_service_child()`.
     /// It permanently changes the calling process credentials and capability
     /// state; any error requires the caller to exit without executing a file.
-    unsafe fn harden_service_child_credentials(uid: u32, gid: u32) -> Result<(), usize> {
+    unsafe fn harden_service_child_credentials(
+        uid: u32,
+        gid: u32,
+        app_filesystem: bool,
+    ) -> Result<(), usize> {
         if uid == 0 || gid == 0 || uid == u32::MAX || gid == u32::MAX {
             return Err(EINVAL as usize);
         }
@@ -5318,6 +5647,9 @@ mod linux_x86_64_process {
                 EPERM as usize
             });
         }
+        if app_filesystem {
+            install_app_landlock()?;
+        }
         install_service_namespace_seccomp()?;
         Ok(())
     }
@@ -5374,16 +5706,48 @@ mod linux_x86_64_process {
         Ok(())
     }
 
+    unsafe fn bind_app_storage_mount_into_service_root(mount_tree_fd: i32) -> Result<(), usize> {
+        if mount_tree_fd < 0 {
+            return Err(EINVAL as usize);
+        }
+        let target = c"/tmp/data";
+        let created = unsafe { syscall2(NR_MKDIR, target.as_ptr() as usize, 0o755) };
+        if created < 0 {
+            return Err(child_syscall_errno(created));
+        }
+        let attached = unsafe {
+            syscall5(
+                NR_MOVE_MOUNT,
+                mount_tree_fd as usize,
+                c"".as_ptr() as usize,
+                AT_FDCWD,
+                target.as_ptr() as usize,
+                MOVE_MOUNT_F_EMPTY_PATH,
+            )
+        };
+        if attached < 0 {
+            return Err(child_syscall_errno(attached));
+        }
+        let closed = unsafe { syscall1(NR_CLOSE, mount_tree_fd as usize) };
+        if closed < 0 {
+            return Err(child_syscall_errno(closed));
+        }
+        Ok(())
+    }
+
     unsafe fn isolate_system_service_child(
         task24_endpoint_source: *const i8,
         task24_endpoint_target: *const i8,
-    ) -> Result<(), usize> {
-        if task24_endpoint_source.is_null() != task24_endpoint_target.is_null() {
-            return Err(EINVAL as usize);
+        app_storage_mount_fd: i32,
+    ) -> Result<(), ChildSetupFailure> {
+        if task24_endpoint_source.is_null() != task24_endpoint_target.is_null()
+            || (!task24_endpoint_source.is_null() && app_storage_mount_fd >= 0)
+        {
+            return Err((EINVAL as usize).into());
         }
         let namespaces = unsafe { syscall1(NR_UNSHARE, SERVICE_NAMESPACE_FLAGS) };
         if namespaces < 0 {
-            return Err(child_syscall_errno(namespaces));
+            return Err(child_syscall_errno(namespaces).into());
         }
 
         // The child must not propagate mounts back to PID 1 or sibling
@@ -5400,22 +5764,11 @@ mod linux_x86_64_process {
             )
         };
         if private_root < 0 {
-            return Err(child_syscall_errno(private_root));
+            return Err(child_syscall_errno(private_root).into());
         }
 
-        let private_tmpfs = unsafe {
-            syscall5(
-                NR_MOUNT,
-                0,
-                SERVICE_ROOT_PATH.as_ptr() as usize,
-                SERVICE_TMPFS_TYPE.as_ptr() as usize,
-                MS_NOSUID | MS_NODEV | MS_NOEXEC,
-                SERVICE_TMPFS_OPTIONS.as_ptr() as usize,
-            )
-        };
-        if private_tmpfs < 0 {
-            return Err(child_syscall_errno(private_tmpfs));
-        }
+        unsafe { mount_service_tmpfs_at(SERVICE_ROOT_PATH.as_ptr().cast()) }
+            .map_err(ChildSetupFailure::from)?;
 
         if !task24_endpoint_source.is_null() {
             unsafe {
@@ -5426,21 +5779,79 @@ mod linux_x86_64_process {
             };
         }
 
+        if app_storage_mount_fd >= 0 {
+            unsafe { bind_app_storage_mount_into_service_root(app_storage_mount_fd) }.map_err(
+                |errno| ChildSetupFailure {
+                    stage: ChildSetupFailureStage::AppStorageMount,
+                    errno,
+                },
+            )?;
+        }
+
         let entered_root = unsafe { syscall1(NR_CHDIR, SERVICE_ROOT_PATH.as_ptr() as usize) };
         if entered_root < 0 {
-            return Err(child_syscall_errno(entered_root));
+            return Err(child_syscall_errno(entered_root).into());
         }
         // Keep the service root searchable after dropping root credentials,
         // while giving it a separate bounded tmpfs scratch directory.
         let service_tmp = unsafe { syscall2(NR_MKDIR, c"tmp".as_ptr() as usize, 0o1777) };
         if service_tmp < 0 {
-            return Err(child_syscall_errno(service_tmp));
+            return Err(child_syscall_errno(service_tmp).into());
         }
         let chrooted = unsafe { syscall1(NR_CHROOT, c".".as_ptr() as usize) };
         if chrooted < 0 {
-            return Err(child_syscall_errno(chrooted));
+            return Err(child_syscall_errno(chrooted).into());
         }
         Ok(())
+    }
+
+    unsafe fn close_child_fds_except(keep_fds: [i32; 3]) -> Result<(), usize> {
+        let mut keep_fds = keep_fds;
+        keep_fds.sort_unstable();
+        let mut next_fd = 3u64;
+        for fd in keep_fds {
+            if fd < 3 || (fd as u64) < next_fd {
+                continue;
+            }
+            let fd = fd as u32;
+            if next_fd < fd as u64 {
+                let closed =
+                    unsafe { syscall3(NR_CLOSE_RANGE, next_fd as usize, (fd - 1) as usize, 0) };
+                if closed < 0 {
+                    return Err(child_syscall_errno(closed));
+                }
+            }
+            next_fd = fd as u64 + 1;
+        }
+        if next_fd <= u32::MAX as u64 {
+            let closed =
+                unsafe { syscall3(NR_CLOSE_RANGE, next_fd as usize, u32::MAX as usize, 0) };
+            if closed < 0 {
+                return Err(child_syscall_errno(closed));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    unsafe fn install_post_setup_inheritable_test_fd(keep_fds: [i32; 3]) -> Result<(), usize> {
+        for test_fd in APP_ISOLATION_TEST_FD_CANDIDATES {
+            if keep_fds.contains(&test_fd) {
+                continue;
+            }
+            // This deliberately undoes the earlier CLOSE_RANGE_CLOEXEC for a
+            // descriptor created after sandbox setup. The app fixture proves
+            // the final close sweep, rather than relying on exec-time CLOEXEC.
+            let duplicated = unsafe { syscall3(NR_DUP3, 0, test_fd as usize, 0) };
+            if duplicated >= 0 {
+                return Ok(());
+            }
+            let errno = child_syscall_errno(duplicated);
+            if errno != EBADF {
+                return Err(errno);
+            }
+        }
+        Err(EMFILE)
     }
 
     // These are the exact descriptors and argv/envp crossing the post-clone
@@ -5456,6 +5867,9 @@ mod linux_x86_64_process {
         executable_fd: i32,
         task24_endpoint_source: *const i8,
         task24_endpoint_target: *const i8,
+        app_storage_mount_fd: i32,
+        private_filesystem: bool,
+        app_filesystem: bool,
         argv: *const *const i8,
         envp: *const *const i8,
         execution_identity: LinuxExecutionIdentity,
@@ -5493,20 +5907,27 @@ mod linux_x86_64_process {
                     (-closed) as usize,
                 );
             }
-            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
-                if let Err(errno) =
-                    isolate_system_service_child(task24_endpoint_source, task24_endpoint_target)
-                {
-                    send_child_setup_error(
-                        error_write,
-                        ChildSetupFailureStage::NamespaceIsolation,
-                        errno,
-                    );
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel || private_filesystem
+            {
+                let (endpoint_source, endpoint_target) =
+                    if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                        (task24_endpoint_source, task24_endpoint_target)
+                    } else {
+                        (ptr::null(), ptr::null())
+                    };
+                if let Err(failure) = isolate_system_service_child(
+                    endpoint_source,
+                    endpoint_target,
+                    app_storage_mount_fd,
+                ) {
+                    send_child_setup_error(error_write, failure.stage, failure.errno);
                 }
             }
-            if let Err(errno) =
-                harden_service_child_credentials(execution_identity.uid, execution_identity.gid)
-            {
+            if let Err(errno) = harden_service_child_credentials(
+                execution_identity.uid,
+                execution_identity.gid,
+                app_filesystem,
+            ) {
                 send_child_setup_error(
                     error_write,
                     ChildSetupFailureStage::CredentialHardening,
@@ -5628,10 +6049,38 @@ mod linux_x86_64_process {
                 if let Err(errno) = install_service_fd_delegation_seccomp() {
                     send_child_error(error_write, errno);
                 }
-                if !send_child_fd_delegation_ready(error_write) {
-                    loop {
-                        syscall1(NR_EXIT_GROUP, 126);
-                    }
+            }
+
+            // CLOEXEC was set on inherited descriptors before setup. Close all
+            // remaining unapproved descriptors now as well, including any
+            // opened during setup; the only exec-bound descriptors are the
+            // sealed ELF, the CLOEXEC error pipe, and (for services) fd 3.
+            let delegated_endpoint_fd =
+                if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel {
+                    SERVICE_ENDPOINT_FD
+                } else {
+                    -1
+                };
+            #[cfg(test)]
+            if app_filesystem {
+                if let Err(errno) = install_post_setup_inheritable_test_fd([
+                    exec_fd,
+                    error_write,
+                    delegated_endpoint_fd,
+                ]) {
+                    send_child_error(error_write, errno);
+                }
+            }
+            if let Err(errno) =
+                close_child_fds_except([exec_fd, error_write, delegated_endpoint_fd])
+            {
+                send_child_error(error_write, errno);
+            }
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel
+                && !send_child_fd_delegation_ready(error_write)
+            {
+                loop {
+                    syscall1(NR_EXIT_GROUP, 126);
                 }
             }
 
@@ -5786,6 +6235,7 @@ mod linux_x86_64_process {
                     4 => "credential/capability/seccomp hardening",
                     5 => "signal mask reset",
                     6 => "test security negative probe",
+                    7 => "app storage mount",
                     _ => "unknown child setup stage",
                 };
                 eprintln!("C3_CLONE3_CHILD_SETUP_FAILED: stage={stage_name} errno={errno}");
@@ -6264,6 +6714,8 @@ mod linux_x86_64_process {
         reap: ReapTicket,
         execution_identity: LinuxExecutionIdentity,
         endpoint_policy: ProcessEndpointPolicy,
+        app_storage: Option<crate::profile_volume_notes_owner::AuthorizedAppStorageRoot>,
+        app_storage_revocation_sent: bool,
         endpoint: Option<StdOwnedFd>,
         fd_delegation_attestation: Option<FdDelegationRestrictionAttestation>,
     }
@@ -6679,25 +7131,92 @@ mod linux_x86_64_process {
             arguments: &[&str],
             execution_identity: LinuxExecutionIdentity,
             endpoint_policy: ProcessEndpointPolicy,
+            filesystem_policy: ProcessFilesystemPolicy,
         ) -> io::Result<ProcessHandle<Prepared, Self::Raw>> {
             if execution_identity.uid == 0 || execution_identity.gid == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Linux process identity must not retain root credentials",
-                ));
+                return process_prepare_stage(
+                    "process.validate_non_root_identity",
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Linux process identity must not retain root credentials",
+                    )),
+                );
             }
             // Copy the exact PackageView executable slice into a private memfd and
             // seal it before creating the gated child. No pathname is resolved.
-            let executable_fd =
-                create_sealed_executable(&mut LinuxSealedExecutableOps, executable.bytes())?;
-            let task24_endpoint_mount =
-                task24_endpoint_mount_paths(arguments, endpoint_policy, execution_identity)?;
+            let executable_fd = process_prepare_stage(
+                "process.create_sealed_executable",
+                create_sealed_executable(&mut LinuxSealedExecutableOps, executable.bytes()),
+            )?;
+            let task24_endpoint_mount = process_prepare_stage(
+                "process.prepare_endpoint_mount_paths",
+                task24_endpoint_mount_paths(arguments, endpoint_policy, execution_identity),
+            )?;
             let task24_endpoint_source = task24_endpoint_mount
                 .as_ref()
                 .map_or(ptr::null(), |paths| paths.source.as_ptr());
             let task24_endpoint_target = task24_endpoint_mount
                 .as_ref()
                 .map_or(ptr::null(), |paths| paths.target.as_ptr());
+            let app_filesystem =
+                matches!(&filesystem_policy, ProcessFilesystemPolicy::Application(_));
+            let private_filesystem =
+                !matches!(&filesystem_policy, ProcessFilesystemPolicy::Inherited);
+            let app_storage_mount = match &filesystem_policy {
+                ProcessFilesystemPolicy::Application(storage) => {
+                    process_prepare_stage(
+                        "app_storage.validate_live_session",
+                        storage.session_is_live().map_err(|_| {
+                            io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage Session is no longer live",
+                            )
+                        }),
+                    )?;
+                    let stat = process_prepare_stage(
+                        "app_storage.fstat_directory",
+                        rustix::fs::fstat(storage.directory()).map_err(io::Error::from),
+                    )?;
+                    let file_type = stat.st_mode & 0o170000;
+                    if file_type != 0o040000
+                        || stat.st_uid != execution_identity.uid
+                        || stat.st_gid != execution_identity.gid
+                        || stat.st_mode & 0o777 != 0o700
+                        || storage.app_id() == nagi_model::AppId(0)
+                    {
+                        return process_prepare_stage(
+                            "app_storage.validate_private_owner_directory",
+                            Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage root is not private and owned by the assigned app UID/GID",
+                            )),
+                        );
+                    }
+                    if LinuxExecutionIdentity::for_application(storage.app_id())
+                        != Some(execution_identity)
+                    {
+                        return process_prepare_stage(
+                            "app_storage.validate_application_uid",
+                            Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "app storage token does not match the assigned application UID",
+                            )),
+                        );
+                    }
+                    Some(prepare_app_storage_mount(storage.directory())?)
+                }
+                ProcessFilesystemPolicy::Inherited | ProcessFilesystemPolicy::PrivateTmpfs => None,
+            };
+            if endpoint_policy == ProcessEndpointPolicy::InheritedPeerChannel && private_filesystem
+            {
+                return process_prepare_stage(
+                    "app_storage.validate_endpoint_policy",
+                    Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "system-service endpoint and app filesystem policies cannot be combined",
+                    )),
+                );
+            }
             let argv_storage = process_argv_storage(arguments)?;
             let mut argv = argv_storage
                 .iter()
@@ -6757,6 +7276,9 @@ mod linux_x86_64_process {
                             executable_fd.raw(),
                             task24_endpoint_source,
                             task24_endpoint_target,
+                            app_storage_mount.as_ref().map_or(-1, OwnedFd::raw),
+                            private_filesystem,
+                            app_filesystem,
                             argv.as_ptr(),
                             envp.as_ptr(),
                             execution_identity,
@@ -6825,6 +7347,12 @@ mod linux_x86_64_process {
                             reap: ticket,
                             execution_identity,
                             endpoint_policy,
+                            app_storage: match filesystem_policy {
+                                ProcessFilesystemPolicy::Application(storage) => Some(storage),
+                                ProcessFilesystemPolicy::Inherited
+                                | ProcessFilesystemPolicy::PrivateTmpfs => None,
+                            },
+                            app_storage_revocation_sent: false,
                             endpoint: None,
                             fd_delegation_attestation: None,
                         },
@@ -6981,7 +7509,25 @@ mod linux_x86_64_process {
             &mut self,
             child: &mut ProcessHandle<Stage, Self::Raw>,
         ) -> io::Result<Option<ServiceExitStatus>> {
-            reap_tracked_child(&child.raw.reap)
+            if let Some(status) = reap_tracked_child(&child.raw.reap)? {
+                child.raw.app_storage.take();
+                return Ok(Some(status));
+            }
+            if !child.raw.app_storage_revocation_sent
+                && child
+                    .raw
+                    .app_storage
+                    .as_ref()
+                    .is_some_and(|storage| storage.session_is_live().is_err())
+            {
+                self.terminate(child)?;
+                child.raw.app_storage_revocation_sent = true;
+            }
+            let status = reap_tracked_child(&child.raw.reap)?;
+            if status.is_some() {
+                child.raw.app_storage.take();
+            }
+            Ok(status)
         }
 
         fn terminate<Stage: ProcessStage>(
@@ -7029,6 +7575,7 @@ mod linux_x86_64_process {
                     &[],
                     LinuxExecutionIdentity::DEV_SERVICE,
                     ProcessEndpointPolicy::Disabled,
+                    ProcessFilesystemPolicy::Inherited,
                 )
                 .expect("maintained inline prepare must register the clone3 child");
             let mut handle = child;
@@ -7224,6 +7771,7 @@ fn spawn_with_supervisor<Os, ServiceId, Inventory>(
     placement: LaunchPlacement,
     user: &Session,
     required_grants: &[&[u8]],
+    application_storage: crate::profile_volume_notes_owner::AuthorizedAppStorageRoot,
     release_wait_budget: std::time::Duration,
     cancel_check_interval: std::time::Duration,
     cancelled: impl FnMut() -> bool,
@@ -7233,6 +7781,7 @@ where
     ServiceId: Clone + std::fmt::Debug + Eq,
     Inventory: InstalledPackageInventory,
 {
+    let application_session_guard = application_storage.session_guard();
     let inspection = package_security.inspect(package_bytes).map_err(|error| {
         #[cfg(linux_dev_preview_smoke)]
         pid1_log!("nagi-init: dev preview package inspection failed: {error:?}");
@@ -7262,6 +7811,7 @@ where
     let app_id = signed_manifest.app_id();
     if app_id != expected_app_id
         || manifest.app_id() != app_id
+        || application_storage.app_id() != app_id
         || required_grants
             .iter()
             .any(|capability| !manifest.grants(capability))
@@ -7274,6 +7824,8 @@ where
         );
         return Err(BackendError::IdentityRejected);
     }
+    let execution_identity =
+        LinuxExecutionIdentity::for_application(app_id).ok_or(BackendError::IdentityRejected)?;
     let executable =
         ExecutablePayload::from_package_executable(package.executable()).map_err(|error| {
             #[cfg(linux_dev_preview_smoke)]
@@ -7286,8 +7838,9 @@ where
             service,
             executable,
             arguments: &[],
-            execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
+            execution_identity,
             endpoint_policy: ProcessEndpointPolicy::Disabled,
+            filesystem_policy: ProcessFilesystemPolicy::Application(application_storage),
             required,
             release_wait_budget,
             cancel_check_interval,
@@ -7310,19 +7863,23 @@ where
             {
                 return Err(BackendError::ProtocolViolation);
             }
-            crate::supervisor::authorize_launch_and_commit(record, required_grants, || {
-                gate.commit()
-            })
-            .map_err(|failure| match failure {
-                crate::supervisor::LaunchCommitError::RegistryUnavailable => {
-                    BackendError::Unavailable
-                }
-                crate::supervisor::LaunchCommitError::RecordMismatch => BackendError::Revoked,
-                crate::supervisor::LaunchCommitError::Grant(check) => {
-                    backend_error_for_grant(check)
-                }
-                crate::supervisor::LaunchCommitError::Commit(error) => error,
-            })
+            application_session_guard
+                .with_live_session_effect(|| {
+                    crate::supervisor::authorize_launch_and_commit(record, required_grants, || {
+                        gate.commit()
+                    })
+                })
+                .map_err(|_| BackendError::Revoked)?
+                .map_err(|failure| match failure {
+                    crate::supervisor::LaunchCommitError::RegistryUnavailable => {
+                        BackendError::Unavailable
+                    }
+                    crate::supervisor::LaunchCommitError::RecordMismatch => BackendError::Revoked,
+                    crate::supervisor::LaunchCommitError::Grant(check) => {
+                        backend_error_for_grant(check)
+                    }
+                    crate::supervisor::LaunchCommitError::Commit(error) => error,
+                })
         },
         |process_id, record| {
             if crate::supervisor::record_exit_if_matches(process_id, record)
@@ -7375,6 +7932,7 @@ fn spawn_development_preview_elf(
             arguments,
             execution_identity,
             endpoint_policy: ProcessEndpointPolicy::Disabled,
+            filesystem_policy: ProcessFilesystemPolicy::PrivateTmpfs,
             required,
             release_wait_budget: LinuxDevPreviewBackend::RELEASE_WAIT_BUDGET,
             cancel_check_interval: LinuxDevPreviewBackend::CANCEL_CHECK_INTERVAL,
@@ -7586,6 +8144,8 @@ const DEV_SERVICE_UID: u32 = 65_534;
 const DEV_SERVICE_GID: u32 = 65_534;
 const DEV_NOTES_DESKTOP_UID: u32 = 65_533;
 const DEV_NOTES_DESKTOP_GID: u32 = 65_533;
+const APP_FILES_UID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_UID;
+const APP_FILES_GID: u32 = crate::profile_volume_notes_owner::USER_FILES_APP_GID;
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
 const DEV_INPUT_PATH: &str = "/run/nagi/dev-service.runtime";
 #[cfg(all(linux_dev_preview_smoke, target_os = "linux", target_arch = "x86_64"))]
@@ -9618,6 +10178,7 @@ mod process_lifecycle_tests {
             arguments: &[&str],
             _execution_identity: LinuxExecutionIdentity,
             _endpoint_policy: ProcessEndpointPolicy,
+            _filesystem_policy: ProcessFilesystemPolicy,
         ) -> io::Result<ProcessHandle<Prepared, Self::Raw>> {
             let argv = process_argv_storage(arguments)?
                 .into_iter()
@@ -9824,6 +10385,7 @@ mod process_lifecycle_tests {
             arguments: &[],
             execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
             endpoint_policy: ProcessEndpointPolicy::Disabled,
+            filesystem_policy: ProcessFilesystemPolicy::Inherited,
             required,
             release_wait_budget,
             cancel_check_interval: TEST_CANCEL_CHECK_INTERVAL,
@@ -9996,6 +10558,7 @@ mod process_lifecycle_tests {
             arguments: &arguments,
             execution_identity: LinuxExecutionIdentity::DEV_NOTES_DESKTOP,
             endpoint_policy: ProcessEndpointPolicy::Disabled,
+            filesystem_policy: ProcessFilesystemPolicy::Inherited,
             required: true,
             release_wait_budget: TEST_RELEASE_WAIT,
             cancel_check_interval: TEST_CANCEL_CHECK_INTERVAL,
@@ -11246,6 +11809,117 @@ mod linux_process_resource_tests {
         image
     }
 
+    fn app_storage_isolation_probe_elf(
+        foreign_profile_path: &str,
+        inherited_fds_to_close: [i32; 8],
+    ) -> Vec<u8> {
+        const IMAGE_BYTES: usize = 2048;
+        // Keep the path markers clear of the probe's eight inherited-FD
+        // checks and the identity/storage syscalls assembled below.
+        const OWN_MARKER_OFFSET: usize = 1024;
+        const FOREIGN_MARKER_OFFSET: usize = 1056;
+        const FOREIGN_PROFILE_OFFSET: usize = 1088;
+
+        let mut code = Vec::new();
+        let mut failure_branches = Vec::new();
+        let append_openat = |code: &mut Vec<u8>, path_offset: usize| {
+            code.extend_from_slice(&[0xb8, 0x01, 0x01, 0x00, 0x00]); // mov eax, SYS_openat
+            code.extend_from_slice(&[0xbf, 0x9c, 0xff, 0xff, 0xff]); // mov edi, AT_FDCWD
+            code.push(0xbe); // mov esi, absolute path in this fixed-address ELF
+            code.extend_from_slice(&((0x400000 + path_offset) as u32).to_le_bytes());
+            code.extend_from_slice(&[0x31, 0xd2, 0x0f, 0x05]); // O_RDONLY; syscall
+        };
+        let mut append_failure_branch = |code: &mut Vec<u8>, condition: u8| {
+            code.extend_from_slice(&[0x0f, condition]);
+            failure_branches.push(code.len());
+            code.extend_from_slice(&[0; 4]); // patched to the common failure exit
+        };
+
+        code.extend_from_slice(&[0xb8, 0x27, 0x00, 0x00, 0x00, 0x0f, 0x05]); // getpid()
+        code.extend_from_slice(&[0x83, 0xf8, 0x01]); // child must be PID 1 in its PID namespace
+        append_failure_branch(&mut code, 0x85); // jne fail
+
+        for (syscall_number, expected_id) in [
+            (102u32, LinuxExecutionIdentity::APP_FILES.uid), // getuid()
+            (107u32, LinuxExecutionIdentity::APP_FILES.uid), // geteuid()
+            (104u32, LinuxExecutionIdentity::APP_FILES.gid), // getgid()
+            (108u32, LinuxExecutionIdentity::APP_FILES.gid), // getegid()
+        ] {
+            code.push(0xb8); // mov eax, syscall number
+            code.extend_from_slice(&syscall_number.to_le_bytes());
+            code.extend_from_slice(&[0x0f, 0x05]); // syscall
+            code.push(0x3d); // cmp eax, expected app ID
+            code.extend_from_slice(&expected_id.to_le_bytes());
+            append_failure_branch(&mut code, 0x85); // jne fail
+        }
+
+        for inherited_fd in inherited_fds_to_close {
+            code.extend_from_slice(&[0xb8, 72, 0x00, 0x00, 0x00]); // mov eax, SYS_fcntl
+            code.push(0xbf); // mov edi, inherited descriptor that must be closed
+            code.extend_from_slice(&inherited_fd.to_le_bytes());
+            code.extend_from_slice(&[0xbe, libc::F_GETFD as u8, 0x00, 0x00, 0x00]); // mov esi, F_GETFD
+            code.extend_from_slice(&[0x0f, 0x05]); // syscall
+            code.push(0x3d); // cmp eax, -EBADF; the descriptor must be closed
+            code.extend_from_slice(&(-libc::EBADF).to_le_bytes());
+            append_failure_branch(&mut code, 0x85); // jne fail
+        }
+
+        append_openat(&mut code, OWN_MARKER_OFFSET);
+        code.extend_from_slice(&[0x85, 0xc0]); // test eax, eax
+        append_failure_branch(&mut code, 0x88); // js fail
+        code.extend_from_slice(&[0x89, 0xc7]); // mov edi, eax (owned marker fd)
+        code.extend_from_slice(&[0xb8, 0x00, 0x00, 0x00, 0x00]); // mov eax, SYS_read
+        code.extend_from_slice(&[0x48, 0x89, 0xe6]); // mov rsi, rsp
+        code.extend_from_slice(&[0xba, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05]); // read 1
+        code.extend_from_slice(&[0x83, 0xf8, 0x01]); // cmp eax, 1
+        append_failure_branch(&mut code, 0x85); // jne fail
+        code.extend_from_slice(&[0x80, 0x3c, 0x24, b'O']); // cmp byte [rsp], 'O'
+        append_failure_branch(&mut code, 0x85); // jne fail
+
+        append_openat(&mut code, FOREIGN_MARKER_OFFSET);
+        code.extend_from_slice(&[0x83, 0xf8, 0xfe]); // cmp eax, -ENOENT
+        append_failure_branch(&mut code, 0x85); // jne fail
+
+        append_openat(&mut code, FOREIGN_PROFILE_OFFSET);
+        code.extend_from_slice(&[0x83, 0xf8, 0xfe]); // cmp eax, -ENOENT
+        append_failure_branch(&mut code, 0x85); // jne fail
+
+        code.extend_from_slice(&[0xb8, 0x3c, 0x00, 0x00, 0x00]); // mov eax, SYS_exit
+        code.extend_from_slice(&[0x31, 0xff, 0x0f, 0x05]); // exit 0
+        let failure_offset = code.len();
+        code.extend_from_slice(&[0xb8, 0x3c, 0x00, 0x00, 0x00]); // mov eax, SYS_exit
+        code.extend_from_slice(&[0xbf, 0x01, 0x00, 0x00, 0x00, 0x0f, 0x05]); // exit 1
+        for displacement_offset in failure_branches {
+            let next_instruction = displacement_offset + 4;
+            let displacement = i32::try_from(failure_offset)
+                .unwrap()
+                .checked_sub(i32::try_from(next_instruction).unwrap())
+                .unwrap();
+            code[displacement_offset..next_instruction]
+                .copy_from_slice(&displacement.to_le_bytes());
+        }
+
+        let foreign_profile_bytes = foreign_profile_path.as_bytes();
+        assert!(code.len() < OWN_MARKER_OFFSET - 120);
+        assert!(OWN_MARKER_OFFSET + b"/data/own.marker\0".len() <= FOREIGN_MARKER_OFFSET);
+        assert!(FOREIGN_MARKER_OFFSET + b"/data/foreign.marker\0".len() <= FOREIGN_PROFILE_OFFSET);
+        assert!(FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len() < IMAGE_BYTES);
+
+        let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
+        image.resize(IMAGE_BYTES, 0);
+        image[96..104].copy_from_slice(&(IMAGE_BYTES as u64).to_le_bytes());
+        image[104..112].copy_from_slice(&(IMAGE_BYTES as u64).to_le_bytes());
+        image[120..120 + code.len()].copy_from_slice(&code);
+        image[OWN_MARKER_OFFSET..OWN_MARKER_OFFSET + b"/data/own.marker\0".len()]
+            .copy_from_slice(b"/data/own.marker\0");
+        image[FOREIGN_MARKER_OFFSET..FOREIGN_MARKER_OFFSET + b"/data/foreign.marker\0".len()]
+            .copy_from_slice(b"/data/foreign.marker\0");
+        image[FOREIGN_PROFILE_OFFSET..FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len()]
+            .copy_from_slice(foreign_profile_bytes);
+        image[FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len()] = 0;
+        image
+    }
+
     fn untracked_child_exit_elf() -> Vec<u8> {
         let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
         image.resize(160, 0);
@@ -11284,6 +11958,7 @@ mod linux_process_resource_tests {
             arguments: &[],
             execution_identity: LinuxExecutionIdentity::DEV_SERVICE,
             endpoint_policy,
+            filesystem_policy: ProcessFilesystemPolicy::Inherited,
             required: true,
             release_wait_budget: TEST_RELEASE_BUDGET,
             cancel_check_interval: TEST_CANCEL_INTERVAL,
@@ -11580,6 +12255,529 @@ mod linux_process_resource_tests {
             }
         ));
         std::fs::remove_file(marker_path).unwrap();
+    }
+
+    #[test]
+    fn app_process_tmpfs_root_exposes_only_its_authorized_profile_storage() {
+        use nagi_profile_volume_notes_owner::{AppStorageKind, ProfileVolumeAppOwner};
+        use std::os::fd::AsFd;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+        fn mountinfo_fields(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
+            use std::os::fd::AsFd;
+
+            let mountpoint = std::fs::File::open(path).expect("open exact fixture mountpoint");
+            let mount_id = rustix::fs::statx(
+                mountpoint.as_fd(),
+                c"",
+                rustix::fs::AtFlags::EMPTY_PATH,
+                rustix::fs::StatxFlags::MNT_ID,
+            )
+            .expect("read exact fixture mount id")
+            .stx_mnt_id;
+            let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")
+                .expect("read mount propagation state");
+            let line = mountinfo
+                .lines()
+                .find(|line| {
+                    line.split_whitespace()
+                        .next()
+                        .and_then(|field| field.parse::<u64>().ok())
+                        == Some(mount_id)
+                })
+                .expect("find exact fixture mountpoint");
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            let separator = fields
+                .iter()
+                .position(|field| *field == "-")
+                .expect("mountinfo separator");
+            let mount_options = fields[5].split(',').map(str::to_owned).collect::<Vec<_>>();
+            let optional_fields = fields[6..separator]
+                .iter()
+                .map(|field| (*field).to_owned())
+                .collect();
+            (mount_options, optional_fields)
+        }
+
+        fn namespace_identity(path: &std::path::Path) -> io::Result<(u64, u64)> {
+            let metadata = std::fs::metadata(path)?;
+            Ok((metadata.dev(), metadata.ino()))
+        }
+
+        fn optional_namespace_identity(path: &std::path::Path) -> io::Result<Option<(u64, u64)>> {
+            match namespace_identity(path) {
+                Ok(identity) => Ok(Some(identity)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+
+        struct AppIsolationFixture {
+            root: std::path::PathBuf,
+            mounted: bool,
+        }
+
+        impl Drop for AppIsolationFixture {
+            fn drop(&mut self) {
+                if self.mounted {
+                    if let Ok(path) =
+                        std::ffi::CString::new(self.root.as_os_str().as_encoded_bytes())
+                    {
+                        let _ = unsafe { libc::umount2(path.as_ptr(), libc::MNT_DETACH) };
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+
+        let root = std::path::PathBuf::from(format!(
+            "/tmp/nagi-c3-l11-app-profile-isolation-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).expect("create unique app isolation fixture root");
+        let mut fixture = AppIsolationFixture {
+            root: root.clone(),
+            mounted: false,
+        };
+        let source = std::ffi::CString::new("tmpfs").unwrap();
+        let target = std::ffi::CString::new(root.as_os_str().as_encoded_bytes()).unwrap();
+        let filesystem = std::ffi::CString::new("tmpfs").unwrap();
+        let options = std::ffi::CString::new("size=4m,mode=0755").unwrap();
+        let mounted = unsafe {
+            libc::mount(
+                source.as_ptr(),
+                target.as_ptr(),
+                filesystem.as_ptr(),
+                (libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC) as _,
+                options.as_ptr().cast(),
+            )
+        };
+        assert_eq!(
+            mounted,
+            0,
+            "mount isolated tmpfs fixture: {}",
+            io::Error::last_os_error()
+        );
+        fixture.mounted = true;
+
+        // Exercise the exact production tmpfs options and verify the kernel
+        // reports both configured resource ceilings.
+        let bounded_tmpfs_path = root.join("bounded-tmpfs");
+        std::fs::create_dir(&bounded_tmpfs_path).expect("create bounded tmpfs mountpoint");
+        let bounded_tmpfs_target =
+            std::ffi::CString::new(bounded_tmpfs_path.as_os_str().as_encoded_bytes()).unwrap();
+        linux_x86_64_process::mount_service_tmpfs_for_test(&bounded_tmpfs_target)
+            .expect("mount bounded service tmpfs options");
+        assert!(mountinfo_fields(&bounded_tmpfs_path)
+            .0
+            .iter()
+            .any(|option| option == "noexec"));
+        let mut tmpfs_stats = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
+        assert_eq!(
+            unsafe { libc::statvfs(bounded_tmpfs_target.as_ptr(), tmpfs_stats.as_mut_ptr()) },
+            0,
+            "read bounded service tmpfs limits: {}",
+            io::Error::last_os_error()
+        );
+        let tmpfs_stats = unsafe { tmpfs_stats.assume_init() };
+        let block_size = if tmpfs_stats.f_frsize == 0 {
+            tmpfs_stats.f_bsize
+        } else {
+            tmpfs_stats.f_frsize
+        } as u128;
+        assert!(
+            tmpfs_stats.f_blocks as u128 * block_size
+                <= linux_x86_64_process::SERVICE_TMPFS_SIZE_BYTES as u128,
+            "service tmpfs must not exceed its explicit byte ceiling"
+        );
+        assert!(
+            tmpfs_stats.f_files <= linux_x86_64_process::SERVICE_TMPFS_MAX_INODES,
+            "service tmpfs must not exceed its explicit inode ceiling"
+        );
+        assert_eq!(
+            unsafe { libc::umount2(bounded_tmpfs_target.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount bounded tmpfs: {}",
+            io::Error::last_os_error()
+        );
+        std::fs::remove_dir(&bounded_tmpfs_path).unwrap();
+
+        // Start from a shared synthetic Data mount. Production first gives
+        // the app child a recursively private root before attaching storage;
+        // model that destination with a private bind-mounted target while
+        // leaving the selected Data source shared.
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    std::ptr::null(),
+                    target.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_REC | libc::MS_SHARED,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "make only the fixture source mount shared: {}",
+            io::Error::last_os_error()
+        );
+        let (root_mount_options, root_mount_optional_fields) = mountinfo_fields(&root);
+        assert!(root_mount_options.iter().any(|option| option == "noexec"));
+        assert!(root_mount_optional_fields
+            .iter()
+            .any(|field| field.starts_with("shared:")));
+        let propagation_source = root.join("propagation-source");
+        let propagation_target = root.join("propagation-target");
+        std::fs::create_dir(&propagation_source).unwrap();
+        std::fs::create_dir(&propagation_target).unwrap();
+        let propagation_source_fd = std::fs::File::open(&propagation_source).unwrap();
+        let propagation_target_c =
+            std::ffi::CString::new(propagation_target.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    propagation_target_c.as_ptr(),
+                    propagation_target_c.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_BIND,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "create a private destination mount like the app root: {}",
+            io::Error::last_os_error()
+        );
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    std::ptr::null(),
+                    propagation_target_c.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_REC | libc::MS_PRIVATE,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "make only the fixture destination mount private: {}",
+            io::Error::last_os_error()
+        );
+        assert!(mountinfo_fields(&propagation_source)
+            .1
+            .iter()
+            .any(|field| field.starts_with("shared:")));
+        assert!(mountinfo_fields(&propagation_target)
+            .0
+            .iter()
+            .any(|option| option == "noexec"));
+        assert!(
+            !mountinfo_fields(&propagation_target).1.iter().any(|field| {
+                field.starts_with("shared:")
+                    || field.starts_with("master:")
+                    || field.starts_with("propagate_from:")
+            })
+        );
+        linux_x86_64_process::attach_private_app_storage_mount_for_test(
+            propagation_source_fd.as_fd(),
+            &propagation_target_c,
+        )
+        .expect("attach private clone of shared source mount");
+        let (app_storage_mount_options, app_storage_optional_fields) =
+            mountinfo_fields(&propagation_target);
+        assert!(app_storage_mount_options
+            .iter()
+            .any(|option| option == "noexec"));
+        assert!(!app_storage_optional_fields.iter().any(|field| {
+            field.starts_with("shared:")
+                || field.starts_with("master:")
+                || field.starts_with("propagate_from:")
+        }));
+        assert_eq!(
+            unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount private propagation fixture: {}",
+            io::Error::last_os_error()
+        );
+        assert_eq!(
+            unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount private destination mount: {}",
+            io::Error::last_os_error()
+        );
+        drop(propagation_source_fd);
+        std::fs::remove_dir(&propagation_source).unwrap();
+        std::fs::remove_dir(&propagation_target).unwrap();
+
+        let data_root = std::fs::File::open(&root).expect("open selected Data root fixture");
+        let data_root_fd = data_root.as_raw_fd();
+        assert!(data_root_fd > 2);
+        let data_root_flags = unsafe { libc::fcntl(data_root_fd, libc::F_GETFD) };
+        assert!(data_root_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    data_root_fd,
+                    libc::F_SETFD,
+                    data_root_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make the PID-1 Data ancestor descriptor intentionally inheritable"
+        );
+        let mount_id = rustix::fs::statx(
+            &data_root,
+            c"",
+            rustix::fs::AtFlags::EMPTY_PATH,
+            rustix::fs::StatxFlags::MNT_ID,
+        )
+        .expect("read selected Data mount id")
+        .stx_mnt_id;
+
+        // A pre-existing non-empty root without an owner reservation is not
+        // migrated to the app UID. Preserve it and fail before creating one.
+        let legacy_namespace = root.join("profile-files-v1");
+        std::fs::create_dir(&legacy_namespace).expect("create legacy namespace fixture");
+        std::fs::set_permissions(&legacy_namespace, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy namespace private");
+        let legacy_profile = legacy_namespace.join("profile_legacy");
+        std::fs::create_dir(&legacy_profile).expect("create legacy profile fixture");
+        std::fs::set_permissions(&legacy_profile, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy profile private");
+        let legacy_root = legacy_profile.join("root");
+        std::fs::create_dir(&legacy_root).expect("create legacy User Files root");
+        std::fs::set_permissions(&legacy_root, std::fs::Permissions::from_mode(0o700))
+            .expect("make legacy User Files root private");
+        let legacy_marker = legacy_root.join("preserve.marker");
+        std::fs::write(&legacy_marker, b"KEEP").expect("write legacy data marker");
+        std::fs::set_permissions(&legacy_marker, std::fs::Permissions::from_mode(0o600))
+            .expect("make legacy marker owner-only");
+        let mut legacy_owner = ProfileVolumeAppOwner::pending_for(AppStorageKind::UserFiles);
+        assert!(legacy_owner
+            .attach_linux_profile(
+                &data_root,
+                mount_id,
+                nagi_model::UserId(4),
+                "profile_legacy",
+                "principal_legacy",
+            )
+            .is_err());
+        assert_eq!(std::fs::read(&legacy_marker).unwrap(), b"KEEP");
+        assert_eq!(std::fs::metadata(&legacy_root).unwrap().uid(), 0);
+        assert_eq!(std::fs::metadata(&legacy_root).unwrap().gid(), 0);
+        assert!(!legacy_profile.join("reservation.v1").exists());
+
+        let mut files_owner = ProfileVolumeAppOwner::pending_for(AppStorageKind::UserFiles);
+        files_owner
+            .attach_linux_profile(
+                &data_root,
+                mount_id,
+                nagi_model::UserId(3),
+                "profile_fixture",
+                "principal_fixture",
+            )
+            .expect("provision User Files through the profile-volume owner");
+        let files_root = files_owner
+            .issue_files_root()
+            .expect("issue owner-bound User Files root");
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+        let own_directory = files_root
+            .duplicate_directory_for_app_process(&files_app)
+            .expect("duplicate the exact owner-issued Files root for its app process");
+        let own_directory_fd = own_directory.as_raw_fd();
+        let own_directory_flags = unsafe { libc::fcntl(own_directory_fd, libc::F_GETFD) };
+        assert!(own_directory_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    own_directory_fd,
+                    libc::F_SETFD,
+                    own_directory_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make owner-issued directory descriptor intentionally inheritable"
+        );
+        let own_root = root.join("profile-files-v1/profile_fixture/root");
+        let foreign_root = root.join("foreign-app-profile");
+        std::fs::create_dir(&foreign_root).expect("create foreign app profile root");
+        std::fs::set_permissions(&foreign_root, std::fs::Permissions::from_mode(0o700))
+            .expect("make foreign profile root private");
+        for (path, contents) in [
+            (own_root.join("own.marker"), b"OWN".as_slice()),
+            (foreign_root.join("foreign.marker"), b"FOREIGN".as_slice()),
+        ] {
+            std::fs::write(&path, contents).expect("write profile marker");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("make profile marker owner-only");
+        }
+        let pid1_only_path = root.join("pid1-only-inherited-fd.marker");
+        std::fs::write(&pid1_only_path, b"PID1 ONLY").unwrap();
+        let pid1_only_file = std::fs::OpenOptions::new()
+            .read(true)
+            .open(&pid1_only_path)
+            .expect("open PID-1-only descriptor sentinel");
+        let pid1_only_fd = pid1_only_file.as_raw_fd();
+        assert!(pid1_only_fd > 2);
+        let pid1_only_flags = unsafe { libc::fcntl(pid1_only_fd, libc::F_GETFD) };
+        assert!(pid1_only_flags >= 0);
+        assert_eq!(
+            unsafe {
+                libc::fcntl(
+                    pid1_only_fd,
+                    libc::F_SETFD,
+                    pid1_only_flags & !libc::FD_CLOEXEC,
+                )
+            },
+            0,
+            "make sentinel descriptor intentionally inheritable"
+        );
+
+        let set_fixture_owner = |path: &std::path::Path, identity: LinuxExecutionIdentity| {
+            let descriptor = std::fs::File::open(path).expect("open exact fixture inode");
+            rustix::fs::fchown(
+                &descriptor,
+                Some(rustix::fs::Uid::from_raw(identity.uid)),
+                Some(rustix::fs::Gid::from_raw(identity.gid)),
+            )
+            .expect("assign exact app owner to synthetic profile data");
+        };
+        set_fixture_owner(
+            &own_root.join("own.marker"),
+            LinuxExecutionIdentity::APP_FILES,
+        );
+        set_fixture_owner(&foreign_root, LinuxExecutionIdentity::DEV_NOTES_DESKTOP);
+        set_fixture_owner(
+            &foreign_root.join("foreign.marker"),
+            LinuxExecutionIdentity::DEV_NOTES_DESKTOP,
+        );
+        let storage = crate::profile_volume_notes_owner::AuthorizedAppStorageRoot::for_test(
+            nagi_model::AppId::from_identifier(b"org.nagi.files"),
+            own_directory,
+        );
+        let executable = app_storage_isolation_probe_elf(
+            foreign_root.join("foreign.marker").to_str().unwrap(),
+            [
+                own_directory_fd,
+                data_root_fd,
+                pid1_only_fd,
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[0],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[1],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[2],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[3],
+                linux_x86_64_process::APP_ISOLATION_TEST_FD_CANDIDATES[4],
+            ],
+        );
+        let parent_pid_namespace = namespace_identity(std::path::Path::new("/proc/self/ns/pid"))
+            .expect("read parent PID namespace identity");
+        let parent_mount_namespace = namespace_identity(std::path::Path::new("/proc/self/ns/mnt"))
+            .expect("read parent mount namespace identity");
+        let parent_user_namespace =
+            optional_namespace_identity(std::path::Path::new("/proc/self/ns/user"))
+                .expect("read parent user namespace identity when supported");
+        let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
+        let process_id = table
+            .spawn_authorized(
+                ProcessLaunch {
+                    service: "app-profile-isolation-test",
+                    executable: ExecutablePayload::from_package_executable(&executable).unwrap(),
+                    arguments: &[],
+                    execution_identity: LinuxExecutionIdentity::APP_FILES,
+                    endpoint_policy: ProcessEndpointPolicy::Disabled,
+                    filesystem_policy: ProcessFilesystemPolicy::Application(storage),
+                    required: true,
+                    release_wait_budget: TEST_RELEASE_BUDGET,
+                    cancel_check_interval: TEST_CANCEL_INTERVAL,
+                },
+                || false,
+                |_| Ok(TEST_RECORD),
+                |child_pid, _record, gate| {
+                    // The child remains behind the authorization gate here,
+                    // after PID/mount isolation and app credential setup but
+                    // before its test ELF can run or exit. Compare namespace
+                    // identities without relying on a post-reap /proc race.
+                    let child_namespace_root =
+                        std::path::PathBuf::from(format!("/proc/{child_pid}/ns"));
+                    type NamespaceIdentity = (u64, u64);
+                    type NamespaceSnapshot = (
+                        NamespaceIdentity,
+                        NamespaceIdentity,
+                        Option<NamespaceIdentity>,
+                    );
+                    let namespaces = match (|| -> io::Result<NamespaceSnapshot> {
+                        Ok((
+                            namespace_identity(&child_namespace_root.join("pid"))?,
+                            namespace_identity(&child_namespace_root.join("mnt"))?,
+                            optional_namespace_identity(&child_namespace_root.join("user"))?,
+                        ))
+                    })() {
+                        Ok(namespaces) => namespaces,
+                        Err(error) => {
+                            eprintln!("failed to read child namespaces before exec: {error}");
+                            return Err(BackendError::ProtocolViolation);
+                        }
+                    };
+                    if namespaces.0 == parent_pid_namespace
+                        || namespaces.1 == parent_mount_namespace
+                        || namespaces.2 != parent_user_namespace
+                    {
+                        eprintln!(
+                            "unexpected app namespace identities before exec: child={namespaces:?}"
+                        );
+                        return Err(BackendError::ProtocolViolation);
+                    }
+                    gate.commit()
+                },
+                no_revoke,
+            )
+            .expect("spawn app behind its per-app filesystem root");
+
+        assert!(matches!(
+            wait_for_exit(&mut table, process_id),
+            LifecycleEvent::ServiceExited {
+                service: "app-profile-isolation-test",
+                status: ServiceExitStatus {
+                    exit_code: Some(0),
+                    signal: None,
+                },
+                required: true,
+            }
+        ));
+        assert_eq!(table.active_len(), 0);
+        for inherited_fd in [data_root_fd, pid1_only_fd] {
+            assert!(
+                unsafe { libc::fcntl(inherited_fd, libc::F_GETFD) } >= 0,
+                "closing child descriptors must leave the PID-1 descriptor table intact"
+            );
+        }
+        drop(pid1_only_file);
+        let own_root_metadata = std::fs::metadata(&own_root).unwrap();
+        let own_marker_metadata = std::fs::metadata(own_root.join("own.marker")).unwrap();
+        assert_eq!(
+            own_root_metadata.uid(),
+            LinuxExecutionIdentity::APP_FILES.uid
+        );
+        assert_eq!(
+            own_root_metadata.gid(),
+            LinuxExecutionIdentity::APP_FILES.gid
+        );
+        assert_eq!(own_root_metadata.mode() & 0o777, 0o700);
+        assert_eq!(
+            own_marker_metadata.uid(),
+            LinuxExecutionIdentity::APP_FILES.uid
+        );
+        assert_eq!(
+            own_marker_metadata.gid(),
+            LinuxExecutionIdentity::APP_FILES.gid
+        );
+        assert_eq!(own_marker_metadata.mode() & 0o777, 0o600);
+        drop((files_root, files_owner, data_root));
+        let unmounted = unsafe { libc::umount2(target.as_ptr(), libc::MNT_DETACH) };
+        assert_eq!(
+            unmounted,
+            0,
+            "unmount isolated tmpfs fixture: {}",
+            io::Error::last_os_error()
+        );
+        fixture.mounted = false;
+        std::fs::remove_dir(&root).unwrap();
     }
 
     #[test]

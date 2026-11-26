@@ -35,6 +35,12 @@ pub enum AppStorageKind {
     UserFiles,
 }
 
+/// Linux identity assigned to the only app currently allowed to receive the
+/// User Files root. The process owner and the Data-root provisioner share this
+/// constant so storage ownership is checked without a user namespace.
+pub const USER_FILES_APP_UID: u32 = 65_532;
+pub const USER_FILES_APP_GID: u32 = 65_532;
+
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileVolumeNotesOwnerStatus {
@@ -603,6 +609,28 @@ impl ProfileFilesRoot {
         effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.with_files_root(effect)
+    }
+
+    /// Duplicate the owner-selected User Files directory for the exact Files
+    /// app process. Generic FilesRootView consumers remain descriptor-free;
+    /// the C3 process owner retains this ProfileFilesRoot until exact child reap.
+    #[doc(hidden)]
+    pub fn duplicate_directory_for_app_process(
+        &self,
+        app_id: &nagi_model::AppId,
+    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+        if app_id != &files_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+
+        self.0.with_duplicated_object_directory(|directory| {
+            let mount_id = linux_data::mount_id(&directory)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            linux_data::require_same_mount(&directory, mount_id)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            Ok(directory)
+        })?
     }
 }
 

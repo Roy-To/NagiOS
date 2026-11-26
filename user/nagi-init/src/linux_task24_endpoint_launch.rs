@@ -1456,6 +1456,7 @@ fn start_and_borrow<'slot>(
         arguments: &arguments,
         execution_identity: selection.credentials,
         endpoint_policy: ProcessEndpointPolicy::InheritedPeerChannel,
+        filesystem_policy: crate::linux_init::ProcessFilesystemPolicy::Inherited,
         required: false,
         release_wait_budget,
         cancel_check_interval: Duration::from_millis(10),
