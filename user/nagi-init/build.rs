@@ -27,7 +27,6 @@ fn main() {
     if env::var_os("CARGO_FEATURE_LINUX_DEV_DATA_SELECTION").is_some() && profile != "debug" {
         panic!("linux-dev-data-selection is restricted to debug Developer Preview builds");
     }
-    }
     if profile != "debug" {
         println!("cargo:rustc-cfg=nagi_release_build");
     }
