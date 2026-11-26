@@ -53,7 +53,11 @@ PR番号の振られていない分の詳細は `git show` で確認する。
 - **実nagi-pkg**: 11-17には固定nightlyで一度buildし受理を確認した記録がある。
   ただし作成時点のこのworktreeでは未buildのため、実validatorを使うテストはskip。
   skip条件を持つテストは `validation/test_validate.py`、`test_generated_check.py`、`generator/test_generate.py` にある
-  （validation READMEは41件中2件skipと記載、generator READMEと09c reviewは実validator依存テストのskipに言及）。skip件数の合計は今回数えていない。
+  （validation READMEは41件中2件skipと記載、generator READMEと09c reviewは実validator依存テストのskipに言及）。
+  skip件数の合計は出せていない。このworktree（Python 3.9.6、host）での実測は次のとおり:
+  `evaluation` 81件OK、`generator` 48件OK、`validation/test_validate.py` 11件OK、`test_generated_check.py` 7件OK（いずれも `skipped=` 表示なし）。
+  `validation` 全体の `discover` は10分で完了せず中断したため、そのskip数は未測定（原因は未調査）。
+  実validator依存テストが各README記載どおりskipされるかは、構築済み環境で別に確認が必要（未検証）。
   skipは合格ではない。実validatorによる雛形のManifest受理は、構築済み環境で別に確認が必要。
 - **生成物**: 雛形のcrate build・実行・署名・install・起動は未実施。
 - **API診断の入力**: NDP-04/05はPT-01の手書きfixtureで検証しており、実scanner出力との接続は未試験
@@ -67,9 +71,25 @@ PR番号の振られていない分の詳細は `git show` で確認する。
   追加条件に該当するかの再判断は、各PRについて行っていない。
 - **競合・TOCTOU**: generator、stage2、run_host_checksの一時領域を同時に別processが操作する競合は範囲外。
   generatorは作成物を削除せず残置して報告する設計。
-- **残るP3**（担当pathや軽微さのため未対応と記録されたもの）:
-  `<sub/windows.h>` が `windows.h` に一致し得る点、`stage2.py` の `prior` は呼出側の自己申告であること、
-  Stage 2が診断出力を返さない点、`generate.py` の `0o700` 厳密判定がumaskで誤判定し得る点。
+- **解消済みのP3**（board記録: NDP-A001/A002/A003、各PRはrunnerテスト成功・claudeレビューPASS。いずれもhost結果でありtarget受入ではない）:
+  - NDP-A001（PR #179）: path付きinclude（`<sub/windows.h>` など）が `WIN-HEADER` に一致しなくなった。
+    [api/windows README](../../../tools/nagi-developer-platform/api/windows/README.md)の「path付きheader」節、
+    [test_windows.py](../../../tools/nagi-developer-platform/api/windows/test_windows.py)。
+  - NDP-A002（PR #180）: `generate.py` のdirectory mode判定がumask連動になった（期待mode `0o700 & ~umask`、受入後に `fchmod(0o700)`、
+    読取りbitを奪うumaskは `unsupported_umask`）。
+    [generator README](../../../tools/nagi-developer-platform/generator/README.md)の「directory modeの厳密判定とumask」節、
+    [test_generate.py](../../../tools/nagi-developer-platform/generator/test_generate.py)。
+  - NDP-A003（PR #181）: Stage 2が伏字化・上限付きの診断要約（`diagnostics`）を返す。
+    [validation README](../../../tools/nagi-developer-platform/validation/README.md)の「Diagnostics summary」項、
+    [test_stage2_diagnostics.py](../../../tools/nagi-developer-platform/validation/test_stage2_diagnostics.py)。
+- **いま残る点**:
+  - `stage2.py` の `prior` は呼出側が渡す自己申告で、Stage 1を実際に走らせた証明ではない
+    （[validation README](../../../tools/nagi-developer-platform/validation/README.md)は「`prior` argument / `--stage1-*`」と記載）。
+  - 解消済み3項目は、いずれもREADME上PROVISIONAL（未確認の仮定）を含む。
+    A001は「`sub/windows.h` は別ファイル」という仮定で、実際にSDKのWindows headerを指す場合は偽陰性。
+    A002は、期待modeと一致する同一uidの差し替えはumaskを変えても判別できない。
+    A003の `diagnostics` は追加項目で、形式は未確認。
+    実scanner・実Windows SDK・Nagi targetでの確認はしていない。
 
 ## 4. 他ownerへの接続依頼
 

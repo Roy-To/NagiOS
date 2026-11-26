@@ -82,6 +82,115 @@ class HandoverConsistency(unittest.TestCase):
             self.assertIn(phrase, text)
 
 
+UNVERIFIED_HEADING = "## 3. 未検証事項"
+RESOLVED_MARKER = "**解消済みのP3**"
+REMAINING_MARKER = "**いま残る点**"
+OLD_REMAINING_MARKER = "**残るP3**"
+# (task id, old wording that must not reappear in the remaining list, relative link targets)
+TOOLS = "../../../tools/nagi-developer-platform/"
+RESOLVED_P3 = (
+    ("NDP-A001", ("`<sub/windows.h>` が `windows.h` に一致し得る",),
+     (TOOLS + "api/windows/README.md", TOOLS + "api/windows/test_windows.py")),
+    ("NDP-A002", ("`0o700` 厳密判定がumaskで誤判定し得る",),
+     (TOOLS + "generator/README.md", TOOLS + "generator/test_generate.py")),
+    ("NDP-A003", ("Stage 2が診断出力を返さない",),
+     (TOOLS + "validation/README.md", TOOLS + "validation/test_stage2_diagnostics.py")),
+)
+
+
+def p3_parts(text):
+    """Split section 3's P3 notes into (resolved, remaining) text."""
+    start = text.find(UNVERIFIED_HEADING)
+    end = text.find("\n## ", start + len(UNVERIFIED_HEADING)) if start >= 0 else -1
+    section = "" if start < 0 else (text[start:] if end < 0 else text[start:end])
+    resolved = section.find(RESOLVED_MARKER)
+    remaining = section.find(REMAINING_MARKER)
+    if resolved < 0 or remaining < resolved:
+        return "", "", section
+    return section[resolved:remaining], section[remaining:], section
+
+
+class ResolvedP3Consistency(unittest.TestCase):
+    """Items recorded as resolved must be linked and not listed again as remaining."""
+
+    handover_path = HANDOVER
+
+    def parts(self):
+        return p3_parts(handover_text(self.handover_path))
+
+    def test_resolved_and_remaining_are_separate_lists(self):
+        resolved, remaining, section = self.parts()
+        self.assertTrue(resolved, "missing {}".format(RESOLVED_MARKER))
+        self.assertTrue(remaining, "missing {}".format(REMAINING_MARKER))
+        self.assertNotIn(OLD_REMAINING_MARKER, section)
+
+    def test_each_resolved_item_is_recorded_with_existing_links(self):
+        resolved, _, _ = self.parts()
+        for task, _, targets in RESOLVED_P3:
+            with self.subTest(task=task):
+                self.assertIn(task, resolved)
+                for target in targets:
+                    self.assertIn("]({}".format(target), resolved)
+                    self.assertTrue((Path(self.handover_path).parent / target).resolve().is_file(), target)
+
+    def test_resolved_items_are_not_listed_as_remaining(self):
+        _, remaining, _ = self.parts()
+        self.assertTrue(remaining)
+        for task, old_wordings, _ in RESOLVED_P3:
+            with self.subTest(task=task):
+                for wording in old_wordings:
+                    self.assertNotIn(wording, remaining)
+
+    def test_prior_self_declaration_stays_listed_as_remaining(self):
+        _, remaining, _ = self.parts()
+        self.assertIn("`prior`", remaining)
+        self.assertIn("自己申告", remaining)
+
+
+class ResolvedP3MutationTests(unittest.TestCase):
+    """Edit a temporary copy of handover.md and confirm the resolved-P3 checks fail."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(self.tmp))
+        self.copy = self.tmp / HANDOVER.relative_to(ROOT)
+        self.copy.parent.mkdir(parents=True)
+        for _, _, targets in RESOLVED_P3:
+            for target in targets:
+                path = (HANDOVER.parent / target).resolve()
+                dest = (self.copy.parent / target).resolve()
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(str(path), str(dest))
+
+    def failed(self, text):
+        self.copy.write_text(text, encoding="utf-8")
+        case = type("Copy", (ResolvedP3Consistency,), {"handover_path": self.copy})
+        suite = unittest.defaultTestLoader.loadTestsFromTestCase(case)
+        result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
+        # A subTest failure's id carries " (key=value)"; keep only the method name.
+        return sorted({t.id().rsplit(".", 1)[-1].split(" ")[0] for t, _ in result.failures + result.errors})
+
+    def test_unmodified_copy_passes(self):
+        self.assertEqual(self.failed(handover_text()), [])
+
+    def test_old_wording_in_remaining_list_fails(self):
+        for _, old_wordings, _ in RESOLVED_P3:
+            for wording in old_wordings:
+                with self.subTest(wording=wording):
+                    text = handover_text().replace(
+                        REMAINING_MARKER, REMAINING_MARKER + "\n  - " + wording, 1)
+                    self.assertEqual(self.failed(text), ["test_resolved_items_are_not_listed_as_remaining"])
+
+    def test_missing_link_target_fails(self):
+        target = self.copy.parent / RESOLVED_P3[0][2][0]
+        target.resolve().unlink()
+        self.assertEqual(self.failed(handover_text()), ["test_each_resolved_item_is_recorded_with_existing_links"])
+
+    def test_dropping_prior_item_fails(self):
+        text = handover_text().replace("自己申告", "申告")
+        self.assertEqual(self.failed(text), ["test_prior_self_declaration_stays_listed_as_remaining"])
+
+
 def run_consistency_on(path):
     """Run every consistency test against `path` and return the unittest result."""
     case = type("HandoverCopy", (HandoverConsistency,), {"handover_path": Path(path)})
