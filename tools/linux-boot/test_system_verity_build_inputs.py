@@ -1,11 +1,17 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from system_verity_build_inputs import (
     BuildInputError,
+    executable_identity,
+    resolve_rustc_path,
     resume_tool_path,
+    verify_executable_identity,
+    verify_manifest_tool_identity,
     validate_resume_manifest,
     write_resume_manifest,
 )
@@ -96,6 +102,27 @@ class SystemVerityBuildInputTests(unittest.TestCase):
                 self.source_identity, self.host_support, changed_versions,
             )
 
+    def test_resume_manifest_must_match_receipt_rustc_identity(self):
+        write_resume_manifest(
+            self.manifest, self.paths, self.source_dir, self.archive,
+            self.source_identity, self.host_support, self.tool_versions,
+        )
+        digest = hashlib.sha256(self.paths["rustc"].read_bytes()).hexdigest()
+        verify_manifest_tool_identity(
+            self.manifest, "rustc", self.paths["rustc"], digest,
+            self.tool_versions["rustc"],
+        )
+        with self.assertRaisesRegex(BuildInputError, "identity differs from the build receipt"):
+            verify_manifest_tool_identity(
+                self.manifest, "rustc", self.paths["rustc"], "f" * 64,
+                self.tool_versions["rustc"],
+            )
+        with self.assertRaisesRegex(BuildInputError, "version differs from the build receipt"):
+            verify_manifest_tool_identity(
+                self.manifest, "rustc", self.paths["rustc"], digest,
+                "rustc 1.87.0 (new build)",
+            )
+
     def test_resume_manifest_rejects_changed_rustc_binary(self):
         write_resume_manifest(
             self.manifest, self.paths, self.source_dir, self.archive,
@@ -126,6 +153,56 @@ class SystemVerityBuildInputTests(unittest.TestCase):
         self.paths["rustc"].write_bytes(b"changed executable")
         with self.assertRaisesRegex(BuildInputError, "pinned rustc executable changed"):
             resume_tool_path(self.manifest, "rustc")
+
+    def test_resolve_rustc_path_uses_rustup_which_for_proxy_symlink(self):
+        rustup = self.root / "rustup"
+        compiler = self.root / "toolchain" / "bin" / "rustc"
+        compiler.parent.mkdir(parents=True)
+        compiler.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        compiler.chmod(0o755)
+        rustup.write_text(
+            f"#!/bin/sh\n[ \"$1\" = which ] && [ \"$2\" = rustc ] || exit 41\nprintf '%s\\n' '{compiler}'\n",
+            encoding="utf-8",
+        )
+        rustup.chmod(0o755)
+        proxy_dir = self.root / "cargo-bin"
+        proxy_dir.mkdir()
+        proxy = proxy_dir / "rustc"
+        proxy.symlink_to(rustup)
+
+        self.assertEqual(resolve_rustc_path(str(proxy)), compiler.resolve())
+
+    def test_resolve_rustc_path_keeps_direct_compiler(self):
+        compiler = self.root / "direct-rustc"
+        compiler.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        compiler.chmod(0o755)
+
+        self.assertEqual(resolve_rustc_path(str(compiler)), compiler.resolve())
+
+    def test_executable_identity_rejects_changed_binary(self):
+        compiler = self.root / "test-rustc"
+        compiler.write_text("#!/bin/sh\nprintf 'rustc fixture 1\\n'\n", encoding="utf-8")
+        compiler.chmod(0o755)
+        expected = executable_identity(compiler)
+        compiler.write_text("#!/bin/sh\nprintf 'rustc fixture 2\\n'\n", encoding="utf-8")
+        compiler.chmod(0o755)
+
+        with self.assertRaisesRegex(BuildInputError, "pinned rustc executable changed"):
+            verify_executable_identity(compiler, expected["sha256"], expected["version"], "rustc")
+
+    def test_executable_identity_rejects_changed_version(self):
+        compiler = self.root / "test-rustc-versioned"
+        compiler.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$RUSTC_FIXTURE_VERSION\"\n",
+            encoding="utf-8",
+        )
+        compiler.chmod(0o755)
+        with patch.dict(os.environ, {"RUSTC_FIXTURE_VERSION": "rustc fixture 1"}):
+            expected = executable_identity(compiler)
+
+        with patch.dict(os.environ, {"RUSTC_FIXTURE_VERSION": "rustc fixture 2"}):
+            with self.assertRaisesRegex(BuildInputError, "pinned rustc version changed"):
+                verify_executable_identity(compiler, expected["sha256"], expected["version"], "rustc")
 
     def test_resume_manifest_is_required(self):
         with self.assertRaisesRegex(BuildInputError, "manifest is missing"):

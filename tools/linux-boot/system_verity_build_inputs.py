@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import stat
+import subprocess
 from pathlib import Path
 
 
@@ -44,6 +46,115 @@ def _canonical_path(path: Path) -> str:
         return str(path.resolve(strict=True))
     except OSError as error:
         raise BuildInputError(f"build input path is unavailable: {path}: {error}") from None
+
+
+def _canonical_executable(path: Path) -> Path:
+    try:
+        resolved = path.expanduser().resolve(strict=True)
+        info = resolved.stat()
+    except OSError as error:
+        raise BuildInputError(f"tool path is unavailable: {path}: {error}") from None
+    if not stat.S_ISREG(info.st_mode) or not os.access(resolved, os.X_OK):
+        raise BuildInputError(f"tool path must resolve to a regular executable: {path}")
+    return resolved
+
+
+def resolve_rustc_path(requested: str) -> Path:
+    """Resolve rustc shims to the actual active compiler executable."""
+    if not isinstance(requested, str) or not requested:
+        raise BuildInputError("requested rustc path is missing")
+    if "/" in requested or (os.altsep and os.altsep in requested):
+        candidate = Path(requested).expanduser()
+    else:
+        found = shutil.which(requested)
+        if found is None:
+            raise BuildInputError(f"requested rustc executable was not found: {requested}")
+        candidate = Path(found)
+    resolved = _canonical_executable(candidate)
+    if resolved.name.lower() in {"rustup", "rustup.exe"}:
+        try:
+            result = subprocess.run(
+                [str(resolved), "which", "rustc"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except OSError as error:
+            raise BuildInputError(f"rustup could not resolve the active rustc: {error}") from None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or f"exit {result.returncode}"
+            raise BuildInputError(f"rustup could not resolve the active rustc: {detail}")
+        paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if len(paths) != 1:
+            raise BuildInputError("rustup returned an invalid active rustc path")
+        resolved = _canonical_executable(Path(paths[0]))
+        if resolved.name.lower() in {"rustup", "rustup.exe"}:
+            raise BuildInputError("rustup did not return the active rustc executable")
+    return resolved
+
+
+def executable_identity(path: Path) -> dict[str, str]:
+    """Capture a stable executable hash and its full rustc version output."""
+    resolved = _canonical_executable(path)
+    try:
+        before = resolved.stat()
+        digest_before = sha256_file(resolved)
+        result = subprocess.run(
+            [str(resolved), "--version", "--verbose"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        digest_after = sha256_file(resolved)
+        after = resolved.stat()
+    except OSError as error:
+        raise BuildInputError(f"pinned rustc identity query failed: {error}") from None
+    before_state = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    after_state = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+    if digest_before != digest_after or before_state != after_state:
+        raise BuildInputError("pinned rustc executable changed while querying its identity")
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise BuildInputError(f"pinned rustc version query failed: {detail}")
+    version = result.stdout.rstrip("\r\n")
+    if not version:
+        raise BuildInputError("pinned rustc version output is empty")
+    return {"path": str(resolved), "sha256": digest_after, "version": version}
+
+
+def verify_executable_identity(path: Path, expected_sha256: str, expected_version: str, name: str) -> None:
+    """Fail if a pinned build tool no longer matches its captured identity."""
+    actual = executable_identity(path)
+    if actual["sha256"] != expected_sha256:
+        raise BuildInputError(f"pinned {name} executable changed")
+    if actual["version"] != expected_version:
+        raise BuildInputError(f"pinned {name} version changed")
+
+
+def verify_manifest_tool_identity(
+    manifest_path: Path,
+    name: str,
+    expected_path: Path,
+    expected_sha256: str,
+    expected_version: str,
+) -> None:
+    """Ensure the immutable input manifest and build receipt name one tool."""
+    try:
+        info = manifest_path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise BuildInputError("resume input manifest must be a non-symlink regular file")
+        manifest = json.loads(manifest_path.read_bytes())
+    except FileNotFoundError:
+        raise BuildInputError("resume input manifest is missing") from None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise BuildInputError("resume input manifest is malformed") from None
+    expected_record = {"path": _canonical_path(expected_path), "sha256": expected_sha256}
+    inputs = manifest.get("inputs") if isinstance(manifest, dict) else None
+    versions = manifest.get("tool_versions") if isinstance(manifest, dict) else None
+    if not isinstance(inputs, dict) or inputs.get(name) != expected_record:
+        raise BuildInputError(f"resume manifest {name} identity differs from the build receipt")
+    if not isinstance(versions, dict) or versions.get(name) != expected_version:
+        raise BuildInputError(f"resume manifest {name} version differs from the build receipt")
 
 
 def _record(path: Path) -> dict[str, str]:

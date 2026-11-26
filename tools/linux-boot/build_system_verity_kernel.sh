@@ -86,6 +86,38 @@ if not stat.S_ISREG(info.st_mode) or not os.access(path, os.X_OK):
 print(path)
 PY
 }
+resolve_rustc() {
+    python3 -B - "$repo_root" "$1" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools/linux-boot"))
+from system_verity_build_inputs import resolve_rustc_path
+print(resolve_rustc_path(sys.argv[2]))
+PY
+}
+capture_rustc_identity() {
+    local identity_json
+    identity_json=$(python3 -B - "$repo_root" "$rustc_path" <<'PY'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools/linux-boot"))
+from system_verity_build_inputs import executable_identity
+print(json.dumps(executable_identity(Path(sys.argv[2]))))
+PY
+) || return 1
+    rustc_sha=$(python3 -B -c 'import json,sys; print(json.loads(sys.argv[1])["sha256"])' "$identity_json") || return 1
+    rustc_version=$(python3 -B -c 'import json,sys; print(json.loads(sys.argv[1])["version"], end="")' "$identity_json") || return 1
+    [[ "$rustc_sha" =~ ^[0-9a-f]{64}$ && -n "$rustc_version" ]]
+}
+verify_rustc_identity() {
+    python3 -B - "$repo_root" "$rustc_path" "$rustc_sha" "$rustc_version" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "tools/linux-boot"))
+from system_verity_build_inputs import verify_executable_identity
+verify_executable_identity(Path(sys.argv[2]), sys.argv[3], sys.argv[4], "rustc")
+PY
+}
 if [[ "$resume_existing" == 1 ]]; then
     rustc_path=$(python3 -B - "$repo_root" "$output_dir/resume-inputs.json" <<'PY'
 import sys
@@ -97,7 +129,7 @@ PY
 ) || exit 2
     requested_rustc=${NAGI_L11_RUSTC:-${RUSTC:-}}
     if [[ -n "$requested_rustc" ]]; then
-        requested_rustc_path=$(resolve_executable "$requested_rustc") || {
+        requested_rustc_path=$(resolve_rustc "$requested_rustc") || {
             echo "requested RUSTC is unavailable" >&2
             exit 2
         }
@@ -109,7 +141,7 @@ PY
 else
     requested_rustc=${NAGI_L11_RUSTC:-${RUSTC:-$(command -v rustc || true)}}
     [[ -n "$requested_rustc" ]] || { echo "rustc is required to resolve Linux Kconfig version symbols" >&2; exit 2; }
-    rustc_path=$(resolve_executable "$requested_rustc") || {
+    rustc_path=$(resolve_rustc "$requested_rustc") || {
         echo "RUSTC must resolve to a regular executable" >&2
         exit 2
     }
@@ -118,9 +150,7 @@ if [[ "$rustc_path" =~ [[:space:]] ]]; then
     echo "pinned RUSTC path cannot contain whitespace in Linux Kbuild command variables" >&2
     exit 2
 fi
-rustc_version=$("$rustc_path" --version --verbose) || { echo "pinned RUSTC version query failed" >&2; exit 2; }
-rustc_sha=$(shasum -a 256 "$rustc_path" | awk '{print $1}')
-[[ "$rustc_sha" =~ ^[0-9a-f]{64}$ && -n "$rustc_version" ]] || { echo "pinned RUSTC identity is malformed" >&2; exit 2; }
+capture_rustc_identity || { echo "pinned RUSTC identity is malformed" >&2; exit 2; }
 printf 'Pinned RUSTC for Kconfig and kernel make: %s (SHA-256 %s)\n' "$rustc_path" "$rustc_sha"
 host_support_root=${NAGI_L11_HOST_TOOLS_ROOT:-}
 host_make_args=()
@@ -453,11 +483,14 @@ PY
 if [[ "$resume_existing" == 1 ]]; then
     resume_inputs_sha=$(prepare_resume_inputs validate) || exit 2
     printf 'Resume inputs match the original build receipt: PASS\n'
+    verify_rustc_identity || { echo "pinned RUSTC identity changed before resume build" >&2; exit 2; }
 else
     printf 'Merging L11-3 DM config into Linux %s; base config SHA-256=%s\n' "$version" "$actual_base_sha"
     bash "$source_dir/scripts/kconfig/merge_config.sh" -m -O "$build_dir" \
         "$build_dir/.config" "$merge_fragment"
+    verify_rustc_identity || { echo "pinned RUSTC identity changed before olddefconfig" >&2; exit 2; }
     make -C "$source_dir" "${host_make_args[@]}" "RUSTC=$rustc_path" O="$build_dir" ARCH=x86_64 LLVM=1 olddefconfig
+    verify_rustc_identity || { echo "pinned RUSTC identity changed during olddefconfig" >&2; exit 2; }
 fi
 python3 -B - "$config_validator" "$build_dir/.config" <<'PY'
 import importlib.util, sys
@@ -470,10 +503,13 @@ module.parse_config(open(config, "rb").read())
 print("DM_INIT, DM_VERITY, SHA-256, virtio-blk and ext4 config: PASS")
 PY
 if [[ "$resume_existing" != 1 ]]; then
+    verify_rustc_identity || { echo "pinned RUSTC identity changed before resume manifest creation" >&2; exit 2; }
     resume_inputs_sha=$(prepare_resume_inputs write) || exit 2
     printf 'Immutable resume input manifest: %s (SHA-256 %s)\n' "$output_dir/resume-inputs.json" "$resume_inputs_sha"
 fi
+verify_rustc_identity || { echo "pinned RUSTC identity changed before kernel build" >&2; exit 2; }
 make -C "$source_dir" "${host_make_args[@]}" "RUSTC=$rustc_path" O="$build_dir" ARCH=x86_64 LLVM=1 -j4 bzImage
+verify_rustc_identity || { echo "pinned RUSTC identity changed during kernel build" >&2; exit 1; }
 
 if [[ "$host_support_kind" != none ]]; then
     write_host_support_manifest "$host_support_after_path"
@@ -496,6 +532,7 @@ source_identity_after=$(python3 -B "$source_verifier" verify "$source_dir" "$sou
 [[ "$source_identity_json" == "$source_identity_after" ]] || { echo "pinned Linux source identity changed during the build" >&2; exit 1; }
 resume_inputs_sha_after=$(prepare_resume_inputs validate) || exit 1
 [[ "$resume_inputs_sha" == "$resume_inputs_sha_after" ]] || { echo "resume build input receipt changed during the build" >&2; exit 1; }
+verify_rustc_identity || { echo "pinned RUSTC identity changed before build receipt creation" >&2; exit 1; }
 kernel="$build_dir/arch/x86/boot/bzImage"
 [[ -f "$kernel" && ! -L "$kernel" ]] || { echo "kernel bzImage output missing" >&2; exit 1; }
 config="$build_dir/.config"
@@ -515,6 +552,8 @@ host_make_args_count = int(sys.argv[26])
 host_make_args = sys.argv[27 : 27 + host_make_args_count]
 if len(host_make_args) != host_make_args_count:
     raise SystemExit("kernel host make argument receipt is truncated")
+sys.path.insert(0, str(repo / "tools/linux-boot"))
+from system_verity_build_inputs import BuildInputError, verify_executable_identity, verify_manifest_tool_identity
 
 def sha(path):
     path = Path(path)
@@ -531,6 +570,13 @@ resume_manifest = output / "resume-inputs.json"
 if (sha(base) != base_sha or sha(kernel) != kernel_sha or sha(config) != config_sha
         or sha(resume_manifest) != resume_inputs_sha):
     raise SystemExit("build inputs or outputs changed before receipt creation")
+try:
+    verify_executable_identity(Path(rustc_path), rustc_sha, rustc_version, "rustc")
+    verify_manifest_tool_identity(
+        resume_manifest, "rustc", Path(rustc_path), rustc_sha, rustc_version,
+    )
+except BuildInputError as error:
+    raise SystemExit(str(error)) from None
 receipt = {
     "schema": 2,
     "purpose": "L11-3 development dm-verity kernel; not a signed product kernel",
