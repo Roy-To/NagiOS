@@ -80,3 +80,4 @@ Stage 1 adapter 11件・正規tool 7件成功。Stage 2/3は未実行を返す�
 - 11-26 NDP-A022: 余裕テストを実 `main()` の stdout 測定に変更し、README PROVISIONAL 節に fixtu（PR #279、runnerテスト成功、codexレビューPASS）
 - 11-26 NDP-A023: handover整合テストをMarkdownリンク検査と一時コピーでの失敗確認に強化し、evaluation 73件成功（PR #280、runnerテスト成功、codexレビューPASS）
 - 11-26 NDP-A024: handover第3節の実validator/skip記述を実行ごとの環境と件数に対応づけて書き直し、リンク照合を完全一（PR #281、runnerテスト成功、codexレビューPASS）
+- 11-27 NDP-A026: README実測表(9 fixture+all)を実測と照合し、外側の`|`を省いた行も検査する同期テストに修正(P2/（PR #288、runnerテスト成功、codexレビューPASS）
