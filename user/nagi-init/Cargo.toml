@@ -58,6 +58,9 @@ desktop-password-change-acceptance = ["desktop-login-acceptance"]
 # it for a trial on the next boot.
 m30-update-install = ["dep:nagi-fat32", "dep:nagi-slot-manifest"]
 m25-voice-acceptance = []
+# Explicitly enables the Developer Preview Data selector verifier. This feature
+# is debug-build-only and must never be part of a production build.
+linux-dev-data-selection = ["nagi-data-boot-selection/developer-preview-test-key"]
 
 [[bin]]
 name = "nagi-init"
@@ -111,6 +114,7 @@ nagi-c2-accepted-connection-proof-contract = { path = "../../crates/nagi-c2-acce
 nagi-init-spawn-contract = { path = "../../crates/nagi-init-spawn-contract" }
 nagi-linux-account-verifier = { path = "../nagi-linux-account-verifier" }
 nagi-profile-volume-notes-owner = { path = "../../crates/nagi-profile-volume-owner" }
+nagi-data-boot-selection = { path = "../../crates/nagi-data-boot-selection" }
 nagi-system-principal-contract = { path = "../../crates/nagi-system-principal-contract" }
 nagi-system-service-recovery-contract = { path = "../../crates/nagi-system-service-recovery-contract" }
 nagi-system-service-launch = { path = "../../crates/nagi-system-service-launch" }

@@ -381,6 +381,13 @@ name = "nagi-clipboard"
 version = "0.1.0"
 
 [[package]]
+name = "nagi-data-boot-selection"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+]
+
+[[package]]
 name = "nagi-dev-service-catalog-consumer"
 version = "0.1.0"
 dependencies = [
@@ -454,6 +461,7 @@ dependencies = [
  "nagi-calendar-core",
  "nagi-calendar-input-adapter",
  "nagi-clipboard",
+ "nagi-data-boot-selection",
  "nagi-dev-service-catalog-consumer",
  "nagi-fat32",
  "nagi-files",

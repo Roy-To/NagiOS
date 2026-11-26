@@ -1,6 +1,7 @@
 import hashlib
 import json
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -9,10 +10,29 @@ from pathlib import Path
 from unittest.mock import patch
 
 import run_dev_image
+import data_boot_config
 
 
 SCRIPTS = Path(__file__).resolve().parent
 DATA_UUID = "aabbccdd-1111-2222-3333-444455556666"
+
+
+def _newc_record(name, payload, *, inode, mode, nlink):
+    name_bytes = name.encode("ascii") + b"\0"
+    fields = [inode, mode, 0, 0, nlink, 0, len(payload), 0, 0, 0, 0, len(name_bytes), 0]
+    result = bytearray(b"070701" + b"".join(f"{value:08x}".encode("ascii") for value in fields))
+    result.extend(name_bytes)
+    result.extend(b"\0" * (-len(result) % 4))
+    result.extend(payload)
+    result.extend(b"\0" * (-len(result) % 4))
+    return bytes(result)
+
+
+def _synthetic_initramfs():
+    return (
+        _newc_record("init", b"synthetic init", inode=1, mode=stat.S_IFREG | 0o755, nlink=1)
+        + _newc_record("TRAILER!!!", b"", inode=0, mode=0, nlink=1)
+    )
 
 
 class DevImageTests(unittest.TestCase):
@@ -25,7 +45,7 @@ class DevImageTests(unittest.TestCase):
         artifacts = {}
         for key in ("kernel", "initramfs", "system_image"):
             artifact = self.source / key
-            artifact.write_bytes(key.encode())
+            artifact.write_bytes(_synthetic_initramfs() if key == "initramfs" else key.encode())
             artifacts[key] = {
                 "path": str(artifact),
                 "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
@@ -57,11 +77,23 @@ class DevImageTests(unittest.TestCase):
             "run_dev_image.py", self.bundle, "--qemu", "qemu-test-command", "--print-command"
         )
 
+    def replace_bundle_selection(self, config):
+        initramfs = data_boot_config.add_signed_selection_entry(_synthetic_initramfs(), config)
+        initramfs_path = self.bundle / "initramfs.cpio"
+        initramfs_path.write_bytes(initramfs)
+        manifest_path = self.bundle / "bundle.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["sha256"]["initramfs"] = hashlib.sha256(initramfs).hexdigest()
+        manifest["data_selection_config_sha256"] = hashlib.sha256(config).hexdigest()
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
     def test_make_and_print_command_keep_data_copy_and_read_only_system(self):
         for name in ("fixture.json", "receipt.json", "serial.log"):
             (self.source / name).write_text("fixture", encoding="utf-8")
         result = self.make()
         self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((self.bundle / "bundle.json").read_text(encoding="utf-8"))
+        self.assertNotIn("source_initramfs_sha256", manifest)
         self.assertEqual(
             {item.name for item in self.bundle.iterdir()},
             {"bundle.json", "kernel.bzImage", "initramfs.cpio", "system.raw", "data.raw"},
@@ -85,8 +117,12 @@ class DevImageTests(unittest.TestCase):
         self.assertEqual(options["-accel"], "tcg,thread=multi")
         self.assertEqual((options["-smp"], options["-m"]), ("4", "8192"))
         self.assertEqual(options["-kernel"], str(self.bundle / "kernel.bzImage"))
-        self.assertIn(f"nagi.dev_data.fs_uuid={DATA_UUID}", options["-append"])
-        self.assertIn("nagi.dev_data.serial=NAGI-DATA-aabbccdd", options["-append"])
+        self.assertEqual(options["-append"], "console=ttyS0,115200n8 rdinit=/init")
+        self.assertNotIn("nagi.dev_data.", options["-append"])
+        self.assertIn("virtio-blk-pci,drive=datadisk,serial=NAGI-DATA-aabbccdd", command)
+        config = data_boot_config.extract_selection_config((self.bundle / "initramfs.cpio").read_bytes())
+        self.assertTrue(data_boot_config.verify_config_signature(config))
+        self.assertEqual(data_boot_config.selection_filesystem_uuid(config), DATA_UUID)
         self.assertNotEqual(options["-display"], "none")
         self.assertEqual((options["-nic"], options["-monitor"], options["-serial"]),
                          ("none", "none", "stdio"))
@@ -95,6 +131,51 @@ class DevImageTests(unittest.TestCase):
         self.assertIn("readonly=on", drives[0])
         self.assertIn(str(copied_data), drives[1])
         self.assertNotIn("readonly=", drives[1])
+
+    def test_runner_rejects_signed_smoke_selection_in_normal_dev_bundle(self):
+        self.assertEqual(self.make().returncode, 0)
+        config = data_boot_config.sign_config(DATA_UUID, "smoke-provision-identity-directories")
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("normal dev bundle requires identity Data selection mode", result.stderr)
+
+    def test_runner_rejects_validly_signed_noncanonical_selection(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID)[:-1]
+        config = data_boot_config._sign_config_text(text)
+        self.assertTrue(data_boot_config.verify_config_signature(config))
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Data selection config text is malformed", result.stderr)
+
+    def test_runner_rejects_signed_crlf_selection(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID).replace(b"\n", b"\r\n")
+        config = data_boot_config._sign_config_text(text)
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Data selection config text is malformed", result.stderr)
+
+    def test_runner_accepts_rust_canonical_relative_data_paths(self):
+        self.assertEqual(self.make().returncode, 0)
+        text = data_boot_config.config_text(DATA_UUID)
+        text = text.replace(b"accounts=accounts\n", b"accounts=profile/v1/accounts\n")
+        text = text.replace(b"snapshots=snapshots\n", b"snapshots=profile/v1/snapshots\n")
+        config = data_boot_config._sign_config_text(text)
+        self.replace_bundle_selection(config)
+
+        result = self.print_command()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_runner_rejects_missing_manifest(self):
         self.bundle.mkdir()
@@ -108,6 +189,23 @@ class DevImageTests(unittest.TestCase):
         result = self.print_command()
         self.assertEqual(result.returncode, 2)
         self.assertIn("kernel does not match its recorded SHA-256", result.stderr)
+
+    def test_runner_rejects_signed_data_uuid_different_from_bundle_uuid(self):
+        self.assertEqual(self.make().returncode, 0)
+        manifest_path = self.bundle / "bundle.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["data_uuid"] = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = self.print_command()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("signed Data selection UUID differs", result.stderr)
+
+    def test_dev_selection_signature_rejects_mutation(self):
+        config = data_boot_config.sign_config(DATA_UUID)
+        self.assertTrue(data_boot_config.verify_config_signature(config))
+        tampered = bytearray(config)
+        tampered[-1] ^= 1
+        self.assertFalse(data_boot_config.verify_config_signature(bytes(tampered)))
 
     def test_runner_rejects_symlink(self):
         self.assertEqual(self.make().returncode, 0)
