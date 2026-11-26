@@ -11934,7 +11934,7 @@ mod linux_process_resource_tests {
         assert!(code.len() < OWN_MARKER_OFFSET - 120);
         assert!(OWN_MARKER_OFFSET + b"/data/own.marker\0".len() <= FOREIGN_MARKER_OFFSET);
         assert!(FOREIGN_MARKER_OFFSET + b"/data/foreign.marker\0".len() <= FOREIGN_PROFILE_OFFSET);
-        assert!(FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len() + 1 <= IMAGE_BYTES);
+        assert!(FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len() < IMAGE_BYTES);
 
         let mut image = process_lifecycle_tests::synthetic_static_elf().to_vec();
         image.resize(IMAGE_BYTES, 0);
