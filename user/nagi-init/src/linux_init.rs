@@ -11844,10 +11844,12 @@ mod linux_process_resource_tests {
         foreign_profile_path: &str,
         inherited_fds_to_close: [i32; 8],
     ) -> Vec<u8> {
-        const IMAGE_BYTES: usize = 1024;
-        const OWN_MARKER_OFFSET: usize = 512;
-        const FOREIGN_MARKER_OFFSET: usize = 544;
-        const FOREIGN_PROFILE_OFFSET: usize = 576;
+        const IMAGE_BYTES: usize = 2048;
+        // Keep the path markers clear of the probe's eight inherited-FD
+        // checks and the identity/storage syscalls assembled below.
+        const OWN_MARKER_OFFSET: usize = 1024;
+        const FOREIGN_MARKER_OFFSET: usize = 1056;
+        const FOREIGN_PROFILE_OFFSET: usize = 1088;
 
         let mut code = Vec::new();
         let mut failure_branches = Vec::new();
