@@ -11891,7 +11891,7 @@ mod linux_process_resource_tests {
             code.extend_from_slice(&[0xbe, libc::F_GETFD as u8, 0x00, 0x00, 0x00]); // mov esi, F_GETFD
             code.extend_from_slice(&[0x0f, 0x05]); // syscall
             code.push(0x3d); // cmp eax, -EBADF; the descriptor must be closed
-            code.extend_from_slice(&(-(libc::EBADF as i32)).to_le_bytes());
+            code.extend_from_slice(&(-libc::EBADF).to_le_bytes());
             append_failure_branch(&mut code, 0x85); // jne fail
         }
 
@@ -11931,7 +11931,7 @@ mod linux_process_resource_tests {
         }
 
         let foreign_profile_bytes = foreign_profile_path.as_bytes();
-        assert!(120 + code.len() < OWN_MARKER_OFFSET);
+        assert!(code.len() < OWN_MARKER_OFFSET - 120);
         assert!(OWN_MARKER_OFFSET + b"/data/own.marker\0".len() <= FOREIGN_MARKER_OFFSET);
         assert!(FOREIGN_MARKER_OFFSET + b"/data/foreign.marker\0".len() <= FOREIGN_PROFILE_OFFSET);
         assert!(FOREIGN_PROFILE_OFFSET + foreign_profile_bytes.len() + 1 <= IMAGE_BYTES);
@@ -12416,7 +12416,7 @@ mod linux_process_resource_tests {
             "service tmpfs must not exceed its explicit byte ceiling"
         );
         assert!(
-            tmpfs_stats.f_files as u64 <= linux_x86_64_process::SERVICE_TMPFS_MAX_INODES,
+            tmpfs_stats.f_files <= linux_x86_64_process::SERVICE_TMPFS_MAX_INODES,
             "service tmpfs must not exceed its explicit inode ceiling"
         );
         assert_eq!(
@@ -12710,8 +12710,14 @@ mod linux_process_resource_tests {
                     // identities without relying on a post-reap /proc race.
                     let child_namespace_root =
                         std::path::PathBuf::from(format!("/proc/{child_pid}/ns"));
+                    type NamespaceIdentity = (u64, u64);
+                    type NamespaceSnapshot = (
+                        NamespaceIdentity,
+                        NamespaceIdentity,
+                        Option<NamespaceIdentity>,
+                    );
                     let namespaces =
-                        match (|| -> io::Result<((u64, u64), (u64, u64), Option<(u64, u64)>)> {
+                        match (|| -> io::Result<NamespaceSnapshot> {
                             Ok((
                                 namespace_identity(&child_namespace_root.join("pid"))?,
                                 namespace_identity(&child_namespace_root.join("mnt"))?,
