@@ -12293,12 +12293,27 @@ mod linux_process_resource_tests {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
         fn mountinfo_optional_fields(path: &std::path::Path) -> Vec<String> {
-            let path = path.to_str().expect("fixture mountpoint is UTF-8");
+            use std::os::fd::AsFd;
+
+            let mountpoint = std::fs::File::open(path).expect("open exact fixture mountpoint");
+            let mount_id = rustix::fs::statx(
+                mountpoint.as_fd(),
+                c"",
+                rustix::fs::AtFlags::EMPTY_PATH,
+                rustix::fs::StatxFlags::MNT_ID,
+            )
+            .expect("read exact fixture mount id")
+            .stx_mnt_id;
             let mountinfo = std::fs::read_to_string("/proc/self/mountinfo")
                 .expect("read mount propagation state");
             let line = mountinfo
                 .lines()
-                .find(|line| line.split_whitespace().nth(4) == Some(path))
+                .find(|line| {
+                    line.split_whitespace()
+                        .next()
+                        .and_then(|field| field.parse::<u64>().ok())
+                        == Some(mount_id)
+                })
                 .expect("find exact fixture mountpoint");
             let fields = line.split_whitespace().collect::<Vec<_>>();
             let separator = fields
@@ -12410,8 +12425,10 @@ mod linux_process_resource_tests {
         );
         std::fs::remove_dir(&bounded_tmpfs_path).unwrap();
 
-        // Start from a shared synthetic Data mount and prove that the exact
-        // detached app-storage clone is converted to private propagation.
+        // Start from a shared synthetic Data mount. Production first gives
+        // the app child a recursively private root before attaching storage;
+        // model that destination with a private bind-mounted target while
+        // leaving the selected Data source shared.
         assert_eq!(
             unsafe {
                 libc::mount(
@@ -12436,6 +12453,44 @@ mod linux_process_resource_tests {
         let propagation_source_fd = std::fs::File::open(&propagation_source).unwrap();
         let propagation_target_c =
             std::ffi::CString::new(propagation_target.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    propagation_target_c.as_ptr(),
+                    propagation_target_c.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_BIND,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "create a private destination mount like the app root: {}",
+            io::Error::last_os_error()
+        );
+        assert_eq!(
+            unsafe {
+                libc::mount(
+                    std::ptr::null(),
+                    propagation_target_c.as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_REC | libc::MS_PRIVATE,
+                    std::ptr::null(),
+                )
+            },
+            0,
+            "make only the fixture destination mount private: {}",
+            io::Error::last_os_error()
+        );
+        assert!(mountinfo_optional_fields(&propagation_source)
+            .iter()
+            .any(|field| field.starts_with("shared:")));
+        assert!(!mountinfo_optional_fields(&propagation_target)
+            .iter()
+            .any(|field| {
+                field.starts_with("shared:")
+                    || field.starts_with("master:")
+                    || field.starts_with("propagate_from:")
+            }));
         linux_x86_64_process::attach_private_app_storage_mount_for_test(
             propagation_source_fd.as_fd(),
             &propagation_target_c,
@@ -12452,6 +12507,12 @@ mod linux_process_resource_tests {
             unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
             0,
             "unmount private propagation fixture: {}",
+            io::Error::last_os_error()
+        );
+        assert_eq!(
+            unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
+            0,
+            "unmount private destination mount: {}",
             io::Error::last_os_error()
         );
         drop(propagation_source_fd);
