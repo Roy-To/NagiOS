@@ -12624,7 +12624,6 @@ mod linux_process_resource_tests {
         let parent_user_namespace =
             optional_namespace_identity(std::path::Path::new("/proc/self/ns/user"))
                 .expect("read parent user namespace identity when supported");
-        let child_namespace_readback = std::cell::RefCell::new(None);
         let mut table = ProcessLifecycle::new(linux_x86_64_process::LinuxProcessOs);
         let process_id = table
             .spawn_authorized(
@@ -12649,37 +12648,33 @@ mod linux_process_resource_tests {
                     let child_namespace_root =
                         std::path::PathBuf::from(format!("/proc/{child_pid}/ns"));
                     let namespaces =
-                        (|| -> io::Result<((u64, u64), (u64, u64), Option<(u64, u64)>)> {
+                        match (|| -> io::Result<((u64, u64), (u64, u64), Option<(u64, u64)>)> {
                             Ok((
                                 namespace_identity(&child_namespace_root.join("pid"))?,
                                 namespace_identity(&child_namespace_root.join("mnt"))?,
                                 optional_namespace_identity(&child_namespace_root.join("user"))?,
                             ))
-                        })();
-                    *child_namespace_readback.borrow_mut() = Some(namespaces);
+                        })() {
+                            Ok(namespaces) => namespaces,
+                            Err(error) => {
+                                eprintln!("failed to read child namespaces before exec: {error}");
+                                return Err(BackendError::ProtocolViolation);
+                            }
+                        };
+                    if namespaces.0 == parent_pid_namespace
+                        || namespaces.1 == parent_mount_namespace
+                        || namespaces.2 != parent_user_namespace
+                    {
+                        eprintln!(
+                            "unexpected app namespace identities before exec: child={namespaces:?}"
+                        );
+                        return Err(BackendError::ProtocolViolation);
+                    }
                     gate.commit()
                 },
                 no_revoke,
             )
             .expect("spawn app behind its per-app filesystem root");
-
-        let (child_pid_namespace, child_mount_namespace, child_user_namespace) =
-            child_namespace_readback
-                .into_inner()
-                .expect("authorization gate captured child namespaces")
-                .expect("read child namespace identities before exec");
-        assert_ne!(
-            child_pid_namespace, parent_pid_namespace,
-            "app child must have a separate PID namespace"
-        );
-        assert_ne!(
-            child_mount_namespace, parent_mount_namespace,
-            "app child must have a separate mount namespace"
-        );
-        assert_eq!(
-            child_user_namespace, parent_user_namespace,
-            "app child must use PID 1's user namespace, without CLONE_NEWUSER"
-        );
 
         assert!(matches!(
             wait_for_exit(&mut table, process_id),
