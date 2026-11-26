@@ -3244,7 +3244,6 @@ mod linux_x86_64_process {
     const MOUNT_ATTR_NOSYMFOLLOW: u64 = 0x0020_0000;
     const LANDLOCK_CREATE_RULESET_VERSION: usize = 1;
     const LANDLOCK_RULE_PATH_BENEATH: usize = 1;
-    const LANDLOCK_ACCESS_FS_EXECUTE: u64 = 1 << 0;
     const LANDLOCK_ACCESS_FS_WRITE_FILE: u64 = 1 << 1;
     const LANDLOCK_ACCESS_FS_READ_FILE: u64 = 1 << 2;
     const LANDLOCK_ACCESS_FS_READ_DIR: u64 = 1 << 3;
@@ -4405,33 +4404,11 @@ mod linux_x86_64_process {
         reserved: u32,
     }
 
-    fn query_landlock_abi() -> io::Result<Option<u32>> {
-        let result = unsafe {
-            syscall3(
-                NR_LANDLOCK_CREATE_RULESET,
-                0,
-                0,
-                LANDLOCK_CREATE_RULESET_VERSION,
-            )
-        };
-        if result == -(ENOSYS) || result == -(EOPNOTSUPP) {
-            return Ok(None);
-        }
-        if result < 0 {
-            return Err(io::Error::from_raw_os_error((-result) as i32));
-        }
-        let abi = result as u32;
-        if abi == 0 {
-            return Err(io::Error::other(
-                "Landlock version query returned an invalid ABI zero",
-            ));
-        }
-        Ok(Some(abi))
-    }
-
     fn landlock_filesystem_rights(abi: u32) -> u64 {
-        let mut rights = LANDLOCK_ACCESS_FS_EXECUTE
-            | LANDLOCK_ACCESS_FS_WRITE_FILE
+        // The app executable is a sealed memfd on Landlock's internal
+        // filesystem, which cannot be granted through a path-beneath rule.
+        // Keep EXECUTE outside this ruleset; app-visible mounts are noexec.
+        let mut rights = LANDLOCK_ACCESS_FS_WRITE_FILE
             | LANDLOCK_ACCESS_FS_READ_FILE
             | LANDLOCK_ACCESS_FS_READ_DIR
             | LANDLOCK_ACCESS_FS_REMOVE_DIR
@@ -4556,28 +4533,6 @@ mod linux_x86_64_process {
         } else {
             Ok(())
         }
-    }
-
-    fn open_landlock_executable_path_fd(executable_fd: i32) -> io::Result<Option<OwnedFd>> {
-        if query_landlock_abi()?.is_none() {
-            return Ok(None);
-        }
-        let path = CString::new(format!("/proc/self/fd/{executable_fd}")).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "executable descriptor path contains NUL",
-            )
-        })?;
-        let opened = unsafe {
-            syscall4(
-                NR_OPENAT,
-                AT_FDCWD,
-                path.as_ptr() as usize,
-                O_PATH | O_CLOEXEC,
-                0,
-            )
-        };
-        promote_fd(OwnedFd::from_result(opened)?).map(Some)
     }
 
     /// Validate the exact C2 run/slot locator and prepare a single-file
@@ -5253,7 +5208,7 @@ mod linux_x86_64_process {
         Ok(())
     }
 
-    fn install_app_landlock(executable_path_fd: i32) -> Result<(), usize> {
+    fn install_app_landlock() -> Result<(), usize> {
         let version = unsafe {
             syscall3(
                 NR_LANDLOCK_CREATE_RULESET,
@@ -5263,15 +5218,12 @@ mod linux_x86_64_process {
             )
         };
         if version == -(ENOSYS) || version == -(EOPNOTSUPP) {
-            if executable_path_fd >= 0 {
-                let _ = unsafe { syscall1(NR_CLOSE, executable_path_fd as usize) };
-            }
             return Ok(());
         }
         if version < 0 {
             return Err(child_syscall_errno(version));
         }
-        if version == 0 || executable_path_fd < 0 {
+        if version == 0 {
             return Err(EINVAL as usize);
         }
 
@@ -5304,11 +5256,11 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(root_fd));
         }
 
-        // The chroot contains only tmpfs plus this app-owned data mount.
-        // Permit its normal file operations, but reserve EXECUTE for the one
-        // already-open sealed package executable.
+        // The chroot contains only noexec tmpfs plus this app-owned noexec
+        // data mount. Landlock limits filesystem access here; execution of
+        // the sealed package memfd uses the exact execveat path.
         let root_rule = LinuxLandlockPathBeneathAttr {
-            allowed_access: rights & !LANDLOCK_ACCESS_FS_EXECUTE,
+            allowed_access: rights,
             parent_fd: root_fd as i32,
             reserved: 0,
         };
@@ -5325,29 +5277,11 @@ mod linux_x86_64_process {
             return Err(child_syscall_errno(root_added));
         }
 
-        let executable_rule = LinuxLandlockPathBeneathAttr {
-            allowed_access: LANDLOCK_ACCESS_FS_EXECUTE,
-            parent_fd: executable_path_fd,
-            reserved: 0,
-        };
-        let executable_added = unsafe {
-            syscall4(
-                NR_LANDLOCK_ADD_RULE,
-                ruleset_fd as usize,
-                LANDLOCK_RULE_PATH_BENEATH,
-                &executable_rule as *const LinuxLandlockPathBeneathAttr as usize,
-                0,
-            )
-        };
-        if executable_added < 0 {
-            return Err(child_syscall_errno(executable_added));
-        }
-
         let restricted = unsafe { syscall2(NR_LANDLOCK_RESTRICT_SELF, ruleset_fd as usize, 0) };
         if restricted < 0 {
             return Err(child_syscall_errno(restricted));
         }
-        for fd in [root_fd as i32, executable_path_fd, ruleset_fd as i32] {
+        for fd in [root_fd as i32, ruleset_fd as i32] {
             let closed = unsafe { syscall1(NR_CLOSE, fd as usize) };
             if closed < 0 {
                 return Err(child_syscall_errno(closed));
@@ -5604,7 +5538,6 @@ mod linux_x86_64_process {
         uid: u32,
         gid: u32,
         app_filesystem: bool,
-        landlock_executable_path_fd: i32,
     ) -> Result<(), usize> {
         if uid == 0 || gid == 0 || uid == u32::MAX || gid == u32::MAX {
             return Err(EINVAL as usize);
@@ -5667,9 +5600,7 @@ mod linux_x86_64_process {
             });
         }
         if app_filesystem {
-            install_app_landlock(landlock_executable_path_fd)?;
-        } else if landlock_executable_path_fd >= 0 {
-            return Err(EINVAL as usize);
+            install_app_landlock()?;
         }
         install_service_namespace_seccomp()?;
         Ok(())
@@ -5891,7 +5822,6 @@ mod linux_x86_64_process {
         app_storage_mount_fd: i32,
         private_filesystem: bool,
         app_filesystem: bool,
-        landlock_executable_path_fd: i32,
         argv: *const *const i8,
         envp: *const *const i8,
         execution_identity: LinuxExecutionIdentity,
@@ -5949,7 +5879,6 @@ mod linux_x86_64_process {
                 execution_identity.uid,
                 execution_identity.gid,
                 app_filesystem,
-                landlock_executable_path_fd,
             ) {
                 send_child_setup_error(
                     error_write,
@@ -7240,11 +7169,6 @@ mod linux_x86_64_process {
                     )),
                 );
             }
-            let landlock_executable_path_fd = if app_filesystem {
-                open_landlock_executable_path_fd(executable_fd.raw())?
-            } else {
-                None
-            };
             let argv_storage = process_argv_storage(arguments)?;
             let mut argv = argv_storage
                 .iter()
@@ -7307,9 +7231,6 @@ mod linux_x86_64_process {
                             app_storage_mount.as_ref().map_or(-1, OwnedFd::raw),
                             private_filesystem,
                             app_filesystem,
-                            landlock_executable_path_fd
-                                .as_ref()
-                                .map_or(-1, OwnedFd::raw),
                             argv.as_ptr(),
                             envp.as_ptr(),
                             execution_identity,
@@ -12294,7 +12215,7 @@ mod linux_process_resource_tests {
         use std::os::fd::AsFd;
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-        fn mountinfo_optional_fields(path: &std::path::Path) -> Vec<String> {
+        fn mountinfo_fields(path: &std::path::Path) -> (Vec<String>, Vec<String>) {
             use std::os::fd::AsFd;
 
             let mountpoint = std::fs::File::open(path).expect("open exact fixture mountpoint");
@@ -12322,10 +12243,12 @@ mod linux_process_resource_tests {
                 .iter()
                 .position(|field| *field == "-")
                 .expect("mountinfo separator");
-            fields[6..separator]
+            let mount_options = fields[5].split(',').map(str::to_owned).collect::<Vec<_>>();
+            let optional_fields = fields[6..separator]
                 .iter()
                 .map(|field| (*field).to_owned())
-                .collect()
+                .collect();
+            (mount_options, optional_fields)
         }
 
         fn namespace_identity(path: &std::path::Path) -> io::Result<(u64, u64)> {
@@ -12397,6 +12320,10 @@ mod linux_process_resource_tests {
             std::ffi::CString::new(bounded_tmpfs_path.as_os_str().as_encoded_bytes()).unwrap();
         linux_x86_64_process::mount_service_tmpfs_for_test(&bounded_tmpfs_target)
             .expect("mount bounded service tmpfs options");
+        assert!(mountinfo_fields(&bounded_tmpfs_path)
+            .0
+            .iter()
+            .any(|option| option == "noexec"));
         let mut tmpfs_stats = std::mem::MaybeUninit::<libc::statvfs>::zeroed();
         assert_eq!(
             unsafe { libc::statvfs(bounded_tmpfs_target.as_ptr(), tmpfs_stats.as_mut_ptr()) },
@@ -12445,7 +12372,9 @@ mod linux_process_resource_tests {
             "make only the fixture source mount shared: {}",
             io::Error::last_os_error()
         );
-        assert!(mountinfo_optional_fields(&root)
+        let (root_mount_options, root_mount_optional_fields) = mountinfo_fields(&root);
+        assert!(root_mount_options.iter().any(|option| option == "noexec"));
+        assert!(root_mount_optional_fields
             .iter()
             .any(|field| field.starts_with("shared:")));
         let propagation_source = root.join("propagation-source");
@@ -12483,28 +12412,36 @@ mod linux_process_resource_tests {
             "make only the fixture destination mount private: {}",
             io::Error::last_os_error()
         );
-        assert!(mountinfo_optional_fields(&propagation_source)
+        assert!(mountinfo_fields(&propagation_source)
+            .1
             .iter()
             .any(|field| field.starts_with("shared:")));
-        assert!(!mountinfo_optional_fields(&propagation_target)
+        assert!(mountinfo_fields(&propagation_target)
+            .0
             .iter()
-            .any(|field| {
+            .any(|option| option == "noexec"));
+        assert!(
+            !mountinfo_fields(&propagation_target).1.iter().any(|field| {
                 field.starts_with("shared:")
                     || field.starts_with("master:")
                     || field.starts_with("propagate_from:")
-            }));
+            })
+        );
         linux_x86_64_process::attach_private_app_storage_mount_for_test(
             propagation_source_fd.as_fd(),
             &propagation_target_c,
         )
         .expect("attach private clone of shared source mount");
-        assert!(!mountinfo_optional_fields(&propagation_target)
+        let (app_storage_mount_options, app_storage_optional_fields) =
+            mountinfo_fields(&propagation_target);
+        assert!(app_storage_mount_options
             .iter()
-            .any(|field| {
-                field.starts_with("shared:")
-                    || field.starts_with("master:")
-                    || field.starts_with("propagate_from:")
-            }));
+            .any(|option| option == "noexec"));
+        assert!(!app_storage_optional_fields.iter().any(|field| {
+            field.starts_with("shared:")
+                || field.starts_with("master:")
+                || field.starts_with("propagate_from:")
+        }));
         assert_eq!(
             unsafe { libc::umount2(propagation_target_c.as_ptr(), libc::MNT_DETACH) },
             0,
