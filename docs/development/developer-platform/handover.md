@@ -62,9 +62,21 @@ PR番号の振られていない分の詳細は `git show` で確認する。
     `test_generated_scaffold_manifest_passes_real_stage_1` はskipされずokで、実validatorで実行された。
     出力に出る `"reason": "validator_unavailable"` の1行は、`test_missing_validator_is_unavailable_not_passed` が
     不在のvalidatorをpatchで模した個別のチェック結果で、skipではない。skip件数には数えない。
-  - **同、`validation` の残り（`test_api_snapshot_drift.py`、`test_report*.py`、`test_stage2*.py`）**:
-    `test_[ar]*.py` だけの実行も10分の上限で停止され、件数・skip数は未測定（原因は未調査）。
-    これらにskip条件の有無は確かめていない。`validation` 全体のskip合計は未確認。
+  - **同、`validation` の残り（`test_api_snapshot_drift.py`、`test_report*.py`、`test_stage2*.py`）**
+    （NDP-A025、host 1台・Python 3.9.6、2026-11-26、ファイル単体を1つずつ実行）:
+    全9ファイルで計147件OK、skip 0件（clangと実validatorがある環境。無い環境は未測定）。
+    実作業時間（`perf_counter`）は `test_report*.py` 79件で約111秒（`test_report.py` 47件65.4秒、
+    `test_report_output_limit.py` 7件16.4秒、`app_linux` 8件9.8秒、`app` 5件9.1秒、`mixed` 6件7.3秒、
+    `ui_unsupported` 6件3.0秒）、`test_stage2*.py` 51件で約6.4秒、`test_api_snapshot_drift.py` 17件2.2秒。
+    10分停止の原因は `build_report`／clangの重複実行ではない（1 testは長くて8.5秒）。
+    個別のtestで実作業1.8〜8.5秒に対しwall 148〜960秒の空白が毎回別のtestで観測され、
+    `discover -p 'test_report*.py'` の1回は3件完了後に背景上限で停止した。
+    停止の原因は**未特定**（プロセスが止まっていた形跡だが、電源ログとプロセス状態を読めず未確認。
+    停止中のdiscover実行の裏で `test_stage2*.py` 51件6.2秒と evaluation 82件7.9秒は完走した）。
+    testの構造は変更しておらず、assertionも変えていない。
+    停止なしで通した `test_report*.py` 一括のwall時間は**未測定**（`validation` 全体の一括実行も未測定）。
+    詳細は [validation README](../../../tools/nagi-developer-platform/validation/README.md) の
+    「Test runtime investigation」節。host実測でありNagi target受入ではない。
   - **runnerの過去の実行（上表のPR分）**: その環境に実validatorがあったかをログから照合できないため、
     skip件数との対応は未確認。
   - **実validatorが無い環境**: 上記4件はskipになる設計だが、その環境での件数は今回測っていない（未検証）。
