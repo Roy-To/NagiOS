@@ -247,7 +247,7 @@ jobs:
         run: |
           rustup toolchain install nightly-2025-08-01 --profile minimal
           rustup target add --toolchain nightly-2025-08-01 x86_64-unknown-linux-musl
-      - name: Verify release ELF excludes all Task24 development entry markers
+      - name: Build release PID 1 and require zero development-only entries
         run: |
           mkdir -p out/logs
           NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY=$(mktemp "$RUNNER_TEMP/task24-catalog.XXXXXX")

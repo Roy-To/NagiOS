@@ -114,17 +114,39 @@ output = Path(path)
 artifact_log = output / "cargo-artifacts.jsonl"
 with artifact_log.open() as stream:
     reports = [json.loads(line) for line in stream]
-executables = [
-    Path(report["executable"])
+binary_artifacts = [
+    report
     for report in reports
     if report.get("reason") == "compiler-artifact"
     and report.get("executable")
     and report["target"]["name"] == "nagi-init"
     and report["target"]["kind"] == ["bin"]
 ]
-if len(executables) != 1:
+if len(binary_artifacts) != 1:
     sys.exit("expected exactly one linked Task24 PID 1 ELF")
-data = executables[0].read_bytes()
+binary_artifact = binary_artifacts[0]
+artifact_profile = binary_artifact.get("profile") or {}
+test_harness = artifact_profile.get("test")
+if not isinstance(test_harness, bool):
+    sys.exit("Cargo did not report whether the PID 1 artifact is a test harness")
+if test_harness:
+    sys.exit("PID 1 was built with Cargo's test harness enabled")
+if profile == "release":
+    opt_level = artifact_profile.get("opt_level")
+    debug_assertions = artifact_profile.get("debug_assertions")
+    if opt_level in (None, "0") or debug_assertions is not False:
+        sys.exit("PID 1 Cargo artifact does not have release profile settings")
+
+test_profile_artifacts = [
+    report
+    for report in reports
+    if report.get("reason") == "compiler-artifact"
+    and (report.get("profile") or {}).get("test") is True
+]
+if test_profile_artifacts:
+    sys.exit("Cargo emitted one or more test-profile artifacts")
+
+data = Path(binary_artifact["executable"]).read_bytes()
 if data[:6] != b"\x7fELF\x02\x01" or data[18:20] != b"\x3e\x00":
     sys.exit("Task24 output is not a little-endian x86_64 ELF")
 
@@ -142,6 +164,14 @@ if profile == "release" and any(counts.values()):
     sys.exit("release ELF retained a Task24 development marker")
 if profile == "debug" and not all(counts.values()):
     sys.exit("acceptance ELF is missing a Task24 development marker")
+development_marker_total = sum(counts.values())
+print(f"Development-only entry marker total: {development_marker_total}")
+print(
+    "Cargo artifact profile: "
+    f"opt_level={artifact_profile.get('opt_level')} "
+    f"debug_assertions={artifact_profile.get('debug_assertions')} "
+    f"test_harness={test_harness} test_profile_artifacts={len(test_profile_artifacts)}"
+)
 
 public_key = os.environ.get("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
 key = Path(public_key).read_bytes() if public_key else b""
@@ -158,6 +188,12 @@ receipt = {
     "toolchain": toolchain,
     "target": target,
     "profile": profile,
+    "cargo_artifact_profile": {
+        "opt_level": artifact_profile.get("opt_level"),
+        "debug_assertions": artifact_profile.get("debug_assertions"),
+        "test_harness": test_harness,
+        "test_profile_artifact_count": len(test_profile_artifacts),
+    },
     "features": features.split(","),
     "cfgs": cfgs,
     "cargo_lock_sha256": sha256(Path("user/nagi-init/Cargo.lock").read_bytes()),
@@ -166,6 +202,7 @@ receipt = {
     "login_package_sha256": login_pin,
     "elf": {"path": "nagi-init", "size_bytes": len(data), "sha256": sha256(data)},
     "development_marker_counts": counts,
+    "development_marker_total": development_marker_total,
 }
 elf = output / "nagi-init"
 elf.write_bytes(data)
