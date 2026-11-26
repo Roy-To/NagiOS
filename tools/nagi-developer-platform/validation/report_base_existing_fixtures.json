@@ -1,0 +1,2918 @@
+{
+  "base": "aea0de65",
+  "fixtures": [
+    "portable",
+    "windows",
+    "linux",
+    "ui",
+    "mixed",
+    "app_windows",
+    "ui_unsupported",
+    "app_linux"
+  ],
+  "reports": {
+    "app_linux": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 5,
+            "rows": 5,
+            "sources": 1,
+            "unresolved": 0,
+            "unsupported": 5
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/linux/watch_changes.c",
+            "tests/developer-platform/api/linux/watch_changes.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "sys/inotify.h"
+              ],
+              "availability": "unsupported",
+              "line": 2,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "unistd.h"
+              ],
+              "availability": "unsupported",
+              "line": 3,
+              "rule_id": "POSIX-HEADER-FD"
+            },
+            {
+              "apis": [
+                "IN_CLOEXEC",
+                "IN_NONBLOCK",
+                "inotify_init1"
+              ],
+              "availability": "unsupported",
+              "line": 5,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "IN_MODIFY",
+                "inotify_add_watch"
+              ],
+              "availability": "unsupported",
+              "line": 7,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "close"
+              ],
+              "availability": "unsupported",
+              "line": 8,
+              "rule_id": "POSIX-FD-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "bindings": 1,
+            "connections": 1,
+            "custom_widgets": 0,
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 1,
+            "files_unsupported": 0,
+            "inputs": 1,
+            "layouts": 1,
+            "resources": 1,
+            "tab_order": 0,
+            "unknown": 1,
+            "unresolved_references": 0,
+            "widgets": 6
+          },
+          "files": [
+            {
+              "counts": {
+                "bindings": 1,
+                "connections": 1,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 1,
+                "resources": 1,
+                "tab_order": 0,
+                "unknown": 1,
+                "unresolved_references": 0,
+                "widgets": 6
+              },
+              "format": "gtk-builder-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+          ],
+          "reason": "ui_analyzed",
+          "status": "passed"
+        },
+        "ui_mapping": {
+          "counts": {
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 1,
+            "files_unsupported": 0,
+            "inputs": 1,
+            "needs_decision": 2,
+            "partial": 6,
+            "rows": 11,
+            "supported": 0,
+            "unsupported": 3
+          },
+          "files": [
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 10,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 5,
+                  "partial": 6,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 10
+                },
+                "focus": {
+                  "needs_decision": 11,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 7,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 9,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 2,
+                "partial": 6,
+                "rows": 11,
+                "supported": 0,
+                "unsupported": 3
+              },
+              "format": "gtk-builder-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:4",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "shell_regions_and_stable_labels_require_redesign",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 9,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+          ],
+          "reason": "ui_mapped",
+          "status": "passed"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "app_linux",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 4,
+          "unsupported": 2
+        },
+        "not_passed": [
+          {
+            "name": "windows_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "app_windows": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "bindings": 2,
+            "connections": 1,
+            "custom_widgets": 1,
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 1,
+            "files_unsupported": 0,
+            "inputs": 1,
+            "layouts": 2,
+            "resources": 2,
+            "tab_order": 2,
+            "unknown": 1,
+            "unresolved_references": 0,
+            "widgets": 7
+          },
+          "files": [
+            {
+              "counts": {
+                "bindings": 2,
+                "connections": 1,
+                "custom_widgets": 1,
+                "inputs": 1,
+                "layouts": 2,
+                "resources": 2,
+                "tab_order": 2,
+                "unknown": 1,
+                "unresolved_references": 0,
+                "widgets": 7
+              },
+              "format": "xaml-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+          ],
+          "reason": "ui_analyzed",
+          "status": "passed"
+        },
+        "ui_mapping": {
+          "counts": {
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 1,
+            "files_unsupported": 0,
+            "inputs": 1,
+            "needs_decision": 3,
+            "partial": 8,
+            "rows": 16,
+            "supported": 0,
+            "unsupported": 5
+          },
+          "files": [
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 15,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 8,
+                  "partial": 8,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 2,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 14
+                },
+                "focus": {
+                  "needs_decision": 14,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 12,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 14,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 3,
+                "partial": 8,
+                "rows": 16,
+                "supported": 0,
+                "unsupported": 5
+              },
+              "format": "xaml-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:1",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:1",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:6",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "custom_widgets:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "custom_widget_requires_owner_review",
+                  "source_kind": "custom_widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "shell_regions_and_stable_labels_require_redesign",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "row_column_definitions_spans_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:3",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "row_column_definitions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:1",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 14,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+          ],
+          "reason": "ui_mapped",
+          "status": "passed"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 4,
+            "rows": 4,
+            "sources": 1,
+            "unresolved": 0,
+            "unsupported": 4
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/windows/read_prefix.c",
+            "tests/developer-platform/api/windows/read_prefix.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "windows.h"
+              ],
+              "availability": "unsupported",
+              "line": 2,
+              "rule_id": "WIN-HEADER"
+            },
+            {
+              "apis": [
+                "CreateFileW"
+              ],
+              "availability": "unsupported",
+              "line": 4,
+              "rule_id": "WIN-FILE-OPEN"
+            },
+            {
+              "apis": [
+                "ReadFile"
+              ],
+              "availability": "unsupported",
+              "line": 7,
+              "rule_id": "WIN-FILE-READ"
+            },
+            {
+              "apis": [
+                "CloseHandle"
+              ],
+              "availability": "unsupported",
+              "line": 8,
+              "rule_id": "WIN-HANDLE-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "app_windows",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 4,
+          "unsupported": 2
+        },
+        "not_passed": [
+          {
+            "name": "linux_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "linux": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 5,
+            "rows": 5,
+            "sources": 1,
+            "unresolved": 0,
+            "unsupported": 5
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/linux/watch_changes.c",
+            "tests/developer-platform/api/linux/watch_changes.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "sys/inotify.h"
+              ],
+              "availability": "unsupported",
+              "line": 2,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "unistd.h"
+              ],
+              "availability": "unsupported",
+              "line": 3,
+              "rule_id": "POSIX-HEADER-FD"
+            },
+            {
+              "apis": [
+                "IN_CLOEXEC",
+                "IN_NONBLOCK",
+                "inotify_init1"
+              ],
+              "availability": "unsupported",
+              "line": 5,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "IN_MODIFY",
+                "inotify_add_watch"
+              ],
+              "availability": "unsupported",
+              "line": 7,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "close"
+              ],
+              "availability": "unsupported",
+              "line": 8,
+              "rule_id": "POSIX-FD-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "ui_mapping": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "linux",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 2,
+          "unsupported": 4
+        },
+        "not_passed": [
+          {
+            "name": "windows_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_analysis",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_mapping",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "mixed": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 5,
+            "rows": 6,
+            "sources": 1,
+            "unresolved": 1,
+            "unsupported": 5
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/mixed/read_and_watch.c",
+            "tests/developer-platform/api/mixed/read_and_watch.linux.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "sys/inotify.h"
+              ],
+              "availability": "unsupported",
+              "line": 15,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "unistd.h"
+              ],
+              "availability": "unsupported",
+              "line": 16,
+              "rule_id": "POSIX-HEADER-FD"
+            },
+            {
+              "apis": [
+                "IN_CLOEXEC",
+                "IN_NONBLOCK",
+                "inotify_init1"
+              ],
+              "availability": "unsupported",
+              "line": 18,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [],
+              "availability": "unknown",
+              "line": 20,
+              "rule_id": null
+            },
+            {
+              "apis": [
+                "IN_MODIFY",
+                "inotify_add_watch"
+              ],
+              "availability": "unsupported",
+              "line": 21,
+              "rule_id": "LNX-INOTIFY"
+            },
+            {
+              "apis": [
+                "close"
+              ],
+              "availability": "unsupported",
+              "line": 22,
+              "rule_id": "POSIX-FD-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "ui_mapping": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 4,
+            "rows": 5,
+            "sources": 1,
+            "unresolved": 1,
+            "unsupported": 4
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/mixed/read_and_watch.c",
+            "tests/developer-platform/api/mixed/read_and_watch.windows.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "windows.h"
+              ],
+              "availability": "unsupported",
+              "line": 3,
+              "rule_id": "WIN-HEADER"
+            },
+            {
+              "apis": [
+                "CreateFileW"
+              ],
+              "availability": "unsupported",
+              "line": 5,
+              "rule_id": "WIN-FILE-OPEN"
+            },
+            {
+              "apis": [
+                "ReadFile"
+              ],
+              "availability": "unsupported",
+              "line": 8,
+              "rule_id": "WIN-FILE-READ"
+            },
+            {
+              "apis": [],
+              "availability": "unknown",
+              "line": 9,
+              "rule_id": null
+            },
+            {
+              "apis": [
+                "CloseHandle"
+              ],
+              "availability": "unsupported",
+              "line": 10,
+              "rule_id": "WIN-HANDLE-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "mixed",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 3,
+          "unsupported": 3
+        },
+        "not_passed": [
+          {
+            "name": "ui_analysis",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_mapping",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "portable": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "headers": 1,
+            "inputs": 3,
+            "sources": 2,
+            "steps_passed": 0,
+            "steps_run": 0
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/portable/summary.c",
+            "tests/developer-platform/evaluation/portable/summary_test.c",
+            "tests/developer-platform/evaluation/portable/summary.h"
+          ],
+          "reason": "clang_unavailable",
+          "status": "not_run",
+          "steps": []
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "ui_mapping": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "portable",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 4,
+          "passed": 1,
+          "unsupported": 4
+        },
+        "not_passed": [
+          {
+            "name": "windows_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "linux_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_analysis",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_mapping",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "clang_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "ui": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "bindings": 7,
+            "connections": 6,
+            "custom_widgets": 2,
+            "files": 7,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 7,
+            "files_unsupported": 0,
+            "inputs": 7,
+            "layouts": 6,
+            "resources": 6,
+            "tab_order": 4,
+            "unknown": 4,
+            "unresolved_references": 1,
+            "widgets": 30
+          },
+          "files": [
+            {
+              "counts": {
+                "bindings": 0,
+                "connections": 1,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 1,
+                "resources": 0,
+                "tab_order": 2,
+                "unknown": 0,
+                "unresolved_references": 0,
+                "widgets": 3
+              },
+              "format": "qt-designer-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/task_panel.ui"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 0,
+                "connections": 0,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 0,
+                "resources": 0,
+                "tab_order": 0,
+                "unknown": 0,
+                "unresolved_references": 0,
+                "widgets": 1
+              },
+              "format": "gtk-builder-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk_minimal.ui"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 1,
+                "connections": 1,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 1,
+                "resources": 1,
+                "tab_order": 0,
+                "unknown": 1,
+                "unresolved_references": 0,
+                "widgets": 6
+              },
+              "format": "gtk-builder-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 1,
+                "connections": 1,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 1,
+                "resources": 1,
+                "tab_order": 0,
+                "unknown": 0,
+                "unresolved_references": 0,
+                "widgets": 5
+              },
+              "format": "gtk-builder-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk4_task_panel.ui"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 0,
+                "connections": 0,
+                "custom_widgets": 0,
+                "inputs": 1,
+                "layouts": 0,
+                "resources": 0,
+                "tab_order": 0,
+                "unknown": 0,
+                "unresolved_references": 0,
+                "widgets": 1
+              },
+              "format": "xaml-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/xaml_minimal.xaml"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 2,
+                "connections": 1,
+                "custom_widgets": 1,
+                "inputs": 1,
+                "layouts": 2,
+                "resources": 2,
+                "tab_order": 2,
+                "unknown": 1,
+                "unresolved_references": 0,
+                "widgets": 7
+              },
+              "format": "xaml-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            },
+            {
+              "counts": {
+                "bindings": 3,
+                "connections": 2,
+                "custom_widgets": 1,
+                "inputs": 1,
+                "layouts": 1,
+                "resources": 2,
+                "tab_order": 0,
+                "unknown": 2,
+                "unresolved_references": 1,
+                "widgets": 7
+              },
+              "format": "xaml-ui",
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/winui_task_panel.xaml"
+              ],
+              "reason": "structure_analyzed",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/task_panel.ui",
+            "tests/developer-platform/evaluation/ui/gtk_minimal.ui",
+            "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui",
+            "tests/developer-platform/evaluation/ui/gtk4_task_panel.ui",
+            "tests/developer-platform/evaluation/ui/xaml_minimal.xaml",
+            "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml",
+            "tests/developer-platform/evaluation/ui/winui_task_panel.xaml"
+          ],
+          "reason": "ui_analyzed",
+          "status": "passed"
+        },
+        "ui_mapping": {
+          "counts": {
+            "files": 7,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 7,
+            "files_unsupported": 0,
+            "inputs": 7,
+            "needs_decision": 10,
+            "partial": 33,
+            "rows": 63,
+            "supported": 0,
+            "unsupported": 20
+          },
+          "files": [
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 5,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 2,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 0,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 6
+                },
+                "focus": {
+                  "needs_decision": 4,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 3,
+                  "partial": 3,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 4,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 0,
+                "partial": 4,
+                "rows": 6,
+                "supported": 0,
+                "unsupported": 2
+              },
+              "format": "qt-designer-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "declared_slots:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_slot_has_no_implementation_evidence",
+                  "source_kind": "declared_slots",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "generic_widget_role_requires_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "spacing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 4,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/task_panel.ui"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 0,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 1
+                },
+                "focus": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 0,
+                "partial": 1,
+                "rows": 1,
+                "supported": 0,
+                "unsupported": 0
+              },
+              "format": "gtk-builder-ui",
+              "gap_rows": [],
+              "gap_rows_total": 0,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk_minimal.ui"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 10,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 5,
+                  "partial": 6,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 10
+                },
+                "focus": {
+                  "needs_decision": 11,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 7,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 9,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 2,
+                "partial": 6,
+                "rows": 11,
+                "supported": 0,
+                "unsupported": 3
+              },
+              "format": "gtk-builder-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:4",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "shell_regions_and_stable_labels_require_redesign",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 9,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 8,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 3,
+                  "partial": 6,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 0,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 9
+                },
+                "focus": {
+                  "needs_decision": 9,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 5,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 7,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 0,
+                "partial": 6,
+                "rows": 9,
+                "supported": 0,
+                "unsupported": 3
+              },
+              "format": "gtk-builder-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "shell_regions_and_stable_labels_require_redesign",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "packing_positions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 7,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/gtk4_task_panel.ui"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 0,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 1
+                },
+                "focus": {
+                  "needs_decision": 1,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 0,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 0,
+                "partial": 1,
+                "rows": 1,
+                "supported": 0,
+                "unsupported": 0
+              },
+              "format": "xaml-ui",
+              "gap_rows": [],
+              "gap_rows_total": 0,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/xaml_minimal.xaml"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 15,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 8,
+                  "partial": 8,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 2,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 14
+                },
+                "focus": {
+                  "needs_decision": 14,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 12,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 14,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 3,
+                "partial": 8,
+                "rows": 16,
+                "supported": 0,
+                "unsupported": 5
+              },
+              "format": "xaml-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:1",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:1",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:6",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "custom_widgets:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "custom_widget_requires_owner_review",
+                  "source_kind": "custom_widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "shell_regions_and_stable_labels_require_redesign",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "row_column_definitions_spans_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:3",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "row_column_definitions_spans_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:1",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 14,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            },
+            {
+              "axis_gaps": {
+                "accessibility": {
+                  "needs_decision": 18,
+                  "partial": 1,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "appearance_layout": {
+                  "needs_decision": 12,
+                  "partial": 7,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "backend": {
+                  "needs_decision": 4,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 15
+                },
+                "focus": {
+                  "needs_decision": 19,
+                  "partial": 0,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "localization": {
+                  "needs_decision": 15,
+                  "partial": 4,
+                  "supported": 0,
+                  "unsupported": 0
+                },
+                "pointer_keyboard": {
+                  "needs_decision": 17,
+                  "partial": 2,
+                  "supported": 0,
+                  "unsupported": 0
+                }
+              },
+              "contract_evidence": "matched",
+              "counts": {
+                "inputs": 1,
+                "needs_decision": 5,
+                "partial": 7,
+                "rows": 19,
+                "supported": 0,
+                "unsupported": 7
+              },
+              "format": "xaml-ui",
+              "gap_rows": [
+                {
+                  "id": "connections:0",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "connections:1",
+                  "mapping_status": "unsupported",
+                  "reason": "declared_event_requires_typed_app_adapter",
+                  "source_kind": "connections",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:0",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:1",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "bindings:2",
+                  "mapping_status": "unsupported",
+                  "reason": "binding_requires_explicit_state_adapter",
+                  "source_kind": "bindings",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:0",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "resources:1",
+                  "mapping_status": "unsupported",
+                  "reason": "resource_or_library_not_loaded",
+                  "source_kind": "resources",
+                  "status": "unsupported"
+                },
+                {
+                  "id": "widgets:6",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unknown:1",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_semantics_need_review",
+                  "source_kind": "unknown",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "custom_widgets:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "custom_widget_requires_owner_review",
+                  "source_kind": "custom_widgets",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "unresolved_references:0",
+                  "mapping_status": "needs_decision",
+                  "reason": "source_reference_unresolved",
+                  "source_kind": "unresolved_references",
+                  "status": "needs_decision"
+                },
+                {
+                  "id": "widgets:0",
+                  "mapping_status": "partial",
+                  "reason": "generic_widget_role_requires_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:1",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:2",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "widgets:3",
+                  "mapping_status": "partial",
+                  "reason": "passive_text_only_rich_text_links_and_images_need_review",
+                  "source_kind": "widgets",
+                  "status": "partial"
+                },
+                {
+                  "id": "layouts:0",
+                  "mapping_status": "partial",
+                  "reason": "spacing_alignment_and_size_policy_require_review",
+                  "source_kind": "layouts",
+                  "status": "partial"
+                }
+              ],
+              "gap_rows_total": 17,
+              "gap_rows_truncated": false,
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui/winui_task_panel.xaml"
+              ],
+              "reason": "mapping_summarized",
+              "status": "passed"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui/task_panel.ui",
+            "tests/developer-platform/evaluation/ui/gtk_minimal.ui",
+            "tests/developer-platform/evaluation/ui/gtk3_task_panel.ui",
+            "tests/developer-platform/evaluation/ui/gtk4_task_panel.ui",
+            "tests/developer-platform/evaluation/ui/xaml_minimal.xaml",
+            "tests/developer-platform/evaluation/ui/wpf_task_panel.xaml",
+            "tests/developer-platform/evaluation/ui/winui_task_panel.xaml"
+          ],
+          "reason": "ui_mapped",
+          "status": "passed"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "ui",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 3,
+          "unsupported": 3
+        },
+        "not_passed": [
+          {
+            "name": "windows_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "linux_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "ui_unsupported": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 0,
+            "files_passed": 0,
+            "files_unsupported": 1,
+            "inputs": 1
+          },
+          "files": [
+            {
+              "counts": {
+                "inputs": 1
+              },
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui_unsupported/panel_layout.xml"
+              ],
+              "reason": "unsupported_format",
+              "status": "unsupported"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui_unsupported/panel_layout.xml"
+          ],
+          "reason": "file_unsupported",
+          "status": "unsupported"
+        },
+        "ui_mapping": {
+          "counts": {
+            "files": 1,
+            "files_failed": 0,
+            "files_not_run": 1,
+            "files_passed": 0,
+            "files_unsupported": 0,
+            "inputs": 1
+          },
+          "files": [
+            {
+              "counts": {
+                "inputs": 1
+              },
+              "input_paths": [
+                "tests/developer-platform/evaluation/ui_unsupported/panel_layout.xml"
+              ],
+              "reason": "ui_analysis_did_not_pass",
+              "status": "not_run"
+            }
+          ],
+          "input_paths": [
+            "tests/developer-platform/evaluation/ui_unsupported/panel_layout.xml"
+          ],
+          "reason": "file_not_run",
+          "status": "not_run"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "ui_unsupported",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 4,
+          "passed": 1,
+          "unsupported": 4
+        },
+        "not_passed": [
+          {
+            "name": "windows_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "linux_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_analysis",
+            "reason": "file_unsupported",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_mapping",
+            "reason": "file_not_run",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    },
+    "windows": {
+      "approval": "PROVISIONAL",
+      "checks": {
+        "generation": {
+          "counts": {
+            "files": 5,
+            "inputs": 0
+          },
+          "files": {
+            "items": [
+              "samples/level-zero/Cargo.toml",
+              "samples/level-zero/manifest.json",
+              "samples/level-zero/src/lib.rs",
+              "samples/level-zero/README.md",
+              "samples/level-zero/UNSUPPORTED_APIS.md"
+            ],
+            "truncated": false
+          },
+          "input_paths": [],
+          "reason": "scaffold_created",
+          "status": "passed"
+        },
+        "linux_diagnosis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_platform_evidence_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_1": {
+          "counts": {
+            "inputs": 1,
+            "manifests": 0
+          },
+          "exit_code": null,
+          "input_paths": [
+            "samples/level-zero/manifest.json"
+          ],
+          "input_root": "scratch_scaffold",
+          "reason": "validator_unavailable",
+          "status": "not_run"
+        },
+        "stage_2": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_approved_stage2_target_for_fixture",
+          "status": "unsupported"
+        },
+        "stage_2_package": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "package_and_signature_checks_not_connected",
+          "status": "not_run"
+        },
+        "stage_3": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "stage_not_connected",
+          "status": "not_run"
+        },
+        "ui_analysis": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "ui_mapping": {
+          "counts": {
+            "inputs": 0
+          },
+          "input_paths": [],
+          "reason": "no_ui_inputs_for_fixture",
+          "status": "unsupported"
+        },
+        "windows_diagnosis": {
+          "counts": {
+            "evidence_reports": 1,
+            "inputs": 2,
+            "matched_rules": 4,
+            "rows": 4,
+            "sources": 1,
+            "unresolved": 0,
+            "unsupported": 4
+          },
+          "input_paths": [
+            "tests/developer-platform/evaluation/windows/read_prefix.c",
+            "tests/developer-platform/api/windows/read_prefix.report-v1.json"
+          ],
+          "reason": "evidence_diagnosed",
+          "rows": [
+            {
+              "apis": [
+                "windows.h"
+              ],
+              "availability": "unsupported",
+              "line": 2,
+              "rule_id": "WIN-HEADER"
+            },
+            {
+              "apis": [
+                "CreateFileW"
+              ],
+              "availability": "unsupported",
+              "line": 4,
+              "rule_id": "WIN-FILE-OPEN"
+            },
+            {
+              "apis": [
+                "ReadFile"
+              ],
+              "availability": "unsupported",
+              "line": 7,
+              "rule_id": "WIN-FILE-READ"
+            },
+            {
+              "apis": [
+                "CloseHandle"
+              ],
+              "availability": "unsupported",
+              "line": 8,
+              "rule_id": "WIN-HANDLE-CLOSE"
+            }
+          ],
+          "status": "passed",
+          "truncated": false
+        }
+      },
+      "evaluation": {
+        "external_ai": "not_run",
+        "human_effort": "not_measured",
+        "local_llm": "not_run",
+        "manual_comparison": "not_run",
+        "resource_usage": "not_measured",
+        "reuse_and_speedup": "not_measured"
+      },
+      "fixture": "windows",
+      "mode": "toolkit_non_ai",
+      "overview": {
+        "counts": {
+          "failed": 0,
+          "not_run": 3,
+          "passed": 2,
+          "unsupported": 4
+        },
+        "not_passed": [
+          {
+            "name": "linux_diagnosis",
+            "reason": "no_platform_evidence_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_analysis",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "ui_mapping",
+            "reason": "no_ui_inputs_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_1",
+            "reason": "validator_unavailable",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_2",
+            "reason": "no_approved_stage2_target_for_fixture",
+            "status": "unsupported"
+          },
+          {
+            "name": "stage_2_package",
+            "reason": "package_and_signature_checks_not_connected",
+            "status": "not_run"
+          },
+          {
+            "name": "stage_3",
+            "reason": "stage_not_connected",
+            "status": "not_run"
+          }
+        ],
+        "total": 9
+      },
+      "recorded_at": "T",
+      "scope": "host_fixture_evaluation",
+      "source_kind": "self_made_repository_fixture",
+      "target_acceptance": "not_run",
+      "version": 1
+    }
+  }
+}

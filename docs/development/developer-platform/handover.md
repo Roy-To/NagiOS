@@ -144,7 +144,7 @@ python3 -B tools/nagi-developer-platform/validation/report.py --fixture mixed --
 ```
 
 対象は自作のrepository fixtureだけ。`--fixture` に選べる名前（`report.FIXTURES`）は
-`portable`、`windows`、`linux`、`ui`、`mixed`、`app_windows`、`ui_unsupported`、`app_linux` と、全件を並べる `all`。
+`portable`、`windows`、`linux`、`ui`、`mixed`、`app_windows`、`ui_unsupported`、`app_linux`、`ui_invalid` と、全件を並べる `all`。
 fixtureを追加したら、この節にも名前を足す（`tests/developer-platform/evaluation/test_handover_report.py` が記録漏れを検知する）。
 
 **statusの意味**:

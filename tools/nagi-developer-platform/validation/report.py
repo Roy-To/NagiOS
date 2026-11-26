@@ -34,6 +34,7 @@ MIXED_API_BASENAME = "read_and_watch"
 APP_FIXTURE = "app_windows"
 APP_API_PLATFORM = "windows"
 UI_UNSUPPORTED_FIXTURE = "ui_unsupported"
+UI_INVALID_FIXTURE = "ui_invalid"
 # PROVISIONAL app fixture (NDP-A020): the Linux counterpart of `app_windows`. The API
 # diagnosis reuses the existing `linux/watch_changes.c` + its report-v1 snapshot and the UI
 # analysis/mapping reads the existing GTK Builder `ui/gtk3_task_panel.ui`. Nothing is copied.
@@ -53,9 +54,12 @@ UI_FIXTURE_PATHS = {
     # support, so the report shows `unsupported_format` end to end. See README.md.
     UI_UNSUPPORTED_FIXTURE: (EVALUATION / "ui_unsupported" / "panel_layout.xml",),
     APP_LINUX_FIXTURE: (EVALUATION / "ui" / "gtk3_task_panel.ui",),
+    # PROVISIONAL (NDP-A021): one self-made QML-like (non-XML) UI file, so the report shows
+    # the analyzer's `invalid_xml` as a `failed` check end to end. See README.md.
+    UI_INVALID_FIXTURE: (EVALUATION / "ui_invalid" / "panel_layout.qml",),
 }
 FIXTURES = ("portable", "windows", "linux", "ui", MIXED_FIXTURE, APP_FIXTURE,
-            UI_UNSUPPORTED_FIXTURE, APP_LINUX_FIXTURE)
+            UI_UNSUPPORTED_FIXTURE, APP_LINUX_FIXTURE, UI_INVALID_FIXTURE)
 # Fixtures that reuse another fixture's API case: {fixture: the one platform it diagnoses}.
 APP_API_FIXTURES = {APP_FIXTURE: APP_API_PLATFORM, APP_LINUX_FIXTURE: APP_LINUX_API_PLATFORM}
 PORTABLE_TARGET = "portable-summary"

@@ -213,7 +213,8 @@ From the checkout root, select `portable`, `windows`, `linux`, `ui`, `mixed`
 (PROVISIONAL, mixed Windows/Linux API source), `app_windows` (PROVISIONAL, Windows C
 API + WPF XAML in one project), `ui_unsupported` (PROVISIONAL, one UI file in an
 unsupported format), `app_linux` (PROVISIONAL, Linux C API + GTK Builder XML in one
-project) or `all`.
+project), `ui_invalid` (PROVISIONAL, one QML-like UI file that is not XML; its `ui_analysis`
+is `failed`, so the CLI exits 1) or `all`.
 JSON is the default. Markdown summarizes the same report fields on stdout.
 
 ```sh
@@ -266,7 +267,7 @@ an unlisted reason stays code-only.
 
 **PROVISIONAL all-fixture matrix.** `--fixture all` runs `build_report` for
 `portable`, `windows`, `linux`, `ui`, `mixed` (NDP-A017), `app_windows` (NDP-A018) and
-`ui_unsupported` (NDP-A019) and `app_linux` (NDP-A020; the first four are unchanged and keep their order) and adds a fixture x check
+`ui_unsupported` (NDP-A019), `app_linux` (NDP-A020) and `ui_invalid` (NDP-A021; the first four are unchanged and keep their order) and adds a fixture x check
 overview.
 JSON has the same `version`, `approval`, `recorded_at`, `scope` and
 `target_acceptance` fields (`fixture` is `all`), the unchanged per-fixture
@@ -278,8 +279,9 @@ text, or `null` for a code missing from that table. Markdown begins with the
 matrix table (status and reason per cell) and the reason list, followed by
 each unchanged single-fixture Markdown report. The exit code follows the
 existing rule over every check of every fixture: 1 if any check `failed`,
-0 for other completed runs, 2 for invalid arguments. Output is capped at
-the single-report limit times the number of fixtures (eight).
+0 for other completed runs, 2 for invalid arguments. Since `ui_invalid`
+(NDP-A021) has a `failed` check on purpose, `--fixture all` currently exits 1.
+Output is capped at the single-report limit times the number of fixtures (nine).
 
 Limits: the matrix only aggregates host runs of the self-made fixtures. A tool
 or compiler that is missing stays `not_run` and is never shown as passed. It is
@@ -445,6 +447,38 @@ reports, and 2 for invalid arguments.
   evidence is the handwritten snapshot), and GTK signal handlers and bindings are not
   resolved against the C source. It is not Nagi target acceptance (`target_acceptance`
   stays `not_run`) and not a contract; `contracts/` is untouched.
+- `ui_invalid` fixture (PROVISIONAL, NDP-A021; additive, the JSON and order of the eight
+  existing fixtures are unchanged). Why: the `ui_unsupported` section above says that a
+  non-XML (QML-like) input is `invalid_xml`, a `failed` check, and a unit test records it,
+  but no whole report showed that path, so a developer could not compare `failed` and
+  `unsupported` for "inputs the toolkit cannot handle" side by side. `report.py` has a new
+  fixture name `ui_invalid` (`UI_INVALID_FIXTURE`, one entry in `UI_FIXTURE_PATHS`) that
+  routes one self-made file, `tests/developer-platform/evaluation/ui_invalid/panel_layout.qml`
+  (four lines of QML-like text), through the existing analyzer. Pinned result
+  (`test_report_ui_invalid.py`, CLI exit code 1): `ui_analysis` is `failed` (`file_failed`;
+  the file entry carries `invalid_xml`), `ui_mapping` is `not_run` (`file_not_run`; the file
+  entry carries `ui_analysis_did_not_pass`), and the independent checks continue
+  (`generation` passes, API checks and `stage_2` are `unsupported`, `stage_3` is `not_run`).
+  The Overview and the Markdown problem lines show the `REASON_DESCRIPTIONS` text (for
+  `invalid_xml`: "The file is not valid XML."), and `undescribed_reasons` finds nothing; no
+  description had to be added. `--fixture all` appends `ui_invalid` after `app_linux` (nine
+  fixtures; the report-size cap scales with the count) and now exits 1 because of this
+  deliberate failure; existing tests that expected exit 0 or eight fixtures were updated
+  (exit 1, nine, and the failed count) and no assertion was removed or weakened.
+  Regression guard: `report_base_existing_fixtures.json` is the JSON of the eight existing
+  fixtures produced by the pre-NDP-A021 revision of `report.py` (the only code file this
+  task changed), with `recorded_at` replaced by `"T"` and the validator and clang forced
+  missing so it does not depend on host tools; `test_report_ui_invalid.py` compares the
+  current single-fixture and `--fixture all` reports against it. Under that condition the
+  build/validator paths themselves are covered by the other tests, not by the snapshot.
+  The fixture total stated in `tests/developer-platform/evaluation/README.md`
+  ("Migration report fixture count") is checked against `report.FIXTURES`.
+  Assumptions (PROVISIONAL) and limits: the file is self-made (see its README for
+  provenance and permitted use), not taken from any project or Qt sample, and is only a
+  stand-in for "text that is not XML"; the name and routing may be replaced. The analyzer
+  and `contracts/` are unchanged, no QML support is added, and the file is never loaded by
+  Qt/QML, compiled, rendered or run. Host static reading only, not Nagi target acceptance
+  (`target_acceptance` stays `not_run`), not a contract.
 - The fixture list and portable target in `stages.json` select input paths.
   Stage 2 uses the content approval in the trusted adapter before starting
   clang. The adapters reject symlinks and path escapes and leave declared

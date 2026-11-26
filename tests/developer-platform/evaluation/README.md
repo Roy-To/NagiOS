@@ -14,11 +14,18 @@ Repository license terms remain unchanged.
 | mixed/read_and_watch.c | PROVISIONAL (NDP-A017): one source with an `#ifdef _WIN32` Windows part (windows.h, CreateFileW, ReadFile, an unknown `NtFancyFlush`, CloseHandle) and a Linux part (sys/inotify.h, inotify_init1, inotify_add_watch, an unknown `fancy_notify_create`, close) so the migration report lists both platforms and the unresolved lines | Static only; read by the validation `report.py --fixture mixed` through handwritten snapshots `api/mixed/read_and_watch.{windows,linux}.report-v1.json`; no compilation, not scanner output |
 | app_windows/ (README only) | PROVISIONAL (NDP-A018): a small Windows-flavoured project made of `windows/read_prefix.c` and `ui/wpf_task_panel.xaml`, so the migration report shows API gaps and UI row/axis gaps together | Static only; routed by `report.py --fixture app_windows`, nothing copied, no compilation, XAML not loaded; Stage 3 `not_run` |
 | ui_unsupported/panel_layout.xml | PROVISIONAL (NDP-A019): a three-element self-made UI layout whose XML root is none of Qt/GTK/XAML, so the migration report shows `unsupported_format` (analysis `unsupported`, mapping `not_run`) | Static only; routed by `report.py --fixture ui_unsupported`; no new format analysed, nothing rendered; Stage 3 `not_run` |
+| ui_invalid/panel_layout.qml | PROVISIONAL (NDP-A021): a four-line self-made QML-like text that is not XML, so the migration report shows `invalid_xml` (analysis `failed`, mapping `not_run`, CLI exit 1) next to the `unsupported` case above | Static only; routed by `report.py --fixture ui_invalid`; not loaded by Qt/QML, nothing rendered; Stage 3 `not_run` |
 | controls/text_only.c | OS API names appear only in comments and a string | Negative control: lexical evidence is not proof of calls |
 | ui/task_panel.ui | Qt widget/layout hierarchy, English/Japanese text, accessibility label, tab order, declared clicked/addTask connection | XML input only; addTask has no implementation, no rendering/input/runtime validation |
 | ui/gtk_minimal.ui | Minimal GTK Builder button, Unicode label and translation attribute | Original synthetic XML only; no GTK instantiation |
 | ui/gtk3_task_panel.ui | GTK 3 nested objects, GtkBox packing, accessible object, property binding and declared signal | Static source facts; AtkObject remains an unknown class; no handler or binding execution |
 | ui/gtk4_task_panel.ui | GTK 4 GtkGrid child layout, accessibility declarations, binding expression and signal | Static source facts; no resource, expression, rendering or runtime validation |
+
+Migration report fixture count: 9 (`report.py --fixture all`, in this order:
+`portable`, `windows`, `linux`, `ui`, `mixed`, `app_windows`, `ui_unsupported`,
+`app_linux`, `ui_invalid`). This is the validation report's fixture list, not the
+host-check suite size below; `test_report_ui_invalid.py` checks it against
+`report.FIXTURES`.
 
 These are source facts, not expected output hardcoded to a scanner. No
 PT-01 interface, API replacement, public UI contract or support matrix is

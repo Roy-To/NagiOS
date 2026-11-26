@@ -149,11 +149,12 @@ class AppLinuxReportTests(unittest.TestCase):
 
     def test_all_includes_app_linux_last_and_counts_match_overviews(self):
         code, output = self.run_main("--fixture", "all")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` (NDP-A021) has a failed check
         result = json.loads(output)
         summary = result["summary"]
         self.assertEqual(summary["fixtures"], list(report.FIXTURES))
-        # Existing fixtures keep their order; `app_linux` is appended last.
+        # Existing fixtures keep their order; `app_linux` follows them (NDP-A021 then
+        # appended `ui_invalid` after it).
         self.assertEqual(summary["fixtures"][:7],
                          ["portable", "windows", "linux", "ui", "mixed", "app_windows",
                           "ui_unsupported"])
@@ -175,7 +176,7 @@ class AppLinuxReportTests(unittest.TestCase):
 
     def test_all_markdown_has_an_app_linux_part_and_matrix_row(self):
         code, markdown = self.run_main("--fixture", "all", "--format", "markdown")
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)  # `ui_invalid` (NDP-A021) has a failed check
         self.assertIn("\n| app_linux | ", markdown.split("# Migration evaluation\n")[0])
         part = markdown.split("\n---\n\n")[1:][report.FIXTURES.index("app_linux")]
         self.assertIn("Fixture `app_linux`", part)
