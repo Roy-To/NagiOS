@@ -609,8 +609,11 @@ reports, and 2 for invalid arguments.
   real, unstubbed `report.main()` and measure the UTF-8 bytes of its captured stdout,
   and fail if a fixture grows past that. The ratio is a PROVISIONAL assumption chosen
   to leave room for growth, not an approved contract; adjust the constant in the test
-  if the format legitimately grows. Measured on 2026-11-26 (macOS arm64 host,
-  Python 3.9.6; UTF-8 bytes of `main()` stdout; every run exited 0):
+  if the format legitimately grows. Measured on 2026-11-27 (9 fixtures; macOS arm64 host,
+  Python 3.9.6; UTF-8 bytes of `main()` stdout). `ui_invalid` and `all` exited 1 and the
+  other eight fixtures exited 0: the exit code only reflects `failed` checks (the
+  `ui_invalid` report contains one, and `all` inherits it), never `report_output_limit`,
+  and the headroom tests accept 0 or 1:
 
   | `--fixture` | limit (bytes) | JSON bytes (% of limit) | Markdown bytes (% of limit) |
   |---|---:|---:|---:|
@@ -622,11 +625,19 @@ reports, and 2 for invalid arguments.
   | `app_windows` | 131072 | 10876 (8.3%) | 4790 (3.7%) |
   | `ui_unsupported` | 131072 | 4644 (3.5%) | 2919 (2.2%) |
   | `app_linux` | 131072 | 9848 (7.5%) | 4910 (3.7%) |
-  | `all` | 1048576 | 108876 (10.4%) | 45046 (4.3%) |
+  | `ui_invalid` | 131072 | 4592 (3.5%) | 2851 (2.2%) |
+  | `all` | 1179648 | 116674 (9.9%) | 49157 (4.2%) |
 
   The largest single output is `ui` JSON at 25.5% of its limit. These numbers are a
   host-only snapshot, not a contract, and will drift as fixtures change; the test,
-  not this table, is the check. Host-only, not Nagi target acceptance.
+  not this table, is the check. The one thing the test checks about the table is its
+  shape (NDP-A026): its fixture rows are exactly `report.FIXTURES` plus `all`, and its
+  limit column equals `MAX_REPORT_BYTES` (`all`: times `len(FIXTURES)`); the byte counts
+  are not pinned. Every line after the header and separator rows, up to the first blank
+  line (the GFM end of the table; rows may omit the outer `|`), must be a well-formed
+  data row: an unknown name (such as `ui-invalid`) is an `unknown row` and a malformed
+  line is an `unparsable row`, never silently skipped.
+  Host-only, not Nagi target acceptance.
 
 ## Evidence and remaining scope — 2026-11-17
 

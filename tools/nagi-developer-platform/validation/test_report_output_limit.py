@@ -17,6 +17,9 @@ import contextlib
 import copy
 import io
 import json
+import pathlib
+import re
+import tempfile
 import unittest
 from unittest import mock
 
@@ -173,6 +176,191 @@ class OutputHeadroomTests(unittest.TestCase):
         for fmt in ("json", "markdown"):
             with self.subTest(format=fmt):
                 self.assert_headroom("all", fmt, limit)
+
+
+README = pathlib.Path(__file__).with_name("README.md")
+SECTION = "Report output limit and size headroom"
+TABLE_HEADER = re.compile(
+    r"^\|\s*`--fixture`\s*\|\s*limit \(bytes\)\s*\|\s*JSON bytes \(% of limit\)\s*\|"
+    r"\s*Markdown bytes \(% of limit\)\s*\|$")
+TABLE_SEPARATOR = re.compile(r"^\|(\s*:?-{3,}:?\s*\|){4}$")
+# Any backquoted name is captured (e.g. `ui-invalid`), so unknown names are reported
+# as unknown rows instead of being skipped. Byte cells must parse but are not pinned.
+SIZE_CELL = r"\s*\d+ \(\d+(?:\.\d+)?%\)\s*"
+TABLE_ROW = re.compile(
+    r"^\|\s*`(?P<name>[^`|]+)`\s*\|\s*(?P<limit>\d+)\s*\|" + SIZE_CELL + r"\|"
+    + SIZE_CELL + r"\|$")
+
+
+def size_table_rows(readme_text):
+    """Return `(rows, problems)` for the README size table.
+
+    `rows` is a list of `(name, limit)` in table order. As in GFM, the table runs from
+    the separator row to the first blank line (or the end of the text), and its rows
+    may omit the leading and/or trailing `|`. Every such line must be a well-formed
+    data row; any other line is reported as `unparsable row`.
+    """
+    start = readme_text.find(SECTION)
+    if start < 0:
+        return [], ["section '{}' not found".format(SECTION)]
+    lines = [line.strip() for line in readme_text[start:].splitlines()]
+    header = next((i for i, line in enumerate(lines) if TABLE_HEADER.match(line)), None)
+    if header is None:
+        return [], ["size table header not found"]
+    if header + 1 >= len(lines) or not TABLE_SEPARATOR.match(lines[header + 1]):
+        return [], ["size table separator row missing"]
+    rows, problems = [], []
+    for line in lines[header + 2:]:
+        if not line:
+            break  # the table ended
+        # Review P2 (round 2): a GFM row without the outer pipes is still a row.
+        normalized = line if line.startswith("|") else "| " + line
+        normalized = normalized if normalized.endswith("|") else normalized + " |"
+        match = TABLE_ROW.match(normalized)
+        if match:
+            rows.append((match.group("name"), int(match.group("limit"))))
+        else:
+            problems.append("unparsable row: " + line)
+    return rows, problems
+
+
+def size_table_problems(readme_text):
+    """Compare the README size table with `report.FIXTURES` (rows and limits only).
+
+    Byte counts are host/environment dependent and are deliberately not checked.
+    Returns a list of problem strings; empty means the table is in sync.
+    """
+    parsed, problems = size_table_rows(readme_text)
+    rows = {}
+    for name, limit in parsed:
+        if name in rows:
+            problems.append("duplicate row: " + name)
+        rows[name] = limit
+    expected = {name: report.MAX_REPORT_BYTES for name in report.FIXTURES}
+    expected["all"] = report.MAX_REPORT_BYTES * len(report.FIXTURES)
+    for name in sorted(set(expected) - set(rows)):
+        problems.append("missing row: " + name)
+    for name in sorted(set(rows) - set(expected)):
+        problems.append("unknown row: " + name)
+    for name in sorted(set(expected) & set(rows)):
+        if rows[name] != expected[name]:
+            problems.append("limit mismatch for {}: {} != {}".format(
+                name, rows[name], expected[name]))
+    return problems
+
+
+class ReadmeSizeTableSyncTests(unittest.TestCase):
+    """The README size table lists every `report.FIXTURES` fixture and `all` (NDP-A026)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.readme = README.read_text(encoding="utf-8")
+
+    def check_copy(self, text):
+        """Run the check against a temporary copy of the README, not the real file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_path = pathlib.Path(tmp) / "README.md"
+            copy_path.write_text(text, encoding="utf-8")
+            return size_table_problems(copy_path.read_text(encoding="utf-8"))
+
+    def drop_row(self, name):
+        lines = self.readme.splitlines(keepends=True)
+        kept = []
+        for line in lines:
+            match = TABLE_ROW.match(line.strip())
+            if not (match and match.group("name") == name):
+                kept.append(line)
+        self.assertEqual(len(kept), len(lines) - 1, "row {} not found exactly once".format(name))
+        return "".join(kept)
+
+    def test_readme_table_matches_fixtures_and_limits(self):
+        self.assertIn("ui_invalid", report.FIXTURES)
+        self.assertEqual(size_table_problems(self.readme), [])
+
+    def test_table_without_ui_invalid_row_fails(self):
+        problems = self.check_copy(self.drop_row("ui_invalid"))
+        self.assertIn("missing row: ui_invalid", problems)
+
+    def test_table_without_any_fixture_row_fails(self):
+        for name in (*report.FIXTURES, "all"):
+            with self.subTest(fixture=name):
+                self.assertIn("missing row: " + name, self.check_copy(self.drop_row(name)))
+
+    def test_table_with_extra_or_wrong_limit_row_fails(self):
+        extra = self.readme.replace(
+            "  | `all` |", "  | `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |\n  | `all` |", 1)
+        self.assertNotEqual(extra, self.readme)
+        self.assertIn("unknown row: ghost", self.check_copy(extra))
+        all_limit = report.MAX_REPORT_BYTES * len(report.FIXTURES)
+        # Review P3 (round 2): derive the wrong value so it differs for any fixture count.
+        wrong = self.readme.replace("| `all` | {} |".format(all_limit),
+                                    "| `all` | {} |".format(all_limit + 1), 1)
+        self.assertNotEqual(wrong, self.readme)
+        self.assertTrue(any(p.startswith("limit mismatch for all")
+                            for p in self.check_copy(wrong)))
+
+    def test_table_with_hyphenated_extra_row_fails(self):
+        # Review P2 (round 1): a name outside [a-z_0-9] must not be skipped silently.
+        extra = self.readme.replace(
+            "  | `all` |",
+            "  | `ui-invalid` | 131072 | 4592 (3.5%) | 2851 (2.2%) |\n  | `all` |", 1)
+        self.assertNotEqual(extra, self.readme)
+        problems = self.check_copy(extra)
+        self.assertIn("unknown row: ui-invalid", problems)
+        self.assertNotEqual(problems, [])
+
+    def test_table_rows_without_outer_pipes_are_checked(self):
+        # Review P2 (round 2): GFM rows may omit the leading and/or trailing `|`.
+        for extra in ("  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |",
+                      "  | `ghost` | 131072 | 1 (0.0%) | 1 (0.0%)",
+                      "  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%)"):
+            with self.subTest(row=extra):
+                text = self.readme.replace(
+                    "  | `all` | {} |".format(report.MAX_REPORT_BYTES * len(report.FIXTURES)),
+                    extra + "\n  | `all` | {} |".format(
+                        report.MAX_REPORT_BYTES * len(report.FIXTURES)), 1)
+                self.assertNotEqual(text, self.readme)
+                self.assertIn("unknown row: ghost", self.check_copy(text))
+        # A row after `all` (the reviewer's reproduction) is still inside the table.
+        lines = self.readme.splitlines(keepends=True)
+        index = next(i for i, line in enumerate(lines) if line.strip().startswith("| `all` |"))
+        lines.insert(index + 1, "  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |\n")
+        self.assertIn("unknown row: ghost", self.check_copy("".join(lines)))
+        # A known row written without outer pipes is parsed, not reported as missing.
+        dropped = self.drop_row("ui_invalid")
+        bare = dropped.replace(
+            "  | `all` |", "  `ui_invalid` | 131072 | 4592 (3.5%) | 2851 (2.2%)\n  | `all` |", 1)
+        self.assertNotEqual(bare, dropped)
+        self.assertEqual(self.check_copy(bare), [])
+
+    def test_table_with_non_row_line_before_blank_fails(self):
+        # A non-table line before the blank line is still part of the GFM table.
+        text = self.readme.replace("  | `all` |", "  ghost\n  | `all` |", 1)
+        self.assertNotEqual(text, self.readme)
+        self.assertIn("unparsable row: ghost", self.check_copy(text))
+
+    def test_table_with_unparsable_row_fails(self):
+        for bad in ("  | ui_invalid | 131072 | 4592 (3.5%) | 2851 (2.2%) |",
+                    "  | `ghost` | 131072 |",
+                    "  | `ghost` | many | 1 (0.0%) | 1 (0.0%) |",
+                    "  | `ghost` | 131072 | 1 | 1 (0.0%) |"):
+            with self.subTest(row=bad):
+                text = self.readme.replace("  | `all` |", bad + "\n  | `all` |", 1)
+                self.assertNotEqual(text, self.readme)
+                problems = self.check_copy(text)
+                self.assertIn("unparsable row: " + bad.strip(), problems)
+
+    def test_table_without_header_or_separator_fails(self):
+        header = ("| `--fixture` | limit (bytes) | JSON bytes (% of limit) "
+                  "| Markdown bytes (% of limit) |")
+        self.assertIn(header, self.readme)
+        no_header = self.readme.replace(header, "| fixture | limit | json | md |", 1)
+        self.assertIn("size table header not found", self.check_copy(no_header))
+        no_separator = self.readme.replace("|---|---:|---:|---:|", "", 1)
+        self.assertNotEqual(no_separator, self.readme)
+        problems = self.check_copy(no_separator)
+        self.assertIn("size table separator row missing", problems)
+        self.assertIn("missing row: ui_invalid", problems)
 
 
 if __name__ == "__main__":
