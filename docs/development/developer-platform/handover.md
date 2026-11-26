@@ -51,14 +51,24 @@ PR番号の振られていない分の詳細は `git show` で確認する。
 - **標準host要件**: Python 3.9.6で実行しており、標準の3.10+は満たしていない。
   標準host全体の `./nagi doctor` は未実施。
 - **実nagi-pkg**: 11-17には固定nightlyで一度buildし受理を確認した記録がある。
-  ただし作成時点のこのworktreeでは未buildのため、実validatorを使うテストはskip。
-  skip条件を持つテストは `validation/test_validate.py`、`test_generated_check.py`、`generator/test_generate.py` にある
+  skip条件を持つテストは `validation/test_validate.py`、`test_generated_check.py`、`generator/test_generate.py` にあり、
+  実validator（`out/ndp-host/target/debug/nagi-pkg`）が無いとskipする（symlink・実行権の扱いはtestごとに異なる）
   （validation READMEは41件中2件skipと記載、generator READMEと09c reviewは実validator依存テストのskipに言及）。
-  skip件数の合計は出せていない。このworktree（Python 3.9.6、host）での実測は次のとおり:
-  `evaluation` 81件OK、`generator` 48件OK、`validation/test_validate.py` 11件OK、`test_generated_check.py` 7件OK（いずれも `skipped=` 表示なし）。
-  `validation` 全体の `discover` は10分で完了せず中断したため、そのskip数は未測定（原因は未調査）。
-  実validator依存テストが各README記載どおりskipされるかは、構築済み環境で別に確認が必要（未検証）。
-  skipは合格ではない。実validatorによる雛形のManifest受理は、構築済み環境で別に確認が必要。
+  実行ごとの環境とskip件数（host、Python 3.9.6）:
+  - **このworktree、2026-11-26**: 上記pathに11-25 07:32更新の実行可能な通常fileがある（build元のrevisionは未確認）。
+    `generator` 48件OK、`validation/test_validate.py`＋`test_generated_check.py` 18件OK、いずれもskip 0件。
+    実validator依存の `test_generated_manifest_passes_real_validator_when_available`、
+    `test_real_cli_success`、`test_real_validator_accepts_and_rejects_without_source_change`、
+    `test_generated_scaffold_manifest_passes_real_stage_1` はskipされずokで、実validatorで実行された。
+    出力に出る `"reason": "validator_unavailable"` の1行は、`test_missing_validator_is_unavailable_not_passed` が
+    不在のvalidatorをpatchで模した個別のチェック結果で、skipではない。skip件数には数えない。
+  - **同、`validation` の残り（`test_api_snapshot_drift.py`、`test_report*.py`、`test_stage2*.py`）**:
+    `test_[ar]*.py` だけの実行も10分の上限で停止され、件数・skip数は未測定（原因は未調査）。
+    これらにskip条件の有無は確かめていない。`validation` 全体のskip合計は未確認。
+  - **runnerの過去の実行（上表のPR分）**: その環境に実validatorがあったかをログから照合できないため、
+    skip件数との対応は未確認。
+  - **実validatorが無い環境**: 上記4件はskipになる設計だが、その環境での件数は今回測っていない（未検証）。
+  skipは合格ではない。今回の実validatorの受理はhost結果で、Nagi target受入ではない。
 - **生成物**: 雛形のcrate build・実行・署名・install・起動は未実施。
 - **API診断の入力**: NDP-04/05はPT-01の手書きfixtureで検証しており、実scanner出力との接続は未試験
   （PR #91の実装はこのcheckoutに無い）。

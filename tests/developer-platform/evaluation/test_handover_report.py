@@ -98,6 +98,11 @@ RESOLVED_P3 = (
 )
 
 
+def markdown_link_destinations(text):
+    """Exact destinations of `[label](dest)` links, without any `#fragment`."""
+    return re.findall(r"\[[^\]\n]+\]\(([^)\s#]+)(?:#[^)\s]*)?\)", text)
+
+
 def p3_parts(text):
     """Split section 3's P3 notes into (resolved, remaining) text."""
     start = text.find(UNVERIFIED_HEADING)
@@ -126,12 +131,16 @@ class ResolvedP3Consistency(unittest.TestCase):
 
     def test_each_resolved_item_is_recorded_with_existing_links(self):
         resolved, _, _ = self.parts()
+        destinations = markdown_link_destinations(resolved)
         for task, _, targets in RESOLVED_P3:
             with self.subTest(task=task):
                 self.assertIn(task, resolved)
                 for target in targets:
-                    self.assertIn("]({}".format(target), resolved)
-                    self.assertTrue((Path(self.handover_path).parent / target).resolve().is_file(), target)
+                    self.assertIn(target, destinations)
+        for destination in destinations:
+            with self.subTest(link=destination):
+                self.assertTrue((Path(self.handover_path).parent / destination).resolve().is_file(),
+                                destination)
 
     def test_resolved_items_are_not_listed_as_remaining(self):
         _, remaining, _ = self.parts()
@@ -167,8 +176,10 @@ class ResolvedP3MutationTests(unittest.TestCase):
         case = type("Copy", (ResolvedP3Consistency,), {"handover_path": self.copy})
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(case)
         result = unittest.TextTestRunner(stream=io.StringIO(), verbosity=0).run(suite)
-        # A subTest failure's id carries " (key=value)"; keep only the method name.
-        return sorted({t.id().rsplit(".", 1)[-1].split(" ")[0] for t, _ in result.failures + result.errors})
+        # A subTest failure is reported on a wrapper whose id carries " (key=value)",
+        # and values may contain dots (link paths); take the method name from the case.
+        return sorted({getattr(t, "test_case", t)._testMethodName
+                       for t, _ in result.failures + result.errors})
 
     def test_unmodified_copy_passes(self):
         self.assertEqual(self.failed(handover_text()), [])
@@ -185,6 +196,13 @@ class ResolvedP3MutationTests(unittest.TestCase):
         target = self.copy.parent / RESOLVED_P3[0][2][0]
         target.resolve().unlink()
         self.assertEqual(self.failed(handover_text()), ["test_each_resolved_item_is_recorded_with_existing_links"])
+
+    def test_link_changed_to_a_different_file_fails(self):
+        # The original target still exists in the copy; only an exact match catches this.
+        target = RESOLVED_P3[0][2][1]
+        text = handover_text().replace("]({})".format(target), "]({}.bak)".format(target), 1)
+        self.assertNotEqual(text, handover_text())
+        self.assertEqual(self.failed(text), ["test_each_resolved_item_is_recorded_with_existing_links"])
 
     def test_dropping_prior_item_fails(self):
         text = handover_text().replace("自己申告", "申告")
