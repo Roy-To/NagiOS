@@ -313,6 +313,16 @@ class ReportTests(unittest.TestCase):
         # Without the injected failure, only the real `ui_invalid` failure remains.
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(output)["summary"]["counts"]["failed"], 1)
+        # With no failed check at all, `all` still exits 0: run the real `main()` over the
+        # fixtures that existed before NDP-A021, none of which has a failed check.
+        without_invalid = tuple(name for name in report.FIXTURES if name != "ui_invalid")
+        with patch.object(report, "build_report", real), \
+                patch.object(report, "FIXTURES", without_invalid):
+            code, output = self.run_main("--fixture", "all")
+        summary = json.loads(output)["summary"]
+        self.assertEqual(summary["fixtures"], list(without_invalid))
+        self.assertEqual(summary["counts"]["failed"], 0)
+        self.assertEqual(code, 0)
 
     def test_all_not_run_is_never_counted_as_passed(self):
         with patch.object(report, "host_build",
