@@ -195,9 +195,10 @@ TABLE_ROW = re.compile(
 def size_table_rows(readme_text):
     """Return `(rows, problems)` for the README size table.
 
-    `rows` is a list of `(name, limit)` in table order. Every line between the
-    separator row and the end of the table must be a well-formed data row; any other
-    line is reported as `unparsable row`.
+    `rows` is a list of `(name, limit)` in table order. As in GFM, the table runs from
+    the separator row to the first blank line (or the end of the text), and its rows
+    may omit the leading and/or trailing `|`. Every such line must be a well-formed
+    data row; any other line is reported as `unparsable row`.
     """
     start = readme_text.find(SECTION)
     if start < 0:
@@ -210,9 +211,12 @@ def size_table_rows(readme_text):
         return [], ["size table separator row missing"]
     rows, problems = [], []
     for line in lines[header + 2:]:
-        if not line.startswith("|"):
+        if not line:
             break  # the table ended
-        match = TABLE_ROW.match(line)
+        # Review P2 (round 2): a GFM row without the outer pipes is still a row.
+        normalized = line if line.startswith("|") else "| " + line
+        normalized = normalized if normalized.endswith("|") else normalized + " |"
+        match = TABLE_ROW.match(normalized)
         if match:
             rows.append((match.group("name"), int(match.group("limit"))))
         else:
@@ -288,7 +292,9 @@ class ReadmeSizeTableSyncTests(unittest.TestCase):
         self.assertNotEqual(extra, self.readme)
         self.assertIn("unknown row: ghost", self.check_copy(extra))
         all_limit = report.MAX_REPORT_BYTES * len(report.FIXTURES)
-        wrong = self.readme.replace("| `all` | {} |".format(all_limit), "| `all` | 1048576 |", 1)
+        # Review P3 (round 2): derive the wrong value so it differs for any fixture count.
+        wrong = self.readme.replace("| `all` | {} |".format(all_limit),
+                                    "| `all` | {} |".format(all_limit + 1), 1)
         self.assertNotEqual(wrong, self.readme)
         self.assertTrue(any(p.startswith("limit mismatch for all")
                             for p in self.check_copy(wrong)))
@@ -302,6 +308,36 @@ class ReadmeSizeTableSyncTests(unittest.TestCase):
         problems = self.check_copy(extra)
         self.assertIn("unknown row: ui-invalid", problems)
         self.assertNotEqual(problems, [])
+
+    def test_table_rows_without_outer_pipes_are_checked(self):
+        # Review P2 (round 2): GFM rows may omit the leading and/or trailing `|`.
+        for extra in ("  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |",
+                      "  | `ghost` | 131072 | 1 (0.0%) | 1 (0.0%)",
+                      "  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%)"):
+            with self.subTest(row=extra):
+                text = self.readme.replace(
+                    "  | `all` | {} |".format(report.MAX_REPORT_BYTES * len(report.FIXTURES)),
+                    extra + "\n  | `all` | {} |".format(
+                        report.MAX_REPORT_BYTES * len(report.FIXTURES)), 1)
+                self.assertNotEqual(text, self.readme)
+                self.assertIn("unknown row: ghost", self.check_copy(text))
+        # A row after `all` (the reviewer's reproduction) is still inside the table.
+        lines = self.readme.splitlines(keepends=True)
+        index = next(i for i, line in enumerate(lines) if line.strip().startswith("| `all` |"))
+        lines.insert(index + 1, "  `ghost` | 131072 | 1 (0.0%) | 1 (0.0%) |\n")
+        self.assertIn("unknown row: ghost", self.check_copy("".join(lines)))
+        # A known row written without outer pipes is parsed, not reported as missing.
+        dropped = self.drop_row("ui_invalid")
+        bare = dropped.replace(
+            "  | `all` |", "  `ui_invalid` | 131072 | 4592 (3.5%) | 2851 (2.2%)\n  | `all` |", 1)
+        self.assertNotEqual(bare, dropped)
+        self.assertEqual(self.check_copy(bare), [])
+
+    def test_table_with_non_row_line_before_blank_fails(self):
+        # A non-table line before the blank line is still part of the GFM table.
+        text = self.readme.replace("  | `all` |", "  ghost\n  | `all` |", 1)
+        self.assertNotEqual(text, self.readme)
+        self.assertIn("unparsable row: ghost", self.check_copy(text))
 
     def test_table_with_unparsable_row_fails(self):
         for bad in ("  | ui_invalid | 131072 | 4592 (3.5%) | 2851 (2.2%) |",

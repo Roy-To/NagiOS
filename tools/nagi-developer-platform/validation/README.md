@@ -633,9 +633,10 @@ reports, and 2 for invalid arguments.
   not this table, is the check. The one thing the test checks about the table is its
   shape (NDP-A026): its fixture rows are exactly `report.FIXTURES` plus `all`, and its
   limit column equals `MAX_REPORT_BYTES` (`all`: times `len(FIXTURES)`); the byte counts
-  are not pinned. Every line after the header and separator rows, up to the end of the
-  table, must be a well-formed data row: an unknown name (such as `ui-invalid`) is an
-  `unknown row` and a malformed line is an `unparsable row`, never silently skipped.
+  are not pinned. Every line after the header and separator rows, up to the first blank
+  line (the GFM end of the table; rows may omit the outer `|`), must be a well-formed
+  data row: an unknown name (such as `ui-invalid`) is an `unknown row` and a malformed
+  line is an `unparsable row`, never silently skipped.
   Host-only, not Nagi target acceptance.
 
 ## Evidence and remaining scope — 2026-11-17
