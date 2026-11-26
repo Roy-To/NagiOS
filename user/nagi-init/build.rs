@@ -6,6 +6,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(linux_dev_preview_smoke)");
     println!("cargo:rustc-check-cfg=cfg(linux_dev_system_mount)");
+    println!("cargo:rustc-check-cfg=cfg(linux_dev_system_verity)");
     println!("cargo:rustc-check-cfg=cfg(linux_dev_ws10)");
     println!("cargo:rustc-check-cfg=cfg(linux_dev_notes_performance)");
     println!("cargo:rustc-check-cfg=cfg(linux_desktop_dev_smoke)");
@@ -34,6 +35,36 @@ fn main() {
     println!("cargo:rerun-if-env-changed=NAGI_FONT_DIR");
     println!("cargo:rerun-if-env-changed=NAGI_ACCEPTANCE_PACKAGES");
     println!("cargo:rerun-if-env-changed=NAGI_FILES_SEARCH_PACKAGE");
+    println!("cargo:rerun-if-env-changed=NAGI_DEV_SYSTEM_VERITY_ROOT_HASH");
+    println!("cargo:rerun-if-env-changed=NAGI_DEV_SYSTEM_VERITY_DATA_BLOCKS");
+    println!("cargo:rerun-if-env-changed=NAGI_DEV_SYSTEM_VERITY_SALT");
+    if let Some(root) = env::var_os("NAGI_DEV_SYSTEM_VERITY_ROOT_HASH") {
+        let root = root.to_string_lossy();
+        if root.len() != 64
+            || !root
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        {
+            panic!("NAGI_DEV_SYSTEM_VERITY_ROOT_HASH must be 64 lowercase hexadecimal characters");
+        }
+        let blocks = env::var("NAGI_DEV_SYSTEM_VERITY_DATA_BLOCKS")
+            .expect("NAGI_DEV_SYSTEM_VERITY_DATA_BLOCKS is required with a root hash");
+        if blocks.parse::<u64>().map_or(true, |value| value == 0) {
+            panic!("NAGI_DEV_SYSTEM_VERITY_DATA_BLOCKS must be a positive integer");
+        }
+        let salt = env::var("NAGI_DEV_SYSTEM_VERITY_SALT")
+            .expect("NAGI_DEV_SYSTEM_VERITY_SALT is required with a root hash");
+        if salt.len() != 64
+            || !salt
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            panic!("NAGI_DEV_SYSTEM_VERITY_SALT must be 64 lowercase hexadecimal characters");
+        }
+        println!("cargo:rustc-env=NAGI_DEV_SYSTEM_VERITY_ROOT_HASH={root}");
+        println!("cargo:rustc-env=NAGI_DEV_SYSTEM_VERITY_DATA_BLOCKS={blocks}");
+        println!("cargo:rustc-env=NAGI_DEV_SYSTEM_VERITY_SALT={salt}");
+    }
     if env::var_os("CARGO_FEATURE_ISOLATED_PROCESS_ACCEPTANCE").is_some()
         || env::var_os("CARGO_FEATURE_M19_SEARCH_IPC").is_some()
     {

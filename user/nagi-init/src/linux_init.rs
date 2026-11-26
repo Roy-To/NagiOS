@@ -455,6 +455,13 @@ mod linux_task24_identity_ready;
 #[path = "linux_owner_registration_console.rs"]
 mod linux_owner_registration_console;
 
+#[cfg(not(all(
+    linux_dev_system_mount,
+    linux_dev_system_verity,
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+)))]
 pub(crate) fn run() -> ExitCode {
     if std::process::id() != 1 {
         pid1_log!("nagi-init: refusing Linux init entry outside PID 1");
@@ -587,6 +594,47 @@ pub(crate) fn run() -> ExitCode {
     #[cfg(not(target_os = "linux"))]
     let mut backend = UnconnectedBackend::new();
     run_pid1_lifecycle(&mut backend, wait_for_pid1_os_event)
+}
+
+#[cfg(all(
+    linux_dev_system_mount,
+    linux_dev_system_verity,
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(any(linux_dev_preview_smoke, nagi_release_build))
+))]
+pub(crate) fn run() -> ExitCode {
+    if std::process::id() != 1 {
+        pid1_log!("nagi-init: refusing Linux System verity fixture outside PID 1");
+        return ExitCode::from(EX_USAGE);
+    }
+    if let Err(error) = mount_devtmpfs_for_pid1() {
+        log_pid1_stderr(format_args!(
+            "NAGI_SYSTEM_VERITY_REJECTED stage=devtmpfs errno={error}"
+        ));
+        return ExitCode::FAILURE;
+    }
+    ensure_pid1_proc_and_sysfs();
+    match linux_mount_prerequisites::data_mount_owner::system_verity::run_if_requested() {
+        linux_mount_prerequisites::data_mount_owner::system_verity::ProbeOutcome::Accepted {
+            root_digest,
+            mount_id,
+        } => log_pid1_stderr(format_args!(
+            "NAGI_SYSTEM_VERITY_ACCEPTED root={root_digest} filesystem=ext4 readonly=true fixture=true mount_id={mount_id}"
+        )),
+        linux_mount_prerequisites::data_mount_owner::system_verity::ProbeOutcome::Rejected {
+            stage,
+            errno,
+        } => log_pid1_stderr(format_args!(
+            "NAGI_SYSTEM_VERITY_REJECTED stage={stage} errno={errno}"
+        )),
+    }
+    let result = unsafe { libc::reboot(libc::RB_POWER_OFF) };
+    let error = std::io::Error::last_os_error();
+    log_pid1_stderr(format_args!(
+        "NAGI_SYSTEM_VERITY_POWER_OFF_FAILED result={result} error={error}"
+    ));
+    wait_in_pid1(wait_for_pid1_os_event)
 }
 
 #[cfg(target_os = "linux")]
