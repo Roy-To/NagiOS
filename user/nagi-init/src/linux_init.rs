@@ -12592,10 +12592,10 @@ mod linux_process_resource_tests {
         let files_root = files_owner
             .issue_files_root()
             .expect("issue owner-bound User Files root");
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
         let own_directory = files_root
-            .with_active_root(|view| view.duplicate_directory())
-            .expect("read live owner-issued root")
-            .expect("duplicate owner-issued root descriptor");
+            .duplicate_directory_for_app_process(&files_app)
+            .expect("duplicate the exact owner-issued Files root for its app process");
         let own_directory_fd = own_directory.as_raw_fd();
         let own_directory_flags = unsafe { libc::fcntl(own_directory_fd, libc::F_GETFD) };
         assert!(own_directory_flags >= 0);
