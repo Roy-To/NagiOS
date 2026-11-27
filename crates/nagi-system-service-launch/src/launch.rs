@@ -1838,6 +1838,10 @@ mod tests {
     fn fixture_package(executable: &[u8]) -> Vec<u8> {
         let key = SigningKey::from_bytes(&TEST_SIGNING_SEED);
         assert_eq!(key.verifying_key().to_bytes(), TRUSTED_SIGNING_PUBLIC_KEY);
+        fixture_package_with_key(executable, &key)
+    }
+
+    fn fixture_package_with_key(executable: &[u8], key: &SigningKey) -> Vec<u8> {
         let placeholder = [0; SIGNATURE_BYTES];
         let mut bytes = [0; MAX_PACKAGE_BYTES];
         let length = build_xapp(
@@ -2091,6 +2095,58 @@ mod tests {
             validate_artifact_preflight_report(&scope.to_string(), &descriptor),
             Err(PreflightReportError::ClaimScopeMismatch)
         );
+    }
+
+    #[test]
+    fn boot_catalog_and_signed_identity_package_can_use_one_release_key() {
+        let key = SigningKey::from_bytes(&[42; 32]);
+        let release_public_key = key.verifying_key().to_bytes();
+        let executable = b"fixture Identity executable";
+        let package = fixture_package_with_key(executable, &key);
+        let catalog_body = serde_json::to_vec(&json!({
+            "schema_version": 1,
+            "package_signing_public_key": release_public_key,
+            "descriptor_json": descriptor_with_digest(&digest_hex(executable)),
+            "principal_id": "service:fixture.identity",
+            "caller_context_id": "caller_fixture_identity",
+            "mapping_generation": 1,
+        }))
+        .unwrap();
+        let message = [
+            b"Nagi Linux boot system service catalog v1\0",
+            catalog_body.as_slice(),
+        ]
+        .concat();
+        let signed_catalog = [catalog_body.as_slice(), &key.sign(&message).to_bytes()].concat();
+
+        let catalog = crate::VerifiedBootCatalog::verify(&signed_catalog, &release_public_key)
+            .expect("the catalog is signed by the release anchor");
+        assert!(
+            crate::VerifiedBootCatalog::verify(&signed_catalog, &TRUSTED_SIGNING_PUBLIC_KEY)
+                .is_err()
+        );
+        let package_public_key = catalog.package_signing_public_key();
+        let mut owner =
+            PackageServiceSessionOwner::new(Some(&package_public_key), PackageService::new());
+        let mut persistence = TestPackagePersistence::new();
+        let policy = InstallPolicy {
+            developer_mode: false,
+            require_signature: true,
+        };
+        assert!(owner
+            .install_with_digest_index(
+                &fixture_package(executable),
+                policy,
+                persistence.index_mut(),
+            )
+            .is_err());
+        owner
+            .install_with_digest_index(&package, policy, persistence.index_mut())
+            .expect("the package uses the signing key named in the verified catalog");
+        let binding = bind_installed_service_package(catalog.descriptor(), &package, &owner)
+            .expect("the verified catalog matches the installed package");
+        assert_eq!(binding.executable_bytes(), executable);
+        assert_eq!(binding.package_generation(), 1);
     }
 
     #[test]
