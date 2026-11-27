@@ -1,0 +1,45 @@
+# L11-4 fixed development profile for Linux 6.18.65, x86_64.
+# Merge this fragment into that release's x86_64_defconfig, then run olddefconfig.
+
+# Direct boot and current q35/OVMF development path.
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_BINFMT_ELF=y
+CONFIG_EFI=y
+CONFIG_EFI_STUB=y
+CONFIG_PRINTK=y
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+
+# Built-in storage/filesystem and init environment for the System/Data images.
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_EXT4_FS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+
+# Current reference-machine display path.
+CONFIG_DRM=y
+CONFIG_DRM_BOCHS=y
+CONFIG_DRM_VIRTIO_GPU=y
+CONFIG_DRM_VIRTIO_GPU_KMS=y
+CONFIG_DRM_FBDEV_EMULATION=y
+CONFIG_FB=y
+CONFIG_FB_CORE=y
+CONFIG_FB_DEVICE=y
+
+# L11 System integrity and app-isolation kernel capabilities.
+CONFIG_BLK_DEV_DM=y
+CONFIG_DM_VERITY=y
+CONFIG_CRYPTO_SHA256=y
+CONFIG_SECURITY=y
+CONFIG_SECURITY_LANDLOCK=y
+CONFIG_NAMESPACES=y
+CONFIG_PID_NS=y
+CONFIG_UTS_NS=y
+CONFIG_IPC_NS=y
+CONFIG_USER_NS=y
+CONFIG_NET_NS=y

@@ -32,6 +32,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import boot_acceptance
+import data_boot_config
 import task24_recovery_serials as recovery
 from task24_rfb_automatic import (
     AutomationError,
@@ -52,6 +54,13 @@ TASK24_NOTES_SAVE_RETEST_HEAD = "734e8dae2be946dd0e8431f3b18f18bca1f7af5d"
 TASK24_NOTES_SAVE_RETEST_INITRAMFS_SHA256 = "21a893a95ca267ba6f2fa2a31ad3c24e4cc85315786873e08623d327ad36829d"
 TASK24_C3_RESTART_RETEST_HEAD = "b49781625b13e3eda50705c058c6206ae6582a51"
 TASK24_C3_RESTART_RETEST_INITRAMFS_SHA256 = "7e8b24f188337302f362095d031c8c895e2590999474620b46e13334639e340a"
+TASK24_F9_8E2A_HEAD = "8e2a5ff11034e0fdbd47cf81b3cdbfa8c281efa9"
+TASK24_F9_8E2A_PID1_ELF_SHA256 = "4493bfec50a272f858a72261308eaddfbba5d7cbeaabee1da22abc7616aa0148"
+TASK24_F9_8E2A_CPIO_SHA256 = "e0f8f0b960290ac064420ff81318077cacb45617c877c2047de5124afd0cedcb"
+TASK24_F9_FIXED_INPUT_RECEIPT_SHA256 = "8bf0d9e1e3ca734f69e38a9353873808a4b299db0b3a010b138771dae73b633a"
+TASK24_F9_CPIO_VALIDATION_RECEIPT_SHA256 = "89ba60b7bb52a9935cc073b0aacae8d8865af900aa9efa5112c387fce788aca4"
+TASK24_F9_CPIO_VALIDATION_ELF_SIZE = 13_091_280
+TASK24_F9_CANDIDATE_CHECK_SCHEMA = "nagi-task24-f9-candidate-check/v1"
 ARTIFACT_NAMES = ("kernel", "initramfs", "system_image")
 PHASES = ("save", "read")
 L9_LOGGED_OUT = "NAGI_DEV_L9_LOGGED_OUT session="
@@ -84,6 +93,13 @@ class PreparedRun:
     phases: dict[str, dict[str, Any]]
     preflight_result: dict[str, Any]
     l9_pin: tuple[str, str] | None = None
+    f9_rfb_no_start: bool = False
+    f9_pid1_elf_path: Path | None = None
+    f9_pid1_elf_sha256: str | None = None
+    f9_fixed_input_receipt_path: Path | None = None
+    f9_fixed_input_receipt_sha256: str | None = None
+    f9_cpio_validation_receipt_path: Path | None = None
+    f9_cpio_validation_receipt_sha256: str | None = None
 
 
 def _canonical_existing_file(value: str | Path, name: str, *, executable: bool = False) -> Path:
@@ -221,9 +237,20 @@ def prepare_run(
     manifest_path: Path, preflight_script: Path, *,
     notes_save_retest: bool = False, c3_restart_retest: bool = False,
     l9_pin: tuple[str, str] | None = None,
+    f9_rfb_no_start: bool = False,
+    f9_pid1_elf_path: Path | None = None,
+    f9_fixed_input_receipt_path: Path | None = None,
+    f9_cpio_validation_receipt_path: Path | None = None,
 ) -> PreparedRun:
-    if sum((notes_save_retest, c3_restart_retest, l9_pin is not None)) > 1:
+    if sum((notes_save_retest, c3_restart_retest, l9_pin is not None, f9_rfb_no_start)) > 1:
         raise RunnerError("select only one Task24 retest")
+    f9_input_paths = (
+        f9_pid1_elf_path, f9_fixed_input_receipt_path, f9_cpio_validation_receipt_path,
+    )
+    if f9_rfb_no_start != all(path is not None for path in f9_input_paths):
+        raise RunnerError("the F9 no-start profile requires its ELF and two fixed candidate receipts")
+    if not f9_rfb_no_start and any(path is not None for path in f9_input_paths):
+        raise RunnerError("F9 candidate inputs require the fixed F9 no-start profile")
     manifest_path = _canonical_existing_file(manifest_path, "manifest")
     preflight_script = _canonical_existing_file(preflight_script, "official preflight script")
     preflight_result, preflight_digest, preflight_manifest_digest = run_official_preflight(
@@ -246,6 +273,12 @@ def prepare_run(
         raise RunnerError("manifest must reside directly in run_directory")
     source_commit = manifest["candidate_source_commit"]
     artifact_values = manifest["artifacts"]
+    f9_elf_path = None
+    f9_elf_sha256 = None
+    f9_fixed_receipt_path = None
+    f9_fixed_receipt_sha256 = None
+    f9_validation_receipt_path = None
+    f9_validation_receipt_sha256 = None
     if l9_pin is not None:
         head, initramfs = l9_pin
         if (re.fullmatch(r"[0-9a-f]{40}", head) is None
@@ -263,6 +296,30 @@ def prepare_run(
             raise RunnerError("manifest candidate source does not match the pinned C3 restart retest")
         if artifact_values["initramfs"]["sha256"] != TASK24_C3_RESTART_RETEST_INITRAMFS_SHA256:
             raise RunnerError("manifest initramfs does not match the pinned C3 restart retest")
+    elif f9_rfb_no_start:
+        if source_commit != TASK24_F9_8E2A_HEAD:
+            raise RunnerError("manifest candidate source does not match the pinned F9 8e2a profile")
+        if artifact_values["initramfs"]["sha256"] != TASK24_F9_8E2A_CPIO_SHA256:
+            raise RunnerError("manifest initramfs CPIO does not match the pinned F9 8e2a profile")
+        assert all(path is not None for path in f9_input_paths)
+        assert f9_fixed_input_receipt_path is not None and f9_cpio_validation_receipt_path is not None
+        f9_elf_path = _canonical_existing_file(f9_pid1_elf_path, "F9 PID 1 ELF")
+        f9_elf_sha256, _ = sha256_file(f9_elf_path, "F9 PID 1 ELF")
+        if f9_elf_sha256 != TASK24_F9_8E2A_PID1_ELF_SHA256:
+            raise RunnerError("F9 PID 1 ELF does not match the pinned 8e2a profile")
+        f9_fixed_receipt_path = _canonical_existing_file(
+            f9_fixed_input_receipt_path, "F9 fixed-input receipt",
+        )
+        f9_fixed_receipt_sha256, _ = sha256_file(f9_fixed_receipt_path, "F9 fixed-input receipt")
+        if f9_fixed_receipt_sha256 != TASK24_F9_FIXED_INPUT_RECEIPT_SHA256:
+            raise RunnerError("F9 fixed-input receipt does not match the pinned candidate")
+        f9_validation_receipt_path = _canonical_existing_file(
+            f9_cpio_validation_receipt_path, "F9 CPIO validation receipt",
+        )
+        f9_validation_receipt_sha256 = _verify_f9_cpio_validation_receipt(
+            f9_validation_receipt_path,
+            elf_sha256=f9_elf_sha256,
+        )
     elif source_commit != TASK24_HEAD:
         raise RunnerError("manifest candidate source is not the fixed public Task24 HEAD")
     artifacts = {
@@ -300,7 +357,133 @@ def prepare_run(
         phases=phases,
         preflight_result=preflight_result,
         l9_pin=l9_pin,
+        f9_rfb_no_start=f9_rfb_no_start,
+        f9_pid1_elf_path=f9_elf_path,
+        f9_pid1_elf_sha256=f9_elf_sha256,
+        f9_fixed_input_receipt_path=f9_fixed_receipt_path,
+        f9_fixed_input_receipt_sha256=f9_fixed_receipt_sha256,
+        f9_cpio_validation_receipt_path=f9_validation_receipt_path,
+        f9_cpio_validation_receipt_sha256=f9_validation_receipt_sha256,
     )
+
+
+def _verify_f9_cpio_validation_receipt(path: Path, *, elf_sha256: str) -> str:
+    receipt_digest, identity = sha256_file(path, "F9 CPIO validation receipt")
+    if receipt_digest != TASK24_F9_CPIO_VALIDATION_RECEIPT_SHA256:
+        raise RunnerError("F9 CPIO validation receipt does not match the pinned candidate")
+    if identity[4] > 1024 * 1024:
+        raise RunnerError("F9 CPIO validation receipt exceeds the size limit")
+    payload = path.read_bytes()
+    if hashlib.sha256(payload).hexdigest() != receipt_digest:
+        raise RunnerError("F9 CPIO validation receipt changed while being read")
+    receipt = _json_mapping(payload, "F9 CPIO validation receipt")
+    inputs = receipt.get("development_inputs")
+    if not isinstance(inputs, list):
+        validation = receipt.get("validation")
+        inputs = validation.get("development_inputs") if isinstance(validation, dict) else None
+    if not isinstance(inputs, list):
+        raise RunnerError("F9 CPIO validation receipt has no development input list")
+    elf_record = next((item for item in inputs if isinstance(item, dict) and item.get("path") == "nagi-init"), None)
+    if (elf_record is None or elf_record.get("sha256") != elf_sha256
+            or elf_record.get("size_bytes") != TASK24_F9_CPIO_VALIDATION_ELF_SIZE):
+        raise RunnerError("F9 CPIO validation receipt does not bind the pinned nagi-init ELF")
+    return receipt_digest
+
+
+def _read_verified_candidate_bytes(path: Path, expected_sha256: str, name: str) -> bytes:
+    digest, identity = sha256_file(path, name)
+    if digest != expected_sha256:
+        raise RunnerError(f"{name} does not match its fixed candidate pin")
+    if identity[4] > 128 * 1024 * 1024:
+        raise RunnerError(f"{name} exceeds the candidate input size limit")
+    payload = path.read_bytes()
+    if hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise RunnerError(f"{name} changed while being read")
+    after_digest, after_identity = sha256_file(path, name)
+    if after_digest != expected_sha256 or after_identity != identity:
+        raise RunnerError(f"{name} changed during candidate validation")
+    return payload
+
+
+def f9_candidate_check_receipt(prepared: PreparedRun) -> dict[str, Any]:
+    """Bind the fixed source, separate PID 1 ELF, and preflight-pinned CPIO."""
+    if not prepared.f9_rfb_no_start:
+        raise RunnerError("F9 candidate receipt requires the fixed F9 no-start profile")
+    if (prepared.f9_pid1_elf_path is None or prepared.f9_pid1_elf_sha256 is None
+            or prepared.f9_fixed_input_receipt_path is None
+            or prepared.f9_fixed_input_receipt_sha256 is None
+            or prepared.f9_cpio_validation_receipt_path is None
+            or prepared.f9_cpio_validation_receipt_sha256 is None):
+        raise RunnerError("F9 candidate inputs are incomplete")
+    _verify_fixed_inputs(prepared)
+    elf_payload = _read_verified_candidate_bytes(
+        prepared.f9_pid1_elf_path,
+        TASK24_F9_8E2A_PID1_ELF_SHA256,
+        "F9 PID 1 ELF",
+    )
+    cpio_artifact = prepared.artifacts["initramfs"]
+    cpio_payload = _read_verified_candidate_bytes(
+        cpio_artifact["path"],
+        TASK24_F9_8E2A_CPIO_SHA256,
+        "F9 Task24 CPIO",
+    )
+    try:
+        embedded = boot_acceptance.validate_development_cpio_inputs(
+            cpio_payload,
+            {"nagi-init": (0o755, elf_payload)},
+        )
+    except boot_acceptance.AcceptanceError as error:
+        raise RunnerError(f"F9 CPIO does not contain the pinned PID 1 ELF ({error})") from None
+    entry = embedded["development_inputs"][0]
+    if (embedded.get("development_input_bytes_match") != "PASS"
+            or entry.get("sha256") != TASK24_F9_8E2A_PID1_ELF_SHA256):
+        raise RunnerError("F9 CPIO embedded PID 1 ELF does not match its fixed input")
+    return {
+        "schema": TASK24_F9_CANDIDATE_CHECK_SCHEMA,
+        "profile": "F9_8E2A_NO_START_RFB",
+        "status": "CANDIDATE_INPUTS_PASS",
+        "source": {
+            "manifest_pin": TASK24_F9_8E2A_HEAD,
+            "candidate_source_commit": prepared.candidate_source_commit,
+            "matches_fixed_pin": prepared.candidate_source_commit == TASK24_F9_8E2A_HEAD,
+        },
+        "pid1_elf": {
+            "input": "--pid1-elf",
+            "sha256": prepared.f9_pid1_elf_sha256,
+            "fixed_sha256": TASK24_F9_8E2A_PID1_ELF_SHA256,
+            "matches_fixed_candidate": prepared.f9_pid1_elf_sha256 == TASK24_F9_8E2A_PID1_ELF_SHA256,
+        },
+        "initramfs_cpio": {
+            "manifest_artifact": "initramfs",
+            "manifest_sha256": cpio_artifact["sha256"],
+            "fixed_sha256": TASK24_F9_8E2A_CPIO_SHA256,
+            "matches_fixed_candidate": cpio_artifact["sha256"] == TASK24_F9_8E2A_CPIO_SHA256,
+        },
+        "fixed_input_receipt": {
+            "input": "--f9-fixed-input-receipt",
+            "sha256": prepared.f9_fixed_input_receipt_sha256,
+            "matches_fixed_candidate": prepared.f9_fixed_input_receipt_sha256
+            == TASK24_F9_FIXED_INPUT_RECEIPT_SHA256,
+        },
+        "cpio_validation_receipt": {
+            "input": "--f9-cpio-validation-receipt",
+            "sha256": prepared.f9_cpio_validation_receipt_sha256,
+            "development_input_path": "nagi-init",
+            "development_input_sha256": TASK24_F9_8E2A_PID1_ELF_SHA256,
+            "development_input_size_bytes": TASK24_F9_CPIO_VALIDATION_ELF_SIZE,
+            "matches_fixed_pid1_elf": True,
+        },
+        "cpio_embedded_pid1": {
+            "path": "nagi-init",
+            "sha256": entry["sha256"],
+            "matches_fixed_pid1_elf": entry["sha256"] == TASK24_F9_8E2A_PID1_ELF_SHA256,
+            "validator": "boot_acceptance.validate_development_cpio_inputs",
+            "cpio_structure": embedded["cpio_structure"],
+            "development_input_bytes_match": embedded["development_input_bytes_match"],
+        },
+        "qemu_started": False,
+        "launch_authorized": False,
+    }
 
 
 def prepare_trial_layout(prepared: PreparedRun, phases: tuple[str, ...]) -> dict[str, Any]:
@@ -330,7 +513,12 @@ def prepare_trial_layout(prepared: PreparedRun, phases: tuple[str, ...]) -> dict
         ):
             raise RunnerError(f"{phase} must have its own real run directory")
         identities.add(identity)
-        outputs = [serial, directory / "qemu.log", directory / "supervisor.log"]
+        outputs = [
+            serial,
+            directory / "qemu.log",
+            directory / "supervisor.log",
+            directory / "initramfs-data-selection.cpio",
+        ]
         if phase == "locale-read":
             outputs += [directory / f"{name}.ppm" for name in L9_FRAME_NAMES]
         for output in outputs:
@@ -376,7 +564,10 @@ def prepare_automatic_trial(
     """Validate the phase layout and private fixture without launching QEMU."""
     if l9_trial != (prepared.l9_pin is not None):
         raise RunnerError("L9 trial must use its pinned preflight candidate")
-    if not l9_trial:
+    if prepared.f9_rfb_no_start:
+        if l9_trial:
+            raise RunnerError("F9 no-start profile cannot use the L9 fixture flow")
+    elif not l9_trial:
         _require_c3_restart_candidate(prepared)
     fixture = load_development_fixture(
         fixture_path,
@@ -384,15 +575,30 @@ def prepare_automatic_trial(
         run_id=prepared.run_id,
         preflight_manifest_sha256=prepared.manifest_sha256,
     )
-    return {
-        **prepare_trial_layout(prepared, tuple(L9_RFB_FLOW) if l9_trial else MANUAL_TRIAL_PHASES),
-        "mode": "AUTOMATIC_L9_FIXTURE" if l9_trial else "AUTOMATIC_DEVELOPMENT_FIXTURE",
+    phases = tuple(L9_RFB_FLOW) if l9_trial else MANUAL_TRIAL_PHASES
+    layout = prepare_trial_layout(prepared, phases)
+    result = {
+        **layout,
+        "status": "THREE_PHASE_LAYOUT_ONLY" if prepared.f9_rfb_no_start else layout["status"],
+        "mode": (
+            "AUTOMATIC_L9_FIXTURE" if l9_trial else
+            "AUTOMATIC_F9_8E2A_NO_START_FIXTURE" if prepared.f9_rfb_no_start else
+            "AUTOMATIC_DEVELOPMENT_FIXTURE"
+        ),
         "fixture_manifest_sha256": fixture.sha256,
         "fixture_secrets_recorded": False,
         "rfb_endpoint": f"127.0.0.1:{fixture.rfb_port}",
         "launch_authorized": False,
         "post_action_display_content": "NOT_VERIFIED",
     }
+    if prepared.f9_rfb_no_start:
+        result["preflight_validated_phases"] = ["save", "read"]
+        result["reject-close"] = {"execution_contract": "NOT_VALIDATED"}
+        result["coverage"] = (
+            "save/read official preflight plus three-phase directory layout only; "
+            "reject-close execution contract not validated; no WS-10 RFB evidence"
+        )
+    return result
 
 
 def _read_data_superblock_uuid(path: Path) -> str:
@@ -467,6 +673,27 @@ def _verify_fixed_inputs(prepared: PreparedRun) -> None:
         actual, _ = sha256_file(artifact["path"], f"artifacts.{name}")
         if actual != artifact["sha256"]:
             raise RunnerError(f"artifacts.{name} changed after official preflight")
+    if prepared.f9_rfb_no_start:
+        if (prepared.f9_pid1_elf_path is None or prepared.f9_pid1_elf_sha256 is None
+                or prepared.f9_fixed_input_receipt_path is None
+                or prepared.f9_fixed_input_receipt_sha256 is None
+                or prepared.f9_cpio_validation_receipt_path is None
+                or prepared.f9_cpio_validation_receipt_sha256 is None):
+            raise RunnerError("F9 candidate inputs are incomplete")
+        actual_elf, _ = sha256_file(prepared.f9_pid1_elf_path, "F9 PID 1 ELF")
+        if actual_elf != prepared.f9_pid1_elf_sha256:
+            raise RunnerError("F9 PID 1 ELF changed after candidate validation")
+        actual_fixed_receipt, _ = sha256_file(
+            prepared.f9_fixed_input_receipt_path, "F9 fixed-input receipt",
+        )
+        if actual_fixed_receipt != prepared.f9_fixed_input_receipt_sha256:
+            raise RunnerError("F9 fixed-input receipt changed after candidate validation")
+        actual_validation_receipt = _verify_f9_cpio_validation_receipt(
+            prepared.f9_cpio_validation_receipt_path,
+            elf_sha256=prepared.f9_pid1_elf_sha256,
+        )
+        if actual_validation_receipt != prepared.f9_cpio_validation_receipt_sha256:
+            raise RunnerError("F9 CPIO validation receipt changed after candidate validation")
 
 
 def validate_start_gate(
@@ -496,6 +723,7 @@ def qemu_argv(
         raise RunnerError("automatic Task24 RFB port is outside the supported range")
     phase_data = prepared.phases[phase]
     serial_path: Path = phase_data["serial_path"]
+    selection_initramfs = serial_path.parent / "initramfs-data-selection.cpio"
     paths = [
         qemu.as_posix(),
         prepared.artifacts["kernel"]["path"].as_posix(),
@@ -503,18 +731,22 @@ def qemu_argv(
         prepared.artifacts["system_image"]["path"].as_posix(),
         prepared.data_path.as_posix(),
         serial_path.as_posix(),
+        selection_initramfs.as_posix(),
     ]
     if any("," in value or "\n" in value or "\r" in value for value in paths):
         raise RunnerError("QEMU paths cannot contain commas or line breaks")
     if re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", prepared.data_uuid) is None:
         raise RunnerError("QEMU Data filesystem UUID must be canonical")
+    try:
+        data_boot_config.write_configured_initramfs(
+            prepared.artifacts["initramfs"]["path"],
+            selection_initramfs,
+            prepared.data_uuid,
+        )
+    except (data_boot_config.DataBootConfigError, OSError) as error:
+        raise RunnerError(f"cannot create signed Data selection initramfs ({error})") from None
     data_serial = f"NAGI-DATA-{prepared.data_uuid[:8]}"
-    kernel_cmdline = (
-        "console=ttyS0,115200n8 rdinit=/init "
-        f"nagi.dev_data.boot=identity nagi.dev_data.serial={data_serial} "
-        f"nagi.dev_data.fs_uuid={prepared.data_uuid} "
-        "nagi.dev_data.accounts=accounts nagi.dev_data.snapshots=snapshots"
-    )
+    kernel_cmdline = "console=ttyS0,115200n8 rdinit=/init"
     if previous_l9_session is not None:
         if phase not in L9_RFB_FLOW or phase == "locale-save" or not valid_l9_session_id(previous_l9_session):
             raise RunnerError("invalid L9 predecessor for QEMU")
@@ -536,7 +768,7 @@ def qemu_argv(
         "-kernel",
         prepared.artifacts["kernel"]["path"].as_posix(),
         "-initrd",
-        prepared.artifacts["initramfs"]["path"].as_posix(),
+        selection_initramfs.as_posix(),
         "-append",
         kernel_cmdline,
         "-drive",
@@ -1147,6 +1379,8 @@ def run_authorized_pair(
     fixture_manifest_path: Path | None = None,
     l9_trial: bool = False,
 ) -> dict[str, Any]:
+    if prepared.f9_rfb_no_start:
+        raise RunnerError("the F9 8e2a profile is no-start only")
     if l9_trial != (prepared.l9_pin is not None) or (l9_trial and not automatic_trial):
         raise RunnerError("L9 requires its pinned preflight candidate and automatic fixture")
     if manual_trial and automatic_trial:
@@ -1393,6 +1627,16 @@ def _parser() -> argparse.ArgumentParser:
                         help="use the pinned local Notes save candidate for the manual trial")
     retest.add_argument("--c3-restart-retest", action="store_true",
                         help="use the pinned local C3 restart candidate for the manual trial")
+    retest.add_argument(
+        "--f9-8e2a-rfb-no-start", action="store_true",
+        help="prepare only the fixed 8e2a source/ELF/CPIO RFB fixture; QEMU start is forbidden",
+    )
+    parser.add_argument("--pid1-elf", type=Path,
+                        help="separate fixed PID 1 ELF input required by the F9 no-start profile")
+    parser.add_argument("--f9-fixed-input-receipt", type=Path,
+                        help="fixed candidate input binding receipt required by the F9 no-start profile")
+    parser.add_argument("--f9-cpio-validation-receipt", type=Path,
+                        help="canonical development CPIO validation receipt for the F9 profile")
     parser.add_argument("--qemu", type=Path, help="required only with --authorize-start")
     parser.add_argument("--slot", type=int, choices=(1, 2), help="the board-reserved QEMU slot")
     parser.add_argument("--board-readback-sha256", help="full SHA-256 of a fresh official board readback")
@@ -1418,7 +1662,9 @@ def main(argv: list[str] | None = None) -> int:
                     or args.board_readback_sha256 is not None or args.prepare_manual_trial
                     or args.prepare_automatic_trial or args.manual_trial
                     or args.automatic_development_trial or args.fixture_manifest is not None
-                    or args.notes_save_retest or args.c3_restart_retest):
+                    or args.notes_save_retest or args.c3_restart_retest or args.f9_8e2a_rfb_no_start
+                    or args.pid1_elf is not None or args.f9_fixed_input_receipt is not None
+                    or args.f9_cpio_validation_receipt is not None):
                 parser.error("--observe-completed-pair does not accept preflight or launch arguments")
             observation = observe_completed_pair(
                 args.observe_completed_pair, include_rejection=args.include_reject_close,
@@ -1431,6 +1677,19 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--prepare-manual-trial does not authorize QEMU")
         if args.prepare_automatic_trial and args.authorize_start:
             parser.error("--prepare-automatic-trial does not authorize QEMU")
+        f9_input_values = (
+            args.pid1_elf, args.f9_fixed_input_receipt, args.f9_cpio_validation_receipt,
+        )
+        f9_inputs_supplied = all(value is not None for value in f9_input_values)
+        if args.f9_8e2a_rfb_no_start:
+            if not args.prepare_automatic_trial or args.authorize_start:
+                parser.error("the F9 8e2a profile requires --prepare-automatic-trial and forbids --authorize-start")
+            if not f9_inputs_supplied:
+                parser.error("the F9 8e2a profile requires --pid1-elf and both fixed candidate receipts")
+            if l9_trial or args.notes_save_retest or args.c3_restart_retest:
+                parser.error("the F9 8e2a profile cannot be combined with another Task24 candidate pin")
+        elif args.pid1_elf is not None or args.f9_fixed_input_receipt is not None or args.f9_cpio_validation_receipt is not None:
+            parser.error("F9 candidate receipts require --f9-8e2a-rfb-no-start")
         if args.manual_trial and args.automatic_development_trial:
             parser.error("--manual-trial and --automatic-development-trial are mutually exclusive")
         if (args.manual_trial or args.automatic_development_trial) and not args.authorize_start:
@@ -1440,11 +1699,11 @@ def main(argv: list[str] | None = None) -> int:
         automatic_selected = args.automatic_development_trial or args.prepare_automatic_trial
         if automatic_selected != (args.fixture_manifest is not None):
             parser.error("automatic trial preparation or launch requires exactly one --fixture-manifest")
-        if automatic_selected and not (args.c3_restart_retest or l9_trial):
-            parser.error("automatic development trial requires --c3-restart-retest")
+        if automatic_selected and not (args.c3_restart_retest or l9_trial or args.f9_8e2a_rfb_no_start):
+            parser.error("automatic development trial requires a fixed candidate profile")
         if args.manifest is None or args.preflight_script is None:
             parser.error("--manifest and --preflight-script are required for preflight")
-        if (args.notes_save_retest or args.c3_restart_retest) and not (
+        if (args.notes_save_retest or args.c3_restart_retest or args.f9_8e2a_rfb_no_start) and not (
             args.prepare_manual_trial or args.manual_trial or automatic_selected
         ):
             parser.error("a retest requires --prepare-manual-trial or --manual-trial")
@@ -1452,6 +1711,10 @@ def main(argv: list[str] | None = None) -> int:
             args.manifest, args.preflight_script,
             notes_save_retest=args.notes_save_retest, c3_restart_retest=args.c3_restart_retest,
             l9_pin=(args.l9_candidate_head, args.l9_initramfs_sha256) if l9_trial else None,
+            f9_rfb_no_start=args.f9_8e2a_rfb_no_start,
+            f9_pid1_elf_path=args.pid1_elf,
+            f9_fixed_input_receipt_path=args.f9_fixed_input_receipt,
+            f9_cpio_validation_receipt_path=args.f9_cpio_validation_receipt,
         )
         if not args.authorize_start:
             print(
@@ -1462,6 +1725,8 @@ def main(argv: list[str] | None = None) -> int:
                         "manifest_sha256": prepared.manifest_sha256,
                         "preflight_script_sha256": prepared.preflight_script_sha256,
                         "qemu_started": False,
+                        **({"candidate_check_receipt": f9_candidate_check_receipt(prepared)}
+                           if prepared.f9_rfb_no_start else {}),
                         **({"manual_trial": prepare_manual_trial(prepared)}
                            if args.prepare_manual_trial else {}),
                         **({"automatic_trial": prepare_automatic_trial(prepared, args.fixture_manifest, l9_trial=l9_trial)}

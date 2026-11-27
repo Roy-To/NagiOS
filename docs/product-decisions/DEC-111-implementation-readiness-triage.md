@@ -98,6 +98,8 @@
 
 **次に人間へ質問する条件:** 対象ID、試験・実装から生じた対立する選択肢、影響するユーザー体験・安全境界、A/B/Cの利点・欠点、まだ未測定のことを**1件ずつ**提示する。指定のない時期・閾値・採用結果を自動確定しない。上表の順序は絶対的なgateではなく、実際にその機能を進めるタイミングに応じて前後する。
 
+**2026-11-25 PX-08後続決定:** [DEC-004](DEC-004-memory-learning-forgetting.md)と[DEC-057](DEC-057-growing-personal-agent-os.md)に、4/12 B案の学習対象・本人確認・未回答時・推定の扱いとPersona／Secret境界を記録した。上表の一次仕分けは2026-11-17時点の棚卸し。具体的な判定・タイミング・UI・実装・受入は対応DECのPROVISIONALを参照し、既存Gateを維持する。
+
 ## 検証証拠と進行の更新方法
 
 1. 既存の[Foundation Checklist](NAGI_OS_FOUNDATION_CHECKLIST.md)、[PX Checklist](NAGI_OS_PRODUCT_EXPERIENCE_CHECKLIST.md)の各詳細欄を現在のDEC・実装ブランチ・Acceptanceに照らして確認する。本書に別個のprogress JSONやstateを量産しない。

@@ -12,6 +12,20 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[cfg(target_os = "linux")]
 mod linux_data;
 
+#[cfg(target_os = "linux")]
+mod notes_object;
+#[cfg(target_os = "linux")]
+pub use notes_object::{NotesObject, NotesObjectError};
+
+#[cfg(target_os = "linux")]
+mod files_root;
+
+#[cfg(target_os = "linux")]
+pub use files_root::{
+    FilesRootDirView, FilesRootEntry, FilesRootEntryKind, FilesRootFileView, FilesRootMetadata,
+    FilesRootView,
+};
+
 mod snapshot;
 
 pub use nagi_persistence_contract::{ConditionalWriteOutcome, Revision, Snapshot, SnapshotStorage};
@@ -25,6 +39,12 @@ pub enum AppStorageKind {
     Calendar,
     UserFiles,
 }
+
+/// Linux identity assigned to the only app currently allowed to receive the
+/// User Files root. The process owner and the Data-root provisioner share this
+/// constant so storage ownership is checked without a user namespace.
+pub const USER_FILES_APP_UID: u32 = 65_532;
+pub const USER_FILES_APP_GID: u32 = 65_532;
 
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -421,9 +441,8 @@ impl Drop for ProfileVolumeAppOwner {
 /// Opaque consumer capability tying one retained FD and reserved Notes
 /// ObjectId to the same verified profile-volume attachment.
 ///
-/// There is intentionally no public constructor or deserializer. The hidden
-/// FD duplication method exists only so the Linux Notes codec can install its
-/// descriptor-backed C1 storage backend while retaining this lifecycle token.
+/// There is intentionally no public constructor or deserializer. The Linux
+/// Notes codec uses the reserved object through an owner-scoped view.
 pub struct ProfileVolumeNotesBundle {
     attachment: Arc<VerifiedProfileVolumeAttachment>,
 }
@@ -520,18 +539,14 @@ impl ProfileVolumeNotesBundle {
         Ok(operation())
     }
 
-    /// Duplicate the owner's retained descriptor for the C1 backend. The
-    /// caller must retain this bundle and gate every effect through
-    /// `with_active`; the returned descriptor by itself carries no owner state.
-    #[doc(hidden)]
-    pub fn duplicate_object_directory(&self) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+    #[cfg(test)]
+    fn duplicate_object_directory(&self) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
         self.with_duplicated_object_directory(|directory| directory)
     }
 
-    /// Keep the attachment lifecycle lock held while the Linux consumer opens
-    /// its C1 root from a duplicate of the retained descriptor.
-    #[doc(hidden)]
-    pub fn with_duplicated_object_directory<R>(
+    // Used only by the Files process launch handoff and descriptor tests.
+    #[cfg(any(target_os = "linux", test))]
+    fn with_duplicated_object_directory<R>(
         &self,
         operation: impl FnOnce(OwnedFd) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
@@ -542,6 +557,42 @@ impl ProfileVolumeNotesBundle {
         let directory = fcntl_dupfd_cloexec(&self.attachment.object_directory, 0)
             .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
         Ok(operation(directory))
+    }
+
+    /// Run one complete Notes operation on the reserved index while the
+    /// owner attachment is active. The caller holds the matching C1 lease.
+    ///
+    /// ```compile_fail
+    /// use nagi_profile_volume_notes_owner::ProfileVolumeNotesBundle;
+    /// use std::{os::fd::AsFd, time::Duration};
+    /// fn retain_descriptor(bundle: &ProfileVolumeNotesBundle) {
+    ///     bundle.with_notes_object(Duration::from_secs(1), |object| {
+    ///         object.as_fd().try_clone_to_owned().unwrap()
+    ///     }).unwrap();
+    /// }
+    /// ```
+    /// ```compile_fail
+    /// use nagi_profile_volume_notes_owner::{NotesObject, ProfileVolumeNotesBundle};
+    /// use std::time::Duration;
+    /// fn retain_object(bundle: &ProfileVolumeNotesBundle) -> NotesObject<'static> {
+    ///     bundle.with_notes_object(Duration::from_secs(1), |object| object).unwrap()
+    /// }
+    /// ```
+    #[cfg(target_os = "linux")]
+    pub fn with_notes_object<R>(
+        &self,
+        io_budget: std::time::Duration,
+        operation: impl for<'owner> FnOnce(NotesObject<'owner>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.validate_kind(AppStorageKind::Notes)?;
+        self.with_active(|| {
+            operation(NotesObject::new(
+                &self.attachment.object_directory,
+                self.notes_object_id(),
+                self.attachment.allow_initial_index,
+                io_budget,
+            ))
+        })
     }
 
     #[cfg(test)]
@@ -568,40 +619,98 @@ impl ProfileFilesRoot {
     }
 
     /// The trusted consumer invokes this only inside the matching C1 lease.
+    /// The higher-ranked callback keeps the view and any opened file borrows
+    /// from escaping this owner-checked effect.
     pub fn with_active_root<R>(
         &self,
-        effect: impl FnOnce(FilesRootView<'_>) -> R,
+        effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError> {
+        self.with_files_root(effect)
+    }
+
+    /// Duplicate the owner-selected User Files directory for the exact Files
+    /// app process. Generic FilesRootView consumers remain descriptor-free;
+    /// the C3 process owner retains this ProfileFilesRoot until exact child reap.
+    #[doc(hidden)]
+    pub fn duplicate_directory_for_app_process(
+        &self,
+        app_id: &nagi_model::AppId,
+    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+        let files_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+        if app_id != &files_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+
+        self.0.with_duplicated_object_directory(|directory| {
+            let mount_id = linux_data::mount_id(&directory)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            linux_data::require_same_mount(&directory, mount_id)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            Ok(directory)
+        })?
+    }
+}
+
+#[cfg(target_os = "linux")]
+/// One owner callback for a complete Files service operation. The callback
+/// should include the operation authorizer and all provider work. Calls on the
+/// supplied view are scoped primitives and must not re-enter this scope.
+///
+/// The HRTB keeps the root view inside that one callback:
+///
+/// ```compile_fail
+/// use nagi_profile_volume_notes_owner::{FilesRootScope, FilesRootView};
+///
+/// fn escape(scope: &impl FilesRootScope) -> FilesRootView<'static> {
+///     scope.with_files_root(|view| view).unwrap()
+/// }
+/// ```
+///
+/// The consumer receives no raw descriptor:
+///
+/// ```compile_fail
+/// use nagi_profile_volume_notes_owner::FilesRootScope;
+///
+/// fn keep_fd(scope: &impl FilesRootScope) {
+///     scope.with_files_root(|view| {
+///         let _fd = view.as_fd().try_clone_to_owned().unwrap();
+///     }).unwrap();
+/// }
+/// ```
+///
+/// Open-file and open-directory views are also callback-scoped:
+///
+/// ```compile_fail
+/// use nagi_profile_volume_notes_owner::{FilesRootDirView, FilesRootScope};
+/// use std::path::Path;
+///
+/// fn escape_dir(scope: &impl FilesRootScope) -> FilesRootDirView<'static> {
+///     scope.with_files_root(|view| {
+///         view.with_open_dir(Path::new("."), |directory| Ok(directory)).unwrap()
+///     }).unwrap()
+/// }
+/// ```
+pub trait FilesRootScope {
+    fn with_files_root<R>(
+        &self,
+        effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
+    ) -> Result<R, ProfileVolumeNotesOwnerError>;
+}
+
+#[cfg(target_os = "linux")]
+impl FilesRootScope for ProfileFilesRoot {
+    fn with_files_root<R>(
+        &self,
+        effect: impl for<'view> FnOnce(FilesRootView<'view>) -> R,
     ) -> Result<R, ProfileVolumeNotesOwnerError> {
         self.0.with_active(|| {
-            effect(FilesRootView {
-                directory: &self.0.attachment.object_directory,
-            })
-        })
-    }
-}
-
-#[cfg(target_os = "linux")]
-pub struct FilesRootView<'root> {
-    directory: &'root OwnedFd,
-}
-
-#[cfg(target_os = "linux")]
-impl FilesRootView<'_> {
-    /// Borrow the private descriptor for the maintained Files consumer.
-    pub fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
-        std::os::fd::AsFd::as_fd(self.directory)
-    }
-
-    /// Open a relative path under this root without traversing links or mounts.
-    pub fn with_open_file<R>(
-        &self,
-        relative: &std::path::Path,
-        flags: rustix::fs::OFlags,
-        mode: rustix::fs::Mode,
-        effect: impl FnOnce(&mut std::fs::File) -> std::io::Result<R>,
-    ) -> std::io::Result<R> {
-        let mut file = linux_data::open_files_path(self.directory, relative, flags, mode)?;
-        effect(&mut file)
+            let directory = &self.0.attachment.object_directory;
+            let mount_id = linux_data::mount_id(directory)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            linux_data::require_same_mount(directory, mount_id)
+                .map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)?;
+            Ok(effect(FilesRootView::new(directory)))
+        })?
     }
 }
 
@@ -1005,11 +1114,11 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn user_files_root_stays_private_and_retained_view_stops_after_logout() {
+    fn user_files_root_scopes_normal_io_and_stops_after_end_or_revoke() {
         use rustix::fs::{Mode, OFlags};
         use std::fs::{self, File};
         use std::io::{Read, Write};
-        use std::os::unix::fs::{symlink, DirBuilderExt};
+        use std::os::unix::fs::{symlink, DirBuilderExt, MetadataExt};
         use std::path::Path;
 
         let directory =
@@ -1046,6 +1155,10 @@ mod tests {
                         ))
                         .is_err());
                 }
+                view.sync_parent(Path::new("owned")).unwrap();
+                assert!(view
+                    .create_file_new(Path::new("../outside"), b"must not escape")
+                    .is_err());
                 view.with_open_file(
                     Path::new("owned"),
                     OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL,
@@ -1056,7 +1169,224 @@ mod tests {
                     },
                 )
                 .unwrap();
-                rustix::fs::fsync(view.as_fd()).unwrap();
+                view.sync_root().unwrap();
+                let before = view.symlink_metadata(Path::new("owned")).unwrap();
+                assert_eq!(before.kind, FilesRootEntryKind::RegularFile);
+                let host_metadata = fs::symlink_metadata(directory.join("root/owned")).unwrap();
+                assert_eq!(before.device, host_metadata.dev());
+                assert_eq!(before.inode, host_metadata.ino());
+                view.create_file_new(Path::new("index"), b"old index")
+                    .unwrap();
+                view.write_temp_and_replace(
+                    Path::new(".index.tmp"),
+                    Path::new("index"),
+                    b"new index",
+                )
+                .unwrap();
+                let index_bytes = view
+                    .with_open_file(Path::new("index"), OFlags::RDONLY, Mode::empty(), |file| {
+                        let mut bytes = Vec::new();
+                        file.read_to_end(&mut bytes)?;
+                        Ok(bytes)
+                    })
+                    .unwrap();
+                assert_eq!(index_bytes, b"new index");
+                assert!(view.symlink_metadata(Path::new(".index.tmp")).is_err());
+                assert!(view
+                    .create_file_new(Path::new("owned"), b"must not replace")
+                    .is_err());
+                view.write_existing_file(Path::new("owned"), b"updated payload")
+                    .unwrap();
+                assert_eq!(
+                    view.symlink_metadata(Path::new("owned"))
+                        .unwrap()
+                        .size_bytes,
+                    u64::from(b"updated payload".len() as u32)
+                );
+                view.create_directory(Path::new("folder")).unwrap();
+                view.create_file_new(Path::new("folder/source"), b"copy payload")
+                    .unwrap();
+                let listed = view.read_directory(Path::new("folder")).unwrap();
+                assert_eq!(listed.len(), 1);
+                assert_eq!(listed[0].name, "source");
+                assert_eq!(listed[0].metadata.kind, FilesRootEntryKind::RegularFile);
+                let source_identity = view.symlink_metadata(Path::new("folder/source")).unwrap();
+                view.create_file_new(Path::new("folder/existing"), b"retain destination")
+                    .unwrap();
+                assert!(view
+                    .rename_without_replacement(
+                        Path::new("folder/source"),
+                        Path::new("folder/existing"),
+                    )
+                    .is_err());
+                assert_eq!(
+                    view.symlink_metadata(Path::new("folder/source"))
+                        .unwrap()
+                        .inode,
+                    source_identity.inode
+                );
+                let destination_bytes = view
+                    .with_open_file(
+                        Path::new("folder/existing"),
+                        OFlags::RDONLY,
+                        Mode::empty(),
+                        |file| {
+                            let mut bytes = Vec::new();
+                            file.read_to_end(&mut bytes)?;
+                            Ok(bytes)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(destination_bytes, b"retain destination");
+                let renamed = view
+                    .rename_without_replacement(
+                        Path::new("folder/source"),
+                        Path::new("folder/renamed"),
+                    )
+                    .unwrap();
+                assert_eq!(renamed.inode, source_identity.inode);
+                assert!(view
+                    .rename_without_replacement(
+                        Path::new("folder/renamed"),
+                        Path::new("folder/renamed"),
+                    )
+                    .is_err());
+                view.create_file_new(Path::new("unlink-me"), b"short lived")
+                    .unwrap();
+                view.unlink(Path::new("unlink-me")).unwrap();
+                view.create_directory(Path::new("empty-directory")).unwrap();
+                view.rmdir(Path::new("empty-directory")).unwrap();
+                assert!(view
+                    .copy_path(
+                        Path::new("folder"),
+                        Path::new("folder/copied-inside-source"),
+                        || false,
+                    )
+                    .is_err());
+                assert!(view
+                    .symlink_metadata(Path::new("folder/copied-inside-source"))
+                    .is_err());
+                assert!(view
+                    .copy_path(Path::new("folder"), Path::new("cancelled-copy"), || true,)
+                    .is_err());
+                assert!(view.symlink_metadata(Path::new("cancelled-copy")).is_err());
+                view.create_file_new(Path::new("large-source"), &vec![0x5a; 130 * 1024])
+                    .unwrap();
+                view.create_file_new(Path::new("preserve-destination"), b"keep existing")
+                    .unwrap();
+                assert!(view
+                    .copy_path(
+                        Path::new("large-source"),
+                        Path::new("preserve-destination"),
+                        || false,
+                    )
+                    .is_err());
+                let preserved = view
+                    .with_open_file(
+                        Path::new("preserve-destination"),
+                        OFlags::RDONLY,
+                        Mode::empty(),
+                        |file| {
+                            let mut bytes = Vec::new();
+                            file.read_to_end(&mut bytes)?;
+                            Ok(bytes)
+                        },
+                    )
+                    .unwrap();
+                assert_eq!(preserved, b"keep existing");
+                let mut cancellation_checks = 0;
+                let cancelled =
+                    view.copy_path(Path::new("large-source"), Path::new("partial-copy"), || {
+                        cancellation_checks += 1;
+                        cancellation_checks >= 3
+                    });
+                assert_eq!(
+                    cancelled.unwrap_err().kind(),
+                    std::io::ErrorKind::Interrupted
+                );
+                assert!(view.symlink_metadata(Path::new("partial-copy")).is_err());
+                assert!(view
+                    .copy_path(Path::new("escape"), Path::new("copied-link"), || false)
+                    .is_err());
+                assert!(view.symlink_metadata(Path::new("copied-link")).is_err());
+                view.copy_path(Path::new("folder"), Path::new("copied-folder"), || false)
+                    .unwrap();
+                assert_eq!(
+                    view.symlink_metadata(Path::new("copied-folder/renamed"))
+                        .unwrap()
+                        .kind,
+                    FilesRootEntryKind::RegularFile
+                );
+                view.remove_path(Path::new("copied-folder")).unwrap();
+                assert!(view.symlink_metadata(Path::new("copied-folder")).is_err());
+                symlink("../outside", root.join("folder/nested-link")).unwrap();
+                assert_eq!(
+                    view.validate_tree_mounts(Path::new("folder"))
+                        .unwrap_err()
+                        .kind(),
+                    std::io::ErrorKind::PermissionDenied
+                );
+                assert!(view
+                    .rename_without_replacement(Path::new("folder"), Path::new("moved-folder"))
+                    .is_err());
+                assert_eq!(
+                    view.symlink_metadata(Path::new("folder")).unwrap().kind,
+                    FilesRootEntryKind::Directory
+                );
+                assert!(view
+                    .copy_path(Path::new("folder"), Path::new("copied-folder"), || false)
+                    .is_err());
+                assert!(view.symlink_metadata(Path::new("copied-folder")).is_err());
+                view.unlink(Path::new("folder/nested-link")).unwrap();
+                view.validate_tree_mounts(Path::new("folder")).unwrap();
+                let root_entries = view.read_directory(Path::new(".")).unwrap();
+                assert!(root_entries.iter().any(|entry| entry.name == "escape"));
+                assert_eq!(
+                    view.symlink_metadata(Path::new("escape")).unwrap().kind,
+                    FilesRootEntryKind::Symlink
+                );
+                view.create_directory(Path::new(".nagi-files")).unwrap();
+                symlink("../../outside", root.join(".nagi-files/trash-index-v1.tmp")).unwrap();
+                view.write_temp_and_replace(
+                    Path::new(".nagi-files/trash-index-v1.tmp"),
+                    Path::new(".nagi-files/trash-index-v1"),
+                    b"trash-index",
+                )
+                .unwrap();
+                view.write_temp_and_replace(
+                    Path::new(".nagi-files/tags-v1.tmp"),
+                    Path::new(".nagi-files/tags-v1"),
+                    b"tags-index",
+                )
+                .unwrap();
+                view.write_temp_and_replace(
+                    Path::new(".nagi-files/trash-index-v1.tmp"),
+                    Path::new(".nagi-files/trash-index-v1"),
+                    b"trash-index-v2",
+                )
+                .unwrap();
+                view.write_temp_and_replace(
+                    Path::new(".nagi-files/tags-v1.tmp"),
+                    Path::new(".nagi-files/tags-v1"),
+                    b"tags-index-v2",
+                )
+                .unwrap();
+                for (path, expected) in [
+                    (
+                        Path::new(".nagi-files/trash-index-v1"),
+                        &b"trash-index-v2"[..],
+                    ),
+                    (Path::new(".nagi-files/tags-v1"), &b"tags-index-v2"[..]),
+                ] {
+                    let contents = view
+                        .with_open_file(path, OFlags::RDONLY, Mode::empty(), |file| {
+                            let mut contents = Vec::new();
+                            file.read_to_end(&mut contents)?;
+                            Ok(contents)
+                        })
+                        .unwrap();
+                    assert_eq!(contents, expected);
+                }
             })
             .unwrap();
 
@@ -1071,14 +1401,68 @@ mod tests {
             })
             .unwrap()
             .unwrap();
-        assert_eq!(bytes, b"files payload");
+        assert_eq!(bytes, b"updated payload");
         assert_eq!(fs::read(directory.join("outside")).unwrap(), b"outside");
         group.end().unwrap();
         assert_eq!(
             readback.with_active_root(|_| -> () { panic!("ended Files root invoked") }),
             Err(ProfileVolumeNotesOwnerError::Ended),
         );
+        assert!(matches!(
+            readback.with_active_root(|view| {
+                view.with_open_file(
+                    Path::new("owned"),
+                    OFlags::RDONLY,
+                    Mode::empty(),
+                    |_| Ok(()),
+                )
+            }),
+            Err(ProfileVolumeNotesOwnerError::Ended),
+        ));
+        assert!(matches!(
+            readback.with_active_root(|view| view.read_directory(Path::new("."))),
+            Err(ProfileVolumeNotesOwnerError::Ended),
+        ));
         drop((group, bundle, readback));
+
+        let mut revoked_group = AppStorageOwners::pending();
+        revoked_group.user_files.state =
+            OwnerState::Verified(Arc::new(VerifiedProfileVolumeAttachment::new(
+                AppStorageKind::UserFiles,
+                "principal",
+                "profile",
+                File::open(&root).unwrap().into(),
+                None,
+            )));
+        let revoked_root = revoked_group.user_files().issue_files_root().unwrap();
+        let revoked_readback = revoked_root
+            .with_active_root(|view| {
+                view.with_open_file(Path::new("owned"), OFlags::RDONLY, Mode::empty(), |file| {
+                    let mut bytes = Vec::new();
+                    file.read_to_end(&mut bytes)?;
+                    Ok(bytes)
+                })
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(revoked_readback, b"updated payload");
+        revoked_group.revoke().unwrap();
+        assert!(matches!(
+            revoked_root.with_active_root(|view| {
+                view.with_open_file(
+                    Path::new("owned"),
+                    OFlags::RDONLY,
+                    Mode::empty(),
+                    |_| Ok(()),
+                )
+            }),
+            Err(ProfileVolumeNotesOwnerError::Revoked),
+        ));
+        assert!(matches!(
+            revoked_root.with_active_root(|view| view.create_directory(Path::new("after-revoke"))),
+            Err(ProfileVolumeNotesOwnerError::Revoked),
+        ));
+        drop((revoked_group, revoked_root));
         fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1098,6 +1482,34 @@ mod tests {
             bundle
         });
         (owners, bundles)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn notes_object_scope_rejects_foreign_kind_and_terminal_attachments() {
+        let budget = std::time::Duration::from_secs(1);
+        for (end, terminal) in [
+            (true, ProfileVolumeNotesOwnerError::Ended),
+            (false, ProfileVolumeNotesOwnerError::Revoked),
+        ] {
+            let (mut owners, [notes, settings, calendar]) = app_storage_fixture();
+            assert_eq!(notes.with_notes_object(budget, |_| 1), Ok(1));
+            for other in [settings, calendar] {
+                assert_eq!(
+                    other.with_notes_object(budget, |_| panic!("foreign Notes operation")),
+                    Err::<(), _>(ProfileVolumeNotesOwnerError::ForeignAttachment),
+                );
+            }
+            if end {
+                owners.end().unwrap();
+            } else {
+                owners.revoke().unwrap();
+            }
+            assert_eq!(
+                notes.with_notes_object(budget, |_| panic!("terminal Notes operation")),
+                Err::<(), _>(terminal),
+            );
+        }
     }
 
     #[test]

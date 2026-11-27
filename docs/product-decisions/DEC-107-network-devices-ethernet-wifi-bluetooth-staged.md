@@ -5,6 +5,8 @@
 **適用候補:** Nagi OS Foundation #18。特定のReleaseは未確定\
 **関連:** [Foundation Checklist #18](NAGI_OS_FOUNDATION_CHECKLIST.md#f18)、[DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)、[DEC-066](DEC-066-device-connectivity-lan-first.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-068](DEC-068-nagi-sleep-resume-recovery.md)、[Roadmaps](roadmaps/README.md)
 
+> **2026-11-25 参照:** [DEC-101の7/12合意](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)。Ethernet／Wi-Fiの接続管理はNetworkManager、段階対応するBluetoothはBlueZを優先評価する。個別採用・対応機器・提供版はPROVISIONAL。初期の端末間接続はDEC-066の同一LAN先行に従う。
+
 ## 目的とユーザー体験
 
 Nagi OSで日常利用する有線・無線ネットワークの基本機能を揃え、Bluetoothについては接続先・実機・用途の幅を考慮し段階的に対応する。

@@ -106,6 +106,136 @@ fn memory_service() -> FilesService<InMemoryProvider, CapabilitySet> {
     FilesService::new(InMemoryProvider::new(), full_capabilities())
 }
 
+struct ScopedProbeProvider {
+    inner: InMemoryProvider,
+    scopes: Arc<AtomicU64>,
+    primitive_calls: Arc<AtomicU64>,
+}
+
+impl FilesystemProvider for ScopedProbeProvider {
+    fn with_operation_scope<R>(
+        &mut self,
+        _token: &crate::FilesOperationScopeToken,
+        operation: impl FnOnce(&mut dyn FilesystemProvider) -> Result<R, crate::FilesError>,
+    ) -> Result<R, crate::FilesError>
+    where
+        Self: Sized,
+    {
+        self.scopes.fetch_add(1, Ordering::Relaxed);
+        operation(self)
+    }
+
+    fn availability(&self) -> crate::ProviderAvailability {
+        self.inner.availability()
+    }
+
+    fn list(&self, location: &Location) -> Result<Vec<crate::FileEntry>, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.list(location)
+    }
+
+    fn metadata(&self, location: &Location) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.metadata(location)
+    }
+
+    fn read_file(
+        &self,
+        location: &Location,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.read_file(location, max_bytes)
+    }
+
+    fn create_folder(
+        &mut self,
+        parent: &Location,
+        name: &FileName,
+    ) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.create_folder(parent, name)
+    }
+
+    fn rename(
+        &mut self,
+        source: &Location,
+        name: &FileName,
+    ) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.rename(source, name)
+    }
+
+    fn copy(
+        &mut self,
+        source: &Location,
+        destination: &Location,
+        name: &FileName,
+        cancellation: &CancellationToken,
+    ) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.copy(source, destination, name, cancellation)
+    }
+
+    fn move_item(
+        &mut self,
+        source: &Location,
+        destination: &Location,
+        name: &FileName,
+    ) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.move_item(source, destination, name)
+    }
+
+    fn trash(&mut self, source: &Location) -> Result<crate::TrashEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.trash(source)
+    }
+
+    fn list_trash(&self) -> Result<Vec<crate::TrashEntry>, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.list_trash()
+    }
+
+    fn restore(&mut self, id: crate::ResourceId) -> Result<crate::FileEntry, crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.restore(id)
+    }
+
+    fn permanently_delete(&mut self, id: crate::ResourceId) -> Result<(), crate::FilesError> {
+        self.primitive_calls.fetch_add(1, Ordering::Relaxed);
+        self.inner.permanently_delete(id)
+    }
+}
+
+#[test]
+fn one_service_operation_uses_one_scope_for_multiple_provider_calls() {
+    let mut inner = InMemoryProvider::new();
+    let source = Location::parse("source.txt").unwrap();
+    let entry = inner.insert_file(&source, b"scope test").unwrap();
+    let scopes = Arc::new(AtomicU64::new(0));
+    let primitive_calls = Arc::new(AtomicU64::new(0));
+    let provider = ScopedProbeProvider {
+        inner,
+        scopes: Arc::clone(&scopes),
+        primitive_calls: Arc::clone(&primitive_calls),
+    };
+    let mut service = FilesService::new(provider, full_capabilities());
+
+    service
+        .copy(
+            &entry,
+            &Location::root(),
+            &FileName::parse("copy.txt").unwrap(),
+            Actor::User,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+
+    assert_eq!(scopes.load(Ordering::Relaxed), 1);
+    assert_eq!(primitive_calls.load(Ordering::Relaxed), 2);
+}
+
 fn assert_opened_resource(operation: &crate::OperationResult, resource_id: crate::ResourceId) {
     assert_eq!(operation.action_id, "files.open");
     assert_eq!(operation.affected, vec![resource_id]);
@@ -350,7 +480,7 @@ fn memory_copy_cancellation_leaves_no_partial_destination() {
 #[test]
 fn operation_service_enforces_permission_decisions_and_unavailable_provider() {
     let provider = InMemoryProvider::new();
-    let denied = FilesService::new(provider, CapabilitySet::new());
+    let mut denied = FilesService::new(provider, CapabilitySet::new());
     assert_eq!(
         denied.list(&Location::root()).unwrap_err().kind,
         FilesErrorKind::PermissionDenied
@@ -360,7 +490,7 @@ fn operation_service_enforces_permission_decisions_and_unavailable_provider() {
         Location::root(),
         CapabilityRight::Enumerate,
     )]);
-    let service = FilesService::new(InMemoryProvider::new(), asked);
+    let mut service = FilesService::new(InMemoryProvider::new(), asked);
     assert_eq!(
         service.list(&Location::root()).unwrap_err().kind,
         FilesErrorKind::PermissionRequired
@@ -370,7 +500,7 @@ fn operation_service_enforces_permission_decisions_and_unavailable_provider() {
         Location::root(),
         CapabilityRight::Enumerate,
     )]);
-    let service = FilesService::new(InMemoryProvider::new(), unavailable);
+    let mut service = FilesService::new(InMemoryProvider::new(), unavailable);
     assert_eq!(
         service.list(&Location::root()).unwrap_err().kind,
         FilesErrorKind::CapabilityUnavailable
@@ -378,7 +508,7 @@ fn operation_service_enforces_permission_decisions_and_unavailable_provider() {
 
     let mut provider = InMemoryProvider::new();
     provider.set_unavailable("test provider offline");
-    let service = FilesService::new(provider, full_capabilities());
+    let mut service = FilesService::new(provider, full_capabilities());
     assert_eq!(
         service.list(&Location::root()).unwrap_err().kind,
         FilesErrorKind::ProviderUnavailable
@@ -688,7 +818,7 @@ fn selected_context_snapshot_is_published_through_a_typed_boundary() {
         .insert_file(&Location::parse("context.txt").unwrap(), b"x")
         .unwrap();
     let mut app = FilesApp::new(Location::root());
-    app.refresh(&service).unwrap();
+    app.refresh(&mut service).unwrap();
     let id = app.state.entries[0].id;
     app.state.select(id, false).unwrap();
     let mut publisher = ContextRecorder::default();
@@ -3869,9 +3999,9 @@ fn files_ui_tracks_breadcrumbs_multi_selection_and_empty_loading_error_states() 
         .unwrap();
 
     let mut app = FilesApp::new(Location::root());
-    app.refresh(&service).unwrap();
+    app.refresh(&mut service).unwrap();
     assert_eq!(app.state.load_state, crate::ViewLoadState::Ready);
-    app.navigate(&service, Location::parse("parent").unwrap())
+    app.navigate(&mut service, Location::parse("parent").unwrap())
         .unwrap();
     assert_eq!(app.state.breadcrumbs.len(), 2);
     app.state.select(first.id, false).unwrap();
@@ -3884,12 +4014,12 @@ fn files_ui_tracks_breadcrumbs_multi_selection_and_empty_loading_error_states() 
     assert!(rendered.contains("3 *[F] second.txt"));
     assert!(rendered.contains("*"));
 
-    app.navigate(&service, nested).unwrap();
+    app.navigate(&mut service, nested).unwrap();
     assert!(app.state.entries.is_empty());
     let rendered = render_three_pane(&app.state.layout(), "empty-state", Locale::EnUs);
     assert!(rendered.contains("empty-state"));
     assert!(app
-        .navigate(&service, Location::parse("does-not-exist").unwrap())
+        .navigate(&mut service, Location::parse("does-not-exist").unwrap())
         .is_err());
     assert!(matches!(
         app.state.load_state,
@@ -3905,7 +4035,7 @@ fn selection_model_handles_a_large_directory_without_losing_identity() {
         service.provider_mut().insert_file(&location, b"").unwrap();
     }
     let mut app = FilesApp::new(Location::root());
-    app.refresh(&service).unwrap();
+    app.refresh(&mut service).unwrap();
     assert_eq!(app.state.entries.len(), 2_000);
     let first = app.state.entries[17].id;
     let last = app.state.entries[1_997].id;
@@ -3928,9 +4058,9 @@ fn search_filters_inaccessible_resources_and_keeps_metadata_only_results() {
         Location::root(),
         CapabilityRight::Enumerate,
     )]);
-    let service = FilesService::new(provider, capabilities);
+    let mut service = FilesService::new(provider, capabilities);
     let results = FilesSearchProvider::default()
-        .search(&service, &Location::root(), "secret", 10)
+        .search(&mut service, &Location::root(), "secret", 10)
         .unwrap();
     assert!(results.is_empty());
 }
@@ -3949,9 +4079,9 @@ fn search_finds_filename_and_location_metadata_without_reading_content() {
             b"body",
         )
         .unwrap();
-    let service = FilesService::new(provider, full_capabilities());
+    let mut service = FilesService::new(provider, full_capabilities());
     let results = FilesSearchProvider::default()
-        .search(&service, &Location::root(), "annual", 10)
+        .search(&mut service, &Location::root(), "annual", 10)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Annual.txt");
@@ -3970,7 +4100,7 @@ fn search_matches_changed_tags_on_the_selected_refreshed_row_without_indexing_fi
         .insert_file(&Location::parse("other.bin").unwrap(), b"other body")
         .unwrap();
     let mut app = FilesApp::new(Location::root());
-    app.refresh(&service).unwrap();
+    app.refresh(&mut service).unwrap();
     app.state.select(source.id, false).unwrap();
     assert_eq!(app.state.focused, Some(source.id));
     assert_eq!(
@@ -3982,7 +4112,7 @@ fn search_matches_changed_tags_on_the_selected_refreshed_row_without_indexing_fi
         .set_tags(&source, &[Tag::parse("quarterly").unwrap()], Actor::User)
         .unwrap()
         .0;
-    app.refresh(&service).unwrap();
+    app.refresh(&mut service).unwrap();
     let selected_row = app
         .state
         .entries
@@ -4000,7 +4130,7 @@ fn search_matches_changed_tags_on_the_selected_refreshed_row_without_indexing_fi
     assert_eq!(inspector.tags, vec!["quarterly"]);
 
     let results = FilesSearchProvider::default()
-        .search(&service, &Location::root(), "quarterly", 10)
+        .search(&mut service, &Location::root(), "quarterly", 10)
         .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].resource_id, tagged.id);
@@ -4012,7 +4142,7 @@ fn search_matches_changed_tags_on_the_selected_refreshed_row_without_indexing_fi
         .iter()
         .any(|entry| entry.id == other.id && !entry.tags.is_empty()));
     assert!(FilesSearchProvider::default()
-        .search(&service, &Location::root(), "secret body", 10)
+        .search(&mut service, &Location::root(), "secret body", 10)
         .unwrap()
         .is_empty());
 }

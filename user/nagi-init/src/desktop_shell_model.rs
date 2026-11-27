@@ -12,6 +12,13 @@ pub(super) enum AppId {
     Notes,
     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
     Calendar,
+    #[cfg(all(
+        target_os = "linux",
+        target_arch = "x86_64",
+        feature = "linux-files-desktop",
+        not(nagi_release_build)
+    ))]
+    Files,
     #[cfg(linux_task24_settings)]
     Settings,
 }
@@ -50,6 +57,13 @@ const SETTINGS_TILE: Rect = Rect::new(8, 24, 145, 70);
 const CALENDAR_TILE: Rect = Rect::new(8, 24, 96, 70);
 #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
 const NOTES_TILE: Rect = Rect::new(112, 24, 96, 70);
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    feature = "linux-files-desktop",
+    not(nagi_release_build)
+))]
+const FILES_TILE: Rect = Rect::new(112, 104, 96, 70);
 #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
 const NOTES_TILE: Rect = Rect::new(167, 24, 145, 70);
 const LOGOUT_BUTTON: Rect = Rect::new(244, 1, 74, 18);
@@ -89,6 +103,13 @@ impl ShellModel {
                     ShellFocus::App(AppId::Notes),
                     #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
                     ShellFocus::App(AppId::Calendar),
+                    #[cfg(all(
+                        target_os = "linux",
+                        target_arch = "x86_64",
+                        feature = "linux-files-desktop",
+                        not(nagi_release_build)
+                    ))]
+                    ShellFocus::App(AppId::Files),
                     #[cfg(linux_task24_settings)]
                     ShellFocus::App(AppId::Settings),
                     ShellFocus::Logout,
@@ -139,6 +160,27 @@ impl ShellModel {
             self.focus == ShellFocus::App(AppId::Notes),
             self.theme,
         );
+        #[cfg(all(
+            target_os = "linux",
+            target_arch = "x86_64",
+            feature = "linux-files-desktop",
+            not(nagi_release_build)
+        ))]
+        draw_window(
+            painter,
+            FILES_TILE,
+            nagi_files::localization::text(
+                match self.locale {
+                    Locale::EnUs => nagi_files::localization::Locale::EnUs,
+                    Locale::JaJp => nagi_files::localization::Locale::JaJp,
+                },
+                "files.title",
+            )
+            .unwrap_or("Files")
+            .as_bytes(),
+            self.focus == ShellFocus::App(AppId::Files),
+            self.theme,
+        );
         draw_window(
             painter,
             LOGOUT_BUTTON,
@@ -187,15 +229,63 @@ mod tests {
             model.on_key(key(INPUT_KEY_SPACE, 1)),
             ShellAction::Launch(AppId::Calendar)
         );
+        #[cfg(all(
+            target_os = "linux",
+            target_arch = "x86_64",
+            feature = "linux-files-desktop",
+            not(nagi_release_build)
+        ))]
+        {
+            #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+            {
+                model.on_key(key(INPUT_KEY_TAB, 1));
+                assert_eq!(
+                    model.on_key(key(INPUT_KEY_SPACE, 1)),
+                    ShellAction::Launch(AppId::Files)
+                );
+            }
+            #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
+            assert_eq!(
+                model.on_key(key(INPUT_KEY_SPACE, 1)),
+                ShellAction::Launch(AppId::Files)
+            );
+        }
         assert_eq!(model.on_key(key(INPUT_KEY_TAB, 1)), ShellAction::Redraw);
         assert_eq!(model.on_key(key(INPUT_KEY_SPACE, 1)), ShellAction::Logout);
         assert_eq!(model.on_key(key(INPUT_KEY_UP, 1)), ShellAction::Redraw);
-        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        #[cfg(all(
+            target_os = "linux",
+            target_arch = "x86_64",
+            feature = "linux-files-desktop",
+            not(nagi_release_build)
+        ))]
+        assert_eq!(
+            model.on_key(key(INPUT_KEY_ENTER, 1)),
+            ShellAction::Launch(AppId::Files)
+        );
+        #[cfg(all(
+            linux_task24_calendar_app,
+            not(nagi_release_build),
+            not(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                feature = "linux-files-desktop",
+                not(nagi_release_build)
+            ))
+        ))]
         assert_eq!(
             model.on_key(key(INPUT_KEY_ENTER, 1)),
             ShellAction::Launch(AppId::Calendar)
         );
-        #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
+        #[cfg(all(
+            not(all(linux_task24_calendar_app, not(nagi_release_build))),
+            not(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                feature = "linux-files-desktop",
+                not(nagi_release_build)
+            ))
+        ))]
         assert_eq!(
             model.on_key(key(INPUT_KEY_ENTER, 1)),
             ShellAction::Launch(AppId::Notes)
@@ -212,7 +302,16 @@ mod tests {
         assert_ne!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
         model.on_key(key(INPUT_KEY_DOWN, 1));
         model.render(&mut Painter::new(&mut pixels));
-        #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+        #[cfg(all(
+            linux_task24_calendar_app,
+            not(nagi_release_build),
+            not(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                feature = "linux-files-desktop",
+                not(nagi_release_build)
+            ))
+        ))]
         {
             assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
             assert_eq!(pixels[corner(CALENDAR_TILE)], FOCUS);
@@ -220,7 +319,40 @@ mod tests {
             model.render(&mut Painter::new(&mut pixels));
             assert_eq!(pixels[corner(LOGOUT_BUTTON)], FOCUS);
         }
-        #[cfg(not(all(linux_task24_calendar_app, not(nagi_release_build))))]
+        #[cfg(all(
+            linux_task24_calendar_app,
+            target_os = "linux",
+            target_arch = "x86_64",
+            feature = "linux-files-desktop",
+            not(nagi_release_build)
+        ))]
+        {
+            assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
+            assert_eq!(pixels[corner(CALENDAR_TILE)], FOCUS);
+            model.on_key(key(INPUT_KEY_DOWN, 1));
+            model.render(&mut Painter::new(&mut pixels));
+            assert_eq!(pixels[corner(FILES_TILE)], FOCUS);
+        }
+        #[cfg(all(
+            not(all(linux_task24_calendar_app, not(nagi_release_build))),
+            target_os = "linux",
+            target_arch = "x86_64",
+            feature = "linux-files-desktop",
+            not(nagi_release_build)
+        ))]
+        {
+            assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
+            assert_eq!(pixels[corner(FILES_TILE)], FOCUS);
+        }
+        #[cfg(all(
+            not(all(linux_task24_calendar_app, not(nagi_release_build))),
+            not(all(
+                target_os = "linux",
+                target_arch = "x86_64",
+                feature = "linux-files-desktop",
+                not(nagi_release_build)
+            ))
+        ))]
         {
             assert_ne!(pixels[corner(NOTES_TILE)], FOCUS);
             assert_eq!(pixels[corner(LOGOUT_BUTTON)], FOCUS);

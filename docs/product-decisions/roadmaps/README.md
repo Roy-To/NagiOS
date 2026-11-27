@@ -1,5 +1,9 @@
 # NAGI Future Roadmaps
 
+## 段階公開と受入（2026-11-25）
+
+[DEC-103の12/12 B案](../DEC-103-testing-release-evidence-baseline-ai-assisted-staged.md#1212-リリース受入基準-b案2026-11-25)を参照。Linux版0.1は検証済みQEMUを中心に公開し、後続版は既存の範囲・Gate・Ownerに従う。公開順と許可済み独立作業の開発順を分ける。1.0は実用OS Bを維持し、版別の名称・重点と0.8の有無、代表E2Eの最終範囲、公開日はPROVISIONAL。
+
 ## Linux 0.2 実装仕様の改訂レビュー（2026-11-25）
 
 [改訂 Draft](../../Nagi_OS_0.2_Linux_Implementation_Spec_Draft.md)と[受入条件の対応表](../../Nagi_OS_0.2_Linux_Acceptance_Crosswalk.md)を参照。0.1 の公開条件と 0.2 の Release Runtime Activation を別に確認できる。0.3 の準備条件、および PX-05／08／09 の判断候補は Draft §6 に収録。位置付けは REVIEW NOTE／PROVISIONAL。
@@ -40,6 +44,8 @@
 **Foundation #32 Device Connectivity（2026-11-16）:** [DEC-101](../DEC-101-device-connectivity-nagi-protocol-linux-research.md)で、Linux／OSSの既存通信技術とNagi独自Connectivity Serviceを組み合わせるBを製品基本とし、Nagi Share／Handoff等のPC／Tablet／Phone間で共通利用するNagi独自の意味的連携Protocolを設計すること、必要な独自通信技術を並行研究することをCONFIRMED。上位Protocolの設計とTransport／暗号機構は分離し、全面独自通信Stackや自作暗号は今回採用しない。研究成果の製品採否は実測と別判断で決定する。DEC-066の同一LAN初期接続・後続直接／遠隔拡張余地、DEC-014／064／065の独立した認可・移行・Share／Handoff契約、Offline-firstと無断同期・転送／Task再実行禁止を維持する。具体Schema・OSS／Transport・暗号方式・遠隔／Relay・端末／版・性能・Linux受入はPROVISIONAL。既存Gateや版割当てを変更せず実装済みを示さない。
 
 変更履歴: 2026-11-16 — DEC-101でFoundation #32のB標準＋Nagi上位Protocol＋必要な独自通信研究を記録。通信実装の採否・版は未決定。
+
+**7/12 Nagi Network・Connectivity B案（2026-11-25）** — [DEC-101](../DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)に優先評価方針を追記。個別OSS採用と端末間AI推論・計算資源共有はPROVISIONAL。既存のLAN先行・認可・Gate・実装範囲と版割当てを維持する。
 
 ## 当面の優先順位（2026-11-16）
 
@@ -88,6 +94,8 @@
 **Foundation #25 Resource Manager / Scheduler（2026-11-16）:** [DEC-094](../DEC-094-resource-manager-linux-baseline-custom-scheduling-research.md)でB＋C研究案をCONFIRMED。Linux標準scheduler／資源制御を製品の基本とし、Nagi Resource Managerで前景UI／アプリ・音声・AI Task／Job／Memory／Nagi Powerの予算と優先度を協調する。独自スケジューリング（sched_ext／eBPF等は候補）の比較研究を進め、実機の応答性・AI品質／所要時間・RAM・電力／熱・公平性／安定性を評価し、十分な改善を確認できた部分のみ後続採否を判断する。Linux標準への退避を保つ。具体的制御機構・測定値・独自方式正式採用・端末・Release割当てはPROVISIONAL、既存Gate維持。
 
 **Foundation #26 App Lifecycle（2026-11-16）:** [DEC-095](../DEC-095-app-lifecycle-linux-supervisor-runtime-research.md)で、Linuxの標準process／隔離機構＋Nagi App Supervisorを製品の基本とするB案と、独自Runtimeの並行比較研究をCONFIRMED。新規Runtimeの隔離、起動／ready速度、RAM／電力、Workspace／Public API連携、移植・保守負担の効果をLinux標準経路と実測比較し、部分採用するかを後続判断する。独自Runtime・WASM等の具体技術、アプリ分類、対応端末、導入Version・性能はPROVISIONAL。0.2 M12／M13／M21のManifest・Supervisor・SDK契約、Nagi Native Apps専用方針、試用／更新／削除の承認・Permission／Policy、既存Release／Activation／Acceptance Gateは維持する。
+
+**9/12 Nagi App Runtime（2026-11-25）** — [DEC-095の追加合意](../DEC-095-app-lifecycle-linux-supervisor-runtime-research.md#912-nagi-app-runtime2026-11-25)で、Native Runtimeを本線とし、ART・Zygote・Binderの設計思想を参考に独自Runtimeを長期的に育てる方針を記録。具体方式・製品採否・対象版はPROVISIONAL。0.2 M10／M12／M13／M21の契約と既存Gate・担当に従う。
 
 **Foundation #27 Settings / Notification（2026-11-16）:** [DEC-096](../DEC-096-settings-notifications-context-adaptive-staged.md)でCの状況適応型Settings／Notificationを最終製品目標にする方針をCONFIRMED。Bの共通Settings／Notification Serviceと統合Settings UI・通知センターを途中段階で導入し、許可されたWorkspace／Task・Profile文脈、明示設定、Habit-first学習に基づく通知の提示・集約・タイミング調整へ段階的に発展させる。これはCを単なる研究候補に留める判断ではない。一方、手動制御・AI不在時の通常動作、DEC-008の重大警告と控えめな働きかけ、DEC-004／057／058の学習・訂正・忘却、Permission／Privacyを維持する。具体的自動化・UI・端末・提供版／受入はPROVISIONAL、0.2 M11／M14と既存Release／Activation／Acceptance Gateは変更しない。
 

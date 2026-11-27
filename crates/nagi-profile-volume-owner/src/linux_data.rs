@@ -1,17 +1,22 @@
 //! Volume Manager storage for the boot-selected development Data mount.
 
-use super::AppStorageKind;
+use super::{
+    AppStorageKind, FilesRootEntry, FilesRootEntryKind, FilesRootMetadata, USER_FILES_APP_GID,
+    USER_FILES_APP_UID,
+};
 use nagi_model::{ObjectId, UserId};
 use rustix::fs::{
-    flock, linkat, mkdirat, openat2, statx, AtFlags, Dir, FileType, FlockOperation, Mode, OFlags,
-    ResolveFlags, StatxFlags,
+    fchown, flock, fsync, linkat, mkdirat, openat2, renameat, renameat_with, statx, unlinkat,
+    AtFlags, Dir, FileType, FlockOperation, Gid, Mode, OFlags, RenameFlags, ResolveFlags,
+    StatxFlags, Uid,
 };
 use rustix::io::Errno;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 const OBJECT_DIRECTORY: &str = "objects";
 const FILES_ROOT: &str = "root";
@@ -35,11 +40,15 @@ fn parse_reservation(
 ) -> io::Result<(ObjectId, bool)> {
     let (_, heading) = storage_layout(kind);
     let (observed_heading, record) = record.split_once('\n').ok_or(io::ErrorKind::InvalidData)?;
-    let allow_initial_index = match observed_heading {
-        found if found == heading => true,
-        "NAGI-NOTES-PROFILE-1" if kind == AppStorageKind::Notes => false,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
-    };
+    if kind == AppStorageKind::Notes && observed_heading == "NAGI-NOTES-PROFILE-1" {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "legacy Notes reservation v1 is unsupported",
+        ));
+    }
+    if observed_heading != heading {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
     let hex = record
         .strip_prefix(scope)
         .and_then(|suffix| suffix.strip_suffix('\n'))
@@ -48,7 +57,7 @@ fn parse_reservation(
     if object == 0 || hex != format!("{object:016x}") {
         return Err(io::ErrorKind::InvalidData.into());
     }
-    Ok((ObjectId(object), allow_initial_index))
+    Ok((ObjectId(object), true))
 }
 
 pub(super) fn reserve(
@@ -169,16 +178,11 @@ pub(super) fn reserve_files_root(
         OFlags::RDONLY | OFlags::NONBLOCK,
     ) {
         Ok(record) => (
-            open_private_directory(&profile_root, FILES_ROOT)?,
+            open_files_private_directory(&profile_root, FILES_ROOT)?,
             Some(File::from(record)),
         ),
         Err(Errno::NOENT) => {
-            let root = private_directory(&profile_root, FILES_ROOT)?;
-            for entry in Dir::read_from(&root)? {
-                if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
-                    return Err(io::ErrorKind::InvalidData.into());
-                }
-            }
+            let root = provision_empty_files_directory(&profile_root, FILES_ROOT)?;
             (root, None)
         }
         Err(error) => return Err(error.into()),
@@ -244,13 +248,565 @@ pub(super) fn open_files_path(
     {
         return Err(io::ErrorKind::InvalidInput.into());
     }
-    Ok(File::from(openat2(
+    let mount_id = files_mount_id(root)?;
+    let file = openat2(
         root,
         relative,
         flags | OFlags::CLOEXEC,
         mode,
-        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
-    )?))
+        files_resolve_flags(),
+    )?;
+    require_files_mount(&file, mount_id)?;
+    Ok(File::from(file))
+}
+
+const fn files_resolve_flags() -> ResolveFlags {
+    ResolveFlags::BENEATH
+        .union(ResolveFlags::NO_MAGICLINKS)
+        .union(ResolveFlags::NO_SYMLINKS)
+        .union(ResolveFlags::NO_XDEV)
+}
+
+fn validate_files_path(path: &Path, allow_root: bool) -> io::Result<()> {
+    let bytes = path.as_os_str().as_bytes();
+    if bytes.is_empty() && allow_root {
+        return Ok(());
+    }
+    if bytes == b"." && allow_root {
+        return Ok(());
+    }
+    if path.is_absolute()
+        || bytes.is_empty()
+        || bytes
+            .split(|byte| *byte == b'/')
+            .any(|part| part.is_empty() || part == b"." || part == b"..")
+    {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    Ok(())
+}
+
+fn files_mount_id(fd: &impl AsFd) -> io::Result<u64> {
+    let stat = statx(fd, "", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)?;
+    if stat.stx_mask & StatxFlags::MNT_ID.bits() == 0 {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(stat.stx_mnt_id)
+}
+
+fn require_files_mount(fd: &impl AsFd, expected: u64) -> io::Result<()> {
+    if files_mount_id(fd)? != expected {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
+}
+
+fn open_files_directory(root: &impl AsFd, mount_id: u64, relative: &Path) -> io::Result<OwnedFd> {
+    validate_files_path(relative, true)?;
+    let path = if relative.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        relative
+    };
+    let directory = openat2(
+        root,
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        files_resolve_flags(),
+    )?;
+    require_files_mount(&directory, mount_id)?;
+    Ok(directory)
+}
+
+fn files_parent_and_name(
+    root: &impl AsFd,
+    mount_id: u64,
+    relative: &Path,
+) -> io::Result<(OwnedFd, std::ffi::OsString)> {
+    validate_files_path(relative, false)?;
+    let name = relative
+        .file_name()
+        .filter(|name| name.as_bytes() != b"." && name.as_bytes() != b"..")
+        .ok_or(io::ErrorKind::InvalidInput)?
+        .to_os_string();
+    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+    Ok((open_files_directory(root, mount_id, parent)?, name))
+}
+
+fn statx_at(parent: &impl AsFd, name: &std::ffi::OsStr) -> io::Result<rustix::fs::Statx> {
+    let requested = StatxFlags::BASIC_STATS | StatxFlags::MNT_ID;
+    let stat = statx(parent, name, AtFlags::SYMLINK_NOFOLLOW, requested)?;
+    if stat.stx_mask & (StatxFlags::TYPE | StatxFlags::INO | StatxFlags::MNT_ID).bits()
+        != (StatxFlags::TYPE | StatxFlags::INO | StatxFlags::MNT_ID).bits()
+    {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(stat)
+}
+
+fn statx_fd(fd: &impl AsFd) -> io::Result<rustix::fs::Statx> {
+    let requested = StatxFlags::BASIC_STATS | StatxFlags::MNT_ID;
+    let stat = statx(fd, "", AtFlags::EMPTY_PATH, requested)?;
+    if stat.stx_mask & requested.bits() != requested.bits() {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(stat)
+}
+
+fn linux_device_number(major: u32, minor: u32) -> u64 {
+    (u64::from(major & 0x0000_0fff) << 8)
+        | u64::from(minor & 0x0000_00ff)
+        | (u64::from(minor & 0xffff_ff00) << 12)
+        | (u64::from(major & 0xffff_f000) << 32)
+}
+
+fn files_metadata(stat: &rustix::fs::Statx) -> FilesRootMetadata {
+    let file_type = FileType::from_raw_mode(stat.stx_mode.into());
+    let kind = if file_type.is_file() {
+        FilesRootEntryKind::RegularFile
+    } else if file_type.is_dir() {
+        FilesRootEntryKind::Directory
+    } else if file_type.is_symlink() {
+        FilesRootEntryKind::Symlink
+    } else {
+        FilesRootEntryKind::Other
+    };
+    FilesRootMetadata {
+        kind,
+        device: linux_device_number(stat.stx_dev_major, stat.stx_dev_minor),
+        inode: stat.stx_ino,
+        size_bytes: stat.stx_size,
+        mode: u32::from(stat.stx_mode),
+        uid: stat.stx_uid,
+        gid: stat.stx_gid,
+        created_at_seconds: (stat.stx_mask & StatxFlags::BTIME.bits() != 0)
+            .then_some(stat.stx_btime.tv_sec),
+        modified_at_seconds: (stat.stx_mask & StatxFlags::MTIME.bits() != 0)
+            .then_some(stat.stx_mtime.tv_sec),
+    }
+}
+
+fn files_symlink_metadata_at(
+    root: &impl AsFd,
+    mount_id: u64,
+    relative: &Path,
+) -> io::Result<FilesRootMetadata> {
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    let stat = statx_at(&parent, &name)?;
+    if stat.stx_mnt_id != mount_id {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(files_metadata(&stat))
+}
+
+pub(super) fn read_files_directory(
+    root: &impl AsFd,
+    relative: &Path,
+) -> io::Result<Vec<FilesRootEntry>> {
+    let mount_id = files_mount_id(root)?;
+    let directory = open_files_directory(root, mount_id, relative)?;
+    let entries = Dir::read_from(&directory)?;
+    let mut values = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        let name = name
+            .to_str()
+            .map_err(|_| io::ErrorKind::InvalidData)?
+            .to_owned();
+        let child = if relative.as_os_str().is_empty() || relative == Path::new(".") {
+            PathBuf::from(&name)
+        } else {
+            relative.join(&name)
+        };
+        values.push(FilesRootEntry {
+            name,
+            metadata: files_symlink_metadata_at(root, mount_id, &child)?,
+        });
+    }
+    Ok(values)
+}
+
+pub(super) fn files_symlink_metadata(
+    root: &impl AsFd,
+    relative: &Path,
+) -> io::Result<FilesRootMetadata> {
+    let mount_id = files_mount_id(root)?;
+    if relative.as_os_str().is_empty() || relative == Path::new(".") {
+        validate_files_path(relative, true)?;
+        let stat = statx_fd(root)?;
+        if stat.stx_mnt_id != mount_id {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        return Ok(files_metadata(&stat));
+    }
+    files_symlink_metadata_at(root, mount_id, relative)
+}
+
+fn sync_files_directory_at(root: &impl AsFd, mount_id: u64, relative: &Path) -> io::Result<()> {
+    let directory = open_files_directory(root, mount_id, relative)?;
+    rustix::fs::fsync(&directory)?;
+    Ok(())
+}
+
+pub(super) fn sync_files_directory(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    sync_files_directory_at(root, mount_id, relative)
+}
+
+pub(super) fn sync_files_parent(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    validate_files_path(relative, false)?;
+    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+    sync_files_directory_at(root, mount_id, parent)
+}
+
+pub(super) fn create_files_file(
+    root: &impl AsFd,
+    relative: &Path,
+    contents: &[u8],
+) -> io::Result<FilesRootMetadata> {
+    let mount_id = files_mount_id(root)?;
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    let mut created = false;
+    let result = (|| {
+        let fd = openat2(
+            &parent,
+            &name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+            files_resolve_flags(),
+        )?;
+        created = true;
+        let mut file = File::from(fd);
+        require_files_mount(&file, mount_id)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        rustix::fs::fsync(&parent)?;
+        files_symlink_metadata_at(root, mount_id, relative)
+    })();
+    if result.is_err() && created {
+        let _ = unlinkat(&parent, &name, AtFlags::empty());
+        let _ = rustix::fs::fsync(&parent);
+    }
+    result
+}
+
+pub(super) fn write_existing_files_file(
+    root: &impl AsFd,
+    relative: &Path,
+    contents: &[u8],
+) -> io::Result<FilesRootMetadata> {
+    let mount_id = files_mount_id(root)?;
+    let before = files_symlink_metadata_at(root, mount_id, relative)?;
+    if before.kind != FilesRootEntryKind::RegularFile {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let mut file = File::from(openat2(
+        root,
+        relative,
+        OFlags::WRONLY | OFlags::CLOEXEC,
+        Mode::empty(),
+        files_resolve_flags(),
+    )?);
+    require_files_mount(&file, mount_id)?;
+    let opened = statx_fd(&file)?;
+    let opened_metadata = files_metadata(&opened);
+    if opened_metadata.kind != FilesRootEntryKind::RegularFile
+        || opened_metadata.device != before.device
+        || opened_metadata.inode != before.inode
+    {
+        return Err(io::ErrorKind::Other.into());
+    }
+    file.set_len(0)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    sync_files_parent(root, relative)?;
+    files_symlink_metadata_at(root, mount_id, relative)
+}
+
+pub(super) fn create_files_directory(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    mkdirat(&parent, &name, Mode::RWXU)?;
+    rustix::fs::fsync(&parent)?;
+    Ok(())
+}
+
+pub(super) fn unlink_files_entry(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    let metadata = files_symlink_metadata_at(root, mount_id, relative)?;
+    match metadata.kind {
+        FilesRootEntryKind::RegularFile | FilesRootEntryKind::Symlink => {
+            unlinkat(&parent, &name, AtFlags::empty())?;
+        }
+        FilesRootEntryKind::Directory => return Err(io::ErrorKind::IsADirectory.into()),
+        FilesRootEntryKind::Other => return Err(io::ErrorKind::Unsupported.into()),
+    }
+    rustix::fs::fsync(&parent)?;
+    Ok(())
+}
+
+pub(super) fn remove_empty_files_directory(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    let metadata = files_symlink_metadata_at(root, mount_id, relative)?;
+    if metadata.kind != FilesRootEntryKind::Directory {
+        return Err(io::ErrorKind::NotADirectory.into());
+    }
+    unlinkat(&parent, &name, AtFlags::REMOVEDIR)?;
+    rustix::fs::fsync(&parent)?;
+    Ok(())
+}
+
+pub(super) fn rename_files_entry(
+    root: &impl AsFd,
+    source: &Path,
+    destination: &Path,
+) -> io::Result<FilesRootMetadata> {
+    let mount_id = files_mount_id(root)?;
+    let (source_parent, source_name) = files_parent_and_name(root, mount_id, source)?;
+    let (destination_parent, destination_name) =
+        files_parent_and_name(root, mount_id, destination)?;
+    let source_metadata = files_symlink_metadata_at(root, mount_id, source)?;
+    if source_metadata.kind == FilesRootEntryKind::Symlink {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    if source_metadata.kind == FilesRootEntryKind::Directory {
+        validate_files_tree_at(root, mount_id, source)?;
+    } else if source_metadata.kind != FilesRootEntryKind::RegularFile {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    renameat_with(
+        &source_parent,
+        &source_name,
+        &destination_parent,
+        &destination_name,
+        RenameFlags::NOREPLACE,
+    )?;
+    rustix::fs::fsync(&destination_parent)?;
+    rustix::fs::fsync(&source_parent)?;
+    files_symlink_metadata_at(root, mount_id, destination)
+}
+
+pub(super) fn replace_files_temp(
+    root: &impl AsFd,
+    temporary: &Path,
+    destination: &Path,
+) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    validate_files_path(temporary, false)?;
+    validate_files_path(destination, false)?;
+    if temporary == destination {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    if temporary.parent().unwrap_or_else(|| Path::new(""))
+        != destination.parent().unwrap_or_else(|| Path::new(""))
+    {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let (parent, temporary_name) = files_parent_and_name(root, mount_id, temporary)?;
+    let (_, destination_name) = files_parent_and_name(root, mount_id, destination)?;
+    let source_metadata = files_symlink_metadata_at(root, mount_id, temporary)?;
+    if source_metadata.kind != FilesRootEntryKind::RegularFile {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    match files_symlink_metadata_at(root, mount_id, destination) {
+        Ok(metadata) if metadata.kind == FilesRootEntryKind::RegularFile => {}
+        Ok(_) => return Err(io::ErrorKind::InvalidInput.into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    renameat(&parent, &temporary_name, &parent, &destination_name)?;
+    rustix::fs::fsync(&parent)?;
+    Ok(())
+}
+
+fn validate_files_tree_at(root: &impl AsFd, mount_id: u64, relative: &Path) -> io::Result<()> {
+    let metadata = files_symlink_metadata_at(root, mount_id, relative)?;
+    match metadata.kind {
+        FilesRootEntryKind::RegularFile => return Ok(()),
+        FilesRootEntryKind::Symlink => return Err(io::ErrorKind::PermissionDenied.into()),
+        FilesRootEntryKind::Other => return Err(io::ErrorKind::Unsupported.into()),
+        FilesRootEntryKind::Directory => {}
+    }
+    let directory = open_files_directory(root, mount_id, relative)?;
+    for entry in Dir::read_from(&directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        let child = relative.join(std::ffi::OsStr::from_bytes(name.to_bytes()));
+        validate_files_tree_at(root, mount_id, &child)?;
+    }
+    Ok(())
+}
+
+pub(super) fn validate_files_tree(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    validate_files_path(relative, false)?;
+    validate_files_tree_at(root, mount_id, relative)
+}
+
+fn remove_files_path_at(root: &impl AsFd, mount_id: u64, relative: &Path) -> io::Result<()> {
+    let (parent, name) = files_parent_and_name(root, mount_id, relative)?;
+    let metadata = files_symlink_metadata_at(root, mount_id, relative)?;
+    if metadata.kind == FilesRootEntryKind::Directory {
+        let directory = open_files_directory(root, mount_id, relative)?;
+        for entry in Dir::read_from(&directory)? {
+            let entry = entry?;
+            let child_name = entry.file_name();
+            if matches!(child_name.to_bytes(), b"." | b"..") {
+                continue;
+            }
+            remove_files_path_at(
+                root,
+                mount_id,
+                &relative.join(std::ffi::OsStr::from_bytes(child_name.to_bytes())),
+            )?;
+        }
+        unlinkat(&parent, &name, AtFlags::REMOVEDIR)?;
+    } else if matches!(
+        metadata.kind,
+        FilesRootEntryKind::RegularFile | FilesRootEntryKind::Symlink
+    ) {
+        unlinkat(&parent, &name, AtFlags::empty())?;
+    } else {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(())
+}
+
+pub(super) fn remove_files_path(root: &impl AsFd, relative: &Path) -> io::Result<()> {
+    let mount_id = files_mount_id(root)?;
+    validate_files_path(relative, false)?;
+    let parent = relative.parent().unwrap_or_else(|| Path::new(""));
+    remove_files_path_at(root, mount_id, relative)?;
+    sync_files_directory_at(root, mount_id, parent)
+}
+
+fn copy_files_path_at(
+    root: &impl AsFd,
+    mount_id: u64,
+    source: &Path,
+    destination: &Path,
+    is_cancelled: &mut impl FnMut() -> bool,
+    destination_created: &mut bool,
+) -> io::Result<FilesRootMetadata> {
+    if is_cancelled() {
+        return Err(io::ErrorKind::Interrupted.into());
+    }
+    let source_metadata = files_symlink_metadata_at(root, mount_id, source)?;
+    if source_metadata.kind == FilesRootEntryKind::Directory && destination.starts_with(source) {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    match source_metadata.kind {
+        FilesRootEntryKind::RegularFile => {
+            let (destination_parent, destination_name) =
+                files_parent_and_name(root, mount_id, destination)?;
+            let mut source_file = File::from(openat2(
+                root,
+                source,
+                OFlags::RDONLY | OFlags::CLOEXEC,
+                Mode::empty(),
+                files_resolve_flags(),
+            )?);
+            require_files_mount(&source_file, mount_id)?;
+            let opened = files_metadata(&statx_fd(&source_file)?);
+            if opened.kind != FilesRootEntryKind::RegularFile
+                || opened.device != source_metadata.device
+                || opened.inode != source_metadata.inode
+            {
+                return Err(io::ErrorKind::Other.into());
+            }
+            let mut destination_file = File::from(openat2(
+                &destination_parent,
+                &destination_name,
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
+                Mode::RUSR | Mode::WUSR,
+                files_resolve_flags(),
+            )?);
+            *destination_created = true;
+            require_files_mount(&destination_file, mount_id)?;
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                if is_cancelled() {
+                    return Err(io::ErrorKind::Interrupted.into());
+                }
+                let read = source_file.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                destination_file.write_all(&buffer[..read])?;
+            }
+            destination_file.sync_all()?;
+            rustix::fs::fsync(&destination_parent)?;
+            files_symlink_metadata_at(root, mount_id, destination)
+        }
+        FilesRootEntryKind::Directory => {
+            create_files_directory(root, destination)?;
+            *destination_created = true;
+            let result = (|| {
+                let directory = open_files_directory(root, mount_id, source)?;
+                for entry in Dir::read_from(&directory)? {
+                    let entry = entry?;
+                    let name = entry.file_name();
+                    if matches!(name.to_bytes(), b"." | b"..") {
+                        continue;
+                    }
+                    if is_cancelled() {
+                        return Err(io::ErrorKind::Interrupted.into());
+                    }
+                    copy_files_path_at(
+                        root,
+                        mount_id,
+                        &source.join(std::ffi::OsStr::from_bytes(name.to_bytes())),
+                        &destination.join(std::ffi::OsStr::from_bytes(name.to_bytes())),
+                        is_cancelled,
+                        destination_created,
+                    )?;
+                }
+                sync_files_directory_at(root, mount_id, destination)?;
+                files_symlink_metadata_at(root, mount_id, destination)
+            })();
+            result
+        }
+        FilesRootEntryKind::Symlink => Err(io::ErrorKind::PermissionDenied.into()),
+        FilesRootEntryKind::Other => Err(io::ErrorKind::Unsupported.into()),
+    }
+}
+
+pub(super) fn copy_files_path(
+    root: &impl AsFd,
+    source: &Path,
+    destination: &Path,
+    mut is_cancelled: impl FnMut() -> bool,
+) -> io::Result<FilesRootMetadata> {
+    validate_files_path(source, false)?;
+    validate_files_path(destination, false)?;
+    let mount_id = files_mount_id(root)?;
+    let mut destination_created = false;
+    let result = copy_files_path_at(
+        root,
+        mount_id,
+        source,
+        destination,
+        &mut is_cancelled,
+        &mut destination_created,
+    );
+    if result.is_err() && destination_created {
+        remove_files_path_at(root, mount_id, destination)
+            .map_err(|_| io::Error::other("copy failed and partial destination cleanup failed"))?;
+        let parent = destination.parent().unwrap_or_else(|| Path::new(""));
+        sync_files_directory_at(root, mount_id, parent)?;
+    }
+    result
 }
 
 pub(super) fn require_same_mount(fd: &impl AsFd, expected: u64) -> io::Result<()> {
@@ -265,6 +821,15 @@ pub(super) fn require_same_mount(fd: &impl AsFd, expected: u64) -> io::Result<()
     Ok(())
 }
 
+pub(super) fn mount_id(fd: &impl AsFd) -> io::Result<u64> {
+    let requested = StatxFlags::MNT_ID;
+    let stat = statx(fd, c"", AtFlags::EMPTY_PATH, requested)?;
+    if stat.stx_mask & requested.bits() != requested.bits() {
+        return Err(io::ErrorKind::Unsupported.into());
+    }
+    Ok(stat.stx_mnt_id)
+}
+
 fn private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
     match mkdirat(parent, name, Mode::RWXU) {
         Ok(()) | Err(Errno::EXIST) => {}
@@ -272,6 +837,66 @@ fn private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
     }
     let dir = open_private_directory(parent, name)?;
     rustix::fs::fsync(parent)?;
+    Ok(dir)
+}
+
+fn open_files_private_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
+    let dir = File::from(open_beneath(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+    )?);
+    let metadata = dir.metadata()?;
+    if metadata.uid() != USER_FILES_APP_UID
+        || metadata.gid() != USER_FILES_APP_GID
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(dir)
+}
+
+/// Provision an empty User Files root for its fixed app identity. Existing
+/// contents are never recursively reassigned; an old or unexpected owner with
+/// data fails closed and requires an explicit migration outside this path.
+fn provision_empty_files_directory(parent: &impl AsFd, name: &str) -> io::Result<File> {
+    match mkdirat(parent, name, Mode::RWXU) {
+        Ok(()) | Err(Errno::EXIST) => {}
+        Err(error) => return Err(error.into()),
+    }
+    let dir = File::from(open_beneath(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+    )?);
+    let metadata = dir.metadata()?;
+    if metadata.mode() & 0o777 != 0o700 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    for entry in Dir::read_from(&dir)? {
+        if !matches!(entry?.file_name().to_bytes(), b"." | b"..") {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+    }
+    if (metadata.uid(), metadata.gid()) != (USER_FILES_APP_UID, USER_FILES_APP_GID) {
+        if (metadata.uid(), metadata.gid()) != (0, 0) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        fchown(
+            &dir,
+            Some(Uid::from_raw(USER_FILES_APP_UID)),
+            Some(Gid::from_raw(USER_FILES_APP_GID)),
+        )?;
+        dir.sync_all()?;
+        fsync(parent)?;
+    }
+    let metadata = dir.metadata()?;
+    if metadata.uid() != USER_FILES_APP_UID
+        || metadata.gid() != USER_FILES_APP_GID
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
     Ok(dir)
 }
 
@@ -331,6 +956,8 @@ mod tests {
         let (user, profile, principal) = (UserId(3), "profile_fixture", "principal_fixture");
         let attach = || reserve_files_root(&data, mount_id, user, profile, principal);
         let root = File::from(attach().unwrap());
+        assert_eq!(root.metadata().unwrap().uid(), USER_FILES_APP_UID);
+        assert_eq!(root.metadata().unwrap().gid(), USER_FILES_APP_GID);
         fs::write(
             path.join("profile-files-v1/profile_fixture/root/file"),
             b"preserved",
@@ -346,9 +973,67 @@ mod tests {
         let displaced = original.with_file_name("old-root");
         fs::rename(&original, &displaced).unwrap();
         DirBuilder::new().mode(0o700).create(&original).unwrap();
+        let replacement = File::open(&original).unwrap();
+        rustix::fs::fchown(
+            &replacement,
+            Some(Uid::from_raw(USER_FILES_APP_UID)),
+            Some(Gid::from_raw(USER_FILES_APP_GID)),
+        )
+        .unwrap();
+        drop(replacement);
         assert_eq!(attach().unwrap_err().kind(), io::ErrorKind::InvalidData);
         assert_eq!(fs::read(displaced.join("file")).unwrap(), b"preserved");
         drop((root, reopened, data));
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn files_root_does_not_reassign_nonempty_legacy_storage() {
+        use std::fs::{self, DirBuilder};
+        use std::os::unix::fs::DirBuilderExt;
+
+        let path =
+            std::env::temp_dir().join(format!("nagi-files-legacy-owner-{}", std::process::id()));
+        DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let data = File::open(&path).unwrap();
+        if data.metadata().unwrap().uid() != 0 {
+            fs::remove_dir(&path).unwrap();
+            return;
+        }
+        let mount_id = statx(&data, c"", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)
+            .unwrap()
+            .stx_mnt_id;
+        let (user, profile, principal) = (UserId(4), "profile_legacy", "principal_legacy");
+        let profile_root = open_profile_root(
+            &data,
+            mount_id,
+            user,
+            profile,
+            principal,
+            AppStorageKind::UserFiles,
+        )
+        .unwrap();
+        let legacy_root = private_directory(&profile_root, FILES_ROOT).unwrap();
+        fs::write(
+            path.join("profile-files-v1/profile_legacy/root/preserved"),
+            b"keep",
+        )
+        .unwrap();
+        drop(legacy_root);
+
+        let error = reserve_files_root(&data, mount_id, user, profile, principal).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        let reopened = File::open(path.join("profile-files-v1/profile_legacy/root")).unwrap();
+        assert_eq!(reopened.metadata().unwrap().uid(), 0);
+        assert_eq!(reopened.metadata().unwrap().gid(), 0);
+        assert_eq!(
+            fs::read(path.join("profile-files-v1/profile_legacy/root/preserved")).unwrap(),
+            b"keep"
+        );
+        assert!(!path
+            .join(format!("profile-files-v1/profile_legacy/{RESERVATION}"))
+            .exists());
+        drop((reopened, profile_root, data));
         fs::remove_dir_all(path).unwrap();
     }
 
@@ -375,14 +1060,8 @@ mod tests {
         }
         let legacy = format!("NAGI-NOTES-PROFILE-1\n{scope}0000000000000002\n");
         assert_eq!(
-            parse_reservation(Notes, scope, &legacy).unwrap(),
-            (ObjectId(2), false)
+            parse_reservation(Notes, scope, &legacy).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
         );
-        for kind in [Settings, Calendar] {
-            assert_eq!(
-                parse_reservation(kind, scope, &legacy).unwrap_err().kind(),
-                io::ErrorKind::InvalidData
-            );
-        }
     }
 }

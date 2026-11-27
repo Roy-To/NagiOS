@@ -46,6 +46,12 @@
 - **DEC-086／117:** 既存の鍵保護とMemory／Profileの常時暗号化を継承する。復号後の利用にも現行の権限と機密区分を適用する。
 - DEC-079のSystem ImageのA/B更新・復旧とUser Data分離を維持する。System rollbackとユーザー環境のバックアップ／復元は別の保護範囲である。
 
+### 8/12 Storage・Securityの保存・移行境界（2026-11-25／CONFIRMED）
+
+[DEC-088のB案](DEC-088-linux-filesystem-nagi-storage-api.md#812-storagesecurity-b案2026-11-25)に沿って、Profile Export／Importは暗号化し、モデル非依存のMemory・習慣・Persona・個人設定と、由来・忘却・保護状態を引き継ぐ。モデル本体と派生索引は原則として移行先で再取得・再構築する。Secret Memoryの収録は本人の明示選択を条件とし、認証情報・秘密鍵は個別の安全な移行手続きで扱う。
+
+保存・復元の結果は各正本の保存証拠・整合性を再検証し、成功・部分成功・失敗・結果不明を区別する（[DEC-090](DEC-090-common-persistence-contract-distributed-authority.md)／[DEC-091](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)）。復元・Import時は利用可能な最新の忘却状態、現行の権限・機密分類・Source有効性とRevision・競合を再確認し、新しいデータを黙って上書きしない。最新の忘却状態が不明な場合は安全側に扱い、隔離・保留の具体手順は下記のPROVISIONALに従う。
+
 ## 未確定事項（PROVISIONAL / OPEN）
 
 - データ種別ごとの保存・復元契約。対象の粒度、形式・バージョン・参照関係、アプリ本体の再導入やデータ互換性、整合性検証、移行先での競合・既存データ保護・中断復旧、部分復元／復元不能の扱い。
@@ -65,3 +71,4 @@
 |---|---|
 | 2026-11-16 | ユーザーが#16のB方式（ユーザー環境全体のバックアップ）＋Wayback連携＋必要に応じたC方式を承認。基本方針と追加選択肢の方向をCONFIRMED、具体的な対象・技術・Cの詳細・版を未確定として分離した。 |
 | 2026-11-25 | F16の4機能の分担、自動差分バックアップ・選択式復元・独立Profile移行、保存対象・保存先・世代管理・容量上限・復元時の安全方針をCONFIRMED。保存・復元契約、暗号・鍵、忘却状態を確認できない場合の処理、UI・頻度・性能・提供版をPROVISIONALとした。 |
+| 2026-11-25 | 8/12 Storage・Security B案として、モデル非依存の暗号化Profile移行と、保存・復元結果の再検証を明記。実装・技術候補はDEC-088、最新忘却状態が不明な場合の処理詳細は本DECのPROVISIONALを参照。 |

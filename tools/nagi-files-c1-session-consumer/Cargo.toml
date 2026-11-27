@@ -14,5 +14,8 @@ c1-issued-session = ["nagi-identity-session/linux-interactive-account"]
 nagi-files = { path = "../../apps/nagi-files" }
 nagi-identity-session = { path = "../../crates/nagi-identity-session", default-features = false }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+nagi-profile-volume-notes-owner = { path = "../../crates/nagi-profile-volume-owner" }
+
 [lints.rust]
 unsafe_code = "forbid"

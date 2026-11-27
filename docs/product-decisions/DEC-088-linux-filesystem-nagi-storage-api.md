@@ -1,7 +1,7 @@
 # DEC-088 — 用途別Linux FilesystemとNagi Storage／Files APIの分離
 
 **状態:** CONFIRMED（B案＝Linux標準Filesystemを保存用途別に選択活用、Nagi独自Storage／Files APIとResource／Objectの論理Identityを維持、snapshot／Wayback／Backup／Workspace復元の役割を区別）／PROVISIONAL（具体FS・mount／暗号化・durability／atomicity・Resource binding実装・Linux target受入／適用版）
-**最終合意日:** 2026-11-16
+**最終合意日:** 2026-11-25（8/12 Storage・Security B案を追加）
 **適用範囲:** Nagi OS Foundation Checklist #12「Storage / Filesystem」（検討束B3）。Linuxカーネル＋Nagi専用ユーザーランドのファイル保存下層とNagi固有の論理Storage／Files契約
 **関連:** [DEC-014 Workspace保存・移行](DEC-014-workspace-state-checkpoints.md)、[DEC-023 作業・データ中心OS](DEC-023-work-data-centric-os.md)、[DEC-025 分散正本・共通参照](DEC-025-cross-app-data-reference-and-updates.md)、[DEC-043 Linuxカーネル＋Nagi userland](DEC-043-nagi-userland-independent-os.md)、[DEC-079 System Image／User Data分離](DEC-079-system-image-readonly-ab-data-separation.md)、[Foundation Checklist](NAGI_OS_FOUNDATION_CHECKLIST.md)、[0.1仕様 §17–18](../Nagi_OS_0.1_Codex_Implementation_Spec.md)、[0.2仕様 §23–24](../Nagi_OS_0.2_Codex_Implementation_Spec.md)、[Roadmaps](roadmaps/README.md)
 
@@ -50,6 +50,7 @@ Nagi固有のFile／Resource／Workspaceとアプリ横断の参照・権限管�
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #12「Storage / Filesystem」に対しB案を明確に承認。Linux標準Filesystemを用途別に活用し、Nagi独自Storage／Files APIと論理Resource IDを維持、FS snapshot・Wayback・Backup・Workspace復元を区別する。具体FS・暗号・耐障害方式・Linux受入・適用版は未決定。 |
+| 2026-11-25 | 8/12 Storage・SecurityのB案を承認。用途別Linux FSと既存暗号技術を活用し、Nagiが上位の管理を担う。暗号化・鍵管理・Backup／移行・復旧の既存方針を継承し、評価候補・組合せ・実機検証・提供版はPROVISIONAL。 |
 
 ## 関連決定の参照注記（2026-11-21）
 
@@ -61,3 +62,28 @@ Nagi固有のFile／Resource／Workspaceとアプリ横断の参照・権限管�
 - ごみ箱から復元するとき、元の親フォルダが存在しなければ利用者ファイルのルートに戻す。同名項目を上書きしない。
 - Linux の変更操作では親ディレクトリの fsync、上書きを防ぐ RENAME_NOREPLACE、ごみ箱の孤児回復を実装する。耐久性と再起動後の保持は Linux 受入で検証する。
 - Linux 0.1 の Files の名前入力欄では、日本語のファイル名・フォルダ名を入力できない。
+
+## 8/12 Storage・Security B案（2026-11-25）
+
+### 製品方針（CONFIRMED）
+
+- **用途別のLinux Filesystemと既存の暗号技術を活用する。** NagiはStorage／Filesの公開契約・論理Resource ID・所有と認可、[Volume Manager（DEC-089）](DEC-089-nagi-volume-manager-linux-mount-hotplug.md)による媒体管理、[共通Persistence契約と分散正本（DEC-090）](DEC-090-common-persistence-contract-distributed-authority.md)、[Recovery Coordinatorと各サービスによる正本の復旧（DEC-091）](DEC-091-nagi-recovery-coordinator-service-owned-recovery.md)を担う。独自Filesystemや独自暗号の開発を初期の必須条件にしない。
+- **System／User Data／Model Storeの境界を維持する。** [DEC-079](DEC-079-system-image-readonly-ab-data-separation.md)の通常時read-only System、A/B更新・System Recovery、User Dataの分離、Model Storeの論理分離を継承する。
+- **保存データを二層で保護する。** User Dataの暗号化は既定で有効とし、利用者が解除できる。Memory／ProfileはUser Data側の設定にかかわらず常時暗号化し、解除できない。[DEC-086](DEC-086-nagi-secrets-service-hybrid-key-protection.md)と[DEC-117](DEC-117-user-data-encryption-and-lost-device.md)に従い、User／Profileごとに鍵を分離し、Memoryと暗号化されたUser Dataに適用する。鍵はNagi Secrets Serviceが管理し、対応機器ではTPM／TEE等の保護を優先する。非対応機器ではパスフレーズで保護するローカル保管を用い、回復キーによる回復経路を設ける。回復キーのクラウド自動預託は行わない。
+- **OSが認可と隔離を強制する。** [DEC-084](DEC-084-nagi-permission-linux-sandbox-enforcement.md)のNagi Permission／CapabilityとLinux側の隔離を組み合わせ、AIの判断に依存せず、復号後も現行の権限を適用する。起動・更新・アプリの署名検証は[DEC-087](DEC-087-tiered-system-trust-and-signature-verification.md)の段階的な信頼方針に従う。
+- **復元と移行は用途に応じて行う。** 日常の変更を戻すWayback、外部媒体／NASへの自動差分Backupと選択式復元、モデル非依存の暗号化Profile Export／Import、起動・更新障害に対するSystem Recoveryは[DEC-105](DEC-105-user-environment-backup-and-wayback.md)の分担と安全境界を維持する。
+- **Memory DBは[DEC-013](DEC-013-lightweight-memory-engine-benchmark.md)を維持する。** SQLiteを初期実用経路および比較基準とし、Rust製Memory専用DBを並行研究する。置換の判断には性能・信頼性と安全な移行・復元の検証を要する。
+
+### 技術の評価候補（PROVISIONAL）
+
+| 領域 | 評価候補と比較の観点 |
+|---|---|
+| System A/B | 読み取り専用イメージにEROFSを優先評価。完全性検証にdm-verityを評価。 |
+| User Data／Model Store | ext4を先行比較の基準にし、User DataではBtrfsのsnapshot・圧縮・チェックサム等を比較する。F2FSは将来のフラッシュ媒体向け候補。 |
+| User Data暗号化 | LUKS2／dm-cryptを優先評価。 |
+| Memory／Profile暗号化 | DB向けのSQLCipherとファイル／ディレクトリ向けの[fscrypt](https://docs.kernel.org/filesystems/fscrypt.html)等を比較。fscryptは対応FSに制約があり、Btrfsとの組合せを前提にしない。ファイル名以外のファイルシステムメタデータは保護対象外。 |
+| 鍵保護・導出 | TPM 2.0／TEE、パスフレーズからの鍵導出にArgon2id。 |
+| Backupと整合性 | resticを第一評価候補とし、BorgBackupを比較候補とする。稼働中DBの整合したコピーにはSQLite Backup APIを評価する。Btrfs snapshotはローカルでの履歴・復元を支える候補。同一媒体のsnapshotでは媒体故障に備えられないため、外部媒体／NASへの独立したBackupを用いる。 |
+| 実行時隔離・起動時の信頼 | Linux namespaces、seccomp、Landlock等のLSM、cgroups v2、対応機器でのSecure Boot。 |
+
+個別技術の正式採用・組合せ・依存バージョン・ライセンス／再配布条件、物理パーティションと容量配分、実機性能と電源断・中断・復元への耐性、UI、提供版・受入の詳細はPROVISIONAL。Profile別暗号化の実効性、最新忘却状態を確認できない場合の隔離などの処理、保存・復元の検証方法は、それぞれDEC-117／DEC-105の未確定事項に従う。既存のRelease／Activation／Acceptance Gate、実装範囲と担当を維持する。

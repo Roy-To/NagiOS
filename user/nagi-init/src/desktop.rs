@@ -885,13 +885,7 @@ impl Desktop {
         let mut end = 0_usize;
         for (start, character) in value.char_indices() {
             let length = character.len_utf8();
-            let advance = if character.is_ascii() {
-                7
-            } else if length == 3 && (0xe3..=0xe9).contains(&text[start]) {
-                8
-            } else {
-                (length as i32).saturating_mul(8)
-            };
+            let advance = crate::font::advance_for_char(character);
             if advance > max_advance.saturating_sub(used) {
                 break;
             }

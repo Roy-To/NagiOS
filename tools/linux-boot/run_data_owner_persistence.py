@@ -15,6 +15,8 @@ import time
 import uuid
 from pathlib import Path
 
+import data_boot_config
+
 RUNNER = Path(__file__).with_name("run_qemu_child.py")
 DISK_BYTES = 128 * 1024 * 1024
 PROVISION_PHASE = "provision-identity-directories"
@@ -51,11 +53,19 @@ def run_phase(
     (args.output / phase_dir).mkdir()
     socket = phase_dir / "qmp.sock"
     guest_log = phase_dir / "serial.log"
-    cmdline = (
-        f"console=ttyS0,115200n8 rdinit=/init panic=-1 loglevel=5 "
-        f"nagi.dev_data.smoke={phase} nagi.dev_data.serial={serial} "
-        f"nagi.dev_data.fs_uuid={filesystem_uuid}"
+    mode = (
+        "smoke-provision-identity-directories"
+        if phase == PROVISION_PHASE
+        else f"smoke-{phase}"
     )
+    selection_initramfs = phase_dir / "initramfs-data-selection.cpio"
+    data_boot_config.write_configured_initramfs(
+        args.initramfs,
+        selection_initramfs,
+        filesystem_uuid,
+        mode,
+    )
+    cmdline = "console=ttyS0,115200n8 rdinit=/init panic=-1 loglevel=5"
     expected = re.compile(
         rf"^NAGI_DEV_DATA_OWNER_PASS phase={phase} serial={serial} uuid={filesystem_uuid} "
         r"mount_id=[0-9]+ retained_fd=true same_volume_notes_input=true "
@@ -69,7 +79,7 @@ def run_phase(
         "--qmp-socket", str(socket), "--qemu-log", str(phase_dir / "qemu.log"),
         "--", args.qemu, "-machine", "q35,accel=tcg", "-cpu", "qemu64",
         "-m", "8192", "-smp", "4", "-kernel", str(args.kernel), "-initrd",
-        str(args.initramfs), "-append", cmdline, "-nodefaults", "-no-user-config",
+        str(selection_initramfs), "-append", cmdline, "-nodefaults", "-no-user-config",
         "-display", "none", "-serial", f"file:{guest_log}", "-monitor", "none",
         "-no-reboot", "-drive", "if=none,file=data.raw,format=raw,id=nagi-data",
         "-device", f"virtio-blk-pci,drive=nagi-data,serial={serial}",

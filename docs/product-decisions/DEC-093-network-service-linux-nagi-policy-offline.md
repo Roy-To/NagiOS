@@ -5,6 +5,8 @@
 **適用候補:** Nagi OS Foundation #24。Release割当て未確定\
 **関連:** [Foundation Checklist #24](NAGI_OS_FOUNDATION_CHECKLIST.md#f24)、[DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-020](DEC-020-ai-os-interaction-path.md)、[DEC-043](DEC-043-nagi-userland-independent-os.md)、[DEC-066](DEC-066-device-connectivity-lan-first.md)、[Roadmaps](roadmaps/README.md)
 
+> **2026-11-25 参照:** [DEC-101の7/12合意](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)。接続管理はNetworkManager、TLSはrustlsを優先評価する。個別採用・API／版・ライセンス・実機性能はPROVISIONAL。Network Serviceの通信認可と、Device ConnectivityのTrustや個別のデータ操作認可は独立して扱う。
+
 ## 目的・ユーザー体験
 
 Nagi OSの一般アプリ・Albert・Nagi AI・端末間連携に必要なIP通信等を、Linuxの成熟した通信機構とNagi自身の統合Network Serviceの組合せで提供する。オンライン／オフラインの状態、通信設定と権限・送信先を区別し、既存のOffline-first／User／Profile／Permission／Privacyの製品契約を守る。

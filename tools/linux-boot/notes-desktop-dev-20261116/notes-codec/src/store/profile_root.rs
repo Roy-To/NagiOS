@@ -2,10 +2,10 @@
 //!
 //! The Notes store executes a complete NoteStore operation through one
 //! `UserStorageRootAdapter::with_live_root_effect` callback. Its object I/O
-//! delegates to the borrowed `ProfileRootEffect` and never reacquires C1.
+//! uses the borrowed C1 root or the Linux owner's reserved-object view.
 
 #[cfg(target_os = "linux")]
-use super::linux_profile_backend::LinuxProfileStorageRoot;
+use super::linux_profile_backend::{map_object_failure, LinuxProfileStorageRoot};
 use super::{
     same_candidate, summary, validate_candidate, NoteStore, StoreError, MAX_STORED_NOTE_BYTES,
 };
@@ -21,7 +21,8 @@ use nagi_identity_session::{
 use nagi_model::ObjectId;
 #[cfg(target_os = "linux")]
 use nagi_profile_volume_notes_owner::{
-    AppStorageKind, ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError,
+    AppStorageKind, NotesObject, NotesObjectError, ProfileVolumeNotesBundle,
+    ProfileVolumeNotesOwnerError,
 };
 use std::collections::BTreeMap;
 use std::fmt;
@@ -222,13 +223,7 @@ where
     authorizer: A,
     binding: ProfileRootNotesBinding,
     #[cfg(target_os = "linux")]
-    linux_attachment: Option<LinuxNotesAttachment>,
-}
-
-#[cfg(target_os = "linux")]
-struct LinuxNotesAttachment {
-    bundle: ProfileVolumeNotesBundle,
-    root: std::sync::Arc<LinuxProfileStorageRoot>,
+    linux_root: Option<std::sync::Arc<LinuxProfileStorageRoot>>,
 }
 
 impl<B, C, A> C1ProfileRootNotesInput<B, C, A>
@@ -265,7 +260,7 @@ where
             authorizer,
             binding,
             #[cfg(target_os = "linux")]
-            linux_attachment: None,
+            linux_root: None,
         })
     }
 
@@ -277,26 +272,16 @@ where
     /// this from a NoteStore effect or from a C1 root-effect callback: it
     /// acquires a separate lease and would re-enter the session gate.
     pub fn read_object_one_lease(&mut self, object_id: ObjectId) -> Result<Vec<u8>, StoreError> {
-        let mut operation = || {
-            let access = IdentityAccessContext::new(&self.identity, &self.caller);
-            self.storage
-                .read_object(
-                    &access,
-                    &self.root,
-                    &self.profile_id,
-                    object_id,
-                    &mut self.authorizer,
-                )
-                .map_err(map_root_failure)
-        };
-        #[cfg(target_os = "linux")]
-        if let Some(attachment) = self.linux_attachment.as_ref() {
-            return match attachment.bundle.with_active(operation) {
-                Ok(result) => result,
-                Err(error) => Err(map_bundle_store_failure(error)),
-            };
-        }
-        operation()
+        let access = IdentityAccessContext::new(&self.identity, &self.caller);
+        self.storage
+            .read_object(
+                &access,
+                &self.root,
+                &self.profile_id,
+                object_id,
+                &mut self.authorizer,
+            )
+            .map_err(map_root_failure)
     }
 
     /// One isolated root operation through the existing adapter. Do not call
@@ -306,27 +291,17 @@ where
         object_id: ObjectId,
         bytes: &[u8],
     ) -> Result<(), StoreError> {
-        let mut operation = || {
-            let access = IdentityAccessContext::new(&self.identity, &self.caller);
-            self.storage
-                .write_object(
-                    &access,
-                    &self.root,
-                    &self.profile_id,
-                    object_id,
-                    bytes,
-                    &mut self.authorizer,
-                )
-                .map_err(map_root_failure)
-        };
-        #[cfg(target_os = "linux")]
-        if let Some(attachment) = self.linux_attachment.as_ref() {
-            return match attachment.bundle.with_active(operation) {
-                Ok(result) => result,
-                Err(error) => Err(map_bundle_store_failure(error)),
-            };
-        }
-        operation()
+        let access = IdentityAccessContext::new(&self.identity, &self.caller);
+        self.storage
+            .write_object(
+                &access,
+                &self.root,
+                &self.profile_id,
+                object_id,
+                bytes,
+                &mut self.authorizer,
+            )
+            .map_err(map_root_failure)
     }
 }
 
@@ -370,62 +345,41 @@ where
         )
         .map_err(ProfileRootNotesInputError::Binding)?;
 
-        let (mut input, linux_root) = bundle
-            .with_duplicated_object_directory(|object_directory| {
-                use super::linux_profile_backend::{
-                    initialize_notes_index, LinuxProfileStorageBackend,
-                };
-
-                let startup_directory = rustix::io::fcntl_dupfd_cloexec(&object_directory, 0)
-                    .map_err(|_| {
-                        ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
-                    })?;
-                let backend = LinuxProfileStorageBackend::from_authenticated_identity_fd(
-                    object_directory,
-                    &identity,
-                    &caller,
-                    &requested_profile,
-                    io_budget,
-                )
-                .map_err(ProfileRootNotesInputError::Root)?;
-                let linux_root = backend.root_for_durability();
-                let mut input = Self::open(
-                    UserStorageRootAdapter::new(backend),
-                    identity,
-                    caller,
-                    requested_profile,
-                    notes_object_id,
-                    authorizer,
-                )?;
-                // The outer bundle callback already holds the attachment
-                // guard. Install the retained bundle after this root effect.
-                let empty = empty_profile_root_notes_object();
-                input
-                    .with_live_root_effect(|io| {
-                        initialize_notes_index(
-                            &startup_directory,
-                            notes_object_id,
-                            bundle.allows_initial_index(),
-                            &empty,
-                            io_budget,
-                            || {
-                                ProfileNotesIndex::read(io, notes_object_id)
-                                    .map(|_| ())
-                                    .map_err(|_| StorageRootFailure::Unavailable)
-                            },
-                        )
-                        .map_err(map_root_failure)
-                    })
-                    .map_err(|_| {
-                        ProfileRootNotesInputError::Root(StorageRootFailure::Unavailable)
-                    })?;
-                Ok((input, linux_root))
-            })
-            .map_err(ProfileRootNotesInputError::Bundle)??;
-        input.linux_attachment = Some(LinuxNotesAttachment {
-            bundle,
-            root: linux_root,
-        });
+        let backend = super::linux_profile_backend::LinuxProfileStorageBackend::from_authenticated_attachment(
+            bundle, &identity, &caller, &requested_profile, io_budget,
+        )
+        .map_err(ProfileRootNotesInputError::Root)?;
+        let linux_root = backend.root_for_owner_effect();
+        let mut input = Self::open(
+            UserStorageRootAdapter::new(backend),
+            identity,
+            caller,
+            requested_profile,
+            notes_object_id,
+            authorizer,
+        )?;
+        let access = IdentityAccessContext::new(&input.identity, &input.caller);
+        input
+            .storage
+            .with_live_root_effect(
+                &access,
+                &input.root,
+                &input.profile_id,
+                &mut input.authorizer,
+                |_| {
+                    Ok(linux_root.with_object(|mut object| {
+                        object.initialize(&empty_profile_root_notes_object(), |bytes| {
+                            ProfileNotesIndex::decode(bytes)
+                                .map(|_| ())
+                                .map_err(|_| NotesObjectError::Unavailable)
+                        })
+                    }))
+                },
+            )
+            .map_err(ProfileRootNotesInputError::Root)?
+            .map_err(ProfileRootNotesInputError::Bundle)?
+            .map_err(|error| ProfileRootNotesInputError::Root(map_object_failure(error)))?;
+        input.linux_root = Some(linux_root);
         Ok(input)
     }
 }
@@ -441,71 +395,85 @@ where
         &mut self,
         effect: impl FnOnce(&mut dyn ProfileRootNotesObjectIo) -> Result<R, StoreError>,
     ) -> Result<R, StoreError> {
-        let operation = || {
-            let access = IdentityAccessContext::new(&self.identity, &self.caller);
-            self.storage
-                .with_live_root_effect(
-                    &access,
-                    &self.root,
-                    &self.profile_id,
-                    &mut self.authorizer,
-                    |root_effect| {
-                        let mut io = C1ProfileRootNotesObjectIo {
-                            root_effect,
-                            #[cfg(target_os = "linux")]
-                            linux_root: self
-                                .linux_attachment
-                                .as_ref()
-                                .map(|attachment| &*attachment.root),
-                        };
-                        Ok(effect(&mut io))
-                    },
-                )
-                .map_err(map_root_failure)?
-        };
-        #[cfg(target_os = "linux")]
-        if let Some(attachment) = self.linux_attachment.as_ref() {
-            return match attachment.bundle.with_active(operation) {
-                Ok(result) => result,
-                Err(error) => Err(map_bundle_store_failure(error)),
-            };
-        }
-        operation()
+        let access = IdentityAccessContext::new(&self.identity, &self.caller);
+        self.storage
+            .with_live_root_effect(
+                &access,
+                &self.root,
+                &self.profile_id,
+                &mut self.authorizer,
+                |root_effect| {
+                    #[cfg(target_os = "linux")]
+                    if let Some(root) = &self.linux_root {
+                        return Ok(root
+                            .with_object(|object| {
+                                effect(&mut LinuxNotesObjectIo {
+                                    object,
+                                    object_id: root.object_id(),
+                                })
+                            })
+                            .map_err(map_bundle_store_failure)
+                            .and_then(|result| result));
+                    }
+                    Ok(effect(&mut C1ProfileRootNotesObjectIo { root_effect }))
+                },
+            )
+            .map_err(map_root_failure)?
     }
 }
 
 struct C1ProfileRootNotesObjectIo<'effect, 'backend, B: ProfileStorageBackend> {
     root_effect: &'effect mut ProfileRootEffect<'backend, B>,
-    #[cfg(target_os = "linux")]
-    linux_root: Option<&'effect LinuxProfileStorageRoot>,
 }
 
 impl<B: ProfileStorageBackend> ProfileRootNotesObjectIo for C1ProfileRootNotesObjectIo<'_, '_, B> {
     fn read_object(&mut self, object_id: ObjectId) -> Result<Vec<u8>, StoreError> {
         self.root_effect
-            .read_object(ObjectId(object_id.0))
+            .read_object(object_id)
             .map_err(map_root_failure)
     }
 
     fn write_object(&mut self, object_id: ObjectId, bytes: &[u8]) -> Result<(), StoreError> {
-        let c1_object_id = ObjectId(object_id.0);
-        #[cfg(target_os = "linux")]
-        let requires_directory_sync = self.linux_root.is_some();
-        #[cfg(not(target_os = "linux"))]
-        let requires_directory_sync = false;
-        let result = self.root_effect.write_object(c1_object_id, bytes);
-        finish_root_write(result, requires_directory_sync, bytes, || {
-            self.root_effect.read_object(c1_object_id)
+        let result = self.root_effect.write_object(object_id, bytes);
+        finish_root_write(result, false, bytes, || {
+            self.root_effect.read_object(object_id)
         })
     }
+}
 
-    #[cfg(target_os = "linux")]
-    fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
-        if let Some(root) = self.linux_root {
-            root.confirm_directory_sync()
-                .map_err(map_durable_write_failure)?;
+#[cfg(target_os = "linux")]
+struct LinuxNotesObjectIo<'owner> {
+    object: NotesObject<'owner>,
+    object_id: ObjectId,
+}
+
+#[cfg(target_os = "linux")]
+impl ProfileRootNotesObjectIo for LinuxNotesObjectIo<'_> {
+    fn read_object(&mut self, object_id: ObjectId) -> Result<Vec<u8>, StoreError> {
+        if object_id != self.object_id {
+            return Err(map_root_failure(StorageRootFailure::CrossProfile));
         }
-        Ok(())
+        self.object
+            .read()
+            .map_err(map_object_failure)
+            .map_err(map_root_failure)
+    }
+
+    fn write_object(&mut self, object_id: ObjectId, bytes: &[u8]) -> Result<(), StoreError> {
+        if object_id != self.object_id {
+            return Err(map_root_failure(StorageRootFailure::CrossProfile));
+        }
+        self.object
+            .write(bytes)
+            .map_err(map_object_failure)
+            .map_err(map_durable_write_failure)
+    }
+
+    fn confirm_existing_object(&mut self) -> Result<(), StoreError> {
+        self.object
+            .confirm_directory_sync()
+            .map_err(map_object_failure)
+            .map_err(map_durable_write_failure)
     }
 }
 

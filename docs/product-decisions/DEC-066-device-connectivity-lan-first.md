@@ -8,6 +8,8 @@
 
 **関連:** [DEC-002](DEC-002-cloud-ai-data-sharing.md)、[DEC-014](DEC-014-workspace-state-checkpoints.md)、[DEC-009](DEC-009-nagi-first-home-desktop.md)、[端末候補DEC-052](DEC-052-physical-test-device-candidates.md)、[純正ソフトウェア仕様](../NAGI_FIRST_PARTY_SOFTWARE_IMPLEMENTATION_SPEC.md)、[ロードマップ索引](roadmaps/README.md)
 
+> **2026-11-25 参照:** [DEC-101の7/12合意](DEC-101-device-connectivity-nagi-protocol-linux-research.md#nagi-networkconnectivity-b案2026-11-25)。同一LAN先行、近距離直接通信の検討、将来の遠隔P2P・任意クラウドの順で拡張余地を保つ。評価候補の採用はPROVISIONAL。Trust・認可・取消の既存条件を適用する。
+
 ## 目的とユーザー体験
 
 Nagi Share／Handoff等が使う端末間接続を、まず同一Wi-Fi／LAN上のNagi端末から成立させる。離れた場所にあるNagi端末とのインターネット越し接続も将来の拡張可能性として残し、初期のローカル連携を常時クラウド接続やサービス運営に依存させない。

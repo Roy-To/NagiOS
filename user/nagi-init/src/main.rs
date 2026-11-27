@@ -210,6 +210,13 @@ mod font;
     not(nagi_release_build)
 ))]
 mod linux_task24_calendar_keys;
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    feature = "linux-files-desktop",
+    not(nagi_release_build)
+))]
+mod linux_task24_files_keys;
 
 #[cfg(all(target_os = "nagi", feature = "isolated-process-acceptance"))]
 mod isolated_process;

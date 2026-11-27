@@ -22,13 +22,17 @@ mod ui;
 
 pub use action_api::{FilesActionApi, FilesActionCall, FilesActionResponse};
 pub use actions::{find_action, ActionDescriptor, ActionRisk, FILES_ACTIONS};
-pub use backend::{FilesystemProvider, ProviderAvailability};
+pub use backend::{FilesOperationScopeToken, FilesystemProvider, ProviderAvailability};
 pub use canvas::{draw_three_pane, FilesCanvas, FilesCanvasRect};
 pub use capability::{CapabilityAuthorizer, CapabilityGrant, CapabilitySet};
 pub use component::FilesComponent;
 pub use memory::InMemoryProvider;
 pub use model::*;
 pub use sandbox::SandboxProvider;
+#[cfg(target_os = "linux")]
+pub use sandbox::{
+    BorrowedFilesRootScope, C1SessionBoundFilesRootScope, OwnerScopedSandboxProvider,
+};
 pub use search::{FilesSearchProvider, SearchRecord};
 pub use service::{
     ActivityEvent, ActivityOutcome, ActivitySink, CheckpointHook, CheckpointSnapshot, FilesService,

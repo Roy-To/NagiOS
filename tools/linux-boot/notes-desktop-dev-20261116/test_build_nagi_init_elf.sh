@@ -67,7 +67,7 @@ echo "negative=path_label rejected_before_target=PASS"
 
 plan_label="$label_base-plan"
 plan=$("$builder" "$plan_label" --plan)
-printf '%s\n' "$plan" | /usr/bin/grep -F -- '--features linux-service-action-bridge,m10-desktop' >/dev/null
+printf '%s\n' "$plan" | /usr/bin/grep -F -- '--features linux-service-action-bridge,m10-desktop,linux-dev-data-selection' >/dev/null
 printf '%s\n' "$plan" | /usr/bin/grep -F 'linux_dev_preview_smoke,linux_desktop_dev_smoke' >/dev/null
 printf '%s\n' "$plan" | /usr/bin/grep -F 'profile=debug' >/dev/null
 printf '%s\n' "$plan" | /usr/bin/grep -F "build_dir=$script_dir/target-nagi-init-rust198-$plan_label" >/dev/null

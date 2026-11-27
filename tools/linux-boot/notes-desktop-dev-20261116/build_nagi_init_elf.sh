@@ -133,7 +133,7 @@ set -- "$cargo" build \
   --package nagi-init \
   --locked \
   --no-default-features \
-  --features linux-service-action-bridge,m10-desktop \
+  --features linux-service-action-bridge,m10-desktop,linux-dev-data-selection \
   --target x86_64-unknown-linux-musl
 if [ "$online" = false ]; then
   set -- "$@" --offline
@@ -144,7 +144,7 @@ echo "cargo=$("$cargo" --version)"
 echo "cc=$cc_version clang=$clang_version lld=$("$lld" --version)"
 echo "effective_cargo=$cargo rustc=$RUSTC rustdoc=$RUSTDOC linker=$CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER nagi_target_clang=$NAGI_TARGET_CLANG"
 echo 'effective_rustflags=linux_dev_preview_smoke,linux_desktop_dev_smoke,getrandom_backend=linux_getrandom,static-musl-target,LLD19 encoded_rustflags=unset wrappers=disabled'
-echo "cargo_home=$CARGO_HOME cargo_lock=$CARGO_RESOLVER_LOCKFILE_PATH target_dir=$CARGO_TARGET_DIR build_dir=$CARGO_BUILD_BUILD_DIR target=x86_64-unknown-linux-musl profile=debug features=linux-service-action-bridge,m10-desktop"
+echo "cargo_home=$CARGO_HOME cargo_lock=$CARGO_RESOLVER_LOCKFILE_PATH target_dir=$CARGO_TARGET_DIR build_dir=$CARGO_BUILD_BUILD_DIR target=x86_64-unknown-linux-musl profile=debug features=linux-service-action-bridge,m10-desktop,linux-dev-data-selection"
 if [ "$plan" = true ]; then
   printf 'command='
   printf ' %s' "$@"

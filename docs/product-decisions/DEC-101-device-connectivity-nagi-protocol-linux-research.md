@@ -1,7 +1,7 @@
 # DEC-101 — Device Connectivity：Bを基本にNagi独自の端末連携プロトコルを設計し、独自通信技術を並行研究
 
-**状態:** CONFIRMED（Foundation #32：Linux／OSS通信技術を利用するNagi統合Connectivity ServiceのB方式を基本採用。PC・Tablet・Phone間で使うNagi独自の連携プロトコルを設計する方向を確定し、必要性が判明した独自通信技術は並行して研究する）／PROVISIONAL（プロトコルの具体Schema／Version、接続・暗号方式、独自通信技術の採否、端末・提供版・受入条件）\
-**最終合意日:** 2026-11-16\
+**状態:** CONFIRMED（Foundation #32：Linux／OSS通信技術を利用するNagi統合Connectivity ServiceのB方式を基本採用。PC・Tablet・Phone間で使うNagi独自の連携プロトコルを設計する方向を確定し、必要性が判明した独自通信技術は並行して研究する。7/12の優先評価方針を追加）／PROVISIONAL（個別OSS採用・端末間AI推論／計算資源共有、プロトコルの具体Schema／Version、接続・暗号方式、独自通信技術の採否、端末・提供版・受入条件）\
+**最終合意日:** 2026-11-25（7/12のB案と優先評価方針を確認）\
 **適用候補:** Nagi OS Foundation #32。実装開始条件、Release割当て、Linux target／実機対応は未決定\
 **関連:** [Foundation Checklist #32](NAGI_OS_FOUNDATION_CHECKLIST.md#f32)、[DEC-066（LAN-first共通接続）](DEC-066-device-connectivity-lan-first.md)、[DEC-064（Nagi Share）](DEC-064-nagi-share-nearby-file-transfer.md)、[DEC-065（Nagi Handoff）](DEC-065-nagi-handoff-work-continuation.md)、[DEC-014（Workspace移行／同期）](DEC-014-workspace-state-checkpoints.md)、[DEC-043（Linux＋Nagi Userland）](DEC-043-nagi-userland-independent-os.md)、[DEC-052（実機テスト候補）](DEC-052-physical-test-device-candidates.md)、[Roadmaps](roadmaps/README.md)
 
@@ -34,6 +34,35 @@ PC／Tablet／Phone等のNagi端末が、Nagi Shareの単発ファイル転送�
 - **配信・移行・同期・Task再実行の境界を維持。** 新たなConnectionによりデータが自動で渡るわけではなく、未確認の転送完了・対応可能性を成功として表示しない。中断したAI Taskや副作用Actionは自動再開／二重実行しない。
 - **ハードウェアの制約を無視しない。** Nagi独自通信契約があることを理由に、全機器でのWi-Fi Direct／Bluetooth／遠隔通信や、全機種への互換性・性能を保証しない。
 
+## Nagi Network・Connectivity B案（2026-11-25）
+
+### 基本構成と評価方針（CONFIRMED）
+
+- Linux／OSSの通信基盤を活用する。Nagi独自の[Network Service（DEC-093）](DEC-093-network-service-linux-nagi-policy-offline.md)は接続設定・状態・アプリ通信の認可を扱う。Nagi独自のDevice Connectivity Serviceは端末発見・ペアリング・Trust・Session・取消を扱い、共通の上位Protocolは端末能力、機能、作業状態、要求と結果の意味を表す。上位Protocolは発見方式・Transport・暗号の実装から分離する。
+- [DEC-066](DEC-066-device-connectivity-lan-first.md)に従い、同一Wi-Fi／LANを先行し、次に近距離直接通信を検討し、その先に遠隔P2Pと任意のクラウド連携の拡張余地を残す。初期のローカル連携はOffline-firstとし、インターネット・オンラインアカウント・運営サーバーを必須にしない。
+- 共通基盤上で、[Share（DEC-064）](DEC-064-nagi-share-nearby-file-transfer.md)は認可された単発ファイル転送を、[Handoff（DEC-065）](DEC-065-nagi-handoff-work-continuation.md)は文書・編集位置・作業文脈などの意味的な作業継続を扱う。[DEC-014](DEC-014-workspace-state-checkpoints.md)の選択式Workspace移行・同期と標準の暗号化Export／Importは独立した契約として扱う。
+
+### 優先評価候補（個別採用はPROVISIONAL）
+
+| 評価対象 | 候補 |
+|---|---|
+| 有線LAN／Wi-Fiの接続設定・状態管理 | NetworkManager |
+| 段階対応するBluetooth（[DEC-107](DEC-107-network-devices-ethernet-wifi-bluetooth-staged.md)） | BlueZ |
+| 同一LAN内の端末・サービス発見 | mDNS（mdns-sd） |
+| TLS | rustls |
+| 端末間転送 | Quinn／QUICを優先評価し、TCP＋TLSと比較する |
+| 将来の遠隔P2P | Irohを将来評価する |
+
+個別の正式採用、ライセンスと配布条件、互換性、実機性能、具体API／Schema・依存バージョン・提供版はPROVISIONAL。発見・接続の成功だけでは相手を信頼済みと扱わない。[DEC-066](DEC-066-device-connectivity-lan-first.md)と[DEC-106](DEC-106-device-manager-local-remote-unified-ui.md)の端末認証・Trust・暗号化、現行Permission／Policy・明示許可と取消時の再評価を適用する。
+
+### 端末間AI推論・計算資源共有（PROVISIONAL）
+
+将来の例として、Phoneからユーザー自身が所有するPCへ認可済みの推論要求を送り、結果を受け取る構成を検討する。Model Routerの端末横断への拡張も検討対象に含む。構想の正式採用、遠隔Actionの許可、新規サービスの必須化は本決定の範囲外とする。
+
+要求・入力・結果は、[DEC-002](DEC-002-cloud-ai-data-sharing.md)／[DEC-003](DEC-003-memory-classification.md)等のデータ分類と外部送信の事前許可、および[DEC-020](DEC-020-ai-os-interaction-path.md)の非特権AI・前景操作優先・型付きPublic Actionと決定論的な検証の境界に従う。本人の明示承認と、宛先端末・対象データ・目的・User／Profile・期間／Task等の許可Scope、現行権限・取消を適用する。信頼済み端末にも包括的なデータ操作・推論・Action権限を与えない。Actionが必要な場合は、既存の正規経路で推論要求と別に認可する。
+
+既存Release／Activation／Acceptance Gate、Desktop first、実装範囲・提供版の割当ては維持する。
+
 ## 未確定・暫定案（PROVISIONAL／OPEN）
 
 - 上位Protocolの型、Message／Session／Error／Version交渉Schema、Service Boundary、既存Public API／Device／Continuityとの責務と整合方法。
@@ -52,3 +81,4 @@ DEC-066の「同一Wi-Fi／LAN開始・後続Transport追加可能・初期Cloud
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーはFoundation #32について、全面独自通信の開発負担を考慮し、Bを基本採用、Nagi独自の端末連携Protocolを設計し、必要な独自通信技術を並行研究する方針を明示承認。具体Protocol／Transport・独自通信の正式採用・提供機器・版／測定値は未決定。 |
+| 2026-11-25 | 7/12 Nagi Network・ConnectivityのB案と評価の優先方針をユーザーが承認。個別OSS採用・ライセンス・実機性能・API／版、端末間AI推論・計算資源共有はPROVISIONAL。既存の認可・Gate・実装範囲を維持。 |
