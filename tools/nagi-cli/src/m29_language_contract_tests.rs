@@ -1,5 +1,6 @@
 const DESKTOP: &str = include_str!("../../../user/nagi-init/src/desktop.rs");
 const FONT: &str = include_str!("../../../user/nagi-init/src/font.rs");
+const GENERATED_FONT: &str = include_str!("../../../user/nagi-init/src/font_japanese_generated.rs");
 const INIT: &str = include_str!("../../../user/nagi-init/src/main.rs");
 
 fn compact(source: &str) -> String {
@@ -77,10 +78,14 @@ fn selected_locale_has_a_localized_text_cue_in_its_option_row() {
 
 #[test]
 fn japanese_selected_state_characters_have_desktop_font_glyphs() {
+    let font = compact(FONT);
+    assert!(font.contains("#[path=\"font_japanese_generated.rs\"]modgenerated;"));
     for character in ["選", "択", "中"] {
+        let codepoint = format!("{:#06x},", character.chars().next().unwrap() as u32);
         assert!(
-            FONT.contains(character),
-            "desktop font is missing {character}"
+            GENERATED_FONT.contains(&codepoint),
+            "desktop generated font is missing U+{:04X}",
+            character.chars().next().unwrap() as u32
         );
     }
 }
