@@ -2487,6 +2487,28 @@ mod tests {
 
     #[test]
     fn root_lock_still_serializes_when_lock_name_changes() {
+        const CHILD_ENV: &str = "NAGI_TEST_SNAPSHOT_ROOT_LOCK_CHILD";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            // Another test spawning a child can temporarily inherit our lock
+            // descriptor before exec, even with CLOEXEC set.
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "snapshot::tests::root_lock_still_serializes_when_lock_name_changes",
+                ])
+                .env(CHILD_ENV, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+
         let directory = TestDirectory::new(0o700);
         let store = DirectoryFdSnapshotStorage::new(directory.duplicate_root()).unwrap();
         let next = directory.duplicate_root();
