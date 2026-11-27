@@ -6,9 +6,9 @@ usage() {
 Usage: build_task24_acceptance_elf.sh [--online] [--release | --desktop-launcher] [--files] <new-output-dir>
 
 Build the standalone Linux x86_64-musl Task24 PID 1. Both profiles require
-NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes) and
-NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256 (lowercase SHA-256). For development
-acceptance, use the catalog public key and the signed login package digest.
+NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY (32 raw public bytes). Development
+acceptance also requires NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256 (lowercase
+SHA-256) for the signed development login package.
 
 Install nightly-2025-08-01 with the x86_64-unknown-linux-musl target.
 Materialize the pinned source inputs before building:
@@ -59,6 +59,12 @@ git diff --quiet HEAD -- || {
     exit 1
 }
 source_head=$(git rev-parse HEAD)
+: "${NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY:?set the catalog public key path}"
+if [[ "$profile" == debug ]]; then
+    : "${NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256:?set the development login package SHA-256}"
+else
+    unset NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256
+fi
 export PYTHONDONTWRITEBYTECODE=1
 python3 "$gate_helper" check-rustflags --repo-root "$PWD"
 target_root=${CARGO_TARGET_DIR:-"$PWD/target"}
@@ -105,9 +111,6 @@ fi
 if [[ "$profile" == release ]]; then
     cargo_options+=(--release)
 fi
-: "${NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY:?set the catalog public key path}"
-: "${NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256:?set the development login package SHA-256}"
-
 cargo_bin=$(rustup which --toolchain "$toolchain" cargo)
 export RUSTC
 RUSTC=$(rustup which --toolchain "$toolchain" rustc)
@@ -174,8 +177,10 @@ print(
 public_key = os.environ.get("NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY")
 key = Path(public_key).read_bytes() if public_key else b""
 login_pin = os.environ.get("NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256") or None
-if len(key) != 32 or not re.fullmatch(r"[0-9a-f]{64}", login_pin or ""):
-    sys.exit("catalog public key or login package SHA-256 is invalid")
+if len(key) != 32:
+    sys.exit("catalog public key must contain 32 bytes")
+if profile == "debug" and not re.fullmatch(r"[0-9a-f]{64}", login_pin or ""):
+    sys.exit("development login package SHA-256 is invalid")
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()

@@ -115,7 +115,11 @@ fn main() {
         fs::write(out_dir.join("linux-boot-catalog-public-key"), public_key)
             .expect("stage Linux boot catalog public key");
         println!("cargo:rerun-if-env-changed=NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256");
-        let login_pin = env::var("NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256").unwrap_or_default();
+        let login_pin = if profile == "debug" {
+            env::var("NAGI_LINUX_DEV_LOGIN_PACKAGE_SHA256").unwrap_or_default()
+        } else {
+            String::new()
+        };
         assert!(
             login_pin.is_empty()
                 || (login_pin.len() == 64
