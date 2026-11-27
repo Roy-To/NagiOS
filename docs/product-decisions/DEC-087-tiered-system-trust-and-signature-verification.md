@@ -18,6 +18,10 @@ Nagiが起動し、更新し、利用するOS／アプリの正当性と改ざ�
 5. **更新・ロールバックと安全な復旧を連携させる。** DEC-079のread-only System／A/B更新・復旧と整合し、破損・改ざん・検証失敗した更新を通常成功として有効化しない。古い脆弱なImageへの危険なロールバックを防止する方針を設計対象に置く。ただし復旧可能性、Rollback許可の例外、単調counter等の具体方式は未決定。
 6. **既存のIdentity／Permission／AI非特権を維持する。** 起動検証・署名検証の成功は、アプリが自動的にSystem Capability／Owner権限を得ることや、User Dataへの読み書きが認可されたことを意味しない。ハードウェア保護がない環境で保護を同等だと偽らず、現在のLinux Sandbox・Secrets Service・権限を引き続き適用する。
 
+### Linux 0.1 Developer Preview の製品署名（2026-11-28、CONFIRMED）
+
+製品用に新規の Ed25519 鍵を1本用意し、catalog、package、boot metadata、Data 選択設定に使用する。Owner が自分の端末で鍵を生成・保管し、レビュー済み材料に署名する。リポジトリには確認済みの公開鍵だけを受け入れる。秘密鍵はリポジトリ、worktree、Codex、CI・自動実行に渡さない。対象版の準備と公開鍵確認は [Linux 0.1 release signing](../development/linux-release-signing.md) を参照。正式な公開鍵、各製品 verifier への配線、更新・失効の詳細は別途確定する。
+
 ## 例外と既存正本の尊重
 
 - **DEC-078:** UEFI対応PCはUEFI基本、Raspberry Pi／タブレット等では端末のBoot方式を許容。UEFI Secure Boot固有技術を全端末へ強制するわけではない。
@@ -48,3 +52,4 @@ Foundation #11の製品方針として、Boot #2、System Image #3、Secrets #10
 | 日付 | 内容 |
 |---|---|
 | 2026-11-16 | ユーザーがFoundation #11「システム信頼基盤」でB案を明確に承認。対応機器でHardware root of trust／Secure Boot等を活用し、非対応機器でもソフトウェア署名検証する段階的方式、Ownerによる限定的Developer Mode、製品／開発鍵分離・更新／失効・安全な復旧の設計方針を採用。具体的なTrust Anchor／署名方法／rollback／実機対応・適用版は未決定。 |
+| 2026-11-28 | Linux 0.1 Developer Preview の製品署名を新規 Ed25519 鍵1本に統一し、Owner の手元での生成・保管・署名と公開鍵だけの受入を確定。 |
