@@ -2,7 +2,7 @@
 
 **Draft for review.** The owner keeps one new Ed25519 key for the Linux 0.1 release. The tools run in the owner's local terminal with Python 3 and OpenSSL 3. Key generation produces an encrypted PKCS#8 file and a raw 32-byte public key. Signing verifies the expected public key and the reviewed material hashes, then writes raw detached signatures. The tools leave guest verification and image assembly to their existing owners.
 
-The private key stays in owner-controlled storage outside Git repositories, worktrees and Codex storage. Use a private directory on the owner's machine. Neither CI nor Codex runs these commands with a product key. Run privately with terminal logging disabled and keep the passphrase separately.
+The private key stays in owner-controlled storage outside Git repositories, worktrees and Codex storage. Use a private directory on the owner's machine with owner-only access, including any filesystem ACLs. Neither CI nor Codex runs these commands with a product key. Run privately with terminal logging disabled and keep the passphrase separately.
 
 ## Generate and hand off the public key
 
@@ -39,4 +39,4 @@ The signer prompts once, signs the fixed bytes in a single batch, and verifies e
 | Data selection | Existing format uses `nagi-data-selection-v1` plus a NUL and the canonical LF-terminated body. Append the signature to the body. The existing verifier is Developer Preview only. Product anchor and mount wiring require review before collection of a product signature. |
 | READY and System boot metadata | The existing development READY plan binds the complete signed catalog. A Linux product READY path and signed System metadata consumer require review before collection of product signatures. System verity metadata from the image builder is unsigned staging material. |
 
-The existing catalog can bind the digest of a **complete signed XAPP**, and the development READY plan binds the **complete signed catalog**. A batch can sign only preimages whose exact bytes and hashes already exist. Confirm the product assembly and review sequence before promising one signing batch for mutually dependent artifacts.
+The current catalog binds the package ID, entry and **executable** digest. The package owner separately binds the complete signed XAPP and its installed generation. This lets the owner sign a catalog and the referenced XAPP in one batch once both preimages are reviewed. The development READY plan binds the **complete signed catalog**, so any approved product format with that dependency needs its assembly and review order confirmed before signing.
