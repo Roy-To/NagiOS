@@ -41,10 +41,13 @@ def check_private_location(parent: Path) -> None:
     if parent == codex_home or codex_home in parent.parents:
         raise SigningError("The private key must stay outside Codex storage.")
     for candidate in (parent, *parent.parents):
-        if candidate.name in (".git", ".codex") or os.path.lexists(candidate / ".git"):
+        if candidate.name.casefold() in (".git", ".codex") or os.path.lexists(candidate / ".git"):
             raise SigningError("The private key must stay outside repositories and worktrees.")
-        if all((candidate / name).exists() for name in ("HEAD", "objects", "refs")):
-            raise SigningError("The private key must stay outside bare Git repositories.")
+        git_storage = (candidate / "HEAD").exists() and (
+            (candidate / "objects").is_dir() or (candidate / "commondir").is_file()
+        )
+        if git_storage:
+            raise SigningError("The private key must stay outside Git administrative directories.")
 
 
 @contextmanager

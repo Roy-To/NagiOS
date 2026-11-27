@@ -20,7 +20,12 @@ def generate(private: Path, public: Path, secret: bytes) -> bytes:
             with public.open("xb") as output:
                 output.write(raw)
         except BaseException:
-            os.unlink(name, dir_fd=directory)
+            try:
+                current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            except FileNotFoundError:
+                current = None
+            if current is not None and os.path.samestat(os.fstat(fd), current):
+                os.unlink(name, dir_fd=directory)
             raise
         finally:
             os.close(fd)

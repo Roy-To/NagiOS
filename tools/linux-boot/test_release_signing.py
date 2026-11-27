@@ -19,19 +19,21 @@ class PrivatePathTests(unittest.TestCase):
             repo = root / "repo"
             linked = root / "linked"
             bare = root / "bare"
-            codex = root / ".codex"
-            for path in (repo, linked, bare, codex):
+            codex = root / ".CoDeX"
+            admin = root / "admin"
+            for path in (repo, linked, bare, codex, admin):
                 path.mkdir()
             (repo / ".git").mkdir()
             (linked / ".git").write_text("gitdir: /unused\n")
             (bare / "HEAD").touch()
             (bare / "objects").mkdir()
-            (bare / "refs").mkdir()
+            (admin / "HEAD").touch()
+            (admin / "commondir").write_text("..\n")
             outside = root / "private"
             outside.mkdir()
             (root / "alias").symlink_to(linked, target_is_directory=True)
             (linked / "alias").symlink_to(outside, target_is_directory=True)
-            for path in (repo, linked, bare, codex, root / "alias", linked / "alias"):
+            for path in (repo, linked, bare, codex, admin, root / "alias", linked / "alias"):
                 with self.subTest(path=path.name), self.assertRaises(SigningError):
                     with private_location(path / "key.pem"):
                         self.fail("protected path was accepted")
