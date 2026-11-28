@@ -1,20 +1,21 @@
 //! Development boot selection authenticated independently of the kernel command line.
 //!
-//! The optional key is the published RFC 8032 test vector used by the Nagi 0.1
-//! Developer Preview slot-manifest reference. It is test material, not a product
-//! trust anchor. DEC-087 keeps the concrete Linux product trust anchor provisional.
+//! The Developer Preview key is the published RFC 8032 test vector used by the
+//! Nagi 0.1 slot-manifest reference. It is test material, not a product trust
+//! anchor. The release verifier binds to the registered Linux 0.1 public key;
+//! DEC-087 still keeps the overall product trust chain provisional.
 
 #![no_std]
 
-#[cfg(feature = "developer-preview-test-key")]
 use ed25519_dalek::{Signature, VerifyingKey};
 
 pub const SIGNATURE_BYTES: usize = 64;
 pub const MAX_CONFIG_TEXT_BYTES: usize = 512;
 pub const MAX_CONFIG_BYTES: usize = MAX_CONFIG_TEXT_BYTES + SIGNATURE_BYTES;
 pub const SIGNATURE_DOMAIN: &[u8] = b"nagi-data-selection-v1\0";
-#[cfg(any(feature = "developer-preview-test-key", test))]
 const HEADER: &str = "nagi-data-selection 1";
+const RELEASE_PUBLIC_KEY: &[u8; 32] =
+    include_bytes!("../../../release/linux-0.1/public/ed25519.raw");
 
 /// Developer Preview test-vector signer; never a production trust anchor.
 #[cfg(feature = "developer-preview-test-key")]
@@ -46,7 +47,6 @@ impl SelectionMode {
         }
     }
 
-    #[cfg(feature = "developer-preview-test-key")]
     fn parse(value: &str) -> Option<Self> {
         match value {
             "identity" => Some(Self::Identity),
@@ -76,32 +76,78 @@ pub struct DataBootSelection<'a> {
     pub snapshots: &'a str,
 }
 
+/// A selection whose signature was checked with the registered release key.
+/// Its private field prevents callers from constructing an unverified value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedDataBootSelection<'a> {
+    selection: DataBootSelection<'a>,
+}
+
+impl<'a> VerifiedDataBootSelection<'a> {
+    pub const fn mode(&self) -> SelectionMode {
+        self.selection.mode
+    }
+
+    pub const fn filesystem_uuid(&self) -> &'a str {
+        self.selection.filesystem_uuid
+    }
+
+    pub const fn accounts_path(&self) -> &'a str {
+        self.selection.accounts
+    }
+
+    pub const fn snapshots_path(&self) -> &'a str {
+        self.selection.snapshots
+    }
+}
+
 impl<'a> DataBootSelection<'a> {
-    /// Verify the complete text before parsing any selection field.
+    /// Verify using the explicitly enabled Developer Preview test key.
+    ///
+    /// This legacy entry point remains for existing development callers. It
+    /// never uses the release key and rejects input when the preview feature is
+    /// disabled.
     pub fn verify(bytes: &'a [u8]) -> Result<Self, SelectionError> {
-        if bytes.len() <= SIGNATURE_BYTES || bytes.len() > MAX_CONFIG_BYTES {
-            return Err(SelectionError::InvalidLength);
-        }
-        let (text, signature) = bytes.split_at(bytes.len() - SIGNATURE_BYTES);
         #[cfg(feature = "developer-preview-test-key")]
         {
-            let signature =
-                Signature::from_slice(signature).map_err(|_| SelectionError::Signature)?;
-            let key = VerifyingKey::from_bytes(&DEVELOPMENT_PREVIEW_PUBLIC_KEY)
-                .map_err(|_| SelectionError::Signature)?;
-            let mut message = [0; SIGNATURE_DOMAIN.len() + MAX_CONFIG_TEXT_BYTES];
-            message[..SIGNATURE_DOMAIN.len()].copy_from_slice(SIGNATURE_DOMAIN);
-            message[SIGNATURE_DOMAIN.len()..SIGNATURE_DOMAIN.len() + text.len()]
-                .copy_from_slice(text);
-            key.verify_strict(&message[..SIGNATURE_DOMAIN.len() + text.len()], &signature)
-                .map_err(|_| SelectionError::Signature)?;
-            Self::parse_text(text)
+            Self::verify_developer_preview(bytes)
         }
         #[cfg(not(feature = "developer-preview-test-key"))]
         {
-            let _ = (text, signature);
-            Err(SelectionError::Signature)
+            if bytes.len() <= SIGNATURE_BYTES || bytes.len() > MAX_CONFIG_BYTES {
+                Err(SelectionError::InvalidLength)
+            } else {
+                Err(SelectionError::Signature)
+            }
         }
+    }
+
+    /// Verify using the Developer Preview test key. This API does not exist in
+    /// release builds because `developer-preview-test-key` is debug-only.
+    #[cfg(feature = "developer-preview-test-key")]
+    pub fn verify_developer_preview(bytes: &'a [u8]) -> Result<Self, SelectionError> {
+        verify_selection_with_key(bytes, &DEVELOPMENT_PREVIEW_PUBLIC_KEY)
+    }
+
+    /// Verify the existing selection format using the registered Linux 0.1
+    /// release public key. Product selection is limited to identity mode.
+    pub fn verify_release(
+        bytes: &'a [u8],
+    ) -> Result<VerifiedDataBootSelection<'a>, SelectionError> {
+        verify_release_with_key(bytes, RELEASE_PUBLIC_KEY)
+    }
+
+    /// Verify the release selection and require it to name the observed Data
+    /// filesystem UUID before returning its opaque verified view.
+    pub fn verify_release_for_filesystem(
+        bytes: &'a [u8],
+        observed_uuid: &str,
+    ) -> Result<VerifiedDataBootSelection<'a>, SelectionError> {
+        let selection = Self::verify_release(bytes)?;
+        if selection.filesystem_uuid() != observed_uuid {
+            return Err(SelectionError::FilesystemUuidMismatch);
+        }
+        Ok(selection)
     }
 
     /// Accept the signed selection only when the observed device UUID is exact.
@@ -116,7 +162,6 @@ impl<'a> DataBootSelection<'a> {
         Ok(selection)
     }
 
-    #[cfg(feature = "developer-preview-test-key")]
     fn parse_text(text: &'a [u8]) -> Result<Self, SelectionError> {
         let text = core::str::from_utf8(text).map_err(|_| SelectionError::Malformed)?;
         if text.contains('\r') {
@@ -159,7 +204,35 @@ impl<'a> DataBootSelection<'a> {
     }
 }
 
-#[cfg(feature = "developer-preview-test-key")]
+fn verify_selection_with_key<'a>(
+    bytes: &'a [u8],
+    public_key: &[u8; 32],
+) -> Result<DataBootSelection<'a>, SelectionError> {
+    if bytes.len() <= SIGNATURE_BYTES || bytes.len() > MAX_CONFIG_BYTES {
+        return Err(SelectionError::InvalidLength);
+    }
+    let (text, signature) = bytes.split_at(bytes.len() - SIGNATURE_BYTES);
+    let signature = Signature::from_slice(signature).map_err(|_| SelectionError::Signature)?;
+    let key = VerifyingKey::from_bytes(public_key).map_err(|_| SelectionError::Signature)?;
+    let mut message = [0; SIGNATURE_DOMAIN.len() + MAX_CONFIG_TEXT_BYTES];
+    message[..SIGNATURE_DOMAIN.len()].copy_from_slice(SIGNATURE_DOMAIN);
+    message[SIGNATURE_DOMAIN.len()..SIGNATURE_DOMAIN.len() + text.len()].copy_from_slice(text);
+    key.verify_strict(&message[..SIGNATURE_DOMAIN.len() + text.len()], &signature)
+        .map_err(|_| SelectionError::Signature)?;
+    DataBootSelection::parse_text(text)
+}
+
+fn verify_release_with_key<'a>(
+    bytes: &'a [u8],
+    public_key: &[u8; 32],
+) -> Result<VerifiedDataBootSelection<'a>, SelectionError> {
+    let selection = verify_selection_with_key(bytes, public_key)?;
+    if selection.mode != SelectionMode::Identity {
+        return Err(SelectionError::Malformed);
+    }
+    Ok(VerifiedDataBootSelection { selection })
+}
+
 fn valid_uuid(value: &str) -> bool {
     value.len() == 36
         && value.bytes().enumerate().all(|(index, byte)| match index {
@@ -168,7 +241,6 @@ fn valid_uuid(value: &str) -> bool {
         })
 }
 
-#[cfg(feature = "developer-preview-test-key")]
 fn valid_relative_path(value: &str) -> bool {
     !value.is_empty()
         && value.split('/').all(|component| {
@@ -211,6 +283,90 @@ mod tests {
         signed_text(format!(
             "{HEADER}\nmode=identity\nfilesystem-uuid={uuid}\naccounts=accounts\nsnapshots=snapshots\n"
         ))
+    }
+
+    fn signed_config_for_mode(mode: &str) -> Vec<u8> {
+        signed_text(format!(
+            "{HEADER}\nmode={mode}\nfilesystem-uuid=12345678-1234-4234-8234-123456789abc\naccounts=accounts\nsnapshots=snapshots\n"
+        ))
+    }
+
+    fn test_public_key() -> [u8; 32] {
+        SigningKey::from_bytes(&TEST_SECRET)
+            .verifying_key()
+            .to_bytes()
+    }
+
+    #[test]
+    fn release_key_matches_registered_linux_01_public_key() {
+        const REGISTERED_RELEASE_KEY: [u8; 32] = [
+            0xcf, 0xac, 0x80, 0xf9, 0x03, 0xaf, 0x49, 0x3f, 0xf7, 0x7d, 0xf1, 0x21, 0xa3, 0x4d,
+            0xc0, 0xf9, 0x63, 0x9e, 0xa5, 0x39, 0xb8, 0xfa, 0xa4, 0x52, 0xf5, 0x2d, 0xbb, 0x92,
+            0xb5, 0xe5, 0xef, 0x28,
+        ];
+        assert_eq!(RELEASE_PUBLIC_KEY, &REGISTERED_RELEASE_KEY);
+        assert_ne!(RELEASE_PUBLIC_KEY, &test_public_key());
+    }
+
+    #[test]
+    fn generic_key_verifier_parses_a_valid_signed_selection() {
+        let bytes = signed_config("12345678-1234-4234-8234-123456789abc");
+        let selection = verify_selection_with_key(&bytes, &test_public_key())
+            .expect("test-key signature verifies");
+        assert_eq!(selection.mode, SelectionMode::Identity);
+        assert_eq!(
+            selection.filesystem_uuid,
+            "12345678-1234-4234-8234-123456789abc"
+        );
+        assert_eq!(selection.accounts, "accounts");
+        assert_eq!(selection.snapshots, "snapshots");
+    }
+
+    #[test]
+    fn release_verifier_rejects_unsigned_and_corrupted_selection() {
+        let signed = signed_config("12345678-1234-4234-8234-123456789abc");
+        let unsigned = &signed[..signed.len() - SIGNATURE_BYTES];
+        assert_eq!(
+            DataBootSelection::verify_release(unsigned),
+            Err(SelectionError::Signature)
+        );
+
+        let mut corrupted = signed;
+        let last = corrupted.len() - 1;
+        corrupted[last] ^= 1;
+        assert_eq!(
+            DataBootSelection::verify_release(&corrupted),
+            Err(SelectionError::Signature)
+        );
+    }
+
+    #[test]
+    fn release_verifier_rejects_developer_preview_signature() {
+        let bytes = signed_config("12345678-1234-4234-8234-123456789abc");
+        assert_eq!(
+            DataBootSelection::verify_release(&bytes),
+            Err(SelectionError::Signature)
+        );
+    }
+
+    #[test]
+    fn release_policy_requires_identity_mode_and_returns_opaque_view() {
+        let identity = signed_config("12345678-1234-4234-8234-123456789abc");
+        let verified = verify_release_with_key(&identity, &test_public_key())
+            .expect("synthetic identity signature verifies under injected test key");
+        assert_eq!(verified.mode(), SelectionMode::Identity);
+        assert_eq!(
+            verified.filesystem_uuid(),
+            "12345678-1234-4234-8234-123456789abc"
+        );
+        assert_eq!(verified.accounts_path(), "accounts");
+        assert_eq!(verified.snapshots_path(), "snapshots");
+
+        let smoke = signed_config_for_mode("smoke-write");
+        assert_eq!(
+            verify_release_with_key(&smoke, &test_public_key()),
+            Err(SelectionError::Malformed)
+        );
     }
 
     #[cfg(feature = "developer-preview-test-key")]
