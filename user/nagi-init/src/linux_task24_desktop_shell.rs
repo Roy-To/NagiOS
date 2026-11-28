@@ -418,7 +418,7 @@ mod tests {
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
 
@@ -447,7 +447,7 @@ mod tests {
             |_, _, _locale| panic!("failed logout must not launch another app"),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         );
 
         assert!(result.is_err());
