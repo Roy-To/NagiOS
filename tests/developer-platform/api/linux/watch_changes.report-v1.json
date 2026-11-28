@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["c"],
+  "manifests": [],
+  "dependencies": [],
+  "analysis": {},
+  "findings": [
+    {"category": "linux-header", "path": "watch_changes.c", "line": 2, "evidence": "#include <sys/inotify.h>", "review_status": "needs_review"},
+    {"category": "posix-header", "path": "watch_changes.c", "line": 3, "evidence": "#include <unistd.h>", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "watch_changes.c", "line": 5, "evidence": "    int descriptor = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);", "review_status": "needs_review"},
+    {"category": "linux-api", "path": "watch_changes.c", "line": 7, "evidence": "    if (inotify_add_watch(descriptor, path, IN_MODIFY) < 0) {", "review_status": "needs_review"},
+    {"category": "posix-api", "path": "watch_changes.c", "line": 8, "evidence": "        close(descriptor);", "review_status": "needs_review"}
+  ],
+  "limitations": ["Handwritten interim report fixture, not scanner output. Source: tests/developer-platform/evaluation/linux/watch_changes.c"]
+}

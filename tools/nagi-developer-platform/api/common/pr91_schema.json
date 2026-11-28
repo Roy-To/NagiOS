@@ -1,0 +1,34 @@
+{
+  "_comment": "PROVISIONAL schema facts observed in PR #91 tools/nagi-cli porting.rs (read-only, 2026-11-18). Data only; replace this file when the canonical PT-01 contract is fixed. Not a copy of scanner code.",
+  "schema_version": 1,
+  "top_level": {
+    "detected_languages": {"type": "string_list", "enum": ["c", "c++", "rust"]},
+    "manifests": {"type": "string_list"},
+    "dependencies": {"type": "dependency_list"},
+    "analysis": {"type": "analysis"},
+    "findings": {"type": "finding_list"},
+    "limitations": {"type": "string_list"}
+  },
+  "dependency_fields": ["name", "source", "review_status"],
+  "analysis_integer_fields": ["files_scanned", "directories_visited", "entries_visited", "bytes_read"],
+  "analysis_boolean_fields": ["truncated"],
+  "conclusion_enum": ["no-known-boundary-detected", "requires-review"],
+  "finding_fields": ["category", "path", "line", "evidence", "review_status"],
+  "review_status_enum": ["requires-review"],
+  "evidence_prefix": "matched tokens: ",
+  "evidence_separator": ", ",
+  "required_limitations": [
+    "This heuristic scan does not establish Nagi compatibility or POSIX/ABI compatibility.",
+    "Dependency versions, licenses, transitive dependencies, and runtime behavior require separate review.",
+    "A host build or package validation does not prove that an application installs or runs on Nagi OS."
+  ],
+  "categories": {
+    "filesystem": ["std::fs", "File::open", "File::create", "fopen(", "open(", "opendir("],
+    "process": ["std::process", "Command::new", "fork(", "execve(", "system(", "CreateProcess"],
+    "threading": ["std::thread", "pthread_", "CreateThread", "std::sync::mpsc"],
+    "networking": ["TcpStream", "TcpListener", "UdpSocket", "socket(", "connect(", "accept(", "WSAStartup"],
+    "dynamic-loading": ["libloading", "dlopen(", "LoadLibrary(", "dlsym("],
+    "gui-framework": ["QApplication", "QWidget", "gtk_", "GtkApplication", "SDL_Init", "electron", "winit::"],
+    "os-contract": ["libc::", "unistd.h", "sys/", "cfg(target_os", "_WIN32", "std::env::var"]
+  }
+}

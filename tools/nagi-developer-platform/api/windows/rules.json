@@ -1,0 +1,128 @@
+{
+  "rules_version": 1,
+  "windows_categories": ["windows-api", "windows-header", "win32", "windows-crt", "dotnet"],
+  "limitations": [
+    "PROVISIONAL: PR #91 report v1 is an interim input, not the canonical PT-01 interface.",
+    "Evidence is a report fragment, not verified source context; symbol-only evidence can originate in comments or strings.",
+    "Lexical matches include declarations, same-name identifiers and inactive code; they do not prove a call or platform dependency.",
+    "Raw evidence is withheld; locations, matched rule aliases and a SHA-256 digest identify the supplied evidence.",
+    "No conversion, execution, capability grant, compatibility certification or target acceptance is performed."
+  ],
+  "rules": [
+    {
+      "id": "WIN-HEADER", "family": "win32", "classification": "platform_dependency",
+      "aliases": ["windows.h"], "case_insensitive": true, "basename_only": true,
+      "reason": "The Windows header indicates a platform-specific dependency candidate.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["Separate platform adapters; the current public SDK does not provide windows.h."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "WIN-FILE-OPEN", "family": "win32", "classification": "file_io",
+      "aliases": ["CreateFile", "CreateFileA", "CreateFileW"],
+      "reason": "Win32 file opening uses sharing flags, creation dispositions and Windows handles.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No general file-open API is exposed by this public SDK.", "Review path encoding, sharing, creation and permission semantics; do not substitute host file access."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "WIN-FILE-READ", "family": "win32", "classification": "file_io",
+      "aliases": ["ReadFile"],
+      "reason": "Win32 byte reads use a handle and may use overlapped completion.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No public general file-read API is available in this SDK.", "Partial reads, EOF, completion and errors require explicit adapter design."],
+      "references": ["sdk/README.md", "sdk/c/include/nagi_sdk.h"]
+    },
+    {
+      "id": "WIN-FILE-WRITE", "family": "win32", "classification": "file_io",
+      "aliases": ["WriteFile"],
+      "reason": "Windows handle writes require explicit data-integrity and completion semantics.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The SDK does not expose a general file-write API.", "Review short writes, atomicity, cancellation and durability separately."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "WIN-HANDLE-CLOSE", "family": "win32", "classification": "resource_lifetime",
+      "aliases": ["CloseHandle"],
+      "reason": "A Windows HANDLE is not a Nagi capability and cannot be transferred by numeric reinterpretation.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No generic Windows handle-close equivalent is exposed by this SDK.", "Define lifetime and attenuated rights through the actual service contract."],
+      "references": ["sdk/README.md", "sdk/rust/docs/APP_SDK_CONTRACT.md"]
+    },
+    {
+      "id": "WIN-REGISTRY", "family": "win32", "classification": "settings_storage",
+      "aliases": ["RegOpenKeyExA", "RegOpenKeyExW", "RegQueryValueExW", "RegSetValueExW"],
+      "reason": "Windows registry persistence requires a storage redesign.",
+      "availability": "contract_only",
+      "alternatives": [{"symbol": "AppStateBackend", "reference": "sdk/rust/src/app_contract/state.rs", "relation": "redesign_contract_only", "limits": "App-scoped state interface only; no registry hierarchy, storage implementation or authority is supplied."}],
+      "gaps": ["A runtime storage backend, namespace mapping and migration strategy remain required.", "Do not map machine-wide registry authority to app state."],
+      "references": ["sdk/rust/docs/APP_SDK_CONTRACT.md", "sdk/rust/src/app_contract/state.rs"]
+    },
+    {
+      "id": "WIN-THREAD", "family": "win32", "classification": "threading",
+      "aliases": ["CreateThread", "WaitForSingleObject", "WaitForMultipleObjects"],
+      "reason": "Thread creation and wait-object semantics require a runtime-specific adapter.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The current public SDK exposes no equivalent threading or wait-object API."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "WIN-PROCESS", "family": "win32", "classification": "process_creation",
+      "aliases": ["CreateProcess", "CreateProcessA", "CreateProcessW", "ShellExecuteW"],
+      "reason": "Process launch and shell execution cannot be inferred from application identity helpers.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No public process-launch client or shell execution equivalent is provided here.", "Explicit authorization and a real runtime contract remain required."],
+      "references": ["sdk/README.md", "sdk/rust/docs/APP_SDK_CONTRACT.md"]
+    },
+    {
+      "id": "DOTNET-PROCESS", "family": "dotnet", "classification": "process_creation",
+      "aliases": ["System.Diagnostics.Process.Start", "Process.Start"],
+      "reason": "Managed process launch needs a runtime adapter and cannot be replaced by SDK identity helpers.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["The public SDK provides no managed runtime or process-launch client.", "Resolve short type names and review launch authorization and shell behavior explicitly."],
+      "references": ["sdk/README.md", "sdk/rust/docs/APP_SDK_CONTRACT.md"]
+    },
+    {
+      "id": "CRT-FILE", "family": "crt", "classification": "file_io",
+      "aliases": ["_wfopen", "_wopen", "fopen_s", "_fsopen"],
+      "reason": "Microsoft CRT file entry points differ in encoding, sharing, errors and invalid-parameter handling.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No equivalent public SDK file entry points are confirmed.", "A portable C rewrite still needs a target libc/PAL and explicit semantics testing; host libc success is insufficient."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "CRT-TEXT", "family": "crt", "classification": "text_semantics",
+      "aliases": ["_stricmp", "_wcsicmp", "_snprintf", "strcpy_s"],
+      "reason": "Microsoft CRT case, locale, truncation and constraint-handler behavior require a per-function review.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No direct public SDK replacement is asserted.", "Do not treat similarly named standard C functions as semantically equivalent."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "DOTNET-FILE", "family": "dotnet", "classification": "file_io",
+      "aliases": ["System.IO.File.ReadAllText", "System.IO.File.WriteAllText", "System.IO.FileStream", "File.ReadAllText", "File.WriteAllText", "FileStream"],
+      "reason": ".NET managed file I/O depends on runtime, encoding, exception and disposal semantics.",
+      "availability": "unsupported", "alternatives": [],
+      "gaps": ["No .NET execution compatibility or managed file API is exposed by this SDK.", "Short type names may refer to unrelated local types; resolve symbols before redesign."],
+      "references": ["sdk/README.md"]
+    },
+    {
+      "id": "WIN-UI", "family": "win32", "classification": "ui_redesign",
+      "aliases": ["CreateWindowExA", "CreateWindowExW"],
+      "reason": "Native Windows UI needs an explicit Nagi UI redesign, not a window ABI substitution.",
+      "availability": "contract_only",
+      "alternatives": [{"symbol": "Application::presentation", "reference": "sdk/rust/src/lib.rs", "relation": "presentation_identity_only", "limits": "Constructs logical presentation data; does not open a native window, render, connect IPC or grant rights."}],
+      "gaps": ["Window creation, event handling, accessibility and rendering are not implemented by this helper.", "Hand UI structure and interaction work to PT-04."],
+      "references": ["sdk/README.md", "sdk/rust/src/lib.rs"]
+    },
+    {
+      "id": "DOTNET-UI", "family": "dotnet", "classification": "ui_redesign",
+      "aliases": ["System.Windows.Window"],
+      "reason": "WPF managed windows require Nagi UI redesign; .NET is not necessarily a Windows dependency outside Windows-specific frameworks.",
+      "availability": "contract_only",
+      "alternatives": [{"symbol": "Application::presentation", "reference": "sdk/rust/src/lib.rs", "relation": "presentation_identity_only", "limits": "Logical presentation identity only; no WPF controls, binding, rendering or managed runtime is supplied."}],
+      "gaps": ["Rebuild UI structure and interaction through PT-04; do not claim WPF execution compatibility."],
+      "references": ["sdk/README.md", "sdk/rust/src/lib.rs"]
+    }
+  ]
+}

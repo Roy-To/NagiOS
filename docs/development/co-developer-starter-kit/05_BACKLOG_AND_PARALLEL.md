@@ -1,6 +1,6 @@
 # 12タスクと並行開発キュー
 
-IDと目的は公開済みの `CO_DEVELOPER_ALLOCATION_PROPOSAL.md` 第7節に合わせています。以前の会話中の12件の番号ではなく、**NDP-01〜12**を使います。詳細成果・テスト案は各taskファイルにあります。初期状態は全件 `PROPOSED / NOT STARTED`。文書作成を着手と数えません。
+IDと目的は公開済みの `CO_DEVELOPER_ALLOCATION_PROPOSAL.md` 第7節に合わせています。以前の会話中の12件の番号ではなく、**NDP-01〜12**を使います。詳細成果・テスト案は各taskファイルにあります。初期状態は全件 `PROPOSED / NOT STARTED`。文書作成を着手と数えません。2026-11-15に全件の担当がCore Developerに確定し、NDP-01は完了、NDP-10は開始承認済みです（[開始記録](START_AUTHORIZATION.md)）。
 
 | ID | タスク | 主な依存 |
 |---|---|---|

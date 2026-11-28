@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TaskPanel</class>
+ <widget class="QWidget" name="TaskPanel">
+  <property name="windowTitle"><string>Tasks / タスク</string></property>
+  <layout class="QVBoxLayout" name="layout">
+   <item><widget class="QLineEdit" name="taskName">
+    <property name="placeholderText"><string>Task name / タスク名</string></property>
+    <property name="accessibleName"><string>Task name / タスク名</string></property>
+   </widget></item>
+   <item><widget class="QPushButton" name="addButton">
+    <property name="text"><string>Add / 追加</string></property>
+   </widget></item>
+  </layout>
+ </widget>
+ <tabstops><tabstop>taskName</tabstop><tabstop>addButton</tabstop></tabstops>
+ <resources/>
+ <connections><connection>
+  <sender>addButton</sender><signal>clicked()</signal>
+  <receiver>TaskPanel</receiver><slot>addTask()</slot>
+ </connection></connections>
+ <slots><slot>addTask()</slot></slots>
+</ui>

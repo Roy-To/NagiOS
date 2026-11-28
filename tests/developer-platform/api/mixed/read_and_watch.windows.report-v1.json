@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "detected_languages": ["c"],
+  "manifests": [],
+  "dependencies": [],
+  "analysis": {},
+  "findings": [
+    {"category": "windows-header", "path": "read_and_watch.c", "line": 3, "evidence": "#include <windows.h>", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_and_watch.c", "line": 5, "evidence": "    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_and_watch.c", "line": 8, "evidence": "    BOOL result = ReadFile(file, buffer, capacity, size, NULL);", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_and_watch.c", "line": 9, "evidence": "    CancelIoEx(file, NULL);", "review_status": "needs_review"},
+    {"category": "windows-api", "path": "read_and_watch.c", "line": 10, "evidence": "    CloseHandle(file);", "review_status": "needs_review"}
+  ],
+  "limitations": ["Handwritten interim report fixture (Windows lines of a mixed-platform source), not scanner output. Source: tests/developer-platform/evaluation/mixed/read_and_watch.c"]
+}

@@ -1,0 +1,53 @@
+{
+  "description": "Generated read-only evidence snapshot for provisional NDP-07 rules; refresh only after source review. Not an SDK version or support promise.",
+  "package_version": "0.1.0",
+  "enumerate": [
+    {"dir": "user/nagi-ui/src", "suffix": ".rs"}
+  ],
+  "files": [
+    {
+      "path": "docs/architecture/ui-design-system.md",
+      "sha256": "2ed2c590e35674d5b72b5f5ae06eae4b3618b3b4c93e89eb42b7a739e2c356bf"
+    },
+    {
+      "path": "user/nagi-ui/Cargo.toml",
+      "sha256": "5f24923a94edf6abe4d860b220277bad3d6f4db5683a40a28fd35d494c2c415b"
+    },
+    {
+      "path": "user/nagi-ui/src/accessibility.rs",
+      "sha256": "8fe41c76691e064814921be56d0077c5e3318664310633514ad9d4065919ae17"
+    },
+    {
+      "path": "user/nagi-ui/src/command_palette.rs",
+      "sha256": "d2079298ab3bb76a02984440167e479503b926877f510b0b637430e872e41346"
+    },
+    {
+      "path": "user/nagi-ui/src/dialog.rs",
+      "sha256": "1c84122fccc42de8aac15b5189ff7b13514e892e7afee6f4facf781cf3ccc527"
+    },
+    {
+      "path": "user/nagi-ui/src/focus.rs",
+      "sha256": "ade450b8b2fc6d59bd4a585dcdfbf2edc908ef4868bb23640de6726da48f0766"
+    },
+    {
+      "path": "user/nagi-ui/src/interaction.rs",
+      "sha256": "bb2b568c1a497388ba6eb06bae5b8618726192aa376c2f747d55f286e0eaa48f"
+    },
+    {
+      "path": "user/nagi-ui/src/layout.rs",
+      "sha256": "f0185a0929d8166f6b287b0d069d3035c266138d704f6d8f15ab754bfd0ef856"
+    },
+    {
+      "path": "user/nagi-ui/src/lib.rs",
+      "sha256": "1671f55a9925b1510555eb2c74deccb36b0c651e895551b0769a276c290d99fa"
+    },
+    {
+      "path": "user/nagi-ui/src/text.rs",
+      "sha256": "539fe280b908b95f6b0b5a9dcde296ae6c34551e4fe5d036aa80800f2b39b596"
+    },
+    {
+      "path": "user/nagi-ui/src/tokens.rs",
+      "sha256": "a606b037bd046900ff437fe3e30cd9815ef1cb9f67a392aa2152b2e364a399c6"
+    }
+  ]
+}
