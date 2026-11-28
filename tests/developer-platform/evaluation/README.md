@@ -265,6 +265,12 @@ The runner itself has no check counter.
   each stated within one bullet. When the owners decide otherwise,
   replace the doc's status line and evidence section; the test's `REQUIRED_EVIDENCE` table
   is the only data to adjust.
+  Limit (P3, runner decision 2026-11-28): this is a regression check for honest edits, not
+  a proof against deliberately evasive wording. Six review rounds each found a new way to
+  rewrite the document so that it still passes (link forms such as reference-style links,
+  a "未実施" that belongs to a different clause, and similar). Those are recorded here
+  instead of being chased further; the document itself is reviewed by people and by the
+  runner's reviewer, and a claim of Stage 3 acceptance needs target evidence anyway.
 
 ### 限界（Limits）
 
