@@ -52,3 +52,16 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 6 — codex review of 0e972c40dd70
+
+**P2 — Stage 3受入の完了を記載してもテストが通る**  
+[test_task_doc_status.py:203](tests/developer-platform/evaluation/test_task_doc_status.py:203)
+
+判定は同じ行に `Stage 3`、`Nagi target`、`受入`、`未実施` があることを確認します。実績欄を「Stage 3（Nagi target）の受入は完了。実機での追加確認は未実施。」に置き換えると、別の作業にかかる「未実施」で条件を満たします。この変更をメモリ上で適用し、文書検査6件がすべて通ることを確認しました。
+
+最小修正は、`Stage 3（Nagi target）の受入は未実施。` を箇条書きの先頭から一文として検査し、上記の置換で失敗する回帰ケースを既存のテストに加えることです。
+
+指定差分では、task文書の変更は状態行と実績・根拠の追記に収まっています。現行文書には `PARTIAL`、host限定、委任に基づく未承認の `PROVISIONAL` 判断、およびStage 3受入が未実施であることが記載されています。
+
+NDP-REVIEW: FIX
+
