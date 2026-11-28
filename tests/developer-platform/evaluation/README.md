@@ -250,6 +250,18 @@ The runner itself has no check counter.
 - Stage 2 timeout is 90 s per run in this runner; the tool's own limits stay unchanged.
 - Host-only evidence: no speed ratio, porting success or Nagi target acceptance is
   claimed.
+- NDP-09t (task document record): the NDP-09 task document's `状態:` line was changed from
+  NOT STARTED to PARTIAL and a "実績・根拠" section was added. This is a PROVISIONAL
+  judgement delegated by the Core Developer to the runner on 2026-11-28; it is not an
+  approved decision. Reason: Stage contract, self-made-fixture Stage 2, generated-scaffold
+  Stage 1 connection and the all-fixture migration report exist on the integration branch,
+  but Stage 3 (Nagi target) acceptance, the real `nagi-pkg` environment and the real PT-01
+  scanner are not done, so DONE is not allowed; keeping the status below the evidence is
+  small, reversible and widens no safety boundary. `test_task_doc_status.py` checks that
+  the status line is PARTIAL (not NOT STARTED, not DONE), that every cited file exists, and
+  that "Stage 3 / target acceptance not done" is stated. When the owners decide otherwise,
+  replace the doc's status line and evidence section; the test's `REQUIRED_EVIDENCE` table
+  is the only data to adjust.
 
 ### 限界（Limits）
 
