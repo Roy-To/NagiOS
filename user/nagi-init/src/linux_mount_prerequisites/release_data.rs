@@ -5,14 +5,13 @@
 //! keep services stopped if selection, candidate matching, mounting, or
 //! post-mount verification fails.
 
-use crate::linux_init::VerifiedDataRoot;
 use nagi_data_boot_selection::{SelectionMode, VerifiedDataBootSelection};
 use std::ffi::{CStr, CString};
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, RawFd};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use super::{mount_flags, mount_validation};
 
@@ -30,6 +29,161 @@ const DATA_REQUIRED_STATFS_FLAGS: u64 =
 const O_CLOEXEC: libc::c_int = 0o2000000;
 const O_NOFOLLOW: libc::c_int = 0o400000;
 const O_DIRECTORY: libc::c_int = 0o200000;
+
+/// Opaque Data root proof emitted only by this verified Mount owner.
+pub(crate) struct VerifiedDataRoot {
+    directory: File,
+    identity: VerifiedDataRootIdentity,
+}
+
+struct VerifiedDataRootIdentity {
+    filesystem_uuid: String,
+    device_rdev: u64,
+    device_major: u32,
+    device_minor: u32,
+    mount_id: u64,
+    accounts_path: String,
+    snapshots_path: String,
+}
+
+impl VerifiedDataRoot {
+    fn from_verified_mount(
+        directory: File,
+        selection: &VerifiedDataBootSelection<'_>,
+        device_rdev: u64,
+        device_major: u32,
+        device_minor: u32,
+        mount_id: u64,
+    ) -> io::Result<Self> {
+        if selection.mode() != SelectionMode::Identity
+            || !valid_uuid(selection.filesystem_uuid())
+            || device_rdev == 0
+            || mount_id == 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "release Data mount identity is incomplete",
+            ));
+        }
+        let accounts_path = checked_selection_path(selection.accounts_path())?;
+        let snapshots_path = checked_selection_path(selection.snapshots_path())?;
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified Data root is not an owner-controlled directory",
+            ));
+        }
+        Ok(Self {
+            directory,
+            identity: VerifiedDataRootIdentity {
+                filesystem_uuid: selection.filesystem_uuid().to_owned(),
+                device_rdev,
+                device_major,
+                device_minor,
+                mount_id,
+                accounts_path,
+                snapshots_path,
+            },
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_verified_parts_for_test(
+        directory: File,
+        filesystem_uuid: String,
+        device_rdev: u64,
+        device_major: u32,
+        device_minor: u32,
+        mount_id: u64,
+        accounts_path: String,
+        snapshots_path: String,
+    ) -> io::Result<Self> {
+        if !valid_uuid(&filesystem_uuid) || device_rdev == 0 || mount_id == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "release Data mount identity is incomplete",
+            ));
+        }
+        let accounts_path = checked_selection_path(&accounts_path)?;
+        let snapshots_path = checked_selection_path(&snapshots_path)?;
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() || metadata.mode() & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified Data root is not an owner-controlled directory",
+            ));
+        }
+        Ok(Self {
+            directory,
+            identity: VerifiedDataRootIdentity {
+                filesystem_uuid,
+                device_rdev,
+                device_major,
+                device_minor,
+                mount_id,
+                accounts_path,
+                snapshots_path,
+            },
+        })
+    }
+
+    pub(crate) fn as_fd(&self) -> BorrowedFd<'_> {
+        self.directory.as_fd()
+    }
+
+    pub(crate) fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            directory: self.directory.try_clone()?,
+            identity: VerifiedDataRootIdentity {
+                filesystem_uuid: self.identity.filesystem_uuid.clone(),
+                device_rdev: self.identity.device_rdev,
+                device_major: self.identity.device_major,
+                device_minor: self.identity.device_minor,
+                mount_id: self.identity.mount_id,
+                accounts_path: self.identity.accounts_path.clone(),
+                snapshots_path: self.identity.snapshots_path.clone(),
+            },
+        })
+    }
+
+    pub(crate) fn filesystem_uuid(&self) -> &str {
+        &self.identity.filesystem_uuid
+    }
+
+    pub(crate) fn device_rdev(&self) -> u64 {
+        self.identity.device_rdev
+    }
+
+    pub(crate) fn device_major_minor(&self) -> (u32, u32) {
+        (self.identity.device_major, self.identity.device_minor)
+    }
+
+    pub(crate) fn mount_id(&self) -> u64 {
+        self.identity.mount_id
+    }
+
+    pub(crate) fn accounts_path(&self) -> &Path {
+        Path::new(&self.identity.accounts_path)
+    }
+
+    pub(crate) fn snapshots_path(&self) -> &Path {
+        Path::new(&self.identity.snapshots_path)
+    }
+
+    pub(crate) fn into_parts(self) -> (File, String, u64, u32, u32, u64, String, String) {
+        (
+            self.directory,
+            self.identity.filesystem_uuid,
+            self.identity.device_rdev,
+            self.identity.device_major,
+            self.identity.device_minor,
+            self.identity.mount_id,
+            self.identity.accounts_path,
+            self.identity.snapshots_path,
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DataMountFailure {
@@ -491,6 +645,23 @@ fn valid_uuid(value: &str) -> bool {
             8 | 13 | 18 | 23 => byte == b'-',
             _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
         })
+}
+
+fn checked_selection_path(value: &str) -> io::Result<String> {
+    let path = Path::new(value);
+    if value.is_empty()
+        || value.contains('\0')
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "release Data selection path is not a canonical relative path",
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn format_uuid(bytes: &[u8]) -> String {

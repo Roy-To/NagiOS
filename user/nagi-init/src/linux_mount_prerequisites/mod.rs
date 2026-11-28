@@ -23,10 +23,10 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 ))]
 #[path = "data_mount_owner.rs"]
 pub(super) mod data_mount_owner;
-#[cfg(any(nagi_release_build, test))]
 #[cfg_attr(not(nagi_release_build), allow(dead_code))]
 #[path = "release_data.rs"]
 mod release_data;
+pub(crate) use release_data::VerifiedDataRoot;
 #[cfg(any(nagi_release_build, test))]
 #[cfg_attr(not(nagi_release_build), allow(dead_code))]
 mod release_system;
