@@ -97,6 +97,7 @@ settings.preferences.reload=設定再確認
 settings.preferences.close=Esc
 settings.preferences.save-failed=設定不可
 settings.preferences.reload-required=設定再確認
+settings.preferences.locale-sync-failed=設定を保存しましたが、ログイン前の言語を更新できませんでした。
 settings.password.confirm=確認
 settings.password.changed=パスワード設定 確定
 settings.password.error.unknown=パスワード再確認
