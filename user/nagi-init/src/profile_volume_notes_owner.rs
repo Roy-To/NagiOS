@@ -341,12 +341,18 @@ pub(crate) struct AuthorizedNotesAppProcessRoot {
 /// Single borrowed scope that couples one attached profile root to the exact
 /// C1 handle used when that root was issued. The provider enters the C1 effect
 /// from this value before invoking its owner-only root callback.
-#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    any(feature = "linux-files-desktop", feature = "linux-files-app")
+))]
 pub(crate) struct OwnerOnlyFilesRootScope<'root> {
     owner: &'root AuthorizedFilesRoot,
 }
 
-#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    any(feature = "linux-files-desktop", feature = "linux-files-app")
+))]
 impl nagi_profile_volume_notes_owner::FilesRootScope for OwnerOnlyFilesRootScope<'_> {
     fn with_files_root<R>(
         &self,
@@ -360,7 +366,10 @@ impl nagi_profile_volume_notes_owner::FilesRootScope for OwnerOnlyFilesRootScope
     }
 }
 
-#[cfg(all(linux_task24_initial_login_runtime, feature = "linux-files-desktop"))]
+#[cfg(all(
+    linux_task24_initial_login_runtime,
+    any(feature = "linux-files-desktop", feature = "linux-files-app")
+))]
 impl nagi_files::C1SessionBoundFilesRootScope for OwnerOnlyFilesRootScope<'_> {
     fn c1_session_revalidation_handle(
         &self,
@@ -371,7 +380,7 @@ impl nagi_files::C1SessionBoundFilesRootScope for OwnerOnlyFilesRootScope<'_> {
 
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedFilesRoot {
-    #[cfg(feature = "linux-files-desktop")]
+    #[cfg(any(feature = "linux-files-desktop", feature = "linux-files-app"))]
     pub(crate) fn owner_only_scope(&self) -> OwnerOnlyFilesRootScope<'_> {
         OwnerOnlyFilesRootScope { owner: self }
     }
