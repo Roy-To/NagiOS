@@ -34,3 +34,13 @@ NDP-REVIEW: FIX
 
 NDP-REVIEW: FIX
 
+## Round 4 — codex review of 8afbf15558d0
+
+**P2 — 空白を含む山括弧形式の根拠リンクが存在検査をすり抜けます。** [test_task_doc_status.py:95](tests/developer-platform/evaluation/test_task_doc_status.py:95)
+
+実績欄に `[補足](<../../developer-platform/missing notes.md>)` を加えると、リンク先が存在しなくても検査が通ります。山括弧付きのリンク先にも空白を禁止するパターンが適用され、リンク自体が抽出されないためです。文書をメモリ上で変更し、既存の存在検査が通ることを再現しました。最小修正は、`<...>` 形式を空白を許す分岐で抽出し、存在しない空白付きパスを加えた変異テストで失敗を確認することです。
+
+指定HEADでは、状態が `PARTIAL` として記録され、Core Developerの委任に基づく `PROVISIONAL` 判断であることと、Stage 3／Nagi target受入および実ツール接続が未実施であることを確認しました。既存の目的・成果・Scope・権限の記述に差分はなく、現行の根拠リンク先はすべて実在します。全テストの結果はrunner報告に基づきます。レビューでは上記の再現だけを実行しました。
+
+NDP-REVIEW: FIX
+
