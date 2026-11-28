@@ -23,6 +23,7 @@ pub(crate) enum SettingsStatus {
     Idle,
     SaveFailed,
     ReloadRequired,
+    LocaleSyncFailed,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -152,6 +153,7 @@ impl SettingsPanel {
             SettingsStatus::Idle => return,
             SettingsStatus::SaveFailed => "settings.preferences.save-failed",
             SettingsStatus::ReloadRequired => "settings.preferences.reload-required",
+            SettingsStatus::LocaleSyncFailed => "settings.preferences.locale-sync-failed",
         };
         painter.text(8, 173, label(error), pixel(ColorRole::Danger));
     }

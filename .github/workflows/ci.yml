@@ -202,7 +202,7 @@ jobs:
             --bin nagi-init -- desktop_shell::tests
           owner_test_dir="$RUNNER_TEMP/nagi-profile-volume-owner-test"
           mkdir -p "$owner_test_dir"
-          trap 'rm -rf "$owner_test_dir"' EXIT
+          trap 'sudo rm -rf "$owner_test_dir"' EXIT
           owner_lock="$owner_test_dir/Cargo.lock"
           # This standalone owner crate has no committed lockfile; capture its
           # per-run resolution so the focused test uses the same locked graph.
@@ -215,6 +215,28 @@ jobs:
             --lib -- notes_object root_lock_still_serializes \
             mismatched_publication_fences snapshot_creation_uses_private_modes \
             parent_directory_sync_failure_after_publish user_files_root_scopes_normal_io_and_stops_after_end_or_revoke
+          cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
+            --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+            --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu \
+            --lib -- notes_app_process_root_is_bound_to_canonical_app_and_attachment_lifecycle
+          # Run root-owned Data provisioning with real root privileges; never
+          # count an unprivileged early-return as test coverage.
+          owner_root_test_target="$owner_test_dir/root-test-target"
+          mkdir -p "$owner_root_test_target"
+          owner_cargo_bin="$(command -v cargo)"
+          owner_cargo_path="$(dirname "$owner_cargo_bin"):$PATH"
+          sudo env \
+            HOME="$HOME" \
+            CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" \
+            RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}" \
+            CARGO_NET_OFFLINE=true \
+            CARGO_TARGET_DIR="$owner_root_test_target" \
+            PATH="$owner_cargo_path" \
+            "$owner_cargo_bin" +nightly-2025-08-01 -Z unstable-options test \
+              --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
+              --lockfile-path "$owner_lock" --locked --offline \
+              --target x86_64-unknown-linux-gnu --lib -- \
+              --exact linux_data::tests::notes_reservation_returns_stable_private_app_process_root
           CARGO_NET_OFFLINE=false cargo +nightly-2025-08-01 --config net.offline=false -Z unstable-options test \
             --manifest-path crates/nagi-profile-volume-owner/Cargo.toml \
             --lockfile-path "$owner_lock" --locked --target x86_64-unknown-linux-gnu --doc
@@ -279,6 +301,17 @@ jobs:
           python3 -c 'import sys; from pathlib import Path; Path(sys.argv[1]).write_bytes(bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))' "$NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY"
           export NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY
           tools/linux-boot/build_task24_acceptance_elf.sh --online --release out/logs/task24-release-elf
+      - name: Build and verify the Linux product Identity READY executable
+        run: |
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/identity-ready-target"
+          services/nagi-identity-ready/build.sh
+          elf="$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/nagi-identity-ready"
+          readelf --wide --program-headers "$elf" > "$RUNNER_TEMP/identity-ready-headers"
+          if grep -Eq '^[[:space:]]*(INTERP|DYNAMIC)[[:space:]]' "$RUNNER_TEMP/identity-ready-headers" ||
+             LC_ALL=C grep -aqE 'NAGI_DEV_|org\.nagi\.dev\.' "$elf"; then
+            echo "Product Identity READY must be static and exclude development markers"
+            exit 1
+          fi
       - name: Upload release gate receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
