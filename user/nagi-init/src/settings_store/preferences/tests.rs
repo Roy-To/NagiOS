@@ -45,6 +45,25 @@ impl SnapshotStorage for IssuedSnapshot {
     }
 }
 
+#[derive(Default)]
+struct IssuedSettingsScope {
+    storage: IssuedSnapshot,
+    callbacks: usize,
+}
+
+impl SettingsSnapshotScope for IssuedSettingsScope {
+    type StorageError = ();
+    type ScopeError = ();
+
+    fn with_settings_storage<R, F>(&mut self, operation: F) -> Result<R, Self::ScopeError>
+    where
+        F: FnOnce(ObjectId, &mut dyn SnapshotStorage<Error = Self::StorageError>) -> R,
+    {
+        self.callbacks += 1;
+        Ok(operation(OWNER_KEY, &mut self.storage))
+    }
+}
+
 #[test]
 fn saves_and_reopens_the_issued_settings_object() {
     let mut storage = IssuedSnapshot::default();
@@ -72,6 +91,25 @@ fn saves_and_reopens_the_issued_settings_object() {
         reopened.save(OWNER_KEY, &mut storage, DARK_JAPANESE),
         Ok(Revision::new(2).unwrap())
     );
+}
+
+#[test]
+fn settings_store_uses_only_the_owner_issued_scope_for_snapshot_io() {
+    let mut settings = SettingsStore::new(IssuedSettingsScope::default());
+
+    assert_eq!(settings.reload(), Ok(ReadPreferences::Missing));
+    assert_eq!(settings.save(DARK_JAPANESE), Ok(Revision::new(1).unwrap()));
+    assert_eq!(
+        settings.reload(),
+        Ok(ReadPreferences::Restored {
+            preferences: DARK_JAPANESE,
+            invalid_locale: false,
+            invalid_theme: false,
+        })
+    );
+
+    assert_eq!(settings.scope.callbacks, 3);
+    assert_eq!(settings.scope.storage.writes, 1);
 }
 
 #[test]

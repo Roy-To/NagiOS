@@ -33,8 +33,9 @@ pub(crate) trait PreferencesPersistence {
     fn save(&mut self, preferences: Preferences) -> Result<Revision, PreferencesError>;
 }
 
-#[cfg(all(target_os = "linux", linux_task24_initial_login_runtime))]
-impl PreferencesPersistence for super::preferences::SettingsStore {
+impl<S: super::preferences::SettingsSnapshotScope> PreferencesPersistence
+    for super::preferences::SettingsStore<S>
+{
     fn reload(&mut self) -> Result<ReadPreferences, PreferencesError> {
         super::preferences::SettingsStore::reload(self)
     }
