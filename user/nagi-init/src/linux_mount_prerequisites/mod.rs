@@ -25,13 +25,25 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 pub(super) mod data_mount_owner;
 #[cfg(any(nagi_release_build, test))]
 #[cfg_attr(not(nagi_release_build), allow(dead_code))]
+#[path = "release_data.rs"]
+mod release_data;
+#[cfg(any(nagi_release_build, test))]
+#[cfg_attr(not(nagi_release_build), allow(dead_code))]
 mod release_system;
+#[cfg(nagi_release_build)]
+#[allow(unused_imports)]
+pub(super) use release_data::{
+    mount_verified_selection as mount_release_data, report_failure as report_data_failure,
+    ReleaseDataMountOwner,
+};
 #[cfg(nagi_release_build)]
 pub(super) use release_system::{
     report_failure as report_system_failure, verify_and_mount as mount_release_system,
 };
 #[path = "mount_flags.rs"]
 mod mount_flags;
+#[path = "mount_validation.rs"]
+mod mount_validation;
 #[path = "syscalls.rs"]
 mod syscalls;
 
@@ -329,6 +341,10 @@ fn verify_required_mount_flags(target: MountPoint, actual: u64) -> Result<(), Mo
     match mount_flags::verify(required, actual) {
         Ok(()) => Ok(()),
         Err(mount_flags::VerificationError::Unsupported { actual }) => Err(MountError {
+            target,
+            failure: MountFailure::MountFlagsUnavailable { actual },
+        }),
+        Err(mount_flags::VerificationError::ReadOnly { actual }) => Err(MountError {
             target,
             failure: MountFailure::MountFlagsUnavailable { actual },
         }),

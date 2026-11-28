@@ -5,6 +5,7 @@
 
 use std::fs::File;
 use std::io;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
@@ -99,6 +100,7 @@ impl SelectedDataRoot {
 /// Development device identity from the observed block-device serial and the
 /// ext4 UUID accepted by the signed development selection. This is not a
 /// product Nagi Volume ID and grants no access.
+#[cfg(not(nagi_release_build))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DevelopmentBootVolumeIdentity {
     device_serial: String,
@@ -106,6 +108,7 @@ pub(crate) struct DevelopmentBootVolumeIdentity {
     mount_id: u64,
 }
 
+#[cfg(not(nagi_release_build))]
 impl DevelopmentBootVolumeIdentity {
     pub(crate) fn new(device_serial: String, filesystem_uuid: String, mount_id: u64) -> Self {
         Self {
@@ -116,6 +119,62 @@ impl DevelopmentBootVolumeIdentity {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ReleaseDataMountIdentity {
+    filesystem_uuid: String,
+    device_rdev: u64,
+    device_major: u32,
+    device_minor: u32,
+    mount_id: u64,
+    accounts_path: String,
+    snapshots_path: String,
+}
+
+#[derive(Clone)]
+enum BootVolumeIdentityKind {
+    #[cfg(not(nagi_release_build))]
+    Development(DevelopmentBootVolumeIdentity),
+    ReleaseData(ReleaseDataMountIdentity),
+}
+
+/// Boot-local identity carried with the selected root FD. This is mount
+/// provenance only; it does not authorize a C1 Session or profile.
+#[derive(Clone)]
+pub(crate) struct BootVolumeIdentity {
+    pub(crate) mount_id: u64,
+    kind: BootVolumeIdentityKind,
+}
+
+impl BootVolumeIdentity {
+    #[cfg(not(nagi_release_build))]
+    fn from_development(identity: DevelopmentBootVolumeIdentity) -> Self {
+        Self {
+            mount_id: identity.mount_id,
+            kind: BootVolumeIdentityKind::Development(identity),
+        }
+    }
+
+    fn from_release_data(identity: ReleaseDataMountIdentity) -> Self {
+        Self {
+            mount_id: identity.mount_id,
+            kind: BootVolumeIdentityKind::ReleaseData(identity),
+        }
+    }
+
+    fn release_data(&self) -> Option<&ReleaseDataMountIdentity> {
+        match &self.kind {
+            #[cfg(not(nagi_release_build))]
+            BootVolumeIdentityKind::Development(_) => None,
+            BootVolumeIdentityKind::ReleaseData(identity) => Some(identity),
+        }
+    }
+
+    #[cfg(not(nagi_release_build))]
+    fn is_development(&self) -> bool {
+        matches!(&self.kind, BootVolumeIdentityKind::Development(_))
+    }
+}
+
 /// Typed, retained directory input for the private Profile Notes owner.
 ///
 /// Construction is crate-private. Holding this FD does not authenticate a
@@ -123,17 +182,18 @@ impl DevelopmentBootVolumeIdentity {
 /// Verified attachment.
 pub(crate) struct BootVolumeInput {
     directory: File,
-    identity: DevelopmentBootVolumeIdentity,
+    identity: BootVolumeIdentity,
 }
 
 impl BootVolumeInput {
+    #[cfg(not(nagi_release_build))]
     pub(crate) fn from_development_data_mount(
         directory: File,
         identity: DevelopmentBootVolumeIdentity,
     ) -> Self {
         Self {
             directory,
-            identity,
+            identity: BootVolumeIdentity::from_development(identity),
         }
     }
 
@@ -173,6 +233,145 @@ impl BootVolumeInput {
             })?;
         Ok((directory, verifier))
     }
+}
+
+/// A root directory FD produced only after the release Data selection and
+/// mount have both been verified. The FD establishes mount containment only;
+/// C1 caller, Session, profile, and ObjectId authorization remain separate.
+pub(crate) struct VerifiedDataRoot {
+    directory: File,
+    identity: ReleaseDataMountIdentity,
+}
+
+impl VerifiedDataRoot {
+    pub(crate) fn from_verified_mount(
+        directory: File,
+        selection: &nagi_data_boot_selection::VerifiedDataBootSelection<'_>,
+        device_rdev: u64,
+        device_major: u32,
+        device_minor: u32,
+        mount_id: u64,
+    ) -> io::Result<Self> {
+        if selection.mode() != nagi_data_boot_selection::SelectionMode::Identity
+            || !is_canonical_filesystem_uuid(selection.filesystem_uuid())
+            || device_rdev == 0
+            || mount_id == 0
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "release Data mount identity is incomplete",
+            ));
+        }
+        let accounts_path = checked_selection_path(selection.accounts_path())?;
+        let snapshots_path = checked_selection_path(selection.snapshots_path())?;
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified Data root is not an owner-controlled directory",
+            ));
+        }
+        let identity = ReleaseDataMountIdentity {
+            filesystem_uuid: selection.filesystem_uuid().to_owned(),
+            device_rdev,
+            device_major,
+            device_minor,
+            mount_id,
+            accounts_path,
+            snapshots_path,
+        };
+        Ok(Self {
+            directory,
+            identity,
+        })
+    }
+
+    #[cfg(test)]
+    fn from_verified_parts(
+        directory: File,
+        identity: ReleaseDataMountIdentity,
+    ) -> io::Result<Self> {
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() || metadata.mode() & 0o022 != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "verified Data root is not an owner-controlled directory",
+            ));
+        }
+        Ok(Self {
+            directory,
+            identity,
+        })
+    }
+
+    pub(crate) fn as_fd(&self) -> BorrowedFd<'_> {
+        self.directory.as_fd()
+    }
+
+    /// Give another boot-local owner the same verified mount root while this
+    /// value and the mount owner remain live.
+    pub(crate) fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            directory: self.directory.try_clone()?,
+            identity: self.identity.clone(),
+        })
+    }
+
+    pub(crate) fn filesystem_uuid(&self) -> &str {
+        &self.identity.filesystem_uuid
+    }
+
+    pub(crate) fn device_rdev(&self) -> u64 {
+        self.identity.device_rdev
+    }
+
+    pub(crate) fn device_major_minor(&self) -> (u32, u32) {
+        (self.identity.device_major, self.identity.device_minor)
+    }
+
+    pub(crate) fn mount_id(&self) -> u64 {
+        self.identity.mount_id
+    }
+
+    pub(crate) fn accounts_path(&self) -> &Path {
+        Path::new(&self.identity.accounts_path)
+    }
+
+    pub(crate) fn snapshots_path(&self) -> &Path {
+        Path::new(&self.identity.snapshots_path)
+    }
+
+    pub(crate) fn into_boot_volume_input(self) -> BootVolumeInput {
+        BootVolumeInput {
+            directory: self.directory,
+            identity: BootVolumeIdentity::from_release_data(self.identity),
+        }
+    }
+}
+
+fn is_canonical_filesystem_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+        })
+}
+
+fn checked_selection_path(value: &str) -> io::Result<String> {
+    let path = Path::new(value);
+    if value.is_empty()
+        || value.contains('\0')
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "release Data selection path is not a canonical relative path",
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 /// Issued together from the verified Notes attachment and the exact
@@ -659,6 +858,10 @@ pub(crate) fn pending_with_boot_volume(input: BootVolumeInput) -> AppStorageOwne
     }
 }
 
+pub(crate) fn pending_with_verified_data_root(root: VerifiedDataRoot) -> AppStorageOwners {
+    pending_with_boot_volume(root.into_boot_volume_input())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +914,60 @@ mod tests {
         fs::remove_dir(path.join("profiles/owner")).unwrap();
         fs::remove_dir(path.join("profiles")).unwrap();
         fs::remove_dir(path.join("accounts")).unwrap();
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn verified_data_root_transfers_its_fd_and_mount_identity_into_app_owners() {
+        let path = std::env::temp_dir().join(format!(
+            "nagi-verified-data-owner-root-{}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        let directory = File::open(&path).unwrap();
+        let before = directory.metadata().unwrap();
+        let identity = ReleaseDataMountIdentity {
+            filesystem_uuid: "12345678-1234-4234-8234-123456789abc".to_owned(),
+            device_rdev: 0x800,
+            device_major: 8,
+            device_minor: 0,
+            mount_id: 42,
+            accounts_path: "accounts".to_owned(),
+            snapshots_path: "identity/snapshots".to_owned(),
+        };
+        let root = VerifiedDataRoot::from_verified_parts(directory, identity).unwrap();
+        let clone = root.try_clone().unwrap();
+        assert_eq!(
+            root.filesystem_uuid(),
+            "12345678-1234-4234-8234-123456789abc"
+        );
+        assert_eq!(root.device_rdev(), 0x800);
+        assert_eq!(root.device_major_minor(), (8, 0));
+        assert_eq!(root.mount_id(), 42);
+        assert_eq!(root.accounts_path(), Path::new("accounts"));
+        assert_eq!(root.snapshots_path(), Path::new("identity/snapshots"));
+        assert_eq!(clone.mount_id(), root.mount_id());
+        assert_eq!(clone.device_rdev(), root.device_rdev());
+        let root_metadata = root.directory.metadata().unwrap();
+        let clone_metadata = clone.directory.metadata().unwrap();
+        assert_eq!(
+            (clone_metadata.dev(), clone_metadata.ino()),
+            (root_metadata.dev(), root_metadata.ino())
+        );
+
+        let mut owners = pending_with_verified_data_root(root);
+        assert!(owners.has_boot_volume_input());
+        let boot_volume = owners.boot_volume.as_ref().unwrap();
+        let after = boot_volume.directory.metadata().unwrap();
+        assert_eq!((after.dev(), after.ino()), (before.dev(), before.ino()));
+        assert_eq!(boot_volume.identity.mount_id, 42);
+        assert_eq!(
+            boot_volume.identity.release_data().unwrap().device_rdev,
+            0x800
+        );
+
+        owners.end().unwrap();
+        drop(owners);
         fs::remove_dir(path).unwrap();
     }
 }
