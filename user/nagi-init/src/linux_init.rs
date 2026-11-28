@@ -55,6 +55,8 @@ mod linux_c3_boot_launch;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "linux_mount_prerequisites/mod.rs"]
 mod linux_mount_prerequisites;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use linux_mount_prerequisites::VerifiedDataRoot;
 #[cfg(all(target_arch = "x86_64", feature = "m10-desktop"))]
 #[path = "linux_package_identity.rs"]
 mod linux_package_identity;
@@ -76,7 +78,7 @@ mod linux_init_c3_slot_journal;
 #[cfg(all(
     target_os = "linux",
     target_arch = "x86_64",
-    not(any(linux_dev_preview_smoke, nagi_release_build))
+    not(linux_dev_preview_smoke)
 ))]
 #[path = "linux_task24_c3_data_journal.rs"]
 mod linux_task24_c3_data_journal;

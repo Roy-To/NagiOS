@@ -1782,7 +1782,15 @@ pub mod c3_system_service_recovery;
 #[cfg_attr(target_os = "linux", allow(dead_code))]
 mod linux_init;
 
-#[cfg(all(test, target_os = "linux", linux_task24_owner_co_location))]
+#[cfg(target_os = "linux")]
+pub(crate) use linux_init::VerifiedDataRoot;
+
+#[cfg(all(
+    test,
+    target_os = "linux",
+    linux_task24_owner_co_location,
+    not(nagi_release_build)
+))]
 pub(crate) use linux_init::pid1_live_peer_supplier as supplier_root;
 
 #[cfg(target_os = "linux")]

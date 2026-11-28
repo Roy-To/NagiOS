@@ -3,7 +3,7 @@ use super::super::linux_init_c3_slot_journal::{
     PriorBootClearedReceipt,
 };
 use super::super::linux_init_c3_system_service_owner::C3DurableNormalExitTerminalReceipt;
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 use super::super::{
     linux_initial_login_c2::C1InitialLoginAuthority,
     linux_initial_login_owner::LinuxInitialLoginOwner,
@@ -18,14 +18,17 @@ use nagi_identity_session::{
     GuestProfileCleaner, IdentityAuthorizer, IdentityError, IdentityEventSink, IdentityIdSource,
     IdentityService, LinuxIdentitySnapshotStore, RecoveryEffectGateError,
 };
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 use nagi_identity_session::{IdempotencyKey, UnixMillis};
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use nagi_system_service_recovery_contract::{
-    C1RecoveryOperationCorrelation, C1RecoveryReceiptClient, C3RecoverySlotGate,
-    RecoveryClientError, SystemServiceRecoveryAdmissionScope, VerifiedRecoveryBootCatalog,
+    C1RecoveryOperationCorrelation, RecoveryClientError, SystemServiceRecoveryAdmissionScope,
+    VerifiedRecoveryBootCatalog,
 };
+#[cfg(not(nagi_release_build))]
+use nagi_system_service_recovery_contract::{C1RecoveryReceiptClient, C3RecoverySlotGate};
 use std::io;
+#[cfg(not(nagi_release_build))]
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
@@ -71,7 +74,35 @@ pub(in crate::linux_init) struct SelectedBootIdentityRuntime<'boot, 'package> {
 }
 
 impl<'package> AuthenticatedBootService<'package> {
+    #[cfg(not(nagi_release_build))]
     pub(in crate::linux_init) fn recover_selected_identity_data<'boot>(
+        &'boot self,
+        catalog: &VerifiedRecoveryBootCatalog,
+        data: &'boot BootVolumeInput,
+        snapshot_path: &Path,
+        account_path: &Path,
+    ) -> Result<SelectedBootIdentityRuntime<'boot, 'package>, BootIdentityRecoveryError> {
+        self.recover_selected_identity_data_inner(catalog, data, snapshot_path, account_path)
+    }
+
+    #[cfg(all(nagi_release_build, linux_task24_initial_login_runtime))]
+    pub(in crate::linux_init) fn recover_verified_identity_data<'boot>(
+        &'boot self,
+        catalog: &VerifiedRecoveryBootCatalog,
+    ) -> Result<SelectedBootIdentityRuntime<'boot, 'package>, BootIdentityRecoveryError> {
+        let data = self.verified_identity_data.as_ref().ok_or_else(|| {
+            BootIdentityRecoveryError::Data(io::Error::new(
+                io::ErrorKind::NotFound,
+                "C3 authenticated boot did not retain its verified Identity Data root",
+            ))
+        })?;
+        let (accounts, snapshots) = data
+            .verified_identity_paths()
+            .map_err(BootIdentityRecoveryError::Data)?;
+        self.recover_selected_identity_data_inner(catalog, data, snapshots, accounts)
+    }
+
+    fn recover_selected_identity_data_inner<'boot>(
         &'boot self,
         catalog: &VerifiedRecoveryBootCatalog,
         data: &'boot BootVolumeInput,
@@ -203,7 +234,11 @@ impl SelectedBootIdentityRuntime<'_, '_> {
         pre_login_locale(&self.verifier)
     }
 
-    #[cfg(all(linux_boot_owner_registration, feature = "desktop-login"))]
+    #[cfg(all(
+        linux_boot_owner_registration,
+        feature = "desktop-login",
+        not(nagi_release_build)
+    ))]
     pub(in crate::linux_init) fn run_owner_registration(
         &mut self,
         console: &mut super::super::linux_owner_registration_console::BootOwnerConsole,
@@ -309,7 +344,11 @@ impl SelectedBootIdentityRuntime<'_, '_> {
     }
 }
 
-#[cfg(all(linux_task24_owner_co_location, linux_task24_initial_login_runtime))]
+#[cfg(all(
+    linux_task24_owner_co_location,
+    linux_task24_initial_login_runtime,
+    not(nagi_release_build)
+))]
 impl AuthenticatedBootService<'_> {
     fn poll_task24_required_identity_exit(&self) -> io::Result<bool> {
         let result = match self.owner.c3.poll() {
@@ -340,7 +379,8 @@ impl AuthenticatedBootService<'_> {
 #[cfg(all(
     linux_task24_owner_co_location,
     linux_task24_initial_login_runtime,
-    feature = "desktop-login"
+    feature = "desktop-login",
+    not(nagi_release_build)
 ))]
 mod task24 {
     use super::*;
@@ -724,7 +764,7 @@ mod task24 {
 
 /// Keep the authenticated C3 launch borrowed for as long as PID 1 retains
 /// the recovered C1 runtime and the corresponding live C3 receipt.
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A, G, E> {
     boot: &'boot AuthenticatedBootService<'package>,
     data: &'boot BootVolumeInput,
@@ -733,7 +773,7 @@ pub(in crate::linux_init) struct RecoveredBootIdentity<'boot, 'package, I, C, A,
     identity: C1InitialLoginAuthority<'boot, LinuxIdentitySnapshotStore, I, C, A, G, E>,
 }
 
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 impl<I, C, A, G, E> RecoveredBootIdentity<'_, '_, I, C, A, G, E>
 where
     I: IdentityIdSource,
@@ -1116,7 +1156,7 @@ where
 /// Recover the issuer and enter the first-login path while PID 1 still owns
 /// the authenticated boot service. The Task24 launcher is supplied by the
 /// existing owner and is consumed by the first-login adapter.
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 pub(super) fn recover_and_start_initial_login<'boot, 'package, I, C, A, G, E, Login>(
     boot: &'boot AuthenticatedBootService<'package>,
     catalog: &VerifiedRecoveryBootCatalog,
@@ -1199,7 +1239,7 @@ where
     Ok((runtime, attached))
 }
 
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 struct BootTerminalGate<'boot, 'package> {
     boot: &'boot AuthenticatedBootService<'package>,
     expected: C3DurableNormalExitReceipt,
@@ -1208,7 +1248,7 @@ struct BootTerminalGate<'boot, 'package> {
     used: bool,
 }
 
-#[cfg(linux_task24_initial_login_runtime)]
+#[cfg(all(linux_task24_initial_login_runtime, not(nagi_release_build)))]
 impl nagi_system_service_recovery_contract::C3RecoverySlotGate for BootTerminalGate<'_, '_> {
     fn with_reconciliation_gate<R>(
         &mut self,
@@ -1576,7 +1616,7 @@ pub(super) fn open_boot_identity(
     snapshot_path: &Path,
     account_path: &Path,
 ) -> io::Result<(LinuxIdentitySnapshotStore, LinuxAccountVerifier)> {
-    let (directory, verifier) = data.identity_inputs(account_path, snapshot_path)?;
+    let (directory, verifier) = data.identity_inputs_for_boot(account_path, snapshot_path)?;
     let store = LinuxIdentitySnapshotStore::open(directory).map_err(|error| {
         io::Error::other(format!("identity snapshot directory rejected: {error:?}"))
     })?;
