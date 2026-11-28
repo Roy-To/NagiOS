@@ -471,7 +471,20 @@ pub(crate) fn run() -> ExitCode {
     #[cfg(all(linux_pid1_safety_smoke, target_os = "linux", target_arch = "x86_64"))]
     return linux_x86_64_process::run_pid1_safety_smoke();
 
-    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke), nagi_release_build))]
+    let mut backend = match linux_boot_package_inputs::BootPackageInputs::open_release() {
+        Ok(inputs) => UnconnectedBackend::with_verified_boot_inputs(inputs),
+        Err(reason) => {
+            pid1_log!("nagi-init: release boot package inputs rejected ({reason})");
+            wait_in_pid1(wait_for_pid1_os_event);
+        }
+    };
+
+    #[cfg(all(
+        target_os = "linux",
+        not(linux_dev_preview_smoke),
+        not(nagi_release_build)
+    ))]
     let mut backend = match linux_boot_package_inputs::BootPackageInputs::take_inherited() {
         Ok(inputs) => UnconnectedBackend::with_verified_boot_inputs(inputs),
         Err(error) => {
@@ -12574,6 +12587,7 @@ mod linux_process_resource_tests {
             .attach_linux_profile(
                 &data_root,
                 mount_id,
+                &[0x42; 32],
                 nagi_model::UserId(4),
                 "profile_legacy",
                 "principal_legacy",
@@ -12589,6 +12603,7 @@ mod linux_process_resource_tests {
             .attach_linux_profile(
                 &data_root,
                 mount_id,
+                &[0x42; 32],
                 nagi_model::UserId(3),
                 "profile_fixture",
                 "principal_fixture",
@@ -13375,6 +13390,44 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(all(target_os = "linux", not(linux_dev_preview_smoke)))]
+    #[test]
+    fn release_boot_paths_reject_missing_symlinked_and_invalid_inputs() {
+        use std::fs;
+        use std::os::unix::fs::symlink;
+
+        let root = PackageStoreTestDirectory::new();
+        let root_fd = root.open();
+        let key = include_bytes!("../../../release/linux-0.1/public/ed25519.raw");
+        let try_open =
+            || linux_boot_package_inputs::BootPackageInputs::open_release_at(&root_fd, key);
+
+        let store = root.0.join("package-store");
+        assert_eq!(
+            try_open().err(),
+            Some("boot_package_store_path_unavailable")
+        );
+        symlink(".", &store).unwrap();
+        assert_eq!(
+            try_open().err(),
+            Some("boot_package_store_path_unavailable")
+        );
+        fs::remove_file(&store).unwrap();
+        fs::create_dir(store).unwrap();
+
+        let catalog = root.0.join("catalog.bin");
+        assert_eq!(try_open().err(), Some("boot_catalog_path_unavailable"));
+        fs::write(root.0.join("other-catalog"), b"unsigned").unwrap();
+        symlink("other-catalog", &catalog).unwrap();
+        assert_eq!(try_open().err(), Some("boot_catalog_path_unavailable"));
+        fs::remove_file(&catalog).unwrap();
+        fs::create_dir(&catalog).unwrap();
+        assert_eq!(try_open().err(), Some("boot_catalog_file_unavailable"));
+        fs::remove_dir(&catalog).unwrap();
+        fs::write(catalog, b"unsigned").unwrap();
+        assert_eq!(try_open().err(), Some("boot_catalog_verification_failed"));
     }
 
     #[cfg(unix)]
