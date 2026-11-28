@@ -90,9 +90,17 @@ def copy_inside(src_root, rel_or_path, dst_root, src_base=None):
     return dst
 
 
+LINK = re.compile(
+    r"\[[^\]\n]+\]\("
+    r"\s*<?([^)\s#<>]+)>?"            # destination (optionally in <...>)
+    r"(?:#[^)\s>]*)?"                 # optional #fragment, dropped
+    r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?"   # optional link title
+    r"\s*\)")
+
+
 def link_destinations(text):
-    """Exact destinations of `[label](dest)` links, without any `#fragment`."""
-    return re.findall(r"\[[^\]\n]+\]\(([^)\s#]+)(?:#[^)\s]*)?\)", text)
+    """Destinations of `[label](dest "title")` links, without `#fragment` or title."""
+    return LINK.findall(text)
 
 
 class TaskDocStatus(unittest.TestCase):
@@ -257,10 +265,36 @@ class TaskDocMutationTests(unittest.TestCase):
         self.assertEqual(self.failed(text),
                          ["test_states_stage3_and_target_acceptance_not_done"])
 
-    def link_extra(self, dest):
+    def link_extra(self, dest, suffix=""):
         anchor = "- Stage契約（NDP-09s2）: "
         self.assertEqual(doc_text().count(anchor), 1)
-        return doc_text().replace(anchor, anchor + "[extra]({})と".format(dest), 1)
+        link = "[extra]({}{})と".format(dest, suffix)
+        return doc_text().replace(anchor, anchor + link, 1)
+
+    def test_titled_link_to_missing_file_fails(self):
+        # `[x](missing.md "Title")` must still be extracted and fail the existence check.
+        for suffix in (' "Handover"', " 'Handover'", " (Handover)", ' "Hand (over)"'):
+            with self.subTest(suffix=suffix):
+                text = self.link_extra("../../developer-platform/missing.md", suffix)
+                self.assertIn("../../developer-platform/missing.md",
+                              link_destinations(evidence_section(text)))
+                self.assertEqual(self.failed(text),
+                                 ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_titled_link_to_existing_file_passes(self):
+        text = self.link_extra("../../developer-platform/handover.md", ' "Handover"')
+        self.assertEqual(self.failed(text), [])
+
+    def test_titled_link_escaping_repository_fails(self):
+        text = self.link_extra("../../../../../outside.md", ' "Outside"')
+        self.assertEqual(self.failed(text),
+                         ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_link_destinations_extraction(self):
+        text = ('[a](x/a.md) [b](x/b.md "T") [c](x/c.md#frag) [d](x/d.md#f \'T\') '
+                '[e](<x/e.md> "T") [f](x/f.md (T)) [g](#only-fragment) plain (x/no.md)')
+        self.assertEqual(link_destinations(text),
+                         ["x/a.md", "x/b.md", "x/c.md", "x/d.md", "x/e.md", "x/f.md"])
 
     def test_link_escaping_repository_fails(self):
         dest = "../../../../../outside.md"
