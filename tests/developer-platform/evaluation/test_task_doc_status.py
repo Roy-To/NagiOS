@@ -91,16 +91,35 @@ def copy_inside(src_root, rel_or_path, dst_root, src_base=None):
 
 
 LINK = re.compile(
-    r"\[[^\]\n]+\]\("
-    r"\s*<?([^)\s#<>]+)>?"            # destination (optionally in <...>)
-    r"(?:#[^)\s>]*)?"                 # optional #fragment, dropped
+    r"\[[^\]\n]+\]\(\s*"
+    r"(?:<([^<>#\n]+)(?:#[^<>\n]*)?>"   # <destination#fragment>: spaces allowed
+    r"|([^)\s#<>]+)(?:#[^)\s>]*)?)"     # bare destination#fragment: no spaces
     r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?"   # optional link title
     r"\s*\)")
+# Fragment-only links (`[x](#heading)` or `[x](<#heading>)`) point into the same doc.
+FRAGMENT_ONLY = re.compile(r"\]\(\s*<?#")
 
 
 def link_destinations(text):
     """Destinations of `[label](dest "title")` links, without `#fragment` or title."""
-    return LINK.findall(text)
+    return [angle or bare for angle, bare in LINK.findall(text)]
+
+
+def unparsed_links(text):
+    """`](` openings that are neither a parsed link nor a fragment-only link.
+
+    A link form the extractor does not understand must not silently skip the
+    existence check, so any such opening is reported.
+    """
+    covered = set()
+    for m in LINK.finditer(text):
+        covered.update(range(m.start(), m.end()))
+    bad = []
+    for m in re.finditer(r"\]\(", text):
+        if m.start() in covered or FRAGMENT_ONLY.match(text, m.start()):
+            continue
+        bad.append(text[m.start():m.start() + 80].split("\n", 1)[0])
+    return bad
 
 
 class TaskDocStatus(unittest.TestCase):
@@ -134,6 +153,8 @@ class TaskDocStatus(unittest.TestCase):
         self.assertTrue(section, "missing {}".format(EVIDENCE_HEADING))
         # The repository root as seen from the checked document (a temp copy has its own).
         root = Path(self.doc_path).resolve().parents[4]
+        # Every link opening must be understood, or it would skip the checks below.
+        self.assertEqual(unparsed_links(section), [])
         resolved = set()
         for dest in link_destinations(section):
             path = (Path(self.doc_path).parent / dest).resolve()
@@ -292,9 +313,40 @@ class TaskDocMutationTests(unittest.TestCase):
 
     def test_link_destinations_extraction(self):
         text = ('[a](x/a.md) [b](x/b.md "T") [c](x/c.md#frag) [d](x/d.md#f \'T\') '
-                '[e](<x/e.md> "T") [f](x/f.md (T)) [g](#only-fragment) plain (x/no.md)')
+                '[e](<x/e.md> "T") [f](x/f.md (T)) [g](#only-fragment) plain (x/no.md) '
+                '[h](<x/h h.md>) [i](< x/i i.md#f > "T") [j](<#frag>)')
         self.assertEqual(link_destinations(text),
-                         ["x/a.md", "x/b.md", "x/c.md", "x/d.md", "x/e.md", "x/f.md"])
+                         ["x/a.md", "x/b.md", "x/c.md", "x/d.md", "x/e.md", "x/f.md",
+                          "x/h h.md", " x/i i.md"])
+        self.assertEqual(unparsed_links(text), [])
+
+    def test_unparsed_links_are_reported(self):
+        for link in ("[x](a b.md)", "[x](<a.md)", "[x](<a<b.md>)", "[x](a.md \"T)"):
+            with self.subTest(link=link):
+                self.assertEqual(len(unparsed_links("see " + link + " end")), 1)
+
+    def test_angle_link_with_space_to_missing_file_fails(self):
+        dest = "../../developer-platform/missing notes.md"
+        for form in ("<{}>", "<{}#frag>", '<{}> "Title"'):
+            with self.subTest(form=form):
+                text = self.link_extra(form.format(dest))
+                self.assertIn(dest, link_destinations(evidence_section(text)))
+                self.assertEqual(self.failed(text),
+                                 ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_angle_link_with_space_to_existing_file_passes(self):
+        name = "existing notes.md"
+        (self.tmp / "docs" / "development" / "developer-platform" / name).write_text(
+            "notes\n", encoding="utf-8")
+        text = self.link_extra("<../../developer-platform/{}>".format(name))
+        self.assertEqual(self.failed(text), [])
+
+    def test_unparseable_link_fails(self):
+        text = self.link_extra("../../developer-platform/missing notes.md")
+        self.assertEqual(link_destinations(evidence_section(text)).count(
+            "../../developer-platform/missing notes.md"), 0)
+        self.assertEqual(self.failed(text),
+                         ["test_evidence_links_exist_and_cover_required_files"])
 
     def test_link_escaping_repository_fails(self):
         dest = "../../../../../outside.md"
