@@ -250,6 +250,27 @@ The runner itself has no check counter.
 - Stage 2 timeout is 90 s per run in this runner; the tool's own limits stay unchanged.
 - Host-only evidence: no speed ratio, porting success or Nagi target acceptance is
   claimed.
+- NDP-09t (task document record): the NDP-09 task document's `状態:` line was changed from
+  NOT STARTED to PARTIAL and a "実績・根拠" section was added. This is a PROVISIONAL
+  judgement delegated by the Core Developer to the runner on 2026-11-28; it is not an
+  approved decision. Reason: Stage contract, self-made-fixture Stage 2, generated-scaffold
+  Stage 1 connection and the all-fixture migration report exist on the integration branch,
+  but Stage 3 (Nagi target) acceptance, the real `nagi-pkg` environment and the real PT-01
+  scanner are not done, so DONE is not allowed; keeping the status below the evidence is
+  small, reversible and widens no safety boundary. `test_task_doc_status.py` checks that
+  the status line is PARTIAL (not NOT STARTED, not DONE), that every cited file exists
+  inside the repository (after resolving `..` and symlinks; the temporary copy also refuses
+  sources outside the repository and destinations outside the copy root), and that
+  "Stage 3 / Nagi target acceptance 未実施" and "real `nagi-pkg` / PT-01 scanner 未実施" are
+  each stated within one bullet. When the owners decide otherwise,
+  replace the doc's status line and evidence section; the test's `REQUIRED_EVIDENCE` table
+  is the only data to adjust.
+  Limit (P3, runner decision 2026-11-28): this is a regression check for honest edits, not
+  a proof against deliberately evasive wording. Six review rounds each found a new way to
+  rewrite the document so that it still passes (link forms such as reference-style links,
+  a "未実施" that belongs to a different clause, and similar). Those are recorded here
+  instead of being chased further; the document itself is reviewed by people and by the
+  runner's reviewer, and a claim of Stage 3 acceptance needs target evidence anyway.
 
 ### 限界（Limits）
 

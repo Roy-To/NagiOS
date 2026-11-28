@@ -1,6 +1,6 @@
 # NDP-09 — 薄い検証オーケストレーター
 
-状態: 担当確定（Core Developer、2026-11-15）/ NOT STARTED。PT-05。NDP-08、独立path、実行Scope、host条件の明示承認が必要。
+状態: 担当確定（Core Developer、2026-11-15）/ PARTIAL（host限定、PROVISIONAL。根拠は末尾の「実績・根拠」節。Stage 3とNagi target受入は未実施でDONEではない）。PT-05。NDP-08、独立path、実行Scope、host条件の明示承認が必要。
 
 ## 目的
 
@@ -29,5 +29,22 @@ Stage 1の1つの実toolと、成功/失敗/未実行の結果を先に成立さ
 ## 次
 
 NDP-03の生成物と接続し、NDP-11で同じ検証経路を使う。host成功をNagi install/GUI成功にしない。
+
+## 実績・根拠
+
+統合branch上の実装に合わせた記録（2026-11-28）。すべてhost限定であり、Nagi target受入ではない。
+
+- Stage契約（NDP-09s2）: [stages.json](../../../../tools/nagi-developer-platform/validation/stages.json)と[validation/README.md](../../../../tools/nagi-developer-platform/validation/README.md)。Stage 1はManifestの静的検証のみ、Stage 3は未接続（`connected`ではない）。
+- 自作fixture限定のStage 2（NDP-09s2）: [stage2.py](../../../../tools/nagi-developer-platform/validation/stage2.py)。固定引数のclangで承認済みfixtureだけを扱う。テストは[test_stage2.py](../../../../tools/nagi-developer-platform/validation/test_stage2.py)と[test_stage2_diagnostics.py](../../../../tools/nagi-developer-platform/validation/test_stage2_diagnostics.py)。
+- Stage 1と生成雛形の接続（NDP-09c）: [generated_check.py](../../../../tools/nagi-developer-platform/validation/generated_check.py)と[test_generated_check.py](../../../../tools/nagi-developer-platform/validation/test_generated_check.py)。Manifest検証の入口は[validate.py](../../../../tools/nagi-developer-platform/validation/validate.py)と[test_validate.py](../../../../tools/nagi-developer-platform/validation/test_validate.py)。
+- 一通しの移植レポート（NDP-09r）: [report.py](../../../../tools/nagi-developer-platform/validation/report.py)（`--fixture all`を含む）と[test_report.py](../../../../tools/nagi-developer-platform/validation/test_report.py)。引き継ぎ記録は[handover.md](../../developer-platform/handover.md)、進捗は[board.md](../../developer-platform/board.md)。
+
+未実施（このため状態はDONEにしない）:
+
+- Stage 3（Nagi target）の受入は未実施。何も試さずPASSを返す実装はない。
+- 実`nagi-pkg`環境での確認と、実PT-01 scanner接続は未実施。
+- host成功はNagi install/GUI成功ではない。
+
+この状態（PARTIAL扱い）はCore Developerからrunnerへの委任に基づくPROVISIONALな判断であり、承認済みではない。根拠が揃うまで実際より低い状態に保つ。記録は[評価README](../../../../tests/developer-platform/evaluation/README.md)のPROVISIONAL節にもある。整合は[test_task_doc_status.py](../../../../tests/developer-platform/evaluation/test_task_doc_status.py)が検査する。
 
 共通: [規則](../03_COMMON_RULES.md)、[レビュー](../06_REVIEW_INTEGRATION_RESUME.md)。
