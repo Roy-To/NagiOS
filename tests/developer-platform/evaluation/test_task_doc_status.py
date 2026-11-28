@@ -2,7 +2,8 @@
 
 Checks (host only, static text): the `状態:` line is PARTIAL (not NOT STARTED, not
 DONE), the evidence section links only files that exist inside the repository (after
-resolving `..` and symlinks), and it says - in one bullet, not scattered words - that
+resolving `..` and symlinks) through inline links only (reference-style links and
+definitions are rejected, since they would bypass the existence check), and it says - in one bullet, not scattered words - that
 Stage 3 / Nagi target acceptance is not done and that the judgement is PROVISIONAL.
 The same checks run against a temporary copy that is edited to confirm they can fail.
 """
@@ -122,6 +123,25 @@ def unparsed_links(text):
     return bad
 
 
+# Reference-style links are not supported by the extractor, so they are rejected
+# outright: evidence must use inline `[label](dest)` links only.
+# A definition `[label]: dest` may sit anywhere in the document (also in a list item
+# or block quote) and then serves `[x][label]`, `[label][]` and shortcut `[label]`
+# references in the evidence section.
+REFERENCE_DEFINITION = re.compile(
+    r"^[ \t>]*(?:(?:[-*+]|\d+[.)])[ \t]+)*\[[^\]\n]+\]:", re.MULTILINE)
+# Full `[x][label]` and collapsed `[x][]` references.
+REFERENCE_USE = re.compile(r"\][ \t]*\[")
+
+
+def reference_links(text, section):
+    """Reference-style link definitions in `text` and references in `section`."""
+    found = [m.group(0).strip() for m in REFERENCE_DEFINITION.finditer(text)]
+    found += [section[m.start():m.start() + 80].split("\n", 1)[0]
+              for m in REFERENCE_USE.finditer(section)]
+    return found
+
+
 class TaskDocStatus(unittest.TestCase):
     """`doc_path` is swapped for the temporary-copy checks below."""
 
@@ -155,6 +175,8 @@ class TaskDocStatus(unittest.TestCase):
         root = Path(self.doc_path).resolve().parents[4]
         # Every link opening must be understood, or it would skip the checks below.
         self.assertEqual(unparsed_links(section), [])
+        # Reference-style links would skip the existence check too: inline links only.
+        self.assertEqual(reference_links(self.text(), section), [])
         resolved = set()
         for dest in link_destinations(section):
             path = (Path(self.doc_path).parent / dest).resolve()
@@ -347,6 +369,52 @@ class TaskDocMutationTests(unittest.TestCase):
             "../../developer-platform/missing notes.md"), 0)
         self.assertEqual(self.failed(text),
                          ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_reference_style_link_to_missing_file_fails(self):
+        # Review scenario: a full reference plus its definition at the end of the doc.
+        text = (self.link_extra_raw("[移植メモ][migration-notes]")
+                + "\n[migration-notes]: ../../developer-platform/missing-migration-notes.md\n")
+        self.assertEqual(self.failed(text),
+                         ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_reference_style_link_forms_fail_even_to_existing_file(self):
+        definition = "[notes]: ../../developer-platform/handover.md"
+        heading = EVIDENCE_HEADING + "\n"
+        self.assertEqual(doc_text().count(heading), 1)
+        for use, where in (("[移植メモ][notes]", "end"), ("[notes][]", "end"),
+                           ("[notes]", "end"), ("[notes]", "before"),
+                           ("[移植メモ][notes]", "list"), ("[notes]", "quote")):
+            with self.subTest(use=use, where=where):
+                text = self.link_extra_raw(use)
+                if where == "before":
+                    # Definition outside the evidence section still serves it.
+                    text = text.replace(heading, definition + "\n\n" + heading, 1)
+                elif where == "list":
+                    text += "\n- " + definition + "\n"
+                elif where == "quote":
+                    text += "\n> " + definition + "\n"
+                else:
+                    text += "\n" + definition + "\n"
+                self.assertEqual(self.failed(text),
+                                 ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_reference_use_without_definition_fails(self):
+        text = self.link_extra_raw("[移植メモ][migration-notes]")
+        self.assertEqual(self.failed(text),
+                         ["test_evidence_links_exist_and_cover_required_files"])
+
+    def test_reference_links_detection(self):
+        section = "see [a][b], [c][] and [d](x.md) then [e] (plain)"
+        text = "intro\n  [b]: x.md\n- [c]: y.md\n> [d]: z.md\n1. [e]: w.md\n" + section
+        found = reference_links(text, section)
+        self.assertEqual(len(found), 6, found)
+        self.assertEqual(reference_links("[a](x.md) and [b](y.md)[c](z.md)",
+                                         "[a](x.md) [b](y.md)"), [])
+
+    def link_extra_raw(self, markup):
+        anchor = "- Stage契約（NDP-09s2）: "
+        self.assertEqual(doc_text().count(anchor), 1)
+        return doc_text().replace(anchor, anchor + markup + "と", 1)
 
     def test_link_escaping_repository_fails(self):
         dest = "../../../../../outside.md"
