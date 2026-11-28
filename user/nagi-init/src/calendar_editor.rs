@@ -1,6 +1,6 @@
 //! Pure editor for the first Linux Calendar console.
 
-use crate::linux_task24_calendar_keys::CalendarKey;
+use crate::calendar_keys::CalendarKey;
 use nagi_calendar_core::model::{CalendarId, DurationMode, EventDraft, Schedule};
 use nagi_calendar_core::time::{Date, LocalDateTime, ResolveChoice, ZoneId, DAY, SECOND};
 use nagi_calendar_core::{Error, Result};

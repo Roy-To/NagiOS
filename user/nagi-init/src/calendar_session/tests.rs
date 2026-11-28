@@ -134,6 +134,25 @@ fn writes_once_per_commit_and_reopen_retains_the_deleted_id_history() {
 }
 
 #[test]
+fn reopened_session_reads_the_saved_event_without_writing_again() {
+    let mut io = MemoryObject::default();
+    let saved_event = {
+        let mut session = CalendarSession::open(&mut io, FixedClock(1000)).unwrap();
+        session
+            .commit(CalendarEdit::Create(draft(session.calendar_id())))
+            .unwrap()
+    };
+    let writes_before_reopen = io.writes;
+    let persisted = io.saved.clone().unwrap();
+
+    let reopened = CalendarSession::open(&mut io, FixedClock(2000)).unwrap();
+
+    assert_eq!(reopened.events().unwrap(), [saved_event]);
+    assert_eq!(reopened.snapshot_bytes().unwrap(), persisted.bytes);
+    assert_eq!(io.writes, writes_before_reopen);
+}
+
+#[test]
 fn known_failure_rolls_back_and_unverified_readback_fences_further_writes() {
     let mut io = MemoryObject::default();
     CalendarSession::open(&mut io, FixedClock(1000)).unwrap();

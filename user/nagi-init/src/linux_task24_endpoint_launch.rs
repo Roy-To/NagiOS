@@ -71,15 +71,65 @@ mod notes_console;
 #[path = "linux_task24_desktop_shell.rs"]
 mod desktop_shell;
 
-#[cfg(all(
-    linux_task24_notes_consumer,
-    linux_task24_initial_login_runtime,
-    linux_task24_desktop_shell,
-    linux_task24_calendar_app,
-    not(nagi_release_build)
+#[cfg(any(
+    all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+    all(
+        linux_task24_notes_consumer,
+        linux_task24_initial_login_runtime,
+        linux_task24_desktop_shell,
+        not(nagi_release_build)
+    )
 ))]
-#[path = "linux_task24_calendar_console.rs"]
-mod calendar_console;
+impl crate::ui_console::NagiConsole for super::linux_owner_registration_console::BootOwnerConsole {
+    fn present(&mut self, render: impl FnOnce(&mut crate::ui::Painter<'_>)) -> std::io::Result<()> {
+        super::linux_owner_registration_console::BootOwnerConsole::present(self, render)
+    }
+
+    fn next_key_timeout(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> std::io::Result<Option<libnagi::InputEvent>> {
+        Ok(self.next_console_key_timeout(timeout)?.map(|key| key.event))
+    }
+}
+
+#[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+fn log_calendar_notice(notice: crate::calendar_console::CalendarNotice<'_>) {
+    use sha2::{Digest, Sha256};
+    match notice {
+        crate::calendar_console::CalendarNotice::Ready { day, events } => {
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_CALENDAR_READY events={events} date={}",
+                crate::calendar_console::date_label(day)
+            ));
+        }
+        crate::calendar_console::CalendarNotice::Day { day, rows } => {
+            let ids = rows
+                .iter()
+                .map(|event| event.id.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_CALENDAR_DAY date={} rows={} ids={ids}",
+                crate::calendar_console::date_label(day),
+                rows.len()
+            ));
+        }
+        crate::calendar_console::CalendarNotice::Saved { op, event, bytes } => {
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_CALENDAR_SAVED op={op} id={} bytes={} sha256={:x}",
+                event.id.as_str(),
+                bytes.len(),
+                Sha256::digest(bytes)
+            ));
+        }
+        crate::calendar_console::CalendarNotice::SaveFailed(reason) => {
+            super::log_pid1_stderr(format_args!(
+                "NAGI_DEV_CALENDAR_SAVE_FAILED reason={reason}"
+            ));
+        }
+    }
+}
 
 #[cfg(all(
     linux_task24_notes_consumer,
@@ -904,7 +954,7 @@ pub(super) fn run_owner_login(
                                         |app, console, locale| {
                                             #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
                                             if matches!(app, crate::desktop_shell_model::AppId::Calendar) {
-                                                use calendar_console::{CalendarClock, CalendarExit};
+                                                use crate::calendar_console::{CalendarClock, CalendarExit};
                                                 use crate::calendar_session::CalendarSession;
                                                 let mut owner = owners.try_borrow_mut()
                                                     .map_err(|_| std::io::Error::other("storage owner busy"))?;
@@ -923,10 +973,10 @@ pub(super) fn run_owner_login(
                                                         crate::calendar_session::LoadRejected::Io => "io",
                                                     }));
                                                 let exit = match opened {
-                                                    Ok(mut calendar) => calendar_console::run(console, &mut calendar, &CalendarClock, poll, check, calendar_console::log_notice)?,
+                                                    Ok(mut calendar) => crate::calendar_console::run(console, &mut calendar, &CalendarClock, locale, poll, check, log_calendar_notice)?,
                                                     Err(reason) => {
                                                         super::log_pid1_stderr(format_args!("NAGI_DEV_CALENDAR_LOAD_REJECTED reason={reason}"));
-                                                        calendar_console::unavailable(console, poll, check)?
+                                                        crate::calendar_console::unavailable(console, locale, poll, check)?
                                                     }
                                                 };
                                                 return Ok(desktop_shell::AppExit::Calendar(exit));

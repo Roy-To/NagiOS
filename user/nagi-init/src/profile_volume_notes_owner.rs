@@ -304,7 +304,10 @@ pub(crate) struct AuthorizedProfileSnapshot {
 
 #[cfg(linux_task24_initial_login_runtime)]
 impl AuthorizedProfileSnapshot {
-    #[cfg(all(linux_task24_calendar_app, not(nagi_release_build)))]
+    #[cfg(any(
+        all(feature = "linux-calendar-app", linux_task24_initial_login_runtime),
+        all(linux_task24_calendar_app, not(nagi_release_build))
+    ))]
     pub(crate) fn claim_calendar_initialization(
         &self,
     ) -> Result<bool, ProfileVolumeNotesOwnerError> {
