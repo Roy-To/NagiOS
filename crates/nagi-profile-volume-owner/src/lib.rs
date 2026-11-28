@@ -187,12 +187,14 @@ impl ProfileVolumeAppOwner {
 
     /// Volume Manager entry point for the boot-selected Linux Data mount.
     /// PID 1 supplies claims from its live C1 Session while holding the
-    /// Session effect guard. Directory names and ObjectId are selected here.
+    /// Session effect guard. The mount ID is checked live; the selected-data
+    /// digest is used only for the durable Notes app-root identity record.
     #[cfg(target_os = "linux")]
     pub fn attach_linux_profile(
         &mut self,
         data_root: &impl std::os::fd::AsFd,
         mount_id: u64,
+        selected_data_identity_sha256: &[u8; 32],
         user: nagi_model::UserId,
         profile: &str,
         principal: &str,
@@ -212,8 +214,16 @@ impl ProfileVolumeAppOwner {
                 (directory, None, false, None)
             } else {
                 let (directory, object, allow_initial_index, app_process_directory) =
-                    linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
-                        .map_err(|_| Unavailable)?;
+                    linux_data::reserve(
+                        data_root,
+                        mount_id,
+                        selected_data_identity_sha256,
+                        user,
+                        profile,
+                        principal,
+                        self.kind,
+                    )
+                    .map_err(|_| Unavailable)?;
                 (
                     directory,
                     Some(object),

@@ -198,6 +198,10 @@ jobs:
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
             --bin nagi-init -- --exact desktop_shell_model::tests::focus_cycles_and_only_key_press_activates
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
+            --bin nagi-init -- --exact profile_volume_notes_owner::c1_session_binding_tests::revalidation_binding_includes_exact_session_and_profile_scope
           desktop_shell_test_names=$(cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
