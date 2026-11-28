@@ -16,8 +16,6 @@ use std::path::{Component, Path};
 use super::{mount_flags, mount_validation};
 
 const EXT4_SUPER_MAGIC: u64 = 0xef53;
-const EXT4_SUPERBLOCK_OFFSET: u64 = 1024;
-const EXT4_SUPERBLOCK_BYTES: usize = 1024;
 const EXT4_MAGIC_OFFSET: usize = 56;
 const EXT4_UUID_OFFSET: usize = 104;
 const MOUNT_PATH: &str = "/run/nagi/data";
@@ -431,33 +429,43 @@ fn find_device_by_uuid(expected_uuid: &str) -> Result<SelectedBlockDevice, DataM
             continue;
         }
         let sysfs_path = sysfs_root.join(&name);
-        let device_path = Path::new(DEVICE_NODE_ROOT).join(&name);
-        match fs::symlink_metadata(&device_path) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(DataMountFailure::DeviceNotFound)
-            }
-            Err(_) => return Err(DataMountFailure::DeviceNotFound),
-            Ok(metadata)
-                if metadata.file_type().is_symlink() || !metadata.file_type().is_block_device() =>
-            {
-                return Err(DataMountFailure::DeviceChanged)
-            }
-            Ok(_) => {}
-        }
-        let device = open_block_device(&name, &sysfs_path)?;
-        if seen_device_numbers.contains(&device.device_number) {
-            continue;
-        }
-        seen_device_numbers.push(device.device_number);
-        match read_ext4_uuid(&device) {
-            Ok(uuid) => {
-                saw_ext4_candidate = true;
-                if uuid == expected_uuid {
-                    matches.push(device);
+        let size = fs::read_to_string(sysfs_path.join("size"))
+            .map_err(|_| DataMountFailure::DeviceUnreadable)?;
+        let size_512b_sectors = size
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| DataMountFailure::DeviceUnreadable)?;
+        let candidate = mount_validation::probe_ext4_candidate(size_512b_sectors, || {
+            let device_path = Path::new(DEVICE_NODE_ROOT).join(&name);
+            match fs::symlink_metadata(&device_path) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return Err(DataMountFailure::DeviceNotFound)
                 }
+                Err(_) => return Err(DataMountFailure::DeviceNotFound),
+                Ok(metadata)
+                    if metadata.file_type().is_symlink()
+                        || !metadata.file_type().is_block_device() =>
+                {
+                    return Err(DataMountFailure::DeviceChanged)
+                }
+                Ok(_) => {}
             }
-            Err(DataMountFailure::NotExt4) => {}
-            Err(error) => return Err(error),
+            let device = open_block_device(&name, &sysfs_path)?;
+            if seen_device_numbers.contains(&device.device_number) {
+                return Ok(None);
+            }
+            seen_device_numbers.push(device.device_number);
+            match read_ext4_uuid(&device) {
+                Ok(uuid) => Ok(Some((device, uuid))),
+                Err(DataMountFailure::NotExt4) => Ok(None),
+                Err(error) => Err(error),
+            }
+        })?;
+        if let Some((device, uuid)) = candidate {
+            saw_ext4_candidate = true;
+            if uuid == expected_uuid {
+                matches.push(device);
+            }
         }
     }
     mount_validation::require_single_uuid_match(matches.len(), saw_ext4_candidate).map_err(
@@ -520,8 +528,8 @@ fn read_ext4_uuid(device: &SelectedBlockDevice) -> Result<String, DataMountFailu
     if !metadata.file_type().is_block_device() || metadata.rdev() != device.device_number {
         return Err(DataMountFailure::DeviceChanged);
     }
-    let mut superblock = [0u8; EXT4_SUPERBLOCK_BYTES];
-    let mut offset = EXT4_SUPERBLOCK_OFFSET;
+    let mut superblock = [0u8; mount_validation::EXT4_SUPERBLOCK_BYTES];
+    let mut offset = mount_validation::EXT4_SUPERBLOCK_OFFSET;
     let mut read = 0;
     while read < superblock.len() {
         let count = device

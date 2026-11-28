@@ -121,6 +121,10 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build host-compatible workspace
         run: cargo build --workspace --locked
+      - name: Release Data block candidate capacity regressions
+        run: |
+          cargo test -p nagi-init --locked -- \
+            linux_init::linux_mount_prerequisites::mount_validation::tests::ext4_scan_
       - name: Prepare and verify standalone Legal before offline CLI delegation
         run: |
           cargo fmt --manifest-path tools/legal/Cargo.toml --all -- --check
