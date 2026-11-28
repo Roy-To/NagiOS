@@ -46,6 +46,10 @@ pub enum AppStorageKind {
 pub const USER_FILES_APP_UID: u32 = 65_532;
 pub const USER_FILES_APP_GID: u32 = 65_532;
 
+/// Linux identity assigned to the isolated Notes application process.
+pub const NOTES_APP_UID: u32 = 65_531;
+pub const NOTES_APP_GID: u32 = 65_531;
+
 /// Current terminal or live state of the startup attachment owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProfileVolumeNotesOwnerStatus {
@@ -88,6 +92,8 @@ struct VerifiedProfileVolumeAttachment {
     object_directory: OwnedFd,
     object_id: Option<ObjectId>,
     #[cfg(target_os = "linux")]
+    app_process_directory: Option<OwnedFd>,
+    #[cfg(target_os = "linux")]
     allow_initial_index: bool,
     lifecycle: Mutex<AttachmentLifecycle>,
 }
@@ -118,6 +124,8 @@ impl VerifiedProfileVolumeAttachment {
             profile_id: profile_id.into(),
             object_directory,
             object_id,
+            #[cfg(target_os = "linux")]
+            app_process_directory: None,
             #[cfg(target_os = "linux")]
             allow_initial_index: false,
             lifecycle: Mutex::new(AttachmentLifecycle {
@@ -196,20 +204,30 @@ impl ProfileVolumeAppOwner {
             OwnerState::Revoked => return Err(Revoked),
             OwnerState::Ended => return Err(Ended),
         }
-        let (directory, object, allow_initial_index) = if self.kind == AppStorageKind::UserFiles {
-            let directory =
-                linux_data::reserve_files_root(data_root, mount_id, user, profile, principal)
-                    .map_err(|_| Unavailable)?;
-            (directory, None, false)
-        } else {
-            let (directory, object, allow_initial_index) =
-                linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
-                    .map_err(|_| Unavailable)?;
-            (directory, Some(object), allow_initial_index)
-        };
+        let (directory, object, allow_initial_index, app_process_directory) =
+            if self.kind == AppStorageKind::UserFiles {
+                let directory =
+                    linux_data::reserve_files_root(data_root, mount_id, user, profile, principal)
+                        .map_err(|_| Unavailable)?;
+                (directory, None, false, None)
+            } else {
+                let (directory, object, allow_initial_index, app_process_directory) =
+                    linux_data::reserve(data_root, mount_id, user, profile, principal, self.kind)
+                        .map_err(|_| Unavailable)?;
+                (
+                    directory,
+                    Some(object),
+                    allow_initial_index,
+                    app_process_directory,
+                )
+            };
         let mut attachment =
             VerifiedProfileVolumeAttachment::new(self.kind, principal, profile, directory, object);
         attachment.allow_initial_index = allow_initial_index;
+        #[cfg(target_os = "linux")]
+        {
+            attachment.app_process_directory = app_process_directory;
+        }
         self.state = OwnerState::Verified(Arc::new(attachment));
         Ok(())
     }
@@ -241,6 +259,22 @@ impl ProfileVolumeAppOwner {
             return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
         }
         self.issue_active_attachment().map(ProfileFilesRoot)
+    }
+
+    /// Issue the Notes app's separate process data root from the same verified
+    /// profile attachment. The existing opaque Notes object remains available
+    /// only through `with_notes_object`.
+    #[cfg(target_os = "linux")]
+    pub fn issue_notes_app_process_root(
+        &self,
+    ) -> Result<ProfileVolumeNotesAppProcessRoot, ProfileVolumeNotesOwnerError> {
+        if self.kind != AppStorageKind::Notes {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        let bundle = self.issue_active_attachment()?;
+        Ok(ProfileVolumeNotesAppProcessRoot(Arc::clone(
+            &bundle.attachment,
+        )))
     }
 
     fn issue_active_attachment(
@@ -595,9 +629,80 @@ impl ProfileVolumeNotesBundle {
         })
     }
 
+    /// Issue the app-specific directory capability separately from the
+    /// reserved Notes object. It is bound to this exact active attachment and
+    /// accepts no path or caller-provided directory.
+    #[cfg(target_os = "linux")]
+    pub fn notes_app_process_root(
+        &self,
+    ) -> Result<ProfileVolumeNotesAppProcessRoot, ProfileVolumeNotesOwnerError> {
+        self.validate_kind(AppStorageKind::Notes)?;
+        self.with_active(|| ProfileVolumeNotesAppProcessRoot(Arc::clone(&self.attachment)))
+    }
+
     #[cfg(test)]
     fn same_attachment(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.attachment, &other.attachment)
+    }
+}
+
+/// Owner-issued root for the Notes application process. It is distinct from
+/// the C1-owned reserved Notes object and remains invalid after revoke/end.
+#[cfg(target_os = "linux")]
+pub struct ProfileVolumeNotesAppProcessRoot(Arc<VerifiedProfileVolumeAttachment>);
+
+#[cfg(target_os = "linux")]
+impl ProfileVolumeNotesAppProcessRoot {
+    pub fn validate_scope(
+        &self,
+        principal: &str,
+        profile: &str,
+        selected_data: impl std::os::fd::AsFd,
+        mount_id: u64,
+    ) -> Result<(), ProfileVolumeNotesOwnerError> {
+        if principal != self.0.principal_id {
+            return Err(ProfileVolumeNotesOwnerError::CallerMismatch);
+        }
+        if profile != self.0.profile_id {
+            return Err(ProfileVolumeNotesOwnerError::ProfileMismatch);
+        }
+        let lifecycle = self.0.lifecycle()?;
+        if lifecycle.status != AttachmentStatus::Active {
+            return Err(attachment_status_error(lifecycle.status));
+        }
+        linux_data::require_same_mount(&selected_data, mount_id)
+            .and_then(|()| {
+                let directory = self
+                    .0
+                    .app_process_directory
+                    .as_ref()
+                    .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+                linux_data::require_same_mount(directory, mount_id)
+            })
+            .map_err(|_| ProfileVolumeNotesOwnerError::ForeignAttachment)
+    }
+
+    /// Duplicate the exact Notes app root for the one canonical product ID.
+    /// The C3 process owner retains this capability until exact child reap.
+    #[doc(hidden)]
+    pub fn duplicate_directory_for_app_process(
+        &self,
+        app_id: &nagi_model::AppId,
+    ) -> Result<OwnedFd, ProfileVolumeNotesOwnerError> {
+        let notes_app = nagi_model::AppId::from_identifier(b"org.nagi.notes");
+        if app_id != &notes_app {
+            return Err(ProfileVolumeNotesOwnerError::ForeignAttachment);
+        }
+        let lifecycle = self.0.lifecycle()?;
+        if lifecycle.status != AttachmentStatus::Active {
+            return Err(attachment_status_error(lifecycle.status));
+        }
+        let directory = self
+            .0
+            .app_process_directory
+            .as_ref()
+            .ok_or(ProfileVolumeNotesOwnerError::Unavailable)?;
+        fcntl_dupfd_cloexec(directory, 0).map_err(|_| ProfileVolumeNotesOwnerError::Unavailable)
     }
 }
 
@@ -825,6 +930,47 @@ mod tests {
         profile_id: &str,
     ) -> Result<ProfileVolumeNotesBundle, ProfileVolumeNotesOwnerError> {
         owner.issue_for_claims("principal_notes_owner_test", profile_id)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn notes_app_process_root_is_bound_to_canonical_app_and_attachment_lifecycle() {
+        use std::fs::{self, DirBuilder};
+        use std::os::fd::OwnedFd;
+        use std::os::unix::fs::DirBuilderExt;
+
+        let path =
+            std::env::temp_dir().join(format!("nagi-notes-root-capability-{}", std::process::id()));
+        DirBuilder::new().mode(0o700).create(&path).unwrap();
+        let directory = std::fs::File::open(&path).unwrap();
+        let object_directory: OwnedFd = directory.try_clone().unwrap().into();
+        let directory: OwnedFd = directory.into();
+        let mut attachment = VerifiedProfileVolumeAttachment::new(
+            AppStorageKind::Notes,
+            "principal_notes_owner_test",
+            "profile_notes_owner_test",
+            object_directory,
+            Some(ObjectId(0x4e4f_5445)),
+        );
+        attachment.app_process_directory = Some(directory);
+        let root = ProfileVolumeNotesAppProcessRoot(Arc::new(attachment));
+        let notes_app = nagi_model::AppId::from_identifier(b"org.nagi.notes");
+        let other_app = nagi_model::AppId::from_identifier(b"org.nagi.files");
+
+        let duplicate = root
+            .duplicate_directory_for_app_process(&notes_app)
+            .unwrap();
+        assert!(root
+            .duplicate_directory_for_app_process(&other_app)
+            .is_err());
+        drop(duplicate);
+        root.0.lifecycle.lock().unwrap().status = AttachmentStatus::Revoked;
+        assert!(matches!(
+            root.duplicate_directory_for_app_process(&notes_app),
+            Err(ProfileVolumeNotesOwnerError::Revoked)
+        ));
+        drop(root);
+        fs::remove_dir(path).unwrap();
     }
 
     #[test]
