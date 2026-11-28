@@ -269,6 +269,17 @@ jobs:
           python3 -c 'import sys; from pathlib import Path; Path(sys.argv[1]).write_bytes(bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))' "$NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY"
           export NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY
           tools/linux-boot/build_task24_acceptance_elf.sh --online --release out/logs/task24-release-elf
+      - name: Build and verify the Linux product Identity READY executable
+        run: |
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/identity-ready-target"
+          services/nagi-identity-ready/build.sh
+          elf="$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/nagi-identity-ready"
+          readelf --wide --program-headers "$elf" > "$RUNNER_TEMP/identity-ready-headers"
+          if grep -Eq '^[[:space:]]*(INTERP|DYNAMIC)[[:space:]]' "$RUNNER_TEMP/identity-ready-headers" ||
+             LC_ALL=C grep -aqE 'NAGI_DEV_|org\.nagi\.dev\.' "$elf"; then
+            echo "Product Identity READY must be static and exclude development markers"
+            exit 1
+          fi
       - name: Upload release gate receipt
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
