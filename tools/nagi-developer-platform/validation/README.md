@@ -641,8 +641,8 @@ reports, and 2 for invalid arguments.
 
 ## Test runtime investigation (PROVISIONAL, NDP-A025)
 
-Question: why did `test_api_snapshot_drift.py`, `test_report*.py` and `test_stage2*.py` stop
-at a 10-minute limit? Everything below is a measurement on **one host** (macOS arm64,
+The investigation looked at wall-clock stalls while running `test_api_snapshot_drift.py`,
+`test_report*.py` and `test_stage2*.py`. The test timings are from **one host** (macOS arm64,
 Apple clang 21, Python 3.9.6, real `out/ndp-host/target/debug/nagi-pkg` present,
 2026-11-26). It is **host-only evidence, not Nagi target acceptance**, and the numbers are
 a one-time snapshot, not a contract.
@@ -689,17 +689,18 @@ Findings:
   Running `unittest discover -p 'test_report*.py'` once was stopped by the 10-minute
   background limit after only 3 tests had finished. No test contains a sleep or wait longer
   than its own subprocess timeouts (at most 120 s), and those timeouts did not fire.
-- **Cause of the gaps: not identified.** The gaps show wall time passing while the Python
-  process does no measurable work, which fits the process being suspended (for example
-  host sleep or the session freezing the process) better than any test doing work. It is
-  not confirmed: `pmset` and `ps` were not permitted in this session, so the power log and
-  the stuck process's state could not be read. One observation argues against a plain
-  whole-host sleep: while a second `unittest discover -p 'test_report*.py'` run sat at 3
-  finished tests in the background, `test_stage2*.py` (51 tests, 6.2 s) and the
+- **Most likely cause (PROVISIONAL, NDP-A025b): macOS lid-close sleep.** A subsequent
+  runner health check outside the repository found 107 sleep events in the preceding 24 hours
+  while the runner was active. The macOS `pmset` power log identified lid closure
+  (`Clamshell Sleep`) as the trigger. This matches the observed wall-clock gaps during
+  which `perf_counter` barely advanced. The runner treats the stalls as a host-side
+  interruption. `caffeinate -i` cannot prevent lid-close sleep, so mitigation belongs to
+  host operations outside `validation/`.
+- **Limit of the diagnosis.** While a second `unittest discover -p 'test_report*.py'` run
+  sat at 3 finished tests in the background, `test_stage2*.py` (51 tests, 6.2 s) and the
   `tests/developer-platform/evaluation` suite (82 tests, 7.9 s) ran to completion in the
-  foreground on the same host. Whether the stall is specific to long-running background or
-  foreground-timeout processes of this session is unknown. The runner side (for example
-  keeping the host awake) is outside `validation/` and was not changed.
+  foreground on the same host. Whole-host sleep alone does not fully explain that overlap.
+  The health check's aggregate count does not tie each stall to a specific sleep event.
 - **Not done:** no test was restructured. Since duplication is not the cause, sharing
   results would add cross-test coupling for a small gain, and the input-unchanged,
   rerun-equality and failure-path assertions stay exactly as they were. No assertion was

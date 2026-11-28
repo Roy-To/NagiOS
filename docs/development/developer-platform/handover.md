@@ -71,12 +71,18 @@ PR番号の振られていない分の詳細は `git show` で確認する。
     10分停止の原因は `build_report`／clangの重複実行ではない（1 testは長くて8.5秒）。
     個別のtestで実作業1.8〜8.5秒に対しwall 148〜960秒の空白が毎回別のtestで観測され、
     `discover -p 'test_report*.py'` の1回は3件完了後に背景上限で停止した。
-    停止の原因は**未特定**（プロセスが止まっていた形跡だが、電源ログとプロセス状態を読めず未確認。
-    停止中のdiscover実行の裏で `test_stage2*.py` 51件6.2秒と evaluation 82件7.9秒は完走した）。
+    停止の最有力原因は **macOS host の蓋閉じスリープ**（PROVISIONAL、NDP-A025b）。
+    repo外のrunner健全性検査は、runner稼働中の直近24時間に、macOSの電源ログ（`pmset`）で
+    蓋閉じを起点とする `Clamshell Sleep` を107回検出した。wall時間だけが経過し、
+    `perf_counter` がほとんど進まなかった観測と一致するため、運用上はhost側の中断として扱う。
+    `caffeinate -i` では蓋閉じスリープを防げないため、対策は `validation/` の外のhost運用側で行う。
+    ただし、2回目のdiscoverが背景で3件完了のまま止まっていた間に、同じhostのforegroundで
+    `test_stage2*.py` 51件（6.2秒）と evaluation 82件（7.9秒）は完走した。
+    host全体のスリープだけではこの観測を説明しきれず、各停止と個別のスリープ記録との対応は未確認。
     testの構造は変更しておらず、assertionも変えていない。
     停止なしで通した `test_report*.py` 一括のwall時間は**未測定**（`validation` 全体の一括実行も未測定）。
-    詳細は [validation README](../../../tools/nagi-developer-platform/validation/README.md) の
-    「Test runtime investigation」節。host実測でありNagi target受入ではない。
+    host限定の実測であり、Nagi target受入ではない。
+    詳細は validation README の [Test runtime investigation](../../../tools/nagi-developer-platform/validation/README.md#test-runtime-investigation-provisional-ndp-a025) 節。
   - **runnerの過去の実行（上表のPR分）**: その環境に実validatorがあったかをログから照合できないため、
     skip件数との対応は未確認。
   - **実validatorが無い環境**: 上記4件はskipになる設計だが、その環境での件数は今回測っていない（未検証）。
