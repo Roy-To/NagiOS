@@ -55,6 +55,8 @@ mod linux_c3_boot_launch;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "linux_mount_prerequisites/mod.rs"]
 mod linux_mount_prerequisites;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use linux_mount_prerequisites::VerifiedDataRoot;
 #[cfg(all(target_arch = "x86_64", feature = "m10-desktop"))]
 #[path = "linux_package_identity.rs"]
 mod linux_package_identity;
