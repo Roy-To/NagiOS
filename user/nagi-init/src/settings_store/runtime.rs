@@ -91,6 +91,12 @@ impl<'a, S: PreferencesPersistence> SettingsSession<'a, S> {
         self.status
     }
 
+    /// Passes the request to the caller's already-authorized C1 operation.
+    /// This session does not verify credentials or create authentication state.
+    pub(crate) fn change_password(&mut self, current: &[u8], next: &[u8]) -> PasswordResult {
+        (self.runtime.change_password)(current, next)
+    }
+
     pub(crate) fn panel(&self) -> SettingsPanel {
         let mut panel = SettingsPanel::new(self.preferences);
         panel.show_save_error(self.status);
@@ -194,7 +200,10 @@ mod tests {
     use super::*;
     use libnagi::{InputEvent, INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_TAB};
     use nagi_persistence_contract::Revision;
-    use std::{cell::RefCell, rc::Rc};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     #[derive(Default)]
     struct Persisted {
@@ -253,6 +262,35 @@ mod tests {
 
     fn unavailable_password(_current: &[u8], _next: &[u8]) -> PasswordResult {
         PasswordResult::Unavailable
+    }
+
+    #[test]
+    fn forwards_password_change_result_to_the_owner_callback() {
+        let persisted = Rc::new(RefCell::new(Persisted::default()));
+        let open_state = persisted.clone();
+        let mut open = move || Ok(TestStore(open_state.clone()));
+        let mut mirror = |_| Ok(());
+        let returned = Cell::new(PasswordResult::Unavailable);
+        let mut change = |current: &[u8], next: &[u8]| {
+            assert_eq!(current, b"current");
+            assert_eq!(next, b"next");
+            returned.get()
+        };
+        let mut settings =
+            SettingsSession::open(runtime(Locale::EnUs, &mut open, &mut mirror, &mut change));
+
+        for outcome in [
+            PasswordResult::Changed,
+            PasswordResult::WrongCurrent,
+            PasswordResult::Wait,
+            PasswordResult::Same,
+            PasswordResult::Invalid,
+            PasswordResult::Unavailable,
+            PasswordResult::OutcomeUnknown,
+        ] {
+            returned.set(outcome);
+            assert_eq!(settings.change_password(b"current", b"next"), outcome);
+        }
     }
 
     #[test]
