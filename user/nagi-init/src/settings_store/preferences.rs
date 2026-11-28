@@ -111,7 +111,12 @@ impl ObservedPreferences {
 ///
 /// The owner supplies the object key and lends its typed S4 storage only for
 /// this callback. Settings does not choose a profile, open a path, or retain a
-/// borrowed storage view after the owner callback returns.
+/// borrowed storage view after the owner callback returns. Implementations
+/// must keep the selected owner, profile/root, and Settings object key fixed
+/// for the lifetime of one `SettingsStore`. If selection changes, the caller
+/// must discard that store and create a new one before reloading or saving;
+/// otherwise a cached revision could be reused against a different profile
+/// that happens to use the same object key.
 pub(crate) trait SettingsSnapshotScope {
     type StorageError;
     type ScopeError;
@@ -121,8 +126,10 @@ pub(crate) trait SettingsSnapshotScope {
         F: FnOnce(ObjectId, &mut dyn SnapshotStorage<Error = Self::StorageError>) -> R;
 }
 
-/// Keeps the owner-issued Settings scope and last observed preference revision
-/// together. The key comes from that scope on every I/O.
+/// Keeps one owner-issued Settings scope and its last observed preference
+/// revision together. The scope must remain bound to the same owner/profile
+/// until this store is discarded, and the key comes from that scope on every
+/// I/O.
 pub(crate) struct SettingsStore<S: SettingsSnapshotScope> {
     scope: S,
     observed: ObservedPreferences,
