@@ -515,6 +515,17 @@ pub(crate) fn run() -> ExitCode {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     ensure_pid1_proc_and_sysfs();
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64", nagi_release_build))]
+    let _system_mount = match linux_boot_package_inputs::boot_catalog_public_key()
+        .and_then(linux_mount_prerequisites::mount_release_system)
+    {
+        Ok(mount) => mount,
+        Err(reason) => {
+            linux_mount_prerequisites::report_system_failure(reason);
+            wait_in_pid1(wait_for_pid1_os_event);
+        }
+    };
+
     #[cfg(all(
         target_os = "linux",
         target_arch = "x86_64",

@@ -23,6 +23,13 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 ))]
 #[path = "data_mount_owner.rs"]
 pub(super) mod data_mount_owner;
+#[cfg(any(nagi_release_build, test))]
+#[cfg_attr(not(nagi_release_build), allow(dead_code))]
+mod release_system;
+#[cfg(nagi_release_build)]
+pub(super) use release_system::{
+    report_failure as report_system_failure, verify_and_mount as mount_release_system,
+};
 #[path = "mount_flags.rs"]
 mod mount_flags;
 #[path = "syscalls.rs"]

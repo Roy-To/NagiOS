@@ -14,7 +14,7 @@ mod preflight;
 
 pub use boot_catalog::{
     BootCatalogError, BootReadyRoute, VerifiedBootCatalog, VerifiedBootReadyPlan,
-    MAX_SIGNED_BOOT_CATALOG_BYTES,
+    VerifiedSystemBootMetadata, MAX_SIGNED_BOOT_CATALOG_BYTES, MAX_SIGNED_SYSTEM_METADATA_BYTES,
 };
 pub use descriptor::{
     validate_descriptor_json, ArtifactPreflightRequest, DescriptorError, GenerationTransition,
