@@ -11,6 +11,7 @@ use std::path::{Component, Path};
 use crate::VerifiedDataRoot;
 use nagi_linux_account_verifier::LinuxAccountVerifier;
 use rustix::fs::{openat2, Mode, OFlags, ResolveFlags};
+use sha2::{Digest, Sha256};
 
 #[cfg(linux_task24_initial_login_runtime)]
 use nagi_identity_session::{
@@ -103,19 +104,27 @@ impl SelectedDataRoot {
 #[cfg(not(nagi_release_build))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DevelopmentBootVolumeIdentity {
-    device_serial: String,
-    filesystem_uuid: String,
     mount_id: u64,
+    notes_app_root_data_identity_sha256: [u8; 32],
 }
 
 #[cfg(not(nagi_release_build))]
 impl DevelopmentBootVolumeIdentity {
     pub(crate) fn new(device_serial: String, filesystem_uuid: String, mount_id: u64) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(b"nagi-notes-app-root-selected-data-v1\0");
+        hasher.update((device_serial.len() as u64).to_le_bytes());
+        hasher.update(device_serial.as_bytes());
+        hasher.update((filesystem_uuid.len() as u64).to_le_bytes());
+        hasher.update(filesystem_uuid.as_bytes());
         Self {
-            device_serial,
-            filesystem_uuid,
             mount_id,
+            notes_app_root_data_identity_sha256: hasher.finalize().into(),
         }
+    }
+
+    fn notes_app_root_data_identity_sha256(&self) -> &[u8; 32] {
+        &self.notes_app_root_data_identity_sha256
     }
 }
 
@@ -183,6 +192,58 @@ impl BootVolumeIdentity {
 pub(crate) struct BootVolumeInput {
     directory: File,
     identity: BootVolumeIdentity,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct C1SessionBinding<'a> {
+    session_id: &'a SessionId,
+    principal_id: &'a PrincipalId,
+    caller_context_id: &'a CallerContextId,
+    profile_id: &'a ProfileId,
+    user_id: Option<UserId>,
+    kind: SessionKind,
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn same_c1_session_binding(left: C1SessionBinding<'_>, right: C1SessionBinding<'_>) -> bool {
+    left == right
+}
+
+#[cfg(linux_task24_initial_login_runtime)]
+fn validate_c1_revalidation_binding(
+    caller: &C1AuthenticatedInteractiveCaller,
+    identity: &ResolvedIdentity,
+    revalidation: &nagi_identity_session::SessionLeaseRevalidationHandle,
+) -> Result<(), ProfileVolumeNotesOwnerError> {
+    if caller.principal_id() != identity.principal_id()
+        || caller.context_id() != identity.caller_context_id()
+    {
+        return Err(ProfileVolumeNotesOwnerError::CallerMismatch);
+    }
+    let identity_binding = C1SessionBinding {
+        session_id: identity.session_id(),
+        principal_id: identity.principal_id(),
+        caller_context_id: identity.caller_context_id(),
+        profile_id: identity.profile_id(),
+        user_id: identity.user_id(),
+        kind: identity.kind(),
+    };
+    let revalidation_binding = C1SessionBinding {
+        session_id: revalidation.session_id(),
+        principal_id: revalidation.principal_id(),
+        caller_context_id: revalidation.caller_context_id(),
+        profile_id: revalidation.profile_id(),
+        user_id: revalidation.user_id(),
+        kind: revalidation.kind(),
+    };
+    if !same_c1_session_binding(identity_binding, revalidation_binding)
+        || caller.principal_id() != revalidation.principal_id()
+        || caller.context_id() != revalidation.caller_context_id()
+    {
+        return Err(ProfileVolumeNotesOwnerError::CallerMismatch);
+    }
+    Ok(())
 }
 
 impl BootVolumeInput {
@@ -644,6 +705,7 @@ impl AppStorageOwners {
         revalidation: &std::sync::Arc<nagi_identity_session::SessionLeaseRevalidationHandle>,
         kind: ProfileSnapshotKind,
     ) -> Result<AuthorizedProfileSnapshot, ProfileVolumeNotesOwnerError> {
+        validate_c1_revalidation_binding(caller, identity, revalidation)?;
         self.attach_session_profile(caller, identity)?;
         let storage = match kind {
             ProfileSnapshotKind::Settings => {
@@ -668,6 +730,7 @@ impl AppStorageOwners {
     ) -> Result<AuthorizedFilesRoot, ProfileVolumeNotesOwnerError> {
         use ProfileVolumeNotesOwnerError::Unavailable;
 
+        validate_c1_revalidation_binding(caller, identity, revalidation)?;
         let user = self.attach_session_profile(caller, identity)?;
         let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
         let owner = self.inner.user_files();
@@ -675,6 +738,7 @@ impl AppStorageOwners {
             owner.attach_linux_profile(
                 &boot_volume.directory,
                 boot_volume.identity.mount_id,
+                boot_volume.identity.notes_app_root_data_identity_sha256(),
                 user.to_model(),
                 identity.profile_id().as_str(),
                 identity.principal_id().as_str(),
@@ -704,6 +768,7 @@ impl AppStorageOwners {
     ) -> Result<AuthorizedNotesAppProcessRoot, ProfileVolumeNotesOwnerError> {
         use ProfileVolumeNotesOwnerError::Unavailable;
 
+        validate_c1_revalidation_binding(caller, identity, revalidation)?;
         self.attach_session_profile(caller, identity)?;
         let boot_volume = self.boot_volume.as_ref().ok_or(Unavailable)?;
         let root = self.inner.notes().issue_notes_app_process_root()?;
@@ -742,6 +807,7 @@ impl AppStorageOwners {
                 owner.attach_linux_profile(
                     &boot_volume.directory,
                     boot_volume.identity.mount_id,
+                    boot_volume.identity.notes_app_root_data_identity_sha256(),
                     user.to_model(),
                     identity.profile_id().as_str(),
                     identity.principal_id().as_str(),
@@ -770,6 +836,45 @@ impl AppStorageOwners {
         let result = self.inner.end();
         self.boot_volume.take();
         result
+    }
+}
+
+#[cfg(all(test, linux_task24_initial_login_runtime))]
+mod c1_session_binding_tests {
+    use super::*;
+
+    #[test]
+    fn revalidation_binding_includes_exact_session_and_profile_scope() {
+        let session_a = SessionId::new("session_a").unwrap();
+        let session_b = SessionId::new("session_b").unwrap();
+        let principal = PrincipalId::new("service:notes").unwrap();
+        let caller_context = CallerContextId::new("caller_notes").unwrap();
+        let profile = ProfileId::new("profile_notes").unwrap();
+        let other_profile = ProfileId::new("profile_other").unwrap();
+        let user = UserId::new(7).unwrap();
+        let expected = C1SessionBinding {
+            session_id: &session_a,
+            principal_id: &principal,
+            caller_context_id: &caller_context,
+            profile_id: &profile,
+            user_id: Some(user),
+            kind: SessionKind::LocalUser,
+        };
+        assert!(same_c1_session_binding(expected, expected));
+        assert!(!same_c1_session_binding(
+            expected,
+            C1SessionBinding {
+                session_id: &session_b,
+                ..expected
+            }
+        ));
+        assert!(!same_c1_session_binding(
+            expected,
+            C1SessionBinding {
+                profile_id: &other_profile,
+                ..expected
+            }
+        ));
     }
 }
 
