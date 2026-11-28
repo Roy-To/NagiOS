@@ -36,6 +36,9 @@ use std::time::Duration;
 #[cfg(feature = "system-service-readiness")]
 use super::linux_init_c3_system_service_owner::C3PendingIdentityListener;
 
+#[cfg(nagi_release_build)]
+pub(super) const TASK24_IDENTITY_PACKAGE_ID: &str = "org.nagi.identity";
+#[cfg(not(nagi_release_build))]
 pub(super) const TASK24_IDENTITY_PACKAGE_ID: &str = "org.nagi.dev.task24-identity";
 
 #[cfg(feature = "system-service-readiness")]
@@ -644,6 +647,22 @@ pub(super) fn authenticate_boot_service<'package>(
             Err(io::Error::other(format!(
                 "C3 boot authentication failed: {error:?}"
             )))
+        }
+    }
+}
+
+#[cfg(test)]
+mod identity_package_profile_tests {
+    use super::TASK24_IDENTITY_PACKAGE_ID;
+
+    #[test]
+    fn c3_identity_package_binding_is_profile_scoped() {
+        if cfg!(nagi_release_build) {
+            assert_eq!(TASK24_IDENTITY_PACKAGE_ID, "org.nagi.identity");
+            assert_ne!(TASK24_IDENTITY_PACKAGE_ID, "org.nagi.dev.task24-identity");
+        } else {
+            assert_eq!(TASK24_IDENTITY_PACKAGE_ID, "org.nagi.dev.task24-identity");
+            assert_ne!(TASK24_IDENTITY_PACKAGE_ID, "org.nagi.identity");
         }
     }
 }

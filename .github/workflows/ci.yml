@@ -161,6 +161,11 @@ jobs:
           cargo +nightly-2025-08-01 fetch --manifest-path user/nagi-init/Cargo.toml --locked --target x86_64-unknown-linux-musl
           cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop --bin nagi-init
           cargo +nightly-2025-08-01 check --manifest-path user/nagi-init/Cargo.toml --locked --offline --target x86_64-unknown-linux-musl --no-default-features --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop --bin nagi-init --tests
+          cargo +nightly-2025-08-01 fetch --manifest-path user/nagi-init/Cargo.toml --locked --target x86_64-unknown-linux-gnu
+          cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
+            --locked --offline --no-default-features \
+            --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session \
+            --bin nagi-init -- --exact linux_init::linux_c3_boot_launch::identity_package_profile_tests::c3_identity_package_binding_is_profile_scoped
       - name: Files host and Linux session consumer contracts
         run: |
           cargo test --manifest-path apps/nagi-files/Cargo.toml --locked
