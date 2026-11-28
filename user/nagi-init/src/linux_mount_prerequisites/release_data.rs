@@ -89,24 +89,20 @@ impl VerifiedDataRoot {
     }
 
     #[cfg(test)]
-    pub(crate) fn from_verified_parts_for_test(
-        directory: File,
-        filesystem_uuid: String,
-        device_rdev: u64,
-        device_major: u32,
-        device_minor: u32,
-        mount_id: u64,
-        accounts_path: String,
-        snapshots_path: String,
-    ) -> io::Result<Self> {
+    pub(crate) fn test_fixture(directory: File) -> io::Result<Self> {
+        let filesystem_uuid = "12345678-1234-4234-8234-123456789abc".to_owned();
+        let device_rdev = 0x800;
+        let device_major = 8;
+        let device_minor = 0;
+        let mount_id = 42;
         if !valid_uuid(&filesystem_uuid) || device_rdev == 0 || mount_id == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "release Data mount identity is incomplete",
             ));
         }
-        let accounts_path = checked_selection_path(&accounts_path)?;
-        let snapshots_path = checked_selection_path(&snapshots_path)?;
+        let accounts_path = checked_selection_path("accounts")?;
+        let snapshots_path = checked_selection_path("identity/snapshots")?;
         let metadata = directory.metadata()?;
         if !metadata.is_dir() || metadata.mode() & 0o022 != 0 {
             return Err(io::Error::new(
