@@ -363,7 +363,7 @@ mod tests {
             keys: [INPUT_KEY_ENTER, INPUT_KEY_ENTER]
                 .into_iter()
                 .chain(logout_keys())
-                .into(),
+                .collect(),
             ..Default::default()
         };
         let mut frames_at_launch = Vec::new();
@@ -536,7 +536,7 @@ mod tests {
             keys: [INPUT_KEY_TAB, INPUT_KEY_ENTER]
                 .into_iter()
                 .chain(logout_keys.iter().copied())
-                .into(),
+                .collect(),
             ..Default::default()
         };
         let mut launched = Vec::new();
