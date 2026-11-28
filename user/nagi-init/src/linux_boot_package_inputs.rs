@@ -42,10 +42,13 @@ pub(super) struct BootCatalogInputs {
     pub(super) recovery_catalog: nagi_system_service_recovery_contract::VerifiedRecoveryBootCatalog,
 }
 
+pub(super) fn boot_catalog_public_key() -> Result<&'static [u8; 32], &'static str> {
+    <&[u8; 32]>::try_from(BOOT_CATALOG_PUBLIC_KEY).map_err(|_| "boot_catalog_key_unconfigured")
+}
+
 impl BootPackageInputs {
     pub(super) fn take_inherited() -> Result<Self, &'static str> {
-        let key = <&[u8; 32]>::try_from(BOOT_CATALOG_PUBLIC_KEY)
-            .map_err(|_| "boot_catalog_key_unconfigured")?;
+        let key = boot_catalog_public_key()?;
         let directory = take_boot_descriptor(PACKAGE_STORE_FD);
         let catalog = take_boot_descriptor(SIGNED_CATALOG_FD);
         #[cfg(all(linux_task24_owner_co_location, not(nagi_release_build)))]

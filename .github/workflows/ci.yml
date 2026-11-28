@@ -181,7 +181,7 @@ jobs:
           cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
-            --bin nagi-init -- files_console::tests
+            --bin nagi-init -- files_console::tests release_system::tests
           cargo +nightly-2025-08-01 test --manifest-path user/nagi-init/Cargo.toml \
             --locked --offline --no-default-features \
             --features linux-service-action-bridge,m10-desktop,desktop-login,system-service-readiness,production-session,linux-files-desktop \
@@ -283,13 +283,12 @@ jobs:
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/linux-boot -p 'test_task24_release_gate.py' -v
       - name: Test owner-side signing with disposable keys
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/linux-boot -p 'test_release_signing.py' -v
+      - name: Verify the signed System boot metadata contract
+        run: cargo +nightly-2025-08-01 test --locked --manifest-path crates/nagi-system-service-launch/Cargo.toml system_metadata
       - name: Build release PID 1 and require zero development-only entries
         run: |
           mkdir -p out/logs
-          NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY=$(mktemp "$RUNNER_TEMP/task24-catalog.XXXXXX")
-          # RFC 8032 test vector public key for the build-only release gate.
-          python3 -c 'import sys; from pathlib import Path; Path(sys.argv[1]).write_bytes(bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"))' "$NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY"
-          export NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY
+          export NAGI_LINUX_BOOT_CATALOG_PUBLIC_KEY="$PWD/release/linux-0.1/public/ed25519.raw"
           tools/linux-boot/build_task24_acceptance_elf.sh --online --release out/logs/task24-release-elf
       - name: Build and verify the Linux product Identity READY executable
         run: |
