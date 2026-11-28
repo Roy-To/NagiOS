@@ -6,12 +6,9 @@ publish = false
 
 [features]
 default = []
-developer-preview-test-key = ["dep:ed25519-dalek"]
+developer-preview-test-key = []
 
 [dependencies]
-ed25519-dalek = { version = "=2.1.1", default-features = false, optional = true }
-
-[dev-dependencies]
 ed25519-dalek = { version = "=2.1.1", default-features = false }
 
 [lints.rust]
