@@ -639,6 +639,75 @@ reports, and 2 for invalid arguments.
   line is an `unparsable row`, never silently skipped.
   Host-only, not Nagi target acceptance.
 
+## Test runtime investigation (PROVISIONAL, NDP-A025)
+
+Question: why did `test_api_snapshot_drift.py`, `test_report*.py` and `test_stage2*.py` stop
+at a 10-minute limit? Everything below is a measurement on **one host** (macOS arm64,
+Apple clang 21, Python 3.9.6, real `out/ndp-host/target/debug/nagi-pkg` present,
+2026-11-26). It is **host-only evidence, not Nagi target acceptance**, and the numbers are
+a one-time snapshot, not a contract.
+
+Method: each file was run alone with a per-test timer that records both
+`time.perf_counter()` (active time; on macOS it does not advance while the host sleeps)
+and `time.time()` (wall clock). Files were run one at a time, never in parallel.
+
+Active time per file (all passed; **skip 0 in every file**):
+
+| File | Tests | Skipped | Active time |
+| --- | --- | --- | --- |
+| `test_api_snapshot_drift.py` | 17 | 0 | 2.2 s |
+| `test_report.py` | 47 | 0 | 65.4 s |
+| `test_report_app.py` | 5 | 0 | 9.1 s |
+| `test_report_app_linux.py` | 8 | 0 | 9.8 s |
+| `test_report_mixed.py` | 6 | 0 | 7.3 s |
+| `test_report_output_limit.py` | 7 | 0 | 16.4 s |
+| `test_report_ui_unsupported.py` | 6 | 0 | 3.0 s |
+| `test_stage2.py` | 32 | 0 | 4.4 s |
+| `test_stage2_diagnostics.py` | 19 | 0 | 2.0 s |
+| `test_report*.py` together (79 tests) | 79 | 0 | about 111 s (sum of the rows) |
+| `test_stage2*.py` together (51 tests) | 51 | 0 | about 6.4 s (sum of the rows) |
+
+`test_report*.py` is the glob the runner uses; it includes `test_report.py`.
+`HAS_CLANG` was true and the real validator existed, so no `skipUnless` branch was taken.
+The skip count is for this environment only; on a host without clang or the real
+validator the `skipUnless` tests would skip (not measured).
+
+Findings:
+
+- **The long runs are not explained by repeated `build_report` / clang work.** The slowest
+  test is `test_report.py::test_every_reason_in_real_fixture_reports_is_described_or_allowlisted`
+  at 8.5 s active; most tests are under 1 s. `build_report` for one real fixture takes
+  well under a second to about a second, and `test_report.py` has about 60 call sites
+  (some inside loops over fixtures), which accounts for its 65 s. Per-test sharing of results (e.g. `setUpClass`) could therefore
+  save at most some tens of seconds of the 111 s, not minutes.
+- **The stops are wall-clock gaps with almost no active time.** Single tests that need
+  1.8–8.5 s of active time were observed taking 148 s, 553 s, 587 s, 938 s and 960 s of wall
+  time (for example `test_report_mixed.py::test_existing_fixtures_do_not_pick_up_the_mixed_evidence`:
+  1.8 s active, 960 s wall; `test_report.py::test_scaffold_files_with_invalid_name_fail_as_invalid_tool_output`:
+  2.6 s active, 939 s wall). The gap hit a different test on each run, and `unittest`'s own
+  "Ran N tests in X s" line (which uses `perf_counter`) reported only the active time.
+  Running `unittest discover -p 'test_report*.py'` once was stopped by the 10-minute
+  background limit after only 3 tests had finished. No test contains a sleep or wait longer
+  than its own subprocess timeouts (at most 120 s), and those timeouts did not fire.
+- **Cause of the gaps: not identified.** The gaps show wall time passing while the Python
+  process does no measurable work, which fits the process being suspended (for example
+  host sleep or the session freezing the process) better than any test doing work. It is
+  not confirmed: `pmset` and `ps` were not permitted in this session, so the power log and
+  the stuck process's state could not be read. One observation argues against a plain
+  whole-host sleep: while a second `unittest discover -p 'test_report*.py'` run sat at 3
+  finished tests in the background, `test_stage2*.py` (51 tests, 6.2 s) and the
+  `tests/developer-platform/evaluation` suite (82 tests, 7.9 s) ran to completion in the
+  foreground on the same host. Whether the stall is specific to long-running background or
+  foreground-timeout processes of this session is unknown. The runner side (for example
+  keeping the host awake) is outside `validation/` and was not changed.
+- **Not done:** no test was restructured. Since duplication is not the cause, sharing
+  results would add cross-test coupling for a small gain, and the input-unchanged,
+  rerun-equality and failure-path assertions stay exactly as they were. No assertion was
+  changed in this task.
+- **Not measured:** the wall time of one uninterrupted `test_report*.py` run on a host that
+  did not stall, a run on Python 3.10+, a host without clang or the real validator, and a
+  full `validation` directory run.
+
 ## Evidence and remaining scope — 2026-11-17
 
 On macOS arm64, Clang 21, Python 3.9.6, pinned nightly Rust 1.90.0-nightly:
