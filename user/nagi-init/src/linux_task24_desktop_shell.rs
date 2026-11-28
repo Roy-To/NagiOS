@@ -54,7 +54,9 @@ pub(super) fn run<C: ShellConsole>(
     mut finish_logout: impl FnMut() -> io::Result<()>,
     mut launch: impl FnMut(AppId, &mut C, nagi_localization::Locale) -> io::Result<AppExit>,
     drafts: &mut Vec<NoteDocument>,
-    #[cfg(linux_task24_settings)] settings_runtime: Option<SettingsRuntime<'_>>,
+    #[cfg(linux_task24_settings)] settings_runtime: Option<
+        SettingsRuntime<'_, impl crate::settings_store::preferences::SettingsSnapshotScope>,
+    >,
 ) -> io::Result<ShellExit> {
     use super::super::{log_pid1_stderr, poll_task24_input, Task24InputPoll};
     #[cfg(linux_task24_settings)]
@@ -304,6 +306,10 @@ mod tests {
     use libnagi::{INPUT_EVENT_KEY, INPUT_KEY_ENTER, INPUT_KEY_TAB};
     use std::collections::VecDeque;
 
+    #[cfg(linux_task24_settings)]
+    type NoSettingsRuntime =
+        SettingsRuntime<'static, crate::profile_volume_notes_owner::AuthorizedProfileSnapshot>;
+
     #[derive(Default)]
     struct FakeConsole {
         keys: VecDeque<u16>,
@@ -379,7 +385,7 @@ mod tests {
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(exit, ShellExit::Logout);
@@ -482,7 +488,7 @@ mod tests {
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(exit, ShellExit::ClosedWithoutSaveAfterSessionEnded);
@@ -500,7 +506,7 @@ mod tests {
             |_, _, _locale| panic!("no launch"),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(exit, ShellExit::RequiredIdentityExited);
@@ -515,7 +521,7 @@ mod tests {
             |_, _, _locale| Ok(AppExit::Notes(NotesConsoleExit::StateUnknown, None)),
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(exit, ShellExit::StateUnknown);
@@ -551,7 +557,7 @@ mod tests {
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(launched, [AppId::Calendar]);
@@ -577,7 +583,7 @@ mod tests {
             },
             &mut Vec::new(),
             #[cfg(linux_task24_settings)]
-            None,
+            None::<NoSettingsRuntime>,
         )
         .unwrap();
         assert_eq!(exit, ShellExit::ClosedWithoutSaveAfterSessionEnded);
